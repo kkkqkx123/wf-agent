@@ -207,6 +207,7 @@ mod tests {
             let result = result.clone();
             Box::pin(async move {
                 Ok(AgentLoopOutput {
+                    agent_loop_id: Id::from("child".to_string()),
                     result,
                     iterations: 1,
                     conversation: Vec::new(),
@@ -295,6 +296,7 @@ mod tests {
             Box::pin(async move {
                 counter.fetch_add(1, Ordering::SeqCst);
                 Ok(AgentLoopOutput {
+                    agent_loop_id: Id::from("child".to_string()),
                     result: Value::Null,
                     iterations: 1,
                     conversation: Vec::new(),
@@ -344,6 +346,7 @@ mod tests {
             Box::pin(async move {
                 tokio::time::sleep(std::time::Duration::from_millis(200)).await;
                 Ok(AgentLoopOutput {
+                    agent_loop_id: Id::from("child".to_string()),
                     result: Value::Null,
                     iterations: 1,
                     conversation: Vec::new(),

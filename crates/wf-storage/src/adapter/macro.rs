@@ -5,6 +5,7 @@ macro_rules! make_base_adapter {
         $entity:ty,
         $list_ty:ty
     ) => {
+        #[derive(Clone)]
         pub struct $name<S: $crate::domain::Store> {
             entity_store: $crate::store::EntityStore<S, $entity>,
         }

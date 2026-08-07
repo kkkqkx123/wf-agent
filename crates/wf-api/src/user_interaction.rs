@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use wf_storage::adapter::base::BaseStorageAdapter;
 use wf_storage::adapter::user_interaction::{
@@ -7,7 +8,60 @@ use wf_storage::adapter::user_interaction::{
 use wf_storage::context::StorageContext;
 use wf_types::UserInteractionStorageMetadata;
 
+use crate::agent_user_interaction::UserInteractionHandler;
+use crate::context::ApiContext;
 use crate::not_found;
+
+/// Shared user interaction management: handler registration and typed
+/// notification hooks (TS `BaseUserInteractionResourceAPI` handler surface
+/// counterpart).
+///
+/// The handler slot is process-scoped through the `ApiContext`, so the same
+/// handler serves workflow `USER_INTERACTION` nodes, agent loops and the
+/// `ApprovalCoordinator` approval requests.
+pub struct UserInteractionApi {
+    ctx: Arc<ApiContext>,
+}
+
+impl UserInteractionApi {
+    pub fn new(ctx: Arc<ApiContext>) -> Self {
+        Self { ctx }
+    }
+
+    /// Register the shared interaction handler; a previous handler is
+    /// replaced.
+    pub async fn register_handler(&self, handler: Arc<dyn UserInteractionHandler>) {
+        *self.ctx.user_interaction_handler.write().await = Some(handler);
+    }
+
+    /// Clear the registered handler.
+    pub async fn clear_handler(&self) {
+        *self.ctx.user_interaction_handler.write().await = None;
+    }
+
+    /// Whether a handler is registered.
+    pub async fn has_handler(&self) -> bool {
+        self.ctx.user_interaction_handler.read().await.is_some()
+    }
+
+    /// Notify the registered handler of a tool approval request.
+    pub async fn on_tool_approval_requested(&self, execution_id: &str, request: &serde_json::Value) {
+        if let Some(handler) = self.ctx.user_interaction_handler.read().await.as_ref() {
+            handler.on_tool_approval_requested(execution_id, request);
+        }
+    }
+
+    /// Notify the registered handler of a follow-up question request.
+    pub async fn on_followup_question_requested(
+        &self,
+        execution_id: &str,
+        request: &serde_json::Value,
+    ) {
+        if let Some(handler) = self.ctx.user_interaction_handler.read().await.as_ref() {
+            handler.on_followup_question_requested(execution_id, request);
+        }
+    }
+}
 
 pub async fn save_interaction(
     ctx: &StorageContext,
@@ -233,5 +287,61 @@ mod tests {
             .await
             .expect_err("unknown interaction");
         assert!(matches!(err, crate::ApiError::NotFound { .. }));
+    }
+
+    // ── UserInteractionApi handler wiring ───────────────────────────
+
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    struct CountingHandler {
+        interactions: Arc<AtomicUsize>,
+        approvals: Arc<AtomicUsize>,
+        followups: Arc<AtomicUsize>,
+    }
+
+    impl crate::agent_user_interaction::UserInteractionHandler for CountingHandler {
+        fn on_interaction(&self, _record: &crate::agent_user_interaction::AgentUserInteractionEventRecord) {
+            self.interactions.fetch_add(1, Ordering::SeqCst);
+        }
+        fn on_tool_approval_requested(&self, _execution_id: &str, _request: &serde_json::Value) {
+            self.approvals.fetch_add(1, Ordering::SeqCst);
+        }
+        fn on_followup_question_requested(&self, _execution_id: &str, _request: &serde_json::Value) {
+            self.followups.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    #[tokio::test]
+    async fn user_interaction_api_handler_roundtrip_and_notify() {
+        let ctx = Arc::new(crate::ApiContext::new(
+            StorageContext::new_memory(),
+            Arc::new(wf_resource::registrar::Registries::new()),
+            Arc::new(wf_resource::starter::BundleRegistry::new()),
+        ));
+        let api = crate::user_interaction::UserInteractionApi::new(ctx.clone());
+        assert!(!api.has_handler().await);
+
+        let interactions = Arc::new(AtomicUsize::new(0));
+        let approvals = Arc::new(AtomicUsize::new(0));
+        let followups = Arc::new(AtomicUsize::new(0));
+        api.register_handler(Arc::new(CountingHandler {
+            interactions: interactions.clone(),
+            approvals: approvals.clone(),
+            followups: followups.clone(),
+        }))
+        .await;
+        assert!(api.has_handler().await);
+
+        api.on_tool_approval_requested("exec-1", &serde_json::json!({"tool": "read_file"}))
+            .await;
+        api.on_followup_question_requested("exec-1", &serde_json::json!({"prompt": "?"}))
+            .await;
+        assert_eq!(approvals.load(Ordering::SeqCst), 1);
+        assert_eq!(followups.load(Ordering::SeqCst), 1);
+
+        api.clear_handler().await;
+        assert!(!api.has_handler().await);
+        api.on_tool_approval_requested("exec-2", &serde_json::json!({})).await;
+        assert_eq!(approvals.load(Ordering::SeqCst), 1);
     }
 }

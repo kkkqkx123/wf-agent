@@ -1,6 +1,19 @@
 pub mod agent;
+pub mod agent_checkpoint;
+pub mod agent_error_analysis;
 pub mod agent_execution;
+pub mod agent_execution_registry;
 pub mod agent_graph;
+pub mod agent_hook_template;
+pub mod agent_loop_registry;
+pub mod agent_message;
+pub mod agent_performance;
+pub mod agent_template;
+pub mod agent_trigger;
+pub mod agent_trigger_template;
+pub mod agent_user_interaction;
+pub mod agent_variable;
+pub mod approval;
 pub mod builder;
 pub mod checkpoint;
 pub mod config;
@@ -15,6 +28,7 @@ pub mod execution_trigger;
 pub mod file_checkpoint;
 pub mod hook_template;
 pub mod iteration;
+pub mod llm;
 pub mod llm_profile;
 pub mod message;
 pub mod metrics;
@@ -37,7 +51,41 @@ pub mod workflow;
 pub mod workflow_execution;
 
 pub use agent_graph::{AgentDecisionGraph, AgentDecisionNode, AgentGraphApi, ToolCallView};
-pub use builder::{NodeBuilder, WorkflowBuilder};
+pub use agent_checkpoint::{AgentCheckpointStatistics, AgentLoopCheckpointApi};
+pub use agent_error_analysis::{
+    AdvancedErrorAnalysis, AgentErrorAnalysisApi, AgentErrorStatistics, ErrorRecoveryProposal,
+    ExecutionErrorRecord, RootCauseAnalysis,
+};
+pub use agent_execution_registry::{AgentExecutionFilter, AgentExecutionRegistryApi, AgentExecutionSummary};
+pub use agent_hook_template::{
+    AgentHookTemplateFilter, AgentHookTemplateRegistryApi, AgentHookTemplateSummary,
+};
+pub use agent_loop_registry::{
+    AgentExecutionStatistics, AgentLoopFilter, AgentLoopRegistryApi, AgentLoopStatistics,
+    AgentLoopSummary, ContextEvolutionEntry, ExecutionTimelineEntry, ExecutionTimelineEntryType,
+    IterationDetail, IterationHistorySummary, ToolCallInPath, VariableChange,
+};
+pub use agent_loop_registry::{ExecutionPath as AgentExecutionPath};
+pub use agent_loop_registry::{VariableHistoryEntry as AgentVariableHistoryEntry};
+pub use agent_message::{AgentLoopMessageApi, AgentLoopMessageStats};
+pub use agent_performance::{
+    AgentIterationTiming, AgentPerformanceAnalysisApi, AgentPerformanceProfile, IterationComparison,
+};
+pub use agent_template::{AgentTemplateFilter, AgentTemplateRegistryApi};
+pub use agent_trigger::{AgentTriggerApi, AgentTriggerStatistics};
+pub use agent_trigger_template::{
+    AgentTriggerTemplateFilter, AgentTriggerTemplateRegistryApi, AgentTriggerTemplateSummary,
+};
+pub use agent_user_interaction::{
+    AgentUserInteractionApi, AgentUserInteractionEventRecord, UserInteractionHandler,
+};
+pub use agent_variable::{AgentVariableApi, AgentVariableStatistics};
+pub use approval::{ApprovalCoordinator, ApprovalResult, ApprovalStatus};
+pub use builder::{
+    AgentDefinitionBuilder, AgentExecutionBuilder, AgentHookBuilder, AgentLoopConfigBuilder,
+    AgentToolConfigBuilder, AgentTriggerBuilder, ExecutionBuilder, HookTemplateBuilder, NodeBuilder,
+    NodeTemplateBuilder, TriggerTemplateBuilder, WorkflowBuilder,
+};
 pub use config::ConfigApi;
 pub use context::ApiContext;
 pub use diagnostics::{StorageDiagnosticReport, StorageDiagnosticsApi, StoreDiagnostic};
@@ -56,15 +104,19 @@ pub use execution_state::{
 };
 pub use execution_trigger::ExecutionTriggerApi;
 pub use iteration::{AgentIterationAnalysis, IterationApi, ToolCallStat};
+pub use llm::LlmApi;
 pub use llm_profile::{LlmProfileApi, LlmProfileFilter, LlmProfileTemplate, MASKED_API_KEY};
 pub use message::{MessageApi, MessageStats};
 pub use performance::{
     ExecutionComparison, ExecutionPerformanceProfile, NodeTimelineEntry, PerformanceApi,
 };
 pub use resource::ResourceApi;
+pub use script::{ScriptApi, ScriptExecuteParams, ScriptValidation};
 pub use search::{SearchOptions, SearchResourceType, SearchResult, SearchResultItem, Searcher};
 pub use skill::{SkillApi, SkillFilter, SkillResourceEntry};
 pub use template_library::{TemplateFilter, TemplateKind, TemplateLibraryApi, TemplateSummary};
+pub use tool::{ToolApi, ToolParameterValidation};
+pub use user_interaction::{UserInteractionApi};
 pub use variable::{VariableApi, VariableHistoryEntry};
 pub use workflow_execution::{RestoredCheckpoint, WorkflowApi};
 

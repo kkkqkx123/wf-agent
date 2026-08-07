@@ -45,14 +45,16 @@ impl AgentApi {
 
     /// Run an agent loop to completion and await the final output.
     ///
-    /// Bounded by a wall-clock timeout: the config's `max_execution_time` when
-    /// set, otherwise `max_iterations × 30s` (default 90s). An elapse maps
-    /// onto `ApiError::Timeout`.
+    /// Every run gets a fresh `agent_loop_id`; `config.agent_id` only
+    /// identifies the agent definition. Bounded by a wall-clock timeout: the
+    /// config's `max_execution_time` when set, otherwise `max_iterations ×
+    /// 30s` (default 90s). An elapse maps onto `ApiError::Timeout`.
     pub async fn run(
         &self,
         params: RunAgentLoopParams,
     ) -> crate::error::ApiResult<AgentLoopOutput> {
-        let coordinator = self.coordinator();
+        let agent_loop_id = wf_types::Id::from(wf_common::generate_id());
+        let coordinator = self.coordinator().with_agent_loop_id(agent_loop_id.clone());
         let timeout_ms = agent_timeout_ms(&params.config);
         let config = params.config.clone();
         let input = params.input.clone();
@@ -65,17 +67,20 @@ impl AgentApi {
                 // Persist the produced conversation so agent-loop messages are
                 // queryable through `MessageApi` (storage injected via the
                 // shared context, mirroring the checkpoint wiring pattern).
-                self.persist_conversation(&params.config.agent_id, &output.conversation)
+                // Messages are scoped to the per-run agent loop id.
+                self.persist_conversation(&output.agent_loop_id, &output.conversation)
                     .await;
                 Ok(output)
             }
             Err(e) => {
-                // Align with the workflow path: mark the live entity failed and
-                // write the failure reason into its state. The agent engine
-                // builds the entity under `config.agent_id`, so the registry
-                // lookup finds the handle the coordinator registered.
-                if let Some(entity) = self.ctx.agent_loop(&params.config.agent_id.to_string()) {
+                // A wall-clock timeout drops the coordinator mid-loop: the
+                // start record stays `Running`. Mark the live entity failed
+                // and persist the terminal record so the agent execution store
+                // reflects the failure.
+                if let Some(entity) = self.ctx.agent_loop(&agent_loop_id.to_string()) {
                     entity.state.write().await.fail(e.to_string());
+                    let record = wf_agent::build_agent_execution(&entity).await;
+                    self.ctx.state_manager.persist_agent(&record).await;
                 }
                 Err(e)
             }
@@ -146,7 +151,8 @@ impl AgentApi {
             self.ctx.checkpoint_store.clone(),
         )
         .with_event_bus(self.ctx.event_bus.clone())
-        .with_entity_registry(self.ctx.agent_loops.clone());
+        .with_entity_registry(self.ctx.agent_loops.clone())
+        .with_state_manager(self.ctx.state_manager.clone());
         if let Some(ref metrics) = self.ctx.metrics {
             coordinator = coordinator.with_metrics(metrics.clone());
         }
@@ -160,14 +166,14 @@ impl AgentApi {
     }
 
     /// Persist the final conversation of an agent loop into the message
-    /// adapter, scoped to the agent loop id. Idempotent: message ids are the
-    /// storage keys, so re-running a loop never duplicates a message.
+    /// adapter, scoped to the per-run agent loop id. Idempotent: message ids
+    /// are the storage keys, so re-running a loop never duplicates a message.
     async fn persist_conversation(
         &self,
-        agent_id: &wf_types::Id,
+        agent_loop_id: &wf_types::Id,
         conversation: &[wf_types::message::Message],
     ) {
-        let agent_loop_id = agent_id.to_string();
+        let agent_loop_id = agent_loop_id.to_string();
         for message in conversation {
             let record = wf_types::MessageStorageMetadata {
                 id: message.id.clone(),
@@ -261,15 +267,104 @@ mod tests {
         assert_eq!(output.iterations, 1);
 
         // The produced conversation is persisted and queryable via the
-        // message adapter (execution-time write point).
+        // message adapter, scoped to the per-run agent loop id (not the agent
+        // definition id).
         let persisted = ctx.storage.message.list(None).await.unwrap();
         assert!(
             !persisted.is_empty(),
             "agent conversation must be persisted"
         );
+        let scoped = persisted[0].agent_loop_id.as_deref().unwrap();
+        assert_ne!(scoped, "agent-1", "loop id must differ from definition id");
         assert!(persisted
             .iter()
-            .all(|r| r.agent_loop_id.as_deref() == Some("agent-1")));
+            .all(|r| r.agent_loop_id.as_deref() == Some(scoped)));
+
+        // Stage 0: an `AgentExecution` record is persisted, keyed by the
+        // per-run agent loop id and linked to the definition.
+        let executions = ctx.storage.agent_execution.list(None).await.unwrap();
+        assert_eq!(executions.len(), 1, "agent execution must be persisted");
+        assert_eq!(executions[0].definition_id, wf_types::Id::from("agent-1"));
+        assert_eq!(executions[0].id.to_string(), scoped);
+    }
+
+    /// Stage 0 acceptance: after a real `run`, the persisted `AgentExecution`
+    /// record is readable through a fresh context (empty live registries), so
+    /// the persisted branches of the agent queries return real data.
+    #[tokio::test]
+    async fn persisted_agent_execution_readable_after_restart() {
+        let storage = Arc::new(StorageContext::new_memory());
+        let mock = Arc::new(MockLlmClient::new());
+        mock.script(LlmResponseSpec::text("persisted agent"));
+        let gateway = gateway_with(mock);
+
+        let mut ctx1 = ApiContext::from_runtime_parts(
+            storage.clone(),
+            Arc::new(Registries::new()),
+            Arc::new(BundleRegistry::new()),
+            Arc::new(wf_core::EventBus::new(64)),
+            gateway.clone(),
+            Arc::new(wf_tools::create_default_tool_registry()),
+            None,
+        );
+        ctx1 =
+            ctx1.with_checkpoint_store(Arc::new(wf_storage::backend::StorageBackend::new_memory()));
+
+        let api = AgentApi::new(Arc::new(ctx1));
+        let output = api
+            .run(RunAgentLoopParams {
+                config: AgentLoopConfig {
+                    agent_id: wf_types::Id::from("agent-persist".to_string()),
+                    model: "mock".to_string(),
+                    max_iterations: Some(3),
+                    max_execution_time: None,
+                    hooks: Vec::new(),
+                    available_tool_names: Vec::new(),
+                    tool_call_format: None,
+                    token_limit: None,
+                    token_warning_threshold: None,
+                    enable_token_tracking: None,
+                },
+                input: AgentLoopInput {
+                    message: "hi".to_string(),
+                    context: Default::default(),
+                    conversation: Vec::new(),
+                },
+            })
+            .await
+            .expect("agent loop should complete");
+        let agent_loop_id = output.agent_loop_id.to_string();
+        assert_ne!(agent_loop_id, "agent-persist");
+
+        let ctx2 = Arc::new(ApiContext::from_runtime_parts(
+            storage,
+            Arc::new(Registries::new()),
+            Arc::new(BundleRegistry::new()),
+            Arc::new(wf_core::EventBus::new(64)),
+            gateway,
+            Arc::new(wf_tools::create_default_tool_registry()),
+            None,
+        ));
+
+        use crate::execution_state::AgentExecutionStateApi;
+        let state_api = AgentExecutionStateApi::new(ctx2.clone());
+        let view = state_api
+            .get_state(&agent_loop_id)
+            .await
+            .expect("persisted agent state query");
+        assert_eq!(view.source, "persisted");
+        assert_eq!(view.status, wf_types::ExecutionStatus::Completed);
+        assert_eq!(view.agent_loop_id, agent_loop_id);
+
+        let executions = crate::agent::list_agent_executions(&ctx2.storage, None)
+            .await
+            .unwrap();
+        assert_eq!(executions.len(), 1);
+        assert_eq!(
+            executions[0].definition_id,
+            wf_types::Id::from("agent-persist")
+        );
+        assert_eq!(executions[0].id.to_string(), agent_loop_id);
     }
 
     #[tokio::test]

@@ -1,10 +1,274 @@
+use std::collections::HashMap;
+use std::sync::Arc;
+
+use serde::Serialize;
+
+use wf_script::{ScriptDefinition, ScriptEngine, ScriptEngineOptions, ScriptExecutionOptions};
 use wf_storage::adapter::base::BaseStorageAdapter;
 use wf_storage::adapter::script::{ScriptListOptions, ScriptStorageAdapter};
 use wf_storage::context::StorageContext;
 use wf_types::node::StaticNodeType;
+use wf_types::script::sandbox::{SandboxConfig, SandboxMode, ScriptExecutionResult};
 use wf_types::ScriptStorageMetadata;
 
+use crate::context::ApiContext;
+use crate::error::{ApiError, ApiResult};
 use crate::not_found;
+
+/// Result of a script validation (TS `ScriptRegistryAPI validateScript`
+/// counterpart).
+#[derive(Debug, Clone, Serialize)]
+pub struct ScriptValidation {
+    pub valid: bool,
+    pub errors: Vec<String>,
+}
+
+/// Parameters for a direct script execution (TS `ExecuteScriptCommand`
+/// counterpart).
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct ScriptExecuteParams {
+    /// Script name (used for audit, profile routing and lookup fallback).
+    pub name: String,
+    /// Executor language: `shell` / `python` / `javascript` / `lua`.
+    pub language: Option<String>,
+    /// Inline code to run (takes precedence over `template`).
+    pub code: Option<String>,
+    /// Template rendered with `args` before execution.
+    pub template: Option<String>,
+    /// Template arguments (only meaningful together with `template`).
+    pub args: HashMap<String, serde_json::Value>,
+    /// Optional sandbox config; defaults to a Lenient config.
+    pub sandbox: Option<SandboxConfig>,
+    /// Working directory passed to the sandbox strategy.
+    pub working_directory: Option<String>,
+    /// Environment variables passed to the sandbox strategy.
+    pub environment: Option<HashMap<String, String>>,
+    pub timeout_ms: Option<u64>,
+}
+
+/// Direct script execution entry points (TS `ScriptRegistryAPI` +
+/// `ExecuteScriptCommand` counterparts).
+///
+/// Execution renders the template (via `wf-script`) and runs the resulting
+/// command through the shared `wf-sandbox` runtime of the context, so ad-hoc
+/// executions get exactly the same sandbox profile routing and gate checks as
+/// `SCRIPT` nodes inside a workflow.
+pub struct ScriptApi {
+    ctx: Arc<ApiContext>,
+}
+
+impl ScriptApi {
+    pub fn new(ctx: Arc<ApiContext>) -> Self {
+        Self { ctx }
+    }
+
+    /// Execute a script. When neither `code` nor `template` is supplied, the
+    /// script is resolved from the process-wide script registry (the same
+    /// registry `ExecuteScript` trigger actions use); a stored-but-contentless
+    /// metadata entry alone is rejected.
+    pub async fn execute(&self, params: &ScriptExecuteParams) -> ApiResult<ScriptExecutionResult> {
+        if params.name.trim().is_empty() {
+            return Err(ApiError::Validation("script name is required".into()));
+        }
+
+        let language = params
+            .language
+            .clone()
+            .or_else(|| lookup_registered_language(&params.name))
+            .unwrap_or_else(|| "shell".to_string());
+
+        let (code, template, arguments) = if let Some(code) = &params.code {
+            (Some(code.clone()), None, None)
+        } else if let Some(template) = &params.template {
+            (None, Some(template.clone()), Some(default_arguments(params)))
+        } else if let Some(registered) = wf_workflow::lookup_script(&params.name) {
+            (Some(registered.code), None, None)
+        } else {
+            return Err(ApiError::Validation(format!(
+                "script '{}' has no inline code or template and is not registered",
+                params.name
+            )));
+        };
+
+        let script = ScriptDefinition {
+            name: params.name.clone(),
+            content: code,
+            template,
+            arguments,
+            language: Some(language.clone()),
+            executor_mode: None,
+        };
+
+        let options = ScriptExecutionOptions {
+            executor_mode: None,
+            working_directory: params.working_directory.clone(),
+            environment: params.environment.clone(),
+            timeout_ms: params.timeout_ms,
+        };
+        let engine_options = ScriptEngineOptions {
+            args: params.args.clone(),
+            context_variables: HashMap::new(),
+        };
+
+        let sandbox = self.ctx.sandbox.clone();
+        let sandbox_config = params
+            .sandbox
+            .clone()
+            .unwrap_or_else(|| default_sandbox_config(&language));
+        let script_name = params.name.clone();
+        let language_for_exec = language.clone();
+        // The script engine hands the rendered command to a closure; keep the
+        // full sandbox result (mode / strategy / violations) in a shared slot
+        // so the API can return it untouched.
+        let sandbox_result: Arc<std::sync::Mutex<Option<ScriptExecutionResult>>> =
+            Arc::new(std::sync::Mutex::new(None));
+        let sandbox_result_sink = sandbox_result.clone();
+
+        let engine_result = ScriptEngine
+            .execute(
+                &script,
+                Some(&options),
+                &engine_options,
+                move |command, options| {
+                    let sandbox = sandbox.clone();
+                    let sandbox_config = sandbox_config.clone();
+                    let language = language_for_exec.clone();
+                    let script_name = script_name.clone();
+                    let env = options.and_then(|o| o.environment.clone());
+                    let workdir = options.and_then(|o| o.working_directory.clone());
+                    let sink = sandbox_result_sink.clone();
+                    async move {
+                        let mut config = sandbox_config;
+                        if env.is_some() {
+                            config.env = env;
+                        }
+                        if workdir.is_some() {
+                            config.workdir = workdir;
+                        }
+                        let result = sandbox
+                            .execute_named(&language, &script_name, &command, &config)
+                            .await;
+                        *sink.lock().expect("script result sink lock") = Some(result.clone());
+                        to_script_result(result)
+                    }
+                },
+            )
+            .await;
+
+        if !engine_result.success {
+            let error = engine_result
+                .error
+                .unwrap_or_else(|| "script execution failed".into());
+            return Err(ApiError::Execution(error));
+        }
+
+        let mut guard = sandbox_result.lock().expect("script result lock");
+        let output = guard.take();
+        output.ok_or_else(|| ApiError::Execution("sandbox produced no result".into()))
+    }
+
+    /// Validate a script definition without executing it: non-empty name and
+    /// at least one source of code, plus a well-formed sandbox config.
+    pub async fn validate(&self, params: &ScriptExecuteParams) -> ApiResult<ScriptValidation> {
+        let mut errors = Vec::new();
+        if params.name.trim().is_empty() {
+            errors.push("Script name is required".into());
+        }
+        if params.code.is_none()
+            && params.template.is_none()
+            && wf_workflow::lookup_script(&params.name).is_none()
+        {
+            errors.push("Script must provide inline code, a template, or be registered".into());
+        }
+        if let Some(template) = &params.template {
+            if template.trim().is_empty() {
+                errors.push("Script template must not be empty".into());
+            }
+        }
+        if let Some(config) = &params.sandbox {
+            if let Err(e) = serde_json::to_value(config) {
+                errors.push(format!("Invalid sandbox config: {e}"));
+            }
+        }
+        Ok(ScriptValidation {
+            valid: errors.is_empty(),
+            errors,
+        })
+    }
+
+    /// Whether a stored script metadata entry is present and enabled (mirrors
+    /// the TS `isScriptEnabled`).
+    pub async fn is_enabled(&self, name: &str) -> ApiResult<bool> {
+        is_script_enabled(&self.ctx.storage, name).await
+    }
+}
+
+fn default_arguments(params: &ScriptExecuteParams) -> Vec<wf_script::ScriptArgument> {
+    params
+        .args
+        .iter()
+        .map(|(key, value)| wf_script::ScriptArgument {
+            key: key.clone(),
+            r#type: None,
+            required: Some(false),
+            default: Some(value.clone()),
+            source: None,
+            description: None,
+        })
+        .collect()
+}
+
+fn default_sandbox_config(language: &str) -> SandboxConfig {
+    let mut config = SandboxConfig {
+        mode: Some(SandboxMode::Lenient),
+        policy: None,
+        shell_strategy: None,
+        python_strategy: None,
+        javascript_strategy: None,
+        lua_strategy: None,
+        vfs: None,
+        workdir: None,
+        env: None,
+        legacy_type: None,
+        resource_limits: None,
+        skip_gate_check: None,
+    };
+    match language {
+        "python" => {
+            config.python_strategy = Some(vec!["ast-analyzer".into(), "direct".into()]);
+            config.skip_gate_check = Some(true);
+        }
+        "javascript" | "js" => {
+            config.javascript_strategy = Some(vec!["vm-context".into()]);
+            config.skip_gate_check = Some(true);
+        }
+        "lua" => {
+            config.lua_strategy = Some(vec!["mlua-sandbox".into()]);
+            config.skip_gate_check = Some(true);
+        }
+        _ => {
+            // shell keeps the default [static-analyzer, os-hook] chain with
+            // the analysis gate intact.
+        }
+    }
+    config
+}
+
+fn lookup_registered_language(name: &str) -> Option<String> {
+    wf_workflow::lookup_script(name).map(|s| s.language)
+}
+
+fn to_script_result(result: ScriptExecutionResult) -> wf_script::ScriptExecutionResult {
+    wf_script::ScriptExecutionResult {
+        success: result.success,
+        script_name: result.script_name,
+        stdout: result.stdout,
+        stderr: result.stderr,
+        exit_code: result.exit_code,
+        execution_time_ms: result.execution_time,
+        error: result.error,
+    }
+}
 
 pub async fn save_script(
     ctx: &StorageContext,
@@ -236,5 +500,109 @@ mod tests {
             .await
             .unwrap();
         assert!(none.is_empty());
+    }
+
+    // ── ScriptApi ───────────────────────────────────────────────────
+
+    fn make_api_ctx() -> Arc<crate::ApiContext> {
+        Arc::new(crate::ApiContext::new(
+            StorageContext::new_memory(),
+            Arc::new(wf_resource::registrar::Registries::new()),
+            Arc::new(wf_resource::starter::BundleRegistry::new()),
+        ))
+    }
+
+    fn shell_params(name: &str, code: &str) -> ScriptExecuteParams {
+        ScriptExecuteParams {
+            name: name.into(),
+            language: Some("shell".into()),
+            code: Some(code.into()),
+            ..ScriptExecuteParams::default()
+        }
+    }
+
+    #[tokio::test]
+    async fn script_api_executes_inline_shell() {
+        let ctx = make_api_ctx();
+        let api = ScriptApi::new(ctx);
+        let result = api
+            .execute(&shell_params("hello-script", "echo hello-api"))
+            .await
+            .unwrap();
+        assert!(result.success, "stderr: {:?}", result.stderr);
+        assert_eq!(result.strategy_id.as_deref(), Some("os-hook"));
+        assert!(result
+            .stdout
+            .as_deref()
+            .is_some_and(|s| s.contains("hello-api")));
+    }
+
+    #[tokio::test]
+    async fn script_api_renders_template_before_execution() {
+        let ctx = make_api_ctx();
+        let api = ScriptApi::new(ctx);
+        let params = ScriptExecuteParams {
+            name: "greet-script".into(),
+            language: Some("shell".into()),
+            template: Some("echo {{greeting}}".into()),
+            args: HashMap::from([(
+                "greeting".to_string(),
+                serde_json::json!("hi-there"),
+            )]),
+            ..ScriptExecuteParams::default()
+        };
+        let result = api.execute(&params).await.unwrap();
+        assert!(result.success, "stderr: {:?}", result.stderr);
+        assert!(result
+            .stdout
+            .as_deref()
+            .is_some_and(|s| s.contains("hi-there")));
+    }
+
+    #[tokio::test]
+    async fn script_api_rejects_missing_code_source() {
+        let ctx = make_api_ctx();
+        let api = ScriptApi::new(ctx);
+        let params = ScriptExecuteParams {
+            name: "no-source".into(),
+            ..ScriptExecuteParams::default()
+        };
+        let err = api.execute(&params).await.unwrap_err();
+        assert!(matches!(err, ApiError::Validation(_)));
+
+        let validation = api.validate(&params).await.unwrap();
+        assert!(!validation.valid);
+        assert!(!validation.errors.is_empty());
+    }
+
+    #[tokio::test]
+    async fn script_api_validate_accepts_valid_definition() {
+        let ctx = make_api_ctx();
+        let api = ScriptApi::new(ctx);
+        let validation = api.validate(&shell_params("ok", "echo ok")).await.unwrap();
+        assert!(validation.valid, "errors: {:?}", validation.errors);
+
+        let bad_name = api
+            .validate(&ScriptExecuteParams::default())
+            .await
+            .unwrap();
+        assert!(!bad_name.valid);
+    }
+
+    #[tokio::test]
+    async fn script_api_falls_back_to_registered_script() {
+        wf_workflow::register_script("api-registered-script", "shell", "echo from-registry");
+        let ctx = make_api_ctx();
+        let api = ScriptApi::new(ctx);
+        let params = ScriptExecuteParams {
+            name: "api-registered-script".into(),
+            ..ScriptExecuteParams::default()
+        };
+        let result = api.execute(&params).await.unwrap();
+        assert!(result.success, "stderr: {:?}", result.stderr);
+        assert!(result
+            .stdout
+            .as_deref()
+            .is_some_and(|s| s.contains("from-registry")));
     }
 }

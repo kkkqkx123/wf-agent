@@ -123,6 +123,47 @@ impl Entity for wf_types::AgentLoopStorageMetadata {
     }
 }
 
+impl Entity for wf_types::AgentHookTemplateStorageMetadata {
+    type Metadata = Value;
+
+    fn entity_id(&self) -> &str {
+        &self.id
+    }
+
+    fn entity_type() -> &'static str {
+        "agent_hook_template"
+    }
+
+    fn metadata(&self) -> Self::Metadata {
+        serde_json::json!({
+            "name": self.name,
+            "hookType": self.hook_type,
+            "category": self.category,
+        })
+    }
+}
+
+impl Entity for wf_types::TriggerTemplateStorageMetadata {
+    type Metadata = Value;
+
+    fn entity_id(&self) -> &str {
+        &self.id
+    }
+
+    fn entity_type() -> &'static str {
+        "trigger_template"
+    }
+
+    fn metadata(&self) -> Self::Metadata {
+        serde_json::json!({
+            "name": self.name,
+            "triggerType": self.trigger_type,
+            "category": self.category,
+            "enabled": self.enabled,
+        })
+    }
+}
+
 impl Entity for wf_types::TriggerStorageMetadata {
     type Metadata = Value;
 

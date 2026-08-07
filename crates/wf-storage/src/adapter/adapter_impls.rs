@@ -2,6 +2,9 @@ use serde_json::Value;
 use std::collections::HashMap;
 
 use crate::adapter::agent_execution::{AgentExecutionListOptions, AgentExecutionStorageAdapter};
+use crate::adapter::agent_hook_template::{
+    AgentHookTemplateListOptions, AgentHookTemplateStorageAdapter,
+};
 use crate::adapter::agent_loop::{AgentLoopListOptions, AgentLoopStorageAdapter};
 use crate::adapter::agent_profile::{AgentProfileListOptions, AgentProfileStorageAdapter};
 use crate::adapter::base::BaseStorageAdapter;
@@ -20,6 +23,7 @@ use crate::adapter::trigger::{TriggerListOptions, TriggerStorageAdapter};
 use crate::adapter::trigger_execution::{
     TriggerExecutionListOptions, TriggerExecutionStorageAdapter,
 };
+use crate::adapter::trigger_template::{TriggerTemplateListOptions, TriggerTemplateStorageAdapter};
 use crate::adapter::user_interaction::{UserInteractionListOptions, UserInteractionStorageAdapter};
 use crate::adapter::variable::{VariableListOptions, VariableStorageAdapter};
 use crate::adapter::workflow::{WorkflowListOptions, WorkflowStorageAdapter};
@@ -86,6 +90,16 @@ make_base_adapter!(
     AgentProfileStorage,
     wf_types::AgentProfileStorageMetadata,
     AgentProfileListOptions
+);
+make_base_adapter!(
+    AgentHookTemplateStorage,
+    wf_types::AgentHookTemplateStorageMetadata,
+    AgentHookTemplateListOptions
+);
+make_base_adapter!(
+    TriggerTemplateStorage,
+    wf_types::TriggerTemplateStorageMetadata,
+    TriggerTemplateListOptions
 );
 make_base_adapter!(
     UserInteractionStorage,
@@ -626,6 +640,46 @@ impl<S: Store> VariableStorageAdapter for VariableStorage<S> {
             deleted += 1;
         }
         Ok(deleted)
+    }
+}
+
+// ─── AgentHookTemplateStorageAdapter ───
+
+impl<S: Store> AgentHookTemplateStorageAdapter for AgentHookTemplateStorage<S> {
+    async fn list_by_hook_type(
+        &self,
+        hook_type: &str,
+    ) -> Result<Vec<wf_types::AgentHookTemplateStorageMetadata>, StorageError> {
+        let filter = QueryFilter::new().with_field("hookType", hook_type);
+        self.entity_store.list(Some(&filter)).await
+    }
+
+    async fn list_by_category(
+        &self,
+        category: &str,
+    ) -> Result<Vec<wf_types::AgentHookTemplateStorageMetadata>, StorageError> {
+        let filter = QueryFilter::new().with_field("category", category);
+        self.entity_store.list(Some(&filter)).await
+    }
+}
+
+// ─── TriggerTemplateStorageAdapter ───
+
+impl<S: Store> TriggerTemplateStorageAdapter for TriggerTemplateStorage<S> {
+    async fn list_by_trigger_type(
+        &self,
+        trigger_type: &str,
+    ) -> Result<Vec<wf_types::TriggerTemplateStorageMetadata>, StorageError> {
+        let filter = QueryFilter::new().with_field("triggerType", trigger_type);
+        self.entity_store.list(Some(&filter)).await
+    }
+
+    async fn list_by_category(
+        &self,
+        category: &str,
+    ) -> Result<Vec<wf_types::TriggerTemplateStorageMetadata>, StorageError> {
+        let filter = QueryFilter::new().with_field("category", category);
+        self.entity_store.list(Some(&filter)).await
     }
 }
 

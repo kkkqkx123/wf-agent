@@ -47,6 +47,8 @@ pub struct AgentLoopInput {
 
 #[derive(Debug, Clone)]
 pub struct AgentLoopOutput {
+    /// Per-run agent loop id (independent of the agent definition id).
+    pub agent_loop_id: Id,
     pub result: Value,
     pub iterations: u32,
     /// Final conversation exported from the agent session.

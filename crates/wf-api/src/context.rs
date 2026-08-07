@@ -5,6 +5,7 @@ use dashmap::DashMap;
 use wf_agent::registry::AgentLoopRegistry;
 use wf_core::registry::{ConcurrentRegistry, Registry};
 use wf_core::EventBus;
+use wf_execution_shared::execution_state::ExecutionStateManager;
 use wf_llm::LlmGateway;
 use wf_metrics::MetricsRegistry;
 use wf_resource::registrar::Registries;
@@ -33,6 +34,10 @@ pub struct ApiContext {
     pub metrics: Option<Arc<MetricsRegistry>>,
     pub llm_gateway: Arc<LlmGateway>,
     pub tool_registry: Arc<ToolRegistry>,
+    /// Shared sandbox runtime used by `ScriptApi::execute` and the script
+    /// handlers. Created once per context; profiles/rules are compiled at
+    /// construction so per-execution setup stays cheap.
+    pub sandbox: Arc<wf_sandbox::SandboxRuntime>,
     /// Storage backend used by the checkpoint integrations of executions
     /// launched through this context (defaults to in-memory).
     pub checkpoint_store: Arc<StorageBackend>,
@@ -45,6 +50,14 @@ pub struct ApiContext {
     pub template_usage: Arc<DashMap<String, u64>>,
     /// Node handlers shared by every workflow execution.
     handlers: Arc<HashMap<StaticNodeType, Arc<dyn NodeHandler>>>,
+    /// Shared user interaction handler slot (agent config approval / follow-up
+    /// wiring). Read and written by `AgentUserInteractionApi`.
+    pub user_interaction_handler:
+        Arc<tokio::sync::RwLock<Option<Arc<dyn crate::agent_user_interaction::UserInteractionHandler>>>>,
+    /// Unified write point for persisted execution records
+    /// (`WorkflowExecution` / `AgentExecution`). Wired to the storage
+    /// adapters; the engines persist through it and `wf-api` stays read-only.
+    pub state_manager: ExecutionStateManager,
 }
 
 impl ApiContext {
@@ -53,21 +66,27 @@ impl ApiContext {
         registries: Arc<Registries>,
         bundles: Arc<BundleRegistry>,
     ) -> Self {
+        let storage = Arc::new(storage);
         let event_bus = Arc::new(EventBus::new(1024));
         let llm_gateway = Arc::new(LlmGateway::new());
         let handlers = wf_workflow::create_default_handlers(llm_gateway.clone(), None);
         Self {
-            storage: Arc::new(storage),
+            storage: storage.clone(),
             registries,
             bundles,
             event_bus,
             metrics: None,
             llm_gateway,
             tool_registry: Arc::new(ToolRegistry::new()),
+            sandbox: Arc::new(wf_sandbox::SandboxRuntime::new()),
             checkpoint_store: Arc::new(StorageBackend::new_memory()),
             workflow_executions: ConcurrentRegistry::new(),
             agent_loops: Arc::new(AgentLoopRegistry::new()),
             template_usage: Arc::new(DashMap::new()),
+            user_interaction_handler: Arc::new(tokio::sync::RwLock::new(None)),
+            state_manager: ExecutionStateManager::new()
+                .with_workflow_store(Arc::new(storage.workflow_execution.clone()))
+                .with_agent_store(Arc::new(storage.agent_execution.clone())),
             handlers,
         }
     }
@@ -86,17 +105,22 @@ impl ApiContext {
     ) -> Self {
         let handlers = wf_workflow::create_default_handlers(llm_gateway.clone(), None);
         Self {
-            storage,
+            storage: storage.clone(),
             registries,
             bundles,
             event_bus,
             metrics,
             llm_gateway,
             tool_registry,
+            sandbox: Arc::new(wf_sandbox::SandboxRuntime::new()),
             checkpoint_store: Arc::new(StorageBackend::new_memory()),
             workflow_executions: ConcurrentRegistry::new(),
             agent_loops: Arc::new(AgentLoopRegistry::new()),
             template_usage: Arc::new(DashMap::new()),
+            user_interaction_handler: Arc::new(tokio::sync::RwLock::new(None)),
+            state_manager: ExecutionStateManager::new()
+                .with_workflow_store(Arc::new(storage.workflow_execution.clone()))
+                .with_agent_store(Arc::new(storage.agent_execution.clone())),
             handlers,
         }
     }

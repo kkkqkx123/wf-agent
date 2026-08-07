@@ -12,6 +12,9 @@ use crate::timeout::{AgentTimeoutManager, TimeoutHandle};
 
 pub struct AgentLoopEntity {
     id: Id,
+    /// Id of the agent definition this loop runs against (the `agent_id` of
+    /// the loop config). Distinct from `id`, which is the per-run loop id.
+    definition_id: Id,
     pub state: Arc<tokio::sync::RwLock<AgentLoopState>>,
     interruption: InterruptionState,
     conversation: Arc<tokio::sync::RwLock<ConversationSession>>,
@@ -29,8 +32,10 @@ pub struct AgentLoopEntity {
 
 impl AgentLoopEntity {
     pub fn new(id: Id) -> Self {
+        let definition_id = id.clone();
         Self {
             id,
+            definition_id,
             state: Arc::new(tokio::sync::RwLock::new(AgentLoopState::new())),
             interruption: InterruptionState::new(),
             conversation: Arc::new(tokio::sync::RwLock::new(ConversationSession::new())),
@@ -49,6 +54,14 @@ impl AgentLoopEntity {
 
     pub fn with_parent_execution_id(mut self, parent_id: Id) -> Self {
         self.parent_execution_id = Some(parent_id);
+        self
+    }
+
+    /// Set the agent definition id (the `agent_id` of the loop config). The
+    /// definition id identifies the agent definition; `id` is the per-run
+    /// loop id.
+    pub fn with_definition_id(mut self, definition_id: Id) -> Self {
+        self.definition_id = definition_id;
         self
     }
 
@@ -79,6 +92,10 @@ impl AgentLoopEntity {
 
     pub fn id(&self) -> &Id {
         &self.id
+    }
+
+    pub fn definition_id(&self) -> &Id {
+        &self.definition_id
     }
 
     pub fn conversation(&self) -> &Arc<tokio::sync::RwLock<ConversationSession>> {

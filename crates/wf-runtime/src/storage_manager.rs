@@ -160,6 +160,8 @@ impl StorageManager {
         ctx.node_template.store().clear().await.ok();
         ctx.hook_template.store().clear().await.ok();
         ctx.agent_profile.store().clear().await.ok();
+        ctx.agent_hook_template.store().clear().await.ok();
+        ctx.trigger_template.store().clear().await.ok();
         info!("StorageManager cleared");
         Ok(())
     }

@@ -97,7 +97,9 @@ impl AgentLoopRegistry {
         result
     }
 
-    /// Query entities with an optional filter.
+    /// Query entities with an optional filter. `AgentExecutionFilter::agent_id`
+    /// matches the agent definition id (`definition_id`), not the per-run
+    /// loop id, so all runs of a definition are returned.
     pub async fn query(&self, filter: &AgentExecutionFilter) -> Vec<Arc<AgentLoopEntity>> {
         let mut results: Vec<Arc<AgentLoopEntity>> = self
             .entities
@@ -105,7 +107,7 @@ impl AgentLoopRegistry {
             .map(|e| e.clone())
             .filter(|e| {
                 if let Some(agent_id) = &filter.agent_id {
-                    if e.id() != agent_id {
+                    if e.definition_id() != agent_id {
                         return false;
                     }
                 }
@@ -131,13 +133,13 @@ impl AgentLoopRegistry {
         results
     }
 
-    /// Execution records for a given agent id (the TS registry query by
-    /// agent_id). Records are sorted newest first.
-    pub async fn execution_records(&self, agent_id: &Id) -> Vec<AgentExecutionRecord> {
+    /// Execution records for a given agent definition id (the TS registry
+    /// query by agent_id). Records are sorted newest first.
+    pub async fn execution_records(&self, definition_id: &Id) -> Vec<AgentExecutionRecord> {
         let ids: Vec<Id> = self
             .entities
             .iter()
-            .filter(|e| e.id() == agent_id)
+            .filter(|e| e.definition_id() == definition_id)
             .map(|e| e.id().clone())
             .collect();
 

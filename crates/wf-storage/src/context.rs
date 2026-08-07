@@ -1,9 +1,9 @@
 use crate::adapter::adapter_impls::{
-    AgentExecutionStorage, AgentLoopStorage, AgentProfileStorage, CheckpointStorage,
-    FileCheckpointStorage, HookTemplateStorage, MessageStorage, MetricsStorage,
+    AgentExecutionStorage, AgentHookTemplateStorage, AgentLoopStorage, AgentProfileStorage,
+    CheckpointStorage, FileCheckpointStorage, HookTemplateStorage, MessageStorage, MetricsStorage,
     NodeTemplateStorage, ScriptStorage, TaskStorage, ToolStorage, TriggerExecutionStorage,
-    TriggerStorage, UserInteractionStorage, VariableStorage, WorkflowExecutionStorage,
-    WorkflowStorage,
+    TriggerStorage, TriggerTemplateStorage, UserInteractionStorage, VariableStorage,
+    WorkflowExecutionStorage, WorkflowStorage,
 };
 use crate::backend::StorageBackend;
 use crate::decorator::instrumented::{InstrumentedStore, StorageMetrics};
@@ -23,6 +23,8 @@ pub struct StorageContext {
     pub agent_loop: AgentLoopStorage<StorageBackend>,
     pub agent_execution: AgentExecutionStorage<StorageBackend>,
     pub agent_profile: AgentProfileStorage<StorageBackend>,
+    pub agent_hook_template: AgentHookTemplateStorage<StorageBackend>,
+    pub trigger_template: TriggerTemplateStorage<StorageBackend>,
     pub file_checkpoint: FileCheckpointStorage<StorageBackend>,
     pub trigger: TriggerStorage<StorageBackend>,
     pub trigger_execution: TriggerExecutionStorage<StorageBackend>,
@@ -53,6 +55,11 @@ impl StorageContext {
             agent_loop: AgentLoopStorage::new(make_backend!(Memory, "agent_loop")),
             agent_execution: AgentExecutionStorage::new(make_backend!(Memory, "agent_execution")),
             agent_profile: AgentProfileStorage::new(make_backend!(Memory, "agent_profile")),
+            agent_hook_template: AgentHookTemplateStorage::new(make_backend!(
+                Memory,
+                "agent_hook_template"
+            )),
+            trigger_template: TriggerTemplateStorage::new(make_backend!(Memory, "trigger_template")),
             file_checkpoint: FileCheckpointStorage::new(make_backend!(Memory, "file_checkpoint")),
             trigger: TriggerStorage::new(make_backend!(Memory, "trigger")),
             trigger_execution: TriggerExecutionStorage::new(make_backend!(
@@ -91,6 +98,8 @@ impl StorageContext {
             agent_loop: AgentLoopStorage::new(sqlite_backend!("agent_loop")),
             agent_execution: AgentExecutionStorage::new(sqlite_backend!("agent_execution")),
             agent_profile: AgentProfileStorage::new(sqlite_backend!("agent_profile")),
+            agent_hook_template: AgentHookTemplateStorage::new(sqlite_backend!("agent_hook_template")),
+            trigger_template: TriggerTemplateStorage::new(sqlite_backend!("trigger_template")),
             file_checkpoint: FileCheckpointStorage::new(sqlite_backend!("file_checkpoint")),
             trigger: TriggerStorage::new(sqlite_backend!("trigger")),
             trigger_execution: TriggerExecutionStorage::new(sqlite_backend!("trigger_execution")),
@@ -123,6 +132,8 @@ impl StorageContext {
             agent_loop: AgentLoopStorage::new(pg_backend!("agent_loop")),
             agent_execution: AgentExecutionStorage::new(pg_backend!("agent_execution")),
             agent_profile: AgentProfileStorage::new(pg_backend!("agent_profile")),
+            agent_hook_template: AgentHookTemplateStorage::new(pg_backend!("agent_hook_template")),
+            trigger_template: TriggerTemplateStorage::new(pg_backend!("trigger_template")),
             file_checkpoint: FileCheckpointStorage::new(pg_backend!("file_checkpoint")),
             trigger: TriggerStorage::new(pg_backend!("trigger")),
             trigger_execution: TriggerExecutionStorage::new(pg_backend!("trigger_execution")),
@@ -152,6 +163,8 @@ impl StorageContext {
             self.agent_loop.store().op_metrics(),
             self.agent_execution.store().op_metrics(),
             self.agent_profile.store().op_metrics(),
+            self.agent_hook_template.store().op_metrics(),
+            self.trigger_template.store().op_metrics(),
             self.file_checkpoint.store().op_metrics(),
             self.trigger.store().op_metrics(),
             self.trigger_execution.store().op_metrics(),

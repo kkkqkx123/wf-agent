@@ -5,8 +5,10 @@ use serde_json::Value;
 use wf_common::now;
 use wf_core::condition::ConditionEvaluator;
 use wf_core::interruption::check_execution_interruption;
+use wf_core::interruption::InterruptionSignal;
 use wf_core::EventBus;
 use wf_execution_shared::context::{ExecutorContext, NodeExecutionContext, NodeExecutionResult};
+use wf_execution_shared::execution_state::ExecutionStateManager;
 use wf_execution_shared::hooks::executor::HookExecutor;
 use wf_execution_shared::hooks::types::BaseHookDefinition;
 use wf_execution_shared::types::state_manager::StateManager;
@@ -22,6 +24,7 @@ use crate::error::{WorkflowError, WorkflowResult};
 use crate::error_analysis::workflow_error_record;
 use crate::graph::GraphTraversal;
 use crate::handler::NodeHandler;
+use crate::persistence::build_workflow_execution;
 use crate::state::{NodeExecutionRecord, WorkflowExecutionStateSnapshot};
 
 /// Serialized size of a value in bytes, used for node input/output metrics.
@@ -188,6 +191,10 @@ pub struct WorkflowCoordinator {
     total_node_count: u32,
     max_navigation_multiplier: u32,
     checkpoint: Option<WorkflowCheckpointIntegration>,
+    /// Optional write point for the persisted `WorkflowExecution` record;
+    /// wired by the application (via `wf-api`) so the coordinator persists
+    /// the record at execution start and on every terminal exit.
+    state_manager: Option<ExecutionStateManager>,
 }
 
 impl WorkflowCoordinator {
@@ -220,6 +227,7 @@ impl WorkflowCoordinator {
             total_node_count,
             max_navigation_multiplier: 5,
             checkpoint: None,
+            state_manager: None,
         })
     }
 
@@ -263,6 +271,14 @@ impl WorkflowCoordinator {
 
     pub fn with_checkpoint(mut self, checkpoint: WorkflowCheckpointIntegration) -> Self {
         self.checkpoint = Some(checkpoint);
+        self
+    }
+
+    /// Wire the execution state manager used to persist the
+    /// `WorkflowExecution` record. Without it the execution is driven fully in
+    /// memory and nothing is written to the execution store.
+    pub fn with_state_manager(mut self, state_manager: ExecutionStateManager) -> Self {
+        self.state_manager = Some(state_manager);
         self
     }
 
@@ -354,7 +370,84 @@ impl WorkflowCoordinator {
         state.add_error_record(record);
     }
 
+    /// Drive the workflow graph to completion.
+    ///
+    /// Persists the `WorkflowExecution` record through the wired state manager
+    /// in two phases: a start record before the nodes run and a final record
+    /// after the execution reaches a terminal state (completed / failed /
+    /// cancelled / paused). Phase-based writes keep the record consistent with
+    /// the live entity state on every exit path.
     pub async fn execute(&mut self) -> WorkflowResult<Value> {
+        self.persist_start().await;
+        let result = self.execute_inner().await;
+        match &result {
+            Ok(output) => self.persist_final(Some(output)).await,
+            Err(_) => self.persist_final(None).await,
+        }
+        result
+    }
+
+    /// Persist the start record (status is whatever the entity currently
+    /// holds, normally `Running`).
+    async fn persist_start(&self) {
+        let (Some(entity), Some(manager)) = (self.entity.as_ref(), self.state_manager.as_ref())
+        else {
+            return;
+        };
+        let record =
+            build_workflow_execution(entity, self.traversal.graph(), &self.ctx.options, None).await;
+        manager.persist_workflow(&record).await;
+    }
+
+    /// Persist the final record after the run reaches a terminal state. When
+    /// the run errored without a terminal status (e.g. node failure), the
+    /// entity state is marked failed first so the record reflects reality.
+    async fn persist_final(&self, output: Option<&Value>) {
+        let (Some(entity), Some(manager)) = (self.entity.as_ref(), self.state_manager.as_ref())
+        else {
+            return;
+        };
+
+        let terminal = {
+            let state = entity.state.read().await;
+            matches!(
+                state.status(),
+                wf_execution_shared::types::execution_entity::ExecutionStatus::Completed
+                    | wf_execution_shared::types::execution_entity::ExecutionStatus::Failed
+                    | wf_execution_shared::types::execution_entity::ExecutionStatus::Cancelled
+                    | wf_execution_shared::types::execution_entity::ExecutionStatus::Stopped
+                    | wf_execution_shared::types::execution_entity::ExecutionStatus::Paused
+            )
+        };
+        if !terminal {
+            match entity.interruption().check() {
+                Some(InterruptionSignal::Stop) => {
+                    entity.state.write().await.cancel();
+                }
+                Some(InterruptionSignal::Pause) => {
+                    entity.state.write().await.pause();
+                }
+                _ => {
+                    entity
+                        .state
+                        .write()
+                        .await
+                        .fail("workflow execution failed".to_string());
+                }
+            }
+        }
+
+        let record = build_workflow_execution(
+            entity,
+            self.traversal.graph(),
+            &self.ctx.options,
+            output.cloned(),
+        )
+        .await;
+        manager.persist_workflow(&record).await;
+    }
+
+    async fn execute_inner(&mut self) -> WorkflowResult<Value> {
         let entity = self.entity.as_ref().ok_or_else(|| {
             WorkflowError::CoordinatorError("Entity not set on WorkflowCoordinator".to_string())
         })?;

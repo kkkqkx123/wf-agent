@@ -137,7 +137,7 @@ async fn workflow_stream_ends_with_completed() {
         .unwrap();
 
     let api = WorkflowApi::new(ctx);
-    let mut stream = api
+    let (_execution_id, mut stream) = api
         .stream(ExecuteWorkflowParams {
             workflow_id: "wf-e2e-2".into(),
             input: Some(serde_json::json!({"greeting": "stream"})),

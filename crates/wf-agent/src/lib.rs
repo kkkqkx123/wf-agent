@@ -10,6 +10,7 @@ pub mod error_analysis;
 pub mod executor;
 pub mod factory;
 pub mod hook;
+pub mod persistence;
 pub mod registry;
 pub mod state;
 pub mod stream;
@@ -28,6 +29,7 @@ pub use error_analysis::{
     analyze_error, llm_error_analysis, shared_error_analysis, tool_error_analysis, ErrorAnalysis,
 };
 pub use executor::AgentLoopExecutor;
+pub use persistence::build_agent_execution;
 pub use registry::AgentLoopRegistry;
 pub use stream::{AgentEventStream, AgentStreamEvent};
 pub use timeout::{AgentTimeoutManager, TimeoutHandle};

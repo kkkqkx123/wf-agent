@@ -69,6 +69,8 @@ impl StorageDiagnosticsApi {
         probe!("agent_loop", &storage.agent_loop);
         probe!("agent_execution", &storage.agent_execution);
         probe!("agent_profile", &storage.agent_profile);
+        probe!("agent_hook_template", &storage.agent_hook_template);
+        probe!("trigger_template", &storage.trigger_template);
         probe!("file_checkpoint", &storage.file_checkpoint);
         probe!("trigger", &storage.trigger);
         probe!("trigger_execution", &storage.trigger_execution);
@@ -132,7 +134,7 @@ mod tests {
         let report = api.health().await.unwrap();
         assert!(report.healthy);
         assert_eq!(report.total_entries, 0);
-        assert_eq!(report.stores.len(), 17);
+        assert_eq!(report.stores.len(), 19);
         assert!(report.stores.iter().all(|s| s.healthy));
     }
 

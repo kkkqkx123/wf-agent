@@ -15,6 +15,7 @@ pub mod hook;
 pub mod interaction;
 pub mod message_context;
 pub mod node_validation;
+pub mod persistence;
 pub mod preprocess;
 pub mod protocol_consistency;
 pub mod registry;
@@ -69,6 +70,7 @@ pub use interaction::{
 pub use message_context::{
     append_context, get_context, has_context, register_context, DEFAULT_CONTEXT_ID,
 };
+pub use persistence::build_workflow_execution;
 pub use registry::{
     create_execution_registry, create_graph_registry, lookup_graph, lookup_script, register_graph,
     register_script, ScriptDefinition, ScriptRegistry, WorkflowExecutionPool,

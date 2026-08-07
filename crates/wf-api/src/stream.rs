@@ -100,11 +100,17 @@ pub fn spawn_execution_stream(
 ) -> (ExecutionEventStream, ExecutionStreamSink) {
     let (tx, rx) = mpsc::channel(256);
     let forward_tx = tx.clone();
+
+    // Subscribe synchronously so no engine event is lost when the caller
+    // spawns the workflow execution immediately after this returns.
+    let Some(bus) = bus else {
+        return (ExecutionEventStream { rx }, ExecutionStreamSink { tx });
+    };
+    let mut sub = bus.subscribe();
+    let filter = execution_id.clone();
     tokio::spawn(async move {
-        let Some(bus) = bus else { return };
-        let mut sub = bus.subscribe();
         while let Ok(event) = sub.recv().await {
-            if event.execution_id.as_deref() != Some(execution_id.as_str()) {
+            if event.execution_id.as_deref() != Some(filter.as_str()) {
                 continue;
             }
             let terminal = matches!(
@@ -128,5 +134,6 @@ pub fn spawn_execution_stream(
             }
         }
     });
+
     (ExecutionEventStream { rx }, ExecutionStreamSink { tx })
 }

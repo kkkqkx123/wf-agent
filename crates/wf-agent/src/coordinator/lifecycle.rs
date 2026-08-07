@@ -6,6 +6,7 @@ use serde_json::Value;
 use wf_checkpoint::event::CheckpointEventBus;
 use wf_checkpoint::execution_events::ExecutionEventBus;
 use wf_core::event::EventBus;
+use wf_execution_shared::execution_state::ExecutionStateManager;
 use wf_execution_shared::hooks::executor::HookExecutor;
 use wf_execution_shared::hooks::types::BaseHookDefinition;
 use wf_llm::messaging::conversation_session::ConversationSession;
@@ -17,6 +18,7 @@ use wf_tools::registry::ToolRegistry;
 use wf_types::checkpoint::CheckpointTrigger;
 use wf_types::message::Message;
 use wf_types::tool::approval::ToolApprovalOptions;
+use wf_types::Id;
 
 use crate::approval::ToolApprovalHandler;
 use crate::checkpoint::{AgentCheckpointIntegration, AgentCheckpointStrategy};
@@ -27,6 +29,7 @@ use crate::coordinator::state_transitor::AgentLoopStateTransitor;
 use crate::entity::AgentLoopEntity;
 use crate::error::{AgentError, AgentResult};
 use crate::hook::AgentHookHandler;
+use crate::persistence::build_agent_execution;
 use crate::registry::AgentLoopRegistry;
 use crate::stream::{AgentEventSink, AgentEventStream, AgentStreamEvent};
 use tokio::sync::RwLock;
@@ -47,6 +50,11 @@ pub struct AgentLoopCoordinator {
     /// Shared registry the built entity is registered into, giving callers
     /// a live handle for pause/resume/cancel/status queries.
     entity_registry: Option<Arc<AgentLoopRegistry>>,
+    /// Optional write point for the persisted `AgentExecution` record.
+    state_manager: Option<ExecutionStateManager>,
+    /// Per-run loop id injected by the caller; a fresh id is generated when
+    /// absent. `config.agent_id` only identifies the agent definition.
+    agent_loop_id: Option<Id>,
 }
 
 impl AgentLoopCoordinator {
@@ -78,6 +86,8 @@ impl AgentLoopCoordinator {
             approval_handler: None,
             max_pause_duration: None,
             entity_registry: None,
+            state_manager: None,
+            agent_loop_id: None,
         }
     }
 
@@ -141,6 +151,21 @@ impl AgentLoopCoordinator {
         self
     }
 
+    /// Wire the execution state manager used to persist the `AgentExecution`
+    /// record. Without it the loop is driven fully in memory and nothing is
+    /// written to the agent execution store.
+    pub fn with_state_manager(mut self, state_manager: ExecutionStateManager) -> Self {
+        self.state_manager = Some(state_manager);
+        self
+    }
+
+    /// Inject the per-run agent loop id. When absent a fresh id is generated
+    /// for every run, so `config.agent_id` never doubles as the loop id.
+    pub fn with_agent_loop_id(mut self, agent_loop_id: Id) -> Self {
+        self.agent_loop_id = Some(agent_loop_id);
+        self
+    }
+
     /// Spawn the conversation compression consumer for the live session
     /// (self-consumption, compression chain closure): completed compression
     /// events matching `agent_loop_id` are applied to the conversation with
@@ -171,16 +196,30 @@ impl AgentLoopCoordinator {
         }
         let execution_id = entity.id().clone();
 
+        // Phase-based persistence: a start record before the loop runs, then a
+        // final record carrying the terminal status once it settles.
+        self.persist_agent(&entity).await;
+
         // The conversation applies compression results itself (it subscribes
         // to COMPLETED events on the bus); the consumer is aborted once the
         // loop finishes.
         let consumer =
             self.spawn_compression_consumer(&execution_id, entity.conversation().clone());
-        let outcome = self.execute_inner(config, entity).await;
+        let outcome = self.execute_inner(config, entity.clone()).await;
         if let Some(handle) = consumer {
             handle.abort();
         }
+        self.persist_agent(&entity).await;
         outcome
+    }
+
+    /// Persist the current `AgentExecution` record from the entity state.
+    async fn persist_agent(&self, entity: &AgentLoopEntity) {
+        let Some(manager) = self.state_manager.as_ref() else {
+            return;
+        };
+        let record = build_agent_execution(entity).await;
+        manager.persist_agent(&record).await;
     }
 
     async fn execute_inner(
@@ -274,6 +313,7 @@ impl AgentLoopCoordinator {
 
                 let conversation = entity.conversation().read().await.messages().to_vec();
                 Ok(AgentLoopOutput {
+                    agent_loop_id: entity.id().clone(),
                     result: result.content,
                     iterations,
                     conversation,
@@ -340,7 +380,14 @@ impl AgentLoopCoordinator {
             })
             .collect();
 
-        let mut entity = AgentLoopEntity::new(config.agent_id.clone())
+        // Every run gets a fresh agent loop id; the config's `agent_id` only
+        // identifies the definition (persisted as `definition_id`).
+        let agent_loop_id = self
+            .agent_loop_id
+            .clone()
+            .unwrap_or_else(|| Id::from(wf_common::generate_id()));
+        let mut entity = AgentLoopEntity::new(agent_loop_id)
+            .with_definition_id(config.agent_id.clone())
             .with_hooks(hooks)
             .with_model(config.model.clone());
 
@@ -413,6 +460,7 @@ impl AgentLoopCoordinator {
         let approval_handler = self.approval_handler.clone();
         let max_pause_duration = self.max_pause_duration;
         let entity_registry = self.entity_registry.clone();
+        let state_manager = self.state_manager.clone();
         let hooks: Vec<BaseHookDefinition> = config
             .hooks
             .iter()
@@ -428,7 +476,9 @@ impl AgentLoopCoordinator {
             .collect();
 
         tokio::spawn(async move {
-            let mut entity = AgentLoopEntity::new(config.agent_id.clone())
+            let agent_loop_id = Id::from(wf_common::generate_id());
+            let mut entity = AgentLoopEntity::new(agent_loop_id)
+                .with_definition_id(config.agent_id.clone())
                 .with_hooks(hooks)
                 .with_model(config.model.clone());
             if !config.available_tool_names.is_empty() {
@@ -490,6 +540,12 @@ impl AgentLoopCoordinator {
                 return;
             }
 
+            // Start record (status Running) before the loop drives iterations.
+            if let Some(ref manager) = state_manager {
+                let record = build_agent_execution(&entity).await;
+                manager.persist_agent(&record).await;
+            }
+
             let checkpoint = {
                 let strategy = checkpoint_strategy.as_ref();
                 let mut cp = AgentCheckpointIntegration::new(store);
@@ -541,6 +597,10 @@ impl AgentLoopCoordinator {
                     if let Some(handle) = consumer {
                         handle.abort();
                     }
+                    if let Some(ref manager) = state_manager {
+                        let record = build_agent_execution(&entity).await;
+                        manager.persist_agent(&record).await;
+                    }
                     let _ = tx
                         .send(AgentStreamEvent::Completed {
                             result: result.content,
@@ -560,6 +620,10 @@ impl AgentLoopCoordinator {
                     }
                     if let Some(ref metrics) = metrics {
                         metrics.agent_loop().record_error(entity.id(), "agent_loop");
+                    }
+                    if let Some(ref manager) = state_manager {
+                        let record = build_agent_execution(&entity).await;
+                        manager.persist_agent(&record).await;
                     }
                     let _ = tx
                         .send(AgentStreamEvent::Failed {

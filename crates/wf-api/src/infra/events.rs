@@ -297,6 +297,122 @@ pub async fn wait_for_event(
     crate::infra::subscription::wait_for_event(ctx.event_bus.clone(), &options, timeout).await
 }
 
+/// Per-execution listener statistics: event count and distribution by type.
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct ExecutionListenerStats {
+    pub execution_id: String,
+    pub total: usize,
+    pub by_type: BTreeMap<String, u64>,
+}
+
+/// Event statistics of a single execution (TS `getExecutionListenerStats`).
+pub async fn execution_listener_stats(
+    ctx: &ApiContext,
+    execution_id: &str,
+) -> ApiResult<ExecutionListenerStats> {
+    let options = EventQueryOptions {
+        execution_id: Some(execution_id.to_string()),
+        limit: None,
+        ..Default::default()
+    };
+    let events = filter_events(merge(ctx, &options).await, &options);
+    let mut stats = ExecutionListenerStats {
+        execution_id: execution_id.to_string(),
+        total: events.len(),
+        ..Default::default()
+    };
+    for event in events {
+        *stats
+            .by_type
+            .entry(event.r#type.as_str().to_string())
+            .or_insert(0) += 1;
+    }
+    Ok(stats)
+}
+
+/// Event system health report.
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct EventSystemHealth {
+    /// Persisted event count.
+    pub persisted_events: usize,
+    /// Live bus window size (most recent events held in memory).
+    pub bus_window: usize,
+    /// Backend name of the persistence layer.
+    pub backend: String,
+    pub by_type: BTreeMap<String, u64>,
+}
+
+/// Health of the event subsystem (TS `getEventSystemHealth`).
+pub async fn event_system_health(ctx: &ApiContext) -> ApiResult<EventSystemHealth> {
+    let persisted_events = ctx
+        .persistence
+        .count_events(&EventQueryOptions::default())
+        .await?;
+    let bus_window = ctx.event_bus.recent_events().len();
+    let mut by_type = BTreeMap::new();
+    for event in merge(ctx, &EventQueryOptions::default()).await {
+        *by_type
+            .entry(event.r#type.as_str().to_string())
+            .or_insert(0) += 1;
+    }
+    Ok(EventSystemHealth {
+        persisted_events,
+        bus_window,
+        backend: ctx.persistence.name().to_string(),
+        by_type,
+    })
+}
+
+/// Compact summary of an execution timeline (TS `getExecutionTimelineSummary`).
+#[derive(Debug, Clone, Serialize)]
+pub struct ExecutionTimelineSummary {
+    pub execution_id: String,
+    pub status: String,
+    pub total_events: usize,
+    pub start_time: i64,
+    pub end_time: i64,
+    pub total_elapsed: i64,
+    pub phase_count: usize,
+}
+
+/// A compact digest of [`get_execution_timeline`]; `None` when the execution
+/// has no events.
+pub async fn execution_timeline_summary(
+    ctx: &ApiContext,
+    execution_id: &str,
+) -> ApiResult<Option<ExecutionTimelineSummary>> {
+    let Some(timeline) = get_execution_timeline(ctx, execution_id).await? else {
+        return Ok(None);
+    };
+    Ok(Some(ExecutionTimelineSummary {
+        execution_id: timeline.execution_id,
+        status: timeline.status,
+        total_events: timeline.events.len(),
+        start_time: timeline.start_time,
+        end_time: timeline.end_time,
+        total_elapsed: timeline.total_elapsed,
+        phase_count: timeline.phases.len(),
+    }))
+}
+
+/// Total number of persisted events.
+pub async fn event_history_size(ctx: &ApiContext) -> ApiResult<usize> {
+    ctx.persistence
+        .count_events(&EventQueryOptions::default())
+        .await
+}
+
+/// Earliest and latest event timestamps across retained events; `None` when
+/// no events exist.
+pub async fn event_time_range(ctx: &ApiContext) -> ApiResult<Option<(i64, i64)>> {
+    let events = merge(ctx, &EventQueryOptions::default()).await;
+    let Some(first) = events.first() else {
+        return Ok(None);
+    };
+    let last = events.last().expect("non-empty events");
+    Ok(Some((first.timestamp, last.timestamp)))
+}
+
 /// Merge persisted events with the bounded bus window, deduplicated by id.
 async fn merge(ctx: &ApiContext, options: &EventQueryOptions) -> Vec<BaseEvent> {
     let mut events: Vec<BaseEvent> = ctx.event_bus.recent_events();
@@ -733,5 +849,70 @@ mod tests {
         .unwrap();
         let waited = waiter.await.unwrap().expect("event within window");
         assert_eq!(waited.r#type, EventType::NodeCompleted);
+    }
+
+    #[tokio::test]
+    async fn listener_stats_health_history_size_and_time_range() {
+        let ctx = make_ctx();
+        dispatch(
+            &ctx,
+            make_event(
+                Some("exec-h"),
+                None,
+                EventType::WorkflowExecutionStarted,
+                100,
+            ),
+        )
+        .await
+        .unwrap();
+        dispatch(
+            &ctx,
+            make_event(
+                Some("exec-h"),
+                None,
+                EventType::WorkflowExecutionCompleted,
+                300,
+            ),
+        )
+        .await
+        .unwrap();
+
+        let listener = execution_listener_stats(&ctx, "exec-h").await.unwrap();
+        assert_eq!(listener.total, 2);
+        assert_eq!(listener.by_type.get("WORKFLOW_EXECUTION_STARTED"), Some(&1));
+
+        let summary = execution_timeline_summary(&ctx, "exec-h")
+            .await
+            .unwrap()
+            .expect("timeline present");
+        assert_eq!(summary.status, "completed");
+        assert_eq!(summary.total_events, 2);
+
+        let health = event_system_health(&ctx).await.unwrap();
+        assert!(health.persisted_events >= 2);
+        assert!(health.by_type.contains_key("WORKFLOW_EXECUTION_STARTED"));
+
+        assert!(event_history_size(&ctx).await.unwrap() >= 2);
+
+        let range = event_time_range(&ctx)
+            .await
+            .unwrap()
+            .expect("range present");
+        assert_eq!(range, (100, 300));
+
+        // No events at all: listener stats zeroed, summary/time-range None.
+        let empty_ctx = make_ctx();
+        assert_eq!(
+            execution_listener_stats(&empty_ctx, "exec-none")
+                .await
+                .unwrap()
+                .total,
+            0
+        );
+        assert!(execution_timeline_summary(&empty_ctx, "exec-none")
+            .await
+            .unwrap()
+            .is_none());
+        assert!(event_time_range(&empty_ctx).await.unwrap().is_none());
     }
 }

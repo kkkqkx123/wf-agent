@@ -19,7 +19,20 @@ pub struct MessageStats {
     pub by_role: BTreeMap<String, u64>,
     /// Estimated total token count across retained messages (heuristic).
     pub estimated_tokens: u64,
+    /// Total token usage aggregated across executions.
+    pub total_token_usage: u64,
     pub by_execution: BTreeMap<String, u64>,
+    /// Distribution by content shape (`text` | `rich`).
+    pub by_type: BTreeMap<String, u64>,
+}
+
+/// Sort order for paginated message queries.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MessageOrder {
+    /// Oldest first (default).
+    Asc,
+    /// Newest first.
+    Desc,
 }
 
 /// Default number of recent messages returned when no explicit limit is given.
@@ -105,6 +118,47 @@ pub async fn by_execution(
         .map_err(Into::into)
 }
 
+/// Paginated messages of one execution with an explicit sort order (TS
+/// `getExecutionMessages` orderBy).
+pub async fn by_execution_paginated(
+    ctx: &ApiContext,
+    execution_id: &str,
+    offset: u64,
+    limit: u64,
+    order: MessageOrder,
+) -> ApiResult<Vec<MessageStorageMetadata>> {
+    let options = MessageListOptions {
+        offset: Some(offset),
+        limit: Some(limit),
+        execution_id_filter: Some(execution_id.to_string()),
+        agent_loop_id_filter: None,
+        role_filter: None,
+    };
+    let mut messages = ctx.storage.message.list(Some(options)).await?;
+    match order {
+        MessageOrder::Asc => messages.sort_by_key(|r| r.message.timestamp),
+        MessageOrder::Desc => {
+            messages.sort_by_key(|r| std::cmp::Reverse(r.message.timestamp));
+        }
+    }
+    Ok(messages)
+}
+
+/// Normalized conversation history of an execution: messages deduplicated by
+/// id and sorted by timestamp (TS `normalizeHistory`).
+pub async fn normalize_history(ctx: &ApiContext, execution_id: &str) -> ApiResult<Vec<Message>> {
+    let mut records = by_execution(ctx, execution_id).await?;
+    records.sort_by_key(|r| (r.message.timestamp, r.id.clone()));
+    records.dedup_by_key(|r| r.id.clone());
+    Ok(records.into_iter().map(|r| r.message).collect())
+}
+
+/// Total number of messages retained for one execution.
+pub async fn get_message_count(ctx: &ApiContext, execution_id: &str) -> ApiResult<u64> {
+    let records = by_execution(ctx, execution_id).await?;
+    Ok(records.len() as u64)
+}
+
 /// Messages of one agent loop, oldest first.
 pub async fn by_agent_loop(
     ctx: &ApiContext,
@@ -142,7 +196,7 @@ pub async fn search(
 }
 
 /// Message statistics (count by role, estimated tokens, count by
-/// execution).
+/// execution, content-type distribution).
 pub async fn stats(ctx: &ApiContext) -> ApiResult<MessageStats> {
     let all = ctx.storage.message.list(None).await?;
     let mut stats = MessageStats {
@@ -152,11 +206,18 @@ pub async fn stats(ctx: &ApiContext) -> ApiResult<MessageStats> {
     for record in &all {
         let role = role_name(&record.message.role).to_string();
         *stats.by_role.entry(role).or_insert(0) += 1;
-        stats.estimated_tokens += estimate_tokens(&record.message) as u64;
+        let tokens = estimate_tokens(&record.message) as u64;
+        stats.estimated_tokens += tokens;
+        stats.total_token_usage += tokens;
         *stats
             .by_execution
             .entry(record.execution_id.clone())
             .or_insert(0) += 1;
+        let content_type = match &record.message.content {
+            MessageContentValue::Text(_) => "text",
+            MessageContentValue::Rich(_) => "rich",
+        };
+        *stats.by_type.entry(content_type.to_string()).or_insert(0) += 1;
     }
     Ok(stats)
 }
@@ -324,5 +385,52 @@ mod tests {
         let ctx = make_ctx();
         let err = get(&ctx, "missing").await.unwrap_err();
         assert!(matches!(err, ApiError::NotFound { .. }));
+    }
+
+    #[tokio::test]
+    async fn pagination_normalize_count_and_extended_stats() {
+        let ctx = make_ctx();
+        for i in 0..5 {
+            add_message(
+                &ctx,
+                "exec-6",
+                None,
+                make_message(&format!("p{i}"), MessageRole::User, &format!("msg {i}"), i),
+            )
+            .await
+            .unwrap();
+        }
+        // Re-saving the same id upserts (deduplicated storage), so normalize
+        // keeps the unique ids.
+        add_message(
+            &ctx,
+            "exec-6",
+            None,
+            make_message("p0", MessageRole::User, "duplicate", 0),
+        )
+        .await
+        .unwrap();
+
+        let desc = by_execution_paginated(&ctx, "exec-6", 0, 10, MessageOrder::Desc)
+            .await
+            .unwrap();
+        assert_eq!(desc[0].id, "p4");
+        assert_eq!(desc[desc.len() - 1].id, "p0");
+
+        let asc = by_execution_paginated(&ctx, "exec-6", 0, 10, MessageOrder::Asc)
+            .await
+            .unwrap();
+        assert_eq!(asc[0].id, "p0");
+        assert_eq!(asc[asc.len() - 1].id, "p4");
+
+        let normalized = normalize_history(&ctx, "exec-6").await.unwrap();
+        assert_eq!(normalized.len(), 5);
+
+        assert_eq!(get_message_count(&ctx, "exec-6").await.unwrap(), 5);
+
+        let stats = stats(&ctx).await.unwrap();
+        assert_eq!(stats.total, 5);
+        assert_eq!(stats.by_type.get("text"), Some(&5));
+        assert!(stats.total_token_usage > 0);
     }
 }

@@ -16,7 +16,7 @@ use wf_types::{ExecutionStatus, WorkflowDefinition, WorkflowExecution};
 
 use crate::not_found;
 use crate::workflow::workflow_execution::definition_to_graph;
-use crate::ApiContext;
+use crate::{ApiContext, ApiError};
 
 /// Validate a workflow before persisting or executing it: the config-level
 /// checks (`wf-config`) run first, then the full graph validator
@@ -178,6 +178,128 @@ pub async fn list_workflows(
     options: Option<WorkflowListOptions>,
 ) -> crate::ApiResult<Vec<WorkflowDefinition>> {
     ctx.storage.workflow.list(options).await.map_err(Into::into)
+}
+
+/// Digest of a workflow (TS `WorkflowSummary`): the fields most consumers of a
+/// workflow list actually read, without the full definition.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct WorkflowSummary {
+    pub id: String,
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    pub node_count: usize,
+    pub edge_count: usize,
+    pub updated_at: i64,
+}
+
+/// Project `list_workflows` results onto [`WorkflowSummary`].
+pub async fn workflow_summaries(
+    ctx: &ApiContext,
+    options: Option<WorkflowListOptions>,
+) -> crate::ApiResult<Vec<WorkflowSummary>> {
+    Ok(list_workflows(ctx, options)
+        .await?
+        .into_iter()
+        .map(|wf| WorkflowSummary {
+            id: wf.id.clone(),
+            name: wf.name.clone(),
+            description: wf.description.clone(),
+            version: wf.version.clone(),
+            node_count: wf.nodes.len(),
+            edge_count: wf.edges.len(),
+            updated_at: wf.updated_at,
+        })
+        .collect())
+}
+
+/// Export a workflow as a JSON value (the full serialized definition).
+pub async fn export_workflow(ctx: &ApiContext, id: &str) -> crate::ApiResult<serde_json::Value> {
+    let workflow = get_workflow(ctx, id).await?;
+    serde_json::to_value(&workflow).map_err(Into::into)
+}
+
+/// Export a workflow as a pretty JSON string.
+pub async fn export_workflow_json(ctx: &ApiContext, id: &str) -> crate::ApiResult<String> {
+    let value = export_workflow(ctx, id).await?;
+    serde_json::to_string_pretty(&value).map_err(Into::into)
+}
+
+/// Export several workflows as a JSON object keyed by workflow id.
+pub async fn export_workflows(
+    ctx: &ApiContext,
+    ids: &[String],
+) -> crate::ApiResult<serde_json::Value> {
+    let mut map = serde_json::Map::new();
+    for id in ids {
+        let value = export_workflow(ctx, id).await?;
+        map.insert(id.clone(), value);
+    }
+    Ok(serde_json::Value::Object(map))
+}
+
+/// Import a workflow from a JSON value; the id is regenerated unless `new_id`
+/// is supplied. Returns the imported workflow id.
+pub async fn import_workflow(
+    ctx: &ApiContext,
+    json: &serde_json::Value,
+    new_id: Option<&str>,
+) -> crate::ApiResult<String> {
+    let mut workflow: WorkflowDefinition =
+        serde_json::from_value(json.clone()).map_err(ApiError::from)?;
+    let id = match new_id {
+        Some(nid) if !nid.is_empty() => nid.to_string(),
+        _ => wf_common::generate_id(),
+    };
+    if workflow.id != id && workflow_exists(ctx, &id).await? {
+        return Err(crate::ApiError::already_exists("workflow", &id));
+    }
+    workflow.id = id.clone();
+    save_workflow(ctx, &workflow).await?;
+    Ok(id)
+}
+
+/// Import a workflow from a JSON string; returns the imported workflow id.
+pub async fn import_workflow_json(
+    ctx: &ApiContext,
+    json: &str,
+    new_id: Option<&str>,
+) -> crate::ApiResult<String> {
+    let value: serde_json::Value = serde_json::from_str(json).map_err(ApiError::from)?;
+    import_workflow(ctx, &value, new_id).await
+}
+
+/// Import several workflows from a JSON object (keyed by id) or an array;
+/// returns the ids of all successfully imported workflows.
+pub async fn import_workflows(
+    ctx: &ApiContext,
+    json: &serde_json::Value,
+) -> crate::ApiResult<Vec<String>> {
+    let mut ids = Vec::new();
+    match json {
+        serde_json::Value::Object(map) => {
+            for (key, value) in map {
+                if let Ok(id) = import_workflow(ctx, value, Some(key)).await {
+                    ids.push(id);
+                }
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for item in items {
+                if let Ok(id) = import_workflow(ctx, item, None).await {
+                    ids.push(id);
+                }
+            }
+        }
+        _ => {
+            return Err(ApiError::Validation(
+                "expected a JSON object or array".into(),
+            ))
+        }
+    }
+    Ok(ids)
 }
 
 pub async fn update_workflow_metadata(
@@ -632,6 +754,50 @@ mod tests {
             versions.iter().any(|v| v.name == "Workflow changed"),
             "pre-rollback current must be preserved as a version"
         );
+    }
+
+    #[tokio::test]
+    async fn test_workflow_summaries_project_list() {
+        let ctx = make_ctx();
+        save_workflow(&ctx, &make_workflow("wf-sum")).await.unwrap();
+
+        let summaries = workflow_summaries(&ctx, None).await.unwrap();
+        assert_eq!(summaries.len(), 1);
+        assert_eq!(summaries[0].id, "wf-sum");
+        assert_eq!(summaries[0].node_count, 2);
+        assert_eq!(summaries[0].edge_count, 1);
+    }
+
+    #[tokio::test]
+    async fn test_workflow_export_import_roundtrip() {
+        let ctx = make_ctx();
+        save_workflow(&ctx, &make_workflow("wf-export"))
+            .await
+            .unwrap();
+
+        let json = export_workflow_json(&ctx, "wf-export").await.unwrap();
+        let imported_id = import_workflow_json(&ctx, &json, Some("wf-import"))
+            .await
+            .unwrap();
+        assert_eq!(imported_id, "wf-import");
+
+        let imported = get_workflow(&ctx, "wf-import").await.unwrap();
+        assert_eq!(imported.name, "Workflow wf-export");
+        assert!(ctx.registries.workflows.has("wf-import"));
+    }
+
+    #[tokio::test]
+    async fn test_workflow_export_import_assigns_new_id_when_omitted() {
+        let ctx = make_ctx();
+        save_workflow(&ctx, &make_workflow("wf-exp2"))
+            .await
+            .unwrap();
+
+        let json = export_workflow_json(&ctx, "wf-exp2").await.unwrap();
+        let auto_id = import_workflow_json(&ctx, &json, None).await.unwrap();
+        assert!(!auto_id.is_empty());
+        assert!(auto_id != "wf-exp2");
+        assert!(get_workflow(&ctx, &auto_id).await.is_ok());
     }
 
     #[tokio::test]

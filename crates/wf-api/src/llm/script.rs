@@ -321,6 +321,28 @@ pub async fn list_scripts_by_language(
         .map_err(Into::into)
 }
 
+/// Keyword search over script names and descriptions.
+pub async fn search_scripts(
+    ctx: &StorageContext,
+    keyword: &str,
+) -> crate::ApiResult<Vec<ScriptStorageMetadata>> {
+    let keyword = keyword.trim().to_lowercase();
+    if keyword.is_empty() {
+        return Ok(Vec::new());
+    }
+    Ok(list_scripts(ctx, None)
+        .await?
+        .into_iter()
+        .filter(|s| {
+            s.name.to_lowercase().contains(&keyword)
+                || s.description
+                    .as_deref()
+                    .map(|d| d.to_lowercase().contains(&keyword))
+                    .unwrap_or(false)
+        })
+        .collect())
+}
+
 /// Atomically set the enabled flag of a script (TS `ScriptRegistryAPI`
 /// `enableScript`/`disableScript` counterpart). Returns the updated record.
 pub async fn set_script_enabled(

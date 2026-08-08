@@ -430,6 +430,12 @@ impl SkillLoader {
         self.content_cache.lock().unwrap().clear();
         self.resource_cache.lock().unwrap().clear();
     }
+
+    /// Clear the cached content/resource entries of one skill only.
+    pub fn clear_cache_for(&self, name: &str) {
+        self.content_cache.lock().unwrap().remove(name);
+        self.resource_cache.lock().unwrap().remove(name);
+    }
 }
 
 fn resource_type_dir_name(resource_type: &SkillResourceType) -> &'static str {

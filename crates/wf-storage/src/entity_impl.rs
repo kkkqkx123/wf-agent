@@ -77,6 +77,8 @@ impl Entity for wf_types::TaskStorageMetadata {
         serde_json::json!({
             "taskType": self.task_type,
             "status": self.status,
+            "executionId": self.execution_id,
+            "instanceId": self.instance_id,
             "createdAt": self.created_at,
             "updatedAt": self.updated_at,
         })

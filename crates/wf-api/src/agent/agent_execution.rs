@@ -9,7 +9,9 @@ use wf_tools::callback::{AgentLoopConfig, AgentLoopInput, AgentLoopOutput};
 
 use crate::infra::context::ApiContext;
 use crate::infra::error::ApiError;
+use crate::infra::state_tracker::{ExecutionStateAccessor, StatePoint};
 use crate::infra::stream::ExecutionEventStream;
+use wf_execution_shared::types::state_manager::StateManager;
 
 /// Default wall-clock timeout for an agent loop when the config sets neither
 /// `max_execution_time` nor `max_iterations` (30s per iteration, 3 default
@@ -196,6 +198,49 @@ fn agent_timeout_ms(config: &AgentLoopConfig) -> u64 {
         .map(|iterations| iterations as u64 * AGENT_TIMEOUT_PER_ITERATION_MS)
         .unwrap_or(DEFAULT_AGENT_TIMEOUT_MS)
         .max(1)
+}
+
+/// Adapter from a live [`AgentLoopEntity`] to the normalized [`StatePoint`]
+/// consumed by the shared execution-state recorder.
+pub struct AgentStateAccessor {
+    pub entity: Arc<AgentLoopEntity>,
+}
+
+#[async_trait::async_trait]
+impl ExecutionStateAccessor for AgentStateAccessor {
+    async fn capture(&self) -> StatePoint {
+        let snapshot = match self.entity.state.read().await.create_snapshot().await {
+            Ok(snapshot) => snapshot,
+            Err(err) => {
+                tracing::warn!(
+                    target: "wf_api",
+                    agent_loop_id = %self.entity.id(),
+                    error = %err,
+                    "state capture: snapshot failed, recording empty state"
+                );
+                return StatePoint {
+                    iteration: 0,
+                    status: wf_types::ExecutionStatus::Running,
+                    variables: Default::default(),
+                    call_stack_depth: 0,
+                    memory_usage: None,
+                };
+            }
+        };
+        let variables: std::collections::BTreeMap<String, serde_json::Value> =
+            snapshot.variable_snapshots.into_iter().collect();
+        let memory_usage = variables
+            .values()
+            .map(|v| serde_json::to_vec(v).map(|b| b.len() as i64).unwrap_or(0))
+            .sum();
+        StatePoint {
+            iteration: snapshot.current_iteration,
+            status: snapshot.status.into(),
+            variables,
+            call_stack_depth: snapshot.iteration_history.len(),
+            memory_usage: Some(memory_usage),
+        }
+    }
 }
 
 #[cfg(test)]

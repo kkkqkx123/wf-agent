@@ -7,6 +7,7 @@ pub mod execution_graph;
 pub mod execution_state;
 pub mod execution_trigger;
 pub mod file_checkpoint;
+pub mod graph_query;
 pub mod iteration;
 #[allow(clippy::module_inception)]
 pub mod workflow;

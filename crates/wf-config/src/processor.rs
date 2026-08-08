@@ -37,5 +37,6 @@ pub mod script;
 pub mod script_flow;
 pub mod script_interactive;
 pub mod substitute;
+pub mod tools;
 pub mod trigger;
 pub mod workflow;

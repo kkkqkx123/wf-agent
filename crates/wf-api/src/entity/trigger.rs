@@ -5,6 +5,54 @@ use wf_types::TriggerStorageMetadata;
 
 use crate::not_found;
 
+/// Keyword search over trigger names, ids and events (TS
+/// `searchTriggers`).
+pub async fn search_triggers(
+    ctx: &StorageContext,
+    keyword: &str,
+) -> crate::ApiResult<Vec<TriggerStorageMetadata>> {
+    let keyword = keyword.trim().to_lowercase();
+    if keyword.is_empty() {
+        return Ok(Vec::new());
+    }
+    let all = list_triggers(ctx, None).await?;
+    Ok(all
+        .into_iter()
+        .filter(|t| {
+            t.name.to_lowercase().contains(&keyword)
+                || t.id.to_lowercase().contains(&keyword)
+                || t.event.to_lowercase().contains(&keyword)
+        })
+        .collect())
+}
+
+/// Global trigger statistics: counts and event distribution.
+#[derive(Debug, Clone, Default, serde::Serialize)]
+pub struct TriggerStatistics {
+    pub total: usize,
+    pub enabled: usize,
+    pub disabled: usize,
+    pub by_event: std::collections::BTreeMap<String, usize>,
+}
+
+/// Global trigger statistics (TS `GlobalTriggerStatistics` counterpart).
+pub async fn trigger_statistics(ctx: &StorageContext) -> crate::ApiResult<TriggerStatistics> {
+    let all = list_triggers(ctx, None).await?;
+    let mut stats = TriggerStatistics {
+        total: all.len(),
+        ..TriggerStatistics::default()
+    };
+    for trigger in &all {
+        if trigger.enabled {
+            stats.enabled += 1;
+        } else {
+            stats.disabled += 1;
+        }
+        *stats.by_event.entry(trigger.event.clone()).or_insert(0) += 1;
+    }
+    Ok(stats)
+}
+
 pub async fn save_trigger(
     ctx: &StorageContext,
     trigger: &TriggerStorageMetadata,
@@ -182,5 +230,28 @@ mod tests {
         // is still present and consistent.
         let trigger = get_trigger(&ctx, "tr-race").await.unwrap();
         assert!(trigger.updated_at >= 1000);
+    }
+
+    #[tokio::test]
+    async fn trigger_search_and_statistics() {
+        let ctx = StorageContext::new_memory();
+        save_trigger(&ctx, &make_trigger("tr-1", "push"))
+            .await
+            .unwrap();
+        save_trigger(&ctx, &make_trigger("tr-2", "schedule"))
+            .await
+            .unwrap();
+        disable_trigger(&ctx, "tr-2").await.unwrap();
+
+        let found = search_triggers(&ctx, "push").await.unwrap();
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].id, "tr-1");
+
+        let stats = trigger_statistics(&ctx).await.unwrap();
+        assert_eq!(stats.total, 2);
+        assert_eq!(stats.enabled, 1);
+        assert_eq!(stats.disabled, 1);
+        assert_eq!(stats.by_event.get("push"), Some(&1));
+        assert_eq!(stats.by_event.get("schedule"), Some(&1));
     }
 }

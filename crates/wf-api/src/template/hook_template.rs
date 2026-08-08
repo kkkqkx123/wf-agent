@@ -44,6 +44,49 @@ pub async fn list_hook_templates_by_type(
         .map_err(Into::into)
 }
 
+/// Digest of a hook template (TS `HookTemplateSummary`).
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct HookTemplateSummary {
+    pub id: String,
+    pub name: String,
+    pub hook_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    pub updated_at: i64,
+}
+
+/// Project `list_hook_templates` results onto [`HookTemplateSummary`].
+pub async fn hook_template_summaries(
+    ctx: &StorageContext,
+    options: Option<HookTemplateListOptions>,
+) -> crate::ApiResult<Vec<HookTemplateSummary>> {
+    Ok(list_hook_templates(ctx, options)
+        .await?
+        .into_iter()
+        .map(|t| HookTemplateSummary {
+            id: t.id.to_string(),
+            name: t.name,
+            hook_type: t.hook_type,
+            description: t.description,
+            updated_at: t.updated_at,
+        })
+        .collect())
+}
+
+/// Export a hook template as a JSON string.
+pub async fn export_template(ctx: &StorageContext, id: &str) -> crate::ApiResult<String> {
+    let template = get_hook_template(ctx, id).await?;
+    serde_json::to_string_pretty(&template).map_err(Into::into)
+}
+
+/// Import a hook template from a JSON string; returns the imported id.
+pub async fn import_template(ctx: &StorageContext, json: &str) -> crate::ApiResult<String> {
+    let template: HookTemplateStorageMetadata =
+        serde_json::from_str(json).map_err(crate::ApiError::from)?;
+    save_hook_template(ctx, &template).await?;
+    Ok(template.id.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -96,5 +139,25 @@ mod tests {
 
         let listed = list_hook_templates(&ctx, None).await.unwrap();
         assert_eq!(listed.len(), 3);
+    }
+
+    #[tokio::test]
+    async fn hook_template_summaries_export_import() {
+        let ctx = StorageContext::new_memory();
+        save_hook_template(&ctx, &make_template("ht-1", "before_execute"))
+            .await
+            .unwrap();
+
+        let summaries = hook_template_summaries(&ctx, None).await.unwrap();
+        assert_eq!(summaries.len(), 1);
+        assert_eq!(summaries[0].hook_type, "before_execute");
+
+        let json = export_template(&ctx, "ht-1").await.unwrap();
+        let imported_id = import_template(&ctx, &json).await.unwrap();
+        assert_eq!(imported_id, "ht-1");
+        assert_eq!(
+            get_hook_template(&ctx, "ht-1").await.unwrap().hook_type,
+            "before_execute"
+        );
     }
 }

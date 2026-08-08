@@ -4,7 +4,7 @@
 //! Backed by the shared `LlmGateway` profile registry, so profiles managed
 //! through this API are the same profiles every LLM request resolves.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use wf_llm::profile_manager::validate_profile;
@@ -20,7 +20,7 @@ pub const MASKED_API_KEY: &str = "***HIDDEN***";
 /// One point of an LLM profile template (mirrors the TS
 /// `LLMProfileTemplate`): a partial profile whose id/name/key are filled by
 /// the caller at creation time.
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LlmProfileTemplate {
     pub name: String,
     pub description: String,
@@ -208,13 +208,67 @@ pub fn validate(_ctx: &ApiContext, profile: &LlmProfile) -> (bool, Vec<String>) 
 
 // ── templates ───────────────────────────────────────────────────
 
-/// List the built-in profile templates.
-pub async fn list_templates(_ctx: &ApiContext) -> ApiResult<Vec<LlmProfileTemplate>> {
-    Ok(builtin_templates())
+/// Well-known persistence key holding the runtime custom profile templates.
+const CUSTOM_TEMPLATES_KEY: &str = "custom:llm_profile_templates";
+
+async fn load_custom_templates(ctx: &ApiContext) -> Vec<LlmProfileTemplate> {
+    ctx.persistence
+        .load_snapshot(CUSTOM_TEMPLATES_KEY)
+        .await
+        .ok()
+        .flatten()
+        .and_then(|value| serde_json::from_value::<Vec<LlmProfileTemplate>>(value).ok())
+        .unwrap_or_default()
 }
 
-pub async fn get_template(_ctx: &ApiContext, name: &str) -> ApiResult<Option<LlmProfileTemplate>> {
-    Ok(builtin_templates().into_iter().find(|t| t.name == name))
+/// List the built-in profile templates plus any custom templates registered
+/// through [`add_template`].
+pub async fn list_templates(ctx: &ApiContext) -> ApiResult<Vec<LlmProfileTemplate>> {
+    let mut templates = builtin_templates();
+    templates.extend(load_custom_templates(ctx).await);
+    Ok(templates)
+}
+
+pub async fn get_template(ctx: &ApiContext, name: &str) -> ApiResult<Option<LlmProfileTemplate>> {
+    Ok(list_templates(ctx)
+        .await?
+        .into_iter()
+        .find(|t| t.name == name))
+}
+
+/// Register a runtime custom template (persisted through the context's
+/// persistence layer). The name must be unique across the built-in and
+/// custom templates.
+pub async fn add_template(ctx: &ApiContext, template: LlmProfileTemplate) -> ApiResult<()> {
+    if template.name.trim().is_empty() {
+        return Err(ApiError::Validation("template name is required".into()));
+    }
+    let mut custom = load_custom_templates(ctx).await;
+    if builtin_templates().iter().any(|t| t.name == template.name)
+        || custom.iter().any(|t| t.name == template.name)
+    {
+        return Err(ApiError::already_exists("template", &template.name));
+    }
+    custom.push(template);
+    ctx.persistence
+        .save_snapshot(CUSTOM_TEMPLATES_KEY, &serde_json::to_value(custom)?)
+        .await?;
+    Ok(())
+}
+
+/// Remove a runtime custom template by name. Built-in templates cannot be
+/// removed. Returns whether a template was removed.
+pub async fn remove_template(ctx: &ApiContext, name: &str) -> ApiResult<bool> {
+    let mut custom = load_custom_templates(ctx).await;
+    let before = custom.len();
+    custom.retain(|t| t.name != name);
+    if custom.len() == before {
+        return Ok(false);
+    }
+    ctx.persistence
+        .save_snapshot(CUSTOM_TEMPLATES_KEY, &serde_json::to_value(custom)?)
+        .await?;
+    Ok(true)
 }
 
 /// Create a profile from a template: start from the template profile and
@@ -482,5 +536,44 @@ mod tests {
         .unwrap();
         assert_eq!(matched.len(), 1);
         assert_eq!(matched[0].id, auto);
+    }
+
+    #[tokio::test]
+    async fn custom_templates_add_remove() {
+        let ctx = make_ctx();
+
+        // Custom template registration is persisted per-context.
+        let custom = LlmProfileTemplate {
+            name: "custom-chat".into(),
+            description: "A runtime template".into(),
+            profile: template_profile(LlmProvider::OpenaiChat, "gpt-custom", json!({})),
+        };
+        add_template(&ctx, custom.clone()).await.unwrap();
+        let err = add_template(&ctx, custom.clone()).await.unwrap_err();
+        assert!(matches!(err, ApiError::AlreadyExists { .. }));
+        let err = add_template(
+            &ctx,
+            LlmProfileTemplate {
+                name: "openai-chat".into(),
+                description: "clashes with builtin".into(),
+                profile: template_profile(LlmProvider::OpenaiChat, "x", json!({})),
+            },
+        )
+        .await
+        .unwrap_err();
+        assert!(matches!(err, ApiError::AlreadyExists { .. }));
+
+        let templates = list_templates(&ctx).await.unwrap();
+        assert_eq!(templates.len(), 4);
+        assert!(get_template(&ctx, "custom-chat").await.unwrap().is_some());
+
+        let id = create_from_template(&ctx, "custom-chat", &json!({ "api_key": "sk-c" }))
+            .await
+            .unwrap();
+        assert!(id.starts_with("profile-"));
+
+        assert!(remove_template(&ctx, "custom-chat").await.unwrap());
+        assert!(!remove_template(&ctx, "custom-chat").await.unwrap());
+        assert_eq!(list_templates(&ctx).await.unwrap().len(), 3);
     }
 }

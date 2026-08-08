@@ -38,6 +38,55 @@ pub async fn cleanup_tasks(ctx: &StorageContext, older_than: i64) -> crate::ApiR
     ctx.task.cleanup(older_than).await.map_err(Into::into)
 }
 
+/// Cancel a task: flip its status to `cancelled` (read-modify-write through
+/// the storage adapter).
+pub async fn cancel_task(ctx: &StorageContext, id: &str) -> crate::ApiResult<()> {
+    let mut task = get_task(ctx, id).await?;
+    if task.status == "cancelled" {
+        return Ok(());
+    }
+    task.status = "cancelled".into();
+    task.updated_at = wf_common::now();
+    ctx.task.save(&task).await?;
+    Ok(())
+}
+
+/// Tasks attributed to an execution (matched against the optional
+/// `execution_id` field).
+pub async fn get_by_execution_id(
+    ctx: &StorageContext,
+    execution_id: &str,
+) -> crate::ApiResult<Vec<TaskStorageMetadata>> {
+    Ok(list_tasks(ctx, None)
+        .await?
+        .into_iter()
+        .filter(|t| t.execution_id.as_deref() == Some(execution_id))
+        .collect())
+}
+
+/// Tasks attributed to an instance (matched against the optional
+/// `instance_id` field).
+pub async fn get_by_instance_id(
+    ctx: &StorageContext,
+    instance_id: &str,
+) -> crate::ApiResult<Vec<TaskStorageMetadata>> {
+    Ok(list_tasks(ctx, None)
+        .await?
+        .into_iter()
+        .filter(|t| t.instance_id.as_deref() == Some(instance_id))
+        .collect())
+}
+
+/// Remove all tasks from storage; returns the number removed.
+pub async fn clear_tasks(ctx: &StorageContext) -> crate::ApiResult<u64> {
+    let all = list_tasks(ctx, None).await?;
+    let count = all.len() as u64;
+    for task in all {
+        let _ = delete_task(ctx, &task.id).await;
+    }
+    Ok(count)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -47,6 +96,8 @@ mod tests {
             id: id.into(),
             task_type: task_type.into(),
             status: status.into(),
+            execution_id: None,
+            instance_id: None,
             created_at,
             updated_at: created_at,
         }
@@ -107,5 +158,32 @@ mod tests {
         let removed = cleanup_tasks(&ctx, 1500).await.unwrap();
         assert_eq!(removed, 1);
         assert_eq!(list_tasks(&ctx, None).await.unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn cancel_and_lookup_by_ids() {
+        let ctx = StorageContext::new_memory();
+        let mut task = make_task("task-x", "ingest", "pending", 1000);
+        task.execution_id = Some("exec-x".into());
+        task.instance_id = Some("inst-x".into());
+        save_task(&ctx, &task).await.unwrap();
+
+        cancel_task(&ctx, "task-x").await.unwrap();
+        assert_eq!(get_task(&ctx, "task-x").await.unwrap().status, "cancelled");
+
+        // Cancelling again is idempotent.
+        cancel_task(&ctx, "task-x").await.unwrap();
+
+        let by_exec = get_by_execution_id(&ctx, "exec-x").await.unwrap();
+        assert_eq!(by_exec.len(), 1);
+        let by_inst = get_by_instance_id(&ctx, "inst-x").await.unwrap();
+        assert_eq!(by_inst.len(), 1);
+        assert!(get_by_execution_id(&ctx, "nope").await.unwrap().is_empty());
+
+        let err = cancel_task(&ctx, "missing").await.unwrap_err();
+        assert!(matches!(err, crate::ApiError::NotFound { .. }));
+
+        assert_eq!(clear_tasks(&ctx).await.unwrap(), 1);
+        assert!(list_tasks(&ctx, None).await.unwrap().is_empty());
     }
 }

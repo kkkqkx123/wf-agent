@@ -646,6 +646,8 @@ mod tests {
                 id: format!("task-match-{:02}", i),
                 task_type: "search".into(),
                 status: "pending".into(),
+                execution_id: None,
+                instance_id: None,
                 created_at: wf_common::now(),
                 updated_at: wf_common::now(),
             };

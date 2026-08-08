@@ -727,6 +727,53 @@ fn node_type_string(node_type: &wf_types::node::StaticNodeType) -> String {
         .unwrap_or_default()
 }
 
+/// Digest of a workflow execution (TS `ExecutionSummary`): the fields most
+/// execution-list consumers read, computed from the persisted record.
+#[derive(Debug, Clone, Serialize)]
+pub struct ExecutionSummary {
+    pub id: String,
+    pub workflow_id: String,
+    pub status: wf_types::ExecutionStatus,
+    pub started_at: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub completed_at: Option<i64>,
+    /// Elapsed time in ms (`completed_at - started_at`; `None` while running).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub elapsed_ms: Option<i64>,
+    pub error_count: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+/// Project [`crate::workflow::workflow::list_executions`] results onto
+/// [`ExecutionSummary`].
+pub async fn execution_summaries(
+    ctx: &ApiContext,
+    options: Option<wf_storage::adapter::execution::WorkflowExecutionListOptions>,
+) -> crate::ApiResult<Vec<ExecutionSummary>> {
+    Ok(crate::workflow::workflow::list_executions(ctx, options)
+        .await?
+        .into_iter()
+        .map(|execution| {
+            let error_count = execution.errors.as_ref().map(|e| e.len()).unwrap_or(0);
+            let elapsed_ms = match (execution.started_at, execution.completed_at) {
+                (start, Some(end)) => Some(end - start),
+                _ => None,
+            };
+            ExecutionSummary {
+                id: execution.id.clone(),
+                workflow_id: execution.workflow_id.clone(),
+                status: execution.status.clone(),
+                started_at: execution.started_at,
+                completed_at: execution.completed_at,
+                elapsed_ms,
+                error_count,
+                error: execution.error.clone(),
+            }
+        })
+        .collect())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1233,5 +1280,48 @@ mod tests {
         .await
         .expect_err("short deadline must elapse");
         assert!(matches!(err, ApiError::Timeout(_)));
+    }
+
+    #[tokio::test]
+    async fn execution_summaries_project_persisted_records() {
+        let ctx = make_ctx();
+        let definition = make_definition("wf-sum-1");
+        ctx.storage.workflow.save(&definition).await.unwrap();
+        let output = execute(
+            &ctx,
+            ExecuteWorkflowParams {
+                workflow_id: "wf-sum-1".into(),
+                input: Some(serde_json::json!({"greeting": "hi"})),
+                options: None,
+            },
+        )
+        .await
+        .expect("workflow completes");
+
+        let summaries = execution_summaries(&ctx, None).await.unwrap();
+        let execution = summaries
+            .iter()
+            .find(|s| s.id.as_str() == output.execution_id.as_str())
+            .expect("execution present");
+        assert_eq!(execution.workflow_id, "wf-sum-1");
+        assert!(matches!(
+            execution.status,
+            wf_types::ExecutionStatus::Completed
+        ));
+        assert!(execution.elapsed_ms.is_some());
+        assert_eq!(execution.error_count, 0);
+
+        let filtered = execution_summaries(
+            &ctx,
+            Some(
+                wf_storage::adapter::execution::WorkflowExecutionListOptions {
+                    workflow_id_filter: Some("wf-sum-1".into()),
+                    ..Default::default()
+                },
+            ),
+        )
+        .await
+        .unwrap();
+        assert_eq!(filtered.len(), 1);
     }
 }

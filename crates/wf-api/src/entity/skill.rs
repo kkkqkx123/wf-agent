@@ -142,6 +142,46 @@ pub fn clear_cache(ctx: &ApiContext) -> ApiResult<()> {
     Ok(())
 }
 
+/// Clear the cached content/resource entries of one skill only.
+pub fn clear_cache_by_name(ctx: &ApiContext, name: &str) -> ApiResult<()> {
+    let loader = loader(ctx)?;
+    loader.clear_cache_for(name);
+    Ok(())
+}
+
+// ── scanning / reload ───────────────────────────────────────────
+
+/// Scan a skills root directory for new skill definitions (every subdirectory
+/// containing `SKILL.md`) and return the updated skill list.
+pub fn scan_skills(ctx: &ApiContext, dir: &str) -> ApiResult<Vec<SkillMetadata>> {
+    let loader = loader(ctx)?;
+    loader.scan_path(std::path::Path::new(dir));
+    Ok(loader.list_skills())
+}
+
+/// Reload a skills root directory: clear the caches, rescan the directory and
+/// return the refreshed skill list.
+pub fn reload(ctx: &ApiContext, dir: &str) -> ApiResult<Vec<SkillMetadata>> {
+    let loader = loader(ctx)?;
+    loader.clear_cache();
+    loader.scan_path(std::path::Path::new(dir));
+    Ok(loader.list_skills())
+}
+
+/// A prompt assembled from the enabled skills (TS `toPrompt`): the metadata
+/// prompt followed by the full body content of every enabled skill.
+pub fn to_prompt(ctx: &ApiContext) -> ApiResult<String> {
+    let loader = loader(ctx)?;
+    let enabled = loader.get_enabled_skills();
+    let mut prompt = wf_tools::skill::generate_skill_metadata_prompt(&enabled);
+    for skill in &enabled {
+        if let Ok(content) = loader.load_content(&skill.name) {
+            prompt.push_str(&format!("\n\n## Skill: {}\n{}", skill.name, content));
+        }
+    }
+    Ok(prompt)
+}
+
 // ── progressive disclosure ──────────────────────────────────────
 
 /// Level 1: metadata prompt listing the enabled skills.
@@ -342,5 +382,39 @@ mod tests {
         let err = get_skill(&ctx, "x").unwrap_err();
         assert!(matches!(err, ApiError::Execution { .. }));
         let _ = PathBuf::new();
+    }
+
+    #[test]
+    fn scan_reload_to_prompt_and_per_name_cache_clear() {
+        let ctx = make_ctx("scan");
+
+        // A second skill is picked up by scanning its root directory.
+        let dir = std::env::temp_dir().join(format!("wf-api-skill-scan-{}", std::process::id()));
+        let second = dir.join("second-skill");
+        std::fs::create_dir_all(&second).unwrap();
+        std::fs::write(
+            second.join("SKILL.md"),
+            "---\nname: second-skill\ndescription: A second skill\n---\n\nBody two",
+        )
+        .unwrap();
+
+        let scanned = scan_skills(&ctx, dir.to_string_lossy().as_ref()).unwrap();
+        assert!(scanned.iter().any(|s| s.name == "second-skill"));
+
+        // to_prompt includes the enabled skill bodies.
+        let prompt = to_prompt(&ctx).unwrap();
+        assert!(prompt.contains("test-skill"));
+        assert!(prompt.contains("Test skill body"));
+
+        // Per-name cache clear is a no-op error-wise and preserves the loader.
+        clear_cache_by_name(&ctx, "test-skill").unwrap();
+        assert!(has_skill(&ctx, "test-skill"));
+
+        // reload clears caches and rescans the root.
+        let reloaded = reload(&ctx, dir.to_string_lossy().as_ref()).unwrap();
+        assert!(reloaded.iter().any(|s| s.name == "second-skill"));
+
+        std::fs::remove_dir_all(&dir).ok();
+        cleanup("scan");
     }
 }

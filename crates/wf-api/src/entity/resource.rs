@@ -189,6 +189,8 @@ mod tests {
             id: "task-1".into(),
             task_type: "ingest".into(),
             status: "pending".into(),
+            execution_id: None,
+            instance_id: None,
             created_at: 1000,
             updated_at: 1000,
         };
@@ -230,6 +232,8 @@ mod tests {
                 id: id.clone(),
                 task_type: "batch".into(),
                 status: "queued".into(),
+                execution_id: None,
+                instance_id: None,
                 created_at: 1000,
                 updated_at: 1000,
             })

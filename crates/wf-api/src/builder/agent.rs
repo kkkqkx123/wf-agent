@@ -494,6 +494,76 @@ impl<S> AgentDefinitionBuilder<S> {
         self.metadata = Some(metadata);
         self
     }
+
+    /// Get or create the agent config so field setters can mutate it.
+    fn config_slot(&mut self) -> &mut AgentConfig {
+        self.config.get_or_insert_with(empty_agent_config)
+    }
+
+    /// Set the agent system prompt.
+    pub fn system_prompt(mut self, prompt: impl Into<String>) -> Self {
+        self.config_slot().system_prompt = Some(prompt.into());
+        self
+    }
+
+    /// Cap the number of agent iterations.
+    pub fn max_iterations(mut self, max_iterations: u32) -> Self {
+        self.config_slot().max_iterations = Some(max_iterations);
+        self
+    }
+
+    /// Set the tools the agent may call.
+    pub fn available_tools(mut self, available_tools: AvailableTools) -> Self {
+        self.config_slot().available_tools = Some(available_tools);
+        self
+    }
+
+    /// Replace the agent hooks.
+    pub fn hooks(mut self, hooks: Vec<AgentHookConfig>) -> Self {
+        self.config_slot().hooks = Some(hooks);
+        self
+    }
+
+    /// Append one hook to the agent config.
+    pub fn add_hook(mut self, hook: AgentHookConfig) -> Self {
+        let config = self.config_slot();
+        config.hooks.get_or_insert_with(Vec::new).push(hook);
+        self
+    }
+
+    /// Replace the agent triggers.
+    pub fn triggers(mut self, triggers: Vec<TriggerDefinition>) -> Self {
+        self.config_slot().triggers = Some(triggers);
+        self
+    }
+
+    /// Append one trigger to the agent config.
+    pub fn add_trigger(mut self, trigger: TriggerDefinition) -> Self {
+        let config = self.config_slot();
+        config.triggers.get_or_insert_with(Vec::new).push(trigger);
+        self
+    }
+}
+
+/// An empty agent config (all optional fields unset) used as the base for
+/// the config field setters.
+fn empty_agent_config() -> AgentConfig {
+    AgentConfig {
+        profile_id: None,
+        system_prompt: None,
+        system_prompt_template_id: None,
+        system_prompt_template_variables: None,
+        max_iterations: None,
+        initial_messages: None,
+        available_tools: None,
+        stream: None,
+        tool_call_format: None,
+        hooks: None,
+        triggers: None,
+        dynamic_context: None,
+        checkpoint: None,
+        violation_policy: None,
+    }
 }
 
 impl AgentDefinitionBuilder<DefNamed> {
@@ -765,6 +835,32 @@ mod tests {
             .build()
             .unwrap_err();
         assert!(matches!(err, crate::ApiError::Validation(_)));
+    }
+
+    #[test]
+    fn agent_definition_builder_config_setters() {
+        let definition = AgentDefinitionBuilder::new("agent-cfg")
+            .name("Configured Agent")
+            .system_prompt("You are a code agent.")
+            .max_iterations(8)
+            .available_tools(AgentToolConfigBuilder::new().add_tool("web_search").build())
+            .add_hook(AgentHookBuilder::after_iteration("iter-done").build())
+            .add_trigger(AgentTriggerBuilder::on_event("on-start", "AGENT_STARTED").build())
+            .build()
+            .expect("named agent must build");
+
+        let config = definition.config.expect("config built");
+        assert_eq!(
+            config.system_prompt.as_deref(),
+            Some("You are a code agent.")
+        );
+        assert_eq!(config.max_iterations, Some(8));
+        assert_eq!(
+            config.available_tools.as_ref().unwrap().available,
+            vec!["web_search".to_string()]
+        );
+        assert_eq!(config.hooks.as_ref().unwrap().len(), 1);
+        assert_eq!(config.triggers.as_ref().unwrap().len(), 1);
     }
 
     #[test]

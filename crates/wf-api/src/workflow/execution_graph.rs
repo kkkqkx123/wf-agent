@@ -185,7 +185,7 @@ pub async fn analyze(ctx: &ApiContext, execution_id: &str) -> ApiResult<Executio
 /// Resolve the graph of an execution: the live entity has none, the
 /// persisted record may carry one, otherwise the workflow definition is
 /// converted (flat template semantics).
-async fn resolve_graph(
+pub(crate) async fn resolve_graph(
     ctx: &ApiContext,
     execution_id: &str,
 ) -> ApiResult<Option<WorkflowGraphStructure>> {

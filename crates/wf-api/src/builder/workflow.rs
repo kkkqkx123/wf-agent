@@ -104,6 +104,56 @@ impl WorkflowBuilder<Empty> {
     pub fn add_end_node(self) -> crate::ApiResult<WorkflowBuilder<Building>> {
         self.add_node(NodeBuilder::end("end").build())
     }
+
+    /// Rehydrate a builder from a serialized `WorkflowDefinition` (JSON or
+    /// TOML). Validation is deferred to `build()` / `save()`.
+    pub fn from_config(
+        content: &str,
+        format: WorkflowConfigFormat,
+    ) -> crate::ApiResult<WorkflowBuilder<Building>> {
+        let definition: WorkflowDefinition = match format {
+            WorkflowConfigFormat::Json => wf_config::parser::parse_json(content)?,
+            WorkflowConfigFormat::Toml => wf_config::parser::parse_toml(content)?,
+        };
+        Ok(WorkflowBuilder::from_definition(definition))
+    }
+
+    /// Rehydrate a builder from a JSON-serialized `WorkflowDefinition`.
+    pub fn from_config_json(content: &str) -> crate::ApiResult<WorkflowBuilder<Building>> {
+        WorkflowBuilder::from_config(content, WorkflowConfigFormat::Json)
+    }
+
+    /// Rehydrate a builder from a TOML-serialized `WorkflowDefinition`.
+    pub fn from_config_toml(content: &str) -> crate::ApiResult<WorkflowBuilder<Building>> {
+        WorkflowBuilder::from_config(content, WorkflowConfigFormat::Toml)
+    }
+
+    /// Initialize a `Building` builder from an already-valid definition.
+    fn from_definition(definition: WorkflowDefinition) -> WorkflowBuilder<Building> {
+        WorkflowBuilder {
+            id: definition.id,
+            name: definition.name,
+            description: definition.description,
+            r#type: definition.r#type,
+            version: definition.version,
+            config: definition.config,
+            variables: definition.variables.unwrap_or_default(),
+            triggers: definition.triggers.unwrap_or_default(),
+            metadata: definition.metadata,
+            available_tools: definition.available_tools,
+            nodes: definition.nodes,
+            edges: definition.edges,
+            _marker: PhantomData,
+        }
+    }
+}
+
+/// Serialization format accepted by
+/// [`WorkflowBuilder::from_config`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WorkflowConfigFormat {
+    Json,
+    Toml,
 }
 
 impl WorkflowBuilder<Building> {
@@ -202,18 +252,7 @@ impl<S> WorkflowBuilder<S> {
     ) -> crate::ApiResult<Self> {
         let from = from.into();
         let to = to.into();
-        if !self.nodes.iter().any(|n| n.id == from) {
-            return Err(crate::ApiError::Validation(format!(
-                "edge references unknown source node '{}' in workflow '{}'",
-                from, self.id
-            )));
-        }
-        if !self.nodes.iter().any(|n| n.id == to) {
-            return Err(crate::ApiError::Validation(format!(
-                "edge references unknown target node '{}' in workflow '{}'",
-                to, self.id
-            )));
-        }
+        self.ensure_nodes_exist(&from, &to)?;
         self.edges.push(Edge {
             id: wf_common::generate_id(),
             source_node_id: from,
@@ -226,6 +265,48 @@ impl<S> WorkflowBuilder<S> {
             metadata: None,
         });
         Ok(self)
+    }
+
+    /// Connect two registered nodes with a conditional edge (TS
+    /// `WorkflowBuilder` conditional edges). The condition is a
+    /// `${...}` expression evaluated at runtime to select the branch.
+    pub fn add_conditional_edge(
+        mut self,
+        from: impl Into<String>,
+        to: impl Into<String>,
+        condition: impl Into<String>,
+    ) -> crate::ApiResult<Self> {
+        let from = from.into();
+        let to = to.into();
+        self.ensure_nodes_exist(&from, &to)?;
+        self.edges.push(Edge {
+            id: wf_common::generate_id(),
+            source_node_id: from,
+            target_node_id: to,
+            r#type: EdgeType::Conditional,
+            condition: Some(condition.into()),
+            label: None,
+            description: None,
+            weight: None,
+            metadata: None,
+        });
+        Ok(self)
+    }
+
+    fn ensure_nodes_exist(&self, from: &str, to: &str) -> crate::ApiResult<()> {
+        if !self.nodes.iter().any(|n| n.id == from) {
+            return Err(crate::ApiError::Validation(format!(
+                "edge references unknown source node '{}' in workflow '{}'",
+                from, self.id
+            )));
+        }
+        if !self.nodes.iter().any(|n| n.id == to) {
+            return Err(crate::ApiError::Validation(format!(
+                "edge references unknown target node '{}' in workflow '{}'",
+                to, self.id
+            )));
+        }
+        Ok(())
     }
 
     /// Node ids currently registered.
@@ -362,5 +443,83 @@ mod tests {
             .add_edge("join", "end")
             .unwrap();
         assert!(builder.build().is_ok());
+    }
+
+    #[test]
+    fn conditional_edge_carries_condition() {
+        let builder = WorkflowBuilder::new("wf-cond")
+            .add_start_node()
+            .unwrap()
+            .add_node(
+                NodeBuilder::variable(
+                    "branch",
+                    "v",
+                    wf_types::node::configs::VariableNodeType::String,
+                    "${input.x}",
+                )
+                .build(),
+            )
+            .unwrap()
+            .add_end_node()
+            .unwrap()
+            .add_edge("start", "branch")
+            .unwrap()
+            .add_conditional_edge("branch", "end", "${input.x == 'yes'}")
+            .unwrap();
+
+        let definition = builder.build().expect("graph must build");
+        let edge = definition
+            .edges
+            .iter()
+            .find(|e| e.source_node_id == "branch")
+            .expect("conditional edge");
+        assert_eq!(edge.r#type, EdgeType::Conditional);
+        assert_eq!(edge.condition.as_deref(), Some("${input.x == 'yes'}"));
+    }
+
+    #[test]
+    fn from_config_rehydrates_json_and_toml() {
+        let json = r#"{
+            "id": "wf-from-json",
+            "name": "From JSON",
+            "nodes": [
+                {"id": "start", "node_type": "START"},
+                {"id": "end", "node_type": "END"}
+            ],
+            "edges": [
+                {"id": "e1", "source_node_id": "start", "target_node_id": "end", "type": "DEFAULT"}
+            ],
+            "created_at": 1000,
+            "updated_at": 1000
+        }"#;
+        let builder = WorkflowBuilder::<Empty>::from_config_json(json).unwrap();
+        let definition = builder.build().expect("json workflow must build");
+        assert_eq!(definition.id, "wf-from-json");
+        assert_eq!(definition.nodes.len(), 2);
+
+        let toml = r#"
+id = "wf-from-toml"
+name = "From TOML"
+created_at = 1000
+updated_at = 1000
+
+[[nodes]]
+id = "start"
+node_type = "START"
+
+[[nodes]]
+id = "end"
+node_type = "END"
+
+[[edges]]
+id = "e1"
+source_node_id = "start"
+target_node_id = "end"
+type = "DEFAULT"
+"#;
+        let builder = WorkflowBuilder::<Empty>::from_config_toml(toml).unwrap();
+        let definition = builder.build().expect("toml workflow must build");
+        assert_eq!(definition.id, "wf-from-toml");
+        assert_eq!(definition.nodes.len(), 2);
     }
 }

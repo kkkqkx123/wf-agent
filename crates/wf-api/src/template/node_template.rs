@@ -44,6 +44,49 @@ pub async fn list_node_templates_by_type(
         .map_err(Into::into)
 }
 
+/// Digest of a node template (TS `NodeTemplateSummary`).
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct NodeTemplateSummary {
+    pub id: String,
+    pub name: String,
+    pub node_type: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    pub updated_at: i64,
+}
+
+/// Project `list_node_templates` results onto [`NodeTemplateSummary`].
+pub async fn node_template_summaries(
+    ctx: &StorageContext,
+    options: Option<NodeTemplateListOptions>,
+) -> crate::ApiResult<Vec<NodeTemplateSummary>> {
+    Ok(list_node_templates(ctx, options)
+        .await?
+        .into_iter()
+        .map(|t| NodeTemplateSummary {
+            id: t.id.to_string(),
+            name: t.name,
+            node_type: t.node_type,
+            description: t.description,
+            updated_at: t.updated_at,
+        })
+        .collect())
+}
+
+/// Export a node template as a JSON string.
+pub async fn export_template(ctx: &StorageContext, id: &str) -> crate::ApiResult<String> {
+    let template = get_node_template(ctx, id).await?;
+    serde_json::to_string_pretty(&template).map_err(Into::into)
+}
+
+/// Import a node template from a JSON string; returns the imported id.
+pub async fn import_template(ctx: &StorageContext, json: &str) -> crate::ApiResult<String> {
+    let template: NodeTemplateStorageMetadata =
+        serde_json::from_str(json).map_err(crate::ApiError::from)?;
+    save_node_template(ctx, &template).await?;
+    Ok(template.id.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -94,5 +137,25 @@ mod tests {
 
         let listed = list_node_templates(&ctx, None).await.unwrap();
         assert_eq!(listed.len(), 3);
+    }
+
+    #[tokio::test]
+    async fn node_template_summaries_export_import() {
+        let ctx = StorageContext::new_memory();
+        save_node_template(&ctx, &make_template("nt-1", "llm"))
+            .await
+            .unwrap();
+
+        let summaries = node_template_summaries(&ctx, None).await.unwrap();
+        assert_eq!(summaries.len(), 1);
+        assert_eq!(summaries[0].node_type, "llm");
+
+        let json = export_template(&ctx, "nt-1").await.unwrap();
+        let imported_id = import_template(&ctx, &json).await.unwrap();
+        assert_eq!(imported_id, "nt-1");
+        assert_eq!(
+            get_node_template(&ctx, "nt-1").await.unwrap().node_type,
+            "llm"
+        );
     }
 }

@@ -273,6 +273,55 @@ impl HookTemplateBuilder {
         self
     }
 
+    /// Merge one key into the default config (used by the `NodeHook`-field
+    /// setters below). The config object is created lazily so a builder with
+    /// no config remains `None`.
+    fn merge_config(mut self, key: &str, value: Value) -> Self {
+        let mut object = match self.default_config.take() {
+            Some(Value::Object(map)) => map,
+            Some(other) => {
+                let mut map = serde_json::Map::new();
+                map.insert("_base".into(), other);
+                map
+            }
+            None => serde_json::Map::new(),
+        };
+        object.insert(key.to_string(), value);
+        self.default_config = Some(Value::Object(object));
+        self
+    }
+
+    /// Set the event name the hook emits (TS `NodeHook.eventName`).
+    pub fn event_name(self, event_name: impl Into<String>) -> Self {
+        self.merge_config("event_name", Value::String(event_name.into()))
+    }
+
+    /// Enable or disable the hook.
+    pub fn enabled(self, enabled: bool) -> Self {
+        self.merge_config("enabled", Value::Bool(enabled))
+    }
+
+    /// Set the hook weight (execution priority among enabled hooks).
+    pub fn weight(self, weight: i32) -> Self {
+        self.merge_config("weight", Value::Number(weight.into()))
+    }
+
+    /// Set the optional event payload carried with the hook event.
+    pub fn event_payload(self, payload: Value) -> Self {
+        self.merge_config("event_payload", payload)
+    }
+
+    /// Create a checkpoint when the hook fires.
+    pub fn create_checkpoint(self) -> Self {
+        self.merge_config("create_checkpoint", Value::Bool(true))
+    }
+
+    /// Set the checkpoint description template used when the hook creates a
+    /// checkpoint.
+    pub fn checkpoint_description(self, description: impl Into<String>) -> Self {
+        self.merge_config("checkpoint_description", Value::String(description.into()))
+    }
+
     /// Validate the template (name required) and build it.
     pub fn build(self) -> crate::ApiResult<HookTemplate> {
         let template = HookTemplate {
@@ -404,6 +453,31 @@ mod tests {
             .expect("hook template must build");
         assert_eq!(template.hook_type, WorkflowHookType::AfterNode);
         assert_eq!(template.default_config.unwrap()["event_name"], "node-audit");
+    }
+
+    #[test]
+    fn hook_template_builder_carries_node_hook_fields() {
+        let template =
+            HookTemplateBuilder::new("ht-2", "Checkpoint Hook", WorkflowHookType::BeforeNode)
+                .event_name("before-node")
+                .enabled(true)
+                .weight(10)
+                .event_payload(serde_json::json!({"source": "test"}))
+                .create_checkpoint()
+                .checkpoint_description("snapshot-{node_id}")
+                .build()
+                .expect("hook template must build");
+
+        let config = template.default_config.expect("config merged");
+        assert_eq!(config["event_name"], serde_json::json!("before-node"));
+        assert_eq!(config["enabled"], serde_json::json!(true));
+        assert_eq!(config["weight"], serde_json::json!(10));
+        assert_eq!(config["event_payload"]["source"], serde_json::json!("test"));
+        assert_eq!(config["create_checkpoint"], serde_json::json!(true));
+        assert_eq!(
+            config["checkpoint_description"],
+            serde_json::json!("snapshot-{node_id}")
+        );
     }
 
     #[tokio::test]

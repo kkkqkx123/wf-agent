@@ -131,6 +131,8 @@ mod tests {
             id: "t-1".into(),
             task_type: "x".into(),
             status: "pending".into(),
+            execution_id: None,
+            instance_id: None,
             created_at: 1,
             updated_at: 1,
         };

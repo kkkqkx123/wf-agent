@@ -181,6 +181,76 @@ pub async fn get_tool_enabled_stats(ctx: &StorageContext) -> crate::ApiResult<(u
     Ok((enabled, all.len() as u64 - enabled))
 }
 
+/// One workflow/node reference to a tool.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ToolReference {
+    pub workflow_id: String,
+    pub workflow_name: String,
+    /// `(workflow-level)` for an `available_tools` reference, otherwise the
+    /// referencing node id.
+    pub node_id: String,
+}
+
+/// Check whether any stored workflow references the tool (by id or tool_id)
+/// from its `available_tools` or from a TOOL node config. The report is used
+/// before deletion to avoid orphaning workflows (TS `checkDeleteReferences`).
+pub async fn check_delete_references(
+    ctx: &StorageContext,
+    id: &str,
+) -> crate::ApiResult<Vec<ToolReference>> {
+    let tool = match ctx.tool.load(id).await? {
+        Some(tool) => tool,
+        None => return Ok(Vec::new()),
+    };
+    let candidates = [tool.id.clone(), tool.tool_id.clone()];
+    let is_referenced = |value: &str| candidates.iter().any(|c| c == value);
+
+    let workflows = ctx.workflow.list(None).await?;
+    let mut references = Vec::new();
+    for workflow in &workflows {
+        let mut workflow_level = false;
+        if let Some(available) = &workflow.available_tools {
+            if available
+                .available
+                .iter()
+                .chain(available.initial.iter().flatten())
+                .any(|name| is_referenced(name))
+            {
+                references.push(ToolReference {
+                    workflow_id: workflow.id.to_string(),
+                    workflow_name: workflow.name.clone(),
+                    node_id: "(workflow-level)".into(),
+                });
+                workflow_level = true;
+            }
+        }
+        if workflow_level {
+            continue;
+        }
+        for node in &workflow.nodes {
+            let Some(config) = &node.config else {
+                continue;
+            };
+            let referenced = ["tool_id", "toolId", "tool_name", "toolName"]
+                .iter()
+                .any(|key| {
+                    config
+                        .get(key)
+                        .and_then(|v| v.as_str())
+                        .is_some_and(is_referenced)
+                });
+            if referenced {
+                references.push(ToolReference {
+                    workflow_id: workflow.id.to_string(),
+                    workflow_name: workflow.name.clone(),
+                    node_id: node.id.to_string(),
+                });
+            }
+        }
+    }
+    Ok(references)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -260,6 +330,46 @@ mod tests {
 
         let err = enable_tool(&ctx, "t-missing").await.unwrap_err();
         assert!(matches!(err, crate::ApiError::NotFound { .. }));
+    }
+
+    #[tokio::test]
+    async fn tool_delete_reference_check() {
+        let ctx = StorageContext::new_memory();
+        save_tool(&ctx, &make_tool("ref-tool", "builtin"))
+            .await
+            .unwrap();
+
+        let definition = wf_types::WorkflowDefinition {
+            id: "wf-tool-ref".into(),
+            name: "Tool Reference Workflow".into(),
+            description: None,
+            r#type: None,
+            version: None,
+            nodes: vec![],
+            edges: vec![],
+            config: None,
+            variables: None,
+            triggers: None,
+            triggered_subworkflow_config: None,
+            metadata: None,
+            available_tools: Some(wf_types::tool::AvailableTools {
+                available: vec!["tool_ref-tool".into()],
+                initial: None,
+                require_approval: None,
+                allowed_workflows: None,
+            }),
+            created_at: 1000,
+            updated_at: 1000,
+        };
+        ctx.workflow.save(&definition).await.unwrap();
+
+        let references = check_delete_references(&ctx, "ref-tool").await.unwrap();
+        assert_eq!(references.len(), 1);
+        assert_eq!(references[0].workflow_id, "wf-tool-ref");
+        assert_eq!(references[0].node_id, "(workflow-level)");
+
+        let none = check_delete_references(&ctx, "unused").await.unwrap();
+        assert!(none.is_empty());
     }
 
     // ── Tool API ────────────────────────────────────────────────────

@@ -63,6 +63,11 @@ pub trait PersistenceLayer: Send + Sync {
 
     async fn clear_events(&self) -> ApiResult<()>;
 
+    /// Flush pending writes to the backend. No-op for non-buffered layers.
+    async fn flush(&self) -> ApiResult<()> {
+        Ok(())
+    }
+
     // ---------- execution state snapshots ----------
 
     async fn save_snapshot(&self, key: &str, snapshot: &Value) -> ApiResult<()>;
@@ -632,6 +637,11 @@ fn lock_ok<T>(result: std::sync::LockResult<T>) -> T {
 impl PersistenceLayer for BufferedPersistenceLayer {
     fn name(&self) -> &str {
         "buffered"
+    }
+
+    async fn flush(&self) -> ApiResult<()> {
+        self.flush_and_wait().await;
+        Ok(())
     }
 
     async fn initialize(&self) -> ApiResult<()> {

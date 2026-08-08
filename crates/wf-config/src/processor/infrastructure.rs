@@ -9,6 +9,111 @@ use wf_types::script::sandbox::{ResourceLimits, SandboxConfig, SandboxMode};
 
 pub const WAIT_FOREVER: i64 = -1;
 
+/// Runtime environment used to select environment-optimized defaults.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RuntimeEnvironment {
+    Development,
+    Production,
+}
+
+/// Environment-specific default metrics config (TS
+/// `getMetricsEnvironmentDefaults`): periodic reporting on in dev, larger
+/// event buffers in production.
+pub fn get_metrics_environment_defaults(env: RuntimeEnvironment) -> MetricsConfig {
+    match env {
+        RuntimeEnvironment::Development => MetricsConfig {
+            enable_periodic_reporting: Some(true),
+            reporting_interval: Some(30000),
+            error_metrics: Some(MetricCollectorConfig {
+                buffer_size: Some(10),
+                flush_interval: Some(1000),
+                ..Default::default()
+            }),
+            ..MetricsConfig::default()
+        },
+        RuntimeEnvironment::Production => MetricsConfig {
+            enable_periodic_reporting: Some(false),
+            reporting_interval: Some(60000),
+            event_metrics: Some(MetricCollectorConfig {
+                buffer_size: Some(500),
+                ..Default::default()
+            }),
+            ..MetricsConfig::default()
+        },
+    }
+}
+
+/// Environment-specific default storage config (TS
+/// `getStorageEnvironmentDefaults`).
+pub fn get_storage_environment_defaults(env: RuntimeEnvironment) -> StorageConfig {
+    use wf_types::config::storage::{AutoVacuum, StorageType};
+    match env {
+        RuntimeEnvironment::Development => StorageConfig {
+            storage_type: StorageType::Sqlite,
+            sqlite: Some(wf_types::config::storage::SqliteStorageConfig {
+                db_path: "./dev-storage/wf-agent.db".to_string(),
+                ..Default::default()
+            }),
+            ..Default::default()
+        },
+        RuntimeEnvironment::Production => StorageConfig {
+            storage_type: StorageType::Sqlite,
+            sqlite: Some(wf_types::config::storage::SqliteStorageConfig {
+                db_path: "./data/wf-agent.db".to_string(),
+                enable_wal: true,
+                file_must_exist: true,
+                auto_vacuum: AutoVacuum::Full,
+                ..Default::default()
+            }),
+            ..Default::default()
+        },
+    }
+}
+
+/// Environment-specific default output config (TS
+/// `getOutputEnvironmentDefaults`).
+pub fn get_output_environment_defaults(env: RuntimeEnvironment) -> OutputConfig {
+    match env {
+        RuntimeEnvironment::Development => OutputConfig {
+            enable_log_terminal: true,
+            enable_sdk_logs: true,
+            sdk_log_level: wf_types::config::output::SdkLogLevel::Debug,
+            ..OutputConfig::default()
+        },
+        RuntimeEnvironment::Production => OutputConfig {
+            enable_log_terminal: false,
+            enable_sdk_logs: false,
+            sdk_log_level: wf_types::config::output::SdkLogLevel::Info,
+            ..OutputConfig::default()
+        },
+    }
+}
+
+/// Environment-specific default timeout config (TS
+/// `getTimeoutEnvironmentDefaults`): more permissive in dev, stricter in
+/// production.
+pub fn get_timeout_environment_defaults(env: RuntimeEnvironment) -> TimeoutConfig {
+    match env {
+        RuntimeEnvironment::Development => TimeoutConfig {
+            workflow_execution_completion: Some(60000),
+            node_completion: Some(60000),
+            sync_branch_wait: Some(120000),
+            join_completion: Some(120000),
+            default: Some(60000),
+            ..Default::default()
+        },
+        RuntimeEnvironment::Production => TimeoutConfig {
+            workflow_execution_completion: Some(30000),
+            node_completion: Some(30000),
+            sync_branch_wait: Some(60000),
+            join_completion: Some(60000),
+            default: Some(30000),
+            max_allowed: Some(600000),
+            ..Default::default()
+        },
+    }
+}
+
 pub fn merge_timeout_with_defaults(user: &TimeoutConfig) -> TimeoutConfig {
     TimeoutConfig {
         workflow_execution_completion: user.workflow_execution_completion.or(Some(30000)),
@@ -312,5 +417,42 @@ mod tests {
             ..config
         };
         assert!(validate_sandbox_config(&config).is_ok());
+    }
+
+    #[test]
+    fn test_environment_defaults() {
+        let dev_metrics = get_metrics_environment_defaults(RuntimeEnvironment::Development);
+        assert_eq!(dev_metrics.enable_periodic_reporting, Some(true));
+        assert_eq!(dev_metrics.reporting_interval, Some(30000));
+
+        let prod_metrics = get_metrics_environment_defaults(RuntimeEnvironment::Production);
+        assert_eq!(prod_metrics.enable_periodic_reporting, Some(false));
+        assert_eq!(prod_metrics.reporting_interval, Some(60000));
+        assert_eq!(
+            prod_metrics.event_metrics.as_ref().unwrap().buffer_size,
+            Some(500)
+        );
+
+        let dev_storage = get_storage_environment_defaults(RuntimeEnvironment::Development);
+        assert_eq!(
+            dev_storage.sqlite.as_ref().unwrap().db_path,
+            "./dev-storage/wf-agent.db"
+        );
+        let prod_storage = get_storage_environment_defaults(RuntimeEnvironment::Production);
+        assert!(prod_storage.sqlite.as_ref().unwrap().file_must_exist);
+
+        let dev_output = get_output_environment_defaults(RuntimeEnvironment::Development);
+        assert_eq!(
+            dev_output.sdk_log_level,
+            wf_types::config::output::SdkLogLevel::Debug
+        );
+        let prod_output = get_output_environment_defaults(RuntimeEnvironment::Production);
+        assert!(!prod_output.enable_log_terminal);
+
+        let dev_timeout = get_timeout_environment_defaults(RuntimeEnvironment::Development);
+        assert_eq!(dev_timeout.default, Some(60000));
+        let prod_timeout = get_timeout_environment_defaults(RuntimeEnvironment::Production);
+        assert_eq!(prod_timeout.default, Some(30000));
+        assert_eq!(prod_timeout.max_allowed, Some(600000));
     }
 }

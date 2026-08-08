@@ -147,6 +147,104 @@ pub async fn list_by_scope(
         .map_err(Into::into)
 }
 
+/// The distinct scopes of an execution with their variable counts.
+pub async fn variable_scopes(
+    ctx: &ApiContext,
+    execution_id: &str,
+) -> ApiResult<BTreeMap<String, u64>> {
+    let records = list_by_execution(ctx, execution_id).await?;
+    let mut scopes = BTreeMap::new();
+    for record in records {
+        *scopes.entry(record.scope).or_insert(0) += 1;
+    }
+    Ok(scopes)
+}
+
+/// The variable definitions of an execution (name -> current value), for
+/// every scope. Mirrors TS `getVariableDefinitions`.
+pub async fn variable_definitions(
+    ctx: &ApiContext,
+    execution_id: &str,
+) -> ApiResult<BTreeMap<String, Value>> {
+    let records = list_by_execution(ctx, execution_id).await?;
+    let mut definitions = BTreeMap::new();
+    for record in records {
+        definitions.insert(record.name, record.value);
+    }
+    Ok(definitions)
+}
+
+/// Variables scoped to a specific node of an execution (variables whose
+/// `scope` equals the node id), plus the global/default scope.
+pub async fn variables_at_node(
+    ctx: &ApiContext,
+    execution_id: &str,
+    node_id: &str,
+) -> ApiResult<Vec<VariableStorageMetadata>> {
+    let records = list_by_execution(ctx, execution_id).await?;
+    Ok(records
+        .into_iter()
+        .filter(|r| r.scope == node_id || r.scope == "default" || r.scope == "global")
+        .collect())
+}
+
+/// Batch upsert variables. Each entry is `(name, scope, value)`; variables
+/// without an explicit scope default to `default`.
+pub async fn batch_set_variables(
+    ctx: &ApiContext,
+    execution_id: &str,
+    entries: &[(String, String, Value)],
+) -> ApiResult<()> {
+    for (name, scope, value) in entries {
+        set(ctx, name, scope, Some(execution_id), value.clone()).await?;
+    }
+    Ok(())
+}
+
+/// Import variables into an execution from a name -> value map (scope
+/// `default`).
+pub async fn import_variables(
+    ctx: &ApiContext,
+    execution_id: &str,
+    values: &BTreeMap<String, Value>,
+) -> ApiResult<()> {
+    for (name, value) in values {
+        set(ctx, name, "default", Some(execution_id), value.clone()).await?;
+    }
+    Ok(())
+}
+
+/// Aggregated variable statistics: total count and distribution by scope
+/// and by data source.
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct VariableStatistics {
+    pub total: u64,
+    pub by_scope: BTreeMap<String, u64>,
+    pub by_source: BTreeMap<String, u64>,
+}
+
+/// Variable statistics across all stored variables (TS
+/// `getVariableStatistics`).
+pub async fn variable_statistics(ctx: &ApiContext) -> ApiResult<VariableStatistics> {
+    let all = ctx.storage.variable.list(None).await?;
+    let mut stats = VariableStatistics {
+        total: all.len() as u64,
+        ..VariableStatistics::default()
+    };
+    for record in &all {
+        *stats.by_scope.entry(record.scope.clone()).or_insert(0) += 1;
+    }
+    for record in &all {
+        let source = record
+            .execution_id
+            .as_deref()
+            .map(|_| "execution")
+            .unwrap_or("global");
+        *stats.by_source.entry(source.to_string()).or_insert(0) += 1;
+    }
+    Ok(stats)
+}
+
 /// Export the variables of an execution as a name -> value map.
 pub async fn export(ctx: &ApiContext, execution_id: &str) -> ApiResult<BTreeMap<String, Value>> {
     let records = list_by_execution(ctx, execution_id).await?;
@@ -384,5 +482,68 @@ mod tests {
         let sources: Vec<&str> = history.iter().map(|e| e.source.as_str()).collect();
         assert!(sources.contains(&"storage"));
         assert!(sources.contains(&"live"));
+    }
+
+    #[tokio::test]
+    async fn scopes_definitions_and_batch() {
+        let ctx = make_ctx();
+        set(&ctx, "a", "local", Some("exec-4"), serde_json::json!(1))
+            .await
+            .unwrap();
+        set(
+            &ctx,
+            "b",
+            "node-1",
+            Some("exec-4"),
+            serde_json::json!("two"),
+        )
+        .await
+        .unwrap();
+        set(&ctx, "c", "node-1", Some("exec-4"), serde_json::json!(3))
+            .await
+            .unwrap();
+
+        let scopes = variable_scopes(&ctx, "exec-4").await.unwrap();
+        assert_eq!(scopes.get("local"), Some(&1));
+        assert_eq!(scopes.get("node-1"), Some(&2));
+
+        let definitions = variable_definitions(&ctx, "exec-4").await.unwrap();
+        assert_eq!(definitions.len(), 3);
+        assert_eq!(definitions.get("c"), Some(&serde_json::json!(3)));
+
+        let at_node = variables_at_node(&ctx, "exec-4", "node-1").await.unwrap();
+        assert_eq!(at_node.len(), 2);
+
+        batch_set_variables(
+            &ctx,
+            "exec-4",
+            &[
+                ("x".into(), "local".into(), serde_json::json!(10)),
+                ("y".into(), "local".into(), serde_json::json!(20)),
+            ],
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            get(&ctx, "x", "local", Some("exec-4")).await.unwrap().value,
+            serde_json::json!(10)
+        );
+    }
+
+    #[tokio::test]
+    async fn import_and_statistics() {
+        let ctx = make_ctx();
+        let mut values = BTreeMap::new();
+        values.insert("alpha".to_string(), serde_json::json!(1));
+        values.insert("beta".to_string(), serde_json::json!("two"));
+        import_variables(&ctx, "exec-5", &values).await.unwrap();
+
+        let exported = export(&ctx, "exec-5").await.unwrap();
+        assert_eq!(exported.len(), 2);
+
+        let stats = variable_statistics(&ctx).await.unwrap();
+        assert_eq!(stats.total, 2);
+        assert_eq!(stats.by_scope.get("default"), Some(&2));
+        assert_eq!(stats.by_source.get("execution"), Some(&2));
     }
 }

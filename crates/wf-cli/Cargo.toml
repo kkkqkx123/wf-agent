@@ -11,6 +11,7 @@ crossterm.workspace = true
 ratatui.workspace = true
 unicode-width.workspace = true
 unicode-segmentation.workspace = true
+pulldown-cmark.workspace = true
 futures.workspace = true
 libc.workspace = true
 serde.workspace = true

@@ -81,6 +81,7 @@ crossterm = "0.29"
 ratatui = { version = "0.30", default-features = true }
 unicode-width = "0.2"
 unicode-segmentation = "1"
+pulldown-cmark = "0.13"
 
 # HTTP/gRPC transport
 axum = { version = "0.8", features = ["macros", "ws"] }

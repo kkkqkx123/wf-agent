@@ -1,19 +1,31 @@
 //! wf-cli: headless run, mini and full TUI forms over the wf-agent runtime.
 
+pub mod ansi;
 pub mod args;
 pub mod domain;
 pub mod error;
 pub mod events;
+pub mod framer;
+pub mod keymap;
 pub mod mode;
 pub mod output;
 pub mod run;
+pub mod scrollback;
+pub mod select;
+pub mod size;
 pub mod terminal;
 pub mod theme;
 
+pub use ansi::AnsiParser;
 pub use args::{Cli, Command};
 pub use error::{CliError, CliResult};
+pub use framer::{FrameRateLimiter, FrameRequester};
+pub use keymap::{Key, KeyAction, Keymap, KeymapContext};
 pub use output::{HeadlessFileSink, MemorySink, OutputEnvelope, OutputFormat, OutputMessage, TeeSink};
 pub use run::{DiagWriter, RunIo, RunOptions, RunOutcome};
+pub use scrollback::{HistoryLine, LineState, LinesView, Role};
+pub use select::{Group, GroupItem, NavigateDir, SelectList};
+pub use size::{ResizeDebouncer, Size};
 
 use wf_runtime::bootstrap::RuntimeConfig;
 

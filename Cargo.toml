@@ -77,6 +77,11 @@ libc = "0.2"
 portable-pty = "0.8"
 crossterm = "0.29"
 
+# TUI / text layout
+ratatui = { version = "0.30", default-features = true }
+unicode-width = "0.2"
+unicode-segmentation = "1"
+
 # HTTP/gRPC transport
 axum = { version = "0.8", features = ["macros", "ws"] }
 tower = "0.5"

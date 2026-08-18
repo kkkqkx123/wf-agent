@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use wf_agent::approval::ToolApprovalHandler;
 use wf_agent::coordinator::lifecycle::AgentLoopCoordinator;
 use wf_agent::entity::AgentLoopEntity;
 use wf_agent::registry::AgentLoopRegistry;
@@ -24,12 +25,44 @@ const DEFAULT_AGENT_TIMEOUT_MS: u64 = 90_000;
 const AGENT_TIMEOUT_PER_ITERATION_MS: u64 = 30_000;
 
 /// Parameters for running an agent loop.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct RunAgentLoopParams {
     /// Agent loop config (model, tool visibility, token limits, ...).
     pub config: AgentLoopConfig,
     /// Loop input (initial user message, context, imported conversation).
     pub input: AgentLoopInput,
+    /// Caller-preset agent loop id (per-run execution identifier). When
+    /// absent a fresh id is generated per run; presetting lets callers
+    /// correlate diagnostics / control handles before the first event.
+    pub agent_loop_id: Option<wf_types::Id>,
+    /// Optional tool-approval handler routed into the loop coordinator.
+    /// With a handler registered every tool call is routed through it (the
+    /// engine falls back to ask-everything policy when no explicit
+    /// `ToolApprovalOptions` are set).
+    pub approval_handler: Option<Arc<dyn ToolApprovalHandler>>,
+}
+
+impl RunAgentLoopParams {
+    /// Parameters with generated id and no approval handler.
+    pub fn new(config: AgentLoopConfig, input: AgentLoopInput) -> Self {
+        Self {
+            config,
+            input,
+            agent_loop_id: None,
+            approval_handler: None,
+        }
+    }
+}
+
+impl std::fmt::Debug for RunAgentLoopParams {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RunAgentLoopParams")
+            .field("config", &self.config)
+            .field("input", &self.input)
+            .field("agent_loop_id", &self.agent_loop_id)
+            .field("approval_handler", &self.approval_handler.is_some())
+            .finish()
+    }
 }
 
 /// Application-facing agent loop API.
@@ -47,8 +80,9 @@ pub async fn run(
     ctx: &ApiContext,
     params: RunAgentLoopParams,
 ) -> crate::infra::error::ApiResult<AgentLoopOutput> {
-    let agent_loop_id = wf_types::Id::from(wf_common::generate_id());
-    let coordinator = coordinator(ctx).with_agent_loop_id(agent_loop_id.clone());
+    let agent_loop_id =
+        params.agent_loop_id.clone().unwrap_or_else(|| wf_types::Id::from(wf_common::generate_id()));
+    let coordinator = coordinator_for(ctx, &params).with_agent_loop_id(agent_loop_id.clone());
     let timeout_ms = agent_timeout_ms(&params.config);
     let config = params.config.clone();
     let input = params.input.clone();
@@ -93,7 +127,10 @@ pub async fn stream(
     ctx: &ApiContext,
     params: RunAgentLoopParams,
 ) -> crate::infra::error::ApiResult<ExecutionEventStream> {
-    let coordinator = coordinator(ctx);
+    let mut coordinator = coordinator_for(ctx, &params);
+    if let Some(id) = params.agent_loop_id.clone() {
+        coordinator = coordinator.with_agent_loop_id(id);
+    }
     let stream = coordinator
         .execute_stream(params.config, params.input)
         .await;
@@ -157,6 +194,16 @@ fn coordinator(ctx: &ApiContext) -> AgentLoopCoordinator {
     }
     if let Some(manager) = ctx.file_checkpoint_manager() {
         coordinator = coordinator.with_file_checkpoint_manager(manager.clone());
+    }
+    coordinator
+}
+
+/// Assemble the coordinator for a run/stream invocation, routing the
+/// caller-supplied approval handler (if any) into the loop.
+fn coordinator_for(ctx: &ApiContext, params: &RunAgentLoopParams) -> AgentLoopCoordinator {
+    let mut coordinator = coordinator(ctx);
+    if let Some(handler) = params.approval_handler.clone() {
+        coordinator = coordinator.with_approval_handler(handler);
     }
     coordinator
 }
@@ -288,8 +335,8 @@ mod tests {
         let ctx = make_ctx();
         let output = run(
             &ctx,
-            RunAgentLoopParams {
-                config: AgentLoopConfig {
+            RunAgentLoopParams::new(
+                AgentLoopConfig {
                     agent_id: wf_types::Id::from("agent-1".to_string()),
                     model: "mock".to_string(),
                     max_iterations: Some(3),
@@ -308,12 +355,12 @@ mod tests {
                     general_description: None,
                     discoverable_metadata_block: None,
                 },
-                input: AgentLoopInput {
+                AgentLoopInput {
                     message: "hi".to_string(),
                     context: Default::default(),
                     conversation: Vec::new(),
                 },
-            },
+            ),
         )
         .await
         .expect("agent loop should complete");
@@ -367,8 +414,8 @@ mod tests {
         let ctx1 = Arc::new(ctx1);
         let output = run(
             &ctx1,
-            RunAgentLoopParams {
-                config: AgentLoopConfig {
+            RunAgentLoopParams::new(
+                AgentLoopConfig {
                     agent_id: wf_types::Id::from("agent-persist".to_string()),
                     model: "mock".to_string(),
                     max_iterations: Some(3),
@@ -387,12 +434,12 @@ mod tests {
                     general_description: None,
                     discoverable_metadata_block: None,
                 },
-                input: AgentLoopInput {
+                AgentLoopInput {
                     message: "hi".to_string(),
                     context: Default::default(),
                     conversation: Vec::new(),
                 },
-            },
+            ),
         )
         .await
         .expect("agent loop should complete");
@@ -433,8 +480,8 @@ mod tests {
         let ctx = make_ctx();
         let mut stream = stream(
             &ctx,
-            RunAgentLoopParams {
-                config: AgentLoopConfig {
+            RunAgentLoopParams::new(
+                AgentLoopConfig {
                     agent_id: wf_types::Id::from("agent-2".to_string()),
                     model: "mock".to_string(),
                     max_iterations: Some(3),
@@ -453,12 +500,12 @@ mod tests {
                     general_description: None,
                     discoverable_metadata_block: None,
                 },
-                input: AgentLoopInput {
+                AgentLoopInput {
                     message: "hi".to_string(),
                     context: Default::default(),
                     conversation: Vec::new(),
                 },
-            },
+            ),
         )
         .await
         .expect("agent stream");

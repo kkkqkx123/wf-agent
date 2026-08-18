@@ -169,21 +169,22 @@ wf-types/wf-common/wf-config/wf-storage → wf-runtime/wf-api/wf-agent → wf-cl
 - Output 路由 snapshot 测试（text/json/silent 三种信封形态）；`MemorySink` 断言测试（业务输出 → sink → 断言内容，不依赖真实终端）；`--log` 与 `--output` 组合矩阵（Tee 分发到文件与 stdout）。
 - DomainAdapter 集成测试（临时 SQLite storage + mock llm）：bootstrap 成功、api_context 可取、shutdown 幂等。
 
-### Stage 2：无头会话 run（第一个闭环）
+### Stage 2：无头会话 run（第一个闭环）✅ 已完成（2026-08-18，详见 `wf-cli-stage2-无头会话run-实施方案.md`）
 
 **目标**：`wf run "<prompt>"` 端到端可用——流式输出、审批降级、退出码。不依赖任何 UI 设施。
 
 **任务**
 
-- [ ] `run.rs`：会话驱动——启动 agent 会话 → 订阅事件流 → 流式渲染（LlmDelta 按换行/固定缓冲合并后打印 stdout；工具摘要行 `▲/✓/✗` 走 stderr；结束打印 `▣ exec_id · iterations · duration` 摘要行，对齐 05 §5.2）；无输出时打印 `▣` 空会话提示。
-- [ ] 审批降级策略（对齐 05 §5.3）：敏感工具（approve_changes 等）默认 deny 并打印拒绝原因；低危白名单放行；`--approve-prefix` 预授权；追问（UserInteractionHandler）无 TTY 时拒绝并报错退出（exit 1）。
-- [ ] 退出码映射（对齐 05 §5.4）+ SIGINT 中断 → exit 4；stdout/stderr 分离纪律（日志一律 stderr，主输出 stdout）。
-- [ ] stdin 管道路径：`echo "prompt" | wf run`（stdin 非 TTY 读全文）。
+- [x] `run.rs`：会话驱动——启动 agent 会话 → 订阅事件流 → 流式渲染（LlmDelta 按换行/固定缓冲合并后打印 stdout；工具摘要行 `▲/✓/✗` 走 stderr；结束打印 `▣ exec_id · iterations · duration` 摘要行，对齐 05 §5.2）；无输出时打印 `▣` 空会话提示。
+- [x] 审批降级策略（对齐 05 §5.3）：敏感工具（approve_changes 等）默认 deny 并打印拒绝原因；低危白名单放行；`--approve-prefix` 预授权（优先级最高：显式同意覆盖敏感判定）；追问（UserInteractionHandler）无 TTY 时拒绝并报错退出（exit 1）。
+- [x] 退出码映射（对齐 05 §5.4）+ SIGINT 中断 → exit 4；stdout/stderr 分离纪律（日志一律 stderr，主输出 stdout）。
+- [x] stdin 管道路径：`echo "prompt" | wf run`（stdin 非 TTY 读全文）。
+- [x] （实施新增）wf-api `RunAgentLoopParams` 扩展（预置 `agent_loop_id` + 注入 `approval_handler`）；修复 wf-agent 两处引擎缺陷——`with_visibility_store` 丢失审批配置、流式工具路径绕过审批管道（见 Stage 2 方案"五·二"）。
 
 **交付与验收**
 
-- 端到端：`wf run "hello"`（mock llm provider）→ stdout 出现文本、stderr 出现工具摘要；`--output json` 信封字段完整；审批 deny 用例（敏感工具被拒 + 原因打印）；退出码矩阵（0/1/2/3/4）。
-- 此阶段不引入 ratatui/crossterm 依赖（保持无 UI 依赖，保证领域层可独立验证）。
+- 端到端：`wf run "hello"`（mock llm provider）→ stdout 出现文本、stderr 出现工具摘要；`--output json` 信封字段完整；审批 deny 用例（敏感工具被拒 + 原因打印）；退出码矩阵（0/1/2/3/4）。✅（`cargo test -p wf-cli` 50 项全绿，含 8 项 mock LLM e2e）
+- 此阶段不引入 ratatui/crossterm 依赖（保持无 UI 依赖，保证领域层可独立验证）。✅
 
 ### Stage 3：终端交互设施（通用 F8/F9）
 

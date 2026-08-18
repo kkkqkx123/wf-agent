@@ -69,6 +69,13 @@ pub enum Command {
         /// Agent definition id to run (defaults to the primary agent).
         #[arg(long)]
         agent: Option<String>,
+        /// LLM profile id to run against (defaults to `default`).
+        #[arg(long)]
+        model: Option<String>,
+        /// Pre-authorize tools or commands whose name starts with this
+        /// prefix (repeatable, e.g. --approve-prefix git).
+        #[arg(long = "approve-prefix", value_name = "PREFIX")]
+        approve_prefixes: Vec<String>,
     },
     /// Print resolved CLI mode / output routing (diagnostics).
     DebugMode,
@@ -85,11 +92,33 @@ mod tests {
     #[test]
     fn parses_run_subcommand_with_prompt() {
         let cli = parse(&["run", "hello world"]).unwrap();
-        let Some(Command::Run { prompt, agent }) = cli.command else {
+        let Some(Command::Run { prompt, agent, model, approve_prefixes }) = cli.command else {
             panic!("expected run command");
         };
         assert_eq!(prompt.as_deref(), Some("hello world"));
         assert!(agent.is_none());
+        assert!(model.is_none());
+        assert!(approve_prefixes.is_empty());
+    }
+
+    #[test]
+    fn parses_run_model_and_repeatable_approve_prefixes() {
+        let cli = parse(&[
+            "run",
+            "hi",
+            "--model",
+            "mock",
+            "--approve-prefix",
+            "git",
+            "--approve-prefix",
+            "cargo ",
+        ])
+        .unwrap();
+        let Some(Command::Run { model, approve_prefixes, .. }) = cli.command else {
+            panic!("expected run command");
+        };
+        assert_eq!(model.as_deref(), Some("mock"));
+        assert_eq!(approve_prefixes, vec!["git".to_string(), "cargo ".to_string()]);
     }
 
     #[test]

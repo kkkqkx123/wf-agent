@@ -672,10 +672,7 @@ impl AgentExecutionBuilder {
         };
         let output = crate::agent::agent_execution::run(
             ctx,
-            RunAgentLoopParams {
-                config: self.config.clone(),
-                input,
-            },
+            RunAgentLoopParams::new(self.config.clone(), input),
         )
         .await?;
         if let Some(callback) = &self.on_completed {

@@ -218,7 +218,7 @@ fn params_from_body(body: RunAgentLoopBody) -> wf_api::agent::agent_execution::R
         context: body.context,
         conversation: body.conversation.unwrap_or_default(),
     };
-    wf_api::agent::agent_execution::RunAgentLoopParams { config, input }
+    wf_api::agent::agent_execution::RunAgentLoopParams::new(config, input)
 }
 
 #[derive(Serialize)]

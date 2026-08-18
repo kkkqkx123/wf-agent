@@ -356,7 +356,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_execution_records_by_agent_id() {
-        let registry = AgentLoopRegistry::new();
+        let registry = AgentLoopRegistry::new().with_max_concurrent(4);
         registry
             .register(make_entity("agent-1/run-1", ExecutionStatus::Running).await)
             .unwrap();
@@ -382,7 +382,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_cleanup_terminated() {
-        let registry = AgentLoopRegistry::new();
+        let registry = AgentLoopRegistry::new().with_max_concurrent(4);
         registry
             .register(make_entity("a1", ExecutionStatus::Completed).await)
             .unwrap();

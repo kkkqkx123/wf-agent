@@ -818,7 +818,10 @@ mod tests {
     /// is rejected before any slot is reserved.
     #[tokio::test]
     async fn test_spawn_rejects_beyond_depth_limit() {
-        let executor = make_executor().await.with_max_sub_agent_depth(1);
+        let executor = make_executor()
+            .await
+            .with_max_sub_agent_depth(1)
+            .with_max_concurrent(16);
 
         // A registered parent at depth 1 would push the child to depth 2.
         let deep_parent = Arc::new(

@@ -154,10 +154,15 @@ impl AgentIterationCoordinator {
         mut self,
         store: Option<Arc<dyn crate::coordinator::tool::ToolVisibilityStore>>,
     ) -> Self {
+        // Rebuilding the tool coordinator must preserve the approval
+        // wiring applied by `with_approval`, otherwise every tool call is
+        // auto-approved downstream.
         let registry = self.tool_coordinator.tool_registry().clone();
+        let (approval_options, approval_handler) = self.tool_coordinator.approval_config();
         self.tool_coordinator = ToolExecutionCoordinator::new(registry)
             .with_event_bus(self.event_bus.clone())
             .with_metrics(self.metrics.clone())
+            .with_approval(approval_options, approval_handler)
             .with_visibility_store(store);
         self
     }
@@ -1036,7 +1041,9 @@ impl AgentIterationCoordinator {
     }
 
     /// Streaming tool execution: run each call sequentially and forward
-    /// ToolStart/ToolEnd lifecycle events.
+    /// ToolStart/ToolEnd lifecycle events. Every call passes the approval
+    /// gate first (same pipeline as the sequential executor), so a denied
+    /// call surfaces as a failed ToolEnd without executing.
     async fn execute_tool_calls_streaming(
         &self,
         entity: &AgentLoopEntity,
@@ -1055,10 +1062,18 @@ impl AgentIterationCoordinator {
                 .await?;
             }
 
-            let msg = self
+            let msg = match self
                 .tool_coordinator
-                .execute_single_tool_for_stream(entity, tc)
-                .await;
+                .approve_single_for_stream(entity, tc)
+                .await
+            {
+                Some(rejection) => rejection,
+                None => {
+                    self.tool_coordinator
+                        .execute_single_tool_for_stream(entity, tc)
+                        .await
+                }
+            };
             let result_text = text_of(&msg.content);
 
             if let Some(ref sink) = self.event_sink {

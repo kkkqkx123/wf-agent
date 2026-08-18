@@ -1,9 +1,8 @@
 //! wf-cli: headless run, mini and full TUI forms over the wf-agent runtime.
 //!
-//! Stage 1 delivers the output routing (format layer × sink layer) and the
-//! domain adapter; the headless `run` subcommand closes the loop with a
-//! bootstrap → output → shutdown wiring (streaming agent execution lands in
-//! Stage 2).
+//! Stage 1 delivered the output routing (format layer × sink layer) and the
+//! domain adapter; Stage 2 closes the headless `run` loop with a streaming
+//! session driver (see [`run`]); the interactive forms land in later stages.
 
 pub mod args;
 pub mod domain;
@@ -11,10 +10,12 @@ pub mod error;
 pub mod events;
 pub mod mode;
 pub mod output;
+pub mod run;
 
 pub use args::{Cli, Command};
 pub use error::{CliError, CliResult};
 pub use output::{HeadlessFileSink, MemorySink, OutputEnvelope, OutputFormat, OutputMessage, TeeSink};
+pub use run::{DiagWriter, RunIo, RunOptions, RunOutcome};
 
 use wf_runtime::bootstrap::RuntimeConfig;
 
@@ -53,45 +54,55 @@ fn build_sink(cli: &Cli, stdout_tty: bool) -> CliResult<Box<dyn OutputSink + Sen
 
 /// Headless single-session form (`wf run` / piped stdin / `--no-tui`).
 ///
-/// Stage 1 wires the output contract: bootstrap the runtime, emit a readiness
-/// record (text or envelope), then shut down. The streaming agent session
-/// renderer replaces the placeholder in Stage 2.
+/// Stage 2 wiring: bootstrap the runtime, drive one streaming agent session
+/// ([`run::run_session`]) with the headless approval degradation, then tear
+/// the runtime down preserving the session outcome.
 async fn run_headless(cli: &Cli, resolved: &ResolvedMode, stdout_tty: bool) -> CliResult<()> {
-    let mut sink = build_sink(cli, stdout_tty)?;
+    use std::io::IsTerminal;
 
-    let adapter = DomainAdapter::bootstrap_for_cli(cli, CliMode::Run).await?;
+    let format = cli.output;
+    let sink = build_sink(cli, stdout_tty)?;
+    let diag_color = !cli.no_color && std::io::stderr().is_terminal();
 
+    let (arg_prompt, agent, model, approve_prefixes) = match &cli.command {
+        Some(Command::Run {
+            prompt,
+            agent,
+            model,
+            approve_prefixes,
+        }) => (
+            prompt.clone(),
+            agent.clone(),
+            model.clone(),
+            approve_prefixes.clone(),
+        ),
+        _ => (None, None, None, Vec::new()),
+    };
     let prompt = resolved
         .stdin_prompt
         .clone()
-        .or_else(|| match &cli.command {
-            Some(Command::Run { prompt, .. }) => prompt.clone(),
-            _ => None,
-        });
+        .or(arg_prompt)
+        .unwrap_or_default();
 
-    if !cli.output.is_silent() {
-        let data = serde_json::json!({
-            "mode": "run",
-            "outputFormat": format!("{:?}", cli.output),
-            "promptChars": prompt.as_deref().map(str::len).unwrap_or(0),
-        });
-        let envelope = OutputEnvelope::success("execution", data);
-        if let Some(line) = envelope.render(cli.output) {
-            // `write_raw` bypasses the format filter so the envelope reaches
-            // the sink in every format (json envelope on stdout, text line
-            // otherwise).
-            sink.write_raw(&line)?;
-        }
-        if cli.output == OutputFormat::Text {
-            if let Some(p) = &prompt {
-                sink.write_message(&OutputMessage::new("user", p))?;
-            }
-        }
-    }
-    sink.flush()?;
+    let opts = RunOptions {
+        prompt,
+        agent_id: agent,
+        model,
+        approve_prefixes,
+    };
 
+    let adapter = DomainAdapter::bootstrap_for_cli(cli, CliMode::Run).await?;
+    let io = RunIo {
+        sink,
+        diag: std::sync::Arc::new(std::sync::Mutex::new(DiagWriter::stderr(diag_color))),
+        format,
+    };
+
+    // `run_session` owns the exit-code semantics (business failure → 1,
+    // SIGINT → 4); shutdown must run even when the session fails.
+    let session = run::run_session(&adapter, opts, io).await;
     adapter.shutdown().await?;
-    Ok(())
+    session.map(|_| ())
 }
 
 /// Interactive forms (mini / full TUI). Stage 1 only reports the resolved

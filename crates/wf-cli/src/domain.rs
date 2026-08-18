@@ -58,6 +58,13 @@ impl DomainAdapter {
         self.runtime.storage()
     }
 
+    /// LLM gateway (profile resolution + model invocation). Headless runs
+    /// surface gateway diagnostics through it; later stages expose profile
+    /// listing / warm-up through the same handle.
+    pub fn llm_gateway(&self) -> &std::sync::Arc<wf_llm::LlmGateway> {
+        &self.api_context().llm_gateway
+    }
+
     /// Whether the runtime is in the middle of a shutdown.
     pub fn is_shutting_down(&self) -> bool {
         self.runtime.is_shutting_down()

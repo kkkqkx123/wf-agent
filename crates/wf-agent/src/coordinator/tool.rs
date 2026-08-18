@@ -241,6 +241,17 @@ impl ToolExecutionCoordinator {
         self
     }
 
+    /// Current approval wiring (options + handler); lets callers rebuild
+    /// the coordinator without silently dropping the approval contract.
+    pub fn approval_config(
+        &self,
+    ) -> (
+        Option<ToolApprovalOptions>,
+        Option<Arc<dyn ToolApprovalHandler>>,
+    ) {
+        (self.approval_options.clone(), self.approval_handler.clone())
+    }
+
     pub fn with_rejection_builder(mut self, builder: RejectionMessageBuilder) -> Self {
         self.rejection_builder = builder;
         self
@@ -454,6 +465,26 @@ impl ToolExecutionCoordinator {
                 ToolRiskLevel::Interaction => "interaction",
             })
             .map(String::from)
+    }
+
+    /// Approval gate for the streaming tool path: approve one tool call
+    /// through the same batch pipeline as the sequential executor. Returns
+    /// the rejection message when the call is denied, `None` when it may
+    /// execute.
+    pub async fn approve_single_for_stream(
+        &self,
+        entity: &AgentLoopEntity,
+        tc: &LlmToolCall,
+    ) -> Option<Message> {
+        let outcomes = self
+            .approve_tool_calls(entity, std::slice::from_ref(tc))
+            .await;
+        match outcomes.first() {
+            Some(ApprovalOutcome::Rejected { reason }) => {
+                Some(self.build_rejection_message(tc, reason))
+            }
+            _ => None,
+        }
     }
 
     async fn execute_sequential(

@@ -67,7 +67,12 @@ impl ModeResolver {
                 Command::Run { prompt, .. } => {
                     return Ok(ResolvedMode {
                         cli_mode: CliMode::Run,
-                        stdin_prompt: prompt.clone(),
+                        // Positional prompt wins; otherwise a piped stdin is
+                        // read in full as the prompt (echo "p" | wf run).
+                        stdin_prompt: match prompt.clone() {
+                            Some(p) => Some(p),
+                            None => Self::read_stdin_prompt(cli, is_stdin_tty)?,
+                        },
                     });
                 }
                 Command::DebugMode => {
@@ -174,6 +179,15 @@ mod tests {
         let r = ModeResolver::resolve(&cli(&["run", "hi"]), true, true).unwrap();
         assert_eq!(r.cli_mode, CliMode::Run);
         assert_eq!(r.stdin_prompt.as_deref(), Some("hi"));
+    }
+
+    #[test]
+    fn run_subcommand_without_prompt_yields_none_on_tty_stdin() {
+        // Piped stdin (non-TTY) reading is exercised end-to-end; here we
+        // verify a TTY stdin keeps the prompt absent instead of blocking.
+        let r = ModeResolver::resolve(&cli(&["run"]), true, true).unwrap();
+        assert_eq!(r.cli_mode, CliMode::Run);
+        assert!(r.stdin_prompt.is_none());
     }
 
     #[test]

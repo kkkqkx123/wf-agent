@@ -1,45 +1,49 @@
 use regex::Regex;
 use wf_types::script::sandbox::ShellPolicy;
 
+use crate::command_policy::{CommandRule, Severity};
+
 use super::base::{ShellAnalysisContext, ShellAnalysisResult, ShellAnalyzer, ShellType};
 
 const SHELL_TYPE: ShellType = ShellType::Cmd;
 
-const DENIED_COMMANDS: &[&str] = &[
+/// Default cmd.exe blacklist, also used by the unified command policy.
+pub(crate) const DENIED_COMMANDS: &[&str] = &[
     "format", "diskpart", "diskcomp", "diskcopy", "fdisk", "runas", "reg", "regedit", "regedt32",
     "regini", "net", "net1", "netsh", "bcdedit", "bootcfg", "bootsect", "wmic", "assoc", "ftype",
     "taskkill", "tskill",
 ];
 
-pub const DANGEROUS_PATTERNS: &[&str] = &[
-    r"format\s+[A-Za-z]:",
-    r"format\s+/",
-    r"diskpart\s+/s",
-    r"clean\s+all",
-    r"reg\s+import",
-    r"reg\s+add",
-    r"reg\s+delete",
-    r"wmic\s+process\s+delete",
-    r"wmic\s+path\s+",
-    r"net\s+share",
-    r"net\s+use",
-    r"psexec",
-    r"winrm",
-    r"bitsadmin\s+/transfer",
-    r"certutil\s+-urlcache",
-    r"certutil\s+-decode",
-    r"cscript\s+",
-    r"mshta\s+",
-    r"powershell\s+",
-    r"pwsh\s+",
+/// Default cmd.exe dangerous rules (addressable ids + severity grades).
+pub const DANGEROUS_PATTERNS: &[CommandRule] = &[
+    CommandRule { id: "core.cmd:format-drive", pack: "core.filesystem", pattern: r"format\s+[A-Za-z]:", severity: Severity::Critical },
+    CommandRule { id: "core.cmd:format-root", pack: "core.filesystem", pattern: r"format\s+/", severity: Severity::Critical },
+    CommandRule { id: "core.cmd:diskpart-script", pack: "core.filesystem", pattern: r"diskpart\s+/s", severity: Severity::High },
+    CommandRule { id: "core.cmd:disk-clean-all", pack: "core.filesystem", pattern: r"clean\s+all", severity: Severity::Critical },
+    CommandRule { id: "core.cmd:reg-import", pack: "core.registry", pattern: r"reg\s+import", severity: Severity::High },
+    CommandRule { id: "core.cmd:reg-add", pack: "core.registry", pattern: r"reg\s+add", severity: Severity::Medium },
+    CommandRule { id: "core.cmd:reg-delete", pack: "core.registry", pattern: r"reg\s+delete", severity: Severity::Medium },
+    CommandRule { id: "core.cmd:wmic-process-delete", pack: "core.process", pattern: r"wmic\s+process\s+delete", severity: Severity::High },
+    CommandRule { id: "core.cmd:wmic-path", pack: "core.process", pattern: r"wmic\s+path\s+", severity: Severity::Medium },
+    CommandRule { id: "core.cmd:net-share", pack: "core.network", pattern: r"net\s+share", severity: Severity::Medium },
+    CommandRule { id: "core.cmd:net-use", pack: "core.network", pattern: r"net\s+use", severity: Severity::Medium },
+    CommandRule { id: "core.cmd:psexec", pack: "core.process", pattern: r"psexec", severity: Severity::High },
+    CommandRule { id: "core.cmd:winrm", pack: "core.network", pattern: r"winrm", severity: Severity::High },
+    CommandRule { id: "core.cmd:bitsadmin-transfer", pack: "core.network", pattern: r"bitsadmin\s+/transfer", severity: Severity::High },
+    CommandRule { id: "core.cmd:certutil-urlcache", pack: "core.network", pattern: r"certutil\s+-urlcache", severity: Severity::High },
+    CommandRule { id: "core.cmd:certutil-decode", pack: "core.network", pattern: r"certutil\s+-decode", severity: Severity::Medium },
+    CommandRule { id: "core.cmd:cscript", pack: "core.process", pattern: r"cscript\s+", severity: Severity::Medium },
+    CommandRule { id: "core.cmd:mshta", pack: "core.process", pattern: r"mshta\s+", severity: Severity::High },
+    CommandRule { id: "core.cmd:powershell-invoke", pack: "core.scripting", pattern: r"powershell\s+", severity: Severity::Medium },
+    CommandRule { id: "core.cmd:pwsh-invoke", pack: "core.scripting", pattern: r"pwsh\s+", severity: Severity::Medium },
 ];
 
 pub struct CmdAnalyzer;
 
 struct ResolvedShellPolicy {
-    allowed_commands: Vec<String>,
-    denied_commands: Vec<String>,
-    dangerous_patterns: Vec<String>,
+    /// (regex, severity) pairs resolved from user patterns or the built-in
+    /// rule table.
+    dangerous_patterns: Vec<(String, Severity)>,
     allow_pipe: bool,
     allow_redirect: bool,
 }
@@ -47,54 +51,28 @@ struct ResolvedShellPolicy {
 impl CmdAnalyzer {
     fn resolve_policy(&self, policy: &ShellPolicy) -> ResolvedShellPolicy {
         ResolvedShellPolicy {
-            allowed_commands: policy.allowed_commands.clone().unwrap_or_default(),
-            denied_commands: policy
-                .denied_commands
-                .clone()
-                .unwrap_or_else(|| DENIED_COMMANDS.iter().map(|s| s.to_string()).collect()),
             dangerous_patterns: policy
                 .dangerous_patterns
                 .clone()
-                .unwrap_or_else(|| DANGEROUS_PATTERNS.iter().map(|s| s.to_string()).collect()),
+                .unwrap_or_else(|| {
+                    DANGEROUS_PATTERNS
+                        .iter()
+                        .map(|r| r.pattern.to_string())
+                        .collect()
+                })
+                .into_iter()
+                .map(|p| {
+                    let sev = DANGEROUS_PATTERNS
+                        .iter()
+                        .find(|r| r.pattern == p)
+                        .map(|r| r.severity)
+                        .unwrap_or(Severity::High);
+                    (p, sev)
+                })
+                .collect(),
             allow_pipe: policy.allow_pipe.unwrap_or(true),
             allow_redirect: policy.allow_redirect.unwrap_or(true),
         }
-    }
-
-    fn extract_primary_command(&self, tokens: &[String]) -> Option<String> {
-        let without_start = {
-            let first = tokens.first()?;
-            if first.eq_ignore_ascii_case("start") {
-                tokens
-                    .iter()
-                    .find(|w| !w.starts_with('/'))
-                    .cloned()
-                    .unwrap_or_default()
-            } else {
-                first.trim_start_matches('@').to_string()
-            }
-        };
-
-        if without_start.is_empty() {
-            return None;
-        }
-
-        let basename = without_start
-            .rsplit(['/', '\\'])
-            .next()
-            .unwrap_or(&without_start);
-        let name = if let Some(dot) = basename.rfind('.') {
-            let ext = &basename[dot + 1..];
-            if matches!(ext, "exe" | "com" | "bat" | "cmd") {
-                basename[..dot].to_string()
-            } else {
-                basename.to_string()
-            }
-        } else {
-            basename.to_string()
-        };
-
-        Some(name.to_lowercase())
     }
 }
 
@@ -106,47 +84,38 @@ impl ShellAnalyzer for CmdAnalyzer {
     fn analyze(&self, ctx: &ShellAnalysisContext) -> ShellAnalysisResult {
         let policy = self.resolve_policy(ctx.policy);
 
-        let primary = self.extract_primary_command(ctx.tokens);
-        let primary = match primary {
-            Some(p) if !p.is_empty() => p,
-            _ => {
-                return ShellAnalysisResult {
-                    allowed: false,
-                    reason: Some("Empty command".to_string()),
-                    command: ctx.command.to_string(),
-                    shell_type: SHELL_TYPE,
-                };
-            }
-        };
-
-        if policy.denied_commands.contains(&primary) {
+        if ctx.command.trim().is_empty() {
             return ShellAnalysisResult {
                 allowed: false,
-                reason: Some(format!("Command denied by blacklist: {primary}")),
+                reason: Some("Empty command".to_string()),
                 command: ctx.command.to_string(),
                 shell_type: SHELL_TYPE,
             };
         }
 
-        if !policy.allowed_commands.is_empty() && !policy.allowed_commands.contains(&primary) {
-            return ShellAnalysisResult {
-                allowed: false,
-                reason: Some(format!("Command not in whitelist: {primary}")),
-                command: ctx.command.to_string(),
-                shell_type: SHELL_TYPE,
-            };
-        }
-
-        for pattern in policy.dangerous_patterns {
-            if let Ok(re) = Regex::new(&pattern) {
-                if re.is_match(ctx.command) {
+        for (pattern, severity) in &policy.dangerous_patterns {
+            // An invalid user-supplied pattern must deny, not silently
+            // disable the rule (fail-closed).
+            let re = match Regex::new(pattern) {
+                Ok(re) => re,
+                Err(e) => {
                     return ShellAnalysisResult {
                         allowed: false,
-                        reason: Some(format!("Dangerous pattern detected: {pattern}")),
+                        reason: Some(format!("Invalid dangerous pattern '{pattern}': {e}")),
                         command: ctx.command.to_string(),
                         shell_type: SHELL_TYPE,
                     };
                 }
+            };
+            if re.is_match(ctx.command) {
+                return ShellAnalysisResult {
+                    allowed: false,
+                    reason: Some(format!(
+                        "Dangerous pattern detected [{severity}]: {pattern}"
+                    )),
+                    command: ctx.command.to_string(),
+                    shell_type: SHELL_TYPE,
+                };
             }
         }
 
@@ -267,38 +236,6 @@ mod tests {
     fn test_ext_command_with_path() {
         let result = analyze("C:\\Windows\\System32\\notepad.exe", &empty_policy());
         assert!(result.allowed);
-    }
-
-    #[test]
-    fn test_whitelist_denies() {
-        let policy = ShellPolicy {
-            allowed_commands: Some(vec!["dir".to_string()]),
-            denied_commands: None,
-            dangerous_patterns: None,
-            allow_pipe: None,
-            allow_redirect: None,
-        };
-        let result = analyze("echo test", &policy);
-        assert!(!result.allowed);
-        assert!(result.reason.unwrap().contains("whitelist"));
-    }
-
-    #[test]
-    fn test_blacklist_wins_over_whitelist() {
-        let policy = ShellPolicy {
-            allowed_commands: Some(vec!["format".to_string(), "dir".to_string()]),
-            denied_commands: None,
-            dangerous_patterns: None,
-            allow_pipe: None,
-            allow_redirect: None,
-        };
-        let result = analyze("format C: /Y", &policy);
-        assert!(!result.allowed);
-        let reason = result.reason.unwrap();
-        assert!(
-            reason.contains("blacklist"),
-            "blacklist must be reported before whitelist: {reason}"
-        );
     }
 
     #[test]

@@ -1,11 +1,15 @@
 use regex::Regex;
 use wf_types::script::sandbox::ShellPolicy;
 
+use crate::command_policy::{CommandRule, Severity};
+
 use super::base::{ShellAnalysisContext, ShellAnalysisResult, ShellAnalyzer, ShellType};
 
 const SHELL_TYPE: ShellType = ShellType::Bash;
 
-const DENIED_COMMANDS: &[&str] = &[
+/// Default bash blacklist, also used by the unified command policy
+/// (`crate::command_policy::default_denied_commands`).
+pub(crate) const DENIED_COMMANDS: &[&str] = &[
     "sudo",
     "su",
     "chroot",
@@ -40,31 +44,103 @@ const DENIED_COMMANDS: &[&str] = &[
     "swapoff",
 ];
 
-pub const DANGEROUS_PATTERNS: &[&str] = &[
-    r"rm\s+(-rf?|--recursive)\s+/",
-    r":?\(\)\s*\{.*:\s*:\s*\};?:",
-    r"curl.*\|\s*(ba)?sh",
-    r"wget.*\|\s*(ba)?sh",
-    r"LD_PRELOAD=",
-    r"LD_LIBRARY_PATH=",
-    r"mkfs\s+",
-    r"dd\s+if=",
-    r"chroot\s+",
-    r"SUDO_ASKPASS=",
-    r"SUDO_PASSWORD=",
-    r"insmod\s+",
-    r"modprobe\s+",
-    r"dd\s+of=/dev/",
+/// Default bash dangerous rules (addressable ids + severity grades).
+pub const DANGEROUS_PATTERNS: &[CommandRule] = &[
+    CommandRule {
+        id: "core.bash:rm-rf-root",
+        pack: "core.filesystem",
+        pattern: r"rm\s+(-rf?|--recursive)\s+/",
+        severity: Severity::Critical,
+    },
+    // Fork bomb: `:(){ :|:& };:` — a function body piping into itself in the
+    // background. The old `:\s*:\s*` clause could never match (the colons are
+    // separated by `|` / `&`), so the pattern was a no-op.
+    CommandRule {
+        id: "core.bash:fork-bomb",
+        pack: "core.process",
+        pattern: r":?\(\)\s*\{.*\|.*&.*\};?",
+        severity: Severity::Critical,
+    },
+    CommandRule {
+        id: "core.bash:curl-pipe-shell",
+        pack: "core.network",
+        pattern: r"curl.*\|\s*(ba)?sh",
+        severity: Severity::High,
+    },
+    CommandRule {
+        id: "core.bash:wget-pipe-shell",
+        pack: "core.network",
+        pattern: r"wget.*\|\s*(ba)?sh",
+        severity: Severity::High,
+    },
+    CommandRule {
+        id: "core.bash:ld-preload",
+        pack: "core.process",
+        pattern: r"LD_PRELOAD=",
+        severity: Severity::Critical,
+    },
+    CommandRule {
+        id: "core.bash:ld-library-path",
+        pack: "core.process",
+        pattern: r"LD_LIBRARY_PATH=",
+        severity: Severity::High,
+    },
+    CommandRule {
+        id: "core.bash:mkfs",
+        pack: "core.filesystem",
+        pattern: r"mkfs\s+",
+        severity: Severity::High,
+    },
+    CommandRule {
+        id: "core.bash:dd-if",
+        pack: "core.filesystem",
+        pattern: r"dd\s+if=",
+        severity: Severity::High,
+    },
+    CommandRule {
+        id: "core.bash:chroot",
+        pack: "core.process",
+        pattern: r"chroot\s+",
+        severity: Severity::High,
+    },
+    CommandRule {
+        id: "core.bash:sudo-askpass",
+        pack: "core.privilege",
+        pattern: r"SUDO_ASKPASS=",
+        severity: Severity::High,
+    },
+    CommandRule {
+        id: "core.bash:sudo-password",
+        pack: "core.privilege",
+        pattern: r"SUDO_PASSWORD=",
+        severity: Severity::High,
+    },
+    CommandRule {
+        id: "core.bash:insmod",
+        pack: "core.kernel",
+        pattern: r"insmod\s+",
+        severity: Severity::High,
+    },
+    CommandRule {
+        id: "core.bash:modprobe",
+        pack: "core.kernel",
+        pattern: r"modprobe\s+",
+        severity: Severity::High,
+    },
+    CommandRule {
+        id: "core.bash:dd-of-device",
+        pack: "core.filesystem",
+        pattern: r"dd\s+of=/dev/",
+        severity: Severity::Critical,
+    },
 ];
-
-const PREFIX_COMMANDS: &[&str] = &["time", "env", "nice", "nohup", "command", "\\"];
 
 pub struct BashAnalyzer;
 
 struct ResolvedShellPolicy {
-    allowed_commands: Vec<String>,
-    denied_commands: Vec<String>,
-    dangerous_patterns: Vec<String>,
+    /// (regex, severity) pairs resolved from user patterns or the built-in
+    /// rule table.
+    dangerous_patterns: Vec<(String, Severity)>,
     allow_pipe: bool,
     allow_redirect: bool,
 }
@@ -72,39 +148,31 @@ struct ResolvedShellPolicy {
 impl BashAnalyzer {
     fn resolve_policy(&self, policy: &ShellPolicy) -> ResolvedShellPolicy {
         ResolvedShellPolicy {
-            allowed_commands: policy.allowed_commands.clone().unwrap_or_default(),
-            denied_commands: policy
-                .denied_commands
-                .clone()
-                .unwrap_or_else(|| DENIED_COMMANDS.iter().map(|s| s.to_string()).collect()),
             dangerous_patterns: policy
                 .dangerous_patterns
                 .clone()
-                .unwrap_or_else(|| DANGEROUS_PATTERNS.iter().map(|s| s.to_string()).collect()),
+                .unwrap_or_else(|| {
+                    DANGEROUS_PATTERNS
+                        .iter()
+                        .map(|r| r.pattern.to_string())
+                        .collect()
+                })
+                .into_iter()
+                .map(|p| {
+                    // User-supplied patterns have no severity metadata; grade
+                    // them by the built-in table when the pattern matches one,
+                    // otherwise default to High.
+                    let sev = DANGEROUS_PATTERNS
+                        .iter()
+                        .find(|r| r.pattern == p)
+                        .map(|r| r.severity)
+                        .unwrap_or(Severity::High);
+                    (p, sev)
+                })
+                .collect(),
             allow_pipe: policy.allow_pipe.unwrap_or(true),
             allow_redirect: policy.allow_redirect.unwrap_or(true),
         }
-    }
-
-    fn extract_primary_command(&self, tokens: &[String]) -> Option<String> {
-        let mut idx = 0;
-
-        while idx < tokens.len() && PREFIX_COMMANDS.contains(&tokens[idx].as_str()) {
-            idx += 1;
-        }
-
-        tokens.get(idx).map(|s| {
-            s.chars()
-                .filter(|c| {
-                    c.is_alphanumeric()
-                        || *c == '_'
-                        || *c == '-'
-                        || *c == '.'
-                        || *c == '/'
-                        || *c == '\\'
-                })
-                .collect()
-        })
     }
 }
 
@@ -116,47 +184,43 @@ impl ShellAnalyzer for BashAnalyzer {
     fn analyze(&self, ctx: &ShellAnalysisContext) -> ShellAnalysisResult {
         let policy = self.resolve_policy(ctx.policy);
 
-        let primary = self.extract_primary_command(ctx.tokens);
-        let primary = match primary {
-            Some(p) if !p.is_empty() => p,
-            _ => {
-                return ShellAnalysisResult {
-                    allowed: false,
-                    reason: Some("Empty command".to_string()),
-                    command: ctx.command.to_string(),
-                    shell_type: SHELL_TYPE,
-                };
-            }
-        };
-
-        if policy.denied_commands.contains(&primary) {
+        if ctx.command.trim().is_empty() {
             return ShellAnalysisResult {
                 allowed: false,
-                reason: Some(format!("Command denied by blacklist: {primary}")),
+                reason: Some("Empty command".to_string()),
                 command: ctx.command.to_string(),
                 shell_type: SHELL_TYPE,
             };
         }
 
-        if !policy.allowed_commands.is_empty() && !policy.allowed_commands.contains(&primary) {
-            return ShellAnalysisResult {
-                allowed: false,
-                reason: Some(format!("Command not in whitelist: {primary}")),
-                command: ctx.command.to_string(),
-                shell_type: SHELL_TYPE,
-            };
-        }
+        // Dangerous patterns run against the command with single-quoted
+        // data and comments masked, so `git commit -m 'rm -rf /'` no longer
+        // produces a false positive. Double quotes stay visible (conservative).
+        let masked = crate::command_policy::mask_data_spans(ctx.command, SHELL_TYPE);
 
-        for pattern in policy.dangerous_patterns {
-            if let Ok(re) = Regex::new(&pattern) {
-                if re.is_match(ctx.command) {
+        for (pattern, severity) in &policy.dangerous_patterns {
+            // An invalid user-supplied pattern must deny, not silently
+            // disable the rule (fail-closed).
+            let re = match Regex::new(pattern) {
+                Ok(re) => re,
+                Err(e) => {
                     return ShellAnalysisResult {
                         allowed: false,
-                        reason: Some(format!("Dangerous pattern detected: {pattern}")),
+                        reason: Some(format!("Invalid dangerous pattern '{pattern}': {e}")),
                         command: ctx.command.to_string(),
                         shell_type: SHELL_TYPE,
                     };
                 }
+            };
+            if re.is_match(&masked) {
+                return ShellAnalysisResult {
+                    allowed: false,
+                    reason: Some(format!(
+                        "Dangerous pattern detected [{severity}]: {pattern}"
+                    )),
+                    command: ctx.command.to_string(),
+                    shell_type: SHELL_TYPE,
+                };
             }
         }
 
@@ -228,29 +292,28 @@ mod tests {
     }
 
     #[test]
-    fn test_denies_sudo() {
-        let result = analyze("sudo rm -rf /", &empty_policy());
-        assert!(!result.allowed);
-        assert!(result.reason.unwrap().contains("sudo"));
-    }
-
-    #[test]
-    fn test_denies_su() {
-        let result = analyze("su - root", &empty_policy());
-        assert!(!result.allowed);
-    }
-
-    #[test]
-    fn test_denies_chroot() {
-        let result = analyze("chroot /newroot", &empty_policy());
-        assert!(!result.allowed);
-    }
-
-    #[test]
     fn test_denies_dangerous_rm() {
         let result = analyze("rm -rf /", &empty_policy());
         assert!(!result.allowed);
         assert!(result.reason.unwrap().contains("Dangerous pattern"));
+    }
+
+    // Single-quoted data must not trigger dangerous patterns.
+    #[test]
+    fn test_git_commit_message_data_no_false_positive() {
+        let result = analyze("git commit -m 'rm -rf /'", &empty_policy());
+        assert!(
+            result.allowed,
+            "single-quoted data must not match dangerous patterns: {:?}",
+            result.reason
+        );
+    }
+
+    // Unquoted dangerous commands must still be denied.
+    #[test]
+    fn test_unquoted_dangerous_still_denied() {
+        let result = analyze("rm -rf /", &empty_policy());
+        assert!(!result.allowed);
     }
 
     #[test]
@@ -278,51 +341,6 @@ mod tests {
     }
 
     #[test]
-    fn test_whitelist_denies_outside() {
-        let policy = ShellPolicy {
-            allowed_commands: Some(vec!["ls".to_string(), "echo".to_string()]),
-            denied_commands: None,
-            dangerous_patterns: None,
-            allow_pipe: None,
-            allow_redirect: None,
-        };
-        let result = analyze("cat /etc/passwd", &policy);
-        assert!(!result.allowed);
-        assert!(result.reason.unwrap().contains("whitelist"));
-    }
-
-    #[test]
-    fn test_blacklist_wins_over_whitelist() {
-        let policy = ShellPolicy {
-            allowed_commands: Some(vec!["sudo".to_string(), "echo".to_string()]),
-            denied_commands: None,
-            dangerous_patterns: None,
-            allow_pipe: None,
-            allow_redirect: None,
-        };
-        let result = analyze("sudo rm -rf /", &policy);
-        assert!(!result.allowed);
-        let reason = result.reason.unwrap();
-        assert!(
-            reason.contains("blacklist"),
-            "blacklist must be reported before whitelist: {reason}"
-        );
-    }
-
-    #[test]
-    fn test_whitelist_allows_safe() {
-        let policy = ShellPolicy {
-            allowed_commands: Some(vec!["ls".to_string()]),
-            denied_commands: None,
-            dangerous_patterns: None,
-            allow_pipe: None,
-            allow_redirect: None,
-        };
-        let result = analyze("ls -la", &policy);
-        assert!(result.allowed);
-    }
-
-    #[test]
     fn test_denies_mkfs() {
         let result = analyze("mkfs ext4 /dev/sda1", &empty_policy());
         assert!(!result.allowed);
@@ -331,12 +349,6 @@ mod tests {
     #[test]
     fn test_denies_dd_if() {
         let result = analyze("dd if=/dev/sda of=/output bs=4M", &empty_policy());
-        assert!(!result.allowed);
-    }
-
-    #[test]
-    fn test_denies_systemctl() {
-        let result = analyze("systemctl start some-service", &empty_policy());
         assert!(!result.allowed);
     }
 
@@ -373,11 +385,5 @@ mod tests {
         let result = analyze("echo hello > /tmp/file", &policy);
         assert!(!result.allowed);
         assert!(result.reason.unwrap().contains("Redirect"));
-    }
-
-    #[test]
-    fn test_prefix_commands_skipped() {
-        let result = analyze("time env ls", &empty_policy());
-        assert!(result.allowed);
     }
 }

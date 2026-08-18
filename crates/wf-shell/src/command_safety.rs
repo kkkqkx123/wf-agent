@@ -2,6 +2,12 @@ use regex::Regex;
 
 use std::sync::OnceLock;
 
+use wf_sandbox::command_policy::{self, CommandRules};
+
+/// Re-exported so existing consumers (`wf-tools`) keep importing
+/// `wf_shell::command_safety::CommandDecision`.
+pub use wf_sandbox::command_policy::CommandDecision;
+
 fn dangerous_param_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| Regex::new(r"\$\{[^}]*@[PQEAa][^}]*\}").unwrap())
@@ -35,11 +41,6 @@ fn here_string_re() -> &'static Regex {
 fn zsh_glob_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
     RE.get_or_init(|| Regex::new(r"[*?+@!]\(e:[^:]+:\)").unwrap())
-}
-
-fn fd_redirect_re() -> &'static Regex {
-    static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| Regex::new(r"\d*>&\d*").unwrap())
 }
 
 /// Split a command line into sub-commands on the shell separators.
@@ -92,6 +93,9 @@ pub fn contains_dangerous_substitution(command: &str) -> bool {
     false
 }
 
+/// Longest-prefix match helper, kept for API compatibility with the legacy
+/// prefix-based decision path (the unified pipeline in `wf-sandbox` uses its
+/// own whitespace-aware sub-command prefix matching).
 pub fn find_longest_prefix_match(command: &str, prefixes: &[String]) -> Option<String> {
     if command.is_empty() || prefixes.is_empty() {
         return None;
@@ -118,13 +122,6 @@ pub fn find_longest_prefix_match(command: &str, prefixes: &[String]) -> Option<S
     longest
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum CommandDecision {
-    AutoApprove,
-    AutoDeny,
-    AskUser,
-}
-
 /// Immutable allow/deny command policy evaluated at the unified spawn entry.
 ///
 /// The policy is the single source of truth for the engine-level command
@@ -133,10 +130,17 @@ pub enum CommandDecision {
 /// concern). Upper crates build a policy from the same
 /// [`crate::config::ShellToolConfig`] so the engine baseline and the
 /// approval layer stay consistent.
+///
+/// This type is now a thin wrapper over the unified decision pipeline
+/// (`wf_sandbox::command_policy::evaluate_command`), which also carries the
+/// sandbox shell rules when they are configured, so the engine baseline and
+/// the sandbox static-analysis gate always agree.
 #[derive(Debug, Clone)]
 pub struct CommandPolicy {
     allowed_commands: Vec<String>,
     denied_commands: Option<Vec<String>>,
+    shell_policy: Option<wf_types::script::sandbox::ShellPolicy>,
+    shell_type: Option<wf_sandbox::strategy::shell::base::ShellType>,
 }
 
 impl CommandPolicy {
@@ -144,6 +148,8 @@ impl CommandPolicy {
         Self {
             allowed_commands,
             denied_commands,
+            shell_policy: None,
+            shell_type: None,
         }
     }
 
@@ -159,12 +165,21 @@ impl CommandPolicy {
         )
     }
 
-    /// Build a policy from the shell tool configuration.
+    /// Build a policy from the shell tool configuration. The sandbox shell
+    /// rules (when a sandbox policy is attached) are carried into the unified
+    /// pipeline so deny is a union and allow is the stricter side.
     pub fn from_config(config: &crate::config::ShellToolConfig) -> Self {
-        Self::new(
-            config.allowed_commands.clone(),
-            config.denied_commands.clone(),
-        )
+        Self {
+            allowed_commands: config.allowed_commands.clone(),
+            denied_commands: config.denied_commands.clone(),
+            shell_policy: config
+                .sandbox_policy
+                .as_ref()
+                .and_then(|p| p.shell.clone()),
+            shell_type: config.shell_type.as_ref().and_then(|s| {
+                wf_sandbox::strategy::shell::base::ShellType::parse(s.as_str())
+            }),
+        }
     }
 
     pub fn allowed_commands(&self) -> &[String] {
@@ -175,13 +190,16 @@ impl CommandPolicy {
         self.denied_commands.as_deref()
     }
 
-    /// Evaluate the command against the policy.
+    /// Evaluate the command against the policy via the unified pipeline.
     pub fn decision(&self, command: &str) -> CommandDecision {
-        get_command_decision(
-            command,
-            &self.allowed_commands,
-            self.denied_commands.as_deref(),
-        )
+        let rules = CommandRules {
+            allowed_commands: self.allowed_commands.clone(),
+            denied_commands: self.denied_commands.clone().unwrap_or_default(),
+        };
+        let shell_type =
+            self.shell_type
+                .unwrap_or_else(wf_sandbox::strategy::shell::base::ShellType::default_for_platform);
+        command_policy::evaluate_command(command, shell_type, &rules, self.shell_policy.as_ref())
     }
 
     /// Whether the command is hard-rejected by the policy.
@@ -195,51 +213,12 @@ pub fn get_single_command_decision(
     allowed_commands: &[String],
     denied_commands: Option<&[String]>,
 ) -> CommandDecision {
-    if command.is_empty() {
-        return CommandDecision::AutoApprove;
-    }
-
-    if allowed_commands.is_empty() {
-        return CommandDecision::AskUser;
-    }
-
-    let has_wildcard = allowed_commands.iter().any(|c| c.to_lowercase() == "*");
-
-    match denied_commands {
-        None => {
-            let trimmed = command.trim().to_lowercase();
-            let has_match = allowed_commands.iter().any(|prefix| {
-                let lower = prefix.to_lowercase();
-                lower == "*" || trimmed.starts_with(&lower)
-            });
-            if has_match {
-                CommandDecision::AutoApprove
-            } else {
-                CommandDecision::AskUser
-            }
-        }
-        Some(denied) => {
-            let longest_denied = find_longest_prefix_match(command, denied);
-            let longest_allowed = find_longest_prefix_match(command, allowed_commands);
-
-            if has_wildcard && longest_denied.is_none() {
-                return CommandDecision::AutoApprove;
-            }
-
-            match (&longest_allowed, &longest_denied) {
-                (None, Some(_)) => CommandDecision::AutoDeny,
-                (None, None) => CommandDecision::AskUser,
-                (Some(_), None) => CommandDecision::AutoApprove,
-                (Some(allow), Some(deny)) => {
-                    if allow.len() > deny.len() {
-                        CommandDecision::AutoApprove
-                    } else {
-                        CommandDecision::AutoDeny
-                    }
-                }
-            }
-        }
-    }
+    let rules = CommandRules {
+        allowed_commands: allowed_commands.to_vec(),
+        denied_commands: denied_commands.unwrap_or(&[]).to_vec(),
+    };
+    let shell_type = wf_sandbox::strategy::shell::base::ShellType::default_for_platform();
+    command_policy::evaluate_command(command, shell_type, &rules, None)
 }
 
 pub fn get_command_decision(
@@ -256,26 +235,7 @@ pub fn get_command_decision(
         return CommandDecision::AskUser;
     }
 
-    let sub_commands = parse_command_chain(command);
-
-    let decisions: Vec<CommandDecision> = sub_commands
-        .iter()
-        .map(|cmd| {
-            let cleaned = fd_redirect_re().replace(cmd.trim(), "").to_string();
-            let cleaned = cleaned.trim().to_string();
-            get_single_command_decision(&cleaned, allowed_commands, denied_commands)
-        })
-        .collect();
-
-    if decisions.contains(&CommandDecision::AutoDeny) {
-        return CommandDecision::AutoDeny;
-    }
-
-    if decisions.iter().all(|d| *d == CommandDecision::AutoApprove) {
-        return CommandDecision::AutoApprove;
-    }
-
-    CommandDecision::AskUser
+    get_single_command_decision(command, allowed_commands, denied_commands)
 }
 
 #[cfg(test)]
@@ -345,6 +305,29 @@ mod tests {
         );
     }
 
+    // Acceptance: `sudo rm -rf /` must be denied by a bare `rm` deny
+    // rule (the legacy prefix path returned AutoApprove).
+    #[test]
+    fn test_sudo_wrapper_cannot_bypass_denylist() {
+        let allowed = vec!["*".to_string()];
+        let denied = vec!["rm".to_string()];
+        assert_eq!(
+            get_command_decision("sudo rm -rf /", &allowed, Some(&denied)),
+            CommandDecision::AutoDeny
+        );
+    }
+
+    // Acceptance: a bare command word allowlist must not match longer
+    // command names via prefix (`gitx` was AutoApprove before the merge).
+    #[test]
+    fn test_allowlist_does_not_prefix_leak() {
+        let allowed = vec!["git".to_string()];
+        assert_eq!(
+            get_command_decision("gitx", &allowed, None),
+            CommandDecision::AskUser
+        );
+    }
+
     #[test]
     fn test_chain_decision() {
         let allowed = vec!["git".to_string()];
@@ -360,5 +343,15 @@ mod tests {
         let denied = vec!["rm -rf".to_string()];
         let result = get_command_decision("git checkout main && rm -rf /", &allowed, Some(&denied));
         assert_eq!(result, CommandDecision::AutoDeny);
+    }
+
+    // Acceptance: absolute paths resolve against the allowlist.
+    #[test]
+    fn test_absolute_path_allowed() {
+        let allowed = vec!["git".to_string()];
+        assert_eq!(
+            get_command_decision("/usr/bin/git status", &allowed, None),
+            CommandDecision::AutoApprove
+        );
     }
 }

@@ -1,8 +1,4 @@
 //! wf-cli: headless run, mini and full TUI forms over the wf-agent runtime.
-//!
-//! Stage 1 delivered the output routing (format layer × sink layer) and the
-//! domain adapter; Stage 2 closes the headless `run` loop with a streaming
-//! session driver (see [`run`]); the interactive forms land in later stages.
 
 pub mod args;
 pub mod domain;
@@ -11,6 +7,8 @@ pub mod events;
 pub mod mode;
 pub mod output;
 pub mod run;
+pub mod terminal;
+pub mod theme;
 
 pub use args::{Cli, Command};
 pub use error::{CliError, CliResult};
@@ -27,6 +25,9 @@ use crate::output::OutputSink;
 pub async fn run(cli: Cli) -> CliResult<()> {
     if matches!(cli.command, Some(Command::DebugMode)) {
         return debug_mode(&cli).await;
+    }
+    if matches!(cli.command, Some(Command::DebugTerminal { .. })) {
+        return debug_terminal(&cli).await;
     }
 
     let (stdin_tty, stdout_tty) = mode::real_tty_status();
@@ -54,7 +55,7 @@ fn build_sink(cli: &Cli, stdout_tty: bool) -> CliResult<Box<dyn OutputSink + Sen
 
 /// Headless single-session form (`wf run` / piped stdin / `--no-tui`).
 ///
-/// Stage 2 wiring: bootstrap the runtime, drive one streaming agent session
+/// Bootstrap the runtime, drive one streaming agent session
 /// ([`run::run_session`]) with the headless approval degradation, then tear
 /// the runtime down preserving the session outcome.
 async fn run_headless(cli: &Cli, resolved: &ResolvedMode, stdout_tty: bool) -> CliResult<()> {
@@ -152,4 +153,94 @@ pub async fn debug_mode(cli: &Cli) -> CliResult<()> {
 /// logging). Interactive forms and tests build on this.
 pub fn default_runtime_config() -> RuntimeConfig {
     RuntimeConfig::default()
+}
+
+/// Terminal facility probe (`wf debug-terminal`).
+///
+/// Exercises the whole Stage 3 surface against the *real* terminal when
+/// stdout is a TTY: theme detection, guard enter/restore, a
+/// `with_restored` external-command window and the "redraw after re-enter"
+/// duty. Without a TTY it only verifies the degradation paths (default
+/// theme fallback, no guard activation) and exits 0.
+pub async fn debug_terminal(cli: &Cli) -> CliResult<()> {
+    use crate::terminal::{install_panic_hook, CrosstermControl, TerminalGuard, TerminalModes};
+    use crate::theme::{self, ThemeSource};
+
+    let (_stdin_tty, stdout_tty) = mode::real_tty_status();
+    let mut sink = build_sink(cli, stdout_tty)?;
+    let theme = theme::probe_theme();
+
+    let Some(Command::DebugTerminal { alt_screen, exec }) = &cli.command else {
+        return Err(CliError::Arguments("debug-terminal dispatched wrongly".into()));
+    };
+
+    if !stdout_tty {
+        // CI / pipe degradation path: no guard, default/cached theme.
+        sink.write_text(&format!(
+            "[wf] no tty: terminal guard not activated (alt_screen={alt_screen}, would run {:?}); \
+             theme {} kind {:?} ({}), domain {:?}",
+            exec.clone().or_else(|| std::env::var("EDITOR").ok()).unwrap_or_default(),
+            theme.bg.hex(),
+            theme.kind,
+            match theme.source {
+                ThemeSource::Probed => "probed",
+                ThemeSource::Cached => "cached",
+                ThemeSource::Default => "default fallback",
+            },
+            theme::ColorDomain::detect_from_env(),
+        ))?;
+        sink.flush()?;
+        return Ok(());
+    }
+
+    install_panic_hook();
+    let entered = if *alt_screen {
+        TerminalModes::TUI
+    } else {
+        TerminalModes::MINI
+    };
+    let exec = exec
+        .clone()
+        .or_else(|| std::env::var("EDITOR").ok())
+        .unwrap_or_else(|| "true".to_string());
+
+    let mut guard = TerminalGuard::new(CrosstermControl::new(std::io::stdout()));
+    guard.enter(entered)?;
+
+    // Simulated frame while the modes are active (raw mode needs \r\n and
+    // writes bypass the headless sink — stderr keeps stdout clean).
+    eprintln!("[frame] terminal modes active: {:?}", guard.modes());
+
+    let exec_status = guard.with_restored(None, || {
+        eprintln!("[with_restored] running: {exec}");
+        std::process::Command::new("sh")
+            .arg("-c")
+            .arg(&exec)
+            .status()
+    })?;
+
+    // Redraw duty after the window: another simulated frame.
+    eprintln!(
+        "[frame] redraw after with_restored (modes: {:?})",
+        guard.modes()
+    );
+
+    let exit_ok = exec_status.map(|s| s.success()).unwrap_or(false);
+    guard.restore()?;
+
+    sink.write_text(&format!(
+        "[wf] debug-terminal: modes entered {:?} / restored {:?}; exec {:?} -> {}; theme {} ({})",
+        entered,
+        guard.modes(),
+        exec,
+        if exit_ok { "ok" } else { "failed" },
+        theme.bg.hex(),
+        match theme.source {
+            ThemeSource::Probed => "probed",
+            ThemeSource::Cached => "cached",
+            ThemeSource::Default => "default fallback",
+        },
+    ))?;
+    sink.flush()?;
+    Ok(())
 }

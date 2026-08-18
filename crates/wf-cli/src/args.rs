@@ -79,6 +79,17 @@ pub enum Command {
     },
     /// Print resolved CLI mode / output routing (diagnostics).
     DebugMode,
+    /// Terminal facility probe: guard enter/restore,
+    /// `with_restored` external command, theme detection (diagnostics).
+    DebugTerminal {
+        /// Also exercise the alternate screen (full-TUI mode set).
+        #[arg(long)]
+        alt_screen: bool,
+        /// Command to run inside the `with_restored` window (default:
+        /// `$EDITOR`, or `true` when unset).
+        #[arg(long)]
+        exec: Option<String>,
+    },
 }
 
 #[cfg(test)]

@@ -75,7 +75,7 @@ impl ModeResolver {
                         },
                     });
                 }
-                Command::DebugMode => {
+                Command::DebugMode | Command::DebugTerminal { .. } => {
                     return Ok(ResolvedMode {
                         cli_mode: CliMode::Run,
                         stdin_prompt: None,

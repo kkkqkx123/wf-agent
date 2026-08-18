@@ -186,23 +186,30 @@ wf-types/wf-common/wf-config/wf-storage → wf-runtime/wf-api/wf-agent → wf-cl
 - 端到端：`wf run "hello"`（mock llm provider）→ stdout 出现文本、stderr 出现工具摘要；`--output json` 信封字段完整；审批 deny 用例（敏感工具被拒 + 原因打印）；退出码矩阵（0/1/2/3/4）。✅（`cargo test -p wf-cli` 50 项全绿，含 8 项 mock LLM e2e）
 - 此阶段不引入 ratatui/crossterm 依赖（保持无 UI 依赖，保证领域层可独立验证）。✅
 
-### Stage 3：终端交互设施（通用 F8/F9）
+### Stage 3：终端交互设施（通用 F8/F9）✅ 已完成（2026-08-18，详见 `wf-cli-stage3-终端交互设施实施方案.md`）
 
 **目标**：UI 形态前置的终端安全设施，与渲染解耦、可独立验证。
 
 **任务**
 
-- [ ] `terminal.rs`：
+- [x] `terminal.rs`：
   - `TerminalGuard`（RAII：进入 raw mode / alternate screen 时登记，Drop 恢复终端状态，对齐 03 §2.1）；
   - `with_restored`（暂停视口 → 恢复终端 → 运行外部命令（$EDITOR 等）→ 重绘，对齐 03 §2.1）；
   - stderr 抑制（`TerminalStderrGuard`，对齐 03 §2.1）；
   - SIGINT 两按计数（5s 窗口，对齐 05 §3.3）。
-- [ ] `theme.rs`：主题探测——OSC 10/11 颜色查询（带超时降级）、调色板推导、最后已知良好主题缓存、SIGUSR2 热更新事件；输出 `Theme { bg, fg, accent, ... }` 纯数据（供后续组件消费）。
+- [x] `theme.rs`：主题探测——OSC 10/11 颜色查询（带超时降级）、调色板推导、最后已知良好主题缓存、SIGUSR2 热更新事件；输出 `Theme { bg, fg, accent, ... }` 纯数据（供后续组件消费）。
 
 **交付与验收**
 
-- 单测：TerminalGuard 双次进入/退出状态一致性；SIGINT 两按状态机（合成信号）。
-- 冒烟：`wf --mini --demo` 之外的探针命令验证 `with_restored`（启动 $EDITOR 后终端无残留状态）；主题探测在无 OSC 响应时回退默认主题不 panic。
+- 单测：TerminalGuard 双次进入/退出状态一致性；SIGINT 两按状态机（合成信号）。✅（`cargo test -p wf-cli` 81 项全绿，Stage 3 新增 31 项）
+- 冒烟：`wf --mini --demo` 之外的探针命令验证 `with_restored`（启动 $EDITOR 后终端无残留状态）；主题探测在无 OSC 响应时回退默认主题不 panic。✅（`wf debug-terminal [--alt-screen] [--exec CMD]`，PTY 冒烟经 `script` 验证；CI 无 TTY 走降级路径 exit 0）
+
+**完成记录（2026-08-18）**
+
+- `terminal.rs`：`TerminalModes` 四开关位 + `TerminalControl` trait（注入式控制平面）+ `TerminalGuard<C>`（差量 enter / 逆序 restore / Drop 兜底）+ `CrosstermControl`/`FakeControl`；`with_restored`（可选联动 stderr 抑制）；`TerminalStderrGuard`（unix fd 2 重定向，restore 保留句柄支持 re_suppress 循环）；`install_panic_hook`（进程级双保险，幂等）；`DoublePressTracker`（u64 毫秒时钟纯状态机 + `press_now`）。
+- `theme.rs`：`Theme`（8 角色 ColorRole 纯数据 + `ThemeSource`）+ `OscColorParser`（分块增量解析，噪音丢弃）+ `derive_theme`（BT.601 亮度判明暗、accent 候选对比度择优）+ `probe_theme`（/dev/tty + 临时 raw + poll 超时，永不 panic）+ XDG 缓存 + `theme_reload_signals`（SIGUSR2 → mpsc）+ `ColorDomain::detect`。
+- 探针子命令 `wf debug-terminal`：TTY 环境全链路（guard → 帧 → with_restored 运行外部命令 → 重绘帧 → restore）；非 TTY 降级打印默认主题 exit 0。
+- workspace 依赖新增 `crossterm = "0.29"`（对齐 ratatui 0.30 系版本）；wf-cli 增 `crossterm` + `libc`。
 
 ### Stage 4：公共 UI 组件库（通用 F10）
 

@@ -1,0 +1,39 @@
+# Presets Configuration
+#
+# Controls which predefined resources are enabled at startup.
+#
+# Processor: presets → merge_presets_with_defaults()
+
+[context_compression]
+enabled = true
+timeout = 30000                         # Compression timeout in ms
+max_triggers = 10                       # Max compression triggers per session
+
+[predefined_tools]
+enabled = true
+# allow_list = []
+# block_list = []
+
+[predefined_tools.config.read_file]
+workspace_dir = "./"
+max_file_size = 10485760                # 10MB
+
+[predefined_tools.config.write_file]
+workspace_dir = "./"
+
+[predefined_tools.config.edit_file]
+workspace_dir = "./"
+
+[predefined_tools.config.bash]
+default_timeout = 30000
+max_timeout = 120000
+
+[predefined_tools.config.session_note]
+workspace_dir = "./"
+memory_file = ".agent/session-memory.json"
+
+[predefined_tools.config.background_shell]
+workspace_dir = "./"
+
+[predefined_prompts]
+enabled = true

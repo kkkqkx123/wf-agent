@@ -1,0 +1,84 @@
+# Sandbox Global Configuration
+#
+# Defines sandbox profiles and auto-matching rules for script sandboxing.
+# Each profile specifies security policies, strategy priority, and VFS config.
+#
+# Schema: wf_types::script::sandbox::SandboxGlobalConfig
+#   - `mode`: "Disabled" | "Lenient" | "Strict" (PascalCase, strict enum)
+#   - `rules[].match_field`: "language" | "script_name" (glob patterns)
+#   - `rules[].profile`: must reference an existing profile name
+#   - `default_profile`: applied when no rule matches
+#
+# The configuration is validated at load time (fail-fast): unknown profiles,
+# unknown match fields or invalid modes reject startup instead of silently
+# falling back to weaker defaults.
+
+# Global mode used when neither the execution config nor a profile sets one.
+mode = "Strict"
+
+# Record sandbox audit events (denials / violations / gate exemptions).
+audit_logging = true
+
+# Profile applied when no rule matches.
+default_profile = "default"
+
+# Named sandbox profiles.
+[[profiles]]
+name = "default"
+description = "Default safe sandbox profile"
+mode = "Strict"
+
+[profiles.policy.shell]
+denied_commands = ["sudo", "su", "chroot", "mount", "umount", "dd", "mkfs", "reboot", "shutdown", "passwd"]
+dangerous_patterns = ['rm\s+(-rf|--recursive)', ':\\(\)\s*\{.*:\\(\)\s*\}.*\}']
+
+[profiles.policy.python]
+denied_modules = ["os", "subprocess", "ctypes", "socket", "pty"]
+
+[profiles.policy.javascript]
+denied_modules = ["child_process", "cluster", "worker_threads", "vm"]
+
+[profiles.policy.filesystem]
+max_file_size = 10485760
+
+[profiles.policy.process]
+allow_fork = true
+allow_exec = true
+allowlist_syscalls = false
+
+[profiles.policy.network]
+access = "None"
+allow_dns = false
+
+[profiles.policy.resource]
+memory_limit_mb = 512
+timeout_limit_ms = 30000
+
+[[profiles]]
+name = "permissive"
+description = "Permissive sandbox profile for trusted scripts"
+mode = "Lenient"
+
+[profiles.policy.shell]
+denied_commands = ["sudo", "su", "chroot"]
+
+# Profile selection rules (evaluated in order, first match wins).
+[[rules]]
+match_field = "language"
+match_pattern = "shell"
+profile = "default"
+
+[[rules]]
+match_field = "language"
+match_pattern = "python"
+profile = "default"
+
+[[rules]]
+match_field = "language"
+match_pattern = "javascript"
+profile = "default"
+
+[[rules]]
+match_field = "language"
+match_pattern = "lua"
+profile = "default"

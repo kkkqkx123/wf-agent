@@ -1,0 +1,73 @@
+# Metrics Configuration
+#
+# Controls the metrics collection system across the SDK.
+# Each collector can be independently configured for buffer size and flush interval.
+#
+# Processor: infrastructure → merge_metrics_with_defaults()
+
+# Global settings
+enabled = true
+enable_periodic_reporting = false
+reporting_interval = 60000
+# Global retention window (ms) driving both in-memory cleanup and the
+# persisted metric pruning (single retention source, default 3600000).
+retention_ms = 3600000
+
+# Anomaly detection thresholds consumed by GET /api/v1/metrics/report.
+[anomaly_thresholds]
+# Error-storm trigger: a report flags an anomaly when the accumulated error
+# count exceeds this value.
+max_error_count = 100
+# Workflow success-degradation trigger (0..=1): a report flags an anomaly
+# when the observed success rate falls below this value.
+min_success_rate = 0.8
+
+# Optional metrics HTTP export server (Prometheus scrape + REST stats).
+# http_addr = "127.0.0.1:9090"
+
+# --- Individual collectors ---
+
+[workflow_metrics]
+buffer_size = 100
+flush_interval = 5000
+enable_periodic_reporting = false
+
+[node_metrics]
+buffer_size = 100
+flush_interval = 5000
+
+[agent_metrics]
+buffer_size = 100
+flush_interval = 5000
+
+[event_metrics]
+buffer_size = 100
+flush_interval = 5000
+
+[tool_metrics]
+buffer_size = 100
+flush_interval = 5000
+
+[token_metrics]
+buffer_size = 100
+flush_interval = 5000
+
+[config_metrics]
+buffer_size = 100
+flush_interval = 5000
+
+[error_metrics]
+buffer_size = 100
+flush_interval = 5000
+
+[resource_metrics]
+buffer_size = 100
+flush_interval = 5000
+
+[agent_loop_metrics]
+buffer_size = 100
+flush_interval = 5000
+
+[subgraph_metrics]
+buffer_size = 100
+flush_interval = 5000

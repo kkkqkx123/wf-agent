@@ -1,0 +1,7 @@
+{
+  "version": "1.0",
+  "type": "agent_loops",
+  "paths": [
+    "./*.toml"
+  ]
+}

@@ -1,0 +1,80 @@
+use async_trait::async_trait;
+
+use wf_types::Id;
+
+use crate::error::ExecutionSharedError;
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum ExecutionStatus {
+    Created,
+    Running,
+    Paused,
+    Completed,
+    Failed,
+    Cancelled,
+    Stopped,
+    Timeout,
+}
+
+impl ExecutionStatus {
+    /// Wire representation (matches the serde output of this type, which has
+    /// no rename attribute — variant names verbatim).
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Created => "Created",
+            Self::Running => "Running",
+            Self::Paused => "Paused",
+            Self::Completed => "Completed",
+            Self::Failed => "Failed",
+            Self::Cancelled => "Cancelled",
+            Self::Stopped => "Stopped",
+            Self::Timeout => "Timeout",
+        }
+    }
+
+    /// Whether the execution has settled and will not transition again.
+    pub fn is_terminal(&self) -> bool {
+        matches!(
+            self,
+            Self::Completed | Self::Failed | Self::Cancelled | Self::Stopped | Self::Timeout
+        )
+    }
+}
+
+impl From<ExecutionStatus> for wf_types::ExecutionStatus {
+    /// Map the execution-engine status onto the persisted `wf-types` status.
+    /// `Timeout` collapses onto `Failed`: the persisted contract has no
+    /// timeout state, so an aborted-by-timeout execution reads as failed.
+    fn from(status: ExecutionStatus) -> Self {
+        match status {
+            ExecutionStatus::Created => wf_types::ExecutionStatus::Created,
+            ExecutionStatus::Running => wf_types::ExecutionStatus::Running,
+            ExecutionStatus::Paused => wf_types::ExecutionStatus::Paused,
+            ExecutionStatus::Completed => wf_types::ExecutionStatus::Completed,
+            ExecutionStatus::Failed => wf_types::ExecutionStatus::Failed,
+            ExecutionStatus::Cancelled => wf_types::ExecutionStatus::Cancelled,
+            ExecutionStatus::Stopped => wf_types::ExecutionStatus::Stopped,
+            ExecutionStatus::Timeout => wf_types::ExecutionStatus::Failed,
+        }
+    }
+}
+
+#[async_trait]
+pub trait IExecutionEntity: Send + Sync {
+    fn id(&self) -> &Id;
+    fn status(&self) -> ExecutionStatus;
+    fn is_running(&self) -> bool;
+    fn is_paused(&self) -> bool;
+    fn is_completed(&self) -> bool;
+    fn is_failed(&self) -> bool;
+    fn is_cancelled(&self) -> bool;
+
+    async fn pause(&self) -> Result<(), ExecutionSharedError>;
+    async fn resume(&self) -> Result<(), ExecutionSharedError>;
+    async fn stop(&self) -> Result<(), ExecutionSharedError>;
+    async fn abort(&self);
+
+    fn get_abort_signal(&self) -> tokio_util::sync::CancellationToken;
+    fn get_hierarchy_depth(&self) -> u32;
+    fn get_root_execution_id(&self) -> Option<Id>;
+}

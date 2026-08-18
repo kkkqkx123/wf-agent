@@ -1,0 +1,257 @@
+use std::sync::atomic::Ordering;
+use std::sync::Arc;
+use std::time::Instant;
+
+use async_trait::async_trait;
+use serde_json::Value;
+
+use crate::domain::store::{
+    BatchItem, BatchStore, Maintainable, QueryFilter, Store, StoreOperation,
+};
+use crate::error::StorageError;
+
+#[derive(Debug, Default)]
+pub struct StorageMetrics {
+    pub save: OperationMetrics,
+    pub load: OperationMetrics,
+    pub delete: OperationMetrics,
+    pub list: OperationMetrics,
+    pub exists: OperationMetrics,
+    pub clear: OperationMetrics,
+    pub batch: OperationMetrics,
+}
+
+#[derive(Debug, Default)]
+pub struct OperationMetrics {
+    pub count: std::sync::atomic::AtomicU64,
+    pub total_time_ms: std::sync::atomic::AtomicU64,
+    pub total_bytes: std::sync::atomic::AtomicU64,
+}
+
+impl OperationMetrics {
+    pub fn avg_time_ms(&self) -> f64 {
+        let c = self.count.load(Ordering::Relaxed);
+        if c == 0 {
+            0.0
+        } else {
+            self.total_time_ms.load(Ordering::Relaxed) as f64 / c as f64
+        }
+    }
+
+    pub fn avg_bytes(&self) -> f64 {
+        let c = self.count.load(Ordering::Relaxed);
+        if c == 0 {
+            0.0
+        } else {
+            self.total_bytes.load(Ordering::Relaxed) as f64 / c as f64
+        }
+    }
+
+    pub fn count(&self) -> u64 {
+        self.count.load(Ordering::Relaxed)
+    }
+
+    pub fn total_time_ms(&self) -> u64 {
+        self.total_time_ms.load(Ordering::Relaxed)
+    }
+
+    pub fn total_bytes(&self) -> u64 {
+        self.total_bytes.load(Ordering::Relaxed)
+    }
+
+    pub fn record(&self, elapsed_ms: u64, bytes: u64) {
+        self.count.fetch_add(1, Ordering::Relaxed);
+        self.total_time_ms.fetch_add(elapsed_ms, Ordering::Relaxed);
+        self.total_bytes.fetch_add(bytes, Ordering::Relaxed);
+    }
+}
+
+impl StorageMetrics {
+    /// Sum of this snapshot and `other`, used to aggregate the operation
+    /// counters of multiple stores into one view.
+    pub fn accumulate(&self, other: &StorageMetrics) -> StorageMetrics {
+        fn combine(a: &OperationMetrics, b: &OperationMetrics) -> OperationMetrics {
+            OperationMetrics {
+                count: (a.count() + b.count()).into(),
+                total_time_ms: (a.total_time_ms() + b.total_time_ms()).into(),
+                total_bytes: (a.total_bytes() + b.total_bytes()).into(),
+            }
+        }
+        StorageMetrics {
+            save: combine(&self.save, &other.save),
+            load: combine(&self.load, &other.load),
+            delete: combine(&self.delete, &other.delete),
+            list: combine(&self.list, &other.list),
+            exists: combine(&self.exists, &other.exists),
+            clear: combine(&self.clear, &other.clear),
+            batch: combine(&self.batch, &other.batch),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct InstrumentedStore<S> {
+    inner: S,
+    metrics: Arc<StorageMetrics>,
+}
+
+impl<S: Store> InstrumentedStore<S> {
+    pub fn new(inner: S) -> Self {
+        Self {
+            inner,
+            metrics: Arc::new(StorageMetrics::default()),
+        }
+    }
+
+    pub fn metrics(&self) -> &StorageMetrics {
+        &self.metrics
+    }
+
+    pub fn into_inner(self) -> S {
+        self.inner
+    }
+}
+
+impl InstrumentedStore<crate::store::memory::MemoryStorage> {
+    /// Test support: corrupt one payload byte without touching the hash
+    /// (see [`crate::store::memory::MemoryStorage::corrupt_payload`]).
+    #[doc(hidden)]
+    pub async fn corrupt_payload(&self, id: &str, offset: usize, value: u8) -> bool {
+        self.inner.corrupt_payload(id, offset, value).await
+    }
+}
+
+#[async_trait]
+impl<S: Store> Store for InstrumentedStore<S> {
+    async fn save(&self, id: &str, data: &[u8], metadata: &Value) -> Result<(), StorageError> {
+        let start = Instant::now();
+        let result = self.inner.save(id, data, metadata).await;
+        let elapsed = start.elapsed().as_millis() as u64;
+        self.metrics.save.record(elapsed, data.len() as u64);
+        result
+    }
+
+    async fn load(&self, id: &str) -> Result<Option<(Vec<u8>, Value)>, StorageError> {
+        let start = Instant::now();
+        let result = self.inner.load(id).await;
+        let elapsed = start.elapsed().as_millis() as u64;
+        let bytes = match &result {
+            Ok(Some((d, _))) => d.len() as u64,
+            _ => 0,
+        };
+        self.metrics.load.record(elapsed, bytes);
+        result
+    }
+
+    async fn delete(&self, id: &str) -> Result<(), StorageError> {
+        let start = Instant::now();
+        let result = self.inner.delete(id).await;
+        let elapsed = start.elapsed().as_millis() as u64;
+        self.metrics.delete.record(elapsed, 0);
+        result
+    }
+
+    async fn list(
+        &self,
+        filter: Option<&QueryFilter>,
+    ) -> Result<Vec<(String, Value)>, StorageError> {
+        let start = Instant::now();
+        let result = self.inner.list(filter).await;
+        let elapsed = start.elapsed().as_millis() as u64;
+        self.metrics.list.record(elapsed, 0);
+        result
+    }
+
+    async fn count(&self, filter: Option<&QueryFilter>) -> Result<u64, StorageError> {
+        self.inner.count(filter).await
+    }
+
+    async fn exists(&self, id: &str) -> Result<bool, StorageError> {
+        let start = Instant::now();
+        let result = self.inner.exists(id).await;
+        let elapsed = start.elapsed().as_millis() as u64;
+        self.metrics.exists.record(elapsed, 0);
+        result
+    }
+
+    async fn update_status(&self, id: &str, status: &str) -> Result<(), StorageError> {
+        self.inner.update_status(id, status).await
+    }
+
+    async fn clear(&self) -> Result<(), StorageError> {
+        let start = Instant::now();
+        let result = self.inner.clear().await;
+        let elapsed = start.elapsed().as_millis() as u64;
+        self.metrics.clear.record(elapsed, 0);
+        result
+    }
+
+    async fn apply_batch(&self, operations: &[StoreOperation]) -> Result<(), StorageError> {
+        let start = Instant::now();
+        let result = self.inner.apply_batch(operations).await;
+        let elapsed = start.elapsed().as_millis() as u64;
+        let total_bytes: u64 = operations
+            .iter()
+            .map(|op| match op {
+                StoreOperation::Save(item) => item.data.len() as u64,
+                StoreOperation::Delete(_) => 0,
+            })
+            .sum();
+        self.metrics.batch.record(elapsed, total_bytes);
+        result
+    }
+}
+
+#[async_trait]
+impl<S: Store + BatchStore> BatchStore for InstrumentedStore<S> {
+    async fn save_batch(&self, items: &[BatchItem]) -> Result<(), StorageError> {
+        let start = Instant::now();
+        let result = self.inner.save_batch(items).await;
+        let elapsed = start.elapsed().as_millis() as u64;
+        let total_bytes: u64 = items.iter().map(|i| i.data.len() as u64).sum();
+        self.metrics.batch.record(elapsed, total_bytes);
+        result
+    }
+
+    async fn load_batch(
+        &self,
+        ids: &[String],
+    ) -> Result<Vec<(String, Vec<u8>, Value)>, StorageError> {
+        let start = Instant::now();
+        let result = self.inner.load_batch(ids).await;
+        let elapsed = start.elapsed().as_millis() as u64;
+        let bytes = match &result {
+            Ok(items) => items.iter().map(|(_, d, _)| d.len() as u64).sum(),
+            Err(_) => 0,
+        };
+        self.metrics.load.record(elapsed, bytes);
+        result
+    }
+
+    async fn delete_batch(&self, ids: &[String]) -> Result<(), StorageError> {
+        let start = Instant::now();
+        let result = self.inner.delete_batch(ids).await;
+        let elapsed = start.elapsed().as_millis() as u64;
+        self.metrics.delete.count.fetch_add(1, Ordering::Relaxed);
+        self.metrics
+            .delete
+            .total_time_ms
+            .fetch_add(elapsed, Ordering::Relaxed);
+        result
+    }
+}
+
+#[async_trait]
+impl<S: Store + Maintainable> Maintainable for InstrumentedStore<S> {
+    async fn vacuum(&self) -> Result<(), StorageError> {
+        self.inner.vacuum().await
+    }
+
+    async fn checkpoint(&self) -> Result<(), StorageError> {
+        self.inner.checkpoint().await
+    }
+
+    async fn sync(&self) -> Result<(), StorageError> {
+        self.inner.sync().await
+    }
+}

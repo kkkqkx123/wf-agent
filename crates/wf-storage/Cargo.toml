@@ -1,0 +1,28 @@
+[package]
+name = "wf-storage"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+async-trait.workspace = true
+wf-types = { path = "../wf-types" }
+uuid.workspace = true
+
+sqlx = { workspace = true, optional = true }
+
+moka = { version = "0.12", features = ["sync"] }
+sha2 = "0.11"
+flate2 = "1.1"
+url = "2"
+tokio-util = "0.7"
+
+[features]
+default = ["sqlite", "postgres"]
+sqlite = ["dep:sqlx"]
+postgres = ["dep:sqlx"]

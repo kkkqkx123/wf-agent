@@ -1,0 +1,145 @@
+[package]
+name = "layertwine"
+version = "0.1.0"
+edition = "2021"
+autotests = false
+
+[features]
+default = []
+
+# API transport layers
+cli = ["dep:clap"]
+http = ["dep:axum", "dep:tower", "dep:tower-http", "dep:http", "dep:tokio"]
+grpc = ["dep:tonic", "dep:prost", "dep:tokio"]
+
+# Combined modes
+cli-http = ["cli", "http"]
+cli-grpc = ["cli", "grpc"]
+http-grpc = ["http", "grpc"]
+
+# All transports
+all = ["cli", "http", "grpc"]
+
+[dependencies]
+rusqlite = { version = "0.32", features = ["bundled"] }
+blake3 = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+hex = { workspace = true }
+thiserror = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true, features = ["std", "v5"] }
+similar = { workspace = true }
+git2 = "0.21"
+parking_lot = { workspace = true }
+lazy_static = "1.5"
+zstd = { workspace = true }
+smallvec = { workspace = true }
+
+# Config
+toml = { workspace = true }
+
+# CLI transport
+clap = { workspace = true, optional = true }
+
+# HTTP transport
+axum = { workspace = true, optional = true }
+tower = { workspace = true, optional = true }
+tower-http = { workspace = true, optional = true }
+http = { workspace = true, optional = true }
+tokio = { workspace = true, features = ["full"], optional = true }
+
+# gRPC transport
+tonic = { workspace = true, optional = true }
+prost = { workspace = true, optional = true }
+
+[[bin]]
+name = "layertwine"
+required-features = ["cli"]
+
+[dev-dependencies]
+tempfile = "3"
+criterion = "0.5"
+lazy_static = "1.5"
+
+# Explicit test targets: `tests/common.rs` and `tests/e2e.rs` are shared
+# modules included by `e2e_tests`, not standalone test crates.
+[[test]]
+name = "backup_integration"
+path = "tests/backup_integration.rs"
+
+[[test]]
+name = "backup_physical_isolation"
+path = "tests/backup_physical_isolation.rs"
+
+[[test]]
+name = "checkpoint_integration"
+path = "tests/checkpoint_integration.rs"
+
+[[test]]
+name = "e2e_tests"
+path = "tests/e2e_tests.rs"
+
+[[test]]
+name = "engine_integration"
+path = "tests/engine_integration.rs"
+
+[[test]]
+name = "engine_test"
+path = "tests/engine_test.rs"
+
+[[test]]
+name = "git_sync_e2e"
+path = "tests/git_sync_e2e.rs"
+
+[[test]]
+name = "grpc_integration"
+path = "tests/grpc_integration.rs"
+
+[[test]]
+name = "http_integration"
+path = "tests/http_integration.rs"
+
+[[test]]
+name = "layered_integration"
+path = "tests/layered_integration.rs"
+
+[[test]]
+name = "storage_integration"
+path = "tests/storage_integration.rs"
+
+[build-dependencies]
+tonic-build = { workspace = true }
+
+[[bench]]
+name = "diff"
+harness = false
+
+[[bench]]
+name = "merge"
+harness = false
+
+[[bench]]
+name = "storage"
+harness = false
+
+[[bench]]
+name = "serialization"
+harness = false
+
+[[bench]]
+name = "checkpoint"
+harness = false
+
+[[bench]]
+name = "backup"
+harness = false
+
+[[bench]]
+name = "engine_edge"
+harness = false
+
+[[bench]]
+name = "file_storage"
+harness = false
+

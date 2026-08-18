@@ -1,0 +1,56 @@
+# Prompt Template Configuration Example
+#
+# Defines reusable prompt templates that can be referenced by
+# workflow LLM nodes or agent loops via templateId.
+#
+# Type: packages/types/src/prompt-template.ts → PromptTemplate
+
+id = "code-review-system"
+name = "Code Review System Prompt"
+description = "System-level prompt for code review AI assistant"
+category = "system"
+content = """
+You are a senior code reviewer with expertise in multiple programming languages.
+Analyze the provided code diff for:
+1. **Correctness**: Logic errors, edge cases, null safety
+2. **Security**: Injection vulnerabilities, auth issues
+3. **Performance**: Inefficient algorithms, N+1 queries
+4. **Style**: Consistency with project conventions
+5. **Maintainability**: Code complexity, test coverage
+
+Output a structured review with severity labels (critical/warning/suggestion).
+Be concise and specific. Include line numbers where relevant.
+"""
+
+[variables]
+required = ["diff"]
+optional = ["language", "styleGuide"]
+
+---
+
+id = "chat-default"
+name = "Default Chat Template"
+description = "Standard conversational prompt for general-purpose LLM chat"
+category = "user-command"
+content = "{{userMessage}}"
+
+[variables]
+required = ["userMessage"]
+
+---
+
+id = "tool-result-format"
+name = "Tool Result Formatting"
+description = "Format tool execution results for LLM consumption"
+category = "fragments"
+content = """
+Tool: {{toolName}}
+Status: {{status}}
+Output:
+```
+{{output}}
+```
+"""
+
+[variables]
+required = ["toolName", "status", "output"]

@@ -1,0 +1,16 @@
+# Tool-specific Configuration
+#
+# Overrides the hardcoded defaults in each tool's dedicated processor.
+# Values set here are passed to the corresponding transform function
+# and merged with SDK-internal defaults.
+#
+# When a field is omitted, the SDK processor's hardcoded default is used.
+# This file exists so that application-layer deployers can override
+# tool behaviour without modifying source code.
+
+[read_file]
+# max_file_size = 500000               # 500KB (SDK default)
+# max_chars = 200000                   # 200K chars (SDK default)
+# max_lines = 2000                     # 2000 lines (SDK default)
+# enable_ignore = false
+# enable_protect = false

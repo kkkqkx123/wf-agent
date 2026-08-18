@@ -1,0 +1,551 @@
+use crate::error::{ConfigError, ConfigResult};
+use crate::validator::validate_min;
+
+use wf_types::config::metrics::{AnomalyThresholdsConfig, MetricCollectorConfig, MetricsConfig};
+use wf_types::config::output::OutputConfig;
+use wf_types::config::storage::StorageConfig;
+use wf_types::config::timeout::TimeoutConfig;
+use wf_types::script::sandbox::{ResourceLimits, SandboxConfig, SandboxMode};
+
+pub const WAIT_FOREVER: i64 = -1;
+
+/// Runtime environment used to select environment-optimized defaults.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RuntimeEnvironment {
+    Development,
+    Production,
+}
+
+/// Environment-specific default metrics config (TS
+/// `getMetricsEnvironmentDefaults`): periodic reporting on in dev, larger
+/// event buffers in production.
+pub fn get_metrics_environment_defaults(env: RuntimeEnvironment) -> MetricsConfig {
+    match env {
+        RuntimeEnvironment::Development => MetricsConfig {
+            enable_periodic_reporting: Some(true),
+            reporting_interval: Some(30000),
+            error_metrics: Some(MetricCollectorConfig {
+                buffer_size: Some(10),
+                flush_interval: Some(1000),
+                ..Default::default()
+            }),
+            ..MetricsConfig::default()
+        },
+        RuntimeEnvironment::Production => MetricsConfig {
+            enable_periodic_reporting: Some(false),
+            reporting_interval: Some(60000),
+            event_metrics: Some(MetricCollectorConfig {
+                buffer_size: Some(500),
+                ..Default::default()
+            }),
+            ..MetricsConfig::default()
+        },
+    }
+}
+
+/// Environment-specific default storage config (TS
+/// `getStorageEnvironmentDefaults`).
+pub fn get_storage_environment_defaults(env: RuntimeEnvironment) -> StorageConfig {
+    use wf_types::config::storage::{AutoVacuum, StorageType};
+    match env {
+        RuntimeEnvironment::Development => StorageConfig {
+            storage_type: StorageType::Sqlite,
+            sqlite: Some(wf_types::config::storage::SqliteStorageConfig {
+                db_path: "./dev-storage/wf-agent.db".to_string(),
+                ..Default::default()
+            }),
+            ..Default::default()
+        },
+        RuntimeEnvironment::Production => StorageConfig {
+            storage_type: StorageType::Sqlite,
+            sqlite: Some(wf_types::config::storage::SqliteStorageConfig {
+                db_path: "./data/wf-agent.db".to_string(),
+                enable_wal: true,
+                file_must_exist: true,
+                auto_vacuum: AutoVacuum::Full,
+                ..Default::default()
+            }),
+            ..Default::default()
+        },
+    }
+}
+
+/// Environment-specific default output config (TS
+/// `getOutputEnvironmentDefaults`).
+pub fn get_output_environment_defaults(env: RuntimeEnvironment) -> OutputConfig {
+    match env {
+        RuntimeEnvironment::Development => OutputConfig {
+            enable_log_terminal: true,
+            enable_sdk_logs: true,
+            sdk_log_level: wf_types::config::output::SdkLogLevel::Debug,
+            ..OutputConfig::default()
+        },
+        RuntimeEnvironment::Production => OutputConfig {
+            enable_log_terminal: false,
+            enable_sdk_logs: false,
+            sdk_log_level: wf_types::config::output::SdkLogLevel::Info,
+            ..OutputConfig::default()
+        },
+    }
+}
+
+/// Environment-specific default timeout config (TS
+/// `getTimeoutEnvironmentDefaults`): more permissive in dev, stricter in
+/// production.
+pub fn get_timeout_environment_defaults(env: RuntimeEnvironment) -> TimeoutConfig {
+    match env {
+        RuntimeEnvironment::Development => TimeoutConfig {
+            workflow_execution_completion: Some(60000),
+            node_completion: Some(60000),
+            sync_branch_wait: Some(120000),
+            join_completion: Some(120000),
+            default: Some(60000),
+            ..Default::default()
+        },
+        RuntimeEnvironment::Production => TimeoutConfig {
+            workflow_execution_completion: Some(30000),
+            node_completion: Some(30000),
+            sync_branch_wait: Some(60000),
+            join_completion: Some(60000),
+            default: Some(30000),
+            max_allowed: Some(600000),
+            ..Default::default()
+        },
+    }
+}
+
+pub fn merge_timeout_with_defaults(user: &TimeoutConfig) -> TimeoutConfig {
+    TimeoutConfig {
+        workflow_execution_completion: user.workflow_execution_completion.or(Some(30000)),
+        workflow_execution_pause: user.workflow_execution_pause.or(Some(5000)),
+        workflow_execution_cancel: user.workflow_execution_cancel.or(Some(10000)),
+        workflow_execution_resume: user.workflow_execution_resume.or(Some(5000)),
+        child_execution_wait: user.child_execution_wait.or(Some(30000)),
+        cascade_cancel: user.cascade_cancel.or(Some(30000)),
+        node_completion: user.node_completion.or(Some(30000)),
+        node_failed: user.node_failed.or(Some(30000)),
+        sync_branch_wait: user.sync_branch_wait.or(Some(60000)),
+        join_completion: user.join_completion.or(Some(60000)),
+        lifecycle_event: user.lifecycle_event.or(Some(5000)),
+        polling_wait: user.polling_wait.or(Some(30000)),
+        polling_interval: user.polling_interval.or(Some(100)),
+        default: user.default.or(Some(30000)),
+        max_allowed: user.max_allowed.or(Some(300000)),
+    }
+}
+
+pub fn validate_timeout(timeout: i64, context: &str) -> ConfigResult<()> {
+    if timeout < 0 && timeout != WAIT_FOREVER {
+        return Err(ConfigError::Validation(format!(
+            "Invalid timeout for {context}: {timeout}ms (must be non-negative or WAIT_FOREVER)"
+        )));
+    }
+    Ok(())
+}
+
+fn merge_collector_with_defaults(
+    cfg: Option<&MetricCollectorConfig>,
+) -> Option<MetricCollectorConfig> {
+    cfg.map(|c| MetricCollectorConfig {
+        buffer_size: c.buffer_size.or(Some(100)),
+        flush_interval: c.flush_interval.or(Some(5000)),
+        enable_periodic_reporting: c.enable_periodic_reporting.or(Some(false)),
+        reporting_interval: c.reporting_interval.or(Some(10000)),
+    })
+}
+
+pub fn merge_metrics_with_defaults(user: &MetricsConfig) -> MetricsConfig {
+    MetricsConfig {
+        enabled: user.enabled.or(Some(true)),
+        reporting_interval: user.reporting_interval.or(Some(10000)),
+        enable_periodic_reporting: user.enable_periodic_reporting.or(Some(false)),
+        workflow_metrics: merge_collector_with_defaults(user.workflow_metrics.as_ref()),
+        node_metrics: merge_collector_with_defaults(user.node_metrics.as_ref()),
+        agent_metrics: merge_collector_with_defaults(user.agent_metrics.as_ref()),
+        event_metrics: merge_collector_with_defaults(user.event_metrics.as_ref()),
+        tool_metrics: merge_collector_with_defaults(user.tool_metrics.as_ref()),
+        token_metrics: merge_collector_with_defaults(user.token_metrics.as_ref()),
+        config_metrics: merge_collector_with_defaults(user.config_metrics.as_ref()),
+        error_metrics: merge_collector_with_defaults(user.error_metrics.as_ref()),
+        resource_metrics: merge_collector_with_defaults(user.resource_metrics.as_ref()),
+        agent_loop_metrics: merge_collector_with_defaults(user.agent_loop_metrics.as_ref()),
+        subgraph_metrics: merge_collector_with_defaults(user.subgraph_metrics.as_ref()),
+        template_metrics: merge_collector_with_defaults(user.template_metrics.as_ref()),
+        retry_budget_metrics: merge_collector_with_defaults(user.retry_budget_metrics.as_ref()),
+        timeout_metrics: merge_collector_with_defaults(user.timeout_metrics.as_ref()),
+        http_addr: user.http_addr.clone(),
+        retention_ms: user.retention_ms.or(Some(3_600_000)),
+        anomaly_thresholds: Some(AnomalyThresholdsConfig {
+            max_error_count: user
+                .anomaly_thresholds
+                .as_ref()
+                .and_then(|t| t.max_error_count)
+                .or(Some(100)),
+            min_success_rate: user
+                .anomaly_thresholds
+                .as_ref()
+                .and_then(|t| t.min_success_rate)
+                .or(Some(0.8)),
+        }),
+    }
+}
+
+pub fn merge_output_with_defaults(user: &OutputConfig) -> OutputConfig {
+    user.clone()
+}
+
+pub fn merge_storage_with_defaults(user: &StorageConfig) -> StorageConfig {
+    user.clone()
+}
+
+pub fn merge_sandbox_with_defaults(user: &SandboxConfig) -> SandboxConfig {
+    SandboxConfig {
+        mode: user.mode.clone().or(Some(SandboxMode::Strict)),
+        policy: user.policy.clone(),
+        shell_strategy: user.shell_strategy.clone(),
+        python_strategy: user.python_strategy.clone(),
+        javascript_strategy: user.javascript_strategy.clone(),
+        lua_strategy: user.lua_strategy.clone(),
+        vfs: user.vfs.clone(),
+        workdir: user.workdir.clone(),
+        env: user.env.clone(),
+        legacy_type: user.legacy_type.clone(),
+        resource_limits: user.resource_limits.clone().or(Some(ResourceLimits {
+            cpu: None,
+            memory: Some(512),
+            disk: Some(1024),
+        })),
+        skip_gate_check: user.skip_gate_check,
+    }
+}
+
+pub fn validate_sandbox_config(config: &SandboxConfig) -> ConfigResult<()> {
+    if let Some(ref limits) = config.resource_limits {
+        if let Some(mem) = limits.memory {
+            validate_min(mem, 1, "resource_limits.memory")?;
+        }
+        if let Some(disk) = limits.disk {
+            validate_min(disk, 1, "resource_limits.disk")?;
+        }
+    }
+    if let Some(ref workdir) = config.workdir {
+        let path = std::path::Path::new(workdir);
+        if !path.is_dir() {
+            return Err(ConfigError::Validation(format!(
+                "Invalid sandbox workdir '{workdir}': not an existing directory"
+            )));
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_merge_timeout_with_defaults() {
+        let user = TimeoutConfig {
+            workflow_execution_completion: Some(60000),
+            workflow_execution_pause: None,
+            workflow_execution_cancel: None,
+            workflow_execution_resume: None,
+            child_execution_wait: None,
+            cascade_cancel: None,
+            node_completion: None,
+            node_failed: None,
+            sync_branch_wait: None,
+            join_completion: None,
+            lifecycle_event: None,
+            polling_wait: None,
+            polling_interval: None,
+            default: None,
+            max_allowed: None,
+        };
+        let merged = merge_timeout_with_defaults(&user);
+        assert_eq!(merged.workflow_execution_completion, Some(60000));
+        assert_eq!(merged.workflow_execution_pause, Some(5000));
+        assert_eq!(merged.default, Some(30000));
+        assert_eq!(merged.max_allowed, Some(300000));
+    }
+
+    #[test]
+    fn test_validate_timeout() {
+        assert!(validate_timeout(1000, "test").is_ok());
+        assert!(validate_timeout(0, "test").is_ok());
+        assert!(validate_timeout(WAIT_FOREVER, "test").is_ok());
+        assert!(validate_timeout(-2, "test").is_err());
+    }
+
+    #[test]
+    fn test_merge_metrics_with_defaults() {
+        let user = MetricsConfig::default();
+        let merged = merge_metrics_with_defaults(&user);
+        assert_eq!(merged.enabled, Some(true));
+        assert_eq!(merged.reporting_interval, Some(10000));
+        assert_eq!(merged.enable_periodic_reporting, Some(false));
+        assert_eq!(merged.workflow_metrics, None);
+    }
+
+    #[test]
+    fn test_merge_metrics_fills_collector_defaults() {
+        let user = MetricsConfig {
+            workflow_metrics: Some(MetricCollectorConfig {
+                buffer_size: Some(50),
+                ..Default::default()
+            }),
+            token_metrics: Some(MetricCollectorConfig::default()),
+            ..Default::default()
+        };
+        let merged = merge_metrics_with_defaults(&user);
+        let workflow = merged.workflow_metrics.unwrap();
+        assert_eq!(workflow.buffer_size, Some(50));
+        assert_eq!(workflow.flush_interval, Some(5000));
+        assert_eq!(workflow.reporting_interval, Some(10000));
+        let token = merged.token_metrics.unwrap();
+        assert_eq!(token.buffer_size, Some(100));
+        assert_eq!(token.flush_interval, Some(5000));
+    }
+
+    #[test]
+    fn test_merged_metrics_fields_all_map_to_consumers() {
+        // Every config field must survive merge and have a consumer in the
+        // registry/collectors/runtime tasks (M3); a field accepted but never
+        // consumed is a silent misconfiguration.
+        use wf_types::config::metrics::AnomalyThresholdsConfig;
+        let user = MetricsConfig {
+            workflow_metrics: Some(MetricCollectorConfig::default()),
+            node_metrics: Some(MetricCollectorConfig::default()),
+            agent_metrics: Some(MetricCollectorConfig::default()),
+            event_metrics: Some(MetricCollectorConfig::default()),
+            tool_metrics: Some(MetricCollectorConfig::default()),
+            token_metrics: Some(MetricCollectorConfig::default()),
+            config_metrics: Some(MetricCollectorConfig::default()),
+            error_metrics: Some(MetricCollectorConfig::default()),
+            resource_metrics: Some(MetricCollectorConfig::default()),
+            agent_loop_metrics: Some(MetricCollectorConfig::default()),
+            subgraph_metrics: Some(MetricCollectorConfig::default()),
+            template_metrics: Some(MetricCollectorConfig::default()),
+            retry_budget_metrics: Some(MetricCollectorConfig::default()),
+            timeout_metrics: Some(MetricCollectorConfig::default()),
+            enable_periodic_reporting: Some(true),
+            reporting_interval: Some(42),
+            enabled: Some(true),
+            http_addr: Some("127.0.0.1:0".to_string()),
+            retention_ms: Some(1000),
+            anomaly_thresholds: Some(AnomalyThresholdsConfig {
+                max_error_count: Some(7),
+                min_success_rate: Some(0.5),
+            }),
+        };
+        let merged = merge_metrics_with_defaults(&user);
+        assert_eq!(merged.retention_ms, Some(1000));
+        assert_eq!(
+            merged.anomaly_thresholds.as_ref().unwrap().max_error_count,
+            Some(7)
+        );
+        assert_eq!(
+            merged.anomaly_thresholds.as_ref().unwrap().min_success_rate,
+            Some(0.5)
+        );
+        let collector_fields = [
+            merged.workflow_metrics,
+            merged.node_metrics,
+            merged.agent_metrics,
+            merged.event_metrics,
+            merged.tool_metrics,
+            merged.token_metrics,
+            merged.config_metrics,
+            merged.error_metrics,
+            merged.resource_metrics,
+            merged.agent_loop_metrics,
+            merged.subgraph_metrics,
+        ];
+        assert!(
+            collector_fields.iter().all(|c| c.is_some()),
+            "every configured collector section survives merge"
+        );
+    }
+
+    #[test]
+    fn test_merge_metrics_unifies_global_retention() {
+        // The global retention window drives both in-memory and persisted
+        // pruning (L3); there is no per-collector retention to diverge, so
+        // `retention_ms` is the single source of truth.
+        let user = MetricsConfig {
+            workflow_metrics: Some(MetricCollectorConfig {
+                buffer_size: Some(7),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let merged = merge_metrics_with_defaults(&user);
+        assert_eq!(merged.retention_ms, Some(3_600_000));
+        assert_eq!(
+            merged.workflow_metrics.as_ref().unwrap().buffer_size,
+            Some(7)
+        );
+    }
+
+    #[test]
+    fn test_merge_output_with_defaults() {
+        let user = OutputConfig {
+            dir: "/logs".to_string(),
+            log_file_pattern: "app.log".to_string(),
+            enable_log_terminal: true,
+            enable_sdk_logs: true,
+            sdk_log_level: wf_types::config::output::SdkLogLevel::Info,
+        };
+        let merged = merge_output_with_defaults(&user);
+        assert_eq!(merged.dir, "/logs");
+        assert_eq!(
+            merged.sdk_log_level,
+            wf_types::config::output::SdkLogLevel::Info
+        );
+    }
+
+    #[test]
+    fn test_merge_storage_with_defaults() {
+        let user = StorageConfig {
+            storage_type: wf_types::config::storage::StorageType::Sqlite,
+            sqlite: None,
+            postgres: None,
+            app_name: None,
+        };
+        let merged = merge_storage_with_defaults(&user);
+        assert_eq!(
+            merged.storage_type,
+            wf_types::config::storage::StorageType::Sqlite
+        );
+    }
+
+    #[test]
+    fn test_merge_sandbox_with_defaults() {
+        let user = SandboxConfig {
+            mode: Some(SandboxMode::Lenient),
+            policy: None,
+            shell_strategy: None,
+            python_strategy: None,
+            javascript_strategy: None,
+            lua_strategy: None,
+            vfs: None,
+            workdir: Some("/tmp".to_string()),
+            env: None,
+            legacy_type: None,
+            resource_limits: None,
+            skip_gate_check: None,
+        };
+        let merged = merge_sandbox_with_defaults(&user);
+        assert_eq!(merged.mode, Some(SandboxMode::Lenient));
+        assert_eq!(merged.resource_limits.as_ref().unwrap().memory, Some(512));
+        assert_eq!(merged.workdir.as_deref(), Some("/tmp"));
+    }
+
+    #[test]
+    fn test_validate_sandbox_config() {
+        let config = SandboxConfig {
+            mode: Some(SandboxMode::Strict),
+            policy: None,
+            shell_strategy: None,
+            python_strategy: None,
+            javascript_strategy: None,
+            lua_strategy: None,
+            vfs: None,
+            workdir: None,
+            env: None,
+            legacy_type: None,
+            resource_limits: Some(ResourceLimits {
+                cpu: None,
+                memory: Some(0),
+                disk: Some(100),
+            }),
+            skip_gate_check: None,
+        };
+        assert!(validate_sandbox_config(&config).is_err());
+
+        let config = SandboxConfig {
+            mode: Some(SandboxMode::Strict),
+            policy: None,
+            shell_strategy: None,
+            python_strategy: None,
+            javascript_strategy: None,
+            lua_strategy: None,
+            vfs: None,
+            workdir: None,
+            env: None,
+            legacy_type: None,
+            resource_limits: Some(ResourceLimits {
+                cpu: None,
+                memory: Some(512),
+                disk: Some(1024),
+            }),
+            skip_gate_check: None,
+        };
+        assert!(validate_sandbox_config(&config).is_ok());
+    }
+
+    #[test]
+    fn test_validate_sandbox_workdir() {
+        let config = SandboxConfig {
+            mode: Some(SandboxMode::Strict),
+            policy: None,
+            shell_strategy: None,
+            python_strategy: None,
+            javascript_strategy: None,
+            lua_strategy: None,
+            vfs: None,
+            workdir: Some("/definitely/not/a/real/dir-xyz".to_string()),
+            env: None,
+            legacy_type: None,
+            resource_limits: None,
+            skip_gate_check: None,
+        };
+        assert!(
+            validate_sandbox_config(&config).is_err(),
+            "nonexistent workdir must be rejected"
+        );
+
+        let config = SandboxConfig {
+            workdir: Some(std::env::temp_dir().to_string_lossy().to_string()),
+            ..config
+        };
+        assert!(validate_sandbox_config(&config).is_ok());
+    }
+
+    #[test]
+    fn test_environment_defaults() {
+        let dev_metrics = get_metrics_environment_defaults(RuntimeEnvironment::Development);
+        assert_eq!(dev_metrics.enable_periodic_reporting, Some(true));
+        assert_eq!(dev_metrics.reporting_interval, Some(30000));
+
+        let prod_metrics = get_metrics_environment_defaults(RuntimeEnvironment::Production);
+        assert_eq!(prod_metrics.enable_periodic_reporting, Some(false));
+        assert_eq!(prod_metrics.reporting_interval, Some(60000));
+        assert_eq!(
+            prod_metrics.event_metrics.as_ref().unwrap().buffer_size,
+            Some(500)
+        );
+
+        let dev_storage = get_storage_environment_defaults(RuntimeEnvironment::Development);
+        assert_eq!(
+            dev_storage.sqlite.as_ref().unwrap().db_path,
+            "./dev-storage/wf-agent.db"
+        );
+        let prod_storage = get_storage_environment_defaults(RuntimeEnvironment::Production);
+        assert!(prod_storage.sqlite.as_ref().unwrap().file_must_exist);
+
+        let dev_output = get_output_environment_defaults(RuntimeEnvironment::Development);
+        assert_eq!(
+            dev_output.sdk_log_level,
+            wf_types::config::output::SdkLogLevel::Debug
+        );
+        let prod_output = get_output_environment_defaults(RuntimeEnvironment::Production);
+        assert!(!prod_output.enable_log_terminal);
+
+        let dev_timeout = get_timeout_environment_defaults(RuntimeEnvironment::Development);
+        assert_eq!(dev_timeout.default, Some(60000));
+        let prod_timeout = get_timeout_environment_defaults(RuntimeEnvironment::Production);
+        assert_eq!(prod_timeout.default, Some(30000));
+        assert_eq!(prod_timeout.max_allowed, Some(600000));
+    }
+}

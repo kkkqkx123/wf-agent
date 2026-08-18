@@ -1,0 +1,33 @@
+# Timeout Configuration
+#
+# All values are in milliseconds.
+# Controls waiting periods for various SDK operations.
+#
+# Processor: infrastructure → merge_timeout_with_defaults()
+
+# Workflow-level timeouts
+workflow_execution_completion = 30000  # 30s — wait for a workflow run to finish
+workflow_execution_pause = 5000        # 5s  — wait for workflow to pause
+workflow_execution_cancel = 10000      # 10s — wait for cancellation
+workflow_execution_resume = 5000       # 5s  — wait for resume
+
+# Child / nested execution
+child_execution_wait = 30000           # 30s — wait for child execution completion
+cascade_cancel = 30000                 # 30s — cascade cancel all children
+
+# Node-level timeouts
+node_completion = 30000                # 30s — wait for a single node to complete
+node_failed = 30000                    # 30s — wait for node failure propagation
+
+# Synchronisation / join timeouts
+sync_branch_wait = 60000               # 60s — SYNC node waiting for all branches
+join_completion = 60000                # 60s — JOIN node waiting for branches
+
+# Event / polling timeouts
+lifecycle_event = 5000                 # 5s  — wait for lifecycle event
+polling_wait = 30000                   # 30s — default polling timeout
+polling_interval = 100                 # 100ms — polling interval
+
+# Default / safety
+default = 30000                        # 30s — fallback when no specific timeout is set
+max_allowed = 300000                   # 5min — hard ceiling for any timeout value

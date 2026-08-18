@@ -1,0 +1,125 @@
+//! Definition of the call_agent tool (builtin type). Execution is handled
+//! by the BuiltinExecutor through the registered ExecutionCallback.
+
+use wf_types::tool::{ToolRiskLevel, ToolType};
+
+use crate::predefined::schema::{ToolDefinition, ToolParameter};
+
+pub static CALL_AGENT: ToolDefinition = ToolDefinition {
+    id: "call_agent",
+    tool_type: ToolType::BuiltIn,
+    risk_level: ToolRiskLevel::System,
+    create_checkpoint: None,
+    category: "agent",
+    tags: &["call"],
+    description:
+        "Delegate a task to a sub-agent with a specific profile. The agent runs autonomously.",
+    parameters: &[
+        ToolParameter {
+            name: "agent_id",
+            r#type: "string",
+            required: true,
+            description: "The agent definition ID to invoke",
+            default_json: None,
+            constraints: None,
+        },
+        ToolParameter {
+            name: "agent_profile_id",
+            r#type: "string",
+            required: true,
+            description: "The agent profile ID to invoke",
+            default_json: None,
+            constraints: None,
+        },
+        ToolParameter {
+            name: "prompt",
+            r#type: "string",
+            required: true,
+            description: "The task prompt for the agent",
+            default_json: None,
+            constraints: None,
+        },
+        ToolParameter {
+            name: "wait",
+            r#type: "boolean",
+            required: false,
+            description: "Whether to wait for the agent to complete",
+            default_json: Some("true"),
+            constraints: None,
+        },
+        ToolParameter {
+            name: "max_iterations",
+            r#type: "integer",
+            required: false,
+            description: "Maximum number of agent loop iterations",
+            default_json: None,
+            constraints: None,
+        },
+        ToolParameter {
+            name: "max_execution_time",
+            r#type: "integer",
+            required: false,
+            description: "Maximum execution time in milliseconds",
+            default_json: None,
+            constraints: None,
+        },
+        ToolParameter {
+            name: "hooks",
+            r#type: "array",
+            required: false,
+            description: "Hooks to attach to the agent loop",
+            default_json: None,
+            constraints: None,
+        },
+        ToolParameter {
+            name: "available_tool_names",
+            r#type: "array",
+            required: false,
+            description: "Tool names the agent may call; empty means all tools",
+            default_json: None,
+            constraints: None,
+        },
+        ToolParameter {
+            name: "tool_call_format",
+            r#type: "string",
+            required: false,
+            description: "Protocol lock for tool calls (e.g. XML wrapping)",
+            default_json: None,
+            constraints: None,
+        },
+        ToolParameter {
+            name: "token_limit",
+            r#type: "integer",
+            required: false,
+            description: "Cumulative token limit for the agent conversation",
+            default_json: None,
+            constraints: None,
+        },
+        ToolParameter {
+            name: "token_warning_threshold",
+            r#type: "integer",
+            required: false,
+            description: "Warning threshold percentage of the token limit",
+            default_json: None,
+            constraints: None,
+        },
+        ToolParameter {
+            name: "enable_token_tracking",
+            r#type: "boolean",
+            required: false,
+            description: "Enable token usage tracking",
+            default_json: None,
+            constraints: None,
+        },
+        ToolParameter {
+            name: "conversation",
+            r#type: "array",
+            required: false,
+            description: "Initial conversation imported into the agent session",
+            default_json: None,
+            constraints: None,
+        },
+    ],
+    tips: None,
+    examples: Some(&["call_agent(\"code-reviewer\", \"Review the code in src/\")"]),
+};

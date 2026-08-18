@@ -1,0 +1,30 @@
+[package]
+name = "wf-execution-shared"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+wf-types = { path = "../wf-types" }
+wf-common = { path = "../wf-common" }
+wf-core = { path = "../wf-core" }
+wf-llm = { path = "../wf-llm" }
+wf-tools = { path = "../wf-tools" }
+wf-resource = { path = "../wf-resource" }
+wf-script = { path = "../wf-script" }
+wf-metrics = { path = "../wf-metrics" }
+wf-storage = { path = "../wf-storage" }
+
+async-trait.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+dashmap.workspace = true
+thiserror.workspace = true
+tokio-util.workspace = true
+futures.workspace = true
+blake3.workspace = true
+rand.workspace = true
+num_cpus.workspace = true
+moka.workspace = true
+regex.workspace = true

@@ -1,0 +1,21 @@
+# Claude Sonnet 4.5 — Balanced
+#
+# Anthropic's balanced model. Good for general agent tasks, coding,
+# and tool use. Offers a good speed/quality tradeoff.
+
+id = "claude-sonnet-4.5"
+name = "Claude Sonnet 4.5"
+provider = "ANTHROPIC"
+model = "claude-sonnet-4.5"
+apiKey = "${ANTHROPIC_API_KEY}"
+baseUrl = "https://api.anthropic.com/v1"
+timeout = 120000
+maxRetries = 3
+retryDelay = 2000
+
+[parameters]
+temperature = 0.5
+maxTokens = 12800
+
+[metadata]
+tags = ["anthropic", "claude-sonnet", "balanced", "production"]

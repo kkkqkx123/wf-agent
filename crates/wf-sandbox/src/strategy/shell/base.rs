@@ -1,0 +1,70 @@
+use std::fmt;
+use wf_types::script::sandbox::ShellPolicy;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ShellType {
+    Bash,
+    Cmd,
+    PowerShell,
+}
+
+impl fmt::Display for ShellType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ShellType::Bash => write!(f, "bash"),
+            ShellType::Cmd => write!(f, "cmd"),
+            ShellType::PowerShell => write!(f, "powershell"),
+        }
+    }
+}
+
+impl ShellType {
+    pub fn parse(s: &str) -> Option<Self> {
+        match s.to_lowercase().as_str() {
+            "bash" | "sh" | "zsh" | "fish" => Some(ShellType::Bash),
+            "cmd" | "cmd.exe" | "command" => Some(ShellType::Cmd),
+            "powershell" | "pwsh" | "ps" => Some(ShellType::PowerShell),
+            _ => None,
+        }
+    }
+
+    pub fn default_for_platform() -> Self {
+        if cfg!(target_os = "windows") {
+            ShellType::PowerShell
+        } else {
+            ShellType::Bash
+        }
+    }
+}
+
+pub struct ShellAnalysisResult {
+    pub allowed: bool,
+    pub reason: Option<String>,
+    pub command: String,
+    pub shell_type: ShellType,
+}
+
+pub struct ShellAnalysisContext<'a> {
+    pub command: &'a str,
+    pub policy: &'a ShellPolicy,
+    /// shlex-tokenized words of `command`. Quote handling happens here so the
+    /// analyzers never parse quotes themselves.
+    pub tokens: &'a [String],
+}
+
+/// Contract for shell analyzers. Rule evaluation order is fixed for every
+/// language analyzer and MUST NOT be reordered (deny always wins):
+///
+/// 1. **blacklist** — `denied_commands` hit → deny (highest priority)
+/// 2. **whitelist** — non-empty `allowed_commands` miss → deny
+/// 3. **dangerous patterns** — `dangerous_patterns` regex hit → deny
+/// 4. **switch rules** — `allow_pipe` / `allow_redirect` off → deny
+///
+/// Any new shell language analyzer must follow this exact order so error
+/// priority stays consistent across languages (blacklist reports before
+/// whitelist misses).
+pub trait ShellAnalyzer: Send + Sync {
+    fn shell_type(&self) -> ShellType;
+
+    fn analyze(&self, ctx: &ShellAnalysisContext) -> ShellAnalysisResult;
+}

@@ -1,0 +1,7 @@
+{
+  "paths": [
+    "./folder1",
+    "./folder2"
+  ],
+  "autoScan": true
+}

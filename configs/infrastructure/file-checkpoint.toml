@@ -1,0 +1,22 @@
+# File Checkpoint Configuration
+#
+# Controls workspace file state checkpointing.
+# When enabled, file checkpoints are created alongside execution checkpoints
+# to capture workspace file state for restoration.
+#
+# Processor: file_checkpoint → merge_file_checkpoint_with_defaults()
+
+enabled = false                         # Enable workspace file snapshotting
+workspace_root = ""                     # Override workspace root (default: process.cwd())
+max_delta_chain_length = 20             # Max delta chain before forcing a full backup
+
+# Custom ignore patterns (appended to .gitignore and hardcoded ignores)
+custom_ignore_patterns = [
+  "node_modules/**",
+  ".git/**",
+  "dist/**",
+]
+
+[storage]
+type = "sqlite"                         # Backend: sqlite
+db_path = ""                            # Override DB path (default: {workspace_root}/data/file-checkpoints.db)

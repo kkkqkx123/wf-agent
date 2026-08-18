@@ -1,0 +1,32 @@
+[package]
+name = "wf-workflow"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+wf-types = { path = "../wf-types" }
+wf-common = { path = "../wf-common" }
+wf-core = { path = "../wf-core" }
+wf-tools = { path = "../wf-tools" }
+wf-llm = { path = "../wf-llm" }
+wf-checkpoint = { path = "../wf-checkpoint" }
+wf-execution-shared = { path = "../wf-execution-shared" }
+wf-config = { path = "../wf-config" }
+wf-metrics = { path = "../wf-metrics" }
+wf-agent = { path = "../wf-agent" }
+wf-sandbox = { path = "../wf-sandbox" }
+wf-storage = { path = "../wf-storage" }
+wf-resource = { path = "../wf-resource" }
+
+async-trait.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+dashmap.workspace = true
+thiserror.workspace = true
+futures.workspace = true
+tokio-util.workspace = true
+
+[dev-dependencies]
+wf-llm = { path = "../wf-llm", features = ["mock"] }

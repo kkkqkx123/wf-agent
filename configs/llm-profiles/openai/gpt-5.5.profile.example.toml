@@ -1,0 +1,21 @@
+# gpt-5.5 — High Reasoning Effort
+#
+# OpenAI's most capable reasoning model. Use for the hardest problems:
+# deep code review, mathematical proofs, architectural analysis.
+
+id = "gpt-5.5"
+name = "5.5 Deep Reasoning"
+provider = "OPENAI_RESPONSE"
+model = "gpt-5.5"
+apiKey = "${OPENAI_API_KEY}"
+baseUrl = "https://api.openai.com/v1"
+timeout = 300000
+maxRetries = 3
+retryDelay = 15000
+
+[parameters]
+reasoningEffort = "max"
+maxTokens = 32768
+
+[metadata]
+tags = ["openai", "gpt-max", "reasoning", "deep", "complex"]

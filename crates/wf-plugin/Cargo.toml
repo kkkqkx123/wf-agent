@@ -1,0 +1,30 @@
+[package]
+name = "wf-plugin"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+tokio = { workspace = true, features = ["time", "fs", "rt"] }
+tracing.workspace = true
+thiserror.workspace = true
+async-trait.workspace = true
+dashmap.workspace = true
+chrono.workspace = true
+semver.workspace = true
+futures.workspace = true
+
+wf-types = { path = "../wf-types" }
+wf-common = { path = "../wf-common" }
+wf-core = { path = "../wf-core" }
+
+toml.workspace = true
+
+mlua = { version = "0.9", optional = true, default-features = false, features = ["luajit", "send"] }
+libloading = { version = "0.8", optional = true }
+
+[features]
+default = ["lua"]
+lua = ["dep:mlua"]
+native = ["dep:libloading"]

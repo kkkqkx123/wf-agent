@@ -1,17 +1,18 @@
-# Node Template Configuration Example
+# Node Template Examples
 #
-# Predefined reusable node configurations that can be referenced by name
-# in workflow [[nodes]] as a shorthand for inline config.
+# Schema: wf_types::workflow::node_template::NodeTemplate
 #
-# Type: packages/types/src/workflow/node-template.ts → NodeTemplate
+# Node templates provide reusable node configurations for workflow builders.
+# Each template is separated by a `---` delimiter.
 
+---
 name = "git-clone"
-type = "CUSTOM"
+node_type = "CUSTOM"
 description = "Clone a git repository"
-createdAt = "2026-06-01T00:00:00Z"
-updatedAt = "2026-06-01T00:00:00Z"
+created_at = 0
+updated_at = 0
 
-[config]
+[nodes.config]
 category = "code"
 action = "git clone {{repoUrl}} {{targetDir}}"
 timeout = 120000
@@ -21,14 +22,13 @@ tags = ["git", "vcs", "utility"]
 category = "code"
 
 ---
-
 name = "lint-check"
-type = "CUSTOM"
+node_type = "CUSTOM"
 description = "Run ESLint on target directory"
-createdAt = "2026-06-01T00:00:00Z"
-updatedAt = "2026-06-01T00:00:00Z"
+created_at = 0
+updated_at = 0
 
-[config]
+[nodes.config]
 category = "code"
 action = "npx eslint {{targetDir}} --format json"
 timeout = 60000
@@ -38,17 +38,16 @@ tags = ["lint", "quality", "javascript"]
 category = "code"
 
 ---
-
 name = "llm-chat"
-type = "LLM"
+node_type = "LLM"
 description = "General purpose LLM chat node"
-createdAt = "2026-06-01T00:00:00Z"
-updatedAt = "2026-06-01T00:00:00Z"
+created_at = 0
+updated_at = 0
 
-[config]
-providerId = "llm-default"
+[nodes.config]
+provider_id = "llm-default"
 temperature = 0.7
-maxTokens = 2048
+max_tokens = 2048
 
 [metadata]
 tags = ["llm", "chat", "general"]

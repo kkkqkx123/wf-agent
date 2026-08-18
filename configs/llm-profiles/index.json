@@ -5,7 +5,6 @@
     "./openai/*.toml",
     "./anthropic/*.toml",
     "./gemini-native/*.toml",
-    "./gemini-openai/*.toml",
-    "./siliconflow/*.toml"
+    "./gemini-openai/*.toml"
   ]
 }

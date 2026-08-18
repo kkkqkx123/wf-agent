@@ -1,17 +1,22 @@
-# Workflow Configuration Example
+# Workflow Definition Example: Code Review Pipeline
 #
-# Defines a complete workflow graph with nodes, edges, triggers, and variables.
-# Workflow files go in configs/workflows/ directory.
+# Schema:  wf_types::workflow::definition::WorkflowDefinition
+#           wf_types::workflow::definition::WorkflowConfig
+#           wf_types::workflow::definition::BaseStaticNode
+#           wf_types::workflow::definition::Edge
 #
-# Type: packages/types/src/workflow/definition.ts → WorkflowTemplate
+# This file is a development example — copy it to a non-`.example` name
+# (e.g. `code-review.workflow.toml`) and adjust the values for your use case.
 
 id = "wf-code-review"
 name = "Code Review Pipeline"
 type = "STANDALONE"
-description = "Automated code review workflow that analyzes PR diffs and generates review comments"
+description = "Automated code review workflow that analyzes PR diffs"
 version = "1.0.0"
+created_at = 0
+updated_at = 0
 
-# --- Variables — declare required workflow inputs ---
+# Workflow-level variables (can be injected on trigger).
 [[variables]]
 name = "prNumber"
 type = "string"
@@ -24,22 +29,14 @@ type = "string"
 required = true
 description = "Repository path"
 
-# --- Triggers — what starts this workflow ---
-[[triggers]]
-type = "event"
-event = "pr.opened"
-[triggers.config]
-filter = "repoPath != ''"
-
-# --- Nodes — individual execution steps ---
+# --- Nodes ---
 [[nodes]]
 id = "start"
-type = "START"
+node_type = "START"
 
 [[nodes]]
 id = "fetch-changes"
-type = "CUSTOM"
-
+node_type = "CUSTOM"
 [nodes.config]
 category = "code"
 action = "git diff HEAD~1"
@@ -47,19 +44,17 @@ timeout = 30000
 
 [[nodes]]
 id = "analyze"
-type = "LLM"
-
+node_type = "LLM"
 [nodes.config]
-providerId = "llm-default"
-promptTemplateId = "code-review-system"
+provider_id = "llm-default"
+prompt_template_id = "code-review-system"
 inputs = { diff = "$ref:fetch-changes.output" }
 temperature = 0.3
-maxTokens = 4096
+max_tokens = 4096
 
 [[nodes]]
 id = "post-comment"
-type = "CUSTOM"
-
+node_type = "CUSTOM"
 [nodes.config]
 category = "github"
 action = "createReviewComment"
@@ -67,30 +62,48 @@ inputs = { review = "$ref:analyze.output", pr = "$var:prNumber" }
 
 [[nodes]]
 id = "end"
-type = "END"
+node_type = "END"
 
-# --- Edges — define node execution order ---
+# --- Edges ---
 [[edges]]
-sourceNodeId = "start"
-targetNodeId = "fetch-changes"
-
-[[edges]]
-sourceNodeId = "fetch-changes"
-targetNodeId = "analyze"
+source_node_id = "start"
+target_node_id = "fetch-changes"
+source_port = "default"
+target_port = "default"
 
 [[edges]]
-sourceNodeId = "analyze"
-targetNodeId = "post-comment"
+source_node_id = "fetch-changes"
+target_node_id = "analyze"
 
 [[edges]]
-sourceNodeId = "post-comment"
-targetNodeId = "end"
+source_node_id = "analyze"
+target_node_id = "post-comment"
 
-# --- Config — workflow execution behavior ---
+[[edges]]
+source_node_id = "post-comment"
+target_node_id = "end"
+
+# --- Workflow Config ---
 [config]
 timeout = 600000
-maxRetries = 2
-enableCheckpoint = true
+max_steps = 100
+
+[config.checkpoint]
+enabled = true
+
+[config.retry_policy]
+max_retries = 2
+initial_delay_ms = 1000
+
+# [config.tool_approval]
+# enabled = true
+# policy = "manual"
+
+# [config.available_tools]
+# available = []
+
+# [config.initial_messages]
+# [config.static_contexts]
 
 # --- Metadata ---
 [metadata]

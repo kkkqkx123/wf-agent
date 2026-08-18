@@ -1,13 +1,18 @@
-# Gemini 2.5 Flash — Fast
+# LLM Profile: Gemini 2.5 Flash (Native)
 #
-# Google's fast, cost-efficient model. Good for high-throughput
-# classification, extraction, and simpler agent tasks.
+# Schema:  wf_types::llm::profile::LlmProfile
+# Provider: LlmProvider::GEMINI_NATIVE
+#
+# Gemini native API uses query parameters (api_key=...) for authentication.
 
 id = "gemini-2.5-flash"
 name = "Gemini 2.5 Flash"
 provider = "GEMINI_NATIVE"
 model = "gemini-2.5-flash"
 apiKey = "${GEMINI_API_KEY}"
+authType = "bearer"
+contextWindowSize = 1048576
+
 timeout = 30000
 maxRetries = 2
 retryDelay = 1000
@@ -16,6 +21,9 @@ retryDelay = 1000
 temperature = 0.5
 maxTokens = 8192
 topP = 0.95
+
+[queryParams]
+key = "${GEMINI_API_KEY}"
 
 [metadata]
 tags = ["gemini", "gemini-flash", "fast", "cheap"]

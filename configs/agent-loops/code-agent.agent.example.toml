@@ -1,73 +1,103 @@
 # Agent Loop Configuration Example
 #
-# Defines an Agent Loop — an autonomous LLM-driven loop with tool access,
-# hooks, and checkpointing. Referenced by workflows or run standalone.
+# Schema:  wf_types::agent::definition::AgentDefinition
+#           wf_types::agent::definition::AgentConfig
+#           wf_types::agent::definition::AvailableTools
+#           wf_types::agent::definition::AgentCheckpointConfig
+#           wf_types::agent::definition::AgentHookConfig
 #
-# Type: packages/types/src/agent/definition.ts → AgentLoopDefinition
+# This file is a development example — copy it to a non-`.example` name
+# (e.g. `code-agent.agent.toml`) and adjust the values for your use case.
 
 id = "code-assistant"
 name = "Code Assistant Agent"
 description = "Interactive coding assistant with file read/write and shell access"
 version = "1.0.0"
-profileId = "gpt-4o"
-systemPromptTemplateId = "code-review-system"
-maxIterations = 50
+created_at = 0
+updated_at = 0
+
+[config]
+# LLM profile to use (must match an id in llm-profiles/).
+profile_id = "gpt-4o"
+
+# Static system prompt prepended to the per-request prompt.
+system_prompt = "You are a senior software engineer. Use the available tools to complete the user's task."
+
+# Optional template reference for the system prompt.
+# system_prompt_template_id = "code-review-system"
+
+# Variables to inject into the system prompt template.
+# system_prompt_template_variables = { language = "rust" }
+
+# Maximum number of LLM call iterations before the agent stops.
+max_iterations = 50
+
+# Whether to stream LLM responses in real-time.
 stream = true
 
-# --- Tool Configuration ---
-[availableTools]
-toolIds = ["readFile", "writeFile", "editFile", "bash", "glob", "grep"]
+# Tool call serialization format.
+tool_call_format = "json_wrapped"
+
+# Initial messages to seed the conversation history.
+# [[config.initial_messages]]
+# role = "system"
+# content = "Hello, how can I help you today?"
+
+# --- Available Tools ---
+[config.available_tools]
+# Tools that can be selected.
+available = ["readFile", "writeFile", "editFile", "bash", "glob", "grep", "listFiles", "searchCodebase"]
+
+# Tools initially loaded (subset of available).
+initial = ["readFile", "grep", "glob", "listFiles"]
+
+# Tools the agent can discover at runtime.
+discoverable = ["bash", "writeFile", "editFile", "searchCodebase"]
+
+# Tools hidden from the agent but usable programmatically.
+# hidden = []
 
 # --- Checkpoint Configuration ---
-[checkpoint]
-createOnEnd = true
-createOnError = true
-createOnPause = true
-maxCheckpoints = 20
+[config.checkpoint]
+enabled = true
+interval_iterations = 10
+on_error = true
+on_tool_call = false
 
-# --- Hooks — lifecycle callbacks ---
-[[hooks]]
-type = "onIterationStart"
+[config.checkpoint.content]
+include_state = true
+include_messages = true
+message_limit = 100
+include_tool_calls = true
+tool_call_limit = 50
 
-[hooks.config]
-condition = "iteration % 10 === 0"
+# --- Hooks ---
+[[config.hooks]]
+hook_type = "AFTER_ITERATION"
+condition = { iteration = { modulo = 10, remainder = 0 } }
+event_name = "checkpoint.create"
+create_checkpoint = true
+checkpoint_description = "Periodic checkpoint at iteration {{iteration}}"
 
-[hooks.config.action]
-type = "checkpoint"
-description = "Periodic checkpoint at iteration {{iteration}}"
+[[config.hooks]]
+hook_type = "AFTER_LLM_CALL"
+condition = { token_usage = { total = { gt = 100000 } } }
+event_name = "token.usage.high"
+enabled = true
 
-[[hooks]]
-type = "onTokenUsage"
+# --- Violation Policy ---
+# [config.violation_policy]
+# max_violations = 3
+# action = "terminate"
 
-[hooks.config]
-condition = "tokenUsage.total > 100000"
-action = { type = "log", message = "High token usage: {{tokenUsage.total}}" }
+# --- Dynamic Context ---
+# [config.dynamic_context]
+# enabled = true
+# max_tokens = 4096
+# template = "Current context: {{context}}"
 
----
-
-id = "batch-analyzer"
-name = "Batch Code Analyzer"
-description = "Non-interactive batch analysis agent that processes multiple files"
-version = "1.0.0"
-profileId = "gpt-4o"
-systemPrompt = """
-You are a batch code analysis agent.
-Analyze the provided files and produce a structured report.
-Do not ask questions — process the input and output the result.
-"""
-maxIterations = 10
-stream = false
-
-[availableTools]
-toolIds = ["readFile", "grep", "bash"]
-
-[checkpoint]
-createOnEnd = true
-createOnError = true
-
-[[hooks]]
-type = "onError"
-
-[hooks.config]
-condition = "errorCount > 3"
-action = { type = "stop" }
+# --- Metadata ---
+[metadata]
+author = "platform-team"
+tags = ["coding", "assistant", "production"]
+category = "development"

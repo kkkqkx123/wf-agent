@@ -1,0 +1,38 @@
+# LLM Profile: GPT-4o (OpenAI)
+#
+# Schema:  wf_types::llm::profile::LlmProfile
+# Provider: LlmProvider::OPENAI_CHAT
+#
+# Provider enum values: OPENAI_CHAT | OPENAI_RESPONSE | ANTHROPIC | GEMINI_NATIVE | GEMINI_OPENAI | Custom(String)
+
+id = "gpt-4o"
+name = "GPT-4o"
+provider = "OPENAI_CHAT"
+model = "gpt-4o"
+apiKey = "${OPENAI_API_KEY}"
+baseUrl = "https://api.openai.com/v1"
+
+# Authentication type for the HTTP client.
+# Options: "native" (provider-specific), "bearer", "basic", "header", "custom"
+authType = "native"
+
+# Format to use for tool call serialization.
+# Options: "json_wrapped" (default) | "json_unwrapped" | "json_schema" | "strict_json_schema" | "native"
+toolCallFormat = "json_wrapped"
+
+# Model's maximum input context window (tokens).
+contextWindowSize = 128000
+
+timeout = 30000
+maxRetries = 2
+retryDelay = 5000
+
+[parameters]
+temperature = 0.5
+maxTokens = 12800
+
+[streamOptions]
+includeUsage = true
+
+[metadata]
+tags = ["openai", "gpt-4o", "fast", "cheap"]

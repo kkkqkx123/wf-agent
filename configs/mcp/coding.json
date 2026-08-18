@@ -1,18 +1,17 @@
 {
-  "id": "development",
-  "name": "Development MCP Servers",
-  "description": "MCP servers for development environment",
-  "tags": ["dev"],
+  "id": "coding",
+  "name": "Coding-Specific MCP Servers",
+  "description": "MCP servers focused on coding assistance (language servers, linters, etc.)",
   "mcpServers": {
-    "context7": {
+    "example-language-server": {
+      "type": "stdio",
       "command": "npx",
-      "args": [
-        "-y",
-        "@upstash/context7-mcp@latest"
-      ],
-      "env": {
-        "DEFAULT_MINIMUM_TOKENS": "10000"
-      }
+      "args": ["-y", "@modelcontextprotocol/server- languageserver", "--stdio"],
+      "disabled": true,
+      "timeout": 120,
+      "lifecycle": "lazy",
+      "idleTimeout": 600,
+      "healthCheckInterval": 60
     }
   }
 }

@@ -50,4 +50,14 @@ pub struct LlmProfile {
     /// Streaming options (e.g. include_usage for OpenAI).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stream_options: Option<LlmStreamOptions>,
+    /// Model's maximum input context window size in tokens.
+    ///
+    /// This is a **model capability** property, distinct from the per-request
+    /// `max_tokens` (output limit). It tells the runtime how many input tokens
+    /// the model can accept before truncation or compression is needed.
+    ///
+    /// Common values: 128000 (GPT-4o, Gemini 2.5 Flash), 200000 (Claude 4.5),
+    /// 256000 (Gemini 2.5 Pro), 1048576 (Gemini 2.5 Pro extended).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub context_window_size: Option<u32>,
 }

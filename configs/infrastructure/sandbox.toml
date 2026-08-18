@@ -28,6 +28,12 @@ name = "default"
 description = "Default safe sandbox profile"
 mode = "Strict"
 
+# Strategy chain for each language (empty = use default/resolved strategy).
+shell_strategy = []
+python_strategy = []
+javascript_strategy = []
+lua_strategy = []
+
 [profiles.policy.shell]
 denied_commands = ["sudo", "su", "chroot", "mount", "umount", "dd", "mkfs", "reboot", "shutdown", "passwd"]
 dangerous_patterns = ['rm\s+(-rf|--recursive)', ':\\(\)\s*\{.*:\\(\)\s*\}.*\}']
@@ -38,26 +44,49 @@ denied_modules = ["os", "subprocess", "ctypes", "socket", "pty"]
 [profiles.policy.javascript]
 denied_modules = ["child_process", "cluster", "worker_threads", "vm"]
 
+[profiles.policy.lua]
+allowed_modules = []
+denied_modules = []
+allow_os_execute = false
+restrict_io_open = true
+allow_dynamic_load = false
+
 [profiles.policy.filesystem]
+allowed_read_paths = []
+allowed_write_paths = []
+allowed_remove_paths = []
+allowed_execute_paths = []
+copy_on_write = false
 max_file_size = 10485760
 
 [profiles.policy.process]
+allowed_child_processes = []
+denied_child_processes = []
+max_child_processes = 0
 allow_fork = true
 allow_exec = true
 allowlist_syscalls = false
 
 [profiles.policy.network]
 access = "None"
+allowed_domains = []
+allowed_ports = []
 allow_dns = false
 
 [profiles.policy.resource]
+cpu_limit_ms = 0
 memory_limit_mb = 512
+disk_limit_mb = 0
 timeout_limit_ms = 30000
 
 [[profiles]]
 name = "permissive"
 description = "Permissive sandbox profile for trusted scripts"
 mode = "Lenient"
+shell_strategy = []
+python_strategy = []
+javascript_strategy = []
+lua_strategy = []
 
 [profiles.policy.shell]
 denied_commands = ["sudo", "su", "chroot"]

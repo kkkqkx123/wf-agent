@@ -2,10 +2,13 @@
 #
 # Configures the storage backend for workflow/checkpoint/task persistence.
 #
-# Processor: infrastructure → merge_storage_with_defaults()
-# Loader:   layered → load_layered_config_sync()
+# Processor: crate::processor::infrastructure::merge_storage_with_defaults()
+# Schema:    wf_types::config::storage::StorageConfig
 
 type = "sqlite"                         # Storage backend: sqlite | postgres | memory
+
+# Application name used for default db path derivation.
+app_name = "wf-agent"
 
 # --- SQLite storage options (used when type = "sqlite") ---
 [sqlite]
@@ -15,6 +18,10 @@ enable_logging = false
 readonly = false
 file_must_exist = false
 timeout = 5000                          # Connection timeout in ms
+auto_vacuum = "NONE"                    # NONE | FULL | INCREMENTAL
+journal_size_limit = null
+page_size = null
+maintenance_interval_ms = null
 
 # --- PostgreSQL storage options (used when type = "postgres") ---
 [postgres]
@@ -28,3 +35,4 @@ pool_size = 20
 min_connections = 1
 idle_timeout = 30000
 connection_timeout = 5000
+max_uses = null

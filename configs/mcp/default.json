@@ -6,26 +6,14 @@
     "example-filesystem": {
       "type": "stdio",
       "command": "npx",
-      "args": [
-        "-y",
-        "@modelcontextprotocol/server-filesystem",
-        "./"
-      ],
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "./"],
       "disabled": false,
       "timeout": 60,
       "alwaysAllow": ["read"],
-      "disabledTools": []
-    },
-    "example-database": {
-      "type": "stdio",
-      "command": "node",
-      "args": ["dist/mcp-server-db.js"],
-      "env": {
-        "DB_HOST": "localhost",
-        "DB_PORT": "5432"
-      },
-      "disabled": true,
-      "watchPaths": ["dist/mcp-server-db.js"]
+      "disabledTools": [],
+      "lifecycle": "lazy",
+      "idleTimeout": 300,
+      "healthCheckInterval": 30
     },
     "example-remote": {
       "type": "sse",
@@ -33,7 +21,13 @@
       "headers": {
         "Authorization": "Bearer ${MCP_API_TOKEN}"
       },
-      "timeout": 120
+      "timeout": 120,
+      "lifecycle": "keep-alive"
+    },
+    "example-streamable": {
+      "type": "streamable-http",
+      "url": "http://localhost:8080/mcp",
+      "timeout": 60
     }
   }
 }

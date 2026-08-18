@@ -344,6 +344,7 @@ fn template_profile(provider: LlmProvider, model: &str, parameters: Value) -> Ll
         custom_body_enabled: None,
         query_params: None,
         stream_options: None,
+        context_window_size: None,
     }
 }
 

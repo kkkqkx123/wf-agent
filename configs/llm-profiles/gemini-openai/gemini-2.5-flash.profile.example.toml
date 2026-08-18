@@ -1,8 +1,9 @@
-# Gemini 2.5 Flash — via OpenAI-compatible endpoint
+# LLM Profile: Gemini 2.5 Flash (OpenAI Compatible)
 #
-# Access Gemini through Google's OpenAI-compatible endpoint.
-# Uses the same model but different base URL and auth scheme.
-# Useful for migrating OpenAI-centric code to Gemini without SDK changes.
+# Schema:  wf_types::llm::profile::LlmProfile
+# Provider: LlmProvider::GEMINI_OPENAI
+#
+# Uses the Gemini OpenAI-compatible endpoint (v1beta/openai).
 
 id = "gemini-2.5-flash-openai"
 name = "Gemini 2.5 Flash (OpenAI Compatible)"
@@ -10,6 +11,9 @@ provider = "GEMINI_OPENAI"
 model = "gemini-2.5-flash"
 apiKey = "${GEMINI_API_KEY}"
 baseUrl = "https://generativelanguage.googleapis.com/v1beta/openai"
+authType = "bearer"
+contextWindowSize = 1048576
+
 timeout = 30000
 maxRetries = 2
 retryDelay = 1000

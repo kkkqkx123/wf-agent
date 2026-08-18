@@ -4,7 +4,8 @@
 # When enabled, file checkpoints are created alongside execution checkpoints
 # to capture workspace file state for restoration.
 #
-# Processor: file_checkpoint → merge_file_checkpoint_with_defaults()
+# Processor: crate::processor::file_checkpoint::merge_file_checkpoint_with_defaults()
+# Schema:    wf_types::config::file_checkpoint::FileCheckpointConfig
 
 enabled = false                         # Enable workspace file snapshotting
 workspace_root = ""                     # Override workspace root (default: process.cwd())
@@ -20,3 +21,18 @@ custom_ignore_patterns = [
 [storage]
 type = "sqlite"                         # Backend: sqlite
 db_path = ""                            # Override DB path (default: {workspace_root}/data/file-checkpoints.db)
+
+# Failure behavior when file checkpoint operations fail.
+# Options: "warn" (default) | "error" | "ignore"
+failure_behavior = "warn"
+
+# Layered approval policy for agent file changes.
+# Options: "none" (default) | "auto" | "llm" | "manual"
+approval_policy = "none"
+
+# Three-way merge conflict strategy.
+# Options: "marker" (default) | "fail" | "approval"
+conflict_behavior = "marker"
+
+# Enable manual file watcher (only when both enabled and workspace_root are set).
+manual_watch = false

@@ -4,13 +4,24 @@
 # Values set here are passed to the corresponding transform function
 # and merged with SDK-internal defaults.
 #
-# When a field is omitted, the SDK processor's hardcoded default is used.
-# This file exists so that application-layer deployers can override
-# tool behaviour without modifying source code.
+# When a field is omitted, the processor's hardcoded default is used.
+# This file exists so that deployers can override tool behaviour
+# without modifying source code.
 
 [read_file]
-# max_file_size = 500000               # 500KB (SDK default)
-# max_chars = 200000                   # 200K chars (SDK default)
-# max_lines = 2000                     # 2000 lines (SDK default)
+# max_file_size = 500000               # 500KB (processor default)
+# max_chars = 200000                    # 200K chars (processor default)
+# max_lines = 2000                      # 2000 lines (processor default)
 # enable_ignore = false
 # enable_protect = false
+# model_id = null
+
+[glob]
+# workspace_dir = "./"
+# max_results = 50                      # processor default
+# enable_ignore = true
+
+[list_files]
+# workspace_dir = "./"
+# max_results = 1000                    # processor default
+# enable_ignore = true

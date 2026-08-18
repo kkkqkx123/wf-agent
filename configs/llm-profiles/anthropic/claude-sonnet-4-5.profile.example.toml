@@ -1,0 +1,25 @@
+# LLM Profile: Claude Sonnet 4.5 (Anthropic)
+#
+# Schema:  wf_types::llm::profile::LlmProfile
+# Provider: LlmProvider::ANTHROPIC
+
+id = "claude-sonnet-4-5"
+name = "Claude Sonnet 4.5"
+provider = "ANTHROPIC"
+model = "claude-sonnet-4-5"
+apiKey = "${ANTHROPIC_API_KEY}"
+baseUrl = "https://api.anthropic.com/v1"
+authType = "native"
+toolCallFormat = "json_wrapped"
+contextWindowSize = 200000
+
+timeout = 120000
+maxRetries = 3
+retryDelay = 2000
+
+[parameters]
+temperature = 0.5
+maxTokens = 12800
+
+[metadata]
+tags = ["anthropic", "claude-sonnet", "balanced", "production"]

@@ -1,56 +1,40 @@
-# Prompt Template Configuration Example
+# Prompt Template Example
 #
-# Defines reusable prompt templates that can be referenced by
-# workflow LLM nodes or agent loops via templateId.
+# Schema: wf_types::Template
+#         wf_types::template::TemplateVariableDefinition
 #
-# Type: packages/types/src/prompt-template.ts → PromptTemplate
+# Prompt templates define reusable prompt content with typed variables
+# that can be injected at runtime.
 
 id = "code-review-system"
 name = "Code Review System Prompt"
 description = "System-level prompt for code review AI assistant"
 category = "system"
 content = """
-You are a senior code reviewer with expertise in multiple programming languages.
-Analyze the provided code diff for:
-1. **Correctness**: Logic errors, edge cases, null safety
-2. **Security**: Injection vulnerabilities, auth issues
-3. **Performance**: Inefficient algorithms, N+1 queries
-4. **Style**: Consistency with project conventions
-5. **Maintainability**: Code complexity, test coverage
+You are a senior code reviewer. Analyze the provided code diff and:
+1. Identify potential bugs, security issues, and performance problems
+2. Suggest improvements for code quality and maintainability
+3. Check for adherence to best practices
 
-Output a structured review with severity labels (critical/warning/suggestion).
-Be concise and specific. Include line numbers where relevant.
+Diff to review:
+{{diff}}
 """
 
-[variables]
-required = ["diff"]
-optional = ["language", "styleGuide"]
+[[variables]]
+name = "diff"
+type = "string"
+required = true
+description = "The code diff to review"
 
----
+[[variables]]
+name = "language"
+type = "string"
+required = false
+description = "Programming language"
+default_value = "unknown"
 
-id = "chat-default"
-name = "Default Chat Template"
-description = "Standard conversational prompt for general-purpose LLM chat"
-category = "user-command"
-content = "{{userMessage}}"
-
-[variables]
-required = ["userMessage"]
-
----
-
-id = "tool-result-format"
-name = "Tool Result Formatting"
-description = "Format tool execution results for LLM consumption"
-category = "fragments"
-content = """
-Tool: {{toolName}}
-Status: {{status}}
-Output:
-```
-{{output}}
-```
-"""
-
-[variables]
-required = ["toolName", "status", "output"]
+[[variables]]
+name = "styleGuide"
+type = "string"
+required = false
+description = "Style guide URL or reference"

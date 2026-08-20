@@ -15,6 +15,7 @@ pub mod render;
 pub mod run;
 pub mod scrollback;
 pub mod select;
+pub mod sink;
 pub mod size;
 pub mod terminal;
 pub mod theme;
@@ -28,6 +29,7 @@ pub use output::{HeadlessFileSink, MemorySink, OutputEnvelope, OutputFormat, Out
 pub use run::{DiagWriter, RunIo, RunOptions, RunOutcome};
 pub use scrollback::{HistoryLine, LineState, LinesView, Role};
 pub use select::{Group, GroupItem, NavigateDir, SelectList};
+pub use sink::{MiniOutputEvent, MiniSink};
 pub use size::{ResizeDebouncer, Size};
 
 use wf_runtime::bootstrap::RuntimeConfig;

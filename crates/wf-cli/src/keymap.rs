@@ -89,7 +89,11 @@ pub enum KeyAction {
     // Approval (stage 6 consumes these)
     Approve,
     ApproveAll,
+    /// Deny this tool call only; later calls ask again.
+    DenyOnce,
     Deny,
+    /// Pick the n-th option in the question view (1..=9).
+    Pick(u8),
 }
 
 /// Key resolution context.
@@ -102,6 +106,14 @@ pub enum KeymapContext {
     Chat,
     Input,
     Modal,
+    /// Single-line prompt composer (mini footer).
+    Composer,
+    /// Selection panels: model / skill / queued prompts.
+    Panel,
+    /// Tool approval view (captures keys while active).
+    Approval,
+    /// Follow-up question view (captures keys while active).
+    Question,
 }
 
 /// A `(context → key → action)` resolution table with global fallback.
@@ -212,6 +224,43 @@ fn builtin_defaults(ctx: KeymapContext) -> Vec<(Key, KeyAction)> {
             (Key::plain(CKey::Char('a')), ApproveAll),
             (Key::plain(CKey::Char('n')), Deny),
         ],
+        KeymapContext::Composer => vec![
+            (Key::plain(Enter), Submit),
+            (Key::plain(Esc), Back),
+            (Key::plain(Up), HistoryPrev),
+            (Key::plain(Down), HistoryNext),
+            (Key::ctrl(CKey::Char('u')), Clear),
+        ],
+        KeymapContext::Panel => vec![
+            (Key::plain(Up), MovePrev),
+            (Key::plain(CKey::Char('k')), MovePrev),
+            (Key::plain(Down), MoveNext),
+            (Key::plain(CKey::Char('j')), MoveNext),
+            (Key::plain(Enter), Select),
+            (Key::plain(Esc), Back),
+            (Key::plain(CKey::Char('E')), Edit),
+            (Key::plain(CKey::Char('D')), KeyAction::Delete),
+            (Key::plain(CKey::Delete), KeyAction::Delete),
+            (Key::ctrl(CKey::Char('u')), Clear),
+        ],
+        KeymapContext::Approval => vec![
+            (Key::plain(Enter), Submit),
+            (Key::plain(Esc), Cancel),
+            (Key::plain(CKey::Char('y')), Approve),
+            (Key::plain(CKey::Char('a')), ApproveAll),
+            (Key::plain(CKey::Char('n')), Deny),
+            (Key::plain(CKey::Char('d')), DenyOnce),
+            (Key::plain(CKey::Char('c')), Cancel),
+        ],
+        KeymapContext::Question => {
+            let mut binds = vec![(Key::plain(Enter), Select), (Key::plain(Esc), Cancel)];
+            // Digit keys select the corresponding option directly.
+            for n in 1..=9u8 {
+                let ch = char::from(b'0' + n);
+                binds.push((Key::plain(CKey::Char(ch)), Pick(n)));
+            }
+            binds
+        }
     }
 }
 
@@ -228,6 +277,10 @@ pub fn builtin_keymap() -> Keymap {
         KeymapContext::Chat,
         KeymapContext::Input,
         KeymapContext::Modal,
+        KeymapContext::Composer,
+        KeymapContext::Panel,
+        KeymapContext::Approval,
+        KeymapContext::Question,
     ] {
         for (key, action) in builtin_defaults(ctx) {
             km.bind(ctx, key, action);
@@ -277,6 +330,10 @@ mod tests {
             KeymapContext::List,
             KeymapContext::Chat,
             KeymapContext::Modal,
+            KeymapContext::Composer,
+            KeymapContext::Panel,
+            KeymapContext::Approval,
+            KeymapContext::Question,
         ] {
             assert_eq!(km.resolve(ctx, Key::ctrl(CKey::Char('q'))), Some(Quit));
         }
@@ -296,5 +353,78 @@ mod tests {
         let km = builtin_keymap();
         assert_eq!(km.resolve(KeymapContext::Modal, Key::plain(CKey::Char('y'))), Some(Approve));
         assert_eq!(km.resolve(KeymapContext::Modal, Key::plain(CKey::Char('n'))), Some(Deny));
+    }
+
+    #[test]
+    fn composer_offers_submit_history_and_clear() {
+        let km = builtin_keymap();
+        let ctx = KeymapContext::Composer;
+        assert_eq!(km.resolve(ctx, Key::plain(Enter)), Some(Submit));
+        assert_eq!(km.resolve(ctx, Key::plain(Esc)), Some(Back));
+        assert_eq!(km.resolve(ctx, Key::plain(Up)), Some(HistoryPrev));
+        assert_eq!(km.resolve(ctx, Key::plain(Down)), Some(HistoryNext));
+        assert_eq!(km.resolve(ctx, Key::ctrl(CKey::Char('u'))), Some(Clear));
+    }
+
+    #[test]
+    fn composer_leaves_character_input_unbound() {
+        // Text entry is handled by the composer itself; the keymap only
+        // covers commands, so printable characters resolve to None.
+        let km = builtin_keymap();
+        assert_eq!(
+            km.resolve(KeymapContext::Composer, Key::plain(CKey::Char('a'))),
+            Option::None
+        );
+    }
+
+    #[test]
+    fn panel_offers_navigation_edit_and_delete() {
+        let km = builtin_keymap();
+        let ctx = KeymapContext::Panel;
+        assert_eq!(km.resolve(ctx, Key::plain(Up)), Some(MovePrev));
+        assert_eq!(km.resolve(ctx, Key::plain(CKey::Char('j'))), Some(MoveNext));
+        assert_eq!(km.resolve(ctx, Key::plain(Enter)), Some(Select));
+        assert_eq!(km.resolve(ctx, Key::plain(Esc)), Some(Back));
+        assert_eq!(km.resolve(ctx, Key::plain(CKey::Char('E'))), Some(Edit));
+        assert_eq!(km.resolve(ctx, Key::plain(CKey::Char('D'))), Some(KeyAction::Delete));
+        assert_eq!(km.resolve(ctx, Key::plain(CKey::Delete)), Some(KeyAction::Delete));
+        assert_eq!(km.resolve(ctx, Key::ctrl(CKey::Char('u'))), Some(Clear));
+    }
+
+    #[test]
+    fn approval_offers_deny_once_and_cancel() {
+        let km = builtin_keymap();
+        let ctx = KeymapContext::Approval;
+        assert_eq!(km.resolve(ctx, Key::plain(CKey::Char('y'))), Some(Approve));
+        assert_eq!(km.resolve(ctx, Key::plain(CKey::Char('a'))), Some(ApproveAll));
+        assert_eq!(km.resolve(ctx, Key::plain(CKey::Char('n'))), Some(Deny));
+        assert_eq!(km.resolve(ctx, Key::plain(CKey::Char('d'))), Some(DenyOnce));
+        assert_eq!(km.resolve(ctx, Key::plain(CKey::Char('c'))), Some(Cancel));
+        assert_eq!(km.resolve(ctx, Key::plain(Esc)), Some(Cancel));
+        assert_eq!(km.resolve(ctx, Key::plain(Enter)), Some(Submit));
+    }
+
+    #[test]
+    fn question_offers_numeric_picks() {
+        let km = builtin_keymap();
+        let ctx = KeymapContext::Question;
+        assert_eq!(km.resolve(ctx, Key::plain(CKey::Char('1'))), Some(Pick(1)));
+        assert_eq!(km.resolve(ctx, Key::plain(CKey::Char('5'))), Some(Pick(5)));
+        assert_eq!(km.resolve(ctx, Key::plain(CKey::Char('9'))), Some(Pick(9)));
+        assert_eq!(km.resolve(ctx, Key::plain(Enter)), Some(Select));
+        assert_eq!(km.resolve(ctx, Key::plain(Esc)), Some(Cancel));
+        // Digits beyond 9 have no pick binding.
+        assert_eq!(km.resolve(ctx, Key::plain(CKey::Char('0'))), Option::None);
+    }
+
+    #[test]
+    fn approval_bindings_override_modal_builtin() {
+        // The approval context is a superset of the modal keys (y/a/n/Esc)
+        // plus d/c; both resolve without ambiguity.
+        let km = builtin_keymap();
+        assert_eq!(
+            km.resolve(KeymapContext::Approval, Key::plain(CKey::Char('y'))),
+            km.resolve(KeymapContext::Modal, Key::plain(CKey::Char('y')))
+        );
     }
 }

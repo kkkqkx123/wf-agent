@@ -32,6 +32,26 @@ pub struct Cli {
     /// Disable ANSI colors in text output.
     #[arg(long, global = true)]
     pub no_color: bool,
+    /// Agent definition id for interactive sessions (defaults to the primary
+    /// agent). Headless runs use `wf run --agent` instead.
+    #[arg(long)]
+    pub agent: Option<String>,
+    /// LLM profile id for interactive sessions (defaults to `default`).
+    /// Headless runs use `wf run --model` instead.
+    #[arg(long)]
+    pub model: Option<String>,
+    /// Initial prompt for the mini session.
+    #[arg(long, short = 'p')]
+    pub prompt: Option<String>,
+    /// Session id to resume in an interactive form.
+    #[arg(long)]
+    pub session: Option<String>,
+    /// Resume the most recent session in an interactive form.
+    #[arg(long)]
+    pub resume: bool,
+    /// Drive a mini session with synthetic events (requires --mini).
+    #[arg(long)]
+    pub demo: bool,
     /// Subcommand; absent selects an interactive form.
     #[command(subcommand)]
     pub command: Option<Command>,
@@ -50,6 +70,37 @@ impl Cli {
         }
         if self.no_tui && (self.tui || self.mini) {
             return Err("--no-tui conflicts with --tui/--mini".to_string());
+        }
+        if self.demo && !self.mini {
+            return Err("--demo requires --mini".to_string());
+        }
+        if self.prompt.is_some() && !self.mini {
+            return Err("--prompt/-p requires --mini".to_string());
+        }
+        if self.session.is_some() && self.resume {
+            return Err("--session and --resume are mutually exclusive".to_string());
+        }
+        // Interactive-only options must not leak into subcommands (the run
+        // subcommand has its own --agent/--model).
+        if self.command.is_some() {
+            if self.session.is_some() || self.resume {
+                return Err("--session/--resume require an interactive form (no subcommand)"
+                    .to_string());
+            }
+            if self.agent.is_some() || self.model.is_some() {
+                return Err(
+                    "--agent/--model apply to interactive forms; use `wf run --agent/--model`"
+                        .to_string(),
+                );
+            }
+        }
+        // --no-tui forces headless even on a TTY; the interactive options
+        // would be silently ignored, so reject the combination up front.
+        if self.no_tui && (self.session.is_some() || self.resume || self.prompt.is_some()) {
+            return Err(
+                "--session/--resume/--prompt require an interactive form (--no-tui forces headless)"
+                    .to_string(),
+            );
         }
         Ok(())
     }
@@ -174,5 +225,85 @@ mod tests {
     fn rejects_subcommand_with_interactive_flag() {
         let cli = parse(&["--mini", "run", "x"]).unwrap();
         assert!(cli.validate().is_err());
+    }
+
+    #[test]
+    fn parses_mini_session_options() {
+        let cli = parse(&["--mini", "-p", "hello", "--agent", "ag", "--model", "m"]).unwrap();
+        assert!(cli.mini);
+        assert_eq!(cli.prompt.as_deref(), Some("hello"));
+        assert_eq!(cli.agent.as_deref(), Some("ag"));
+        assert_eq!(cli.model.as_deref(), Some("m"));
+
+        let cli = parse(&["--mini", "--session", "abc"]).unwrap();
+        assert_eq!(cli.session.as_deref(), Some("abc"));
+
+        let cli = parse(&["--mini", "--resume"]).unwrap();
+        assert!(cli.resume);
+
+        let cli = parse(&["--mini", "--demo"]).unwrap();
+        assert!(cli.demo);
+    }
+
+    #[test]
+    fn rejects_demo_without_mini() {
+        let cli = parse(&["--demo"]).unwrap();
+        assert!(cli.validate().is_err());
+        // demo through the tui form is also rejected (mini only).
+        let cli = parse(&["--tui", "--demo"]).unwrap();
+        assert!(cli.validate().is_err());
+    }
+
+    #[test]
+    fn rejects_prompt_without_mini() {
+        let cli = parse(&["-p", "hello"]).unwrap();
+        assert!(cli.validate().is_err());
+        let cli = parse(&["--tui", "-p", "hello"]).unwrap();
+        assert!(cli.validate().is_err());
+    }
+
+    #[test]
+    fn rejects_session_with_subcommand() {
+        // The top-level options appear before the subcommand position.
+        let cli = parse(&["--session", "abc", "run", "x"]).unwrap();
+        assert!(cli.validate().is_err());
+        let cli = parse(&["--resume", "run", "x"]).unwrap();
+        assert!(cli.validate().is_err());
+    }
+
+    #[test]
+    fn rejects_session_and_resume_together() {
+        let cli = parse(&["--mini", "--session", "abc", "--resume"]).unwrap();
+        assert!(cli.validate().is_err());
+    }
+
+    #[test]
+    fn rejects_interactive_options_with_no_tui() {
+        let cli = parse(&["--no-tui", "--resume"]).unwrap();
+        assert!(cli.validate().is_err());
+        let cli = parse(&["--no-tui", "--session", "abc"]).unwrap();
+        assert!(cli.validate().is_err());
+        let cli = parse(&["--no-tui", "-p", "hi"]).unwrap();
+        assert!(cli.validate().is_err());
+    }
+
+    #[test]
+    fn rejects_prompt_leaking_into_run_subcommand() {
+        // The mini-only -p short flag must not be accepted by `wf run`.
+        assert!(parse(&["run", "x", "-p", "y"]).is_err());
+    }
+
+    #[test]
+    fn run_subcommand_keeps_its_own_agent_model() {
+        let cli = parse(&["run", "x", "--agent", "ag", "--model", "m"]).unwrap();
+        assert!(cli.validate().is_ok());
+        let Some(Command::Run { agent, model, .. }) = cli.command else {
+            panic!("expected run command");
+        };
+        assert_eq!(agent.as_deref(), Some("ag"));
+        assert_eq!(model.as_deref(), Some("m"));
+        // Top-level interactive options stay untouched.
+        assert!(cli.agent.is_none());
+        assert!(cli.model.is_none());
     }
 }

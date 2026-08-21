@@ -2,12 +2,15 @@
 
 pub mod ansi;
 pub mod args;
+pub mod composer;
 pub mod domain;
 pub mod error;
 pub mod events;
+pub mod footer;
 pub mod framer;
 pub mod keymap;
 pub mod markdown;
+pub mod mini;
 pub mod mode;
 pub mod output;
 pub mod reducer;
@@ -22,9 +25,12 @@ pub mod theme;
 
 pub use ansi::AnsiParser;
 pub use args::{Cli, Command};
+pub use composer::Composer;
 pub use error::{CliError, CliResult};
+pub use footer::{Footer, FooterRoute, FooterView};
 pub use framer::{FrameRateLimiter, FrameRequester};
 pub use keymap::{Key, KeyAction, Keymap, KeymapContext};
+pub use mini::MiniApp;
 pub use output::{HeadlessFileSink, MemorySink, OutputEnvelope, OutputFormat, OutputMessage, TeeSink};
 pub use run::{DiagWriter, RunIo, RunOptions, RunOutcome};
 pub use scrollback::{HistoryLine, LineState, LinesView, Role};
@@ -123,8 +129,8 @@ async fn run_headless(cli: &Cli, resolved: &ResolvedMode, stdout_tty: bool) -> C
     session.map(|_| ())
 }
 
-/// Interactive forms (mini / full TUI). Stage 1 only reports the resolved
-/// mode; the actual renderers land in Stage 6 (mini) and Stage 7 (TUI).
+/// Interactive forms (mini / full TUI). Mini dispatches to [`MiniApp`]; the
+/// full TUI renderer lands in Stage 7.
 async fn run_interactive(cli: &Cli, cli_mode: CliMode, stdout_tty: bool) -> CliResult<()> {
     if !stdout_tty {
         return Err(CliError::Arguments(format!(
@@ -132,13 +138,18 @@ async fn run_interactive(cli: &Cli, cli_mode: CliMode, stdout_tty: bool) -> CliR
             cli_mode
         )));
     }
-    let mut sink = build_sink(cli, stdout_tty)?;
-    sink.write_text(&format!(
-        "[wf] {:?} mode selected; the interactive renderer lands in a later stage",
-        cli_mode
-    ))?;
-    sink.flush()?;
-    Ok(())
+    match cli_mode {
+        CliMode::Mini => MiniApp::new()?.run().await,
+        CliMode::Tui => {
+            let mut sink = build_sink(cli, stdout_tty)?;
+            sink.write_text(
+                "[wf] Tui mode selected; the full renderer lands in a later stage",
+            )?;
+            sink.flush()?;
+            Ok(())
+        }
+        CliMode::Run => unreachable!("run_interactive called with CliMode::Run"),
+    }
 }
 
 /// Diagnostics for the `debug-mode` subcommand (resolved routing).

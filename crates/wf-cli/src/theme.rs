@@ -1,8 +1,8 @@
 //! Theme detection: OSC 10/11 color probing, palette derivation, the
 //! last-known-good cache and the SIGUSR2 hot-reload signal 
 //!
-//! The theme is pure data ([`Theme`]) consumed by later stages (Stage 4+
-//! components map roles to ratatui styles); this module never renders.
+//! The theme is pure data ([`Theme`]) consumed by the components that map
+//! roles to ratatui styles; this module never renders.
 //!
 //! Probe pipeline (unix): open `/dev/tty` → temporarily enable raw mode →
 //! write the OSC 11 (background) and OSC 10 (foreground) queries → read
@@ -530,8 +530,8 @@ impl Drop for RawModeRestorer {
 
 // ── SIGUSR2 hot reload ────────────────────────────────────────────────
 
-/// Channel delivering one `()` per SIGUSR2 (theme hot-reload requests,
-/// 05 §3.3). Non-unix platforms get an immediately-closed channel.
+/// Channel delivering one `()` per SIGUSR2 (theme hot-reload requests).
+/// Non-unix platforms get an immediately-closed channel.
 #[cfg(unix)]
 pub async fn theme_reload_signals() -> std::io::Result<tokio::sync::mpsc::Receiver<()>> {
     use tokio::signal::unix::{signal, SignalKind};

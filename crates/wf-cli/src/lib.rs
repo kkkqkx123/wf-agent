@@ -130,7 +130,7 @@ async fn run_headless(cli: &Cli, resolved: &ResolvedMode, stdout_tty: bool) -> C
 }
 
 /// Interactive forms (mini / full TUI). Mini dispatches to [`MiniApp`]; the
-/// full TUI renderer lands in Stage 7.
+/// full TUI renderer is not wired yet.
 async fn run_interactive(cli: &Cli, cli_mode: CliMode, stdout_tty: bool) -> CliResult<()> {
     if !stdout_tty {
         return Err(CliError::Arguments(format!(
@@ -143,7 +143,7 @@ async fn run_interactive(cli: &Cli, cli_mode: CliMode, stdout_tty: bool) -> CliR
         CliMode::Tui => {
             let mut sink = build_sink(cli, stdout_tty)?;
             sink.write_text(
-                "[wf] Tui mode selected; the full renderer lands in a later stage",
+                "[wf] Tui mode selected; the full renderer is not wired yet",
             )?;
             sink.flush()?;
             Ok(())
@@ -185,8 +185,8 @@ pub fn default_runtime_config() -> RuntimeConfig {
 
 /// Terminal facility probe (`wf debug-terminal`).
 ///
-/// Exercises the whole Stage 3 surface against the *real* terminal when
-/// stdout is a TTY: theme detection, guard enter/restore, a
+/// Exercises the whole terminal facility surface against the *real* terminal
+/// when stdout is a TTY: theme detection, guard enter/restore, a
 /// `with_restored` external-command window and the "redraw after re-enter"
 /// duty. Without a TTY it only verifies the degradation paths (default
 /// theme fallback, no guard activation) and exits 0.

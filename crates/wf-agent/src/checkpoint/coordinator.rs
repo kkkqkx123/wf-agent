@@ -21,7 +21,7 @@ use crate::state::{AgentLoopStateSnapshot, IterationRecord, ToolDiscoveryState};
 
 /// Runtime reconstruction of a checkpointed agent loop, produced by
 /// [`AgentCheckpointIntegration::restore_entity`] and consumed by
-/// `AgentLoopCoordinator::resume_from_checkpoint` (P1-1).
+/// `AgentLoopCoordinator::resume_from_checkpoint`.
 pub struct RestoredAgentLoop {
     pub agent_loop_id: Id,
     pub state: AgentLoopStateSnapshot,
@@ -114,8 +114,8 @@ impl AgentCheckpointIntegration {
         Ok(())
     }
 
-    /// Restore a checkpointed agent loop into a re-driveable runtime state
-    /// (P1-1): the snapshot (state + conversation) is lifted from storage and
+    /// Restore a checkpointed agent loop into a re-driveable runtime state:
+    /// the snapshot (state + conversation) is lifted from storage and
     /// translated into the runtime `AgentLoopStateSnapshot`, including the
     /// tool-call replay idempotency table. Returns the agent loop id, the
     /// runtime state and the authoritative conversation; the caller rebuilds

@@ -2,7 +2,7 @@
 //!
 //! Summaries and status views read the live [`wf_agent::registry::AgentLoopRegistry`]
 //! first and fall back to the persisted `AgentExecution` / `AgentLoopStorageMetadata`
-//! records (Stage 0 persistence), so queries keep returning data after a
+//! records, so queries keep returning data after a
 //! restart. Agent loops are not created through this API.
 
 use std::collections::BTreeMap;

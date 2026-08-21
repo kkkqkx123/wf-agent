@@ -269,7 +269,7 @@ pub fn start_trigger_listener_with_skills(
 /// `agent_executor`, when present, wires the nested-agent-execution trigger
 /// action ([`AgentTriggerRunner`]); `storage` records trigger executions in
 /// the durable management ledger; `trigger_state_registry` feeds the
-/// checkpoint `trigger_states` audit field (Stage 5 plan A).
+/// checkpoint `trigger_states` audit field.
 #[allow(clippy::too_many_arguments)]
 pub fn start_trigger_listener_with_registry(
     event_bus: Arc<EventBus>,

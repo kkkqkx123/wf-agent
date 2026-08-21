@@ -1,7 +1,6 @@
 //! DAG - Directed Acyclic Graph
 //!
 //! Manages the parent-child relationship of checkpoints, providing functions such as ancestor lookup, reachability determination, and common ancestor lookup.
-//! Reference architecture/05-Checkpoint warehouse and branch management.md §5.4
 //!
 //! Note: DAG is built dynamically from Checkpoint relationships and is not persisted to storage.
 

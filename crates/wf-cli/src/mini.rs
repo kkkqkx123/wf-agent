@@ -1,19 +1,19 @@
-//! Mini mode application: an inline split-footer over the terminal
-//! (`docs/cli/05` §3). The terminal keeps its main area; the footer owns the
+//! Mini mode application: an inline split-footer over the terminal. The
+//! terminal keeps its main area; the footer owns the
 //! bottom `Viewport::Inline(n)` rows (decoration / main / status line) and
 //! settled scrollback lines are pushed above it with
 //! [`Terminal::insert_before`].
 //!
-//! The event loop follows the Stage 6 priority order (03 §3.1-§3.2):
-//! repaint requests and ticks first, then terminal input, business events
+//! The event loop processes repaint requests and ticks first, then terminal
+//! input, business events
 //! (the [`MiniSink`] channel) and finally signals. Ctrl-C / SIGINT use the
 //! [`DoublePressTracker`] two-press exit; SIGUSR2 reloads the theme; the
 //! footer viewport height is rebuilt only when [`Footer::apply_height`]
 //! changes.
 //!
-//! Stage 6B wires the render base (guard, terminal, viewport, footer
-//! skeleton, scrollback settle path) and the input loop; session driving
-//! lands in a later stage (the sink channel is already plumbed).
+//! The render base (guard, terminal, viewport, footer skeleton, scrollback
+//! settle path) and the input loop are wired here; session driving is not
+//! (the sink channel is already plumbed).
 
 use std::io::{self, Stdout};
 
@@ -64,7 +64,7 @@ pub struct MiniApp {
     /// Accumulated streaming chunks (shown in the footer tail line).
     streaming_text: String,
     /// The sink paired with `output_rx` (kept alive so the channel stays
-    /// open; the session driver writes through it in a later stage).
+    /// open; the session driver writes through it).
     #[allow(dead_code)]
     sink: MiniSink,
     output_rx: UnboundedReceiver<MiniOutputEvent>,
@@ -328,14 +328,14 @@ impl MiniApp {
             }
             KeyAction::None => {}
             _ => {
-                // Help / palette / panel / approval / question actions land
-                // with the later stages.
+                // Help / palette / panel / approval / question actions are
+                // not handled by the mini input loop.
             }
         }
     }
 
     /// Submit the composer: settle the prompt into the scrollback and show
-    /// a notice (the session driver replaces this in a later stage).
+    /// a notice (the session driver replaces this behavior).
     fn submit_composer(&mut self) {
         let Some(text) = self.footer.composer.submit() else {
             return;
@@ -370,7 +370,7 @@ impl MiniApp {
                     .push(HistoryLine::new_role(content, role));
             }
             MiniOutputEvent::Message(_) => {
-                // Structured messages render in a later stage; the flush
+                // Structured messages render nothing for now; the flush
                 // boundary still repaints.
             }
             MiniOutputEvent::Chunk(chunk) => {

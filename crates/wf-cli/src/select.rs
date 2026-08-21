@@ -1,5 +1,5 @@
-//! `SelectList`: the single navigation component for every list screen
-//! (`docs/cli/03` §4.1). It is a grouped, single-cursor list with a pure
+//! `SelectList`: the single navigation component for every list screen.
+//! It is a grouped, single-cursor list with a pure
 //! viewport computation and a theme-agnostic renderer.
 //!
 //! The list is domain-free: items carry generic `data` (often `()` for pure

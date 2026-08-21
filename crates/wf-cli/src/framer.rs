@@ -1,10 +1,10 @@
 //! Frame scheduling: merge draw requests and cap the redraw rate
-//! (`docs/cli/03` §3.2 — 120 FPS cap / 8.3 ms minimum interval).
+//! (120 FPS cap / 8.3 ms minimum interval).
 //!
 //! All time values are **millisecond integers** and the "clock" is an
 //! injectable value advanced by the caller via [`FrameRequester::set_now`],
 //! so the throttle math is fully unit-testable without a real timer. The
-//! event loop (Stage 6/7) polls [`FrameRequester::deadline`] and sleeps
+//! event loop polls [`FrameRequester::deadline`] and sleeps
 //! until then; when it fires, it calls [`FrameRequester::frame_done`].
 
 use std::time::Duration;

@@ -14,8 +14,8 @@
 //!
 //! The same events are fed to the reducer, so [`HeadlessRenderer::footer`]
 //! reflects the live session state and the same-source test can assert that
-//! the headless stdout text matches what the mini scrollback (`HistoryLine`,
-//! Stage 6) renders from the same reducer commits — the pipeline is the
+//! the headless stdout text matches what the mini scrollback (`HistoryLine`)
+//! renders from the same reducer commits — the pipeline is the
 //! single source of truth for every form.
 //!
 //! This is a pure-data renderer: no TTY, no IO, no wall clock (tool lines
@@ -367,7 +367,7 @@ mod tests {
         stdout.push_str(&renderer.finish().stdout);
 
         // ② Same reducer → MiniCommit → HistoryLine (the mini scrollback
-        //    source text; Stage 6 renders these commits).
+        //    source text renders from these commits).
         let (commits, _footer) = fold(&events, "exec-same");
         let mut scrollback = String::new();
         for commit in &commits {

@@ -339,8 +339,8 @@ impl TriggeredAgentExecutionManager {
 ///   still at that version (stale results are discarded, mirroring the
 ///   compression path).
 ///
-/// The child final reply becomes a single `assistant` message (decision D1
-/// default); full child-conversation injection is a future extension.
+/// The child final reply becomes a single `assistant` message by default;
+/// full child-conversation injection is a future extension.
 async fn write_back_result(
     parent: &Arc<AgentLoopEntity>,
     result_variable: &str,

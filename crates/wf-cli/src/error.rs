@@ -1,6 +1,6 @@
 //! CLI error type and process exit-code mapping.
 //!
-//! Exit codes follow `docs/cli/01` section 4.4:
+//! Exit codes:
 //!   0 - success
 //!   1 - business failure (agent session failed)
 //!   2 - invalid arguments (also used by clap for parse errors)

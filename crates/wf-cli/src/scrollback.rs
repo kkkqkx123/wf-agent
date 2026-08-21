@@ -3,7 +3,7 @@
 //! The core type is [`HistoryLine`]: it holds the **source text** (never a
 //! width-fixed render cache) so that `display_lines(width)` recomputes the
 //! line wrapping for the current terminal width on every call — the
-//! resize-reflow ground rule (`docs/cli/03` §2.2/§七). Two line states
+//! resize-reflow ground rule. Two line states
 //! coexist: committed lines and an in-flight streaming line (the final
 //! `commit` tick freezes the streaming text).
 //!
@@ -19,7 +19,7 @@ use ratatui::widgets::Widget;
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
-/// Role palette for a history line; a later stage maps it to a theme color.
+/// Role palette for a history line; the theme maps it to a color.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Role {
     /// Normal dialogue / assistant text.

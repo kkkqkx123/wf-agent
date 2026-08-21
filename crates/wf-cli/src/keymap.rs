@@ -1,15 +1,14 @@
 //! `Keymap`: centralized key resolution with context fallback
-//! (`docs/cli/04` §七, `docs/cli/03` §3.1 red-line 8 — components must not
-//! scatter bare `match` on keys).
+//! (components must not scatter bare `match` on keys).
 //!
 //! Resolution order: `context overrides → global overrides → builtin
-//! defaults`. `Key` is a small crossterm-free struct (Stage 6 maps crossterm
-//! events here), keeping the component layer ownership-clean.
+//! defaults`. `Key` is a small crossterm-free struct (crossterm events map
+//! here), keeping the component layer ownership-clean.
 
 use std::collections::HashMap;
 
-/// Physical key code (modifier-free). Kept deliberately small; Stage 6
-/// adapts crossterm `KeyCode` into this.
+/// Physical key code (modifier-free). Kept deliberately small; the crossterm
+/// adapter converts `KeyCode` into this.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum CKey {
     Char(char),
@@ -63,7 +62,7 @@ impl Key {
 /// The abstract action a key may trigger.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum KeyAction {
-    /// Reserved no-op (P1 override hooks).
+    /// Reserved no-op.
     None,
     Quit,
     Redraw,
@@ -86,7 +85,7 @@ pub enum KeyAction {
     Clear,
     Home,
     End,
-    // Approval (stage 6 consumes these)
+    // Approval actions
     Approve,
     ApproveAll,
     /// Deny this tool call only; later calls ask again.
@@ -164,7 +163,7 @@ impl Keymap {
     }
 }
 
-/// Builtin bindings that apply in every context (04 §八). These live in the
+/// Builtin bindings that apply in every context. These live in the
 /// *global* table so callers can shadow them with `set_global` and they are
 /// still resolved for any context.
 fn builtin_global() -> Vec<(Key, KeyAction)> {
@@ -178,7 +177,7 @@ fn builtin_global() -> Vec<(Key, KeyAction)> {
     ]
 }
 
-/// Builtin bindings specific to a context (04 §八; a P0 subset). Global keys
+/// Builtin bindings specific to a context. Global keys
 /// are intentionally *not* included — they resolve via the global table.
 fn builtin_defaults(ctx: KeymapContext) -> Vec<(Key, KeyAction)> {
     use CKey::*;
@@ -264,8 +263,8 @@ fn builtin_defaults(ctx: KeymapContext) -> Vec<(Key, KeyAction)> {
     }
 }
 
-/// Convenience: build the keymap with every builtin bound, so callers (Stage
-/// 6) usually only need `bind`/`set_global` overrides.
+/// Convenience: build the keymap with every builtin bound, so callers
+/// usually only need `bind`/`set_global` overrides.
 pub fn builtin_keymap() -> Keymap {
     let mut km = Keymap::new();
     for (key, action) in builtin_global() {

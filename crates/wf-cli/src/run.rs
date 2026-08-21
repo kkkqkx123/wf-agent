@@ -5,7 +5,7 @@
 //! events (LLM text to the main sink, tool lifecycle to the diagnostics
 //! channel) → terminate with a summary line / envelope and an exit code.
 //!
-//! Output discipline (see `docs/cli/05` §5.2): business output (LLM text,
+//! Output discipline: business output (LLM text,
 //! message records, summary envelope) goes through the [`OutputSink`]
 //! (stdout); diagnostics (tool lines `▲/✓/✗`, approval rejections,
 //! interrupt notices) go to stderr through [`DiagWriter`], so
@@ -143,7 +143,7 @@ impl DiagWriter {
     }
 }
 
-// ── approval policy (headless degradation, docs/cli/05 §5.3) ─────────
+// ── approval policy (headless degradation) ─────────────────────────
 
 /// Outcome of the headless approval decision.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -263,7 +263,7 @@ impl UserInteractionHandler for HeadlessInteractionGuard {
     }
 }
 
-// ── delta line buffering (docs/cli/05 §5.2) ──────────────────────────
+// ── delta line buffering ──────────────────────────────────────────
 
 /// Merges LLM deltas before they hit stdout: complete lines flush
 /// immediately, partial tails wait for more input or a threshold.

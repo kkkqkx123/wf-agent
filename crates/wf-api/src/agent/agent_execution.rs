@@ -381,7 +381,7 @@ mod tests {
             .iter()
             .all(|r| r.agent_loop_id.as_deref() == Some(scoped)));
 
-        // Stage 0: an `AgentExecution` record is persisted, keyed by the
+        // An `AgentExecution` record is persisted, keyed by the
         // per-run agent loop id and linked to the definition.
         let executions = ctx.storage.agent_execution.list(None).await.unwrap();
         assert_eq!(executions.len(), 1, "agent execution must be persisted");
@@ -389,7 +389,7 @@ mod tests {
         assert_eq!(executions[0].id.to_string(), scoped);
     }
 
-    /// Stage 0 acceptance: after a real `run`, the persisted `AgentExecution`
+    /// After a real `run`, the persisted `AgentExecution`
     /// record is readable through a fresh context (empty live registries), so
     /// the persisted branches of the agent queries return real data.
     #[tokio::test]

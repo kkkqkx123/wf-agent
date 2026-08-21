@@ -338,7 +338,7 @@ impl AgentLoopHandler {
 
         // Effective tool call format config: the profile-level full config
         // supplies the description options (`include_description` /
-        // `description_style`, unconsumed before G2); the agent-level
+        // `description_style`, currently unconsumed); the agent-level
         // canonical string overrides the format name when present.
         let tool_call_format = {
             let profile_config = self

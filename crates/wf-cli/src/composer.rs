@@ -1,4 +1,4 @@
-//! Single-line prompt composer (P0, self-built).
+//! Single-line prompt composer.
 //!
 //! [`Composer`] is the mini footer's text entry: a one-line buffer with a
 //! grapheme-aware cursor, horizontal scrolling so the cursor stays visible,
@@ -8,8 +8,7 @@
 //! delete / home / end / left / right).
 //!
 //! The composer owns no terminal state: `render` draws into a caller-provided
-//! ratatui [`Buffer`] with a caller-provided style. Multi-line textarea and
-//! `@` mentions land in a later stage (P1).
+//! ratatui [`Buffer`] with a caller-provided style.
 
 use std::collections::VecDeque;
 

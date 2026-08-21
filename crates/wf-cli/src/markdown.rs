@@ -23,7 +23,7 @@ pub const DEFAULT_MAX_SOURCE_BYTES: usize = 64 * 1024;
 /// A frame of streaming markdown output for one `push`/`finish` call.
 ///
 /// Both text fields are **source text** (never width-fixed render caches);
-/// reflow and styling belong to Stage 4's `HistoryLine` and Stage 6/7.
+/// reflow and styling belong to `HistoryLine` and the interactive renderers.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MarkdownFrame {
     /// Newly settled source text since the previous call (never re-emitted).
@@ -262,7 +262,8 @@ fn extract_code_lang(streaming: &str) -> Option<String> {
 
 /// Render Markdown source to plain text (line-level output): inline markup
 /// is stripped, soft/hard breaks map to `\n`, and code blocks keep their
-/// content lines verbatim. No styling — that belongs to Stage 6/7.
+/// content lines verbatim. No styling — that belongs to the interactive
+/// renderers.
 pub fn render_plain_text(src: &str) -> String {
     let mut out = String::new();
     let mut boundary = false;

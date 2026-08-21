@@ -20,8 +20,8 @@ pub enum AgentError {
     #[error("Execution error: {0}")]
     ExecutionError(String),
 
-    /// Concurrency / hierarchy capacity gate rejected an execution spawn
-    /// (P1-2): either the global concurrent execution limit was reached or a
+    /// Concurrency / hierarchy capacity gate rejected an execution spawn:
+    /// either the global concurrent execution limit was reached or a
     /// nested agent loop exceeded the maximum sub-agent depth.
     #[error("Execution limit reached: {0}")]
     ExecutionLimitReached(String),

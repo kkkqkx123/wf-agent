@@ -1,6 +1,5 @@
 /// Database Migration - Create All Tables
 ///
-/// Refer to architecture/07-Rust-implementation.md §7.6 for table building SQL.
 pub const MIGRATION_SQL: &str = "
 -- File Node Table (Immutable, INSERT ONLY)
 CREATE TABLE IF NOT EXISTS file_nodes (
@@ -76,7 +75,7 @@ CREATE INDEX IF NOT EXISTS idx_deltas_file ON deltas(file_path);
 CREATE INDEX IF NOT EXISTS idx_partition_history_snapshot ON partition_history(snapshot_id);
 ";
 
-/// Checkpoint correlation table (used in P4)
+/// Checkpoint correlation table
 pub const MIGRATION_CHECKPOINT_SQL: &str = "
 CREATE TABLE IF NOT EXISTS checkpoints (
     id              BLOB PRIMARY KEY,

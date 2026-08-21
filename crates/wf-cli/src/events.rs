@@ -1,8 +1,9 @@
 //! Unified event stream feeding the CLI output/render pipeline.
 //!
-//! Stage 1 defines the unified shape and the conversions from the agent
-//! streaming events; the shared `EventBus` subscription helper lets later
-//! stages (mini / TUI) consume lifecycle events as a `Stream`. Full
+//! Defines the unified event shape and the conversions from the agent
+//! streaming events; the shared `EventBus` subscription helper lets the
+//! interactive forms (mini / TUI) consume lifecycle events as a `Stream`.
+//! Full
 //! execution lifecycle events (`ExecutionEvent`) travel on the checkpoint
 //! `ExecutionEventBus`; the `Execution` variant keeps the door open for that
 //! adapter.
@@ -44,7 +45,7 @@ pub enum UnifiedEvent {
     Failed { error: String },
     /// Agent session was interrupted.
     Interrupted { reason: String },
-    /// Execution lifecycle event (checkpoint bus adapter; Stage 2+).
+    /// Execution lifecycle event (checkpoint bus adapter).
     Execution(ExecutionEvent),
 }
 

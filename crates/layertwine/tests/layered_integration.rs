@@ -24,7 +24,7 @@ use layertwine::storage::SqliteStorage;
 // Helpers
 // ---------------------------------------------------------------------------
 
-/// Create an in-memory SqliteStorage with full schema (P1 + checkpoint/branch tables).
+/// Create an in-memory SqliteStorage with full schema (checkpoint/branch tables included).
 fn setup_storage() -> SqliteStorage {
     let storage = SqliteStorage::new_in_memory().expect("in-memory storage");
     storage

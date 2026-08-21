@@ -7,8 +7,7 @@
 //! (wf-workflow `AGENT_LOOP` assembly) consumes the same inputs, filters and
 //! decisions — schema and metadata can never drift apart.
 //!
-//! Assembly is KV-cache friendly by design (see
-//! `docs/plan/wf-tools-general-tool-discovery-plan.md`): the visible schema
+//! Assembly is KV-cache friendly by design: the visible schema
 //! is derived only from whitelist + exposure layers + formal activation.
 //! Runtime `block` actions never change the schema — they only intercept at
 //! execution time — so the LLM request prefix stays byte-stable across

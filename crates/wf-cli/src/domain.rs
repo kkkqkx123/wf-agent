@@ -59,8 +59,8 @@ impl DomainAdapter {
     }
 
     /// LLM gateway (profile resolution + model invocation). Headless runs
-    /// surface gateway diagnostics through it; later stages expose profile
-    /// listing / warm-up through the same handle.
+    /// surface gateway diagnostics through it; profile listing / warm-up
+    /// also use the same handle.
     pub fn llm_gateway(&self) -> &std::sync::Arc<wf_llm::LlmGateway> {
         &self.api_context().llm_gateway
     }

@@ -16,7 +16,7 @@ use wf_types::{AgentExecution, ExecutionStatus, WorkflowExecution};
 ///
 /// Both adapter slots are optional: an unwired slot turns persistence for that
 /// side into a no-op (the execution is still driven fully in memory, matching
-/// the pre-Stage-0 behavior). Persistence failures never fail the execution;
+/// the pre-persistence behavior). Persistence failures never fail the execution;
 /// they degrade to a warning log.
 #[derive(Clone)]
 pub struct ExecutionStateManager {

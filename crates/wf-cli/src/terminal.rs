@@ -12,7 +12,7 @@
 //! - [`TerminalStderrGuard`]: fd-2 redirection so backend/child stderr cannot
 //!   corrupt the rendered screen
 //! - [`DoublePressTracker`]: the SIGINT two-press state machine (5s window),
-//!   consumed by the Stage 6 event loop.
+//!   consumed by the interactive event loop.
 //!
 //! crossterm itself provides no RAII for these modes (raw mode toggles are
 //! manual since 0.14; the backend never enters/leaves the alternate screen),
@@ -256,8 +256,7 @@ impl<C: TerminalControl> TerminalGuard<C> {
 
     /// Pause every special mode, optionally lift stderr suppression, run
     /// `op` (an external program with inherited stdio), then re-enter the
-    /// recorded modes and re-apply stderr suppression (03 §2.1
-    /// `with_restored`).
+    /// recorded modes and re-apply stderr suppression.
     ///
     /// The caller owns the renderer and must schedule a full redraw after
     /// this returns; the guard only restores the terminal *modes*.
@@ -289,8 +288,8 @@ impl<C: TerminalControl> Drop for TerminalGuard<C> {
 
 /// Install a process-wide panic hook that restores the *real* terminal
 /// (disable paste / show cursor / reset colors / leave alt screen / disable
-/// raw mode) before delegating to the previous hook (03 §2.1 "Drop + panic
-/// hook 双保险"). Idempotent: a second call is a no-op.
+/// raw mode) before delegating to the previous hook. Idempotent: a second
+/// call is a no-op.
 pub fn install_panic_hook() {
     use std::sync::atomic::{AtomicBool, Ordering};
     static INSTALLED: AtomicBool = AtomicBool::new(false);
@@ -315,8 +314,8 @@ pub fn install_panic_hook() {
 // ── stderr suppression (fd 2 redirection) ─────────────────────────────
 
 /// Redirects the process stderr (fd 2) into a file while active, so that
-/// backend / child-process diagnostics cannot corrupt the rendered screen
-/// (03 §2.1). `Drop` restores the original stderr.
+/// backend / child-process diagnostics cannot corrupt the rendered screen.
+/// `Drop` restores the original stderr.
 ///
 /// Unix does real fd redirection; other platforms get a no-op guard.
 #[derive(Debug)]
@@ -439,7 +438,7 @@ pub enum PressOutcome {
 }
 
 /// Pure two-press tracker with an injected millisecond clock, so synthetic
-/// signals test the state machine without real SIGINT delivery (05 §3.3).
+/// signals test the state machine without real SIGINT delivery.
 #[derive(Debug, Clone)]
 pub struct DoublePressTracker {
     window_ms: u64,

@@ -1,7 +1,6 @@
 //! Inter-layer flow logic
 //!
 //! Define all allowed forward/reverse flow operations, and state machine irony checks.
-//! Flow rules reference architecture/03-hierarchical-state-machines.md §3.4 Iron laws of state machines.
 
 use crate::backup::backup_repo::BackupRepo;
 use crate::core::snapshot::Snapshot;
@@ -164,7 +163,6 @@ where
 
 /// Partition itself back: current = history.pop()
 ///
-/// Corresponds to rollback_partition in architecture document §3.3.
 /// Only switches pointers and does not modify any immutable data (Iron Law 2).
 pub fn rollback_partition<S: PartitionStore>(
     storage: &S,
@@ -191,7 +189,6 @@ pub fn rollback_partition<S: PartitionStore>(
 /// Fallback staged to the specified layer
 ///
 /// Finds the target layer source from the parents of the staged current snapshot.
-/// Corresponds to rollback_staged_to_source in architecture document §3.3.
 pub fn rollback_staged_to_layer<S>(storage: &S, target_layer: LayerType) -> Result<SnapshotId>
 where
     S: SnapshotStore + PartitionStore,

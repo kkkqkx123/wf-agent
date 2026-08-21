@@ -1,8 +1,7 @@
 //! End-to-end integration baseline for the application-facing API layer.
 //!
 //! These tests drive the full pipeline (storage -> registry -> engine ->
-//! live entity) the way an application would, and serve as the pattern for
-//! the later stages' integration tests.
+//! live entity) the way an application would.
 
 use std::sync::Arc;
 

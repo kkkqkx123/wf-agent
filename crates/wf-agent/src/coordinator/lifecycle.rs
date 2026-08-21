@@ -258,8 +258,8 @@ impl AgentLoopCoordinator {
             .await
     }
 
-    /// Restore an agent loop from a checkpoint and re-drive it to completion
-    /// (P1-1). The entity is rebuilt from the current config (tools/model/
+    /// Restore an agent loop from a checkpoint and re-drive it to completion.
+    /// The entity is rebuilt from the current config (tools/model/
     /// hooks) and its runtime state is reconstructed from the checkpoint
     /// snapshot: iteration progress, conversation, pending/completed tool-call
     /// idempotency table. Replayed tool calls with a cached result are served

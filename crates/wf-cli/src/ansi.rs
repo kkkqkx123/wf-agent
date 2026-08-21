@@ -1,7 +1,7 @@
-//! Minimal ANSI escape → ratatui [`Line`] pipeline (`docs/cli/03` §2.3).
+//! Minimal ANSI escape → ratatui [`Line`] pipeline.
 //!
 //! We self-host a small SGR subset instead of pulling in the external
-//! `ansi-to-tui` crate (deviation P1): the CLI's tool output mainly uses
+//! `ansi-to-tui` crate: the CLI's tool output mainly uses
 //! 16/256-color and truecolor foreground/background, bold, dim, italic,
 //! underline and reverse. Everything else — other CSI sequences and OSC —
 //! is stripped. Tabs expand to 4 spaces and `\n` splits rows, matching how

@@ -1,4 +1,4 @@
-//! Terminal resize debouncing (`docs/cli/02` §五·3, `docs/cli/03` §3.1).
+//! Terminal resize debouncing.
 //!
 //! A burst of `Event::Resize` (during a drag) is collapsed into a single
 //! final size handed to the caller after the storm settles. The window is

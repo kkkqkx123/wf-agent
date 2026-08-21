@@ -1,7 +1,6 @@
 //! Interactive form resolution.
 //!
-//! Decision order (see `docs/cli/05` §2.2 and the implementation plan
-//! `docs/plan/cli/wf-cli-分阶段实现方案.md` §2.2):
+//! Resolution order:
 //!   --tui  >  --mini  >  subcommand (headless run)  >  --no-tui
 //!   >  stdout not a TTY (headless run)  >  TTY default (configurable).
 

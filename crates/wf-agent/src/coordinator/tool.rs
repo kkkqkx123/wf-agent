@@ -1627,7 +1627,7 @@ mod tests {
             .all(|m| text_of(m).contains("tool-result-ok")));
     }
 
-    // ---- Stage 2: orchestration enhancements ----
+    // ---- orchestration enhancements ----
 
     #[tokio::test]
     async fn test_predefined_read_file_auto_approved_under_safe_preset() {

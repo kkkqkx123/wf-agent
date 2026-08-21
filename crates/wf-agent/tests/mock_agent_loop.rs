@@ -165,7 +165,7 @@ async fn max_iterations_limits_mock_driven_loops() {
     assert_eq!(mock.recorded_count(), 3);
 }
 
-// ── general tool discovery flow (§6.3 of the general-tool plan) ────────
+// ── general tool discovery flow ──────────────────────────────────────
 
 /// Registry with the `general` builtin tool plus web_search (discoverable)
 /// and write_file (gated) stateless tools.
@@ -573,7 +573,7 @@ async fn token_tracking_disabled_suppresses_usage_and_events() {
     );
 }
 
-// ── checkpoint restore / resume (P1-1) ────────────────────────────────
+// ── checkpoint restore / resume ──────────────────────────────────────
 
 /// A run interrupted mid-way checkpoints its progress; a resumed run rebuilds
 /// the entity from the checkpoint and re-drives the loop. A tool call id that

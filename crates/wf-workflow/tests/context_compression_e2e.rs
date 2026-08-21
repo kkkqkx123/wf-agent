@@ -1,5 +1,4 @@
-//! End-to-end test for the context compression chain (acceptance §4.1 of
-//! `docs/plan/workflow上下文压缩链修正方案.md`):
+//! End-to-end test for the context compression chain:
 //!
 //! 1. an LLM node reads a named message array (`context_id="chat"`) whose
 //!    estimated tokens exceed the node-level token limit;

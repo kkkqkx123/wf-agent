@@ -718,7 +718,7 @@ mod tests {
 
     #[test]
     fn repo_metrics_toml_matches_schema() {
-        // Stage 6 acceptance: the checked-in `configs/infrastructure/metrics.toml`
+        // The checked-in `configs/infrastructure/metrics.toml`
         // parses against the current `MetricsConfig` schema (no removed
         // `template_metrics` section, new fields present). Skipped when the
         // workspace `configs/` dir is absent (vendored/standalone builds).
@@ -947,7 +947,7 @@ mod tests {
 
     #[test]
     fn test_full_bundle_assembly_from_repo_configs() {
-        // Stage 6 acceptance: the checked-in `configs/infrastructure/` preset
+        // The checked-in `configs/infrastructure/` preset
         // bundle (development.json + all domain files) assembles fully.
         let repo_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("..")

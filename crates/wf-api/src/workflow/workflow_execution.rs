@@ -287,7 +287,7 @@ pub async fn restore_checkpoint(
     let execution_id = snapshot.execution_id.clone();
 
     // Resolve the workflow identity captured at checkpoint time; fall back
-    // to the persisted execution record (Stage 0) for older checkpoints.
+    // to the persisted execution record for older checkpoints.
     let (workflow_id, options) = restored_identity(ctx, &snapshot).await?;
 
     // Build a fresh live entity backfilled from the restored snapshot.
@@ -577,7 +577,7 @@ async fn build_checkpoint_snapshot(
     let hierarchy = build_hierarchy(entity).await;
     let node_execution_records = snapshot_node_records(&state);
     // Trigger audit trail: which event-driven triggers fired for this
-    // execution and their run status (Stage 5 plan A).
+    // execution and their run status.
     let trigger_states = ctx
         .trigger_state_registry
         .snapshot_for(entity.id().as_str());
@@ -652,7 +652,7 @@ async fn build_hierarchy(entity: &WorkflowExecutionEntity) -> Option<ExecutionHi
 /// runnable execution from a restored snapshot. Prefers the identity
 /// captured at checkpoint time (`execution_config.workflow_id` +
 /// `execution_config.options`); for checkpoints created before the
-/// enrichment, falls back to the persisted execution record (Stage 0) and
+/// enrichment, falls back to the persisted execution record and
 /// default options.
 async fn restored_identity(
     ctx: &ApiContext,
@@ -1200,7 +1200,7 @@ mod tests {
             .expect("status query");
         assert_eq!(status, wf_types::ExecutionStatus::Completed);
 
-        // Stage 0: the execution record is persisted with the full snapshot
+        // The execution record is persisted with the full snapshot
         // (status / variables / node results / graph / timestamps).
         use wf_storage::adapter::base::BaseStorageAdapter;
         let executions = ctx.storage.workflow_execution.list(None).await.unwrap();
@@ -1226,7 +1226,7 @@ mod tests {
         );
     }
 
-    /// Stage 0 acceptance: after a real `execute`, the persisted record is
+    /// After a real `execute`, the persisted record is
     /// readable through a fresh context (empty live registries), so the
     /// persisted branches of the history / execution-state queries return real
     /// data.
@@ -1375,7 +1375,7 @@ mod tests {
         );
     }
 
-    /// Stage 3 acceptance: a checkpoint captured mid-execution restores into a
+    /// A checkpoint captured mid-execution restores into a
     /// runnable entity that resumes from the breakpoint and produces the same
     /// final result as a full uninterrupted run.
     #[tokio::test]
@@ -1473,7 +1473,7 @@ mod tests {
     async fn short_timeout_maps_to_timeout_error() {
         // The `with_timeout` primitive is what `execute`/`run` wrap their
         // futures with; a short deadline over a slow future must map onto
-        // `ApiError::Timeout` (the acceptance criterion of Stage 3).
+        // `ApiError::Timeout`.
         let err = crate::infra::error::with_timeout(Duration::from_millis(10), async {
             tokio::time::sleep(Duration::from_millis(100)).await;
             Ok::<_, ApiError>(WorkflowOutput {

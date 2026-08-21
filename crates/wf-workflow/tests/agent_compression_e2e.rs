@@ -1,5 +1,5 @@
 //! End-to-end test for the agent conversation compression chain (closure by
-//! session self-consumption, see `docs/plan/压缩链架构归位重构方案.md`):
+//! session self-consumption):
 //!
 //! 1. an agent loop's conversation exceeds its token limit;
 //! 2. `CONTEXT_COMPRESSION_REQUESTED` is emitted with `agent_loop_id` set

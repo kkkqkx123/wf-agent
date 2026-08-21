@@ -52,7 +52,7 @@ impl AgentExecutionRecord {
 
 /// In-memory registry of active agent loop executions with the query
 /// interface. Enforces the execution capacity
-/// gate (P1-2): a global concurrent-execution limit and a sub-agent depth
+/// gate: a global concurrent-execution limit and a sub-agent depth
 /// limit, aligned with Codex's `reserve_spawn_slot` + `session_depth`.
 #[derive(Default)]
 pub struct AgentLoopRegistry {
@@ -446,7 +446,7 @@ mod tests {
         let _ = tx;
     }
 
-    /// P1-2: registering beyond the concurrent limit is rejected with
+    /// Registering beyond the concurrent limit is rejected with
     /// `ExecutionLimitReached`; re-registering an existing id (spawn
     /// placeholder → real entity) does not consume a second slot.
     #[tokio::test]
@@ -474,7 +474,7 @@ mod tests {
         assert_eq!(registry.size(), 2);
     }
 
-    /// P1-2: depth gate — a child at `parent_depth + 1` fits until the limit,
+    /// Depth gate — a child at `parent_depth + 1` fits until the limit,
     /// beyond which it is rejected.
     #[tokio::test]
     async fn test_depth_gate_rejects_beyond_limit() {

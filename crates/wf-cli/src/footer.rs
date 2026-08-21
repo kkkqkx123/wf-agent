@@ -1,6 +1,6 @@
 //! Mini footer: the inline split-footer view stack and status line.
 //!
-//! Layout model (`docs/cli/05` §4.2-§4.4): the footer owns the bottom
+//! Layout model: the footer owns the bottom
 //! `Viewport::Inline(n)` rows and consists of a top decoration row, a main
 //! area (composer / panel / permission / question), the status line and a
 //! bottom decoration row. [`Footer::apply_height`] derives the required
@@ -35,7 +35,7 @@ use crate::theme::Theme;
 /// decoration. The main area is added on top of this.
 pub const FOOTER_BASE_HEIGHT: u16 = 3;
 
-/// Main-area height constants (aligned with `docs/cli/05` §4.3).
+/// Main-area height constants.
 pub const COMPOSER_MAIN_HEIGHT: u16 = 1;
 pub const PANEL_MAIN_HEIGHT: u16 = 16;
 pub const PERMISSION_MAIN_HEIGHT: u16 = 12;
@@ -71,13 +71,13 @@ pub enum FooterRoute {
     /// Single-line prompt composer.
     #[default]
     Composer,
-    /// `/` command palette (a later stage).
+    /// `/` command palette.
     Command,
-    /// Model selection panel (a later stage).
+    /// Model selection panel.
     Model,
-    /// Skill selection panel (a later stage).
+    /// Skill selection panel.
     Skill,
-    /// Queued prompt management panel (a later stage).
+    /// Queued prompt management panel.
     Queued,
 }
 
@@ -268,7 +268,7 @@ impl Footer {
                     self.composer.render(area, buf, style);
                 }
             }
-            // Panels / approval / question render in later stages; the main
+            // Panels / approval / question render nothing here; the main
             // area stays quiet (the status line still reports state).
             _ => {}
         }

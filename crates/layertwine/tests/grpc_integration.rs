@@ -5,8 +5,7 @@
 //! calling RPC methods directly with proto message types against a real
 //! `ApiServiceImpl` backed by SQLite.
 //!
-//! Each test mirrors a real business scenario from
-//! `docs/user-guide/03-gRPC-API参考.md`.
+//! Each test mirrors a real business scenario.
 
 use std::sync::Arc;
 
@@ -30,7 +29,7 @@ fn setup_grpc(db_path: &str) -> LayertwineGrpc {
     LayertwineGrpc::new(Arc::new(api))
 }
 
-// ── Scenario 1: Init workflow through gRPC (ref: user-guide §RPC列表/Init) ──
+// ── Scenario 1: Init workflow through gRPC ──
 
 #[tokio::test]
 async fn test_grpc_init_and_status() {
@@ -59,7 +58,7 @@ async fn test_grpc_init_and_status() {
     assert!(!status.partitions.is_empty());
 }
 
-// ── Scenario 2: Single user edit → commit → log (ref: user-guide §单人编辑流程) ──
+// ── Scenario 2: Single user edit → commit → log ──
 
 #[tokio::test]
 async fn test_grpc_edit_commit_log_workflow() {
@@ -113,7 +112,7 @@ async fn test_grpc_edit_commit_log_workflow() {
     assert_eq!(log.checkpoints[0].message, "initial commit");
 }
 
-// ── Scenario 3: Multi-agent collaboration (ref: user-guide §多 Agent 协同流程) ──
+// ── Scenario 3: Multi-agent collaboration ──
 
 #[tokio::test]
 async fn test_grpc_multi_agent_workflow() {
@@ -200,7 +199,7 @@ async fn test_grpc_multi_agent_workflow() {
     assert!(!commit.into_inner().checkpoint_id.is_empty());
 }
 
-// ── Scenario 4: Branch operations (ref: user-guide §分支与合并流程) ──
+// ── Scenario 4: Branch operations ──
 
 #[tokio::test]
 async fn test_grpc_branch_create_switch_merge() {
@@ -287,7 +286,7 @@ async fn test_grpc_branch_create_switch_merge() {
     assert!(!merge_inner.checkpoint_id.is_empty());
 }
 
-// ── Scenario 5: Branch list (ref: user-guide §RPC列表/BranchList) ──
+// ── Scenario 5: Branch list ──
 
 #[tokio::test]
 async fn test_grpc_branch_list() {
@@ -339,7 +338,7 @@ async fn test_grpc_branch_list() {
     }
 }
 
-// ── Scenario 6: Backup and restore (ref: user-guide §备份快照) ──
+// ── Scenario 6: Backup and restore ──
 
 #[tokio::test]
 async fn test_grpc_backup_and_restore() {
@@ -390,7 +389,7 @@ async fn test_grpc_backup_and_restore() {
     assert!(restore_inner.deltas_restored > 0);
 }
 
-// ── Scenario 7: GC (ref: user-guide §垃圾回收) ──
+// ── Scenario 7: GC ──
 
 #[tokio::test]
 async fn test_grpc_gc() {

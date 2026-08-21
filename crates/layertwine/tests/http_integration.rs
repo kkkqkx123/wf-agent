@@ -1,8 +1,7 @@
 //! HTTP API integration tests
 //!
-//! These tests verify the complete HTTP API workflows described in
-//! `docs/user-guide/02-HTTP-API使用指南.md` using a real SQLite database
-//! via `ApiServiceImpl`.
+//! These tests verify the complete HTTP API workflows using a real SQLite
+//! database via `ApiServiceImpl`.
 //!
 //! Each test mirrors a real business scenario from the user guide.
 
@@ -15,7 +14,7 @@ mod common;
 
 use common::fixture::{TestConfig, TestEnvironment};
 
-// ── Scenario 1: Single user edit workflow (ref: user-guide §典型工作流程/单人编辑流程) ──
+// ── Scenario 1: Single user edit workflow ──
 
 #[test]
 fn test_single_user_workflow_init_edit_commit_log() {
@@ -90,7 +89,7 @@ fn test_status_after_init_shows_partitions() {
     assert!(layers.contains(&"staged"));
 }
 
-// ── Scenario 3: Multi-agent collaboration (ref: user-guide §多 Agent 协同流程) ──
+// ── Scenario 3: Multi-agent collaboration ──
 
 #[test]
 fn test_multi_agent_workflow_edit_submit_approve() {
@@ -236,7 +235,7 @@ fn test_multiple_sequential_edits() {
     assert_ne!(edit1.snapshot_id, edit2.snapshot_id);
 }
 
-// ── Scenario 6: Branch create, switch, and merge (ref: user-guide §分支与合并流程) ──
+// ── Scenario 6: Branch create, switch, and merge ──
 
 #[test]
 fn test_branch_create_switch_and_merge() {

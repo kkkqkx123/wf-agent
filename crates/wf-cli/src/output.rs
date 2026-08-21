@@ -1,13 +1,12 @@
 //! Output layer: format layer × sink (target) layer.
 //!
-//! See `docs/plan/cli/wf-cli-分阶段实现方案.md` §2.1. Two orthogonal
-//! dimensions:
+//! Two orthogonal dimensions:
 //!   - Format: how content is rendered (`text` / `json` / `jsonl` / `silent`).
 //!   - Sink:   where content goes (stdout / file / memory / tee fan-out).
 //!
 //! Business code only calls [`OutputSink`] methods and never decides the
-//! destination; memory-backed sinks for the interactive forms (mini / full
-//! TUI) are introduced in later stages.
+//! destination; memory-backed sinks serve the interactive forms (mini / full
+//! TUI).
 
 use std::io::{self, Write};
 use std::path::Path;
@@ -78,7 +77,7 @@ impl OutputMessage {
     }
 }
 
-/// Command result envelope aligned with `docs/cli/01` §4.4:
+/// Command result envelope:
 /// `{success, type, entity, data, message, timestamp}`.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]

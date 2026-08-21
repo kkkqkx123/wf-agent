@@ -191,8 +191,8 @@ impl SubworkflowRunner for WorkflowRunner {
             .triggered_subworkflow_config
             .as_ref()
             .and_then(|config| config.timeout);
-        // Checkpoints follow the template's `triggered_subworkflow_config`
-        // (Stage 5 plan A): a triggered sub-workflow may opt into checkpoint
+        // Checkpoints follow the template's `triggered_subworkflow_config`:
+        // a triggered sub-workflow may opt into checkpoint
         // capture; the pre-refactor default (false) stays when unconfigured.
         let enable_checkpoints = template
             .definition
@@ -277,10 +277,10 @@ pub struct SubworkflowActionRunner {
     /// Listener shutdown token; fire-and-forget sub-workflows race against
     /// it so in-flight runs are stopped at shutdown.
     shutdown: CancellationToken,
-    /// Optional durable trigger-execution ledger (Stage 4): every triggered
+    /// Optional durable trigger-execution ledger: every triggered
     /// sub-workflow run is recorded here for the management surface.
     storage: Option<Arc<dyn TriggerExecutionRecorder>>,
-    /// Optional trigger runtime state registry (Stage 5 plan A): records the
+    /// Optional trigger runtime state registry: records the
     /// fired trigger and its in-flight status, captured into checkpoints.
     trigger_states: Option<Arc<wf_workflow::TriggerStateRegistry>>,
     /// Shared task scheduler for fire-and-forget sub-workflow executions.

@@ -164,7 +164,7 @@ impl AgentLoopExecutor {
     ) -> AgentResult<SpawnedAgentLoop> {
         let execution_id = Id::from(wf_common::generate_id());
 
-        // P1-2 depth gate: a nested spawn whose resolved depth would exceed
+        // Depth gate: a nested spawn whose resolved depth would exceed
         // `max_sub_agent_depth` is rejected before any slot is reserved. The
         // parent depth resolves from the registered parent entity; an
         // unknown parent (external registry) is treated as a root parent.
@@ -814,7 +814,7 @@ mod tests {
         panic!("child did not settle after parent cancel");
     }
 
-    /// P1-2: a nested spawn whose resolved depth exceeds `max_sub_agent_depth`
+    /// A nested spawn whose resolved depth exceeds `max_sub_agent_depth`
     /// is rejected before any slot is reserved.
     #[tokio::test]
     async fn test_spawn_rejects_beyond_depth_limit() {
@@ -860,7 +860,7 @@ mod tests {
             .expect("depth 1 must be allowed");
     }
 
-    /// P1-2: spawning beyond the concurrent-execution limit is rejected at
+    /// Spawning beyond the concurrent-execution limit is rejected at
     /// spawn time; the sync path is gated through the same registry.
     #[tokio::test]
     async fn test_spawn_rejects_when_concurrency_limit_reached() {
@@ -881,7 +881,7 @@ mod tests {
         );
     }
 
-    /// P1-2: the sync `execute` path is gated through the shared registry too.
+    /// The sync `execute` path is gated through the shared registry too.
     #[tokio::test]
     async fn test_sync_execute_honors_concurrency_limit() {
         let executor = make_executor().await.with_max_concurrent(1);

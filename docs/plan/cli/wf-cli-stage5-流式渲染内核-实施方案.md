@@ -125,4 +125,6 @@ crates/wf-cli/Cargo.toml ← 依赖 pulldown-cmark
 | I3 | **引用式链接定义全量回退** | 检测到 `[ref]: url` 定义后未全量重渲（此类结构可回溯影响任意块） | §4.1 recompute 全量回退 |
 | I4 | **定稿兜底重渲测试** | `finish()` 全量 commit 但无"完整源码渲染 vs 增量提交"比对兜底；缺 `assert_streamed_equals_full` 语义测试锁定"流式过程 == 完整结果" | §2.5/§5.2 `assert_streamed_equals_full` |
 
+**状态（2026-08-22）**：I1/I2/I3 已随 stage6 6B 于 `cbffeb8` 落地（`markdown.rs` `boundary()` 三 gate：`unclosed_table_start`/`rfind('\n')` 门控/`has_reference_definition`，均带单测）；I4 已随 stage6 6B 补缺落地（`MarkdownStream::final_plain_text()` 定稿兜底 + `assert_streamed_equals_full` 测试：LCG 随机 char 边界切分 × 表格/fence/引用链接/空行/混合文档 × 8 seeds，断言"提交+流式前缀渲染 == 全量渲染前缀"与"终态等价"）。
+
 另有 P1 项：**两档提交动画**（`AdaptiveChunkingPolicy` 的 Smooth/CatchUp 带滞回分块策略，ai-output.md §4.4）作为独立纯逻辑对象（可注入队列深度/队龄单测），随 mini 流式呈现层落地评估。

@@ -116,6 +116,16 @@ impl MarkdownStream {
         &self.buffer[self.committed_upto.min(self.buffer.len())..]
     }
 
+    /// Finalize-time safety net (D14-④ / stage5 I4): render the full
+    /// accumulated source to plain text. Consumers use this as the
+    /// correctness backstop when a finalize lands after in-stream resizes
+    /// (D15) — the committed/streaming split is the fast path, this is the
+    /// whole-source ground truth. Must be called before `finish` (which
+    /// drains the buffer).
+    pub fn final_plain_text(&self) -> String {
+        render_plain_text(&self.buffer)
+    }
+
     /// Close the stream: everything remaining is committed.
     pub fn finish(&mut self) -> MarkdownFrame {
         let committed =
@@ -615,5 +625,134 @@ mod tests {
         let f2 = stream.push(" done\n");
         assert_eq!(f2.new_committed, "first line\nsecond half done\n");
         assert_eq!(f2.new_streaming, "");
+    }
+
+    /// Deterministic LCG for reproducible chunk splits (no rand dep).
+    struct Lcg(u64);
+
+    impl Lcg {
+        fn next(&mut self) -> u64 {
+            self.0 = self
+                .0
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            self.0 >> 33
+        }
+    }
+
+    /// Split `source` into a random number of char-boundary chunks.
+    fn random_chunks(source: &str, seed: u64) -> Vec<String> {
+        let mut rng = Lcg(seed);
+        let mut bounds: Vec<usize> = source.char_indices().map(|(i, _)| i).collect();
+        if bounds.is_empty() {
+            return vec![String::new()];
+        }
+        bounds.push(source.len());
+        let mut chunks = Vec::new();
+        let mut start = 0usize;
+        for &b in bounds.iter() {
+            if b == start {
+                continue;
+            }
+            if rng.next() % 3 == 0 {
+                chunks.push(source[start..b].to_string());
+                start = b;
+            }
+        }
+        if start < source.len() {
+            chunks.push(source[start..].to_string());
+        }
+        chunks
+    }
+
+    /// codex `assert_streamed_equals_full` semantics: the incremental stream
+    /// and the whole-source render must agree. Drives [`MarkdownStream`]
+    /// with random char-boundary chunks and asserts:
+    ///
+    /// * at every step the render of the committed(+streaming) prefix is a
+    ///   prefix of the full-source render — streaming never diverges and
+    ///   never runs ahead of the final result (D14 gates hold);
+    /// * `final_plain_text` before finalize equals the full-source render
+    ///   (D14-④ finalize backstop);
+    /// * the delivered bytes reassemble the source exactly (incremental
+    ///   delivery never re-emits and never drops).
+    fn assert_streamed_equals_full(source: &str, seed: u64) {
+        let chunks = random_chunks(source, seed);
+        let full = render_plain_text(source);
+        let mut stream = MarkdownStream::default();
+        let mut delivered = String::new();
+        for chunk in &chunks {
+            let frame = stream.push(chunk);
+            delivered.push_str(&frame.new_committed);
+            delivered.push_str(&frame.new_streaming);
+            let upto = stream.committed_upto().min(source.len());
+            let committed_src = &source[..upto];
+            assert!(
+                full.starts_with(&render_plain_text(committed_src)),
+                "committed prefix diverged from full render (seed {seed})"
+            );
+            let mut visible_src = String::from(committed_src);
+            visible_src.push_str(stream.streaming_text());
+            assert!(
+                full.starts_with(&render_plain_text(&visible_src)),
+                "streaming view ran ahead of the full render (seed {seed})"
+            );
+        }
+        assert_eq!(
+            stream.final_plain_text(),
+            full,
+            "finalize backstop must equal the whole-source render (seed {seed})"
+        );
+        delivered.push_str(&stream.finish().new_committed);
+        assert_eq!(
+            delivered, source,
+            "incremental delivery must reassemble the source (seed {seed})"
+        );
+    }
+
+    #[test]
+    fn streamed_equals_full_paragraphs_and_lists() {
+        for seed in 0..8u64 {
+            assert_streamed_equals_full("hello world\n\nsecond para\n- a\n- b\n", seed);
+        }
+    }
+
+    #[test]
+    fn streamed_equals_full_table_holdback() {
+        for seed in 0..8u64 {
+            assert_streamed_equals_full(
+                "| Name | Value |\n| --- | --- |\n| a | 1 |\n| b | 2 |\n",
+                seed,
+            );
+        }
+    }
+
+    #[test]
+    fn streamed_equals_full_fenced_code() {
+        for seed in 0..8u64 {
+            assert_streamed_equals_full("```rust\nfn main() {}\n```\n\nafter\n", seed);
+        }
+    }
+
+    #[test]
+    fn streamed_equals_full_reference_links() {
+        for seed in 0..8u64 {
+            assert_streamed_equals_full(
+                "click [here][l] for more\n\n[l]: https://example.com\n",
+                seed,
+            );
+        }
+    }
+
+    #[test]
+    fn streamed_equals_full_mixed_document() {
+        for seed in 0..8u64 {
+            assert_streamed_equals_full(
+                "# Title\n\nSome **bold** text with `code`.\n\n\
+                 | A | B |\n| - | - |\n| 1 | 2 |\n\n\
+                 ```sh\necho hi\n```\n\ndone.\n",
+                seed,
+            );
+        }
     }
 }

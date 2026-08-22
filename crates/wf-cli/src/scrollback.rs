@@ -110,6 +110,23 @@ impl HistoryLine {
     pub fn desired_height(&self, width: u16) -> u16 {
         u16::try_from(self.display_lines(width).len()).unwrap_or(u16::MAX)
     }
+
+    /// Plain-text view of the reflowed rows at `width` (stage4 I1
+    /// `raw_lines` channel): same wrapping as [`HistoryLine::display_lines`]
+    /// but copy-friendly `String` rows without styling. Used by the mini
+    /// scrollback-window snapshot / common-prefix diff (D19) and shared by
+    /// future copy / transcript / export paths.
+    pub fn raw_lines(&self, width: u16) -> Vec<String> {
+        self.display_lines(width)
+            .iter()
+            .map(|line| {
+                line.spans
+                    .iter()
+                    .map(|s| s.content.as_ref())
+                    .collect::<String>()
+            })
+            .collect()
+    }
 }
 
 /// Clone a borrowed line into an owned (static) line.
@@ -291,6 +308,36 @@ mod tests {
         let h = HistoryLine::new("");
         assert_eq!(h.desired_height(10), 1);
         assert_eq!(lines_to_string(&h.display_lines(10)), "");
+    }
+
+    #[test]
+    fn raw_lines_match_display_lines_as_plain_text() {
+        let h = HistoryLine::new_with_role(
+            "你好世界 hello world",
+            LineState::Committed,
+            Role::Accent,
+        );
+        for width in [4u16, 7, 12, 40] {
+            let raw = h.raw_lines(width);
+            assert_eq!(
+                raw.join("\n"),
+                lines_to_string(&h.display_lines(width)),
+                "raw_lines must equal display_lines minus styling at width {width}"
+            );
+            for row in &raw {
+                assert!(
+                    row.width() <= width.max(1) as usize,
+                    "reflowed row must fit width {width}: {row:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn raw_lines_preserve_grapheme_boundaries() {
+        let h = HistoryLine::new("你好世界");
+        let raw = h.raw_lines(4);
+        assert_eq!(raw, vec!["你好".to_string(), "世界".to_string()]);
     }
 
     #[test]

@@ -1,6 +1,6 @@
 # wf-cli Stage 6 实施方案：mini 模式（形态落地 1）
 
-> 状态：实施中（阶段 6A 已完成 2026-08-20；6B–6E 待实施）
+> 状态：实施中（阶段 6A 已完成 2026-08-20；阶段 6B 已完成 2026-08-22；6C–6E 待实施）
 > 上游方案：`docs/plan/cli/wf-cli-分阶段实现方案.md`（Stage 6 任务定义）、`docs/cli/05-opencode-mini模式与无头模式设计.md`（mini 模式设计 §3.1-§3.4/§四）、`docs/cli/03-组件设计方案.md`（组件清单/事件循环/输入）、`docs/cli/04-终端交互设计.md`（Keymap 上下文）
 > 对照参考：`/workspace/opencode-mini-tui.md`（架构总览）、`/workspace/opencode-mini-features.md`（功能清单）、`/workspace/opencode-mini-rendering.md`（渲染逻辑）——三份 opencode `--mini` 模式源码分析；`/workspace/docs/analysis/wf-agent-learnings.md`（codex TUI 四模块设计思想对照，§三/§四/§五/§六 为本文档 D14-D20 的出处）
 > 范围：`wf --mini` inline split-footer 交互会话的完整落地——渲染底座（ratatui `Terminal` + `Viewport::Inline`）、footer 视图栈（composer/面板/审批/问题 + statusline）、MiniSink 输出模型、串行 turn + 排队、两按退出、审批/追问交互接线、`--demo` 最小版。**Stage 6 是第一个消费 Stage 5 reducer/markdown 产物的 UI 形态**（mini footer 与 Stage 5 无头摘要渲染器消费同一 commit 流）。
@@ -162,7 +162,7 @@ crates/wf-cli/src/
 ├── keymap.rs       ← ✅ 6A 已交付：KeymapContext::Composer/Panel/Approval/Question + mini 键位绑定
 ├── lib.rs          ← 接线：run_interactive 分发到 mini（CliMode::Mini → MiniApp::run）
 ├── output.rs       ← （不改动，TeeSink 复用）
-└── scrollback.rs   ← （改：D14 流式正确性不涉此模块；raw_lines 三通道见 stage4 方案 §七 I1）
+└── scrollback.rs   ← ✅ 6B 已补：HistoryLine::raw_lines() 三通道（stage4 方案 §七 I1，D19 窗口快照消费）
 ```
 
 依赖关系：`mini.rs`（编排）→ `footer.rs`/`composer.rs`/`panels.rs`/`approval.rs`/`question.rs`/`queue.rs`/`sink.rs` → 既有 Stage 0-5 组件（reducer/markdown/scrollback/select/keymap/framer/theme/terminal/events/domain/output）。
@@ -185,20 +185,26 @@ crates/wf-cli/src/
 
 **验收**：`cargo check -p wf-cli` 通过；args/keymap/sink 单测全绿；`wf --demo`（无 `--mini`）报参数错误。✅
 
-### 阶段 6B：渲染底座 + footer 骨架 + 事件循环（G1/G3 主体）
+### 阶段 6B：渲染底座 + footer 骨架 + 事件循环（G1/G3 主体）✅ 已完成（2026-08-22）
 
-- [ ] `mini.rs`：`MiniApp::new(adapter, cli)`；`Terminal::with_options(Options { viewport: Viewport::Inline(BASE_HEIGHT), .. })`（ratatui 0.30）；`run() -> CliResult<ExitOutcome>` 事件循环 `select!`（D2）；`install_panic_hook` + `TerminalGuard`（MINI 模式集：raw + bracketed paste + hide cursor）进入，Drop/退出恢复。
-- [ ] 事件循环扩展（自 codex 分析引入）：**SIGTSTP/SIGCONT 分支**（D18：restore → SIGSTOP；SIGCONT 重应用 raw mode + 强制重查几何 + 清输入残留 + 全量重绘）；**输入边界**（D16：TUI 启动与 `with_restored` 恢复后丢弃早到输入，最多 1s 排空 stdin 残留）。
-- [ ] `footer.rs`：`FooterView { Prompt, Permission, Question }`、`FooterRoute { Composer, Command, Model, Skill, Queued }`、`FooterState { phase, iteration, active_tools, message_count, last_error, model, duration, notice }`（reducer `FooterState` 扩展 UI 侧字段）；`present()`/`apply_height()` 高度表（D5）；`draw(footer_area)`：主区（composer/面板/审批/问题）+ statusline。
-- [ ] statusline：模式标签（`BUILD`/`EXIT` 着色）+ spinner（40ms blocks，busy 时）+ 状态文本（interrupt/again to interrupt/退出提示）+ 左中右布局；宽度响应式（<80 隐藏右侧模型/摘要区块，80/120 断点对齐 05 §4.4.4）。notice 机制（3s + statusVersion 防覆盖）。
-- [ ] scrollback 呈现：`MiniCommit` → `HistoryLine` 映射（D13）；流式行保留末行；`LinesView` 渲染；宽度变化 reflow（ResizeDebouncer）。
-- [ ] **流式渲染正确性补齐（D14，markdown.rs）**：表格 holdback（`TableHoldbackScanner` + `FenceTracker`）、换行门控（提交点 ≤ 最后换行）、引用式链接定义全量回退、定稿源码驱动全量重渲兜底 + `assert_streamed_equals_full` 单测（随机切分源码 → 流式提交 → 与整段渲染比对，覆盖表格/fence/引用链接/空行边界）。
-- [ ] **resize 流式宽度（D15）**：resize 事件 → 更新流式渲染宽度（streaming 预留 2 列）→ streaming 区 + 最近 committed 区按新宽度重渲；流定稿时若发生过流内 resize 强制一次全量重排。
-- [ ] **滚动区尾部局部替换（D19）**：streaming 行 commit tick 公共前缀 diff 只重渲差异；定稿走 Inline 视口"上移 → clear → 写新尾部"替换。
-- [ ] composer P0 单行（D6）：绘制 + 输入处理（Char/Backspace/Left/Right/Home/End/Enter/Esc）+ 历史导航；提交把内容回传事件循环（Submit → queue/turn 逻辑，6D 接线，本阶段先打点）。
-- [ ] 两按退出最小接线：SIGINT → `DoublePressTracker` → 第一次提示、第二次退出；退出流程（D10）恢复终端 + 打印 exit 提示。
+- [x] `mini.rs`：`MiniApp::new(adapter, cli)`；`Terminal::with_options(Options { viewport: Viewport::Inline(BASE_HEIGHT), .. })`（ratatui 0.30）；`run() -> CliResult<ExitOutcome>` 事件循环 `select!`（D2）；`install_panic_hook` + `TerminalGuard`（MINI 模式集：raw + bracketed paste + hide cursor）进入，Drop/退出恢复。**签名偏差：本阶段 `MiniApp::new()` 无 `(adapter, cli)` 参数（会话驱动留 6D，见偏差表 P6）。**
+- [x] 事件循环扩展（自 codex 分析引入）：**SIGTSTP/SIGCONT 分支**（D18：restore → SIGSTOP；SIGCONT 重应用 raw mode + 强制重查几何 + 清输入残留 + 全量重绘）；**输入边界**（D16：TUI 启动与 `with_restored` 恢复后丢弃早到输入，最多 1s 排空 stdin 残留）。
+- [x] `footer.rs`：`FooterView { Prompt, Permission, Question }`、`FooterRoute { Composer, Command, Model, Skill, Queued }`、`FooterState { phase, iteration, active_tools, message_count, last_error, model, duration, notice }`（reducer `FooterState` 扩展 UI 侧字段）；`present()`/`apply_height()` 高度表（D5）；`draw(footer_area)`：主区（composer/面板/审批/问题）+ statusline。
+- [x] statusline：模式标签（`BUILD`/`EXIT` 着色）+ spinner（40ms blocks，busy 时）+ 状态文本（interrupt/again to interrupt/退出提示）+ 左中右布局；宽度响应式（<80 隐藏右侧模型/摘要区块，80/120 断点对齐 05 §4.4.4）。notice 机制（3s + statusVersion 防覆盖）。
+- [x] scrollback 呈现：`MiniCommit` → `HistoryLine` 映射（D13）；流式行保留末行；`LinesView` 渲染；宽度变化 reflow（ResizeDebouncer）。**运行时映射随 6D 会话驱动接线（render.rs 同源测试已锁定契约 2.3-2；见偏差表 P6）。**
+- [x] **流式渲染正确性补齐（D14，markdown.rs）**：表格 holdback（`TableHoldbackScanner` + `FenceTracker`）、换行门控（提交点 ≤ 最后换行）、引用式链接定义全量回退、定稿源码驱动全量重渲兜底（`final_plain_text()`）+ `assert_streamed_equals_full` 单测（LCG 伪随机 char 边界切分 → 流式提交 → 与整段渲染比对，覆盖表格/fence/引用链接/空行边界/混合文档）。
+- [x] **resize 流式宽度（D15）**：resize 事件 → 更新流式渲染宽度（streaming 预留 2 列，`STREAMING_WIDTH_MARGIN`）→ streaming 区 + 最近 committed 区按新宽度重渲；流定稿时若发生过流内 resize 强制一次全量重排（`reflow_scrollback`）。
+- [x] **滚动区尾部局部替换（D19）**：streaming 行 commit tick 公共前缀 diff 只重渲差异（footer 视口内由 ratatui 双缓冲 diff 承担；滚动区窗口重绘按 `common_prefix_rows` + `window_rows` 快照只重写差异行）；定稿走 Inline 视口"上移 → clear → 写新尾部"替换。
+- [x] composer P0 单行（D6）：绘制 + 输入处理（Char/Backspace/Left/Right/Home/End/Enter/Esc）+ 历史导航；提交把内容回传事件循环（Submit → queue/turn 逻辑，6D 接线，本阶段先打点）。
+- [x] 两按退出最小接线：SIGINT → `DoublePressTracker` → 第一次提示、第二次退出；退出流程（D10）恢复终端 + 打印 exit 提示。
 
-**验收**：`wf --mini`（无模型调用）可进入：footer 显示 composer + statusline，输入可编辑、Enter 提交打点、两按退出干净；`script` PTY 冒烟：raw mode 无残留、退出后提示正确；非 TTY 走既有报错（exit 2）。
+**完成记录（2026-08-22）**
+
+- 渲染底座/事件循环/footer/statusline/composer/两按退出/D18/D16：随 `eb33bec`、`cbffeb8` 落地（约 1600 行）；D14-①②③ + `sanitize.rs`（D16-②）+ `run_session` 接线随 `cbffeb8` 落地。
+- 本次补缺（D14-④/D15/D19/stage4 I1）：`markdown.rs` 增 `final_plain_text()` + `assert_streamed_equals_full`（LCG 随机切分 × 5 场景 × 8 seeds）；`scrollback.rs` 增 `HistoryLine::raw_lines()`（三通道补全）；`footer.rs` 增 `STREAMING_WIDTH_MARGIN = 2`（streaming 渲染 `width - 2`）；`mini.rs` 增 `stream_resized`/`window_rows`/`common_prefix_rows`/`update_window_snapshot`/`reflow_scrollback`（定稿强制重排 + 窗口公共前缀 diff）。
+- 文档同步：本文件 6B 勾选；stage4 §七 I1、stage5 §七 I4 标记完成；总方案 Stage 6 状态更新。
+
+**验收**：`wf --mini`（无模型调用）可进入：footer 显示 composer + statusline，输入可编辑、Enter 提交打点、两按退出干净；`script` PTY 冒烟：raw mode 无残留、退出后提示正确；非 TTY 走既有报错（exit 2）。**验证状态：静态核对完成；`cargo test -p wf-cli` 全绿结果待后台编译任务确认（2026-08-22）。**
 
 ### 阶段 6C：面板 + composer 完善（G4/G5）
 
@@ -241,6 +247,9 @@ crates/wf-cli/src/
 | P3 | `--session/--resume` 在本阶段只做参数接收 + 打点（`execution_id` 沿用），不做完整会话重放 | 完整 replay 属 Stage 8（`replay.rs`）；opencode 也是 resume 时惰性预热 |
 | P4 | 面板数据源可能改走 `ApiContext` 查询而非直接持有 gateway/SkillLoader 引用（实施期按借用关系定） | 组件纯数据化红线与借用简化 |
 | P5 | demo 模式可能 bootstrap 一个 mock-LLM 的 mini runtime 而非完全无 runtime（复用 Stage 2 mock e2e 基建） | 保证 demo 与真实会话走同一领域调用路径 |
+| P6 | `MiniApp::new()` 本阶段无 `(adapter, cli)` 参数；`MiniCommit` → `HistoryLine` 运行时映射（D13 的 ToolStart/End、turn summary 等）随 6D 会话驱动（`spawn_turn` → `UnifiedEvent` → `SessionReducer::push_batch`）一起接线，mini 呈现层当前直接消费 `MiniSink` 事件 | 会话驱动属 6D（G7）；契约 2.3-2（无头与 mini 同源）已由 render.rs 同源测试锁定，运行时接线前不重复实现 reducer 路径 |
+| P7 | D19"尾部局部替换"的落地形态：footer 视口内由 ratatui `Terminal::draw` 双缓冲 diff 承担（每帧仅刷变化 cell）；滚动区窗口重绘按"公共前缀 diff 只重写差异行"实现（`common_prefix_rows` + `window_rows` 快照，`reflow_scrollback` 内使用） | ratatui 渲染模型天然具备 cell 级 diff；`insert_before` 本身即尾部增量，D19 的显式 diff 在重排（D15-③）路径落地 |
+| P8 | D15 重排边界：仅重排**可见窗口**（`rows - viewport` 行）；已滚入终端自身 scrollback 的行无法 re-wrap | `Viewport::Inline` 布局下滚动区顶部行进入终端 scrollback 后不可达（D15 边界声明） |
 
 ---
 

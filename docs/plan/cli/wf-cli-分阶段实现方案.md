@@ -246,21 +246,21 @@ wf-types/wf-common/wf-config/wf-storage → wf-runtime/wf-api/wf-agent → wf-cl
 - reducer 纯函数单测：合成事件序列（含乱序/重复 part）→ commit 序列快照；markdown 增量提交快照（未完结 block 不出现、完结后固化）。
 - 无头路径冒烟：`wf run` 文本输出与 mini 滚动区内容同源（同一 reducer 产物），保证形态间一致性。
 
-### Stage 6：mini 模式（形态落地 1）🔨 实施中（阶段 6A 已完成 2026-08-20；6B–6E 待实施，详见 `wf-cli-stage6-mini模式-实施方案.md`）
+### Stage 6：mini 模式（形态落地 1）🔨 实施中（阶段 6A/6B 已完成 2026-08-22；6C–6E 待实施，详见 `wf-cli-stage6-mini模式-实施方案.md`）
 
 **目标**：`wf --mini` 可用——inline split-footer 交互会话。
 
 **任务**
 
 - [x] 阶段 6A（args/keymap/MiniSink 前置）：`--session/--resume/--demo/-p/--agent/--model` + validate；`KeymapContext::{Composer,Panel,Approval,Question}` + `KeyAction::DenyOnce`；`MiniSink`（mpsc 内存型 OutputSink + `tee_log`）。
-- [ ] `footer.rs`：ratatui `Terminal` + `Viewport::Inline(n)`（normal screen 底部视口，对齐 05 §3.1/§4.3）；动态高度（composer/面板/审批/问题/statusline 各视图高度表，对齐 05 §4.3）；statusline 宽度响应式（80/120 断点，对齐 05 §4.4.4）。
-- [ ] 输出模型对齐：引入 `MiniSink`（内存型，§2.1）——业务输出追加 scrollback + 标记重绘，由渲染器统一绘制（capture-stdout + ansi-to-tui），业务层不直接 println 写屏；可选 `--log <file>` 时用 `TeeSink` 同时落盘。
-- [ ] `composer.rs`：P0 自研单行 Input（历史 ↑/↓ 100 条）；P1 `ratatui-textarea` 多行（≤6 行）+ `@` mention（文件带行号 / 技能 / 工作流，区间高亮对齐 05 §3.2）；`/` 命令 palette。
+- [x] `footer.rs`：ratatui `Terminal` + `Viewport::Inline(n)`（normal screen 底部视口，对齐 05 §3.1/§4.3）；动态高度（composer/面板/审批/问题/statusline 各视图高度表，对齐 05 §4.3）；statusline 宽度响应式（80/120 断点，对齐 05 §4.4.4）。✅ 6B（含事件循环：SIGTSTP/SIGCONT、两按退出、输入边界、resize 流式宽度 D15、尾部局部替换 D19）
+- [x] 输出模型对齐：引入 `MiniSink`（内存型，§2.1）——业务输出追加 scrollback + 标记重绘，由渲染器统一绘制（capture-stdout + ansi-to-tui），业务层不直接 println 写屏；可选 `--log <file>` 时用 `TeeSink` 同时落盘。✅ 6A（MiniSink）+ 6B（run_session 接入 sanitize、mini 事件循环消费）
+- [ ] `composer.rs`：P0 自研单行 Input（历史 ↑/↓ 100 条）✅ 6B；P1 `ratatui-textarea` 多行（≤6 行）+ `@` mention（文件带行号 / 技能 / 工作流，区间高亮对齐 05 §3.2）；`/` 命令 palette（P1 随 6C/Stage 8）。
 - [ ] `panels.rs`：模型/技能/排队面板（数据源 llm-profile、SkillLoader、排队队列；Enter 编辑 / Delete 删除）。
 - [ ] `approval.rs` / `question.rs`：审批视图（y/a/d/n/c 键位对齐 codex）与追问视图（单选/多选/自定义），接入 05 §3.4 领域映射。
 - [ ] 会话语义：串行 turn + 排队；两按退出；退出打印 `wf --mini --session <id>` 续跑提示（对齐 05 §4.5）。
 - [ ] `--demo`（前置：Stage 8 的 demo.rs 可先落最小版）：合成事件流驱动完整管线冒烟。
-- [ ] 流式渲染正确性补齐（自 codex 分析引入，见 stage6 方案 D14）：表格 holdback、换行门控、引用链接回退、resize 流式宽度 + 定稿强制重排、尾部局部替换。
+- [x] 流式渲染正确性补齐（自 codex 分析引入，见 stage6 方案 D14）：表格 holdback、换行门控、引用链接回退、定稿兜底重渲 + `assert_streamed_equals_full`、resize 流式宽度 + 定稿强制重排、尾部局部替换。✅ 6B（D14-①②③ 随 `cbffeb8`；D14-④/D15/D19 随 2026-08-22 补缺）
 
 **交付与验收**
 

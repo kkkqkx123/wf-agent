@@ -13,12 +13,16 @@
 //!
 //! The render base (guard, terminal, viewport, footer skeleton, scrollback
 //! settle path) and the input loop are wired here; session driving is not
-//! (the sink channel is already plumbed).
+//! (the sink channel is already plumbed). The resize path implements D15
+//! (streaming renders at `width - 2`; an in-stream resize forces one full
+//! re-wrap of the visible scrollback window at finalize) and D19 (the
+//! window rewrite uses a common-prefix diff against a plain-text snapshot).
 
-use std::io::{self, Stdout};
+use std::io::{self, Stdout, Write};
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use crossterm::event::{Event as CrosstermEvent, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
+use crossterm::queue;
 use futures::StreamExt;
 use ratatui::backend::CrosstermBackend;
 use ratatui::buffer::Buffer;
@@ -87,6 +91,15 @@ pub struct MiniApp {
     viewport_height: u16,
     dirty: bool,
     exit: bool,
+    /// True when the terminal resized while a streaming tail was active;
+    /// the next finalize forces one full re-wrap of the scrollback window
+    /// (D15-③), because rows settled at the old width would otherwise stay
+    /// wrapped wrong in the inline viewport.
+    stream_resized: bool,
+    /// Plain-text snapshot of the visible scrollback window (the last
+    /// `rows - viewport` rows at the current width). It is the common-prefix
+    /// diff baseline for partial scrollback rewrites (D19).
+    window_rows: Vec<String>,
 }
 
 impl MiniApp {
@@ -131,6 +144,8 @@ impl MiniApp {
             viewport_height: height,
             dirty: true,
             exit: false,
+            stream_resized: false,
+            window_rows: Vec::new(),
         })
     }
 
@@ -298,6 +313,7 @@ impl MiniApp {
             }
         })?;
         self.scrollback.extend(lines);
+        self.update_window_snapshot();
         self.dirty = true;
         Ok(())
     }
@@ -311,6 +327,67 @@ impl MiniApp {
             .sum()
     }
 
+    /// Recompute the plain-text snapshot of the visible scrollback window
+    /// (the last `rows - viewport` rows at the current width). The snapshot
+    /// is the common-prefix diff baseline for the next reflow (D19).
+    fn update_window_snapshot(&mut self) {
+        let (cols, rows) = crossterm::terminal::size().unwrap_or((80, 24));
+        let window = rows.saturating_sub(self.viewport_height);
+        let all: Vec<String> = self
+            .scrollback
+            .iter()
+            .flat_map(|l| l.raw_lines(cols))
+            .collect();
+        let start = all.len().saturating_sub(window as usize);
+        self.window_rows = all[start..].to_vec();
+    }
+
+    /// D15-③ / D19 finalize-time safety net: after an in-stream resize the
+    /// settled rows were wrapped at the old width, so re-wrap the visible
+    /// scrollback window (the last `rows - viewport` rows) at the current
+    /// width and rewrite only the rows that differ from the previous
+    /// snapshot (common-prefix diff; the window's head rows already rolled
+    /// into the terminal's own scrollback cannot be re-wrapped — documented
+    /// D15 boundary).
+    fn reflow_scrollback(&mut self) -> CliResult<()> {
+        let (cols, rows) = crossterm::terminal::size()?;
+        let window = rows.saturating_sub(self.viewport_height);
+        if window == 0 {
+            return Ok(());
+        }
+        let all: Vec<String> = self
+            .scrollback
+            .iter()
+            .flat_map(|l| l.raw_lines(cols))
+            .collect();
+        let start = all.len().saturating_sub(window as usize);
+        let tail = &all[start..];
+
+        let prefix = common_prefix_rows(&self.window_rows, tail);
+        let mut out = io::stdout();
+        for (i, row) in tail.iter().enumerate().skip(prefix) {
+            queue!(
+                out,
+                crossterm::cursor::MoveTo(0, i as u16),
+                crossterm::terminal::Clear(crossterm::terminal::ClearType::CurrentLine)
+            )?;
+            write!(out, "{row}")?;
+        }
+        // Clear stale rows when the window shrank.
+        let old_len = self.window_rows.len();
+        for i in tail.len()..old_len {
+            queue!(
+                out,
+                crossterm::cursor::MoveTo(0, i as u16),
+                crossterm::terminal::Clear(crossterm::terminal::ClearType::CurrentLine)
+            )?;
+        }
+        out.flush()?;
+        self.window_rows = tail.to_vec();
+        self.dirty = true;
+        Ok(())
+    }
+
     /// Handle one terminal event (input first, per the priority order).
     fn handle_input(&mut self, maybe: Option<Result<CrosstermEvent, io::Error>>) -> CliResult<()> {
         match maybe {
@@ -321,6 +398,14 @@ impl MiniApp {
                     self.handle_key(key);
                 }
                 CrosstermEvent::Resize(_, _) => {
+                    // D15-①: while a streaming tail is active a resize marks
+                    // the scrollback for one forced full re-wrap at finalize
+                    // (rows settled at the old width stay wrapped wrong
+                    // otherwise). The footer itself re-renders the streaming
+                    // tail at the new width immediately (next redraw).
+                    if self.footer.streaming.is_some() {
+                        self.stream_resized = true;
+                    }
                     self.dirty = true;
                 }
                 _ => {}
@@ -478,6 +563,13 @@ impl MiniApp {
                 }
                 self.footer.streaming = None;
                 let _ = self.settle_scrollback();
+                // D15-③ / D19: an in-stream resize forces one full re-wrap
+                // of the visible scrollback window at finalize (the fast
+                // path is the incremental settle above).
+                if self.stream_resized {
+                    self.stream_resized = false;
+                    let _ = self.reflow_scrollback();
+                }
             }
         }
     }
@@ -487,6 +579,13 @@ impl MiniApp {
         self.theme = crate::theme::probe_theme();
         self.dirty = true;
     }
+}
+
+/// Length of the longest common prefix of two row slices (D19): rows that
+/// are already rendered identically are skipped when the visible scrollback
+/// window is rewritten, so a reflow only repaints the changed tail.
+fn common_prefix_rows(a: &[String], b: &[String]) -> usize {
+    a.iter().zip(b.iter()).take_while(|(x, y)| x == y).count()
 }
 
 /// Map a crossterm key event onto the framework `Key` (char keys ignore the
@@ -646,5 +745,20 @@ mod tests {
             None,
             "plain letters fall through to text input"
         );
+    }
+
+    #[test]
+    fn common_prefix_rows_counts_identical_leading_rows() {
+        let a = vec!["a".to_string(), "b".to_string(), "c".to_string()];
+        assert_eq!(common_prefix_rows(&a, &a), 3);
+        assert_eq!(
+            common_prefix_rows(&a, &["a".to_string(), "b".to_string(), "d".to_string()]),
+            2
+        );
+        assert_eq!(common_prefix_rows(&a, &["x".to_string()]), 0);
+        assert_eq!(common_prefix_rows(&[], &a), 0);
+        assert_eq!(common_prefix_rows(&a, &[]), 0);
+        // A shorter new window: the prefix still counts identical rows.
+        assert_eq!(common_prefix_rows(&a, &["a".to_string()]), 1);
     }
 }

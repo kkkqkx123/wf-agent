@@ -1,6 +1,6 @@
 # wf-cli Stage 4 实施方案：公共 UI 组件库（通用 F10）
 
-> 状态：已完成（阶段 4A–4E，2026-08-18）；遗留改进（`HistoryLine` raw_lines 三通道、宽度键控缓存澄清）见 §七
+> 状态：已完成（阶段 4A–4E，2026-08-18）；遗留改进见 §七（I1 `raw_lines` 三通道已随 Stage 6B 落地；I2 宽度键控缓存按性能触发）
 > 上游方案：`docs/plan/cli/wf-cli-分阶段实现方案.md`（Stage 4 任务定义）、`docs/cli/03-组件设计方案.md`（组件清单 / Keymap / 绘制调度 / 内容渲染 / resize reflow）、`docs/cli/04-终端交互设计.md` §七（KeymapContext 上下文回退）
 > 范围：mini 与 TUI 共享的组件层——`scrollback.rs`（HistoryLine / reflow）、`select.rs`（SelectList 分组滚动列表）、`keymap.rs`（Keymap 上下文回退）、`framer.rs`（FrameRequester 限帧 + 批量 drain）、`ansi.rs`（ANSI → ratatui Text 解析管线）、`size.rs`（终端尺寸变更 75ms 防抖）。**stage 4 是 ratatui 0.30 的正式引入点**（Stage 2/3 的"无 UI 依赖"约束在此解除）。
 
@@ -135,5 +135,5 @@ crates/wf-cli/Cargo.toml ← 依赖 ratatui、unicode-width；dev-deps 仅 tempf
 
 | # | 改进项 | 说明 | 排期 |
 | :- | :--- | :--- | :--- |
-| I1 | **`HistoryLine` 三通道（display/raw/height）** | codex `HistoryCell` trait 提供 `display_lines`（显示）/ `raw_lines`（复制友好的纯文本视图）/ `desired_height` 三通道；本阶段只有 display/height。Stage 6 起补 `raw_lines()` 供复制模式 / 转录浮层 / 会话导出共用（`Role` 之外的单元格语义枚举化） | Stage 6B 呈现层（`wf-cli-stage6-mini模式-实施方案.md` D13） |
+| I1 | **`HistoryLine` 三通道（display/raw/height）** | codex `HistoryCell` trait 提供 `display_lines`（显示）/ `raw_lines`（复制友好的纯文本视图）/ `desired_height` 三通道；本阶段只有 display/height。Stage 6 起补 `raw_lines()` 供复制模式 / 转录浮层 / 会话导出共用（`Role` 之外的单元格语义枚举化） | Stage 6B 呈现层（`wf-cli-stage6-mini模式-实施方案.md` D13）✅ 已完成 2026-08-22（`scrollback.rs::raw_lines`，消费方：mini `window_rows` 快照/D19 公共前缀 diff；复制/转录/导出待 6C+ 消费） |
 | I2 | **宽度键控缓存澄清（红线 9 补充说明）** | 红线 9"禁止固定宽度缓存"语义是"宽度变化必须重算"，**宽度键控**缓存（键含 width，resize 即失效）与 committed 区域行缓存不违反红线（codex `MarkdownRenderCache`/`StablePrefixLenCache` 均以宽度为键）；流式高频重渲性能需要时允许引入 | 总方案风险表已同步；性能触发时落地 |

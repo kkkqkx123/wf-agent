@@ -53,6 +53,12 @@ pub const SPINNER_FRAMES: [char; 10] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴'
 /// Width breakpoints for the status line.
 pub const STATUSLINE_SUMMARY_WIDTH: u16 = 120;
 
+/// Columns reserved on the right while a streaming tail is shown (D15):
+/// the streamed lines render at `width - 2` so a terminal scrollbar or a
+/// resize never makes the streamed tail jump columns mid-stream (codex
+/// `StreamController::set_width`).
+pub const STREAMING_WIDTH_MARGIN: u16 = 2;
+
 /// Which view the footer main area is showing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum FooterView {
@@ -191,7 +197,9 @@ impl Footer {
         let main = match (self.view, self.route) {
             (FooterView::Prompt, FooterRoute::Composer) => {
                 let stream_rows = match (&self.streaming, width) {
-                    (Some(s), w) if w > 0 => s.desired_height(w).max(1),
+                    (Some(s), w) if w > 0 => s
+                        .desired_height(w.saturating_sub(STREAMING_WIDTH_MARGIN))
+                        .max(1),
                     (Some(_), _) => 1,
                     (None, _) => 0,
                 };
@@ -264,7 +272,11 @@ impl Footer {
             (FooterView::Prompt, FooterRoute::Composer) => {
                 let style = theme_style(theme, Role::Default);
                 if let Some(streaming) = &self.streaming {
-                    let lines = streaming.display_lines(area.width);
+                    // The streaming tail renders at width - 2 (D15 margin)
+                    // so its row count stays stable across stream ticks and
+                    // a resize never shifts the viewport height mid-stream.
+                    let render_width = area.width.saturating_sub(STREAMING_WIDTH_MARGIN);
+                    let lines = streaming.display_lines(render_width);
                     let stream_rows = lines.len() as u16;
                     let [tail, rest] = Layout::vertical([
                         Constraint::Length(stream_rows),
@@ -463,6 +475,36 @@ mod tests {
             FOOTER_BASE_HEIGHT + COMPOSER_MAIN_HEIGHT + 1
         );
         footer.streaming = None;
+    }
+
+    #[test]
+    fn streaming_rows_reserve_two_columns() {
+        // An 80-column row wraps at render width 78 (width - 2) but not at
+        // 80: the D15 margin keeps the viewport height stable when the tail
+        // streams and reserves space for a terminal scrollbar.
+        let mut footer = Footer::new();
+        let content = "x".repeat(80);
+        footer.streaming = Some(HistoryLine::new_with_role(
+            content,
+            crate::scrollback::LineState::Streaming,
+            Role::Default,
+        ));
+        assert_eq!(
+            footer.apply_height_with_width(80),
+            FOOTER_BASE_HEIGHT + COMPOSER_MAIN_HEIGHT + 2,
+            "80 cols stream at 78 => two rows, not one"
+        );
+        assert_eq!(
+            footer.apply_height_with_width(0),
+            FOOTER_BASE_HEIGHT + COMPOSER_MAIN_HEIGHT + 1,
+            "unknown width falls back to one streaming row"
+        );
+        footer.streaming = None;
+        assert_eq!(
+            footer.apply_height_with_width(80),
+            FOOTER_BASE_HEIGHT + COMPOSER_MAIN_HEIGHT,
+            "no streaming tail => base composer height"
+        );
     }
 
     #[test]

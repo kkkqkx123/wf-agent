@@ -290,7 +290,7 @@ impl ForkHandler {
         let resource_registries = ctx.resource_registries.clone();
         let tool_approval_options = ctx.tool_approval_options.clone();
         let tool_approval_handler = ctx.tool_approval_handler.clone();
-        // B7 retry budget policy: by default each branch consumes its own
+        // Retry budget policy: by default each branch consumes its own
         // allocated slice of the shared budget (`allocate_branch_budgets`,
         // equal split, pool borrowing only from the unallocated remainder) so
         // concurrent branches cannot starve each other. `share_retry_budget:

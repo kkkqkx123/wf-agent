@@ -1,4 +1,4 @@
-//! End-to-end tests for the scoped LOOP capability (Phase 1): data-driven
+//! End-to-end tests for the scoped LOOP capability: data-driven
 //! iteration, loop variable assignment, nested loop isolation, break
 //! conditions, failure strategies and variable_inputs import. Loop state
 //! lives in a stack in the execution variables, so nested loops cannot

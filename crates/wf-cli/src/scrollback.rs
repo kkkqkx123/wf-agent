@@ -111,10 +111,10 @@ impl HistoryLine {
         u16::try_from(self.display_lines(width).len()).unwrap_or(u16::MAX)
     }
 
-    /// Plain-text view of the reflowed rows at `width` (stage4 I1
-    /// `raw_lines` channel): same wrapping as [`HistoryLine::display_lines`]
-    /// but copy-friendly `String` rows without styling. Used by the mini
-    /// scrollback-window snapshot / common-prefix diff (D19) and shared by
+    /// Plain-text view of the reflowed rows at `width`: same wrapping as
+    /// [`HistoryLine::display_lines`] but copy-friendly `String` rows without
+    /// styling. Used by the mini scrollback-window snapshot / common-prefix
+    /// diff and shared by
     /// future copy / transcript / export paths.
     pub fn raw_lines(&self, width: u16) -> Vec<String> {
         self.display_lines(width)

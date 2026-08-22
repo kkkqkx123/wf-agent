@@ -1,13 +1,13 @@
 //! Token usage tracking for LLM conversations
 //!
-//! Dual-track tracker (v2 semantics, see the token event / estimation design
-//! doc): the **decision track** accumulates local estimations only and is the
-//! single source of truth for warnings, limit exceeded and compression
-//! decisions — it never depends on provider usage. The **cost track** records
-//! real provider usage per request (history, cumulative, lifetime, costs)
-//! purely for accounting and never drives decisions. When a provider reports
-//! no usage, the cost-track request is recorded as an estimated marker so
-//! history entries stay populated without mixing estimation into decisions.
+//! Dual-track tracker: the **decision track** accumulates local estimations
+//! only and is the single source of truth for warnings, limit exceeded and
+//! compression decisions — it never depends on provider usage. The **cost
+//! track** records real provider usage per request (history, cumulative,
+//! lifetime, costs) purely for accounting and never drives decisions. When
+//! a provider reports no usage, the cost-track request is recorded as an
+//! estimated marker so history entries stay populated without mixing
+//! estimation into decisions.
 
 use std::collections::HashMap;
 

@@ -1,4 +1,4 @@
-//! Negative tests for handler registry access (Phase 2 / B3): the registry
+//! Negative tests for handler registry access: the registry
 //! carried in the execution context is strongly typed (`NodeHandlerRegistry`,
 //! no `Any` downcast), so a missing registry is the only runtime failure
 //! mode and must surface as a structured error instead of silently degrading

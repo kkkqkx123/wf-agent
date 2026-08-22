@@ -1,4 +1,4 @@
-//! End-to-end tests for the fork concurrency model (Phase 2: 3.1 B5/B6):
+//! End-to-end tests for the fork concurrency model:
 //! branch entity identity (independent execution ids), non-blocking fork +
 //! JOIN wait semantics, branch-internal SYNC on live source variables, and
 //! JOIN timeout/cancellation on unsettled branches.
@@ -524,7 +524,7 @@ impl NodeHandler for FlakyBranchScript {
     }
 }
 
-/// B7: fork branches consume their own allocated slice of the shared retry
+/// Fork branches consume their own allocated slice of the shared retry
 /// budget. Branch A exhausting its slice must not deny branch B's retry.
 #[tokio::test]
 async fn branch_retries_consume_own_budget_slice() {
@@ -646,7 +646,7 @@ async fn branch_retries_consume_own_budget_slice() {
     );
 }
 
-/// B7 compat path: `share_retry_budget: true` keeps the legacy shared
+/// Compat path: `share_retry_budget: true` keeps the legacy shared
 /// semantics — branches consume the global pool directly, so branch A
 /// exhausting the budget denies branch B's retry (serial fork execution makes
 /// the consumption order deterministic; the default FailFast strategy turns

@@ -1,4 +1,4 @@
-//! Explicit node-config parsing helpers (Phase 3 / B11).
+//! Explicit node-config parsing helpers.
 //!
 //! Replaces the scattered `serde_json::from_value(...).ok()` /
 //! `unwrap_or_default()` sites that silently degraded invalid user config:

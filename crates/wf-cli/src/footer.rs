@@ -53,10 +53,9 @@ pub const SPINNER_FRAMES: [char; 10] = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴'
 /// Width breakpoints for the status line.
 pub const STATUSLINE_SUMMARY_WIDTH: u16 = 120;
 
-/// Columns reserved on the right while a streaming tail is shown (D15):
-/// the streamed lines render at `width - 2` so a terminal scrollbar or a
-/// resize never makes the streamed tail jump columns mid-stream (codex
-/// `StreamController::set_width`).
+/// Columns reserved on the right while a streaming tail is shown: the
+/// streamed lines render at `width - 2` so a terminal scrollbar or a
+/// resize never makes the streamed tail jump columns mid-stream.
 pub const STREAMING_WIDTH_MARGIN: u16 = 2;
 
 /// Which view the footer main area is showing.
@@ -272,8 +271,9 @@ impl Footer {
             (FooterView::Prompt, FooterRoute::Composer) => {
                 let style = theme_style(theme, Role::Default);
                 if let Some(streaming) = &self.streaming {
-                    // The streaming tail renders at width - 2 (D15 margin)
-                    // so its row count stays stable across stream ticks and
+                    // The streaming tail renders at width - 2 (reserved
+                    // margin) so its row count stays stable across stream
+                    // ticks and
                     // a resize never shifts the viewport height mid-stream.
                     let render_width = area.width.saturating_sub(STREAMING_WIDTH_MARGIN);
                     let lines = streaming.display_lines(render_width);
@@ -480,8 +480,8 @@ mod tests {
     #[test]
     fn streaming_rows_reserve_two_columns() {
         // An 80-column row wraps at render width 78 (width - 2) but not at
-        // 80: the D15 margin keeps the viewport height stable when the tail
-        // streams and reserves space for a terminal scrollbar.
+        // 80: the reserved margin keeps the viewport height stable when the
+        // tail streams and reserves space for a terminal scrollbar.
         let mut footer = Footer::new();
         let content = "x".repeat(80);
         footer.streaming = Some(HistoryLine::new_with_role(

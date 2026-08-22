@@ -513,7 +513,7 @@ impl FileCheckpointManager {
     }
 
     /// Resolve the actor for an execution with an optional immediate parent
-    /// (sub-execution isolation, Phase 6). A child execution whose parent is
+    /// (sub-execution isolation). A child execution whose parent is
     /// already in the actor index is encoded as `parent.child(execution_id)`
     /// (`{kind}:{parent}/child:{child}`), keeping nested executions in their
     /// own hierarchical partition. Falls back to a root actor when the

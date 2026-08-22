@@ -563,7 +563,7 @@ async fn agent_loop_runs_mock_driven_iterations() {
     assert_eq!(mock.recorded_count(), 2);
 }
 
-/// B13: exhausting `max_tool_calls_per_request` while the model keeps
+/// Exhausting `max_tool_calls_per_request` while the model keeps
 /// emitting tool calls must fail the node — not silently truncate.
 #[tokio::test]
 async fn max_tool_calls_exhaustion_errors_instead_of_truncating() {
@@ -606,7 +606,7 @@ async fn max_tool_calls_exhaustion_errors_instead_of_truncating() {
     assert_eq!(mock.recorded_requests().len(), 2);
 }
 
-/// B13: a configured `dead_loop_detection` block is forwarded on every
+/// A configured `dead_loop_detection` block is forwarded on every
 /// request the gateway receives.
 #[tokio::test]
 async fn dead_loop_detection_config_is_forwarded() {
@@ -639,7 +639,7 @@ async fn dead_loop_detection_config_is_forwarded() {
     assert_eq!(config.checkpoints, Some(vec![10, 20]));
 }
 
-/// B13: an invalid `dead_loop_detection` config degrades to `None` with a
+/// An invalid `dead_loop_detection` config degrades to `None` with a
 /// warning; the node still executes.
 #[tokio::test]
 async fn invalid_dead_loop_detection_degrades_to_none() {

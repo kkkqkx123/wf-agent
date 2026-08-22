@@ -88,7 +88,7 @@ impl CheckpointTransaction {
         let mut baseline_snapshots = Vec::new();
         let mut snapshot_sources = HashMap::new();
 
-        // Phase 1: Persist all snapshots (wrapped in storage transaction if available)
+        // Step 1: Persist all snapshots (wrapped in storage transaction if available)
         // Snapshot IDs are computed by Snapshot::compute_id during storage.
         for (content, source) in &self.snapshots_to_commit {
             let snap = repo.store_snapshot_content(content, source)?;
@@ -96,7 +96,7 @@ impl CheckpointTransaction {
             snapshot_sources.insert(snap.id, source.clone());
         }
 
-        // Phase 2: Create and persist checkpoint
+        // Step 2: Create and persist checkpoint
         let mut cp = Checkpoint::new(
             baseline_snapshots,
             self.parents.clone(),

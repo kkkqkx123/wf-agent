@@ -1,5 +1,5 @@
-//! End-to-end tests for the EMBED_GRAPH preprocessing expansion (Phase 1:
-//! EMBED_GRAPH "plan A"). The runtime executes the flattened graph produced
+//! End-to-end tests for the EMBED_GRAPH preprocessing expansion. The
+//! runtime executes the flattened graph produced
 //! by `preprocess_graph`: START -> EMBED_START, END -> EMBED_END boundary
 //! nodes, no runtime sub-entity, no variable mapping. An embedded workflow
 //! may only contain control-flow nodes (no VARIABLE nodes, no variables, no

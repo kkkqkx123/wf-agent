@@ -404,7 +404,7 @@ impl SandboxRuntime {
             vfs,
         };
 
-        // Phase 1: run all analysis gates in chain order. Strict rejects on
+        // Step 1: run all analysis gates in chain order. Strict rejects on
         // the first denial; Lenient records violations and continues so the
         // execution layer still runs for real.
         let mut analysis_violations: Vec<String> = Vec::new();
@@ -466,7 +466,7 @@ impl SandboxRuntime {
             }
         }
 
-        // Phase 2: run execution strategies in chain order. The first one
+        // Step 2: run execution strategies in chain order. The first one
         // that actually produces a result wins. In Strict mode a sandbox
         // layer failure fails fast; in Lenient mode the next available
         // execution strategy is tried instead (no silent downgrade of an

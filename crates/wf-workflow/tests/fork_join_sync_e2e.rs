@@ -1,4 +1,4 @@
-//! End-to-end tests for Fork/Join/Sync alignment (Phase 2: A3/A4/A5/B7).
+//! End-to-end tests for Fork/Join/Sync alignment.
 //! Covers per-branch timeouts, JOIN aggregation (variable exports, message
 //! contexts, failed-branch info) and SYNC cross-branch variable deep clone.
 

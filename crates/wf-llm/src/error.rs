@@ -15,7 +15,7 @@ pub enum LlmError {
     /// its context window (anthropic `context_length_exceeded`, openai
     /// `context_length_exceeded` / "maximum context length", ...). This is
     /// the safety-net trigger for forced compression events when local
-    /// estimation undercounted (see the token event design doc).
+    /// estimation undercounted.
     #[error("Context length exceeded: {0}")]
     ContextLengthExceeded(String),
 

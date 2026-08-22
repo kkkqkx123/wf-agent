@@ -19,11 +19,11 @@ fn test_full_pipeline_layer_consistency() {
     let env = TestEnvironment::new(config);
     init_repository(&env);
 
-    // Phase 1: Manual edit → staged → commit
+    // Step 1: Manual edit → staged → commit
     apply_edit(&env, "app.rs", "fn main() {\n    println!(\"v1\");\n}\n");
     commit_changes(&env, "manual edit v1", "dev");
 
-    // Phase 2: Agent edits the same file
+    // Step 2: Agent edits the same file
     apply_agent_edit(
         &env,
         "agent-loop-1",
@@ -33,7 +33,7 @@ fn test_full_pipeline_layer_consistency() {
     submit_agent(&env, "agent-loop-1");
     approve_agent(&env, "agent-loop-1", "feature-1");
 
-    // Phase 3: Merge features directly to staged (no unified intermediary)
+    // Step 3: Merge features directly to staged (no unified intermediary)
     merge_to_unified(&env, None);
 
     // Verify final staged content has agent's changes

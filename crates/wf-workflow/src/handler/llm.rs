@@ -783,7 +783,7 @@ impl LlmHandler {
         let mut messages = build_messages(ctx)?;
         let tools = resolve_tools(ctx)?;
 
-        // Dead-loop detection config (B13): parsed once from the node config,
+        // Dead-loop detection config: parsed once from the node config,
         // carried on every request in the multi-round tool loop. The gateway
         // detects repeated output and errors out (wf-llm `DeadLoopDetector`).
         let dead_loop_detection: Option<wf_types::llm::DeadLoopDetectionConfig> =
@@ -804,7 +804,7 @@ impl LlmHandler {
         // Multi-round tool loop: keep calling the model while it emits tool
         // calls, feeding tool results back, up to max_tool_calls_per_request.
         // A loop that exhausts the budget while the model keeps emitting tool
-        // calls is an error (B13), not a silent truncation.
+        // calls is an error, not a silent truncation.
         let mut tool_loop_exhausted = false;
         for _round in 0..max_tool_calls {
             let request = LlmRequest {

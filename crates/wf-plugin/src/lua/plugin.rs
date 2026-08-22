@@ -465,7 +465,7 @@ impl Plugin for LuaPlugin {
     }
 
     fn register_contributions(&self, registrar: &mut dyn ContributionRegistrar) {
-        // Phase 1: extract keys from Lua state (Mutex held)
+        // Step 1: extract keys from Lua state (Mutex held)
         struct RegEntry {
             name: String,
             key: mlua::RegistryKey,
@@ -543,7 +543,7 @@ impl Plugin for LuaPlugin {
             out
         };
 
-        // Phase 2: register (no Lua access)
+        // Step 2: register (no Lua access)
         for e in entries {
             match e.kind {
                 0 => registrar.register_node_type(

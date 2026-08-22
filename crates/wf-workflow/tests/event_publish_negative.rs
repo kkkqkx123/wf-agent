@@ -1,4 +1,4 @@
-//! Negative tests for event publish error handling (Phase 3 / B8): a failed
+//! Negative tests for event publish error handling: a failed
 //! publish (no receivers -> broadcast send error) must never abort execution;
 //! it is logged through `EventBus::publish_logged` and the workflow still
 //! reaches its terminal state.

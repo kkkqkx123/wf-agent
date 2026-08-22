@@ -19,7 +19,7 @@ pub struct ScriptHandler {
     /// Optional file-checkpoint manager: when attached (file checkpointing
     /// enabled with a workspace root), script executions are diffed before /
     /// after and the resulting workspace changes are recorded as agent edits
-    /// of the executing partition (script-change capture, Phase 3).
+    /// of the executing partition (script-change capture).
     file_checkpoint: Option<FileCheckpointManager>,
 }
 
@@ -164,7 +164,7 @@ impl ScriptHandler {
         let sandbox = self.get_sandbox();
         let sandbox_config = sandbox_config_from_node(config, language, &ctx.node_id)?;
 
-        // Script-change capture (Phase 3): diff the allowed-write scope
+        // Script-change capture: diff the allowed-write scope
         // inside the workspace root before/after the execution and record
         // the changes on the executing actor partition. Capture is
         // best-effort — it must never block or fail the script node.

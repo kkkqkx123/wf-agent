@@ -289,6 +289,7 @@ mod tests {
             custom_body_enabled: None,
             query_params: None,
             stream_options: None,
+            context_window_size: None,
         }
     }
 

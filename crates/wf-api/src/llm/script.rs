@@ -138,7 +138,7 @@ pub async fn execute(
         .clone()
         .unwrap_or_else(|| default_sandbox_config(language));
 
-    // Script-change capture (Phase 3): diff the allowed-write scope inside
+    // Script-change capture: diff the allowed-write scope inside
     // the workspace root before/after the execution and record the changes
     // on a `wf` actor partition named after the script. Best-effort — a
     // capture failure never fails the script call itself.

@@ -116,10 +116,10 @@ impl MarkdownStream {
         &self.buffer[self.committed_upto.min(self.buffer.len())..]
     }
 
-    /// Finalize-time safety net (D14-④ / stage5 I4): render the full
+    /// Finalize-time safety net: render the full
     /// accumulated source to plain text. Consumers use this as the
-    /// correctness backstop when a finalize lands after in-stream resizes
-    /// (D15) — the committed/streaming split is the fast path, this is the
+    /// correctness backstop when a finalize lands after in-stream resizes.
+    /// The committed/streaming split is the fast path; this is the
     /// whole-source ground truth. Must be called before `finish` (which
     /// drains the buffer).
     pub fn final_plain_text(&self) -> String {
@@ -171,13 +171,12 @@ impl MarkdownStream {
     /// * **reference-definition fallback** — when the buffer carries a
     ///   reference-style link definition (`[label]: url`), incremental
     ///   splitting is skipped and the whole source stays streaming until
-    ///   finalize (codex `ai-output.md` §4.1);
+    ///   finalize;
     /// * **table holdback** — an unclosed table (header + delimiter row
     ///   present, rows still continuing) keeps the whole table streaming
-    ///   until finalize so column widths never shift mid-stream (codex
-    ///   `TableHoldbackScanner`);
+    ///   until finalize so column widths never shift mid-stream;
     /// * **newline gate** — the commit point never passes the last newline,
-    ///   so a half line is never committed (codex `ai-output.md` §2.2).
+    ///   so a half line is never committed.
     fn boundary(&self) -> usize {
         if self.buffer.is_empty() {
             return 0;
@@ -261,7 +260,7 @@ fn fence_open(s: &str) -> bool {
 /// True when the buffer carries a reference-style link definition
 /// (`[label]: destination`). Such definitions rewrite earlier link targets,
 /// so incremental splitting is skipped and the whole source stays streaming
-/// until finalize (codex `ai-output.md` §4.1).
+/// until finalize.
 fn has_reference_definition(src: &str) -> bool {
     src.lines()
         .any(|line| line.trim_start().starts_with('[') && line.contains("]:"))
@@ -665,15 +664,15 @@ mod tests {
         chunks
     }
 
-    /// codex `assert_streamed_equals_full` semantics: the incremental stream
+    /// Incremental-stream equivalence semantics: the incremental stream
     /// and the whole-source render must agree. Drives [`MarkdownStream`]
     /// with random char-boundary chunks and asserts:
     ///
     /// * at every step the render of the committed(+streaming) prefix is a
     ///   prefix of the full-source render — streaming never diverges and
-    ///   never runs ahead of the final result (D14 gates hold);
+    ///   never runs ahead of the final result;
     /// * `final_plain_text` before finalize equals the full-source render
-    ///   (D14-④ finalize backstop);
+    ///   (finalize-time backstop);
     /// * the delivered bytes reassemble the source exactly (incremental
     ///   delivery never re-emits and never drops).
     fn assert_streamed_equals_full(source: &str, seed: u64) {

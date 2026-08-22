@@ -1,4 +1,4 @@
-//! Phase 3/4 integration tests: modification-source capture.
+//! Integration tests: modification-source capture.
 //!
 //! Scenarios covered:
 //!
@@ -89,7 +89,7 @@ fn script_capture_attributes_changes_to_actor_partition() {
         [0x00, 0x01, 0x02, 0x03]
     );
     // Deletion semantics: empty content in the partition + deletion
-    // projection marker (explicit delete is a Phase 7 layertwine feature).
+    // projection marker (explicit delete).
     assert_eq!(
         by_path.get("gone.txt").unwrap().as_slice(),
         b"",

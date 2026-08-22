@@ -2254,6 +2254,7 @@ mod tests {
             custom_body_enabled: None,
             query_params: None,
             stream_options: None,
+            context_window_size: None,
         }];
         let gateway = init_llm_gateway(&LlmConfig { profiles }, None).unwrap();
         assert!(gateway.has_profile("openai"));
@@ -2280,6 +2281,7 @@ mod tests {
                     custom_body_enabled: None,
                     query_params: None,
                     stream_options: None,
+                    context_window_size: None,
                 }],
             },
             None,

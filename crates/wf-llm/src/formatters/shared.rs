@@ -552,6 +552,7 @@ mod enhancement_tests {
                     .collect(),
             ),
             stream_options: None,
+            context_window_size: None,
         }
     }
 

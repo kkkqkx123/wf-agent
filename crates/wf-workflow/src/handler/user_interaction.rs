@@ -571,7 +571,7 @@ mod tests {
             .with_entity(entity);
 
         // Capture the interaction id from the request event; the timeout path
-        // must clean the registry entry for exactly this id (B9: no leaked
+        // must clean the registry entry for exactly this id (no leaked
         // registration / channel).
         let subscriber = tokio::spawn(async move {
             loop {
@@ -609,7 +609,7 @@ mod tests {
         crate::interaction::interaction_registry().reset_for_tests();
     }
 
-    /// B9 cancel path: cancelling a workflow while an interaction is pending
+    /// Cancel path: cancelling a workflow while an interaction is pending
     /// leaves no registry residue once the run settles.
     #[tokio::test]
     async fn cancellation_while_waiting_cleans_registry() {
@@ -701,7 +701,7 @@ mod tests {
             result
         );
 
-        // The pending entry must be gone after the run settles (B9: no leak).
+        // The pending entry must be gone after the run settles (no leak).
         assert!(!crate::interaction::interaction_registry().is_pending(&interaction_id));
         assert_eq!(
             crate::interaction::interaction_registry().pending_count(),

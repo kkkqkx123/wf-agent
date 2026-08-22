@@ -366,14 +366,14 @@ fn test_e2e_roundtrip_sync() {
 
     let (storage, mut checkpoint_repo, _root) = create_layertwine_state().unwrap();
 
-    // Phase 1: init_from_git
+    // Step 1: init_from_git
     GitBridge::init_from_git(&git_path, &storage, &mut checkpoint_repo, "HEAD").unwrap();
 
-    // Phase 2: add a new file in layertwine
+    // Step 2: add a new file in layertwine
     let snap_id = store_file(&storage, "roundtrip.txt", b"roundtrip content\n").unwrap();
     commit_snapshot(&mut checkpoint_repo, snap_id, "add roundtrip.txt");
 
-    // Phase 3: push back to git
+    // Step 3: push back to git
     GitBridge::push_to_git(
         &storage,
         &git_path,

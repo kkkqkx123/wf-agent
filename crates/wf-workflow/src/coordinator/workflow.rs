@@ -857,7 +857,7 @@ impl WorkflowCoordinator {
 
     /// The fork branch id this coordinator runs under, if any. Branch retries
     /// charge their own allocated slice of the shared retry budget instead of
-    /// the global pool (B7: per-branch isolation, no cross-branch races).
+    /// the global pool (per-branch isolation, no cross-branch races).
     fn retry_branch_id(&self) -> Option<&str> {
         self.fork_branch_progress
             .as_ref()
@@ -1142,7 +1142,7 @@ impl WorkflowCoordinator {
                     let retry_delay = retry_config.retry_delay(attempt);
                     if let Some(budget) = self.ctx.retry_budget.as_ref() {
                         // Branch executions consume their own allocated slice
-                        // of the shared budget (B7): concurrent branches
+                        // of the shared budget: concurrent branches
                         // cannot starve each other through the global pool.
                         let check =
                             budget.consume_retry(retry_delay.as_millis() as u64, branch_id, 0);
@@ -1958,7 +1958,7 @@ mod tests {
     async fn error_chain_parents_are_per_node_not_global() {
         // Two nodes fail in sequence, each with one retry: every record must
         // chain to its own node's first failure — never to another node's
-        // records (B10: parent is the true parent, not "the previous entry").
+        // records (parent is the true parent, not "the previous entry").
         let handlers = base_handlers(vec![(
             StaticNodeType::Variable,
             Box::new(AlwaysFailingHandler) as Box<dyn NodeHandler>,

@@ -39,13 +39,6 @@ fn actor(kind: ActorKind, id: &str) -> ActorId {
     ActorId::new(kind, &[Id::from(id.to_string())]).expect("actor id valid")
 }
 
-fn now() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0)
-}
-
 /// Script-change capture: a workspace diff (add/modify/delete + binary) is
 /// attributed to the executing actor partition.
 #[test]
@@ -138,7 +131,7 @@ fn manual_changes_skip_agent_writes_and_record_human_edits() {
     let self_write = FileChangeRecord {
         path: root.join("a.txt"),
         kind: FileChangeKind::Add,
-        timestamp: now(),
+        timestamp: wf_common::now(),
     };
     let applied = manager
         .process_manual_changes(&[self_write])
@@ -155,7 +148,7 @@ fn manual_changes_skip_agent_writes_and_record_human_edits() {
     let human = FileChangeRecord {
         path: root.join("b.txt"),
         kind: FileChangeKind::Change,
-        timestamp: now(),
+        timestamp: wf_common::now(),
     };
     let applied = manager
         .process_manual_changes(&[human])
@@ -172,7 +165,7 @@ fn manual_changes_skip_agent_writes_and_record_human_edits() {
     let unlink = FileChangeRecord {
         path: root.join("b.txt"),
         kind: FileChangeKind::Unlink,
-        timestamp: now(),
+        timestamp: wf_common::now(),
     };
     let applied = manager
         .process_manual_changes(&[unlink])

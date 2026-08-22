@@ -5,7 +5,7 @@ use wf_types::script::sandbox::{SandboxPolicy, ScriptExecutionResult};
 
 use crate::cmd::{self, ApplyOptions};
 use crate::resolver::{StrategyExecuteOptions, StrategyImplementation, StrategyKind};
-use crate::timeout::execute_with_timeout;
+use wf_common::exec::execute_with_timeout;
 
 #[cfg(target_os = "linux")]
 pub struct LinuxSeccompStrategy;
@@ -128,7 +128,9 @@ impl StrategyImplementation for LinuxSeccompStrategy {
             })
         };
 
-        execute_with_timeout(fut, timeout_ms).await
+        execute_with_timeout(fut, timeout_ms)
+            .await
+            .map_err(|e| e.into_boxed())
     }
 }
 

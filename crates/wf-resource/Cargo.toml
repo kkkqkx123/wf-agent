@@ -5,6 +5,7 @@ edition.workspace = true
 
 [dependencies]
 wf-types = { path = "../wf-types" }
+wf-common = { path = "../wf-common" }
 wf-core = { path = "../wf-core" }
 wf-tools = { path = "../wf-tools" }
 serde.workspace = true

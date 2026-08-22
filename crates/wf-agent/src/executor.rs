@@ -69,16 +69,6 @@ impl AgentLoopExecutor {
         self
     }
 
-    /// Acquisition strategy of the capacity gate (default `Reject`; `Wait`
-    /// makes spawns queue instead of failing when the limit is reached).
-    pub fn with_acquire_strategy(
-        self,
-        strategy: wf_common::gate::AcquireStrategy,
-    ) -> Self {
-        self.agent_registry.set_acquire_strategy(strategy);
-        self
-    }
-
     /// Inject a shared registry so external consumers (wf-api execution
     /// views, wf-runtime composite callback) observe the same executions as
     /// this executor. Without injection a private instance is used. The

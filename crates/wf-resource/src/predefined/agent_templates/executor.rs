@@ -1,18 +1,10 @@
 use wf_types::agent::{AgentConfig, AgentDefinition, AgentMetadata, AgentTemplate};
 use wf_types::tool::AvailableTools;
-use wf_types::Timestamp;
 
 pub const GOAL_REVIEW_EXECUTOR_TEMPLATE_ID: &str = "@standard/goal-review-executor";
 
-fn now() -> Timestamp {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as i64
-}
-
 pub fn goal_review_executor() -> AgentTemplate {
-    let t = now();
+    let t = wf_common::now();
     AgentTemplate {
         id: GOAL_REVIEW_EXECUTOR_TEMPLATE_ID.into(),
         name: "Goal Review Executor".into(),

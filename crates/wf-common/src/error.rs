@@ -33,5 +33,3 @@ impl From<chrono::ParseError> for CommonError {
         CommonError::Serialization(e.to_string())
     }
 }
-
-pub type CommonResult<T> = Result<T, CommonError>;

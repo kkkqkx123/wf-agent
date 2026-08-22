@@ -449,15 +449,10 @@ impl Runtime {
         let agent_registry = std::sync::Arc::new(wf_agent::registry::AgentLoopRegistry::new());
         let gate_stats = agent_registry.gate_stats();
         info!(
-            "Agent capacity gate at startup: max_concurrent={}, strategy={:?}, submitted={}, completed={}, failed={}, cancelled={}, timed_out={}, active={}",
+            "Agent capacity gate at startup: max_concurrent={}, active={}, available={}",
             gate_stats.max_concurrent,
-            agent_registry.capacity_gate().strategy(),
-            gate_stats.total_submitted,
-            gate_stats.total_completed,
-            gate_stats.total_failed,
-            gate_stats.total_cancelled,
-            gate_stats.total_timed_out,
-            gate_stats.active_count
+            gate_stats.active_count,
+            gate_stats.available_permits
         );
 
         let metrics = match config.metrics.as_ref() {
@@ -781,13 +776,9 @@ impl Runtime {
 
         let stats = self.agent_registry.gate_stats();
         info!(
-            "Agent capacity gate final stats: submitted={}, completed={}, failed={}, cancelled={}, timed_out={}, active={}",
-            stats.total_submitted,
-            stats.total_completed,
-            stats.total_failed,
-            stats.total_cancelled,
-            stats.total_timed_out,
-            stats.active_count
+            "Agent capacity gate final stats: active={}, available={}",
+            stats.active_count,
+            stats.available_permits
         );
 
         self.storage_manager.close().await?;

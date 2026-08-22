@@ -84,31 +84,22 @@ pub trait ToolExecutorExt: ToolExecutor {
         options: &ToolExecutionOptions,
         context: &ToolExecutionContext,
     ) -> impl std::future::Future<Output = ToolResult<ToolExecutionResult>> + Send {
-        let max_retries = options.retries.unwrap_or(0);
-        let retry_delay = options.retry_delay.unwrap_or(1000);
-        let exponential_backoff = options.exponential_backoff.unwrap_or(false);
+        let policy = wf_common::retry::RetryPolicy {
+            max_retries: options.retries.unwrap_or(0),
+            base_delay_ms: options.retry_delay.unwrap_or(1000),
+            exponential_backoff: options.exponential_backoff.unwrap_or(false),
+        };
         async move {
-            let mut retry_count = 0;
-            loop {
-                let result = self.execute(tool, parameters, options, context).await;
-
-                match &result {
-                    Ok(r) if r.success => return result,
-                    _ => {
-                        if retry_count >= max_retries {
-                            return result;
-                        }
-                        retry_count += 1;
-
-                        let delay = if exponential_backoff {
-                            retry_delay * 2u64.pow(retry_count - 1)
-                        } else {
-                            retry_delay
-                        };
-                        tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
-                    }
-                }
-            }
+            wf_common::retry::execute_with_retry(
+                Some(&policy),
+                |r: &Result<ToolExecutionResult, crate::error::ToolError>| match r {
+                    Ok(x) if x.success => false,
+                    _ => true,
+                },
+                None,
+                || self.execute(tool, parameters, options, context),
+            )
+            .await
         }
     }
 
@@ -122,16 +113,16 @@ pub trait ToolExecutorExt: ToolExecutor {
         let timeout_ms = options.timeout.unwrap_or(30000);
         let start = Instant::now();
         async move {
-            let result = tokio::time::timeout(
-                std::time::Duration::from_millis(timeout_ms),
+            let result = wf_common::exec::execute_with_timeout(
                 self.execute(tool, parameters, options, context),
+                Some(timeout_ms),
             )
             .await;
 
             match result {
-                Ok(Ok(r)) => Ok(r),
-                Ok(Err(e)) => Err(e),
-                Err(_) => Ok(ToolExecutionResult {
+                Ok(r) => Ok(r),
+                Err(wf_common::exec::TimeoutError::Failed(e)) => Err(e),
+                Err(wf_common::exec::TimeoutError::TimedOut(_)) => Ok(ToolExecutionResult {
                     success: false,
                     result: None,
                     error: Some(format!(

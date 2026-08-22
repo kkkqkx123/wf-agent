@@ -8,7 +8,6 @@ pub mod resolver;
 pub mod runtime;
 pub mod security;
 pub mod strategy;
-pub mod timeout;
 pub mod vfs;
 
 pub use cmd::ApplyOptions;
@@ -21,4 +20,3 @@ pub use resolver::{
 };
 pub use runtime::SandboxRuntime;
 pub use strategy::shell::vfs_paths::parse_command_chain;
-pub use timeout::execute_with_timeout;

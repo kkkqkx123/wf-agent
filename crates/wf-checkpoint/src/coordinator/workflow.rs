@@ -27,7 +27,7 @@ use crate::version::VersionManager;
 use crate::version::MIN_COMPATIBLE_VERSION;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use wf_common::gate::{AcquireStrategy, ConcurrencyGate};
+use wf_common::gate::ConcurrencyGate;
 use wf_types::checkpoint::workflow::WorkflowCheckpointDelta;
 use wf_types::checkpoint::workflow::WorkflowExecutionStateSnapshot;
 use wf_types::checkpoint::BaseCheckpointCore;
@@ -427,7 +427,7 @@ impl WorkflowCheckpointCoordinator {
 
         // Bounded concurrency for the per-child restore phase.
         let gate = Arc::new(
-            ConcurrencyGate::new(CHILD_RESTORE_CONCURRENCY).with_strategy(AcquireStrategy::Wait),
+            ConcurrencyGate::new(CHILD_RESTORE_CONCURRENCY),
         );
         let storage = self.state_manager.storage().clone();
         let restore_registry = self.restore_registry.clone();

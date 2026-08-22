@@ -46,8 +46,6 @@ impl From<GateError> for ExecutionSharedError {
     fn from(e: GateError) -> Self {
         match e {
             GateError::Closed(msg) => ExecutionSharedError::GateError(msg),
-            GateError::Timeout(msg) => ExecutionSharedError::TimeoutError(msg),
-            GateError::Cancelled(msg) => ExecutionSharedError::InterruptionError(msg),
         }
     }
 }

@@ -12,7 +12,7 @@ use layertwine::StorageResult;
 use crate::branch::BranchStorageAdapter;
 use crate::error::CheckpointError;
 use crate::file::map_layertwine_error;
-use wf_common::gate::{AcquireStrategy, ConcurrencyGate};
+use wf_common::gate::ConcurrencyGate;
 
 pub trait GitCheckpointAdapter: Send + Sync {
     fn save_checkpoint(
@@ -477,7 +477,7 @@ impl<T: GitCheckpointAdapter> LayertwineCheckpointBridge<T> {
     {
         const BATCH_CONCURRENCY: usize = 10;
         let gate = Arc::new(
-            ConcurrencyGate::new(BATCH_CONCURRENCY).with_strategy(AcquireStrategy::Wait),
+            ConcurrencyGate::new(BATCH_CONCURRENCY),
         );
         let mut handles = Vec::new();
         for id in ids {

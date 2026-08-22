@@ -391,8 +391,10 @@ fn compute_progress_metrics(
 pub fn format_progress(metrics: &ProgressMetrics) -> String {
     let eta = metrics
         .estimated_completion_time
-        .and_then(|ms| {
-            chrono::DateTime::from_timestamp_millis(ms).map(|dt| dt.format("%H:%M:%S").to_string())
+        .map(|ms| {
+            wf_common::time::datetime_from_timestamp(ms)
+                .format("%H:%M:%S")
+                .to_string()
         })
         .unwrap_or_else(|| "unknown".to_string());
     format!(

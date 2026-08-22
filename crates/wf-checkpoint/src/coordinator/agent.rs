@@ -27,7 +27,7 @@ use crate::version::MIN_COMPATIBLE_VERSION;
 use layertwine::layered::MergeResult;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
-use wf_common::gate::{AcquireStrategy, ConcurrencyGate};
+use wf_common::gate::ConcurrencyGate;
 use wf_types::checkpoint::agent::AgentCheckpointDelta;
 use wf_types::checkpoint::agent::AgentStateSnapshot;
 use wf_types::checkpoint::BaseCheckpointCore;
@@ -268,7 +268,7 @@ impl AgentCheckpointCoordinator {
 
         // Bounded concurrency for the per-child resolution + restore phase.
         let gate = Arc::new(
-            ConcurrencyGate::new(CHILD_RESTORE_CONCURRENCY).with_strategy(AcquireStrategy::Wait),
+            ConcurrencyGate::new(CHILD_RESTORE_CONCURRENCY),
         );
         let storage = self.state_manager.storage().clone();
         let restore_registry = self.restore_registry.clone();

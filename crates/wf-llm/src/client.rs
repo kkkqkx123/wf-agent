@@ -7,6 +7,8 @@ use crate::formatters::LlmFormatter;
 use crate::message_stream::MessageStream;
 use reqwest::Client as ReqwestClient;
 use tokio_util::sync::CancellationToken;
+use wf_common::exec::{execute_with_timeout, TimeoutError};
+use wf_common::retry::RetryPolicy;
 use wf_types::llm::{LlmProfile, LlmRequest, LlmResult as LlmResponseType};
 
 pub trait LlmClient: Send + Sync {
@@ -54,13 +56,33 @@ impl LlmClientImpl {
         Duration::from_secs(self.profile.timeout.unwrap_or(60))
     }
 
-    fn retry_delay(&self, attempt: u32) -> Duration {
-        let base = self.profile.retry_delay.unwrap_or(1000);
-        Duration::from_millis(base * 2u64.pow(attempt))
+    fn retry_policy(&self) -> RetryPolicy {
+        RetryPolicy {
+            max_retries: self.max_retries(),
+            base_delay_ms: self.profile.retry_delay.unwrap_or(1000),
+            exponential_backoff: true,
+        }
     }
 
     fn max_retries(&self) -> u32 {
         self.profile.max_retries.unwrap_or(3)
+    }
+
+    fn map_timeout_result<T>(
+        result: Result<T, TimeoutError<reqwest::Error>>,
+        timeout_ms: u64,
+    ) -> LlmResult<T> {
+        match result {
+            Ok(v) => Ok(v),
+            Err(TimeoutError::TimedOut(_)) => Err(LlmError::Timeout(timeout_ms)),
+            Err(TimeoutError::Failed(e)) => {
+                if e.is_timeout() {
+                    Err(LlmError::Timeout(timeout_ms))
+                } else {
+                    Err(LlmError::HttpError(e))
+                }
+            }
+        }
     }
 
     pub(crate) fn map_http_error(
@@ -104,25 +126,16 @@ impl LlmClientImpl {
         let timeout_ms = timeout_dur.as_millis() as u64;
 
         let response = if let Some(ref cancel) = cancel {
-            let req = self.client.execute(http_request);
+            let fut = execute_with_timeout(self.client.execute(http_request), Some(timeout_ms));
             tokio::select! {
-                result = req => result.map_err(LlmError::HttpError)?,
+                result = fut => Self::map_timeout_result(result, timeout_ms)?,
                 _ = cancel.cancelled() => return Err(LlmError::Cancelled),
-                _ = tokio::time::sleep(timeout_dur) => {
-                    return Err(LlmError::Timeout(timeout_ms));
-                }
             }
         } else {
-            tokio::time::timeout(timeout_dur, self.client.execute(http_request))
-                .await
-                .map_err(|_| LlmError::Timeout(timeout_ms))?
-                .map_err(|e| {
-                    if e.is_timeout() {
-                        LlmError::Timeout(timeout_ms)
-                    } else {
-                        LlmError::HttpError(e)
-                    }
-                })?
+            Self::map_timeout_result(
+                execute_with_timeout(self.client.execute(http_request), Some(timeout_ms)).await,
+                timeout_ms,
+            )?
         };
 
         if !response.status().is_success() {
@@ -155,25 +168,16 @@ impl LlmClientImpl {
         let timeout_ms = timeout_dur.as_millis() as u64;
 
         let response = if let Some(ref cancel) = cancel {
-            let req = self.client.execute(http_request);
+            let fut = execute_with_timeout(self.client.execute(http_request), Some(timeout_ms));
             tokio::select! {
-                result = req => result.map_err(LlmError::HttpError)?,
+                result = fut => Self::map_timeout_result(result, timeout_ms)?,
                 _ = cancel.cancelled() => return Err(LlmError::Cancelled),
-                _ = tokio::time::sleep(timeout_dur) => {
-                    return Err(LlmError::Timeout(timeout_ms));
-                }
             }
         } else {
-            tokio::time::timeout(timeout_dur, self.client.execute(http_request))
-                .await
-                .map_err(|_| LlmError::Timeout(timeout_ms))?
-                .map_err(|e| {
-                    if e.is_timeout() {
-                        LlmError::Timeout(timeout_ms)
-                    } else {
-                        LlmError::HttpError(e)
-                    }
-                })?
+            Self::map_timeout_result(
+                execute_with_timeout(self.client.execute(http_request), Some(timeout_ms)).await,
+                timeout_ms,
+            )?
         };
 
         if !response.status().is_success() {
@@ -199,29 +203,15 @@ impl LlmClient for LlmClientImpl {
         request: &LlmRequest,
         cancel: Option<CancellationToken>,
     ) -> LlmResult<LlmResponseType> {
-        let max_retries = self.max_retries();
-        let mut last_err = None;
-
-        for attempt in 0..=max_retries {
-            match self.generate_inner(request, cancel.clone()).await {
-                Ok(result) => return Ok(result),
-                Err(e) if e.is_retryable() && attempt < max_retries => {
-                    last_err = Some(e);
-                    if let Some(ref cancel) = cancel {
-                        tokio::select! {
-                            _ = tokio::time::sleep(self.retry_delay(attempt)) => {}
-                            _ = cancel.cancelled() => return Err(LlmError::Cancelled),
-                        }
-                    } else {
-                        tokio::time::sleep(self.retry_delay(attempt)).await;
-                    }
-                }
-                Err(e) => return Err(e),
-            }
-        }
-
-        Err(last_err
-            .unwrap_or_else(|| LlmError::ConfigError("retry failed without error".to_string())))
+        let policy = self.retry_policy();
+        let cancel_token = cancel.as_ref().map(|c| (c, LlmError::Cancelled));
+        wf_common::retry::execute_with_retry(
+            Some(&policy),
+            |r| matches!(r, Err(e) if e.is_retryable()),
+            cancel_token,
+            || self.generate_inner(request, cancel.clone()),
+        )
+        .await
     }
 
     async fn generate_stream(
@@ -229,29 +219,15 @@ impl LlmClient for LlmClientImpl {
         request: &LlmRequest,
         cancel: Option<CancellationToken>,
     ) -> LlmResult<Box<dyn MessageStream>> {
-        let max_retries = self.max_retries();
-        let mut last_err = None;
-
-        for attempt in 0..=max_retries {
-            match self.generate_stream_inner(request, cancel.clone()).await {
-                Ok(stream) => return Ok(stream),
-                Err(e) if e.is_retryable() && attempt < max_retries => {
-                    last_err = Some(e);
-                    if let Some(ref cancel) = cancel {
-                        tokio::select! {
-                            _ = tokio::time::sleep(self.retry_delay(attempt)) => {}
-                            _ = cancel.cancelled() => return Err(LlmError::Cancelled),
-                        }
-                    } else {
-                        tokio::time::sleep(self.retry_delay(attempt)).await;
-                    }
-                }
-                Err(e) => return Err(e),
-            }
-        }
-
-        Err(last_err
-            .unwrap_or_else(|| LlmError::ConfigError("retry failed without error".to_string())))
+        let policy = self.retry_policy();
+        let cancel_token = cancel.as_ref().map(|c| (c, LlmError::Cancelled));
+        wf_common::retry::execute_with_retry(
+            Some(&policy),
+            |r| matches!(r, Err(e) if e.is_retryable()),
+            cancel_token,
+            || self.generate_stream_inner(request, cancel.clone()),
+        )
+        .await
     }
 
     async fn count_tokens(
@@ -379,12 +355,10 @@ mod tests {
             profile("p1"),
         );
         assert_eq!(client.max_retries(), 3);
-        assert_eq!(client.retry_delay(0), Duration::from_millis(1000));
-        assert_eq!(
-            client.retry_delay(2),
-            Duration::from_millis(4000),
-            "exponential backoff"
-        );
+        let policy = client.retry_policy();
+        assert_eq!(policy.max_retries, 3);
+        assert_eq!(policy.base_delay_ms, 1000);
+        assert!(policy.exponential_backoff);
 
         let mut p = profile("p1");
         p.max_retries = Some(5);
@@ -395,7 +369,10 @@ mod tests {
             p,
         );
         assert_eq!(client.max_retries(), 5);
-        assert_eq!(client.retry_delay(1), Duration::from_millis(500));
+        let policy = client.retry_policy();
+        assert_eq!(policy.max_retries, 5);
+        assert_eq!(policy.base_delay_ms, 250);
+        assert!(policy.exponential_backoff);
     }
 
     #[test]

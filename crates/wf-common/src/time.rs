@@ -1,17 +1,9 @@
 use chrono::{DateTime, Utc};
 
-pub type Timestamp = i64;
+pub use wf_types::Timestamp;
 
 pub fn now() -> Timestamp {
     Utc::now().timestamp_millis()
-}
-
-pub fn diff_millis(start: Timestamp, end: Timestamp) -> i64 {
-    end - start
-}
-
-pub fn timestamp_from_datetime(dt: &DateTime<Utc>) -> Timestamp {
-    dt.timestamp_millis()
 }
 
 pub fn datetime_from_timestamp(ts: Timestamp) -> DateTime<Utc> {

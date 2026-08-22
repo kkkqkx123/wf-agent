@@ -2,7 +2,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 
 use dashmap::DashMap;
-use wf_common::gate::{AcquireStrategy, GateStats};
+use wf_common::gate::GateStats;
 use wf_execution_shared::types::execution_entity::ExecutionStatus;
 use wf_tools::callback::AgentLoopOutput;
 use wf_types::Id;
@@ -66,10 +66,10 @@ pub struct AgentLoopRegistry {
     /// Used to abort a still-running task on cancel; removed by the task
     /// itself on completion.
     tasks: DashMap<Id, tokio::task::JoinHandle<()>>,
-    /// Capacity gate: `register` acquires a permit (default `Reject`
-    /// strategy) and rejects beyond `max_concurrent` with
-    /// `AgentError::ExecutionLimitReached`. The permit lives in the entity
-    /// and is released when the execution reaches a terminal state.
+    /// Capacity gate: `register` acquires a permit and rejects beyond
+    /// `max_concurrent` with `AgentError::ExecutionLimitReached`. The permit
+    /// lives in the entity and is released when the execution reaches a
+    /// terminal state.
     gate: Arc<AgentCapacityGate>,
     /// Maximum sub-agent recursion depth (root = depth 0). `depth_allowed`
     /// rejects a child whose resolved depth would exceed the limit.
@@ -103,12 +103,6 @@ impl AgentLoopRegistry {
         self
     }
 
-    /// Builder-style acquisition strategy override (default `Reject`).
-    pub fn with_acquire_strategy(self, strategy: AcquireStrategy) -> Self {
-        self.set_acquire_strategy(strategy);
-        self
-    }
-
     /// Builder-style sub-agent depth limit.
     pub fn with_max_sub_agent_depth(self, max: u32) -> Self {
         self.set_max_sub_agent_depth(max);
@@ -119,11 +113,6 @@ impl AgentLoopRegistry {
     /// pre-start configuration; existing permits keep their original gate.
     pub fn set_max_concurrent(&self, max: usize) {
         self.gate.set_max_concurrent(max);
-    }
-
-    /// Reconfigure the acquisition strategy in place.
-    pub fn set_acquire_strategy(&self, strategy: AcquireStrategy) {
-        self.gate.set_acquire_strategy(strategy);
     }
 
     /// Reconfigure the sub-agent depth limit in place.

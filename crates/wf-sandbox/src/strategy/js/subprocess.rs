@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use wf_types::script::sandbox::{SandboxPolicy, ScriptExecutionResult};
 
 use crate::resolver::{StrategyExecuteOptions, StrategyImplementation, StrategyKind};
-use crate::timeout::execute_with_timeout;
+use wf_common::exec::execute_with_timeout;
 
 pub struct JavaScriptSubprocessStrategy;
 
@@ -64,7 +64,8 @@ impl StrategyImplementation for JavaScriptSubprocessStrategy {
             },
             options.timeout_ms,
         )
-        .await?;
+        .await
+        .map_err(|e| e.into_boxed())?;
 
         Ok(ScriptExecutionResult {
             success: output.status.success(),

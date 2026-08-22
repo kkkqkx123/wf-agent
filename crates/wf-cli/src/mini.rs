@@ -16,6 +16,7 @@
 //! (the sink channel is already plumbed).
 
 use std::io::{self, Stdout};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use crossterm::event::{Event as CrosstermEvent, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use futures::StreamExt;
@@ -34,6 +35,7 @@ use unicode_width::UnicodeWidthStr;
 use crate::error::CliResult;
 use crate::footer::{Footer, FooterRoute, FooterView, SPINNER_TICK_MS};
 use crate::keymap::{CKey, Key, KeyAction, Keymap};
+use crate::markdown::MarkdownStream;
 use crate::reducer::Phase;
 use crate::scrollback::{HistoryLine, LineState, Role};
 use crate::sink::{MiniOutputEvent, MiniSink};
@@ -46,6 +48,18 @@ use crate::theme::Theme;
 /// Fallback wait when no deadline is pending (bounded so channel events are
 /// still observed promptly).
 const IDLE_POLL_MS: u64 = 200;
+
+/// Set by the SIGTSTP handler when the user suspends the app (Ctrl-Z); the
+/// event loop observes it and runs the suspend/resume cycle. Only a flag
+/// store happens inside the handler, which is async-signal-safe.
+static SUSPEND_PENDING: AtomicBool = AtomicBool::new(false);
+
+/// SIGTSTP handler: record the suspension request. The actual terminal
+/// restore / `SIGSTOP` sequence runs in the event loop (not here) so it can
+/// use normal Rust calls.
+extern "C" fn sigtstp_handler(_sig: libc::c_int) {
+    SUSPEND_PENDING.store(true, Ordering::SeqCst);
+}
 
 /// The mini application: owns the terminal, the footer, the scrollback
 /// settle state and the output channel.
@@ -61,8 +75,10 @@ pub struct MiniApp {
     /// Lines produced since the last flush boundary (settled by
     /// `MiniOutputEvent::Flush`).
     pending_scroll: Vec<HistoryLine>,
-    /// Accumulated streaming chunks (shown in the footer tail line).
-    streaming_text: String,
+    /// Incremental markdown source splitter: committed blocks settle into
+    /// `HistoryLine` entries in `pending_scroll`, while the in-flight tail
+    /// is rendered live in the footer.
+    stream: MarkdownStream,
     /// The sink paired with `output_rx` (kept alive so the channel stays
     /// open; the session driver writes through it).
     #[allow(dead_code)]
@@ -78,6 +94,11 @@ impl MiniApp {
     /// viewport and arm the signal receivers.
     pub fn new() -> CliResult<Self> {
         install_panic_hook();
+        // Suspend support (Ctrl-Z): the handler only records the request;
+        // the restore/SIGSTOP cycle runs in the event loop.
+        unsafe {
+            libc::signal(libc::SIGTSTP, sigtstp_handler as libc::sighandler_t);
+        }
         let mut guard = TerminalGuard::new(CrosstermControl::new(io::stdout()));
         guard.enter(TerminalModes::MINI)?;
 
@@ -104,7 +125,7 @@ impl MiniApp {
             double_press: DoublePressTracker::default(),
             scrollback: Vec::new(),
             pending_scroll: Vec::new(),
-            streaming_text: String::new(),
+            stream: MarkdownStream::default(),
             sink,
             output_rx: rx,
             viewport_height: height,
@@ -119,6 +140,11 @@ impl MiniApp {
         let mut input = crossterm::event::EventStream::new();
         let mut theme_rx = crate::theme::theme_reload_signals().await?;
         let mut sigint = signal(SignalKind::interrupt())?;
+
+        // Input boundary: drop keystrokes buffered before the interactive
+        // session starts (bracketed paste/terminal noise from the parent
+        // shell must not pre-fill the composer). Bounded at 1s.
+        self.drain_early_input(&mut input).await;
 
         self.pending_scroll.push(HistoryLine::new_role(
             "wf mini — type a prompt; Ctrl-C twice or Ctrl-Q to exit",
@@ -155,6 +181,7 @@ impl MiniApp {
                     if self.footer.state.phase == Phase::Streaming {
                         self.dirty = true;
                     }
+                    self.check_suspend(&mut input).await?;
                 }
                 maybe = input.next() => self.handle_input(maybe)?,
                 maybe = self.output_rx.recv() => self.handle_output(maybe),
@@ -164,6 +191,53 @@ impl MiniApp {
         }
 
         self.guard.restore()?;
+        Ok(())
+    }
+
+    /// Drop keystrokes buffered before the interactive session starts so
+    /// terminal noise / bracketed-paste residue from the parent shell cannot
+    /// pre-fill the composer or trigger first-screen actions. Drains for at
+    /// most 1s of quiet; stops early once the stream goes idle.
+    async fn drain_early_input(&mut self, input: &mut crossterm::event::EventStream) {
+        let deadline = Instant::now() + Duration::from_secs(1);
+        while Instant::now() < deadline {
+            let maybe = tokio::time::timeout(Duration::from_millis(50), input.next()).await;
+            match maybe {
+                Ok(Some(Ok(_))) => continue, // consume and keep draining
+                _ => break,                   // idle / error: done
+            }
+        }
+    }
+
+    /// When a SIGTSTP (Ctrl-Z) arrived since the last tick, run the suspend /
+    /// resume cycle: restore the terminal, stop the process, then re-apply
+    /// the mini modes, re-query geometry, drop leftover input and force a
+    /// full redraw.
+    async fn check_suspend(&mut self, input: &mut crossterm::event::EventStream) -> CliResult<()> {
+        if !SUSPEND_PENDING.swap(false, Ordering::SeqCst) {
+            return Ok(());
+        }
+        // Restore the terminal so the shell below renders normally while
+        // we are stopped.
+        self.guard.restore()?;
+        // Stop with the default SIGTSTP disposition so the shell gains
+        // control; SIGCONT (fg) resumes execution right after `raise`.
+        unsafe {
+            libc::signal(libc::SIGTSTP, libc::SIG_DFL);
+            libc::raise(libc::SIGTSTP);
+            libc::signal(libc::SIGTSTP, sigtstp_handler as libc::sighandler_t);
+        }
+        // Resumed: re-apply the mini terminal modes.
+        self.guard.enter(TerminalModes::MINI)?;
+        // Force a fresh geometry query: the terminal may have been resized
+        // while we were stopped.
+        let (cols, rows) = crossterm::terminal::size()?;
+        self.viewport_height = self.footer.apply_height_with_width(cols);
+        self.terminal.resize(Rect::new(0, 0, cols, rows))?;
+        self.terminal.clear()?;
+        // Drop any input typed between resume and the next loop iteration.
+        self.drain_early_input(input).await;
+        self.dirty = true;
         Ok(())
     }
 
@@ -188,10 +262,10 @@ impl MiniApp {
 
     /// Rebuild the inline viewport when the footer height changes.
     fn ensure_viewport(&mut self) -> CliResult<()> {
-        let want = self.footer.apply_height();
+        let (cols, _) = crossterm::terminal::size()?;
+        let want = self.footer.apply_height_with_width(cols);
         if want != self.viewport_height {
             self.viewport_height = want;
-            let (cols, _) = crossterm::terminal::size()?;
             self.terminal.resize(Rect::new(0, 0, cols, want))?;
         }
         Ok(())
@@ -340,10 +414,11 @@ impl MiniApp {
         let Some(text) = self.footer.composer.submit() else {
             return;
         };
+        let sanitized = crate::sanitize::sanitize_user_text(&text);
         self.pending_scroll
-            .push(HistoryLine::new_role(format!("> {text}"), Role::Accent));
+            .push(HistoryLine::new_role(format!("> {sanitized}"), Role::Accent));
         let _ = self.settle_scrollback();
-        self.footer.show_notice(format!("queued: {text}"));
+        self.footer.show_notice(format!("queued: {sanitized}"));
         self.dirty = true;
     }
 
@@ -374,18 +449,30 @@ impl MiniApp {
                 // boundary still repaints.
             }
             MiniOutputEvent::Chunk(chunk) => {
-                self.streaming_text.push_str(&chunk);
-                self.footer.streaming = Some(HistoryLine::new_with_role(
-                    self.streaming_text.clone(),
-                    LineState::Streaming,
-                    Role::Default,
-                ));
+                let frame = self.stream.push(&chunk);
+                if !frame.new_committed.is_empty() {
+                    self.pending_scroll.push(HistoryLine::new_role(
+                        frame.new_committed,
+                        Role::Default,
+                    ));
+                }
+                let tail = frame.new_streaming;
+                if tail.is_empty() {
+                    self.footer.streaming = None;
+                } else {
+                    self.footer.streaming = Some(HistoryLine::new_with_role(
+                        tail,
+                        LineState::Streaming,
+                        Role::Default,
+                    ));
+                }
                 self.dirty = true;
             }
             MiniOutputEvent::Flush => {
-                if !self.streaming_text.is_empty() {
+                let frame = self.stream.finish();
+                if !frame.new_committed.is_empty() {
                     self.pending_scroll.push(HistoryLine::new_role(
-                        std::mem::take(&mut self.streaming_text),
+                        frame.new_committed,
                         Role::Default,
                     ));
                 }

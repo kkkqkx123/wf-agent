@@ -496,6 +496,7 @@ pub async fn run_session(
 
     // Headless approval degradation rides on the handler; the engine
     // routes every tool call through it (ask-everything fallback).
+    let sanitized_prompt = crate::sanitize::sanitize_user_text(&opts.prompt);
     let params = RunAgentLoopParams {
         agent_loop_id: Some(Id::from(execution_id.clone())),
         approval_handler: Some(Arc::new(HeadlessApprovalHandler {
@@ -525,7 +526,7 @@ pub async fn run_session(
             discoverable_metadata_block: None,
         },
         input: AgentLoopInput {
-            message: opts.prompt.clone(),
+            message: sanitized_prompt,
             context: HashMap::new(),
             conversation: Vec::new(),
         },

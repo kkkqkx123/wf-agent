@@ -178,11 +178,24 @@ impl Footer {
         self.route = route;
     }
 
-    /// Required viewport height for the current view × route.
+    /// Required viewport height for the current view x route.
     pub fn apply_height(&self) -> u16 {
+        self.apply_height_with_width(0)
+    }
+
+    /// Required viewport height for the current view x route, using the
+    /// given terminal width to compute streaming tail row count. Pass 0 to
+    /// skip streaming row estimation (the streaming row always occupies at
+    /// least 1 row when present).
+    pub fn apply_height_with_width(&self, width: u16) -> u16 {
         let main = match (self.view, self.route) {
             (FooterView::Prompt, FooterRoute::Composer) => {
-                COMPOSER_MAIN_HEIGHT + u16::from(self.streaming.is_some())
+                let stream_rows = match (&self.streaming, width) {
+                    (Some(s), w) if w > 0 => s.desired_height(w).max(1),
+                    (Some(_), _) => 1,
+                    (None, _) => 0,
+                };
+                COMPOSER_MAIN_HEIGHT + stream_rows
             }
             (FooterView::Prompt, _) => PANEL_MAIN_HEIGHT,
             (FooterView::Permission, _) => PERMISSION_MAIN_HEIGHT,
@@ -245,16 +258,20 @@ impl Footer {
         self.draw_statusline(status, buf, theme);
     }
 
-    /// Render the main area by the current view × route.
+    /// Render the main area by the current view x route.
     fn draw_main(&mut self, area: Rect, buf: &mut Buffer, theme: &Theme) {
         match (self.view, self.route) {
             (FooterView::Prompt, FooterRoute::Composer) => {
                 let style = theme_style(theme, Role::Default);
                 if let Some(streaming) = &self.streaming {
-                    let [tail, rest] =
-                        Layout::vertical([Constraint::Length(1), Constraint::Min(1)]).areas(area);
                     let lines = streaming.display_lines(area.width);
-                    for (i, line) in lines.iter().take(usize::from(tail.height)).enumerate() {
+                    let stream_rows = lines.len() as u16;
+                    let [tail, rest] = Layout::vertical([
+                        Constraint::Length(stream_rows),
+                        Constraint::Min(1),
+                    ])
+                    .areas(area);
+                    for (i, line) in lines.iter().enumerate() {
                         let row = Rect {
                             x: tail.x,
                             y: tail.y + i as u16,

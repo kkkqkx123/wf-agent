@@ -211,45 +211,48 @@ wf-types/wf-common/wf-config/wf-storage → wf-runtime/wf-api/wf-agent → wf-cl
 - 探针子命令 `wf debug-terminal`：TTY 环境全链路（guard → 帧 → with_restored 运行外部命令 → 重绘帧 → restore）；非 TTY 降级打印默认主题 exit 0。
 - workspace 依赖新增 `crossterm = "0.29"`（对齐 ratatui 0.30 系版本）；wf-cli 增 `crossterm` + `libc`。
 
-### Stage 4：公共 UI 组件库（通用 F10）
+### Stage 4：公共 UI 组件库（通用 F10）✅ 已完成（2026-08-18，详见 `wf-cli-stage4-公共UI组件库-实施方案.md`）
 
 **目标**：mini 与 TUI 共享的组件层（ratatui 0.30 引入点）。
 
 **任务**
 
-- [ ] workspace 依赖新增 `ratatui 0.30` + `crossterm`（正式引入 UI 依赖，Stage 2 的"无 UI 依赖"约束解除）。
-- [ ] `scrollback.rs`：`HistoryLine`（提交型行 + 在途 streaming 行，`display_lines(width)` / `desired_height(width)`，宽度变化 reflow，对齐 03 §7、05 §4.2）。
-- [ ] `select.rs`：`SelectList`（分组滚动列表，对齐 03 §4.1）。
-- [ ] `keymap.rs`：`Keymap`（上下文回退：global → mini/footer → 面板/模态框，对齐 04 §九、05 §4.6）。
-- [ ] `framer.rs`：`FrameRequester`（限帧：渲染帧 30-60、输入事件即时唤醒；批量 drain 合并，对齐 03 §3.2、05 §附）。
-- [ ] 公共绘制：ANSI 解析管线（ansi-to-tui，对齐 03 §2.3）、终端尺寸变更事件（75ms 防抖，对齐 02 §五 3）。
+- [x] workspace 依赖新增 `ratatui 0.30` + `crossterm`（正式引入 UI 依赖，Stage 2 的"无 UI 依赖"约束解除）。
+- [x] `scrollback.rs`：`HistoryLine`（提交型行 + 在途 streaming 行，`display_lines(width)` / `desired_height(width)`，宽度变化 reflow，对齐 03 §7、05 §4.2）。
+- [x] `select.rs`：`SelectList`（分组滚动列表，对齐 03 §4.1）。
+- [x] `keymap.rs`：`Keymap`（上下文回退：global → mini/footer → 面板/模态框，对齐 04 §九、05 §4.6）。
+- [x] `framer.rs`：`FrameRequester`（限帧：渲染帧 30-60、输入事件即时唤醒；批量 drain 合并，对齐 03 §3.2、05 §附）。
+- [x] 公共绘制：ANSI 解析管线（自研最小 SGR 子集，偏差 P1）、终端尺寸变更事件（75ms 防抖，对齐 02 §五 3）。
 
 **交付与验收**
 
 - 各组件 insta snapshot 测试（不同宽度/高度、分组选中、滚动位置）；`display_lines` reflow 单测。
 - 组件纯数据化：不直接依赖领域类型（`HistoryLine` 只持有 `Text`/样式），保证可独立测试。
 
-### Stage 5：流式渲染内核（通用 F5/F6）
+### Stage 5：流式渲染内核（通用 F5/F6）✅ 已完成（2026-08-18，详见 `wf-cli-stage5-流式渲染内核-实施方案.md`）
 
 **目标**：三形态共享的"事件 → 可视内容"数据管线（headless 摘要、mini footer、TUI 屏幕均消费）。
 
 **任务**
 
-- [ ] `reducer.rs`：纯函数归约——`Vec<UnifiedEvent> → (Vec<MiniCommit>, FooterState)`；commit 分组键 `execution_id + iteration + tool_call_id`；连续 LlmDelta 合并（帧内批量）；事件折叠对齐 opencode `footer.append` 微任务合并语义（05 §3.3）；`ids` 幂等去重。
-- [ ] `markdown.rs`：streaming markdown——pulldown-cmark 分词 + 按 top-level block（段落/列表/代码块）增量提交，未完结 block 不固化（对齐 05 §3.2）；代码块 streaming 用临时占位行，settle 后替换为语法高亮块（P2 syntect，超限保护对齐 03 §2.3）。
-- [ ] `lib.rs`：reducer + markdown 组合出"无头摘要渲染器"（headless 用同一内核，但只输出文本行）——验证数据管线独立于 UI。
+- [x] `reducer.rs`：纯函数归约——`Vec<UnifiedEvent> → (Vec<MiniCommit>, FooterState)`；commit 分组键 `execution_id + iteration + tool_call_id`；连续 LlmDelta 合并（帧内批量）；事件折叠对齐 opencode `footer.append` 微任务合并语义（05 §3.3）；`ids` 幂等去重。
+- [x] `markdown.rs`：streaming markdown——pulldown-cmark 分词 + 按 top-level block（段落/列表/代码块）增量提交，未完结 block 不固化（对齐 05 §3.2）；代码块 streaming 用临时占位行，settle 后替换（P2 syntect 语法高亮在 `MarkdownFrame.code_lang` 接缝接入，超限保护对齐 03 §2.3）。
+- [x] `lib.rs`：reducer + markdown 组合出"无头摘要渲染器"（headless 用同一内核，但只输出文本行）——验证数据管线独立于 UI。
+
+> 遗留改进（已对照 codex 流式渲染分析定位，排期见 `wf-cli-stage6-mini模式-实施方案.md` §三 D14）：表格 holdback、换行门控、引用式链接定义全量回退、定稿全量重渲兜底测试——详见 `wf-cli-stage5-流式渲染内核-实施方案.md` §七。
 
 **交付与验收**
 
 - reducer 纯函数单测：合成事件序列（含乱序/重复 part）→ commit 序列快照；markdown 增量提交快照（未完结 block 不出现、完结后固化）。
 - 无头路径冒烟：`wf run` 文本输出与 mini 滚动区内容同源（同一 reducer 产物），保证形态间一致性。
 
-### Stage 6：mini 模式（形态落地 1）
+### Stage 6：mini 模式（形态落地 1）🔨 实施中（阶段 6A 已完成 2026-08-20；6B–6E 待实施，详见 `wf-cli-stage6-mini模式-实施方案.md`）
 
 **目标**：`wf --mini` 可用——inline split-footer 交互会话。
 
 **任务**
 
+- [x] 阶段 6A（args/keymap/MiniSink 前置）：`--session/--resume/--demo/-p/--agent/--model` + validate；`KeymapContext::{Composer,Panel,Approval,Question}` + `KeyAction::DenyOnce`；`MiniSink`（mpsc 内存型 OutputSink + `tee_log`）。
 - [ ] `footer.rs`：ratatui `Terminal` + `Viewport::Inline(n)`（normal screen 底部视口，对齐 05 §3.1/§4.3）；动态高度（composer/面板/审批/问题/statusline 各视图高度表，对齐 05 §4.3）；statusline 宽度响应式（80/120 断点，对齐 05 §4.4.4）。
 - [ ] 输出模型对齐：引入 `MiniSink`（内存型，§2.1）——业务输出追加 scrollback + 标记重绘，由渲染器统一绘制（capture-stdout + ansi-to-tui），业务层不直接 println 写屏；可选 `--log <file>` 时用 `TeeSink` 同时落盘。
 - [ ] `composer.rs`：P0 自研单行 Input（历史 ↑/↓ 100 条）；P1 `ratatui-textarea` 多行（≤6 行）+ `@` mention（文件带行号 / 技能 / 工作流，区间高亮对齐 05 §3.2）；`/` 命令 palette。
@@ -257,6 +260,7 @@ wf-types/wf-common/wf-config/wf-storage → wf-runtime/wf-api/wf-agent → wf-cl
 - [ ] `approval.rs` / `question.rs`：审批视图（y/a/d/n/c 键位对齐 codex）与追问视图（单选/多选/自定义），接入 05 §3.4 领域映射。
 - [ ] 会话语义：串行 turn + 排队；两按退出；退出打印 `wf --mini --session <id>` 续跑提示（对齐 05 §4.5）。
 - [ ] `--demo`（前置：Stage 8 的 demo.rs 可先落最小版）：合成事件流驱动完整管线冒烟。
+- [ ] 流式渲染正确性补齐（自 codex 分析引入，见 stage6 方案 D14）：表格 holdback、换行门控、引用链接回退、resize 流式宽度 + 定稿强制重排、尾部局部替换。
 
 **交付与验收**
 
@@ -284,7 +288,7 @@ wf-types/wf-common/wf-config/wf-storage → wf-runtime/wf-api/wf-agent → wf-cl
 
 **任务**
 
-- [ ] `replay.rs`：`--resume`/`--replay` 从存储重放执行事件与消息重建 scrollback（对齐 05 §4.5）；resize 后按新宽度 reflow。
+- [ ] `replay.rs`：`--resume`/`--replay` 从存储重放执行事件与消息重建 scrollback（对齐 05 §4.5）；resize 后按新宽度 reflow；**长会话 cursor 分页补载**（内存 scrollback 有界、滚到顶部按 cursor 从 wf-storage 拉更早历史回填，状态机 `Partial/Complete/LoadingBeginning`——自 codex 历史分析引入，见 `docs/analysis/` 对照）。
 - [ ] `demo.rs`：完整版合成 `AgentStreamEvent` 序列（含权限/问题/工具/错误场景），支撑三形态自动化冒烟。
 - [ ] 集成测试套：`wf run` 端到端矩阵（text/json/silent × 审批 × 退出码）；`--mini --demo` 与 `--tui --demo` 冒烟脚本；CI 挂接（对齐 rust 迁移方案验收风格）。
 - [ ] 性能基准：帧渲染耗时不随 scrollback 行数线性退化（reflow/截断基准）；reducer 万级事件耗时上界。
@@ -346,3 +350,5 @@ Stage 0（骨架/模式）──► Stage 1（IO/领域）──► Stage 2（ru
 | sink 所有权 | 内存型 sink 经 mpsc 到 UI 单消费者，不引入 `Arc<Mutex<AppState>>` | 现有事件驱动架构（03 §七）已解决跨线程，避免锁竞争 |
 | 形态默认值 | config `cli.default_mode` 收敛（方案 A 推荐：--mini 显式） | 对齐 05 §2.3，避免实现期反复 |
 | wf-server 关系 | wf-cli 与 wf-server 并列依赖 wf-api，不共享 UI 层 | 避免 TUI 代码泄漏进 server 面 |
+| 宽度缓存的边界（自 codex 分析澄清） | 红线 9"禁止固定宽度缓存"保持；补充：**宽度键控**缓存（键含 width，resize 即失效）与"committed 区域行缓存 / 稳定前缀缓存"不违反红线，允许 stage6 之后按性能需要引入 | codex `MarkdownRenderCache`/`StablePrefixLenCache` 均以宽度为键（见 `docs/analysis/` 对照 §4.5）；红线 9 语义是"宽度变化必须重算"，不是"禁止一切缓存" |
+| 退出时主动停止 ≠ 故障（自 codex 分析引入） | 用户主动退出/取消（两按退出、`/quit`、SIGINT 中断）的执行关闭事件不得被 wf-runtime 记为 `Failed` 派发（防止退出瞬间闪现错误行/后台重试） | codex `ExitMode::ShutdownFirst` 的 `pending_shutdown_exit_thread_id` 语义（见 `docs/analysis/` 对照 §6.3）；三形态共用同一"主动停止"状态 |

@@ -1,6 +1,6 @@
 # wf-cli Stage 5 实施方案：流式渲染内核（通用 F5/F6）
 
-> 状态：已完成（阶段 5A–5E，2026-08-18）
+> 状态：已完成（阶段 5A–5E，2026-08-18）；遗留改进（表格 holdback / 换行门控 / 引用链接回退 / 定稿兜底重渲）排期 Stage 6，见 §七
 > 上游方案：`docs/plan/cli/wf-cli-分阶段实现方案.md`（Stage 5 任务定义）、`docs/cli/05-opencode-mini模式与无头模式设计.md` §3.2/§3.3/§3.4（streaming markdown / footer.append 微任务合并 / 领域事件→UI commit 映射）、`docs/cli/03-组件设计方案.md` §2.3（超限保护）、§3.2（帧调度合并）、§七（HistoryLine/滚动区）
 > 范围：三形态共享的"事件 → 可视内容"数据管线——`reducer.rs`（`Vec<UnifiedEvent>` → `MiniCommit[] + FooterState` 纯函数归约）、`markdown.rs`（pulldown-cmark 增量 top-level block 提交的 streaming markdown）、`render.rs`（`HeadlessRenderer`：reducer + markdown 组合出的无头摘要渲染器，验证数据管线独立于 UI）。**本阶段不引入任何 UI 消费方**（mini footer / TUI 屏幕分别落到 Stage 6/7）。
 
@@ -113,3 +113,16 @@ crates/wf-cli/Cargo.toml ← 依赖 pulldown-cmark
 | 软换行语义 | `render_plain_text` 软换行保留 `\n`，保证无头与 mini 一致、且与既有 DeltaBuffer 行为兼容 |
 | 与 Stage 4 HistoryLine 衔接 | markdown 只产源文本；宽度 reflow / 样式 / Role 全部由 Stage 4 `HistoryLine` + Stage 6/7 承担（组件纯数据化红线） |
 | 语法高亮（P2 syntect） | `MarkdownFrame.code_lang` 预留语言标识接缝；超限保护与 03 §2.3 对齐 |
+
+## 七、已知改进项（codex 对照分析定位，排期 Stage 6）
+
+对照 `docs/analysis/` 下 codex 流式渲染分析（`ai-output.md`）与 `wf-agent-learnings.md` §4，本阶段交付的 `MarkdownStream` 存在四项正确性/体验缺口，mini（Stage 6）是第一个 UI 消费方，**排期 Stage 6B 一并补齐**（`wf-cli-stage6-mini模式-实施方案.md` D14）：
+
+| # | 改进项 | 缺口 | codex 参照（ai-output.md） |
+| :- | :--- | :--- | :--- |
+| I1 | **表格 holdback** | `boundary()`（markdown.rs:152）只有顶层块边界 + fence/空行沉降启发式，无表格检测——表头行会被提前提交，流式表格列宽变化产生错位/闪烁 | §4.2/§5.1 `TableHoldbackScanner` + `FenceTracker` |
+| I2 | **换行门控** | 沉降启发式未严格"未以换行结尾不提交"——半行可能被提交（如段落最后一行不完整时按块边界提前提交） | §2.2/§2.5 换行门控硬约束 |
+| I3 | **引用式链接定义全量回退** | 检测到 `[ref]: url` 定义后未全量重渲（此类结构可回溯影响任意块） | §4.1 recompute 全量回退 |
+| I4 | **定稿兜底重渲测试** | `finish()` 全量 commit 但无"完整源码渲染 vs 增量提交"比对兜底；缺 `assert_streamed_equals_full` 语义测试锁定"流式过程 == 完整结果" | §2.5/§5.2 `assert_streamed_equals_full` |
+
+另有 P1 项：**两档提交动画**（`AdaptiveChunkingPolicy` 的 Smooth/CatchUp 带滞回分块策略，ai-output.md §4.4）作为独立纯逻辑对象（可注入队列深度/队龄单测），随 mini 流式呈现层落地评估。

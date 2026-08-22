@@ -1,8 +1,8 @@
 # wf-cli Stage 6 实施方案：mini 模式（形态落地 1）
 
-> 状态：方案设计（待实施）
+> 状态：实施中（阶段 6A 已完成 2026-08-20；6B–6E 待实施）
 > 上游方案：`docs/plan/cli/wf-cli-分阶段实现方案.md`（Stage 6 任务定义）、`docs/cli/05-opencode-mini模式与无头模式设计.md`（mini 模式设计 §3.1-§3.4/§四）、`docs/cli/03-组件设计方案.md`（组件清单/事件循环/输入）、`docs/cli/04-终端交互设计.md`（Keymap 上下文）
-> 对照参考：`/workspace/opencode-mini-tui.md`（架构总览）、`/workspace/opencode-mini-features.md`（功能清单）、`/workspace/opencode-mini-rendering.md`（渲染逻辑）——三份 opencode `--mini` 模式源码分析
+> 对照参考：`/workspace/opencode-mini-tui.md`（架构总览）、`/workspace/opencode-mini-features.md`（功能清单）、`/workspace/opencode-mini-rendering.md`（渲染逻辑）——三份 opencode `--mini` 模式源码分析；`/workspace/docs/analysis/wf-agent-learnings.md`（codex TUI 四模块设计思想对照，§三/§四/§五/§六 为本文档 D14-D20 的出处）
 > 范围：`wf --mini` inline split-footer 交互会话的完整落地——渲染底座（ratatui `Terminal` + `Viewport::Inline`）、footer 视图栈（composer/面板/审批/问题 + statusline）、MiniSink 输出模型、串行 turn + 排队、两按退出、审批/追问交互接线、`--demo` 最小版。**Stage 6 是第一个消费 Stage 5 reducer/markdown 产物的 UI 形态**（mini footer 与 Stage 5 无头摘要渲染器消费同一 commit 流）。
 
 ---
@@ -37,16 +37,29 @@
 | # | 缺口 | 说明 |
 | :- | :--- | :--- |
 | G1 | **mini 渲染底座不存在** | `lib.rs::run_interactive` 目前仅打印 `"[wf] Mini mode selected; the interactive renderer lands in a later stage"` 占位文本（lib.rs:134-138）。需要 ratatui `Terminal` + `Viewport::Inline(n)` + split-footer 布局 + tokio 事件循环 |
-| G2 | **`MiniSink` 未实现** | 总方案 §2.1 预留的内存型 sink（追加 scrollback + 标记重绘）尚无实现；mini 业务输出若直接 println 会与 `Viewport::Inline` 光标操作竞争（方案 §七已定红线） |
+| G2 | **`MiniSink` 已实现（6A）** | 见 1.3；总方案 §2.1 预留的内存型 sink 已落地 |
 | G3 | **footer.rs 不存在** | 视图路由（prompt/permission/question + 面板 route）、`apply_height` 动态高度、statusline 宽度响应式、notice 机制、两按退出提示——opencode `RunFooter` 的对应物 |
 | G4 | **composer.rs 不存在** | P0 单行输入（grapheme 光标 + 水平滚动 + 历史 100 条）；P1 多行（≤6 行）+ `@` mention 区间高亮 + `/` 命令 palette |
 | G5 | **panels.rs 不存在** | 模型/技能/排队面板（`llm_profile`、`SkillLoader`、排队队列数据源） |
 | G6 | **approval.rs / question.rs 不存在** | 审批视图（y/a/d/n/c 键位）与追问视图（单选/多选/自定义）；headless 侧的 deny 策略不能用于交互形态（05 §3.4 要求交互确认） |
 | G7 | **会话驱动未接线** | 串行 turn + 排队队列、`MiniApprovalHandler`/`MiniInteractionHandler` 注入 `RunAgentLoopParams`/`register_handler`、退出续跑提示（`wf --mini --session <id>`） |
 | G8 | **`--demo` 最小版缺失** | 合成事件流驱动完整管线冒烟（Stage 8 demo.rs 的 P0 前置） |
-| G9 | **args 扩展缺失** | `--session`/`--resume`/`--demo`/`-p`/`--agent`/`--model` mini 选项 + 互斥校验（对齐 opencode：`--demo` 要求 `--mini`） |
-| G10 | **keymap mini 上下文缺失** | `KeymapContext` 仅有 Global/List/Detail/Chat/Input/Modal；需要 mini 专属上下文（composer/面板/审批/问题）与键位绑定 |
+| G9 | **args 扩展已完成（6A）** | `--session`/`--resume`/`--demo`/`-p`/`--agent`/`--model` + 互斥校验（含 `--demo` 要求 `--mini`）已落地 |
+| G10 | **keymap mini 上下文已完成（6A）** | `KeymapContext::{Composer,Panel,Approval,Question}` + `KeyAction::DenyOnce` 已落地；6B 起事件循环接线消费 |
 | G11 | **事件循环编排不存在** | tokio `select!` 合并：crossterm 输入流、FrameRequester deadline、会话事件流 mpsc、SIGINT、SIGUSR2 主题热更新、resize 防抖——对齐 opencode `runtime.ts` 的编排职责 |
+| G12 | **流式渲染正确性缺口（自 codex 分析引入，D14）** | `MarkdownStream` 缺表格 holdback、严格换行门控、引用式链接定义全量回退；流定稿无"源码驱动全量重渲"兜底（codex `assert_streamed_equals_full` 语义）——mini 是第一个消费方，表格流式输出会列错位/闪烁 |
+| G13 | **resize 流式宽度缺口（自 codex 分析引入，D15）** | `ResizeDebouncer` + `display_lines(width)` 已有，但"流式期间宽度更新 + 流定稿强制重排"缺失——宽度变化后 committed 前缀与 streaming 尾部不连续 |
+| G14 | **输入/退出语义缺口（自 codex 分析引入，D16-D18）** | 缺用户文本 sanitize、输入边界丢弃早到输入、退出时"主动停止 ≠ 故障"领域语义、挂起/恢复（SIGTSTP/SIGCONT） |
+
+### 1.3 Stage 6A 已交付（2026-08-20，commit `78f5d51`）
+
+| 设施 | 模块 | 交付内容 |
+| :--- | :--- | :--- |
+| mini 参数面 | `args.rs` | `Cli` 增 `--session/--resume/--demo/-p/--prompt/--agent/--model`；`validate()` 增 `--demo` 要求 `--mini`、`--session/--resume` 互斥、交互选项与子命令/`--no-tui` 互斥；单测覆盖解析矩阵 |
+| mini 键位上下文 | `keymap.rs` | `KeymapContext::{Composer,Panel,Approval,Question}` + `KeyAction::DenyOnce`（`Approve/ApproveAll/Deny/Cancel` 沿用 Modal 预置）；composer（Enter=Submit/↑↓=History/Esc=Back/Ctrl+u=Clear）、panel（导航/Select/Back/Delete/Edit）、approval（y/a/n/d/c）、question（1-9/Enter/Esc）绑定表 + 上下文回退单测 |
+| `MiniSink` | `sink.rs` | `MiniOutputEvent { Text{role,content} / Message{role,content} / Chunk{content} }` + `MiniSink` 实现 `OutputSink`（`UnboundedSender` + flush=触发帧请求）+ `MiniSink::tee_log(path, format)`（`TeeSink` 组合）；单测（MemoryReceiver 断言 + Tee 落盘） |
+
+**验收（已达成）**：`cargo check -p wf-cli` 通过；args/keymap/sink 单测全绿；`wf --demo`（无 `--mini`）报参数错误。
 
 ---
 
@@ -94,6 +107,8 @@ UnifiedEvent 流 → SessionReducer（Stage 5，纯函数）→ MiniCommit[] + F
 3. **会话保存 = 原始消息序列**：不得把 `Viewport::Inline` 画面导出文件；`--log` 经 `TeeSink` 落干净 text/json（总方案 §2.1）。
 4. **`--demo` 必须要求 `--mini`**（对齐 opencode：`--demo`、`--replay-limit` 必须搭配 `--mini`）。
 5. **退出后终端状态干净**：raw mode 关闭、inline 视口禁用、对话留在终端 scrollback 可回溯。
+6. **用户文本入库前 sanitize（自 codex 分析引入，D16）**：粘贴/外部来源进入 scrollback 与消息库的文本一律剥离 CSI 与除 `\n`/`\t` 外控制字符（codex `sanitize_user_text` 语义），headless 与 mini 共用同一清洗函数，防止终端转义内容入库。
+7. **主动停止 ≠ 故障（自 codex 分析引入，D17）**：两按退出/`/quit`/SIGINT 中断触发的执行关闭事件不得被 wf-runtime 记为 `Failed` 派发给 UI；`--session <id>` 续跑路径按"被主动停止"而非"失败"呈现。
 
 ---
 
@@ -114,7 +129,14 @@ UnifiedEvent 流 → SessionReducer（Stage 5，纯函数）→ MiniCommit[] + F
 | D11 | **`--demo` 最小版 = 合成事件源**：`demo.rs` 提供 `DemoSource`（实现与真实会话事件流相同的 mpsc 生产方）：`/fmt <kind>`（markdown/text/tool/question 等合成 `UnifiedEvent`）、`/permission`、`/question`、`/help`；demo 会话不 bootstrap 真实 runtime（或 bootstrap 但 mock LLM），事件经同一 reducer/footer 管线 | 对齐 opencode `demo.ts`（features §10）；Stage 8 完整版在此扩展 |
 | D12 | **keymap 扩展 mini 上下文**：`KeymapContext` 新增 `Composer`/`Panel`/`Approval`/`Question`（保留既有 Global/List/Detail/Chat/Input/Modal）；`KeyAction` 仅需补 `DenyOnce`（Approve/ApproveAll/Deny/Cancel 已在 Stage 4 预置，且 Modal 上下文已绑定 y=Approve/a=ApproveAll/n=Deny/Esc=Cancel）；绑定表：composer（Enter=Submit、↑/↓=HistoryPrev/Next、`@` 触发 mention、`/` 触发 palette）、panel（MovePrev/Next/Select/Back、ctrl+u=Clear）、approval（复用 Modal 既有 y/a/n/Esc，补 d=DenyOnce、c=Cancel）、question（1-9/Enter/Esc）；审批/问题视图**捕获全部键**（`captures_all_keys`，对齐 03 §5.1 Modal trait） | 03 §3.1 红线 8（禁止裸 match 键位）；04 §七 上下文回退在此具体化；复用 Stage 4 Modal 既有批准键位 |
 | D13 | **scrollback 呈现层**：mini 滚动区 = `Vec<HistoryLine>`（Stage 4）+ 流式行（`LineState::Streaming`）；`MiniCommit` → `HistoryLine` 映射（User→`› ` 前缀+Accent、AssistantText→`MarkdownStream` 产物 plain text、ToolStart/End→`▲/✓/✗` 行、Completed→turn summary、Failed/Interrupted→Error 角色）；`LinesView`（Stage 4）带 scroll_offset 渲染；宽度变化（ResizeDebouncer 75ms）触发全量 `display_lines(width)` reflow | 组件纯数据化（Stage 4 红线）；同源契约（2.3-2） |
-| D14 | **`args.rs` 扩展 + 互斥校验**：`--session <id>`（resume）、`--resume`、`--demo`、`-p/--prompt`、`--agent`、`--model` 仅交互形态可见；`Cli::validate()` 增：`--demo` 要求 `--mini`、`-p` 仅 mini（run 形态已有 prompt 位置参数）、`--session/--resume` 要求交互形态 | 对齐 opencode CLI 选项矩阵（features §1）；避免 `--demo` 误入 headless |
+| D14 | **流式渲染正确性补齐（自 codex `ai-output.md` 分析引入）**：`MarkdownStream` 增：① **表格 holdback**——`TableHoldbackScanner`（`FenceTracker` 区分 markdown fence 与代码块）识别"表头 + 分隔行"后整表留在 streaming 侧直到定稿，防列宽错位；② **换行门控**——提交点不超过最后一个换行（`rfind('\n')` 门控，与块边界取更保守者），半行不提交；③ **引用式链接定义全量回退**——`push` 检测 `reference_definitions()` 非空即跳过增量切分、整段 streaming（或触发一次全量重渲）；④ **定稿兜底**——流定稿时以完整源码渲染为准做增量比对/替换（对齐 codex `assert_streamed_equals_full` 不变量，单测锁定"流式过程 == 完整结果"） | mini 是 MarkdownStream 第一个 UI 消费方；表格/半行/引用链接三类闪烁在 mini 首次可见（分析 §4.1-4.3）；定稿兜底是正确性硬约束（分析 §4.2） |
+| D15 | **resize 流式宽度 + 定稿强制重排（自 codex `resize-and-exit.md` 分析引入）**：resize 事件（ResizeDebouncer 75ms）→ ① 立即更新流式渲染宽度（streaming 预留 2 列，对齐 codex `StreamController::set_width`）；② 触发 scrollback 中 streaming 区 + 最近 committed 区按新宽度重渲（`HistoryLine` 持源文本，内存模型允许）；③ 流定稿时若发生过流内 resize，**强制一次全量重排**（对齐 `maybe_finish_stream_reflow`），否则 Inline 视口内残留旧宽度行。边界声明：已滚入终端 scrollback 的行无法重排，本机制只覆盖视口内 + 保留窗口 | Inline 视口特有约束（分析 §6.1）；已滚入 scrollback 的历史行重排不可达，须文档明示此边界 |
+| D16 | **输入边界与 sanitize（自 codex `input.md` 分析引入）**：① TUI 初始化/`with_restored` 恢复后**丢弃早到输入**（`discard_pending_terminal_input`：排空 stdin 残留，最长 1s）——防快速键入灌进输入框/误触首屏操作；② `sanitize_user_text`（剥离 CSI、保留 `\n`/`\t`）在**消息聚合层**统一做，headless 与 mini 共用（契约 2.3-6） | 分析 §3.5/§3.4：低成本防误触；控制字符清洗是 P0 安全项 |
+| D17 | **退出防 failover（自 codex `resize-and-exit.md` 分析引入）**：`MiniApp` 维护"主动停止"标记（两按退出/`/quit`/SIGINT 中断），执行关闭回调携带该标记；领域层（wf-runtime shutdown 路径）不得把主动关闭当成 `Failed` 派发（防退出瞬间闪现错误行/后台重试）；`--session <id>` 续跑路径按"被主动停止"呈现 | 分析 §6.3；三形态共用语义（总方案风险表已补） |
+| D18 | **挂起/恢复（SIGTSTP/SIGCONT，自 codex `resize-and-exit.md` §7.2 引入）**：`select!` 增 SIGTSTP 分支——恢复终端（`TerminalGuard` restore）→ `SIGSTOP`；SIGCONT 后**重应用 raw mode（不假设未变）** + **强制重查终端几何**（挂起期间尺寸变化无 resize 事件）+ **清输入残留** + 全量重绘 | 03 文档 2.1 已有设计但 stage6 未列；对齐 codex `SuspendContext` Resume 语义（分析 §6.5） |
+| D19 | **滚动区尾部局部替换（自 codex `history.md` §3.2 引入）**：streaming 行每次 commit tick 与已渲染行做公共前缀 diff，只重渲差异部分；流定稿走"上移视口 → clear → 写新尾部"的 Inline 视口替换，避免整段重画 | 分析 §5.3；配合 D14-④ 的"全量重渲兜底"以增量形态落地 |
+| D20 | **会话快照与富元素区间约束（自 codex `input.md` §5.3/§2.1 引入）**：① 会话/executions 切换时保存 `Composer` 草稿与 `PromptQueue` 队列快照（防切屏丢输入）；② P1 mention 区间 `Vec<(Range, MentionKind)>` 若落地在 `ratatui-textarea` 之上，必须做**编辑 diff 后区间偏移同步**（外购库无富元素区间模型）；评估外购库 API 不足以支撑时，切自研字节坐标 TextArea 核心子集 | 分析 §3.2/§3.1；富元素区间维护是外购库否决项，P1 评估时先行验证 |
+| D21 | **`args.rs` 扩展 + 互斥校验**：`--session <id>`（resume）、`--resume`、`--demo`、`-p/--prompt`、`--agent`、`--model` 仅交互形态可见；`Cli::validate()` 增：`--demo` 要求 `--mini`、`-p` 仅 mini（run 形态已有 prompt 位置参数）、`--session/--resume` 要求交互形态（**6A 已落地**） | 对齐 opencode CLI 选项矩阵（features §1）；避免 `--demo` 误入 headless |
 
 ---
 
@@ -135,12 +157,12 @@ crates/wf-cli/src/
 ├── question.rs     ← 新增：QuestionView（单选/多选/自定义状态机）+ 领域接线（respond）
 ├── queue.rs        ← 新增：PromptQueue + QueuedPrompt（串行 turn + 排队 + 编辑/删除）
 ├── demo.rs         ← 新增：DemoSource（合成 UnifiedEvent 序列）+ /fmt /permission /question
-├── sink.rs         ← 新增：MiniSink（mpsc 内存型 OutputSink）+ MiniOutputEvent
-├── args.rs         ← 扩展：--session/--resume/--demo/-p/--agent/--model + validate 扩展
-├── keymap.rs       ← 扩展：KeymapContext::Composer/Panel/Approval/Question + mini 键位绑定
+├── sink.rs         ← ✅ 6A 已交付：MiniSink（mpsc 内存型 OutputSink）+ MiniOutputEvent
+├── args.rs         ← ✅ 6A 已交付：--session/--resume/--demo/-p/--agent/--model + validate 扩展
+├── keymap.rs       ← ✅ 6A 已交付：KeymapContext::Composer/Panel/Approval/Question + mini 键位绑定
 ├── lib.rs          ← 接线：run_interactive 分发到 mini（CliMode::Mini → MiniApp::run）
 ├── output.rs       ← （不改动，TeeSink 复用）
-└── scrollback.rs   ← （不改动，HistoryLine/LinesView/Role 复用）
+└── scrollback.rs   ← （改：D14 流式正确性不涉此模块；raw_lines 三通道见 stage4 方案 §七 I1）
 ```
 
 依赖关系：`mini.rs`（编排）→ `footer.rs`/`composer.rs`/`panels.rs`/`approval.rs`/`question.rs`/`queue.rs`/`sink.rs` → 既有 Stage 0-5 组件（reducer/markdown/scrollback/select/keymap/framer/theme/terminal/events/domain/output）。
@@ -151,20 +173,28 @@ crates/wf-cli/src/
 
 ## 五、分阶段任务与验收
 
-### 阶段 6A：args/keymap/MiniSink 前置（G9/G10/G2）
+### 阶段 6A：args/keymap/MiniSink 前置（G9/G10/G2）✅ 已完成（2026-08-20）
 
-- [ ] `args.rs`：`Cli` 增 `--session`/`--resume`/`--demo`/`-p/--prompt`/`--agent`/`--model`；`validate()` 增 `--demo` 要求 `--mini`、`-p` 仅 mini、`--session/--resume` 要求交互形态。单测：各选项解析 + 非法组合报错。
-- [ ] `keymap.rs`：`KeymapContext` 增 `Composer/Panel/Approval/Question`；`KeyAction` 补 `DenyOnce`（Approve/ApproveAll/Deny/Cancel 已有，Modal 已绑 y/a/n/Esc）；内置绑定表：composer（Enter=Submit、Esc=Back、↑/↓=HistoryPrev/Next、Ctrl+u=Clear）、panel（MovePrev/MoveNext/Select/Back/Delete/Edit、Ctrl+u=Clear）、approval（复用 Modal 的 y=Approve/a=ApproveAll/n=Deny/Esc=Cancel，补 d=DenyOnce、c=Cancel）、question（1-9 数字、Enter=Select、Esc=Cancel）。单测：上下文回退顺序 + mini 各上下文查表断言。
-- [ ] `sink.rs`：`MiniOutputEvent { Text { role, content } / Message { role, content } / Chunk { content } }`；`MiniSink` 实现 `OutputSink`（`UnboundedSender<MiniOutputEvent>` + `flush` 语义 = 触发一次 frame 请求标记）；`MiniSink::tee_log(path, format)` 返回 `(MiniSink, HeadlessFileSink)` 组合（复用 `TeeSink`）。单测（MemoryReceiver 断言）：write_text/write_message/write_chunk 编码 + Tee 落盘内容。
+- [x] `args.rs`：`Cli` 增 `--session`/`--resume`/`--demo`/`-p/--prompt`/`--agent`/`--model`；`validate()` 增 `--demo` 要求 `--mini`、`--session/--resume` 互斥、`--session/--resume` 要求交互形态、`--no-tui` 与交互选项互斥。单测：各选项解析 + 非法组合报错。
+- [x] `keymap.rs`：`KeymapContext` 增 `Composer/Panel/Approval/Question`；`KeyAction` 补 `DenyOnce`（Approve/ApproveAll/Deny/Cancel 已有，Modal 已绑 y/a/n/Esc）；内置绑定表：composer（Enter=Submit、Esc=Back、↑/↓=HistoryPrev/Next、Ctrl+u=Clear）、panel（MovePrev/MoveNext/Select/Back/Delete/Edit、Ctrl+u=Clear）、approval（复用 Modal 的 y=Approve/a=ApproveAll/n=Deny/Esc=Cancel，补 d=DenyOnce、c=Cancel）、question（1-9 数字、Enter=Select、Esc=Cancel）。单测：上下文回退顺序 + mini 各上下文查表断言。
+- [x] `sink.rs`：`MiniOutputEvent { Text { role, content } / Message { role, content } / Chunk { content } }`；`MiniSink` 实现 `OutputSink`（`UnboundedSender<MiniOutputEvent>` + `flush` 语义 = 触发一次 frame 请求标记）；`MiniSink::tee_log(path, format)` 返回 `(MiniSink, HeadlessFileSink)` 组合（复用 `TeeSink`）。单测（MemoryReceiver 断言）：write_text/write_message/write_chunk 编码 + Tee 落盘内容。
 
-**验收**：`cargo check -p wf-cli` 通过；args/keymap/sink 单测全绿；`wf --demo`（无 `--mini`）报参数错误。
+**完成记录（2026-08-20）**
+
+- 三件套落地（1.3 节）；`cargo test -p wf-cli` 全绿，Stage 2-5 无回归。
+
+**验收**：`cargo check -p wf-cli` 通过；args/keymap/sink 单测全绿；`wf --demo`（无 `--mini`）报参数错误。✅
 
 ### 阶段 6B：渲染底座 + footer 骨架 + 事件循环（G1/G3 主体）
 
 - [ ] `mini.rs`：`MiniApp::new(adapter, cli)`；`Terminal::with_options(Options { viewport: Viewport::Inline(BASE_HEIGHT), .. })`（ratatui 0.30）；`run() -> CliResult<ExitOutcome>` 事件循环 `select!`（D2）；`install_panic_hook` + `TerminalGuard`（MINI 模式集：raw + bracketed paste + hide cursor）进入，Drop/退出恢复。
+- [ ] 事件循环扩展（自 codex 分析引入）：**SIGTSTP/SIGCONT 分支**（D18：restore → SIGSTOP；SIGCONT 重应用 raw mode + 强制重查几何 + 清输入残留 + 全量重绘）；**输入边界**（D16：TUI 启动与 `with_restored` 恢复后丢弃早到输入，最多 1s 排空 stdin 残留）。
 - [ ] `footer.rs`：`FooterView { Prompt, Permission, Question }`、`FooterRoute { Composer, Command, Model, Skill, Queued }`、`FooterState { phase, iteration, active_tools, message_count, last_error, model, duration, notice }`（reducer `FooterState` 扩展 UI 侧字段）；`present()`/`apply_height()` 高度表（D5）；`draw(footer_area)`：主区（composer/面板/审批/问题）+ statusline。
 - [ ] statusline：模式标签（`BUILD`/`EXIT` 着色）+ spinner（40ms blocks，busy 时）+ 状态文本（interrupt/again to interrupt/退出提示）+ 左中右布局；宽度响应式（<80 隐藏右侧模型/摘要区块，80/120 断点对齐 05 §4.4.4）。notice 机制（3s + statusVersion 防覆盖）。
 - [ ] scrollback 呈现：`MiniCommit` → `HistoryLine` 映射（D13）；流式行保留末行；`LinesView` 渲染；宽度变化 reflow（ResizeDebouncer）。
+- [ ] **流式渲染正确性补齐（D14，markdown.rs）**：表格 holdback（`TableHoldbackScanner` + `FenceTracker`）、换行门控（提交点 ≤ 最后换行）、引用式链接定义全量回退、定稿源码驱动全量重渲兜底 + `assert_streamed_equals_full` 单测（随机切分源码 → 流式提交 → 与整段渲染比对，覆盖表格/fence/引用链接/空行边界）。
+- [ ] **resize 流式宽度（D15）**：resize 事件 → 更新流式渲染宽度（streaming 预留 2 列）→ streaming 区 + 最近 committed 区按新宽度重渲；流定稿时若发生过流内 resize 强制一次全量重排。
+- [ ] **滚动区尾部局部替换（D19）**：streaming 行 commit tick 公共前缀 diff 只重渲差异；定稿走 Inline 视口"上移 → clear → 写新尾部"替换。
 - [ ] composer P0 单行（D6）：绘制 + 输入处理（Char/Backspace/Left/Right/Home/End/Enter/Esc）+ 历史导航；提交把内容回传事件循环（Submit → queue/turn 逻辑，6D 接线，本阶段先打点）。
 - [ ] 两按退出最小接线：SIGINT → `DoublePressTracker` → 第一次提示、第二次退出；退出流程（D10）恢复终端 + 打印 exit 提示。
 
@@ -175,7 +205,8 @@ crates/wf-cli/src/
 - [ ] `panels.rs`：`ModelPanel`（`llm_profile::list` → 分组列表，当前模型定位，Enter 切换 → 更新 statusline + 后续 turn 生效）、`SkillPanel`（`SkillLoader` 枚举技能，Enter 即执行 `/技能名`）、`QueuedPanel`（`PromptQueue` 数据；Enter/ctrl+e 编辑回填 composer、Delete/ctrl+d 删除，队列空自动关）。
 - [ ] `/` 命令 palette（route `Command`）：`/new`（新会话）、`/model`（模型面板）、`/skills`（技能面板）、`/queued`（排队面板，有排队时）、`/quit`（退出）；内置 + 面板入口经 keymap（`Palette` action）。
 - [ ] composer 完善：`/editor` 外部编辑器（`TerminalGuard::with_restored` 窗口，返回后重绘）；历史去重 + stash 语义（↑ 存草稿进历史、↓ 越末尾恢复）。
-- [ ] P1（如进度允许，否则留 Stage 8 排期）：多行（≤6 行 word wrap）+ `@` mention（文件 find_files + `#行号`、技能、工作流；区间高亮渲染 + 提交时把 parts 随 prompt 传递）。
+- [ ] P1（如进度允许，否则留 Stage 8 排期）：多行（≤6 行 word wrap）+ `@` mention（文件 find_files + `#行号`、技能、工作流；区间高亮渲染 + 提交时把 parts 随 prompt 传递）。**区间簿记约束（D20-②）**：若落地在 `ratatui-textarea` 之上，每次编辑须做区间偏移同步（监听编辑 diff 重算 `Vec<(Range, MentionKind)>`）；外购库 API 不足以支撑则切自研字节坐标 TextArea 核心子集。
+- [ ] **sanitize（D16-②）**：`sanitize_user_text`（剥离 CSI、保留 `\n`/`\t`）在消息聚合层落地，composer 提交与 headless 路径共用；单测覆盖粘贴/外部来源文本。
 
 **验收**：`wf --mini --demo`（6E 前可用 stub 事件源）逐面板切换无残留；`/model` 切换后 statusline 更新；排队面板编辑/删除行为正确；keymap 回退单测全绿。
 
@@ -184,6 +215,8 @@ crates/wf-cli/src/
 - [ ] `approval.rs`：`MiniApprovalHandler { tx: UnboundedSender<ApprovalEvent> }` 实现 `ToolApprovalHandler`——`request_approval` 投递 + `oneshot::Receiver` await（带超时保护）；`ApprovalView` 状态机（permission → 按键 → 结果回传）；键位 y/a/d/n/c；视图渲染（工具名 + 参数 + 键位提示）。
 - [ ] `question.rs`：`MiniInteractionHandler` 实现 `UserInteractionHandler`——`on_followup_question_requested` 投递 UI；`QuestionView`（单选/多选/自定义 + 数字快捷键）；答案经 `wf-api agent_user_interaction::respond` 送回。
 - [ ] `queue.rs` + `mini.rs` 会话驱动：`spawn_turn(prompt)` → `RunAgentLoopParams { agent_loop_id, approval_handler: MiniApprovalHandler, config/input }` → `agent_execution::stream` → 事件流批量 drain → `SessionReducer::push_batch` → commits → scrollback/footer；turn 结束（Completed/Failed/Interrupted）→ turn summary + phase 回落 + drain 队列下一项；`/new` 清空。
+- [ ] **会话快照（D20-①）**：composer 草稿与 `PromptQueue` 队列在会话/executions 切换时保存恢复（防切屏丢输入）。
+- [ ] **退出防 failover（D17）**：`MiniApp` 维护"主动停止"标记（两按退出/`/quit`/SIGINT 中断），执行关闭回调携带标记；领域层不得把主动关闭记为 `Failed` 派发；`--session <id>` 续跑路径按"被主动停止"呈现。
 - [ ] 阶段感知：`FooterState.phase` 驱动 keyboard 路由（Idle/Streaming → composer；Approval → ApprovalView；Question → QuestionView；Streaming 期间 composer type-ahead 缓冲）。
 - [ ] 退出续跑提示（D10）完整化：记录当前 `execution_id`，exit splash 打印 `wf --mini --session <id>`；`--session <id>` resume 走存储重放（P0：打点 + 不重建历史，对齐 opencode 惰性预热；完整重放留 Stage 8 replay）。
 

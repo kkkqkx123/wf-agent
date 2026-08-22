@@ -16,6 +16,7 @@ pub mod output;
 pub mod reducer;
 pub mod render;
 pub mod run;
+pub mod sanitize;
 pub mod scrollback;
 pub mod select;
 pub mod sink;

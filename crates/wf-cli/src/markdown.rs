@@ -110,6 +110,12 @@ impl MarkdownStream {
         fence_open(&self.buffer[start..])
     }
 
+    /// The current in-flight (streaming) source slice: everything after the
+    /// committed boundary. Consumers render this as the streaming tail.
+    pub fn streaming_text(&self) -> &str {
+        &self.buffer[self.committed_upto.min(self.buffer.len())..]
+    }
+
     /// Close the stream: everything remaining is committed.
     pub fn finish(&mut self) -> MarkdownFrame {
         let committed =
@@ -149,20 +155,46 @@ impl MarkdownStream {
     /// Byte offset that splits committed from streaming for the current
     /// buffer: the start of the last top-level block, or the buffer end when
     /// the settlement heuristic closed that block.
+    ///
+    /// Three correctness gates apply on top of the block heuristic:
+    ///
+    /// * **reference-definition fallback** — when the buffer carries a
+    ///   reference-style link definition (`[label]: url`), incremental
+    ///   splitting is skipped and the whole source stays streaming until
+    ///   finalize (codex `ai-output.md` §4.1);
+    /// * **table holdback** — an unclosed table (header + delimiter row
+    ///   present, rows still continuing) keeps the whole table streaming
+    ///   until finalize so column widths never shift mid-stream (codex
+    ///   `TableHoldbackScanner`);
+    /// * **newline gate** — the commit point never passes the last newline,
+    ///   so a half line is never committed (codex `ai-output.md` §2.2).
     fn boundary(&self) -> usize {
         if self.buffer.is_empty() {
             return 0;
         }
+        if has_reference_definition(&self.buffer) {
+            return 0;
+        }
+        if !fence_open(&self.buffer) {
+            if let Some(start) = unclosed_table_start(&self.buffer) {
+                return start;
+            }
+        }
         let split = last_top_level_block_start(&self.buffer).unwrap_or(self.buffer.len());
         let streaming_text = &self.buffer[split..];
-        if streaming_text.is_empty()
+        let mut boundary = if streaming_text.is_empty()
             || last_line_is_fence(streaming_text)
             || (ends_with_blank_line(&self.buffer) && !fence_open(streaming_text))
         {
             self.buffer.len()
         } else {
             split
+        };
+        let last_newline = self.buffer.rfind('\n').map(|i| i + 1).unwrap_or(0);
+        if boundary > last_newline {
+            boundary = last_newline;
         }
+        boundary
     }
 }
 
@@ -214,6 +246,68 @@ fn fence_open(s: &str) -> bool {
         open = !open;
     }
     open
+}
+
+/// True when the buffer carries a reference-style link definition
+/// (`[label]: destination`). Such definitions rewrite earlier link targets,
+/// so incremental splitting is skipped and the whole source stays streaming
+/// until finalize (codex `ai-output.md` §4.1).
+fn has_reference_definition(src: &str) -> bool {
+    src.lines()
+        .any(|line| line.trim_start().starts_with('[') && line.contains("]:"))
+}
+
+/// Table holdback: when the buffer tail holds an *unclosed* table (a header
+/// row and a delimiter row are already present and table rows are still
+/// continuing), return the byte offset of the table header start so the whole
+/// table stays on the streaming side until finalize. Returns `None` when the
+/// tail is not a table or the table already closed (a blank line follows the
+/// last row). Callers must only invoke this outside fenced code blocks.
+fn unclosed_table_start(src: &str) -> Option<usize> {
+    let lines: Vec<&str> = src.split('\n').collect();
+    // Skip trailing blank lines; the last non-blank line must be a table row.
+    let mut i = lines.len();
+    while i > 0 && lines[i - 1].trim().is_empty() {
+        i -= 1;
+    }
+    if i == 0 || !is_table_line(lines[i - 1]) {
+        return None;
+    }
+    // Collect the contiguous run of table rows upward and locate the
+    // delimiter row (`| --- |`). The header row precedes the delimiter.
+    let mut start = i;
+    let mut delimiter: Option<usize> = None;
+    let mut j = i;
+    while j > 0 && is_table_line(lines[j - 1]) {
+        if is_table_delimiter(lines[j - 1]) {
+            delimiter = Some(j - 1);
+        }
+        start = j - 1;
+        j -= 1;
+    }
+    let delimiter = delimiter?;
+    if delimiter == start {
+        return None; // delimiter row is the first row: no header, no table
+    }
+    let mut offset = 0usize;
+    for line in lines.iter().take(start) {
+        offset += line.len() + 1; // +1 for the newline separator
+    }
+    Some(offset)
+}
+
+/// A table row: the trimmed line starts with `|` (GFM tables may also keep
+/// a closing `|` after the cells).
+fn is_table_line(line: &str) -> bool {
+    let t = line.trim();
+    t.starts_with('|') || (t.ends_with('|') && t.contains('|'))
+}
+
+/// A table delimiter row: only `|`, `-`, `:` and whitespace, with at least
+/// one `-` (e.g. `| --- | :---: |`).
+fn is_table_delimiter(line: &str) -> bool {
+    let t = line.trim();
+    t.contains('-') && t.chars().all(|c| matches!(c, '|' | '-' | ':' | ' ' | '\t'))
 }
 
 /// True when the last line of `s` is a pure closing fence and an opening
@@ -397,11 +491,14 @@ mod tests {
         assert_eq!(frame.new_committed, "");
         assert!(frame.new_streaming.contains("println"));
 
-        // The closing fence settles the block.
+        // The closing fence settles the block, but the gate keeps the
+        // trailing half line (no newline after the closing fence) streaming.
         let frame = stream.push("}\n```");
-        assert_eq!(frame.new_committed, "}\n```");
-        assert_eq!(frame.new_streaming, "");
+        assert_eq!(frame.new_committed, "}\n");
+        assert_eq!(frame.new_streaming, "```");
         assert_eq!(frame.code_lang, None);
+        // Finalize commits the remaining half line.
+        assert_eq!(stream.finish().new_committed, "```");
     }
 
     #[test]
@@ -480,5 +577,43 @@ mod tests {
             seen.push_str(&frame.new_streaming);
         }
         assert_eq!(seen, "hello world\n\n```rust\ncode\n```");
+    }
+
+    #[test]
+    fn reference_definition_keeps_entire_buffer_streaming() {
+        let mut stream = MarkdownStream::default();
+        stream.push("click [here][link] for more.\n");
+        let frame = stream.push("\n[link]: https://example.com\n");
+        assert_eq!(frame.new_committed, "");
+        assert!(frame.new_streaming.contains("[link]: https://example.com"));
+        assert_eq!(stream.finish().new_committed, stream.source());
+    }
+
+    #[test]
+    fn unclosed_table_holds_back_until_finalize() {
+        let mut stream = MarkdownStream::default();
+        let hdr = "| Name | Value |\n| --- | --- |\n";
+        let row1 = "| foo | bar |\n";
+        let row2 = "| baz | qux |\n";
+        stream.push(hdr);
+        stream.push(row1);
+        let frame = stream.push(row2);
+        assert_eq!(frame.new_committed, "");
+        assert!(frame.new_streaming.contains(row1));
+        assert!(frame.new_streaming.contains(row2));
+        let committed = stream.finish().new_committed;
+        assert!(committed.contains(row1));
+        assert!(committed.contains(row2));
+    }
+
+    #[test]
+    fn newline_gate_never_commits_a_half_line() {
+        let mut stream = MarkdownStream::default();
+        let f1 = stream.push("first line\nsecond half");
+        assert_eq!(f1.new_committed, "");
+        assert_eq!(f1.new_streaming, "first line\nsecond half");
+        let f2 = stream.push(" done\n");
+        assert_eq!(f2.new_committed, "first line\nsecond half done\n");
+        assert_eq!(f2.new_streaming, "");
     }
 }

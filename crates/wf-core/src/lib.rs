@@ -8,7 +8,6 @@ pub mod hierarchy;
 pub mod internal_signal;
 pub mod interruption;
 pub mod registry;
-pub mod scheduler;
 pub mod state;
 pub mod types;
 
@@ -35,9 +34,5 @@ pub use interruption::{
 pub use registry::{
     BatchRegistry, ConcurrentRegistry, Exportable, MutableRegistry, PersistableRegistry,
     PersistableStorage, Ref, ReferenceCheckable, Registry, RegistryError, Searchable,
-};
-pub use scheduler::{
-    ScheduledTaskForExecution, SchedulerStats, TaskCallback, TaskPriority, TaskScheduler,
-    TaskSchedulerConfig, TimeoutPolicy,
 };
 pub use state::{NodeStateMachine, WorkflowStateMachine};

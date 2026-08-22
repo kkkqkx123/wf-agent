@@ -50,7 +50,6 @@ use tokio_util::sync::CancellationToken;
 use tracing::warn;
 use wf_agent::registry::AgentLoopRegistry;
 use wf_agent::trigger::AgentExecutorCallback;
-use wf_core::scheduler::TaskScheduler;
 use wf_core::EventBus;
 use wf_execution_shared::hooks::HookRegistry;
 use wf_llm::LlmGateway;
@@ -258,7 +257,6 @@ pub fn start_trigger_listener_with_skills(
         None,
         None,
         CancellationToken::new(),
-        None,
     )
 }
 
@@ -303,7 +301,6 @@ pub fn start_trigger_listener_with_registry(
         trigger_state_registry,
         None,
         CancellationToken::new(),
-        None,
     )
 }
 
@@ -325,7 +322,6 @@ pub fn start_trigger_listener_with_parts(
     trigger_state_registry: Option<Arc<wf_workflow::TriggerStateRegistry>>,
     hook_registry: Option<Arc<HookRegistry>>,
     shutdown: CancellationToken,
-    scheduler: Option<Arc<TaskScheduler>>,
 ) -> TriggerListenerHandle {
     spawn_listener(
         event_bus,
@@ -340,7 +336,6 @@ pub fn start_trigger_listener_with_parts(
         trigger_state_registry,
         hook_registry,
         shutdown,
-        scheduler,
     )
 }
 
@@ -358,36 +353,29 @@ fn spawn_listener(
     trigger_state_registry: Option<Arc<wf_workflow::TriggerStateRegistry>>,
     hook_registry: Option<Arc<HookRegistry>>,
     shutdown: CancellationToken,
-    scheduler: Option<Arc<TaskScheduler>>,
 ) -> TriggerListenerHandle {
     let registry: Arc<dyn TriggerTemplateRegistry> =
         Arc::new(ResourceTriggerRegistry::new(registries));
-    let mut compression = SubworkflowActionRunner::with_storage(
+    let compression = SubworkflowActionRunner::with_storage(
         event_bus.clone(),
         runner,
         contexts.clone(),
         shutdown.clone(),
         storage.clone(),
     );
-    if let Some(scheduler) = &scheduler {
-        compression = compression.with_scheduler(scheduler.clone());
-    }
     let compression = match trigger_state_registry {
         Some(registry) => Arc::new(compression.with_trigger_state_registry(registry)),
         None => Arc::new(compression),
     };
     let compression: Arc<dyn TriggerActionRunner> = compression;
     let agent = agent_executor.map(|executor| {
-        let mut runner = AgentTriggerRunner::new(
+        let runner = AgentTriggerRunner::new(
             agent_callback(executor.clone()),
             executor_agent_registry(&executor),
             shutdown.clone(),
             storage.clone(),
         )
         .with_hook_context(hook_registry.clone(), event_bus.clone());
-        if let Some(scheduler) = &scheduler {
-            runner = runner.with_scheduler(scheduler.clone());
-        }
         Arc::new(runner)
     });
     let action_runner: Arc<dyn TriggerActionRunner> = Arc::new(TriggerActionRouter::new(
@@ -475,7 +463,6 @@ pub fn register_compression_receiver(
     shutdown: CancellationToken,
     storage: Option<Arc<dyn TriggerExecutionRecorder>>,
     trigger_state_registry: Option<Arc<wf_workflow::TriggerStateRegistry>>,
-    scheduler: Option<Arc<TaskScheduler>>,
 ) -> Arc<CompressionService> {
     let mut service = CompressionService::with_storage(
         event_bus,
@@ -485,9 +472,6 @@ pub fn register_compression_receiver(
         shutdown,
         storage,
     );
-    if let Some(scheduler) = scheduler {
-        service = service.with_scheduler(scheduler);
-    }
     if let Some(registry) = trigger_state_registry {
         service = service.with_trigger_state_registry(registry);
     }
@@ -934,7 +918,6 @@ mod tests {
             CancellationToken::new(),
             None,
             None,
-            None,
         );
 
         // 4. Main workflow: an LLM node reading the "chat" named context
@@ -1222,7 +1205,6 @@ mod tests {
             CancellationToken::new(),
             None,
             None,
-            None,
         );
 
         // A short array stays within the limit: no compression requested.
@@ -1334,7 +1316,6 @@ mod tests {
             contexts.clone(),
             wf_resource::predefined::workflow::LLM_SUMMARY_WORKFLOW_ID.to_string(),
             CancellationToken::new(),
-            None,
             None,
             None,
         );

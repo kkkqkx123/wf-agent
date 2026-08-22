@@ -11,7 +11,6 @@ use async_trait::async_trait;
 use dashmap::DashMap;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, warn};
-use wf_core::scheduler::{TaskCallback, TaskPriority, TaskScheduler};
 use wf_core::EventBus;
 use wf_execution_shared::hooks::{HookContext, HookOutcome, HookReceiver};
 use wf_types::message::Message;
@@ -96,8 +95,6 @@ pub struct CompressionService {
     storage: Option<Arc<dyn TriggerExecutionRecorder>>,
     /// Optional trigger runtime state registry (checkpoint audit).
     trigger_states: Option<Arc<wf_workflow::TriggerStateRegistry>>,
-    /// Shared task scheduler for fire-and-forget compression executions.
-    scheduler: Option<Arc<TaskScheduler>>,
 }
 
 impl CompressionService {
@@ -128,7 +125,6 @@ impl CompressionService {
             shutdown,
             storage,
             trigger_states: None,
-            scheduler: None,
         }
     }
 
@@ -140,14 +136,6 @@ impl CompressionService {
             .with_trigger_state_registry(registry.clone());
         self.inner = Arc::new(inner);
         self.trigger_states = Some(registry);
-        self
-    }
-
-    pub fn with_scheduler(mut self, scheduler: Arc<TaskScheduler>) -> Self {
-        let inner = Arc::unwrap_or_clone(self.inner)
-            .with_scheduler(scheduler.clone());
-        self.inner = Arc::new(inner);
-        self.scheduler = Some(scheduler);
         self
     }
 }
@@ -201,7 +189,6 @@ impl CompressionService {
         // Trigger runtime state (checkpoint audit): the signal fired for the
         // emitting execution and its summary run is now in flight.
         let event_id = wf_common::generate_id();
-        let event_id_for_task = event_id.clone();
         if let Some(registry) = &self.trigger_states {
             registry.record_start(
                 &execution_id.to_string(),
@@ -230,7 +217,7 @@ impl CompressionService {
         let execution_id_str = execution_id.to_string();
         let input = serde_json::json!({ "conversationHistory": signal.messages });
         let start = wf_common::now();
-        let callback: TaskCallback = Box::new(move || Box::pin(async move {
+        let callback = async move {
             let run = tokio::time::timeout(
                 std::time::Duration::from_millis(DEFAULT_TRIGGER_TIMEOUT_MS),
                 runner.run(&workflow_id, input),
@@ -289,21 +276,9 @@ impl CompressionService {
                 start,
             )
             .await;
-        }));
+        };
 
-        if let Some(scheduler) = &self.scheduler {
-            let _ = scheduler.submit_and_forget(
-                format!("compression-{}", event_id_for_task),
-                "compression".to_string(),
-                callback,
-                TaskPriority::Normal,
-                None,
-            );
-        } else {
-            tokio::spawn(async move {
-                callback().await;
-            });
-        }
+        tokio::spawn(callback);
     }
 }
 

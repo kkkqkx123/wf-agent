@@ -46,6 +46,7 @@ impl AgentLoopStateTransitor {
         event_bus: Option<&EventBus>,
     ) -> AgentResult<()> {
         entity.state.write().await.complete()?;
+        entity.release_gate_permit();
         if let Some(eb) = event_bus {
             Self::emit_event(eb, EventType::AgentCompleted, entity.id().clone());
         }
@@ -58,6 +59,7 @@ impl AgentLoopStateTransitor {
         event_bus: Option<&EventBus>,
     ) -> AgentResult<()> {
         entity.state.write().await.fail(error)?;
+        entity.release_gate_permit();
         if let Some(eb) = event_bus {
             Self::emit_event(eb, EventType::AgentFailed, entity.id().clone());
         }
@@ -69,6 +71,7 @@ impl AgentLoopStateTransitor {
         event_bus: Option<&EventBus>,
     ) -> AgentResult<()> {
         entity.state.write().await.cancel()?;
+        entity.release_gate_permit();
         if let Some(eb) = event_bus {
             Self::emit_event(eb, EventType::AgentCancelled, entity.id().clone());
         }
@@ -80,6 +83,7 @@ impl AgentLoopStateTransitor {
         event_bus: Option<&EventBus>,
     ) -> AgentResult<()> {
         entity.state.write().await.timeout()?;
+        entity.release_gate_permit();
         if let Some(eb) = event_bus {
             Self::emit_event(eb, EventType::ExecutionTimeoutExpired, entity.id().clone());
         }

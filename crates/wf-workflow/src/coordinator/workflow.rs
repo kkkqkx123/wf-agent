@@ -602,6 +602,12 @@ impl WorkflowCoordinator {
             WorkflowError::CoordinatorError("Entity not set on WorkflowCoordinator".to_string())
         })?;
 
+        // A freshly built entity is still `Created`; start it before the
+        // loop so the terminal `complete()` transition is legal. Resumed
+        // entities already hold `Running`, where the transition is
+        // idempotent.
+        entity.state.write().await.start()?;
+
         let event_bus: Option<Arc<EventBus>> = self.ctx.event_bus.clone();
         let event_bus_ref = event_bus.as_deref();
 

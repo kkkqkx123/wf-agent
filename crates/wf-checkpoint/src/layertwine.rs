@@ -12,6 +12,7 @@ use layertwine::StorageResult;
 use crate::branch::BranchStorageAdapter;
 use crate::error::CheckpointError;
 use crate::file::map_layertwine_error;
+use wf_common::gate::{AcquireStrategy, ConcurrencyGate};
 
 pub trait GitCheckpointAdapter: Send + Sync {
     fn save_checkpoint(
@@ -475,14 +476,23 @@ impl<T: GitCheckpointAdapter> LayertwineCheckpointBridge<T> {
         T: 'static,
     {
         const BATCH_CONCURRENCY: usize = 10;
-        let semaphore = Arc::new(tokio::sync::Semaphore::new(BATCH_CONCURRENCY));
+        let gate = Arc::new(
+            ConcurrencyGate::new(BATCH_CONCURRENCY).with_strategy(AcquireStrategy::Wait),
+        );
         let mut handles = Vec::new();
         for id in ids {
             let adapter = self.adapter.clone();
             let id = id.clone();
-            let semaphore = semaphore.clone();
+            let gate = gate.clone();
             handles.push(tokio::spawn(async move {
-                let _permit = semaphore.acquire().await;
+                let _permit = match gate.acquire_wait().await {
+                    Ok(permit) => permit,
+                    Err(e) => {
+                        return Err(CheckpointError::Internal(format!(
+                            "batch load gate acquire failed: {e}"
+                        )))
+                    }
+                };
                 adapter.get_checkpoint(&id).await
             }));
         }

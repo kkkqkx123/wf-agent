@@ -20,7 +20,6 @@ blake3.workspace = true
 moka = { workspace = true }
 regex.workspace = true
 rand.workspace = true
-num_cpus.workspace = true
 
 wf-types = { path = "../wf-types" }
 wf-common = { path = "../wf-common" }

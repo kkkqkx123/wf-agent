@@ -27,6 +27,7 @@ use crate::version::VersionManager;
 use crate::version::MIN_COMPATIBLE_VERSION;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use wf_common::gate::{AcquireStrategy, ConcurrencyGate};
 use wf_types::checkpoint::workflow::WorkflowCheckpointDelta;
 use wf_types::checkpoint::workflow::WorkflowExecutionStateSnapshot;
 use wf_types::checkpoint::BaseCheckpointCore;
@@ -425,7 +426,9 @@ impl WorkflowCheckpointCoordinator {
             .collect();
 
         // Bounded concurrency for the per-child restore phase.
-        let semaphore = Arc::new(tokio::sync::Semaphore::new(CHILD_RESTORE_CONCURRENCY));
+        let gate = Arc::new(
+            ConcurrencyGate::new(CHILD_RESTORE_CONCURRENCY).with_strategy(AcquireStrategy::Wait),
+        );
         let storage = self.state_manager.storage().clone();
         let restore_registry = self.restore_registry.clone();
         let mut handles = Vec::new();
@@ -438,7 +441,7 @@ impl WorkflowCheckpointCoordinator {
                 );
                 continue;
             };
-            let semaphore = semaphore.clone();
+            let gate = gate.clone();
             let child = child.clone();
             let meta = meta.clone();
             let parent_entity_id = parent_entity_id.to_string();
@@ -446,7 +449,14 @@ impl WorkflowCheckpointCoordinator {
             let storage = storage.clone();
             let restore_registry = restore_registry.clone();
             handles.push(tokio::spawn(async move {
-                let _permit = semaphore.acquire().await;
+                let _permit = match gate.acquire_wait().await {
+                    Ok(permit) => permit,
+                    Err(e) => {
+                        return Err(CheckpointError::Internal(format!(
+                            "child restore gate acquire failed: {e}"
+                        )))
+                    }
+                };
                 let state_manager = WorkflowCheckpointStateManager::new(storage);
                 restore_child(
                     &state_manager,

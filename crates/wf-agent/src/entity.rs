@@ -1,5 +1,6 @@
 use std::sync::Arc;
 
+use wf_common::gate::GatePermit;
 use wf_core::interruption::{InterruptionSignal, InterruptionState};
 use wf_execution_shared::error::ExecutionSharedError;
 use wf_execution_shared::hooks::types::BaseHookDefinition;
@@ -41,6 +42,10 @@ pub struct AgentLoopEntity {
     /// Root execution id of the hierarchy (own id for a root run). Resolved
     /// when the run is linked to a parent execution.
     root_execution_id: Option<Id>,
+    /// Permit held against the registry's concurrency gate for the duration
+    /// of this execution. Released when the execution reaches a terminal
+    /// state or when the entity is removed from the registry.
+    gate_permit: std::sync::RwLock<Option<GatePermit>>,
 }
 
 impl AgentLoopEntity {
@@ -69,6 +74,7 @@ impl AgentLoopEntity {
             pause_timeout_handle: std::sync::RwLock::new(None),
             hierarchy_depth: 0,
             root_execution_id: None,
+            gate_permit: std::sync::RwLock::new(None),
         }
     }
 
@@ -369,6 +375,23 @@ impl IExecutionEntity for AgentLoopEntity {
 }
 
 impl AgentLoopEntity {
+    /// Attach the capacity-gate permit to this entity (registration path).
+    pub fn set_gate_permit(&self, permit: Option<GatePermit>) {
+        *wf_common::lock::write_ok(self.gate_permit.write()) = permit;
+    }
+
+    /// Detach and return the capacity-gate permit; dropping it releases the
+    /// concurrency slot.
+    pub fn take_gate_permit(&self) -> Option<GatePermit> {
+        wf_common::lock::write_ok(self.gate_permit.write()).take()
+    }
+
+    /// Release the capacity-gate permit immediately (terminal transition or
+    /// failed placeholder registration).
+    pub fn release_gate_permit(&self) {
+        drop(self.take_gate_permit());
+    }
+
     /// Register a pause timeout: if the loop stays paused beyond
     /// `max_pause_duration` the interruption state is stopped.
     fn start_pause_timeout(&self) {

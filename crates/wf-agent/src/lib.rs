@@ -1,6 +1,7 @@
 pub mod agent_request;
 pub mod approval;
 pub mod callback;
+pub mod capacity;
 pub mod checkpoint;
 pub mod conversation_compression;
 pub mod coordinator;

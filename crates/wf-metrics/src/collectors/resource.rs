@@ -4,9 +4,9 @@ use crate::labels;
 
 /// Process/entity resource sample consumed by the resource collector.
 ///
-/// Entity-level gauges (active executions, queued tasks, event queue length)
-/// have no data source yet; they record 0 until a registry/queue statistics
-/// mechanism exists. Only fields set to `Some` are recorded.
+/// `active_executions` is fed by the agent capacity gate held-permit count;
+/// `queued_tasks` stays 0 until a task-queueing layer exists. Only fields
+/// set to `Some` are recorded.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct ResourceSample {
     pub memory_bytes: Option<u64>,
@@ -52,8 +52,7 @@ impl ResourceMetricsCollector {
             .set_gauge(resource_metrics::MEMORY_USAGE, bytes as f64, labels(&[]));
     }
 
-    /// Reserved: no active execution registry exists yet; records `0` until
-    /// a data source is wired in.
+    /// Agent loop executions currently holding a capacity-gate permit.
     pub fn record_active_executions(&self, count: u64) {
         self.inner.set_gauge(
             resource_metrics::ACTIVE_EXECUTIONS,

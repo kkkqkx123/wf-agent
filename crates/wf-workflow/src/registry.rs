@@ -1,17 +1,9 @@
-use std::collections::HashMap;
 use std::sync::Arc;
 
-use tokio::sync::Semaphore;
 use wf_core::registry::{ConcurrentRegistry, MutableRegistry, Registry, RegistryResult};
-use wf_execution_shared::hooks::types::BaseHookDefinition;
-use wf_tools::callback::WorkflowOutput;
-use wf_types::node::StaticNodeType;
-use wf_types::workflow_execution::{WorkflowExecutionOptions, WorkflowGraphStructure};
+use wf_types::workflow_execution::WorkflowGraphStructure;
 
 use crate::entity::WorkflowExecutionEntity;
-use crate::error::WorkflowResult;
-use crate::executor::WorkflowExecutor;
-use crate::handler::NodeHandler;
 
 pub type WorkflowGraphRegistry = ConcurrentRegistry<WorkflowGraphStructure>;
 pub type WorkflowExecutionRegistry = ConcurrentRegistry<WorkflowExecutionEntity>;
@@ -189,64 +181,6 @@ pub fn register_script(name: &str, language: &str, code: &str) {
 /// Look up a previously registered script by name (process-wide default).
 pub fn lookup_script(name: &str) -> Option<ScriptDefinition> {
     WorkflowRegistry::global().lookup_script(name)
-}
-
-pub struct WorkflowExecutionPool {
-    semaphore: Arc<Semaphore>,
-    max_concurrent: usize,
-}
-
-impl WorkflowExecutionPool {
-    pub fn new(max_concurrent: usize) -> Self {
-        Self {
-            semaphore: Arc::new(Semaphore::new(max_concurrent)),
-            max_concurrent,
-        }
-    }
-
-    pub fn max_concurrent(&self) -> usize {
-        self.max_concurrent
-    }
-
-    pub fn available_permits(&self) -> usize {
-        self.semaphore.available_permits()
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    pub async fn execute(
-        &self,
-        executor: &WorkflowExecutor,
-        workflow_id: wf_types::Id,
-        graph: WorkflowGraphStructure,
-        options: WorkflowExecutionOptions,
-        tool_registry: Arc<wf_tools::registry::ToolRegistry>,
-        handlers: Option<Arc<HashMap<StaticNodeType, Box<dyn NodeHandler>>>>,
-        hooks: Vec<BaseHookDefinition>,
-        resource_registries: Option<Arc<wf_resource::registry::ResourceRegistries>>,
-    ) -> WorkflowResult<WorkflowOutput> {
-        let _permit = self.semaphore.acquire().await.map_err(|_| {
-            crate::error::WorkflowError::CoordinatorError(
-                "workflow execution pool is closed".to_string(),
-            )
-        })?;
-        executor
-            .execute_workflow(
-                workflow_id,
-                graph,
-                options,
-                tool_registry,
-                handlers,
-                hooks,
-                resource_registries,
-            )
-            .await
-    }
-}
-
-impl Default for WorkflowExecutionPool {
-    fn default() -> Self {
-        Self::new(10)
-    }
 }
 
 pub fn create_graph_registry() -> WorkflowGraphRegistry {

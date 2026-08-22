@@ -9,7 +9,6 @@ use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, warn};
 use wf_core::registry::Registry;
-use wf_core::scheduler::{TaskCallback, TaskPriority, TaskScheduler};
 use wf_core::EventBus;
 use wf_execution_shared::context::ExecutorContext;
 use wf_llm::{ContextCompressionRequestedMeta, LlmGateway};
@@ -283,10 +282,6 @@ pub struct SubworkflowActionRunner {
     /// Optional trigger runtime state registry: records the
     /// fired trigger and its in-flight status, captured into checkpoints.
     trigger_states: Option<Arc<wf_workflow::TriggerStateRegistry>>,
-    /// Shared task scheduler for fire-and-forget sub-workflow executions.
-    /// When set, sub-workflows are submitted through the scheduler instead
-    /// of raw `tokio::spawn`.
-    scheduler: Option<Arc<TaskScheduler>>,
 }
 
 impl SubworkflowActionRunner {
@@ -313,7 +308,6 @@ impl SubworkflowActionRunner {
             shutdown,
             storage,
             trigger_states: None,
-            scheduler: None,
         }
     }
 
@@ -322,11 +316,6 @@ impl SubworkflowActionRunner {
         registry: Arc<wf_workflow::TriggerStateRegistry>,
     ) -> Self {
         self.trigger_states = Some(registry);
-        self
-    }
-
-    pub fn with_scheduler(mut self, scheduler: Arc<TaskScheduler>) -> Self {
-        self.scheduler = Some(scheduler);
         self
     }
 }
@@ -446,14 +435,13 @@ impl TriggerActionRunner for SubworkflowActionRunner {
             let trigger_states = self.trigger_states.clone();
             let parent_execution_id = execution_id.clone();
             let event_id = event.id.to_string();
-            let event_id_for_id = event_id.clone();
             let workflow_id = triggered_workflow_id.clone();
             let template = template.clone();
             let event = event.clone();
             let target_context_id = target_context_id.clone();
             let action_type = "execute_triggered_subworkflow";
 
-            let callback: TaskCallback = Box::new(move || Box::pin(async move {
+            let callback = async move {
                 let run = runner.run(&workflow_id, input);
                 let (success, error) = tokio::select! {
                     output = run => {
@@ -508,21 +496,9 @@ impl TriggerActionRunner for SubworkflowActionRunner {
                     None,
                 )
                 .await;
-            }));
+            };
 
-            if let Some(scheduler) = &self.scheduler {
-                let _ = scheduler.submit_and_forget(
-                    format!("subworkflow-{}", event_id_for_id),
-                    "trigger_subworkflow".to_string(),
-                    callback,
-                    TaskPriority::Normal,
-                    None,
-                );
-            } else {
-                tokio::spawn(async move {
-                    callback().await;
-                });
-            }
+            tokio::spawn(callback);
             Ok(())
         };
         if let Some(registry) = &self.trigger_states {

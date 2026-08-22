@@ -243,10 +243,12 @@ impl WorkflowExecutionCallback {
         let mut state = entity.state.write().await;
         match result {
             Ok(output) => {
+                let _ = state.start();
                 let _ = state.complete();
                 entity.set_output(output.result.clone()).await;
             }
             Err(e) => {
+                let _ = state.start();
                 let _ = state.fail(e.to_string());
             }
         }

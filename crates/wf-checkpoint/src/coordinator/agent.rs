@@ -27,6 +27,7 @@ use crate::version::MIN_COMPATIBLE_VERSION;
 use layertwine::layered::MergeResult;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use wf_common::gate::{AcquireStrategy, ConcurrencyGate};
 use wf_types::checkpoint::agent::AgentCheckpointDelta;
 use wf_types::checkpoint::agent::AgentStateSnapshot;
 use wf_types::checkpoint::BaseCheckpointCore;
@@ -266,19 +267,28 @@ impl AgentCheckpointCoordinator {
         });
 
         // Bounded concurrency for the per-child resolution + restore phase.
-        let semaphore = Arc::new(tokio::sync::Semaphore::new(CHILD_RESTORE_CONCURRENCY));
+        let gate = Arc::new(
+            ConcurrencyGate::new(CHILD_RESTORE_CONCURRENCY).with_strategy(AcquireStrategy::Wait),
+        );
         let storage = self.state_manager.storage().clone();
         let restore_registry = self.restore_registry.clone();
         let mut handles = Vec::new();
         for child in &children {
-            let semaphore = semaphore.clone();
+            let gate = gate.clone();
             let child = child.clone();
             let parent_entity_id = parent_entity_id.to_string();
             let registry = registry.cloned();
             let storage = storage.clone();
             let restore_registry = restore_registry.clone();
             handles.push(tokio::spawn(async move {
-                let _permit = semaphore.acquire().await;
+                let _permit = match gate.acquire_wait().await {
+                    Ok(permit) => permit,
+                    Err(e) => {
+                        return Err(CheckpointError::Internal(format!(
+                            "child restore gate acquire failed: {e}"
+                        )))
+                    }
+                };
                 let state_manager = AgentCheckpointStateManager::new(storage);
                 restore_child(
                     &state_manager,

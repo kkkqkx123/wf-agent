@@ -254,7 +254,6 @@ fn assemble_trigger_subsystem(
         Some(trigger_state_registry.clone()),
         Some(hook_registry.clone()),
         trigger_shutdown.clone(),
-        None,
     );
     // The builtin compression receiver shares the listener's shutdown token
     // and sub-workflow runner: engine signals dispatch to it, the summary
@@ -269,7 +268,6 @@ fn assemble_trigger_subsystem(
         trigger_shutdown,
         storage,
         Some(trigger_state_registry.clone()),
-        None,
     );
     TriggerSubsystem {
         execution_contexts,
@@ -445,6 +443,23 @@ impl Runtime {
             tracing::warn!("Resource registration failed: {} - {}", fail.id, fail.error);
         }
 
+        // The agent loop registry is created before metrics so the runtime
+        // can wire its capacity gate into the resource sampler from the
+        // first observation tick.
+        let agent_registry = std::sync::Arc::new(wf_agent::registry::AgentLoopRegistry::new());
+        let gate_stats = agent_registry.gate_stats();
+        info!(
+            "Agent capacity gate at startup: max_concurrent={}, strategy={:?}, submitted={}, completed={}, failed={}, cancelled={}, timed_out={}, active={}",
+            gate_stats.max_concurrent,
+            agent_registry.capacity_gate().strategy(),
+            gate_stats.total_submitted,
+            gate_stats.total_completed,
+            gate_stats.total_failed,
+            gate_stats.total_cancelled,
+            gate_stats.total_timed_out,
+            gate_stats.active_count
+        );
+
         let metrics = match config.metrics.as_ref() {
             Some(cfg) => {
                 let config_metrics = Arc::new(wf_metrics::ConfigMetricsCollector::new(
@@ -456,6 +471,7 @@ impl Runtime {
                     &storage_manager,
                     Some(event_bus.clone()),
                     Some(config_metrics),
+                    Some(agent_registry.capacity_gate()),
                 )
                 .await?
             }
@@ -475,7 +491,6 @@ impl Runtime {
         // singleton and the shared tool registry. Fixes the production path
         // where builtin dispatch tools previously failed with
         // CallbackNotRegistered.
-        let agent_registry = std::sync::Arc::new(wf_agent::registry::AgentLoopRegistry::new());
         let agent_executor = std::sync::Arc::new(
             wf_agent::executor::AgentLoopExecutor::new(llm_gateway.clone(), tool_registry.clone())
                 .with_shared_registry(agent_registry.clone())
@@ -763,6 +778,17 @@ impl Runtime {
         if let Some(engine) = self.plugin_engine.take() {
             engine.shutdown().await;
         }
+
+        let stats = self.agent_registry.gate_stats();
+        info!(
+            "Agent capacity gate final stats: submitted={}, completed={}, failed={}, cancelled={}, timed_out={}, active={}",
+            stats.total_submitted,
+            stats.total_completed,
+            stats.total_failed,
+            stats.total_cancelled,
+            stats.total_timed_out,
+            stats.active_count
+        );
 
         self.storage_manager.close().await?;
         info!("Runtime shutdown complete");

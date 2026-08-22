@@ -2,9 +2,10 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 
-use wf_core::scheduler::{TaskCallback, TaskPriority, TaskScheduler};
 use wf_execution_shared::hooks::HookRegistry;
-use wf_execution_shared::types::execution_entity::IExecutionEntity;
+use wf_execution_shared::types::execution_entity::{
+    ExecutionStatus as EntityExecutionStatus, IExecutionEntity,
+};
 use wf_llm::LlmGateway;
 use wf_tools::callback::{
     AgentLoopConfig, AgentLoopInput, AgentLoopOutput, ExecutionCallback, ExecutionStatus,
@@ -30,11 +31,6 @@ pub struct AgentLoopExecutor {
     max_sub_agent_depth: u32,
     event_bus: Option<Arc<wf_core::EventBus>>,
     hook_registry: Option<Arc<HookRegistry>>,
-    /// Shared task scheduler for fire-and-forget agent loop executions.
-    /// When set, `spawn_agent_loop` submits the coordinator task through
-    /// the scheduler instead of using raw `tokio::spawn`, enabling
-    /// priority-based scheduling and concurrency control.
-    scheduler: Option<Arc<TaskScheduler>>,
 }
 
 impl AgentLoopExecutor {
@@ -50,7 +46,6 @@ impl AgentLoopExecutor {
             max_sub_agent_depth: DEFAULT_MAX_SUB_AGENT_DEPTH,
             event_bus: None,
             hook_registry: None,
-            scheduler: None,
         }
     }
 
@@ -71,6 +66,16 @@ impl AgentLoopExecutor {
     /// Concurrent-execution limit enforced by the registry's capacity gate.
     pub fn with_max_concurrent(self, max: usize) -> Self {
         self.agent_registry.set_max_concurrent(max);
+        self
+    }
+
+    /// Acquisition strategy of the capacity gate (default `Reject`; `Wait`
+    /// makes spawns queue instead of failing when the limit is reached).
+    pub fn with_acquire_strategy(
+        self,
+        strategy: wf_common::gate::AcquireStrategy,
+    ) -> Self {
+        self.agent_registry.set_acquire_strategy(strategy);
         self
     }
 
@@ -103,14 +108,6 @@ impl AgentLoopExecutor {
     /// signals of loops started here dispatch through it.
     pub fn with_hook_registry(mut self, registry: Arc<HookRegistry>) -> Self {
         self.hook_registry = Some(registry);
-        self
-    }
-
-    /// Inject the shared task scheduler for fire-and-forget agent loop
-    /// executions. When set, `spawn_agent_loop` submits the coordinator
-    /// task through the scheduler instead of `tokio::spawn`.
-    pub fn with_scheduler(mut self, scheduler: Arc<TaskScheduler>) -> Self {
-        self.scheduler = Some(scheduler);
         self
     }
 
@@ -209,48 +206,32 @@ impl AgentLoopExecutor {
             .coordinator(&input)
             .with_agent_loop_id(execution_id.clone());
 
-        if let Some(scheduler) = &self.scheduler {
-            let callback: TaskCallback = Box::new(move || Box::pin(async move {
-                match coordinator.execute(config, input).await {
-                    Ok(output) => {
-                        agent_registry.store_result(run_id.clone(), output);
-                    }
-                    Err(e) => {
-                        tracing::warn!(
-                            execution_id = %run_id,
-                            error = %e,
-                            "spawned agent loop failed"
-                        );
-                    }
+        let handle = tokio::spawn(async move {
+            match coordinator.execute(config, input).await {
+                Ok(output) => {
+                    agent_registry.store_result(run_id.clone(), output);
                 }
-                agent_registry.unregister_task(&run_id);
-            }));
-            let _ = scheduler.submit_and_forget(
-                execution_id.to_string(),
-                "agent_loop".to_string(),
-                callback,
-                TaskPriority::Normal,
-                None,
-            );
-        } else {
-            let handle = tokio::spawn(async move {
-                match coordinator.execute(config, input).await {
-                    Ok(output) => {
-                        agent_registry.store_result(run_id.clone(), output);
-                    }
-                    Err(e) => {
-                        tracing::warn!(
-                            execution_id = %run_id,
-                            error = %e,
-                            "spawned agent loop failed"
-                        );
-                    }
+                Err(e) => {
+                    tracing::warn!(
+                        execution_id = %run_id,
+                        error = %e,
+                        "spawned agent loop failed"
+                    );
                 }
-                agent_registry.unregister_task(&run_id);
-            });
-            self.agent_registry
-                .register_task(execution_id.clone(), handle);
-        }
+            }
+            // Placeholder rollback: an execution that ended before the
+            // coordinator replaced the spawn placeholder (registration
+            // failure) leaves a Created entity behind; drop it so it
+            // neither holds a capacity permit nor lingers in the registry.
+            if let Some(entity) = agent_registry.get(&run_id) {
+                if matches!(entity.status(), EntityExecutionStatus::Created) {
+                    agent_registry.unregister(&run_id);
+                }
+            }
+            agent_registry.unregister_task(&run_id);
+        });
+        self.agent_registry
+            .register_task(execution_id.clone(), handle);
 
         // Parent cancellation propagation: when the parent loop stops, the
         // child execution is stopped as well.
@@ -881,22 +862,34 @@ mod tests {
         );
     }
 
-    /// The sync `execute` path is gated through the shared registry too.
+    /// The sync `execute` path is gated through the shared registry too: an
+    /// in-flight execution holds the slot, and once it settles the released
+    /// permit admits the next run (the fixed capacity lifecycle).
     #[tokio::test]
     async fn test_sync_execute_honors_concurrency_limit() {
-        let executor = make_executor().await.with_max_concurrent(1);
+        let executor = Arc::new(make_executor().await.with_max_concurrent(1));
 
+        // Hold the single slot with an in-flight placeholder: a sync run must
+        // be rejected at the gate before it starts.
         executor
+            .agent_registry()
+            .register(Arc::new(AgentLoopEntity::new(Id::from(
+                "slot-holder".to_string(),
+            ))))
+            .expect("placeholder holds the single slot");
+        let err = executor
             .execute(agent_config("agent-sync-1"), agent_input("run", None))
             .await
-            .expect("first sync run fits the slot");
+            .expect_err("in-flight slot holder must reject a new run");
+        assert!(matches!(err, AgentError::ExecutionLimitReached(_)));
 
-        // The first execution stays registered (no cleanup) so the second run
-        // is rejected before it starts.
-        let err = executor
+        // Releasing the holder frees capacity for the next run.
+        executor
+            .agent_registry()
+            .unregister(&Id::from("slot-holder".to_string()));
+        executor
             .execute(agent_config("agent-sync-2"), agent_input("run", None))
             .await
-            .expect_err("second sync run must hit the capacity gate");
-        assert!(matches!(err, AgentError::ExecutionLimitReached(_)));
+            .expect("released slot admits the next run");
     }
 }

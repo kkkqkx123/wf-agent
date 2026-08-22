@@ -1,5 +1,5 @@
 use thiserror::Error;
-use wf_common::pool::PoolError;
+use wf_common::gate::GateError;
 
 #[derive(Debug, Error)]
 pub enum ExecutionSharedError {
@@ -15,8 +15,8 @@ pub enum ExecutionSharedError {
     #[error("Hook error: {0}")]
     HookError(String),
 
-    #[error("Pool error: {0}")]
-    PoolError(String),
+    #[error("Gate error: {0}")]
+    GateError(String),
 
     #[error("Condition error: {0}")]
     ConditionError(String),
@@ -42,13 +42,12 @@ pub enum ExecutionSharedError {
 
 pub type ExecutionSharedResult<T> = Result<T, ExecutionSharedError>;
 
-impl From<PoolError> for ExecutionSharedError {
-    fn from(e: PoolError) -> Self {
+impl From<GateError> for ExecutionSharedError {
+    fn from(e: GateError) -> Self {
         match e {
-            PoolError::PoolExhausted(msg) => ExecutionSharedError::PoolError(msg),
-            PoolError::Timeout(msg) => ExecutionSharedError::TimeoutError(msg),
-            PoolError::Cancelled(msg) => ExecutionSharedError::InterruptionError(msg),
-            PoolError::Internal(msg) => ExecutionSharedError::Internal(msg),
+            GateError::Closed(msg) => ExecutionSharedError::GateError(msg),
+            GateError::Timeout(msg) => ExecutionSharedError::TimeoutError(msg),
+            GateError::Cancelled(msg) => ExecutionSharedError::InterruptionError(msg),
         }
     }
 }

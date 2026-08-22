@@ -19,9 +19,6 @@ readonly = false
 file_must_exist = false
 timeout = 5000                          # Connection timeout in ms
 auto_vacuum = "NONE"                    # NONE | FULL | INCREMENTAL
-journal_size_limit = null
-page_size = null
-maintenance_interval_ms = null
 
 # --- PostgreSQL storage options (used when type = "postgres") ---
 [postgres]
@@ -35,4 +32,3 @@ pool_size = 20
 min_connections = 1
 idle_timeout = 30000
 connection_timeout = 5000
-max_uses = null

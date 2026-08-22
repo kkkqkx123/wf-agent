@@ -12,7 +12,6 @@ use wf_agent::registry::AgentLoopRegistry;
 use wf_agent::trigger::{
     AgentExecutorCallback, TriggeredAgentExecutionConfig, TriggeredAgentExecutionManager,
 };
-use wf_core::scheduler::{TaskCallback, TaskPriority, TaskScheduler};
 use wf_core::EventBus;
 use wf_execution_shared::hooks::HookRegistry;
 use wf_tools::callback::{AgentLoopConfig, AgentLoopInput};
@@ -45,8 +44,6 @@ pub struct AgentTriggerRunner {
     agent_registry: Arc<AgentLoopRegistry>,
     shutdown: CancellationToken,
     storage: Option<Arc<dyn TriggerExecutionRecorder>>,
-    /// Shared task scheduler for fire-and-forget agent executions.
-    scheduler: Option<Arc<TaskScheduler>>,
 }
 
 impl AgentTriggerRunner {
@@ -62,7 +59,6 @@ impl AgentTriggerRunner {
             agent_registry,
             shutdown,
             storage,
-            scheduler: None,
         }
     }
 
@@ -87,11 +83,6 @@ impl AgentTriggerRunner {
         }
         manager = manager.with_event_bus(bus);
         self.manager = Arc::new(manager);
-        self
-    }
-
-    pub fn with_scheduler(mut self, scheduler: Arc<TaskScheduler>) -> Self {
-        self.scheduler = Some(scheduler);
         self
     }
 
@@ -245,7 +236,7 @@ impl TriggerActionRunner for AgentTriggerRunner {
                 let executor = self.executor.clone();
                 let shutdown = self.shutdown.clone();
 
-                let callback: TaskCallback = Box::new(move || Box::pin(async move {
+                let callback = async move {
                     let run = executor(child_config, child_input);
                     tokio::select! {
                         output = run => {
@@ -255,21 +246,9 @@ impl TriggerActionRunner for AgentTriggerRunner {
                         }
                         _ = shutdown.cancelled() => {}
                     }
-                }));
+                };
 
-                if let Some(scheduler) = &self.scheduler {
-                    let _ = scheduler.submit_and_forget(
-                        format!("agent-trigger-{}", child_execution_id),
-                        "trigger_agent".to_string(),
-                        callback,
-                        TaskPriority::Normal,
-                        None,
-                    );
-                } else {
-                    tokio::spawn(async move {
-                        callback().await;
-                    });
-                }
+                tokio::spawn(callback);
                 (true, None)
             }
         };

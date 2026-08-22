@@ -205,6 +205,9 @@ impl IExecutionEntity for WorkflowExecutionEntity {
     async fn stop(&self) -> Result<(), wf_execution_shared::error::ExecutionSharedError> {
         self.interruption.stop()?;
         self.cancellation.cancel();
+        if self.state.read().await.status().is_terminal() {
+            return Ok(());
+        }
         self.state.write().await.cancel()?;
         Ok(())
     }

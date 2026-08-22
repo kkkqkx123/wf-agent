@@ -1,11 +1,13 @@
-use std::sync::atomic::{AtomicU32, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 
 use dashmap::DashMap;
+use wf_common::gate::{AcquireStrategy, GateStats};
 use wf_execution_shared::types::execution_entity::ExecutionStatus;
 use wf_tools::callback::AgentLoopOutput;
 use wf_types::Id;
 
+use crate::capacity::AgentCapacityGate;
 use crate::entity::AgentLoopEntity;
 use crate::error::{AgentError, AgentResult};
 
@@ -54,7 +56,6 @@ impl AgentExecutionRecord {
 /// interface. Enforces the execution capacity
 /// gate: a global concurrent-execution limit and a sub-agent depth
 /// limit, aligned with Codex's `reserve_spawn_slot` + `session_depth`.
-#[derive(Default)]
 pub struct AgentLoopRegistry {
     entities: DashMap<Id, Arc<AgentLoopEntity>>,
     /// Terminal results of finished executions, keyed by execution id.
@@ -65,12 +66,20 @@ pub struct AgentLoopRegistry {
     /// Used to abort a still-running task on cancel; removed by the task
     /// itself on completion.
     tasks: DashMap<Id, tokio::task::JoinHandle<()>>,
-    /// Maximum number of concurrently registered executions. `register`
-    /// rejects beyond this limit with `AgentError::ExecutionLimitReached`.
-    max_concurrent: AtomicUsize,
+    /// Capacity gate: `register` acquires a permit (default `Reject`
+    /// strategy) and rejects beyond `max_concurrent` with
+    /// `AgentError::ExecutionLimitReached`. The permit lives in the entity
+    /// and is released when the execution reaches a terminal state.
+    gate: Arc<AgentCapacityGate>,
     /// Maximum sub-agent recursion depth (root = depth 0). `depth_allowed`
     /// rejects a child whose resolved depth would exceed the limit.
     max_sub_agent_depth: AtomicU32,
+}
+
+impl Default for AgentLoopRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl AgentLoopRegistry {
@@ -82,14 +91,21 @@ impl AgentLoopRegistry {
             entities: DashMap::new(),
             results: DashMap::new(),
             tasks: DashMap::new(),
-            max_concurrent: AtomicUsize::new(max_concurrent),
+            gate: Arc::new(AgentCapacityGate::new(max_concurrent)),
             max_sub_agent_depth: AtomicU32::new(DEFAULT_MAX_SUB_AGENT_DEPTH),
         }
     }
 
-    /// Builder-style concurrent-execution limit.
+    /// Builder-style concurrent-execution limit (must be set before any
+    /// execution is registered).
     pub fn with_max_concurrent(self, max: usize) -> Self {
         self.set_max_concurrent(max);
+        self
+    }
+
+    /// Builder-style acquisition strategy override (default `Reject`).
+    pub fn with_acquire_strategy(self, strategy: AcquireStrategy) -> Self {
+        self.set_acquire_strategy(strategy);
         self
     }
 
@@ -99,10 +115,15 @@ impl AgentLoopRegistry {
         self
     }
 
-    /// Reconfigure the concurrent-execution limit in place (applied to a
-    /// shared registry after injection).
+    /// Reconfigure the concurrent-execution limit in place. Intended for
+    /// pre-start configuration; existing permits keep their original gate.
     pub fn set_max_concurrent(&self, max: usize) {
-        self.max_concurrent.store(max, Ordering::Relaxed);
+        self.gate.set_max_concurrent(max);
+    }
+
+    /// Reconfigure the acquisition strategy in place.
+    pub fn set_acquire_strategy(&self, strategy: AcquireStrategy) {
+        self.gate.set_acquire_strategy(strategy);
     }
 
     /// Reconfigure the sub-agent depth limit in place.
@@ -111,7 +132,22 @@ impl AgentLoopRegistry {
     }
 
     pub fn max_concurrent(&self) -> usize {
-        self.max_concurrent.load(Ordering::Relaxed)
+        self.gate.max_concurrent()
+    }
+
+    pub fn available_permits(&self) -> usize {
+        self.gate.available_permits()
+    }
+
+    /// Shared reference to the capacity gate so external consumers (e.g.
+    /// runtime metrics) can observe live stats without owning the gate.
+    pub fn capacity_gate(&self) -> Arc<AgentCapacityGate> {
+        self.gate.clone()
+    }
+
+    /// Snapshot of the capacity gate counters for observability.
+    pub fn gate_stats(&self) -> GateStats {
+        self.gate.stats()
     }
 
     pub fn max_sub_agent_depth(&self) -> u32 {
@@ -120,16 +156,25 @@ impl AgentLoopRegistry {
 
     /// Register an execution under the capacity gate: registering beyond
     /// `max_concurrent` returns `AgentError::ExecutionLimitReached`. Replacing
-    /// an already-registered id (spawn placeholder → real entity) does not
-    /// consume an extra slot.
+    /// an already-registered id (spawn placeholder → real entity) moves the
+    /// existing permit so the replacement neither consumes a new slot nor
+    /// releases early.
     pub fn register(&self, entity: Arc<AgentLoopEntity>) -> AgentResult<()> {
         let id = entity.id().clone();
-        if !self.entities.contains_key(&id) && self.entities.len() >= self.max_concurrent() {
-            return Err(AgentError::ExecutionLimitReached(format!(
-                "concurrent execution limit {} reached",
-                self.max_concurrent()
-            )));
+        if let Some(existing) = self.entities.get(&id) {
+            let permit = existing.take_gate_permit();
+            drop(existing);
+            entity.set_gate_permit(permit);
+            self.entities.insert(id, entity);
+            return Ok(());
         }
+        let max = self.max_concurrent();
+        let permit = self.gate.try_acquire().map_err(|_| {
+            AgentError::ExecutionLimitReached(format!(
+                "concurrent execution limit {max} reached"
+            ))
+        })?;
+        entity.set_gate_permit(Some(permit));
         self.entities.insert(id, entity);
         Ok(())
     }
@@ -486,5 +531,90 @@ mod tests {
             "depth 2 parent -> depth 3 exceeds the limit"
         );
         assert_eq!(registry.max_sub_agent_depth(), 2);
+    }
+
+    /// Terminal transitions release the capacity permit: a finished
+    /// execution must not keep occupying a slot (the historical
+    /// `entities.len()` gate bug).
+    #[tokio::test]
+    async fn test_terminal_transition_releases_capacity() {
+        use crate::coordinator::state_transitor::AgentLoopStateTransitor;
+
+        let registry = AgentLoopRegistry::new().with_max_concurrent(2);
+        let e1 = make_entity("r1", ExecutionStatus::Running).await;
+        let e2 = make_entity("r2", ExecutionStatus::Running).await;
+        registry.register(e1.clone()).unwrap();
+        registry.register(e2.clone()).unwrap();
+        assert_eq!(registry.available_permits(), 0);
+
+        AgentLoopStateTransitor::complete_agent_loop(&e1, None)
+            .await
+            .unwrap();
+        assert_eq!(registry.available_permits(), 1);
+
+        // The freed slot admits a new execution.
+        registry
+            .register(make_entity("r3", ExecutionStatus::Running).await)
+            .expect("released slot must admit a new execution");
+    }
+
+    /// Cancelling an execution releases the permit as well, so an aborted
+    /// run never permanently consumes capacity.
+    #[tokio::test]
+    async fn test_cancel_releases_capacity() {
+        use crate::coordinator::state_transitor::AgentLoopStateTransitor;
+
+        let registry = AgentLoopRegistry::new().with_max_concurrent(1);
+        let e1 = make_entity("c1", ExecutionStatus::Running).await;
+        registry.register(e1.clone()).unwrap();
+        assert_eq!(registry.available_permits(), 0);
+
+        AgentLoopStateTransitor::cancel_agent_loop(&e1, None)
+            .await
+            .unwrap();
+        assert_eq!(registry.available_permits(), 1);
+
+        registry
+            .register(make_entity("c2", ExecutionStatus::Running).await)
+            .expect("cancelled slot must be reusable");
+    }
+
+    /// A spawn placeholder that is removed before it is replaced (the run
+    /// failed before the coordinator registered the real entity) releases
+    /// its permit, so the capacity slot is not leaked.
+    #[tokio::test]
+    async fn test_placeholder_removal_releases_capacity() {
+        let registry = AgentLoopRegistry::new().with_max_concurrent(1);
+        registry
+            .register(Arc::new(AgentLoopEntity::new(Id::from("p1".to_string()))))
+            .unwrap();
+        assert_eq!(registry.available_permits(), 0);
+
+        assert!(registry.unregister(&Id::from("p1".to_string())));
+        assert_eq!(registry.available_permits(), 1);
+    }
+
+    /// Replacing a spawn placeholder with the real entity moves the permit:
+    /// the replacement neither acquires a second slot nor releases early,
+    /// and the moved permit is released by the real entity's terminal
+    /// transition.
+    #[tokio::test]
+    async fn test_placeholder_replace_moves_permit() {
+        use crate::coordinator::state_transitor::AgentLoopStateTransitor;
+
+        let registry = AgentLoopRegistry::new().with_max_concurrent(1);
+        let placeholder = Arc::new(AgentLoopEntity::new(Id::from("p2".to_string())));
+        registry.register(placeholder.clone()).unwrap();
+        assert_eq!(registry.available_permits(), 0);
+
+        let real = make_entity("p2", ExecutionStatus::Running).await;
+        registry.register(real.clone()).unwrap();
+        // Same id: the permit is moved, capacity still consumed exactly once.
+        assert_eq!(registry.available_permits(), 0);
+
+        AgentLoopStateTransitor::complete_agent_loop(&real, None)
+            .await
+            .unwrap();
+        assert_eq!(registry.available_permits(), 1);
     }
 }

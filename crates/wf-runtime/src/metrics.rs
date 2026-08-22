@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use wf_agent::capacity::AgentCapacityGate;
 use wf_core::event::EventBus;
 use wf_core::EventMetricsBridge;
 use wf_metrics::{
@@ -140,6 +141,7 @@ impl MetricsContext {
         storage: &StorageManager,
         event_bus: Option<Arc<EventBus>>,
         config_metrics: Option<Arc<ConfigMetricsCollector>>,
+        agent_gate: Option<Arc<AgentCapacityGate>>,
     ) -> RuntimeResult<Option<Arc<Self>>> {
         if !config.enabled.unwrap_or(false) {
             return Ok(None);
@@ -232,7 +234,8 @@ impl MetricsContext {
         let storage_ctx = storage.shared_context();
         let sampler = ResourceSampler::new(registry.clone(), sampler_interval)
             .with_event_bus(event_bus.clone())
-            .with_storage(storage_ctx);
+            .with_storage(storage_ctx)
+            .with_agent_gate(agent_gate);
         tasks.push(sampler.spawn());
 
         let event_bridge_task =
@@ -308,14 +311,14 @@ impl MetricsContext {
 /// Periodic process/entity resource sampler.
 ///
 /// Records process RSS, the event bus backlog depth and storage I/O counters
-/// each tick. Entity gauges without a data source yet (active executions,
-/// queued tasks) record 0; `wf_core::scheduler::TaskScheduler::stats()` is
-/// the future source once a scheduler instance exists.
+/// each tick. The agent capacity gate feeds `resource.active.executions`;
+/// queued tasks stay 0 until a queueing layer exists.
 pub struct ResourceSampler {
     registry: Arc<MetricsRegistry>,
     interval: Duration,
     event_bus: Option<Arc<EventBus>>,
     storage: Option<Arc<StorageContext>>,
+    agent_gate: Option<Arc<AgentCapacityGate>>,
 }
 
 impl ResourceSampler {
@@ -325,6 +328,7 @@ impl ResourceSampler {
             interval,
             event_bus: None,
             storage: None,
+            agent_gate: None,
         }
     }
 
@@ -335,6 +339,13 @@ impl ResourceSampler {
 
     pub fn with_storage(mut self, storage: Option<Arc<StorageContext>>) -> Self {
         self.storage = storage;
+        self
+    }
+
+    /// Inject the shared agent capacity gate; its held-permit count drives
+    /// the `resource.active.executions` gauge each tick.
+    pub fn with_agent_gate(mut self, agent_gate: Option<Arc<AgentCapacityGate>>) -> Self {
+        self.agent_gate = agent_gate;
         self
     }
 
@@ -350,9 +361,13 @@ impl ResourceSampler {
     }
 
     pub fn sample(&self) {
+        let active_executions = self.agent_gate.as_ref().map(|gate| {
+            let stats = gate.stats();
+            stats.max_concurrent.saturating_sub(stats.available_permits) as u64
+        });
         let sample = ResourceSample {
             memory_bytes: process_rss_bytes(),
-            active_executions: Some(0),
+            active_executions,
             queued_tasks: Some(0),
             event_queue_length: self.event_bus.as_ref().map(|bus| bus.queue_len() as u64),
         };
@@ -480,7 +495,7 @@ mod tests {
             enabled: Some(false),
             ..Default::default()
         };
-        let ctx = MetricsContext::start(&config, &storage, None, None)
+        let ctx = MetricsContext::start(&config, &storage, None, None, None)
             .await
             .unwrap();
         assert!(ctx.is_none());
@@ -504,7 +519,7 @@ mod tests {
             }),
             ..Default::default()
         };
-        let ctx = MetricsContext::start(&config, &storage, None, None)
+        let ctx = MetricsContext::start(&config, &storage, None, None, None)
             .await
             .unwrap()
             .expect("metrics should be enabled");
@@ -549,7 +564,7 @@ mod tests {
             http_addr: Some("127.0.0.1:0".to_string()),
             ..Default::default()
         };
-        let ctx = MetricsContext::start(&config, &storage, None, None)
+        let ctx = MetricsContext::start(&config, &storage, None, None, None)
             .await
             .unwrap()
             .expect("metrics should be enabled");
@@ -719,7 +734,7 @@ mod tests {
         };
 
         // First process: record workflow executions and flush to persistence.
-        let ctx = MetricsContext::start(&config, &storage, None, None)
+        let ctx = MetricsContext::start(&config, &storage, None, None, None)
             .await
             .unwrap()
             .expect("metrics enabled");
@@ -742,7 +757,7 @@ mod tests {
 
         // Second process on the same storage: percentiles are restored from
         // the persisted histogram snapshot (M4/M5).
-        let restarted = MetricsContext::start(&config, &storage, None, None)
+        let restarted = MetricsContext::start(&config, &storage, None, None, None)
             .await
             .unwrap()
             .expect("metrics enabled");

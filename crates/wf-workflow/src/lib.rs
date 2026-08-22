@@ -88,8 +88,8 @@ pub use message_context::{
 };
 pub use persistence::build_workflow_execution;
 pub use registry::{
-    create_execution_registry, create_graph_registry, lookup_graph, lookup_script, register_graph,
-    register_script, ScriptDefinition, ScriptRegistry, WorkflowExecutionPool,
+    create_execution_registry, create_graph_registry, lookup_graph,
+    lookup_script, register_graph, register_script, ScriptDefinition, ScriptRegistry,
     WorkflowExecutionRegistry, WorkflowGraphRegistry,
 };
 pub use state::{

@@ -47,23 +47,50 @@ impl ValidationResult {
     }
 }
 
-/// Fixed ID of the staged partition
+/// UUIDv5 namespace for workspace-scoped staged partition ids. Distinct
+/// from the legacy fixed id so the derived ids never collide with it.
+const STAGED_WORKSPACE_NS: uuid::Uuid =
+    uuid::Uuid::from_u128(0x6000_0000_0000_0000_0000_0000_0000_0100);
+
+/// Fixed ID of the staged partition (legacy single-workspace mode; one DB
+/// serves one workspace).
 pub fn staged_partition_id() -> PartitionId {
     uuid::Uuid::from_u128(0x6000_0000_0000_0000_0000_0000_0000_0000)
+}
+
+/// Workspace-scoped staged partition id (UUIDv5 of the workspace key).
+/// Stable for a given key, so several workspaces sharing one DB keep
+/// distinct staged partitions.
+pub fn staged_partition_id_for(workspace_key: &str) -> PartitionId {
+    uuid::Uuid::new_v5(&STAGED_WORKSPACE_NS, workspace_key.as_bytes())
+}
+
+pub(crate) fn staged_pid(workspace_key: Option<&str>) -> PartitionId {
+    match workspace_key {
+        Some(key) => staged_partition_id_for(key),
+        None => staged_partition_id(),
+    }
 }
 
 /// Getting or creating staged partitions
 pub fn ensure_staged_partition<S: PartitionStore>(
     storage: &S,
     initial_snapshot_id: SnapshotId,
+    workspace_key: Option<&str>,
 ) -> Result<Partition> {
-    let pid = staged_partition_id();
+    let pid = staged_pid(workspace_key);
     match storage.get_partition(&pid) {
         Ok(p) => Ok(p),
         Err(_) => {
             let partition = Partition {
                 id: pid,
-                name: "staged".to_string(),
+                // Partition names are unique per DB; workspace-scoped
+                // partitions embed the key so several workspaces sharing
+                // one DB do not collide on the name.
+                name: match workspace_key {
+                    Some(key) => format!("staged/{key}"),
+                    None => "staged".to_string(),
+                },
                 current_snapshot: initial_snapshot_id,
                 history: vec![initial_snapshot_id],
                 partition_type: PartitionType::Staged,
@@ -98,11 +125,15 @@ fn snapshot_file_path<S: DeltaStore>(storage: &S, snapshot: &Snapshot) -> Result
 ///
 /// Replaces the former Unified intermediary layer. The three-way merge
 /// ensures correctness when multiple features merge into staged sequentially.
-pub fn merge_feature_to_staged<S>(storage: &S, feature_name: &str) -> Result<MergeResult>
+pub fn merge_feature_to_staged<S>(
+    storage: &S,
+    feature_name: &str,
+    workspace_key: Option<&str>,
+) -> Result<MergeResult>
 where
     S: SnapshotStore + DeltaStore + FileNodeStore + PartitionStore,
 {
-    let staged_pid = staged_partition_id();
+    let staged_pid = staged_pid(workspace_key);
     let integrated_pid = crate::layered::integrated::integrated_partition_id(feature_name);
 
     let feature_part = storage.get_partition(&integrated_pid).map_err(|_| {
@@ -206,7 +237,11 @@ where
 /// Each feature is merged sequentially via three-way merge using its own baseline.
 /// Features are merged one at a time, each accumulating into staged.
 /// This replaces the former `merge_features_to_unified` + `merge_unified_to_staged` pattern.
-pub fn merge_features_to_staged<S>(storage: &S, feature_names: &[String]) -> Result<MergeResult>
+pub fn merge_features_to_staged<S>(
+    storage: &S,
+    feature_names: &[String],
+    workspace_key: Option<&str>,
+) -> Result<MergeResult>
 where
     S: SnapshotStore + DeltaStore + FileNodeStore + PartitionStore,
 {
@@ -220,7 +255,7 @@ where
     let mut last_snapshot_id = None;
 
     for name in feature_names {
-        let result = merge_feature_to_staged(storage, name)?;
+        let result = merge_feature_to_staged(storage, name, workspace_key)?;
         all_conflicts.extend(result.conflicts);
         last_snapshot_id = Some(result.snapshot_id);
     }
@@ -368,16 +403,47 @@ mod tests {
         let storage = setup_storage_full();
         let initial_id = create_initial_snapshot(&storage, "base\n", SourceType::Manual);
 
-        let p1 = ensure_staged_partition(&storage, initial_id).unwrap();
-        let p2 = ensure_staged_partition(&storage, initial_id).unwrap();
+        let p1 = ensure_staged_partition(&storage, initial_id, None).unwrap();
+        let p2 = ensure_staged_partition(&storage, initial_id, None).unwrap();
         assert_eq!(p1.id, p2.id);
+    }
+
+    #[test]
+    fn test_staged_partition_id_workspace_scoped() {
+        let legacy = staged_partition_id();
+        let ws_a = staged_partition_id_for("/ws/a");
+        let ws_b = staged_partition_id_for("/ws/b");
+        assert_ne!(ws_a, ws_b, "distinct workspace keys derive distinct ids");
+        assert_ne!(ws_a, legacy, "derived id must not collide with the legacy id");
+        assert_eq!(
+            staged_partition_id_for("/ws/a"),
+            ws_a,
+            "derivation is deterministic for a given key"
+        );
+        assert_eq!(staged_pid(None), legacy, "no key falls back to the legacy id");
+        assert_eq!(staged_pid(Some("/ws/a")), ws_a);
+    }
+
+    #[test]
+    fn test_ensure_staged_partition_workspace_scoped() {
+        let storage = setup_storage_full();
+        let initial_id = create_initial_snapshot(&storage, "base\n", SourceType::Manual);
+
+        let ws_a = Some("/ws/a");
+        let ws_b = Some("/ws/b");
+        let pa = ensure_staged_partition(&storage, initial_id, ws_a).unwrap();
+        let pb = ensure_staged_partition(&storage, initial_id, ws_b).unwrap();
+        assert_ne!(pa.id, pb.id, "workspace-scoped staged partitions stay apart");
+        // Idempotent per workspace.
+        let pa2 = ensure_staged_partition(&storage, initial_id, ws_a).unwrap();
+        assert_eq!(pa.id, pa2.id);
     }
 
     #[test]
     fn test_merge_feature_to_staged() {
         let storage = setup_storage_full();
         let initial_id = create_initial_snapshot(&storage, "base\n", SourceType::Manual);
-        ensure_staged_partition(&storage, initial_id).unwrap();
+        ensure_staged_partition(&storage, initial_id, None).unwrap();
 
         // Create an integrated (feature) partition with modified content
         let feature_name = "test-feature";
@@ -397,7 +463,7 @@ mod tests {
         };
         storage.create_partition(&integrated_part).unwrap();
 
-        let merged_id = merge_feature_to_staged(&storage, feature_name).unwrap();
+        let merged_id = merge_feature_to_staged(&storage, feature_name, None).unwrap();
         assert!(
             merged_id.snapshot_id != initial_id,
             "should create new snapshot when there are changes"
@@ -414,7 +480,7 @@ mod tests {
     fn test_merge_feature_to_staged_no_changes() {
         let storage = setup_storage_full();
         let initial_id = create_initial_snapshot(&storage, "base\n", SourceType::Manual);
-        ensure_staged_partition(&storage, initial_id).unwrap();
+        ensure_staged_partition(&storage, initial_id, None).unwrap();
 
         // Create an integrated partition without modifications
         let feature_name = "test-feature";
@@ -428,7 +494,7 @@ mod tests {
         };
         storage.create_partition(&integrated_part).unwrap();
 
-        let result = merge_feature_to_staged(&storage, feature_name).unwrap();
+        let result = merge_feature_to_staged(&storage, feature_name, None).unwrap();
         assert_eq!(
             result.snapshot_id, initial_id,
             "should return initial id when no changes"
@@ -439,7 +505,7 @@ mod tests {
     fn test_commit_staged_to_checkpoint() {
         let storage = setup_storage_full();
         let initial_id = create_initial_snapshot(&storage, "base\n", SourceType::Manual);
-        ensure_staged_partition(&storage, initial_id).unwrap();
+        ensure_staged_partition(&storage, initial_id, None).unwrap();
 
         let cp_id =
             commit_staged_to_checkpoint(&storage, "main", "test commit", "test-author").unwrap();
@@ -456,7 +522,7 @@ mod tests {
     fn test_commit_staged_to_checkpoint_multiple() {
         let storage = setup_storage_full();
         let initial_id = create_initial_snapshot(&storage, "base\n", SourceType::Manual);
-        ensure_staged_partition(&storage, initial_id).unwrap();
+        ensure_staged_partition(&storage, initial_id, None).unwrap();
 
         let cp_id1 =
             commit_staged_to_checkpoint(&storage, "main", "first commit", "test-author").unwrap();
@@ -479,7 +545,7 @@ mod tests {
     fn test_reset_staged() {
         let storage = setup_storage_full();
         let initial_id = create_initial_snapshot(&storage, "base\n", SourceType::Manual);
-        ensure_staged_partition(&storage, initial_id).unwrap();
+        ensure_staged_partition(&storage, initial_id, None).unwrap();
 
         let file_node = FileNode::new(std::path::PathBuf::from("test.txt"), b"base\nmodified\n");
         storage
@@ -506,7 +572,7 @@ mod tests {
     fn test_reset_staged_at_base() {
         let storage = setup_storage_full();
         let initial_id = create_initial_snapshot(&storage, "base\n", SourceType::Manual);
-        ensure_staged_partition(&storage, initial_id).unwrap();
+        ensure_staged_partition(&storage, initial_id, None).unwrap();
 
         reset_staged(&storage, initial_id).unwrap();
         let staged = storage.get_partition(&staged_partition_id()).unwrap();

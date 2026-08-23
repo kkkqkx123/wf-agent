@@ -6,7 +6,7 @@ use dashmap::DashMap;
 use layertwine::core::file_node::FileNode;
 use layertwine::core::snapshot::{Snapshot, SnapshotContent};
 use layertwine::layered::StateMachine;
-use layertwine::storage::repository::SnapshotStore;
+use layertwine::storage::repository::{MetadataStore, SnapshotStore};
 use layertwine::storage::sqlite::SqliteStorage;
 pub use wf_types::config::file_checkpoint::ApprovalPolicy;
 use wf_types::config::file_checkpoint::{ConflictBehavior, FailureBehavior};
@@ -428,7 +428,40 @@ impl FileCheckpointManager {
             .map(|r| layertwine::git_sync::GcRetention {
                 keep_recent_heads: r.keep_recent_heads,
             });
+        manager.check_workspace_root_binding(config)?;
         Ok(manager)
+    }
+
+    /// Guard against opening a persistent DB with a workspace root that
+    /// differs from the one recorded when the DB was first opened (catches
+    /// a wrong `db_path` for a workspace). The normalized workspace root is
+    /// stored in DB metadata on first open; later opens compare against it
+    /// and fail on mismatch. In-memory stores and configs without a
+    /// workspace root (legacy single-workspace) are not bound.
+    fn check_workspace_root_binding(
+        &self,
+        config: &wf_types::config::file_checkpoint::FileCheckpointConfig,
+    ) -> Result<(), CheckpointError> {
+        const WS_ROOT_KEY: &str = "wf-checkpoint:workspace-root";
+        let (Some(storage_cfg), Some(root)) = (&config.storage, &config.workspace_root) else {
+            return Ok(());
+        };
+        if storage_cfg.db_path.is_none() {
+            return Ok(());
+        }
+        let normalized = crate::file_util::normalize_workspace_key(Path::new(root));
+        let storage = self.storage_ref()?;
+        match storage.load_metadata(WS_ROOT_KEY).map_err(map_layertwine_error)? {
+            Some(existing) if existing != normalized => Err(CheckpointError::Validation {
+                reason: format!(
+                    "db_path is bound to workspace root '{existing}', cannot open with '{normalized}'"
+                ),
+            }),
+            Some(_) => Ok(()),
+            None => storage
+                .store_metadata(WS_ROOT_KEY, &normalized)
+                .map_err(map_layertwine_error),
+        }
     }
 
     /// In-memory backend for tests and tooling.
@@ -602,14 +635,18 @@ impl FileCheckpointManager {
 
     /// Per-file diff between an actor workspace and the staged partition.
     pub fn diff_against_staged(&self, actor: &str) -> Result<Vec<FileDiffView>, CheckpointError> {
-        crate::provenance::diff_against_staged(self.storage_ref()?, actor)
+        crate::provenance::diff_against_staged(
+            self.storage_ref()?,
+            actor,
+            self.workspace_key().as_deref(),
+        )
     }
 
     /// Files with unresolved merge conflicts across the staged and feature
     /// partitions, with re-derived conflict regions (see
     /// [`crate::provenance::list_conflicts`]).
     pub fn list_conflicts(&self) -> Result<Vec<crate::provenance::ConflictFile>, CheckpointError> {
-        crate::provenance::list_conflicts(self.storage_ref()?)
+        crate::provenance::list_conflicts(self.storage_ref()?, self.workspace_key().as_deref())
     }
 }
 
@@ -1213,7 +1250,7 @@ mod tests {
         );
 
         // Both changes are present in the staged workspace.
-        let staged = crate::provenance::get_staged_workspace(storage).unwrap();
+        let staged = crate::provenance::get_staged_workspace(storage, None).unwrap();
         let map: HashMap<&str, &WorkspaceFile> =
             staged.iter().map(|f| (f.path.as_str(), f)).collect();
         assert_eq!(map["a.txt"].content, b"branch-a");
@@ -1243,5 +1280,119 @@ mod tests {
         let two = manager.restore_latest("agent:exec-2").unwrap().unwrap();
         assert_eq!(one[0].hash, sha256_hex(b"actor one"));
         assert_eq!(two[0].hash, sha256_hex(b"actor two"));
+    }
+
+    /// Two managers over one shared DB with different workspace roots must
+    /// not cross-write: manual edits land in workspace-scoped partitions.
+    #[test]
+    fn multi_workspace_manual_partitions_do_not_cross_write() {
+        let storage = Arc::new(
+            layertwine::storage::SqliteStorage::new_full_in_memory()
+                .map_err(map_layertwine_error)
+                .unwrap(),
+        );
+        let mut m_a = FileCheckpointManager::with_sqlite(storage.clone());
+        m_a.workspace_root = Some(PathBuf::from("/ws/a"));
+        let mut m_b = FileCheckpointManager::with_sqlite(storage.clone());
+        m_b.workspace_root = Some(PathBuf::from("/ws/b"));
+
+        // Same file edited in both workspaces with different content.
+        m_a.apply_manual_edit("a.txt", b"from workspace a").unwrap();
+        m_b.apply_manual_edit("a.txt", b"from workspace b").unwrap();
+
+        let pid_a = layertwine::layered::manual::manual_partition_id_for("/ws/a");
+        let pid_b = layertwine::layered::manual::manual_partition_id_for("/ws/b");
+        assert_ne!(pid_a, pid_b, "workspace-scoped manual partitions differ");
+
+        let part_a = storage.get_partition(&pid_a).unwrap();
+        let part_b = storage.get_partition(&pid_b).unwrap();
+        assert_ne!(
+            part_a.current_snapshot, part_b.current_snapshot,
+            "edits must not bleed across workspaces"
+        );
+
+        // Each workspace's manual partition carries only its own edit.
+        let text_a = layertwine::layered::transition::reconstruct_text(
+            &*storage,
+            &storage.get_snapshot(&part_a.current_snapshot).unwrap(),
+        )
+        .unwrap()
+        .unwrap_or_default();
+        let text_b = layertwine::layered::transition::reconstruct_text(
+            &*storage,
+            &storage.get_snapshot(&part_b.current_snapshot).unwrap(),
+        )
+        .unwrap()
+        .unwrap_or_default();
+        assert_eq!(text_a, "from workspace a");
+        assert_eq!(text_b, "from workspace b");
+    }
+
+    /// Without a workspace root the manager keeps the legacy fixed
+    /// partition ids (behavior identical to the pre-F5 single-workspace
+    /// mode).
+    #[test]
+    fn no_workspace_root_keeps_legacy_partition_ids() {
+        let manager = manager();
+        assert_eq!(manager.workspace_key(), None);
+
+        let legacy_manual = layertwine::layered::manual::manual_partition_id();
+        let legacy_staged = layertwine::layered::staged::staged_partition_id();
+
+        manager.apply_manual_edit("a.txt", b"legacy").unwrap();
+        let storage = manager.storage().unwrap();
+        assert!(
+            storage.get_partition(&legacy_manual).is_ok(),
+            "no workspace root must use the legacy manual partition id"
+        );
+
+        // The derived ids are unrelated to the legacy ids.
+        assert_ne!(
+            layertwine::layered::manual::manual_partition_id_for("/ws/x"),
+            legacy_manual
+        );
+        assert_ne!(
+            layertwine::layered::staged::staged_partition_id_for("/ws/x"),
+            legacy_staged
+        );
+    }
+
+    /// Opening a persistent DB binds it to the workspace root recorded in
+    /// metadata; a different root on the same DB is rejected.
+    #[test]
+    fn open_from_config_binds_workspace_root_to_db() {
+        let dir = tempfile::tempdir().unwrap();
+        let db_path = dir.path().join("cp.db");
+        let config_for = |root: &str| wf_types::config::file_checkpoint::FileCheckpointConfig {
+            storage: Some(wf_types::config::file_checkpoint::FileCheckpointStorageConfig {
+                storage_type: wf_types::config::file_checkpoint::FileCheckpointStorageType::Sqlite,
+                db_path: Some(db_path.to_string_lossy().into_owned()),
+            }),
+            workspace_root: Some(root.to_string()),
+            ..Default::default()
+        };
+
+        // First open records the binding.
+        FileCheckpointManager::open_from_config(&config_for("/ws/a")).unwrap();
+        // Reopening with the same root is fine.
+        FileCheckpointManager::open_from_config(&config_for("/ws/a")).unwrap();
+        // A different root on the same DB is rejected.
+        let err = match FileCheckpointManager::open_from_config(&config_for("/ws/b")) {
+            Ok(_) => panic!("different workspace root on a bound DB must fail"),
+            Err(e) => e,
+        };
+        assert!(
+            matches!(err, CheckpointError::Validation { .. }),
+            "different workspace root on a bound DB must fail: {err:?}"
+        );
+        // No workspace root is not bound (legacy mode still opens).
+        let legacy = wf_types::config::file_checkpoint::FileCheckpointConfig {
+            storage: Some(wf_types::config::file_checkpoint::FileCheckpointStorageConfig {
+                storage_type: wf_types::config::file_checkpoint::FileCheckpointStorageType::Sqlite,
+                db_path: Some(db_path.to_string_lossy().into_owned()),
+            }),
+            ..Default::default()
+        };
+        FileCheckpointManager::open_from_config(&legacy).unwrap();
     }
 }

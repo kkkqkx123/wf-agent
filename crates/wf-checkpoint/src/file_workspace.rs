@@ -17,6 +17,17 @@ impl FileCheckpointManager {
         self.workspace_root.as_deref()
     }
 
+    /// The normalized workspace key used to derive workspace-scoped
+    /// manual/staged partition ids (see
+    /// `layertwine::layered::{manual,staged}::*_partition_id_for`).
+    /// `None` when no workspace root is configured — the legacy
+    /// single-workspace fixed partition ids are used then.
+    pub fn workspace_key(&self) -> Option<String> {
+        self.workspace_root
+            .as_deref()
+            .map(crate::file_util::normalize_workspace_key)
+    }
+
     /// The workspace scan rules (ignore patterns + per-file failure
     /// behavior) derived from the file-checkpoint config.
     pub fn scan_config(&self) -> &ScanConfig {

@@ -31,6 +31,15 @@ use crate::file_util::sha256_hex;
 /// Seed path of the synthetic initial snapshot; excluded from provenance.
 const SEED_PATH: &str = ".wf-checkpoint-seed";
 
+/// Resolve the staged partition id for a workspace key (`None` = legacy
+/// single-workspace fixed id).
+pub(crate) fn staged_pid(workspace_key: Option<&str>) -> layertwine::core::types::PartitionId {
+    match workspace_key {
+        Some(key) => layertwine::layered::staged::staged_partition_id_for(key),
+        None => layertwine::layered::staged::staged_partition_id(),
+    }
+}
+
 /// One recorded change of a partition history entry.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct DeltaSummary {
@@ -320,11 +329,13 @@ pub fn get_actor_workspace(
 }
 
 /// The staged partition's reconstructed file set (`diff_against_staged`
-/// base).
+/// base). `workspace_key` selects the workspace-scoped staged partition
+/// (`None` = legacy single-workspace fixed partition).
 pub fn get_staged_workspace(
     storage: &SqliteStorage,
+    workspace_key: Option<&str>,
 ) -> Result<Vec<WorkspaceFile>, CheckpointError> {
-    let pid = layertwine::layered::staged::staged_partition_id();
+    let pid = staged_pid(workspace_key);
     let partition = storage.get_partition(&pid).map_err(map_storage)?;
     let mut files = Vec::new();
     for (path, snapshot) in latest_snapshots_per_path(storage, &partition)? {
@@ -367,9 +378,12 @@ pub struct ConflictFile {
 /// by replaying the merge over the snapshot's parents (best effort — old
 /// snapshots whose inputs are gone report the path with an empty conflict
 /// list).
-pub fn list_conflicts(storage: &SqliteStorage) -> Result<Vec<ConflictFile>, CheckpointError> {
+pub fn list_conflicts(
+    storage: &SqliteStorage,
+    workspace_key: Option<&str>,
+) -> Result<Vec<ConflictFile>, CheckpointError> {
     let mut partitions: Vec<Partition> = Vec::new();
-    let staged_pid = layertwine::layered::staged::staged_partition_id();
+    let staged_pid = staged_pid(workspace_key);
     if let Ok(partition) = storage.get_partition(&staged_pid) {
         partitions.push(partition);
     }
@@ -577,9 +591,10 @@ pub fn diff_actors(
 pub fn diff_against_staged(
     storage: &SqliteStorage,
     actor: &str,
+    workspace_key: Option<&str>,
 ) -> Result<Vec<FileDiffView>, CheckpointError> {
     let actor_files = get_actor_workspace(storage, actor)?;
-    let staged_files = get_staged_workspace(storage)?;
+    let staged_files = get_staged_workspace(storage, workspace_key)?;
     Ok(diff_workspaces(&actor_files, &staged_files))
 }
 

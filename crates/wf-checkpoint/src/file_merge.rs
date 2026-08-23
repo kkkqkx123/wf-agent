@@ -36,12 +36,16 @@ impl FileCheckpointManager {
         &self,
         storage: &SqliteStorage,
     ) -> Result<(), CheckpointError> {
-        let staged_pid = layertwine::layered::staged::staged_partition_id();
+        let ws = self.workspace_key();
+        let staged_pid = match ws.as_deref() {
+            Some(key) => layertwine::layered::staged::staged_partition_id_for(key),
+            None => layertwine::layered::staged::staged_partition_id(),
+        };
         if storage.get_partition(&staged_pid).is_ok() {
             return Ok(());
         }
         let seed = seed_initial_snapshot(storage, &AgentInstanceId("staged".into()))?;
-        layertwine::layered::staged::ensure_staged_partition(storage, seed)
+        layertwine::layered::staged::ensure_staged_partition(storage, seed, ws.as_deref())
             .map_err(map_layertwine_error)?;
         Ok(())
     }
@@ -84,7 +88,8 @@ impl FileCheckpointManager {
         let storage = self.storage_ref()?;
         self.ensure_staged_ready(storage)?;
         let names: Vec<String> = feature_names.iter().map(|s| s.to_string()).collect();
-        layertwine::layered::staged::merge_features_to_staged(storage, &names)
+        let ws = self.workspace_key();
+        layertwine::layered::staged::merge_features_to_staged(storage, &names, ws.as_deref())
             .map_err(map_layertwine_error)
     }
 

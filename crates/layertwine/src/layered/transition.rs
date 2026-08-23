@@ -116,7 +116,7 @@ where
     match transition {
         ForwardTransition::ManualToStaged => {
             check_forward_valid(&LayerType::ManualEdit, &LayerType::Staged)?;
-            crate::layered::manual::merge_manual_to_staged(storage)
+            crate::layered::manual::merge_manual_to_staged(storage, None)
         }
         ForwardTransition::AgentToApproval => {
             check_forward_valid(&LayerType::AgentEdit, &LayerType::Approval)?;
@@ -154,7 +154,7 @@ where
                 )
             })?;
             let names: Vec<String> = names_str.split(',').map(|s| s.trim().to_string()).collect();
-            crate::layered::staged::merge_features_to_staged(storage, &names).map(|r| r.snapshot_id)
+            crate::layered::staged::merge_features_to_staged(storage, &names, None).map(|r| r.snapshot_id)
         }
     }
 }
@@ -534,9 +534,9 @@ mod tests {
         let storage = setup_storage();
         let initial_id = create_initial_snapshot(&storage, "base\n", SourceType::Manual);
 
-        crate::layered::manual::ensure_manual_partition(&storage, initial_id).unwrap();
-        crate::layered::staged::ensure_staged_partition(&storage, initial_id).unwrap();
-        crate::layered::manual::apply_manual_edit(&storage, "test.txt", "base\nmodified\n")
+        crate::layered::manual::ensure_manual_partition(&storage, initial_id, None).unwrap();
+        crate::layered::staged::ensure_staged_partition(&storage, initial_id, None).unwrap();
+        crate::layered::manual::apply_manual_edit(&storage, "test.txt", "base\nmodified\n", None)
             .unwrap();
 
         let result = execute_forward(&storage, ForwardTransition::ManualToStaged, &[]);
@@ -629,7 +629,7 @@ mod tests {
     fn test_rollback_staged_to_layer_not_found() {
         let storage = setup_storage();
         let initial_id = create_initial_snapshot(&storage, "base\n", SourceType::Manual);
-        crate::layered::staged::ensure_staged_partition(&storage, initial_id).unwrap();
+        crate::layered::staged::ensure_staged_partition(&storage, initial_id, None).unwrap();
 
         let result = rollback_staged_to_layer(&storage, LayerType::ManualEdit);
         assert!(
@@ -643,11 +643,11 @@ mod tests {
         let storage = setup_storage();
         let initial_id = create_initial_snapshot(&storage, "base\n", SourceType::Manual);
 
-        crate::layered::manual::ensure_manual_partition(&storage, initial_id).unwrap();
-        crate::layered::staged::ensure_staged_partition(&storage, initial_id).unwrap();
-        crate::layered::manual::apply_manual_edit(&storage, "test.txt", "base\nmodified\n")
+        crate::layered::manual::ensure_manual_partition(&storage, initial_id, None).unwrap();
+        crate::layered::staged::ensure_staged_partition(&storage, initial_id, None).unwrap();
+        crate::layered::manual::apply_manual_edit(&storage, "test.txt", "base\nmodified\n", None)
             .unwrap();
-        crate::layered::manual::merge_manual_to_staged(&storage).unwrap();
+        crate::layered::manual::merge_manual_to_staged(&storage, None).unwrap();
 
         // Verify staged has changed
         let staged_pid = crate::layered::staged::staged_partition_id();

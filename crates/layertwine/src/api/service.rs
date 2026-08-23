@@ -373,11 +373,13 @@ impl ApiService {
             let manual_partition = crate::layered::manual::ensure_manual_partition(
                 storage.as_ref(),
                 initial_snapshot.id,
+                None,
             )
             .map_err(map_error)?;
             let staged_partition = crate::layered::staged::ensure_staged_partition(
                 storage.as_ref(),
                 initial_snapshot.id,
+                None,
             )
             .map_err(map_error)?;
 
@@ -427,11 +429,11 @@ impl ApiService {
             )
         })?;
         let snapshot_id =
-            crate::layered::manual::apply_manual_edit(self.storage.as_ref(), &req.file, content)
+            crate::layered::manual::apply_manual_edit(self.storage.as_ref(), &req.file, content, None)
                 .map_err(map_error)?;
 
         let staged_snapshot_id =
-            crate::layered::manual::merge_manual_to_staged(self.storage.as_ref())
+            crate::layered::manual::merge_manual_to_staged(self.storage.as_ref(), None)
                 .map_err(map_error)
                 .ok();
 
@@ -562,7 +564,7 @@ impl ApiService {
             approve_resp.integrated_snapshot_id.clone()
         } else {
             let result =
-                crate::layered::staged::merge_features_to_staged(self.storage.as_ref(), &names)
+                crate::layered::staged::merge_features_to_staged(self.storage.as_ref(), &names, None)
                     .map_err(map_error)?;
             snapshot_id_to_hex(&result.snapshot_id)
         };
@@ -1340,7 +1342,7 @@ impl ApiService {
 
         let merged_count = names.len();
         let result =
-            crate::layered::staged::merge_features_to_staged(self.storage.as_ref(), &names)
+            crate::layered::staged::merge_features_to_staged(self.storage.as_ref(), &names, None)
                 .map_err(map_error)?;
 
         Ok(MergeToUnifiedResponse {
@@ -1378,7 +1380,7 @@ impl ApiService {
             snapshot_id_to_hex(&staged.current_snapshot)
         } else {
             let result =
-                crate::layered::staged::merge_features_to_staged(self.storage.as_ref(), &names)
+                crate::layered::staged::merge_features_to_staged(self.storage.as_ref(), &names, None)
                     .map_err(map_error)?;
             snapshot_id_to_hex(&result.snapshot_id)
         };

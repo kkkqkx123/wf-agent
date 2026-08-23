@@ -240,17 +240,21 @@ impl FileCheckpointManager {
     /// `SnapshotContent::FileContent`. Returns the new snapshot id (hex).
     pub fn apply_manual_edit(&self, path: &str, content: &[u8]) -> Result<String, CheckpointError> {
         let storage = self.storage_ref()?;
-        let manual_pid = layertwine::layered::manual::manual_partition_id();
+        let ws = self.workspace_key();
+        let manual_pid = match ws.as_deref() {
+            Some(key) => layertwine::layered::manual::manual_partition_id_for(key),
+            None => layertwine::layered::manual::manual_partition_id(),
+        };
         if storage.get_partition(&manual_pid).is_err() {
             let seed = seed_initial_snapshot(
                 storage,
                 &layertwine::core::types::AgentInstanceId("manual".into()),
             )?;
-            layertwine::layered::manual::ensure_manual_partition(storage, seed)
+            layertwine::layered::manual::ensure_manual_partition(storage, seed, ws.as_deref())
                 .map_err(map_layertwine_error)?;
         }
         let snapshot_id = if let Ok(text) = std::str::from_utf8(content) {
-            layertwine::layered::manual::apply_manual_edit(storage, path, text)
+            layertwine::layered::manual::apply_manual_edit(storage, path, text, ws.as_deref())
                 .map_err(map_layertwine_error)?
         } else {
             let file_node = FileNode::new(PathBuf::from(path), content);
@@ -266,10 +270,7 @@ impl FileCheckpointManager {
                 .store_snapshot(&snapshot, content)
                 .map_err(map_layertwine_error)?;
             storage
-                .update_pointer(
-                    &layertwine::layered::manual::manual_partition_id(),
-                    &snapshot.id,
-                )
+                .update_pointer(&manual_pid, &snapshot.id)
                 .map_err(map_layertwine_error)?;
             snapshot.id
         };
@@ -296,16 +297,20 @@ impl FileCheckpointManager {
     /// `SnapshotContent::Deleted`). Returns the new snapshot id (hex).
     pub fn apply_manual_delete(&self, path: &str) -> Result<String, CheckpointError> {
         let storage = self.storage_ref()?;
-        let manual_pid = layertwine::layered::manual::manual_partition_id();
+        let ws = self.workspace_key();
+        let manual_pid = match ws.as_deref() {
+            Some(key) => layertwine::layered::manual::manual_partition_id_for(key),
+            None => layertwine::layered::manual::manual_partition_id(),
+        };
         if storage.get_partition(&manual_pid).is_err() {
             let seed = seed_initial_snapshot(
                 storage,
                 &layertwine::core::types::AgentInstanceId("manual".into()),
             )?;
-            layertwine::layered::manual::ensure_manual_partition(storage, seed)
+            layertwine::layered::manual::ensure_manual_partition(storage, seed, ws.as_deref())
                 .map_err(map_layertwine_error)?;
         }
-        let snapshot_id = layertwine::layered::manual::apply_manual_delete(storage, path)
+        let snapshot_id = layertwine::layered::manual::apply_manual_delete(storage, path, ws.as_deref())
             .map_err(map_layertwine_error)?;
         if let Some(ref bus) = self.event_bus {
             let write_hash = sha256_hex(b"");

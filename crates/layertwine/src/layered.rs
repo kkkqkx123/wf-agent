@@ -380,8 +380,8 @@ mod tests {
         let initial_id = create_initial_snapshot(&storage, "base\n", SourceType::Manual);
 
         let storage_ref = &*storage;
-        crate::layered::manual::ensure_manual_partition(storage_ref, initial_id).unwrap();
-        crate::layered::staged::ensure_staged_partition(storage_ref, initial_id).unwrap();
+        crate::layered::manual::ensure_manual_partition(storage_ref, initial_id, None).unwrap();
+        crate::layered::staged::ensure_staged_partition(storage_ref, initial_id, None).unwrap();
 
         let result = sm.sync_layers();
         assert!(result.is_ok());

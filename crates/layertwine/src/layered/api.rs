@@ -57,7 +57,7 @@ where
     }
 
     // 6. Merge feature directly to staged (no unified intermediary)
-    let staged_result = staged::merge_features_to_staged(storage, &[feature_name.to_string()])?;
+    let staged_result = staged::merge_features_to_staged(storage, &[feature_name.to_string()], None)?;
     if staged_result.has_conflicts() {
         return Err(crate::error::LayertwineError::General(format!(
             "Merge conflicts detected: {}",
@@ -117,7 +117,7 @@ where
     }
 
     // 4. Merge feature directly to staged (no unified intermediary)
-    let staged_result = staged::merge_features_to_staged(storage, &[feature_name.to_string()])?;
+    let staged_result = staged::merge_features_to_staged(storage, &[feature_name.to_string()], None)?;
     if staged_result.has_conflicts() {
         return Err(crate::error::LayertwineError::General(format!(
             "Merge conflicts detected: {}",
@@ -148,7 +148,7 @@ where
     }
 
     // 1. Merge features directly to staged
-    let staged_result = staged::merge_features_to_staged(storage, feature_names)?;
+    let staged_result = staged::merge_features_to_staged(storage, feature_names, None)?;
     if staged_result.has_conflicts() {
         return Err(crate::error::LayertwineError::General(format!(
             "Merge conflicts detected: {}",
@@ -192,7 +192,7 @@ mod tests {
         let storage = setup_storage();
         let initial_id = create_initial_snapshot(&storage, "base\n", SourceType::Manual);
 
-        staged::ensure_staged_partition(&storage, initial_id).unwrap();
+        staged::ensure_staged_partition(&storage, initial_id, None).unwrap();
 
         let agent_id = AgentInstanceId("test-agent".into());
 
@@ -221,7 +221,7 @@ mod tests {
         let initial_id =
             create_initial_snapshot(&storage, "base\nmiddle\nend\n", SourceType::Manual);
 
-        staged::ensure_staged_partition(&storage, initial_id).unwrap();
+        staged::ensure_staged_partition(&storage, initial_id, None).unwrap();
 
         let agent_a = AgentInstanceId("agent-a".into());
         let agent_b = AgentInstanceId("agent-b".into());

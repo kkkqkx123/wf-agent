@@ -57,12 +57,12 @@ fn get_text(storage: &SqliteStorage, snapshot_id: &SnapshotId) -> String {
 
 /// Ensure staged partition exists.
 fn ensure_staged(storage: &SqliteStorage, initial_id: SnapshotId) {
-    layertwine::layered::staged::ensure_staged_partition(storage, initial_id).unwrap();
+    layertwine::layered::staged::ensure_staged_partition(storage, initial_id, None).unwrap();
 }
 
 /// Ensure manual partition exists.
 fn ensure_manual(storage: &SqliteStorage, initial_id: SnapshotId) {
-    layertwine::layered::manual::ensure_manual_partition(storage, initial_id).unwrap();
+    layertwine::layered::manual::ensure_manual_partition(storage, initial_id, None).unwrap();
 }
 
 /// Ensure agent partition exists.
@@ -105,6 +105,7 @@ fn test_full_manual_pipeline() {
         &storage,
         "test.txt",
         "line1\nmodified\nline3\n",
+        None,
     )
     .unwrap();
 
@@ -278,7 +279,7 @@ fn test_multi_feature_merge() {
     // Merge both features directly to staged — each modifies a different line → no conflict
     let names = &[feat1.to_string(), feat2.to_string()];
     let merge_result =
-        layertwine::layered::staged::merge_features_to_staged(&storage, names).unwrap();
+        layertwine::layered::staged::merge_features_to_staged(&storage, names, None).unwrap();
     assert!(
         !merge_result.has_conflicts(),
         "non-overlapping edits should not conflict"
@@ -306,7 +307,7 @@ fn test_rollback_staged_to_manual() {
     ensure_manual(&storage, initial_id);
 
     // Apply manual edit and merge to staged
-    layertwine::layered::manual::apply_manual_edit(&storage, "test.txt", "original\nedited\n")
+    layertwine::layered::manual::apply_manual_edit(&storage, "test.txt", "original\nedited\n", None)
         .unwrap();
     execute_forward(&storage, ForwardTransition::ManualToStaged, &[]).unwrap();
 
@@ -438,7 +439,7 @@ fn test_approval_integrated_staged_chain() {
 
     // Direct function call: integrated → staged (no unified intermediary)
     let staged_result =
-        layertwine::layered::staged::merge_features_to_staged(&storage, &[feature.to_string()])
+        layertwine::layered::staged::merge_features_to_staged(&storage, &[feature.to_string()], None)
             .unwrap();
 
     // Staged snapshot should be different from integrated snapshot
@@ -463,7 +464,7 @@ fn test_sequential_manual_edits() {
 
     // Multiple edits without forward in between
     let id1 =
-        layertwine::layered::manual::apply_manual_edit(&storage, "test.txt", "line1\nmodified\n")
+        layertwine::layered::manual::apply_manual_edit(&storage, "test.txt", "line1\nmodified\n", None)
             .unwrap();
     assert_ne!(id1, initial_id);
 
@@ -471,6 +472,7 @@ fn test_sequential_manual_edits() {
         &storage,
         "test.txt",
         "line1\nmodified\nline3\n",
+        None,
     )
     .unwrap();
     assert_ne!(id2, id1);
@@ -492,11 +494,11 @@ fn test_edit_after_forward() {
     ensure_staged(&storage, initial_id);
     ensure_manual(&storage, initial_id);
 
-    layertwine::layered::manual::apply_manual_edit(&storage, "test.txt", "base\na\n").unwrap();
+    layertwine::layered::manual::apply_manual_edit(&storage, "test.txt", "base\na\n", None).unwrap();
     execute_forward(&storage, ForwardTransition::ManualToStaged, &[]).unwrap();
     assert_eq!(staged_text(&storage), "base\na\n");
 
-    layertwine::layered::manual::apply_manual_edit(&storage, "test.txt", "base\na\nb\n").unwrap();
+    layertwine::layered::manual::apply_manual_edit(&storage, "test.txt", "base\na\nb\n", None).unwrap();
     execute_forward(&storage, ForwardTransition::ManualToStaged, &[]).unwrap();
     assert_eq!(staged_text(&storage), "base\na\nb\n");
 }
@@ -528,7 +530,7 @@ fn test_state_machine_integration() {
     ensure_manual(s, initial_id);
 
     // Apply manual edit
-    layertwine::layered::manual::apply_manual_edit(s, "test.txt", "sm\nedited\n").unwrap();
+    layertwine::layered::manual::apply_manual_edit(s, "test.txt", "sm\nedited\n", None).unwrap();
 
     // Execute forward via state machine
     let sid = sm

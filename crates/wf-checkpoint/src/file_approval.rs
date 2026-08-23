@@ -408,7 +408,7 @@ impl FileCheckpointManager {
         }
 
         // Remaining unresolved conflict count across staged/feature.
-        Ok(crate::provenance::list_conflicts(storage)?.len())
+        Ok(crate::provenance::list_conflicts(storage, self.workspace_key().as_deref())?.len())
     }
 
     // ── end-of-execution approval policy ─────────────────────────────

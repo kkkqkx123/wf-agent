@@ -12,23 +12,51 @@ use crate::engine::merge::apply_deltas;
 use crate::error::{LayertwineError, Result};
 use crate::storage::repository::{DeltaStore, FileNodeStore, PartitionStore, SnapshotStore};
 use std::path::PathBuf;
-/// Get the partition ID of the manual_edit level
+
+/// UUIDv5 namespace for workspace-scoped manual partition ids. Distinct
+/// from the legacy fixed id so the derived ids never collide with it.
+const MANUAL_WORKSPACE_NS: uuid::Uuid =
+    uuid::Uuid::from_u128(0x0000_0000_0000_0000_0000_0000_0000_0100);
+
+/// Get the partition ID of the manual_edit level (legacy single-workspace
+/// fixed id; one DB serves one workspace).
 pub fn manual_partition_id() -> PartitionId {
     uuid::Uuid::from_u128(0x0000_0000_0000_0000_0000_0000_0000_0001)
+}
+
+/// Workspace-scoped manual partition id (UUIDv5 of the workspace key).
+/// Stable for a given key, so several workspaces sharing one DB keep
+/// distinct manual partitions.
+pub fn manual_partition_id_for(workspace_key: &str) -> PartitionId {
+    uuid::Uuid::new_v5(&MANUAL_WORKSPACE_NS, workspace_key.as_bytes())
+}
+
+fn manual_pid(workspace_key: Option<&str>) -> PartitionId {
+    match workspace_key {
+        Some(key) => manual_partition_id_for(key),
+        None => manual_partition_id(),
+    }
 }
 
 /// Get or create manual_edit partition
 pub fn ensure_manual_partition<S: PartitionStore>(
     storage: &S,
     initial_snapshot_id: SnapshotId,
+    workspace_key: Option<&str>,
 ) -> Result<Partition> {
-    let pid = manual_partition_id();
+    let pid = manual_pid(workspace_key);
     match storage.get_partition(&pid) {
         Ok(p) => Ok(p),
         Err(_) => {
             let partition = Partition {
                 id: pid,
-                name: "manual_edit".to_string(),
+                // Partition names are unique per DB; workspace-scoped
+                // partitions embed the key so several workspaces sharing
+                // one DB do not collide on the name.
+                name: match workspace_key {
+                    Some(key) => format!("manual_edit/{key}"),
+                    None => "manual_edit".to_string(),
+                },
                 current_snapshot: initial_snapshot_id,
                 history: vec![initial_snapshot_id],
                 partition_type: PartitionType::Manual,
@@ -47,12 +75,17 @@ pub fn ensure_manual_partition<S: PartitionStore>(
 /// 2. Calculate old ↔ new Delta
 /// 3. Create a new Snapshot to append to the manual_edit partition
 /// 4. Return the new Snapshot ID
-pub fn apply_manual_edit<S>(storage: &S, file_path: &str, new_content: &str) -> Result<SnapshotId>
+pub fn apply_manual_edit<S>(
+    storage: &S,
+    file_path: &str,
+    new_content: &str,
+    workspace_key: Option<&str>,
+) -> Result<SnapshotId>
 where
     S: SnapshotStore + DeltaStore + FileNodeStore + PartitionStore,
 {
     // Get the current snapshot of the manual_edit partition
-    let pid = manual_partition_id();
+    let pid = manual_pid(workspace_key);
     let partition = storage.get_partition(&pid).map_err(|_| {
         LayertwineError::NotFound(
             "manual_edit partition not found, call ensure_manual_partition first".into(),
@@ -119,11 +152,15 @@ where
 /// → empty) and marks the new snapshot with `SnapshotContent::Deleted`, so
 /// projection/restore layers can tell a removed file apart from a cleared
 /// (empty) one.
-pub fn apply_manual_delete<S>(storage: &S, file_path: &str) -> Result<SnapshotId>
+pub fn apply_manual_delete<S>(
+    storage: &S,
+    file_path: &str,
+    workspace_key: Option<&str>,
+) -> Result<SnapshotId>
 where
     S: SnapshotStore + DeltaStore + FileNodeStore + PartitionStore,
 {
-    let pid = manual_partition_id();
+    let pid = manual_pid(workspace_key);
     let partition = storage.get_partition(&pid).map_err(|_| {
         LayertwineError::NotFound(
             "manual_edit partition not found, call ensure_manual_partition first".into(),
@@ -193,12 +230,12 @@ where
 ///
 /// This ensures manual edits don't silently overwrite changes that entered staged via
 /// other paths (e.g., unified → staged).
-pub fn merge_manual_to_staged<S>(storage: &S) -> Result<SnapshotId>
+pub fn merge_manual_to_staged<S>(storage: &S, workspace_key: Option<&str>) -> Result<SnapshotId>
 where
     S: SnapshotStore + DeltaStore + FileNodeStore + PartitionStore,
 {
-    let manual_pid = manual_partition_id();
-    let staged_pid = crate::layered::staged::staged_partition_id();
+    let manual_pid = manual_pid(workspace_key);
+    let staged_pid = crate::layered::staged::staged_pid(workspace_key);
 
     // Get manual and staged partitions
     let manual_partition = storage
@@ -299,9 +336,9 @@ mod tests {
     fn test_apply_manual_edit() {
         let storage = setup_storage();
         let initial_id = create_initial_snapshot(&storage, "hello\nworld\n", SourceType::Manual);
-        ensure_manual_partition(&storage, initial_id).unwrap();
+        ensure_manual_partition(&storage, initial_id, None).unwrap();
 
-        let new_id = apply_manual_edit(&storage, "test.txt", "hello\nrust\n").unwrap();
+        let new_id = apply_manual_edit(&storage, "test.txt", "hello\nrust\n", None).unwrap();
         assert_ne!(new_id, initial_id);
 
         // Validate Snapshot Chain
@@ -316,14 +353,14 @@ mod tests {
         let initial_id = create_initial_snapshot(&storage, "base\ncontent\n", SourceType::Manual);
 
         // Create manual and staged partitions that point to the same initial snapshot
-        ensure_manual_partition(&storage, initial_id).unwrap();
-        crate::layered::staged::ensure_staged_partition(&storage, initial_id).unwrap();
+        ensure_manual_partition(&storage, initial_id, None).unwrap();
+        crate::layered::staged::ensure_staged_partition(&storage, initial_id, None).unwrap();
 
         // Apply edits to the manual layer
-        apply_manual_edit(&storage, "test.txt", "base\nmodified\n").unwrap();
+        apply_manual_edit(&storage, "test.txt", "base\nmodified\n", None).unwrap();
 
         // Merge to staged
-        let merged_id = merge_manual_to_staged(&storage).unwrap();
+        let merged_id = merge_manual_to_staged(&storage, None).unwrap();
         let staged = storage
             .get_partition(&crate::layered::staged::staged_partition_id())
             .unwrap();
@@ -338,8 +375,8 @@ mod tests {
     fn test_ensure_manual_partition_already_exists() {
         let storage = setup_storage();
         let initial_id = create_initial_snapshot(&storage, "base\n", SourceType::Manual);
-        let p1 = ensure_manual_partition(&storage, initial_id).unwrap();
-        let p2 = ensure_manual_partition(&storage, initial_id).unwrap();
+        let p1 = ensure_manual_partition(&storage, initial_id, None).unwrap();
+        let p2 = ensure_manual_partition(&storage, initial_id, None).unwrap();
         assert_eq!(p1.id, p2.id);
     }
 
@@ -347,9 +384,9 @@ mod tests {
     fn test_apply_manual_edit_no_changes() {
         let storage = setup_storage();
         let initial_id = create_initial_snapshot(&storage, "same", SourceType::Manual);
-        ensure_manual_partition(&storage, initial_id).unwrap();
+        ensure_manual_partition(&storage, initial_id, None).unwrap();
 
-        let result = apply_manual_edit(&storage, "test.txt", "same").unwrap();
+        let result = apply_manual_edit(&storage, "test.txt", "same", None).unwrap();
         assert_eq!(
             result, initial_id,
             "no changes should return current snapshot"
@@ -360,7 +397,7 @@ mod tests {
     fn test_apply_manual_edit_no_partition() {
         let storage = setup_storage();
         // Don't call ensure_manual_partition
-        let result = apply_manual_edit(&storage, "test.txt", "content\n");
+        let result = apply_manual_edit(&storage, "test.txt", "content\n", None);
         assert!(
             result.is_err(),
             "should error when manual partition doesn't exist"
@@ -372,11 +409,11 @@ mod tests {
         let storage = setup_storage();
         let initial_id = create_initial_snapshot(&storage, "base\n", SourceType::Manual);
 
-        ensure_manual_partition(&storage, initial_id).unwrap();
-        crate::layered::staged::ensure_staged_partition(&storage, initial_id).unwrap();
+        ensure_manual_partition(&storage, initial_id, None).unwrap();
+        crate::layered::staged::ensure_staged_partition(&storage, initial_id, None).unwrap();
 
         // No edits applied → merge should return current staged snapshot
-        let merged_id = merge_manual_to_staged(&storage).unwrap();
+        let merged_id = merge_manual_to_staged(&storage, None).unwrap();
         let staged = storage
             .get_partition(&crate::layered::staged::staged_partition_id())
             .unwrap();
@@ -387,10 +424,10 @@ mod tests {
     fn test_manual_sequential_edits() {
         let storage = setup_storage();
         let initial_id = create_initial_snapshot(&storage, "line1\nline2\n", SourceType::Manual);
-        ensure_manual_partition(&storage, initial_id).unwrap();
+        ensure_manual_partition(&storage, initial_id, None).unwrap();
 
         // First edit: modify line2
-        let first_id = apply_manual_edit(&storage, "test.txt", "line1\nmodified\n").unwrap();
+        let first_id = apply_manual_edit(&storage, "test.txt", "line1\nmodified\n", None).unwrap();
         assert_ne!(
             first_id, initial_id,
             "first edit should create new snapshot"
@@ -398,7 +435,7 @@ mod tests {
 
         // Second edit: add a third line
         let second_id =
-            apply_manual_edit(&storage, "test.txt", "line1\nmodified\nline3\n").unwrap();
+            apply_manual_edit(&storage, "test.txt", "line1\nmodified\nline3\n", None).unwrap();
         assert_ne!(
             second_id, first_id,
             "second edit should create another new snapshot"
@@ -417,7 +454,7 @@ mod tests {
     fn test_manual_edit_multiple_files() {
         let storage = setup_storage();
         let initial_id = create_initial_snapshot(&storage, "file1\n", SourceType::Manual);
-        ensure_manual_partition(&storage, initial_id).unwrap();
+        ensure_manual_partition(&storage, initial_id, None).unwrap();
 
         // Override the stored file node for a different file path
         let file_node2 = FileNode::new(std::path::PathBuf::from("file2.txt"), b"file2\n");
@@ -429,17 +466,58 @@ mod tests {
         storage.store_snapshot(&init2, b"").unwrap();
 
         // Edit first file
-        let id1 = apply_manual_edit(&storage, "test.txt", "file1\nmodified\n").unwrap();
+        let id1 = apply_manual_edit(&storage, "test.txt", "file1\nmodified\n", None).unwrap();
         assert_ne!(
             id1, initial_id,
             "edit first file should produce new snapshot"
         );
 
         // Edit second file
-        let id2 = apply_manual_edit(&storage, "file2.txt", "file2\nmodified\n").unwrap();
+        let id2 = apply_manual_edit(&storage, "file2.txt", "file2\nmodified\n", None).unwrap();
         assert_ne!(
             id2, id1,
             "edit second file should produce another new snapshot"
         );
+    }
+
+    #[test]
+    fn test_manual_partition_id_workspace_scoped() {
+        let legacy = manual_partition_id();
+        let ws_a = manual_partition_id_for("/ws/a");
+        let ws_b = manual_partition_id_for("/ws/b");
+        assert_ne!(ws_a, ws_b, "distinct workspace keys derive distinct ids");
+        assert_ne!(ws_a, legacy, "derived id must not collide with the legacy id");
+        assert_eq!(
+            manual_partition_id_for("/ws/a"),
+            ws_a,
+            "derivation is deterministic for a given key"
+        );
+        assert_eq!(manual_pid(None), legacy, "no key falls back to the legacy id");
+        assert_eq!(manual_pid(Some("/ws/a")), ws_a);
+    }
+
+    #[test]
+    fn test_manual_edit_workspace_scoped_partitions() {
+        let storage = setup_storage();
+        let initial_id = create_initial_snapshot(&storage, "base\n", SourceType::Manual);
+
+        // Two workspace-scoped manual partitions share the same DB without
+        // cross-writing: each keeps its own snapshot chain.
+        let ws_a = Some("/ws/a");
+        let ws_b = Some("/ws/b");
+        ensure_manual_partition(&storage, initial_id, ws_a).unwrap();
+        ensure_manual_partition(&storage, initial_id, ws_b).unwrap();
+        let id_a = apply_manual_edit(&storage, "test.txt", "content-a\n", ws_a).unwrap();
+        let id_b = apply_manual_edit(&storage, "test.txt", "content-b\n", ws_b).unwrap();
+        assert_ne!(id_a, id_b);
+
+        let part_a = storage
+            .get_partition(&manual_partition_id_for("/ws/a"))
+            .unwrap();
+        let part_b = storage
+            .get_partition(&manual_partition_id_for("/ws/b"))
+            .unwrap();
+        assert_eq!(part_a.current_snapshot, id_a);
+        assert_eq!(part_b.current_snapshot, id_b);
     }
 }

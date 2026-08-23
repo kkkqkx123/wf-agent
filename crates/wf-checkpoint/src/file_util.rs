@@ -29,6 +29,20 @@ pub fn sha256_hex(data: &[u8]) -> String {
 /// Path of the synthetic initial snapshot seeding an actor partition.
 pub(crate) const SEED_PATH: &str = ".wf-checkpoint-seed";
 
+/// Normalize a workspace root into the stable workspace key used to derive
+/// workspace-scoped manual/staged partition ids: trailing path separators
+/// are stripped, everything else is kept verbatim so the same root always
+/// maps to the same key.
+pub(crate) fn normalize_workspace_key(root: &Path) -> String {
+    let raw = root.to_string_lossy();
+    let trimmed = raw.trim_end_matches(['/', '\\']);
+    if trimmed.is_empty() {
+        raw.into_owned()
+    } else {
+        trimmed.to_string()
+    }
+}
+
 /// Map a layertwine error into the unified `CheckpointError`.
 pub(crate) fn map_layertwine_error<E: Into<layertwine::LayertwineError>>(e: E) -> CheckpointError {
     match e.into() {

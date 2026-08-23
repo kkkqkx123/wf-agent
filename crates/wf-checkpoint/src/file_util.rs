@@ -292,7 +292,6 @@ pub(crate) fn projection(
         files,
         checkpoint_type: "full".to_string(),
         base_checkpoint_id: None,
-        changes: None,
         empty_dirs: None,
     })
 }

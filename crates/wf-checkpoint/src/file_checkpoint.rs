@@ -4,6 +4,7 @@ use layertwine::layered::agent;
 use layertwine::storage::repository::{CheckpointPersist, PartitionStore};
 use layertwine::storage::sqlite::SqliteStorage;
 
+use crate::branch::execution_branch_name;
 use crate::error::CheckpointError;
 use crate::file::{FileCheckpoint, FileCheckpointManager, FileContentEntry};
 use crate::file_util::{
@@ -49,6 +50,8 @@ impl FileCheckpointManager {
             .map_err(map_layertwine_error)?;
         self.latest_checkpoints
             .insert(actor.as_str().to_string(), checkpoint.id.to_hex());
+        let branch_name = execution_branch_name("execution", entity_id);
+        let _ = self.branch_adapter.set_branch_head(&branch_name, &checkpoint.id.to_hex());
         self.project(storage, &checkpoint)
     }
 
@@ -94,6 +97,8 @@ impl FileCheckpointManager {
             .map_err(map_layertwine_error)?;
         self.latest_checkpoints
             .insert(actor.as_str().to_string(), checkpoint.id.to_hex());
+        let branch_name = execution_branch_name("execution", entity_id);
+        let _ = self.branch_adapter.set_branch_head(&branch_name, &checkpoint.id.to_hex());
         Ok(Some(self.project(storage, &checkpoint)?))
     }
 

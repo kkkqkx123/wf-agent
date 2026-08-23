@@ -1,4 +1,5 @@
-use layertwine::core::types::AgentInstanceId;
+use layertwine::checkpoint::types::{Checkpoint, CheckpointMetadata};
+use layertwine::core::types::{AgentInstanceId, CheckpointId};
 use layertwine::layered::agent;
 use layertwine::storage::repository::{CheckpointPersist, PartitionStore};
 use layertwine::storage::sqlite::SqliteStorage;
@@ -7,6 +8,14 @@ use crate::error::CheckpointError;
 use crate::event::CheckpointEventBus;
 use crate::file::FileCheckpointManager;
 use crate::file_util::{map_layertwine_error, seed_initial_snapshot};
+
+/// Result of a merge commit: the layertwine merge outcome plus the
+/// multi-parent checkpoint id created to record the merge in the DAG.
+#[derive(Debug, Clone)]
+pub struct MergeCommitResult {
+    pub merge_result: layertwine::layered::MergeResult,
+    pub checkpoint_id: String,
+}
 
 impl FileCheckpointManager {
     // ── layered merge wrappers ────────────────────────────────────────
@@ -80,17 +89,56 @@ impl FileCheckpointManager {
     }
 
     /// Merge all given features into the staged partition (three-way merge
-    /// per feature, sequential accumulation).
+    /// per feature, sequential accumulation), then create a multi-parent
+    /// merge commit checkpoint.
     pub fn merge_features_to_staged(
         &self,
         feature_names: &[&str],
-    ) -> Result<layertwine::layered::MergeResult, CheckpointError> {
+    ) -> Result<MergeCommitResult, CheckpointError> {
         let storage = self.storage_ref()?;
         self.ensure_staged_ready(storage)?;
+
+        let staged_cp = self.latest_staged_checkpoint_id(storage)?;
+        let feature_cps: Vec<Option<String>> = feature_names
+            .iter()
+            .map(|name| self.latest_feature_checkpoint_id(storage, name))
+            .collect::<Result<_, _>>()?;
+
         let names: Vec<String> = feature_names.iter().map(|s| s.to_string()).collect();
         let ws = self.workspace_key();
-        layertwine::layered::staged::merge_features_to_staged(storage, &names, ws.as_deref())
-            .map_err(map_layertwine_error)
+        let merge_result = layertwine::layered::staged::merge_features_to_staged(
+            storage,
+            &names,
+            ws.as_deref(),
+        )
+        .map_err(map_layertwine_error)?;
+
+        let mut parents: Vec<CheckpointId> = Vec::new();
+        for id_str in std::iter::once(&staged_cp).chain(feature_cps.iter()).flatten() {
+            if let Some(cid) = CheckpointId::from_hex(id_str) {
+                if !parents.contains(&cid) {
+                    parents.push(cid);
+                }
+            }
+        }
+
+        let snapshot_ids = vec![merge_result.snapshot_id];
+        let checkpoint = Checkpoint::new(
+            snapshot_ids,
+            parents,
+            CheckpointMetadata::new(
+                "staged",
+                &format!("merge {} features into staged", feature_names.len()),
+            ),
+        );
+        storage
+            .store_checkpoint(&checkpoint)
+            .map_err(map_layertwine_error)?;
+
+        Ok(MergeCommitResult {
+            merge_result,
+            checkpoint_id: checkpoint.id.to_hex(),
+        })
     }
 
     /// Fork-join join step: merge each parallel feature branch into staged
@@ -103,7 +151,7 @@ impl FileCheckpointManager {
     pub fn merge_branch_changes(
         &self,
         feature_names: &[&str],
-    ) -> Result<layertwine::layered::MergeResult, CheckpointError> {
+    ) -> Result<MergeCommitResult, CheckpointError> {
         let merged = self.merge_features_to_staged(feature_names)?;
         let storage = self.storage_ref()?;
         for name in feature_names {
@@ -135,5 +183,36 @@ impl FileCheckpointManager {
             bus.publish(CheckpointEventBus::gc_completed(stats.clone()));
         }
         Ok(stats)
+    }
+
+    // ── merge commit helpers ──────────────────────────────────────────
+
+    /// Find the latest checkpoint id for a feature (integrated) partition
+    /// by scanning stored checkpoints whose author matches the feature name.
+    pub(crate) fn latest_feature_checkpoint_id(
+        &self,
+        storage: &SqliteStorage,
+        feature_name: &str,
+    ) -> Result<Option<String>, CheckpointError> {
+        let checkpoints = storage.list_checkpoints().map_err(map_layertwine_error)?;
+        let latest = checkpoints
+            .iter()
+            .filter(|c| c.metadata.author == feature_name)
+            .max_by_key(|c| c.created_at);
+        Ok(latest.map(|c| c.id.to_hex()))
+    }
+
+    /// Find the latest checkpoint id for the staged partition by scanning
+    /// stored checkpoints whose author is "staged".
+    pub(crate) fn latest_staged_checkpoint_id(
+        &self,
+        storage: &SqliteStorage,
+    ) -> Result<Option<String>, CheckpointError> {
+        let checkpoints = storage.list_checkpoints().map_err(map_layertwine_error)?;
+        let latest = checkpoints
+            .iter()
+            .filter(|c| c.metadata.author == "staged")
+            .max_by_key(|c| c.created_at);
+        Ok(latest.map(|c| c.id.to_hex()))
     }
 }

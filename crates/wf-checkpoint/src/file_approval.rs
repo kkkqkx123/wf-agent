@@ -3,8 +3,9 @@ use std::path::{Path, PathBuf};
 use layertwine::core::file_node::FileNode;
 use layertwine::core::partition::Partition;
 use layertwine::core::snapshot::{Snapshot, SnapshotContent};
-use layertwine::core::types::{AgentInstanceId, SnapshotId};
-use layertwine::storage::repository::{FileNodeStore, PartitionStore, SnapshotStore};
+use layertwine::checkpoint::types::{Checkpoint, CheckpointMetadata};
+use layertwine::core::types::{AgentInstanceId, CheckpointId, SnapshotId};
+use layertwine::storage::repository::{CheckpointPersist, FileNodeStore, PartitionStore, SnapshotStore};
 use layertwine::storage::sqlite::SqliteStorage;
 use wf_types::config::file_checkpoint::ConflictBehavior;
 
@@ -12,6 +13,7 @@ use crate::approval::{inject_conflict_markers, to_conflict_views, MergeOutcome, 
 use crate::error::CheckpointError;
 use crate::event::CheckpointEventBus;
 use crate::file::FileCheckpointManager;
+use crate::file_merge::MergeCommitResult;
 use crate::file_util::{map_layertwine_error, resolve_restore_target, sha256_hex};
 use crate::provenance::DeltaSummary;
 
@@ -248,13 +250,40 @@ impl FileCheckpointManager {
 
     /// Full merge entry point for an actor: move to approval, then merge
     /// into the named feature (the `ApprovalPolicy::auto` path).
+    /// Creates a multi-parent merge commit checkpoint linking the feature
+    /// and the actor's previous checkpoint as parents.
     pub fn merge_entity_changes(
         &self,
         entity_id: &str,
         feature_name: &str,
-    ) -> Result<layertwine::layered::MergeResult, CheckpointError> {
+    ) -> Result<MergeCommitResult, CheckpointError> {
+        let storage = self.storage_ref()?;
+        let actor = self.actor_id_for(entity_id);
+        let feature_cp = self.latest_feature_checkpoint_id(storage, feature_name)?;
+        let actor_cp = self.latest_checkpoint_id(storage, &actor)?;
         self.move_agent_to_approval(entity_id)?;
-        self.merge_agent_to_feature(entity_id, feature_name)
+        let merge_result = self.merge_agent_to_feature(entity_id, feature_name)?;
+        let mut parents: Vec<CheckpointId> = Vec::new();
+        for id_str in [&feature_cp, &actor_cp].into_iter().flatten() {
+            if let Some(cid) = CheckpointId::from_hex(id_str) {
+                if !parents.contains(&cid) {
+                    parents.push(cid);
+                }
+            }
+        }
+        let snapshot_ids = vec![merge_result.snapshot_id];
+        let checkpoint = Checkpoint::new(
+            snapshot_ids,
+            parents,
+            CheckpointMetadata::new(actor.as_str(), &format!("merge into {feature_name}")),
+        );
+        storage
+            .store_checkpoint(&checkpoint)
+            .map_err(map_layertwine_error)?;
+        Ok(MergeCommitResult {
+            merge_result,
+            checkpoint_id: checkpoint.id.to_hex(),
+        })
     }
 
     /// Latest recorded content of a path in an actor's approval partition
@@ -452,7 +481,7 @@ impl FileCheckpointManager {
             crate::file::ApprovalPolicy::Auto => {
                 let feature = Self::default_feature_name(entity_id);
                 let merged = self.merge_entity_changes(entity_id, &feature)?;
-                Ok(Some(merged))
+                Ok(Some(merged.merge_result))
             }
             crate::file::ApprovalPolicy::Llm | crate::file::ApprovalPolicy::Manual => {
                 self.move_agent_to_approval(entity_id)?;

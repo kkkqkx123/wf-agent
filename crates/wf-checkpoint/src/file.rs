@@ -16,6 +16,7 @@ use crate::diff::DiffEngine;
 use crate::error::CheckpointError;
 use crate::event::CheckpointEventBus;
 use crate::file_util::{map_layertwine_error, sha256_hex};
+use crate::layertwine::LayertwineGitAdapter;
 use crate::provenance::{DeltaSummary, FileDiffView, PartitionView, WorkspaceFile};
 use crate::recent_agent_writes::RecentAgentWrites;
 use crate::scan::{ScanConfig, WorkspaceScanner};
@@ -65,22 +66,10 @@ pub struct FileCheckpoint {
     /// Always `None` in the projection (no hand-written delta chains).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub base_checkpoint_id: Option<String>,
-    /// Always `None` in the projection (changes live in layertwine deltas).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub changes: Option<FileCheckpointDelta>,
     /// Directories that contained no files at snapshot time; recreated on
     /// workspace restore. Kept in the projection index (not in layertwine).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub empty_dirs: Option<Vec<String>>,
-}
-
-/// Kept for serialization compatibility with the historical checkpoint
-/// shape; no longer produced by the manager (layertwine deltas replace it).
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
-pub struct FileCheckpointDelta {
-    pub added: Vec<FileState>,
-    pub modified: Vec<FileState>,
-    pub deleted: Vec<String>,
 }
 
 /// Metadata for indexing and querying file checkpoints.
@@ -227,9 +216,6 @@ impl FileContentStore for LayertwineFileContentStore {
 /// Options controlling checkpoint decisions and per-file error tolerance.
 #[derive(Debug, Clone)]
 pub struct FileCheckpointOptions {
-    /// Kept for configuration compatibility. layertwine partitions retain
-    /// full history (INSERT-ONLY), so no chain-length forcing applies.
-    pub max_delta_chain_length: u32,
     /// Per-file error handling during scan/restore.
     pub failure_behavior: FailureBehavior,
     /// Additional ignore patterns applied while scanning the workspace.
@@ -239,7 +225,6 @@ pub struct FileCheckpointOptions {
 impl Default for FileCheckpointOptions {
     fn default() -> Self {
         Self {
-            max_delta_chain_length: 20,
             failure_behavior: FailureBehavior::Warn,
             custom_ignore_patterns: Vec::new(),
         }
@@ -267,6 +252,7 @@ pub struct WorkspaceRestoreResult {
 pub struct FileCheckpointManager {
     pub(crate) storage: Option<Arc<SqliteStorage>>,
     pub(crate) state_machine: Option<StateMachine<SqliteStorage>>,
+    pub(crate) branch_adapter: Arc<LayertwineGitAdapter>,
     /// Actor id -> latest checkpoint id (projection index; cheap in-memory
     /// mirror, the DB remains authoritative).
     pub(crate) latest_checkpoints: Arc<DashMap<String, String>>,
@@ -319,6 +305,7 @@ impl Clone for FileCheckpointManager {
                 .storage
                 .as_ref()
                 .map(|storage| StateMachine::new(storage.clone())),
+            branch_adapter: Arc::clone(&self.branch_adapter),
             latest_checkpoints: self.latest_checkpoints.clone(),
             empty_dirs: self.empty_dirs.clone(),
             recent_agent_writes: self.recent_agent_writes.clone(),
@@ -337,9 +324,13 @@ impl Clone for FileCheckpointManager {
 
 impl FileCheckpointManager {
     pub fn new() -> Self {
+        let branch_adapter = Arc::new(
+            LayertwineGitAdapter::new_in_memory().expect("in-memory adapter should not fail"),
+        );
         Self {
             storage: None,
             state_machine: None,
+            branch_adapter,
             latest_checkpoints: Arc::new(DashMap::new()),
             empty_dirs: Arc::new(DashMap::new()),
             recent_agent_writes: Arc::new(RecentAgentWrites::new()),
@@ -359,9 +350,11 @@ impl FileCheckpointManager {
     /// point (the storage is shared with the surrounding runtime).
     pub fn with_sqlite(storage: Arc<SqliteStorage>) -> Self {
         let state_machine = StateMachine::new(storage.clone());
+        let branch_adapter = Arc::new(LayertwineGitAdapter::from_shared(storage.clone()));
         Self {
             storage: Some(storage),
             state_machine: Some(state_machine),
+            branch_adapter,
             latest_checkpoints: Arc::new(DashMap::new()),
             empty_dirs: Arc::new(DashMap::new()),
             recent_agent_writes: Arc::new(RecentAgentWrites::new()),
@@ -467,7 +460,24 @@ impl FileCheckpointManager {
     /// In-memory backend for tests and tooling.
     pub fn new_in_memory() -> Result<Self, CheckpointError> {
         let storage = Arc::new(SqliteStorage::new_full_in_memory().map_err(map_layertwine_error)?);
-        Ok(Self::with_sqlite(storage))
+        let branch_adapter = Arc::new(LayertwineGitAdapter::from_shared(storage.clone()));
+        Ok(Self {
+            storage: Some(storage),
+            state_machine: None,
+            branch_adapter,
+            latest_checkpoints: Arc::new(DashMap::new()),
+            empty_dirs: Arc::new(DashMap::new()),
+            recent_agent_writes: Arc::new(RecentAgentWrites::new()),
+            deleted_files: Arc::new(DashMap::new()),
+            event_bus: None,
+            workspace_root: None,
+            scan_config: ScanConfig::default(),
+            approval_policy: ApprovalPolicy::default(),
+            conflict_behavior: ConflictBehavior::default(),
+            gc_interval_secs: None,
+            gc_retention: None,
+            actor_index: Arc::new(DashMap::new()),
+        })
     }
 
     pub fn state_machine(&self) -> Option<&StateMachine<SqliteStorage>> {
@@ -1043,11 +1053,13 @@ mod tests {
             .unwrap();
 
         let result = manager.merge_entity_changes("exec-1", "feature-1").unwrap();
-        assert!(!result.has_conflicts());
-        assert!(!result.snapshot_id.to_hex().is_empty());
+        assert!(!result.merge_result.has_conflicts());
+        assert!(!result.merge_result.snapshot_id.to_hex().is_empty());
+        assert!(!result.checkpoint_id.is_empty());
 
         let staged = manager.merge_features_to_staged(&["feature-1"]).unwrap();
-        assert!(!staged.has_conflicts());
+        assert!(!staged.merge_result.has_conflicts());
+        assert!(!staged.checkpoint_id.is_empty());
     }
 
     /// Reads the reconstructed text of every file in an integrated (feature)
@@ -1150,7 +1162,7 @@ mod tests {
             .create_checkpoint("exec-1", &[entry("a.txt", b"one\nline2\n")])
             .unwrap();
         let r1 = manager.merge_entity_changes("exec-1", "feature-1").unwrap();
-        assert!(!r1.has_conflicts());
+        assert!(!r1.merge_result.has_conflicts());
 
         // Agent 2 edits the same line differently → conflict.
         manager
@@ -1190,7 +1202,7 @@ mod tests {
         // A subsequent full merge succeeds cleanly.
         let remerged = manager.merge_entity_changes("exec-2", "feature-1").unwrap();
         assert!(
-            !remerged.has_conflicts(),
+            !remerged.merge_result.has_conflicts(),
             "re-merge after resolution must succeed"
         );
     }
@@ -1245,7 +1257,7 @@ mod tests {
             .merge_branch_changes(&["branch-1", "branch-2"])
             .unwrap();
         assert!(
-            !joined.has_conflicts(),
+            !joined.merge_result.has_conflicts(),
             "different-file branches must join cleanly"
         );
 

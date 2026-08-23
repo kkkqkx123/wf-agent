@@ -8,6 +8,7 @@ use layertwine::storage::repository::{PartitionStore, SnapshotStore};
 use wf_types::config::file_checkpoint::FailureBehavior;
 
 use crate::actor_id::{ActorId, ActorKind};
+use crate::branch::{execution_branch_name, manager::BranchStorageAdapter};
 use crate::error::CheckpointError;
 use crate::event::CheckpointEventBus;
 use crate::file::FileCheckpointManager;
@@ -105,6 +106,38 @@ impl FileCheckpointManager {
     /// The resolved actor of an entity, if it was resolved earlier.
     pub fn resolved_actor(&self, entity_id: &str) -> Option<ActorId> {
         self.actor_index.get(entity_id).map(|a| a.clone())
+    }
+
+    /// Ensure the child execution's branch has been created. Called by
+    /// `prepare_with_parent` to set up the branch isolation before any
+    /// checkpoint activity. No-op when the entity has no parent or is the
+    /// parent itself.
+    pub async fn ensure_child_branch(
+        &self,
+        entity_id: &str,
+        parent_execution_id: Option<&str>,
+    ) -> Result<(), CheckpointError> {
+        let Some(parent) = parent_execution_id else {
+            return Ok(());
+        };
+        if parent == entity_id {
+            return Ok(());
+        }
+        let branch_name = execution_branch_name("execution", entity_id);
+        if self
+            .branch_adapter
+            .branch_exists(&branch_name)
+            .await?
+        {
+            return Ok(());
+        }
+        let parent_actor = self.actor_id_for(parent);
+        let storage = self.storage_ref()?;
+        let base = self.latest_checkpoint_id(storage, &parent_actor)?;
+        self.branch_adapter
+            .create_branch(&branch_name, base.as_deref())
+            .await?;
+        Ok(())
     }
 
     // ── actor partition primitives ──────────────────────────────────

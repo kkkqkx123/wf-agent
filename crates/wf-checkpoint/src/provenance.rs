@@ -26,7 +26,7 @@ use crate::approval::{to_conflict_views, ConflictView};
 use crate::diff::DiffEngine;
 use crate::error::CheckpointError;
 use crate::file::FileContentEntry;
-use crate::file_util::sha256_hex;
+use crate::file_util::{map_layertwine_error, sha256_hex};
 
 /// Seed path of the synthetic initial snapshot; excluded from provenance.
 const SEED_PATH: &str = ".wf-checkpoint-seed";
@@ -123,7 +123,7 @@ pub fn snapshot_file_path(
     snapshot: &Snapshot,
 ) -> Result<String, CheckpointError> {
     if let Some(delta_id) = snapshot.deltas.last() {
-        let delta = storage.get_delta(delta_id).map_err(map_storage)?;
+        let delta = storage.get_delta(delta_id).map_err(map_layertwine_error)?;
         Ok(delta.file.path_str().to_string())
     } else {
         Ok(snapshot.file.path_str().to_string())
@@ -139,7 +139,7 @@ fn snapshot_last_delta(
     let Some(delta_id) = snapshot.deltas.last() else {
         return Ok(None);
     };
-    storage.get_delta(delta_id).map(Some).map_err(map_storage)
+    storage.get_delta(delta_id).map(Some).map_err(map_layertwine_error)
 }
 
 /// The byte content of a snapshot (verbatim content for binary, otherwise
@@ -155,7 +155,7 @@ fn snapshot_content_bytes(
     // deletion marker is consulted by the workspace/restore callers).
     Ok(
         layertwine::layered::transition::reconstruct_text(storage, snapshot)
-            .map_err(map_storage)?
+            .map_err(map_layertwine_error)?
             .unwrap_or_default()
             .into_bytes(),
     )
@@ -170,7 +170,7 @@ fn latest_snapshots_per_path(
     let mut order: Vec<String> = Vec::new();
     let mut last_per_path: HashMap<String, Snapshot> = HashMap::new();
     for snapshot_id in &partition.history {
-        let snapshot = storage.get_snapshot(snapshot_id).map_err(map_storage)?;
+        let snapshot = storage.get_snapshot(snapshot_id).map_err(map_layertwine_error)?;
         let path = snapshot_file_path(storage, &snapshot)?;
         if path == SEED_PATH {
             continue;
@@ -188,7 +188,7 @@ fn latest_snapshots_per_path(
 
 /// All partitions ordered by name (stable for tests).
 pub fn list_partitions(storage: &SqliteStorage) -> Result<Vec<PartitionView>, CheckpointError> {
-    let mut partitions = storage.list_partitions().map_err(map_storage)?;
+    let mut partitions = storage.list_partitions().map_err(map_layertwine_error)?;
     partitions.sort_by(|a, b| a.name.cmp(&b.name));
     let mut views = Vec::with_capacity(partitions.len());
     for partition in partitions {
@@ -238,7 +238,7 @@ pub fn list_changes_by_actor(
     let partition = actor_partition(storage, actor)?;
     let mut changes = Vec::new();
     for snapshot_id in &partition.history {
-        let snapshot = storage.get_snapshot(snapshot_id).map_err(map_storage)?;
+        let snapshot = storage.get_snapshot(snapshot_id).map_err(map_layertwine_error)?;
         let path = snapshot_file_path(storage, &snapshot)?;
         if path == SEED_PATH || !path_matches(&path, path_filter) {
             continue;
@@ -270,11 +270,11 @@ pub fn list_changes_by_path(
     path: &str,
     time_range: Option<(i64, i64)>,
 ) -> Result<Vec<DeltaSummary>, CheckpointError> {
-    let partitions = storage.list_partitions().map_err(map_storage)?;
+    let partitions = storage.list_partitions().map_err(map_layertwine_error)?;
     let mut changes = Vec::new();
     for partition in partitions {
         for snapshot_id in &partition.history {
-            let snapshot = storage.get_snapshot(snapshot_id).map_err(map_storage)?;
+            let snapshot = storage.get_snapshot(snapshot_id).map_err(map_layertwine_error)?;
             let snapshot_path = snapshot_file_path(storage, &snapshot)?;
             if snapshot_path == SEED_PATH || snapshot_path != path {
                 continue;
@@ -336,7 +336,7 @@ pub fn get_staged_workspace(
     workspace_key: Option<&str>,
 ) -> Result<Vec<WorkspaceFile>, CheckpointError> {
     let pid = staged_pid(workspace_key);
-    let partition = storage.get_partition(&pid).map_err(map_storage)?;
+    let partition = storage.get_partition(&pid).map_err(map_layertwine_error)?;
     let mut files = Vec::new();
     for (path, snapshot) in latest_snapshots_per_path(storage, &partition)? {
         // Deleted snapshots carry the explicit deletion marker: the path is
@@ -387,7 +387,7 @@ pub fn list_conflicts(
     if let Ok(partition) = storage.get_partition(&staged_pid) {
         partitions.push(partition);
     }
-    for partition in storage.list_partitions().map_err(map_storage)? {
+    for partition in storage.list_partitions().map_err(map_layertwine_error)? {
         if matches!(partition.partition_type, PartitionType::Integrated(_)) {
             partitions.push(partition);
         }
@@ -429,7 +429,7 @@ fn rederive_conflicts(
         // merge_feature_to_staged: parents = [staged, feature]; base is the
         // feature partition's baseline (history[0]).
         if parents.len() >= 2 {
-            let feature_snap = storage.get_snapshot(&parents[1]).map_err(map_storage)?;
+            let feature_snap = storage.get_snapshot(&parents[1]).map_err(map_layertwine_error)?;
             let name = feature_snap.partition_type.strip_prefix("integrated/");
             match name {
                 Some(name) => {
@@ -480,17 +480,17 @@ fn rederive_conflicts(
     let Some((base_id, ours_id, theirs_id)) = roles else {
         return Ok(vec![]);
     };
-    let base = storage.get_snapshot(&base_id).map_err(map_storage)?;
-    let ours = storage.get_snapshot(&ours_id).map_err(map_storage)?;
-    let theirs = storage.get_snapshot(&theirs_id).map_err(map_storage)?;
+    let base = storage.get_snapshot(&base_id).map_err(map_layertwine_error)?;
+    let ours = storage.get_snapshot(&ours_id).map_err(map_layertwine_error)?;
+    let theirs = storage.get_snapshot(&theirs_id).map_err(map_layertwine_error)?;
     let base_text = layertwine::layered::transition::reconstruct_text(storage, &base)
-        .map_err(map_storage)?
+        .map_err(map_layertwine_error)?
         .unwrap_or_default();
     let ours_text = layertwine::layered::transition::reconstruct_text(storage, &ours)
-        .map_err(map_storage)?
+        .map_err(map_layertwine_error)?
         .unwrap_or_default();
     let theirs_text = layertwine::layered::transition::reconstruct_text(storage, &theirs)
-        .map_err(map_storage)?
+        .map_err(map_layertwine_error)?
         .unwrap_or_default();
     let (_, conflicts) = merge_texts(&base_text, &ours_text, &theirs_text);
     let path = snapshot_file_path(storage, snapshot)?;
@@ -659,17 +659,6 @@ impl DeltaSummary {
             snapshot_id: snapshot.id.to_hex(),
             hash: sha256_hex(&content),
         }))
-    }
-}
-
-fn map_storage<E: Into<layertwine::LayertwineError>>(e: E) -> CheckpointError {
-    match e.into() {
-        layertwine::LayertwineError::NotFound(id) => CheckpointError::NotFound { id },
-        layertwine::LayertwineError::Storage(err) => match err {
-            layertwine::StorageError::NotFound(id) => CheckpointError::NotFound { id },
-            other => CheckpointError::Internal(format!("layertwine: {other}")),
-        },
-        other => CheckpointError::Internal(format!("layertwine: {other}")),
     }
 }
 

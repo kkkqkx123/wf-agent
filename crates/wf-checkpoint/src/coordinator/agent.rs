@@ -364,6 +364,11 @@ impl AgentCheckpointCoordinator {
         trigger: CheckpointTiming,
         parent_execution_id: Option<&str>,
     ) -> Result<CheckpointContext, CheckpointError> {
+        if let Some(manager) = &self.file_checkpoint_manager {
+            manager
+                .ensure_child_branch(entity_id, parent_execution_id)
+                .await?;
+        }
         let actor_id = self.file_checkpoint_manager.as_ref().map(|manager| {
             manager
                 .resolve_actor(entity_id, parent_execution_id)

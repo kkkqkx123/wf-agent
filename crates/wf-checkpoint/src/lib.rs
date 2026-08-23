@@ -46,10 +46,11 @@ pub use error::CheckpointError;
 pub use error_handling::{CheckpointErrorHandler, ErrorHandlingOutcome};
 pub use event::{CheckpointEvent, CheckpointEventBus};
 pub use file::{
-    FileCheckpoint, FileCheckpointDelta, FileCheckpointManager, FileCheckpointMetadata,
+    FileCheckpoint, FileCheckpointManager, FileCheckpointMetadata,
     FileCheckpointOptions, FileContentEntry, FileContentStore, FileState,
     LayertwineFileContentStore, WorkspaceRestoreResult,
 };
+pub use file_merge::MergeCommitResult;
 pub use file_util::sha256_hex;
 pub use metadata_builder::{build_checkpoint_state, CheckpointMetadataBuilder};
 pub use provenance::{DeltaSummary, FileDiffKind, FileDiffView, PartitionView, WorkspaceFile};

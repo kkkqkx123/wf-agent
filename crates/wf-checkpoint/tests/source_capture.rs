@@ -81,12 +81,12 @@ fn script_capture_attributes_changes_to_actor_partition() {
         by_path.get("b.bin").unwrap().as_slice(),
         [0x00, 0x01, 0x02, 0x03]
     );
-    // Deletion semantics: empty content in the partition + deletion
-    // projection marker (explicit delete).
-    assert_eq!(
-        by_path.get("gone.txt").unwrap().as_slice(),
-        b"",
-        "deleted file holds an empty-content marker"
+    // Deletion semantics: the deleted path is missing from the workspace
+    // (explicit delete marker, not a cleared/empty file) and the deletion
+    // projection marker still reports it.
+    assert!(
+        !by_path.contains_key("gone.txt"),
+        "deleted file must be absent from the actor workspace"
     );
     assert!(
         manager.deleted_files(script.as_str()).contains("gone.txt"),

@@ -216,8 +216,10 @@ fn reconstruct_from_snapshot(
 ) -> Result<String, Box<dyn std::error::Error>> {
     use layertwine::layered::transition::reconstruct_text;
 
+    // A deleted snapshot reconstructs to None; the e2e helper surfaces it
+    // as an empty string.
     let text = reconstruct_text(storage, snapshot)?;
-    Ok(text)
+    Ok(text.unwrap_or_default())
 }
 
 /// Create a test file with content

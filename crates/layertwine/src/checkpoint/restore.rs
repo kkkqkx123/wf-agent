@@ -314,11 +314,15 @@ impl CheckpointRepo {
                 // Materialize the full file content from the delta chain.
                 // Fall back to the (typically empty) stored snapshot content
                 // only when no storage backend is attached (e.g. in-memory
-                // test repos that never persisted deltas).
+                // test repos that never persisted deltas). A deleted
+                // snapshot reconstructs to `None` and keeps the deletion
+                // marker instead of materializing an empty file.
                 let content = match &self.storage {
                     Some(storage) => {
-                        let text = crate::layered::transition::reconstruct_text(&**storage, &snap)?;
-                        SnapshotContent::FileContent(text.into_bytes())
+                        match crate::layered::transition::reconstruct_text(&**storage, &snap)? {
+                            Some(text) => SnapshotContent::FileContent(text.into_bytes()),
+                            None => SnapshotContent::Deleted,
+                        }
                     }
                     None => snap
                         .content

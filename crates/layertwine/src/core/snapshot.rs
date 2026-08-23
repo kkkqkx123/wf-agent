@@ -12,6 +12,11 @@ pub enum SnapshotContent {
     JsonMetadata(serde_json::Value),
     /// Structured data (extensible for future formats)
     Structured(Vec<u8>),
+    /// Explicit file deletion marker: the file was removed by an
+    /// agent/manual edit. Carries no content; reconstruction yields an
+    /// empty string and the projection/restore layers treat the path as
+    /// missing rather than cleared.
+    Deleted,
 }
 
 impl SnapshotContent {
@@ -21,6 +26,7 @@ impl SnapshotContent {
             Self::FileContent(bytes) => bytes.clone(),
             Self::JsonMetadata(value) => serde_json::to_vec(value).unwrap_or_default(),
             Self::Structured(bytes) => bytes.clone(),
+            Self::Deleted => Vec::new(),
         }
     }
 
@@ -44,6 +50,7 @@ impl SnapshotContent {
             Self::FileContent(_) => "file",
             Self::JsonMetadata(_) => "json",
             Self::Structured(_) => "structured",
+            Self::Deleted => "deleted",
         }
     }
 
@@ -57,7 +64,13 @@ impl SnapshotContent {
                     || source.starts_with("system://")
             }
             Self::Structured(_) => true,
+            Self::Deleted => source.starts_with("file://"),
         }
+    }
+
+    /// Whether this content is the explicit deletion marker.
+    pub fn is_deleted(&self) -> bool {
+        matches!(self, Self::Deleted)
     }
 }
 
@@ -163,6 +176,16 @@ impl Snapshot {
         Snapshot::from_parent(self, delta_id, self.partition_type.clone())
     }
 
+    /// Whether this snapshot carries the explicit deletion marker. Deleted
+    /// snapshots reconstruct to an empty string; the projection/restore
+    /// layers use this to treat the path as missing rather than cleared.
+    pub fn is_deleted(&self) -> bool {
+        self.content
+            .as_ref()
+            .map(|c| c.is_deleted())
+            .unwrap_or(false)
+    }
+
     /// Create a merge snapshot from multiple parents.
     ///
     /// Convention: `parents[0]` MUST be the "destination" partition's current snapshot
@@ -248,6 +271,11 @@ impl Snapshot {
     pub fn compress_content(&mut self) -> Result<()> {
         if self.compression == SnapshotCompression::None {
             if let Some(ref content) = self.content {
+                // The deletion marker is a flag, not a payload: compressing
+                // it would rewrite it as `Structured` and lose the marker.
+                if content.is_deleted() {
+                    return Ok(());
+                }
                 let bytes = content.to_bytes();
                 let compressed = zstd::encode_all(bytes.as_slice(), 3).map_err(|e| {
                     LayertwineError::Serialization(format!("zstd compression failed: {}", e))

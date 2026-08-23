@@ -197,6 +197,11 @@ pub struct Runtime {
     /// `DeltaSummary` payload). Kept alive for the runtime lifetime.
     #[cfg(feature = "checkpoint")]
     checkpoint_event_bridge_handle: Option<tokio::task::JoinHandle<()>>,
+    /// Optional periodic GC timer that runs `FileCheckpointManager::run_gc`
+    /// at the configured `gc_interval_secs` interval. `None` when periodic
+    /// GC is disabled (explicit `run_gc` / API only).
+    #[cfg(feature = "checkpoint")]
+    gc_timer_handle: Option<tokio::task::JoinHandle<()>>,
 }
 
 /// Assembled event-driven trigger subsystem produced by
@@ -596,6 +601,11 @@ impl Runtime {
             crate::approval_tool::register_approval_tools(&tool_registry, manager.clone());
         }
 
+        // Optional periodic GC timer: when `gc_interval_secs` is configured,
+        // spawn a background task that runs `run_gc` at the specified interval.
+        #[cfg(feature = "checkpoint")]
+        let gc_timer_handle = init_gc_timer(&config.file_checkpoint, file_checkpoint_manager.as_ref());
+
         info!("Runtime bootstrap complete");
 
         Ok(Self {
@@ -630,6 +640,8 @@ impl Runtime {
             manual_change_service,
             #[cfg(feature = "checkpoint")]
             checkpoint_event_bridge_handle,
+            #[cfg(feature = "checkpoint")]
+            gc_timer_handle,
         })
     }
 
@@ -940,6 +952,49 @@ fn init_manual_change_service(
             "Failed to start the manual file watcher: {err}"
         ))),
     }
+}
+
+/// Spawn an optional periodic GC timer that runs
+/// `FileCheckpointManager::run_gc` at the configured `gc_interval_secs`
+/// interval. Returns `None` when periodic GC is disabled (`None` or `0`).
+#[cfg(feature = "checkpoint")]
+fn init_gc_timer(
+    config: &wf_types::config::file_checkpoint::FileCheckpointConfig,
+    manager: Option<&wf_checkpoint::file::FileCheckpointManager>,
+) -> Option<tokio::task::JoinHandle<()>> {
+    let interval_secs = config.gc_interval_secs?;
+    if interval_secs == 0 {
+        return None;
+    }
+    let manager = manager?.clone();
+    let retention = config
+        .gc_retention
+        .map(|r| layertwine::git_sync::GcRetention {
+            keep_recent_heads: r.keep_recent_heads,
+        })
+        .unwrap_or_default();
+    let interval = std::time::Duration::from_secs(interval_secs);
+    info!(interval_secs, "Periodic GC timer started");
+    Some(tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(interval);
+        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        loop {
+            ticker.tick().await;
+            match manager.run_gc(retention) {
+                Ok(stats) => {
+                    info!(
+                        removed_checkpoints = stats.removed_checkpoints,
+                        removed_snapshots = stats.removed_snapshots,
+                        freed_bytes = stats.freed_bytes,
+                        "Periodic GC completed"
+                    );
+                }
+                Err(err) => {
+                    tracing::warn!("Periodic GC failed: {err}");
+                }
+            }
+        }
+    }))
 }
 
 /// Build the durable checkpoint store backend mirroring the runtime

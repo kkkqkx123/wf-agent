@@ -4,7 +4,7 @@ use crate::checkpoint::repo::CheckpointRepo;
 use crate::core::types::CheckpointId;
 use crate::error::Result;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct GCStats {
     pub removed_checkpoints: u64,
     pub removed_snapshots: u64,
@@ -31,12 +31,36 @@ impl Default for GCStats {
     }
 }
 
+/// GC retention policy: which checkpoints stay protected beyond the
+/// built-in protected set (branch heads + ancestors + git anchors).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GcRetention {
+    /// Keep the N most recently created partition head checkpoints
+    /// protected (by `created_at`, newest first) even when no branch
+    /// points at them. `0` = only the built-in protected set.
+    pub keep_recent_heads: usize,
+}
+
+impl Default for GcRetention {
+    fn default() -> Self {
+        Self {
+            keep_recent_heads: 0,
+        }
+    }
+}
+
 /// Collect all protected checkpoints that must never be removed.
 ///
 /// Protected set includes:
 /// 1. All branch head checkpoints and their ancestors (via BFS over all parents)
 /// 2. All checkpoints bound to a git_anchor
-pub fn collect_protected_checkpoints(repo: &CheckpointRepo) -> HashSet<CheckpointId> {
+/// 3. The most recent `retention.keep_recent_heads` partition heads (and
+///    their ancestors), so freshly created heads are not swept before a
+///    branch points at them
+pub fn collect_protected_checkpoints(
+    repo: &CheckpointRepo,
+    retention: GcRetention,
+) -> HashSet<CheckpointId> {
     let mut protected = HashSet::new();
 
     // All branch heads and their ancestors (traverse ALL parents, not just first)
@@ -67,6 +91,38 @@ pub fn collect_protected_checkpoints(repo: &CheckpointRepo) -> HashSet<Checkpoin
         }
     }
 
+    // Most recent partition heads (and their ancestors), newest first
+    if retention.keep_recent_heads > 0 {
+        let mut recent: Vec<(i64, CheckpointId)> = repo
+            .dag()
+            .all_nodes()
+            .into_iter()
+            .filter_map(|id| {
+                repo.get_checkpoint(&id)
+                    .ok()
+                    .map(|cp| (cp.created_at, id))
+            })
+            .collect();
+        recent.sort_by(|a, b| b.0.cmp(&a.0));
+        let mut queue: VecDeque<CheckpointId> = recent
+            .into_iter()
+            .take(retention.keep_recent_heads)
+            .map(|(_, id)| id)
+            .collect();
+        while let Some(id) = queue.pop_front() {
+            if !protected.insert(id) {
+                continue;
+            }
+            if let Ok(cp) = repo.get_checkpoint(&id) {
+                for parent in &cp.parents {
+                    if !protected.contains(parent) {
+                        queue.push_back(*parent);
+                    }
+                }
+            }
+        }
+    }
+
     protected
 }
 
@@ -93,12 +149,13 @@ fn mark_reachable(
 /// Run garbage collection on the checkpoint repository.
 ///
 /// Mark-sweep algorithm:
-/// 1. Collect protected checkpoints (branch heads + ancestors + git_anchor)
+/// 1. Collect protected checkpoints (branch heads + ancestors + git_anchor
+///    + the most recent `retention.keep_recent_heads` partition heads)
 /// 2. Mark all descendants of protected checkpoints as reachable
 /// 3. Remove all unreachable checkpoints
 /// 4. Check delta chain depth for repacking trigger
-pub fn collect_garbage(repo: &mut CheckpointRepo) -> Result<GCStats> {
-    let protected = collect_protected_checkpoints(repo);
+pub fn run_gc(repo: &mut CheckpointRepo, retention: GcRetention) -> Result<GCStats> {
+    let protected = collect_protected_checkpoints(repo, retention);
 
     // Mark phase: traverse forward from protected to find all reachable nodes
     let to_keep = mark_reachable(repo, &protected);
@@ -132,6 +189,12 @@ pub fn collect_garbage(repo: &mut CheckpointRepo) -> Result<GCStats> {
     }
 
     Ok(stats)
+}
+
+/// Run garbage collection with the default retention policy (no extra
+/// recent-head protection).
+pub fn collect_garbage(repo: &mut CheckpointRepo) -> Result<GCStats> {
+    run_gc(repo, GcRetention::default())
 }
 
 /// Calculate the maximum depth of any checkpoint in the DAG.
@@ -213,7 +276,7 @@ mod tests {
     fn test_collect_protected_empty() {
         let snap = dummy_snapshot_id(1);
         let repo = CheckpointRepo::new_single(snap);
-        let protected = collect_protected_checkpoints(&repo);
+        let protected = collect_protected_checkpoints(&repo, GcRetention::default());
         assert!(!protected.is_empty(), "root checkpoint should be protected");
     }
 
@@ -224,7 +287,7 @@ mod tests {
         let snap2 = dummy_snapshot_id(2);
         let cp_id = repo.commit_single(snap2, "second", "user").unwrap();
 
-        let protected = collect_protected_checkpoints(&repo);
+        let protected = collect_protected_checkpoints(&repo, GcRetention::default());
         assert!(
             protected.contains(&cp_id),
             "branch head should be protected"
@@ -264,7 +327,7 @@ mod tests {
         repo.switch_branch("main").unwrap();
 
         // The feature branch is still protected
-        let protected = collect_protected_checkpoints(&repo);
+        let protected = collect_protected_checkpoints(&repo, GcRetention::default());
         assert!(
             protected.contains(&cp_f1),
             "feature checkpoint should be protected (branch exists)"
@@ -284,7 +347,7 @@ mod tests {
         // and is not an ancestor of any branch head
 
         // Check if there are orphans using the protected set
-        let protected = collect_protected_checkpoints(&repo);
+        let protected = collect_protected_checkpoints(&repo, GcRetention::default());
         let all = repo.dag().all_nodes();
         for cp_id in all {
             if !protected.contains(&cp_id) {
@@ -329,7 +392,7 @@ mod tests {
         // Remove branch "main" so cp would normally be orphaned
         repo.branches.retain(|b| b.name != "main");
 
-        let protected = collect_protected_checkpoints(&repo);
+        let protected = collect_protected_checkpoints(&repo, GcRetention::default());
         assert!(
             protected.contains(&cp_id),
             "checkpoint with git_anchor should be protected even without branch"
@@ -477,7 +540,7 @@ mod tests {
         repo.checkpoint_dag.add_node(orphan_id);
 
         // The protected set should include the branch head and its ancestors
-        let protected = collect_protected_checkpoints(&repo);
+        let protected = collect_protected_checkpoints(&repo, GcRetention::default());
         assert!(protected.contains(&cp2), "branch head should be protected");
         assert!(
             protected.contains(&cp1),

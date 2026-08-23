@@ -39,7 +39,8 @@ where
     integrated::create_feature_branch(storage, feature_name, baseline.id)?;
 
     // 3. Agent edits
-    let baseline_text = crate::layered::transition::reconstruct_text(storage, &baseline)?;
+    let baseline_text =
+        crate::layered::transition::reconstruct_text(storage, &baseline)?.unwrap_or_default();
     let new_text = edit_fn(&baseline_text)?;
     agent::apply_agent_edit(storage, agent_id, "test.txt", &new_text)?;
 
@@ -98,7 +99,8 @@ where
 
     // 3. Each agent edits and submits
     for (agent_id, edit_fn) in agents {
-        let baseline_text = crate::layered::transition::reconstruct_text(storage, &baseline)?;
+        let baseline_text =
+            crate::layered::transition::reconstruct_text(storage, &baseline)?.unwrap_or_default();
         let new_text = edit_fn(&baseline_text)?;
         agent::apply_agent_edit(storage, &agent_id, "test.txt", &new_text)?;
         agent::move_agent_to_approval(storage, &agent_id)?;

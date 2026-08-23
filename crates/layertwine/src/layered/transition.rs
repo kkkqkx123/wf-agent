@@ -297,10 +297,19 @@ pub fn partition_type_matches_layer(partition_type: &str, target_layer: &LayerTy
 /// apply_deltas now preserves trailing newlines, ensuring downstream
 /// consumers (merge_texts, diff_to_line_diff) receive properly
 /// line-terminated text for accurate TextDiff comparison.
-pub fn reconstruct_text<S>(storage: &S, snapshot: &Snapshot) -> Result<String>
+///
+/// Returns `Ok(None)` for snapshots carrying the explicit deletion marker
+/// (`SnapshotContent::Deleted`): the file is missing, not cleared. Callers
+/// that only need text (e.g. three-way merge inputs) treat `None` as an
+/// empty string; callers that need the full semantics (restore, projection,
+/// provenance) can distinguish "deleted" from "cleared".
+pub fn reconstruct_text<S>(storage: &S, snapshot: &Snapshot) -> Result<Option<String>>
 where
     S: FileNodeStore + DeltaStore + ?Sized,
 {
+    if snapshot.is_deleted() {
+        return Ok(None);
+    }
     let file_content = storage
         .get_file_content(snapshot.file.path_str(), &snapshot.file.base_hash)
         .map_err(LayertwineError::Storage)?;
@@ -310,7 +319,9 @@ where
         .get_deltas(&snapshot.deltas)
         .map_err(LayertwineError::Storage)?;
 
-    apply_deltas(&content_str, &deltas).map_err(|e| LayertwineError::Engine(e.to_string()))
+    apply_deltas(&content_str, &deltas)
+        .map(Some)
+        .map_err(|e| LayertwineError::Engine(e.to_string()))
 }
 
 /// Checks if the snapshot contains a parent of the specified partition_type.
@@ -514,7 +525,7 @@ mod tests {
         let snapshot = Snapshot::new_initial(file_node, delta.id);
         storage.store_snapshot(&snapshot, b"").unwrap();
 
-        let text = reconstruct_text(&storage, &snapshot).unwrap();
+        let text = reconstruct_text(&storage, &snapshot).unwrap().unwrap();
         assert_eq!(text, "hello world\n");
     }
 

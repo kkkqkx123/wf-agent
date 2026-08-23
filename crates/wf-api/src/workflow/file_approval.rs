@@ -22,12 +22,16 @@ pub fn list_pending_approvals(ctx: &ApiContext) -> ApiResult<Vec<PendingApproval
 }
 
 /// Approve a pending approval: merge the actor's changes into the named
-/// feature partition under the configured conflict behavior. Returns the
-/// merge outcome (conflicts, marker files, snapshot id).
+/// feature partition under the configured conflict behavior. `paths`
+/// selects file-level approval — when `Some` and non-empty, only the listed
+/// files are advanced into the feature and the rest stay pending in the
+/// approval layer. Returns the merge outcome (conflicts, marker files,
+/// snapshot id).
 pub fn approve_changes(
     ctx: &ApiContext,
     agent_instance_id: &str,
     feature_name: &str,
+    paths: Option<Vec<String>>,
 ) -> ApiResult<MergeOutcome> {
     let manager = manager(ctx)?;
     let feature = if feature_name.is_empty() {
@@ -35,9 +39,13 @@ pub fn approve_changes(
     } else {
         feature_name.to_string()
     };
-    manager
-        .approve_pending(agent_instance_id, &feature)
-        .map_err(ApiError::execution_with_source)
+    let outcome = match paths {
+        Some(paths) if !paths.is_empty() => {
+            manager.approve_pending_paths(agent_instance_id, &feature, paths)
+        }
+        _ => manager.approve_pending(agent_instance_id, &feature),
+    };
+    outcome.map_err(ApiError::execution_with_source)
 }
 
 /// Reject a pending approval: roll the actor's approval partition back to

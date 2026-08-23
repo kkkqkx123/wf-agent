@@ -42,6 +42,7 @@ fn row_to_snapshot(row: &Row) -> Result<Snapshot, rusqlite::Error> {
             serde_json::from_slice(&bytes).unwrap_or(serde_json::Value::Null),
         ),
         "structured" => SnapshotContent::Structured(bytes),
+        "deleted" => SnapshotContent::Deleted,
         _ => SnapshotContent::FileContent(bytes),
     });
 

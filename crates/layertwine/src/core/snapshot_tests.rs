@@ -1,5 +1,5 @@
 use crate::core::file_node::FileNode;
-use crate::core::snapshot::{Snapshot, SnapshotBuilder};
+use crate::core::snapshot::{Snapshot, SnapshotBuilder, SnapshotContent};
 use crate::core::types::{ContentId, DeltaId};
 
 fn create_test_file() -> FileNode {
@@ -8,6 +8,39 @@ fn create_test_file() -> FileNode {
 
 fn create_test_delta_id() -> DeltaId {
     DeltaId::from_content(b"delta content")
+}
+
+#[test]
+fn test_snapshot_content_deleted_marker() {
+    let content = SnapshotContent::Deleted;
+    assert!(content.is_deleted());
+    assert_eq!(content.content_type(), "deleted");
+    assert!(content.to_bytes().is_empty());
+    assert!(content.matches_source("file://src/main.rs"));
+    assert!(!content.matches_source("agent://loop-1/state"));
+}
+
+#[test]
+fn test_snapshot_deleted_flag_and_compress_skipped() {
+    let file = create_test_file();
+    let mut snapshot = Snapshot::new_with_content(
+        file,
+        SnapshotContent::Deleted,
+        "file://test.txt".to_string(),
+        "agent".to_string(),
+        vec![],
+        vec![create_test_delta_id()],
+    );
+    assert!(snapshot.is_deleted());
+
+    // Compression must not rewrite the deletion marker into `Structured`.
+    snapshot.compress_content().unwrap();
+    assert!(snapshot.is_deleted());
+    assert_eq!(snapshot.content.as_ref().unwrap().content_type(), "deleted");
+    assert_eq!(
+        snapshot.compression,
+        crate::core::snapshot::SnapshotCompression::None
+    );
 }
 
 #[test]

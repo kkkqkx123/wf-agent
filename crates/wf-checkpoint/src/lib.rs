@@ -14,6 +14,13 @@ pub mod error_handling;
 pub mod event;
 pub mod execution_events;
 pub mod file;
+pub mod file_actor;
+pub mod file_approval;
+pub mod file_checkpoint;
+pub mod file_merge;
+pub mod file_restore;
+pub mod file_util;
+pub mod file_workspace;
 pub mod layertwine;
 pub mod metadata_builder;
 pub mod metrics;
@@ -39,10 +46,11 @@ pub use error::CheckpointError;
 pub use error_handling::{CheckpointErrorHandler, ErrorHandlingOutcome};
 pub use event::{CheckpointEvent, CheckpointEventBus};
 pub use file::{
-    sha256_hex, FileCheckpoint, FileCheckpointDelta, FileCheckpointManager, FileCheckpointMetadata,
+    FileCheckpoint, FileCheckpointDelta, FileCheckpointManager, FileCheckpointMetadata,
     FileCheckpointOptions, FileContentEntry, FileContentStore, FileState,
     LayertwineFileContentStore, WorkspaceRestoreResult,
 };
+pub use file_util::sha256_hex;
 pub use metadata_builder::{build_checkpoint_state, CheckpointMetadataBuilder};
 pub use provenance::{DeltaSummary, FileDiffKind, FileDiffView, PartitionView, WorkspaceFile};
 pub use scan::{ScanConfig, WorkspaceScan, WorkspaceScanner};

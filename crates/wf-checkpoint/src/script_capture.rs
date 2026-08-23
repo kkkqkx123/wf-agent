@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use crate::error::CheckpointError;
-use crate::file::sha256_hex;
+use crate::file_util::sha256_hex;
 use crate::scan::WorkspaceScanner;
 
 /// Kind of a collected workspace change.

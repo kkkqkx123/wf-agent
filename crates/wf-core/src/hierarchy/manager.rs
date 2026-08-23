@@ -22,6 +22,12 @@ pub struct ExecutionHierarchyMetadata {
     pub depth: u32,
     pub root_execution_id: Id,
     pub root_execution_type: ExecutionType,
+    /// Root-to-parent execution id chain (oldest first, excluding self).
+    /// `None` when the chain is unknown (e.g. legacy metadata or a root
+    /// execution with no ancestors). ActorId resolution prefers this chain
+    /// over the two-level root+parent fallback.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ancestors: Option<Vec<Id>>,
 }
 
 pub struct ExecutionHierarchyManager {
@@ -37,6 +43,10 @@ struct HierarchyInner {
     depth: u32,
     root_execution_id: Id,
     root_execution_type: ExecutionType,
+    /// Root-to-parent execution id chain (oldest first, excluding self).
+    /// Populated by `set_ancestors` / `from_metadata` when the full chain
+    /// is known; empty for roots or when only the direct parent is known.
+    ancestors: Vec<Id>,
 }
 
 impl ExecutionHierarchyManager {
@@ -50,6 +60,7 @@ impl ExecutionHierarchyManager {
                 depth: 0,
                 root_execution_id: execution_id,
                 root_execution_type: execution_type,
+                ancestors: Vec::new(),
             }),
         }
     }
@@ -79,6 +90,7 @@ impl ExecutionHierarchyManager {
                 depth: metadata.depth,
                 root_execution_id: metadata.root_execution_id,
                 root_execution_type: metadata.root_execution_type,
+                ancestors: metadata.ancestors.unwrap_or_default(),
             }),
         }
     }
@@ -153,6 +165,23 @@ impl ExecutionHierarchyManager {
             .clone()
     }
 
+    /// Set the root-to-parent execution id chain (oldest first, excluding
+    /// self). Callers that know the full ancestry (e.g. a parent execution
+    /// passing its own chain when spawning a child) use this so
+    /// `to_metadata` can carry the chain across processes.
+    pub fn set_ancestors(&self, ancestors: Vec<Id>) {
+        let mut inner = wf_common::lock::write_ok(self.inner.write());
+        inner.ancestors = ancestors;
+    }
+
+    /// The root-to-parent execution id chain (oldest first, excluding
+    /// self). Empty for roots or when only the direct parent is known.
+    pub fn ancestors(&self) -> Vec<Id> {
+        wf_common::lock::read_ok(self.inner.read())
+            .ancestors
+            .clone()
+    }
+
     pub fn to_metadata(&self) -> ExecutionHierarchyMetadata {
         let inner = wf_common::lock::read_ok(self.inner.read());
         ExecutionHierarchyMetadata {
@@ -161,6 +190,11 @@ impl ExecutionHierarchyManager {
             depth: inner.depth,
             root_execution_id: inner.root_execution_id.clone(),
             root_execution_type: inner.root_execution_type.clone(),
+            ancestors: if inner.ancestors.is_empty() {
+                None
+            } else {
+                Some(inner.ancestors.clone())
+            },
         }
     }
 
@@ -277,6 +311,35 @@ mod tests {
         );
         assert_eq!(restored.children().len(), 2);
         assert_eq!(restored.root_execution_type(), ExecutionType::AgentLoop);
+    }
+
+    #[test]
+    fn test_ancestors_roundtrip_through_metadata() {
+        let m = ExecutionHierarchyManager::new("root".to_string(), ExecutionType::Workflow);
+        m.set_ancestors(vec!["parent-1".to_string(), "parent-2".to_string()]);
+
+        let metadata = m.to_metadata();
+        assert_eq!(
+            metadata.ancestors,
+            Some(vec!["parent-1".to_string(), "parent-2".to_string()])
+        );
+
+        let restored = ExecutionHierarchyManager::from_metadata(
+            "child".to_string(),
+            ExecutionType::Workflow,
+            metadata,
+        );
+        assert_eq!(
+            restored.ancestors(),
+            vec!["parent-1".to_string(), "parent-2".to_string()]
+        );
+    }
+
+    #[test]
+    fn test_root_has_no_ancestors() {
+        let m = ExecutionHierarchyManager::new("root".to_string(), ExecutionType::AgentLoop);
+        assert!(m.ancestors().is_empty());
+        assert!(m.to_metadata().ancestors.is_none());
     }
 
     #[test]

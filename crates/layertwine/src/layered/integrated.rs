@@ -131,10 +131,15 @@ where
         .get_snapshot(&integrated_partition.current_snapshot)
         .map_err(LayertwineError::Storage)?;
 
-    let baseline_text = crate::layered::transition::reconstruct_text(storage, &baseline_snapshot)?;
-    let approval_text = crate::layered::transition::reconstruct_text(storage, &approval_snapshot)?;
+    // Reconstruct texts for three-way merge. A deleted side (None) is
+    // treated as empty content: merge inputs only need text.
+    let baseline_text = crate::layered::transition::reconstruct_text(storage, &baseline_snapshot)?
+        .unwrap_or_default();
+    let approval_text = crate::layered::transition::reconstruct_text(storage, &approval_snapshot)?
+        .unwrap_or_default();
     let integrated_text =
-        crate::layered::transition::reconstruct_text(storage, &integrated_snapshot)?;
+        crate::layered::transition::reconstruct_text(storage, &integrated_snapshot)?
+            .unwrap_or_default();
 
     let (merged_text, conflicts) =
         crate::engine::merge::merge_texts(&baseline_text, &approval_text, &integrated_text);

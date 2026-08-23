@@ -89,6 +89,7 @@ impl HierarchyIntegrityService {
             depth: hierarchy.depth,
             root_execution_id: hierarchy.root_execution_id.clone(),
             root_execution_type: hierarchy.root_execution_type.clone(),
+            ancestors: hierarchy.ancestors.clone(),
         }
     }
 
@@ -182,6 +183,7 @@ mod tests {
             depth,
             root_execution_id: root_id,
             root_execution_type: root_type,
+            ancestors: None,
         }
     }
 

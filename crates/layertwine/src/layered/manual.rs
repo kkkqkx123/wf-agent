@@ -5,7 +5,7 @@
 use crate::core::delta::Delta;
 use crate::core::file_node::FileNode;
 use crate::core::partition::Partition;
-use crate::core::snapshot::Snapshot;
+use crate::core::snapshot::{Snapshot, SnapshotContent};
 use crate::core::types::{PartitionId, PartitionType, SnapshotId, SourceType};
 use crate::engine::diff::diff_to_line_diff;
 use crate::engine::merge::apply_deltas;
@@ -113,6 +113,77 @@ where
     Ok(new_snapshot.id)
 }
 
+/// Delete a file on the manual partition (explicit deletion semantics).
+///
+/// Mirrors `apply_agent_delete`: records a full-delete delta (old content
+/// → empty) and marks the new snapshot with `SnapshotContent::Deleted`, so
+/// projection/restore layers can tell a removed file apart from a cleared
+/// (empty) one.
+pub fn apply_manual_delete<S>(storage: &S, file_path: &str) -> Result<SnapshotId>
+where
+    S: SnapshotStore + DeltaStore + FileNodeStore + PartitionStore,
+{
+    let pid = manual_partition_id();
+    let partition = storage.get_partition(&pid).map_err(|_| {
+        LayertwineError::NotFound(
+            "manual_edit partition not found, call ensure_manual_partition first".into(),
+        )
+    })?;
+
+    let current_snapshot = storage
+        .get_snapshot(&partition.current_snapshot)
+        .map_err(LayertwineError::Storage)?;
+
+    // Read old content
+    let old_content = {
+        let deltas = storage
+            .get_deltas(&current_snapshot.deltas)
+            .map_err(LayertwineError::Storage)?;
+        let content_str = String::from_utf8_lossy(
+            &storage
+                .get_file_content(
+                    current_snapshot.file.path_str(),
+                    &current_snapshot.file.base_hash,
+                )
+                .map_err(LayertwineError::Storage)?,
+        )
+        .to_string();
+        apply_deltas(&content_str, &deltas).map_err(|e| LayertwineError::Engine(e.to_string()))?
+    };
+
+    // Full-file deletion diff: old content -> empty.
+    let line_diff = diff_to_line_diff(&old_content, "");
+
+    // Create Delta
+    let file_node = FileNode::new(PathBuf::from(file_path), old_content.as_bytes());
+    let delta = Delta::new(file_node.clone(), line_diff, SourceType::Manual);
+    storage
+        .store_file_node(&file_node, old_content.as_bytes())
+        .map_err(LayertwineError::Storage)?;
+    storage
+        .store_delta(&delta)
+        .map_err(LayertwineError::Storage)?;
+
+    // Creating a New Snapshot carrying the explicit deletion marker.
+    let mut new_snapshot = Snapshot::from_parent(
+        &current_snapshot,
+        delta.id,
+        PartitionType::Manual.name().to_string(),
+    );
+    new_snapshot.content = Some(SnapshotContent::Deleted);
+    new_snapshot.id = new_snapshot.compute_id();
+    storage
+        .store_snapshot(&new_snapshot, b"")
+        .map_err(LayertwineError::Storage)?;
+
+    // Updating the partition pointer
+    storage
+        .update_pointer(&pid, &new_snapshot.id)
+        .map_err(LayertwineError::Storage)?;
+
+    Ok(new_snapshot.id)
+}
+
 /// Merge the current snapshot of the manual_edit tier into staged
 ///
 /// Uses three-way merge with the staged partition's first history entry as the merge base:
@@ -164,10 +235,14 @@ where
     // conflict-free for this pattern.
     let baseline_snapshot = staged_snapshot.clone();
 
-    // Reconstruct texts for three-way merge
-    let baseline_text = crate::layered::transition::reconstruct_text(storage, &baseline_snapshot)?;
-    let staged_text = crate::layered::transition::reconstruct_text(storage, &staged_snapshot)?;
-    let manual_text = crate::layered::transition::reconstruct_text(storage, &manual_snapshot)?;
+    // Reconstruct texts for three-way merge. A deleted side (None) is
+    // treated as empty content: merge inputs only need text.
+    let baseline_text = crate::layered::transition::reconstruct_text(storage, &baseline_snapshot)?
+        .unwrap_or_default();
+    let staged_text = crate::layered::transition::reconstruct_text(storage, &staged_snapshot)?
+        .unwrap_or_default();
+    let manual_text = crate::layered::transition::reconstruct_text(storage, &manual_snapshot)?
+        .unwrap_or_default();
 
     // Three-way merge: base (common ancestor), ours (staged), theirs (manual)
     let (merged_text, conflicts) =

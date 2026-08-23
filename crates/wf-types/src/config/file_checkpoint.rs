@@ -55,6 +55,17 @@ pub enum ConflictBehavior {
     Approval,
 }
 
+/// GC retention policy for file-checkpoint physical garbage collection.
+/// Mirrors `layertwine::git_sync::gc::GcRetention` at the config layer.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct FileCheckpointGcRetention {
+    /// Keep the N most recently created partition head checkpoints
+    /// protected even when no branch points at them. `0` = only the
+    /// built-in protected set (branch heads + ancestors + git anchors).
+    #[serde(default)]
+    pub keep_recent_heads: usize,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct FileCheckpointConfig {
     #[serde(default)]
@@ -78,6 +89,14 @@ pub struct FileCheckpointConfig {
     /// `FileCheckpointConfig.enabled` and `workspace_root` are set).
     #[serde(default)]
     pub manual_watch: bool,
+    /// Physical GC auto-run interval in seconds; `None` = never run
+    /// automatically (explicit `run_gc` / API only).
+    #[serde(default)]
+    pub gc_interval_secs: Option<u64>,
+    /// GC retention policy; `None` = default (only the built-in protected
+    /// set).
+    #[serde(default)]
+    pub gc_retention: Option<FileCheckpointGcRetention>,
 }
 
 fn default_max_delta_chain() -> u32 {
@@ -96,6 +115,8 @@ impl Default for FileCheckpointConfig {
             approval_policy: ApprovalPolicy::default(),
             conflict_behavior: ConflictBehavior::default(),
             manual_watch: false,
+            gc_interval_secs: None,
+            gc_retention: None,
         }
     }
 }

@@ -16,14 +16,17 @@ use std::collections::HashMap;
 use layertwine::core::delta::Delta;
 use layertwine::core::partition::Partition;
 use layertwine::core::snapshot::Snapshot;
-use layertwine::core::types::{PartitionType, SourceType};
+use layertwine::core::types::{AgentInstanceId, PartitionType, SnapshotId, SourceType};
+use layertwine::engine::merge::merge_texts;
 use layertwine::storage::repository::{DeltaStore, PartitionStore, SnapshotStore};
 use layertwine::storage::sqlite::SqliteStorage;
 
 use crate::actor_id::ActorId;
+use crate::approval::{to_conflict_views, ConflictView};
 use crate::diff::DiffEngine;
 use crate::error::CheckpointError;
-use crate::file::{sha256_hex, FileContentEntry};
+use crate::file::FileContentEntry;
+use crate::file_util::sha256_hex;
 
 /// Seed path of the synthetic initial snapshot; excluded from provenance.
 const SEED_PATH: &str = ".wf-checkpoint-seed";
@@ -139,9 +142,12 @@ fn snapshot_content_bytes(
     if let Some(content) = &snapshot.content {
         return Ok(content.to_bytes());
     }
+    // A deleted snapshot has no content; treat it as empty bytes (the
+    // deletion marker is consulted by the workspace/restore callers).
     Ok(
         layertwine::layered::transition::reconstruct_text(storage, snapshot)
             .map_err(map_storage)?
+            .unwrap_or_default()
             .into_bytes(),
     )
 }
@@ -295,6 +301,11 @@ pub fn get_actor_workspace(
     let partition = actor_partition(storage, actor)?;
     let mut files = Vec::new();
     for (path, snapshot) in latest_snapshots_per_path(storage, &partition)? {
+        // Deleted snapshots carry the explicit deletion marker: the path is
+        // missing from the workspace rather than cleared.
+        if snapshot.is_deleted() {
+            continue;
+        }
         let content = snapshot_content_bytes(storage, &snapshot)?;
         let hash = sha256_hex(&content);
         files.push(WorkspaceFile {
@@ -317,6 +328,11 @@ pub fn get_staged_workspace(
     let partition = storage.get_partition(&pid).map_err(map_storage)?;
     let mut files = Vec::new();
     for (path, snapshot) in latest_snapshots_per_path(storage, &partition)? {
+        // Deleted snapshots carry the explicit deletion marker: the path is
+        // missing from the staged workspace rather than cleared.
+        if snapshot.is_deleted() {
+            continue;
+        }
         let content = snapshot_content_bytes(storage, &snapshot)?;
         let hash = sha256_hex(&content);
         files.push(WorkspaceFile {
@@ -328,6 +344,149 @@ pub fn get_staged_workspace(
     }
     files.sort_by(|a, b| a.path.cmp(&b.path));
     Ok(files)
+}
+
+/// A file whose merge snapshot carries the unresolved-conflict flag.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ConflictFile {
+    /// Relative file path.
+    pub path: String,
+    /// Snapshot id (hex) of the conflicted merge snapshot.
+    pub snapshot_id: String,
+    /// Partition the conflict lives in (`staged` / `integrated/<feature>`).
+    pub partition: String,
+    /// Re-derived conflict regions (best effort; empty when the merge
+    /// inputs cannot be reconstructed from storage).
+    pub conflicts: Vec<ConflictView>,
+}
+
+/// List files with unresolved merge conflicts across the staged and all
+/// feature (integrated) partitions. Only the latest snapshot of each path
+/// is considered (an older conflicted snapshot that was superseded by a
+/// resolution no longer counts); the `MergeConflict` regions are re-derived
+/// by replaying the merge over the snapshot's parents (best effort — old
+/// snapshots whose inputs are gone report the path with an empty conflict
+/// list).
+pub fn list_conflicts(storage: &SqliteStorage) -> Result<Vec<ConflictFile>, CheckpointError> {
+    let mut partitions: Vec<Partition> = Vec::new();
+    let staged_pid = layertwine::layered::staged::staged_partition_id();
+    if let Ok(partition) = storage.get_partition(&staged_pid) {
+        partitions.push(partition);
+    }
+    for partition in storage.list_partitions().map_err(map_storage)? {
+        if matches!(partition.partition_type, PartitionType::Integrated(_)) {
+            partitions.push(partition);
+        }
+    }
+
+    let mut out = Vec::new();
+    for partition in partitions {
+        for (path, snapshot) in latest_snapshots_per_path(storage, &partition)? {
+            if !snapshot.has_conflicts {
+                continue;
+            }
+            let conflicts = rederive_conflicts(storage, &snapshot)?;
+            out.push(ConflictFile {
+                path,
+                snapshot_id: snapshot.id.to_hex(),
+                partition: partition.name.clone(),
+                conflicts,
+            });
+        }
+    }
+    out.sort_by(|a, b| a.path.cmp(&b.path));
+    Ok(out)
+}
+
+/// Replay the three-way merge that produced a conflicted snapshot and
+/// return the conflict regions as read views. The role of each parent is
+/// derived from the snapshot's partition type and parent count, following
+/// the `Snapshot::merge` conventions in layertwine. Returns an empty list
+/// when the merge inputs cannot be reconstructed.
+fn rederive_conflicts(
+    storage: &SqliteStorage,
+    snapshot: &Snapshot,
+) -> Result<Vec<ConflictView>, CheckpointError> {
+    let pt = &snapshot.partition_type;
+    let parents = &snapshot.parents;
+
+    // (base, ours, theirs) snapshot ids, when the merge shape is known.
+    let roles: Option<(SnapshotId, SnapshotId, SnapshotId)> = if pt == "staged" {
+        // merge_feature_to_staged: parents = [staged, feature]; base is the
+        // feature partition's baseline (history[0]).
+        if parents.len() >= 2 {
+            let feature_snap = storage.get_snapshot(&parents[1]).map_err(map_storage)?;
+            let name = feature_snap.partition_type.strip_prefix("integrated/");
+            match name {
+                Some(name) => {
+                    let fpid = layertwine::layered::integrated::integrated_partition_id(name);
+                    let base = storage
+                        .get_partition(&fpid)
+                        .ok()
+                        .and_then(|p| p.history.first().copied());
+                    match base {
+                        Some(base) => Some((base, parents[0], parents[1])),
+                        None => None,
+                    }
+                }
+                None => None,
+            }
+        } else {
+            None
+        }
+    } else if pt.starts_with("integrated/") {
+        // merge_agent_to_feature: parents = [integrated, approval, baseline];
+        // merge_texts(base=baseline, ours=approval, theirs=integrated).
+        if parents.len() >= 3 {
+            Some((parents[2], parents[1], parents[0]))
+        } else {
+            None
+        }
+    } else if pt.starts_with("approval/") {
+        // move_agent_to_approval: parents = [approval, agent]; base is the
+        // approval partition's baseline (history[0]).
+        if parents.len() >= 2 {
+            let agent = pt.strip_prefix("approval/");
+            match agent {
+                Some(agent) => {
+                    let agent_id = AgentInstanceId(agent.to_string());
+                    let pid = layertwine::layered::approval::approval_agent_partition_id(&agent_id);
+                    let base = storage
+                        .get_partition(&pid)
+                        .ok()
+                        .and_then(|p| p.history.first().copied());
+                    match base {
+                        Some(base) => Some((base, parents[0], parents[1])),
+                        None => None,
+                    }
+                }
+                None => None,
+            }
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    let Some((base_id, ours_id, theirs_id)) = roles else {
+        return Ok(vec![]);
+    };
+    let base = storage.get_snapshot(&base_id).map_err(map_storage)?;
+    let ours = storage.get_snapshot(&ours_id).map_err(map_storage)?;
+    let theirs = storage.get_snapshot(&theirs_id).map_err(map_storage)?;
+    let base_text = layertwine::layered::transition::reconstruct_text(storage, &base)
+        .map_err(map_storage)?
+        .unwrap_or_default();
+    let ours_text = layertwine::layered::transition::reconstruct_text(storage, &ours)
+        .map_err(map_storage)?
+        .unwrap_or_default();
+    let theirs_text = layertwine::layered::transition::reconstruct_text(storage, &theirs)
+        .map_err(map_storage)?
+        .unwrap_or_default();
+    let (_, conflicts) = merge_texts(&base_text, &ours_text, &theirs_text);
+    let path = snapshot_file_path(storage, snapshot)?;
+    Ok(to_conflict_views(&path, &conflicts))
 }
 
 /// Per-file diff between two workspace states

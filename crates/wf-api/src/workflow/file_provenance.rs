@@ -65,3 +65,18 @@ pub fn diff_against_staged(ctx: &ApiContext, actor: &str) -> ApiResult<Vec<FileD
         .diff_against_staged(actor)
         .map_err(ApiError::execution_with_source)
 }
+
+/// Trigger a manual GC run on the file-checkpoint store. `keep_recent_heads`
+/// controls how many recent partition heads are kept protected beyond the
+/// built-in protected set (branch heads + ancestors + git anchors).
+pub fn run_gc(
+    ctx: &ApiContext,
+    keep_recent_heads: usize,
+) -> ApiResult<layertwine::git_sync::GCStats> {
+    let retention = layertwine::git_sync::GcRetention {
+        keep_recent_heads,
+    };
+    manager(ctx)?
+        .run_gc(retention)
+        .map_err(ApiError::execution_with_source)
+}

@@ -11,7 +11,7 @@ use layertwine::StorageResult;
 
 use crate::branch::BranchStorageAdapter;
 use crate::error::CheckpointError;
-use crate::file::map_layertwine_error;
+use crate::file_util::map_layertwine_error;
 use wf_common::gate::ConcurrencyGate;
 
 pub trait GitCheckpointAdapter: Send + Sync {

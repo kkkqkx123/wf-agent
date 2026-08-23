@@ -154,7 +154,11 @@ impl ApiService {
             .storage
             .get_snapshot(snapshot_id)
             .map_err(|e| map_error(LayertwineError::Storage(e)))?;
+        // A deleted snapshot reconstructs to None; the text-level API
+        // surfaces it as an empty string (the snapshot's deletion marker is
+        // still available on the model side).
         crate::layered::transition::reconstruct_text(self.storage.as_ref(), &snapshot)
+            .map(|text| text.unwrap_or_default())
             .map_err(map_error)
     }
 

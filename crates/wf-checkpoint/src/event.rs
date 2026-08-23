@@ -4,6 +4,7 @@ use tokio::sync::broadcast;
 use wf_types::events::{BaseEvent, EventType};
 
 use crate::provenance::DeltaSummary;
+use layertwine::git_sync::gc::GCStats;
 
 const DEFAULT_CHANNEL_CAPACITY: usize = 256;
 
@@ -47,10 +48,20 @@ pub enum CheckpointEvent {
         summary: Option<DeltaSummary>,
     },
     /// A merge produced conflicts. `data.description` carries the
-    /// affected file paths (comma-separated).
+    /// affected file paths (comma-separated) and `paths` the structured
+    /// list, so consumers do not have to re-parse the description.
     MergeConflicted {
         base: BaseEvent,
         data: CheckpointData,
+        paths: Vec<String>,
+    },
+    /// A garbage collection run completed. `data.operation` is `"gc"`,
+    /// `data.description` a human summary, and `stats` the full `GCStats`
+    /// (removed checkpoints / snapshots / freed bytes / delta chain depth).
+    GcCompleted {
+        base: BaseEvent,
+        data: CheckpointData,
+        stats: GCStats,
     },
 }
 
@@ -239,13 +250,15 @@ impl CheckpointEventBus {
         }
     }
 
-    /// Create a `MergeConflicted` event carrying the affected file paths and
-    /// the merge snapshot id.
+    /// Create a `MergeConflicted` event carrying the affected file paths
+    /// (structured `paths` and a comma-separated `description`) and the
+    /// merge snapshot id.
     pub fn merge_conflicted(
         snapshot_id: impl Into<String>,
-        conflict_files: impl Into<String>,
+        paths: Vec<String>,
         execution_id: Option<String>,
     ) -> CheckpointEvent {
+        let description = paths.join(", ");
         CheckpointEvent::MergeConflicted {
             base: Self::make_base(EventType::CheckpointMergeConflicted),
             data: CheckpointData {
@@ -253,9 +266,30 @@ impl CheckpointEventBus {
                 execution_id,
                 operation: Some("merge".to_string()),
                 error: None,
-                description: Some(conflict_files.into()),
+                description: Some(description),
                 reason: None,
             },
+            paths,
+        }
+    }
+
+    /// Create a `GcCompleted` event carrying the GC statistics.
+    pub fn gc_completed(stats: GCStats) -> CheckpointEvent {
+        let description = format!(
+            "gc removed {} checkpoints, {} snapshots",
+            stats.removed_checkpoints, stats.removed_snapshots
+        );
+        CheckpointEvent::GcCompleted {
+            base: Self::make_base(EventType::CheckpointGcCompleted),
+            data: CheckpointData {
+                checkpoint_id: None,
+                execution_id: None,
+                operation: Some("gc".to_string()),
+                error: None,
+                description: Some(description),
+                reason: None,
+            },
+            stats,
         }
     }
 }

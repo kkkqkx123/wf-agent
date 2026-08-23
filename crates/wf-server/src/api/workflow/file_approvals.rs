@@ -33,6 +33,10 @@ pub(crate) fn routes() -> Router<ApiState> {
 struct ApproveRequest {
     #[serde(default)]
     feature: String,
+    /// File-level approval: when set and non-empty, only these paths are
+    /// advanced into the feature; the rest stay pending.
+    #[serde(default)]
+    paths: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -52,8 +56,15 @@ async fn handle_approve_changes(
     Path(path): Path<IdPath>,
     body: Option<axum::extract::Json<ApproveRequest>>,
 ) -> impl IntoResponse {
-    let feature = body.map(|b| b.0.feature).unwrap_or_default();
-    match wf_api::workflow::file_approval::approve_changes(&state.ctx, &path.id, &feature) {
+    let (feature, paths) = body
+        .map(|b| (b.0.feature, b.0.paths))
+        .unwrap_or_default();
+    match wf_api::workflow::file_approval::approve_changes(
+        &state.ctx,
+        &path.id,
+        &feature,
+        paths,
+    ) {
         Ok(outcome) => ok(outcome).into_response(),
         Err(err) => error_response(err),
     }

@@ -76,6 +76,17 @@ pub fn ensure_staged_partition<S: PartitionStore>(
     }
 }
 
+/// File path a snapshot applies to (chain-head delta file, or the snapshot's
+/// own file node when no delta exists).
+fn snapshot_file_path<S: DeltaStore>(storage: &S, snapshot: &Snapshot) -> Result<String> {
+    if let Some(delta_id) = snapshot.deltas.last() {
+        let delta = storage.get_delta(delta_id).map_err(LayertwineError::Storage)?;
+        Ok(delta.file.path_str().to_string())
+    } else {
+        Ok(snapshot.file.path_str().to_string())
+    }
+}
+
 /// Merge a single Integrated feature partition directly into Staged.
 ///
 /// Uses three-way merge with the feature's own baseline:
@@ -124,16 +135,30 @@ where
         .get_snapshot(&staged_partition.current_snapshot)
         .map_err(LayertwineError::Storage)?;
 
-    // Reconstruct texts for three-way merge
-    let baseline_text = crate::layered::transition::reconstruct_text(storage, &baseline_snapshot)?;
-    let staged_text = crate::layered::transition::reconstruct_text(storage, &staged_snapshot)?;
-    let feature_text = crate::layered::transition::reconstruct_text(storage, &feature_snapshot)?;
+    // Reconstruct texts for three-way merge. A deleted side (None) is
+    // treated as empty content: merge inputs only need text.
+    let baseline_text = crate::layered::transition::reconstruct_text(storage, &baseline_snapshot)?
+        .unwrap_or_default();
+    let staged_text = crate::layered::transition::reconstruct_text(storage, &staged_snapshot)?
+        .unwrap_or_default();
+    let feature_text = crate::layered::transition::reconstruct_text(storage, &feature_snapshot)?
+        .unwrap_or_default();
 
-    // Three-way merge: baseline (base), staged (ours), feature (theirs)
-    let (merged_text, conflicts) =
-        crate::engine::merge::merge_texts(&baseline_text, &staged_text, &feature_text);
-
-    let has_conflicts = !conflicts.is_empty();
+    // Cross-file fork-join: when the feature advances a different file than
+    // the current staged snapshot, the two texts are unrelated and a
+    // three-way merge would report a spurious conflict. Adopt the feature
+    // content verbatim instead (the staged partition keeps the merge as a
+    // multi-parent snapshot, so the DAG ancestry is preserved).
+    let staged_path = snapshot_file_path(storage, &staged_snapshot)?;
+    let feature_path = snapshot_file_path(storage, &feature_snapshot)?;
+    let (merged_text, conflicts, has_conflicts) = if staged_path != feature_path {
+        (feature_text.clone(), Vec::new(), false)
+    } else {
+        let (merged_text, conflicts) =
+            crate::engine::merge::merge_texts(&baseline_text, &staged_text, &feature_text);
+        let has_conflicts = !conflicts.is_empty();
+        (merged_text, conflicts, has_conflicts)
+    };
 
     let merge_diff = diff_to_line_diff(&staged_text, &merged_text);
     if merge_diff.is_empty() {
@@ -324,7 +349,10 @@ mod tests {
             .store_file_node(&file_node, content.as_bytes())
             .unwrap();
 
-        let parent_text = crate::layered::transition::reconstruct_text(storage, &parent).unwrap();
+        let parent_text =
+            crate::layered::transition::reconstruct_text(storage, &parent)
+                .unwrap()
+                .unwrap_or_default();
         let diff = diff_to_line_diff(&parent_text, content);
         let delta = Delta::new(file_node, diff, SourceType::Manual);
         storage.store_delta(&delta).unwrap();

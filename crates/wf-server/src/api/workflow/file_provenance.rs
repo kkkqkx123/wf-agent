@@ -5,7 +5,7 @@
 
 use axum::extract::{Path, Query, State};
 use axum::response::IntoResponse;
-use axum::routing::get;
+use axum::routing::{get, post};
 use axum::Router;
 use serde::Deserialize;
 
@@ -36,6 +36,7 @@ pub(crate) fn routes() -> Router<ApiState> {
             "/file-checkpoint/diff/staged/{id}",
             get(handle_diff_against_staged),
         )
+        .route("/file-checkpoint/gc", post(handle_run_gc))
 }
 
 /// Actor / path query parameters: optional `path` substring filter and
@@ -129,6 +130,22 @@ async fn handle_diff_against_staged(
 ) -> impl IntoResponse {
     match wf_api::workflow::file_provenance::diff_against_staged(&state.ctx, &path.id) {
         Ok(diffs) => ok(diffs).into_response(),
+        Err(err) => error_response(err),
+    }
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct GcQuery {
+    #[serde(default)]
+    keep_recent_heads: usize,
+}
+
+async fn handle_run_gc(
+    State(state): State<ApiState>,
+    Query(query): Query<GcQuery>,
+) -> impl IntoResponse {
+    match wf_api::workflow::file_provenance::run_gc(&state.ctx, query.keep_recent_heads) {
+        Ok(stats) => ok(stats).into_response(),
         Err(err) => error_response(err),
     }
 }

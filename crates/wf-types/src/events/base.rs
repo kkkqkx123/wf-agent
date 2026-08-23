@@ -135,6 +135,10 @@ pub enum EventType {
     CheckpointFileChanged,
     /// A merge produced conflicts (marker strategy applied).
     CheckpointMergeConflicted,
+    /// A file-checkpoint garbage collection run completed. The event
+    /// payload carries the `GCStats` (removed checkpoints / snapshots /
+    /// freed bytes).
+    CheckpointGcCompleted,
     ExecutionTimeoutWarning,
     ExecutionTimeoutExpired,
     ShellSessionCreated,
@@ -275,6 +279,7 @@ impl EventType {
             EventType::CheckpointRestoreCompleted => "CHECKPOINT_RESTORE_COMPLETED",
             EventType::CheckpointFileChanged => "CHECKPOINT_FILE_CHANGED",
             EventType::CheckpointMergeConflicted => "CHECKPOINT_MERGE_CONFLICTED",
+            EventType::CheckpointGcCompleted => "CHECKPOINT_GC_COMPLETED",
             EventType::ExecutionTimeoutWarning => "EXECUTION_TIMEOUT_WARNING",
             EventType::ExecutionTimeoutExpired => "EXECUTION_TIMEOUT_EXPIRED",
             EventType::ShellSessionCreated => "SHELL_SESSION_CREATED",

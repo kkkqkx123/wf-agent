@@ -79,7 +79,8 @@ fn forward(bus: &Arc<EventBus>, event: &CheckpointEvent) {
         CheckpointEvent::Created { .. }
         | CheckpointEvent::Restored { .. }
         | CheckpointEvent::Deleted { .. }
-        | CheckpointEvent::Failed { .. } => return,
+        | CheckpointEvent::Failed { .. }
+        | CheckpointEvent::GcCompleted { .. } => return,
     };
 
     let _ = bus.publish(BaseEvent {

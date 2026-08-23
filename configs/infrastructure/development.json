@@ -11,6 +11,7 @@
     "file_checkpoint": "./file-checkpoint.toml",
     "presets": "./presets.toml",
     "tools": "./tools.toml",
-    "sandbox": "./sandbox.toml"
+    "sandbox": "./sandbox.toml",
+    "tool_approval": "./tool-approval.toml"
   }
 }

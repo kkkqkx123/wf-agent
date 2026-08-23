@@ -1,0 +1,23 @@
+# Host-default tool-level approval.
+#
+# When enabled, executions launched through this runtime route their tool
+# calls through the approval policy below: tools the policy classifies as
+# safe run automatically, policy denials are rejected outright, and the
+# remaining calls open a persisted approval request that a human answers
+# through the frontend. An open request waits until it is answered or the
+# execution ends — there is no timeout, so "not answered yet" never turns
+# into an automatic approve or reject.
+#
+# Hosts without an interactive surface (headless/CI) should keep this
+# disabled, or supply explicit caller-side approval wiring for their
+# executions.
+
+enabled = true
+
+[options]
+# Optional policy overrides on top of the engine baseline (balanced
+# preset): security_preset, categories (per-risk-level always_allow_*),
+# auto_approve_patterns (tool-name globs), file_permissions,
+# command/network/MCP rules. Fields left unset inherit the baseline:
+# read-only tools run automatically, writes and executions ask, sensitive
+# files (.env, keys) always ask, write-protected files are denied.

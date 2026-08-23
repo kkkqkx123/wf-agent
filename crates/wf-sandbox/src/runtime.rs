@@ -12,9 +12,22 @@ use crate::policy::SandboxPolicyManager;
 use crate::profile::{SandboxProfileError, SandboxProfileResolver};
 use crate::resolver::{
     analysis_gate_required, DefaultStrategyResolver, StrategyExecuteOptions, StrategyKind,
-    StrategyResolver,
+    StrategyResolver, VfsProvider,
 };
 use crate::vfs::overlay::OverlayVFS;
+
+/// Result of an execution that may involve an overlay VFS.
+///
+/// `vfs` is the VFS instance that participated in the execution (`None` when
+/// no VFS was active). Consuming its delta ([`VfsProvider::take_delta`]) and
+/// committing it onto the base directory ([`crate::vfs::overlay::OverlayVFS::flush`])
+/// are alternative consumption paths — draining first leaves nothing for a
+/// later flush — so the runtime hands out the provider instead of
+/// pre-draining and lets hosts pick.
+pub struct VfsExecutionOutcome {
+    pub result: ScriptExecutionResult,
+    pub vfs: Option<Arc<dyn VfsProvider>>,
+}
 
 pub struct SandboxRuntime {
     resolver: Arc<dyn StrategyResolver>,
@@ -231,6 +244,45 @@ impl SandboxRuntime {
         command: &str,
         config: &SandboxConfig,
     ) -> ScriptExecutionResult {
+        self.execute_named_with_vfs(language, script_name, command, config, None)
+            .await
+            .result
+    }
+
+    /// Execute like [`SandboxRuntime::execute_named`] but with an externally
+    /// supplied VFS.
+    ///
+    /// When `vfs` is provided it takes precedence over the config-derived
+    /// overlay (`config.vfs` is not used for provisioning), so a host that
+    /// built its own overlay gets exactly that instance through the strategy
+    /// options. Without injection the behavior of `execute_named` is preserved
+    /// exactly. The outcome reports which VFS participated so hosts can drain
+    /// its delta or flush it onto the base directory after execution.
+    pub async fn execute_named_with_vfs(
+        &self,
+        language: &str,
+        script_name: &str,
+        command: &str,
+        config: &SandboxConfig,
+        vfs: Option<Arc<dyn VfsProvider>>,
+    ) -> VfsExecutionOutcome {
+        let (result, used_vfs) = self
+            .execute_inner(language, script_name, command, config, vfs)
+            .await;
+        VfsExecutionOutcome {
+            vfs: used_vfs,
+            result,
+        }
+    }
+
+    async fn execute_inner(
+        &self,
+        language: &str,
+        script_name: &str,
+        command: &str,
+        config: &SandboxConfig,
+        external_vfs: Option<Arc<dyn VfsProvider>>,
+    ) -> (ScriptExecutionResult, Option<Arc<dyn VfsProvider>>) {
         let resolved_config = self.resolve_config(config, language, script_name);
 
         // Mode resolution happens AFTER profile merge so a profile-selected
@@ -247,7 +299,7 @@ impl SandboxRuntime {
                 None,
                 true,
             );
-            return result;
+            return (result, None);
         }
 
         let policy = resolved_config
@@ -255,6 +307,29 @@ impl SandboxRuntime {
             .as_ref()
             .map(|p| SandboxPolicyManager::merge(&self.default_policy, p))
             .unwrap_or_else(|| self.default_policy.clone());
+
+        // External injection wins over config-derived creation; without it an
+        // enabled `config.vfs` creates the overlay here as before. The value
+        // is built before chain resolution so every early return still
+        // reports which VFS (if any) would have participated.
+        let vfs = external_vfs.or_else(|| {
+            let vfs_config = resolved_config.vfs.as_ref()?;
+            if !vfs_config.enabled {
+                return None;
+            }
+            let base = vfs_config
+                .workspace_root
+                .as_ref()
+                .map(PathBuf::from)
+                .unwrap_or_else(|| std::env::temp_dir().join("sandbox-vfs"));
+            let path_policy = vfs_config.path_policy.clone().unwrap_or(
+                wf_types::script::sandbox::PathPolicy {
+                    allowed_read: vec![],
+                    allowed_write: vec![],
+                },
+            );
+            Some(Arc::new(OverlayVFS::new(base, path_policy)) as Arc<dyn VfsProvider>)
+        });
 
         let preferred_ids: Vec<String> = match language {
             "shell" => resolved_config.shell_strategy.clone().unwrap_or_default(),
@@ -285,7 +360,10 @@ impl SandboxRuntime {
                     chain_context,
                     false,
                 );
-                return self.failed_result(language, &mode, e, None);
+                return (
+                    self.failed_result(language, &mode, e, None),
+                    vfs.clone(),
+                );
             }
         };
 
@@ -313,7 +391,10 @@ impl SandboxRuntime {
                     None,
                     false,
                 );
-                return self.failed_result(language, &mode, e, None);
+                return (
+                    self.failed_result(language, &mode, e, None),
+                    vfs.clone(),
+                );
             }
             let chain_ids: Vec<String> = chain.iter().map(|s| s.id().to_string()).collect();
             let warning = format!(
@@ -329,28 +410,6 @@ impl SandboxRuntime {
                 true,
             );
             Some(warning)
-        } else {
-            None
-        };
-
-        let vfs = if let Some(ref vfs_config) = resolved_config.vfs {
-            if vfs_config.enabled {
-                let base = vfs_config
-                    .workspace_root
-                    .as_ref()
-                    .map(PathBuf::from)
-                    .unwrap_or_else(|| std::env::temp_dir().join("sandbox-vfs"));
-                let path_policy = vfs_config.path_policy.clone().unwrap_or(
-                    wf_types::script::sandbox::PathPolicy {
-                        allowed_read: vec![],
-                        allowed_write: vec![],
-                    },
-                );
-                Some(Arc::new(OverlayVFS::new(base, path_policy))
-                    as Arc<dyn crate::resolver::VfsProvider>)
-            } else {
-                None
-            }
         } else {
             None
         };
@@ -389,7 +448,10 @@ impl SandboxRuntime {
                         None,
                         false,
                     );
-                    return self.failed_result(language, &mode, e, None);
+                    return (
+                    self.failed_result(language, &mode, e, None),
+                    vfs.clone(),
+                );
                 }
             }
         }
@@ -401,7 +463,7 @@ impl SandboxRuntime {
             workdir: resolved_config.workdir.clone(),
             env_vars: resolved_config.env.clone(),
             timeout_ms: policy.resource.as_ref().and_then(|r| r.timeout_limit_ms),
-            vfs,
+            vfs: vfs.clone(),
         };
 
         // Step 1: run all analysis gates in chain order. Strict rejects on
@@ -422,7 +484,10 @@ impl SandboxRuntime {
                     Some(s.id().to_string()),
                     false,
                 );
-                return self.failed_result(language, &mode, e, Some(s.id().to_string()));
+                return (
+                    self.failed_result(language, &mode, e, Some(s.id().to_string())),
+                    vfs.clone(),
+                );
             }
             match s.execute(options.clone(), &policy).await {
                 Ok(res) if !res.success => {
@@ -437,7 +502,7 @@ impl SandboxRuntime {
                             Some(s.id().to_string()),
                             false,
                         );
-                        return res;
+                        return (res, vfs.clone());
                     }
                     let new_violations: Vec<String> = res
                         .violations
@@ -456,11 +521,14 @@ impl SandboxRuntime {
                         Some(s.id().to_string()),
                         false,
                     );
-                    return self.failed_result(
-                        language,
-                        &mode,
-                        format!("Analysis strategy '{}' failed: {e}", s.id()),
-                        Some(s.id().to_string()),
+                    return (
+                        self.failed_result(
+                            language,
+                            &mode,
+                            format!("Analysis strategy '{}' failed: {e}", s.id()),
+                            Some(s.id().to_string()),
+                        ),
+                        vfs.clone(),
                     );
                 }
             }
@@ -531,7 +599,7 @@ impl SandboxRuntime {
                             true,
                         );
                     }
-                    return self.finalize_result(res, gate_warning);
+                    return (self.finalize_result(res, gate_warning), vfs.clone());
                 }
                 Err(e) => {
                     if mode == SandboxMode::Strict {
@@ -543,11 +611,14 @@ impl SandboxRuntime {
                             Some(s.id().to_string()),
                             false,
                         );
-                        return self.failed_result(
-                            language,
-                            &mode,
-                            format!("Execution strategy '{}' failed: {e}", s.id()),
-                            Some(s.id().to_string()),
+                        return (
+                            self.failed_result(
+                                language,
+                                &mode,
+                                format!("Execution strategy '{}' failed: {e}", s.id()),
+                                Some(s.id().to_string()),
+                            ),
+                            vfs.clone(),
                         );
                     }
                     // Lenient: try the next execution strategy.
@@ -591,7 +662,7 @@ impl SandboxRuntime {
         if mode == SandboxMode::Lenient && !analysis_violations.is_empty() {
             result.violations = Some(analysis_violations.clone());
         }
-        self.finalize_result(result, gate_warning)
+        (self.finalize_result(result, gate_warning), vfs.clone())
     }
 
     /// Resolve the effective mode: config → profile (already merged above) →
@@ -670,6 +741,7 @@ impl SandboxRuntime {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::resolver::StrategyImplementation;
     use wf_types::script::sandbox::{ResourcePolicy, ShellPolicy};
 
     fn make_config(mode: Option<SandboxMode>) -> SandboxConfig {
@@ -1357,5 +1429,191 @@ mod tests {
             .await;
         assert!(!result.success, "strict must fail fast");
         assert_eq!(result.strategy_id.as_deref(), Some("failing"));
+    }
+
+    /// Mock executor that records which VFS instance it received and writes
+    /// one file through it.
+    struct VfsCaptureWriter {
+        captured_vfs: Arc<Mutex<Option<Arc<dyn VfsProvider>>>>,
+    }
+
+    #[async_trait::async_trait]
+    impl StrategyImplementation for VfsCaptureWriter {
+        fn id(&self) -> &str {
+            "vfs-capture-writer"
+        }
+        fn name(&self) -> &str {
+            "VFS Capture Writer"
+        }
+        fn description(&self) -> &str {
+            "records the injected VFS and writes one file through it"
+        }
+        fn kind(&self) -> StrategyKind {
+            StrategyKind::Execution
+        }
+        fn is_available(&self) -> bool {
+            true
+        }
+        async fn execute(
+            &self,
+            options: StrategyExecuteOptions,
+            _policy: &SandboxPolicy,
+        ) -> Result<ScriptExecutionResult, Box<dyn std::error::Error + Send + Sync>> {
+            *self.captured_vfs.lock().expect("capture lock") = options.vfs.clone();
+            if let Some(vfs) = &options.vfs {
+                vfs.write_file("f6-delta.txt", b"injected-write".to_vec())
+                    .await?;
+            }
+            Ok(ScriptExecutionResult {
+                success: true,
+                script_name: "sandbox-test".to_string(),
+                stdout: None,
+                stderr: None,
+                exit_code: Some(0),
+                execution_time: 0,
+                error: None,
+                sandbox_mode: None,
+                strategy_id: Some("vfs-capture-writer".to_string()),
+                violations: None,
+            })
+        }
+    }
+
+    fn injection_config() -> SandboxConfig {
+        // Config enables its own VFS too: external injection must win over
+        // the internally created overlay.
+        SandboxConfig {
+            python_strategy: Some(vec!["vfs-capture-writer".to_string()]),
+            vfs: Some(vfs_config()),
+            skip_gate_check: Some(true),
+            ..make_config(Some(SandboxMode::Strict))
+        }
+    }
+
+    fn injected_overlay(dir: &std::path::Path) -> (Arc<OverlayVFS>, Arc<dyn VfsProvider>) {
+        let overlay = Arc::new(OverlayVFS::new(
+            dir.to_path_buf(),
+            wf_types::script::sandbox::PathPolicy {
+                allowed_read: vec!["f6".to_string()],
+                allowed_write: vec!["f6".to_string()],
+            },
+        ));
+        let provider: Arc<dyn VfsProvider> = overlay.clone();
+        (overlay, provider)
+    }
+
+    #[tokio::test]
+    async fn test_execute_named_with_vfs_uses_injected_instance_and_returns_delta() {
+        let captured: Arc<Mutex<Option<Arc<dyn VfsProvider>>>> = Arc::new(Mutex::new(None));
+        let mut resolver = DefaultStrategyResolver::with_defaults();
+        resolver.register_strategy(
+            "python",
+            Arc::new(VfsCaptureWriter {
+                captured_vfs: captured.clone(),
+            }),
+        );
+        let runtime = SandboxRuntime::with_resolver(Arc::new(resolver));
+
+        let dir = std::env::temp_dir().join("vfs-runtime-inject");
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::create_dir_all(&dir);
+        let (_overlay, injected) = injected_overlay(&dir);
+
+        let outcome = runtime
+            .execute_named_with_vfs(
+                "python",
+                "vfs-inject",
+                "write",
+                &injection_config(),
+                Some(injected.clone()),
+            )
+            .await;
+
+        assert!(outcome.result.success, "{:?}", outcome.result.error);
+        let received = captured
+            .lock()
+            .expect("capture lock")
+            .clone()
+            .expect("strategy must receive a VFS");
+        assert!(
+            Arc::ptr_eq(&received, &injected),
+            "strategies must run against the externally injected instance"
+        );
+
+        // Delta-based consumption: drain the writes from the active VFS.
+        let used_vfs = outcome.vfs.expect("an active VFS must be reported");
+        assert!(
+            Arc::ptr_eq(&used_vfs, &injected),
+            "outcome must report the injected instance"
+        );
+        let delta = used_vfs.take_delta();
+        assert_eq!(
+            delta
+                .get(PathBuf::from("f6-delta.txt").as_path())
+                .map(|v| v.as_slice()),
+            Some(b"injected-write".as_slice())
+        );
+        assert!(
+            used_vfs.take_delta().is_empty(),
+            "drain must clear pending writes so repeated calls do not re-report"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn test_injected_vfs_flush_commits_writes_onto_base() {
+        let captured: Arc<Mutex<Option<Arc<dyn VfsProvider>>>> = Arc::new(Mutex::new(None));
+        let mut resolver = DefaultStrategyResolver::with_defaults();
+        resolver.register_strategy(
+            "python",
+            Arc::new(VfsCaptureWriter {
+                captured_vfs: captured.clone(),
+            }),
+        );
+        let runtime = SandboxRuntime::with_resolver(Arc::new(resolver));
+
+        let dir = std::env::temp_dir().join("vfs-runtime-flush");
+        let _ = std::fs::remove_dir_all(&dir);
+        let _ = std::fs::create_dir_all(&dir);
+        let (overlay, injected) = injected_overlay(&dir);
+
+        // Flush-based consumption: the caller keeps its typed handle and
+        // commits the sandbox view onto the base directory after execution.
+        let outcome = runtime
+            .execute_named_with_vfs(
+                "python",
+                "vfs-flush",
+                "write",
+                &injection_config(),
+                Some(injected.clone()),
+            )
+            .await;
+        assert!(outcome.result.success, "{:?}", outcome.result.error);
+
+        overlay.flush().await.expect("flush must commit");
+        let committed = tokio::fs::read(dir.join("f6-delta.txt")).await.unwrap();
+        assert_eq!(committed, b"injected-write");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn test_execute_named_with_vfs_none_keeps_legacy_no_vfs_path() {
+        let runtime = SandboxRuntime::new();
+        let config = make_config(Some(SandboxMode::Strict));
+
+        let outcome = runtime
+            .execute_named_with_vfs("shell", "", "echo hello", &config, None)
+            .await;
+        assert!(
+            outcome.result.success,
+            "no-vfs execution must be unchanged: {:?}",
+            outcome.result.error
+        );
+        assert!(
+            outcome.vfs.is_none(),
+            "no VFS configured or injected must report no active VFS"
+        );
     }
 }

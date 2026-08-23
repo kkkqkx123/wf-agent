@@ -11,7 +11,7 @@ use wf_execution_shared::hooks::types::BaseHookContext;
 use wf_execution_shared::hooks::HookRegistry;
 use wf_execution_shared::types::execution_entity::IExecutionEntity;
 use wf_metrics::MetricsRegistry;
-use wf_tools::approval::ToolApprovalCoordinator;
+use wf_tools::approval::{ApprovalDecision, ToolApprovalCoordinator};
 use wf_tools::failure_protection::ToolFailureProtectionState;
 use wf_tools::registry::ToolRegistry;
 use wf_types::interaction::tool_approval::{PendingToolCallInfo, ToolApprovalRequestData};
@@ -353,14 +353,31 @@ impl ToolExecutionCoordinator {
             });
 
         let coordinator = ToolApprovalCoordinator::new(options);
+        let decisions = coordinator.evaluate(&requests);
         let batch = coordinator.process_batch(requests);
 
-        let mut outcomes: Vec<ApprovalOutcome> = vec![
-            ApprovalOutcome::Rejected {
-                reason: "internal: unclassified".to_string(),
-            };
-            tool_calls.len()
-        ];
+        // Policy denials are final: they must never be escalated into a
+        // human approval request, so drop them from the pending set before
+        // the interaction loop runs.
+        let asks: Vec<usize> = batch
+            .pending
+            .iter()
+            .copied()
+            .filter(|idx| !matches!(decisions[*idx], ApprovalDecision::Deny(_)))
+            .collect();
+
+        let mut outcomes: Vec<ApprovalOutcome> = decisions
+            .iter()
+            .enumerate()
+            .map(|(idx, decision)| match decision {
+                ApprovalDecision::Deny(reason) => ApprovalOutcome::Rejected {
+                    reason: reason.clone(),
+                },
+                _ => ApprovalOutcome::Rejected {
+                    reason: format!("internal: unclassified (tool call {idx})"),
+                },
+            })
+            .collect();
 
         for idx in &batch.auto_approved {
             outcomes[*idx] = ApprovalOutcome::Execute {
@@ -368,7 +385,7 @@ impl ToolExecutionCoordinator {
             };
         }
 
-        for idx in &batch.pending {
+        for idx in &asks {
             let tc = &tool_calls[*idx];
             let outcome = match self.approval_handler.as_ref() {
                 Some(handler) => {
@@ -387,9 +404,7 @@ impl ToolExecutionCoordinator {
                         tool_index: Some(*idx as u32),
                         total_tools: Some(tool_calls.len() as u32),
                         pending_queue: Some(
-                            batch
-                                .pending
-                                .iter()
+                            asks.iter()
                                 .map(|p| PendingToolCallInfo {
                                     id: tool_calls[*p].id.clone(),
                                     name: tool_calls[*p].function.name.clone(),

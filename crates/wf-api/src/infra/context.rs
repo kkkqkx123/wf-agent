@@ -93,6 +93,12 @@ pub struct ApiContext {
     /// capture workspace changes when it is attached. `None` keeps file
     /// checkpointing disabled.
     file_checkpoint_manager: Option<wf_checkpoint::file::FileCheckpointManager>,
+    /// Host-default tool approval configuration (infrastructure config).
+    /// When enabled with no caller-supplied handler, executions launched
+    /// through this context route every tool call through the persisted
+    /// interaction flow. `None` keeps the library default (auto-approve).
+    pub tool_approval:
+        Option<wf_types::config::tool_approval::ToolApprovalConfig>,
 }
 
 impl ApiContext {
@@ -130,6 +136,7 @@ impl ApiContext {
             trigger_state_registry: Arc::new(wf_workflow::TriggerStateRegistry::new()),
             hook_registry: None,
             file_checkpoint_manager: None,
+            tool_approval: None,
         };
         // Persist every engine event published on the shared bus.
         ctx.restart_persistence_bridge();
@@ -174,10 +181,21 @@ impl ApiContext {
             trigger_state_registry: Arc::new(wf_workflow::TriggerStateRegistry::new()),
             hook_registry: None,
             file_checkpoint_manager: None,
+            tool_approval: None,
         };
         // Persist every engine event published on the shared bus.
         ctx.restart_persistence_bridge();
         ctx
+    }
+
+    /// Inject the host-default tool approval configuration (from the
+    /// infrastructure config layer).
+    pub fn with_tool_approval(
+        mut self,
+        config: wf_types::config::tool_approval::ToolApprovalConfig,
+    ) -> Self {
+        self.tool_approval = Some(config);
+        self
     }
 
     /// Inject the shared hook receiver registry (hook points + engine

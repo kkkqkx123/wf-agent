@@ -1,7 +1,6 @@
-use std::time::Duration;
-
 use serde::Serialize;
 use serde_json::Value;
+use std::sync::Arc;
 
 use wf_tools::approval::{ApprovalDecision, ToolApprovalCoordinator as EngineApprovalCoordinator};
 use wf_types::events::{BaseEvent, EventType};
@@ -14,6 +13,31 @@ use crate::entity::user_interaction::save_interaction;
 use crate::infra::context::ApiContext;
 use crate::infra::error::{not_found, ApiError, ApiResult};
 
+/// Owned handle over the context pieces the persisted tool-approval flow
+/// touches: the interaction store, the shared event bus and the registered
+/// user-interaction notifier. Cloning it lets approval handlers work
+/// without holding a reference to the whole application context.
+#[derive(Clone)]
+pub(crate) struct ApprovalFlow {
+    pub storage: Arc<wf_storage::context::StorageContext>,
+    pub event_bus: Arc<wf_core::EventBus>,
+    pub user_interaction_handler: Arc<
+        tokio::sync::RwLock<
+            Option<Arc<dyn crate::agent::agent_user_interaction::UserInteractionHandler>>,
+        >,
+    >,
+}
+
+impl ApprovalFlow {
+    pub(crate) fn from_context(ctx: &ApiContext) -> Self {
+        Self {
+            storage: ctx.storage.clone(),
+            event_bus: ctx.event_bus.clone(),
+            user_interaction_handler: ctx.user_interaction_handler.clone(),
+        }
+    }
+}
+
 /// Tool approval decision for a single tool call.
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -24,8 +48,6 @@ pub enum ApprovalStatus {
     Approved,
     /// Rejected by a human responder (or a policy denial).
     Rejected,
-    /// The approval request timed out waiting for a response.
-    TimedOut,
 }
 
 /// Outcome of an approval round for one tool call, extended with the
@@ -69,22 +91,20 @@ pub struct ApprovalResult {
 /// Evaluate the approval policy for a tool call and, when a human
 /// confirmation is required, open the request/response loop. Returns the
 /// final approval decision.
+///
+/// There is no timeout: an `Ask` decision waits until a responder answers
+/// or the execution is cancelled. How often that happens is governed by
+/// the policy options, not by a wait bound.
 pub async fn check_and_request_approval(
     ctx: &ApiContext,
     execution_id: &str,
     request: &ToolApprovalRequestData,
     options: Option<ToolApprovalOptions>,
-    timeout_ms: u64,
 ) -> ApiResult<ApprovalResult> {
-    let options = options.unwrap_or_else(default_approval_options);
+    let options = options.unwrap_or_else(ToolApprovalOptions::balanced_defaults);
 
     let engine = EngineApprovalCoordinator::new(options);
-    let batch = engine.process_batch(vec![request.clone()]);
-    let decision = if batch.auto_approved.contains(&0) {
-        ApprovalDecision::Approve
-    } else {
-        ApprovalDecision::Ask
-    };
+    let decision = engine.evaluate(std::slice::from_ref(request)).remove(0);
 
     match decision {
         ApprovalDecision::Approve => Ok(ApprovalResult {
@@ -111,7 +131,7 @@ pub async fn check_and_request_approval(
         }),
         ApprovalDecision::Ask => {
             let (interaction_id, response) =
-                request_user_approval(ctx, execution_id, request, timeout_ms).await?;
+                request_user_approval(ctx, execution_id, request).await?;
             let approved = response.approved;
             Ok(ApprovalResult {
                 status: if approved {
@@ -136,14 +156,28 @@ pub async fn check_and_request_approval(
 ///
 /// Persists the interaction, registers the registry channel, publishes the
 /// `ToolApprovalRequested` event, notifies the registered handler, then
-/// blocks until `respond_interaction` resolves it (or `timeout_ms`
-/// elapses). Returns the interaction id together with the response so the
-/// caller can correlate the record.
+/// blocks until `respond_interaction` resolves it. There is no timeout:
+/// "not answered yet" must never degrade into an automatic decision, so
+/// the wait lasts as long as the execution does (the wall-clock budget is
+/// paused by callers while approval is pending). Cancellation and process
+/// shutdown tear the wait down via the registry drop guard.
+///
+/// Returns the interaction id together with the response so the caller can
+/// correlate the record.
 pub async fn request_user_approval(
     ctx: &ApiContext,
     execution_id: &str,
     request: &ToolApprovalRequestData,
-    timeout_ms: u64,
+) -> ApiResult<(String, ToolApprovalResponseData)> {
+    request_user_approval_in(&ApprovalFlow::from_context(ctx), execution_id, request).await
+}
+
+/// Parts-based variant of [`request_user_approval`] operating on an
+/// explicit [`ApprovalFlow`] handle.
+pub(crate) async fn request_user_approval_in(
+    flow: &ApprovalFlow,
+    execution_id: &str,
+    request: &ToolApprovalRequestData,
 ) -> ApiResult<(String, ToolApprovalResponseData)> {
     let interaction_id = wf_common::generate_id();
     let interaction = UserInteractionStorageMetadata {
@@ -158,7 +192,7 @@ pub async fn request_user_approval(
         created_at: wf_common::now(),
         responded_at: None,
     };
-    save_interaction(&ctx.storage, &interaction).await?;
+    save_interaction(&flow.storage, &interaction).await?;
 
     // Register the wait channel first so a fast response cannot race it. The
     // wait owns the registry entry and removes it on drop, so a cancelled
@@ -188,16 +222,20 @@ pub async fn request_user_approval(
         event_name: None,
         metadata: Some(metadata),
     };
-    let _ = ctx.event_bus.publish(event);
+    let _ = flow.event_bus.publish(event);
 
     // Notify the registered user interaction handler.
     let request_value = serde_json::to_value(request)?;
-    crate::entity::user_interaction::on_tool_approval_requested(ctx, execution_id, &request_value)
-        .await;
+    crate::entity::user_interaction::notify_tool_approval_requested(
+        &flow.user_interaction_handler,
+        execution_id,
+        &request_value,
+    )
+    .await;
 
-    let wait = tokio::time::timeout(Duration::from_millis(timeout_ms), rx).await;
+    let wait = rx.await;
     match wait {
-        Ok(Ok(response_value)) => {
+        Ok(response_value) => {
             let response: ToolApprovalResponseData = serde_json::from_value(response_value)
                 .map_err(|e| {
                     ApiError::execution(format!(
@@ -206,12 +244,8 @@ pub async fn request_user_approval(
                 })?;
             Ok((interaction_id, response))
         }
-        Ok(Err(_)) => Err(ApiError::execution(format!(
+        Err(_) => Err(ApiError::execution(format!(
             "approval wait for interaction {interaction_id} was cancelled"
-        ))),
-        Err(_) => Err(ApiError::Timeout(format!(
-            "tool approval for '{}' timed out after {timeout_ms}ms",
-            request.tool_name
         ))),
     }
 }
@@ -219,8 +253,8 @@ pub async fn request_user_approval(
 /// Request approval and execute the tool when approved, composed with the
 /// approval coordinator.
 ///
-/// Rejects with `ApiError::Execution` when the call is denied or timed
-/// out, so callers can treat the result as an execution outcome.
+/// Rejects with `ApiError::Execution` when the call is denied, so callers
+/// can treat the result as an execution outcome.
 pub async fn execute_tool_with_approval(
     ctx: &ApiContext,
     execution_id: &str,
@@ -228,7 +262,6 @@ pub async fn execute_tool_with_approval(
     parameters: &Value,
     options: Option<ToolExecutionOptions>,
     approval_options: Option<ToolApprovalOptions>,
-    timeout_ms: u64,
 ) -> ApiResult<wf_types::tool::ToolExecutionResult> {
     let tool = ctx
         .tool_registry
@@ -254,7 +287,7 @@ pub async fn execute_tool_with_approval(
         batch_id: None,
         tool_index: None,
         total_tools: None,
-        timeout: Some(timeout_ms),
+        timeout: None,
         security_preset: approval_options
             .as_ref()
             .and_then(|o| o.security_preset.as_ref())
@@ -262,8 +295,7 @@ pub async fn execute_tool_with_approval(
     };
 
     let approval =
-        check_and_request_approval(ctx, execution_id, &request, approval_options, timeout_ms)
-            .await?;
+        check_and_request_approval(ctx, execution_id, &request, approval_options).await?;
     if !approval.approved {
         return Err(ApiError::execution(format!(
             "tool '{}' execution rejected: {}",
@@ -280,25 +312,6 @@ pub async fn execute_tool_with_approval(
         .clone()
         .unwrap_or_else(|| parameters.clone());
     crate::llm::tool::execute(ctx, tool_id, &effective_parameters, options, execution_id).await
-}
-
-/// Default approval options used when none are supplied: auto-approval on,
-/// Balanced preset (read-only auto-approves, write/execute ask).
-fn default_approval_options() -> ToolApprovalOptions {
-    ToolApprovalOptions {
-        auto_approval_enabled: Some(true),
-        security_preset: Some(wf_types::tool::approval::SecurityPreset::Balanced),
-        risk_threshold: None,
-        auto_approve_patterns: None,
-        categories: None,
-        workspace_boundary: None,
-        file_permissions: None,
-        command: None,
-        mcp: None,
-        network: None,
-        interaction: None,
-        allow_write_protected: None,
-    }
 }
 
 #[cfg(test)]
@@ -358,7 +371,6 @@ mod tests {
             "exec-auto",
             &approval_request("call-1", "read_file", "read_only"),
             None,
-            1000,
         )
         .await
         .unwrap();
@@ -388,7 +400,7 @@ mod tests {
             id
         });
 
-        let result = check_and_request_approval(&ctx, "exec-ask", &request, None, 5000)
+        let result = check_and_request_approval(&ctx, "exec-ask", &request, None)
             .await
             .unwrap();
         assert!(result.approved);
@@ -413,7 +425,7 @@ mod tests {
     async fn rejection_blocks_execution() {
         let ctx = make_ctx();
         // Disable auto-approval so a safe tool still asks.
-        let mut options = default_approval_options();
+        let mut options = ToolApprovalOptions::balanced_defaults();
         options.auto_approval_enabled = Some(false);
         options.security_preset = Some(SecurityPreset::Safe);
 
@@ -432,7 +444,7 @@ mod tests {
             id
         });
 
-        let result = check_and_request_approval(&ctx, "exec-reject", &request, Some(options), 5000)
+        let result = check_and_request_approval(&ctx, "exec-reject", &request, Some(options))
             .await
             .unwrap();
         assert!(!result.approved);
@@ -441,13 +453,45 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn approval_timeout_errors() {
+    async fn policy_deny_never_opens_an_interaction() {
+        // A denylisted domain must surface as a policy rejection without a
+        // persisted approval request: the decision belongs to policy, not
+        // to a wait bound.
         let ctx = make_ctx();
-        let request = approval_request("call-4", "write_file", "write");
-        let err = check_and_request_approval(&ctx, "exec-timeout", &request, None, 50)
+        let mut request = approval_request("call-4", "web_fetch", "network");
+        request.parameters = serde_json::json!({ "url": "https://evil.example/x" });
+        let options = ToolApprovalOptions {
+            categories: Some(wf_types::tool::approval::ApprovalCategories {
+                always_allow_network: Some(true),
+                ..Default::default()
+            }),
+            network: Some(wf_types::tool::approval::NetworkApprovalSettings {
+                allowed_domains: None,
+                denied_domains: Some(vec!["evil.example".to_string()]),
+            }),
+            ..ToolApprovalOptions::empty()
+        };
+
+        let result = check_and_request_approval(&ctx, "exec-deny", &request, Some(options))
             .await
-            .unwrap_err();
-        assert!(matches!(err, ApiError::Timeout(_)));
+            .unwrap();
+        assert!(!result.approved);
+        assert!(matches!(result.status, ApprovalStatus::Rejected));
+        assert!(
+            result.interaction_id.is_none(),
+            "policy denial must not open an interaction"
+        );
+
+        let pending = crate::entity::user_interaction::list_interactions_by_status(
+            ctx.storage.as_ref(),
+            "pending",
+        )
+        .await
+        .unwrap();
+        assert!(
+            pending.is_empty(),
+            "no pending approval record may be created for a denied call"
+        );
     }
 
     fn register_echo(registry: &wf_tools::registry::ToolRegistry, tool_id: &str) {
@@ -509,7 +553,6 @@ mod tests {
             &serde_json::json!({ "x": 1 }),
             None,
             None,
-            5000,
         )
         .await
         .unwrap();

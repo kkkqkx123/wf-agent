@@ -52,6 +52,7 @@ pub struct InfrastructurePresetFiles {
     pub output: String,
     pub sandbox: String,
     pub file_checkpoint: String,
+    pub tool_approval: String,
     pub presets: String,
     pub tools: String,
 }
@@ -66,6 +67,7 @@ impl InfrastructurePresetFiles {
             output: "output.toml".to_string(),
             sandbox: "sandbox.toml".to_string(),
             file_checkpoint: "file-checkpoint.toml".to_string(),
+            tool_approval: "tool-approval.toml".to_string(),
             presets: "presets.toml".to_string(),
             tools: "tools.toml".to_string(),
         }
@@ -98,6 +100,7 @@ pub struct AssembledConfig {
     pub output: OutputConfig,
     pub sandbox: Option<SandboxGlobalConfig>,
     pub file_checkpoint: FileCheckpointConfig,
+    pub tool_approval: wf_types::config::tool_approval::ToolApprovalConfig,
     pub presets: PresetsConfig,
     pub tools: ToolConfigs,
 }
@@ -117,6 +120,7 @@ impl Default for AssembledConfig {
             },
             sandbox: None,
             file_checkpoint: FileCheckpointConfig::default(),
+            tool_approval: wf_types::config::tool_approval::ToolApprovalConfig::default(),
             presets: PresetsConfig::default(),
             tools: ToolConfigs::default(),
         }
@@ -132,6 +136,7 @@ pub struct ConfigOverrides {
     pub output: Option<OutputConfig>,
     pub sandbox: Option<SandboxGlobalConfig>,
     pub file_checkpoint: Option<FileCheckpointConfig>,
+    pub tool_approval: Option<wf_types::config::tool_approval::ToolApprovalConfig>,
     pub presets: Option<PresetsConfig>,
     pub tools: Option<ToolConfigs>,
 }
@@ -300,11 +305,14 @@ impl ConfigOrchestratorLoaded {
             None
         };
 
-        // File-checkpoint / presets / tools load leniently: parse failures
-        // fall back to defaults (presets additionally fail fast on
-        // validation errors).
+        // File-checkpoint / tool-approval / presets / tools load leniently:
+        // parse failures fall back to defaults (presets additionally fail
+        // fast on validation errors).
         let file_checkpoint =
             load_domain_config::<FileCheckpointConfig>(&infra_dir.join(&files.file_checkpoint));
+        let tool_approval = load_domain_config::<wf_types::config::tool_approval::ToolApprovalConfig>(
+            &infra_dir.join(&files.tool_approval),
+        );
         let presets = transform_presets_config(load_domain_config::<PresetsConfig>(
             &infra_dir.join(&files.presets),
         ))?;
@@ -323,6 +331,7 @@ impl ConfigOrchestratorLoaded {
             output,
             sandbox,
             file_checkpoint,
+            tool_approval,
             presets,
             tools,
         })
@@ -409,6 +418,9 @@ impl ConfigOrchestratorLoaded {
         if let Some(file_checkpoint) = overrides.file_checkpoint {
             config.file_checkpoint = merge_file_checkpoint_with_defaults(&file_checkpoint);
         }
+        if let Some(tool_approval) = overrides.tool_approval {
+            config.tool_approval = tool_approval;
+        }
         if let Some(presets) = overrides.presets {
             config.presets = transform_presets_config(presets)?;
         }
@@ -460,6 +472,7 @@ pub fn load_infrastructure_preset(
             "output" => mapping.output = path.to_string_lossy().to_string(),
             "sandbox" => mapping.sandbox = path.to_string_lossy().to_string(),
             "file_checkpoint" => mapping.file_checkpoint = path.to_string_lossy().to_string(),
+            "tool_approval" => mapping.tool_approval = path.to_string_lossy().to_string(),
             "presets" => mapping.presets = path.to_string_lossy().to_string(),
             "tools" => mapping.tools = path.to_string_lossy().to_string(),
             _ => {}

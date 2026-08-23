@@ -80,7 +80,17 @@ pub async fn on_tool_approval_requested(
     execution_id: &str,
     request: &serde_json::Value,
 ) {
-    if let Some(handler) = ctx.user_interaction_handler.read().await.as_ref() {
+    notify_tool_approval_requested(&ctx.user_interaction_handler, execution_id, request).await;
+}
+
+/// Parts-based variant of [`on_tool_approval_requested`] for approval
+/// flows operating on an explicit handler slot instead of a full context.
+pub(crate) async fn notify_tool_approval_requested(
+    handler_slot: &tokio::sync::RwLock<Option<Arc<dyn UserInteractionHandler>>>,
+    execution_id: &str,
+    request: &serde_json::Value,
+) {
+    if let Some(handler) = handler_slot.read().await.as_ref() {
         handler.on_tool_approval_requested(execution_id, request);
     }
 }

@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::fmt;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -82,6 +83,14 @@ pub trait VfsProvider: Send + Sync {
     /// enforcement (e.g. Landlock) mirrors the same rules the analysis gate
     /// applied, so analysis and execution stay consistent.
     fn path_policy(&self) -> Option<wf_types::script::sandbox::PathPolicy>;
+    /// Drain the pending in-memory write delta, if the implementation keeps
+    /// one. Returns the written paths (as passed to `write_file`) with their
+    /// bytes; draining removes the returned entries from the provider so a
+    /// repeated call does not re-report the same writes. Providers without an
+    /// in-memory delta return an empty map.
+    fn take_delta(&self) -> HashMap<PathBuf, Vec<u8>> {
+        HashMap::new()
+    }
 }
 
 #[async_trait]

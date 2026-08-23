@@ -84,7 +84,8 @@ pub async fn run(
         .agent_loop_id
         .clone()
         .unwrap_or_else(|| wf_types::Id::from(wf_common::generate_id()));
-    let coordinator = coordinator_for(ctx, &params).with_agent_loop_id(agent_loop_id.clone());
+    let coordinator = coordinator_for(ctx, &params, Some(agent_loop_id.as_str()))
+        .with_agent_loop_id(agent_loop_id.clone());
     let timeout_ms = agent_timeout_ms(&params.config);
     let config = params.config.clone();
     let input = params.input.clone();
@@ -129,10 +130,15 @@ pub async fn stream(
     ctx: &ApiContext,
     params: RunAgentLoopParams,
 ) -> crate::infra::error::ApiResult<ExecutionEventStream> {
-    let mut coordinator = coordinator_for(ctx, &params);
-    if let Some(id) = params.agent_loop_id.clone() {
-        coordinator = coordinator.with_agent_loop_id(id);
-    }
+    // Resolve the loop id up front (instead of inside the coordinator) so
+    // the host-default approval handler can scope its interaction records
+    // to the same execution.
+    let agent_loop_id = params
+        .agent_loop_id
+        .clone()
+        .unwrap_or_else(|| wf_types::Id::from(wf_common::generate_id()));
+    let mut coordinator = coordinator_for(ctx, &params, Some(agent_loop_id.as_str()));
+    coordinator = coordinator.with_agent_loop_id(agent_loop_id);
     let stream = coordinator
         .execute_stream(params.config, params.input)
         .await;
@@ -201,11 +207,26 @@ fn coordinator(ctx: &ApiContext) -> AgentLoopCoordinator {
 }
 
 /// Assemble the coordinator for a run/stream invocation, routing the
-/// caller-supplied approval handler (if any) into the loop.
-fn coordinator_for(ctx: &ApiContext, params: &RunAgentLoopParams) -> AgentLoopCoordinator {
+/// caller-supplied approval handler (if any) into the loop. Without one,
+/// the host-default tool approval config (when enabled) attaches its
+/// effective policy together with an interaction-backed handler scoped to
+/// the execution id.
+fn coordinator_for(
+    ctx: &ApiContext,
+    params: &RunAgentLoopParams,
+    execution_id: Option<&str>,
+) -> AgentLoopCoordinator {
     let mut coordinator = coordinator(ctx);
     if let Some(handler) = params.approval_handler.clone() {
         coordinator = coordinator.with_approval_handler(handler);
+    } else if let Some(execution_id) = execution_id {
+        if let Some(wiring) =
+            crate::workflow::tool_approval_handler::host_tool_approval(ctx, execution_id)
+        {
+            coordinator = coordinator
+                .with_approval_options(wiring.options)
+                .with_approval_handler(wiring.handler);
+        }
     }
     coordinator
 }

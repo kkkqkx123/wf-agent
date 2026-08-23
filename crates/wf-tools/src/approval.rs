@@ -39,20 +39,7 @@ impl ToolApprovalCoordinator {
 
     pub fn with_defaults() -> Self {
         Self {
-            options: ToolApprovalOptions {
-                auto_approval_enabled: Some(true),
-                security_preset: Some(SecurityPreset::Balanced),
-                risk_threshold: None,
-                auto_approve_patterns: None,
-                categories: None,
-                workspace_boundary: None,
-                file_permissions: Some(FilePermissionSettings::default_rules()),
-                command: None,
-                mcp: None,
-                network: None,
-                interaction: None,
-                allow_write_protected: None,
-            },
+            options: ToolApprovalOptions::balanced_defaults(),
             protect_controller: None,
         }
     }
@@ -85,6 +72,14 @@ impl ToolApprovalCoordinator {
             pending,
             results: HashMap::new(),
         }
+    }
+
+    /// Per-tool policy decisions, in input order. Unlike
+    /// [`Self::process_batch`] this keeps explicit policy denials distinct
+    /// from human-approval requests, so callers can finalize denied calls
+    /// without escalating them to an interaction.
+    pub fn evaluate(&self, tools: &[ToolApprovalRequestData]) -> Vec<ApprovalDecision> {
+        tools.iter().map(|t| self.check_approval(t)).collect()
     }
 
     fn check_approval(&self, tool: &ToolApprovalRequestData) -> ApprovalDecision {

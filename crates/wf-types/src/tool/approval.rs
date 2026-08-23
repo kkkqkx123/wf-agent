@@ -12,7 +12,7 @@ pub enum SecurityPreset {
     Permissive,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct ApprovalCategories {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub always_allow_read_only: Option<bool>,
@@ -84,6 +84,40 @@ pub struct ToolApprovalOptions {
     pub interaction: Option<InteractionApprovalSettings>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub allow_write_protected: Option<bool>,
+}
+
+impl ToolApprovalOptions {
+    /// All fields unset; useful as a base for sparse overrides.
+    pub fn empty() -> Self {
+        Self {
+            auto_approval_enabled: None,
+            security_preset: None,
+            risk_threshold: None,
+            auto_approve_patterns: None,
+            categories: None,
+            workspace_boundary: None,
+            file_permissions: None,
+            command: None,
+            mcp: None,
+            network: None,
+            interaction: None,
+            allow_write_protected: None,
+        }
+    }
+
+    /// Engine-baseline approval policy: balanced preset with read-only
+    /// tools auto-approved, write/execute asking for confirmation, the
+    /// default sensitive-file ruleset enforced and write-protected files
+    /// denied. Host approval configs resolve their overrides on top of
+    /// this baseline.
+    pub fn balanced_defaults() -> Self {
+        Self {
+            auto_approval_enabled: Some(true),
+            security_preset: Some(SecurityPreset::Balanced),
+            file_permissions: Some(FilePermissionSettings::default_rules()),
+            ..Self::empty()
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

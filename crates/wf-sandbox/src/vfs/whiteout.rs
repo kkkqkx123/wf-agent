@@ -30,6 +30,12 @@ impl WhiteoutCache {
         self.entries.remove(path)
     }
 
+    /// Snapshot of all whiteouted paths, for batch consumers such as
+    /// committing deletions onto the base directory.
+    pub fn paths(&self) -> Vec<PathBuf> {
+        self.entries.iter().cloned().collect()
+    }
+
     pub fn clear(&mut self) {
         self.entries.clear();
     }

@@ -104,6 +104,10 @@ pub struct RuntimeConfig {
     pub tools: wf_config::orchestrator::ToolConfigs,
     /// File checkpoint configuration.
     pub file_checkpoint: FileCheckpointConfig,
+    /// Host default tool approval configuration. The type-level default is
+    /// disabled (library contract: auto-approve); hosts enable it in their
+    /// infrastructure config as a product decision.
+    pub tool_approval: wf_types::config::tool_approval::ToolApprovalConfig,
     /// File-layer infrastructure config source; `None` keeps the runtime
     /// programmatic-only (storage/metrics/sandbox defaults).
     pub infra: Option<InfraSourceConfig>,
@@ -187,6 +191,10 @@ pub struct Runtime {
     /// changes when it is attached. `None` keeps file checkpointing disabled.
     #[cfg(feature = "checkpoint")]
     file_checkpoint_manager: Option<wf_checkpoint::file::FileCheckpointManager>,
+    /// Host default tool approval configuration, applied to the API context
+    /// so executions launched through it route tool calls through the
+    /// persisted interaction flow when enabled.
+    tool_approval: wf_types::config::tool_approval::ToolApprovalConfig,
     /// Manual change service: watches the workspace root and routes
     /// human/external file edits into the manual partition. Started when
     /// file checkpointing is enabled with a workspace root and `manual_watch`.
@@ -635,6 +643,7 @@ impl Runtime {
             api_ctx: std::sync::OnceLock::new(),
             #[cfg(feature = "checkpoint")]
             file_checkpoint_manager,
+            tool_approval: config.tool_approval.clone(),
             #[cfg(feature = "checkpoint")]
             manual_change_service,
             #[cfg(feature = "checkpoint")]
@@ -730,6 +739,11 @@ impl Runtime {
             if let Some(manager) = &self.file_checkpoint_manager {
                 ctx = ctx.with_file_checkpoint_manager(manager.clone());
             }
+            // Apply the host default tool approval config: when enabled,
+            // executions launched through this context route every tool call
+            // through the persisted interaction flow (the library default
+            // without a handler stays auto-approve).
+            ctx = ctx.with_tool_approval(self.tool_approval.clone());
             ctx
         })
     }
@@ -1143,6 +1157,9 @@ async fn resolve_infra_config(
     }
     if config.file_checkpoint == FileCheckpointConfig::default() {
         config.file_checkpoint = assembled.file_checkpoint;
+    }
+    if config.tool_approval == wf_types::config::tool_approval::ToolApprovalConfig::default() {
+        config.tool_approval = assembled.tool_approval;
     }
 
     // Skill settings chain (global -> project, or collection mode). Lenient:

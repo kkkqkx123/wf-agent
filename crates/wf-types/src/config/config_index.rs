@@ -141,4 +141,5 @@ pub struct InfrastructurePresetFiles {
     pub presets: Option<String>,
     pub tools: Option<String>,
     pub sandbox: Option<String>,
+    pub tool_approval: Option<String>,
 }

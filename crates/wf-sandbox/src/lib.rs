@@ -18,5 +18,5 @@ pub use resolver::{
     StrategyKind, StrategyResolver, VfsProvider, DEFAULT_JS_CHAIN, DEFAULT_LUA_CHAIN,
     DEFAULT_PYTHON_CHAIN, DEFAULT_SHELL_CHAIN,
 };
-pub use runtime::SandboxRuntime;
+pub use runtime::{SandboxRuntime, VfsExecutionOutcome};
 pub use strategy::shell::vfs_paths::parse_command_chain;

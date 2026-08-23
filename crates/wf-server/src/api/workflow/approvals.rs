@@ -1,9 +1,9 @@
 //! Approval and user interaction surface: blocking tool-approval flows and
 //! the persisted interaction records they produce.
 //!
-//! `/approvals/*` endpoints wait on a human responder. When no
-//! `UserInteractionHandler` is registered there is nobody to answer, so the
-//! handler fails fast instead of letting the request hang until the timeout.
+//! `/approvals/*` endpoints wait on a human responder without a wait
+//! bound. When no `UserInteractionHandler` is registered there is nobody
+//! to answer, so the endpoints fail fast instead of blocking forever.
 
 use axum::extract::{Path, Query, State};
 use axum::response::IntoResponse;
@@ -20,8 +20,6 @@ use wf_types::UserInteractionStorageMetadata;
 use crate::envelope::{err, error_response, ok, ApiError};
 use crate::extract::{ExecutionIdPath, IdPath, ListQuery};
 use crate::router::ApiState;
-
-const DEFAULT_APPROVAL_TIMEOUT_MS: u64 = 30_000;
 
 pub(crate) fn routes() -> Router<ApiState> {
     Router::new()
@@ -55,7 +53,6 @@ pub(crate) fn routes() -> Router<ApiState> {
 struct ApprovalRequestBody {
     execution_id: String,
     request: ToolApprovalRequestData,
-    timeout_ms: Option<u64>,
 }
 
 async fn handle_request_approval(
@@ -68,14 +65,8 @@ async fn handle_request_approval(
         ))
         .into_response();
     }
-    let timeout_ms = body.timeout_ms.unwrap_or(DEFAULT_APPROVAL_TIMEOUT_MS);
-    match wf_api::workflow::approval::request_user_approval(
-        &state.ctx,
-        &body.execution_id,
-        &body.request,
-        timeout_ms,
-    )
-    .await
+    match wf_api::workflow::approval::request_user_approval(&state.ctx, &body.execution_id, &body.request)
+        .await
     {
         Ok((interaction_id, response)) => ok((interaction_id, response)).into_response(),
         Err(e) => error_response(e),
@@ -87,7 +78,6 @@ struct ApprovalCheckBody {
     execution_id: String,
     request: ToolApprovalRequestData,
     options: Option<ToolApprovalOptions>,
-    timeout_ms: Option<u64>,
 }
 
 async fn handle_check_approval(
@@ -100,13 +90,11 @@ async fn handle_check_approval(
         ))
         .into_response();
     }
-    let timeout_ms = body.timeout_ms.unwrap_or(DEFAULT_APPROVAL_TIMEOUT_MS);
     match wf_api::workflow::approval::check_and_request_approval(
         &state.ctx,
         &body.execution_id,
         &body.request,
         body.options,
-        timeout_ms,
     )
     .await
     {
@@ -122,7 +110,6 @@ struct ExecuteToolBody {
     parameters: Value,
     options: Option<ToolExecutionOptions>,
     approval_options: Option<ToolApprovalOptions>,
-    timeout_ms: Option<u64>,
 }
 
 async fn handle_execute_tool(
@@ -135,7 +122,6 @@ async fn handle_execute_tool(
         ))
         .into_response();
     }
-    let timeout_ms = body.timeout_ms.unwrap_or(DEFAULT_APPROVAL_TIMEOUT_MS);
     match wf_api::workflow::approval::execute_tool_with_approval(
         &state.ctx,
         &body.execution_id,
@@ -143,7 +129,6 @@ async fn handle_execute_tool(
         &body.parameters,
         body.options,
         body.approval_options,
-        timeout_ms,
     )
     .await
     {

@@ -238,6 +238,7 @@ pub async fn resume(
     if let Some(ref registry) = ctx.hook_registry {
         exec_ctx = exec_ctx.with_hook_registry(registry.clone());
     }
+    attach_host_tool_approval(ctx, &mut exec_ctx, entity.id().as_str());
 
     let mut coordinator = WorkflowCoordinator::new(exec_ctx, graph, ctx.handlers())?
         .with_entity_arc(entity.clone())
@@ -745,6 +746,23 @@ fn attach_checkpoints(
     }
 }
 
+/// Host-default tool approval: when the context enables it and the
+/// execution carries no caller-supplied wiring, route the tool calls the
+/// policy marks as `Ask` (across agent-loop, fork-join and plain nodes)
+/// through the persisted interaction flow. A no-op keeps the library
+/// default (auto-approve) untouched.
+fn attach_host_tool_approval(ctx: &ApiContext, exec_ctx: &mut ExecutorContext, execution_id: &str) {
+    if exec_ctx.tool_approval_handler.is_some() || exec_ctx.tool_approval_options.is_some() {
+        return;
+    }
+    if let Some(wiring) =
+        crate::workflow::tool_approval_handler::host_tool_approval(ctx, execution_id)
+    {
+        exec_ctx.tool_approval_options = Some(wiring.options);
+        exec_ctx.tool_approval_handler = Some(wiring.handler);
+    }
+}
+
 /// Run a workflow against the shared context, driving the given entity so
 /// external `pause` / `resume` / `cancel` calls apply to the live execution.
 /// The coordinator persists the `WorkflowExecution` record through the shared
@@ -778,6 +796,7 @@ async fn run_workflow(
             .record_execution_start(entity.workflow_id());
         exec_ctx = exec_ctx.with_metrics(metrics.clone());
     }
+    attach_host_tool_approval(ctx, &mut exec_ctx, entity.id().as_str());
 
     let _ = entity.state.write().await.start();
 

@@ -159,9 +159,7 @@ impl AgentLoopRegistry {
         }
         let max = self.max_concurrent();
         let permit = self.gate.try_acquire().map_err(|_| {
-            AgentError::ExecutionLimitReached(format!(
-                "concurrent execution limit {max} reached"
-            ))
+            AgentError::ExecutionLimitReached(format!("concurrent execution limit {max} reached"))
         })?;
         entity.set_gate_permit(Some(permit));
         self.entities.insert(id, entity);

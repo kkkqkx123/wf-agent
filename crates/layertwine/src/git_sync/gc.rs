@@ -33,20 +33,12 @@ impl Default for GCStats {
 
 /// GC retention policy: which checkpoints stay protected beyond the
 /// built-in protected set (branch heads + ancestors + git anchors).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct GcRetention {
     /// Keep the N most recently created partition head checkpoints
     /// protected (by `created_at`, newest first) even when no branch
     /// points at them. `0` = only the built-in protected set.
     pub keep_recent_heads: usize,
-}
-
-impl Default for GcRetention {
-    fn default() -> Self {
-        Self {
-            keep_recent_heads: 0,
-        }
-    }
 }
 
 /// Collect all protected checkpoints that must never be removed.
@@ -97,13 +89,9 @@ pub fn collect_protected_checkpoints(
             .dag()
             .all_nodes()
             .into_iter()
-            .filter_map(|id| {
-                repo.get_checkpoint(&id)
-                    .ok()
-                    .map(|cp| (cp.created_at, id))
-            })
+            .filter_map(|id| repo.get_checkpoint(&id).ok().map(|cp| (cp.created_at, id)))
             .collect();
-        recent.sort_by(|a, b| b.0.cmp(&a.0));
+        recent.sort_by_key(|(created_at, _)| std::cmp::Reverse(*created_at));
         let mut queue: VecDeque<CheckpointId> = recent
             .into_iter()
             .take(retention.keep_recent_heads)

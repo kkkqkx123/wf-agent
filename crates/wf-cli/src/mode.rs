@@ -38,11 +38,7 @@ impl ModeResolver {
     ///
     /// `is_stdin_tty` / `is_stdout_tty` are `IsTerminal` answers of the real
     /// streams (injected for testability).
-    pub fn resolve(
-        cli: &Cli,
-        is_stdin_tty: bool,
-        is_stdout_tty: bool,
-    ) -> CliResult<ResolvedMode> {
+    pub fn resolve(cli: &Cli, is_stdin_tty: bool, is_stdout_tty: bool) -> CliResult<ResolvedMode> {
         cli.validate().map_err(CliError::Arguments)?;
 
         // 1. Explicit interactive forms (highest priority).
@@ -122,7 +118,10 @@ impl ModeResolver {
     fn read_stdin_prompt(cli: &Cli, is_stdin_tty: bool) -> CliResult<Option<String>> {
         let already_has_prompt = matches!(
             cli.command,
-            Some(Command::Run { prompt: Some(_), .. })
+            Some(Command::Run {
+                prompt: Some(_),
+                ..
+            })
         );
         if already_has_prompt || is_stdin_tty {
             return Ok(None);
@@ -145,7 +144,10 @@ impl ModeResolver {
 
 /// TTY status of the real process streams.
 pub fn real_tty_status() -> (bool, bool) {
-    (std::io::stdin().is_terminal(), std::io::stdout().is_terminal())
+    (
+        std::io::stdin().is_terminal(),
+        std::io::stdout().is_terminal(),
+    )
 }
 
 #[cfg(test)]

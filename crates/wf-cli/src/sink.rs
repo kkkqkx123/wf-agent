@@ -105,7 +105,10 @@ mod tests {
     use super::*;
     use crate::output::OutputMessage;
 
-    fn channel() -> (MiniSink, tokio::sync::mpsc::UnboundedReceiver<MiniOutputEvent>) {
+    fn channel() -> (
+        MiniSink,
+        tokio::sync::mpsc::UnboundedReceiver<MiniOutputEvent>,
+    ) {
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
         (MiniSink::new(tx), rx)
     }
@@ -114,7 +117,8 @@ mod tests {
     fn encodes_all_call_kinds() {
         let (mut sink, mut rx) = channel();
         sink.write_text("hello").unwrap();
-        sink.write_message(&OutputMessage::new("assistant", "hi")).unwrap();
+        sink.write_message(&OutputMessage::new("assistant", "hi"))
+            .unwrap();
         sink.write_chunk("wor").unwrap();
         sink.flush().unwrap();
 
@@ -129,7 +133,10 @@ mod tests {
             rx.try_recv().unwrap(),
             MiniOutputEvent::Message(OutputMessage::new("assistant", "hi"))
         );
-        assert_eq!(rx.try_recv().unwrap(), MiniOutputEvent::Chunk("wor".to_string()));
+        assert_eq!(
+            rx.try_recv().unwrap(),
+            MiniOutputEvent::Chunk("wor".to_string())
+        );
         assert_eq!(rx.try_recv().unwrap(), MiniOutputEvent::Flush);
         assert!(rx.try_recv().is_err());
     }
@@ -172,23 +179,27 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("mini.log");
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-        let (mut mini, mut file) =
-            MiniSink::tee_log(tx, &path, OutputFormat::Text).unwrap();
+        let (mut mini, mut file) = MiniSink::tee_log(tx, &path, OutputFormat::Text).unwrap();
 
         mini.write_text("hello").unwrap();
-        mini.write_message(&OutputMessage::new("user", "world")).unwrap();
+        mini.write_message(&OutputMessage::new("user", "world"))
+            .unwrap();
         mini.write_chunk(".").unwrap();
         mini.flush().unwrap();
         file.write_text("hello").unwrap();
-        file.write_message(&OutputMessage::new("user", "world")).unwrap();
+        file.write_message(&OutputMessage::new("user", "world"))
+            .unwrap();
         file.write_chunk(".").unwrap();
         file.flush().unwrap();
 
         // The in-memory side keeps the same events.
-        assert_eq!(rx.try_recv().unwrap(), MiniOutputEvent::Text {
-            role: Role::Default,
-            content: "hello".to_string(),
-        });
+        assert_eq!(
+            rx.try_recv().unwrap(),
+            MiniOutputEvent::Text {
+                role: Role::Default,
+                content: "hello".to_string(),
+            }
+        );
 
         // The file side holds the clean text stream.
         let on_disk = std::fs::read_to_string(&path).unwrap();

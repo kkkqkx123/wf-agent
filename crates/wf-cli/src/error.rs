@@ -110,9 +110,6 @@ mod tests {
         assert_eq!(CliError::Configuration("x".into()).exit_code(), 3);
         assert_eq!(CliError::Business("x".into()).exit_code(), 1);
         assert_eq!(CliError::Interrupted("x".into()).exit_code(), 4);
-        assert_eq!(
-            CliError::Io(std::io::Error::other("x")).exit_code(),
-            1
-        );
+        assert_eq!(CliError::Io(std::io::Error::other("x")).exit_code(), 1);
     }
 }

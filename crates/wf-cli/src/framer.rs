@@ -82,9 +82,9 @@ impl FrameRequester {
 
     /// Ask for a frame no earlier than `dur` from the current clock.
     pub fn request_frame_in(&mut self, dur: Duration) {
-        let d = self.now.saturating_add(
-            u64::try_from(dur.as_millis()).unwrap_or(u64::MAX),
-        );
+        let d = self
+            .now
+            .saturating_add(u64::try_from(dur.as_millis()).unwrap_or(u64::MAX));
         self.pending = Some(self.pending.map_or(d, |p| p.min(d)));
     }
 

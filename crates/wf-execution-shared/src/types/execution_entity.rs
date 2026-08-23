@@ -77,4 +77,10 @@ pub trait IExecutionEntity: Send + Sync {
     fn get_abort_signal(&self) -> tokio_util::sync::CancellationToken;
     fn get_hierarchy_depth(&self) -> u32;
     fn get_root_execution_id(&self) -> Option<Id>;
+    /// Root-to-parent execution id chain (oldest first, excluding self).
+    /// Empty when the run has no parent or the chain was not resolved at
+    /// build time; used to propagate deep-hierarchy ancestry to children.
+    fn get_ancestors(&self) -> Vec<Id> {
+        Vec::new()
+    }
 }

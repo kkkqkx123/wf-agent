@@ -233,12 +233,8 @@ pub async fn restore(
                     .into_iter()
                     .collect(),
                 completed_tool_results: std::collections::HashMap::new(),
-                interruption_records: snapshot
-                    .interruption_records
-                    .unwrap_or_default(),
-                event_records: snapshot
-                    .event_records
-                    .unwrap_or_default(),
+                interruption_records: snapshot.interruption_records.unwrap_or_default(),
+                event_records: snapshot.event_records.unwrap_or_default(),
                 locked_tool_call_format: None,
                 timeout_count: 0,
             })

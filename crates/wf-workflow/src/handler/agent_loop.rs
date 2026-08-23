@@ -320,12 +320,9 @@ impl AgentLoopHandler {
         // environment / enabled skills / custom sections) is prepended
         // when enabled.
         let system_prompt = {
-            let base = resolve_configured_system_prompt(
-                agent_config,
-                ctx.resource_registries.as_deref(),
-            );
-            let dynamic =
-                build_dynamic_system_context(agent_config, ctx.tool_registry.as_deref());
+            let base =
+                resolve_configured_system_prompt(agent_config, ctx.resource_registries.as_deref());
+            let dynamic = build_dynamic_system_context(agent_config, ctx.tool_registry.as_deref());
             match (base, dynamic) {
                 (Some(sp), Some(dynamic_block)) => Some(format!("{}\n\n{}", dynamic_block, sp)),
                 (Some(sp), None) => Some(sp),
@@ -455,9 +452,8 @@ impl AgentLoopHandler {
                 .and_then(|registry| registry.mcp_manager())
             {
                 Some(manager) => {
-                    let provider = wf_tools::mcp::McpToolsDynamicContextProvider::new(
-                        (*manager).clone(),
-                    );
+                    let provider =
+                        wf_tools::mcp::McpToolsDynamicContextProvider::new((*manager).clone());
                     let generated = provider
                         .generate_context(&wf_tools::mcp::McpToolsContextOptions::default());
                     if generated.has_servers && !generated.content.is_empty() {

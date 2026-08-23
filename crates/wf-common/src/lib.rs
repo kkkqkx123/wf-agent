@@ -13,6 +13,4 @@ pub use exec::{execute_with_timeout, TimeoutError};
 pub use gate::{ConcurrencyGate, GateError, GatePermit, GateStats};
 pub use id::generate_id;
 pub use lock::{lock_ok, read_ok, write_ok};
-pub use time::{
-    datetime_from_timestamp, now, timestamp_to_iso, Timestamp,
-};
+pub use time::{datetime_from_timestamp, now, timestamp_to_iso, Timestamp};

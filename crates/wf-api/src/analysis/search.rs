@@ -418,7 +418,11 @@ mod tests {
     use wf_types::workflow::{WorkflowDefinition, WorkflowMetadata, WorkflowTemplate};
     use wf_types::ExecutionStatus;
 
-    fn make_ctx() -> (Arc<ResourceRegistries>, Arc<ResourcePluginRegistry>, Arc<ApiContext>) {
+    fn make_ctx() -> (
+        Arc<ResourceRegistries>,
+        Arc<ResourcePluginRegistry>,
+        Arc<ApiContext>,
+    ) {
         let storage = StorageContext::new_memory();
         let registries = Arc::new(ResourceRegistries::new());
         wf_resource::register_all(

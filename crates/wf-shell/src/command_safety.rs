@@ -172,13 +172,11 @@ impl CommandPolicy {
         Self {
             allowed_commands: config.allowed_commands.clone(),
             denied_commands: config.denied_commands.clone(),
-            shell_policy: config
-                .sandbox_policy
+            shell_policy: config.sandbox_policy.as_ref().and_then(|p| p.shell.clone()),
+            shell_type: config
+                .shell_type
                 .as_ref()
-                .and_then(|p| p.shell.clone()),
-            shell_type: config.shell_type.as_ref().and_then(|s| {
-                wf_sandbox::strategy::shell::base::ShellType::parse(s.as_str())
-            }),
+                .and_then(|s| wf_sandbox::strategy::shell::base::ShellType::parse(s.as_str())),
         }
     }
 
@@ -196,9 +194,9 @@ impl CommandPolicy {
             allowed_commands: self.allowed_commands.clone(),
             denied_commands: self.denied_commands.clone().unwrap_or_default(),
         };
-        let shell_type =
-            self.shell_type
-                .unwrap_or_else(wf_sandbox::strategy::shell::base::ShellType::default_for_platform);
+        let shell_type = self
+            .shell_type
+            .unwrap_or_else(wf_sandbox::strategy::shell::base::ShellType::default_for_platform);
         command_policy::evaluate_command(command, shell_type, &rules, self.shell_policy.as_ref())
     }
 

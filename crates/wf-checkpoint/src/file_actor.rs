@@ -204,8 +204,8 @@ impl FileCheckpointManager {
         let storage = self.storage_ref()?;
         let agent_id = actor.to_agent_instance_id();
         self.ensure_agent_partition(actor)?;
-        let snapshot_id = agent::apply_agent_delete(storage, &agent_id, path)
-            .map_err(map_layertwine_error)?;
+        let snapshot_id =
+            agent::apply_agent_delete(storage, &agent_id, path).map_err(map_layertwine_error)?;
         self.deleted_files
             .entry(actor.as_str().to_string())
             .or_default()
@@ -241,7 +241,7 @@ impl FileCheckpointManager {
     pub fn apply_manual_edit(&self, path: &str, content: &[u8]) -> Result<String, CheckpointError> {
         let storage = self.storage_ref()?;
         let manual_pid = layertwine::layered::manual::manual_partition_id();
-        if storage.get_partition(&manual_pid).is_ok() == false {
+        if storage.get_partition(&manual_pid).is_err() {
             let seed = seed_initial_snapshot(
                 storage,
                 &layertwine::core::types::AgentInstanceId("manual".into()),
@@ -297,7 +297,7 @@ impl FileCheckpointManager {
     pub fn apply_manual_delete(&self, path: &str) -> Result<String, CheckpointError> {
         let storage = self.storage_ref()?;
         let manual_pid = layertwine::layered::manual::manual_partition_id();
-        if storage.get_partition(&manual_pid).is_ok() == false {
+        if storage.get_partition(&manual_pid).is_err() {
             let seed = seed_initial_snapshot(
                 storage,
                 &layertwine::core::types::AgentInstanceId("manual".into()),
@@ -344,18 +344,16 @@ impl FileCheckpointManager {
             };
             let relative = relative.to_string_lossy().replace('\\', "/");
             match change.kind {
-                CollectedChangeKind::Delete => {
-                    match self.apply_agent_delete(actor, &relative) {
-                        Ok(_) => applied += 1,
-                        Err(err) => match behavior {
-                            FailureBehavior::Error => return Err(err),
-                            FailureBehavior::Warn => {
-                                tracing::warn!("failed to apply delete of '{relative}': {err}")
-                            }
-                            FailureBehavior::Ignore => {}
-                        },
-                    }
-                }
+                CollectedChangeKind::Delete => match self.apply_agent_delete(actor, &relative) {
+                    Ok(_) => applied += 1,
+                    Err(err) => match behavior {
+                        FailureBehavior::Error => return Err(err),
+                        FailureBehavior::Warn => {
+                            tracing::warn!("failed to apply delete of '{relative}': {err}")
+                        }
+                        FailureBehavior::Ignore => {}
+                    },
+                },
                 CollectedChangeKind::Add | CollectedChangeKind::Modify => {
                     let content = match std::fs::read(&change.path) {
                         Ok(content) => content,
@@ -399,7 +397,7 @@ impl FileCheckpointManager {
         let actor = self.actor_id_for(entity_id);
         let agent_id = actor.to_agent_instance_id();
         let pid = agent::agent_partition_id(&agent_id);
-        if storage.get_partition(&pid).is_ok() == false {
+        if storage.get_partition(&pid).is_err() {
             return Ok(());
         }
         // Best-effort pointer revert; there is nothing to revert when the

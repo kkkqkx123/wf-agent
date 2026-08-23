@@ -90,9 +90,7 @@ impl HeadlessRenderer {
                 }
             }
             UnifiedEvent::ToolEnd {
-                tool_name,
-                success,
-                ..
+                tool_name, success, ..
             } => {
                 self.had_output = true;
                 let diag = if *success {
@@ -199,11 +197,7 @@ impl HeadlessRenderer {
 /// Byte length of the common prefix of `a` and `b`, aligned to a char
 /// boundary (so the suffix split never lands mid-codepoint).
 fn common_prefix_len(a: &str, b: &str) -> usize {
-    let bytes = a
-        .bytes()
-        .zip(b.bytes())
-        .take_while(|(x, y)| x == y)
-        .count();
+    let bytes = a.bytes().zip(b.bytes()).take_while(|(x, y)| x == y).count();
     let mut len = bytes;
     while len > 0 && !b.is_char_boundary(len) {
         len -= 1;
@@ -234,7 +228,10 @@ mod tests {
         // In-flight (no newline): nothing is emitted.
         assert_eq!(renderer.on_event(&delta("Hello, ")).stdout, "");
         // The newline completes the line → emitted.
-        assert_eq!(renderer.on_event(&delta("world!\n")).stdout, "Hello, world!\n");
+        assert_eq!(
+            renderer.on_event(&delta("world!\n")).stdout,
+            "Hello, world!\n"
+        );
         // The next in-flight line stays hidden until it ends.
         assert_eq!(renderer.on_event(&delta("more")).stdout, "");
         // finish() flushes the incomplete tail.
@@ -468,7 +465,7 @@ mod e2e {
             },
         };
 
-        let mut stream = agent_execution::stream(&ctx, params).await.unwrap();
+        let mut stream = agent_execution::stream(ctx, params).await.unwrap();
         let mut renderer = HeadlessRenderer::new(execution_id.clone());
         let mut stdout = String::new();
         let mut diag: Vec<String> = Vec::new();

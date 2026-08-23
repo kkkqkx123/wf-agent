@@ -51,10 +51,7 @@ pub struct TemplateRenderOptions<'a> {
 /// leaves stray braces behind; unresolvable placeholders are kept verbatim.
 /// Shared by the template engine, the fragment composer and call sites that
 /// pre-render fragment content.
-pub fn apply_template_variables(
-    content: &str,
-    variables: &HashMap<String, String>,
-) -> String {
+pub fn apply_template_variables(content: &str, variables: &HashMap<String, String>) -> String {
     let mut rendered = content.to_string();
     for (key, value) in variables {
         rendered = rendered.replace(&format!("{{{{{}}}}}", key), value);
@@ -117,8 +114,7 @@ fn resolve_fragments(
     template: &Template,
     variables: &HashMap<String, String>,
 ) -> String {
-    let has_pseudo =
-        content.contains("{{fragments}}") || content.contains("{fragments}");
+    let has_pseudo = content.contains("{{fragments}}") || content.contains("{fragments}");
     if !has_pseudo {
         return content.to_string();
     }
@@ -139,8 +135,8 @@ fn resolve_fragments(
 /// Resolve the `{{tool_descriptions}}` pseudo variable (legacy form
 /// accepted; empty when no tool description set is supplied).
 fn resolve_tool_descriptions(content: &str, opts: &TemplateRenderOptions) -> String {
-    let has_pseudo = content.contains("{{tool_descriptions}}")
-        || content.contains("{tool_descriptions}");
+    let has_pseudo =
+        content.contains("{{tool_descriptions}}") || content.contains("{tool_descriptions}");
     if !has_pseudo {
         return content.to_string();
     }
@@ -179,7 +175,11 @@ mod tests {
     use super::*;
     use wf_core::registry::MutableRegistry;
 
-    fn regs_with_template(id: &str, content: &str, fragments: Option<Vec<String>>) -> ResourceRegistries {
+    fn regs_with_template(
+        id: &str,
+        content: &str,
+        fragments: Option<Vec<String>>,
+    ) -> ResourceRegistries {
         let regs = ResourceRegistries::new();
         regs.templates
             .register(

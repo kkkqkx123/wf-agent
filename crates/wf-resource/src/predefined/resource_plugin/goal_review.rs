@@ -4,7 +4,8 @@ use serde_json::{json, Value};
 use wf_types::message::Message;
 
 use crate::resource_plugin::{
-    ResourceBundle, ResourcePlugin, ResourcePluginConfigField, ResourcePluginConfigFieldType, ResourcePluginMetadata,
+    ResourceBundle, ResourcePlugin, ResourcePluginConfigField, ResourcePluginConfigFieldType,
+    ResourcePluginMetadata,
 };
 
 use super::workflow::{build_planner_prompt, build_workflow};

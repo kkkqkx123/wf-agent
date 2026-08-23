@@ -108,7 +108,12 @@ pub fn register_custom_tools(
             default_timeout_ms: None,
         };
 
-        total.merge(register_item_tool(tool_registry, t.id, tool, skip_if_exists));
+        total.merge(register_item_tool(
+            tool_registry,
+            t.id,
+            tool,
+            skip_if_exists,
+        ));
     }
     total
 }

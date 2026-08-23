@@ -132,7 +132,8 @@ pub fn chained_workflow_error_record(
     parent: &ErrorRecord,
 ) -> ErrorRecord {
     let analysis = analyze_workflow_error(e);
-    let mut record = analysis.to_chained_error_record(execution_id, Some(node_id.to_string()), parent);
+    let mut record =
+        analysis.to_chained_error_record(execution_id, Some(node_id.to_string()), parent);
     record.caused_by = Some(ErrorCause {
         reason: e.to_string(),
         handling_attempt: Some(format!("retry_{}", retry_attempt)),
@@ -157,9 +158,7 @@ pub struct WorkflowErrorPattern {
 
 /// Compute an aggregate error pattern from the persisted error records of an
 /// execution, so recovery can be recommended at a workflow granularity.
-pub fn analyze_workflow_error_pattern(
-    records: &[ErrorRecord],
-) -> WorkflowErrorPattern {
+pub fn analyze_workflow_error_pattern(records: &[ErrorRecord]) -> WorkflowErrorPattern {
     let mut affected_nodes: Vec<String> = Vec::new();
     let mut type_dist: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
     let mut recovery_action_count: std::collections::HashMap<String, usize> =
@@ -173,9 +172,7 @@ pub fn analyze_workflow_error_pattern(
             }
         }
         if let Some(ref error_type) = record.error_type {
-            *type_dist
-                .entry(format!("{:?}", error_type))
-                .or_insert(0) += 1;
+            *type_dist.entry(format!("{:?}", error_type)).or_insert(0) += 1;
         }
         if record.is_recoverable {
             has_recoverable = true;
@@ -187,18 +184,19 @@ pub fn analyze_workflow_error_pattern(
         }
     }
 
-    let most_common_type = type_dist
-        .iter()
-        .max_by_key(|(_, count)| *count)
-        .and_then(|(name, _)| match name.as_str() {
-            "ToolError" => Some(ErrorType::ToolError),
-            "LlmError" => Some(ErrorType::LlmError),
-            "Timeout" => Some(ErrorType::Timeout),
-            "Validation" => Some(ErrorType::Validation),
-            "Internal" => Some(ErrorType::Internal),
-            "Interruption" => Some(ErrorType::Interruption),
-            _ => None,
-        });
+    let most_common_type =
+        type_dist
+            .iter()
+            .max_by_key(|(_, count)| *count)
+            .and_then(|(name, _)| match name.as_str() {
+                "ToolError" => Some(ErrorType::ToolError),
+                "LlmError" => Some(ErrorType::LlmError),
+                "Timeout" => Some(ErrorType::Timeout),
+                "Validation" => Some(ErrorType::Validation),
+                "Internal" => Some(ErrorType::Internal),
+                "Interruption" => Some(ErrorType::Interruption),
+                _ => None,
+            });
 
     WorkflowErrorPattern {
         total_errors: records.len(),

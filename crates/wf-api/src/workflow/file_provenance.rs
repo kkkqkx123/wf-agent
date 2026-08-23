@@ -73,9 +73,7 @@ pub fn run_gc(
     ctx: &ApiContext,
     keep_recent_heads: usize,
 ) -> ApiResult<layertwine::git_sync::GCStats> {
-    let retention = layertwine::git_sync::GcRetention {
-        keep_recent_heads,
-    };
+    let retention = layertwine::git_sync::GcRetention { keep_recent_heads };
     manager(ctx)?
         .run_gc(retention)
         .map_err(ApiError::execution_with_source)

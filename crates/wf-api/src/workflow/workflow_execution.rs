@@ -12,6 +12,7 @@ use wf_common::retry::{RetryBudget, RetryBudgetConfig, TimeBudgetMode};
 use wf_core::registry::MutableRegistry;
 use wf_execution_shared::context::ExecutorContext;
 use wf_execution_shared::hooks::types::BaseHookDefinition;
+use wf_execution_shared::types::execution_entity::ExecutionStatus;
 use wf_storage::adapter::base::BaseStorageAdapter;
 use wf_tools::callback::WorkflowOutput;
 use wf_types::checkpoint::workflow::WorkflowExecutionStateSnapshot;
@@ -197,6 +198,19 @@ pub async fn resume(
     execution_id: &str,
 ) -> crate::infra::error::ApiResult<WorkflowOutput> {
     let entity = live_entity(ctx, execution_id)?;
+
+    // A completed execution carries its result on the entity (mirrored by
+    // the execution callback); return it instead of re-driving a terminal
+    // state machine through `start()` (Completed -> Running is illegal).
+    if entity.state.read().await.status() == ExecutionStatus::Completed {
+        if let Some(result) = entity.output().await {
+            return Ok(WorkflowOutput {
+                execution_id: entity.id().clone(),
+                result,
+            });
+        }
+    }
+
     let workflow_id = entity.workflow_id().to_string();
     let graph = resolve_graph(ctx, &workflow_id).await?;
 
@@ -293,12 +307,15 @@ pub async fn restore_checkpoint(
     // Build a fresh live entity backfilled from the restored snapshot.
     let mut entity =
         WorkflowExecutionEntity::new(snapshot.execution_id.clone(), workflow_id.clone());
-    if let Some(parent_id) = snapshot
-        .hierarchy
-        .as_ref()
-        .and_then(|h| h.parent_execution_id.clone())
-    {
-        entity = entity.with_parent_execution_id(parent_id);
+    if let Some(hierarchy) = snapshot.hierarchy.as_ref() {
+        if let Some(parent_id) = hierarchy.parent_execution_id.clone() {
+            entity = entity.with_parent_execution_id(parent_id);
+        }
+        // Carry the persisted ancestor chain across the process boundary so
+        // deep hierarchies keep full ancestry after restore.
+        if let Some(ancestors) = hierarchy.ancestors.clone() {
+            entity = entity.with_ancestors(ancestors);
+        }
     }
     let entity = Arc::new(entity);
     for (name, value) in &snapshot.variable_state.variables {
@@ -621,6 +638,7 @@ async fn build_hierarchy(entity: &WorkflowExecutionEntity) -> Option<ExecutionHi
     let children = entity.child_execution_ids().read().await.clone();
     let has_children = !children.is_empty();
     let parent = entity.parent_execution_id().cloned();
+    let ancestors = entity.ancestors();
     if parent.is_none() && !has_children {
         return None;
     }
@@ -630,6 +648,11 @@ async fn build_hierarchy(entity: &WorkflowExecutionEntity) -> Option<ExecutionHi
         parent_execution_id: parent,
         depth: 0,
         root_execution_id: None,
+        ancestors: if ancestors.is_empty() {
+            None
+        } else {
+            Some(ancestors.to_vec())
+        },
         children: if has_children {
             Some(
                 children
@@ -768,10 +791,16 @@ async fn run_workflow(
 
     let result = coordinator.execute().await;
     match result {
-        Ok(output) => Ok(WorkflowOutput {
-            execution_id: entity.id().clone(),
-            result: output,
-        }),
+        Ok(output) => {
+            // Mirror the final outcome onto the entity exposed through the
+            // registry so later `resume` / status queries observe the
+            // settled result without re-driving the terminal state machine.
+            entity.set_output(output.clone()).await;
+            Ok(WorkflowOutput {
+                execution_id: entity.id().clone(),
+                result: output,
+            })
+        }
         Err(e) => Err(e.into()),
     }
 }

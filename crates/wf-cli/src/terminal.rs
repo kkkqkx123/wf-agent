@@ -544,11 +544,12 @@ mod tests {
         let mut guard = TerminalGuard::new(FakeControl::default());
         guard.enter(TerminalModes::MINI).unwrap();
         // raw + paste stay on; only the cursor becomes hidden.
-        guard.enter(TerminalModes {
-            cursor_hidden: true,
-            ..TerminalModes::MINI
-        })
-        .unwrap();
+        guard
+            .enter(TerminalModes {
+                cursor_hidden: true,
+                ..TerminalModes::MINI
+            })
+            .unwrap();
         assert_eq!(
             guard.control().ops,
             vec!["enable_bracketed_paste", "enable_raw", "hide_cursor"]
@@ -566,10 +567,22 @@ mod tests {
         assert_eq!(
             guard.control().ops,
             vec![
-                "hide_cursor", "enter_alt_screen", "enable_bracketed_paste", "enable_raw",
-                "disable_raw", "disable_bracketed_paste", "leave_alt_screen", "show_cursor",
-                "hide_cursor", "enter_alt_screen", "enable_bracketed_paste", "enable_raw",
-                "disable_raw", "disable_bracketed_paste", "leave_alt_screen", "show_cursor",
+                "hide_cursor",
+                "enter_alt_screen",
+                "enable_bracketed_paste",
+                "enable_raw",
+                "disable_raw",
+                "disable_bracketed_paste",
+                "leave_alt_screen",
+                "show_cursor",
+                "hide_cursor",
+                "enter_alt_screen",
+                "enable_bracketed_paste",
+                "enable_raw",
+                "disable_raw",
+                "disable_bracketed_paste",
+                "leave_alt_screen",
+                "show_cursor",
             ]
         );
         assert_eq!(guard.modes(), TerminalModes::OFF);
@@ -674,8 +687,14 @@ mod tests {
         assert_eq!(
             *ops.borrow(),
             vec![
-                "hide_cursor", "enter_alt_screen", "enable_bracketed_paste", "enable_raw",
-                "disable_raw", "disable_bracketed_paste", "leave_alt_screen", "show_cursor",
+                "hide_cursor",
+                "enter_alt_screen",
+                "enable_bracketed_paste",
+                "enable_raw",
+                "disable_raw",
+                "disable_bracketed_paste",
+                "leave_alt_screen",
+                "show_cursor",
             ]
         );
     }
@@ -717,7 +736,6 @@ mod tests {
     #[cfg(unix)]
     mod stderr_guard_tests {
         use super::*;
-        use std::io::Write as _;
 
         /// Serializes tests that redirect the process-wide fd 2.
         static STDERR_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
@@ -753,9 +771,7 @@ mod tests {
 
             let mut guard = TerminalGuard::new(FakeControl::default());
             guard.enter(TerminalModes::MINI).unwrap();
-            guard
-                .with_restored(Some(&mut stderr_guard), || ())
-                .unwrap();
+            guard.with_restored(Some(&mut stderr_guard), || ()).unwrap();
 
             // Suppression is active again after the window.
             assert!(stderr_guard.is_suppressing());

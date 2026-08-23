@@ -9,7 +9,7 @@
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Mutex;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
@@ -65,11 +65,7 @@ impl std::fmt::Debug for AllowOnceStore {
             .field("jsonl_path", &self.jsonl_path)
             .field(
                 "pending",
-                &self
-                    .entries
-                    .lock()
-                    .map(|e| e.len())
-                    .unwrap_or(0),
+                &self.entries.lock().map(|e| e.len()).unwrap_or(0),
             )
             .finish_non_exhaustive()
     }
@@ -166,9 +162,7 @@ impl AllowOnceStore {
         let entries = self.entries.lock().unwrap();
         let mut out = String::new();
         for e in entries.values() {
-            out.push_str(
-                &serde_json::to_string(e).map_err(io_err)?,
-            );
+            out.push_str(&serde_json::to_string(e).map_err(io_err)?);
             out.push('\n');
         }
         std::fs::write(path, out)?;
@@ -257,10 +251,7 @@ mod tests {
         let s = store("proj-a");
         let code = s.issue("rm -rf /tmp/cache");
         assert_eq!(code.len(), CODE_LEN);
-        assert_eq!(
-            s.redeem(&code, "rm -rf /tmp/cache"),
-            RedeemResult::Approved
-        );
+        assert_eq!(s.redeem(&code, "rm -rf /tmp/cache"), RedeemResult::Approved);
         // Single-use: a second redeem is rejected.
         assert_eq!(
             s.redeem(&code, "rm -rf /tmp/cache"),
@@ -312,10 +303,7 @@ mod tests {
 
     #[test]
     fn test_jsonl_roundtrip() {
-        let dir = std::env::temp_dir().join(format!(
-            "wf-allowonce-{}.jsonl",
-            std::process::id()
-        ));
+        let dir = std::env::temp_dir().join(format!("wf-allowonce-{}.jsonl", std::process::id()));
         let s = store("proj-a").with_jsonl(dir.clone());
         s.issue("git reset --hard");
         s.issue("docker system prune");

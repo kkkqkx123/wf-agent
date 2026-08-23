@@ -80,8 +80,10 @@ pub async fn run(
     ctx: &ApiContext,
     params: RunAgentLoopParams,
 ) -> crate::infra::error::ApiResult<AgentLoopOutput> {
-    let agent_loop_id =
-        params.agent_loop_id.clone().unwrap_or_else(|| wf_types::Id::from(wf_common::generate_id()));
+    let agent_loop_id = params
+        .agent_loop_id
+        .clone()
+        .unwrap_or_else(|| wf_types::Id::from(wf_common::generate_id()));
     let coordinator = coordinator_for(ctx, &params).with_agent_loop_id(agent_loop_id.clone());
     let timeout_ms = agent_timeout_ms(&params.config);
     let config = params.config.clone();

@@ -8,8 +8,8 @@ use wf_types::tool_description::ToolDescriptionData;
 use wf_types::trigger::TriggerTemplate;
 use wf_types::workflow::{NodeTemplate, WorkflowTemplate};
 use wf_types::MiddlewarePhase;
-use wf_types::Template;
 use wf_types::SystemPromptFragment;
+use wf_types::Template;
 
 use super::registrar::ContributionRegistrar;
 use super::registries::{MultiRegistry, Registry};
@@ -98,7 +98,8 @@ impl ContributionManager {
         self.agent_template_registry.unregister_by_plugin(plugin_id);
         self.node_template_registry.unregister_by_plugin(plugin_id);
         self.trigger_registry.unregister_by_plugin(plugin_id);
-        self.tool_description_registry.unregister_by_plugin(plugin_id);
+        self.tool_description_registry
+            .unregister_by_plugin(plugin_id);
         self.tool_registry.unregister_by_plugin(plugin_id);
     }
 
@@ -473,9 +474,7 @@ impl ContributionRegistrar for RegistrarGuard<'_> {
         if self.validate(&plugin_id, "prompt", id)
             && self
                 .manager
-                .check_conflict("prompt", id, || {
-                    self.manager.prompt_registry.get_owner(id)
-                })
+                .check_conflict("prompt", id, || self.manager.prompt_registry.get_owner(id))
                 .is_ok()
         {
             self.manager
@@ -558,9 +557,11 @@ impl ContributionRegistrar for RegistrarGuard<'_> {
                 })
                 .is_ok()
         {
-            self.manager
-                .tool_description_registry
-                .register(id.into(), plugin_id, Arc::new(description));
+            self.manager.tool_description_registry.register(
+                id.into(),
+                plugin_id,
+                Arc::new(description),
+            );
         }
     }
 
@@ -569,9 +570,7 @@ impl ContributionRegistrar for RegistrarGuard<'_> {
         if self.validate(&plugin_id, "tool", id)
             && self
                 .manager
-                .check_conflict("tool", id, || {
-                    self.manager.tool_registry.get_owner(id)
-                })
+                .check_conflict("tool", id, || self.manager.tool_registry.get_owner(id))
                 .is_ok()
         {
             self.manager

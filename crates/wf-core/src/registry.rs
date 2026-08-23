@@ -50,11 +50,7 @@ pub trait MutableRegistry<T: Send + Sync>: Registry<T> {
     /// returns `Ok(())` if the item is valid, or `Err(ValidationError)`.
     ///
     /// Default implementation is a no-op.
-    fn set_validator(
-        &self,
-        _validator: Arc<Validator<T>>,
-    ) {
-    }
+    fn set_validator(&self, _validator: Arc<Validator<T>>) {}
 }
 
 pub trait BatchRegistry<T: Send + Sync>: MutableRegistry<T> {
@@ -220,10 +216,7 @@ impl<T: Send + Sync> MutableRegistry<T> for ConcurrentRegistry<T> {
         self.items.insert(key, item)
     }
 
-    fn set_validator(
-        &self,
-        validator: Arc<dyn Fn(&str, &T) -> RegistryResult<()> + Send + Sync>,
-    ) {
+    fn set_validator(&self, validator: Arc<dyn Fn(&str, &T) -> RegistryResult<()> + Send + Sync>) {
         *self.validator.lock().unwrap() = Some(validator);
     }
 
@@ -377,7 +370,8 @@ mod tests {
     #[test]
     fn test_register_or_replace() {
         let reg = ConcurrentRegistry::<String>::new();
-        reg.register("a".to_string(), Arc::new("v1".to_string())).unwrap();
+        reg.register("a".to_string(), Arc::new("v1".to_string()))
+            .unwrap();
         assert_eq!(reg.get("a").unwrap().as_str(), "v1");
 
         let old = reg.register_or_replace("a".to_string(), Arc::new("v2".to_string()));

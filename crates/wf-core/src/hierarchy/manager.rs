@@ -95,7 +95,16 @@ impl ExecutionHierarchyManager {
         }
     }
 
-    pub fn set_parent(&self, parent: ParentExecutionContext) -> CoreResult<()> {
+    /// Link this execution under `parent`. When `parent_ancestors` is
+    /// provided it is the parent's own root-to-parent chain; the parent id
+    /// is appended to form this execution's chain so deep hierarchies carry
+    /// full ancestry through `to_metadata`. `None` leaves any existing chain
+    /// untouched (e.g. one set explicitly beforehand via `set_ancestors`).
+    pub fn set_parent(
+        &self,
+        parent: ParentExecutionContext,
+        parent_ancestors: Option<&[Id]>,
+    ) -> CoreResult<()> {
         if parent.parent_id == wf_common::lock::read_ok(self.inner.read()).execution_id {
             return Err(CoreError::StateError(format!(
                 "cannot set self ({}) as parent",
@@ -114,6 +123,18 @@ impl ExecutionHierarchyManager {
         }
 
         inner.parent = Some(parent);
+        if let Some(parent_ancestors) = parent_ancestors {
+            let mut chain = parent_ancestors.to_vec();
+            let parent_id = inner
+                .parent
+                .as_ref()
+                .map(|p| p.parent_id.clone())
+                .unwrap_or_default();
+            if chain.last() != Some(&parent_id) {
+                chain.push(parent_id);
+            }
+            inner.ancestors = chain;
+        }
         inner.recalculate();
 
         Ok(())
@@ -220,6 +241,7 @@ impl HierarchyInner {
             self.depth = 0;
             self.root_execution_id = self.execution_id.clone();
             self.root_execution_type = self.execution_type.clone();
+            self.ancestors.clear();
         }
     }
 }
@@ -267,10 +289,13 @@ mod tests {
     #[test]
     fn test_set_parent() {
         let m = ExecutionHierarchyManager::new("child_exec".to_string(), ExecutionType::Workflow);
-        m.set_parent(ParentExecutionContext {
-            parent_id: "parent_exec".to_string(),
-            parent_type: ExecutionType::Workflow,
-        })
+        m.set_parent(
+            ParentExecutionContext {
+                parent_id: "parent_exec".to_string(),
+                parent_type: ExecutionType::Workflow,
+            },
+            None,
+        )
         .unwrap();
 
         let parent = m.parent().unwrap();
@@ -280,11 +305,114 @@ mod tests {
     #[test]
     fn test_set_self_as_parent_fails() {
         let m = ExecutionHierarchyManager::new("exec1".to_string(), ExecutionType::Workflow);
-        let result = m.set_parent(ParentExecutionContext {
-            parent_id: "exec1".to_string(),
-            parent_type: ExecutionType::Workflow,
-        });
+        let result = m.set_parent(
+            ParentExecutionContext {
+                parent_id: "exec1".to_string(),
+                parent_type: ExecutionType::Workflow,
+            },
+            None,
+        );
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_set_parent_propagates_ancestors() {
+        let m = ExecutionHierarchyManager::new("child".to_string(), ExecutionType::AgentLoop);
+        m.set_parent(
+            ParentExecutionContext {
+                parent_id: "parent".to_string(),
+                parent_type: ExecutionType::Workflow,
+            },
+            Some(&["root".to_string()]),
+        )
+        .unwrap();
+
+        assert_eq!(
+            m.ancestors(),
+            vec!["root".to_string(), "parent".to_string()]
+        );
+        assert_eq!(
+            m.to_metadata().ancestors,
+            Some(vec!["root".to_string(), "parent".to_string()])
+        );
+    }
+
+    #[test]
+    fn test_set_parent_without_ancestors_keeps_chain_untouched() {
+        let m = ExecutionHierarchyManager::new("child".to_string(), ExecutionType::Workflow);
+        m.set_parent(
+            ParentExecutionContext {
+                parent_id: "parent".to_string(),
+                parent_type: ExecutionType::Workflow,
+            },
+            None,
+        )
+        .unwrap();
+        assert!(m.ancestors().is_empty());
+        assert!(m.to_metadata().ancestors.is_none());
+    }
+
+    #[test]
+    fn test_set_parent_dedups_chain_tail() {
+        let m = ExecutionHierarchyManager::new("child".to_string(), ExecutionType::AgentLoop);
+        m.set_parent(
+            ParentExecutionContext {
+                parent_id: "parent".to_string(),
+                parent_type: ExecutionType::Workflow,
+            },
+            Some(&["root".to_string(), "parent".to_string()]),
+        )
+        .unwrap();
+        assert_eq!(
+            m.ancestors(),
+            vec!["root".to_string(), "parent".to_string()]
+        );
+    }
+
+    #[test]
+    fn test_three_level_chain_roundtrip_through_metadata() {
+        // root -> child -> grandchild: the grandchild's chain is the child's
+        // chain extended by the child id, and survives a metadata roundtrip.
+        // The child knows its parent but the parent (root) has no chain,
+        // expressed as an explicit empty slice rather than `None`.
+        let child = ExecutionHierarchyManager::new("child".to_string(), ExecutionType::AgentLoop);
+        child
+            .set_parent(
+                ParentExecutionContext {
+                    parent_id: "root".to_string(),
+                    parent_type: ExecutionType::Workflow,
+                },
+                Some(&[]),
+            )
+            .unwrap();
+        assert_eq!(child.ancestors(), vec!["root".to_string()]);
+
+        let grandchild =
+            ExecutionHierarchyManager::new("grandchild".to_string(), ExecutionType::AgentLoop);
+        grandchild
+            .set_parent(
+                ParentExecutionContext {
+                    parent_id: "child".to_string(),
+                    parent_type: ExecutionType::AgentLoop,
+                },
+                Some(&child.ancestors()),
+            )
+            .unwrap();
+
+        assert_eq!(
+            grandchild.ancestors(),
+            vec!["root".to_string(), "child".to_string()]
+        );
+
+        let restored = ExecutionHierarchyManager::from_metadata(
+            "grandchild".to_string(),
+            ExecutionType::AgentLoop,
+            grandchild.to_metadata(),
+        );
+        assert_eq!(
+            restored.ancestors(),
+            vec!["root".to_string(), "child".to_string()]
+        );
     }
 
     #[test]

@@ -71,11 +71,7 @@ impl HistoryLine {
     }
 
     /// New line with explicit state and role.
-    pub fn new_with_role(
-        content: impl Into<String>,
-        state: LineState,
-        role: Role,
-    ) -> Self {
+    pub fn new_with_role(content: impl Into<String>, state: LineState, role: Role) -> Self {
         Self {
             state,
             role,
@@ -235,7 +231,12 @@ fn render_row(buf: &mut Buffer, x0: u16, row: u16, width: usize, line: &Line<'_>
             take_chars += 1;
         }
         let clipped: String = content.graphemes(true).take(take_chars).collect();
-        buf.set_string(x0 + u16::try_from(col).unwrap_or(u16::MAX), row, &clipped, span.style);
+        buf.set_string(
+            x0 + u16::try_from(col).unwrap_or(u16::MAX),
+            row,
+            &clipped,
+            span.style,
+        );
         col += clipped.width();
     }
 }
@@ -244,7 +245,12 @@ fn render_row(buf: &mut Buffer, x0: u16, row: u16, width: usize, line: &Line<'_>
 pub fn lines_to_string(lines: &[Line<'_>]) -> String {
     lines
         .iter()
-        .map(|l| l.spans.iter().map(|s| s.content.as_ref()).collect::<String>())
+        .map(|l| {
+            l.spans
+                .iter()
+                .map(|s| s.content.as_ref())
+                .collect::<String>()
+        })
         .collect::<Vec<_>>()
         .join("\n")
 }
@@ -255,9 +261,7 @@ mod tests {
 
     #[test]
     fn reflow_splits_narrow_lines() {
-        let h = HistoryLine::new(
-            "The quick brown fox jumps over the lazy dog guards the crown",
-        );
+        let h = HistoryLine::new("The quick brown fox jumps over the lazy dog guards the crown");
         let wide = h.display_lines(50);
         assert_eq!(wide.len(), 2, "50 cols keeps it on one long line");
         let narrow = h.display_lines(10);
@@ -312,11 +316,8 @@ mod tests {
 
     #[test]
     fn raw_lines_match_display_lines_as_plain_text() {
-        let h = HistoryLine::new_with_role(
-            "你好世界 hello world",
-            LineState::Committed,
-            Role::Accent,
-        );
+        let h =
+            HistoryLine::new_with_role("你好世界 hello world", LineState::Committed, Role::Accent);
         for width in [4u16, 7, 12, 40] {
             let raw = h.raw_lines(width);
             assert_eq!(
@@ -343,11 +344,7 @@ mod tests {
     #[test]
     fn streaming_and_committed_states() {
         assert_eq!(HistoryLine::new("hi").state, LineState::Committed);
-        let streaming = HistoryLine::new_with_role(
-            "stream…",
-            LineState::Streaming,
-            Role::Muted,
-        );
+        let streaming = HistoryLine::new_with_role("stream…", LineState::Streaming, Role::Muted);
         assert_eq!(streaming.state, LineState::Streaming);
         assert_eq!(streaming.role, Role::Muted);
     }
@@ -377,13 +374,12 @@ mod tests {
         use ratatui::style::Color;
         let content = vec![
             Line::from("row-a"),
-            Line::from(vec![Span::styled(
-                "row-b",
-                Style::default().fg(Color::Red),
-            )]),
+            Line::from(vec![Span::styled("row-b", Style::default().fg(Color::Red))]),
         ];
         let mut buf = Buffer::empty(Rect::new(0, 0, 8, 2));
-        LinesView::new(&content).scroll(0).render(Rect::new(0, 0, 8, 2), &mut buf);
+        LinesView::new(&content)
+            .scroll(0)
+            .render(Rect::new(0, 0, 8, 2), &mut buf);
         assert_eq!(
             buf[(0, 0)].symbol(),
             "r",
@@ -393,7 +389,9 @@ mod tests {
         assert_eq!(buf[(0, 1)].symbol(), "r");
         // The scroll drops the first row.
         let mut buf2 = Buffer::empty(Rect::new(0, 0, 8, 1));
-        LinesView::new(&content).scroll(1).render(Rect::new(0, 0, 8, 1), &mut buf2);
+        LinesView::new(&content)
+            .scroll(1)
+            .render(Rect::new(0, 0, 8, 1), &mut buf2);
         assert_eq!(buf2[(0, 0)].symbol(), "r", "scrolled past row-a");
         assert_eq!(buf2[(4, 0)].symbol(), "b");
     }
@@ -401,7 +399,12 @@ mod tests {
     #[test]
     fn own_clone_of_style_carries_style() {
         use ratatui::style::{Color, Modifier};
-        let styled = Span::styled("ok", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD));
+        let styled = Span::styled(
+            "ok",
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD),
+        );
         let line = Line::from(vec![styled]);
         let owned = own_line(&line);
         assert_eq!(owned.spans[0].style.fg, Some(Color::Cyan));

@@ -121,7 +121,9 @@ fn preprocess_graph_inner(
     // executes branch/continuation subgraphs that are not standalone
     // workflows (fork branches, triggered continuations).
     let mut validation_errors = if validate_graph {
-        GraphValidator::validate(graph.clone()).err().unwrap_or_default()
+        GraphValidator::validate(graph.clone())
+            .err()
+            .unwrap_or_default()
     } else {
         Vec::new()
     };

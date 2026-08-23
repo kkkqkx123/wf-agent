@@ -9,7 +9,9 @@ use tokio::sync::broadcast;
 use wf_types::events::{BaseEvent, EventType};
 
 use crate::error::EventError;
-use crate::registry::{BatchRegistry, ConcurrentRegistry, MutableRegistry, Registry, RegistryResult};
+use crate::registry::{
+    BatchRegistry, ConcurrentRegistry, MutableRegistry, Registry, RegistryResult,
+};
 
 const DEFAULT_CAPACITY: usize = 1024;
 

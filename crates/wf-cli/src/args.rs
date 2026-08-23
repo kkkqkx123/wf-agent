@@ -65,8 +65,9 @@ impl Cli {
             return Err("--tui and --mini are mutually exclusive".to_string());
         }
         if self.command.is_some() && (self.tui || self.mini) {
-            return Err("interactive flags (--tui/--mini) cannot be combined with a subcommand"
-                .to_string());
+            return Err(
+                "interactive flags (--tui/--mini) cannot be combined with a subcommand".to_string(),
+            );
         }
         if self.no_tui && (self.tui || self.mini) {
             return Err("--no-tui conflicts with --tui/--mini".to_string());
@@ -84,8 +85,9 @@ impl Cli {
         // subcommand has its own --agent/--model).
         if self.command.is_some() {
             if self.session.is_some() || self.resume {
-                return Err("--session/--resume require an interactive form (no subcommand)"
-                    .to_string());
+                return Err(
+                    "--session/--resume require an interactive form (no subcommand)".to_string(),
+                );
             }
             if self.agent.is_some() || self.model.is_some() {
                 return Err(
@@ -154,7 +156,13 @@ mod tests {
     #[test]
     fn parses_run_subcommand_with_prompt() {
         let cli = parse(&["run", "hello world"]).unwrap();
-        let Some(Command::Run { prompt, agent, model, approve_prefixes }) = cli.command else {
+        let Some(Command::Run {
+            prompt,
+            agent,
+            model,
+            approve_prefixes,
+        }) = cli.command
+        else {
             panic!("expected run command");
         };
         assert_eq!(prompt.as_deref(), Some("hello world"));
@@ -176,11 +184,19 @@ mod tests {
             "cargo ",
         ])
         .unwrap();
-        let Some(Command::Run { model, approve_prefixes, .. }) = cli.command else {
+        let Some(Command::Run {
+            model,
+            approve_prefixes,
+            ..
+        }) = cli.command
+        else {
             panic!("expected run command");
         };
         assert_eq!(model.as_deref(), Some("mock"));
-        assert_eq!(approve_prefixes, vec!["git".to_string(), "cargo ".to_string()]);
+        assert_eq!(
+            approve_prefixes,
+            vec!["git".to_string(), "cargo ".to_string()]
+        );
     }
 
     #[test]
@@ -211,7 +227,10 @@ mod tests {
     #[test]
     fn global_flags_are_visible_before_subcommand() {
         let cli = parse(&["--log", "out.log", "--no-color", "run", "x"]).unwrap();
-        assert_eq!(cli.log.as_deref().map(|p| p.to_string_lossy().to_string()), Some("out.log".into()));
+        assert_eq!(
+            cli.log.as_deref().map(|p| p.to_string_lossy().to_string()),
+            Some("out.log".into())
+        );
         assert!(cli.no_color);
     }
 

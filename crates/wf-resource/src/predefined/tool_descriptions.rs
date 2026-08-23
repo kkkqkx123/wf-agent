@@ -5,7 +5,9 @@
 
 use wf_types::tool_description::ToolDescriptionData;
 
-use crate::registry::{register_item_skip, register_item_strict, RegisterOptions, ResourceRegistries};
+use crate::registry::{
+    register_item_skip, register_item_strict, RegisterOptions, ResourceRegistries,
+};
 use crate::result::Summary;
 
 /// All LLM-facing tool descriptions for the predefined tool set.

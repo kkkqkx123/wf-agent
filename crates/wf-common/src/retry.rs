@@ -811,7 +811,7 @@ mod tests {
         let attempts_cb = attempts.clone();
         let result: Result<(), &str> = execute_with_retry(
             Some(&policy),
-            |r| matches!(r, Err(_)),
+            |r| r.is_err(),
             None,
             move || {
                 let attempts = attempts_cb.clone();

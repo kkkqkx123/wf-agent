@@ -1,7 +1,9 @@
 //! Workflow execution storage operations.
 
 use wf_storage::adapter::base::BaseStorageAdapter;
-use wf_storage::adapter::execution::{WorkflowExecutionListOptions, WorkflowExecutionStorageAdapter};
+use wf_storage::adapter::execution::{
+    WorkflowExecutionListOptions, WorkflowExecutionStorageAdapter,
+};
 use wf_types::{ExecutionStatus, WorkflowExecution};
 
 use crate::ApiContext;

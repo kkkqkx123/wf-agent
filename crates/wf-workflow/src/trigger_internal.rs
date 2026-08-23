@@ -99,11 +99,7 @@ pub fn publish_pause_signal(
 }
 
 /// Publish a resume signal via the `InternalSignalBus`.
-pub fn publish_resume_signal(
-    bus: &InternalSignalBus,
-    source: Id,
-    target_execution_id: Id,
-) {
+pub fn publish_resume_signal(bus: &InternalSignalBus, source: Id, target_execution_id: Id) {
     bus.publish(InternalSignal::ResumeWorkflow {
         source,
         target_execution_id,
@@ -196,11 +192,20 @@ mod tests {
         let bus = InternalSignalBus::new();
         let mut rx = bus.subscribe();
 
-        publish_stop_signal(&bus, Id::from("src"), Id::from("target"), Some("reason".into()));
+        publish_stop_signal(
+            &bus,
+            Id::from("src"),
+            Id::from("target"),
+            Some("reason".into()),
+        );
 
         let signal = rx.try_recv().expect("signal must be delivered");
         match signal {
-            InternalSignal::StopWorkflow { source, target_execution_id, reason } => {
+            InternalSignal::StopWorkflow {
+                source,
+                target_execution_id,
+                reason,
+            } => {
                 assert_eq!(source, Id::from("src"));
                 assert_eq!(target_execution_id, Id::from("target"));
                 assert_eq!(reason, Some("reason".to_string()));

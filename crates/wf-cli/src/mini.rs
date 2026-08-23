@@ -110,7 +110,10 @@ impl MiniApp {
         // Suspend support (Ctrl-Z): the handler only records the request;
         // the restore/SIGSTOP cycle runs in the event loop.
         unsafe {
-            libc::signal(libc::SIGTSTP, sigtstp_handler as libc::sighandler_t);
+            libc::signal(
+                libc::SIGTSTP,
+                sigtstp_handler as *const () as libc::sighandler_t,
+            );
         }
         let mut guard = TerminalGuard::new(CrosstermControl::new(io::stdout()));
         guard.enter(TerminalModes::MINI)?;
@@ -219,7 +222,7 @@ impl MiniApp {
             let maybe = tokio::time::timeout(Duration::from_millis(50), input.next()).await;
             match maybe {
                 Ok(Some(Ok(_))) => continue, // consume and keep draining
-                _ => break,                   // idle / error: done
+                _ => break,                  // idle / error: done
             }
         }
     }
@@ -240,7 +243,10 @@ impl MiniApp {
         unsafe {
             libc::signal(libc::SIGTSTP, libc::SIG_DFL);
             libc::raise(libc::SIGTSTP);
-            libc::signal(libc::SIGTSTP, sigtstp_handler as libc::sighandler_t);
+            libc::signal(
+                libc::SIGTSTP,
+                sigtstp_handler as *const () as libc::sighandler_t,
+            );
         }
         // Resumed: re-apply the mini terminal modes.
         self.guard.enter(TerminalModes::MINI)?;
@@ -267,7 +273,8 @@ impl MiniApp {
             (FooterView::Prompt, FooterRoute::Composer)
         );
         self.terminal.draw(|frame| {
-            self.footer.draw(frame.area(), frame.buffer_mut(), &self.theme);
+            self.footer
+                .draw(frame.area(), frame.buffer_mut(), &self.theme);
             if show_cursor {
                 frame.set_cursor_position((cursor_col, cursor_y));
             }
@@ -321,10 +328,7 @@ impl MiniApp {
     /// Number of display rows the lines occupy at the current width.
     fn total_height(&self, lines: &[HistoryLine]) -> u16 {
         let (cols, _) = crossterm::terminal::size().unwrap_or((80, 24));
-        lines
-            .iter()
-            .map(|l| l.desired_height(cols))
-            .sum()
+        lines.iter().map(|l| l.desired_height(cols)).sum()
     }
 
     /// Recompute the plain-text snapshot of the visible scrollback window
@@ -499,8 +503,10 @@ impl MiniApp {
             return;
         };
         let sanitized = crate::sanitize::sanitize_user_text(&text);
-        self.pending_scroll
-            .push(HistoryLine::new_role(format!("> {sanitized}"), Role::Accent));
+        self.pending_scroll.push(HistoryLine::new_role(
+            format!("> {sanitized}"),
+            Role::Accent,
+        ));
         let _ = self.settle_scrollback();
         self.footer.show_notice(format!("queued: {sanitized}"));
         self.dirty = true;
@@ -535,10 +541,8 @@ impl MiniApp {
             MiniOutputEvent::Chunk(chunk) => {
                 let frame = self.stream.push(&chunk);
                 if !frame.new_committed.is_empty() {
-                    self.pending_scroll.push(HistoryLine::new_role(
-                        frame.new_committed,
-                        Role::Default,
-                    ));
+                    self.pending_scroll
+                        .push(HistoryLine::new_role(frame.new_committed, Role::Default));
                 }
                 let tail = frame.new_streaming;
                 if tail.is_empty() {
@@ -555,10 +559,8 @@ impl MiniApp {
             MiniOutputEvent::Flush => {
                 let frame = self.stream.finish();
                 if !frame.new_committed.is_empty() {
-                    self.pending_scroll.push(HistoryLine::new_role(
-                        frame.new_committed,
-                        Role::Default,
-                    ));
+                    self.pending_scroll
+                        .push(HistoryLine::new_role(frame.new_committed, Role::Default));
                 }
                 self.footer.streaming = None;
                 let _ = self.settle_scrollback();
@@ -607,8 +609,8 @@ fn key_from_event(event: KeyEvent) -> Option<Key> {
         KeyCode::Delete => CKey::Delete,
         _ => return None,
     };
-    let shift = !matches!(event.code, KeyCode::Char(_))
-        && event.modifiers.contains(KeyModifiers::SHIFT);
+    let shift =
+        !matches!(event.code, KeyCode::Char(_)) && event.modifiers.contains(KeyModifiers::SHIFT);
     Some(Key {
         code,
         ctrl: event.modifiers.contains(KeyModifiers::CONTROL),
@@ -636,7 +638,7 @@ fn role_style(theme: &Theme, role: Role) -> Style {
 /// Render one pre-wrapped line into a buffer row (clear + clip to width).
 fn render_line(area: Rect, buf: &mut Buffer, line: &Line<'_>, style: Style) {
     let width = usize::from(area.width.max(1));
-    buf.set_string(area.x, area.y, &" ".repeat(width), Style::default());
+    buf.set_string(area.x, area.y, " ".repeat(width), Style::default());
     let mut col = 0usize;
     for span in &line.spans {
         if col >= width {

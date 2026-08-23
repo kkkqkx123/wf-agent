@@ -102,9 +102,7 @@ impl FileCheckpointManager {
         let merged = self.merge_features_to_staged(feature_names)?;
         let storage = self.storage_ref()?;
         for name in feature_names {
-            storage
-                .delete_branch(name)
-                .map_err(map_layertwine_error)?;
+            storage.delete_branch(name).map_err(map_layertwine_error)?;
         }
         Ok(merged)
     }

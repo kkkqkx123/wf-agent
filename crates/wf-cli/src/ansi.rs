@@ -170,10 +170,7 @@ impl AnsiParser {
 
     /// Apply an SGR parameter string (the part between `[` and `m`).
     fn apply_sgr(&mut self, params: &str) {
-        let tokens: Vec<u16> = params
-            .split(';')
-            .filter_map(|t| t.parse().ok())
-            .collect();
+        let tokens: Vec<u16> = params.split(';').filter_map(|t| t.parse().ok()).collect();
         if tokens.is_empty() {
             self.state.reset();
             return;
@@ -257,7 +254,12 @@ impl AnsiParser {
 pub fn plain_text(lines: &[Line<'_>]) -> String {
     lines
         .iter()
-        .map(|l| l.spans.iter().map(|s| s.content.as_ref()).collect::<String>())
+        .map(|l| {
+            l.spans
+                .iter()
+                .map(|s| s.content.as_ref())
+                .collect::<String>()
+        })
         .collect::<Vec<_>>()
         .join("\n")
 }
@@ -295,7 +297,8 @@ mod tests {
         assert_eq!(spans[0].style.fg, Some(Indexed(4)), "fg 34 → 4");
         assert!(spans[0]
             .style
-            .add_modifier.contains(ratatui::style::Modifier::BOLD));
+            .add_modifier
+            .contains(ratatui::style::Modifier::BOLD));
         assert_eq!(spans[1].style.fg, None);
     }
 

@@ -63,7 +63,10 @@ pub fn build_system_prompt(
                 prefix: None,
                 suffix: None,
             });
-    let separator = composition.separator.clone().unwrap_or_else(|| "\n\n".into());
+    let separator = composition
+        .separator
+        .clone()
+        .unwrap_or_else(|| "\n\n".into());
 
     let cfg = compose::Config {
         fragment_ids: composition.fragment_ids,

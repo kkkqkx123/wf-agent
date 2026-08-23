@@ -32,7 +32,9 @@ pub use footer::{Footer, FooterRoute, FooterView};
 pub use framer::{FrameRateLimiter, FrameRequester};
 pub use keymap::{Key, KeyAction, Keymap, KeymapContext};
 pub use mini::MiniApp;
-pub use output::{HeadlessFileSink, MemorySink, OutputEnvelope, OutputFormat, OutputMessage, TeeSink};
+pub use output::{
+    HeadlessFileSink, MemorySink, OutputEnvelope, OutputFormat, OutputMessage, TeeSink,
+};
 pub use run::{DiagWriter, RunIo, RunOptions, RunOutcome};
 pub use scrollback::{HistoryLine, LineState, LinesView, Role};
 pub use select::{Group, GroupItem, NavigateDir, SelectList};
@@ -143,9 +145,7 @@ async fn run_interactive(cli: &Cli, cli_mode: CliMode, stdout_tty: bool) -> CliR
         CliMode::Mini => MiniApp::new()?.run().await,
         CliMode::Tui => {
             let mut sink = build_sink(cli, stdout_tty)?;
-            sink.write_text(
-                "[wf] Tui mode selected; the full renderer is not wired yet",
-            )?;
+            sink.write_text("[wf] Tui mode selected; the full renderer is not wired yet")?;
             sink.flush()?;
             Ok(())
         }
@@ -200,7 +200,9 @@ pub async fn debug_terminal(cli: &Cli) -> CliResult<()> {
     let theme = theme::probe_theme();
 
     let Some(Command::DebugTerminal { alt_screen, exec }) = &cli.command else {
-        return Err(CliError::Arguments("debug-terminal dispatched wrongly".into()));
+        return Err(CliError::Arguments(
+            "debug-terminal dispatched wrongly".into(),
+        ));
     };
 
     if !stdout_tty {
@@ -208,7 +210,9 @@ pub async fn debug_terminal(cli: &Cli) -> CliResult<()> {
         sink.write_text(&format!(
             "[wf] no tty: terminal guard not activated (alt_screen={alt_screen}, would run {:?}); \
              theme {} kind {:?} ({}), domain {:?}",
-            exec.clone().or_else(|| std::env::var("EDITOR").ok()).unwrap_or_default(),
+            exec.clone()
+                .or_else(|| std::env::var("EDITOR").ok())
+                .unwrap_or_default(),
             theme.bg.hex(),
             theme.kind,
             match theme.source {

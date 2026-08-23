@@ -141,8 +141,7 @@ impl SkillFileLoader for InMemorySkillLoader {
                 format!("no such file: {}", path.display()),
             )
         })?;
-        String::from_utf8(bytes.clone())
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
+        String::from_utf8(bytes.clone()).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
     }
 
     fn read_binary(&self, path: &Path) -> io::Result<Vec<u8>> {

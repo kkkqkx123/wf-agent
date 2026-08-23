@@ -76,7 +76,10 @@ impl ConcurrencyGate {
             GateError::Closed(match e {
                 tokio::sync::TryAcquireError::Closed => "gate is closed".to_string(),
                 tokio::sync::TryAcquireError::NoPermits => {
-                    format!("no permit available (max concurrent {})", self.max_concurrent)
+                    format!(
+                        "no permit available (max concurrent {})",
+                        self.max_concurrent
+                    )
                 }
             })
         })?;

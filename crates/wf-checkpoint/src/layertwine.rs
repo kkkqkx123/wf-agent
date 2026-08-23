@@ -476,9 +476,7 @@ impl<T: GitCheckpointAdapter> LayertwineCheckpointBridge<T> {
         T: 'static,
     {
         const BATCH_CONCURRENCY: usize = 10;
-        let gate = Arc::new(
-            ConcurrencyGate::new(BATCH_CONCURRENCY),
-        );
+        let gate = Arc::new(ConcurrencyGate::new(BATCH_CONCURRENCY));
         let mut handles = Vec::new();
         for id in ids {
             let adapter = self.adapter.clone();

@@ -234,11 +234,19 @@ fn normalize_once(cmd: &str, shell_type: ShellType) -> String {
                 "env" => idx = skip_env_args(&tokens, 1),
                 "command" => {
                     // `command -v` / `command -V` are queries — never strip.
-                    if tokens.get(1).map(|t| t == "-v" || t == "-V").unwrap_or(false) {
+                    if tokens
+                        .get(1)
+                        .map(|t| t == "-v" || t == "-V")
+                        .unwrap_or(false)
+                    {
                         return cmd.trim().to_string();
                     }
                     idx = 1;
-                    if tokens.get(idx).map(|t| t == "-p" || t == "--").unwrap_or(false) {
+                    if tokens
+                        .get(idx)
+                        .map(|t| t == "-p" || t == "--")
+                        .unwrap_or(false)
+                    {
                         idx += 1;
                     }
                 }
@@ -269,9 +277,7 @@ fn normalize_once(cmd: &str, shell_type: ShellType) -> String {
         ShellType::PowerShell => {
             if first == "&" {
                 idx = 1;
-            } else if first.starts_with('$')
-                && tokens.get(1).map(|t| t == "=").unwrap_or(false)
-            {
+            } else if first.starts_with('$') && tokens.get(1).map(|t| t == "=").unwrap_or(false) {
                 idx = 2;
             }
         }
@@ -313,9 +319,7 @@ fn skip_env_args(tokens: &[String], mut idx: usize) -> usize {
             idx += 1;
         } else if t == "-u" && idx + 1 < tokens.len() {
             idx += 2;
-        } else if t.starts_with('-') && t.len() > 1 {
-            idx += 1;
-        } else if is_var_assignment(t) {
+        } else if (t.starts_with('-') && t.len() > 1) || is_var_assignment(t) {
             idx += 1;
         } else {
             break;
@@ -348,7 +352,12 @@ fn primary_bash(tokens: &[String]) -> Option<String> {
     Some(
         t.chars()
             .filter(|c| {
-                c.is_alphanumeric() || *c == '_' || *c == '-' || *c == '.' || *c == '/' || *c == '\\'
+                c.is_alphanumeric()
+                    || *c == '_'
+                    || *c == '-'
+                    || *c == '.'
+                    || *c == '/'
+                    || *c == '\\'
             })
             .collect(),
     )
@@ -398,8 +407,8 @@ fn primary_powershell(tokens: &[String]) -> Option<String> {
     }
     let stripped = first.strip_prefix('&').unwrap_or(first).trim_start();
     let lower = stripped.to_lowercase();
-    if let Some(&resolved) = crate::strategy::shell::powershell::build_alias_map()
-        .get(lower.as_str())
+    if let Some(&resolved) =
+        crate::strategy::shell::powershell::build_alias_map().get(lower.as_str())
     {
         return Some(resolved.to_string());
     }
@@ -519,7 +528,13 @@ const INLINE_INTERPRETERS: &[&str] = &[
     "lua", "luajit",
 ];
 const INLINE_CODE_FLAGS: &[&str] = &[
-    "-c", "-e", "-r", "--command", "-Command", "-command", "-EncodedCommand",
+    "-c",
+    "-e",
+    "-r",
+    "--command",
+    "-Command",
+    "-command",
+    "-EncodedCommand",
 ];
 
 /// Extract inline script bodies (`python3 -c '...'`, `bash -c '...'`,
@@ -555,7 +570,9 @@ pub fn extract_inline_scripts(command: &str, shell_type: ShellType) -> Vec<Strin
         let mut cursor = 0usize;
         while let Some(rel) = command[cursor..].find("<<") {
             let start = cursor + rel;
-            let after = command[start + 2..].strip_prefix('-').unwrap_or(&command[start + 2..]);
+            let after = command[start + 2..]
+                .strip_prefix('-')
+                .unwrap_or(&command[start + 2..]);
             let trimmed = after.trim_start();
             // Delimiter word is alphanumeric/underscore.
             let word_len = trimmed
@@ -677,10 +694,7 @@ pub fn evaluate_command_verdict(
 
     let normalized = normalize_command(command, shell_type);
     if normalized.trim().is_empty() {
-        return CommandVerdict::deny(
-            Severity::High,
-            "Empty command after normalization",
-        );
+        return CommandVerdict::deny(Severity::High, "Empty command after normalization");
     }
 
     // Chain both the raw and the normalized command so the raw primary (e.g.
@@ -859,20 +873,17 @@ mod tests {
 
     #[test]
     fn test_normalize_command_and_path() {
-        assert_eq!(
-            normalize_command("command -p ls", bash()),
-            "ls"
-        );
+        assert_eq!(normalize_command("command -p ls", bash()), "ls");
         // `command -v` is a query and must survive.
         assert_eq!(
             normalize_command("command -v git", bash()),
             "command -v git"
         );
-        assert_eq!(normalize_command("/usr/bin/git status", bash()), "git status");
         assert_eq!(
-            normalize_command("\\git status", bash()),
+            normalize_command("/usr/bin/git status", bash()),
             "git status"
         );
+        assert_eq!(normalize_command("\\git status", bash()), "git status");
     }
 
     #[test]
@@ -884,10 +895,7 @@ mod tests {
 
     #[test]
     fn test_normalize_cmd_dialect() {
-        assert_eq!(
-            normalize_command("start /B dir", ShellType::Cmd),
-            "dir"
-        );
+        assert_eq!(normalize_command("start /B dir", ShellType::Cmd), "dir");
         assert_eq!(
             normalize_command("@echo hello", ShellType::Cmd),
             "echo hello"
@@ -1013,8 +1021,14 @@ mod tests {
 
     #[test]
     fn test_primary_cmd_ext() {
-        let tokens = vec!["C:\\Windows\\System32\\notepad.exe".to_string(), "x".to_string()];
-        assert_eq!(primary_command(&tokens, ShellType::Cmd), Some("notepad".to_string()));
+        let tokens = vec![
+            "C:\\Windows\\System32\\notepad.exe".to_string(),
+            "x".to_string(),
+        ];
+        assert_eq!(
+            primary_command(&tokens, ShellType::Cmd),
+            Some("notepad".to_string())
+        );
     }
 
     #[test]
@@ -1072,10 +1086,19 @@ mod tests {
     // Severity → decision mode mapping (warn/log require explicit opt-in).
     #[test]
     fn test_decision_mode_for() {
-        assert_eq!(decision_mode_for(Severity::Critical, false), DecisionMode::Deny);
+        assert_eq!(
+            decision_mode_for(Severity::Critical, false),
+            DecisionMode::Deny
+        );
         assert_eq!(decision_mode_for(Severity::High, false), DecisionMode::Deny);
-        assert_eq!(decision_mode_for(Severity::Medium, false), DecisionMode::Deny);
-        assert_eq!(decision_mode_for(Severity::Medium, true), DecisionMode::Warn);
+        assert_eq!(
+            decision_mode_for(Severity::Medium, false),
+            DecisionMode::Deny
+        );
+        assert_eq!(
+            decision_mode_for(Severity::Medium, true),
+            DecisionMode::Warn
+        );
         assert_eq!(decision_mode_for(Severity::Low, true), DecisionMode::Log);
     }
 

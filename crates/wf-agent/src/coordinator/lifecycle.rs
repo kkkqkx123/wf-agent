@@ -611,16 +611,22 @@ impl AgentLoopCoordinator {
         });
         if let Some(parent_id) = parent_execution_id {
             entity = entity.with_parent_execution_id(parent_id.clone());
-            // Resolve hierarchy depth / root from the registered parent so
-            // `get_hierarchy_depth` / `get_root_execution_id` reflect the
-            // real parent chain (root run keeps 0 / own id).
+            // Resolve hierarchy depth / root / ancestor chain from the
+            // registered parent so `get_hierarchy_depth`,
+            // `get_root_execution_id` and `get_ancestors` reflect the real
+            // parent chain (root run keeps 0 / own id / empty).
             if let Some(ref registry) = self.entity_registry {
                 if let Some(parent) = registry.get(&parent_id) {
+                    let mut ancestors = parent.get_ancestors();
+                    if ancestors.last() != Some(&parent_id) {
+                        ancestors.push(parent_id.clone());
+                    }
                     entity = entity
                         .with_hierarchy_depth(parent.get_hierarchy_depth() + 1)
                         .with_root_execution_id(
                             parent.get_root_execution_id().unwrap_or(parent_id.clone()),
-                        );
+                        )
+                        .with_ancestors(ancestors);
                 }
             }
         }

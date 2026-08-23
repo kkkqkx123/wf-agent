@@ -1,4 +1,6 @@
-use crate::registry::{register_item_skip, register_item_strict, RegisterOptions, ResourceRegistries};
+use crate::registry::{
+    register_item_skip, register_item_strict, RegisterOptions, ResourceRegistries,
+};
 use crate::result::Summary;
 
 use super::llm_summary::create_llm_summary_workflow;

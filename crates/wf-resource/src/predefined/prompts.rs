@@ -1,6 +1,8 @@
 use wf_types::Template;
 
-use crate::registry::{register_item_skip, register_item_strict, RegisterOptions, ResourceRegistries};
+use crate::registry::{
+    register_item_skip, register_item_strict, RegisterOptions, ResourceRegistries,
+};
 use crate::result::Summary;
 
 pub fn builtin_prompts() -> Vec<Template> {

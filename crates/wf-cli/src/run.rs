@@ -356,7 +356,10 @@ impl<'a> SessionRenderer<'a> {
                     }
                 }
             }
-            UnifiedEvent::ToolStart { tool_call_id, tool_name } => {
+            UnifiedEvent::ToolStart {
+                tool_call_id,
+                tool_name,
+            } => {
                 self.had_output = true;
                 self.tool_started_at
                     .insert(tool_call_id.clone(), Instant::now());
@@ -406,7 +409,8 @@ impl<'a> SessionRenderer<'a> {
             }
         } else if !self.iteration_text.is_empty() && !self.format.is_silent() {
             let text = std::mem::take(&mut self.iteration_text);
-            self.sink.write_message(&OutputMessage::new("assistant", text))?;
+            self.sink
+                .write_message(&OutputMessage::new("assistant", text))?;
         } else {
             self.iteration_text.clear();
         }
@@ -534,7 +538,8 @@ pub async fn run_session(
 
     // Echo the user message through the sink (text line / JSON record).
     if !io.format.is_silent() {
-        io.sink.write_message(&OutputMessage::new("user", &opts.prompt))?;
+        io.sink
+            .write_message(&OutputMessage::new("user", &opts.prompt))?;
     }
 
     let mut stream = agent_execution::stream(ctx, params)
@@ -610,7 +615,9 @@ pub async fn run_session(
         Terminal::Sigint => {
             let mut diag = wf_common::lock::lock_ok(io.diag.lock());
             let _ = diag.warn("^C interrupted");
-            Err(CliError::Interrupted("SIGINT during headless session".into()))
+            Err(CliError::Interrupted(
+                "SIGINT during headless session".into(),
+            ))
         }
     }
 }
@@ -673,7 +680,12 @@ fn write_summary(
 
 /// Failure envelope for structured formats (text diagnostics go through
 /// stderr in `main`).
-fn write_failure_envelope(sink: &mut dyn OutputSink, format: OutputFormat, execution_id: &str, error: &str) {
+fn write_failure_envelope(
+    sink: &mut dyn OutputSink,
+    format: OutputFormat,
+    execution_id: &str,
+    error: &str,
+) {
     let write = |record: String| sink.write_raw(&record).map_err(CliError::from);
     let result = match format {
         OutputFormat::Json => OutputEnvelope::failure("execution", error)
@@ -788,11 +800,17 @@ mod tests {
         // Without any prefix the sensitive tool stays denied.
         let strict = ApprovalPolicy::new(vec![]);
         assert!(matches!(
-            policy.decide("execute_command", &serde_json::json!({ "command": "git status" })),
+            policy.decide(
+                "execute_command",
+                &serde_json::json!({ "command": "git status" })
+            ),
             ApprovalDecision::Allow { .. }
         ));
         assert!(matches!(
-            strict.decide("execute_command", &serde_json::json!({ "command": "git status" })),
+            strict.decide(
+                "execute_command",
+                &serde_json::json!({ "command": "git status" })
+            ),
             ApprovalDecision::Deny { .. }
         ));
     }
@@ -831,7 +849,12 @@ mod tests {
                 )
                 .unwrap();
             renderer
-                .on_event(&UnifiedEvent::TextDelta { content: "world".into() }, &diag)
+                .on_event(
+                    &UnifiedEvent::TextDelta {
+                        content: "world".into(),
+                    },
+                    &diag,
+                )
                 .unwrap();
             // Iteration boundary flushes the pending tail + newline.
             renderer
@@ -893,16 +916,31 @@ mod tests {
         {
             let mut renderer = SessionRenderer::new(&mut sink, OutputFormat::Json);
             renderer
-                .on_event(&UnifiedEvent::TextDelta { content: "part ".into() }, &diag)
+                .on_event(
+                    &UnifiedEvent::TextDelta {
+                        content: "part ".into(),
+                    },
+                    &diag,
+                )
                 .unwrap();
             renderer
-                .on_event(&UnifiedEvent::TextDelta { content: "one".into() }, &diag)
+                .on_event(
+                    &UnifiedEvent::TextDelta {
+                        content: "one".into(),
+                    },
+                    &diag,
+                )
                 .unwrap();
             renderer
                 .on_event(&UnifiedEvent::IterationEnded { index: 1 }, &diag)
                 .unwrap();
             renderer
-                .on_event(&UnifiedEvent::TextDelta { content: "two".into() }, &diag)
+                .on_event(
+                    &UnifiedEvent::TextDelta {
+                        content: "two".into(),
+                    },
+                    &diag,
+                )
                 .unwrap();
             renderer
                 .on_event(&UnifiedEvent::IterationEnded { index: 2 }, &diag)
@@ -1008,7 +1046,7 @@ mod tests {
             }
 
             fn with_sink<R>(&self, f: impl FnOnce(&mut MemorySink) -> R) -> R {
-                f(&mut *wf_common::lock::lock_ok(self.shared.lock()))
+                f(&mut wf_common::lock::lock_ok(self.shared.lock()))
             }
         }
 
@@ -1030,7 +1068,10 @@ mod tests {
             }
         }
 
-        async fn adapter_with_mock(script: Vec<LlmResponseSpec>, default: LlmResponseSpec) -> DomainAdapter {
+        async fn adapter_with_mock(
+            script: Vec<LlmResponseSpec>,
+            default: LlmResponseSpec,
+        ) -> DomainAdapter {
             let adapter = DomainAdapter::bootstrap(crate::default_runtime_config())
                 .await
                 .unwrap();
@@ -1039,9 +1080,7 @@ mod tests {
                 mock.script(spec);
             }
             mock.default(default);
-            adapter
-                .llm_gateway()
-                .register_mock("mock", mock.clone());
+            adapter.llm_gateway().register_mock("mock", mock.clone());
             adapter
         }
 
@@ -1068,20 +1107,21 @@ mod tests {
 
             assert_eq!(outcome.iterations, 1);
             assert!(outcome.had_output);
-            let sink_guard = wf_common::lock::lock_ok(sink.lock());
-            let text = sink_guard.text();
-            assert!(text.contains("hello from cli e2e"), "{text}");
-            // The summary line is a raw record (bypasses the format filter).
-            let summary = sink_guard
-                .raw()
-                .into_iter()
-                .find(|line| line.contains('▣'))
-                .unwrap_or_else(|| panic!("summary line missing from {text:?}"));
-            assert!(
-                summary.contains(&outcome.execution_id),
-                "summary {summary} lacks execution id"
-            );
-            drop(sink_guard);
+            {
+                let sink_guard = wf_common::lock::lock_ok(sink.lock());
+                let text = sink_guard.text();
+                assert!(text.contains("hello from cli e2e"), "{text}");
+                // The summary line is a raw record (bypasses the format filter).
+                let summary = sink_guard
+                    .raw()
+                    .into_iter()
+                    .find(|line| line.contains('▣'))
+                    .unwrap_or_else(|| panic!("summary line missing from {text:?}"));
+                assert!(
+                    summary.contains(&outcome.execution_id),
+                    "summary {summary} lacks execution id"
+                );
+            }
 
             adapter.shutdown().await.unwrap();
         }
@@ -1177,7 +1217,9 @@ mod tests {
                 .unwrap();
             let (io, _sink) = run_io(OutputFormat::Text);
 
-            let err = run_session(&adapter, RunOptions::default(), io).await.unwrap_err();
+            let err = run_session(&adapter, RunOptions::default(), io)
+                .await
+                .unwrap_err();
             assert!(matches!(err, CliError::Arguments(_)), "{err:?}");
 
             adapter.shutdown().await.unwrap();
@@ -1265,11 +1307,8 @@ mod tests {
 
         #[tokio::test]
         async fn silent_session_reports_no_output_in_summary() {
-            let adapter = adapter_with_mock(
-                vec![LlmResponseSpec::text("")],
-                LlmResponseSpec::text(""),
-            )
-            .await;
+            let adapter =
+                adapter_with_mock(vec![LlmResponseSpec::text("")], LlmResponseSpec::text("")).await;
             let (io, sink) = run_io(OutputFormat::Text);
 
             let outcome = run_session(

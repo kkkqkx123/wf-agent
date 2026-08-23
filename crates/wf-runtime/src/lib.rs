@@ -9,9 +9,9 @@ pub mod mode;
 pub mod persistence_layer;
 #[cfg(feature = "plugins")]
 pub mod plugin_bridge;
+pub mod recovery;
 #[cfg(feature = "plugins")]
 pub mod resource_plugin_adapter;
-pub mod recovery;
 pub mod sdk_options;
 pub mod shell_event_bridge;
 pub mod storage_manager;

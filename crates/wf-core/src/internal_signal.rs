@@ -47,10 +47,7 @@ pub enum InternalSignal {
         reason: Option<String>,
     },
     /// Resume the execution (clear the pause flag).
-    ResumeWorkflow {
-        source: Id,
-        target_execution_id: Id,
-    },
+    ResumeWorkflow { source: Id, target_execution_id: Id },
     /// Skip a node in the execution.
     SkipNode {
         source: Id,
@@ -81,13 +78,34 @@ impl InternalSignal {
     /// The execution id that this signal targets.
     pub fn target_execution_id(&self) -> &Id {
         match self {
-            InternalSignal::StopWorkflow { target_execution_id, .. } => target_execution_id,
-            InternalSignal::PauseWorkflow { target_execution_id, .. } => target_execution_id,
-            InternalSignal::ResumeWorkflow { target_execution_id, .. } => target_execution_id,
-            InternalSignal::SkipNode { target_execution_id, .. } => target_execution_id,
-            InternalSignal::SubworkflowResult { target_execution_id, .. } => target_execution_id,
-            InternalSignal::ScriptResult { target_execution_id, .. } => target_execution_id,
-            InternalSignal::AgentResult { target_execution_id, .. } => target_execution_id,
+            InternalSignal::StopWorkflow {
+                target_execution_id,
+                ..
+            } => target_execution_id,
+            InternalSignal::PauseWorkflow {
+                target_execution_id,
+                ..
+            } => target_execution_id,
+            InternalSignal::ResumeWorkflow {
+                target_execution_id,
+                ..
+            } => target_execution_id,
+            InternalSignal::SkipNode {
+                target_execution_id,
+                ..
+            } => target_execution_id,
+            InternalSignal::SubworkflowResult {
+                target_execution_id,
+                ..
+            } => target_execution_id,
+            InternalSignal::ScriptResult {
+                target_execution_id,
+                ..
+            } => target_execution_id,
+            InternalSignal::AgentResult {
+                target_execution_id,
+                ..
+            } => target_execution_id,
         }
     }
 

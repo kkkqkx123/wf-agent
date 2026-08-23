@@ -118,7 +118,11 @@ impl CompressionService {
     ) -> Self {
         Self {
             inner: Arc::new(SubworkflowActionRunner::with_storage(
-                bus, runner, contexts, shutdown.clone(), storage.clone(),
+                bus,
+                runner,
+                contexts,
+                shutdown.clone(),
+                storage.clone(),
             )),
             summary_workflow_id,
             handled: DashMap::new(),
@@ -132,8 +136,7 @@ impl CompressionService {
         mut self,
         registry: Arc<wf_workflow::TriggerStateRegistry>,
     ) -> Self {
-        let inner = Arc::unwrap_or_clone(self.inner)
-            .with_trigger_state_registry(registry.clone());
+        let inner = Arc::unwrap_or_clone(self.inner).with_trigger_state_registry(registry.clone());
         self.inner = Arc::new(inner);
         self.trigger_states = Some(registry);
         self

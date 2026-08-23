@@ -63,7 +63,11 @@ impl ContributionBridge for WfPluginBridge {
         for (id, owner) in manager.all_workflows() {
             if owner == plugin_id {
                 if let Some(wf) = manager.get_workflow(&id) {
-                    wf_resource::register_item_skip(&self.registries.workflows, id.clone(), (*wf).clone());
+                    wf_resource::register_item_skip(
+                        &self.registries.workflows,
+                        id.clone(),
+                        (*wf).clone(),
+                    );
                     tracing::debug!("  workflow: {}", id);
                 }
             }
@@ -87,7 +91,11 @@ impl ContributionBridge for WfPluginBridge {
         for (id, owner) in manager.all_agent_templates() {
             if owner == plugin_id {
                 if let Some(a) = manager.get_agent_template(&id) {
-                    wf_resource::register_item_skip(&self.registries.agent_templates, id.clone(), (*a).clone());
+                    wf_resource::register_item_skip(
+                        &self.registries.agent_templates,
+                        id.clone(),
+                        (*a).clone(),
+                    );
                     tracing::debug!("  agent-template: {}", id);
                 }
             }
@@ -95,7 +103,11 @@ impl ContributionBridge for WfPluginBridge {
         for (id, owner) in manager.all_node_templates() {
             if owner == plugin_id {
                 if let Some(n) = manager.get_node_template(&id) {
-                    wf_resource::register_item_skip(&self.registries.node_templates, id.clone(), (*n).clone());
+                    wf_resource::register_item_skip(
+                        &self.registries.node_templates,
+                        id.clone(),
+                        (*n).clone(),
+                    );
                     tracing::debug!("  node-template: {}", id);
                 }
             }
@@ -103,7 +115,11 @@ impl ContributionBridge for WfPluginBridge {
         for (id, owner) in manager.all_triggers() {
             if owner == plugin_id {
                 if let Some(t) = manager.get_trigger(&id) {
-                    wf_resource::register_item_skip(&self.registries.trigger_templates, t.name.clone(), (*t).clone());
+                    wf_resource::register_item_skip(
+                        &self.registries.trigger_templates,
+                        t.name.clone(),
+                        (*t).clone(),
+                    );
                     tracing::debug!("  trigger: {}", t.name);
                 }
             }
@@ -111,7 +127,11 @@ impl ContributionBridge for WfPluginBridge {
         for (id, owner) in manager.all_tool_descriptions() {
             if owner == plugin_id {
                 if let Some(d) = manager.get_tool_description(&id) {
-                    wf_resource::register_item_skip(&self.registries.tool_descriptions, id.clone(), (*d).clone());
+                    wf_resource::register_item_skip(
+                        &self.registries.tool_descriptions,
+                        id.clone(),
+                        (*d).clone(),
+                    );
                     tracing::debug!("  tool-description: {}", id);
                 }
             }

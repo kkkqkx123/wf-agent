@@ -11,8 +11,8 @@
 use std::sync::Arc;
 
 use wf_agent::stream::AgentStreamEvent;
-use wf_api::infra::subscription::{spawn_event_subscription, EventSubscription};
 use wf_api::infra::subscription::EventSubscriptionOptions;
+use wf_api::infra::subscription::{spawn_event_subscription, EventSubscription};
 use wf_core::event::EventBus;
 use wf_types::execution::events::ExecutionEvent;
 
@@ -26,7 +26,10 @@ pub enum UnifiedEvent {
     /// Incremental LLM text delta.
     TextDelta { content: String },
     /// Tool invocation started.
-    ToolStart { tool_call_id: String, tool_name: String },
+    ToolStart {
+        tool_call_id: String,
+        tool_name: String,
+    },
     /// Tool invocation finished. `duration_ms` is `None` when the source
     /// event carries no timing (e.g. the agent stream events).
     ToolEnd {
@@ -102,7 +105,9 @@ impl From<AgentStreamEvent> for UnifiedEvent {
                 success,
                 duration_ms: None,
             },
-            AgentStreamEvent::Completed { result, iterations } => Self::Completed { result, iterations },
+            AgentStreamEvent::Completed { result, iterations } => {
+                Self::Completed { result, iterations }
+            }
             AgentStreamEvent::Failed { error } => Self::Failed { error },
             AgentStreamEvent::Interrupted { reason } => Self::Interrupted { reason },
         }
@@ -248,15 +253,17 @@ mod tests {
 
     #[test]
     fn execution_stream_events_map_and_engine_filters_out() {
-        use wf_api::infra::stream::ExecutionStreamEvent;
         use wf_agent::stream::AgentStreamEvent;
+        use wf_api::infra::stream::ExecutionStreamEvent;
 
         let agent = ExecutionStreamEvent::Agent(AgentStreamEvent::LlmDelta {
             content: "hi".into(),
         });
         assert_eq!(
             unified_from_execution_stream(agent),
-            Some(UnifiedEvent::TextDelta { content: "hi".into() })
+            Some(UnifiedEvent::TextDelta {
+                content: "hi".into()
+            })
         );
 
         let completed = ExecutionStreamEvent::Completed {
@@ -276,7 +283,9 @@ mod tests {
         };
         assert_eq!(
             unified_from_execution_stream(failed),
-            Some(UnifiedEvent::Failed { error: "boom".into() })
+            Some(UnifiedEvent::Failed {
+                error: "boom".into()
+            })
         );
 
         let engine = ExecutionStreamEvent::Engine(wf_types::events::BaseEvent {

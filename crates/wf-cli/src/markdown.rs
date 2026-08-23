@@ -72,8 +72,7 @@ impl MarkdownStream {
         // committed slice starts at `streamed_upto` (highest offset already
         // delivered as committed *or* streaming), so previously streamed
         // bytes are never re-emitted as committed.
-        let new_committed =
-            self.buffer[self.streamed_upto.min(boundary)..boundary].to_string();
+        let new_committed = self.buffer[self.streamed_upto.min(boundary)..boundary].to_string();
         let stream_start = self.streamed_upto.max(boundary);
         let new_streaming = self.buffer[stream_start..].to_string();
         let code_lang = if boundary >= self.buffer.len() {
@@ -128,8 +127,7 @@ impl MarkdownStream {
 
     /// Close the stream: everything remaining is committed.
     pub fn finish(&mut self) -> MarkdownFrame {
-        let committed =
-            self.buffer[self.committed_upto.min(self.buffer.len())..].to_string();
+        let committed = self.buffer[self.committed_upto.min(self.buffer.len())..].to_string();
         self.buffer.clear();
         self.committed_upto = 0;
         self.streamed_upto = 0;
@@ -337,7 +335,7 @@ fn last_line_is_fence(s: &str) -> bool {
         l.trim()
             .chars()
             .next()
-            .map_or(false, |c| c == '`' || c == '~')
+            .is_some_and(|c| c == '`' || c == '~')
     })
 }
 
@@ -653,7 +651,7 @@ mod tests {
             if b == start {
                 continue;
             }
-            if rng.next() % 3 == 0 {
+            if rng.next().is_multiple_of(3) {
                 chunks.push(source[start..b].to_string());
                 start = b;
             }

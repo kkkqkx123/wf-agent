@@ -92,9 +92,8 @@ pub trait ToolExecutorExt: ToolExecutor {
         async move {
             wf_common::retry::execute_with_retry(
                 Some(&policy),
-                |r: &Result<ToolExecutionResult, crate::error::ToolError>| match r {
-                    Ok(x) if x.success => false,
-                    _ => true,
+                |r: &Result<ToolExecutionResult, crate::error::ToolError>| {
+                    !matches!(r, Ok(x) if x.success)
                 },
                 None,
                 || self.execute(tool, parameters, options, context),

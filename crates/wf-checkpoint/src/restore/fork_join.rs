@@ -132,6 +132,7 @@ mod tests {
             parent_execution_id: None,
             depth: 0,
             root_execution_id: None,
+            ancestors: None,
             children: Some(
                 children
                     .into_iter()

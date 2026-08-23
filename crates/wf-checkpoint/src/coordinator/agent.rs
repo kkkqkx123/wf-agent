@@ -267,9 +267,7 @@ impl AgentCheckpointCoordinator {
         });
 
         // Bounded concurrency for the per-child resolution + restore phase.
-        let gate = Arc::new(
-            ConcurrencyGate::new(CHILD_RESTORE_CONCURRENCY),
-        );
+        let gate = Arc::new(ConcurrencyGate::new(CHILD_RESTORE_CONCURRENCY));
         let storage = self.state_manager.storage().clone();
         let restore_registry = self.restore_registry.clone();
         let mut handles = Vec::new();
@@ -1280,6 +1278,7 @@ mod tests {
             parent_execution_id: None,
             depth: 0,
             root_execution_id: None,
+            ancestors: None,
             children: Some(vec![ChildExecutionReference {
                 child_type: ExecutionType::AgentLoop,
                 child_id: "child-loop-1".to_string(),

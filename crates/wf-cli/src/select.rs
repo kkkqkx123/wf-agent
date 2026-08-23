@@ -156,7 +156,7 @@ impl<T> SelectList<T> {
     pub fn set_filter(&mut self, needle: Option<&str>) {
         self.filter = needle.map(str::to_owned);
         let n = self.len();
-        if self.len() > 0 && self.select_pos >= n {
+        if !self.is_empty() && self.select_pos >= n {
             self.select_pos = n - 1;
         }
         if n == 0 {
@@ -172,7 +172,7 @@ impl<T> SelectList<T> {
     pub fn selected(&self) -> Option<&GroupItem<T>> {
         let cands = self.candidates();
         let pos = self.select_pos.min(cands.len().saturating_sub(1));
-        self.item_at(cands[pos] as usize)
+        self.item_at(cands[pos])
     }
 
     /// Position in the candidate list (1-based) / total — the `(N/M)`
@@ -208,10 +208,7 @@ impl<T> SelectList<T> {
     fn matches(&self, item: &GroupItem<T>) -> bool {
         match self.filter.as_deref() {
             None | Some("") => true,
-            Some(needle) => item
-                .label
-                .to_lowercase()
-                .contains(&needle.to_lowercase()),
+            Some(needle) => item.label.to_lowercase().contains(&needle.to_lowercase()),
         }
     }
 
@@ -236,7 +233,9 @@ fn view_window(select_pos: usize, height: usize, total: usize) -> (usize, usize)
         return (0, 0);
     }
     let max_top = total.saturating_sub(height);
-    let top = select_pos.saturating_sub(height.saturating_sub(1)).min(max_top);
+    let top = select_pos
+        .saturating_sub(height.saturating_sub(1))
+        .min(max_top);
     let bottom = (top + height).min(total);
     (top, bottom)
 }
@@ -272,8 +271,7 @@ impl<T> SelectList<T> {
         let show_desc = w > 40;
 
         let mut out = Vec::new();
-        for pos in top..bottom {
-            let flat = cands[pos];
+        for (pos, &flat) in cands.iter().enumerate().take(bottom).skip(top) {
             let item = self.item_at(flat);
             let selected = pos == self.select_pos;
             let marker = if selected { "→" } else { " " };
@@ -314,7 +312,9 @@ mod tests {
 
     fn sample() -> SelectList<u32> {
         SelectList::groups(vec![
-            Group::new(Some("Workflows")).item(GroupItem::new("wf-a", 1)).item(GroupItem::new("wf-b", 2)),
+            Group::new(Some("Workflows"))
+                .item(GroupItem::new("wf-a", 1))
+                .item(GroupItem::new("wf-b", 2)),
             Group::new(Some("Executions"))
                 .item(GroupItem::new("exec-1", 3).described("running"))
                 .item(GroupItem::new("exec-2", 4).described("idle"))
@@ -382,13 +382,15 @@ mod tests {
         l.move_to(2);
         let lines = l.render_lines(60, 5);
         assert_eq!(lines.len(), 5);
-        let second_row_plain: String = lines[2]
-            .spans
-            .iter()
-            .map(|s| s.content.as_ref())
-            .collect();
-        assert!(second_row_plain.contains("→"), "selected row marked: {second_row_plain}");
-        assert!(second_row_plain.contains("exec-1"), "selected item: {second_row_plain}");
+        let second_row_plain: String = lines[2].spans.iter().map(|s| s.content.as_ref()).collect();
+        assert!(
+            second_row_plain.contains("→"),
+            "selected row marked: {second_row_plain}"
+        );
+        assert!(
+            second_row_plain.contains("exec-1"),
+            "selected item: {second_row_plain}"
+        );
     }
 
     #[test]
@@ -397,12 +399,11 @@ mod tests {
         l.move_to(4); // last item
         let lines = l.render_lines(60, 2);
         assert_eq!(lines.len(), 2, "window height 2");
-        let last_row: String = lines[1]
-            .spans
-            .iter()
-            .map(|s| s.content.as_ref())
-            .collect();
-        assert!(last_row.contains("→"), "last item visible & selected: {last_row}");
+        let last_row: String = lines[1].spans.iter().map(|s| s.content.as_ref()).collect();
+        assert!(
+            last_row.contains("→"),
+            "last item visible & selected: {last_row}"
+        );
     }
 
     #[test]
@@ -415,7 +416,12 @@ mod tests {
         let rend = |width: u16| {
             l.render_lines(width, 5)
                 .iter()
-                .map(|ln| ln.spans.iter().map(|s| s.content.as_ref()).collect::<String>())
+                .map(|ln| {
+                    ln.spans
+                        .iter()
+                        .map(|s| s.content.as_ref())
+                        .collect::<String>()
+                })
                 .collect::<Vec<_>>()
                 .join("\n")
         };
@@ -423,9 +429,6 @@ mod tests {
             rend(80),
             " wf-a\n wf-b\n exec-1 - running\n→exec-2 - idle\n exec-3"
         );
-        assert_eq!(
-            rend(20),
-            " wf-a\n wf-b\n exec-1\n→exec-2\n exec-3"
-        );
+        assert_eq!(rend(20), " wf-a\n wf-b\n exec-1\n→exec-2\n exec-3");
     }
 }

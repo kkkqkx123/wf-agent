@@ -93,5 +93,8 @@ fn main() {
     scrollback_captures();
     ansi_capture();
     select_captures();
-    eprintln!("golden outputs regenerated under {}", outputs_dir().display());
+    eprintln!(
+        "golden outputs regenerated under {}",
+        outputs_dir().display()
+    );
 }

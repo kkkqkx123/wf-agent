@@ -165,10 +165,7 @@ impl TriggerContext {
     /// Attach a session-level cache shared across multiple trigger actions
     /// within the same message node. The cache is a simple key-value store
     /// scoped to the session; it is not persisted or checkpointed.
-    pub fn with_session_cache(
-        mut self,
-        cache: Arc<Mutex<HashMap<String, Value>>>,
-    ) -> Self {
+    pub fn with_session_cache(mut self, cache: Arc<Mutex<HashMap<String, Value>>>) -> Self {
         self.session_cache = Some(cache);
         self
     }

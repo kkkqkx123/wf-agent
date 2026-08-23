@@ -57,7 +57,9 @@ impl Default for ScriptRegistry {
 
 impl Registry<ScriptDefinition> for ScriptRegistry {
     fn get(&self, key: &str) -> Option<Arc<ScriptDefinition>> {
-        self.scripts.get(key).map(|entry| Arc::new(entry.value().clone()))
+        self.scripts
+            .get(key)
+            .map(|entry| Arc::new(entry.value().clone()))
     }
 
     fn has(&self, key: &str) -> bool {
@@ -65,7 +67,10 @@ impl Registry<ScriptDefinition> for ScriptRegistry {
     }
 
     fn list(&self) -> Vec<String> {
-        self.scripts.iter().map(|entry| entry.key().clone()).collect()
+        self.scripts
+            .iter()
+            .map(|entry| entry.key().clone())
+            .collect()
     }
 
     fn is_empty(&self) -> bool {
@@ -86,9 +91,12 @@ impl MutableRegistry<ScriptDefinition> for ScriptRegistry {
         Ok(())
     }
 
-    fn register_or_replace(&self, key: String, item: Arc<ScriptDefinition>) -> Option<Arc<ScriptDefinition>> {
-        self.scripts.insert(key, (*item).clone())
-            .map(Arc::new)
+    fn register_or_replace(
+        &self,
+        key: String,
+        item: Arc<ScriptDefinition>,
+    ) -> Option<Arc<ScriptDefinition>> {
+        self.scripts.insert(key, (*item).clone()).map(Arc::new)
     }
 
     fn unregister(&self, key: &str) -> Option<Arc<ScriptDefinition>> {
@@ -135,7 +143,9 @@ impl WorkflowRegistry {
 
     /// Register a graph so a trigger action can execute it as a sub-workflow.
     pub fn register_graph(&self, workflow_id: &str, graph: WorkflowGraphStructure) {
-        let _ = self.graphs.register(workflow_id.to_string(), Arc::new(graph));
+        let _ = self
+            .graphs
+            .register(workflow_id.to_string(), Arc::new(graph));
     }
 
     /// Look up a previously registered graph by workflow id.

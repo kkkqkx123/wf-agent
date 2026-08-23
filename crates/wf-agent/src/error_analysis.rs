@@ -387,18 +387,19 @@ pub fn analyze_error_pattern(records: &[ErrorRecord]) -> ErrorPattern {
         }
     }
 
-    let most_common_type = type_dist
-        .iter()
-        .max_by_key(|(_, count)| *count)
-        .and_then(|(name, _)| match name.as_str() {
-            "ToolError" => Some(ErrorType::ToolError),
-            "LlmError" => Some(ErrorType::LlmError),
-            "Timeout" => Some(ErrorType::Timeout),
-            "Validation" => Some(ErrorType::Validation),
-            "Internal" => Some(ErrorType::Internal),
-            "Interruption" => Some(ErrorType::Interruption),
-            _ => None,
-        });
+    let most_common_type =
+        type_dist
+            .iter()
+            .max_by_key(|(_, count)| *count)
+            .and_then(|(name, _)| match name.as_str() {
+                "ToolError" => Some(ErrorType::ToolError),
+                "LlmError" => Some(ErrorType::LlmError),
+                "Timeout" => Some(ErrorType::Timeout),
+                "Validation" => Some(ErrorType::Validation),
+                "Internal" => Some(ErrorType::Internal),
+                "Interruption" => Some(ErrorType::Interruption),
+                _ => None,
+            });
 
     ErrorPattern {
         total_errors: records.len(),

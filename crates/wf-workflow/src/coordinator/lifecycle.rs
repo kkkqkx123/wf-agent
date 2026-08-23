@@ -138,18 +138,19 @@ impl WorkflowLifecycleCoordinator {
         let workflow_id_metrics = workflow_id.clone();
 
         // Reject structurally invalid graphs before execution starts.
-        let _validated = crate::validation::GraphValidator::validate(graph.clone()).map_err(|errors| {
-            let detail = errors
-                .iter()
-                .map(|e| format!("{}: {}", e.field, e.message))
-                .collect::<Vec<_>>()
-                .join("; ");
-            WorkflowError::GraphError(format!(
-                "Workflow graph validation failed ({} error(s)): {}",
-                errors.len(),
-                detail
-            ))
-        })?;
+        let _validated =
+            crate::validation::GraphValidator::validate(graph.clone()).map_err(|errors| {
+                let detail = errors
+                    .iter()
+                    .map(|e| format!("{}: {}", e.field, e.message))
+                    .collect::<Vec<_>>()
+                    .join("; ");
+                WorkflowError::GraphError(format!(
+                    "Workflow graph validation failed ({} error(s)): {}",
+                    errors.len(),
+                    detail
+                ))
+            })?;
 
         let mut wf_state = WorkflowStateMachine::new(&execution_id);
         wf_state

@@ -8,8 +8,8 @@ use layertwine::core::snapshot::{Snapshot, SnapshotContent};
 use layertwine::layered::StateMachine;
 use layertwine::storage::repository::SnapshotStore;
 use layertwine::storage::sqlite::SqliteStorage;
-use wf_types::config::file_checkpoint::{ConflictBehavior, FailureBehavior};
 pub use wf_types::config::file_checkpoint::ApprovalPolicy;
+use wf_types::config::file_checkpoint::{ConflictBehavior, FailureBehavior};
 
 use crate::actor_id::ActorId;
 use crate::diff::DiffEngine;
@@ -329,7 +329,7 @@ impl Clone for FileCheckpointManager {
             approval_policy: self.approval_policy,
             conflict_behavior: self.conflict_behavior,
             gc_interval_secs: self.gc_interval_secs,
-            gc_retention: self.gc_retention.clone(),
+            gc_retention: self.gc_retention,
             actor_index: self.actor_index.clone(),
         }
     }
@@ -423,11 +423,11 @@ impl FileCheckpointManager {
         manager.approval_policy = config.approval_policy;
         manager.conflict_behavior = config.conflict_behavior;
         manager.gc_interval_secs = config.gc_interval_secs;
-        manager.gc_retention = config.gc_retention.map(|r| {
-            layertwine::git_sync::GcRetention {
+        manager.gc_retention = config
+            .gc_retention
+            .map(|r| layertwine::git_sync::GcRetention {
                 keep_recent_heads: r.keep_recent_heads,
-            }
-        });
+            });
         Ok(manager)
     }
 
@@ -622,6 +622,7 @@ impl Default for FileCheckpointManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use layertwine::storage::repository::{CheckpointPersist, PartitionStore};
 
     fn manager() -> FileCheckpointManager {
         FileCheckpointManager::new_in_memory().unwrap()
@@ -1014,10 +1015,7 @@ mod tests {
 
     /// Reads the reconstructed text of every file in an integrated (feature)
     /// partition, in history order (last occurrence per path wins).
-    fn feature_texts(
-        storage: &SqliteStorage,
-        feature_name: &str,
-    ) -> HashMap<String, String> {
+    fn feature_texts(storage: &SqliteStorage, feature_name: &str) -> HashMap<String, String> {
         let pid = layertwine::layered::integrated::integrated_partition_id(feature_name);
         let partition = storage.get_partition(&pid).unwrap();
         let mut texts: HashMap<String, String> = HashMap::new();
@@ -1042,14 +1040,18 @@ mod tests {
             ("b.txt", b"base-b".as_slice()),
             ("c.txt", b"base-c".as_slice()),
         ] {
-            manager.create_checkpoint("exec-1", &[entry(path, content)]).unwrap();
+            manager
+                .create_checkpoint("exec-1", &[entry(path, content)])
+                .unwrap();
         }
         for (path, content) in [
             ("a.txt", b"new-a".as_slice()),
             ("b.txt", b"new-b".as_slice()),
             ("c.txt", b"new-c".as_slice()),
         ] {
-            manager.create_checkpoint("exec-1", &[entry(path, content)]).unwrap();
+            manager
+                .create_checkpoint("exec-1", &[entry(path, content)])
+                .unwrap();
         }
         manager.move_agent_to_approval("exec-1").unwrap();
 
@@ -1094,7 +1096,10 @@ mod tests {
         assert!(outcome.merged);
         assert!(!outcome.has_conflicts());
         let pending = manager.list_pending_approvals().unwrap();
-        assert!(pending.is_empty(), "full-batch approve clears the submission");
+        assert!(
+            pending.is_empty(),
+            "full-batch approve clears the submission"
+        );
     }
 
     #[test]
@@ -1147,7 +1152,10 @@ mod tests {
 
         // A subsequent full merge succeeds cleanly.
         let remerged = manager.merge_entity_changes("exec-2", "feature-1").unwrap();
-        assert!(!remerged.has_conflicts(), "re-merge after resolution must succeed");
+        assert!(
+            !remerged.has_conflicts(),
+            "re-merge after resolution must succeed"
+        );
     }
 
     #[test]
@@ -1180,8 +1188,7 @@ mod tests {
             .current_snapshot;
         storage
             .store_branch(&layertwine::checkpoint::branch::Branch::new(
-                "branch-1",
-                head,
+                "branch-1", head,
             ))
             .unwrap();
         let head2 = storage
@@ -1192,28 +1199,32 @@ mod tests {
             .current_snapshot;
         storage
             .store_branch(&layertwine::checkpoint::branch::Branch::new(
-                "branch-2",
-                head2,
+                "branch-2", head2,
             ))
             .unwrap();
 
         // Join: merge both features into staged, then delete the pointers.
-        let joined = manager.merge_branch_changes(&["branch-1", "branch-2"]).unwrap();
-        assert!(!joined.has_conflicts(), "different-file branches must join cleanly");
+        let joined = manager
+            .merge_branch_changes(&["branch-1", "branch-2"])
+            .unwrap();
+        assert!(
+            !joined.has_conflicts(),
+            "different-file branches must join cleanly"
+        );
 
         // Both changes are present in the staged workspace.
         let staged = crate::provenance::get_staged_workspace(storage).unwrap();
-        let map: HashMap<&str, &WorkspaceFile> = staged
-            .iter()
-            .map(|f| (f.path.as_str(), f))
-            .collect();
+        let map: HashMap<&str, &WorkspaceFile> =
+            staged.iter().map(|f| (f.path.as_str(), f)).collect();
         assert_eq!(map["a.txt"].content, b"branch-a");
         assert_eq!(map["b.txt"].content, b"branch-b");
 
         // Branch head pointers are removed; the DAG data stays intact.
         let branches = storage.list_branches().unwrap();
         assert!(
-            !branches.iter().any(|b| b.name == "branch-1" || b.name == "branch-2"),
+            !branches
+                .iter()
+                .any(|b| b.name == "branch-1" || b.name == "branch-2"),
             "join must delete the branch head pointers"
         );
     }

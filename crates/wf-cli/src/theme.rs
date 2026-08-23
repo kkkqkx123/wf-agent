@@ -1,5 +1,5 @@
 //! Theme detection: OSC 10/11 color probing, palette derivation, the
-//! last-known-good cache and the SIGUSR2 hot-reload signal 
+//! last-known-good cache and the SIGUSR2 hot-reload signal
 //!
 //! The theme is pure data ([`Theme`]) consumed by the components that map
 //! roles to ratatui styles; this module never renders.
@@ -43,7 +43,11 @@ impl Rgb {
 
     /// Linear-ish blend: `t = 0` → `self`, `t = 1` → `other`.
     fn blend(self, other: Rgb, t: f32) -> Rgb {
-        let mix = |a: u8, b: u8| (a as f32 + (b as f32 - a as f32) * t).round().clamp(0.0, 255.0) as u8;
+        let mix = |a: u8, b: u8| {
+            (a as f32 + (b as f32 - a as f32) * t)
+                .round()
+                .clamp(0.0, 255.0) as u8
+        };
         Rgb::new(
             mix(self.r, other.r),
             mix(self.g, other.g),
@@ -96,7 +100,10 @@ impl ColorDomain {
 
     /// Detect from the real environment.
     pub fn detect_from_env() -> Self {
-        Self::detect(std::env::var("COLORTERM").ok().as_deref(), std::env::var("TERM").ok().as_deref())
+        Self::detect(
+            std::env::var("COLORTERM").ok().as_deref(),
+            std::env::var("TERM").ok().as_deref(),
+        )
     }
 }
 
@@ -344,10 +351,9 @@ pub fn parse_osc_response(buf: &[u8]) -> Option<(u8, Rgb, usize)> {
     let rest = buf.strip_prefix(b"\x1b]")?;
     let (query, rest) = if let Some(r) = rest.strip_prefix(b"10;") {
         (10u8, r)
-    } else if let Some(r) = rest.strip_prefix(b"11;") {
-        (11u8, r)
     } else {
-        return None;
+        let r = rest.strip_prefix(b"11;")?;
+        (11u8, r)
     };
     let rest = rest.strip_prefix(b"rgb:")?;
 
@@ -465,7 +471,9 @@ fn probe_osc_colors(timeout: Duration) -> (Option<Rgb>, Option<Rgb>) {
     };
 
     let raw_was_enabled = crossterm::terminal::is_raw_mode_enabled().unwrap_or(false);
-    let raw_restorer = RawModeRestorer { restore: raw_was_enabled };
+    let raw_restorer = RawModeRestorer {
+        restore: raw_was_enabled,
+    };
     if !raw_was_enabled && crossterm::terminal::enable_raw_mode().is_err() {
         return (None, None);
     }
@@ -493,7 +501,11 @@ fn probe_osc_colors(timeout: Duration) -> (Option<Rgb>, Option<Rgb>) {
         };
         // SAFETY: `pfd` is a valid, exclusively-owned pollfd.
         let ready = unsafe {
-            libc::poll(&mut pfd, 1, remaining.as_millis().clamp(1, i32::MAX as u128) as i32)
+            libc::poll(
+                &mut pfd,
+                1,
+                remaining.as_millis().clamp(1, i32::MAX as u128) as i32,
+            )
         };
         if ready <= 0 {
             break; // timeout or error
@@ -644,7 +656,7 @@ mod tests {
         assert_eq!(t.kind, ThemeKind::Dark);
         assert_eq!(t.source, ThemeSource::Probed);
         assert_eq!(t.fg, Rgb::new(0xE5, 0xE7, 0xEB)); // default dark fg
-        // Accent must contrast more with the bg than the bg luminance span.
+                                                      // Accent must contrast more with the bg than the bg luminance span.
         assert!((luminance(t.accent) - luminance(t.bg)).abs() > 0.2);
     }
 
@@ -678,9 +690,18 @@ mod tests {
 
     #[test]
     fn color_domain_detection() {
-        assert_eq!(ColorDomain::detect(Some("truecolor"), Some("xterm")), ColorDomain::TrueColor);
-        assert_eq!(ColorDomain::detect(Some("24bit"), None), ColorDomain::TrueColor);
-        assert_eq!(ColorDomain::detect(None, Some("xterm-256color")), ColorDomain::Ansi256);
+        assert_eq!(
+            ColorDomain::detect(Some("truecolor"), Some("xterm")),
+            ColorDomain::TrueColor
+        );
+        assert_eq!(
+            ColorDomain::detect(Some("24bit"), None),
+            ColorDomain::TrueColor
+        );
+        assert_eq!(
+            ColorDomain::detect(None, Some("xterm-256color")),
+            ColorDomain::Ansi256
+        );
         assert_eq!(ColorDomain::detect(None, Some("dumb")), ColorDomain::Ansi16);
         assert_eq!(ColorDomain::detect(None, None), ColorDomain::Ansi16);
     }

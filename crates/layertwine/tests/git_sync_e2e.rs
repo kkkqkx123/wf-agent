@@ -524,7 +524,10 @@ fn test_e2e_gc_protects_git_anchored_checkpoints() {
     );
 
     // Protected as branch head + git_anchor
-    let protected = layertwine::git_sync::collect_protected_checkpoints(&fixture.checkpoint_repo, layertwine::git_sync::GcRetention::default());
+    let protected = layertwine::git_sync::collect_protected_checkpoints(
+        &fixture.checkpoint_repo,
+        layertwine::git_sync::GcRetention::default(),
+    );
     assert!(
         protected.contains(&head_id),
         "branch head with git_anchor should be protected"
@@ -535,8 +538,10 @@ fn test_e2e_gc_protects_git_anchored_checkpoints() {
         .checkpoint_repo
         .branches
         .retain(|b| b.name != "main");
-    let protected_after =
-        layertwine::git_sync::collect_protected_checkpoints(&fixture.checkpoint_repo, layertwine::git_sync::GcRetention::default());
+    let protected_after = layertwine::git_sync::collect_protected_checkpoints(
+        &fixture.checkpoint_repo,
+        layertwine::git_sync::GcRetention::default(),
+    );
     assert!(
         protected_after.contains(&head_id),
         "checkpoint with git_anchor should still be protected even without a branch"

@@ -105,7 +105,10 @@ impl Default for ResourceRegistries {
 ///
 /// When `skip_if_exists` is true, existing keys are silently skipped (no-op).
 /// When `skip_if_exists` is false, duplicate keys are reported as failures.
-#[deprecated(since = "0.1.0", note = "use `register_item` without skip_if_exists, or call `registry.has()` first")]
+#[deprecated(
+    since = "0.1.0",
+    note = "use `register_item` without skip_if_exists, or call `registry.has()` first"
+)]
 pub fn register_item<T: Send + Sync>(
     registry: &ConcurrentRegistry<T>,
     key: String,
@@ -201,7 +204,10 @@ pub fn register_fragment(
 
 /// Template ids whose declared fragment list references `fragment_id`
 /// (dependency tracking for cascade-safe unregistration).
-pub fn templates_depending_on_fragment(regs: &ResourceRegistries, fragment_id: &str) -> Vec<String> {
+pub fn templates_depending_on_fragment(
+    regs: &ResourceRegistries,
+    fragment_id: &str,
+) -> Vec<String> {
     regs.templates
         .list()
         .into_iter()
@@ -440,7 +446,11 @@ mod tests {
         let regs = ResourceRegistries::new();
         register_fragment(&regs, fragment("fragments.role.coder", "role"), false);
         register_fragment(&regs, fragment("fragments.role.assistant", "role"), false);
-        register_fragment(&regs, fragment("fragments.capability.general", "capability"), false);
+        register_fragment(
+            &regs,
+            fragment("fragments.capability.general", "capability"),
+            false,
+        );
 
         assert_eq!(
             list_fragments_by_category(&regs, "role"),
@@ -499,7 +509,10 @@ mod tests {
         let regs = ResourceRegistries::new();
         register_template(&regs, template("system.one", "system", None), false);
         register_template(&regs, template("user.two", "user", None), false);
-        assert_eq!(list_templates_by_category(&regs, "system"), vec!["system.one"]);
+        assert_eq!(
+            list_templates_by_category(&regs, "system"),
+            vec!["system.one"]
+        );
         assert!(list_templates_by_category(&regs, "rules").is_empty());
     }
 }

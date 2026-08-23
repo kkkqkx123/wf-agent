@@ -187,7 +187,7 @@ impl SessionReducer {
                 && self
                     .last
                     .as_ref()
-                    .map_or(false, |l| l.group == group && l.sig == sig);
+                    .is_some_and(|l| l.group == group && l.sig == sig);
             self.last = Some(LastEvent { group, sig });
             if duplicate {
                 continue;
@@ -250,12 +250,7 @@ impl SessionReducer {
                 ..
             } => {
                 self.flush_text(commits);
-                if let Some(pos) = self
-                    .footer
-                    .active_tools
-                    .iter()
-                    .position(|t| t == tool_name)
-                {
+                if let Some(pos) = self.footer.active_tools.iter().position(|t| t == tool_name) {
                     self.footer.active_tools.remove(pos);
                 }
                 commits.push(MiniCommit::ToolEnd {
@@ -521,10 +516,13 @@ mod tests {
 
     #[test]
     fn completed_returns_footer_to_idle() {
-        let events = vec![delta("done"), UnifiedEvent::Completed {
-            result: serde_json::Value::Null,
-            iterations: 3,
-        }];
+        let events = vec![
+            delta("done"),
+            UnifiedEvent::Completed {
+                result: serde_json::Value::Null,
+                iterations: 3,
+            },
+        ];
         let (commits, footer) = fold(&events, "exec-1");
         assert_eq!(
             commits,
@@ -541,9 +539,12 @@ mod tests {
 
     #[test]
     fn failed_records_last_error_and_returns_to_idle() {
-        let events = vec![delta("oops"), UnifiedEvent::Failed {
-            error: "boom".to_string(),
-        }];
+        let events = vec![
+            delta("oops"),
+            UnifiedEvent::Failed {
+                error: "boom".to_string(),
+            },
+        ];
         let (commits, footer) = fold(&events, "exec-1");
         assert_eq!(
             commits,

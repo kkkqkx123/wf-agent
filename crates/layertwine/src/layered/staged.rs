@@ -80,7 +80,9 @@ pub fn ensure_staged_partition<S: PartitionStore>(
 /// own file node when no delta exists).
 fn snapshot_file_path<S: DeltaStore>(storage: &S, snapshot: &Snapshot) -> Result<String> {
     if let Some(delta_id) = snapshot.deltas.last() {
-        let delta = storage.get_delta(delta_id).map_err(LayertwineError::Storage)?;
+        let delta = storage
+            .get_delta(delta_id)
+            .map_err(LayertwineError::Storage)?;
         Ok(delta.file.path_str().to_string())
     } else {
         Ok(snapshot.file.path_str().to_string())
@@ -349,10 +351,9 @@ mod tests {
             .store_file_node(&file_node, content.as_bytes())
             .unwrap();
 
-        let parent_text =
-            crate::layered::transition::reconstruct_text(storage, &parent)
-                .unwrap()
-                .unwrap_or_default();
+        let parent_text = crate::layered::transition::reconstruct_text(storage, &parent)
+            .unwrap()
+            .unwrap_or_default();
         let diff = diff_to_line_diff(&parent_text, content);
         let delta = Delta::new(file_node, diff, SourceType::Manual);
         storage.store_delta(&delta).unwrap();

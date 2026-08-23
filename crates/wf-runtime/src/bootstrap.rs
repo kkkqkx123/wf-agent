@@ -455,9 +455,7 @@ impl Runtime {
         let gate_stats = agent_registry.gate_stats();
         info!(
             "Agent capacity gate at startup: max_concurrent={}, active={}, available={}",
-            gate_stats.max_concurrent,
-            gate_stats.active_count,
-            gate_stats.available_permits
+            gate_stats.max_concurrent, gate_stats.active_count, gate_stats.available_permits
         );
 
         let metrics = match config.metrics.as_ref() {
@@ -604,7 +602,8 @@ impl Runtime {
         // Optional periodic GC timer: when `gc_interval_secs` is configured,
         // spawn a background task that runs `run_gc` at the specified interval.
         #[cfg(feature = "checkpoint")]
-        let gc_timer_handle = init_gc_timer(&config.file_checkpoint, file_checkpoint_manager.as_ref());
+        let gc_timer_handle =
+            init_gc_timer(&config.file_checkpoint, file_checkpoint_manager.as_ref());
 
         info!("Runtime bootstrap complete");
 
@@ -773,6 +772,12 @@ impl Runtime {
             handle.abort();
         }
 
+        // Stop the periodic GC timer before the storage layer closes.
+        #[cfg(feature = "checkpoint")]
+        if let Some(handle) = self.gc_timer_handle.take() {
+            handle.abort();
+        }
+
         if let Some(manager) = self.mcp_manager.take() {
             let servers = manager.connected_servers();
             for server in servers {
@@ -789,8 +794,7 @@ impl Runtime {
         let stats = self.agent_registry.gate_stats();
         info!(
             "Agent capacity gate final stats: active={}, available={}",
-            stats.active_count,
-            stats.available_permits
+            stats.active_count, stats.available_permits
         );
 
         self.storage_manager.close().await?;
@@ -1649,7 +1653,10 @@ mod tests {
         });
 
         // Deactivation via the plugin engine removes the workflow and prompt.
-        engine.deactivate("@standard/goal-review-agent").await.unwrap();
+        engine
+            .deactivate("@standard/goal-review-agent")
+            .await
+            .unwrap();
         assert_eq!(
             engine
                 .registry()

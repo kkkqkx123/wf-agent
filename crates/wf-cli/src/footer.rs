@@ -246,10 +246,7 @@ impl Footer {
     /// Draw the whole footer into `area` of `buf`.
     pub fn draw(&mut self, area: Rect, buf: &mut Buffer, theme: &Theme) {
         let height = self.apply_height().min(area.height);
-        let area = Rect {
-            height,
-            ..area
-        };
+        let area = Rect { height, ..area };
         let [top, main, status, bottom] = Layout::vertical([
             Constraint::Length(1),
             Constraint::Length(height.saturating_sub(3)),
@@ -267,40 +264,35 @@ impl Footer {
 
     /// Render the main area by the current view x route.
     fn draw_main(&mut self, area: Rect, buf: &mut Buffer, theme: &Theme) {
-        match (self.view, self.route) {
-            (FooterView::Prompt, FooterRoute::Composer) => {
-                let style = theme_style(theme, Role::Default);
-                if let Some(streaming) = &self.streaming {
-                    // The streaming tail renders at width - 2 (reserved
-                    // margin) so its row count stays stable across stream
-                    // ticks and
-                    // a resize never shifts the viewport height mid-stream.
-                    let render_width = area.width.saturating_sub(STREAMING_WIDTH_MARGIN);
-                    let lines = streaming.display_lines(render_width);
-                    let stream_rows = lines.len() as u16;
-                    let [tail, rest] = Layout::vertical([
-                        Constraint::Length(stream_rows),
-                        Constraint::Min(1),
-                    ])
-                    .areas(area);
-                    for (i, line) in lines.iter().enumerate() {
-                        let row = Rect {
-                            x: tail.x,
-                            y: tail.y + i as u16,
-                            width: tail.width,
-                            height: 1,
-                        };
-                        render_line_into(row, buf, line);
-                    }
-                    self.composer.render(rest, buf, style);
-                } else {
-                    self.composer.render(area, buf, style);
+        if self.view == FooterView::Prompt && self.route == FooterRoute::Composer {
+            let style = theme_style(theme, Role::Default);
+            if let Some(streaming) = &self.streaming {
+                // The streaming tail renders at width - 2 (reserved
+                // margin) so its row count stays stable across stream
+                // ticks and
+                // a resize never shifts the viewport height mid-stream.
+                let render_width = area.width.saturating_sub(STREAMING_WIDTH_MARGIN);
+                let lines = streaming.display_lines(render_width);
+                let stream_rows = lines.len() as u16;
+                let [tail, rest] =
+                    Layout::vertical([Constraint::Length(stream_rows), Constraint::Min(1)])
+                        .areas(area);
+                for (i, line) in lines.iter().enumerate() {
+                    let row = Rect {
+                        x: tail.x,
+                        y: tail.y + i as u16,
+                        width: tail.width,
+                        height: 1,
+                    };
+                    render_line_into(row, buf, line);
                 }
+                self.composer.render(rest, buf, style);
+            } else {
+                self.composer.render(area, buf, style);
             }
-            // Panels / approval / question render nothing here; the main
-            // area stays quiet (the status line still reports state).
-            _ => {}
         }
+        // Panels / approval / question render nothing here; the main
+        // area stays quiet (the status line still reports state).
     }
 
     /// Render the status line: leading icon + label + status text, with a
@@ -330,10 +322,7 @@ impl Footer {
         } else if area.width >= STATUSLINE_SUMMARY_WIDTH {
             if let Some(exec) = &self.state.execution_id {
                 spans.push(Span::styled(
-                    format!(
-                        " ▣ {exec} · {}",
-                        format_duration(self.state.duration_ms)
-                    ),
+                    format!(" ▣ {exec} · {}", format_duration(self.state.duration_ms)),
                     theme_style(theme, Role::Muted),
                 ));
             }
@@ -395,7 +384,7 @@ pub fn theme_style(theme: &Theme, role: Role) -> Style {
 /// clips graphemes to the area width).
 fn render_line_into(area: Rect, buf: &mut Buffer, line: &Line<'_>) {
     let width = usize::from(area.width.max(1));
-    buf.set_string(area.x, area.y, &" ".repeat(width), Style::default());
+    buf.set_string(area.x, area.y, " ".repeat(width), Style::default());
     let mut col = 0usize;
     for span in &line.spans {
         if col >= width {
@@ -511,7 +500,10 @@ mod tests {
     fn panel_permission_question_heights() {
         let mut footer = Footer::new();
         footer.set_route(FooterRoute::Model);
-        assert_eq!(footer.apply_height(), FOOTER_BASE_HEIGHT + PANEL_MAIN_HEIGHT);
+        assert_eq!(
+            footer.apply_height(),
+            FOOTER_BASE_HEIGHT + PANEL_MAIN_HEIGHT
+        );
         footer.present(FooterView::Permission);
         assert_eq!(
             footer.apply_height(),

@@ -144,12 +144,7 @@ impl Keymap {
     /// Resolve `key` in `ctx`: context tables, then the global table, then
     /// the builtin defaults.
     pub fn resolve(&self, ctx: KeymapContext, key: Key) -> Option<KeyAction> {
-        if let Some(action) = self
-            .context
-            .get(&ctx)
-            .and_then(|m| m.get(&key))
-            .copied()
-        {
+        if let Some(action) = self.context.get(&ctx).and_then(|m| m.get(&key)).copied() {
             return Some(action);
         }
         if let Some(action) = self.global.get(&key).copied() {
@@ -298,9 +293,18 @@ mod tests {
     fn resolves_list_navigation_from_defaults() {
         let km = builtin_keymap();
         // no overrides; ensure the 'None' noop sample? just check list keys.
-        assert_eq!(km.resolve(KeymapContext::List, Key::plain(Down)), Some(MoveNext));
-        assert_eq!(km.resolve(KeymapContext::List, Key::plain(CKey::Char('j'))), Some(MoveNext));
-        assert_eq!(km.resolve(KeymapContext::List, Key::plain(Enter)), Some(Select));
+        assert_eq!(
+            km.resolve(KeymapContext::List, Key::plain(Down)),
+            Some(MoveNext)
+        );
+        assert_eq!(
+            km.resolve(KeymapContext::List, Key::plain(CKey::Char('j'))),
+            Some(MoveNext)
+        );
+        assert_eq!(
+            km.resolve(KeymapContext::List, Key::plain(Enter)),
+            Some(Select)
+        );
     }
 
     #[test]
@@ -309,7 +313,10 @@ mod tests {
         // global binds '?' to Help; enter it for List and override Down.
         km.set_global(Key::plain(CKey::Char('?')), Redraw);
         // '?' is global; in List it resolves through global override first.
-        assert_eq!(km.resolve(KeymapContext::List, Key::plain(CKey::Char('?'))), Some(Redraw));
+        assert_eq!(
+            km.resolve(KeymapContext::List, Key::plain(CKey::Char('?'))),
+            Some(Redraw)
+        );
     }
 
     #[test]
@@ -318,7 +325,10 @@ mod tests {
         km.bind(KeymapContext::List, Key::plain(Down), MoveNext);
         // rebind to nothing meaningful: check bind changes result.
         km.bind(KeymapContext::List, Key::plain(Down), Clear);
-        assert_eq!(km.resolve(KeymapContext::List, Key::plain(Down)), Some(Clear));
+        assert_eq!(
+            km.resolve(KeymapContext::List, Key::plain(Down)),
+            Some(Clear)
+        );
     }
 
     #[test]
@@ -350,8 +360,14 @@ mod tests {
     #[test]
     fn modal_offers_approval_keys() {
         let km = builtin_keymap();
-        assert_eq!(km.resolve(KeymapContext::Modal, Key::plain(CKey::Char('y'))), Some(Approve));
-        assert_eq!(km.resolve(KeymapContext::Modal, Key::plain(CKey::Char('n'))), Some(Deny));
+        assert_eq!(
+            km.resolve(KeymapContext::Modal, Key::plain(CKey::Char('y'))),
+            Some(Approve)
+        );
+        assert_eq!(
+            km.resolve(KeymapContext::Modal, Key::plain(CKey::Char('n'))),
+            Some(Deny)
+        );
     }
 
     #[test]
@@ -385,8 +401,14 @@ mod tests {
         assert_eq!(km.resolve(ctx, Key::plain(Enter)), Some(Select));
         assert_eq!(km.resolve(ctx, Key::plain(Esc)), Some(Back));
         assert_eq!(km.resolve(ctx, Key::plain(CKey::Char('E'))), Some(Edit));
-        assert_eq!(km.resolve(ctx, Key::plain(CKey::Char('D'))), Some(KeyAction::Delete));
-        assert_eq!(km.resolve(ctx, Key::plain(CKey::Delete)), Some(KeyAction::Delete));
+        assert_eq!(
+            km.resolve(ctx, Key::plain(CKey::Char('D'))),
+            Some(KeyAction::Delete)
+        );
+        assert_eq!(
+            km.resolve(ctx, Key::plain(CKey::Delete)),
+            Some(KeyAction::Delete)
+        );
         assert_eq!(km.resolve(ctx, Key::ctrl(CKey::Char('u'))), Some(Clear));
     }
 
@@ -395,7 +417,10 @@ mod tests {
         let km = builtin_keymap();
         let ctx = KeymapContext::Approval;
         assert_eq!(km.resolve(ctx, Key::plain(CKey::Char('y'))), Some(Approve));
-        assert_eq!(km.resolve(ctx, Key::plain(CKey::Char('a'))), Some(ApproveAll));
+        assert_eq!(
+            km.resolve(ctx, Key::plain(CKey::Char('a'))),
+            Some(ApproveAll)
+        );
         assert_eq!(km.resolve(ctx, Key::plain(CKey::Char('n'))), Some(Deny));
         assert_eq!(km.resolve(ctx, Key::plain(CKey::Char('d'))), Some(DenyOnce));
         assert_eq!(km.resolve(ctx, Key::plain(CKey::Char('c'))), Some(Cancel));

@@ -30,12 +30,9 @@ pub fn sanitize_user_text(text: &str) -> String {
             i = j;
             continue;
         }
-        // Preserve newlines and tabs; strip other control chars (except ESC
-        // handled above).
+        // Preserve newlines, tabs and bare ESC; strip other control chars.
         let b = bytes[i];
-        if b == b'\n' || b == b'\t' {
-            out.push(b as char);
-        } else if b >= 0x20 || b == 0x1b {
+        if b == b'\n' || b == b'\t' || b >= 0x20 || b == 0x1b {
             out.push(b as char);
         }
         // Other control bytes (< 0x20, not \n \t ESC) are silently dropped.

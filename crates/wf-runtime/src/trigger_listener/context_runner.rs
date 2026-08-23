@@ -123,22 +123,28 @@ impl TriggerActionRunner for ContextTriggerRunner {
         let timeout = self.config.timeout.unwrap_or_else(|| {
             std::time::Duration::from_millis(CONTEXT_TRIGGER_DEFAULT_TIMEOUT_MS)
         });
-        let result = tokio::time::timeout(timeout, TriggerCoordinator::execute(action, &template.name, &tctx))
-            .await
-            .unwrap_or_else(|_| {
-                warn!(
-                    "Context trigger '{}' timed out after {:?}",
-                    template.name, timeout
-                );
-                wf_types::trigger::TriggerExecutionResult {
-                    trigger_id: wf_types::Id::from(template.name.clone()),
-                    success: false,
-                    execution_id: None,
-                    result: None,
-                    error: Some(format!("ContextTriggerRunner timed out after {:?}", timeout)),
-                    execution_time: 0,
-                }
-            });
+        let result = tokio::time::timeout(
+            timeout,
+            TriggerCoordinator::execute(action, &template.name, &tctx),
+        )
+        .await
+        .unwrap_or_else(|_| {
+            warn!(
+                "Context trigger '{}' timed out after {:?}",
+                template.name, timeout
+            );
+            wf_types::trigger::TriggerExecutionResult {
+                trigger_id: wf_types::Id::from(template.name.clone()),
+                success: false,
+                execution_id: None,
+                result: None,
+                error: Some(format!(
+                    "ContextTriggerRunner timed out after {:?}",
+                    timeout
+                )),
+                execution_time: 0,
+            }
+        });
         if result.success {
             Ok(())
         } else {

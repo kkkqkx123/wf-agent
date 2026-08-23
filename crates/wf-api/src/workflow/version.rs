@@ -28,7 +28,9 @@ pub async fn get_workflow_version(
         .workflow
         .load_version(workflow_id, version)
         .await?
-        .ok_or_else(|| crate::not_found("workflow_version", &format!("{}:v{}", workflow_id, version)))
+        .ok_or_else(|| {
+            crate::not_found("workflow_version", &format!("{}:v{}", workflow_id, version))
+        })
 }
 
 pub async fn list_workflow_versions(

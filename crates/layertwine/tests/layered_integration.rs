@@ -50,7 +50,9 @@ fn create_initial_snapshot(storage: &SqliteStorage, content: &str) -> SnapshotId
 /// Reconstruct text content for a snapshot.
 fn get_text(storage: &SqliteStorage, snapshot_id: &SnapshotId) -> String {
     let snap = storage.get_snapshot(snapshot_id).unwrap();
-    reconstruct_text(storage, &snap).unwrap().unwrap_or_default()
+    reconstruct_text(storage, &snap)
+        .unwrap()
+        .unwrap_or_default()
 }
 
 /// Ensure staged partition exists.

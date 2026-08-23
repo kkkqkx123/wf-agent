@@ -18,17 +18,17 @@ pub fn validate_workflow(workflow: &WorkflowDefinition) -> crate::ApiResult<()> 
     wf_workflow::validation::GraphValidator::validate(graph)
         .map(|_| ())
         .map_err(|errors| {
-        let detail = errors
-            .iter()
-            .map(|e| format!("{}: {}", e.field, e.message))
-            .collect::<Vec<_>>()
-            .join("; ");
-        ApiError::Validation(format!(
-            "workflow graph validation failed ({} error(s)): {}",
-            errors.len(),
-            detail
-        ))
-    })
+            let detail = errors
+                .iter()
+                .map(|e| format!("{}: {}", e.field, e.message))
+                .collect::<Vec<_>>()
+                .join("; ");
+            ApiError::Validation(format!(
+                "workflow graph validation failed ({} error(s)): {}",
+                errors.len(),
+                detail
+            ))
+        })
 }
 
 /// Save a workflow and sync the registry (convenience wrapper).

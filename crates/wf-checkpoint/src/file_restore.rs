@@ -2,10 +2,13 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use crate::error::CheckpointError;
-use crate::file::{FileCheckpointManager, FileCheckpointOptions, FileState, WorkspaceRestoreResult};
+use crate::file::{
+    FileCheckpointManager, FileCheckpointOptions, FileState, WorkspaceRestoreResult,
+};
 use crate::file_util::{
-    checkpoint_deleted_paths as checkpoint_deleted_paths_fn, checkpoint_states as checkpoint_states_fn,
-    handle_restore_failure, resolve_restore_target, sha256_hex, write_file_with_dirs,
+    checkpoint_deleted_paths as checkpoint_deleted_paths_fn,
+    checkpoint_states as checkpoint_states_fn, handle_restore_failure, resolve_restore_target,
+    sha256_hex, write_file_with_dirs,
 };
 use crate::scan::{is_hardcoded_ignored, ScanConfig, WorkspaceScanner};
 

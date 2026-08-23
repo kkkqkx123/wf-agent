@@ -33,10 +33,10 @@ mod workflow_runner;
 pub use agent_runner::AgentTriggerRunner;
 pub use context_runner::{ContextTriggerRunner, ContextTriggerRunnerConfig};
 pub use router::TriggerActionRouter;
+pub use wf_workflow::execution_context::ExecutionContextRegistry;
 pub use workflow_runner::{
     template_to_graph, ResourceTriggerRegistry, SubworkflowActionRunner, WorkflowRunner,
 };
-pub use wf_workflow::execution_context::ExecutionContextRegistry;
 
 /// The engine's builtin hook receiver for the `CONTEXT_COMPRESSION_REQUESTED`
 /// signal.

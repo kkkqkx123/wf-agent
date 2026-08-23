@@ -424,10 +424,7 @@ fn rederive_conflicts(
                         .get_partition(&fpid)
                         .ok()
                         .and_then(|p| p.history.first().copied());
-                    match base {
-                        Some(base) => Some((base, parents[0], parents[1])),
-                        None => None,
-                    }
+                    base.map(|base| (base, parents[0], parents[1]))
                 }
                 None => None,
             }
@@ -455,10 +452,7 @@ fn rederive_conflicts(
                         .get_partition(&pid)
                         .ok()
                         .and_then(|p| p.history.first().copied());
-                    match base {
-                        Some(base) => Some((base, parents[0], parents[1])),
-                        None => None,
-                    }
+                    base.map(|base| (base, parents[0], parents[1]))
                 }
                 None => None,
             }

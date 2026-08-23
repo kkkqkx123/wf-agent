@@ -20,6 +20,10 @@ pub struct WorkflowExecutionEntity {
     pub current_node_id: Arc<tokio::sync::RwLock<Option<String>>>,
     parent_execution_id: Option<Id>,
     child_execution_ids: Arc<tokio::sync::RwLock<Vec<Id>>>,
+    /// Root-to-parent execution id chain (oldest first, excluding self).
+    /// Resolved from the parent entity when the run is linked, so deep
+    /// hierarchies keep full ancestry across checkpoint restore.
+    ancestors: Vec<Id>,
     /// Final result of the execution, written on completion (both sync and
     /// spawned paths). `None` until the execution settles.
     output: Arc<tokio::sync::RwLock<Option<Value>>>,
@@ -41,6 +45,7 @@ impl WorkflowExecutionEntity {
             current_node_id: Arc::new(tokio::sync::RwLock::new(None)),
             parent_execution_id: None,
             child_execution_ids: Arc::new(tokio::sync::RwLock::new(Vec::new())),
+            ancestors: Vec::new(),
             output: Arc::new(tokio::sync::RwLock::new(None)),
             retry_budget: None,
         }
@@ -48,6 +53,13 @@ impl WorkflowExecutionEntity {
 
     pub fn with_parent_execution_id(mut self, parent_id: Id) -> Self {
         self.parent_execution_id = Some(parent_id);
+        self
+    }
+
+    /// Record the full ancestor chain (oldest first, excluding self),
+    /// resolved from the parent execution at build time.
+    pub fn with_ancestors(mut self, ancestors: Vec<Id>) -> Self {
+        self.ancestors = ancestors;
         self
     }
 
@@ -88,6 +100,10 @@ impl WorkflowExecutionEntity {
 
     pub fn parent_execution_id(&self) -> Option<&Id> {
         self.parent_execution_id.as_ref()
+    }
+
+    pub fn ancestors(&self) -> &[Id] {
+        &self.ancestors
     }
 
     /// The final execution output; `None` until the execution settles.
@@ -226,6 +242,10 @@ impl IExecutionEntity for WorkflowExecutionEntity {
 
     fn get_root_execution_id(&self) -> Option<Id> {
         Some(self.id.clone())
+    }
+
+    fn get_ancestors(&self) -> Vec<Id> {
+        self.ancestors.clone()
     }
 }
 

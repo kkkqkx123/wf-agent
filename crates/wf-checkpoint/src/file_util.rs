@@ -148,8 +148,7 @@ pub(crate) fn partition_latest_snapshot_ids(
             .get_snapshot(snapshot_id)
             .map_err(map_layertwine_error)?;
         let path = snapshot_file_path(storage, &snapshot)?;
-        if last_per_path.get(&path) == Some(snapshot_id) && path != SEED_PATH && seen.insert(path)
-        {
+        if last_per_path.get(&path) == Some(snapshot_id) && path != SEED_PATH && seen.insert(path) {
             ids.push(*snapshot_id);
         }
     }
@@ -174,10 +173,7 @@ pub(crate) fn compute_full_hash(files: &[FileState]) -> String {
         .collect::<String>()
 }
 
-pub(crate) fn write_file_with_dirs(
-    target: &Path,
-    content: &[u8],
-) -> Result<(), std::io::Error> {
+pub(crate) fn write_file_with_dirs(target: &Path, content: &[u8]) -> Result<(), std::io::Error> {
     if let Some(parent) = target.parent() {
         std::fs::create_dir_all(parent)?;
     }

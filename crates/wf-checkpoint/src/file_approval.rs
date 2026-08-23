@@ -130,21 +130,20 @@ impl FileCheckpointManager {
             let approval_partition = storage
                 .get_partition(&approval_pid)
                 .map_err(map_layertwine_error)?;
-            let baseline = approval_partition
-                .history
-                .first()
-                .copied()
-                .ok_or_else(|| CheckpointError::Corrupted {
+            let baseline = approval_partition.history.first().copied().ok_or_else(|| {
+                CheckpointError::Corrupted {
                     id: approval_pid.to_string(),
                     reason: "approval partition has empty history".to_string(),
-                })?;
+                }
+            })?;
             let mut approved: Vec<String> = Vec::new();
             let mut last_snapshot = submitted;
             for path in &paths {
                 let Some(content) = self.approval_file_content(storage, &agent_id, path)? else {
                     continue;
                 };
-                let snap = self.apply_feature_edit(storage, feature_name, path, &content, baseline)?;
+                let snap =
+                    self.apply_feature_edit(storage, feature_name, path, &content, baseline)?;
                 if let Some(ref bus) = self.event_bus {
                     bus.publish(CheckpointEventBus::file_changed_with_summary(
                         snap.clone(),
@@ -305,7 +304,9 @@ impl FileCheckpointManager {
             }
         }
         let agent_pid = layertwine::layered::agent::agent_partition_id(agent_id);
-        let partition = storage.get_partition(&agent_pid).map_err(map_layertwine_error)?;
+        let partition = storage
+            .get_partition(&agent_pid)
+            .map_err(map_layertwine_error)?;
         latest_in(&partition)
     }
 
@@ -391,14 +392,12 @@ impl FileCheckpointManager {
         let approval_partition = storage
             .get_partition(&approval_pid)
             .map_err(map_layertwine_error)?;
-        let baseline = approval_partition
-            .history
-            .first()
-            .copied()
-            .ok_or_else(|| CheckpointError::Corrupted {
+        let baseline = approval_partition.history.first().copied().ok_or_else(|| {
+            CheckpointError::Corrupted {
                 id: approval_pid.to_string(),
                 reason: "approval partition has empty history".to_string(),
-            })?;
+            }
+        })?;
 
         for (path, content) in resolutions {
             // Record the resolution as an agent edit (provenance) and

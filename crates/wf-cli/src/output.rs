@@ -130,10 +130,10 @@ impl OutputEnvelope {
         match format {
             OutputFormat::Text => {
                 let status = if self.success { "ok" } else { "failed" };
-                let msg = self
-                    .message
-                    .as_deref()
-                    .unwrap_or(if self.success { "done" } else { "error" });
+                let msg =
+                    self.message
+                        .as_deref()
+                        .unwrap_or(if self.success { "done" } else { "error" });
                 Some(format!("[{status}] {}: {msg}", self.kind))
             }
             OutputFormat::Json => serde_json::to_string(self).ok(),
@@ -368,7 +368,10 @@ impl MemorySink {
 
     /// Number of flush calls.
     pub fn flush_count(&self) -> usize {
-        self.events.iter().filter(|e| **e == SinkEvent::Flush).count()
+        self.events
+            .iter()
+            .filter(|e| **e == SinkEvent::Flush)
+            .count()
     }
 }
 
@@ -507,7 +510,8 @@ mod tests {
     fn memory_sink_records_all_call_kinds() {
         let mut sink = MemorySink::new();
         sink.write_text("hello").unwrap();
-        sink.write_message(&OutputMessage::new("assistant", "hi")).unwrap();
+        sink.write_message(&OutputMessage::new("assistant", "hi"))
+            .unwrap();
         sink.write_chunk("wor").unwrap();
         sink.flush().unwrap();
 
@@ -541,7 +545,8 @@ mod tests {
     #[test]
     fn text_sink_with_color_marks_roles() {
         let mut sink = HeadlessFileSink::buffer(Vec::new(), OutputFormat::Text, true);
-        sink.write_message(&OutputMessage::new("assistant", "ok")).unwrap();
+        sink.write_message(&OutputMessage::new("assistant", "ok"))
+            .unwrap();
         sink.flush().unwrap();
 
         let out = String::from_utf8(sink.into_bytes()).unwrap();
@@ -588,7 +593,8 @@ mod tests {
         let mut sink = HeadlessFileSink::buffer(Vec::new(), OutputFormat::JsonLines, true);
         sink.write_chunk("partial delta").unwrap();
         sink.write_text("free text").unwrap();
-        sink.write_message(&OutputMessage::new("user", "q")).unwrap();
+        sink.write_message(&OutputMessage::new("user", "q"))
+            .unwrap();
         sink.flush().unwrap();
 
         let out = String::from_utf8(sink.into_bytes()).unwrap();
@@ -611,12 +617,10 @@ mod tests {
     fn tee_sink_fans_out_to_all_children() {
         let shared_a = Arc::new(Mutex::new(MemorySink::new()));
         let shared_b = Arc::new(Mutex::new(MemorySink::new()));
-        let mut tee = TeeSink::new(vec![
-            Box::new(shared_a.clone()),
-            Box::new(shared_b.clone()),
-        ]);
+        let mut tee = TeeSink::new(vec![Box::new(shared_a.clone()), Box::new(shared_b.clone())]);
         tee.write_text("fan").unwrap();
-        tee.write_message(&OutputMessage::new("assistant", "out")).unwrap();
+        tee.write_message(&OutputMessage::new("assistant", "out"))
+            .unwrap();
         tee.write_chunk("!").unwrap();
         tee.flush().unwrap();
 

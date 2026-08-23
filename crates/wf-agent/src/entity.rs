@@ -42,6 +42,10 @@ pub struct AgentLoopEntity {
     /// Root execution id of the hierarchy (own id for a root run). Resolved
     /// when the run is linked to a parent execution.
     root_execution_id: Option<Id>,
+    /// Root-to-parent execution id chain (oldest first, excluding self).
+    /// Resolved from the parent entity when the run is linked, so deep
+    /// hierarchies keep full ancestry across checkpoint restore.
+    ancestors: Vec<Id>,
     /// Permit held against the registry's concurrency gate for the duration
     /// of this execution. Released when the execution reaches a terminal
     /// state or when the entity is removed from the registry.
@@ -74,6 +78,7 @@ impl AgentLoopEntity {
             pause_timeout_handle: std::sync::RwLock::new(None),
             hierarchy_depth: 0,
             root_execution_id: None,
+            ancestors: Vec::new(),
             gate_permit: std::sync::RwLock::new(None),
         }
     }
@@ -159,6 +164,13 @@ impl AgentLoopEntity {
     /// Record the root execution id of the hierarchy this run belongs to.
     pub fn with_root_execution_id(mut self, root: Id) -> Self {
         self.root_execution_id = Some(root);
+        self
+    }
+
+    /// Record the full ancestor chain (oldest first, excluding self),
+    /// resolved from the parent execution at build time.
+    pub fn with_ancestors(mut self, ancestors: Vec<Id>) -> Self {
+        self.ancestors = ancestors;
         self
     }
 
@@ -248,6 +260,10 @@ impl AgentLoopEntity {
 
     pub fn parent_execution_id(&self) -> Option<&Id> {
         self.parent_execution_id.as_ref()
+    }
+
+    pub fn ancestors(&self) -> &[Id] {
+        &self.ancestors
     }
 
     pub fn child_execution_ids(&self) -> &Arc<tokio::sync::RwLock<Vec<Id>>> {
@@ -371,6 +387,10 @@ impl IExecutionEntity for AgentLoopEntity {
         self.root_execution_id
             .clone()
             .or_else(|| Some(self.id.clone()))
+    }
+
+    fn get_ancestors(&self) -> Vec<Id> {
+        self.ancestors.clone()
     }
 }
 

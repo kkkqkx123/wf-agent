@@ -6,8 +6,8 @@ use wf_types::tool_description::ToolDescriptionData;
 use wf_types::trigger::TriggerTemplate;
 use wf_types::workflow::{NodeTemplate, WorkflowTemplate};
 use wf_types::MiddlewarePhase;
-use wf_types::Template;
 use wf_types::SystemPromptFragment;
+use wf_types::Template;
 
 use super::types::*;
 

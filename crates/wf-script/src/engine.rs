@@ -142,11 +142,7 @@ impl ScriptEngine {
 
         // Check blocked_patterns in content and template
         if let Some(ref blocked) = policy.blocked_patterns {
-            let content = script
-                .content
-                .as_deref()
-                .unwrap_or("")
-                .to_owned()
+            let content = script.content.as_deref().unwrap_or("").to_owned()
                 + script.template.as_deref().unwrap_or("");
             for pattern in blocked {
                 match Regex::new(pattern) {
@@ -170,11 +166,7 @@ impl ScriptEngine {
 
         // Check forbidden_commands in content and template
         if let Some(ref forbidden) = policy.forbidden_commands {
-            let content = script
-                .content
-                .as_deref()
-                .unwrap_or("")
-                .to_owned()
+            let content = script.content.as_deref().unwrap_or("").to_owned()
                 + " "
                 + script.template.as_deref().unwrap_or("");
             for cmd in forbidden {
@@ -189,11 +181,7 @@ impl ScriptEngine {
 
         // Check forbidden_path_patterns (directory traversal, null bytes, etc.)
         if let Some(ref path_patterns) = policy.forbidden_path_patterns {
-            let content = script
-                .content
-                .as_deref()
-                .unwrap_or("")
-                .to_owned()
+            let content = script.content.as_deref().unwrap_or("").to_owned()
                 + script.template.as_deref().unwrap_or("");
             for pattern in path_patterns {
                 match Regex::new(pattern) {
@@ -217,13 +205,15 @@ impl ScriptEngine {
 
         // Check allow_dynamic_scripts
         if policy.allow_dynamic_scripts == Some(false)
-            && script.content.is_some() && script.template.is_none() {
-                // Dynamic scripts have content but no template
-                return Err(format!(
+            && script.content.is_some()
+            && script.template.is_none()
+        {
+            // Dynamic scripts have content but no template
+            return Err(format!(
                     "Script '{}' is a dynamic script (runtime-generated) and dynamic scripts are not allowed",
                     script.name
                 ));
-            }
+        }
 
         Ok(())
     }

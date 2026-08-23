@@ -199,7 +199,10 @@ impl ToolRegistry {
     }
 
     /// Register a tool, returning the old tool if one with the same id existed.
-    pub fn register_tool_or_replace(&self, tool: wf_types::tool::Tool) -> Option<wf_types::tool::Tool> {
+    pub fn register_tool_or_replace(
+        &self,
+        tool: wf_types::tool::Tool,
+    ) -> Option<wf_types::tool::Tool> {
         self.tools.insert(tool.id.clone(), tool)
     }
 

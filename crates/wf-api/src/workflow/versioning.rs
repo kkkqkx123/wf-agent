@@ -99,12 +99,12 @@ mod tests {
     use super::*;
     use crate::workflow::definition::{get_workflow, save_workflow};
     use crate::workflow::version::{get_workflow_version as gv, list_workflow_versions};
+    use std::sync::Arc;
     use wf_common;
     use wf_core::registry::Registry;
     use wf_resource::registry::ResourceRegistries;
     use wf_resource::resource_plugin::ResourcePluginRegistry;
     use wf_storage::context::StorageContext;
-    use std::sync::Arc;
     use wf_types::WorkflowDefinition;
 
     fn make_ctx() -> ApiContext {

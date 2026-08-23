@@ -211,6 +211,7 @@ mod tests {
             parent_execution_id: parent.map(|p| p.to_string()),
             depth: 0,
             root_execution_id: None,
+            ancestors: None,
             children: Some(
                 children
                     .into_iter()

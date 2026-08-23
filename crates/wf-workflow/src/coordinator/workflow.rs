@@ -838,15 +838,13 @@ impl WorkflowCoordinator {
                 {
                     let mut state = entity.state.write().await;
                     state.increment_timeout_count();
-                    state.record_interruption(
-                        serde_json::json!({
-                            "type": "timeout",
-                            "reason": "max_execution_time",
-                            "max_execution_time": max_execution_time,
-                            "recovered": false,
-                            "timestamp": now(),
-                        }),
-                    );
+                    state.record_interruption(serde_json::json!({
+                        "type": "timeout",
+                        "reason": "max_execution_time",
+                        "max_execution_time": max_execution_time,
+                        "recovered": false,
+                        "timestamp": now(),
+                    }));
                     state.fail("Workflow execution exceeded max_execution_time".to_string())?;
                 }
                 if let Some(ref mut cp) = self.checkpoint {

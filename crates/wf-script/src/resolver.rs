@@ -322,7 +322,10 @@ mod tests {
         provided.insert("email".to_string(), json!("not-an-email"));
         let result = ArgumentResolver::resolve(&args, &provided, &HashMap::new());
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("does not match pattern"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("does not match pattern"));
     }
 
     #[test]

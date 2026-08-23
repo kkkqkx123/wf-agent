@@ -72,9 +72,10 @@ impl DomainAdapter {
 
     /// Tear the runtime down, releasing storage and background tasks.
     pub async fn shutdown(self) -> CliResult<()> {
-        self.runtime.shutdown().await.map_err(|err| {
-            CliError::Configuration(format!("runtime shutdown failed: {err}"))
-        })
+        self.runtime
+            .shutdown()
+            .await
+            .map_err(|err| CliError::Configuration(format!("runtime shutdown failed: {err}")))
     }
 }
 
@@ -103,7 +104,9 @@ mod tests {
 
     #[tokio::test]
     async fn bootstrap_with_defaults_is_healthy_and_shutdown_is_clean() {
-        let adapter = DomainAdapter::bootstrap(RuntimeConfig::default()).await.unwrap();
+        let adapter = DomainAdapter::bootstrap(RuntimeConfig::default())
+            .await
+            .unwrap();
 
         // Application API context is reachable and composed.
         let api = adapter.api_context();

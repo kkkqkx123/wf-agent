@@ -254,8 +254,8 @@ where
         .unwrap_or_default();
     let approval_text = crate::layered::transition::reconstruct_text(storage, &approval_snapshot)?
         .unwrap_or_default();
-    let agent_text = crate::layered::transition::reconstruct_text(storage, &agent_snapshot)?
-        .unwrap_or_default();
+    let agent_text =
+        crate::layered::transition::reconstruct_text(storage, &agent_snapshot)?.unwrap_or_default();
 
     // Three-way merge: base (common ancestor), ours (approval), theirs (agent)
     let (merged_text, conflicts) =
@@ -351,7 +351,8 @@ mod tests {
             create_initial_snapshot(&storage, "base\n", SourceType::Agent("test-agent".into()));
         ensure_agent_partition(&storage, &agent_id, initial_id).unwrap();
 
-        let edited_id = apply_agent_edit(&storage, &agent_id, "test.txt", "base\nmodified\n").unwrap();
+        let edited_id =
+            apply_agent_edit(&storage, &agent_id, "test.txt", "base\nmodified\n").unwrap();
         let deleted_id = apply_agent_delete(&storage, &agent_id, "test.txt").unwrap();
         assert_ne!(deleted_id, edited_id);
         assert_ne!(deleted_id, initial_id);
@@ -364,8 +365,7 @@ mod tests {
         let head = storage.get_snapshot(&partition.current_snapshot).unwrap();
         assert!(head.is_deleted());
 
-        let text =
-            crate::layered::transition::reconstruct_text(&storage, &head).unwrap();
+        let text = crate::layered::transition::reconstruct_text(&storage, &head).unwrap();
         assert!(text.is_none());
     }
 

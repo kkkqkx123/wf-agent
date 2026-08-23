@@ -89,15 +89,11 @@ impl ShellStaticAnalyzerStrategy {
         // masked or hidden danger is never shortcut. Missing a keyword simply
         // falls back to the full analysis below.
         let conservative = ['\'', '"', '\\'];
-        if !command.contains(&conservative[..])
-            && !command.contains("$(")
-            && !command.contains('`')
+        if !command.contains(&conservative[..]) && !command.contains("$(") && !command.contains('`')
         {
             let pre_policy = policy.shell.as_ref().cloned().unwrap_or_default();
-            let patterns: Vec<String> = pre_policy
-                .dangerous_patterns
-                .clone()
-                .unwrap_or_else(|| {
+            let patterns: Vec<String> =
+                pre_policy.dangerous_patterns.clone().unwrap_or_else(|| {
                     self.default_dangerous_patterns(shell_type)
                         .iter()
                         .map(|r| r.pattern.to_string())
@@ -169,11 +165,7 @@ impl ShellStaticAnalyzerStrategy {
                 Ok(re) => re,
                 // A user-supplied invalid pattern must not silently
                 // disable the rule (fail-open) — report it as a denial.
-                Err(e) => {
-                    return Ok(deny(&format!(
-                        "Invalid dangerous pattern '{pattern}': {e}"
-                    )))
-                }
+                Err(e) => return Ok(deny(&format!("Invalid dangerous pattern '{pattern}': {e}"))),
             };
             if re.is_match(&masked_command) {
                 let sev = pattern_severity
@@ -200,15 +192,11 @@ impl ShellStaticAnalyzerStrategy {
                 let re = match Regex::new(pattern) {
                     Ok(re) => re,
                     Err(e) => {
-                        return Ok(deny(&format!(
-                            "Invalid dangerous pattern '{pattern}': {e}"
-                        )))
+                        return Ok(deny(&format!("Invalid dangerous pattern '{pattern}': {e}")))
                     }
                 };
                 if re.is_match(&scanned) {
-                    return Ok(deny(&format!(
-                        "Dangerous inline script content: {pattern}"
-                    )));
+                    return Ok(deny(&format!("Dangerous inline script content: {pattern}")));
                 }
             }
         }
@@ -316,18 +304,11 @@ impl StrategyImplementation for ShellStaticAnalyzerStrategy {
         // hang the hot path — on timeout the command is denied (requires
         // manual review), never silently allowed.
         let policy = policy.clone();
-        match tokio::time::timeout(
-            ANALYSIS_TIMEOUT,
-            self.execute_inner(options, &policy),
-        )
-        .await
-        {
+        match tokio::time::timeout(ANALYSIS_TIMEOUT, self.execute_inner(options, &policy)).await {
             Ok(result) => result,
             Err(_) => Ok(deny("Command analysis timed out; requires manual review")),
         }
     }
-
-
 }
 
 #[cfg(test)]

@@ -153,12 +153,12 @@ fn workflow_matches(
 mod tests {
     use super::*;
     use crate::workflow::definition::save_workflow;
+    use std::sync::Arc;
     use wf_common;
-    use wf_types::workflow::WorkflowMetadata;
     use wf_resource::registry::ResourceRegistries;
     use wf_resource::resource_plugin::ResourcePluginRegistry;
     use wf_storage::context::StorageContext;
-    use std::sync::Arc;
+    use wf_types::workflow::WorkflowMetadata;
 
     fn make_ctx() -> ApiContext {
         let storage = StorageContext::new_memory();
@@ -252,7 +252,12 @@ mod tests {
         )
         .await
         .unwrap();
-        save_workflow(&ctx, &make_workflow_with_meta("wf-c", "Workflow c", None, None)).await.unwrap();
+        save_workflow(
+            &ctx,
+            &make_workflow_with_meta("wf-c", "Workflow c", None, None),
+        )
+        .await
+        .unwrap();
 
         let found = search_workflows(
             &ctx,

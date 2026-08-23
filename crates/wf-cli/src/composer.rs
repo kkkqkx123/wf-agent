@@ -222,15 +222,10 @@ impl Composer {
     /// Render the single line into `area`, applying the horizontal scroll.
     pub fn render(&mut self, area: Rect, buf: &mut Buffer, style: Style) {
         let width = area.width.max(1);
-        buf.set_string(area.x, area.y, &" ".repeat(width.into()), Style::default());
+        buf.set_string(area.x, area.y, " ".repeat(width.into()), Style::default());
         if self.buf.is_empty() {
             let ph = truncate_graphemes(self.placeholder, width);
-            buf.set_string(
-                area.x,
-                area.y,
-                &ph,
-                style.add_modifier(Modifier::DIM),
-            );
+            buf.set_string(area.x, area.y, &ph, style.add_modifier(Modifier::DIM));
             return;
         }
         self.update_scroll(width);

@@ -128,7 +128,9 @@ pub async fn delete_workflow(ctx: &ApiContext, id: &str) -> crate::ApiResult<boo
     let store = ctx.storage.workflow.store();
     let prefix = format!("{}:v", id);
     let versions = store
-        .list(Some(&wf_storage::domain::store::QueryFilter::new().with_id_prefix(&prefix)))
+        .list(Some(
+            &wf_storage::domain::store::QueryFilter::new().with_id_prefix(&prefix),
+        ))
         .await?;
     for (composite_id, _) in versions {
         let _ = store.delete(&composite_id).await;
@@ -177,7 +179,10 @@ pub async fn update_workflow_metadata(
 }
 
 /// Register the workflow in the execution index.
-pub(super) fn upsert_workflow_registry(registries: &Arc<ResourceRegistries>, workflow: &WorkflowDefinition) {
+pub(super) fn upsert_workflow_registry(
+    registries: &Arc<ResourceRegistries>,
+    workflow: &WorkflowDefinition,
+) {
     let template = WorkflowTemplate {
         id: workflow.id.clone(),
         name: workflow.name.clone(),
@@ -208,7 +213,9 @@ pub(super) fn upsert_workflow_registry(registries: &Arc<ResourceRegistries>, wor
 mod tests {
     use super::*;
     use crate::workflow::checkpoint::{get_checkpoint, save_checkpoint};
-    use crate::workflow::version::{list_workflow_versions as list_vers, save_workflow_version as save_ver};
+    use crate::workflow::version::{
+        list_workflow_versions as list_vers, save_workflow_version as save_ver,
+    };
     use wf_common;
     use wf_core::registry::Registry;
     use wf_resource::registry::ResourceRegistries;
@@ -439,7 +446,9 @@ mod tests {
             fork_join_context: None,
             hierarchy: None,
         };
-        super::super::execution::save_execution(&ctx, &execution).await.unwrap();
+        super::super::execution::save_execution(&ctx, &execution)
+            .await
+            .unwrap();
         let checkpoint = wf_types::Checkpoint {
             id: "cp-cascade-1".into(),
             entity_type: "workflow_execution".into(),
@@ -462,12 +471,13 @@ mod tests {
 
         assert!(delete_workflow(&ctx, "wf-cascade").await.unwrap());
 
-        assert!(super::super::execution::get_execution(&ctx, "exec-cascade-1").await.is_err());
+        assert!(
+            super::super::execution::get_execution(&ctx, "exec-cascade-1")
+                .await
+                .is_err()
+        );
         assert!(get_checkpoint(&ctx.storage, "cp-cascade-1").await.is_err());
-        assert!(list_vers(&ctx, "wf-cascade")
-            .await
-            .unwrap()
-            .is_empty());
+        assert!(list_vers(&ctx, "wf-cascade").await.unwrap().is_empty());
     }
 
     #[tokio::test]

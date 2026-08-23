@@ -218,7 +218,12 @@ impl ResourcePluginRegistry {
         Ok(total)
     }
 
-    pub fn deactivate(&self, id: &str, registries: &ResourceRegistries, tool_registry: &ToolRegistry) -> Result<Summary, String> {
+    pub fn deactivate(
+        &self,
+        id: &str,
+        registries: &ResourceRegistries,
+        tool_registry: &ToolRegistry,
+    ) -> Result<Summary, String> {
         let plugin = self
             .resource_plugins
             .get(id)
@@ -338,7 +343,13 @@ mod tests {
         let regs = ResourceRegistries::new();
         let tool_registry = ToolRegistry::new();
         let summary = registry
-            .activate("test-resource-plugin", &Value::Null, &regs, &tool_registry, true)
+            .activate(
+                "test-resource-plugin",
+                &Value::Null,
+                &regs,
+                &tool_registry,
+                true,
+            )
             .unwrap();
         assert!(summary.is_ok());
         assert!(registry.is_active("test-resource-plugin"));
@@ -350,12 +361,20 @@ mod tests {
 
         // Duplicate activation with skip_if_exists stays consistent.
         let again = registry
-            .activate("test-resource-plugin", &Value::Null, &regs, &tool_registry, true)
+            .activate(
+                "test-resource-plugin",
+                &Value::Null,
+                &regs,
+                &tool_registry,
+                true,
+            )
             .unwrap();
         assert!(again.is_ok());
 
         // Deactivation removes every registered item and clears the tracking.
-        let removed = registry.deactivate("test-resource-plugin", &regs, &tool_registry).unwrap();
+        let removed = registry
+            .deactivate("test-resource-plugin", &regs, &tool_registry)
+            .unwrap();
         assert_eq!(removed.succeeded.len(), 3);
         assert!(!regs.agent_templates.has("@standard/goal-review-executor"));
         assert!(!regs.agent_templates.has("@standard/goal-review-reviewer"));
@@ -363,7 +382,9 @@ mod tests {
         assert!(!registry.is_active("test-resource-plugin"));
 
         // Deactivating twice is a no-op, not an error.
-        let again = registry.deactivate("test-resource-plugin", &regs, &tool_registry).unwrap();
+        let again = registry
+            .deactivate("test-resource-plugin", &regs, &tool_registry)
+            .unwrap();
         assert!(again.succeeded.is_empty());
     }
 
@@ -372,7 +393,9 @@ mod tests {
         let registry = ResourcePluginRegistry::new();
         let regs = ResourceRegistries::new();
         let tool_registry = ToolRegistry::new();
-        let err = registry.deactivate("missing", &regs, &tool_registry).unwrap_err();
+        let err = registry
+            .deactivate("missing", &regs, &tool_registry)
+            .unwrap_err();
         assert!(err.contains("not found"));
     }
 }

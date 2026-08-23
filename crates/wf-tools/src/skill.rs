@@ -1022,7 +1022,8 @@ mod tests {
             auto_scan: Some(true),
         });
 
-        let events: Arc<std::sync::Mutex<Vec<SkillEvent>>> = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let events: Arc<std::sync::Mutex<Vec<SkillEvent>>> =
+            Arc::new(std::sync::Mutex::new(Vec::new()));
         let captured = events.clone();
         loader.set_event_handler(Arc::new(move |event| {
             captured.lock().unwrap().push(event.clone());
@@ -1079,7 +1080,10 @@ mod tests {
         );
         mem.add_file(Path::new("/skills/my-skill/references/ref1.md"), "# Ref");
         mem.add_file(Path::new("/skills/my-skill/scripts/run.py"), "print('hi')");
-        mem.add_file(Path::new("/skills/other/SKILL.md"), "---\nname: other\ndescription: O\n---\n\nOther body");
+        mem.add_file(
+            Path::new("/skills/other/SKILL.md"),
+            "---\nname: other\ndescription: O\n---\n\nOther body",
+        );
 
         let loader = SkillLoader::with_loader(
             SkillConfig {
@@ -1095,7 +1099,10 @@ mod tests {
             .load_skill_content(
                 "my-skill",
                 Some(&SkillLoadContext {
-                    variables: Some(HashMap::from([("name".to_string(), Value::String("wf".to_string()))])),
+                    variables: Some(HashMap::from([(
+                        "name".to_string(),
+                        Value::String("wf".to_string()),
+                    )])),
                     tools: None,
                 }),
             )
@@ -1144,11 +1151,9 @@ mod tests {
             },
             Arc::new(mem2),
         );
-        assert!(
-            loader2
-                .load_skill_resource("r-skill", SkillResourceType::References, "missing.md")
-                .is_err()
-        );
+        assert!(loader2
+            .load_skill_resource("r-skill", SkillResourceType::References, "missing.md")
+            .is_err());
     }
 
     #[test]

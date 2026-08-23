@@ -16,7 +16,9 @@ use wf_core::EventBus;
 use wf_execution_shared::hooks::HookRegistry;
 use wf_tools::callback::{AgentLoopConfig, AgentLoopInput};
 use wf_types::events::BaseEvent;
-use wf_types::trigger::{ConversationAnchor, TriggerAction, TriggerAgentInputMode, TriggerTemplate};
+use wf_types::trigger::{
+    ConversationAnchor, TriggerAction, TriggerAgentInputMode, TriggerTemplate,
+};
 use wf_types::Id;
 use wf_workflow::error::{WorkflowError, WorkflowResult};
 use wf_workflow::trigger_listener::TriggerActionRunner;
@@ -93,10 +95,7 @@ impl AgentTriggerRunner {
     /// When both are present but `agent_loop_id` is the more specific one,
     /// it is always preferred. A warning is logged on fallback so operators
     /// can detect misconfigured triggers.
-    fn resolve_parent(
-        &self,
-        event: &BaseEvent,
-    ) -> Option<Arc<AgentLoopEntity>> {
+    fn resolve_parent(&self, event: &BaseEvent) -> Option<Arc<AgentLoopEntity>> {
         if let Some(agent_loop_id) = event.agent_loop_id.as_ref() {
             if let Some(parent) = self.agent_registry.get(&Id::from(agent_loop_id.clone())) {
                 debug!("Using agent_loop_id as parent: {}", agent_loop_id);
@@ -107,16 +106,13 @@ impl AgentTriggerRunner {
                 agent_loop_id
             );
         }
-        event
-            .execution_id
-            .as_ref()
-            .and_then(|id| {
-                let parent = self.agent_registry.get(&Id::from(id.clone()));
-                if parent.is_none() {
-                    debug!("execution_id '{}' not found in agent registry", id);
-                }
-                parent
-            })
+        event.execution_id.as_ref().and_then(|id| {
+            let parent = self.agent_registry.get(&Id::from(id.clone()));
+            if parent.is_none() {
+                debug!("execution_id '{}' not found in agent registry", id);
+            }
+            parent
+        })
     }
 }
 

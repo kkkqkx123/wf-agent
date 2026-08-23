@@ -119,8 +119,15 @@ impl TriggeredAgentExecutionManager {
         // one execution identity, causing partition mixing in file
         // checkpointing (each execution must be its own actor).
         let child_execution_id = Id::from(wf_common::generate_id());
-        let child_entity =
-            AgentLoopEntity::new(child_execution_id).with_parent_execution_id(parent.id().clone());
+        // Seed the child's ancestor chain from the live parent so nested
+        // triggered runs keep full ancestry (parent's chain + parent id).
+        let mut child_ancestors = parent.get_ancestors();
+        if child_ancestors.last() != Some(parent.id()) {
+            child_ancestors.push(parent.id().clone());
+        }
+        let child_entity = AgentLoopEntity::new(child_execution_id)
+            .with_parent_execution_id(parent.id().clone())
+            .with_ancestors(child_ancestors);
         parent.register_child(child_entity.id().clone()).await;
 
         // SUBAGENT_START: child registered and about to run; mounted on the

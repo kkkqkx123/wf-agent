@@ -216,3 +216,134 @@ impl FileCheckpointManager {
         Ok(latest.map(|c| c.id.to_hex()))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::file::FileContentEntry;
+    use std::collections::HashSet;
+    use std::time::Duration;
+
+    fn manager() -> FileCheckpointManager {
+        FileCheckpointManager::new_in_memory().unwrap()
+    }
+
+    fn entry(path: &str, content: &[u8]) -> FileContentEntry {
+        FileContentEntry::new(path, content.to_vec())
+    }
+
+    fn stored(storage: &SqliteStorage, id_hex: &str) -> Checkpoint {
+        storage
+            .get_checkpoint(&CheckpointId::from_hex(id_hex).unwrap())
+            .unwrap()
+    }
+
+    fn parent_ids(checkpoint: &Checkpoint) -> HashSet<String> {
+        checkpoint.parents.iter().map(|p| p.to_hex()).collect()
+    }
+
+    /// Merge one actor's changes into a fresh feature and record the
+    /// feature-head checkpoint (authored by the feature name, chained onto
+    /// the merge commit).
+    fn make_feature(
+        manager: &FileCheckpointManager,
+        exec: &str,
+        path: &str,
+        feature: &str,
+    ) -> (String, String) {
+        manager
+            .create_checkpoint(exec, &[entry(path, b"base")])
+            .unwrap();
+        manager
+            .create_checkpoint(exec, &[entry(path, b"edit")])
+            .unwrap();
+        let merged = manager.merge_entity_changes(exec, feature).unwrap();
+        let commit_id = stored(manager.storage().unwrap(), &merged.checkpoint_id)
+            .id
+            .to_hex();
+        let storage = manager.storage().unwrap();
+        let cp = Checkpoint::new(
+            vec![merged.merge_result.snapshot_id],
+            vec![CheckpointId::from_hex(&commit_id).unwrap()],
+            CheckpointMetadata::new(feature, "feature head"),
+        );
+        storage.store_checkpoint(&cp).unwrap();
+        (cp.id.to_hex(), merged.checkpoint_id)
+    }
+
+    /// Distinct `created_at` stamps so "latest by author" lookups are
+    /// deterministic across same-millisecond writes.
+    fn tick() {
+        std::thread::sleep(Duration::from_millis(2));
+    }
+
+    #[test]
+    fn merge_features_to_staged_creates_multi_parent() {
+        let manager = manager();
+        let (feature_a, _ma) = make_feature(&manager, "exec-a", "a.txt", "feature-a");
+        tick();
+        let (feature_b, _mb) = make_feature(&manager, "exec-b", "b.txt", "feature-b");
+        tick();
+        let (feature_c, _mc) = make_feature(&manager, "exec-c", "c.txt", "feature-c");
+
+        // Round 1 joins two features: no staged commit exists yet, so the
+        // parents are exactly the two feature heads.
+        let round1 = manager
+            .merge_features_to_staged(&["feature-a", "feature-b"])
+            .unwrap();
+        let storage = manager.storage().unwrap();
+        assert_eq!(
+            parent_ids(&stored(storage, &round1.checkpoint_id)),
+            HashSet::from([feature_a.clone(), feature_b.clone()]),
+            "staged join must link every participating feature head"
+        );
+
+        // Round 2 chains onto the previous staged commit and adds the new
+        // feature head.
+        tick();
+        let round2 = manager.merge_features_to_staged(&["feature-c"]).unwrap();
+        assert_eq!(
+            parent_ids(&stored(storage, &round2.checkpoint_id)),
+            HashSet::from([round1.checkpoint_id.clone(), feature_c]),
+        );
+    }
+
+    #[test]
+    fn checkpoint_dag_traversal_reaches_parents() {
+        let manager = manager();
+        let (feature_a, merge_a) = make_feature(&manager, "exec-a", "a.txt", "feature-a");
+        tick();
+        let (feature_b, merge_b) = make_feature(&manager, "exec-b", "b.txt", "feature-b");
+
+        let joined = manager
+            .merge_features_to_staged(&["feature-a", "feature-b"])
+            .unwrap();
+
+        // Walk the DAG from the staged merge commit through `parents` edges.
+        let storage = manager.storage().unwrap();
+        let mut seen: HashSet<String> = HashSet::new();
+        let mut queue = vec![joined.checkpoint_id.clone()];
+        while let Some(id) = queue.pop() {
+            if !seen.insert(id.clone()) {
+                continue;
+            }
+            for parent in &stored(storage, &id).parents {
+                queue.push(parent.to_hex());
+            }
+        }
+
+        // Every participant of the merges is reachable from the join commit.
+        for expected in [
+            joined.checkpoint_id.clone(),
+            feature_a,
+            feature_b,
+            merge_a,
+            merge_b,
+        ] {
+            assert!(
+                seen.contains(&expected),
+                "checkpoint {expected} must be reachable from the merge commit"
+            );
+        }
+    }
+}

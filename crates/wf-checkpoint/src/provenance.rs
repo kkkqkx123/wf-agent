@@ -849,4 +849,24 @@ mod tests {
         let ws = get_actor_workspace(storage, a.as_str()).unwrap();
         assert_eq!(ws[0].content, b"\x00\xFF\x10");
     }
+
+    #[test]
+    fn no_map_storage_remnants() {
+        // Layertwine failures flow exclusively through
+        // `crate::file_util::map_layertwine_error`; the historical duplicate
+        // helpers must stay deleted. Needles are assembled from fragments so
+        // this test's own source cannot match them.
+        let provenance_needle = ["fn map_", "storage"].concat();
+        let adapter_needle = ["fn map_", "storage_", "result"].concat();
+        let provenance_src = include_str!("provenance.rs");
+        assert!(
+            !provenance_src.contains(&provenance_needle),
+            "duplicate error mapper must not be reintroduced in provenance.rs"
+        );
+        let adapter_src = include_str!("layertwine.rs");
+        assert!(
+            !adapter_src.contains(&adapter_needle),
+            "duplicate error mapper must not be reintroduced in layertwine.rs"
+        );
+    }
 }

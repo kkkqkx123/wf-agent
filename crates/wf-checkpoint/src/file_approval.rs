@@ -524,3 +524,104 @@ impl FileCheckpointManager {
         )
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::file::FileContentEntry;
+    use std::collections::HashSet;
+
+    fn manager() -> FileCheckpointManager {
+        FileCheckpointManager::new_in_memory().unwrap()
+    }
+
+    fn entry(path: &str, content: &[u8]) -> FileContentEntry {
+        FileContentEntry::new(path, content.to_vec())
+    }
+
+    fn stored(storage: &SqliteStorage, id_hex: &str) -> Checkpoint {
+        storage
+            .get_checkpoint(&CheckpointId::from_hex(id_hex).unwrap())
+            .unwrap()
+    }
+
+    fn parent_ids(checkpoint: &Checkpoint) -> HashSet<String> {
+        checkpoint.parents.iter().map(|p| p.to_hex()).collect()
+    }
+
+    /// Record a feature-head commit checkpoint (authored by the feature
+    /// name), as produced by feature-level commit flows.
+    fn seed_feature_checkpoint(
+        storage: &SqliteStorage,
+        feature: &str,
+        snapshot: SnapshotId,
+        parents: Vec<CheckpointId>,
+    ) -> String {
+        let cp = Checkpoint::new(
+            vec![snapshot],
+            parents,
+            CheckpointMetadata::new(feature, "feature head"),
+        );
+        storage.store_checkpoint(&cp).unwrap();
+        cp.id.to_hex()
+    }
+
+    #[test]
+    fn merge_entity_changes_links_actor_history_without_feature_commit() {
+        let manager = manager();
+        manager
+            .create_checkpoint("exec-1", &[entry("a.txt", b"base")])
+            .unwrap();
+        let latest = manager
+            .create_checkpoint("exec-1", &[entry("a.txt", b"edit")])
+            .unwrap();
+
+        let result = manager.merge_entity_changes("exec-1", "feature-1").unwrap();
+
+        let storage = manager.storage().unwrap();
+        let commit = stored(storage, &result.checkpoint_id);
+        // No feature-head commit exists yet, so the only recorded parent is
+        // the actor's previous checkpoint.
+        assert_eq!(parent_ids(&commit), HashSet::from([latest.id]));
+    }
+
+    #[test]
+    fn merge_entity_changes_creates_multi_parent() {
+        let manager = manager();
+
+        // First cycle establishes the actor history and the merge commit;
+        // a feature-head checkpoint is then recorded for the feature.
+        manager
+            .create_checkpoint("exec-a", &[entry("a.txt", b"base")])
+            .unwrap();
+        let first = manager.merge_entity_changes("exec-a", "feature-1").unwrap();
+        let storage = manager.storage().unwrap();
+        let first_commit_id = stored(storage, &first.checkpoint_id).id.to_hex();
+        let feature_cp = seed_feature_checkpoint(
+            storage,
+            "feature-1",
+            first.merge_result.snapshot_id,
+            vec![CheckpointId::from_hex(&first_commit_id).unwrap()],
+        );
+
+        // A second actor merges into the same feature: the new commit must
+        // record both the feature head and the actor's own latest checkpoint.
+        // Parallel contributors may textually conflict (resolution belongs
+        // to the approval layer), yet the DAG commit records the merge with
+        // all participants either way.
+        manager
+            .create_checkpoint("exec-b", &[entry("b.txt", b"base")])
+            .unwrap();
+        let actor_cp = manager
+            .create_checkpoint("exec-b", &[entry("b.txt", b"edit")])
+            .unwrap();
+        let second = manager.merge_entity_changes("exec-b", "feature-1").unwrap();
+
+        let commit = stored(storage, &second.checkpoint_id);
+        assert_eq!(
+            parent_ids(&commit),
+            HashSet::from([feature_cp, actor_cp.id]),
+            "merge commit must link every participant"
+        );
+    }
+}

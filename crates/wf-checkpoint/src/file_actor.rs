@@ -140,6 +140,14 @@ impl FileCheckpointManager {
         Ok(())
     }
 
+    /// The branch head checkpoint id recorded for an execution entity, if
+    /// any. The head is written by checkpoint creation and read by consumers
+    /// that need the entity's latest commit without scanning partitions.
+    pub fn branch_head(&self, entity_id: &str) -> Result<Option<String>, CheckpointError> {
+        self.branch_adapter
+            .get_branch_head(&execution_branch_name("execution", entity_id))
+    }
+
     // ── actor partition primitives ──────────────────────────────────
 
     /// Ensure the actor's agent partition exists, seeding it with an empty
@@ -462,5 +470,81 @@ impl FileCheckpointManager {
             .get(author)
             .map(|set| set.clone())
             .unwrap_or_default()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::file::FileContentEntry;
+
+    fn entry(path: &str, content: &[u8]) -> FileContentEntry {
+        FileContentEntry::new(path, content.to_vec())
+    }
+
+    #[tokio::test]
+    async fn child_execution_creates_branch() {
+        let manager = FileCheckpointManager::new_in_memory().unwrap();
+        manager
+            .create_checkpoint("parent-1", &[entry("a.txt", b"base")])
+            .unwrap();
+
+        let branch = execution_branch_name("execution", "child-1");
+        assert!(
+            !manager.branch_adapter.branch_exists(&branch).await.unwrap(),
+            "branch must not exist before the child is prepared"
+        );
+
+        manager
+            .ensure_child_branch("child-1", Some("parent-1"))
+            .await
+            .unwrap();
+        assert!(manager.branch_adapter.branch_exists(&branch).await.unwrap());
+
+        // Idempotent: preparing the same child again keeps a single branch.
+        manager
+            .ensure_child_branch("child-1", Some("parent-1"))
+            .await
+            .unwrap();
+        let branches = manager.branch_adapter.list_branches().await.unwrap();
+        assert_eq!(branches, vec![branch]);
+    }
+
+    #[tokio::test]
+    async fn ensure_child_branch_ignores_roots_and_self_parent() {
+        let manager = FileCheckpointManager::new_in_memory().unwrap();
+
+        // No parent (root execution) and self-parent are no-ops.
+        manager.ensure_child_branch("solo", None).await.unwrap();
+        manager.ensure_child_branch("same", Some("same")).await.unwrap();
+
+        let branches = manager.branch_adapter.list_branches().await.unwrap();
+        assert!(branches.is_empty(), "no branch may be created: {branches:?}");
+    }
+
+    #[tokio::test]
+    async fn child_branch_base_points_at_parent_checkpoint() {
+        use layertwine::storage::repository::MetadataStore;
+
+        let manager = FileCheckpointManager::new_in_memory().unwrap();
+        let parent_cp = manager
+            .create_checkpoint("parent-1", &[entry("a.txt", b"base")])
+            .unwrap();
+
+        manager
+            .ensure_child_branch("child-1", Some("parent-1"))
+            .await
+            .unwrap();
+
+        // The branch registry records the fork base as `{base}|{created_at}`.
+        let branch = execution_branch_name("execution", "child-1");
+        let value = manager
+            .branch_adapter
+            .storage()
+            .load_metadata(&format!("wf-checkpoint-branch:{branch}"))
+            .unwrap()
+            .expect("branch registry entry must exist");
+        let base = value.split('|').next().unwrap();
+        assert_eq!(base, parent_cp.id);
     }
 }

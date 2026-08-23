@@ -51,7 +51,10 @@ impl FileCheckpointManager {
         self.latest_checkpoints
             .insert(actor.as_str().to_string(), checkpoint.id.to_hex());
         let branch_name = execution_branch_name("execution", entity_id);
-        let _ = self.branch_adapter.set_branch_head(&branch_name, &checkpoint.id.to_hex());
+        if self.branch_adapter.branch_exists_now(&branch_name)? {
+            self.branch_adapter
+                .set_branch_head(&branch_name, &checkpoint.id.to_hex())?;
+        }
         self.project(storage, &checkpoint)
     }
 
@@ -98,7 +101,10 @@ impl FileCheckpointManager {
         self.latest_checkpoints
             .insert(actor.as_str().to_string(), checkpoint.id.to_hex());
         let branch_name = execution_branch_name("execution", entity_id);
-        let _ = self.branch_adapter.set_branch_head(&branch_name, &checkpoint.id.to_hex());
+        if self.branch_adapter.branch_exists_now(&branch_name)? {
+            self.branch_adapter
+                .set_branch_head(&branch_name, &checkpoint.id.to_hex())?;
+        }
         Ok(Some(self.project(storage, &checkpoint)?))
     }
 
@@ -150,5 +156,81 @@ impl FileCheckpointManager {
             .filter(|c| c.metadata.author == actor_str)
             .max_by_key(|c| c.created_at);
         Ok(latest.map(|c| c.id.to_hex()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn entry(path: &str, content: &[u8]) -> FileContentEntry {
+        FileContentEntry::new(path, content.to_vec())
+    }
+
+    #[tokio::test]
+    async fn checkpoint_updates_branch_head() {
+        let manager = FileCheckpointManager::new_in_memory().unwrap();
+        manager
+            .create_checkpoint("parent-1", &[entry("a.txt", b"base")])
+            .unwrap();
+        manager
+            .ensure_child_branch("child-1", Some("parent-1"))
+            .await
+            .unwrap();
+
+        let branch = execution_branch_name("execution", "child-1");
+        assert_eq!(
+            manager.branch_adapter.get_branch_head(&branch).unwrap(),
+            None,
+            "head must be unset before the first checkpoint"
+        );
+
+        let cp1 = manager
+            .create_checkpoint("child-1", &[entry("a.txt", b"edit-1")])
+            .unwrap();
+        assert_eq!(
+            manager.branch_adapter.get_branch_head(&branch).unwrap().as_deref(),
+            Some(cp1.id.as_str())
+        );
+
+        // The head follows subsequent checkpoints.
+        let cp2 = manager
+            .create_checkpoint("child-1", &[entry("a.txt", b"edit-2")])
+            .unwrap();
+        assert_ne!(cp1.id, cp2.id);
+        assert_eq!(
+            manager.branch_adapter.get_branch_head(&branch).unwrap().as_deref(),
+            Some(cp2.id.as_str())
+        );
+        assert_eq!(manager.branch_head("child-1").unwrap().as_deref(), Some(cp2.id.as_str()));
+    }
+
+    #[tokio::test]
+    async fn deferred_checkpoint_updates_branch_head() {
+        let manager = FileCheckpointManager::new_in_memory().unwrap();
+        manager
+            .create_checkpoint("parent-1", &[entry("a.txt", b"base")])
+            .unwrap();
+        manager
+            .ensure_child_branch("child-1", Some("parent-1"))
+            .await
+            .unwrap();
+        // Give the child partition history so the deferred snapshot path has
+        // something to project (two entries: seed + edit).
+        manager
+            .create_checkpoint("child-1", &[entry("a.txt", b"edit-1")])
+            .unwrap();
+
+        let branch = execution_branch_name("execution", "child-1");
+        let head_before = manager.branch_adapter.get_branch_head(&branch).unwrap();
+
+        let deferred = manager
+            .create_latest_file_checkpoint("child-1")
+            .unwrap()
+            .expect("partition history exists");
+
+        let head_after = manager.branch_adapter.get_branch_head(&branch).unwrap();
+        assert_eq!(head_after.as_deref(), Some(deferred.id.as_str()));
+        assert_ne!(head_after, head_before);
     }
 }

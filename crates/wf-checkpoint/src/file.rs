@@ -1407,4 +1407,32 @@ mod tests {
         };
         FileCheckpointManager::open_from_config(&legacy).unwrap();
     }
+
+    #[test]
+    fn no_file_checkpoint_delta_remnants() {
+        // Incremental storage is owned by layertwine partition history; the
+        // hand-written delta projection must stay deleted. Needles are
+        // assembled from fragments so this test's own source cannot match.
+        let delta_needle = ["FileCheckpoint", "Delta"].concat();
+        let file_src = include_str!("file.rs");
+        assert!(
+            !file_src.contains(&delta_needle),
+            "delta projection struct must not be reintroduced in file.rs"
+        );
+        let lib_src = include_str!("lib.rs");
+        assert!(
+            !lib_src.contains(&delta_needle),
+            "delta projection struct must not be re-exported from lib.rs"
+        );
+    }
+
+    #[test]
+    fn no_max_delta_chain_in_file_options() {
+        let option_needle = ["max_", "delta_chain_", "length"].concat();
+        let file_src = include_str!("file.rs");
+        assert!(
+            !file_src.contains(&option_needle),
+            "checkpoint options must stay free of the dead chain-length knob"
+        );
+    }
 }

@@ -264,6 +264,17 @@ impl LayertwineGitAdapter {
             .load_metadata(&key)
             .map_err(map_layertwine_error)
     }
+
+    /// Synchronous branch-registry check (the non-async form of
+    /// [`BranchStorageAdapter::branch_exists`]): reads the registry entry
+    /// from the metadata store.
+    pub fn branch_exists_now(&self, branch: &str) -> Result<bool, CheckpointError> {
+        let value = self
+            .storage
+            .load_metadata(&Self::branch_key(branch))
+            .map_err(map_layertwine_error)?;
+        Ok(value.is_some())
+    }
 }
 
 /// Production `BranchStorageAdapter` over the layertwine backend: branches

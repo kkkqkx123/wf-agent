@@ -34,7 +34,7 @@
 | F1 | 模式判定与入口路由（--tui/--mini/子命令/TTY 检测/stdin 管道/config 默认） | ● | ● | ● | 05 §2.2 | wf-config |
 | F2 | 输出路由（Format 格式层 + OutputSink 目标层 + Tee 分发 + CLIError 退出码） | ● | ● | ● | 01 §4.4、05 §5.2、本方案 §2.1 | 无（自研） |
 | F3 | 领域调用层（Runtime::bootstrap + ApiContext + 会话/执行启动） | ● | ● | ● | 05 §3.4、03 §1 | wf-runtime、wf-api、wf-agent |
-| F4 | 事件订阅与统一事件流（ExecutionEvent / AgentStreamEvent 归一） | ● | ● | ● | 05 §3.4 | wf-types、wf-core EventBus |
+| F4 | 执行流协议消费（直接消费 wf-api 引擎无关的 `ExecutionStreamEvent`；CLI 不定义/不复制协议） | ● | ● | ● | 05 §3.4 | wf-api（协议定义）、wf-core EventBus |
 | F5 | 事件折叠 reducer（事件 → commit 流 + footer 状态，纯函数） | ● | ● | ● | 05 §3.3 | 无（自研） |
 | F6 | 流式渲染内核（streaming markdown，top-level block 增量提交） | ● | ● | ● | 05 §3.2 | pulldown-cmark |
 | F7 | 审批/追问策略适配（deny / 视图 / 白名单 / --approve-prefix） | ● | ● | ● | 05 §3.4/§5.3 | wf-runtime approval_tool、wf-api UserInteractionHandler |
@@ -94,7 +94,7 @@ crates/wf-cli/src/
 ├── error.rs          ← CLIError 定义与退出码映射（复用 wf-common Error）     [Stage 0]
 ├── output.rs         ← OutputRouter：text/json/silent 信封渲染             [Stage 1]
 ├── domain.rs         ← DomainAdapter：Runtime bootstrap + ApiContext 封装   [Stage 1]
-├── events.rs         ← 事件适配：ExecutionEvent / AgentStreamEvent → 统一流 [Stage 1]
+│                       （事件协议归 wf-api：直接消费 ExecutionStreamEvent，CLI 无 events.rs）
 ├── run.rs            ← 无头会话驱动（流式 stdout + 摘要行 + 退出码）        [Stage 2]
 ├── terminal.rs       ← TerminalGuard / with_restored / stderr 抑制 / SIGINT [Stage 3]
 ├── theme.rs          ← 主题探测（OSC 10/11 + 调色板 + 热更新）             [Stage 3]
@@ -153,7 +153,7 @@ wf-types/wf-common/wf-config/wf-storage → wf-runtime/wf-api/wf-agent → wf-cl
 - [x] `output.rs`：两层输出抽象——① Format 层（text / json / jsonl / silent 渲染，01 §4.4 信封 `{success, type, entity, data, message, timestamp}`）；② OutputSink 目标层（§2.1：trait + `HeadlessFileSink` / `MemorySink` / `TeeSink` 落地，内存型 MiniSink/TuiSink 延后到 Stage 5/6 引入）。CLI 参数语义：`--output <format>` 保持 05 §5.1（格式），新增 `--log <file>` 为落盘路径（任意模式可与主输出 Tee 分发），两者互不冲突。
 - [x] `output.rs` 细节：writer 为 TTY 时开 ANSI、否则纯文本（HeadlessFileSink 内自动开关）；流式 chunk 写入后适时 `flush()`（管道实时性）；文件输出低频 flush（性能）。
 - [x] `domain.rs`：`DomainAdapter`——`Runtime::bootstrap(RuntimeConfig)`（复用 wf-runtime bootstrap，含 storage/llm_gateway/tool_registry/mcp_manager 组装）、`api_context()` 访问、`shutdown()` 清理、配置加载（wf-config，含 `cli.default_mode`）；统一的"启动会话/执行"入口（agent 会话与 workflow 前台统一为 `ExecutionType`，对齐 05 §7）。
-- [x] `events.rs`：事件适配层——订阅 `ExecutionEvent`（EventBus）与 `AgentStreamEvent`（agent 流），归一为单一枚举流（含 `message` 文本增量、`tool_start/end`、`iteration`、`completed/failed/interrupted`），供 F5 reducer 消费；无 UI 阶段以 mpsc 通道交付。
+- [x] ~~`events.rs`：事件适配层~~（**已删除**，2026-08-24 事件架构修订：事件协议归 wf-api，CLI 直接消费引擎无关的 `ExecutionStreamEvent`，不为协议做冗余副本；reducer 直接以协议事件为输入）。
 - [x] `lib.rs` 接线：`run`（无头）子命令走 DomainAdapter + OutputRouter 最小闭环（仅打点，不流式）。
 
 **完成记录（2026-08-17）**
@@ -246,20 +246,20 @@ wf-types/wf-common/wf-config/wf-storage → wf-runtime/wf-api/wf-agent → wf-cl
 - reducer 纯函数单测：合成事件序列（含乱序/重复 part）→ commit 序列快照；markdown 增量提交快照（未完结 block 不出现、完结后固化）。
 - 无头路径冒烟：`wf run` 文本输出与 mini 滚动区内容同源（同一 reducer 产物），保证形态间一致性。
 
-### Stage 6：mini 模式（形态落地 1）🔨 实施中（阶段 6A/6B 已完成 2026-08-22；6C–6E 待实施，详见 `wf-cli-stage6-mini模式-实施方案.md`）
+### Stage 6：mini 模式（形态落地 1）✅ 已完成（6A 2026-08-20 / 6B 2026-08-22 / 6C–6E 2026-08-24；事件架构修订 2026-08-24，详见 `wf-cli-stage6-mini模式-实施方案.md` 修订记录）
 
 **目标**：`wf --mini` 可用——inline split-footer 交互会话。
 
 **任务**
 
-- [x] 阶段 6A（args/keymap/MiniSink 前置）：`--session/--resume/--demo/-p/--agent/--model` + validate；`KeymapContext::{Composer,Panel,Approval,Question}` + `KeyAction::DenyOnce`；`MiniSink`（mpsc 内存型 OutputSink + `tee_log`）。
+- [x] 阶段 6A（args/keymap/MiniSink 前置）：`--session/--resume/-p/--agent/--model` + validate（原 `--demo` 参数已于事件架构修订中移除）；`KeymapContext::{Composer,Panel,Approval,Question}` + `KeyAction::DenyOnce`；`MiniSink`（mpsc 内存型 OutputSink + `tee_log`）。
 - [x] `footer.rs`：ratatui `Terminal` + `Viewport::Inline(n)`（normal screen 底部视口，对齐 05 §3.1/§4.3）；动态高度（composer/面板/审批/问题/statusline 各视图高度表，对齐 05 §4.3）；statusline 宽度响应式（80/120 断点，对齐 05 §4.4.4）。✅ 6B（含事件循环：SIGTSTP/SIGCONT、两按退出、输入边界、resize 流式宽度 D15、尾部局部替换 D19）
 - [x] 输出模型对齐：引入 `MiniSink`（内存型，§2.1）——业务输出追加 scrollback + 标记重绘，由渲染器统一绘制（capture-stdout + ansi-to-tui），业务层不直接 println 写屏；可选 `--log <file>` 时用 `TeeSink` 同时落盘。✅ 6A（MiniSink）+ 6B（run_session 接入 sanitize、mini 事件循环消费）
-- [ ] `composer.rs`：P0 自研单行 Input（历史 ↑/↓ 100 条）✅ 6B；P1 `ratatui-textarea` 多行（≤6 行）+ `@` mention（文件带行号 / 技能 / 工作流，区间高亮对齐 05 §3.2）；`/` 命令 palette（P1 随 6C/Stage 8）。
-- [ ] `panels.rs`：模型/技能/排队面板（数据源 llm-profile、SkillLoader、排队队列；Enter 编辑 / Delete 删除）。
-- [ ] `approval.rs` / `question.rs`：审批视图（y/a/d/n/c 键位对齐 codex）与追问视图（单选/多选/自定义），接入 05 §3.4 领域映射。
-- [ ] 会话语义：串行 turn + 排队；两按退出；退出打印 `wf --mini --session <id>` 续跑提示（对齐 05 §4.5）。
-- [ ] `--demo`（前置：Stage 8 的 demo.rs 可先落最小版）：合成事件流驱动完整管线冒烟。
+- [x] `composer.rs`：P0 自研单行 Input（历史 ↑/↓ 100 条）✅ 6B；P1 `ratatui-textarea` 多行（≤6 行）+ `@` mention（文件带行号 / 技能 / 工作流，区间高亮对齐 05 §3.2）→ 留 Stage 8 排期；`/` 命令 palette ✅ 6C（含 `/editor`、历史 stash 语义）。
+- [x] `panels.rs`：模型/技能/排队面板（数据源 llm-profile、SkillLoader、排队队列；Enter 编辑 / Delete 删除）。✅ 6C
+- [x] `approval.rs` / `question.rs`：审批视图（y/a/d/n/c 键位对齐 codex）与追问视图（单选/多选/自定义），接入 05 §3.4 领域映射。✅ 6D
+- [x] 会话语义：串行 turn + 排队；两按退出；退出打印 `wf --mini --session <id>` 续跑提示（对齐 05 §4.5）。✅ 6D（含 D17 退出防 failover、D20 会话快照）
+- [x] 管线展示（原 `--demo` 任务，按事件架构修订调整）：`examples/mini_demo.rs` 合成 `ExecutionStreamEvent` 驱动完整管线展示（不进 src、不新增 CLI 参数）；集成断言在 `tests/mini_pipeline.rs`。✅ 6E
 - [x] 流式渲染正确性补齐（自 codex 分析引入，见 stage6 方案 D14）：表格 holdback、换行门控、引用链接回退、定稿兜底重渲 + `assert_streamed_equals_full`、resize 流式宽度 + 定稿强制重排、尾部局部替换。✅ 6B（D14-①②③ 随 `cbffeb8`；D14-④/D15/D19 随 2026-08-22 补缺）
 
 **交付与验收**
@@ -289,7 +289,7 @@ wf-types/wf-common/wf-config/wf-storage → wf-runtime/wf-api/wf-agent → wf-cl
 **任务**
 
 - [ ] `replay.rs`：`--resume`/`--replay` 从存储重放执行事件与消息重建 scrollback（对齐 05 §4.5）；resize 后按新宽度 reflow；**长会话 cursor 分页补载**（内存 scrollback 有界、滚到顶部按 cursor 从 wf-storage 拉更早历史回填，状态机 `Partial/Complete/LoadingBeginning`——自 codex 历史分析引入，见 `docs/analysis/` 对照）。
-- [ ] `demo.rs`：完整版合成 `AgentStreamEvent` 序列（含权限/问题/工具/错误场景），支撑三形态自动化冒烟。
+- [ ] `examples/`（扩展 `mini_demo.rs`）：完整版合成协议事件序列（`ExecutionStreamEvent`，含权限/问题/工具/错误场景），支撑三形态自动化冒烟；demo 不进 `src/`。
 - [ ] 集成测试套：`wf run` 端到端矩阵（text/json/silent × 审批 × 退出码）；`--mini --demo` 与 `--tui --demo` 冒烟脚本；CI 挂接（对齐 rust 迁移方案验收风格）。
 - [ ] 性能基准：帧渲染耗时不随 scrollback 行数线性退化（reflow/截断基准）；reducer 万级事件耗时上界。
 - [ ] 文档同步：更新 `docs/cli/01`（CLI-1~4 引用本方案）、AGENTS.md（crate 列表）。

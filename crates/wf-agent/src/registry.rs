@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use dashmap::DashMap;
 use wf_common::gate::GateStats;
-use wf_execution_shared::types::execution_entity::ExecutionStatus;
+use wf_execution_shared::types::execution_entity::{ExecutionStatus, IExecutionEntity};
 use wf_tools::callback::AgentLoopOutput;
 use wf_types::Id;
 
@@ -153,7 +153,21 @@ impl AgentLoopRegistry {
         if let Some(existing) = self.entities.get(&id) {
             let permit = existing.take_gate_permit();
             drop(existing);
-            entity.set_gate_permit(permit);
+            if Self::is_terminal(&entity) {
+                // The replacement already finished: it must not keep the
+                // moved permit occupied (released on drop).
+                drop(permit);
+            } else {
+                entity.set_gate_permit(permit);
+            }
+            self.entities.insert(id, entity);
+            return Ok(());
+        }
+        // A terminal entity describes a finished execution, not a running
+        // one, so it never consumes a concurrent-execution permit. The capacity
+        // gate guards in-flight executions only; registering historical
+        // outcomes (completed / failed / cancelled) must not be limited by it.
+        if Self::is_terminal(&entity) {
             self.entities.insert(id, entity);
             return Ok(());
         }
@@ -164,6 +178,13 @@ impl AgentLoopRegistry {
         entity.set_gate_permit(Some(permit));
         self.entities.insert(id, entity);
         Ok(())
+    }
+
+    /// Whether the entity is in a state that will never run again; such
+    /// records are stored as history rather than admitted to the concurrent
+    /// execution gate.
+    fn is_terminal(entity: &AgentLoopEntity) -> bool {
+        entity.is_completed() || entity.is_failed() || entity.is_cancelled()
     }
 
     /// Whether a child execution at `parent_depth` (0 for a root run) fits

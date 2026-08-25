@@ -1,9 +1,9 @@
-//! Headless summary renderer: `UnifiedEvent` → plain text.
+//! Headless summary renderer: `ExecutionStreamEvent` → plain text.
 //!
 //! [`HeadlessRenderer`] composes [`SessionReducer`] (footer state + the
 //! reducer product used by the mini scrollback) and [`MarkdownStream`]
 //! (streaming markdown) into a headless summary renderer that turns the
-//! unified event stream into [`HeadlessDelta`]:
+//! execution event stream into [`HeadlessDelta`]:
 //!
 //! * assistant text → the markdown pipeline: settled blocks render to plain
 //!   text, the in-flight block streams **complete lines only** (soft breaks
@@ -21,9 +21,9 @@
 //! This is a pure-data renderer: no TTY, no IO, no wall clock (tool lines
 //! carry no duration), so outputs are deterministic and testable.
 
-use crate::events::UnifiedEvent;
 use crate::markdown::{ends_with_blank_line, render_plain_text, MarkdownStream};
 use crate::reducer::{FooterState, SessionReducer};
+use wf_api::infra::stream::ExecutionStreamEvent;
 
 /// One output delta from the headless renderer.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -55,14 +55,14 @@ impl HeadlessRenderer {
         }
     }
 
-    /// Feed one unified event and return the output it produced.
+    /// Feed one execution stream event and return the output it produced.
     ///
     /// The event is also reduced into the footer state so
     /// [`HeadlessRenderer::footer`] tracks the live session.
-    pub fn on_event(&mut self, event: &UnifiedEvent) -> HeadlessDelta {
+    pub fn on_event(&mut self, event: &ExecutionStreamEvent) -> HeadlessDelta {
         self.reducer.push_batch(std::slice::from_ref(event));
         match event {
-            UnifiedEvent::TextDelta { content } => {
+            ExecutionStreamEvent::LlmDelta { content } => {
                 self.markdown.push(content);
                 HeadlessDelta {
                     stdout: self.sync_stdout(true),
@@ -73,7 +73,7 @@ impl HeadlessRenderer {
             // Iteration boundaries flush the pending markdown and reset the
             // block: each iteration is an independent output block (the
             // reducer emits one AssistantText commit per iteration too).
-            UnifiedEvent::IterationStarted { .. } | UnifiedEvent::IterationEnded { .. } => {
+            ExecutionStreamEvent::IterationStart { .. } | ExecutionStreamEvent::IterationEnd { .. } => {
                 let stdout = self.flush_iteration();
                 HeadlessDelta {
                     stdout,
@@ -81,7 +81,7 @@ impl HeadlessRenderer {
                     had_output: self.had_output,
                 }
             }
-            UnifiedEvent::ToolStart { tool_name, .. } => {
+            ExecutionStreamEvent::ToolStart { tool_name, .. } => {
                 self.had_output = true;
                 HeadlessDelta {
                     stdout: String::new(),
@@ -89,8 +89,10 @@ impl HeadlessRenderer {
                     had_output: true,
                 }
             }
-            UnifiedEvent::ToolEnd {
-                tool_name, success, ..
+            ExecutionStreamEvent::ToolEnd {
+                tool_name,
+                success,
+                ..
             } => {
                 self.had_output = true;
                 let diag = if *success {
@@ -104,6 +106,9 @@ impl HeadlessRenderer {
                     had_output: true,
                 }
             }
+            // Engine lifecycle / terminal / interruption events carry no
+            // incremental output here; the reducer already folds them into
+            // the footer.
             _ => HeadlessDelta {
                 stdout: String::new(),
                 diag: Vec::new(),
@@ -209,8 +214,8 @@ fn common_prefix_len(a: &str, b: &str) -> usize {
 mod tests {
     use super::*;
 
-    fn delta(text: &str) -> UnifiedEvent {
-        UnifiedEvent::TextDelta {
+    fn delta(text: &str) -> ExecutionStreamEvent {
+        ExecutionStreamEvent::LlmDelta {
             content: text.to_string(),
         }
     }
@@ -290,7 +295,7 @@ mod tests {
     #[test]
     fn tool_lifecycle_goes_to_diag() {
         let mut renderer = HeadlessRenderer::new("exec-1");
-        let start = renderer.on_event(&UnifiedEvent::ToolStart {
+        let start = renderer.on_event(&ExecutionStreamEvent::ToolStart {
             tool_call_id: "t1".into(),
             tool_name: "bash".into(),
         });
@@ -298,19 +303,19 @@ mod tests {
         assert_eq!(start.diag, vec!["▲ bash"]);
         assert!(start.had_output);
 
-        let end = renderer.on_event(&UnifiedEvent::ToolEnd {
+        let end = renderer.on_event(&ExecutionStreamEvent::ToolEnd {
             tool_call_id: "t1".into(),
             tool_name: "bash".into(),
             success: true,
-            duration_ms: None,
+            result: String::new(),
         });
         assert_eq!(end.diag, vec!["✓ bash"]);
 
-        let fail = renderer.on_event(&UnifiedEvent::ToolEnd {
+        let fail = renderer.on_event(&ExecutionStreamEvent::ToolEnd {
             tool_call_id: "t2".into(),
             tool_name: "write_file".into(),
             success: false,
-            duration_ms: None,
+            result: String::new(),
         });
         assert_eq!(fail.diag, vec!["✗ write_file"]);
     }
@@ -329,7 +334,11 @@ mod tests {
     fn iteration_boundary_flushes_pending_text_as_a_block() {
         let mut renderer = HeadlessRenderer::new("exec-1");
         renderer.on_event(&delta("partial"));
-        let flushed = renderer.on_event(&UnifiedEvent::IterationEnded { index: 1 });
+        let flushed = renderer.on_event(&ExecutionStreamEvent::IterationEnd {
+            iteration: 1,
+            message_count: 0,
+            array_version: 0,
+        });
         assert_eq!(flushed.stdout, "partial\n");
         // The next iteration starts a fresh markdown block.
         assert_eq!(renderer.on_event(&delta("next")).stdout, "");
@@ -349,7 +358,7 @@ mod tests {
             delta("world!\n"),
             delta("Let me inspect the file "),
             delta("and report back."),
-            UnifiedEvent::Completed {
+            ExecutionStreamEvent::Completed {
                 result: serde_json::Value::Null,
                 iterations: 1,
             },
@@ -386,7 +395,7 @@ mod tests {
     fn completed_returns_footer_to_idle() {
         let mut renderer = HeadlessRenderer::new("exec-1");
         renderer.on_event(&delta("done"));
-        renderer.on_event(&UnifiedEvent::Completed {
+        renderer.on_event(&ExecutionStreamEvent::Completed {
             result: serde_json::Value::Null,
             iterations: 3,
         });
@@ -401,7 +410,6 @@ mod tests {
 mod e2e {
     use super::*;
     use crate::domain::DomainAdapter;
-    use crate::events::unified_from_execution_stream;
     use futures::StreamExt;
     use std::collections::HashMap;
     use std::sync::Arc;
@@ -470,14 +478,12 @@ mod e2e {
         let mut stdout = String::new();
         let mut diag: Vec<String> = Vec::new();
         let mut completed = false;
-        while let Some(raw) = stream.next().await {
-            if let Some(unified) = unified_from_execution_stream(raw) {
-                let delta = renderer.on_event(&unified);
-                stdout.push_str(&delta.stdout);
-                diag.extend(delta.diag);
-                if matches!(unified, UnifiedEvent::Completed { .. }) {
-                    completed = true;
-                }
+        while let Some(event) = stream.next().await {
+            let delta = renderer.on_event(&event);
+            stdout.push_str(&delta.stdout);
+            diag.extend(delta.diag);
+            if matches!(event, ExecutionStreamEvent::Completed { .. }) {
+                completed = true;
             }
         }
         stdout.push_str(&renderer.finish().stdout);

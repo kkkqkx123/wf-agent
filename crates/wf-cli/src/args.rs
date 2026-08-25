@@ -49,9 +49,6 @@ pub struct Cli {
     /// Resume the most recent session in an interactive form.
     #[arg(long)]
     pub resume: bool,
-    /// Drive a mini session with synthetic events (requires --mini).
-    #[arg(long)]
-    pub demo: bool,
     /// Subcommand; absent selects an interactive form.
     #[command(subcommand)]
     pub command: Option<Command>,
@@ -71,9 +68,6 @@ impl Cli {
         }
         if self.no_tui && (self.tui || self.mini) {
             return Err("--no-tui conflicts with --tui/--mini".to_string());
-        }
-        if self.demo && !self.mini {
-            return Err("--demo requires --mini".to_string());
         }
         if self.prompt.is_some() && !self.mini {
             return Err("--prompt/-p requires --mini".to_string());
@@ -259,18 +253,6 @@ mod tests {
 
         let cli = parse(&["--mini", "--resume"]).unwrap();
         assert!(cli.resume);
-
-        let cli = parse(&["--mini", "--demo"]).unwrap();
-        assert!(cli.demo);
-    }
-
-    #[test]
-    fn rejects_demo_without_mini() {
-        let cli = parse(&["--demo"]).unwrap();
-        assert!(cli.validate().is_err());
-        // demo through the tui form is also rejected (mini only).
-        let cli = parse(&["--tui", "--demo"]).unwrap();
-        assert!(cli.validate().is_err());
     }
 
     #[test]

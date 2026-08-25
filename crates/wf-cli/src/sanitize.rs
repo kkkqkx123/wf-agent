@@ -13,7 +13,7 @@
 pub fn sanitize_user_text(text: &str) -> String {
     let bytes = text.as_bytes();
     let len = bytes.len();
-    let mut out = String::with_capacity(len);
+    let mut out: Vec<u8> = Vec::with_capacity(len);
     let mut i = 0;
     while i < len {
         if bytes[i] == 0x1b && i + 1 < len && bytes[i + 1] == b'[' {
@@ -31,14 +31,18 @@ pub fn sanitize_user_text(text: &str) -> String {
             continue;
         }
         // Preserve newlines, tabs and bare ESC; strip other control chars.
+        // Multi-byte UTF-8 bytes are all >= 0x80, so they always pass the
+        // `b >= 0x20` gate untouched and stay valid UTF-8 in `out`.
         let b = bytes[i];
         if b == b'\n' || b == b'\t' || b >= 0x20 || b == 0x1b {
-            out.push(b as char);
+            out.push(b);
         }
         // Other control bytes (< 0x20, not \n \t ESC) are silently dropped.
         i += 1;
     }
-    out
+    // Only whole ASCII control bytes were dropped; the remainder is intact
+    // UTF-8 (defensive fallback: lossy conversion can never trigger).
+    String::from_utf8(out).unwrap_or_else(|e| String::from_utf8_lossy(&e.into_bytes()).into_owned())
 }
 
 #[cfg(test)]

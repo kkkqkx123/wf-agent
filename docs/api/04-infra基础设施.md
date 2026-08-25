@@ -64,10 +64,10 @@
 
 ## 8. stream.rs（178 行）— 执行流（SSE/WS 友好）
 
-- `ExecutionStreamEvent` 标记枚举：`Engine(BaseEvent)` / `Agent(AgentStreamEvent)` / `Completed{result, iterations}` / `Failed{error}`。
+- `ExecutionStreamEvent` 引擎无关标记枚举（客户端↔内核执行流协议，agent/workflow 为对等引擎，协议词汇不含引擎名）：`Engine(BaseEvent)`（总线生命周期）/ `IterationStart` / `LlmDelta` / `ToolStart` / `ToolEnd` / `IterationEnd` / `Interrupted` / `Completed{result, iterations}` / `Failed{error}`。
 - `ExecutionEventStream`（Stream）：mpsc 接收端 + 可选 driver 句柄，Drop 时 abort（断连即取消运行中工作流）。
 - `spawn_execution_stream`：同步订阅（零事件丢失）+ 转发；终态保证送达、非终态满即丢。
-- `from_agent_stream`：AgentEventStream → 统一流。
+- `from_agent_stream`：引擎事件（wf-agent 内部 `AgentStreamEvent`）→ 协议事件适配（引擎类型不出现在协议枚举中）。
 
 ## 9. state_tracker.rs（351 行）— 执行状态记录
 

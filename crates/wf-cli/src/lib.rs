@@ -1,11 +1,11 @@
 //! wf-cli: headless run, mini and full TUI forms over the wf-agent runtime.
 
 pub mod ansi;
+pub mod approval;
 pub mod args;
 pub mod composer;
 pub mod domain;
 pub mod error;
-pub mod events;
 pub mod footer;
 pub mod framer;
 pub mod keymap;
@@ -13,6 +13,9 @@ pub mod markdown;
 pub mod mini;
 pub mod mode;
 pub mod output;
+pub mod panels;
+pub mod question;
+pub mod queue;
 pub mod reducer;
 pub mod render;
 pub mod run;
@@ -31,7 +34,7 @@ pub use error::{CliError, CliResult};
 pub use footer::{Footer, FooterRoute, FooterView};
 pub use framer::{FrameRateLimiter, FrameRequester};
 pub use keymap::{Key, KeyAction, Keymap, KeymapContext};
-pub use mini::MiniApp;
+pub use mini::{MiniApp, MiniOptions};
 pub use output::{
     HeadlessFileSink, MemorySink, OutputEnvelope, OutputFormat, OutputMessage, TeeSink,
 };
@@ -40,6 +43,8 @@ pub use scrollback::{HistoryLine, LineState, LinesView, Role};
 pub use select::{Group, GroupItem, NavigateDir, SelectList};
 pub use sink::{MiniOutputEvent, MiniSink};
 pub use size::{ResizeDebouncer, Size};
+
+use std::sync::Arc;
 
 use wf_runtime::bootstrap::RuntimeConfig;
 
@@ -142,7 +147,17 @@ async fn run_interactive(cli: &Cli, cli_mode: CliMode, stdout_tty: bool) -> CliR
         )));
     }
     match cli_mode {
-        CliMode::Mini => MiniApp::new()?.run().await,
+        CliMode::Mini => {
+            let opts = MiniOptions {
+                agent: cli.agent.clone(),
+                model: cli.model.clone(),
+                initial_prompt: cli.prompt.clone(),
+                adapter: Arc::new(
+                    DomainAdapter::bootstrap_for_cli(cli, CliMode::Mini).await?,
+                ),
+            };
+            MiniApp::new(opts)?.run().await
+        }
         CliMode::Tui => {
             let mut sink = build_sink(cli, stdout_tty)?;
             sink.write_text("[wf] Tui mode selected; the full renderer is not wired yet")?;

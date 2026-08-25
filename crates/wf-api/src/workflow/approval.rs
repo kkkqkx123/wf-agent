@@ -461,6 +461,10 @@ mod tests {
         let mut request = approval_request("call-4", "web_fetch", "network");
         request.parameters = serde_json::json!({ "url": "https://evil.example/x" });
         let options = ToolApprovalOptions {
+            // The network allow/deny policy only runs once auto-approval is
+            // enabled (see `ToolApprovalCoordinator::check_approval`); the
+            // denylist is enforced on top of an allowed-by-category network.
+            auto_approval_enabled: Some(true),
             categories: Some(wf_types::tool::approval::ApprovalCategories {
                 always_allow_network: Some(true),
                 ..Default::default()

@@ -1,7 +1,7 @@
 //! Headless session driver: `wf run "<prompt>"` end to end.
 //!
 //! Pipeline: preset the execution id → register the headless interaction
-//! guard → stream the agent loop through [`wf_api`] → render the unified
+//! guard → stream the agent loop through [`wf_api`] → render the agent
 //! events (LLM text to the main sink, tool lifecycle to the diagnostics
 //! channel) → terminate with a summary line / envelope and an exit code.
 //!
@@ -30,8 +30,8 @@ use wf_types::Id;
 
 use crate::domain::DomainAdapter;
 use crate::error::{CliError, CliResult};
-use crate::events::{unified_from_execution_stream, UnifiedEvent};
 use crate::output::{OutputEnvelope, OutputFormat, OutputMessage, OutputSink};
+use wf_api::infra::stream::ExecutionStreamEvent;
 
 /// Tools that mutate state or execute commands: always denied in headless
 /// runs unless covered by an explicit `--approve-prefix`.
@@ -311,7 +311,7 @@ impl DeltaBuffer {
 
 // ── session rendering ────────────────────────────────────────────────
 
-/// Renders unified events into the main sink (business output) and the
+/// Renders agent events into the main sink (business output) and the
 /// diagnostics channel (tool lifecycle).
 struct SessionRenderer<'a> {
     sink: &'a mut dyn OutputSink,
@@ -342,9 +342,21 @@ impl<'a> SessionRenderer<'a> {
         }
     }
 
-    fn on_event(&mut self, event: &UnifiedEvent, diag: &Arc<Mutex<DiagWriter>>) -> CliResult<()> {
+    fn on_event(
+        &mut self,
+        event: &ExecutionStreamEvent,
+        diag: &Arc<Mutex<DiagWriter>>,
+    ) -> CliResult<()> {
         match event {
-            UnifiedEvent::TextDelta { content } => {
+            // Engine lifecycle events carry no execution progress payload
+            // for a headless run; skip them.
+            ExecutionStreamEvent::Engine(_) => return Ok(()),
+            // Terminal and interruption events are handled by the run
+            // loop, not the renderer.
+            ExecutionStreamEvent::Completed { .. }
+            | ExecutionStreamEvent::Failed { .. }
+            | ExecutionStreamEvent::Interrupted { .. } => return Ok(()),
+            ExecutionStreamEvent::LlmDelta { content } => {
                 self.had_output = true;
                 self.saw_text = true;
                 self.iteration_text.push_str(content);
@@ -356,7 +368,7 @@ impl<'a> SessionRenderer<'a> {
                     }
                 }
             }
-            UnifiedEvent::ToolStart {
+            ExecutionStreamEvent::ToolStart {
                 tool_call_id,
                 tool_name,
             } => {
@@ -366,7 +378,7 @@ impl<'a> SessionRenderer<'a> {
                 let mut diag = wf_common::lock::lock_ok(diag.lock());
                 let _ = diag.line(&format!("▲ {tool_name}"));
             }
-            UnifiedEvent::ToolEnd {
+            ExecutionStreamEvent::ToolEnd {
                 tool_call_id,
                 tool_name,
                 success,
@@ -388,8 +400,8 @@ impl<'a> SessionRenderer<'a> {
                     let _ = diag.err(&line);
                 }
             }
-            UnifiedEvent::IterationEnded { .. } => self.flush_iteration()?,
-            _ => {}
+            ExecutionStreamEvent::IterationEnd { .. } => self.flush_iteration()?,
+            ExecutionStreamEvent::IterationStart { .. } => {}
         }
         Ok(())
     }
@@ -550,19 +562,16 @@ pub async fn run_session(
     let terminal = loop {
         tokio::select! {
             event = stream.next() => match event {
-                Some(raw) => match unified_from_execution_stream(raw) {
-                    Some(UnifiedEvent::Completed { iterations: n, .. }) => {
-                        break Terminal::Completed { iterations: n };
-                    }
-                    Some(UnifiedEvent::Failed { error }) => break Terminal::Failed { error },
-                    Some(UnifiedEvent::Interrupted { reason }) => {
-                        break Terminal::Interrupted { reason }
-                    }
-                    Some(unified) => {
-                        renderer.on_event(&unified, &io.diag)?;
-                    }
-                    None => continue,
-                },
+                Some(ExecutionStreamEvent::Completed { iterations: n, .. }) => {
+                    break Terminal::Completed { iterations: n };
+                }
+                Some(ExecutionStreamEvent::Failed { error }) => break Terminal::Failed { error },
+                Some(ExecutionStreamEvent::Interrupted { reason }) => {
+                    break Terminal::Interrupted { reason }
+                }
+                Some(event) => {
+                    renderer.on_event(&event, &io.diag)?;
+                }
                 None => break Terminal::Failed {
                     error: "agent stream ended without a terminal event".to_string(),
                 },
@@ -842,7 +851,7 @@ mod tests {
             let mut renderer = SessionRenderer::new(&mut sink, format);
             renderer
                 .on_event(
-                    &UnifiedEvent::TextDelta {
+                    &ExecutionStreamEvent::LlmDelta {
                         content: "hello\nbig ".into(),
                     },
                     &diag,
@@ -850,7 +859,7 @@ mod tests {
                 .unwrap();
             renderer
                 .on_event(
-                    &UnifiedEvent::TextDelta {
+                    &ExecutionStreamEvent::LlmDelta {
                         content: "world".into(),
                     },
                     &diag,
@@ -858,7 +867,14 @@ mod tests {
                 .unwrap();
             // Iteration boundary flushes the pending tail + newline.
             renderer
-                .on_event(&UnifiedEvent::IterationEnded { index: 1 }, &diag)
+                .on_event(
+                    &ExecutionStreamEvent::IterationEnd {
+                        iteration: 1,
+                        message_count: 0,
+                        array_version: 0,
+                    },
+                    &diag,
+                )
                 .unwrap();
         }
         assert_eq!(sink.text(), "hello\nbig world\n");
@@ -872,7 +888,7 @@ mod tests {
             let mut renderer = SessionRenderer::new(&mut sink, OutputFormat::Text);
             renderer
                 .on_event(
-                    &UnifiedEvent::ToolStart {
+                    &ExecutionStreamEvent::ToolStart {
                         tool_call_id: "t1".into(),
                         tool_name: "read_file".into(),
                     },
@@ -881,22 +897,22 @@ mod tests {
                 .unwrap();
             renderer
                 .on_event(
-                    &UnifiedEvent::ToolEnd {
+                    &ExecutionStreamEvent::ToolEnd {
                         tool_call_id: "t1".into(),
                         tool_name: "read_file".into(),
                         success: true,
-                        duration_ms: None,
+                        result: String::new(),
                     },
                     &diag,
                 )
                 .unwrap();
             renderer
                 .on_event(
-                    &UnifiedEvent::ToolEnd {
+                    &ExecutionStreamEvent::ToolEnd {
                         tool_call_id: "t2".into(),
                         tool_name: "write_file".into(),
                         success: false,
-                        duration_ms: None,
+                        result: String::new(),
                     },
                     &diag,
                 )
@@ -915,36 +931,33 @@ mod tests {
         let diag = shared_diag();
         {
             let mut renderer = SessionRenderer::new(&mut sink, OutputFormat::Json);
-            renderer
-                .on_event(
-                    &UnifiedEvent::TextDelta {
-                        content: "part ".into(),
-                    },
-                    &diag,
-                )
-                .unwrap();
-            renderer
-                .on_event(
-                    &UnifiedEvent::TextDelta {
-                        content: "one".into(),
-                    },
-                    &diag,
-                )
-                .unwrap();
-            renderer
-                .on_event(&UnifiedEvent::IterationEnded { index: 1 }, &diag)
-                .unwrap();
-            renderer
-                .on_event(
-                    &UnifiedEvent::TextDelta {
-                        content: "two".into(),
-                    },
-                    &diag,
-                )
-                .unwrap();
-            renderer
-                .on_event(&UnifiedEvent::IterationEnded { index: 2 }, &diag)
-                .unwrap();
+            for (chunk, iteration) in [
+                ("part ", 1u32),
+                ("one", 1),
+                // Iteration boundary flushes the pending tail.
+                ("two", 2),
+            ] {
+                renderer
+                    .on_event(
+                        &ExecutionStreamEvent::LlmDelta {
+                            content: chunk.into(),
+                        },
+                        &diag,
+                    )
+                    .unwrap();
+                if chunk == "one" || chunk == "two" {
+                    renderer
+                        .on_event(
+                            &ExecutionStreamEvent::IterationEnd {
+                                iteration,
+                                message_count: 0,
+                                array_version: 0,
+                            },
+                            &diag,
+                        )
+                        .unwrap();
+                }
+            }
         }
         let messages = sink.messages();
         assert_eq!(messages.len(), 2);

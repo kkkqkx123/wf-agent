@@ -10,15 +10,51 @@ use wf_agent::stream::{AgentEventStream, AgentStreamEvent};
 use wf_core::EventBus;
 use wf_types::events::BaseEvent;
 
-/// Event produced by a streaming execution.
+/// Event produced by a streaming execution — the client-facing execution
+/// stream protocol.
+///
+/// The vocabulary describes the execution itself (LLM streaming, tool
+/// lifecycle, iteration boundaries, outcome) and is engine-neutral: agent
+/// and workflow are peer engines behind this contract, so neither engine's
+/// name may appear here. Engine-internal loop events are adapted to this
+/// protocol at the API boundary (see
+/// [`ExecutionEventStream::from_agent_stream`]); engine lifecycle events
+/// published on the shared bus arrive as [`ExecutionStreamEvent::Engine`].
 #[derive(Debug, Clone, serde::Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ExecutionStreamEvent {
     /// Engine lifecycle event published on the shared event bus
-    /// (workflow/agent/checkpoint lifecycle).
+    /// (workflow/node/checkpoint lifecycle, ...).
     Engine(BaseEvent),
-    /// Raw agent loop stream event (message deltas, tool lifecycle, ...).
-    Agent(AgentStreamEvent),
+    /// One execution round started. `message_count` / `array_version`
+    /// anchor the conversation ledger at the round boundary.
+    IterationStart {
+        iteration: u32,
+        message_count: usize,
+        array_version: u64,
+    },
+    /// Incremental LLM output text.
+    LlmDelta { content: String },
+    /// A tool invocation started.
+    ToolStart {
+        tool_call_id: String,
+        tool_name: String,
+    },
+    /// A tool invocation finished.
+    ToolEnd {
+        tool_call_id: String,
+        tool_name: String,
+        success: bool,
+        result: String,
+    },
+    /// One execution round finished.
+    IterationEnd {
+        iteration: u32,
+        message_count: usize,
+        array_version: u64,
+    },
+    /// The execution was interrupted before reaching an outcome.
+    Interrupted { reason: String },
     /// Terminal success payload.
     Completed { result: Value, iterations: u32 },
     /// Terminal failure payload.
@@ -44,23 +80,67 @@ impl ExecutionEventStream {
         self
     }
 
-    /// Adapt a raw [`AgentEventStream`] into the unified stream, mapping its
-    /// terminal events onto `Completed` / `Failed`.
+    /// Adapt a raw [`AgentEventStream`] (engine-internal agent loop events)
+    /// into the execution stream protocol, mapping the loop's outcome
+    /// events onto the protocol terminal events.
     pub fn from_agent_stream(agent: AgentEventStream) -> Self {
         let (tx, rx) = mpsc::channel(256);
         tokio::spawn(async move {
             let mut agent = agent;
             while let Some(event) = agent.next().await {
                 let mapped = match event {
+                    AgentStreamEvent::IterationStart {
+                        iteration,
+                        message_count,
+                        array_version,
+                    } => ExecutionStreamEvent::IterationStart {
+                        iteration,
+                        message_count,
+                        array_version,
+                    },
+                    AgentStreamEvent::LlmDelta { content } => {
+                        ExecutionStreamEvent::LlmDelta { content }
+                    }
+                    AgentStreamEvent::ToolStart {
+                        tool_call_id,
+                        tool_name,
+                    } => ExecutionStreamEvent::ToolStart {
+                        tool_call_id,
+                        tool_name,
+                    },
+                    AgentStreamEvent::ToolEnd {
+                        tool_call_id,
+                        tool_name,
+                        success,
+                        result,
+                    } => ExecutionStreamEvent::ToolEnd {
+                        tool_call_id,
+                        tool_name,
+                        success,
+                        result,
+                    },
+                    AgentStreamEvent::IterationEnd {
+                        iteration,
+                        message_count,
+                        array_version,
+                    } => ExecutionStreamEvent::IterationEnd {
+                        iteration,
+                        message_count,
+                        array_version,
+                    },
+                    AgentStreamEvent::Interrupted { reason } => {
+                        ExecutionStreamEvent::Interrupted { reason }
+                    }
                     AgentStreamEvent::Completed { result, iterations } => {
                         ExecutionStreamEvent::Completed { result, iterations }
                     }
                     AgentStreamEvent::Failed { error } => ExecutionStreamEvent::Failed { error },
-                    other => ExecutionStreamEvent::Agent(other),
                 };
                 let terminal = matches!(
                     mapped,
-                    ExecutionStreamEvent::Completed { .. } | ExecutionStreamEvent::Failed { .. }
+                    ExecutionStreamEvent::Completed { .. }
+                        | ExecutionStreamEvent::Failed { .. }
+                        | ExecutionStreamEvent::Interrupted { .. }
                 );
                 if terminal {
                     // Terminal events must always reach a slow consumer,

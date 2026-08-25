@@ -26,7 +26,10 @@ use ratatui::text::{Line, Span};
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
+use crate::approval::ApprovalView;
 use crate::composer::Composer;
+use crate::panels::{CommandPalette, ModelPanel, QueuedPanel, SkillPanel};
+use crate::question::QuestionView;
 use crate::reducer::Phase;
 use crate::scrollback::{HistoryLine, Role};
 use crate::theme::Theme;
@@ -86,6 +89,17 @@ pub enum FooterRoute {
     Queued,
 }
 
+/// The interactive panel attached to the current prompt route. Exactly one
+/// panel kind is live per route; opening a route installs its panel and
+/// leaving the route drops it.
+#[derive(Debug, Clone)]
+pub enum PanelState {
+    Command(CommandPalette),
+    Model(ModelPanel),
+    Skill(SkillPanel),
+    Queued(QueuedPanel),
+}
+
 /// UI-side footer state: the reducer's [`crate::reducer::FooterState`] plus
 /// the mini-only presentation fields (model label, execution id, elapsed
 /// time, notice).
@@ -143,6 +157,13 @@ pub struct Footer {
     /// In-flight streaming line held back from the scrollback (rendered in
     /// the main area until it settles — the "streaming tail line" rule).
     pub streaming: Option<HistoryLine>,
+    /// Panel attached to the current prompt route (command palette / model /
+    /// skill / queued).
+    pub panel: Option<PanelState>,
+    /// Pending tool approval (rendered while `FooterView::Permission`).
+    pub approval: Option<ApprovalView>,
+    /// Pending follow-up question (rendered while `FooterView::Question`).
+    pub question: Option<QuestionView>,
     /// Injected millisecond clock (spinner / notice expiry).
     now_ms: u64,
 }
@@ -155,6 +176,9 @@ impl Default for Footer {
             state: FooterState::default(),
             composer: Composer::new(),
             streaming: None,
+            panel: None,
+            approval: None,
+            question: None,
             now_ms: 0,
         }
     }
@@ -171,16 +195,32 @@ impl Footer {
         self.now_ms = now_ms;
     }
 
-    /// Switch the view and reset the route to the composer.
+    /// Switch the view (permission / question / back to prompt) and reset
+    /// the route to the composer.
     pub fn present(&mut self, view: FooterView) {
         self.view = view;
         self.route = FooterRoute::Composer;
+        if view == FooterView::Prompt {
+            // Returning to the prompt view drops any blocking view state.
+            self.approval = None;
+            self.question = None;
+        }
     }
 
-    /// Switch the route inside the prompt view.
+    /// Switch the route inside the prompt view; the panel of the previous
+    /// route is dropped (opening a route installs a fresh panel).
     pub fn set_route(&mut self, route: FooterRoute) {
         self.view = FooterView::Prompt;
+        if route != self.route {
+            self.panel = None;
+        }
         self.route = route;
+    }
+
+    /// Close the current panel route and return to the composer.
+    pub fn close_panel(&mut self) {
+        self.panel = None;
+        self.route = FooterRoute::Composer;
     }
 
     /// Required viewport height for the current view x route.
@@ -264,35 +304,76 @@ impl Footer {
 
     /// Render the main area by the current view x route.
     fn draw_main(&mut self, area: Rect, buf: &mut Buffer, theme: &Theme) {
-        if self.view == FooterView::Prompt && self.route == FooterRoute::Composer {
-            let style = theme_style(theme, Role::Default);
-            if let Some(streaming) = &self.streaming {
-                // The streaming tail renders at width - 2 (reserved
-                // margin) so its row count stays stable across stream
-                // ticks and
-                // a resize never shifts the viewport height mid-stream.
-                let render_width = area.width.saturating_sub(STREAMING_WIDTH_MARGIN);
-                let lines = streaming.display_lines(render_width);
-                let stream_rows = lines.len() as u16;
-                let [tail, rest] =
-                    Layout::vertical([Constraint::Length(stream_rows), Constraint::Min(1)])
-                        .areas(area);
-                for (i, line) in lines.iter().enumerate() {
-                    let row = Rect {
-                        x: tail.x,
-                        y: tail.y + i as u16,
-                        width: tail.width,
-                        height: 1,
-                    };
-                    render_line_into(row, buf, line);
+        match (self.view, self.route) {
+            (FooterView::Prompt, FooterRoute::Composer) => {
+                let style = theme_style(theme, Role::Default);
+                if let Some(streaming) = &self.streaming {
+                    // The streaming tail renders at width - 2 (reserved
+                    // margin) so its row count stays stable across stream
+                    // ticks and
+                    // a resize never shifts the viewport height mid-stream.
+                    let render_width = area.width.saturating_sub(STREAMING_WIDTH_MARGIN);
+                    let lines = streaming.display_lines(render_width);
+                    let stream_rows = lines.len() as u16;
+                    let [tail, rest] =
+                        Layout::vertical([Constraint::Length(stream_rows), Constraint::Min(1)])
+                            .areas(area);
+                    for (i, line) in lines.iter().enumerate() {
+                        let row = Rect {
+                            x: tail.x,
+                            y: tail.y + i as u16,
+                            width: tail.width,
+                            height: 1,
+                        };
+                        render_line_into(row, buf, line);
+                    }
+                    self.composer.render(rest, buf, style);
+                } else {
+                    self.composer.render(area, buf, style);
                 }
-                self.composer.render(rest, buf, style);
-            } else {
-                self.composer.render(area, buf, style);
+            }
+            (FooterView::Prompt, _) => {
+                let lines = self.panel.as_ref().map(|panel| match panel {
+                    PanelState::Command(p) => p.render_lines(area.width, area.height),
+                    PanelState::Model(p) => p.render_lines(area.width, area.height),
+                    PanelState::Skill(p) => p.render_lines(area.width, area.height),
+                    PanelState::Queued(p) => p.render_lines(area.width, area.height),
+                });
+                if let Some(lines) = lines {
+                    render_rows(area, buf, &lines, theme, Role::Default);
+                }
+            }
+            (FooterView::Permission, _) => {
+                if let Some(approval) = &self.approval {
+                    let width = usize::from(area.width.max(1));
+                    let mut lines: Vec<Line<'static>> = vec![
+                        Line::from(Span::raw(approval.title())),
+                        Line::from(Span::raw("")),
+                    ];
+                    // Wrap the arguments preview across the available rows,
+                    // reserving the last two rows for the hints block.
+                    let preview_rows = area.height.saturating_sub(4) as usize;
+                    let preview = approval.arguments_preview(width.saturating_sub(2));
+                    let mut remaining = preview_rows;
+                    for chunk in wrap_columns(&preview, width.saturating_sub(2)) {
+                        if remaining == 0 {
+                            break;
+                        }
+                        lines.push(Line::from(Span::raw(chunk)));
+                        remaining -= 1;
+                    }
+                    lines.push(Line::from(Span::raw("")));
+                    lines.push(Line::from(Span::raw(approval.hints())));
+                    render_rows(area, buf, &lines, theme, Role::Warning);
+                }
+            }
+            (FooterView::Question, _) => {
+                if let Some(question) = &self.question {
+                    let lines = question.render_lines(usize::from(area.width.max(1)));
+                    render_rows(area, buf, &lines, theme, Role::Accent);
+                }
             }
         }
-        // Panels / approval / question render nothing here; the main
-        // area stays quiet (the status line still reports state).
     }
 
     /// Render the status line: leading icon + label + status text, with a
@@ -417,6 +498,62 @@ fn render_line_into(area: Rect, buf: &mut Buffer, line: &Line<'_>) {
 fn fill_area(area: Rect, buf: &mut Buffer, ch: char, style: Style) {
     let text: String = ch.to_string().repeat(usize::from(area.width));
     buf.set_string(area.x, area.y, &text, style);
+}
+
+/// Render a column of lines into `area` (one row per line, clipped to the
+/// area height). Spans without an explicit foreground take `role`'s style.
+fn render_rows(area: Rect, buf: &mut Buffer, lines: &[Line<'static>], theme: &Theme, role: Role) {
+    let fallback = theme_style(theme, role);
+    for (i, line) in lines.iter().enumerate() {
+        if i as u16 >= area.height {
+            break;
+        }
+        let styled = Line::from(
+            line.spans
+                .iter()
+                .map(|span| {
+                    if span.style.fg.is_none() {
+                        Span::styled(span.content.clone(), fallback)
+                    } else {
+                        span.clone()
+                    }
+                })
+                .collect::<Vec<_>>(),
+        );
+        let row = Rect {
+            x: area.x,
+            y: area.y + i as u16,
+            width: area.width,
+            height: 1,
+        };
+        render_line_into(row, buf, &styled);
+    }
+}
+
+/// Split `text` into chunks of at most `width` columns on grapheme
+/// boundaries.
+fn wrap_columns(text: &str, width: usize) -> Vec<String> {
+    use unicode_segmentation::UnicodeSegmentation;
+    use unicode_width::UnicodeWidthStr;
+    if width == 0 {
+        return Vec::new();
+    }
+    let mut out: Vec<String> = Vec::new();
+    let mut current = String::new();
+    let mut w = 0usize;
+    for g in text.graphemes(true) {
+        let gw = g.width();
+        if w + gw > width {
+            out.push(std::mem::take(&mut current));
+            w = 0;
+        }
+        current.push_str(g);
+        w += gw;
+    }
+    if !current.is_empty() {
+        out.push(current);
+    }
+    out
 }
 
 #[cfg(test)]

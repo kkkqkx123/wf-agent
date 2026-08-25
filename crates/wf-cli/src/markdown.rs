@@ -20,6 +20,17 @@ use pulldown_cmark::{Event, Parser, Tag};
 /// Default source cap for the cumulative buffer (64 KiB).
 pub const DEFAULT_MAX_SOURCE_BYTES: usize = 64 * 1024;
 
+/// Characters that can open (or sit inside) a markdown construct whose
+/// partial parse renders differently from the final one: emphasis `* _`,
+/// code spans/backticks, links/images/refs `[ ] !`, autolinks/entities
+/// `< > &`, escapes `\`, tables `|`, headings `#`, list bullets `- + ~`
+/// and setext/rules `= - ~`. The streaming view is truncated at the first
+/// occurrence (see [`MarkdownStream::streaming_text`]) so the visible
+/// text can never run ahead of the final plain render.
+const VIEW_UNSAFE_CHARS: &[char] = &[
+    '*', '`', '_', '[', ']', '<', '>', '!', '&', '\\', '|', '#', '-', '+', '~', '=',
+];
+
 /// A frame of streaming markdown output for one `push`/`finish` call.
 ///
 /// Both text fields are **source text** (never width-fixed render caches);
@@ -80,7 +91,9 @@ impl MarkdownStream {
         } else {
             extract_code_lang(&self.buffer[boundary..])
         };
-        self.committed_upto = boundary;
+        // The committed frontier is monotone: a holdback (table / reference
+        // fallback) must never un-commit settled bytes.
+        self.committed_upto = self.committed_upto.max(boundary);
         self.streamed_upto = self.buffer.len();
         MarkdownFrame {
             new_committed,
@@ -110,9 +123,27 @@ impl MarkdownStream {
     }
 
     /// The current in-flight (streaming) source slice: everything after the
-    /// committed boundary. Consumers render this as the streaming tail.
+    /// committed boundary, truncated at the first character that could open
+    /// a markdown construct whose partial parse differs from the final
+    /// render (emphasis, code spans, links, tables, headings, lists…).
+    /// The visible streaming text is therefore always a prefix of the
+    /// final plain render — the streaming view never runs ahead of what
+    /// the settled document will show.
     pub fn streaming_text(&self) -> &str {
-        &self.buffer[self.committed_upto.min(self.buffer.len())..]
+        let tail = &self.buffer[self.committed_upto.min(self.buffer.len())..];
+        match tail.find(|c: char| VIEW_UNSAFE_CHARS.contains(&c)) {
+            Some(cut) => &tail[..cut],
+            None => tail,
+        }
+    }
+
+    /// Source bytes in `[from, to)` of the cumulative buffer (`to` clamped
+    /// to the end). Consumers that track their own settlement frontier
+    /// (mini's scrollback cover) use this to flush the exact remaining
+    /// span at a finalize boundary.
+    pub fn range_text(&self, from: usize, to: usize) -> &str {
+        let len = self.buffer.len();
+        &self.buffer[from.min(len)..to.min(len)]
     }
 
     /// Finalize-time safety net: render the full
@@ -125,9 +156,13 @@ impl MarkdownStream {
         render_plain_text(&self.buffer)
     }
 
-    /// Close the stream: everything remaining is committed.
+    /// Close the stream. Delta contract: only bytes never delivered in any
+    /// earlier frame are returned — previously streamed bytes belong to the
+    /// consumer's streaming view, which the consumer settles itself (mini
+    /// flushes its scrollback span via [`Self::range_text`] before
+    /// finishing). Never re-emits, never drops.
     pub fn finish(&mut self) -> MarkdownFrame {
-        let committed = self.buffer[self.committed_upto.min(self.buffer.len())..].to_string();
+        let committed = self.buffer[self.streamed_upto.min(self.buffer.len())..].to_string();
         self.buffer.clear();
         self.committed_upto = 0;
         self.streamed_upto = 0;
@@ -167,9 +202,10 @@ impl MarkdownStream {
     /// Three correctness gates apply on top of the block heuristic:
     ///
     /// * **reference-definition fallback** — when the buffer carries a
-    ///   reference-style link definition (`[label]: url`), incremental
-    ///   splitting is skipped and the whole source stays streaming until
-    ///   finalize;
+    ///   reference-style link definition (`[label]: url`) or a potential
+    ///   reference usage (`…][…`), incremental splitting is skipped and
+    ///   the whole source stays streaming until finalize (a later
+    ///   definition rewrites earlier link targets);
     /// * **table holdback** — an unclosed table (header + delimiter row
     ///   present, rows still continuing) keeps the whole table streaming
     ///   until finalize so column widths never shift mid-stream;
@@ -179,7 +215,7 @@ impl MarkdownStream {
         if self.buffer.is_empty() {
             return 0;
         }
-        if has_reference_definition(&self.buffer) {
+        if has_reference_definition(&self.buffer) || self.buffer.contains("][") {
             return 0;
         }
         if !fence_open(&self.buffer) {
@@ -504,8 +540,9 @@ mod tests {
         assert_eq!(frame.new_committed, "}\n");
         assert_eq!(frame.new_streaming, "```");
         assert_eq!(frame.code_lang, None);
-        // Finalize commits the remaining half line.
-        assert_eq!(stream.finish().new_committed, "```");
+        // Finalize delivers only undelivered bytes: the "```" half line was
+        // already streamed above (delta contract, never re-emitted).
+        assert_eq!(stream.finish().new_committed, "");
     }
 
     #[test]
@@ -550,8 +587,11 @@ mod tests {
     fn finish_commits_everything_remaining() {
         let mut stream = MarkdownStream::default();
         stream.push("unfinished");
+        // Delta contract: the streamed tail was already delivered, so the
+        // finalize frame carries nothing new — the consumer settles its own
+        // streaming view (see `range_text`).
         let frame = stream.finish();
-        assert_eq!(frame.new_committed, "unfinished");
+        assert_eq!(frame.new_committed, "");
         assert_eq!(frame.new_streaming, "");
         // The buffer is drained: subsequent pushes start fresh.
         assert_eq!(stream.push("next").new_streaming, "next");
@@ -605,12 +645,23 @@ mod tests {
         stream.push(hdr);
         stream.push(row1);
         let frame = stream.push(row2);
+        // Holdback: no table byte is ever committed while the table may
+        // still grow rows.
         assert_eq!(frame.new_committed, "");
-        assert!(frame.new_streaming.contains(row1));
+        // The rows still flow as streaming deltas (live preview).
         assert!(frame.new_streaming.contains(row2));
-        let committed = stream.finish().new_committed;
-        assert!(committed.contains(row1));
-        assert!(committed.contains(row2));
+        // Reassembly across frames: committed + streaming deltas carry the
+        // whole table exactly once, and finalize adds nothing (delta
+        // contract — the consumer settles its own streaming view).
+        let mut delivered = String::new();
+        let mut replay = MarkdownStream::default();
+        for chunk in [hdr, row1, row2] {
+            let f = replay.push(chunk);
+            delivered.push_str(&f.new_committed);
+            delivered.push_str(&f.new_streaming);
+        }
+        assert_eq!(delivered, format!("{hdr}{row1}{row2}"));
+        assert_eq!(replay.finish().new_committed, "");
     }
 
     #[test]
@@ -620,8 +671,15 @@ mod tests {
         assert_eq!(f1.new_committed, "");
         assert_eq!(f1.new_streaming, "first line\nsecond half");
         let f2 = stream.push(" done\n");
-        assert_eq!(f2.new_committed, "first line\nsecond half done\n");
-        assert_eq!(f2.new_streaming, "");
+        // The paragraph is still in flight (no blank line yet): only the
+        // new bytes stream, and nothing that does not end at a line break
+        // is ever committed.
+        assert_eq!(f2.new_committed, "");
+        assert_eq!(f2.new_streaming, " done\n");
+        // A committed chunk, wherever it lands, always ends at a newline:
+        // the gate is enforced by capping the boundary at the last '\n'.
+        let f3 = stream.push("\nnext para");
+        assert!(f3.new_committed.is_empty() || f3.new_committed.ends_with('\n'));
     }
 
     /// Deterministic LCG for reproducible chunk splits (no rand dep).

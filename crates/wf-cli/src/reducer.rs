@@ -1,8 +1,11 @@
 //! Event reduction kernel shared by every CLI form (mini footer, full TUI
 //! and the headless summary renderer).
 //!
-//! `Vec<UnifiedEvent>` → `MiniCommit[] + FooterState` as pure functions.
-//! The reducer is a two-layer design:
+//! `Vec<ExecutionStreamEvent>` → `MiniCommit[] + FooterState` as pure
+//! functions. The input is the client↔kernel stream protocol defined in
+//! wf-api ([`ExecutionStreamEvent`]); the CLI owns only the output side —
+//! the view models ([`MiniCommit`], [`FooterState`]). The reducer is a
+//! two-layer design:
 //!
 //! * [`fold`] — stateless pure function: one batch in, commit sequence +
 //!   final footer out (deterministic, snapshot-testable, replay-safe).
@@ -10,11 +13,12 @@
 //!   the same fold kernel per event and is equivalent to `fold` on the
 //!   concatenated stream.
 //!
-//! No IO, no TTY, no side effects: both layers are pure data transforms over
-//! [`UnifiedEvent`], so tests feed synthetic event sequences and snapshot
-//! the resulting commits.
+//! No IO, no TTY, no side effects: both layers are pure data transforms
+//! over the protocol events, so tests feed synthetic event sequences and
+//! snapshot the resulting commits. Engine lifecycle events carry no
+//! agent-loop payload for a run and are ignored at the consume site.
 
-use crate::events::UnifiedEvent;
+use wf_api::infra::stream::ExecutionStreamEvent;
 
 /// Grouping key for a commit: `execution_id + iteration + tool_call_id`.
 ///
@@ -27,9 +31,10 @@ pub struct CommitGroup {
     pub tool_call_id: Option<String>,
 }
 
-/// One reduced, UI-consumable commit derived from the unified event stream.
+/// One reduced, UI-consumable commit derived from the execution event
+/// stream.
 ///
-/// `AssistantText` groups all `TextDelta` chunks of an iteration (frame
+/// `AssistantText` groups all `LlmDelta` chunks of an iteration (frame
 /// batched); tool lifecycle pairs produce `ToolStart`/`ToolEnd`; iteration
 /// boundaries and terminal events map one-to-one. `User` is reserved for
 /// callers that inject the user message explicitly (mini form) — it is never
@@ -38,16 +43,13 @@ pub struct CommitGroup {
 pub enum MiniCommit {
     /// A user message (injected by the caller; not produced by the reducer).
     User { content: String },
-    /// A settled block of assistant text (merged TextDelta chunks).
+    /// A settled block of assistant text (merged LlmDelta chunks).
     AssistantText { content: String },
     /// A tool call started.
     ToolStart { tool_name: String },
-    /// A tool call ended.
-    ToolEnd {
-        tool_name: String,
-        success: bool,
-        duration_ms: Option<u64>,
-    },
+    /// A tool call ended. The duration is a client-side observation
+    /// (the protocol does not carry one) and is attached by the consumer.
+    ToolEnd { tool_name: String, success: bool },
     /// An iteration ended (scrollback flush boundary).
     IterationBoundary,
     /// The agent session completed successfully.
@@ -91,20 +93,20 @@ impl Default for FooterState {
     }
 }
 
-/// Signature of a unified event used for idempotent dedup inside one batch:
-/// consecutive identical events in the same group are skipped so replay /
-/// duplicate delivery never double-commits.
+/// Signature of a protocol event used for idempotent dedup inside one
+/// batch: consecutive identical events in the same group are skipped so
+/// replay / duplicate delivery never double-commits.
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum EventSig {
     IterationStarted(u32),
     IterationEnded(u32),
     Text(String),
     ToolStart(String, String),
-    ToolEnd(String, String, bool, Option<u64>),
+    ToolEnd(String, String, bool),
     Completed(u32),
     Failed(String),
     Interrupted(String),
-    Execution,
+    Engine,
 }
 
 impl EventSig {
@@ -117,31 +119,30 @@ impl EventSig {
     }
 }
 
-impl From<&UnifiedEvent> for EventSig {
-    fn from(event: &UnifiedEvent) -> Self {
+impl From<&ExecutionStreamEvent> for EventSig {
+    fn from(event: &ExecutionStreamEvent) -> Self {
         match event {
-            UnifiedEvent::IterationStarted { index } => EventSig::IterationStarted(*index),
-            UnifiedEvent::IterationEnded { index } => EventSig::IterationEnded(*index),
-            UnifiedEvent::TextDelta { content } => EventSig::Text(content.clone()),
-            UnifiedEvent::ToolStart {
+            ExecutionStreamEvent::Engine(_) => EventSig::Engine,
+            ExecutionStreamEvent::IterationStart { iteration, .. } => {
+                EventSig::IterationStarted(*iteration)
+            }
+            ExecutionStreamEvent::IterationEnd { iteration, .. } => {
+                EventSig::IterationEnded(*iteration)
+            }
+            ExecutionStreamEvent::LlmDelta { content } => EventSig::Text(content.clone()),
+            ExecutionStreamEvent::ToolStart {
                 tool_call_id,
                 tool_name,
             } => EventSig::ToolStart(tool_call_id.clone(), tool_name.clone()),
-            UnifiedEvent::ToolEnd {
+            ExecutionStreamEvent::ToolEnd {
                 tool_call_id,
                 tool_name,
                 success,
-                duration_ms,
-            } => EventSig::ToolEnd(
-                tool_call_id.clone(),
-                tool_name.clone(),
-                *success,
-                *duration_ms,
-            ),
-            UnifiedEvent::Completed { iterations, .. } => EventSig::Completed(*iterations),
-            UnifiedEvent::Failed { error } => EventSig::Failed(error.clone()),
-            UnifiedEvent::Interrupted { reason } => EventSig::Interrupted(reason.clone()),
-            UnifiedEvent::Execution(_) => EventSig::Execution,
+                ..
+            } => EventSig::ToolEnd(tool_call_id.clone(), tool_name.clone(), *success),
+            ExecutionStreamEvent::Interrupted { reason } => EventSig::Interrupted(reason.clone()),
+            ExecutionStreamEvent::Completed { iterations, .. } => EventSig::Completed(*iterations),
+            ExecutionStreamEvent::Failed { error } => EventSig::Failed(error.clone()),
         }
     }
 }
@@ -173,12 +174,13 @@ impl SessionReducer {
         }
     }
 
-    /// Feed a batch of events; returns the commits produced by this batch.
+    /// Feed a batch of protocol events; returns the commits produced by
+    /// this batch.
     ///
     /// The reduction is idempotent: consecutive duplicate tool /
     /// iteration-boundary events in the same group are skipped and empty
     /// text deltas are ignored. Pending text is flushed at the batch end.
-    pub fn push_batch(&mut self, events: &[UnifiedEvent]) -> Vec<MiniCommit> {
+    pub fn push_batch(&mut self, events: &[ExecutionStreamEvent]) -> Vec<MiniCommit> {
         let mut commits = Vec::new();
         for event in events {
             let sig = EventSig::from(event);
@@ -204,10 +206,10 @@ impl SessionReducer {
     }
 
     /// Derive the grouping key for an event under the current iteration.
-    fn group_for(&self, event: &UnifiedEvent) -> CommitGroup {
+    fn group_for(&self, event: &ExecutionStreamEvent) -> CommitGroup {
         let tool_call_id = match event {
-            UnifiedEvent::ToolStart { tool_call_id, .. }
-            | UnifiedEvent::ToolEnd { tool_call_id, .. } => Some(tool_call_id.clone()),
+            ExecutionStreamEvent::ToolStart { tool_call_id, .. }
+            | ExecutionStreamEvent::ToolEnd { tool_call_id, .. } => Some(tool_call_id.clone()),
             _ => None,
         };
         CommitGroup {
@@ -217,25 +219,28 @@ impl SessionReducer {
         }
     }
 
-    fn apply(&mut self, event: &UnifiedEvent, commits: &mut Vec<MiniCommit>) {
+    fn apply(&mut self, event: &ExecutionStreamEvent, commits: &mut Vec<MiniCommit>) {
         match event {
-            UnifiedEvent::IterationStarted { index } => {
+            // Engine lifecycle events carry no execution progress payload
+            // for a run; the UI layer ignores them.
+            ExecutionStreamEvent::Engine(_) => {}
+            ExecutionStreamEvent::IterationStart { iteration, .. } => {
                 self.flush_text(commits);
-                self.footer.iteration = *index;
+                self.footer.iteration = *iteration;
                 self.footer.phase = Phase::Streaming;
             }
-            UnifiedEvent::IterationEnded { .. } => {
+            ExecutionStreamEvent::IterationEnd { .. } => {
                 self.flush_text(commits);
                 commits.push(MiniCommit::IterationBoundary);
             }
-            UnifiedEvent::TextDelta { content } => {
+            ExecutionStreamEvent::LlmDelta { content } => {
                 if content.is_empty() {
                     return;
                 }
                 self.footer.phase = Phase::Streaming;
                 self.pending_text.push_str(content);
             }
-            UnifiedEvent::ToolStart { tool_name, .. } => {
+            ExecutionStreamEvent::ToolStart { tool_name, .. } => {
                 self.flush_text(commits);
                 self.footer.phase = Phase::Streaming;
                 self.footer.active_tools.push(tool_name.clone());
@@ -243,10 +248,9 @@ impl SessionReducer {
                     tool_name: tool_name.clone(),
                 });
             }
-            UnifiedEvent::ToolEnd {
+            ExecutionStreamEvent::ToolEnd {
                 tool_name,
                 success,
-                duration_ms,
                 ..
             } => {
                 self.flush_text(commits);
@@ -256,34 +260,34 @@ impl SessionReducer {
                 commits.push(MiniCommit::ToolEnd {
                     tool_name: tool_name.clone(),
                     success: *success,
-                    duration_ms: *duration_ms,
                 });
             }
-            UnifiedEvent::Completed { iterations, .. } => {
-                self.flush_text(commits);
-                self.footer.phase = Phase::Idle;
-                commits.push(MiniCommit::Completed {
-                    iterations: *iterations,
-                });
-            }
-            UnifiedEvent::Failed { error } => {
-                self.flush_text(commits);
-                self.footer.phase = Phase::Idle;
-                self.footer.last_error = Some(error.clone());
-                commits.push(MiniCommit::Failed {
-                    error: error.clone(),
-                });
-            }
-            UnifiedEvent::Interrupted { reason } => {
-                self.flush_text(commits);
-                self.footer.phase = Phase::Idle;
+            ExecutionStreamEvent::Interrupted { reason } => {
                 self.footer.last_error = Some(reason.clone());
-                commits.push(MiniCommit::Interrupted {
+                self.finish_terminal(commits, MiniCommit::Interrupted {
                     reason: reason.clone(),
                 });
             }
-            UnifiedEvent::Execution(_) => {}
+            ExecutionStreamEvent::Completed { iterations, .. } => {
+                self.finish_terminal(commits, MiniCommit::Completed {
+                    iterations: *iterations,
+                });
+            }
+            ExecutionStreamEvent::Failed { error } => {
+                self.footer.last_error = Some(error.clone());
+                self.finish_terminal(commits, MiniCommit::Failed {
+                    error: error.clone(),
+                });
+            }
         }
+    }
+
+    /// Close the current turn: flush pending text, return to Idle, emit the
+    /// terminal commit.
+    fn finish_terminal(&mut self, commits: &mut Vec<MiniCommit>, terminal: MiniCommit) {
+        self.flush_text(commits);
+        self.footer.phase = Phase::Idle;
+        commits.push(terminal);
     }
 
     fn flush_text(&mut self, commits: &mut Vec<MiniCommit>) {
@@ -298,7 +302,7 @@ impl SessionReducer {
 /// Pure fold: one batch in, commit sequence + final footer out. Equivalent
 /// to driving a single [`SessionReducer`] over the whole batch.
 pub fn fold(
-    events: &[UnifiedEvent],
+    events: &[ExecutionStreamEvent],
     execution_id: impl Into<String>,
 ) -> (Vec<MiniCommit>, FooterState) {
     let mut reducer = SessionReducer::new(execution_id);
@@ -310,33 +314,48 @@ pub fn fold(
 mod tests {
     use super::*;
 
-    fn delta(text: &str) -> UnifiedEvent {
-        UnifiedEvent::TextDelta {
+    fn delta(text: &str) -> ExecutionStreamEvent {
+        ExecutionStreamEvent::LlmDelta {
             content: text.to_string(),
         }
     }
 
-    fn it_start(index: u32) -> UnifiedEvent {
-        UnifiedEvent::IterationStarted { index }
+    fn it_start(index: u32) -> ExecutionStreamEvent {
+        ExecutionStreamEvent::IterationStart {
+            iteration: index,
+            message_count: 0,
+            array_version: 0,
+        }
     }
 
-    fn it_end(index: u32) -> UnifiedEvent {
-        UnifiedEvent::IterationEnded { index }
+    fn it_end(index: u32) -> ExecutionStreamEvent {
+        ExecutionStreamEvent::IterationEnd {
+            iteration: index,
+            message_count: 0,
+            array_version: 0,
+        }
     }
 
-    fn t_start(id: &str, name: &str) -> UnifiedEvent {
-        UnifiedEvent::ToolStart {
+    fn t_start(id: &str, name: &str) -> ExecutionStreamEvent {
+        ExecutionStreamEvent::ToolStart {
             tool_call_id: id.to_string(),
             tool_name: name.to_string(),
         }
     }
 
-    fn t_end(id: &str, name: &str, ok: bool, ms: Option<u64>) -> UnifiedEvent {
-        UnifiedEvent::ToolEnd {
+    fn t_end(id: &str, name: &str, ok: bool) -> ExecutionStreamEvent {
+        ExecutionStreamEvent::ToolEnd {
             tool_call_id: id.to_string(),
             tool_name: name.to_string(),
             success: ok,
-            duration_ms: ms,
+            result: String::new(),
+        }
+    }
+
+    fn completed(iterations: u32) -> ExecutionStreamEvent {
+        ExecutionStreamEvent::Completed {
+            result: serde_json::Value::Null,
+            iterations,
         }
     }
 
@@ -433,8 +452,8 @@ mod tests {
         let events = vec![
             t_start("t1", "bash"),
             t_start("t2", "read_file"),
-            t_end("t1", "bash", true, Some(12)),
-            t_end("t2", "read_file", false, None),
+            t_end("t1", "bash", true),
+            t_end("t2", "read_file", false),
         ];
         let (commits, footer) = fold(&events, "exec-1");
         assert_eq!(
@@ -449,12 +468,10 @@ mod tests {
                 MiniCommit::ToolEnd {
                     tool_name: "bash".to_string(),
                     success: true,
-                    duration_ms: Some(12),
                 },
                 MiniCommit::ToolEnd {
                     tool_name: "read_file".to_string(),
                     success: false,
-                    duration_ms: None,
                 },
             ]
         );
@@ -467,7 +484,7 @@ mod tests {
         reducer.push_batch(&[t_start("t1", "bash")]);
         assert_eq!(reducer.footer().active_tools, vec!["bash"]);
         assert_eq!(reducer.footer().phase, Phase::Streaming);
-        reducer.push_batch(&[t_end("t1", "bash", true, None)]);
+        reducer.push_batch(&[t_end("t1", "bash", true)]);
         assert!(reducer.footer().active_tools.is_empty());
     }
 
@@ -476,8 +493,8 @@ mod tests {
         let events = vec![
             t_start("t1", "bash"),
             t_start("t1", "bash"), // duplicate delivery
-            t_end("t1", "bash", true, None),
-            t_end("t1", "bash", true, None), // duplicate delivery
+            t_end("t1", "bash", true),
+            t_end("t1", "bash", true), // duplicate delivery
         ];
         let (commits, _footer) = fold(&events, "exec-1");
         assert_eq!(
@@ -489,7 +506,6 @@ mod tests {
                 MiniCommit::ToolEnd {
                     tool_name: "bash".to_string(),
                     success: true,
-                    duration_ms: None,
                 },
             ]
         );
@@ -500,8 +516,8 @@ mod tests {
         let events = vec![
             t_start("t1", "bash"),
             t_start("t2", "bash"),
-            t_end("t1", "bash", true, None),
-            t_end("t2", "bash", true, None),
+            t_end("t1", "bash", true),
+            t_end("t2", "bash", true),
         ];
         let (commits, _footer) = fold(&events, "exec-1");
         assert_eq!(commits.len(), 4);
@@ -516,13 +532,7 @@ mod tests {
 
     #[test]
     fn completed_returns_footer_to_idle() {
-        let events = vec![
-            delta("done"),
-            UnifiedEvent::Completed {
-                result: serde_json::Value::Null,
-                iterations: 3,
-            },
-        ];
+        let events = vec![delta("done"), completed(3)];
         let (commits, footer) = fold(&events, "exec-1");
         assert_eq!(
             commits,
@@ -541,7 +551,7 @@ mod tests {
     fn failed_records_last_error_and_returns_to_idle() {
         let events = vec![
             delta("oops"),
-            UnifiedEvent::Failed {
+            ExecutionStreamEvent::Failed {
                 error: "boom".to_string(),
             },
         ];
@@ -563,7 +573,7 @@ mod tests {
 
     #[test]
     fn interrupted_records_reason_and_returns_to_idle() {
-        let events = vec![UnifiedEvent::Interrupted {
+        let events = vec![ExecutionStreamEvent::Interrupted {
             reason: "user".to_string(),
         }];
         let (commits, footer) = fold(&events, "exec-1");
@@ -578,6 +588,27 @@ mod tests {
     }
 
     #[test]
+    fn engine_lifecycle_events_are_ignored_by_the_reducer() {
+        let engine = ExecutionStreamEvent::Engine(wf_types::events::BaseEvent {
+            id: wf_types::Id::new(),
+            r#type: wf_types::events::EventType::Heartbeat,
+            timestamp: wf_common::now(),
+            event_name: None,
+            workflow_id: None,
+            execution_id: None,
+            agent_loop_id: None,
+            metadata: None,
+        });
+        let (commits, _footer) = fold(&[engine, delta("x")], "exec-1");
+        assert_eq!(
+            commits,
+            vec![MiniCommit::AssistantText {
+                content: "x".to_string(),
+            }]
+        );
+    }
+
+    #[test]
     fn out_of_order_events_produce_deterministic_commit_sequence() {
         // Interleaved tool/iteration events: each non-text event flushes the
         // pending text, so the commit sequence matches arrival order.
@@ -586,7 +617,7 @@ mod tests {
             t_start("t1", "bash"),
             delta("b"),
             it_end(1),
-            t_end("t1", "bash", true, None),
+            t_end("t1", "bash", true),
         ];
         let (commits, footer) = fold(&events, "exec-1");
         assert_eq!(
@@ -605,31 +636,10 @@ mod tests {
                 MiniCommit::ToolEnd {
                     tool_name: "bash".to_string(),
                     success: true,
-                    duration_ms: None,
                 },
             ]
         );
         assert_eq!(footer.message_count, 2);
-    }
-
-    #[test]
-    fn execution_lifecycle_events_are_ignored_by_the_reducer() {
-        use wf_types::execution::events::{ErrorOccurredEvent, ExecutionEvent};
-        let exec = UnifiedEvent::Execution(ExecutionEvent::ErrorOccurred(ErrorOccurredEvent {
-            execution_id: "e1".to_string(),
-            timestamp: 1,
-            message: "nope".to_string(),
-            error_type: None,
-            iteration: None,
-            node_id: None,
-        }));
-        let (commits, _footer) = fold(&[exec, delta("x")], "exec-1");
-        assert_eq!(
-            commits,
-            vec![MiniCommit::AssistantText {
-                content: "x".to_string(),
-            }]
-        );
     }
 
     #[test]
@@ -638,12 +648,9 @@ mod tests {
             it_start(1),
             delta("hello"),
             t_start("t1", "bash"),
-            t_end("t1", "bash", true, Some(5)),
+            t_end("t1", "bash", true),
             it_end(1),
-            UnifiedEvent::Completed {
-                result: serde_json::Value::Null,
-                iterations: 1,
-            },
+            completed(1),
         ];
         let (fold_commits, fold_footer) = fold(&events, "exec-1");
 

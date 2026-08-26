@@ -7,7 +7,7 @@ use tracing::warn;
 
 use wf_core::EventBus;
 use wf_execution_shared::hooks::HookRegistry;
-use wf_execution_shared::types::execution_entity::IExecutionEntity;
+use wf_execution_shared::types::execution_entity::ExecutionEntity;
 use wf_tools::callback::{AgentLoopConfig, AgentLoopInput, AgentLoopOutput};
 use wf_types::hook::{SUBAGENT_START, SUBAGENT_STOP};
 use wf_types::message::{Message, MessageContentValue, MessageRole};

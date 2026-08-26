@@ -7,7 +7,7 @@ use wf_types::script::sandbox::PathPolicy;
 use crate::resolver::VfsProvider;
 use crate::vfs::whiteout::WhiteoutCache;
 
-pub struct OverlayVFS {
+pub struct OverlayVfs {
     base: PathBuf,
     /// Pending writes, keyed by the path as passed to `write_file`. A plain
     /// mutex is sufficient: guards are never held across await points, and a
@@ -19,7 +19,7 @@ pub struct OverlayVFS {
     path_policy: PathPolicy,
 }
 
-impl OverlayVFS {
+impl OverlayVfs {
     pub fn new(base: PathBuf, path_policy: PathPolicy) -> Self {
         Self {
             base,
@@ -191,7 +191,7 @@ impl OverlayVFS {
 }
 
 #[async_trait::async_trait]
-impl VfsProvider for OverlayVFS {
+impl VfsProvider for OverlayVfs {
     async fn read_file(&self, path: &str) -> Result<Vec<u8>, std::io::Error> {
         self.read_file(Path::new(path)).await
     }
@@ -251,7 +251,7 @@ mod tests {
             allowed_read: vec!["/tmp".to_string()],
             allowed_write: vec!["/tmp".to_string()],
         };
-        let vfs = OverlayVFS::new(dir.clone(), policy);
+        let vfs = OverlayVfs::new(dir.clone(), policy);
 
         let test_path = Path::new("/tmp/test.txt");
         vfs.write_file(test_path, b"hello world".to_vec())
@@ -273,7 +273,7 @@ mod tests {
             allowed_read: vec![],
             allowed_write: vec![],
         };
-        let vfs = OverlayVFS::new(dir.clone(), policy);
+        let vfs = OverlayVfs::new(dir.clone(), policy);
 
         let result = vfs.write_file(Path::new("/etc/passwd"), vec![]).await;
         assert!(result.is_err());
@@ -285,7 +285,7 @@ mod tests {
     async fn test_take_delta_drains_pending_writes() {
         let dir = temp_dir("vfs-test-take-delta");
 
-        let vfs = OverlayVFS::new(dir.clone(), policy_allowing("data"));
+        let vfs = OverlayVfs::new(dir.clone(), policy_allowing("data"));
         vfs.write_file(Path::new("data/a.txt"), b"A".to_vec())
             .await
             .unwrap();
@@ -316,7 +316,7 @@ mod tests {
     async fn test_delete_records_whiteout_and_hides_path() {
         let dir = temp_dir("vfs-test-whiteout-hide");
 
-        let vfs = OverlayVFS::new(dir.clone(), policy_allowing("data"));
+        let vfs = OverlayVfs::new(dir.clone(), policy_allowing("data"));
         vfs.write_file(Path::new("data/c.txt"), b"C".to_vec())
             .await
             .unwrap();
@@ -347,7 +347,7 @@ mod tests {
     async fn test_write_after_delete_resurrects_path() {
         let dir = temp_dir("vfs-test-resurrect");
 
-        let vfs = OverlayVFS::new(dir.clone(), policy_allowing("data"));
+        let vfs = OverlayVfs::new(dir.clone(), policy_allowing("data"));
         vfs.delete_file(Path::new("data/d.txt")).await.unwrap();
         vfs.write_file(Path::new("data/d.txt"), b"D".to_vec())
             .await
@@ -378,7 +378,7 @@ mod tests {
         tokio::fs::write(data_dir.join("same.txt"), b"SAME").await
             .unwrap();
 
-        let vfs = OverlayVFS::new(dir.clone(), policy_allowing("data"));
+        let vfs = OverlayVfs::new(dir.clone(), policy_allowing("data"));
         vfs.write_file(Path::new("data/made.txt"), b"made".to_vec())
             .await
             .unwrap();
@@ -430,7 +430,7 @@ mod tests {
     async fn test_flush_tolerates_missing_whiteouted_base_file() {
         let dir = temp_dir("vfs-test-flush-missing");
 
-        let vfs = OverlayVFS::new(dir.clone(), policy_allowing("data"));
+        let vfs = OverlayVfs::new(dir.clone(), policy_allowing("data"));
         vfs.delete_file(Path::new("data/never-existed.txt"))
             .await
             .unwrap();

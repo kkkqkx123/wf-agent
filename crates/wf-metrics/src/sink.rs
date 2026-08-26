@@ -54,7 +54,7 @@ impl Default for MetricPoint {
 /// Persistence abstraction decoupling `wf-metrics` from `wf-storage`.
 ///
 /// `wf-runtime` wires an implementation backed by the `MetricsStorageAdapter`
-/// (memory/SQLite/PostgreSQL) so the crate dependency DAG stays acyclic.
+/// (memory/Sqlite/PostgreSQL) so the crate dependency DAG stays acyclic.
 #[async_trait::async_trait]
 pub trait MetricsSink: Send + Sync {
     async fn save_batch(&self, points: &[MetricPoint]) -> Result<(), MetricsError>;

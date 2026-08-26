@@ -887,7 +887,7 @@ impl Runtime {
     }
 }
 
-/// Resolve the SQLite database path from the runtime storage config, shared
+/// Resolve the Sqlite database path from the runtime storage config, shared
 /// by the storage context, the event persistence backend and the checkpoint
 /// store so all durable data lands in one file.
 fn storage_db_path(config: &StorageConfig) -> PathBuf {
@@ -902,7 +902,7 @@ fn storage_db_path(config: &StorageConfig) -> PathBuf {
 }
 
 /// Build the file checkpoint manager (layertwine-backed) from the
-/// file-checkpoint config: storage backend (SQLite by path or in-memory)
+/// file-checkpoint config: storage backend (Sqlite by path or in-memory)
 /// plus the workspace context (workspace root + scan rules). Returns `None`
 /// when file checkpointing is disabled. When enabled, a checkpoint event
 /// bridge is started so `CheckpointFileChanged` / `CheckpointMergeConflicted`
@@ -920,7 +920,7 @@ fn init_file_checkpoint_manager(
     }
     match wf_checkpoint::file::FileCheckpointManager::open_from_config(config) {
         Ok(manager) => {
-            info!("File checkpoint manager initialized (layertwine SQLite)");
+            info!("File checkpoint manager initialized (layertwine Sqlite)");
             // The bus is sender-only; the bridge subscribes through it, so
             // recorded file changes and merge conflicts flow onto the shared
             // event bus with their `DeltaSummary` payload.
@@ -1016,7 +1016,7 @@ fn init_gc_timer(
 }
 
 /// Build the durable checkpoint store backend mirroring the runtime
-/// storage config: SQLite reuses the storage db file, Postgres reuses the
+/// storage config: Sqlite reuses the storage db file, Postgres reuses the
 /// connection string, each under its own table. Falls back to in-memory when
 /// storage is memory-only or the backend cannot be opened (checkpoints then
 /// do not survive restarts).
@@ -1045,7 +1045,7 @@ async fn init_checkpoint_store(config: &StorageConfig) -> Arc<wf_storage::backen
         }
         #[cfg(not(feature = "sqlite"))]
         StorageType::Sqlite => {
-            warn!("SQLite checkpoint store unavailable: enable the 'sqlite' feature");
+            warn!("Sqlite checkpoint store unavailable: enable the 'sqlite' feature");
             StorageBackend::new_memory()
         }
         #[cfg(feature = "postgres")]
@@ -1073,9 +1073,9 @@ async fn init_checkpoint_store(config: &StorageConfig) -> Arc<wf_storage::backen
 }
 
 /// Build the durable event persistence backend mirroring the runtime
-/// storage config: a buffered layer over a SQLite `StorePersistenceLayer`
+/// storage config: a buffered layer over a Sqlite `StorePersistenceLayer`
 /// sharing the storage db file. Returns `None` (events stay in memory) when
-/// storage is not SQLite or the backend cannot be opened/initialized.
+/// storage is not Sqlite or the backend cannot be opened/initialized.
 #[cfg(feature = "sqlite")]
 async fn init_event_persistence(
     config: &StorageConfig,

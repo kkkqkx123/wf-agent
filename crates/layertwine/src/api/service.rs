@@ -132,7 +132,7 @@ impl ApiService {
         let persist: Box<dyn CheckpointPersist> = Box::new(storage.share());
         let checkpoint_repo = CheckpointRepo::load(persist).map_err(map_error)?;
 
-        // Open backup repo (dedicated SQLite DB for physical isolation)
+        // Open backup repo (dedicated Sqlite DB for physical isolation)
         let backup_db_path = db_dir.join("layertwine-backup.db");
         let backup_repo = Arc::new(
             BackupRepo::new(&backup_db_path).map_err(|e| map_error(LayertwineError::Storage(e)))?,

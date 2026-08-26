@@ -136,7 +136,7 @@ pub enum EventType {
     /// A merge produced conflicts (marker strategy applied).
     CheckpointMergeConflicted,
     /// A file-checkpoint garbage collection run completed. The event
-    /// payload carries the `GCStats` (removed checkpoints / snapshots /
+    /// payload carries the `GcStats` (removed checkpoints / snapshots /
     /// freed bytes).
     CheckpointGcCompleted,
     ExecutionTimeoutWarning,

@@ -285,7 +285,7 @@ impl CheckpointRepo {
         checkpoints: &HashMap<CheckpointId, Checkpoint>,
     ) -> CheckpointDag {
         // Use unchecked edge insertion: checkpoint parent relationships stored in
-        // SQLite are inherently acyclic, so cycle detection (BFS) is unnecessary.
+        // Sqlite are inherently acyclic, so cycle detection (BFS) is unnecessary.
         let mut dag = CheckpointDag::new();
         for (id, cp) in checkpoints {
             dag.add_node(*id);

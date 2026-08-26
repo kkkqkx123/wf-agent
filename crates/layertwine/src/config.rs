@@ -76,7 +76,7 @@ impl AutoVacuumMode {
 /// Layertwine top-level configuration.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct LayertwineConfig {
-    /// Path to the SQLite database file.
+    /// Path to the Sqlite database file.
     #[serde(default = "default_db_path")]
     pub db_path: String,
 

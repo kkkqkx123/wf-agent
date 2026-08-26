@@ -117,7 +117,7 @@ Defines `PluginScriptExecutor`, `PluginResource`, `PluginPromptTemplate`, `Plugi
 
 **File**: `packages/sdk/plugin/contributions/registrar.ts:40-50`
 
-Both register a `PluginLLMFormatter` as `BaseFormatter` with identical implementation. The semantic distinction between "LLM provider formatting" and "general formatter" is unclear and adds unnecessary complexity.
+Both register a `PluginLlmFormatter` as `BaseFormatter` with identical implementation. The semantic distinction between "LLM provider formatting" and "general formatter" is unclear and adds unnecessary complexity.
 
 #### 9. Redundant `(this as any)._pluginEngine` assignment
 

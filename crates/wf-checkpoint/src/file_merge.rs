@@ -165,13 +165,13 @@ impl FileCheckpointManager {
     /// recent `retention.keep_recent_heads` partition heads are kept).
     ///
     /// Thin wrapper over [`layertwine::git_sync::gc::run_gc`]: loads the
-    /// `CheckpointRepo` from the attached SQLite storage, runs the sweep,
+    /// `CheckpointRepo` from the attached Sqlite storage, runs the sweep,
     /// and publishes a `GcCompleted` event with the statistics. Returns
-    /// the `GCStats` (removed checkpoints / snapshots / freed bytes).
+    /// the `GcStats` (removed checkpoints / snapshots / freed bytes).
     pub fn run_gc(
         &self,
         retention: layertwine::git_sync::GcRetention,
-    ) -> Result<layertwine::git_sync::GCStats, CheckpointError> {
+    ) -> Result<layertwine::git_sync::GcStats, CheckpointError> {
         let storage = self.storage_ref()?;
         let persist: Box<dyn layertwine::storage::repository::CheckpointPersist> =
             Box::new(storage.share());

@@ -1,6 +1,6 @@
-use super::execution_entity::IExecutionEntity;
+use super::execution_entity::ExecutionEntity;
 
 pub enum ExecutionInstance {
-    AgentLoop(Box<dyn IExecutionEntity>),
-    Workflow(Box<dyn IExecutionEntity>),
+    AgentLoop(Box<dyn ExecutionEntity>),
+    Workflow(Box<dyn ExecutionEntity>),
 }

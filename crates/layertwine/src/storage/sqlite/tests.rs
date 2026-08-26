@@ -1,6 +1,6 @@
-//! White-box unit tests for SQLite storage internals.
+//! White-box unit tests for Sqlite storage internals.
 //!
-//! These tests exercise SQLite-specific behavior that is NOT testable
+//! These tests exercise Sqlite-specific behavior that is NOT testable
 //! through the trait interface alone (e.g. direct SQL, connection pooling,
 //! transaction internals). All black-box CRUD tests live in
 //! `tests/storage_integration.rs` to avoid duplication.

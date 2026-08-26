@@ -1,7 +1,7 @@
 //! Definition and stateful instance of the session_note tool.
 //!
 //! Single persistent memory tool: notes are
-//! stored in a SQLite database (default `<workspace>/data/session-notes.db`)
+//! stored in a Sqlite database (default `<workspace>/data/session-notes.db`)
 //! shared across executions, with create / list / get / update / delete /
 //! search operations.
 
@@ -31,7 +31,7 @@ static OPERATIONS: ToolParameterConstraint = ToolParameterConstraint {
 /// Description is a single static string; concatenation at build time keeps
 /// the definition `'static` without requiring a long literal.
 const SESSION_NOTE_DESCRIPTION: &str = "Manage persistent session notes. Notes survive across \
-executions in a SQLite database (default <workspace>/data/session-notes.db). Operations: create, \
+executions in a Sqlite database (default <workspace>/data/session-notes.db). Operations: create, \
 list (category filter, newest first), get, update, delete and search.";
 
 pub static SESSION_NOTE: ToolDefinition = ToolDefinition {

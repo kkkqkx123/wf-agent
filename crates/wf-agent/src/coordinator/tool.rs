@@ -9,7 +9,7 @@ use tokio_util::sync::CancellationToken;
 use wf_common::retry::RetryBudget;
 use wf_execution_shared::hooks::types::BaseHookContext;
 use wf_execution_shared::hooks::HookRegistry;
-use wf_execution_shared::types::execution_entity::IExecutionEntity;
+use wf_execution_shared::types::execution_entity::ExecutionEntity;
 use wf_metrics::MetricsRegistry;
 use wf_tools::approval::{ApprovalDecision, ToolApprovalCoordinator};
 use wf_tools::failure_protection::ToolFailureProtectionState;

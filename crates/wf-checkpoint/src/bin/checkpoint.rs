@@ -27,7 +27,7 @@ type GenericCheckpoint = BaseCheckpointCore<serde_json::Value, serde_json::Value
     about = "Checkpoint debugging CLI: list and dump persisted checkpoints"
 )]
 struct Cli {
-    /// SQLite database path. Defaults to a scratch in-memory store (useful
+    /// Sqlite database path. Defaults to a scratch in-memory store (useful
     /// for smoke-testing the tool itself).
     #[arg(long, default_value = ":memory:")]
     db: String,

@@ -60,7 +60,7 @@ impl From<ExecutionStatus> for wf_types::ExecutionStatus {
 }
 
 #[async_trait]
-pub trait IExecutionEntity: Send + Sync {
+pub trait ExecutionEntity: Send + Sync {
     fn id(&self) -> &Id;
     fn status(&self) -> ExecutionStatus;
     fn is_running(&self) -> bool;

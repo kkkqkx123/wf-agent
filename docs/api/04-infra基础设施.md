@@ -33,7 +33,7 @@
 | 实现 | 行为 |
 |------|------|
 | `NoOpPersistenceLayer` | 丢弃写入但用 AtomicU64 计数（经 health() 可观测） |
-| `StorePersistenceLayer` | KV 存储后端（内存/SQLite，前缀命名空间 `persistence/event/` 等，避免直接 sqlx 依赖） |
+| `StorePersistenceLayer` | KV 存储后端（内存/Sqlite，前缀命名空间 `persistence/event/` 等，避免直接 sqlx 依赖） |
 | `BufferedPersistenceLayer` | **装饰器**：有界 mpsc 通道 + 单 flusher 任务；`WriteOp` 区分尽力写入（满队列丢弃+计数）与控制操作（始终等待）；两级关停（Flush→Shutdown）、水位触发冲刷、失败重缓冲 + tick 重试、pending/queued/dropped 原子观测 |
 
 模式：经典 trait + 后端实现 + 缓冲装饰器；生产消费批量冲刷；优雅降级（NoOp 带计数）。

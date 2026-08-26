@@ -3,7 +3,7 @@
 //!
 //! These tests verify the gRPC API through the `LayertwineGrpc` handler layer,
 //! calling RPC methods directly with proto message types against a real
-//! `ApiServiceImpl` backed by SQLite.
+//! `ApiServiceImpl` backed by Sqlite.
 //!
 //! Each test mirrors a real business scenario.
 

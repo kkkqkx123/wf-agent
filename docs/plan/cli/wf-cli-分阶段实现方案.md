@@ -167,7 +167,7 @@ wf-types/wf-common/wf-config/wf-storage → wf-runtime/wf-api/wf-agent → wf-cl
 **交付与验收**
 
 - Output 路由 snapshot 测试（text/json/silent 三种信封形态）；`MemorySink` 断言测试（业务输出 → sink → 断言内容，不依赖真实终端）；`--log` 与 `--output` 组合矩阵（Tee 分发到文件与 stdout）。
-- DomainAdapter 集成测试（临时 SQLite storage + mock llm）：bootstrap 成功、api_context 可取、shutdown 幂等。
+- DomainAdapter 集成测试（临时 Sqlite storage + mock llm）：bootstrap 成功、api_context 可取、shutdown 幂等。
 
 ### Stage 2：无头会话 run（第一个闭环）✅ 已完成（2026-08-18，详见 `wf-cli-stage2-无头会话run-实施方案.md`）
 
@@ -332,7 +332,7 @@ Stage 0（骨架/模式）──► Stage 1（IO/领域）──► Stage 2（ru
 | :--- | :--- | :--- |
 | 纯函数 | 单元测试（同文件 `#[cfg(test)]`） | ModeResolver 判定组合；Output 信封；reducer 归约；markdown 增量；keymap 回退；SIGINT 状态机 |
 | 组件渲染 | insta snapshot | scrollback 各宽度 reflow；SelectList 选中/分组；statusline 断点；composer 状态 |
-| 领域集成 | 集成测试（`tests/`，临时 SQLite + mock llm） | DomainAdapter bootstrap/shutdown；`wf run` 端到端矩阵；审批 deny/白名单/预授权；退出码映射；重放一致性 |
+| 领域集成 | 集成测试（`tests/`，临时 Sqlite + mock llm） | DomainAdapter bootstrap/shutdown；`wf run` 端到端矩阵；审批 deny/白名单/预授权；退出码映射；重放一致性 |
 | 形态冒烟 | `--demo` 合成事件 + 断言脚本 | mini 与 TUI 的视图切换、退出终端状态、resize |
 | 性能 | `cargo bench`（`benches/`） | 渲染耗时/scrollback 行数曲线；reducer 万级事件耗时 |
 

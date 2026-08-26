@@ -7,7 +7,7 @@ use wf_core::registry::{MutableRegistry, Registry};
 use wf_core::EventBus;
 use wf_execution_shared::hooks::types::BaseHookDefinition;
 use wf_execution_shared::hooks::HookRegistry;
-use wf_execution_shared::types::execution_entity::IExecutionEntity;
+use wf_execution_shared::types::execution_entity::ExecutionEntity;
 use wf_metrics::MetricsRegistry;
 use wf_storage::backend::StorageBackend;
 use wf_tools::callback::{

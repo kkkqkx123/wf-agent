@@ -14,7 +14,7 @@
 |------|----------|----------|------------------|
 | A. LLM 节点调用文件编辑工具 | `LlmHandler::execute_tool_call` → `ToolRegistry::execute_tool("write_file"/"edit_file"/"apply_patch")`（`wf-workflow/src/handler/llm.rs:500`） | 直接写磁盘（`wf-tools/src/filesystem.rs`） | **待定（见决策点 1）** |
 | B. Agent 循环内 LLM 调用文件工具 | `wf-agent/src/coordinator/tool.rs` 的工具执行链路 | 直接写磁盘，经 `ToolApprovalHandler` | **待定（见决策点 1/4）** |
-| C. 脚本节点 / 脚本执行工具 | `ScriptHandler` → `SandboxRuntime`（`wf-sandbox`，VFS overlay `delta` 内存映射） | 沙箱内，写进 `OverlayVFS.delta`，需回写 | **待定（见决策点 2）** |
+| C. 脚本节点 / 脚本执行工具 | `ScriptHandler` → `SandboxRuntime`（`wf-sandbox`，VFS overlay `delta` 内存映射） | 沙箱内，写进 `OverlayVfs.delta`，需回写 | **待定（见决策点 2）** |
 | D. 非 LLM/脚本的人工/宿主修改 | 直接文件系统写、IDE、外部进程 | 无追踪 | **manual 层（见决策点 3）** |
 | E. 嵌套子执行实例 | `parent_execution_id` / `root_execution_id`（`wf-types/src/execution/hierarchy.rs`） | 无归属隔离 | **见决策点 5** |
 
@@ -64,7 +64,7 @@ LLM 节点（`StaticNodeType::Llm`）通过 `execute_tool_call` 把 LLM 返回�
 
 ### 背景
 
-脚本节点（`ScriptHandler`）通过 `SandboxRuntime` 执行，文件写入走 `OverlayVFS`（`delta: HashMap<PathBuf, Vec<u8>>` 内存 overlay，`wf-sandbox/src/vfs/overlay.rs`），策略由 `PathPolicy.allowed_write` 控制。脚本自身可以直接写文件（shell 脚本 `>`、Python `open()`、JS `fs.write`），这些写入**不经过** filesystem 工具，而是沙箱 VFS。此外还有"脚本执行工具"（脚本作为工具被 LLM 调用）这一变体。
+脚本节点（`ScriptHandler`）通过 `SandboxRuntime` 执行，文件写入走 `OverlayVfs`（`delta: HashMap<PathBuf, Vec<u8>>` 内存 overlay，`wf-sandbox/src/vfs/overlay.rs`），策略由 `PathPolicy.allowed_write` 控制。脚本自身可以直接写文件（shell 脚本 `>`、Python `open()`、JS `fs.write`），这些写入**不经过** filesystem 工具，而是沙箱 VFS。此外还有"脚本执行工具"（脚本作为工具被 LLM 调用）这一变体。
 
 ### 备选方案
 

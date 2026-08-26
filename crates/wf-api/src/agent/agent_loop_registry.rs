@@ -10,7 +10,7 @@ use std::collections::BTreeMap;
 use serde::Serialize;
 use serde_json::Value;
 
-use wf_execution_shared::types::execution_entity::IExecutionEntity;
+use wf_execution_shared::types::execution_entity::ExecutionEntity;
 use wf_execution_shared::types::state_manager::StateManager;
 use wf_storage::adapter::base::BaseStorageAdapter;
 use wf_types::ExecutionStatus;

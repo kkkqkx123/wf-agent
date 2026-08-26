@@ -27,7 +27,7 @@ impl Entity for NoteEntity {
 }
 
 /// Note storage backed by a regular [`Store`] backend, so notes persist on
-/// the same durable backend as every other entity (SQLite / PostgreSQL).
+/// the same durable backend as every other entity (Sqlite / PostgreSQL).
 /// Search reuses `list_all` with an in-memory filter, matching the semantics
 /// of the former `MemoryNoteStore`.
 pub struct StoreBackedNoteStore<S> {

@@ -4,18 +4,18 @@ use async_trait::async_trait;
 
 use crate::resolver::VfsProvider;
 
-pub struct HostFS {
+pub struct HostFs {
     root: String,
 }
 
-impl HostFS {
+impl HostFs {
     pub fn new(root: String) -> Self {
         Self { root }
     }
 }
 
 #[async_trait]
-impl VfsProvider for HostFS {
+impl VfsProvider for HostFs {
     async fn read_file(&self, path: &str) -> Result<Vec<u8>, std::io::Error> {
         let full_path = Path::new(&self.root).join(path.trim_start_matches('/'));
         tokio::fs::read(full_path).await

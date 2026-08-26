@@ -40,7 +40,7 @@ enum BindValue {
 /// Normalizes a metadata value to its text representation, mirroring
 /// PostgreSQL's `metadata->>'key'` operator so that string equality is
 /// based on the value text (numbers match their canonical decimal form).
-/// SQLite's JSON1 stores booleans as 1/0, so they cannot match 'true' /
+/// Sqlite's JSON1 stores booleans as 1/0, so they cannot match 'true' /
 /// 'false' the way PostgreSQL or the in-memory backend do.
 fn metadata_text_expr(key: &str) -> String {
     format!("CAST(json_extract(metadata, '$.{}') AS TEXT)", key)

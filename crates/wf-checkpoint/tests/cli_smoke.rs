@@ -1,5 +1,5 @@
 //! CLI smoke tests: the `wf-checkpoint` binary lists and dumps
-//! checkpoints from a persisted SQLite store. `CARGO_BIN_EXE_wf-checkpoint`
+//! checkpoints from a persisted Sqlite store. `CARGO_BIN_EXE_wf-checkpoint`
 //! points at the freshly built binary.
 
 use std::process::Command;

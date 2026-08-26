@@ -71,7 +71,7 @@ pub fn list_pending_approvals<S: PartitionStore>(storage: &S) -> Result<Vec<Part
 /// to the first snapshot in its history (the base state before agent edits were merged).
 ///
 /// Uses `PartitionStore::reset_partition_to_baseline` which handles history truncation
-/// correctly on backends that support it (e.g., SQLite), and falls back to a pointer-only
+/// correctly on backends that support it (e.g., Sqlite), and falls back to a pointer-only
 /// reset on other backends.
 pub fn reject_approval<S: PartitionStore>(
     storage: &S,

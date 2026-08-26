@@ -68,7 +68,7 @@ wf-agent 采用 **「重实体 + 多层 Coordinator + 注册表」** 模型，�
 - `parent_execution_id` / `child_execution_ids` —— 父子层级
 - `timeout_manager: AgentTimeoutManager` —— 超时（含 pause 超时）
 
-它直接实现了 `IExecutionEntity`（`entity.rs:243-315`），`pause/resume/stop` 同时翻转 `interruption` 与 `state.status`。**注意 `get_hierarchy_depth()` 永远返回 `0`**（`entity.rs:308-310`）——层级深度追踪是桩代码。
+它直接实现了 `ExecutionEntity`（`entity.rs:243-315`），`pause/resume/stop` 同时翻转 `interruption` 与 `state.status`。**注意 `get_hierarchy_depth()` 永远返回 `0`**（`entity.rs:308-310`）——层级深度追踪是桩代码。
 
 ### 3.2 三层 Coordinator 驱动
 
@@ -155,7 +155,7 @@ pub fn cancel(&mut self)  { self.status = ExecutionStatus::Cancelled; ... } // :
 
 - `AgentLoopFactory`（`factory.rs:3-9`）：`create(id)` 只是 `AgentLoopEntity::new(id)`——一个 9 行的透传，价值存疑。
 - `AgentStateCoordinator`（`state.rs:424-458`）：仅包装 `ConversationSession` 的 add/messages/snapshot/restore，而 entity 已直接持有 `conversation`，该类型冗余。
-- `AgentLoopStateTransitor`（见不足 1）：每方法 3 行，职责已被 `entity` 自身的 `IExecutionEntity` 实现覆盖。
+- `AgentLoopStateTransitor`（见不足 1）：每方法 3 行，职责已被 `entity` 自身的 `ExecutionEntity` 实现覆盖。
 - `get_hierarchy_depth()` 恒返回 `0`（`entity.rs:308-310`）：层级深度追踪未实现，与 Codex 的实时 `session_depth`/`next_thread_spawn_depth` 形成反差。
 
 > 后果：类型数量膨胀（单 agent loop 就 10+ 核心类型），认知负担大，且空壳类型让人误以为有独立职责，实际只是转发。

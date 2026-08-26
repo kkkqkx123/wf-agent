@@ -199,7 +199,7 @@ struct LuaToolExecutor {
     func_key: Arc<mlua::RegistryKey>,
 }
 
-struct LuaLLMFormatter {
+struct LuaLlmFormatter {
     lua: Arc<Mutex<mlua::Lua>>,
     func_key: Arc<mlua::RegistryKey>,
 }
@@ -277,8 +277,8 @@ impl PluginToolExecutor for LuaToolExecutor {
 }
 
 #[async_trait]
-impl PluginLLMFormatter for LuaLLMFormatter {
-    async fn format(&self, request: PluginLLMRequest) -> PluginResult<PluginLLMResponse> {
+impl PluginLlmFormatter for LuaLlmFormatter {
+    async fn format(&self, request: PluginLlmRequest) -> PluginResult<PluginLlmResponse> {
         let lua = self.lua.clone();
         let func_key = self.func_key.clone();
         run_lua_blocking(move || {
@@ -327,12 +327,12 @@ impl PluginLLMFormatter for LuaLLMFormatter {
             let usage = t
                 .get::<&str, mlua::Table>("usage")
                 .ok()
-                .map(|ut| PluginLLMUsage {
+                .map(|ut| PluginLlmUsage {
                     prompt_tokens: ut.get("prompt_tokens").unwrap_or(0),
                     completion_tokens: ut.get("completion_tokens").unwrap_or(0),
                     total_tokens: ut.get("total_tokens").unwrap_or(0),
                 });
-            Ok(PluginLLMResponse { content, usage })
+            Ok(PluginLlmResponse { content, usage })
         })
         .await
     }
@@ -562,14 +562,14 @@ impl Plugin for LuaPlugin {
                 ),
                 2 => registrar.register_llm_provider(
                     &e.name,
-                    Arc::new(LuaLLMFormatter {
+                    Arc::new(LuaLlmFormatter {
                         lua: self.lua.clone(),
                         func_key: Arc::new(e.key),
                     }),
                 ),
                 3 => registrar.register_formatter(
                     &e.name,
-                    Arc::new(LuaLLMFormatter {
+                    Arc::new(LuaLlmFormatter {
                         lua: self.lua.clone(),
                         func_key: Arc::new(e.key),
                     }),

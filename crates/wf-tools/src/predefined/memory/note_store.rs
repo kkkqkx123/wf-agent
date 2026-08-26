@@ -1,4 +1,4 @@
-//! Session-note storage: SQLite file backend (feature `sqlite`) with an
+//! Session-note storage: Sqlite file backend (feature `sqlite`) with an
 //! in-memory fallback when the feature is disabled.
 //!
 //! The data model (`NoteEntry`):
@@ -60,7 +60,7 @@ pub trait SessionNoteStore: Send + Sync {
 }
 
 /// Build a store for the given database path. With the `sqlite` feature the
-/// path resolves to a SQLite file; without it the store degrades to memory.
+/// path resolves to a Sqlite file; without it the store degrades to memory.
 pub fn open_store(db_path: &str) -> Arc<dyn SessionNoteStore> {
     #[cfg(feature = "sqlite")]
     {
@@ -204,7 +204,7 @@ mod sqlite_backend {
     use std::path::Path;
     use std::sync::Mutex;
 
-    /// SQLite file backend. A single connection is shared behind a mutex;
+    /// Sqlite file backend. A single connection is shared behind a mutex;
     /// schema and indexes mirror the `session_notes` table.
     pub struct SqliteNoteStore {
         conn: Mutex<rusqlite::Connection>,

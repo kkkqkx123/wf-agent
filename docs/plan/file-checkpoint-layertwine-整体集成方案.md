@@ -113,7 +113,7 @@
 - **`approve_changes` 审批工具**（本次新增）：`wf-runtime/src/approval_tool.rs` 注册 `approve_changes(agent_instance_id, approve, reason)` stateless 工具；approve=`approve_pending`（按配置 conflict_behavior 合并），reject=`reject_changes`。仅当 file checkpoint manager 附着时注册。
 - **宿主 API**（本次新增）：
   - `wf-api::workflow::file_approval`：`list_pending_approvals` / `approve_changes` / `reject_changes`。
-  - `wf-server` 端点：`GET /api/v1/file-checkpoint/approvals/pending`、`POST /api/v1/file-checkpoint/approvals/{id}/approve|reject`。SQLite 持久化承载"结束后人工审核"跨执行。
+  - `wf-server` 端点：`GET /api/v1/file-checkpoint/approvals/pending`、`POST /api/v1/file-checkpoint/approvals/{id}/approve|reject`。Sqlite 持久化承载"结束后人工审核"跨执行。
 - **合并入口**：`merge_entity_changes` 完整封装；冲突策略 marker（默认，`to_conflict_marker` 写入文件 + `CheckpointMergeConflicted` 事件）/ fail / approval。
 - **wf-workflow LLM 节点工具级审批拦截**（本次新增）：
   - `ToolApprovalHandler` trait 与 `ToolApprovalRequest` / `ToolApprovalResult` 移至 `wf-execution-shared::approval`（wf-agent 重导出保持兼容）。

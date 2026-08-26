@@ -197,7 +197,7 @@ where
 
     /// Execute operations with SAVEPOINT-based atomicity.
     ///
-    /// Delegates to the storage backend's `AtomicOps::with_atomic`, which on SQLite
+    /// Delegates to the storage backend's `AtomicOps::with_atomic`, which on Sqlite
     /// provides proper SAVEPOINT-based transaction guarantees. Uses `parking_lot::ReentrantMutex`
     /// internally, so reentrant locking (calling other storage methods from within the closure)
     /// is safe and does NOT deadlock.

@@ -73,7 +73,7 @@ pub trait PartitionStore {
     ///
     /// Sets current_snapshot to history[0] and truncates history to just that entry.
     /// The default implementation uses `update_pointer` which appends to history;
-    /// backends that support history truncation (e.g., SQLite) should override this
+    /// backends that support history truncation (e.g., Sqlite) should override this
     /// for proper cleanup.
     fn reset_partition_to_baseline(&self, partition_id: &PartitionId) -> StorageResult<()> {
         let partition = self.get_partition(partition_id)?;
@@ -111,7 +111,7 @@ pub trait AtomicOps {
     /// Execute the given closure with atomic (transactional) guarantees.
     ///
     /// Default implementation: no-op wrapping (caller manages atomicity).
-    /// SQLite backend overrides this with SAVEPOINT-based transactions.
+    /// Sqlite backend overrides this with SAVEPOINT-based transactions.
     fn with_atomic<F, T>(&self, f: F) -> StorageResult<T>
     where
         F: FnOnce(&Self) -> StorageResult<T>,
@@ -184,7 +184,7 @@ pub trait DagStore: Send + Sync {
 /// Checkpoint & Branch persistence trait — unified interface for CheckpointRepo
 ///
 /// Combines checkpoint, branch, metadata, and snapshot storage into a single trait.
-/// Storage backends (e.g. SQLite) implement this trait directly.
+/// Storage backends (e.g. Sqlite) implement this trait directly.
 pub trait CheckpointPersist:
     MetadataStore + SnapshotStore + DagStore + FileNodeStore + DeltaStore + Send + Sync
 {

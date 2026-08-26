@@ -142,7 +142,7 @@ ChildCheckpointRestorer
 │   ├── Rebuild parent-child relationships
 │   └── Register restored children
 │
-└── restoreChildExecution(childId, childType, dependencies) → Promise<IExecutionEntity>
+└── restoreChildExecution(childId, childType, dependencies) → Promise<ExecutionEntity>
 ```
 
 ### RestoreStrategyRegistry

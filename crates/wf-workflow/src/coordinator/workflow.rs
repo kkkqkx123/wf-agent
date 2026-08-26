@@ -15,7 +15,7 @@ use wf_execution_shared::context::{
 use wf_execution_shared::execution_state::ExecutionStateManager;
 use wf_execution_shared::fork::ForkRegistry;
 use wf_execution_shared::hooks::types::BaseHookDefinition;
-use wf_execution_shared::types::execution_entity::IExecutionEntity;
+use wf_execution_shared::types::execution_entity::ExecutionEntity;
 use wf_execution_shared::types::state_manager::StateManager;
 use wf_metrics::collectors::node::NodeExecutionRecord as MetricsNodeExecutionRecord;
 use wf_metrics::collectors::node::NodeMetricsCollector;

@@ -7,7 +7,7 @@ use crate::error::StorageError;
 
 /// A single query operation that backends can push down to their native query language.
 ///
-/// Cross-backend semantics (SQLite / PostgreSQL / memory are kept equivalent):
+/// Cross-backend semantics (Sqlite / PostgreSQL / memory are kept equivalent):
 /// - `Eq`, `Prefix` and `In` compare the **text representation** of the metadata
 ///   value (numbers match their canonical decimal form, booleans as 'true' /
 ///   'false'), never a value of a different type.
@@ -175,7 +175,7 @@ pub trait Store: Send + Sync {
     async fn clear(&self) -> Result<(), StorageError>;
 
     /// Apply a batch of mixed save/delete operations atomically where the
-    /// backend supports transactions (SQLite / PostgreSQL `BEGIN`/`COMMIT`).
+    /// backend supports transactions (Sqlite / PostgreSQL `BEGIN`/`COMMIT`).
     /// The default implementation applies the operations sequentially; the
     /// in-memory backend relies on its single write lock. Used by the
     /// checkpoint cleanup watermark (deletes + watermark write must land or
@@ -260,7 +260,7 @@ pub trait Maintainable: Store {
         Ok(())
     }
     /// Flush pending WAL data to the main database file.
-    /// For SQLite with WAL mode, this runs a blocking WAL checkpoint.
+    /// For Sqlite with WAL mode, this runs a blocking WAL checkpoint.
     /// For PostgreSQL this is a no-op: the CHECKPOINT command requires
     /// superuser privileges and applies cluster-wide, and WAL advancement is
     /// handled internally by the server.
@@ -268,7 +268,7 @@ pub trait Maintainable: Store {
         Ok(())
     }
     /// Flush pending writes to durable storage.
-    /// For SQLite with WAL mode, this runs a WAL checkpoint to ensure committed
+    /// For Sqlite with WAL mode, this runs a WAL checkpoint to ensure committed
     /// transactions are written to the main database file.
     /// For PostgreSQL this is a no-op (fsync on every commit is guaranteed).
     async fn sync(&self) -> Result<(), StorageError> {

@@ -30,8 +30,8 @@ pub struct ContributionManager {
     override_policy: RwLock<OverridePolicy>,
     node_type_registry: Registry<String, Arc<dyn PluginNodeHandler>>,
     tool_type_registry: Registry<String, Arc<dyn PluginToolExecutor>>,
-    llm_provider_registry: Registry<String, Arc<dyn PluginLLMFormatter>>,
-    formatter_registry: Registry<String, Arc<dyn PluginLLMFormatter>>,
+    llm_provider_registry: Registry<String, Arc<dyn PluginLlmFormatter>>,
+    formatter_registry: Registry<String, Arc<dyn PluginLlmFormatter>>,
     event_handler_registry: MultiRegistry<String, Arc<dyn PluginEventHandler>>,
     middleware_registry: MultiRegistry<String, (i32, Arc<dyn PluginMiddlewareHandler>)>,
     // —— 声明式资源贡献注册表（owner 跟踪 + 桥接落位）——
@@ -113,11 +113,11 @@ impl ContributionManager {
         self.tool_type_registry.get(type_name)
     }
 
-    pub fn get_llm_formatter(&self, name: &str) -> Option<Arc<dyn PluginLLMFormatter>> {
+    pub fn get_llm_formatter(&self, name: &str) -> Option<Arc<dyn PluginLlmFormatter>> {
         self.llm_provider_registry.get(name)
     }
 
-    pub fn get_formatter(&self, name: &str) -> Option<Arc<dyn PluginLLMFormatter>> {
+    pub fn get_formatter(&self, name: &str) -> Option<Arc<dyn PluginLlmFormatter>> {
         self.formatter_registry.get(name)
     }
 
@@ -397,7 +397,7 @@ impl ContributionRegistrar for RegistrarGuard<'_> {
         }
     }
 
-    fn register_llm_provider(&mut self, name: &str, formatter: Arc<dyn PluginLLMFormatter>) {
+    fn register_llm_provider(&mut self, name: &str, formatter: Arc<dyn PluginLlmFormatter>) {
         let plugin_id = wf_common::lock::read_ok(self.manager.current_plugin_id.read()).clone();
         if self.validate(&plugin_id, "llm-provider", name)
             && self
@@ -413,7 +413,7 @@ impl ContributionRegistrar for RegistrarGuard<'_> {
         }
     }
 
-    fn register_formatter(&mut self, name: &str, formatter: Arc<dyn PluginLLMFormatter>) {
+    fn register_formatter(&mut self, name: &str, formatter: Arc<dyn PluginLlmFormatter>) {
         let plugin_id = wf_common::lock::read_ok(self.manager.current_plugin_id.read()).clone();
         if self.validate(&plugin_id, "formatter", name)
             && self

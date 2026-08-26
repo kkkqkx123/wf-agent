@@ -257,7 +257,7 @@ mod tests {
     #[tokio::test]
     async fn test_pause_timeout_stops_entity() {
         use wf_core::interruption::InterruptionSignal;
-        use wf_execution_shared::types::execution_entity::IExecutionEntity;
+        use wf_execution_shared::types::execution_entity::ExecutionEntity;
         use wf_types::Id;
 
         let entity = crate::entity::AgentLoopEntity::new(Id::from("pause-timeout-1".to_string()))
@@ -281,7 +281,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_resume_cancels_pause_timeout() {
-        use wf_execution_shared::types::execution_entity::IExecutionEntity;
+        use wf_execution_shared::types::execution_entity::ExecutionEntity;
         use wf_types::Id;
 
         let entity = crate::entity::AgentLoopEntity::new(Id::from("pause-timeout-2".to_string()))

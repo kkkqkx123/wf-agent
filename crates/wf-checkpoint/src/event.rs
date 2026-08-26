@@ -4,7 +4,7 @@ use tokio::sync::broadcast;
 use wf_types::events::{BaseEvent, EventType};
 
 use crate::provenance::DeltaSummary;
-use layertwine::git_sync::gc::GCStats;
+use layertwine::git_sync::gc::GcStats;
 
 const DEFAULT_CHANNEL_CAPACITY: usize = 256;
 
@@ -56,12 +56,12 @@ pub enum CheckpointEvent {
         paths: Vec<String>,
     },
     /// A garbage collection run completed. `data.operation` is `"gc"`,
-    /// `data.description` a human summary, and `stats` the full `GCStats`
+    /// `data.description` a human summary, and `stats` the full `GcStats`
     /// (removed checkpoints / snapshots / freed bytes / delta chain depth).
     GcCompleted {
         base: BaseEvent,
         data: CheckpointData,
-        stats: GCStats,
+        stats: GcStats,
     },
 }
 
@@ -274,7 +274,7 @@ impl CheckpointEventBus {
     }
 
     /// Create a `GcCompleted` event carrying the GC statistics.
-    pub fn gc_completed(stats: GCStats) -> CheckpointEvent {
+    pub fn gc_completed(stats: GcStats) -> CheckpointEvent {
         let description = format!(
             "gc removed {} checkpoints, {} snapshots",
             stats.removed_checkpoints, stats.removed_snapshots

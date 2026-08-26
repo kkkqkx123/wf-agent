@@ -1,6 +1,6 @@
 //! Checkpoint storage crash / corruption tests.
 //!
-//! Scenarios covered against a file-backed SQLite store (each test opens and
+//! Scenarios covered against a file-backed Sqlite store (each test opens and
 //! drops managers so every step reads from disk, simulating a process
 //! restart):
 //!
@@ -9,7 +9,7 @@
 //! - half-written (truncated) payload → same corruption path;
 //! - kill → restart: the latest checkpoint written by a previous "process"
 //!   is still readable and correct;
-//! - disk full (SQLite page budget exhausted): the save fails loudly, prior
+//! - disk full (Sqlite page budget exhausted): the save fails loudly, prior
 //!   checkpoints stay readable, and no partial record is left behind.
 
 use std::sync::Arc;

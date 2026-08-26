@@ -2,7 +2,7 @@
 //!
 //! Simulates a process kill between two "runs" of the runtime: a partial
 //! workflow execution writes checkpoints and its execution record into a
-//! file-backed SQLite store; the store is reopened by a fresh runtime
+//! file-backed Sqlite store; the store is reopened by a fresh runtime
 //! instance (restart) which rescans incomplete executions and drives the
 //! crashed one back to completion through the checkpoint + resume path.
 

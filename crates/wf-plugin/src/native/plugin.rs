@@ -281,7 +281,7 @@ extern "C" fn ffi_register_llm_provider(
     let name_str = unsafe { ptr_to_string(name) };
     registrar_ctx.registrar.register_llm_provider(
         &name_str.clone(),
-        Arc::new(NativeLLMFormatter {
+        Arc::new(NativeLlmFormatter {
             name: name_str,
             dispatch: registrar_ctx.dispatch,
         }),
@@ -300,7 +300,7 @@ extern "C" fn ffi_register_formatter(
     let name_str = unsafe { ptr_to_string(name) };
     registrar_ctx.registrar.register_formatter(
         &name_str.clone(),
-        Arc::new(NativeLLMFormatter {
+        Arc::new(NativeLlmFormatter {
             name: name_str,
             dispatch: registrar_ctx.dispatch,
         }),
@@ -362,7 +362,7 @@ pub struct NativeToolExecutor {
     dispatch: Option<DispatchFn>,
 }
 
-pub struct NativeLLMFormatter {
+pub struct NativeLlmFormatter {
     name: String,
     dispatch: Option<DispatchFn>,
 }
@@ -400,12 +400,12 @@ impl PluginToolExecutor for NativeToolExecutor {
 }
 
 #[async_trait]
-impl PluginLLMFormatter for NativeLLMFormatter {
-    async fn format(&self, request: PluginLLMRequest) -> PluginResult<PluginLLMResponse> {
+impl PluginLlmFormatter for NativeLlmFormatter {
+    async fn format(&self, request: PluginLlmRequest) -> PluginResult<PluginLlmResponse> {
         let input_json = serde_json::to_string(&request)
             .map_err(|e| PluginError::NativeError(format!("serialize request: {}", e)))?;
         let output = dispatch_call(self.dispatch, "llm", &self.name, &input_json)?;
-        serde_json::from_slice::<PluginLLMResponse>(&output)
+        serde_json::from_slice::<PluginLlmResponse>(&output)
             .map_err(|e| PluginError::NativeError(format!("deserialize result: {}", e)))
     }
 }

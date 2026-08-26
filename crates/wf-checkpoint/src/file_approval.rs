@@ -22,7 +22,7 @@ impl FileCheckpointManager {
 
     /// All pending approvals: actor partitions at the approval layer with
     /// more than one history entry (submitted but neither merged nor
-    /// rejected). Persisted in SQLite, so pending approvals survive across
+    /// rejected). Persisted in Sqlite, so pending approvals survive across
     /// executions ("review after the run ends").
     pub fn list_pending_approvals(&self) -> Result<Vec<PendingApproval>, CheckpointError> {
         let storage = self.storage_ref()?;

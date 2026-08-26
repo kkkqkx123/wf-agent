@@ -48,7 +48,7 @@ const BRANCH_KEY_PREFIX: &str = "wf-checkpoint-branch:";
 const BRANCH_CPS_PREFIX: &str = "wf-checkpoint-branch-cps:";
 
 /// Real layertwine backend adapter: persists checkpoint blobs as structured
-/// snapshots inside layertwine's SQLite storage (via its `SnapshotStore` /
+/// snapshots inside layertwine's Sqlite storage (via its `SnapshotStore` /
 /// `MetadataStore` repository traits). An O(1) metadata index maps the
 /// checkpoint id to the content-addressed snapshot id, and per-parent index
 /// lists support `list_checkpoints(parent)`.
@@ -235,7 +235,7 @@ impl LayertwineGitAdapter {
         &self.storage
     }
 
-    /// Clone this adapter sharing the underlying SQLite connection.
+    /// Clone this adapter sharing the underlying Sqlite connection.
     pub fn share(&self) -> Self {
         Self {
             storage: self.storage.share(),

@@ -25,7 +25,7 @@ impl MaintenanceService {
             tokio::select! {
                 _ = ticker.tick() => {
                     if let Err(e) = run_sqlite_maintenance(&pool).await {
-                        tracing::warn!("SQLite maintenance error: {}", e);
+                        tracing::warn!("Sqlite maintenance error: {}", e);
                     }
                 }
                 _ = cancel.cancelled() => break,

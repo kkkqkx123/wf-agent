@@ -1,6 +1,6 @@
 //! Integration tests for the storage module.
 //!
-//! These tests exercise the SQLite-based storage layer end-to-end.
+//! These tests exercise the Sqlite-based storage layer end-to-end.
 //! They verify:
 //! - Snapshot storage and retrieval
 //! - Delta storage and retrieval

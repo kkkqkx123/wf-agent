@@ -72,7 +72,7 @@ pub fn diff_against_staged(ctx: &ApiContext, actor: &str) -> ApiResult<Vec<FileD
 pub fn run_gc(
     ctx: &ApiContext,
     keep_recent_heads: usize,
-) -> ApiResult<layertwine::git_sync::GCStats> {
+) -> ApiResult<layertwine::git_sync::GcStats> {
     let retention = layertwine::git_sync::GcRetention { keep_recent_heads };
     manager(ctx)?
         .run_gc(retention)

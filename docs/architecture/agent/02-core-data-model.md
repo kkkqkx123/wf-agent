@@ -2,7 +2,7 @@
 
 ## 1. AgentLoopEntity
 
-`AgentLoopEntity` is the central runtime representation of a single agent loop execution. It implements `IExecutionEntity` and wraps three key components:
+`AgentLoopEntity` is the central runtime representation of a single agent loop execution. It implements `ExecutionEntity` and wraps three key components:
 
 ```
 AgentLoopEntity

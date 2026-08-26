@@ -216,7 +216,7 @@ impl SqliteStorage {
 
     /// Delete orphaned snapshots not referenced by any checkpoint.
     ///
-    /// Uses SQLite's json_each to extract snapshot IDs stored as JSON arrays
+    /// Uses Sqlite's json_each to extract snapshot IDs stored as JSON arrays
     /// in the checkpoints table. Only snapshots whose IDs do not appear in
     /// any checkpoint's snapshot_ids are removed.
     pub fn cleanup_orphan_snapshots(&self) -> StorageResult<usize> {
@@ -232,7 +232,7 @@ impl SqliteStorage {
 
     /// Delete orphaned deltas not referenced by any snapshot.
     ///
-    /// Uses SQLite's json_each to extract delta IDs stored as JSON arrays
+    /// Uses Sqlite's json_each to extract delta IDs stored as JSON arrays
     /// in the snapshots table. Only deltas whose IDs do not appear in
     /// any snapshot's deltas array are removed.
     pub fn cleanup_orphan_deltas(&self) -> StorageResult<usize> {

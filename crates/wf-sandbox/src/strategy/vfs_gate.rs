@@ -101,7 +101,7 @@ impl StrategyImplementation for VfsGateStrategy {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::vfs::overlay::OverlayVFS;
+    use crate::vfs::overlay::OverlayVfs;
     use wf_types::script::sandbox::PathPolicy;
 
     fn make_options(command: &str) -> StrategyExecuteOptions {
@@ -139,7 +139,7 @@ mod tests {
         use std::sync::Arc;
 
         let dir = std::env::temp_dir().join("sandbox-vfs-gate-test");
-        let vfs = Arc::new(OverlayVFS::new(
+        let vfs = Arc::new(OverlayVfs::new(
             dir.clone(),
             PathPolicy {
                 allowed_read: vec!["/tmp".to_string()],

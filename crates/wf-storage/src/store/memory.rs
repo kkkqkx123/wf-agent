@@ -307,7 +307,7 @@ impl Store for MemoryStorage {
         // Atomicity under the single write lock: every operation is planned
         // (created_at preserved for overwritten records) before any mutation,
         // and the plan itself is infallible, so a batch either applies fully
-        // or not at all — mirroring the transaction semantics of SQLite and
+        // or not at all — mirroring the transaction semantics of Sqlite and
         // PostgreSQL backends (checkpoint cleanup watermark).
         let mut store = self.inner.write().await;
         let now = current_timestamp();

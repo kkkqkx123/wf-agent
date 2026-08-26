@@ -158,7 +158,7 @@ pub async fn get_tool_dependency_chain(
 
 /// One LLM reasoning step of an LLM node.
 #[derive(Debug, Clone, Serialize)]
-pub struct LLMReasoningRecordView {
+pub struct LlmReasoningRecordView {
     pub step_id: String,
     /// `thinking` | `planning` | `analyzing` | `evaluating` | `synthesizing`.
     pub reasoning_type: String,
@@ -177,7 +177,7 @@ pub async fn get_llm_reasoning_path(
     ctx: &ApiContext,
     execution_id: &str,
     node_id: &str,
-) -> ApiResult<Vec<LLMReasoningRecordView>> {
+) -> ApiResult<Vec<LlmReasoningRecordView>> {
     let record = get_node_analysis(ctx, execution_id, node_id).await?;
     let Some(record) = record else {
         return Ok(Vec::new());
@@ -191,7 +191,7 @@ pub async fn get_llm_reasoning_path(
     let mut reasoning_type = "analyzing".to_string();
     if let Some(error) = &record.error {
         reasoning_type = "evaluating".to_string();
-        steps.push(LLMReasoningRecordView {
+        steps.push(LlmReasoningRecordView {
             step_id: format!("{execution_id}:{node_id}:error"),
             reasoning_type,
             content: format!("LLM node failed: {error}"),
@@ -213,7 +213,7 @@ pub async fn get_llm_reasoning_path(
             .as_ref()
             .map(extract_llm_content)
             .unwrap_or_else(|| "<no output recorded>".to_string());
-        steps.push(LLMReasoningRecordView {
+        steps.push(LlmReasoningRecordView {
             step_id: format!("{execution_id}:{node_id}:{index}"),
             reasoning_type: reasoning_type.clone(),
             content: output_content,

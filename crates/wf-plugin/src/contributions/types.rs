@@ -56,9 +56,9 @@ pub struct PluginToolResult {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PluginLLMRequest {
+pub struct PluginLlmRequest {
     pub messages: Vec<PluginMessage>,
-    pub config: Option<PluginLLMConfig>,
+    pub config: Option<PluginLlmConfig>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -68,7 +68,7 @@ pub struct PluginMessage {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PluginLLMConfig {
+pub struct PluginLlmConfig {
     pub model: String,
     pub provider: String,
     pub temperature: Option<f64>,
@@ -76,13 +76,13 @@ pub struct PluginLLMConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PluginLLMResponse {
+pub struct PluginLlmResponse {
     pub content: String,
-    pub usage: Option<PluginLLMUsage>,
+    pub usage: Option<PluginLlmUsage>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PluginLLMUsage {
+pub struct PluginLlmUsage {
     pub prompt_tokens: u32,
     pub completion_tokens: u32,
     pub total_tokens: u32,
@@ -118,8 +118,8 @@ pub trait PluginToolExecutor: Send + Sync {
 }
 
 #[async_trait]
-pub trait PluginLLMFormatter: Send + Sync {
-    async fn format(&self, request: PluginLLMRequest) -> PluginResult<PluginLLMResponse>;
+pub trait PluginLlmFormatter: Send + Sync {
+    async fn format(&self, request: PluginLlmRequest) -> PluginResult<PluginLlmResponse>;
 }
 
 #[async_trait]

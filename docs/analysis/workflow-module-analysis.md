@@ -38,7 +38,7 @@ Codex 在 `codex-rs/core/src` 中**不存在 DAG / 拓扑排序 / workflow 图�
 
 ### 3.1 实体：`WorkflowExecutionEntity`（`entity.rs:12-29`）
 
-与 Agent Loop 的 `AgentLoopEntity` 同源，是一个**富状态执行实体**，实现 `IExecutionEntity`：
+与 Agent Loop 的 `AgentLoopEntity` 同源，是一个**富状态执行实体**，实现 `ExecutionEntity`：
 
 ```text
 id / workflow_id

@@ -13,14 +13,14 @@ pub use wf_types::config::storage::StorageConfig;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StorageBackendType {
     Memory,
-    SQLite,
+    Sqlite,
     Postgres,
 }
 
 impl From<wf_types::config::storage::StorageType> for StorageBackendType {
     fn from(ty: wf_types::config::storage::StorageType) -> Self {
         match ty {
-            wf_types::config::storage::StorageType::Sqlite => StorageBackendType::SQLite,
+            wf_types::config::storage::StorageType::Sqlite => StorageBackendType::Sqlite,
             wf_types::config::storage::StorageType::Postgres => StorageBackendType::Postgres,
             wf_types::config::storage::StorageType::Memory => StorageBackendType::Memory,
         }
@@ -76,7 +76,7 @@ impl StorageManager {
                 info!("Initializing in-memory storage");
                 StorageContext::new_memory()
             }
-            StorageBackendType::SQLite => {
+            StorageBackendType::Sqlite => {
                 #[cfg(feature = "sqlite")]
                 {
                     let app_name = self.config.app_name.as_deref().unwrap_or("app");
@@ -89,13 +89,13 @@ impl StorageManager {
                         .map(PathBuf::from)
                         .unwrap_or_else(|| PathBuf::from(format!("./storage/{}.db", app_name)));
                     let path_str = db_path.to_string_lossy();
-                    info!("Initializing SQLite storage at {:?}", db_path);
+                    info!("Initializing Sqlite storage at {:?}", db_path);
                     StorageContext::new_sqlite(&path_str).await?
                 }
                 #[cfg(not(feature = "sqlite"))]
                 {
                     return Err(RuntimeError::Config(
-                        "SQLite backend not available: enable the 'sqlite' feature".into(),
+                        "Sqlite backend not available: enable the 'sqlite' feature".into(),
                     ));
                 }
             }
@@ -261,7 +261,7 @@ mod tests {
     #[test]
     fn test_storage_backend_type_conversion() {
         let backend: StorageBackendType = wf_types::config::storage::StorageType::Sqlite.into();
-        assert_eq!(backend, StorageBackendType::SQLite);
+        assert_eq!(backend, StorageBackendType::Sqlite);
 
         let backend: StorageBackendType = wf_types::config::storage::StorageType::Postgres.into();
         assert_eq!(backend, StorageBackendType::Postgres);

@@ -146,7 +146,7 @@ pub trait FileContentStore: Send + Sync {
 }
 
 /// Layertwine-backed [`FileContentStore`]: a thin wrapper over
-/// `SnapshotContent::FileContent` snapshots stored in layertwine's SQLite
+/// `SnapshotContent::FileContent` snapshots stored in layertwine's Sqlite
 /// storage (content-addressed, INSERT-ONLY). No `wf-file-content:` metadata
 /// index is maintained — lookups scan the content-addressed snapshots by
 /// path and match the recorded SHA-256 hash against the stored bytes.
@@ -165,7 +165,7 @@ impl LayertwineFileContentStore {
         Ok(Self { storage })
     }
 
-    /// Share the underlying SQLite connection (for test diagnostics).
+    /// Share the underlying Sqlite connection (for test diagnostics).
     pub fn share(&self) -> Self {
         Self {
             storage: self.storage.clone(),
@@ -346,7 +346,7 @@ impl FileCheckpointManager {
         }
     }
 
-    /// Attach a layertwine SQLite backend; this is the production entry
+    /// Attach a layertwine Sqlite backend; this is the production entry
     /// point (the storage is shared with the surrounding runtime).
     pub fn with_sqlite(storage: Arc<SqliteStorage>) -> Self {
         let state_machine = StateMachine::new(storage.clone());

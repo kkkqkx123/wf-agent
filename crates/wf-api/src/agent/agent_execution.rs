@@ -12,7 +12,7 @@ use crate::infra::context::ApiContext;
 use crate::infra::error::ApiError;
 use crate::infra::state_tracker::{ExecutionStateAccessor, StatePoint};
 use crate::infra::stream::ExecutionEventStream;
-use wf_execution_shared::types::execution_entity::IExecutionEntity;
+use wf_execution_shared::types::execution_entity::ExecutionEntity;
 use wf_execution_shared::types::state_manager::StateManager;
 
 /// Default wall-clock timeout for an agent loop when the config sets neither

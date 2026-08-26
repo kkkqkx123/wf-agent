@@ -24,7 +24,7 @@
 
 ### 1.1 代码事实与约束
 
-- `AgentInstanceId` 是 newtype(`String`)，serde 平铺序列化为普通 JSON 字符串，`Display` 直出内部串（`layertwine/src/core/types.rs:5-12`）；SQLite 侧存 TEXT（`deltas.source_data`、`partitions`）。
+- `AgentInstanceId` 是 newtype(`String`)，serde 平铺序列化为普通 JSON 字符串，`Display` 直出内部串（`layertwine/src/core/types.rs:5-12`）；Sqlite 侧存 TEXT（`deltas.source_data`、`partitions`）。
 - 分区 id = `UUIDv5(固定 namespace, name = agent_id 字节)`（`layered/agent.rs:17-20`、`layered/approval.rs:12-15`、`layered/integrated.rs:20`）。即 `AgentInstanceId` 只要**稳定、唯一、可逆解析**即可，无长度/字符硬性限制（UUIDv5 对任意长度输入做哈希）。
 - 执行 id 为 UUIDv7 字符串（含连字符，`wf-common/src/id.rs:3-5`），全局唯一；层级深度上限 `MAX_DEPTH = 10`（`wf-core/src/hierarchy/manager.rs:10`）。
 - 已定约束（D1）：agent 主执行实例独立分区；workflow 其他节点（LLM/脚本）共用 workflow 级分区；subgraph 独立分区；triggered subworkflow 走独立工作流。
@@ -46,7 +46,7 @@ kind       := "wf" | "agent" | "sub"
 | workflow 内 subgraph | `wf:{parent_exec_id}/child:{subgraph_exec_id}` |
 | agent 嵌套子循环 | `agent:{root_loop_id}/child:{child_loop_id}/child:{grandchild_loop_id}` |
 
-- 最坏长度：10 级 × (36 + 7) ≈ 430 字符，SQLite TEXT 无压力。
+- 最坏长度：10 级 × (36 + 7) ≈ 430 字符，Sqlite TEXT 无压力。
 - 与 D5 的 `root/{root}/child/{child}` 等价：hierarchy 链即"根到自身"路径，kind 前缀补充分区语义。
 
 **格式 B：纯层级 `root/{root}/child/{child}/...`（决策文档原文示例，无 kind）**
@@ -75,7 +75,7 @@ kind       := "wf" | "agent" | "sub"
 
 ### 2.1 代码事实（对决策 2-A 前提的重要修正）
 
-- `OverlayVFS.delta` 是纯内存 `HashMap`，**没有 commit/flush/写回 API**（`wf-sandbox/src/vfs/overlay.rs:50-56`，delta 只在内存插入）。
+- `OverlayVfs.delta` 是纯内存 `HashMap`，**没有 commit/flush/写回 API**（`wf-sandbox/src/vfs/overlay.rs:50-56`，delta 只在内存插入）。
 - 更关键：**当前脚本执行路径实际上从不写 overlay**——
   - shell 策略链 `["static-analyzer", "vfs-gate", "os-hook"]`（`wf-sandbox/src/resolver.rs:23-26`），`os-hook` 直接在宿主执行命令；`vfs-gate` 只调用 `check_read/check_write` 做权限检查，从不写 delta。
   - `SandboxRuntime::execute_named` 在函数内部创建 VFS、返回即丢弃（`wf-sandbox/src/runtime.rs:336-356`）。
@@ -154,7 +154,7 @@ kind       := "wf" | "agent" | "sub"
 - `none`：不进 approval 层，agent 结束直接 `merge_agent_to_feature`（当前默认，行为不变）。
 - `auto`：`move_agent_to_approval` 后立即 `merge_agent_to_feature`。
 - `llm`：审批由 workflow 内审批节点/审批工具完成——新增工具 `approve_changes(agent_instance_id, approve, reason)`（LLM 节点调用，内部映射 `merge_agent_to_feature` / `reject_approval` + 可选 `discard_agent_edit`）。
-- `manual`：挂起（`history.len() > 1`），宿主 API `list_pending_approvals` / `approve` / `reject`；**跨执行持久化天然满足**（SQLite 持久，执行结束不影响审批分区状态）——这正是"结束后人工审核"的落点。
+- `manual`：挂起（`history.len() > 1`），宿主 API `list_pending_approvals` / `approve` / `reject`；**跨执行持久化天然满足**（Sqlite 持久，执行结束不影响审批分区状态）——这正是"结束后人工审核"的落点。
 
 **触发点**：agent loop 结束（AgentLoop 节点完成后 / agent coordinator 主循环结束）；可配置在每次迭代结束。
 
@@ -255,7 +255,7 @@ kind       := "wf" | "agent" | "sub"
 | `merge_agent_to_feature` 合并后 approval 重置回 baseline | `layertwine/src/layered/integrated.rs:100-188`（:182） |
 | `reject_approval`、待审批约定 history.len() > 1 | `layertwine/src/layered/approval.rs:63-97` |
 | `merge_texts` / `MergeConflict::to_conflict_marker` | `layertwine/src/engine/merge.rs:159, 136-150` |
-| `OverlayVFS.delta` 纯内存、无写回 API | `wf-sandbox/src/vfs/overlay.rs:50-56` |
+| `OverlayVfs.delta` 纯内存、无写回 API | `wf-sandbox/src/vfs/overlay.rs:50-56` |
 | VFS 在 `execute_named` 内部创建、返回即丢弃；shell 策略链含 os-hook 宿主执行 | `wf-sandbox/src/runtime.rs:336-356`、`resolver.rs:23-26` |
 | 脚本节点默认 `vfs: None`；执行钩子位置 | `wf-workflow/src/handler/script.rs:82-84, 136-155` |
 | workflow LLM 节点无审批拦截，直接 `execute_tool` | `wf-workflow/src/handler/llm.rs:500-523` |

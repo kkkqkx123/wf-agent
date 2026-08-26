@@ -17,7 +17,7 @@ use crate::store::sqlite::SqliteStorage;
 /// save/load/delete/list/exists/clear/batch calls, latency and bytes so the
 /// runtime can export storage load as metrics.
 ///
-/// The SQLite variant additionally layers an entity cache (`CachingStore`)
+/// The Sqlite variant additionally layers an entity cache (`CachingStore`)
 /// over the pool — the durable backend benefits most from read caching and
 /// every write path invalidates the affected ids, so the cache cannot serve
 /// stale data.
@@ -35,7 +35,7 @@ impl StorageBackend {
         Self::Memory(InstrumentedStore::new(MemoryStorage::new("default")))
     }
 
-    /// Open a SQLite backend with the entity cache enabled (default cache
+    /// Open a Sqlite backend with the entity cache enabled (default cache
     /// configuration: 1000 entries / 300s TTL).
     #[cfg(feature = "sqlite")]
     pub async fn new_sqlite(path: &str, table_name: &str) -> Result<Self, StorageError> {

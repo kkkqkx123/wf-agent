@@ -12,12 +12,12 @@ use crate::core::types::{LineDiff, SnapshotId, SourceType};
 use crate::storage::repository::{DeltaStore, FileNodeStore, SnapshotStore};
 use crate::storage::SqliteStorage;
 
-/// Create an in-memory SQLite storage for testing.
+/// Create an in-memory Sqlite storage for testing.
 pub fn setup_storage() -> SqliteStorage {
     SqliteStorage::new_in_memory().unwrap()
 }
 
-/// Create an in-memory SQLite storage with full schema (checkpoint + branch tables).
+/// Create an in-memory Sqlite storage with full schema (checkpoint + branch tables).
 pub fn setup_storage_full() -> SqliteStorage {
     let storage = SqliteStorage::new_in_memory().unwrap();
     storage

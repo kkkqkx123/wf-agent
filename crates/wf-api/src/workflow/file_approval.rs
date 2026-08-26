@@ -13,7 +13,7 @@ fn manager(ctx: &ApiContext) -> ApiResult<&wf_checkpoint::file::FileCheckpointMa
 }
 
 /// All pending layered approvals: actor partitions at the approval layer
-/// submitted but neither merged nor rejected. Persisted in SQLite, so the
+/// submitted but neither merged nor rejected. Persisted in Sqlite, so the
 /// list survives across executions ("review after the run ends").
 pub fn list_pending_approvals(ctx: &ApiContext) -> ApiResult<Vec<PendingApproval>> {
     manager(ctx)?

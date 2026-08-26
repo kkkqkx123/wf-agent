@@ -9,7 +9,7 @@ use wf_core::event::EventBus;
 use wf_execution_shared::execution_state::ExecutionStateManager;
 use wf_execution_shared::hooks::types::BaseHookDefinition;
 use wf_execution_shared::hooks::HookRegistry;
-use wf_execution_shared::types::execution_entity::IExecutionEntity;
+use wf_execution_shared::types::execution_entity::ExecutionEntity;
 use wf_execution_shared::types::state_manager::StateManager;
 use wf_llm::messaging::conversation_session::ConversationSession;
 use wf_llm::LlmGateway;

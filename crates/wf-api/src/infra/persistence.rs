@@ -196,7 +196,7 @@ impl PersistenceLayer for NoOpPersistenceLayer {
 
 /// KV-store-backed persistence layer. The store is a
 /// [`StorageBackend`] so the same adapter serves both the in-memory and the
-/// SQLite backends (`StorageBackend::Sqlite`), avoiding a direct sqlx
+/// Sqlite backends (`StorageBackend::Sqlite`), avoiding a direct sqlx
 /// dependency in `wf-api`.
 ///
 /// Records are stored as JSON blobs under a namespaced key prefix; event
@@ -214,7 +214,7 @@ impl StorePersistenceLayer {
         }
     }
 
-    /// SQLite-backed layer; enabled with the `sqlite` feature.
+    /// Sqlite-backed layer; enabled with the `sqlite` feature.
     #[cfg(feature = "sqlite")]
     pub async fn sqlite(path: &str) -> ApiResult<Self> {
         let store = wf_storage::backend::StorageBackend::new_sqlite(path, "persistence").await?;

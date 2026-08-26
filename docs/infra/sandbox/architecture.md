@@ -370,10 +370,10 @@ return JSON({"safe": bool, "violations": [...]})
 文件：`src/vfs/`
 
 ```
-OverlayVFS          → 两层文件系统：MemoryDelta 覆盖层 + HostFS 基础层
+OverlayVfs          → 两层文件系统：MemoryDelta 覆盖层 + HostFs 基础层
 MemoryDelta         → HashMap<PathBuf, Vec<u8>> 写时复制
 WhiteoutCache       → HashSet<PathBuf> 删除标记
-HostFS              → 基于根路径的本地文件系统访问
+HostFs              → 基于根路径的本地文件系统访问
 ```
 
 VFS 已通过 config 集成到 `SandboxRuntime`（`options.vfs`）。
@@ -383,7 +383,7 @@ VFS 已通过 config 集成到 `SandboxRuntime`（`options.vfs`）。
 **当前 VFS 为预执行检查**：路径级校验由链中 Analysis 门禁完成——默认链走 `vfs-gate`
 （或 static-analyzer 兜底），从 token 级提取路径：重定向目标（`>`/`>>`/`2>`/`&>`）按**写路径**
 经 `check_write` 校验，其余路径按读路径经 `check_read` 校验；`>&2` 文件描述符复制、
-heredoc（`<<`）、herestring（`<<<`）不误判。OverlayVFS 的 `read_file`/`write_file` 均强制路径策略。
+heredoc（`<<`）、herestring（`<<<`）不误判。OverlayVfs 的 `read_file`/`write_file` 均强制路径策略。
 **不拦截子进程实际 IO**（CoW/路径重定向为长期任务，见 `docs/plan/sandbox-redesign.md`）。
 
 ---
@@ -483,7 +483,7 @@ Profile 解析器 `SandboxProfileResolver`（尚未实现，定义在补全计�
 | JS vm-context | node:vm 上下文隔离 | 生成包裹 JS 代码 | ✅ 等价 |
 | Lua mlua-sandbox | 子进程 + 字符串注入 | **内嵌 VM API 隔离** | 🏆 RS 唯一 |
 | Lua static-analyzer | 18 模式 | 标识符级 tokenize + 18 模式 + 索引/拼接绕过 | ✅ 等价 |
-| VFS + MountTable | MountTable + PathMapper | OverlayVFS + MemoryDelta + 读写双向预检查 | ⚠️ 架构不同 |
+| VFS + MountTable | MountTable + PathMapper | OverlayVfs + MemoryDelta + 读写双向预检查 | ⚠️ 架构不同 |
 | 运行时集成 | 完整 (script-handler) | 仅核心 Runtime | ❌ 待 wf-core 集成 |
 | 配置文件/profile | SandboxGlobalConfig + 解析 | 类型已定义，解析器未实现 | ❌ 待实现 |
 | 交互式脚本 | 3 模式协调器 + PTY | 未实现 | ❌ 待实现 |

@@ -19,8 +19,8 @@ pub mod native;
 pub use context::PluginContext;
 pub use contributions::{
     ContributionBridge, ContributionManager, ContributionRegistrar, ContributionType, NextFn,
-    OverridePolicy, PluginEventData, PluginEventHandler, PluginExecutionContext, PluginLLMConfig,
-    PluginLLMFormatter, PluginLLMRequest, PluginLLMResponse, PluginLLMUsage, PluginMessage,
+    OverridePolicy, PluginEventData, PluginEventHandler, PluginExecutionContext, PluginLlmConfig,
+    PluginLlmFormatter, PluginLlmRequest, PluginLlmResponse, PluginLlmUsage, PluginMessage,
     PluginMiddlewareDef, PluginMiddlewareHandler, PluginNodeHandler, PluginNodeResult,
     PluginToolContext, PluginToolExecutor, PluginToolResult, RegistrarGuard,
 };

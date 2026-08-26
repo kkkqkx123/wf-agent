@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use dashmap::DashMap;
 use wf_common::gate::GateStats;
-use wf_execution_shared::types::execution_entity::{ExecutionStatus, IExecutionEntity};
+use wf_execution_shared::types::execution_entity::{ExecutionStatus, ExecutionEntity};
 use wf_tools::callback::AgentLoopOutput;
 use wf_types::Id;
 

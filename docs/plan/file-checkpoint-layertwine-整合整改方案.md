@@ -17,7 +17,7 @@ workflow 的原始设计意图包含**多 agent 编排**（fork/join、多路并
 layertwine 恰好是一套为此设计的文件编辑历史存储层：`AgentInstanceId` 分区（`PartitionType::Agent/Approval`）、`SourceType::Agent` 溯源、`CheckpointMetadata.author`、DAG 分支（`Branch` + 多父 `Checkpoint`）、`merge_texts` 三方合并。本文目标：
 
 1. 以 layertwine 的 `AgentInstanceId` / 分区 / 分层状态机 / 三方合并为核心，重建 file-checkpoint 的权威模型。
-2. 消除当前"手写 delta 链 + 把 layertwine 当 SQLite blob 表"的倒挂与三套割裂。
+2. 消除当前"手写 delta 链 + 把 layertwine 当 Sqlite blob 表"的倒挂与三套割裂。
 3. 打通 `FileCheckpointConfig → layertwine 后端 → coordinator → 生产接线` 的完整链路。
 4. 让多 agent 合并、溯源、子执行隔离成为一等能力。
 
@@ -29,13 +29,13 @@ layertwine 恰好是一套为此设计的文件编辑历史存储层：`AgentIns
 |----|------|------|--------|--------|
 | 存储元数据层 | `wf-types/src/storage/file_checkpoint.rs` + `wf-storage/src/adapter/file_checkpoint.rs` | `FileCheckpointStorageMetadata` | 仅指针：`id / entity_id / file_path / checkpoint_id / size_bytes / compressed / created_at`，不存内容 | `wf-api` CRUD |
 | 工作区内容层 | `wf-checkpoint/src/file.rs` | `FileCheckpoint`（`FileState` + full/incremental 手写 delta 链） | 文件内容 + 元数据；`FileContentStore` 存字节 | `FileCheckpointManager`（被 coordinator 调用） |
-| layertwine 适配层 | `wf-checkpoint/src/layertwine.rs` | `GitCheckpointAdapter` / `BranchStorageAdapter` | checkpoint blob 当 `SnapshotContent::Structured` 塞 SQLite | 仅测试 |
+| layertwine 适配层 | `wf-checkpoint/src/layertwine.rs` | `GitCheckpointAdapter` / `BranchStorageAdapter` | checkpoint blob 当 `SnapshotContent::Structured` 塞 Sqlite | 仅测试 |
 
 关键问题：**三层互不连通**。`FileCheckpointStorageMetadata.workspace_root` 从未被内容层填充；`FileCheckpointManager` 只落 `InMemoryFileCheckpointStorage`；layertwine 的适配层只在测试中构造。
 
 ### 2.2 layertwine 的降级复用
 
-layertwine 的完整能力（`core/` 内容寻址 Snapshot/Delta/FileNode、`engine/` 三方合并、`layered/` 六层状态机、`checkpoint/` DAG/分支、`storage/` SQLite）中，`wf-checkpoint` 只用了 `SqliteStorage` + `SnapshotStore` + `MetadataStore` 三个底层 trait，把字节当 blob 存，手写 SHA-256 delta 链与 layertwine 的 Blake3 内容寻址 Delta/Snapshot/DAG 高度重叠。
+layertwine 的完整能力（`core/` 内容寻址 Snapshot/Delta/FileNode、`engine/` 三方合并、`layered/` 六层状态机、`checkpoint/` DAG/分支、`storage/` Sqlite）中，`wf-checkpoint` 只用了 `SqliteStorage` + `SnapshotStore` + `MetadataStore` 三个底层 trait，把字节当 blob 存，手写 SHA-256 delta 链与 layertwine 的 Blake3 内容寻址 Delta/Snapshot/DAG 高度重叠。
 
 ### 2.3 具体问题清单
 
@@ -73,7 +73,7 @@ layertwine 的完整能力（`core/` 内容寻址 Snapshot/Delta/FileNode、`eng
 
 1. **权威模型改为 layertwine**：废弃 `wf-checkpoint::file::FileCheckpoint` 手写的 `FileState` + 增量链 + `compute_diff/apply_diff`，改为直接驱动 layertwine 的 `layered/` + `engine/` + `checkpoint/`。`FileCheckpoint` 结构体降级为对 layertwine `Checkpoint` + `Partition` 的轻量投影（projection），用于 API/事件输出。
 2. **操作者身份即 `AgentInstanceId`**：`entity_id`（execution id）+ 可选 `agent_id`（agent 实例）组合成 `AgentInstanceId`。子执行实例用 `parent_execution_id` / `root_execution_id` 表达层级，每级独立一个 `AgentInstanceId`，从而在 layertwine 分区层面天然隔离。
-3. **保留 `FileContentStore` 概念，但落到 layertwine**：不再新建 SQLite blob 表，直接使用 layertwine 的 `FileNodeStore` + `SnapshotStore` + `DeltaStore`（内容寻址、INSERT-ONLY、可压缩 zstd）。`LayertwineFileContentStore` 重构为对 layertwine `Snapshot`（`SnapshotContent::FileContent`）的薄封装，而非手写 `wf-file-content:` 前缀索引。
+3. **保留 `FileContentStore` 概念，但落到 layertwine**：不再新建 Sqlite blob 表，直接使用 layertwine 的 `FileNodeStore` + `SnapshotStore` + `DeltaStore`（内容寻址、INSERT-ONLY、可压缩 zstd）。`LayertwineFileContentStore` 重构为对 layertwine `Snapshot`（`SnapshotContent::FileContent`）的薄封装，而非手写 `wf-file-content:` 前缀索引。
 4. **删除/GC 由 layertwine 语义承载**：分区的 `rollback_to` / `rollback_one`（`partition.rs:36-57`）是"指针回退"而非物理删除；物理 GC 走 `git_sync/gc.rs`（已有）或后续独立 GC 阶段，不引入"清空 metadata value"的伪删除。
 5. **合并入口**：`FileCheckpointManager` 增加 `merge_entity_changes` 之类的方法，封装 `merge_agent_to_feature` / `merge_features_to_staged`，供 script 节点调用；冲突结果（`MergeResult`）映射到 `CheckpointError` 或事件。
 

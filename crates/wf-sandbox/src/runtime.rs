@@ -14,13 +14,13 @@ use crate::resolver::{
     analysis_gate_required, DefaultStrategyResolver, StrategyExecuteOptions, StrategyKind,
     StrategyResolver, VfsProvider,
 };
-use crate::vfs::overlay::OverlayVFS;
+use crate::vfs::overlay::OverlayVfs;
 
 /// Result of an execution that may involve an overlay VFS.
 ///
 /// `vfs` is the VFS instance that participated in the execution (`None` when
 /// no VFS was active). Consuming its delta ([`VfsProvider::take_delta`]) and
-/// committing it onto the base directory ([`crate::vfs::overlay::OverlayVFS::flush`])
+/// committing it onto the base directory ([`crate::vfs::overlay::OverlayVfs::flush`])
 /// are alternative consumption paths — draining first leaves nothing for a
 /// later flush — so the runtime hands out the provider instead of
 /// pre-draining and lets hosts pick.
@@ -328,7 +328,7 @@ impl SandboxRuntime {
                     allowed_write: vec![],
                 },
             );
-            Some(Arc::new(OverlayVFS::new(base, path_policy)) as Arc<dyn VfsProvider>)
+            Some(Arc::new(OverlayVfs::new(base, path_policy)) as Arc<dyn VfsProvider>)
         });
 
         let preferred_ids: Vec<String> = match language {
@@ -1490,8 +1490,8 @@ mod tests {
         }
     }
 
-    fn injected_overlay(dir: &std::path::Path) -> (Arc<OverlayVFS>, Arc<dyn VfsProvider>) {
-        let overlay = Arc::new(OverlayVFS::new(
+    fn injected_overlay(dir: &std::path::Path) -> (Arc<OverlayVfs>, Arc<dyn VfsProvider>) {
+        let overlay = Arc::new(OverlayVfs::new(
             dir.to_path_buf(),
             wf_types::script::sandbox::PathPolicy {
                 allowed_read: vec!["f6".to_string()],

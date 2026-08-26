@@ -162,7 +162,7 @@ async fn workflow_stream_ends_with_completed() {
 #[tokio::test]
 async fn checkpoint_command_roundtrip_on_sqlite_store() {
     // Checkpoint commands only take effect for a persistent store; wire a
-    // SQLite backend into the shared context and verify the create -> restore
+    // Sqlite backend into the shared context and verify the create -> restore
     // round-trip through the wf-checkpoint coordinator.
     let storage = StorageContext::new_sqlite(":memory:").await.unwrap();
     let mut ctx = ApiContext::new(

@@ -1,6 +1,6 @@
 //! HTTP API integration tests
 //!
-//! These tests verify the complete HTTP API workflows using a real SQLite
+//! These tests verify the complete HTTP API workflows using a real Sqlite
 //! database via `ApiServiceImpl`.
 //!
 //! Each test mirrors a real business scenario from the user guide.

@@ -5,7 +5,7 @@ use crate::core::types::CheckpointId;
 use crate::error::Result;
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct GCStats {
+pub struct GcStats {
     pub removed_checkpoints: u64,
     pub removed_snapshots: u64,
     pub freed_bytes: u64,
@@ -13,9 +13,9 @@ pub struct GCStats {
     pub max_chain_depth: usize,
 }
 
-impl GCStats {
+impl GcStats {
     pub fn new() -> Self {
-        GCStats {
+        GcStats {
             removed_checkpoints: 0,
             removed_snapshots: 0,
             freed_bytes: 0,
@@ -25,7 +25,7 @@ impl GCStats {
     }
 }
 
-impl Default for GCStats {
+impl Default for GcStats {
     fn default() -> Self {
         Self::new()
     }
@@ -142,14 +142,14 @@ fn mark_reachable(
 /// 2. Mark all descendants of protected checkpoints as reachable
 /// 3. Remove all unreachable checkpoints
 /// 4. Check delta chain depth for repacking trigger
-pub fn run_gc(repo: &mut CheckpointRepo, retention: GcRetention) -> Result<GCStats> {
+pub fn run_gc(repo: &mut CheckpointRepo, retention: GcRetention) -> Result<GcStats> {
     let protected = collect_protected_checkpoints(repo, retention);
 
     // Mark phase: traverse forward from protected to find all reachable nodes
     let to_keep = mark_reachable(repo, &protected);
 
     let all_checkpoints = repo.dag().all_nodes();
-    let mut stats = GCStats::new();
+    let mut stats = GcStats::new();
 
     // Check delta chain depth using proper depth calculation
     stats.max_chain_depth = calculate_max_depth(repo);
@@ -181,7 +181,7 @@ pub fn run_gc(repo: &mut CheckpointRepo, retention: GcRetention) -> Result<GCSta
 
 /// Run garbage collection with the default retention policy (no extra
 /// recent-head protection).
-pub fn collect_garbage(repo: &mut CheckpointRepo) -> Result<GCStats> {
+pub fn collect_garbage(repo: &mut CheckpointRepo) -> Result<GcStats> {
     run_gc(repo, GcRetention::default())
 }
 
@@ -358,7 +358,7 @@ mod tests {
 
     #[test]
     fn test_gc_stats_struct() {
-        let stats = GCStats::new();
+        let stats = GcStats::new();
         assert_eq!(stats.removed_checkpoints, 0);
         assert_eq!(stats.removed_snapshots, 0);
         assert_eq!(stats.freed_bytes, 0);

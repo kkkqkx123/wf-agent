@@ -6,7 +6,7 @@ use serde_json::Value;
 use wf_core::interruption::check_execution_interruption;
 use wf_core::types::interruption::ExecutionInterruptionCheckResult;
 use wf_execution_shared::hooks::HookRegistry;
-use wf_execution_shared::types::execution_entity::IExecutionEntity;
+use wf_execution_shared::types::execution_entity::ExecutionEntity;
 use wf_llm::LlmGateway;
 use wf_metrics::MetricsRegistry;
 use wf_tools::registry::ToolRegistry;

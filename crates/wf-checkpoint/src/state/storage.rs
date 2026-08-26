@@ -296,7 +296,7 @@ where
         let start = Instant::now();
 
         // the deletes and the watermark advance land in one atomic
-        // batch (SQLite/PostgreSQL run it inside BEGIN/COMMIT). Without the
+        // batch (Sqlite/PostgreSQL run it inside BEGIN/COMMIT). Without the
         // transaction a crash between the two leaves either re-deleted
         // checkpoints or — worse — a watermark that skips surviving
         // checkpoints in the next incremental run (history gap).

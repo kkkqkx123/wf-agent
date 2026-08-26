@@ -36,7 +36,7 @@ WorkflowGraph
 
 ## 2. WorkflowExecutionEntity
 
-`WorkflowExecutionEntity` is the **stateful** runtime representation of a single workflow execution. It implements `IExecutionEntity` and manages:
+`WorkflowExecutionEntity` is the **stateful** runtime representation of a single workflow execution. It implements `ExecutionEntity` and manages:
 
 ```
 WorkflowExecutionEntity

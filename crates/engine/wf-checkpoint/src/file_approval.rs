@@ -1,11 +1,13 @@
 use std::path::{Path, PathBuf};
 
+use layertwine::checkpoint::types::{Checkpoint, CheckpointMetadata};
 use layertwine::core::file_node::FileNode;
 use layertwine::core::partition::Partition;
 use layertwine::core::snapshot::{Snapshot, SnapshotContent};
-use layertwine::checkpoint::types::{Checkpoint, CheckpointMetadata};
 use layertwine::core::types::{AgentInstanceId, CheckpointId, SnapshotId};
-use layertwine::storage::repository::{CheckpointPersist, FileNodeStore, PartitionStore, SnapshotStore};
+use layertwine::storage::repository::{
+    CheckpointPersist, FileNodeStore, PartitionStore, SnapshotStore,
+};
 use layertwine::storage::sqlite::SqliteStorage;
 use wf_types::config::file_checkpoint::ConflictBehavior;
 

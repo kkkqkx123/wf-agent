@@ -4,7 +4,7 @@ use async_trait::async_trait;
 
 use wf_execution_shared::hooks::HookRegistry;
 use wf_execution_shared::types::execution_entity::{
-    ExecutionStatus as EntityExecutionStatus, ExecutionEntity,
+    ExecutionEntity, ExecutionStatus as EntityExecutionStatus,
 };
 use wf_llm::LlmGateway;
 use wf_tools::callback::{
@@ -644,8 +644,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_pause_suspends_and_resume_reenters_the_loop() {
-        use wf_execution_shared::types::execution_entity::ExecutionStatus;
         use wf_execution_shared::types::execution_entity::ExecutionEntity;
+        use wf_execution_shared::types::execution_entity::ExecutionStatus;
 
         // A slow LLM keeps the first iteration in flight so the pause lands
         // on a running loop instead of racing a completed one.

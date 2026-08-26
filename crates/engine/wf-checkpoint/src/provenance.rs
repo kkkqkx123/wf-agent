@@ -139,7 +139,10 @@ fn snapshot_last_delta(
     let Some(delta_id) = snapshot.deltas.last() else {
         return Ok(None);
     };
-    storage.get_delta(delta_id).map(Some).map_err(map_layertwine_error)
+    storage
+        .get_delta(delta_id)
+        .map(Some)
+        .map_err(map_layertwine_error)
 }
 
 /// The byte content of a snapshot (verbatim content for binary, otherwise
@@ -170,7 +173,9 @@ fn latest_snapshots_per_path(
     let mut order: Vec<String> = Vec::new();
     let mut last_per_path: HashMap<String, Snapshot> = HashMap::new();
     for snapshot_id in &partition.history {
-        let snapshot = storage.get_snapshot(snapshot_id).map_err(map_layertwine_error)?;
+        let snapshot = storage
+            .get_snapshot(snapshot_id)
+            .map_err(map_layertwine_error)?;
         let path = snapshot_file_path(storage, &snapshot)?;
         if path == SEED_PATH {
             continue;
@@ -238,7 +243,9 @@ pub fn list_changes_by_actor(
     let partition = actor_partition(storage, actor)?;
     let mut changes = Vec::new();
     for snapshot_id in &partition.history {
-        let snapshot = storage.get_snapshot(snapshot_id).map_err(map_layertwine_error)?;
+        let snapshot = storage
+            .get_snapshot(snapshot_id)
+            .map_err(map_layertwine_error)?;
         let path = snapshot_file_path(storage, &snapshot)?;
         if path == SEED_PATH || !path_matches(&path, path_filter) {
             continue;
@@ -274,7 +281,9 @@ pub fn list_changes_by_path(
     let mut changes = Vec::new();
     for partition in partitions {
         for snapshot_id in &partition.history {
-            let snapshot = storage.get_snapshot(snapshot_id).map_err(map_layertwine_error)?;
+            let snapshot = storage
+                .get_snapshot(snapshot_id)
+                .map_err(map_layertwine_error)?;
             let snapshot_path = snapshot_file_path(storage, &snapshot)?;
             if snapshot_path == SEED_PATH || snapshot_path != path {
                 continue;
@@ -429,7 +438,9 @@ fn rederive_conflicts(
         // merge_feature_to_staged: parents = [staged, feature]; base is the
         // feature partition's baseline (history[0]).
         if parents.len() >= 2 {
-            let feature_snap = storage.get_snapshot(&parents[1]).map_err(map_layertwine_error)?;
+            let feature_snap = storage
+                .get_snapshot(&parents[1])
+                .map_err(map_layertwine_error)?;
             let name = feature_snap.partition_type.strip_prefix("integrated/");
             match name {
                 Some(name) => {
@@ -480,9 +491,15 @@ fn rederive_conflicts(
     let Some((base_id, ours_id, theirs_id)) = roles else {
         return Ok(vec![]);
     };
-    let base = storage.get_snapshot(&base_id).map_err(map_layertwine_error)?;
-    let ours = storage.get_snapshot(&ours_id).map_err(map_layertwine_error)?;
-    let theirs = storage.get_snapshot(&theirs_id).map_err(map_layertwine_error)?;
+    let base = storage
+        .get_snapshot(&base_id)
+        .map_err(map_layertwine_error)?;
+    let ours = storage
+        .get_snapshot(&ours_id)
+        .map_err(map_layertwine_error)?;
+    let theirs = storage
+        .get_snapshot(&theirs_id)
+        .map_err(map_layertwine_error)?;
     let base_text = layertwine::layered::transition::reconstruct_text(storage, &base)
         .map_err(map_layertwine_error)?
         .unwrap_or_default();

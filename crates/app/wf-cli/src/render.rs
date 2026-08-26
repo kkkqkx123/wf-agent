@@ -73,7 +73,8 @@ impl HeadlessRenderer {
             // Iteration boundaries flush the pending markdown and reset the
             // block: each iteration is an independent output block (the
             // reducer emits one AssistantText commit per iteration too).
-            ExecutionStreamEvent::IterationStart { .. } | ExecutionStreamEvent::IterationEnd { .. } => {
+            ExecutionStreamEvent::IterationStart { .. }
+            | ExecutionStreamEvent::IterationEnd { .. } => {
                 let stdout = self.flush_iteration();
                 HeadlessDelta {
                     stdout,
@@ -90,9 +91,7 @@ impl HeadlessRenderer {
                 }
             }
             ExecutionStreamEvent::ToolEnd {
-                tool_name,
-                success,
-                ..
+                tool_name, success, ..
             } => {
                 self.had_output = true;
                 let diag = if *success {

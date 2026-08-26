@@ -27,6 +27,12 @@ pub struct ResolvedMode {
     /// Prompt read from stdin when stdin is not a TTY and no positional
     /// prompt was given.
     pub stdin_prompt: Option<String>,
+    /// Session id to replay for interactive forms (resolved from
+    /// `--session`).
+    pub resume_session: Option<String>,
+    /// Whether `--resume` was requested (resolve latest session at
+    /// startup).
+    pub resume_latest: bool,
 }
 
 /// Mode resolver. TTY flags are injected so unit tests can exercise every
@@ -46,12 +52,16 @@ impl ModeResolver {
             return Ok(ResolvedMode {
                 cli_mode: CliMode::Tui,
                 stdin_prompt: None,
+                resume_session: cli.session.clone(),
+                resume_latest: cli.resume,
             });
         }
         if cli.mini {
             return Ok(ResolvedMode {
                 cli_mode: CliMode::Mini,
                 stdin_prompt: None,
+                resume_session: cli.session.clone(),
+                resume_latest: cli.resume,
             });
         }
 
@@ -68,12 +78,16 @@ impl ModeResolver {
                             Some(p) => Some(p),
                             None => Self::read_stdin_prompt(cli, is_stdin_tty)?,
                         },
+                        resume_session: None,
+                        resume_latest: false,
                     });
                 }
                 Command::DebugMode | Command::DebugTerminal { .. } => {
                     return Ok(ResolvedMode {
                         cli_mode: CliMode::Run,
                         stdin_prompt: None,
+                        resume_session: None,
+                        resume_latest: false,
                     });
                 }
             }
@@ -84,6 +98,8 @@ impl ModeResolver {
             return Ok(ResolvedMode {
                 cli_mode: CliMode::Run,
                 stdin_prompt: Self::read_stdin_prompt(cli, is_stdin_tty)?,
+                resume_session: None,
+                resume_latest: false,
             });
         }
 
@@ -92,6 +108,8 @@ impl ModeResolver {
             return Ok(ResolvedMode {
                 cli_mode: CliMode::Run,
                 stdin_prompt: Self::read_stdin_prompt(cli, is_stdin_tty)?,
+                resume_session: None,
+                resume_latest: false,
             });
         }
 
@@ -109,6 +127,8 @@ impl ModeResolver {
         Ok(ResolvedMode {
             cli_mode,
             stdin_prompt: None,
+            resume_session: cli.session.clone(),
+            resume_latest: cli.resume,
         })
     }
 

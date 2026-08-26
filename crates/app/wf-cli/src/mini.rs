@@ -40,9 +40,8 @@ use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
 use wf_agent::approval::{ToolApprovalRequest, ToolApprovalResult};
-use wf_api::agent::agent_execution::{self, RunAgentLoopParams};
+use wf_api::agent::agent_execution;
 use wf_api::infra::stream::ExecutionStreamEvent;
-use wf_tools::callback::{AgentLoopConfig, AgentLoopInput};
 use wf_types::Id;
 
 use crate::approval::{ApprovalChoice, ApprovalRemembered, ApprovalView, MiniApprovalHandler};
@@ -51,7 +50,9 @@ use crate::error::CliResult;
 use crate::footer::{Footer, FooterRoute, FooterView, PanelState, SPINNER_TICK_MS};
 use crate::keymap::{CKey, Key, KeyAction, Keymap, KeymapContext};
 use crate::markdown::MarkdownStream;
-use crate::panels::{CommandId, CommandPalette, ModelPanel, QueuedPanel, SkillPanel};
+use crate::panels::{
+    CommandId, CommandPalette, MentionPanel, ModelPanel, QueuedPanel, SkillPanel, WorkflowPanel,
+};
 use crate::question::{MiniInteractionHandler, QuestionOutcome, QuestionView};
 use crate::queue::{PromptQueue, QueuedPrompt};
 use crate::reducer::{Phase, SessionReducer};
@@ -66,15 +67,6 @@ use crate::theme::Theme;
 /// Fallback wait when no deadline is pending (bounded so channel events are
 /// still observed promptly).
 const IDLE_POLL_MS: u64 = 200;
-
-/// Default model profile for mini turns (mirrors `run.rs`).
-const DEFAULT_MODEL: &str = "default";
-
-/// Default agent definition for mini turns.
-const DEFAULT_AGENT: &str = "cli";
-
-/// Default iteration budget for a mini turn.
-const DEFAULT_MAX_ITERATIONS: u32 = 50;
 
 /// Keymap and command help shown by `?` / `/help`.
 const MINI_HELP_TEXT: &str = "\
@@ -137,6 +129,12 @@ pub struct MiniOptions {
     pub initial_prompt: Option<String>,
     /// Bootstrapped domain adapter driving the session turns.
     pub adapter: Arc<DomainAdapter>,
+    /// Session id to replay (`--session`).
+    pub session_id: Option<String>,
+    /// Whether to resume the latest session (`--resume`).
+    pub resume_latest: bool,
+    /// Storage spec for exit hint (`--storage` string, e.g. `sqlite:/tmp/wf.db`).
+    pub storage_spec: Option<String>,
 }
 
 /// Set by the SIGTSTP handler when the user suspends the app (Ctrl-Z); the
@@ -183,6 +181,8 @@ pub struct MiniApp {
     session_rx: UnboundedReceiver<MiniSessionEvent>,
     /// Bootstrapped domain adapter driving the session turns.
     adapter: Arc<DomainAdapter>,
+    /// Storage spec for exit hint.
+    storage_spec: Option<String>,
     /// Agent / model overrides for spawned turns.
     agent: Option<String>,
     model: Option<String>,
@@ -193,7 +193,7 @@ pub struct MiniApp {
     /// Reply channel of the approval view currently on screen.
     approval_reply: Option<oneshot::Sender<ToolApprovalResult>>,
     /// Streaming reducer driving the footer state (same kernel as the
-    /// headless renderer — contract 2.3-2).
+    /// headless renderer).
     reducer: SessionReducer,
     /// Spawned driver task of the active turn (aborted on interrupt).
     turn_task: Option<tokio::task::JoinHandle<()>>,
@@ -202,10 +202,10 @@ pub struct MiniApp {
     /// Client-side tool timing (the protocol carries no duration): the
     /// `ToolStart` instant per `tool_call_id`, consumed by `ToolEnd`.
     tool_started_at: std::collections::HashMap<String, Instant>,
-    /// D17: the user stopped the session deliberately — the exit path must
+    /// Whether the user stopped the session deliberately — the exit path must
     /// not present the shutdown as a failure.
     user_stopped: bool,
-    /// D20: composer draft + queue snapshot preserved across `/new`.
+    /// Composer draft + queue snapshot preserved across `/new`.
     snapshot: Option<(String, Vec<QueuedPrompt>)>,
     viewport_height: u16,
     dirty: bool,
@@ -219,6 +219,10 @@ pub struct MiniApp {
     /// `rows - viewport` rows at the current width). It is the common-prefix
     /// diff baseline for partial scrollback rewrites.
     window_rows: Vec<String>,
+    /// Session replay request stashed from construction.
+    initial_session_id: Option<String>,
+    /// Whether to resume the latest session.
+    initial_resume_latest: bool,
 }
 
 impl MiniApp {
@@ -269,6 +273,7 @@ impl MiniApp {
             session_tx,
             session_rx,
             adapter: opts.adapter,
+            storage_spec: opts.storage_spec,
             agent: opts.agent,
             model: opts.model,
             queue: PromptQueue::new(),
@@ -285,6 +290,8 @@ impl MiniApp {
             exit: false,
             stream_resized: false,
             window_rows: Vec::new(),
+            initial_session_id: opts.session_id,
+            initial_resume_latest: opts.resume_latest,
         };
         if let Some(prompt) = initial_prompt {
             app.footer.composer.set_text(prompt);
@@ -311,6 +318,30 @@ impl MiniApp {
         // session starts (bracketed paste/terminal noise from the parent
         // shell must not pre-fill the composer). Bounded at 1s.
         self.drain_early_input(&mut input).await;
+
+        // Session replay: load persisted scrollback when --session or
+        // --resume was requested.
+        if let Some(session_id) = self.resolve_initial_session().await? {
+            match crate::replay::replay_scrollack(self.adapter.api_context(), &session_id).await {
+                Ok(lines) => {
+                    self.pending_scroll.extend(lines);
+                    self.footer.state.execution_id = Some(session_id);
+                }
+                Err(err) => {
+                    // Unknown session id maps to invalid arguments (exit 2).
+                    let msg = err.to_string();
+                    if msg.contains("not found") || msg.contains("ExecutionNotFound") {
+                        return Err(crate::error::CliError::Arguments(format!(
+                            "session not found: {session_id}"
+                        )));
+                    }
+                    self.pending_scroll.push(HistoryLine::new_role(
+                        format!("failed to replay session {session_id}: {err}"),
+                        Role::Error,
+                    ));
+                }
+            }
+        }
 
         self.pending_scroll.push(HistoryLine::new_role(
             "wf mini — type a prompt; Ctrl-C twice or Ctrl-Q to exit",
@@ -363,21 +394,51 @@ impl MiniApp {
             }
         }
 
-        // D17: a deliberate stop is not a failure — abort the active turn
-        // without letting the shutdown surface as an error.
+        // A deliberate stop is not a failure — abort the active turn without
+        // letting the shutdown surface as an error.
         self.user_stopped = true;
         if let Some(task) = self.turn_task.take() {
             task.abort();
         }
 
         self.guard.restore()?;
-        // Exit splash with the resume hint (D10).
         if let Some(exec) = &self.footer.state.execution_id {
             println!();
             println!("wf mini — session {exec}");
-            println!("resume with: wf --mini --session {exec}");
+            if let Some(spec) = &self.storage_spec {
+                if spec != "memory" {
+                    println!("resume with: wf --mini --storage {spec} --session {exec}");
+                } else {
+                    println!("resume with: wf --mini --session {exec}");
+                }
+            } else {
+                println!("resume with: wf --mini --session {exec}");
+            }
+        } else {
+            println!();
+            println!("no session persisted (memory storage)");
         }
         Ok(())
+    }
+
+    /// Resolve the initial session id from construction options: explicit
+    /// `--session` wins, `--resume` resolves the latest persisted session.
+    async fn resolve_initial_session(&self) -> CliResult<Option<String>> {
+        if let Some(id) = &self.initial_session_id {
+            return Ok(Some(id.clone()));
+        }
+        if self.initial_resume_latest {
+            match crate::replay::latest_session_id(self.adapter.api_context()).await {
+                Ok(Some(id)) => return Ok(Some(id)),
+                Ok(None) => {
+                    return Err(crate::error::CliError::Arguments(
+                        "no previous session to resume".to_string(),
+                    ));
+                }
+                Err(err) => return Err(err.into()),
+            }
+        }
+        Ok(None)
     }
 
     /// Drop keystrokes buffered before the interactive session starts so
@@ -599,22 +660,32 @@ impl MiniApp {
             return;
         }
         // Unbound keys: route by the open route.
-        if self.footer.route == FooterRoute::Command {
+        if self.footer.route == FooterRoute::Command
+            || self.footer.route == FooterRoute::Mention
+        {
             self.handle_palette_editing(key);
             return;
         }
         if self.footer.route != FooterRoute::Composer {
-            // Model / skill / queued panels take no free-text input (P0).
+            // Model / skill / queued panels take no free-text input.
             return;
         }
         match key.code {
             CKey::Char(c) if !key.ctrl && !key.alt && !c.is_control() => {
                 self.footer.composer.insert_char(c);
                 self.dirty = true;
+                self.try_open_mention_panel();
             }
             CKey::Backspace => {
                 self.footer.composer.backspace();
                 self.dirty = true;
+                // If the mention query is empty after backspace, close the panel.
+                if self.footer.route == FooterRoute::Mention
+                    && self.footer.composer.mention_query().is_none()
+                {
+                    self.footer.close_panel();
+                    self.dirty = true;
+                }
             }
             CKey::Delete => {
                 self.footer.composer.delete_forward();
@@ -640,21 +711,32 @@ impl MiniApp {
         }
     }
 
-    /// Free-text editing while the command palette route is open feeds the
-    /// palette filter.
+    /// Free-text editing while the command palette or mention route is
+    /// open feeds the panel filter.
     fn handle_palette_editing(&mut self, key: Key) {
-        let Some(PanelState::Command(palette)) = self.footer.panel.as_mut() else {
-            return;
-        };
-        match key.code {
-            CKey::Char(c) if !key.ctrl && !key.alt && !c.is_control() => {
-                palette.filter_push(c);
-                self.dirty = true;
-            }
-            CKey::Backspace => {
-                palette.filter_backspace();
-                self.dirty = true;
-            }
+        match self.footer.panel.as_mut() {
+            Some(PanelState::Command(palette)) => match key.code {
+                CKey::Char(c) if !key.ctrl && !key.alt && !c.is_control() => {
+                    palette.filter_push(c);
+                    self.dirty = true;
+                }
+                CKey::Backspace => {
+                    palette.filter_backspace();
+                    self.dirty = true;
+                }
+                _ => {}
+            },
+            Some(PanelState::Mention(panel)) => match key.code {
+                CKey::Char(c) if !key.ctrl && !key.alt && !c.is_control() => {
+                    panel.filter_push(c);
+                    self.dirty = true;
+                }
+                CKey::Backspace => {
+                    panel.filter_backspace();
+                    self.dirty = true;
+                }
+                _ => {}
+            },
             _ => {}
         }
     }
@@ -755,7 +837,8 @@ impl MiniApp {
             return;
         };
         if let Some(approved) = choice.remembered() {
-            self.remembered.remember(view.request().tool_name.as_str(), approved);
+            self.remembered
+                .remember(view.request().tool_name.as_str(), approved);
         }
         let result = view.apply(choice);
         if let Some(reply) = self.approval_reply.take() {
@@ -798,10 +881,8 @@ impl MiniApp {
         let answer = question.answer_text(outcome);
         let response = question.response_value(outcome);
         let interaction_id = question.interaction_id().to_string();
-        self.pending_scroll.push(HistoryLine::new_role(
-            format!("❯ {answer}"),
-            Role::Accent,
-        ));
+        self.pending_scroll
+            .push(HistoryLine::new_role(format!("❯ {answer}"), Role::Accent));
         self.send_question_reply(&interaction_id, response);
         self.footer.present(FooterView::Prompt);
         let _ = self.settle_scrollback();
@@ -845,6 +926,9 @@ impl MiniApp {
             }
             KeyAction::Delete => self.delete_queued_selection(),
             KeyAction::Edit => self.edit_queued_selection(),
+            KeyAction::Scan => self.scan_skills(),
+            KeyAction::Reload => self.reload_skills(),
+            KeyAction::CacheClear => self.clear_skill_cache(),
             KeyAction::Redraw => self.dirty = true,
             KeyAction::Help => self.show_help(),
             _ => {}
@@ -871,6 +955,12 @@ impl MiniApp {
                 PanelState::Queued(p) => {
                     p.handle(action);
                 }
+                PanelState::Workflow(p) => {
+                    p.handle(action);
+                }
+                PanelState::Mention(p) => {
+                    p.handle(action);
+                }
             }
         }
         self.dirty = true;
@@ -890,15 +980,43 @@ impl MiniApp {
         }
     }
 
-    /// Execute the selection of the open model / skill / queued panel.
+    /// Execute the selection of the open model / skill / queued / workflow panel.
     fn execute_panel_selection(&mut self) {
         match self.footer.panel.as_ref() {
             Some(PanelState::Model(panel)) => {
                 let selected = panel.selected_model();
                 if let Some(id) = selected {
+                    let is_new = Some(id.as_str()) != panel.current_id();
                     self.model = Some(id.clone());
                     self.footer.state.model = Some(id.clone());
-                    self.footer.show_notice(format!("model set to {id} (next turns)"));
+                    if is_new {
+                        // Persist the default profile and show the masked key.
+                        let ctx = self.adapter.api_context();
+                        let notice = futures::executor::block_on(async {
+                            let mut msg = format!("model set to {id} (next turns)");
+                            if let Err(e) = wf_api::llm::llm_profile::set_default(ctx, &id).await
+                            {
+                                msg.push_str(&format!(" (persist failed: {e})"));
+                            }
+                            match wf_api::llm::llm_profile::export(ctx, &id).await {
+                                Ok(val) => {
+                                    let key_masked = val
+                                        .get("api_key")
+                                        .and_then(|v| v.as_str())
+                                        .unwrap_or("***");
+                                    msg.push_str(&format!("  key: {key_masked}"));
+                                }
+                                Err(e) => {
+                                    msg.push_str(&format!("  (export failed: {e})"));
+                                }
+                            }
+                            msg
+                        });
+                        self.footer.show_notice(notice);
+                    } else {
+                        self.footer
+                            .show_notice(format!("model {id} already active"));
+                    }
                 }
                 self.footer.close_panel();
                 self.dirty = true;
@@ -907,15 +1025,30 @@ impl MiniApp {
                 let selected = panel.selected_skill();
                 self.footer.close_panel();
                 if let Some(skill) = selected {
-                    // P0: insert a skill mention into the next prompt.
+                    // Insert a skill mention into the next prompt.
+                    self.footer.composer.set_text(format!("@skill:{skill} "));
                     self.footer
-                        .composer
-                        .set_text(format!("@skill:{skill} "));
-                    self.footer.show_notice(format!("skill {skill} added to the prompt"));
+                        .show_notice(format!("skill {skill} added to the prompt"));
                 }
                 self.dirty = true;
             }
             Some(PanelState::Queued(_)) => self.edit_queued_selection(),
+            Some(PanelState::Workflow(panel)) => {
+                let selected = panel.selected_workflow();
+                self.footer.close_panel();
+                if let Some(workflow_id) = selected {
+                    self.spawn_workflow_turn(workflow_id, None);
+                }
+                self.dirty = true;
+            }
+            Some(PanelState::Mention(panel)) => {
+                let selected = panel.selected_candidate();
+                self.footer.close_panel();
+                if let Some(candidate) = selected {
+                    self.footer.composer.apply_mention_completion(&candidate);
+                    self.dirty = true;
+                }
+            }
             _ => {
                 self.footer.close_panel();
                 self.dirty = true;
@@ -931,7 +1064,8 @@ impl MiniApp {
         };
         if let Some(id) = selected {
             if let Some(removed) = self.queue.remove(id) {
-                self.footer.show_notice(format!("removed queued prompt #{}", removed.id));
+                self.footer
+                    .show_notice(format!("removed queued prompt #{}", removed.id));
             }
         }
         self.rebuild_queued_panel();
@@ -947,7 +1081,8 @@ impl MiniApp {
         if let Some(id) = selected {
             if let Some(prompt) = self.queue.take_for_edit(id) {
                 self.footer.composer.set_text(prompt.text);
-                self.footer.show_notice(format!("queued prompt #{} restored", prompt.id));
+                self.footer
+                    .show_notice(format!("queued prompt #{} restored", prompt.id));
             }
         }
         self.rebuild_queued_panel();
@@ -982,7 +1117,8 @@ impl MiniApp {
                     return;
                 }
                 None => {
-                    self.footer.show_notice(format!("unknown command: /{typed}"));
+                    self.footer
+                        .show_notice(format!("unknown command: /{typed}"));
                     self.dirty = true;
                     return;
                 }
@@ -996,7 +1132,7 @@ impl MiniApp {
         self.enqueue_or_spawn(sanitized);
     }
 
-    /// Serial turn policy (D9): submit while a turn is active joins the
+    /// Serial turn policy: submit while a turn is active joins the
     /// queue; otherwise it starts the next turn immediately.
     fn enqueue_or_spawn(&mut self, text: String) {
         if self.footer.state.phase == Phase::Streaming {
@@ -1010,7 +1146,7 @@ impl MiniApp {
         }
     }
 
-    /// Start one turn: spawn the domain stream and switch the footer to
+    /// Start one agent turn: spawn the domain stream and switch the footer to
     /// the streaming phase.
     fn spawn_turn(&mut self, prompt: String) {
         self.footer.state.phase = Phase::Streaming;
@@ -1020,51 +1156,31 @@ impl MiniApp {
         self.footer.state.execution_id = Some(execution_id.clone());
         self.reducer = SessionReducer::new(execution_id.clone());
         let tx = self.session_tx.clone();
-        let model = self
-            .model
-            .clone()
-            .unwrap_or_else(|| DEFAULT_MODEL.to_string());
-        let agent = self
-            .agent
-            .clone()
-            .unwrap_or_else(|| DEFAULT_AGENT.to_string());
-        let sanitized_prompt = crate::sanitize::sanitize_user_text(&prompt);
-        let params = RunAgentLoopParams {
-            agent_loop_id: Some(Id::from(execution_id.clone())),
-            approval_handler: Some(Arc::new(MiniApprovalHandler::new(tx.clone()))),
-            config: AgentLoopConfig {
-                agent_id: Id::from(agent),
-                model,
-                max_iterations: Some(DEFAULT_MAX_ITERATIONS),
-                max_execution_time: None,
-                hooks: Vec::new(),
-                available_tool_names: Vec::new(),
-                initial_tool_names: Vec::new(),
-                discoverable_tool_names: Vec::new(),
-                enable_general_tool: None,
-                activated_tool_names: Vec::new(),
-                hidden_tool_names: Vec::new(),
-                tool_call_format: None,
-                token_limit: None,
-                token_warning_threshold: None,
-                enable_token_tracking: None,
-                general_description: None,
-                discoverable_metadata_block: None,
-            },
-            input: AgentLoopInput {
-                message: sanitized_prompt,
-                context: std::collections::HashMap::new(),
-                conversation: Vec::new(),
+        let turn_params = crate::turn::TurnParams {
+            agent: self.agent.clone(),
+            model: self.model.clone(),
+            approve_prefixes: Vec::new(),
+            kind: crate::turn::TurnKind::Agent {
+                prompt: prompt.clone(),
             },
         };
+        let run_params = crate::turn::build_agent_loop_params(
+            &turn_params,
+            Some(Arc::new(MiniApprovalHandler::new(tx.clone()))),
+        );
+        // Override the generated id to keep footer and reducer consistent.
+        let mut run_params = run_params;
+        run_params.agent_loop_id = Some(Id::from(execution_id.clone()));
         let task = tokio::spawn(async move {
             let ctx = adapter.api_context();
-            match agent_execution::stream(ctx, params).await {
+            match agent_execution::stream(ctx, run_params).await {
                 Ok(mut stream) => {
                     while let Some(event) = stream.next().await {
                         let terminal = matches!(
                             event,
                             ExecutionStreamEvent::Completed { .. }
+                                | ExecutionStreamEvent::Failed { .. }
+                                | ExecutionStreamEvent::Interrupted { .. }
                         );
                         if tx.send(MiniSessionEvent::TurnEvent(event)).is_err() {
                             break;
@@ -1075,11 +1191,48 @@ impl MiniApp {
                     }
                 }
                 Err(err) => {
+                    let _ = tx.send(MiniSessionEvent::TurnEvent(ExecutionStreamEvent::Failed {
+                        error: err.to_string(),
+                    }));
+                }
+            }
+        });
+        self.turn_task = Some(task);
+        self.dirty = true;
+    }
+
+    /// Start one workflow turn: execute the workflow to completion and
+    /// synthesize a terminal stream event for the unified renderer.
+    fn spawn_workflow_turn(&mut self, workflow_id: String, input: Option<serde_json::Value>) {
+        self.footer.state.phase = Phase::Streaming;
+        self.turn_started_at = Some(Instant::now());
+        // Workflow execution id is allocated by the engine; use a provisional
+        // id until the engine reports the real one.
+        let provisional = wf_common::generate_id();
+        self.footer.state.execution_id = Some(provisional.clone());
+        self.reducer = SessionReducer::new(provisional.clone());
+        let adapter = self.adapter.clone();
+        let tx = self.session_tx.clone();
+        let task = tokio::spawn(async move {
+            let ctx = adapter.api_context();
+            let params = wf_api::workflow::workflow_execution::ExecuteWorkflowParams {
+                workflow_id: workflow_id.clone(),
+                input,
+                options: None,
+            };
+            match wf_api::workflow::workflow_execution::execute(ctx, params).await {
+                Ok(output) => {
                     let _ = tx.send(MiniSessionEvent::TurnEvent(
-                        ExecutionStreamEvent::Failed {
-                            error: err.to_string(),
+                        ExecutionStreamEvent::Completed {
+                            result: output.result,
+                            iterations: 1,
                         },
                     ));
+                }
+                Err(err) => {
+                    let _ = tx.send(MiniSessionEvent::TurnEvent(ExecutionStreamEvent::Failed {
+                        error: err.to_string(),
+                    }));
                 }
             }
         });
@@ -1126,7 +1279,7 @@ impl MiniApp {
 
     /// Apply one execution stream event: the reducer drives the footer
     /// state while the markdown pipeline owns assistant text (the same
-    /// split as the headless renderer — contract 2.3-2).
+    /// split as the headless renderer).
     fn handle_turn_event(&mut self, event: ExecutionStreamEvent) {
         // The reducer's AssistantText commits are intentionally not
         // rendered: text flows through `MarkdownStream` below so streaming
@@ -1141,13 +1294,17 @@ impl MiniApp {
                 return;
             }
             ExecutionStreamEvent::Completed { iterations, .. } => {
-                self.finish_turn(TurnEnd::Completed { iterations: *iterations });
+                self.finish_turn(TurnEnd::Completed {
+                    iterations: *iterations,
+                });
                 self.dirty = true;
                 return;
             }
             ExecutionStreamEvent::Failed { error } => {
-                self.pending_scroll
-                    .push(HistoryLine::new_role(format!("✗ failed: {error}"), Role::Error));
+                self.pending_scroll.push(HistoryLine::new_role(
+                    format!("✗ failed: {error}"),
+                    Role::Error,
+                ));
                 self.finish_turn(TurnEnd::Completed { iterations: 0 });
                 self.dirty = true;
                 return;
@@ -1193,10 +1350,8 @@ impl MiniApp {
                 self.flush_stream_tail();
                 self.tool_started_at
                     .insert(tool_call_id.clone(), Instant::now());
-                self.pending_scroll.push(HistoryLine::new_role(
-                    format!("▲ {tool_name}"),
-                    Role::Muted,
-                ));
+                self.pending_scroll
+                    .push(HistoryLine::new_role(format!("▲ {tool_name}"), Role::Muted));
             }
             ExecutionStreamEvent::ToolEnd {
                 tool_call_id,
@@ -1231,8 +1386,8 @@ impl MiniApp {
 
     /// Settle the markdown streaming tail (iteration / terminal boundary).
     /// Everything past the scrollback cover lands in the scrollback exactly
-    /// once; the finalize frame itself only carries undelivered bytes
-    /// (delta contract) and is folded into the same settle.
+    /// once; the finalize frame itself only carries undelivered bytes and is
+    /// folded into the same settle.
     fn flush_stream_tail(&mut self) {
         let rest = self
             .stream
@@ -1248,7 +1403,7 @@ impl MiniApp {
     }
 
     /// Close the active turn: append the turn summary, reset the phase and
-    /// drain the queue (D9 serial turns).
+    /// drain the queue for serial processing.
     fn finish_turn(&mut self, end: TurnEnd) {
         self.flush_stream_tail();
         self.turn_task = None;
@@ -1266,7 +1421,10 @@ impl MiniApp {
             .unwrap_or_else(|| "session".to_string());
         let summary = match end {
             TurnEnd::Completed { iterations } => {
-                format!("▣ {exec} · {iterations} iterations · {}", format_duration_short(duration_ms))
+                format!(
+                    "▣ {exec} · {iterations} iterations · {}",
+                    format_duration_short(duration_ms)
+                )
             }
         };
         self.pending_scroll
@@ -1276,10 +1434,8 @@ impl MiniApp {
         // Drain the queue: the next queued prompt starts immediately.
         if let Some(next) = self.queue.pop() {
             let text = next.text;
-            self.pending_scroll.push(HistoryLine::new_role(
-                format!("> {text}"),
-                Role::Accent,
-            ));
+            self.pending_scroll
+                .push(HistoryLine::new_role(format!("> {text}"), Role::Accent));
             let _ = self.settle_scrollback();
             self.spawn_turn(text);
         }
@@ -1293,6 +1449,9 @@ impl MiniApp {
             CommandId::Skill => self.open_skill_panel(),
             CommandId::Queued => self.open_queued_panel(),
             CommandId::Editor => self.open_editor(),
+            CommandId::Workflows => futures::executor::block_on(self.open_workflow_panel()),
+            CommandId::Resume => futures::executor::block_on(self.resume_latest_session()),
+            CommandId::Executions => futures::executor::block_on(self.open_executions_panel()),
             CommandId::Quit => {
                 self.user_stopped = true;
                 self.exit = true;
@@ -1302,7 +1461,7 @@ impl MiniApp {
     }
 
     /// `/new`: start a fresh session — snapshot and restore the composer
-    /// draft and queue (D20), clear the approval memory and reset the
+    /// draft and queue, clear the approval memory and reset the
     /// footer session state.
     fn new_session(&mut self) {
         let draft = self.footer.composer.content().to_string();
@@ -1312,7 +1471,8 @@ impl MiniApp {
         self.remembered.clear();
         self.footer.state.execution_id = None;
         self.footer.state.phase = Phase::Idle;
-        self.footer.show_notice("new session (draft and queue preserved)");
+        self.footer
+            .show_notice("new session (draft and queue preserved)");
         // Restore the snapshot: a session switch must not lose input.
         if let Some((draft, queued)) = self.snapshot.take() {
             self.footer.composer.set_text(draft);
@@ -1371,6 +1531,73 @@ impl MiniApp {
         self.dirty = true;
     }
 
+    /// Scan the skill directory for new skills and refresh the panel.
+    fn scan_skills(&mut self) {
+        if !matches!(self.footer.panel, Some(PanelState::Skill(_))) {
+            return;
+        }
+        let ctx = self.adapter.api_context();
+        let dir = std::env::current_dir()
+            .map(|p| p.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        match wf_api::entity::skill::scan_skills(ctx, &dir) {
+            Ok(skills) => {
+                self.footer.panel = Some(PanelState::Skill(SkillPanel::new(&skills)));
+                self.footer
+                    .show_notice(format!("scanned {} skills", skills.len()));
+            }
+            Err(err) => {
+                self.footer
+                    .show_notice(format!("scan failed: {err}"));
+            }
+        }
+        self.dirty = true;
+    }
+
+    /// Reload skills (clear cache + rescan) and refresh the panel.
+    fn reload_skills(&mut self) {
+        if !matches!(self.footer.panel, Some(PanelState::Skill(_))) {
+            return;
+        }
+        let ctx = self.adapter.api_context();
+        let dir = std::env::current_dir()
+            .map(|p| p.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        match wf_api::entity::skill::reload(ctx, &dir) {
+            Ok(skills) => {
+                self.footer.panel = Some(PanelState::Skill(SkillPanel::new(&skills)));
+                self.footer
+                    .show_notice(format!("reloaded {} skills", skills.len()));
+            }
+            Err(err) => {
+                self.footer
+                    .show_notice(format!("reload failed: {err}"));
+            }
+        }
+        self.dirty = true;
+    }
+
+    /// Clear the skill content/resource cache and refresh the panel.
+    fn clear_skill_cache(&mut self) {
+        if !matches!(self.footer.panel, Some(PanelState::Skill(_))) {
+            return;
+        }
+        let ctx = self.adapter.api_context();
+        match wf_api::entity::skill::clear_cache(ctx) {
+            Ok(()) => {
+                // Re-list skills after cache clear.
+                let skills = wf_api::entity::skill::list_skills(ctx).unwrap_or_default();
+                self.footer.panel = Some(PanelState::Skill(SkillPanel::new(&skills)));
+                self.footer.show_notice("skill cache cleared");
+            }
+            Err(err) => {
+                self.footer
+                    .show_notice(format!("cache clear failed: {err}"));
+            }
+        }
+        self.dirty = true;
+    }
+
     /// Open the queued prompt panel.
     fn open_queued_panel(&mut self) {
         if self.queue.is_empty() {
@@ -1384,13 +1611,185 @@ impl MiniApp {
         self.dirty = true;
     }
 
+    /// Open the workflow panel (best-effort workflow enumeration).
+    async fn open_workflow_panel(&mut self) {
+        let workflows = match wf_api::workflow::search_workflows(
+            self.adapter.api_context(),
+            &wf_api::workflow::search::WorkflowSearchOptions::default(),
+        )
+        .await
+        {
+            Ok(list) => list,
+            Err(err) => {
+                self.footer
+                    .show_notice(format!("workflow list unavailable: {err}"));
+                self.dirty = true;
+                return;
+            }
+        };
+        if workflows.is_empty() {
+            self.footer.show_notice("no workflows found");
+            self.dirty = true;
+            return;
+        }
+        self.footer.panel = Some(PanelState::Workflow(WorkflowPanel::new(&workflows)));
+        self.footer.set_route(FooterRoute::Workflow);
+        self.dirty = true;
+    }
+
+    /// Check if the composer has an active `@` mention query and open
+    /// the mention panel when needed.
+    fn try_open_mention_panel(&mut self) {
+        if self.footer.route != FooterRoute::Composer {
+            return;
+        }
+        let Some(query) = self.footer.composer.mention_query() else {
+            return;
+        };
+        // Don't re-open if the mention panel is already open with the same query.
+        if self.footer.route == FooterRoute::Mention {
+            return;
+        }
+        let _ = query; // query is used in open_mention_panel for filtering
+        futures::executor::block_on(self.open_mention_panel());
+    }
+
+    /// Open the `@` mention panel: scan files, list skills and workflows,
+    /// then present them in a grouped filterable list.
+    async fn open_mention_panel(&mut self) {
+        let query = self.footer.composer.mention_query();
+        let query_str = query.unwrap_or_default().to_string();
+
+        // Collect files (best-effort, fast).
+        let project_root = std::env::current_dir().unwrap_or_default();
+        let files = crate::mention::scan_files_with_limit(
+            &project_root,
+            if query_str.is_empty() {
+                None
+            } else {
+                Some(query_str.as_str())
+            },
+            200,
+        );
+
+        // Collect skills (best-effort).
+        let skills = wf_api::entity::skill::list_skills(self.adapter.api_context())
+            .unwrap_or_default();
+
+        // Collect workflows (best-effort).
+        let workflows = wf_api::workflow::search_workflows(
+            self.adapter.api_context(),
+            &wf_api::workflow::search::WorkflowSearchOptions::default(),
+        )
+        .await
+        .unwrap_or_default();
+
+        if files.is_empty() && skills.is_empty() && workflows.is_empty() {
+            self.footer.show_notice("no mentions found");
+            self.dirty = true;
+            return;
+        }
+
+        let filter = if query_str.is_empty() {
+            None
+        } else {
+            Some(query_str.as_str())
+        };
+        self.footer.panel = Some(PanelState::Mention(MentionPanel::new(
+            &files, &skills, &workflows, filter,
+        )));
+        self.footer.set_route(FooterRoute::Mention);
+        self.dirty = true;
+    }
+
+    /// Resume the most recent session via replay.
+    async fn resume_latest_session(&mut self) {
+        match crate::replay::latest_session_id(self.adapter.api_context()).await {
+            Ok(Some(id)) => {
+                match crate::replay::replay_scrollack(self.adapter.api_context(), &id).await {
+                    Ok(lines) => {
+                        self.pending_scroll.extend(lines);
+                        let _ = self.settle_scrollback();
+                        self.footer.state.execution_id = Some(id.clone());
+                        self.footer.show_notice(format!("resumed session {id}"));
+                    }
+                    Err(err) => {
+                        self.footer
+                            .show_notice(format!("resume failed for {id}: {err}"));
+                    }
+                }
+            }
+            Ok(None) => {
+                self.footer.show_notice("no previous session to resume");
+            }
+            Err(err) => {
+                self.footer.show_notice(format!("resume failed: {err}"));
+            }
+        }
+        self.dirty = true;
+    }
+
+    /// Open the executions panel (recent agent loop summaries).
+    async fn open_executions_panel(&mut self) {
+        let ctx = self.adapter.api_context();
+
+        // Fetch agent loop summaries (best-effort).
+        let agent_summaries =
+            wf_api::agent::agent_loop_registry::summaries(ctx, None)
+                .await
+                .unwrap_or_default();
+
+        // Fetch workflow execution summaries (best-effort).
+        let wf_executions =
+            wf_api::workflow::execution::list_executions(ctx, None)
+                .await
+                .unwrap_or_default();
+
+        if agent_summaries.is_empty() && wf_executions.is_empty() {
+            self.footer.show_notice("no executions found");
+            self.dirty = true;
+            return;
+        }
+
+        // Render agent loop entries.
+        for summary in agent_summaries.iter().take(15) {
+            self.pending_scroll.push(HistoryLine::new_role(
+                format!(
+                    "[agent] {} · {} · iter {}",
+                    summary.id,
+                    summary.status.as_str(),
+                    summary.current_iteration
+                ),
+                Role::Muted,
+            ));
+        }
+        // Render workflow execution entries.
+        for wf in wf_executions.iter().take(15) {
+            self.pending_scroll.push(HistoryLine::new_role(
+                format!(
+                    "[workflow] {} · wf:{} · {}",
+                    wf.id,
+                    wf.workflow_id,
+                    format!("{:?}", wf.status).to_lowercase()
+                ),
+                Role::Muted,
+            ));
+        }
+        let _ = self.settle_scrollback();
+        let total = agent_summaries.len() + wf_executions.len();
+        self.footer
+            .show_notice(format!("{total} executions listed"));
+        self.dirty = true;
+    }
+
     /// `/editor`: edit the composer draft in `$EDITOR` inside a restored
     /// terminal window, then reload it into the composer.
     fn open_editor(&mut self) {
         let path = std::env::temp_dir().join(format!("wf-mini-draft-{}.md", std::process::id()));
         let draft = self.footer.composer.content().to_string();
         if let Err(err) = std::fs::write(&path, draft) {
-            self.footer.show_notice(format!("editor draft write failed: {err}"));
+            self.footer
+                .show_notice(format!("editor draft write failed: {err}"));
             self.dirty = true;
             return;
         }
@@ -1411,7 +1810,8 @@ impl MiniApp {
                     self.footer.show_notice("draft updated from editor");
                 }
                 Err(err) => {
-                    self.footer.show_notice(format!("editor draft read failed: {err}"));
+                    self.footer
+                        .show_notice(format!("editor draft read failed: {err}"));
                 }
             },
             _ => {
@@ -1451,7 +1851,7 @@ impl MiniApp {
         }
     }
 
-    /// Abort the active turn (D17: deliberate stop, not a failure).
+    /// Abort the active turn (deliberate stop, not a failure).
     fn interrupt_turn(&mut self) {
         if let Some(task) = self.turn_task.take() {
             task.abort();

@@ -49,6 +49,21 @@ pub struct Cli {
     /// Resume the most recent session in an interactive form.
     #[arg(long)]
     pub resume: bool,
+    /// Storage backend spec: `memory` or `sqlite:<path>`.
+    #[arg(long, global = true)]
+    pub storage: Option<String>,
+    /// Log level: `trace`, `debug`, `info`, `warn`, `error`.
+    #[arg(long = "log-level", global = true)]
+    pub log_level: Option<String>,
+    /// Project root for file-layer config (`configs/infrastructure`).
+    #[arg(long, global = true)]
+    pub config: Option<PathBuf>,
+    /// Execution timeout in milliseconds.
+    #[arg(long, global = true)]
+    pub timeout: Option<u64>,
+    /// Tool approval mode: `auto`, `llm`, `manual`.
+    #[arg(long, global = true)]
+    pub approval: Option<String>,
     /// Subcommand; absent selects an interactive form.
     #[command(subcommand)]
     pub command: Option<Command>,
@@ -98,7 +113,89 @@ impl Cli {
                     .to_string(),
             );
         }
+        if let Some(storage) = &self.storage {
+            Self::validate_storage(storage)?;
+        }
+        if let Some(level) = &self.log_level {
+            Self::validate_log_level(level)?;
+        }
+        if let Some(approval) = &self.approval {
+            Self::validate_approval(approval)?;
+        }
+        if let Some(timeout) = self.timeout {
+            if timeout == 0 {
+                return Err("--timeout must be greater than 0".to_string());
+            }
+        }
+        if (self.session.is_some() || self.resume) && Self::storage_is_memory(&self.storage) {
+            return Err(
+                "--session/--resume requires --storage sqlite:<path> (memory storage cannot persist sessions)"
+                    .to_string(),
+            );
+        }
+        if let Some(Command::Run {
+            workflow,
+            input,
+            prompt,
+            ..
+        }) = &self.command
+        {
+            if input.is_some() && workflow.is_none() {
+                return Err("--input requires --workflow".to_string());
+            }
+            if workflow.is_some() && prompt.is_some() {
+                return Err(
+                    "positional prompt cannot be combined with --workflow; use --input for workflow input"
+                        .to_string(),
+                );
+            }
+            if let Some(input_str) = input {
+                if serde_json::from_str::<serde_json::Value>(input_str).is_err() {
+                    return Err(format!("invalid --input JSON: {input_str}"));
+                }
+            }
+        }
         Ok(())
+    }
+
+    fn storage_is_memory(storage: &Option<String>) -> bool {
+        match storage.as_deref() {
+            None => true,
+            Some("memory") => true,
+            Some(s) if s.starts_with("sqlite:") => false,
+            Some("sqlite") => false,
+            _ => true,
+        }
+    }
+
+    fn validate_storage(spec: &str) -> Result<(), String> {
+        if spec == "memory" || spec == "sqlite" || spec.starts_with("sqlite:") {
+            Ok(())
+        } else {
+            Err(format!(
+                "invalid --storage '{spec}': expected 'memory' or 'sqlite:<path>'"
+            ))
+        }
+    }
+
+    fn validate_log_level(level: &str) -> Result<(), String> {
+        let lower = level.to_ascii_lowercase();
+        match lower.as_str() {
+            "trace" | "debug" | "info" | "warn" | "warning" | "error" => Ok(()),
+            _ => Err(format!(
+                "invalid --log-level '{level}': expected trace|debug|info|warn|error"
+            )),
+        }
+    }
+
+    fn validate_approval(mode: &str) -> Result<(), String> {
+        let lower = mode.to_ascii_lowercase();
+        match lower.as_str() {
+            "auto" | "llm" | "manual" => Ok(()),
+            _ => Err(format!(
+                "invalid --approval '{mode}': expected auto|llm|manual"
+            )),
+        }
     }
 }
 
@@ -123,6 +220,12 @@ pub enum Command {
         /// prefix (repeatable, e.g. --approve-prefix git).
         #[arg(long = "approve-prefix", value_name = "PREFIX")]
         approve_prefixes: Vec<String>,
+        /// Workflow id to execute instead of an agent turn.
+        #[arg(long)]
+        workflow: Option<String>,
+        /// Workflow input as JSON (requires --workflow).
+        #[arg(long)]
+        input: Option<String>,
     },
     /// Print resolved CLI mode / output routing (diagnostics).
     DebugMode,
@@ -155,6 +258,7 @@ mod tests {
             agent,
             model,
             approve_prefixes,
+            ..
         }) = cli.command
         else {
             panic!("expected run command");
@@ -306,5 +410,103 @@ mod tests {
         // Top-level interactive options stay untouched.
         assert!(cli.agent.is_none());
         assert!(cli.model.is_none());
+    }
+
+    #[test]
+    fn session_requires_sqlite_storage() {
+        let cli = parse(&["--mini", "--session", "abc"]).unwrap();
+        let err = cli.validate().unwrap_err();
+        assert!(err.contains("requires --storage sqlite"), "{err}");
+
+        let cli = parse(&["--mini", "--resume"]).unwrap();
+        let err = cli.validate().unwrap_err();
+        assert!(err.contains("requires --storage sqlite"), "{err}");
+
+        let cli = parse(&[
+            "--mini",
+            "--session",
+            "abc",
+            "--storage",
+            "sqlite:/tmp/wf.db",
+        ])
+        .unwrap();
+        assert!(cli.validate().is_ok());
+
+        let cli = parse(&["--mini", "--resume", "--storage", "sqlite:/tmp/wf.db"]).unwrap();
+        assert!(cli.validate().is_ok());
+
+        let cli = parse(&["--mini", "--session", "abc", "--storage", "memory"]).unwrap();
+        assert!(cli.validate().is_err());
+    }
+
+    #[test]
+    fn storage_flag_parses_and_validates() {
+        let cli = parse(&["--storage", "memory"]).unwrap();
+        assert!(cli.validate().is_ok());
+        let cli = parse(&["--storage", "sqlite:/tmp/a.db"]).unwrap();
+        assert!(cli.validate().is_ok());
+        let cli = parse(&["--storage", "postgres://bad"]).unwrap();
+        assert!(cli.validate().is_err());
+    }
+
+    #[test]
+    fn log_level_and_approval_flags_validate() {
+        for lvl in ["trace", "debug", "info", "warn", "error", "warning"] {
+            let cli = parse(&["--log-level", lvl]).unwrap();
+            assert!(cli.validate().is_ok(), "{lvl}");
+        }
+        let cli = parse(&["--log-level", "verbose"]).unwrap();
+        assert!(cli.validate().is_err());
+
+        for mode in ["auto", "llm", "manual", "AUTO"] {
+            let cli = parse(&["--approval", mode]).unwrap();
+            assert!(cli.validate().is_ok(), "{mode}");
+        }
+        let cli = parse(&["--approval", "strict"]).unwrap();
+        assert!(cli.validate().is_err());
+    }
+
+    #[test]
+    fn timeout_and_config_flags_parse() {
+        let cli = parse(&["--timeout", "5000"]).unwrap();
+        assert_eq!(cli.timeout, Some(5000));
+        assert!(cli.validate().is_ok());
+        let cli = parse(&["--timeout", "0"]).unwrap();
+        assert!(cli.validate().is_err());
+
+        let cli = parse(&["--config", "/tmp/cfg"]).unwrap();
+        assert_eq!(
+            cli.config
+                .as_deref()
+                .map(|p| p.to_string_lossy().to_string()),
+            Some("/tmp/cfg".into())
+        );
+        assert!(cli.validate().is_ok());
+    }
+
+    #[test]
+    fn workflow_flags_parse_and_validate() {
+        let cli = parse(&["run", "--workflow", "wf-1"]).unwrap();
+        let Some(Command::Run {
+            workflow, input, ..
+        }) = &cli.command
+        else {
+            panic!("expected run");
+        };
+        assert_eq!(workflow.as_deref(), Some("wf-1"));
+        assert!(input.is_none());
+        assert!(cli.validate().is_ok());
+
+        let cli = parse(&["run", "--workflow", "wf-1", "--input", r#"{"a":1}"#]).unwrap();
+        assert!(cli.validate().is_ok());
+
+        let cli = parse(&["run", "--input", r#"{"a":1}"#]).unwrap();
+        assert!(cli.validate().is_err());
+
+        let cli = parse(&["run", "prompt", "--workflow", "wf-1"]).unwrap();
+        assert!(cli.validate().is_err());
+
+        let cli = parse(&["run", "--workflow", "wf-1", "--input", "bad-json"]).unwrap();
+        assert!(cli.validate().is_err());
     }
 }

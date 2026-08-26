@@ -11,12 +11,15 @@
 //! ratatui [`Buffer`] with a caller-provided style.
 
 use std::collections::VecDeque;
+use std::ops::Range;
 
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
+
+use crate::mention::{parse_mentions, Mention, MentionKind};
 
 /// Bound of the prompt history ring.
 pub const HISTORY_LIMIT: usize = 100;
@@ -219,7 +222,42 @@ impl Composer {
         before.saturating_sub(self.scroll_x)
     }
 
+    /// All mention intervals in the current buffer, as byte ranges.
+    pub fn mention_ranges(&self) -> Vec<(Range<usize>, MentionKind)> {
+        parse_mentions(&self.buf)
+            .into_iter()
+            .map(|m| (m.range, m.kind))
+            .collect()
+    }
+
+    /// Parsed mentions in the current buffer.
+    pub fn mentions(&self) -> Vec<Mention> {
+        parse_mentions(&self.buf)
+    }
+
+    /// Query for the mention under the cursor, if any (text after `@` up to
+    /// cursor). Used to drive the `@` filter popup.
+    pub fn mention_query(&self) -> Option<String> {
+        crate::mention::mention_query_at_cursor(&self.buf, self.cursor)
+    }
+
+    /// Replace the mention query at the cursor with `candidate` (inserted as
+    /// `@candidate ` with a trailing space).
+    pub fn apply_mention_completion(&mut self, candidate: &str) {
+        if self.mention_query().is_none() {
+            return;
+        }
+        let cursor = self.cursor;
+        let at_pos = self.buf[..cursor].rfind('@').unwrap_or(cursor);
+        let insert = format!("@{candidate} ");
+        self.buf.replace_range(at_pos..cursor, &insert);
+        self.cursor = at_pos + insert.len();
+        self.scroll_x = 0;
+    }
+
     /// Render the single line into `area`, applying the horizontal scroll.
+    /// Mention intervals are highlighted with a reversed style so `@file`
+    /// ranges are visually distinct from plain text.
     pub fn render(&mut self, area: Rect, buf: &mut Buffer, style: Style) {
         let width = area.width.max(1);
         buf.set_string(area.x, area.y, " ".repeat(width.into()), Style::default());
@@ -229,19 +267,31 @@ impl Composer {
             return;
         }
         self.update_scroll(width);
+        let mention_ranges = self.mention_ranges();
         let mut col = 0u16;
         let mut skip = self.scroll_x;
+        let mut byte_offset = 0usize;
         for grapheme in self.buf.graphemes(true) {
             let w = grapheme.width() as u16;
+            let in_mention = mention_ranges
+                .iter()
+                .any(|(r, _)| byte_offset >= r.start && byte_offset < r.end);
+            let g_style = if in_mention {
+                style.add_modifier(Modifier::REVERSED)
+            } else {
+                style
+            };
             if skip > 0 {
                 skip = skip.saturating_sub(w);
+                byte_offset += grapheme.len();
                 continue;
             }
             if col + w > width {
                 break;
             }
-            buf.set_string(area.x + col, area.y, grapheme, style);
+            buf.set_string(area.x + col, area.y, grapheme, g_style);
             col += w;
+            byte_offset += grapheme.len();
         }
     }
 

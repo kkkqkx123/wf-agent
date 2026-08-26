@@ -7,7 +7,7 @@
 //! and the handler awaits the user's key press (bounded by
 //! [`APPROVAL_TIMEOUT`]). This is the interactive counterpart of the
 //! headless deny policy in `run.rs` — the two forms register their own
-//! handlers and never mix (05 §3.4: interactive form must confirm).
+//! handlers and never mix; the interactive form must confirm.
 //!
 //! [`ApprovalView`] is the pure view/state machine: it renders the tool
 //! name, an arguments preview and the key hints, and maps a keymap action
@@ -110,8 +110,7 @@ impl ToolApprovalHandler for MiniApprovalHandler {
     }
 }
 
-/// The approval decision attached to each key (y/a/d/n/c — the codex
-/// alignment from 05 §3.4).
+/// The approval decision attached to each key (y/a/d/n/c).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ApprovalChoice {
     /// Allow this call only (y).
@@ -174,15 +173,14 @@ impl ApprovalView {
 
     /// Compact single-line arguments preview (pretty JSON truncated).
     pub fn arguments_preview(&self, width: usize) -> String {
-        let pretty = serde_json::to_string(&self.request.arguments)
-            .unwrap_or_else(|_| "{}".to_string());
+        let pretty =
+            serde_json::to_string(&self.request.arguments).unwrap_or_else(|_| "{}".to_string());
         truncate_graphemes(&pretty, width)
     }
 
     /// Key hints line.
     pub fn hints(&self) -> String {
-        "y allow once · a allow session · d deny once · n deny session · c cancel"
-            .to_string()
+        "y allow once · a allow session · d deny once · n deny session · c cancel".to_string()
     }
 
     /// Apply a choice to the pending request.

@@ -414,13 +414,20 @@ mod tests {
         let ws_a = staged_partition_id_for("/ws/a");
         let ws_b = staged_partition_id_for("/ws/b");
         assert_ne!(ws_a, ws_b, "distinct workspace keys derive distinct ids");
-        assert_ne!(ws_a, legacy, "derived id must not collide with the legacy id");
+        assert_ne!(
+            ws_a, legacy,
+            "derived id must not collide with the legacy id"
+        );
         assert_eq!(
             staged_partition_id_for("/ws/a"),
             ws_a,
             "derivation is deterministic for a given key"
         );
-        assert_eq!(staged_pid(None), legacy, "no key falls back to the legacy id");
+        assert_eq!(
+            staged_pid(None),
+            legacy,
+            "no key falls back to the legacy id"
+        );
         assert_eq!(staged_pid(Some("/ws/a")), ws_a);
     }
 
@@ -433,7 +440,10 @@ mod tests {
         let ws_b = Some("/ws/b");
         let pa = ensure_staged_partition(&storage, initial_id, ws_a).unwrap();
         let pb = ensure_staged_partition(&storage, initial_id, ws_b).unwrap();
-        assert_ne!(pa.id, pb.id, "workspace-scoped staged partitions stay apart");
+        assert_ne!(
+            pa.id, pb.id,
+            "workspace-scoped staged partitions stay apart"
+        );
         // Idempotent per workspace.
         let pa2 = ensure_staged_partition(&storage, initial_id, ws_a).unwrap();
         assert_eq!(pa.id, pa2.id);

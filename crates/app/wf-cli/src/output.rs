@@ -321,7 +321,7 @@ impl OutputSink for HeadlessFileSink {
 }
 
 /// In-memory sink recording every call for assertions. Lets tests validate
-/// the business output contract without a real terminal.
+/// the business output behavior without a real terminal.
 #[derive(Debug, Default)]
 pub struct MemorySink {
     events: Vec<SinkEvent>,

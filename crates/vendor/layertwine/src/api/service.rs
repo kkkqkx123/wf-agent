@@ -428,9 +428,13 @@ impl ApiService {
                 "edit content is required (provide via -c/--content or pipe via stdin)",
             )
         })?;
-        let snapshot_id =
-            crate::layered::manual::apply_manual_edit(self.storage.as_ref(), &req.file, content, None)
-                .map_err(map_error)?;
+        let snapshot_id = crate::layered::manual::apply_manual_edit(
+            self.storage.as_ref(),
+            &req.file,
+            content,
+            None,
+        )
+        .map_err(map_error)?;
 
         let staged_snapshot_id =
             crate::layered::manual::merge_manual_to_staged(self.storage.as_ref(), None)
@@ -563,9 +567,12 @@ impl ApiService {
         let staged_snapshot_id = if names.is_empty() {
             approve_resp.integrated_snapshot_id.clone()
         } else {
-            let result =
-                crate::layered::staged::merge_features_to_staged(self.storage.as_ref(), &names, None)
-                    .map_err(map_error)?;
+            let result = crate::layered::staged::merge_features_to_staged(
+                self.storage.as_ref(),
+                &names,
+                None,
+            )
+            .map_err(map_error)?;
             snapshot_id_to_hex(&result.snapshot_id)
         };
 
@@ -1379,9 +1386,12 @@ impl ApiService {
                 .map_err(|e| map_error(LayertwineError::Storage(e)))?;
             snapshot_id_to_hex(&staged.current_snapshot)
         } else {
-            let result =
-                crate::layered::staged::merge_features_to_staged(self.storage.as_ref(), &names, None)
-                    .map_err(map_error)?;
+            let result = crate::layered::staged::merge_features_to_staged(
+                self.storage.as_ref(),
+                &names,
+                None,
+            )
+            .map_err(map_error)?;
             snapshot_id_to_hex(&result.snapshot_id)
         };
 

@@ -2,7 +2,7 @@
 
 ## 1. 定位
 
-`crates/wf-api`（约 3.4 万行）是 Rust 迁移的**应用面向 API 门面层**，是已废弃 TypeScript SDK（`packages/sdk-kit/src/**`、`packages/sdk/services/**`）查询/控制 API 的 Rust 对应实现。每个模块的 doc 注释均标注其 TS 对应物。
+`crates/app/wf-api`（约 3.4 万行）是 Rust 迁移的**应用面向 API 门面层**。
 
 - 不含执行引擎：引擎位于 `wf-workflow`（WorkflowCoordinator）、`wf-agent`（AgentLoopCoordinator）、`wf-checkpoint`、`wf-tools`、`wf-script`、`wf-sandbox` 等下层 crate。
 - wf-api 是**函数式 API 层**：模块以自由函数 `async fn(&ApiContext)` 形式暴露，而非 trait/struct 方法。

@@ -97,8 +97,7 @@ pub struct ApiContext {
     /// When enabled with no caller-supplied handler, executions launched
     /// through this context route every tool call through the persisted
     /// interaction flow. `None` keeps the library default (auto-approve).
-    pub tool_approval:
-        Option<wf_types::config::tool_approval::ToolApprovalConfig>,
+    pub tool_approval: Option<wf_types::config::tool_approval::ToolApprovalConfig>,
 }
 
 impl ApiContext {

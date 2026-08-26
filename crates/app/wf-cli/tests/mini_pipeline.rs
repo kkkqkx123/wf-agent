@@ -83,10 +83,9 @@ fn markdown_script_reduces_to_text_and_completion() {
         c,
         MiniCommit::AssistantText { content } if content.contains("demo reply")
     )));
-    assert!(commits.iter().any(|c| matches!(
-        c,
-        MiniCommit::Completed { iterations: 1 }
-    )));
+    assert!(commits
+        .iter()
+        .any(|c| matches!(c, MiniCommit::Completed { iterations: 1 })));
     // After Completed the footer falls back to Idle.
     assert_eq!(reducer.footer().phase, Phase::Idle);
     assert!(reducer.footer().message_count > 0);
@@ -105,10 +104,9 @@ fn tool_script_reduces_tool_lifecycle() {
         MiniCommit::ToolEnd { tool_name, success, .. }
             if tool_name == "list_files" && *success
     )));
-    assert!(commits.iter().any(|c| matches!(
-        c,
-        MiniCommit::Completed { iterations: 2 }
-    )));
+    assert!(commits
+        .iter()
+        .any(|c| matches!(c, MiniCommit::Completed { iterations: 2 })));
 }
 
 #[test]

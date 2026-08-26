@@ -19,9 +19,7 @@
 use serde_json::Value;
 use tokio::sync::mpsc::UnboundedSender;
 
-use wf_api::entity::user_interaction::{
-    AgentUserInteractionEventRecord, UserInteractionHandler,
-};
+use wf_api::entity::user_interaction::{AgentUserInteractionEventRecord, UserInteractionHandler};
 
 use crate::keymap::KeyAction;
 use crate::mini::MiniSessionEvent;
@@ -266,7 +264,11 @@ impl QuestionView {
         lines.push(Line::from(Span::raw(format!("? {}", self.prompt))));
         for (i, option) in self.options.iter().enumerate() {
             let marker = if self.picked.contains(&i) {
-                if self.multi { "[x]" } else { "(x)" }
+                if self.multi {
+                    "[x]"
+                } else {
+                    "(x)"
+                }
             } else if self.multi {
                 "[ ]"
             } else {
@@ -406,10 +408,7 @@ mod tests {
             c.response_value(&QuestionOutcome::Custom("typed".into())),
             json!("typed")
         );
-        assert_eq!(
-            c.response_value(&QuestionOutcome::Cancelled),
-            Value::Null
-        );
+        assert_eq!(c.response_value(&QuestionOutcome::Cancelled), Value::Null);
     }
 
     #[test]

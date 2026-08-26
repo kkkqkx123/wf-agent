@@ -46,9 +46,9 @@ pub use error::CheckpointError;
 pub use error_handling::{CheckpointErrorHandler, ErrorHandlingOutcome};
 pub use event::{CheckpointEvent, CheckpointEventBus};
 pub use file::{
-    FileCheckpoint, FileCheckpointManager, FileCheckpointMetadata,
-    FileCheckpointOptions, FileContentEntry, FileContentStore, FileState,
-    LayertwineFileContentStore, WorkspaceRestoreResult,
+    FileCheckpoint, FileCheckpointManager, FileCheckpointMetadata, FileCheckpointOptions,
+    FileContentEntry, FileContentStore, FileState, LayertwineFileContentStore,
+    WorkspaceRestoreResult,
 };
 pub use file_merge::MergeCommitResult;
 pub use file_util::sha256_hex;

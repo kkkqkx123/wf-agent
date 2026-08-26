@@ -312,24 +312,25 @@ impl SandboxRuntime {
         // enabled `config.vfs` creates the overlay here as before. The value
         // is built before chain resolution so every early return still
         // reports which VFS (if any) would have participated.
-        let vfs = external_vfs.or_else(|| {
-            let vfs_config = resolved_config.vfs.as_ref()?;
-            if !vfs_config.enabled {
-                return None;
-            }
-            let base = vfs_config
-                .workspace_root
-                .as_ref()
-                .map(PathBuf::from)
-                .unwrap_or_else(|| std::env::temp_dir().join("sandbox-vfs"));
-            let path_policy = vfs_config.path_policy.clone().unwrap_or(
-                wf_types::script::sandbox::PathPolicy {
-                    allowed_read: vec![],
-                    allowed_write: vec![],
-                },
-            );
-            Some(Arc::new(OverlayVfs::new(base, path_policy)) as Arc<dyn VfsProvider>)
-        });
+        let vfs =
+            external_vfs.or_else(|| {
+                let vfs_config = resolved_config.vfs.as_ref()?;
+                if !vfs_config.enabled {
+                    return None;
+                }
+                let base = vfs_config
+                    .workspace_root
+                    .as_ref()
+                    .map(PathBuf::from)
+                    .unwrap_or_else(|| std::env::temp_dir().join("sandbox-vfs"));
+                let path_policy = vfs_config.path_policy.clone().unwrap_or(
+                    wf_types::script::sandbox::PathPolicy {
+                        allowed_read: vec![],
+                        allowed_write: vec![],
+                    },
+                );
+                Some(Arc::new(OverlayVfs::new(base, path_policy)) as Arc<dyn VfsProvider>)
+            });
 
         let preferred_ids: Vec<String> = match language {
             "shell" => resolved_config.shell_strategy.clone().unwrap_or_default(),
@@ -360,10 +361,7 @@ impl SandboxRuntime {
                     chain_context,
                     false,
                 );
-                return (
-                    self.failed_result(language, &mode, e, None),
-                    vfs.clone(),
-                );
+                return (self.failed_result(language, &mode, e, None), vfs.clone());
             }
         };
 
@@ -391,10 +389,7 @@ impl SandboxRuntime {
                     None,
                     false,
                 );
-                return (
-                    self.failed_result(language, &mode, e, None),
-                    vfs.clone(),
-                );
+                return (self.failed_result(language, &mode, e, None), vfs.clone());
             }
             let chain_ids: Vec<String> = chain.iter().map(|s| s.id().to_string()).collect();
             let warning = format!(
@@ -448,10 +443,7 @@ impl SandboxRuntime {
                         None,
                         false,
                     );
-                    return (
-                    self.failed_result(language, &mode, e, None),
-                    vfs.clone(),
-                );
+                    return (self.failed_result(language, &mode, e, None), vfs.clone());
                 }
             }
         }

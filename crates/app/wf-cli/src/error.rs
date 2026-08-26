@@ -105,7 +105,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn exit_codes_match_the_documented_contract() {
+    fn exit_codes_match_documented_mapping() {
         assert_eq!(CliError::Arguments("x".into()).exit_code(), 2);
         assert_eq!(CliError::Configuration("x".into()).exit_code(), 3);
         assert_eq!(CliError::Business("x".into()).exit_code(), 1);

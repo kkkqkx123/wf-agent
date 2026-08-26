@@ -2,14 +2,17 @@
 
 pub mod ansi;
 pub mod approval;
+pub mod approval_policy;
 pub mod args;
 pub mod composer;
+pub mod config;
 pub mod domain;
 pub mod error;
 pub mod footer;
 pub mod framer;
 pub mod keymap;
 pub mod markdown;
+pub mod mention;
 pub mod mini;
 pub mod mode;
 pub mod output;
@@ -18,6 +21,7 @@ pub mod question;
 pub mod queue;
 pub mod reducer;
 pub mod render;
+pub mod replay;
 pub mod run;
 pub mod sanitize;
 pub mod scrollback;
@@ -26,6 +30,7 @@ pub mod sink;
 pub mod size;
 pub mod terminal;
 pub mod theme;
+pub mod turn;
 
 pub use ansi::AnsiParser;
 pub use args::{Cli, Command};
@@ -66,7 +71,7 @@ pub async fn run(cli: Cli) -> CliResult<()> {
 
     match resolved.cli_mode {
         CliMode::Run => run_headless(&cli, &resolved, stdout_tty).await,
-        CliMode::Mini | CliMode::Tui => run_interactive(&cli, resolved.cli_mode, stdout_tty).await,
+        CliMode::Mini | CliMode::Tui => run_interactive(&cli, &resolved, stdout_tty).await,
     }
 }
 
@@ -86,7 +91,7 @@ fn build_sink(cli: &Cli, stdout_tty: bool) -> CliResult<Box<dyn OutputSink + Sen
 
 /// Headless single-session form (`wf run` / piped stdin / `--no-tui`).
 ///
-/// Bootstrap the runtime, drive one streaming agent session
+/// Bootstrap the runtime, drive one streaming agent or workflow session
 /// ([`run::run_session`]) with the headless approval degradation, then tear
 /// the runtime down preserving the session outcome.
 async fn run_headless(cli: &Cli, resolved: &ResolvedMode, stdout_tty: bool) -> CliResult<()> {
@@ -96,19 +101,23 @@ async fn run_headless(cli: &Cli, resolved: &ResolvedMode, stdout_tty: bool) -> C
     let sink = build_sink(cli, stdout_tty)?;
     let diag_color = !cli.no_color && std::io::stderr().is_terminal();
 
-    let (arg_prompt, agent, model, approve_prefixes) = match &cli.command {
+    let (arg_prompt, agent, model, approve_prefixes, workflow, input) = match &cli.command {
         Some(Command::Run {
             prompt,
             agent,
             model,
             approve_prefixes,
+            workflow,
+            input,
         }) => (
             prompt.clone(),
             agent.clone(),
             model.clone(),
             approve_prefixes.clone(),
+            workflow.clone(),
+            input.clone(),
         ),
-        _ => (None, None, None, Vec::new()),
+        _ => (None, None, None, Vec::new(), None, None),
     };
     let prompt = resolved
         .stdin_prompt
@@ -121,6 +130,8 @@ async fn run_headless(cli: &Cli, resolved: &ResolvedMode, stdout_tty: bool) -> C
         agent_id: agent,
         model,
         approve_prefixes,
+        workflow,
+        workflow_input: input,
     };
 
     let adapter = DomainAdapter::bootstrap_for_cli(cli, CliMode::Run).await?;
@@ -139,7 +150,8 @@ async fn run_headless(cli: &Cli, resolved: &ResolvedMode, stdout_tty: bool) -> C
 
 /// Interactive forms (mini / full TUI). Mini dispatches to [`MiniApp`]; the
 /// full TUI renderer is not wired yet.
-async fn run_interactive(cli: &Cli, cli_mode: CliMode, stdout_tty: bool) -> CliResult<()> {
+async fn run_interactive(cli: &Cli, resolved: &ResolvedMode, stdout_tty: bool) -> CliResult<()> {
+    let cli_mode = resolved.cli_mode;
     if !stdout_tty {
         return Err(CliError::Arguments(format!(
             "interactive form {:?} requires a TTY (use `wf run` or --no-tui in pipes)",
@@ -152,18 +164,16 @@ async fn run_interactive(cli: &Cli, cli_mode: CliMode, stdout_tty: bool) -> CliR
                 agent: cli.agent.clone(),
                 model: cli.model.clone(),
                 initial_prompt: cli.prompt.clone(),
-                adapter: Arc::new(
-                    DomainAdapter::bootstrap_for_cli(cli, CliMode::Mini).await?,
-                ),
+                session_id: resolved.resume_session.clone(),
+                resume_latest: resolved.resume_latest,
+                storage_spec: cli.storage.clone(),
+                adapter: Arc::new(DomainAdapter::bootstrap_for_cli(cli, CliMode::Mini).await?),
             };
             MiniApp::new(opts)?.run().await
         }
-        CliMode::Tui => {
-            let mut sink = build_sink(cli, stdout_tty)?;
-            sink.write_text("[wf] Tui mode selected; the full renderer is not wired yet")?;
-            sink.flush()?;
-            Ok(())
-        }
+        CliMode::Tui => Err(CliError::Configuration(
+            "full TUI not yet implemented; use --mini".into(),
+        )),
         CliMode::Run => unreachable!("run_interactive called with CliMode::Run"),
     }
 }

@@ -124,11 +124,7 @@ impl FileCheckpointManager {
             return Ok(());
         }
         let branch_name = execution_branch_name("execution", entity_id);
-        if self
-            .branch_adapter
-            .branch_exists(&branch_name)
-            .await?
-        {
+        if self.branch_adapter.branch_exists(&branch_name).await? {
             return Ok(());
         }
         let parent_actor = self.actor_id_for(parent);
@@ -351,8 +347,9 @@ impl FileCheckpointManager {
             layertwine::layered::manual::ensure_manual_partition(storage, seed, ws.as_deref())
                 .map_err(map_layertwine_error)?;
         }
-        let snapshot_id = layertwine::layered::manual::apply_manual_delete(storage, path, ws.as_deref())
-            .map_err(map_layertwine_error)?;
+        let snapshot_id =
+            layertwine::layered::manual::apply_manual_delete(storage, path, ws.as_deref())
+                .map_err(map_layertwine_error)?;
         if let Some(ref bus) = self.event_bus {
             let write_hash = sha256_hex(b"");
             bus.publish(CheckpointEventBus::file_changed_with_summary(
@@ -516,10 +513,16 @@ mod tests {
 
         // No parent (root execution) and self-parent are no-ops.
         manager.ensure_child_branch("solo", None).await.unwrap();
-        manager.ensure_child_branch("same", Some("same")).await.unwrap();
+        manager
+            .ensure_child_branch("same", Some("same"))
+            .await
+            .unwrap();
 
         let branches = manager.branch_adapter.list_branches().await.unwrap();
-        assert!(branches.is_empty(), "no branch may be created: {branches:?}");
+        assert!(
+            branches.is_empty(),
+            "no branch may be created: {branches:?}"
+        );
     }
 
     #[tokio::test]

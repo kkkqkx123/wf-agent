@@ -4,7 +4,7 @@ use dashmap::DashMap;
 use serde_json::Value;
 use wf_common::retry::RetryBudget;
 use wf_core::interruption::{InterruptionSignal, InterruptionState};
-use wf_execution_shared::types::execution_entity::{ExecutionStatus, ExecutionEntity};
+use wf_execution_shared::types::execution_entity::{ExecutionEntity, ExecutionStatus};
 use wf_types::Id;
 
 use crate::state::WorkflowExecutionState;

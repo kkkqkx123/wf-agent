@@ -114,13 +114,19 @@ async fn child_branch_isolation_merge_and_dag_closed_loop() {
     let child_cp = manager
         .create_checkpoint("child", &[entry("a.txt", b"child edit")])
         .unwrap();
-    assert_eq!(manager.branch_head("child").unwrap().as_deref(), Some(child_cp.id.as_str()));
+    assert_eq!(
+        manager.branch_head("child").unwrap().as_deref(),
+        Some(child_cp.id.as_str())
+    );
     assert_eq!(manager.branch_head("parent").unwrap(), None);
 
     // 5. First entity merge: the commit chains onto the child checkpoint.
     let merge1 = manager.merge_entity_changes("child", "main").unwrap();
     assert!(!merge1.merge_result.has_conflicts());
-    assert_eq!(parent_ids(&stored(&storage, &merge1.checkpoint_id)), HashSet::from([child_cp.id.clone()]));
+    assert_eq!(
+        parent_ids(&stored(&storage, &merge1.checkpoint_id)),
+        HashSet::from([child_cp.id.clone()])
+    );
 
     // 6. Feature-head commit for "main", chained onto the merge commit.
     tick();
@@ -203,16 +209,11 @@ async fn child_branch_isolation_merge_and_dag_closed_loop() {
 
     // 10. Second staged join over the next feature: the commit chains onto
     // the previous staged commit and links the new feature head.
-    let staged2 = manager
-        .merge_features_to_staged(&["side"])
-        .unwrap();
+    let staged2 = manager.merge_features_to_staged(&["side"]).unwrap();
     assert!(!staged2.merge_result.has_conflicts());
     assert_eq!(
         parent_ids(&stored(&storage, &staged2.checkpoint_id)),
-        HashSet::from([
-            staged1.checkpoint_id.clone(),
-            side_head.clone(),
-        ]),
+        HashSet::from([staged1.checkpoint_id.clone(), side_head.clone(),]),
         "staged join must record every participant as a parent"
     );
 
@@ -247,7 +248,10 @@ async fn child_branch_isolation_merge_and_dag_closed_loop() {
         .is_empty());
 
     // 12. Branch heads still point at each child's latest checkpoint.
-    assert_eq!(manager.branch_head("child").unwrap().as_deref(), Some(child_cp.id.as_str()));
+    assert_eq!(
+        manager.branch_head("child").unwrap().as_deref(),
+        Some(child_cp.id.as_str())
+    );
 
     // 13. DAG reachability: walking `parents` edges from the final staged
     // merge commit reaches every participant checkpoint.

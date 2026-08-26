@@ -357,10 +357,7 @@ mod tests {
             vfs.exists(Path::new("data/d.txt")).await,
             "a write after delete must resurrect the path"
         );
-        assert_eq!(
-            vfs.read_file(Path::new("data/d.txt")).await.unwrap(),
-            b"D"
-        );
+        assert_eq!(vfs.read_file(Path::new("data/d.txt")).await.unwrap(), b"D");
 
         vfs.flush().await.unwrap();
         let flushed = tokio::fs::read(dir.join("data").join("d.txt")).await;
@@ -374,8 +371,11 @@ mod tests {
         let dir = temp_dir("vfs-test-flush-commit");
         let data_dir = dir.join("data");
         tokio::fs::create_dir_all(&data_dir).await.unwrap();
-        tokio::fs::write(data_dir.join("gone.txt"), b"OLD").await.unwrap();
-        tokio::fs::write(data_dir.join("same.txt"), b"SAME").await
+        tokio::fs::write(data_dir.join("gone.txt"), b"OLD")
+            .await
+            .unwrap();
+        tokio::fs::write(data_dir.join("same.txt"), b"SAME")
+            .await
             .unwrap();
 
         let vfs = OverlayVfs::new(dir.clone(), policy_allowing("data"));

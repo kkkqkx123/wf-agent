@@ -189,7 +189,11 @@ mod tests {
             .create_checkpoint("child-1", &[entry("a.txt", b"edit-1")])
             .unwrap();
         assert_eq!(
-            manager.branch_adapter.get_branch_head(&branch).unwrap().as_deref(),
+            manager
+                .branch_adapter
+                .get_branch_head(&branch)
+                .unwrap()
+                .as_deref(),
             Some(cp1.id.as_str())
         );
 
@@ -199,10 +203,17 @@ mod tests {
             .unwrap();
         assert_ne!(cp1.id, cp2.id);
         assert_eq!(
-            manager.branch_adapter.get_branch_head(&branch).unwrap().as_deref(),
+            manager
+                .branch_adapter
+                .get_branch_head(&branch)
+                .unwrap()
+                .as_deref(),
             Some(cp2.id.as_str())
         );
-        assert_eq!(manager.branch_head("child-1").unwrap().as_deref(), Some(cp2.id.as_str()));
+        assert_eq!(
+            manager.branch_head("child-1").unwrap().as_deref(),
+            Some(cp2.id.as_str())
+        );
     }
 
     #[tokio::test]

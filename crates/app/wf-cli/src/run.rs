@@ -25,43 +25,17 @@ use wf_api::agent::agent_execution::{self, RunAgentLoopParams};
 use wf_api::entity::user_interaction::{
     register_handler, AgentUserInteractionEventRecord, UserInteractionHandler,
 };
-use wf_tools::callback::{AgentLoopConfig, AgentLoopInput};
+use wf_tools::callback::AgentLoopInput;
 use wf_types::Id;
 
+use crate::approval_policy::{ApprovalDecision, ApprovalPolicy};
+#[allow(unused_imports)]
+use crate::approval_policy::{LOW_RISK_TOOLS, SENSITIVE_TOOLS};
+use crate::config::{build_agent_loop_config, DEFAULT_MODEL};
 use crate::domain::DomainAdapter;
 use crate::error::{CliError, CliResult};
 use crate::output::{OutputEnvelope, OutputFormat, OutputMessage, OutputSink};
 use wf_api::infra::stream::ExecutionStreamEvent;
-
-/// Tools that mutate state or execute commands: always denied in headless
-/// runs unless covered by an explicit `--approve-prefix`.
-const SENSITIVE_TOOLS: &[&str] = &[
-    "approve_changes",
-    "write_file",
-    "edit_file",
-    "apply_patch",
-    "apply_diff",
-    "execute_command",
-];
-
-/// Read-only / side-effect-free tools auto-approved in headless runs.
-const LOW_RISK_TOOLS: &[&str] = &[
-    "read_file",
-    "list_files",
-    "grep_search",
-    "glob_search",
-    "update_todo_list",
-    "skill",
-];
-
-/// Argument keys inspected for command pre-authorization prefixes.
-const COMMAND_ARGUMENT_KEYS: &[&str] = &["command", "cmd"];
-
-/// Default LLM profile id when `--model` is absent.
-const DEFAULT_MODEL: &str = "default";
-
-/// Default iteration budget for a headless session.
-const DEFAULT_MAX_ITERATIONS: u32 = 50;
 
 // ── diagnostics channel (stderr) ─────────────────────────────────────
 
@@ -143,79 +117,16 @@ impl DiagWriter {
     }
 }
 
-// ── approval policy (headless degradation) ─────────────────────────
-
-/// Outcome of the headless approval decision.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum ApprovalDecision {
-    Allow { reason: String },
-    Deny { reason: String },
-}
-
-/// Pure headless approval policy: sensitive → deny; `--approve-prefix`
-/// pre-authorization → allow; low-risk allow-list → allow; else deny.
-#[derive(Debug, Clone, Default)]
-pub struct ApprovalPolicy {
-    approve_prefixes: Vec<String>,
-}
-
-impl ApprovalPolicy {
-    pub fn new(approve_prefixes: Vec<String>) -> Self {
-        Self { approve_prefixes }
-    }
-
-    /// Decide whether a tool call may execute in a headless session.
-    ///
-    /// Precedence: an explicit `--approve-prefix` pre-authorization wins
-    /// over everything (it is the user's explicit consent, including for
-    /// sensitive tools); then sensitive tools are denied; then the low-risk
-    /// allow-list; anything else is denied with a hint.
-    pub fn decide(&self, tool_name: &str, arguments: &Value) -> ApprovalDecision {
-        if self.prefix_matches(tool_name, arguments) {
-            return ApprovalDecision::Allow {
-                reason: "pre-authorized by --approve-prefix".to_string(),
-            };
-        }
-        if SENSITIVE_TOOLS.contains(&tool_name) {
-            return ApprovalDecision::Deny {
-                reason: format!(
-                    "sensitive tool '{tool_name}' requires interactive approval; \
-                     denied in headless mode"
-                ),
-            };
-        }
-        if LOW_RISK_TOOLS.contains(&tool_name) {
-            return ApprovalDecision::Allow {
-                reason: "low-risk tool allow-listed for headless runs".to_string(),
-            };
-        }
-        ApprovalDecision::Deny {
-            reason: format!(
-                "tool '{tool_name}' is not on the headless allow-list; \
-                 pass --approve-prefix '{tool_name}' to pre-authorize it"
-            ),
-        }
-    }
-
-    /// A prefix pre-authorizes the tool name itself or the command it runs
-    /// (arguments under `command` / `cmd`).
-    fn prefix_matches(&self, tool_name: &str, arguments: &Value) -> bool {
-        let mut candidates: Vec<&str> = vec![tool_name];
-        for key in COMMAND_ARGUMENT_KEYS {
-            if let Some(command) = arguments.get(*key).and_then(Value::as_str) {
-                candidates.push(command);
-            }
-        }
-        self.approve_prefixes
-            .iter()
-            .any(|prefix| candidates.iter().any(|c| c.starts_with(prefix.as_str())))
-    }
-}
-
 /// Approval handler carrying the headless policy into the agent loop.
-struct HeadlessApprovalHandler {
-    policy: ApprovalPolicy,
-    diag: Arc<Mutex<DiagWriter>>,
+pub(crate) struct HeadlessApprovalHandler {
+    pub(crate) policy: ApprovalPolicy,
+    pub(crate) diag: Arc<Mutex<DiagWriter>>,
+}
+
+impl HeadlessApprovalHandler {
+    pub(crate) fn new(policy: ApprovalPolicy, diag: Arc<Mutex<DiagWriter>>) -> Self {
+        Self { policy, diag }
+    }
 }
 
 #[async_trait::async_trait]
@@ -445,7 +356,7 @@ impl<'a> SessionRenderer<'a> {
 /// Options for one headless session.
 #[derive(Debug, Clone, Default)]
 pub struct RunOptions {
-    /// Initial user message (required, non-empty).
+    /// Initial user message (required, non-empty for agent turns).
     pub prompt: String,
     /// Agent definition id (defaults to `cli`).
     pub agent_id: Option<String>,
@@ -453,6 +364,10 @@ pub struct RunOptions {
     pub model: Option<String>,
     /// Pre-authorization prefixes from `--approve-prefix`.
     pub approve_prefixes: Vec<String>,
+    /// Workflow id to execute instead of an agent turn.
+    pub workflow: Option<String>,
+    /// Workflow input JSON string (requires workflow).
+    pub workflow_input: Option<String>,
 }
 
 /// Outcome of a completed headless session.
@@ -489,6 +404,79 @@ pub async fn run_session(
     opts: RunOptions,
     mut io: RunIo,
 ) -> CliResult<RunOutcome> {
+    // Workflow foreground execution path (engine-neutral stream protocol is
+    // reused for rendering; here we use the blocking `execute` path which
+    // works with `&ApiContext` directly).
+    if let Some(workflow_id) = opts.workflow.clone() {
+        let input = crate::turn::parse_workflow_input(opts.workflow_input.as_deref())
+            .map_err(CliError::Arguments)?;
+        let started = Instant::now();
+        let ctx = adapter.api_context();
+        let params = wf_api::workflow::workflow_execution::ExecuteWorkflowParams {
+            workflow_id: workflow_id.clone(),
+            input,
+            options: None,
+        };
+        // Echo workflow identity through the sink when not silent.
+        if !io.format.is_silent() {
+            io.sink.write_message(&OutputMessage::new(
+                "user",
+                format!("workflow:{workflow_id}"),
+            ))?;
+        }
+        let output = wf_api::workflow::workflow_execution::execute(ctx, params)
+            .await
+            .map_err(CliError::from)?;
+        let execution_id = output.execution_id.to_string();
+        let result = output.result.clone();
+        let had_output = !result.is_null()
+            && result
+                .as_str()
+                .map(|s| !s.trim().is_empty())
+                .unwrap_or(true);
+        // Render the workflow result.
+        if !io.format.is_silent() {
+            match io.format {
+                OutputFormat::Text => {
+                    let text = match &result {
+                        serde_json::Value::String(s) => s.clone(),
+                        other => serde_json::to_string_pretty(other)
+                            .unwrap_or_else(|_| other.to_string()),
+                    };
+                    if !text.is_empty() {
+                        io.sink.write_chunk(&text)?;
+                        if !text.ends_with('\n') {
+                            io.sink.write_chunk("\n")?;
+                        }
+                    }
+                }
+                _ => {
+                    // Structured formats already have envelopes via summary.
+                }
+            }
+        }
+        io.sink.flush()?;
+        let duration_ms = started.elapsed().as_millis() as u64;
+        let iterations = 1u32;
+        write_summary(SummaryParams {
+            sink: io.sink.as_mut(),
+            format: io.format,
+            execution_id: &execution_id,
+            iterations,
+            duration_ms,
+            had_output,
+            opts: &opts,
+            result: Some(&result),
+        })?;
+        io.sink.flush()?;
+        return Ok(RunOutcome {
+            execution_id,
+            iterations,
+            duration_ms,
+            had_output,
+        });
+    }
+
     if opts.prompt.trim().is_empty() {
         return Err(CliError::Arguments(
             "no prompt given: pass a positional argument or pipe stdin".into(),
@@ -515,32 +503,11 @@ pub async fn run_session(
     let sanitized_prompt = crate::sanitize::sanitize_user_text(&opts.prompt);
     let params = RunAgentLoopParams {
         agent_loop_id: Some(Id::from(execution_id.clone())),
-        approval_handler: Some(Arc::new(HeadlessApprovalHandler {
-            policy: ApprovalPolicy::new(opts.approve_prefixes.clone()),
-            diag: io.diag.clone(),
-        })),
-        config: AgentLoopConfig {
-            agent_id: Id::from(opts.agent_id.clone().unwrap_or_else(|| "cli".to_string())),
-            model: opts
-                .model
-                .clone()
-                .unwrap_or_else(|| DEFAULT_MODEL.to_string()),
-            max_iterations: Some(DEFAULT_MAX_ITERATIONS),
-            max_execution_time: None,
-            hooks: Vec::new(),
-            available_tool_names: Vec::new(),
-            initial_tool_names: Vec::new(),
-            discoverable_tool_names: Vec::new(),
-            enable_general_tool: None,
-            activated_tool_names: Vec::new(),
-            hidden_tool_names: Vec::new(),
-            tool_call_format: None,
-            token_limit: None,
-            token_warning_threshold: None,
-            enable_token_tracking: None,
-            general_description: None,
-            discoverable_metadata_block: None,
-        },
+        approval_handler: Some(Arc::new(HeadlessApprovalHandler::new(
+            ApprovalPolicy::new(opts.approve_prefixes.clone()),
+            io.diag.clone(),
+        ))),
+        config: build_agent_loop_config(opts.agent_id.clone(), opts.model.clone()),
         input: AgentLoopInput {
             message: sanitized_prompt,
             context: HashMap::new(),
@@ -598,15 +565,16 @@ pub async fn run_session(
                 ));
             }
             let duration_ms = started.elapsed().as_millis() as u64;
-            write_summary(
-                io.sink.as_mut(),
-                io.format,
-                &execution_id,
+            write_summary(SummaryParams {
+                sink: io.sink.as_mut(),
+                format: io.format,
+                execution_id: &execution_id,
                 iterations,
                 duration_ms,
                 had_output,
-                &opts,
-            )?;
+                opts: &opts,
+                result: None,
+            })?;
             io.sink.flush()?;
             Ok(RunOutcome {
                 execution_id,
@@ -632,55 +600,66 @@ pub async fn run_session(
 }
 
 /// End-of-session summary (text) or terminal envelope (json/jsonl).
-fn write_summary(
-    sink: &mut dyn OutputSink,
+/// Parameters for the summary line / envelope.
+struct SummaryParams<'a> {
+    sink: &'a mut dyn OutputSink,
     format: OutputFormat,
-    execution_id: &str,
+    execution_id: &'a str,
     iterations: u32,
     duration_ms: u64,
     had_output: bool,
-    opts: &RunOptions,
-) -> CliResult<()> {
-    let duration = format_duration(duration_ms);
-    match format {
+    opts: &'a RunOptions,
+    result: Option<&'a serde_json::Value>,
+}
+
+fn write_summary(p: SummaryParams<'_>) -> CliResult<()> {
+    let duration = format_duration(p.duration_ms);
+    match p.format {
         OutputFormat::Text => {
-            let line = if had_output {
-                format!("▣ {execution_id} · {iterations} iterations · {duration}")
+            let line = if p.had_output {
+                format!("▣ {} · {} iterations · {duration}", p.execution_id, p.iterations)
             } else {
-                format!("▣ {execution_id} · no output · {duration}")
+                format!("▣ {} · no output · {duration}", p.execution_id)
             };
-            sink.write_raw(&line)
+            p.sink.write_raw(&line)
         }
         OutputFormat::Json => {
-            let envelope = OutputEnvelope::success(
-                "execution",
-                serde_json::json!({
-                    "executionId": execution_id,
-                    "iterations": iterations,
-                    "durationMs": duration_ms,
-                    "hadOutput": had_output,
-                    "model": opts.model.clone().unwrap_or_else(|| DEFAULT_MODEL.to_string()),
-                    "agentId": opts.agent_id.clone().unwrap_or_else(|| "cli".to_string()),
-                }),
-            )
-            .with_entity("agent-loop");
-            if let Some(line) = envelope.render(format) {
-                sink.write_raw(&line)
+            let mut data = serde_json::json!({
+                "executionId": p.execution_id,
+                "iterations": p.iterations,
+                "durationMs": p.duration_ms,
+                "hadOutput": p.had_output,
+                "model": p.opts.model.clone().unwrap_or_else(|| DEFAULT_MODEL.to_string()),
+                "agentId": p.opts.agent_id.clone().unwrap_or_else(|| "cli".to_string()),
+            });
+            if let Some(res) = p.result {
+                data.as_object_mut()
+                    .expect("json object")
+                    .insert("result".to_string(), res.clone());
+            }
+            let envelope = OutputEnvelope::success("execution", data).with_entity("agent-loop");
+            if let Some(line) = envelope.render(p.format) {
+                p.sink.write_raw(&line)
             } else {
                 Ok(())
             }
         }
         OutputFormat::JsonLines => {
-            let record = serde_json::json!({
+            let mut record = serde_json::json!({
                 "type": "execution_summary",
-                "executionId": execution_id,
-                "iterations": iterations,
-                "durationMs": duration_ms,
-                "hadOutput": had_output,
+                "executionId": p.execution_id,
+                "iterations": p.iterations,
+                "durationMs": p.duration_ms,
+                "hadOutput": p.had_output,
                 "success": true,
             });
+            if let Some(res) = p.result {
+                record.as_object_mut()
+                    .expect("json object")
+                    .insert("result".to_string(), res.clone());
+            }
             let line = serde_json::to_string(&record)?;
-            sink.write_raw(&line)
+            p.sink.write_raw(&line)
         }
         OutputFormat::Silent => Ok(()),
     }
@@ -971,28 +950,30 @@ mod tests {
         assert_eq!(format_duration(1_234), "1.2s");
 
         let mut sink = MemorySink::new();
-        write_summary(
-            &mut sink,
-            OutputFormat::Text,
-            "exec-1",
-            3,
-            1_234,
-            true,
-            &RunOptions::default(),
-        )
+        write_summary(SummaryParams {
+            sink: &mut sink,
+            format: OutputFormat::Text,
+            execution_id: "exec-1",
+            iterations: 3,
+            duration_ms: 1_234,
+            had_output: true,
+            opts: &RunOptions::default(),
+            result: None,
+        })
         .unwrap();
         assert_eq!(sink.raw(), vec!["▣ exec-1 · 3 iterations · 1.2s"]);
 
         let mut sink = MemorySink::new();
-        write_summary(
-            &mut sink,
-            OutputFormat::Text,
-            "exec-2",
-            0,
-            5,
-            false,
-            &RunOptions::default(),
-        )
+        write_summary(SummaryParams {
+            sink: &mut sink,
+            format: OutputFormat::Text,
+            execution_id: "exec-2",
+            iterations: 0,
+            duration_ms: 5,
+            had_output: false,
+            opts: &RunOptions::default(),
+            result: None,
+        })
         .unwrap();
         assert_eq!(sink.raw(), vec!["▣ exec-2 · no output · 5ms"]);
     }
@@ -1000,18 +981,19 @@ mod tests {
     #[test]
     fn json_summary_envelope_carries_execution_fields() {
         let mut sink = MemorySink::new();
-        write_summary(
-            &mut sink,
-            OutputFormat::Json,
-            "exec-3",
-            2,
-            42,
-            true,
-            &RunOptions {
+        write_summary(SummaryParams {
+            sink: &mut sink,
+            format: OutputFormat::Json,
+            execution_id: "exec-3",
+            iterations: 2,
+            duration_ms: 42,
+            had_output: true,
+            opts: &RunOptions {
                 model: Some("mock".into()),
                 ..Default::default()
             },
-        )
+            result: None,
+        })
         .unwrap();
         let raw = sink.raw()[0];
         let parsed: serde_json::Value = serde_json::from_str(raw).unwrap();
@@ -1351,6 +1333,141 @@ mod tests {
                 "summary should report no output: {summary}"
             );
 
+            adapter.shutdown().await.unwrap();
+        }
+
+        #[tokio::test]
+        async fn headless_workflow_executes_to_completed() {
+            let adapter = DomainAdapter::bootstrap(crate::default_runtime_config())
+                .await
+                .unwrap();
+            // Minimal workflow: start -> variable -> end
+            let definition = wf_types::workflow::WorkflowDefinition {
+                id: "wf-cli-workflow-test".into(),
+                name: "Workflow Test".into(),
+                description: None,
+                r#type: None,
+                version: Some("1.0.0".into()),
+                nodes: vec![
+                    wf_types::node::BaseStaticNode {
+                        id: "start".into(),
+                        node_type: wf_types::node::StaticNodeType::Start,
+                        name: Some("start".into()),
+                        description: None,
+                        config: None,
+                        execution_config: None,
+                    },
+                    wf_types::node::BaseStaticNode {
+                        id: "v1".into(),
+                        node_type: wf_types::node::StaticNodeType::Variable,
+                        name: Some("v1".into()),
+                        description: None,
+                        config: Some(serde_json::json!({
+                            "variable_name": "final",
+                            "expression": "${input.greeting}",
+                        })),
+                        execution_config: None,
+                    },
+                    wf_types::node::BaseStaticNode {
+                        id: "end".into(),
+                        node_type: wf_types::node::StaticNodeType::End,
+                        name: Some("end".into()),
+                        description: None,
+                        config: None,
+                        execution_config: None,
+                    },
+                ],
+                edges: vec![
+                    wf_types::workflow::Edge {
+                        id: "e1".into(),
+                        source_node_id: "start".into(),
+                        target_node_id: "v1".into(),
+                        r#type: wf_types::workflow::edge::EdgeType::Default,
+                        condition: None,
+                        label: None,
+                        description: None,
+                        weight: None,
+                        metadata: None,
+                    },
+                    wf_types::workflow::Edge {
+                        id: "e2".into(),
+                        source_node_id: "v1".into(),
+                        target_node_id: "end".into(),
+                        r#type: wf_types::workflow::edge::EdgeType::Default,
+                        condition: None,
+                        label: None,
+                        description: None,
+                        weight: None,
+                        metadata: None,
+                    },
+                ],
+                config: None,
+                variables: None,
+                triggered_subworkflow_config: None,
+                metadata: None,
+                available_tools: None,
+                hooks: None,
+                created_at: wf_common::now(),
+                updated_at: wf_common::now(),
+            };
+            wf_api::workflow::save_workflow(adapter.api_context(), &definition)
+                .await
+                .unwrap();
+
+            let (io, sink) = run_io(OutputFormat::Text);
+            let outcome = run_session(
+                &adapter,
+                RunOptions {
+                    prompt: String::new(),
+                    workflow: Some("wf-cli-workflow-test".into()),
+                    workflow_input: Some(r#"{"greeting":"hello"}"#.into()),
+                    ..Default::default()
+                },
+                io,
+            )
+            .await
+            .unwrap();
+
+            assert!(!outcome.execution_id.is_empty());
+            assert!(outcome.had_output);
+            let text = wf_common::lock::lock_ok(sink.lock()).text();
+            // Workflow result should surface in text output (pretty JSON)
+            assert!(
+                text.contains("hello") || text.contains("greeting"),
+                "{text}"
+            );
+            {
+                let guard = wf_common::lock::lock_ok(sink.lock());
+                let raw = guard.raw();
+                assert!(raw.iter().any(|l| l.contains('▣')), "summary missing");
+            }
+
+            adapter.shutdown().await.unwrap();
+        }
+
+        #[tokio::test]
+        async fn headless_workflow_invalid_input_is_rejected() {
+            let adapter = DomainAdapter::bootstrap(crate::default_runtime_config())
+                .await
+                .unwrap();
+            let (io, _sink) = run_io(OutputFormat::Text);
+            let err = run_session(
+                &adapter,
+                RunOptions {
+                    prompt: String::new(),
+                    workflow: Some("missing-wf".into()),
+                    workflow_input: Some("bad-json".into()),
+                    ..Default::default()
+                },
+                io,
+            )
+            .await
+            .unwrap_err();
+            assert!(
+                matches!(err, CliError::Arguments(_))
+                    || matches!(err, CliError::Business(_))
+                    || matches!(err, CliError::Api(_))
+            );
             adapter.shutdown().await.unwrap();
         }
     }

@@ -28,7 +28,9 @@ use unicode_width::UnicodeWidthStr;
 
 use crate::approval::ApprovalView;
 use crate::composer::Composer;
-use crate::panels::{CommandPalette, ModelPanel, QueuedPanel, SkillPanel};
+use crate::panels::{
+    CommandPalette, MentionPanel, ModelPanel, QueuedPanel, SkillPanel, WorkflowPanel,
+};
 use crate::question::QuestionView;
 use crate::reducer::Phase;
 use crate::scrollback::{HistoryLine, Role};
@@ -87,6 +89,10 @@ pub enum FooterRoute {
     Skill,
     /// Queued prompt management panel.
     Queued,
+    /// Workflow selection panel.
+    Workflow,
+    /// `@` mention panel (files / skills / workflows).
+    Mention,
 }
 
 /// The interactive panel attached to the current prompt route. Exactly one
@@ -98,6 +104,8 @@ pub enum PanelState {
     Model(ModelPanel),
     Skill(SkillPanel),
     Queued(QueuedPanel),
+    Workflow(WorkflowPanel),
+    Mention(MentionPanel),
 }
 
 /// UI-side footer state: the reducer's [`crate::reducer::FooterState`] plus
@@ -259,9 +267,11 @@ impl Footer {
             FooterView::Question => KeymapContext::Question,
             FooterView::Prompt => match self.route {
                 FooterRoute::Composer | FooterRoute::Command => KeymapContext::Composer,
-                FooterRoute::Model | FooterRoute::Skill | FooterRoute::Queued => {
-                    KeymapContext::Panel
-                }
+                FooterRoute::Model
+                | FooterRoute::Skill
+                | FooterRoute::Queued
+                | FooterRoute::Workflow
+                | FooterRoute::Mention => KeymapContext::Panel,
             },
         }
     }
@@ -338,6 +348,8 @@ impl Footer {
                     PanelState::Model(p) => p.render_lines(area.width, area.height),
                     PanelState::Skill(p) => p.render_lines(area.width, area.height),
                     PanelState::Queued(p) => p.render_lines(area.width, area.height),
+                    PanelState::Workflow(p) => p.render_lines(area.width, area.height),
+                    PanelState::Mention(p) => p.render_lines(area.width, area.height),
                 });
                 if let Some(lines) = lines {
                     render_rows(area, buf, &lines, theme, Role::Default);

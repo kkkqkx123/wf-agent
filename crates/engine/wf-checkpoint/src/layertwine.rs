@@ -93,14 +93,20 @@ impl LayertwineGitAdapter {
     }
 
     fn load_id_list(&self, key: &str) -> Result<Vec<String>, CheckpointError> {
-        match self.storage.load_metadata(key).map_err(map_layertwine_error)? {
+        match self
+            .storage
+            .load_metadata(key)
+            .map_err(map_layertwine_error)?
+        {
             Some(list) if !list.is_empty() => Ok(list.split(',').map(String::from).collect()),
             _ => Ok(Vec::new()),
         }
     }
 
     fn store_id_list(&self, key: &str, ids: &[String]) -> Result<(), CheckpointError> {
-        self.storage.store_metadata(key, &ids.join(",")).map_err(map_layertwine_error)
+        self.storage
+            .store_metadata(key, &ids.join(","))
+            .map_err(map_layertwine_error)
     }
 
     /// List checkpoint ids recorded on a branch (branch-scoped listing).
@@ -129,7 +135,9 @@ impl GitCheckpointAdapter for LayertwineGitAdapter {
             vec![],
         );
 
-        self.storage.store_snapshot(&snapshot, data).map_err(map_layertwine_error)?;
+        self.storage
+            .store_snapshot(&snapshot, data)
+            .map_err(map_layertwine_error)?;
 
         let snapshot_hex = snapshot.id.to_hex();
         self.storage
@@ -161,9 +169,11 @@ impl GitCheckpointAdapter for LayertwineGitAdapter {
         &self,
         checkpoint_id: &str,
     ) -> Result<Option<Vec<u8>>, CheckpointError> {
-        let snapshot_hex = match self.storage
-                .load_metadata(&Self::snapshot_key(checkpoint_id))
-                .map_err(map_layertwine_error)? {
+        let snapshot_hex = match self
+            .storage
+            .load_metadata(&Self::snapshot_key(checkpoint_id))
+            .map_err(map_layertwine_error)?
+        {
             Some(hex) if !hex.is_empty() => hex,
             _ => return Ok(None),
         };
@@ -175,8 +185,11 @@ impl GitCheckpointAdapter for LayertwineGitAdapter {
             ))
         })?;
 
-        let snapshot =
-            self.storage.get_snapshot(&snapshot_id).map_err(map_layertwine_error).map_err(|e| match e {
+        let snapshot = self
+            .storage
+            .get_snapshot(&snapshot_id)
+            .map_err(map_layertwine_error)
+            .map_err(|e| match e {
                 CheckpointError::NotFound { .. } => CheckpointError::NotFound {
                     id: checkpoint_id.to_string(),
                 },
@@ -213,7 +226,9 @@ impl GitCheckpointAdapter for LayertwineGitAdapter {
         // Real pointer deletion: the metadata index row is removed. The
         // content-addressed snapshot blob stays (INSERT-ONLY) and is
         // reclaimed separately by physical GC.
-        self.storage.delete_metadata(&key).map_err(map_layertwine_error)?;
+        self.storage
+            .delete_metadata(&key)
+            .map_err(map_layertwine_error)?;
 
         Ok(true)
     }
@@ -255,10 +270,7 @@ impl LayertwineGitAdapter {
     }
 
     /// Read the branch head pointer. Returns `None` when no head is set.
-    pub fn get_branch_head(
-        &self,
-        branch: &str,
-    ) -> Result<Option<String>, CheckpointError> {
+    pub fn get_branch_head(&self, branch: &str) -> Result<Option<String>, CheckpointError> {
         let key = format!("wf-branch-head:{}", branch);
         self.storage
             .load_metadata(&key)
@@ -285,7 +297,9 @@ impl LayertwineGitAdapter {
 impl BranchStorageAdapter for LayertwineGitAdapter {
     async fn create_branch(&self, name: &str, base: Option<&str>) -> Result<(), CheckpointError> {
         let key = Self::branch_key(name);
-        match self.storage.load_metadata(&key)
+        match self
+            .storage
+            .load_metadata(&key)
             .map_err(map_layertwine_error)
             .map_err(|e| CheckpointError::Branch(e.to_string()))?
         {
@@ -299,7 +313,8 @@ impl BranchStorageAdapter for LayertwineGitAdapter {
                     base.unwrap_or_default(),
                     chrono::Utc::now().timestamp_millis()
                 );
-                self.storage.store_metadata(&key, &value)
+                self.storage
+                    .store_metadata(&key, &value)
                     .map_err(map_layertwine_error)
                     .map_err(|e| CheckpointError::Branch(e.to_string()))?;
                 Ok(())
@@ -308,17 +323,21 @@ impl BranchStorageAdapter for LayertwineGitAdapter {
     }
 
     async fn delete_branch(&self, name: &str) -> Result<(), CheckpointError> {
-        self.storage.delete_metadata(&Self::branch_key(name))
+        self.storage
+            .delete_metadata(&Self::branch_key(name))
             .map_err(map_layertwine_error)
             .map_err(|e| CheckpointError::Branch(e.to_string()))?;
-        self.storage.delete_metadata(&Self::branch_cps_key(name))
+        self.storage
+            .delete_metadata(&Self::branch_cps_key(name))
             .map_err(map_layertwine_error)
             .map_err(|e| CheckpointError::Branch(e.to_string()))?;
         Ok(())
     }
 
     async fn list_branches(&self) -> Result<Vec<String>, CheckpointError> {
-        let entries = self.storage.list_metadata_by_prefix(BRANCH_KEY_PREFIX)
+        let entries = self
+            .storage
+            .list_metadata_by_prefix(BRANCH_KEY_PREFIX)
             .map_err(map_layertwine_error)
             .map_err(|e| CheckpointError::Branch(e.to_string()))?;
         Ok(entries
@@ -331,7 +350,9 @@ impl BranchStorageAdapter for LayertwineGitAdapter {
     }
 
     async fn branch_exists(&self, name: &str) -> Result<bool, CheckpointError> {
-        let value = self.storage.load_metadata(&Self::branch_key(name))
+        let value = self
+            .storage
+            .load_metadata(&Self::branch_key(name))
             .map_err(map_layertwine_error)
             .map_err(|e| CheckpointError::Branch(e.to_string()))?;
         Ok(value.is_some())

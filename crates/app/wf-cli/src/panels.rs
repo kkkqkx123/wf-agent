@@ -1,10 +1,10 @@
 //! Selection panels for the mini footer prompt view: the `/` command
 //! palette plus the model / skill / queued-prompt panels.
 //!
-//! Every panel wraps a [`SelectList`] (Stage 4 grouped scrolling list) and
-//! stays pure data: navigation delegates to the list, filtering goes through
-//! [`SelectList::set_filter`] (case-insensitive substring, the P0 semantics
-//! from the stage 4 plan) and rendering produces ratatui lines for a
+//! Every panel wraps a [`SelectList`] (grouped scrolling list) and stays
+//! pure data: navigation delegates to the list, filtering goes through
+//! [`SelectList::set_filter`] (case-insensitive substring) and rendering
+//! produces ratatui lines for a
 //! caller-provided width / window height.
 //!
 //! The mini event loop owns the interaction policy: it routes keymap
@@ -34,6 +34,12 @@ pub enum CommandId {
     Quit,
     /// `/help` — show the keymap and command help.
     Help,
+    /// `/workflows` — list and run a workflow.
+    Workflows,
+    /// `/resume` — resume the most recent session.
+    Resume,
+    /// `/executions` — list recent executions.
+    Executions,
 }
 
 /// One command palette row.
@@ -51,6 +57,12 @@ pub struct CommandPalette {
     entries: Vec<CommandEntry>,
     /// Filter text typed while the palette is open.
     filter: String,
+}
+
+impl Default for CommandPalette {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl CommandPalette {
@@ -101,6 +113,21 @@ impl CommandPalette {
                 id: CommandId::Help,
                 label: "/help",
                 description: "show the mini keymap and command help",
+            },
+            CommandEntry {
+                id: CommandId::Workflows,
+                label: "/workflows",
+                description: "list and run a workflow",
+            },
+            CommandEntry {
+                id: CommandId::Resume,
+                label: "/resume",
+                description: "resume the most recent session",
+            },
+            CommandEntry {
+                id: CommandId::Executions,
+                label: "/executions",
+                description: "list recent executions",
             },
         ]
     }
@@ -200,7 +227,11 @@ impl CommandPalette {
     }
 
     /// Render the palette rows for the given width / window height.
-    pub fn render_lines(&self, width: u16, window_height: u16) -> Vec<ratatui::text::Line<'static>> {
+    pub fn render_lines(
+        &self,
+        width: u16,
+        window_height: u16,
+    ) -> Vec<ratatui::text::Line<'static>> {
         self.list.render_lines(width, window_height)
     }
 
@@ -230,10 +261,8 @@ impl ModelPanel {
             } else {
                 format!("{} · {}", profile.id, profile.model)
             };
-            group = group.item(
-                GroupItem::new(label, profile.id.clone())
-                    .described(profile.name.clone()),
-            );
+            group = group
+                .item(GroupItem::new(label, profile.id.clone()).described(profile.name.clone()));
         }
         // SelectList tracks position over filtered candidates; with no
         // filter every item is a candidate, so the flat index (position in
@@ -259,6 +288,11 @@ impl ModelPanel {
     pub fn on_current(&self) -> bool {
         self.selected_model()
             .is_some_and(|id| Some(&id) == self.current.as_ref())
+    }
+
+    /// The currently active profile id.
+    pub fn current_id(&self) -> Option<&str> {
+        self.current.as_deref()
     }
 
     /// Apply a keymap action; returns whether it was consumed.
@@ -344,6 +378,189 @@ impl SkillPanel {
     /// `(N/M)` position indicator.
     pub fn position_string(&self) -> String {
         self.list.position_string()
+    }
+}
+
+/// The workflow panel.
+#[derive(Debug, Clone)]
+pub struct WorkflowPanel {
+    list: SelectList<String>,
+}
+
+impl WorkflowPanel {
+    /// Build the panel from workflow summaries.
+    pub fn new(workflows: &[wf_api::workflow::summary::WorkflowSummary]) -> Self {
+        let mut group = Group::new(Some("workflows"));
+        for wf in workflows {
+            let label = if let Some(desc) = &wf.description {
+                format!("{} · {} — {desc}", wf.id, wf.name)
+            } else {
+                format!("{} · {}", wf.id, wf.name)
+            };
+            group = group.item(
+                GroupItem::new(label, wf.id.clone())
+                    .described(format!("{} nodes · {} edges", wf.node_count, wf.edge_count)),
+            );
+        }
+        Self {
+            list: SelectList::groups(vec![group]),
+        }
+    }
+
+    /// The workflow id under the cursor.
+    pub fn selected_workflow(&self) -> Option<String> {
+        self.list.selected().map(|item| item.data.clone())
+    }
+
+    /// Apply a keymap action; returns whether it was consumed.
+    pub fn handle(&mut self, action: KeyAction) -> bool {
+        match action {
+            KeyAction::MovePrev => {
+                self.list.navigate(NavigateDir::Prev);
+                true
+            }
+            KeyAction::MoveNext => {
+                self.list.navigate(NavigateDir::Next);
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Render the panel rows.
+    pub fn render_lines(
+        &self,
+        width: u16,
+        window_height: u16,
+    ) -> Vec<ratatui::text::Line<'static>> {
+        self.list.render_lines(width, window_height)
+    }
+
+    /// `(N/M)` position indicator.
+    pub fn position_string(&self) -> String {
+        self.list.position_string()
+    }
+}
+
+/// Combined `@` mention panel: files (with optional `:#lines`), skills and
+/// workflows presented in three groups with a shared filter.
+#[derive(Debug, Clone)]
+pub struct MentionPanel {
+    list: SelectList<String>,
+    filter: String,
+}
+
+impl MentionPanel {
+    /// Build the panel from file paths, skill names and workflow summaries.
+    /// `filter` is an optional substring filter applied to labels.
+    pub fn new(
+        files: &[String],
+        skills: &[SkillMetadata],
+        workflows: &[wf_api::workflow::summary::WorkflowSummary],
+        filter: Option<&str>,
+    ) -> Self {
+        let mut groups: Vec<Group<String>> = Vec::new();
+        if !files.is_empty() {
+            let mut g = Group::new(Some("files"));
+            for f in files {
+                g = g.item(GroupItem::new(f.clone(), f.clone()));
+            }
+            groups.push(g);
+        }
+        if !skills.is_empty() {
+            let mut g = Group::new(Some("skills"));
+            for s in skills {
+                let label = format!("skill:{}", s.name);
+                g = g.item(GroupItem::new(label.clone(), label).described(s.description.clone()));
+            }
+            groups.push(g);
+        }
+        if !workflows.is_empty() {
+            let mut g = Group::new(Some("workflows"));
+            for wf in workflows {
+                let label = format!("workflow:{}", wf.id);
+                g = g.item(GroupItem::new(label.clone(), label).described(wf.name.clone()));
+            }
+            groups.push(g);
+        }
+        if groups.is_empty() {
+            groups.push(Group::new(Some("mentions")));
+        }
+        let mut list = SelectList::groups(groups);
+        list.set_filter(filter);
+        Self {
+            list,
+            filter: filter.unwrap_or_default().to_string(),
+        }
+    }
+
+    /// The candidate label under the cursor.
+    pub fn selected_candidate(&self) -> Option<String> {
+        self.list.selected().map(|item| item.data.clone())
+    }
+
+    /// Push a character into the filter.
+    pub fn filter_push(&mut self, c: char) {
+        self.filter.push(c);
+        self.list.set_filter(if self.filter.is_empty() {
+            None
+        } else {
+            Some(self.filter.as_str())
+        });
+    }
+
+    /// Pop the last character from the filter.
+    pub fn filter_backspace(&mut self) {
+        self.filter.pop();
+        self.list.set_filter(if self.filter.is_empty() {
+            None
+        } else {
+            Some(self.filter.as_str())
+        });
+    }
+
+    /// Re-apply a filter (fuzzy substring).
+    pub fn set_filter(&mut self, filter: Option<&str>) {
+        self.filter = filter.unwrap_or_default().to_string();
+        self.list.set_filter(filter);
+    }
+
+    /// Apply a keymap action; returns whether it was consumed.
+    pub fn handle(&mut self, action: KeyAction) -> bool {
+        match action {
+            KeyAction::MovePrev => {
+                self.list.navigate(NavigateDir::Prev);
+                true
+            }
+            KeyAction::MoveNext => {
+                self.list.navigate(NavigateDir::Next);
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// Render the panel rows.
+    pub fn render_lines(
+        &self,
+        width: u16,
+        window_height: u16,
+    ) -> Vec<ratatui::text::Line<'static>> {
+        self.list.render_lines(width, window_height)
+    }
+
+    /// `(N/M)` position indicator.
+    pub fn position_string(&self) -> String {
+        self.list.position_string()
+    }
+
+    /// Number of visible candidates.
+    pub fn len(&self) -> usize {
+        self.list.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.list.is_empty()
     }
 }
 
@@ -478,7 +695,10 @@ mod tests {
 
     #[test]
     fn model_panel_marks_and_positions_the_current_profile() {
-        let profiles = vec![profile("default", "claude-3"), profile("fast", "gpt-4o-mini")];
+        let profiles = vec![
+            profile("default", "claude-3"),
+            profile("fast", "gpt-4o-mini"),
+        ];
         let panel = ModelPanel::new(&profiles, Some("fast"));
         assert_eq!(panel.selected_model(), Some("fast".to_string()));
         assert!(panel.on_current());
@@ -514,5 +734,33 @@ mod tests {
         panel.handle(KeyAction::MoveNext);
         assert_eq!(panel.selected_id(), Some(2));
         assert!(panel.position_string().starts_with("(2/2)"));
+    }
+
+    #[test]
+    fn workflow_panel_lists_and_moves() {
+        let summaries = vec![
+            wf_api::workflow::summary::WorkflowSummary {
+                id: "wf-1".to_string(),
+                name: "First".to_string(),
+                description: Some("desc".to_string()),
+                version: None,
+                node_count: 3,
+                edge_count: 2,
+                updated_at: 0,
+            },
+            wf_api::workflow::summary::WorkflowSummary {
+                id: "wf-2".to_string(),
+                name: "Second".to_string(),
+                description: None,
+                version: None,
+                node_count: 2,
+                edge_count: 1,
+                updated_at: 0,
+            },
+        ];
+        let mut panel = WorkflowPanel::new(&summaries);
+        assert_eq!(panel.selected_workflow(), Some("wf-1".to_string()));
+        panel.handle(KeyAction::MoveNext);
+        assert_eq!(panel.selected_workflow(), Some("wf-2".to_string()));
     }
 }

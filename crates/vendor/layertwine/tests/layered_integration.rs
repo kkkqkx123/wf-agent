@@ -307,8 +307,13 @@ fn test_rollback_staged_to_manual() {
     ensure_manual(&storage, initial_id);
 
     // Apply manual edit and merge to staged
-    layertwine::layered::manual::apply_manual_edit(&storage, "test.txt", "original\nedited\n", None)
-        .unwrap();
+    layertwine::layered::manual::apply_manual_edit(
+        &storage,
+        "test.txt",
+        "original\nedited\n",
+        None,
+    )
+    .unwrap();
     execute_forward(&storage, ForwardTransition::ManualToStaged, &[]).unwrap();
 
     // Verify staged has the new content
@@ -438,9 +443,12 @@ fn test_approval_integrated_staged_chain() {
     let integrated_sid = merge_result.snapshot_id;
 
     // Direct function call: integrated → staged (no unified intermediary)
-    let staged_result =
-        layertwine::layered::staged::merge_features_to_staged(&storage, &[feature.to_string()], None)
-            .unwrap();
+    let staged_result = layertwine::layered::staged::merge_features_to_staged(
+        &storage,
+        &[feature.to_string()],
+        None,
+    )
+    .unwrap();
 
     // Staged snapshot should be different from integrated snapshot
     assert_ne!(
@@ -463,9 +471,13 @@ fn test_sequential_manual_edits() {
     ensure_manual(&storage, initial_id);
 
     // Multiple edits without forward in between
-    let id1 =
-        layertwine::layered::manual::apply_manual_edit(&storage, "test.txt", "line1\nmodified\n", None)
-            .unwrap();
+    let id1 = layertwine::layered::manual::apply_manual_edit(
+        &storage,
+        "test.txt",
+        "line1\nmodified\n",
+        None,
+    )
+    .unwrap();
     assert_ne!(id1, initial_id);
 
     let id2 = layertwine::layered::manual::apply_manual_edit(
@@ -494,11 +506,13 @@ fn test_edit_after_forward() {
     ensure_staged(&storage, initial_id);
     ensure_manual(&storage, initial_id);
 
-    layertwine::layered::manual::apply_manual_edit(&storage, "test.txt", "base\na\n", None).unwrap();
+    layertwine::layered::manual::apply_manual_edit(&storage, "test.txt", "base\na\n", None)
+        .unwrap();
     execute_forward(&storage, ForwardTransition::ManualToStaged, &[]).unwrap();
     assert_eq!(staged_text(&storage), "base\na\n");
 
-    layertwine::layered::manual::apply_manual_edit(&storage, "test.txt", "base\na\nb\n", None).unwrap();
+    layertwine::layered::manual::apply_manual_edit(&storage, "test.txt", "base\na\nb\n", None)
+        .unwrap();
     execute_forward(&storage, ForwardTransition::ManualToStaged, &[]).unwrap();
     assert_eq!(staged_text(&storage), "base\na\nb\n");
 }

@@ -1376,10 +1376,13 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let db_path = dir.path().join("cp.db");
         let config_for = |root: &str| wf_types::config::file_checkpoint::FileCheckpointConfig {
-            storage: Some(wf_types::config::file_checkpoint::FileCheckpointStorageConfig {
-                storage_type: wf_types::config::file_checkpoint::FileCheckpointStorageType::Sqlite,
-                db_path: Some(db_path.to_string_lossy().into_owned()),
-            }),
+            storage: Some(
+                wf_types::config::file_checkpoint::FileCheckpointStorageConfig {
+                    storage_type:
+                        wf_types::config::file_checkpoint::FileCheckpointStorageType::Sqlite,
+                    db_path: Some(db_path.to_string_lossy().into_owned()),
+                },
+            ),
             workspace_root: Some(root.to_string()),
             ..Default::default()
         };
@@ -1399,10 +1402,13 @@ mod tests {
         );
         // No workspace root is not bound (legacy mode still opens).
         let legacy = wf_types::config::file_checkpoint::FileCheckpointConfig {
-            storage: Some(wf_types::config::file_checkpoint::FileCheckpointStorageConfig {
-                storage_type: wf_types::config::file_checkpoint::FileCheckpointStorageType::Sqlite,
-                db_path: Some(db_path.to_string_lossy().into_owned()),
-            }),
+            storage: Some(
+                wf_types::config::file_checkpoint::FileCheckpointStorageConfig {
+                    storage_type:
+                        wf_types::config::file_checkpoint::FileCheckpointStorageType::Sqlite,
+                    db_path: Some(db_path.to_string_lossy().into_owned()),
+                },
+            ),
             ..Default::default()
         };
         FileCheckpointManager::open_from_config(&legacy).unwrap();

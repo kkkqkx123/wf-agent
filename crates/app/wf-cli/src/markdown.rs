@@ -156,11 +156,11 @@ impl MarkdownStream {
         render_plain_text(&self.buffer)
     }
 
-    /// Close the stream. Delta contract: only bytes never delivered in any
-    /// earlier frame are returned — previously streamed bytes belong to the
-    /// consumer's streaming view, which the consumer settles itself (mini
-    /// flushes its scrollback span via [`Self::range_text`] before
-    /// finishing). Never re-emits, never drops.
+    /// Close the stream. Only bytes never delivered in any earlier frame are
+    /// returned — previously streamed bytes belong to the consumer's
+    /// streaming view, which the consumer settles itself (mini flushes its
+    /// scrollback span via [`Self::range_text`] before finishing). Never
+    /// re-emits, never drops.
     pub fn finish(&mut self) -> MarkdownFrame {
         let committed = self.buffer[self.streamed_upto.min(self.buffer.len())..].to_string();
         self.buffer.clear();
@@ -541,7 +541,7 @@ mod tests {
         assert_eq!(frame.new_streaming, "```");
         assert_eq!(frame.code_lang, None);
         // Finalize delivers only undelivered bytes: the "```" half line was
-        // already streamed above (delta contract, never re-emitted).
+        // already streamed above (never re-emitted).
         assert_eq!(stream.finish().new_committed, "");
     }
 
@@ -587,9 +587,9 @@ mod tests {
     fn finish_commits_everything_remaining() {
         let mut stream = MarkdownStream::default();
         stream.push("unfinished");
-        // Delta contract: the streamed tail was already delivered, so the
-        // finalize frame carries nothing new — the consumer settles its own
-        // streaming view (see `range_text`).
+        // The streamed tail was already delivered, so the finalize frame
+        // carries nothing new — the consumer settles its own streaming view
+        // (see `range_text`).
         let frame = stream.finish();
         assert_eq!(frame.new_committed, "");
         assert_eq!(frame.new_streaming, "");
@@ -651,8 +651,8 @@ mod tests {
         // The rows still flow as streaming deltas (live preview).
         assert!(frame.new_streaming.contains(row2));
         // Reassembly across frames: committed + streaming deltas carry the
-        // whole table exactly once, and finalize adds nothing (delta
-        // contract — the consumer settles its own streaming view).
+        // whole table exactly once, and finalize adds nothing (the consumer
+        // settles its own streaming view).
         let mut delivered = String::new();
         let mut replay = MarkdownStream::default();
         for chunk in [hdr, row1, row2] {

@@ -1,6 +1,6 @@
 # API 层功能分析
 
-> 范围：`crates/wf-api`（业务 API 门面层）与 `crates/wf-server`（HTTP 传输层）
+> 范围：`crates/app/wf-api`（业务 API 门面层）与 `crates/app/wf-server`（HTTP 传输层）
 > 状态：基于当前代码整理的静态分析
 
 ## 文档索引

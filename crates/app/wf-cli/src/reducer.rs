@@ -249,9 +249,7 @@ impl SessionReducer {
                 });
             }
             ExecutionStreamEvent::ToolEnd {
-                tool_name,
-                success,
-                ..
+                tool_name, success, ..
             } => {
                 self.flush_text(commits);
                 if let Some(pos) = self.footer.active_tools.iter().position(|t| t == tool_name) {
@@ -264,20 +262,29 @@ impl SessionReducer {
             }
             ExecutionStreamEvent::Interrupted { reason } => {
                 self.footer.last_error = Some(reason.clone());
-                self.finish_terminal(commits, MiniCommit::Interrupted {
-                    reason: reason.clone(),
-                });
+                self.finish_terminal(
+                    commits,
+                    MiniCommit::Interrupted {
+                        reason: reason.clone(),
+                    },
+                );
             }
             ExecutionStreamEvent::Completed { iterations, .. } => {
-                self.finish_terminal(commits, MiniCommit::Completed {
-                    iterations: *iterations,
-                });
+                self.finish_terminal(
+                    commits,
+                    MiniCommit::Completed {
+                        iterations: *iterations,
+                    },
+                );
             }
             ExecutionStreamEvent::Failed { error } => {
                 self.footer.last_error = Some(error.clone());
-                self.finish_terminal(commits, MiniCommit::Failed {
-                    error: error.clone(),
-                });
+                self.finish_terminal(
+                    commits,
+                    MiniCommit::Failed {
+                        error: error.clone(),
+                    },
+                );
             }
         }
     }

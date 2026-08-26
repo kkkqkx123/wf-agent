@@ -85,6 +85,12 @@ pub enum KeyAction {
     Clear,
     Home,
     End,
+    /// Scan the skill directory for new skills.
+    Scan,
+    /// Reload skills (clear cache + rescan).
+    Reload,
+    /// Clear the skill content/resource cache.
+    CacheClear,
     // Approval actions
     Approve,
     ApproveAll,
@@ -236,6 +242,9 @@ fn builtin_defaults(ctx: KeymapContext) -> Vec<(Key, KeyAction)> {
             (Key::plain(CKey::Char('D')), KeyAction::Delete),
             (Key::plain(CKey::Delete), KeyAction::Delete),
             (Key::ctrl(CKey::Char('u')), Clear),
+            (Key::plain(CKey::Char('S')), Scan),
+            (Key::plain(CKey::Char('R')), Reload),
+            (Key::plain(CKey::Char('C')), CacheClear),
         ],
         KeymapContext::Approval => vec![
             (Key::plain(Enter), Submit),

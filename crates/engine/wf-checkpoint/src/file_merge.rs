@@ -106,15 +106,15 @@ impl FileCheckpointManager {
 
         let names: Vec<String> = feature_names.iter().map(|s| s.to_string()).collect();
         let ws = self.workspace_key();
-        let merge_result = layertwine::layered::staged::merge_features_to_staged(
-            storage,
-            &names,
-            ws.as_deref(),
-        )
-        .map_err(map_layertwine_error)?;
+        let merge_result =
+            layertwine::layered::staged::merge_features_to_staged(storage, &names, ws.as_deref())
+                .map_err(map_layertwine_error)?;
 
         let mut parents: Vec<CheckpointId> = Vec::new();
-        for id_str in std::iter::once(&staged_cp).chain(feature_cps.iter()).flatten() {
+        for id_str in std::iter::once(&staged_cp)
+            .chain(feature_cps.iter())
+            .flatten()
+        {
             if let Some(cid) = CheckpointId::from_hex(id_str) {
                 if !parents.contains(&cid) {
                     parents.push(cid);

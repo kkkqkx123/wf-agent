@@ -65,8 +65,12 @@ async fn handle_request_approval(
         ))
         .into_response();
     }
-    match wf_api::workflow::approval::request_user_approval(&state.ctx, &body.execution_id, &body.request)
-        .await
+    match wf_api::workflow::approval::request_user_approval(
+        &state.ctx,
+        &body.execution_id,
+        &body.request,
+    )
+    .await
     {
         Ok((interaction_id, response)) => ok((interaction_id, response)).into_response(),
         Err(e) => error_response(e),

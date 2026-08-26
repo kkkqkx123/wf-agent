@@ -486,13 +486,20 @@ mod tests {
         let ws_a = manual_partition_id_for("/ws/a");
         let ws_b = manual_partition_id_for("/ws/b");
         assert_ne!(ws_a, ws_b, "distinct workspace keys derive distinct ids");
-        assert_ne!(ws_a, legacy, "derived id must not collide with the legacy id");
+        assert_ne!(
+            ws_a, legacy,
+            "derived id must not collide with the legacy id"
+        );
         assert_eq!(
             manual_partition_id_for("/ws/a"),
             ws_a,
             "derivation is deterministic for a given key"
         );
-        assert_eq!(manual_pid(None), legacy, "no key falls back to the legacy id");
+        assert_eq!(
+            manual_pid(None),
+            legacy,
+            "no key falls back to the legacy id"
+        );
         assert_eq!(manual_pid(Some("/ws/a")), ws_a);
     }
 

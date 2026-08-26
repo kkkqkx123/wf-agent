@@ -154,7 +154,8 @@ where
                 )
             })?;
             let names: Vec<String> = names_str.split(',').map(|s| s.trim().to_string()).collect();
-            crate::layered::staged::merge_features_to_staged(storage, &names, None).map(|r| r.snapshot_id)
+            crate::layered::staged::merge_features_to_staged(storage, &names, None)
+                .map(|r| r.snapshot_id)
         }
     }
 }

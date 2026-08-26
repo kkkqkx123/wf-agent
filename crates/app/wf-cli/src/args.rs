@@ -240,6 +240,105 @@ pub enum Command {
         #[arg(long)]
         exec: Option<String>,
     },
+    /// Workflow management commands (read-only subset).
+    Workflow {
+        #[command(subcommand)]
+        sub: WorkflowSub,
+    },
+    /// Execution management commands (read-only subset).
+    Execution {
+        #[command(subcommand)]
+        sub: ExecutionSub,
+    },
+    /// LLM profile management commands (read-only subset).
+    #[command(name = "llm-profile")]
+    LlmProfile {
+        #[command(subcommand)]
+        sub: LlmProfileSub,
+    },
+    /// Skill management commands (read-only subset).
+    Skill {
+        #[command(subcommand)]
+        sub: SkillSub,
+    },
+    /// Unified cross-resource search.
+    Search {
+        /// Search query string.
+        #[arg(value_name = "QUERY")]
+        query: String,
+        /// Limit total results.
+        #[arg(long, value_name = "N")]
+        limit: Option<usize>,
+    },
+    /// Query execution records with filtering and pagination.
+    Query {
+        /// Filter by status (e.g. completed, failed, running).
+        #[arg(long, value_name = "STATUS")]
+        status: Option<String>,
+        /// Filter by workflow id.
+        #[arg(long, value_name = "ID")]
+        workflow_id: Option<String>,
+        /// Maximum number of records (default 100).
+        #[arg(long, value_name = "N")]
+        limit: Option<usize>,
+    },
+}
+
+/// Workflow subcommands.
+#[derive(Debug, Clone, Subcommand)]
+pub enum WorkflowSub {
+    /// List registered workflows.
+    List {
+        /// Keyword filter (name/description/tags).
+        #[arg(long, value_name = "KW")]
+        keyword: Option<String>,
+        /// Maximum number of results.
+        #[arg(long, value_name = "N")]
+        limit: Option<u64>,
+    },
+    /// Show a single workflow definition.
+    Show {
+        /// Workflow id.
+        #[arg(value_name = "ID")]
+        id: String,
+    },
+    /// Show the graph structure of a workflow.
+    Graph {
+        /// Workflow id.
+        #[arg(value_name = "ID")]
+        id: String,
+    },
+}
+
+/// Execution subcommands.
+#[derive(Debug, Clone, Subcommand)]
+pub enum ExecutionSub {
+    /// List agent loop executions.
+    List {
+        /// Filter by status (running, paused, completed, failed).
+        #[arg(long, value_name = "STATUS")]
+        status: Option<String>,
+    },
+    /// Show a single execution summary.
+    Show {
+        /// Execution id.
+        #[arg(value_name = "ID")]
+        id: String,
+    },
+}
+
+/// LLM profile subcommands.
+#[derive(Debug, Clone, Subcommand)]
+pub enum LlmProfileSub {
+    /// List registered LLM profiles.
+    List,
+}
+
+/// Skill subcommands.
+#[derive(Debug, Clone, Subcommand)]
+pub enum SkillSub {
+    /// List registered skills.
+    List,
 }
 
 #[cfg(test)]

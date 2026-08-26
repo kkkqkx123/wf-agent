@@ -90,6 +90,19 @@ impl ModeResolver {
                         resume_latest: false,
                     });
                 }
+                Command::Workflow { .. }
+                | Command::Execution { .. }
+                | Command::LlmProfile { .. }
+                | Command::Skill { .. }
+                | Command::Search { .. }
+                | Command::Query { .. } => {
+                    return Ok(ResolvedMode {
+                        cli_mode: CliMode::Run,
+                        stdin_prompt: None,
+                        resume_session: None,
+                        resume_latest: false,
+                    });
+                }
             }
         }
 

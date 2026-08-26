@@ -4,6 +4,7 @@ pub mod ansi;
 pub mod approval;
 pub mod approval_policy;
 pub mod args;
+pub mod cmd;
 pub mod composer;
 pub mod config;
 pub mod domain;
@@ -64,6 +65,32 @@ pub async fn run(cli: Cli) -> CliResult<()> {
     }
     if matches!(cli.command, Some(Command::DebugTerminal { .. })) {
         return debug_terminal(&cli).await;
+    }
+    match &cli.command {
+        Some(Command::Workflow { sub }) => {
+            return cmd::workflow::run(&cli, sub).await;
+        }
+        Some(Command::Execution { sub }) => {
+            return cmd::execution::run(&cli, sub).await;
+        }
+        Some(Command::LlmProfile { sub: _ }) => {
+            return cmd::llm::run(&cli).await;
+        }
+        Some(Command::Skill { sub: _ }) => {
+            return cmd::skill::run(&cli).await;
+        }
+        Some(Command::Search { query, limit }) => {
+            return cmd::search::run(&cli, query, *limit).await;
+        }
+        Some(Command::Query {
+            status,
+            workflow_id,
+            limit,
+        }) => {
+            return cmd::query::run(&cli, status.as_deref(), workflow_id.as_deref(), *limit)
+                .await;
+        }
+        _ => {}
     }
 
     let (stdin_tty, stdout_tty) = mode::real_tty_status();

@@ -1,28 +1,33 @@
 [workspace]
 resolver = "2"
 members = [
-    "crates/wf-types",
-    "crates/wf-common",
-    "crates/wf-storage",
-    "crates/wf-core",
-    "crates/wf-checkpoint",
-    "crates/wf-runtime",
-    "crates/wf-config",
-    "crates/wf-tools",
-    "crates/wf-shell",
-    "crates/wf-llm",
-    "crates/wf-execution-shared",
-    "crates/wf-agent",
-    "crates/wf-workflow",
-    "crates/wf-sandbox",
-    "crates/wf-script",
-    "crates/wf-plugin",
-    "crates/layertwine",
-    "crates/wf-resource",
-    "crates/wf-api",
-    "crates/wf-metrics",
-    "crates/wf-server",
-    "crates/wf-cli",
+    # foundation
+    "crates/foundation/wf-types",
+    "crates/foundation/wf-common",
+    "crates/foundation/wf-core",
+    # infra
+    "crates/infra/wf-metrics",
+    "crates/infra/wf-config",
+    "crates/infra/wf-storage",
+    "crates/infra/wf-llm",
+    "crates/infra/wf-script",
+    "crates/infra/wf-sandbox",
+    "crates/infra/wf-shell",
+    "crates/infra/wf-plugin",
+    "crates/infra/wf-resource",
+    # engine
+    "crates/engine/wf-tools",
+    "crates/engine/wf-execution-shared",
+    "crates/engine/wf-agent",
+    "crates/engine/wf-workflow",
+    "crates/engine/wf-checkpoint",
+    # app
+    "crates/app/wf-api",
+    "crates/app/wf-server",
+    "crates/app/wf-runtime",
+    "crates/app/wf-cli",
+    # vendor
+    "crates/vendor/layertwine",
 ]
 
 [workspace.package]

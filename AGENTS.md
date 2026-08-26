@@ -27,24 +27,33 @@ wf-agent/
 ├── Cargo.toml           # Workspace definition
 ├── rust-toolchain.toml  # Rust toolchain config
 ├── crates/              # Rust crates (migration target)
-│   ├── wf-types/        # Type definitions (serde)
-│   ├── wf-common/       # Common utilities
-│   ├── wf-storage/      # Storage implementations
-│   ├── wf-core/         # EventBus, StateMachine, Registry
-│   ├── wf-checkpoint/   # Checkpoint system
-│   ├── wf-config/       # Configuration processing
-│   ├── wf-shell/        # Shell/terminal engine (PTY, sessions, detector)
-│   ├── wf-tools/        # Tool registry, executors, MCP
-│   ├── wf-llm/          # LLM client abstraction
-│   ├── wf-plugin/       # Plugin system (Lua/Native)
-│   ├── wf-script/       # Script expression evaluation
-│   ├── wf-execution-shared/  # Shared execution infrastructure
-│   ├── wf-agent/        # Agent loop execution engine
-│   ├── wf-workflow/     # Workflow graph execution engine
-│   ├── wf-runtime/      # Runtime bootstrap
-│   ├── wf-sandbox/      # Script sandbox
-│   └── wf-cli/          # CLI: headless run / mini / full TUI forms
-├── crates/layertwine/   # File-edit history storage (in workspace)
+│   ├── foundation/      # Pure types and utilities, no business logic
+│   │   ├── wf-types/    # Type definitions (serde)
+│   │   ├── wf-common/   # Common utilities
+│   │   └── wf-core/     # EventBus, StateMachine, Registry
+│   ├── infra/           # Single-purpose infrastructure services
+│   │   ├── wf-metrics/  # Metrics collection
+│   │   ├── wf-config/   # Configuration processing
+│   │   ├── wf-storage/  # Storage implementations
+│   │   ├── wf-llm/      # LLM client abstraction
+│   │   ├── wf-script/   # Script expression evaluation
+│   │   ├── wf-sandbox/  # Script sandbox
+│   │   ├── wf-shell/    # Shell/terminal engine (PTY, sessions, detector)
+│   │   ├── wf-plugin/   # Plugin system (Lua/Native)
+│   │   └── wf-resource/ # Resource management
+│   ├── engine/          # Execution engines
+│   │   ├── wf-tools/    # Tool registry, executors, MCP
+│   │   ├── wf-execution-shared/  # Shared execution infrastructure
+│   │   ├── wf-agent/    # Agent loop execution engine
+│   │   ├── wf-workflow/ # Workflow graph execution engine
+│   │   └── wf-checkpoint/  # Checkpoint system
+│   ├── app/             # Application facade and entry points
+│   │   ├── wf-api/      # Application-facing API facade
+│   │   ├── wf-server/   # HTTP transport layer
+│   │   ├── wf-runtime/  # Runtime bootstrap
+│   │   └── wf-cli/      # CLI: headless run / mini / full TUI forms
+│   └── vendor/          # Standalone subsystems
+│       └── layertwine/  # File-edit history storage engine
 ├── package.json
 ├── pnpm-workspace.yaml
 └── turbo.json
@@ -53,17 +62,15 @@ wf-agent/
 ### Rust Crate Dependency DAG
 
 ```
-wf-types  ←  wf-storage  →  wf-common
-    ↓           ↓               ↓
-wf-core ←──────┘          wf-shell  wf-config  wf-script
-    ↓                          ↓
-    ├── wf-checkpoint           └── wf-tools   wf-llm   wf-plugin
-    └── wf-execution-shared
-              ↓
-         wf-agent
-              ↓
-    ├── wf-workflow  ──  wf-sandbox
-    └── wf-runtime
+foundation:  wf-types  ←  wf-common  ←  wf-core
+                   ↑           ↑
+infra:  wf-metrics  wf-storage  wf-config  wf-script
+        wf-llm  wf-sandbox  wf-shell  wf-plugin  wf-resource
+                   ↑
+engine:  wf-tools  wf-execution-shared  wf-agent  wf-workflow  wf-checkpoint
+                   ↑
+app:  wf-api  wf-server  wf-runtime  wf-cli
+vendor:  layertwine (used by wf-checkpoint, wf-tools)
 ```
 
 ## Rust Development Conventions

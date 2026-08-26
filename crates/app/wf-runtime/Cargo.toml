@@ -1,0 +1,46 @@
+[package]
+name = "wf-runtime"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+dashmap.workspace = true
+tokio-util.workspace = true
+async-trait.workspace = true
+futures.workspace = true
+wf-types = { path = "../../foundation/wf-types" }
+wf-common = { path = "../../foundation/wf-common" }
+wf-storage = { path = "../../infra/wf-storage" }
+wf-core = { path = "../../foundation/wf-core" }
+wf-metrics = { path = "../../infra/wf-metrics" }
+wf-resource = { path = "../../infra/wf-resource" }
+wf-config = { path = "../../infra/wf-config" }
+wf-llm = { path = "../../infra/wf-llm" }
+wf-checkpoint = { path = "../../engine/wf-checkpoint", optional = true }
+wf-plugin = { path = "../../infra/wf-plugin", optional = true }
+wf-server = { path = "../wf-server" }
+wf-agent = { path = "../../engine/wf-agent" }
+wf-workflow = { path = "../../engine/wf-workflow" }
+wf-execution-shared = { path = "../../engine/wf-execution-shared" }
+wf-tools = { path = "../../engine/wf-tools" }
+wf-shell = { path = "../../infra/wf-shell" }
+wf-sandbox = { path = "../../infra/wf-sandbox" }
+wf-api = { path = "../wf-api" }
+layertwine = { path = "../../vendor/layertwine" }
+
+[dev-dependencies]
+wf-llm = { path = "../../infra/wf-llm", features = ["mock"] }
+tempfile = "3"
+
+[features]
+default = ["sqlite", "postgres"]
+sqlite = ["wf-storage/sqlite", "wf-api/sqlite"]
+postgres = ["wf-storage/postgres"]
+checkpoint = ["wf-checkpoint"]
+plugins = ["wf-plugin"]

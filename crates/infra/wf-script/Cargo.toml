@@ -1,0 +1,13 @@
+[package]
+name = "wf-script"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+wf-types = { path = "../../foundation/wf-types" }
+
+serde.workspace = true
+serde_json.workspace = true
+regex.workspace = true
+tokio.workspace = true
+thiserror.workspace = true

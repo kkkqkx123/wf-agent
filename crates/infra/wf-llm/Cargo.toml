@@ -1,0 +1,27 @@
+[package]
+name = "wf-llm"
+version.workspace = true
+edition.workspace = true
+
+[features]
+mock = []
+
+[dependencies]
+wf-types = { path = "../../foundation/wf-types" }
+wf-common = { path = "../../foundation/wf-common" }
+wf-metrics = { path = "../wf-metrics" }
+
+async-trait.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+reqwest.workspace = true
+eventsource-stream.workspace = true
+tokio.workspace = true
+tokio-util.workspace = true
+futures.workspace = true
+dashmap.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+url = { version = "2.5", features = ["serde"] }
+bytes = "1"
+regex.workspace = true

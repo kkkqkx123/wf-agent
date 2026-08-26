@@ -1,0 +1,20 @@
+[package]
+name = "wf-resource"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+wf-types = { path = "../../foundation/wf-types" }
+wf-common = { path = "../../foundation/wf-common" }
+wf-core = { path = "../../foundation/wf-core" }
+wf-tools = { path = "../../engine/wf-tools" }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+dashmap.workspace = true
+tracing.workspace = true
+chrono.workspace = true
+wf-config = { path = "../wf-config" }
+
+[dev-dependencies]
+tempfile = "3"

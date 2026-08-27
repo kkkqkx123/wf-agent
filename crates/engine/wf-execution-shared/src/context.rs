@@ -244,6 +244,10 @@ pub struct NodeExecutionContext {
     /// Typed signal bus for internal workflow/agent signals
     /// (replaces the `__`-prefixed variable protocol).
     pub signal_bus: Option<Arc<InternalSignalBus>>,
+    /// Session-level cache shared across the trigger actions of one message
+    /// node visit. Not persisted or checkpointed; `None` for non-message
+    /// nodes.
+    pub session_cache: Option<Arc<std::sync::Mutex<std::collections::HashMap<String, Value>>>>,
 }
 
 impl NodeExecutionContext {
@@ -280,6 +284,7 @@ impl NodeExecutionContext {
             readonly_variables: None,
             fork_registries: Arc::new(std::collections::HashMap::new()),
             signal_bus: None,
+            session_cache: None,
         }
     }
 
@@ -354,6 +359,16 @@ impl NodeExecutionContext {
     /// Inject a typed signal bus for internal workflow/agent signals.
     pub fn with_signal_bus(mut self, bus: Arc<InternalSignalBus>) -> Self {
         self.signal_bus = Some(bus);
+        self
+    }
+
+    /// Attach a session-level cache shared across the trigger actions of the
+    /// message node visit (not persisted or checkpointed).
+    pub fn with_session_cache(
+        mut self,
+        cache: Arc<std::sync::Mutex<std::collections::HashMap<String, Value>>>,
+    ) -> Self {
+        self.session_cache = Some(cache);
         self
     }
 

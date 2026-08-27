@@ -6,6 +6,7 @@ use serde_json::Value;
 use wf_checkpoint::event::CheckpointEventBus;
 use wf_checkpoint::execution_events::ExecutionEventBus;
 use wf_core::event::EventBus;
+use wf_core::internal_signal::InternalSignalBus;
 use wf_execution_shared::execution_state::ExecutionStateManager;
 use wf_execution_shared::hooks::types::BaseHookDefinition;
 use wf_execution_shared::hooks::HookRegistry;
@@ -60,6 +61,9 @@ pub struct AgentLoopCoordinator {
     gateway: Arc<LlmGateway>,
     tool_registry: Arc<ToolRegistry>,
     event_bus: Option<Arc<EventBus>>,
+    /// Typed signal bus: control signals (stop/pause/resume) from trigger
+    /// actions reach the loop's execution coordinator through it.
+    signal_bus: Option<Arc<InternalSignalBus>>,
     store: Arc<StorageBackend>,
     checkpoint_strategy: Option<AgentCheckpointStrategy>,
     checkpoint_event_bus: Option<CheckpointEventBus>,
@@ -109,6 +113,7 @@ impl AgentLoopCoordinator {
             gateway,
             tool_registry,
             event_bus: None,
+            signal_bus: None,
             store,
             checkpoint_strategy: None,
             checkpoint_event_bus: None,
@@ -129,6 +134,13 @@ impl AgentLoopCoordinator {
 
     pub fn with_event_bus(mut self, event_bus: Arc<EventBus>) -> Self {
         self.event_bus = Some(event_bus);
+        self
+    }
+
+    /// Inject the typed signal bus: control signals (stop/pause/resume)
+    /// targeting an agent loop are delivered to its execution coordinator.
+    pub fn with_signal_bus(mut self, bus: Arc<InternalSignalBus>) -> Self {
+        self.signal_bus = Some(bus);
         self
     }
 
@@ -435,7 +447,7 @@ impl AgentLoopCoordinator {
         // execution context; inject once for the whole run (the coordinator
         // is rebuilt per run, so no unregister step exists).
         iteration_coordinator.set_general_invoker(entity.clone());
-        let execution_coordinator = AgentExecutionCoordinator::new(iteration_coordinator.clone())
+        let mut execution_coordinator = AgentExecutionCoordinator::new(iteration_coordinator.clone())
             .with_checkpoint(checkpoint)
             .with_iteration_persist(self.state_manager.as_ref().map(|manager| {
                 Arc::new(AgentRecordPersister {
@@ -443,6 +455,9 @@ impl AgentLoopCoordinator {
                 }) as Arc<dyn IterationPersist>
             }))
             .with_metrics(self.metrics.clone());
+        if let Some(ref bus) = self.signal_bus {
+            execution_coordinator = execution_coordinator.with_signal_bus(bus.clone());
+        }
 
         let profile_id = entity.model().to_string();
         if let Some(ref metrics) = self.metrics {

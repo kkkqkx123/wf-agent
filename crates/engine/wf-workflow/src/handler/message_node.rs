@@ -46,6 +46,11 @@ fn build_trigger_context(ctx: &NodeExecutionContext) -> WorkflowResult<TriggerCo
     if let Some(bus) = &ctx.signal_bus {
         tctx = tctx.with_signal_bus(bus.clone());
     }
+    // Wire the session-level cache shared across this node visit's trigger
+    // actions.
+    if let Some(cache) = &ctx.session_cache {
+        tctx = tctx.with_session_cache(cache.clone());
+    }
     let handlers = crate::handler::resolve_handler_registry(ctx)?;
     tctx = tctx.with_handlers(handlers);
     if let Some(registry) = &ctx.tool_registry {

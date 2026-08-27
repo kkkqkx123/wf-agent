@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use serde_json::Value;
@@ -240,6 +240,9 @@ pub struct WorkflowCoordinator {
     /// Receiver for typed internal signals (replaces the `__`-prefixed
     /// variable protocol).
     signal_receiver: Option<InternalSignalReceiver>,
+    /// Nodes requested for skipping by `InternalSignal::SkipNode`, applied
+    /// at dispatch time (one-shot per node).
+    skipped_nodes: HashSet<String>,
 }
 
 impl WorkflowCoordinator {
@@ -323,6 +326,7 @@ impl WorkflowCoordinator {
             state_manager: None,
             fork_branch_progress: None,
             signal_receiver,
+            skipped_nodes: HashSet::new(),
         })
     }
 
@@ -646,6 +650,13 @@ impl WorkflowCoordinator {
                 .skip_completed_node(&entity, event_bus_ref, node_id)
                 .await?
             {
+                continue;
+            }
+
+            if self.skipped_nodes.remove(node_id) {
+                // Trigger-requested skip (InternalSignal::SkipNode): the
+                // node is not executed; navigate from its outgoing edges.
+                self.current_node_id = self.determine_next_node_without_output().await?;
                 continue;
             }
 
@@ -1304,22 +1315,7 @@ impl WorkflowCoordinator {
     }
 
     async fn process_trigger_effects(&mut self, entity: &WorkflowExecutionEntity) {
-        // Legacy variable protocol (backward compatible).
-        let stop = trigger_internal::read_flag(&self.ctx.variables, trigger_internal::TRIGGER_STOP);
-        if stop {
-            trigger_internal::clear_flag(&self.ctx.variables, trigger_internal::TRIGGER_STOP);
-            let _ = entity.interruption().stop();
-            return;
-        }
-
-        let pause =
-            trigger_internal::read_flag(&self.ctx.variables, trigger_internal::TRIGGER_PAUSE);
-        if pause {
-            trigger_internal::clear_flag(&self.ctx.variables, trigger_internal::TRIGGER_PAUSE);
-            let _ = entity.interruption().pause();
-        }
-
-        // Typed signal bus (new code path). Check signals that target this
+        // Typed signal bus. Check signals that target this
         // execution and react accordingly.
         if let Some(signal_receiver) = &mut self.signal_receiver {
             let execution_id = self.ctx.execution_id.to_string();
@@ -1339,12 +1335,8 @@ impl WorkflowCoordinator {
                         let _ = entity.interruption().resume();
                     }
                     InternalSignal::SkipNode { node_id, .. } => {
-                        // Store skip marker in variables for node handlers
-                        // to check at execution time.
-                        trigger_internal::set_flag(
-                            &self.ctx.variables,
-                            &trigger_internal::skip_marker(&node_id),
-                        );
+                        // Record the node for skipping at dispatch time.
+                        self.skipped_nodes.insert(node_id);
                     }
                     _ => {
                         // Result signals (SubworkflowResult, ScriptResult,
@@ -1432,6 +1424,15 @@ impl WorkflowCoordinator {
         ctx.fork_registries = self.ctx.fork_registries.clone();
         ctx.retry_budget = self.ctx.retry_budget.clone();
         ctx.signal_bus = self.ctx.signal_bus.clone();
+
+        // Message nodes execute trigger actions within one visit; give them a
+        // shared session cache so consecutive actions can exchange state.
+        if matches!(
+            node_type,
+            StaticNodeType::StartFromMessage | StaticNodeType::ContinueFromMessage
+        ) {
+            ctx.session_cache = Some(Arc::new(std::sync::Mutex::new(HashMap::new())));
+        }
 
         Ok(ctx)
     }

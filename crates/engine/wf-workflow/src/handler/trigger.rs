@@ -251,9 +251,7 @@ impl TriggerCoordinator {
     }
 
     async fn handle_stop_workflow(ctx: &TriggerContext) -> WorkflowResult<Value> {
-        // Legacy variable protocol (backward compatible).
-        trigger_internal::set_flag(&ctx.variables, trigger_internal::TRIGGER_STOP);
-        // Typed signal bus (new code path).
+        // Publish a typed stop signal; the coordinator loop consumes it.
         if let Some(bus) = &ctx.signal_bus {
             trigger_internal::publish_stop_signal(
                 bus,
@@ -272,9 +270,7 @@ impl TriggerCoordinator {
     }
 
     async fn handle_pause_workflow(ctx: &TriggerContext) -> WorkflowResult<Value> {
-        // Legacy variable protocol (backward compatible).
-        trigger_internal::set_flag(&ctx.variables, trigger_internal::TRIGGER_PAUSE);
-        // Typed signal bus (new code path).
+        // Publish a typed pause signal; the coordinator loop consumes it.
         if let Some(bus) = &ctx.signal_bus {
             trigger_internal::publish_pause_signal(
                 bus,
@@ -293,9 +289,7 @@ impl TriggerCoordinator {
     }
 
     async fn handle_resume_workflow(ctx: &TriggerContext) -> WorkflowResult<Value> {
-        // Legacy variable protocol (backward compatible).
-        trigger_internal::clear_flag(&ctx.variables, trigger_internal::TRIGGER_PAUSE);
-        // Typed signal bus (new code path).
+        // Publish a typed resume signal; the coordinator loop consumes it.
         if let Some(bus) = &ctx.signal_bus {
             trigger_internal::publish_resume_signal(
                 bus,
@@ -313,9 +307,8 @@ impl TriggerCoordinator {
     }
 
     async fn handle_skip_node(node_id: &str, ctx: &TriggerContext) -> WorkflowResult<Value> {
-        // Legacy variable protocol (backward compatible).
-        trigger_internal::set_flag(&ctx.variables, &trigger_internal::skip_marker(node_id));
-        // Typed signal bus (new code path).
+        // Publish a typed skip signal; the coordinator loop records the
+        // node for skipping at dispatch time.
         if let Some(bus) = &ctx.signal_bus {
             trigger_internal::publish_skip_signal(
                 bus,

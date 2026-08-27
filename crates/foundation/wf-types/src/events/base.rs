@@ -291,6 +291,20 @@ impl EventType {
     }
 }
 
+/// Parse an event type from its canonical SCREAMING_SNAKE_CASE name (the
+/// `as_str()` representation), mirroring the serde rename rule. Used to
+/// convert string-configured trigger conditions into typed subscriptions.
+impl std::str::FromStr for EventType {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let de = serde::de::value::StringDeserializer::<serde::de::value::Error>::new(
+            s.to_string(),
+        );
+        Self::deserialize(de).map_err(|e| format!("unknown event type '{}': {}", s, e))
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct BaseEvent {
     pub id: super::super::Id,

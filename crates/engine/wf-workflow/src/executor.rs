@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use wf_core::EventBus;
+use wf_core::internal_signal::InternalSignalBus;
 use wf_execution_shared::hooks::types::BaseHookDefinition;
 use wf_llm::LlmGateway;
 use wf_sandbox::SandboxRuntime;
@@ -15,6 +16,8 @@ use crate::handler::{HandlerRegistry, NodeHandler};
 
 pub struct WorkflowExecutor {
     event_bus: Option<Arc<EventBus>>,
+    /// Typed signal bus for internal workflow/agent signals.
+    signal_bus: Option<Arc<InternalSignalBus>>,
     gateway: Arc<LlmGateway>,
     /// Shared sandbox runtime (global profiles + routing rules); injected
     /// into the script handlers of executions started here. `None` uses
@@ -32,6 +35,7 @@ impl WorkflowExecutor {
     pub fn new() -> Self {
         Self {
             event_bus: None,
+            signal_bus: None,
             gateway: Arc::new(LlmGateway::new()),
             sandbox: None,
         }
@@ -40,6 +44,7 @@ impl WorkflowExecutor {
     pub fn with_gateway(gateway: Arc<LlmGateway>) -> Self {
         Self {
             event_bus: None,
+            signal_bus: None,
             gateway,
             sandbox: None,
         }
@@ -48,6 +53,7 @@ impl WorkflowExecutor {
     pub fn with_event_bus(event_bus: Arc<EventBus>) -> Self {
         Self {
             event_bus: Some(event_bus),
+            signal_bus: None,
             gateway: Arc::new(LlmGateway::new()),
             sandbox: None,
         }
@@ -56,6 +62,7 @@ impl WorkflowExecutor {
     pub fn new_default() -> Self {
         Self {
             event_bus: Some(Arc::new(EventBus::new(1024))),
+            signal_bus: None,
             gateway: Arc::new(LlmGateway::new()),
             sandbox: None,
         }
@@ -65,6 +72,13 @@ impl WorkflowExecutor {
     /// rules) into the script handlers of executions started here.
     pub fn with_sandbox(mut self, sandbox: Arc<SandboxRuntime>) -> Self {
         self.sandbox = Some(sandbox);
+        self
+    }
+
+    /// Inject the typed signal bus: control signals from trigger actions
+    /// reach the coordinator loop of executions started here.
+    pub fn with_signal_bus(mut self, bus: Arc<InternalSignalBus>) -> Self {
+        self.signal_bus = Some(bus);
         self
     }
 
@@ -99,7 +113,10 @@ impl WorkflowExecutor {
             hooks,
         };
 
-        let lifecycle = WorkflowLifecycleCoordinator::new(self.event_bus.clone());
+        let mut lifecycle = WorkflowLifecycleCoordinator::new(self.event_bus.clone());
+        if let Some(ref bus) = self.signal_bus {
+            lifecycle = lifecycle.with_signal_bus(bus.clone());
+        }
         lifecycle.execute_workflow(params).await
     }
 }

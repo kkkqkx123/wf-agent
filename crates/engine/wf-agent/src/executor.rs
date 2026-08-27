@@ -30,6 +30,9 @@ pub struct AgentLoopExecutor {
     max_iterations: u32,
     max_sub_agent_depth: u32,
     event_bus: Option<Arc<wf_core::EventBus>>,
+    /// Typed signal bus: control signals (stop/pause/resume) targeting
+    /// loops started here are delivered to their coordinators.
+    signal_bus: Option<Arc<wf_core::internal_signal::InternalSignalBus>>,
     hook_registry: Option<Arc<HookRegistry>>,
 }
 
@@ -45,6 +48,7 @@ impl AgentLoopExecutor {
             max_iterations: 10,
             max_sub_agent_depth: DEFAULT_MAX_SUB_AGENT_DEPTH,
             event_bus: None,
+            signal_bus: None,
             hook_registry: None,
         }
     }
@@ -94,6 +98,16 @@ impl AgentLoopExecutor {
         self
     }
 
+    /// Inject the typed signal bus: control signals (stop/pause/resume)
+    /// targeting loops started here are delivered to their coordinators.
+    pub fn with_signal_bus(
+        mut self,
+        bus: Arc<wf_core::internal_signal::InternalSignalBus>,
+    ) -> Self {
+        self.signal_bus = Some(bus);
+        self
+    }
+
     /// Inject the shared hook receiver registry; hook points and engine
     /// signals of loops started here dispatch through it.
     pub fn with_hook_registry(mut self, registry: Arc<HookRegistry>) -> Self {
@@ -113,6 +127,9 @@ impl AgentLoopExecutor {
                 .with_parent_execution_id(parent_execution_id);
         if let Some(bus) = &self.event_bus {
             coordinator = coordinator.with_event_bus(bus.clone());
+        }
+        if let Some(bus) = &self.signal_bus {
+            coordinator = coordinator.with_signal_bus(bus.clone());
         }
         if let Some(registry) = &self.hook_registry {
             coordinator = coordinator.with_hook_registry(registry.clone());

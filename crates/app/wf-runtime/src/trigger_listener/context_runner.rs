@@ -9,6 +9,7 @@ use async_trait::async_trait;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, warn};
 use wf_core::EventBus;
+use wf_core::internal_signal::InternalSignalBus;
 use wf_types::events::BaseEvent;
 use wf_types::node::StaticNodeType;
 use wf_types::trigger::TriggerTemplate;
@@ -30,8 +31,8 @@ use super::ExecutionContextRegistry;
 /// The runner resolves the event's execution to its live variable map via
 /// the [`ExecutionContextRegistry`] and runs the shared
 /// [`TriggerCoordinator`] against it, so a variable write lands in the
-/// executing workflow's map, a stop/pause flips the `__trigger_*` flags the
-/// coordinator polls, and the emitted events carry the execution ids.
+/// executing workflow's map, a stop/pause publishes a typed signal the
+/// coordinator consumes, and the emitted events carry the execution ids.
 ///
 /// Events without a registered execution context are skipped (agent
 /// sessions are not registered here; agent-facing actions use
@@ -62,6 +63,7 @@ pub struct ContextTriggerRunner {
     tool_registry: Option<Arc<wf_tools::registry::ToolRegistry>>,
     shutdown: CancellationToken,
     config: ContextTriggerRunnerConfig,
+    signal_bus: Option<Arc<InternalSignalBus>>,
 }
 
 impl ContextTriggerRunner {
@@ -80,12 +82,20 @@ impl ContextTriggerRunner {
             tool_registry,
             shutdown,
             config: ContextTriggerRunnerConfig::default(),
+            signal_bus: None,
         }
     }
 
     /// Override the default timeout configuration.
     pub fn with_config(mut self, config: ContextTriggerRunnerConfig) -> Self {
         self.config = config;
+        self
+    }
+
+    /// Inject the typed signal bus: control actions (stop/pause/resume/skip)
+    /// publish typed signals in addition to the legacy variable protocol.
+    pub fn with_signal_bus(mut self, bus: Option<Arc<InternalSignalBus>>) -> Self {
+        self.signal_bus = bus;
         self
     }
 }
@@ -118,6 +128,9 @@ impl TriggerActionRunner for ContextTriggerRunner {
             .with_cancellation(self.shutdown.clone());
         if let Some(registry) = &self.tool_registry {
             tctx = tctx.with_tool_registry(registry.clone());
+        }
+        if let Some(bus) = &self.signal_bus {
+            tctx = tctx.with_signal_bus(bus.clone());
         }
 
         let timeout = self.config.timeout.unwrap_or_else(|| {

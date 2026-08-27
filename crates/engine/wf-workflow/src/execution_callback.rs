@@ -5,6 +5,7 @@ use async_trait::async_trait;
 use serde_json::Value;
 use wf_core::registry::{MutableRegistry, Registry};
 use wf_core::EventBus;
+use wf_core::internal_signal::InternalSignalBus;
 use wf_execution_shared::hooks::types::BaseHookDefinition;
 use wf_execution_shared::hooks::HookRegistry;
 use wf_execution_shared::types::execution_entity::ExecutionEntity;
@@ -41,6 +42,8 @@ pub struct WorkflowExecutionCallback {
     handlers: Option<Arc<HashMap<StaticNodeType, Box<dyn NodeHandler>>>>,
     gateway: Arc<wf_llm::LlmGateway>,
     event_bus: Option<Arc<EventBus>>,
+    /// Typed signal bus for internal workflow/agent signals.
+    signal_bus: Option<Arc<InternalSignalBus>>,
     tool_registry: Arc<ToolRegistry>,
     checkpoint_strategy: Option<NodeCheckpointStrategy>,
     store: Arc<StorageBackend>,
@@ -65,6 +68,7 @@ impl WorkflowExecutionCallback {
             handlers: None,
             gateway: Arc::new(wf_llm::LlmGateway::new()),
             event_bus: None,
+            signal_bus: None,
             tool_registry,
             checkpoint_strategy: None,
             store: Arc::new(StorageBackend::new_memory()),
@@ -98,6 +102,13 @@ impl WorkflowExecutionCallback {
 
     pub fn with_event_bus(mut self, event_bus: Arc<EventBus>) -> Self {
         self.event_bus = Some(event_bus);
+        self
+    }
+
+    /// Inject the typed signal bus: control signals from trigger actions
+    /// reach the coordinator loop of executions launched here.
+    pub fn with_signal_bus(mut self, bus: Arc<InternalSignalBus>) -> Self {
+        self.signal_bus = Some(bus);
         self
     }
 
@@ -225,6 +236,9 @@ impl WorkflowExecutionCallback {
         }
         if let Some(ref registry) = self.hook_registry {
             lifecycle = lifecycle.with_hook_registry(registry.clone());
+        }
+        if let Some(ref bus) = self.signal_bus {
+            lifecycle = lifecycle.with_signal_bus(bus.clone());
         }
         lifecycle
     }

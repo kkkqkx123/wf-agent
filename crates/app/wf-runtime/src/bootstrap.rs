@@ -8,6 +8,7 @@ use wf_config::orchestrator::{default_infra_file_mapping, ConfigOrchestrator};
 use wf_config::processor::infrastructure::merge_metrics_with_defaults;
 use wf_config::processor::llm_profile::{transform_llm_profile, validate_llm_profile};
 use wf_core::event::EventBus;
+use wf_core::internal_signal::InternalSignalBus;
 use wf_execution_shared::hooks::HookRegistry;
 use wf_llm::LlmGateway;
 use wf_resource::registry::{RegisterOptions as ResourceOptions, ResourceRegistries};
@@ -235,6 +236,7 @@ struct TriggerSubsystem {
 fn assemble_trigger_subsystem(
     registries: Arc<ResourceRegistries>,
     event_bus: Arc<EventBus>,
+    signal_bus: Arc<InternalSignalBus>,
     llm_gateway: Arc<LlmGateway>,
     tool_registry: Arc<wf_tools::registry::ToolRegistry>,
     sandbox_runtime: Arc<wf_sandbox::SandboxRuntime>,
@@ -253,7 +255,8 @@ fn assemble_trigger_subsystem(
             execution_contexts.clone(),
             Some(tool_registry.clone()),
             Some(sandbox_runtime.clone()),
-        ));
+        )
+        .with_signal_bus(signal_bus.clone()));
     let listener = start_trigger_listener_with_parts(
         event_bus.clone(),
         registries.clone(),
@@ -266,6 +269,7 @@ fn assemble_trigger_subsystem(
         storage.clone(),
         Some(trigger_state_registry.clone()),
         Some(hook_registry.clone()),
+        Some(signal_bus.clone()),
         trigger_shutdown.clone(),
     );
     // The builtin compression receiver shares the listener's shutdown token
@@ -342,6 +346,11 @@ impl Runtime {
         // Shared event bus: shell event bridge depends on it, so it is
         // created before the tool registry.
         let event_bus = Arc::new(EventBus::new(1024));
+        // Shared typed signal bus: internal workflow/agent control signals
+        // (stop/pause/resume/skip, async results) replace the `__`-prefixed
+        // variable protocol. Created beside the event bus so trigger actions
+        // and coordinators share one instance.
+        let signal_bus = Arc::new(InternalSignalBus::new());
 
         // Shared hook receiver registry: hook points and engine signals
         // (context compression) dispatch through it. The builtin compression
@@ -500,14 +509,16 @@ impl Runtime {
         let agent_executor = std::sync::Arc::new(
             wf_agent::executor::AgentLoopExecutor::new(llm_gateway.clone(), tool_registry.clone())
                 .with_shared_registry(agent_registry.clone())
-                .with_hook_registry(hook_registry.clone()),
+                .with_hook_registry(hook_registry.clone())
+                .with_signal_bus(signal_bus.clone()),
         );
         let mut workflow_callback =
             wf_workflow::execution_callback::WorkflowExecutionCallback::new(tool_registry.clone())
                 .with_gateway(llm_gateway.clone())
                 .with_event_bus(event_bus.clone())
                 .with_sandbox(sandbox_runtime.clone())
-                .with_hook_registry(hook_registry.clone());
+                .with_hook_registry(hook_registry.clone())
+                .with_signal_bus(signal_bus.clone());
         if let Some(metrics) = metrics.as_ref() {
             workflow_callback = workflow_callback.with_metrics(metrics.registry().clone());
         }
@@ -574,6 +585,7 @@ impl Runtime {
         let trigger_subsystem = assemble_trigger_subsystem(
             registries.clone(),
             event_bus.clone(),
+            signal_bus.clone(),
             llm_gateway.clone(),
             tool_registry.clone(),
             sandbox_runtime.clone(),

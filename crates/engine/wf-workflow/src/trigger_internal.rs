@@ -3,35 +3,23 @@
 //! Trigger actions and message nodes communicate with the running execution
 //! through two mechanisms:
 //!
-//! 1. **Reserved variables** (`__`-prefixed) in the workflow variable map
-//!    — the legacy protocol. These names are part of the contract between
-//!    `TriggerCoordinator` (the writer), the workflow coordinator loop
-//!    (the consumer of stop/pause), and the node handlers (idempotency
-//!    markers); keep them centralized here so the contract stays visible
-//!    and user variables cannot collide with them.
+//! 1. **InternalSignalBus** — the typed channel for control signals
+//!    (stop/pause/resume/skip) and async results. This is the only channel
+//!    for control; the coordinators subscribe and react at loop boundaries.
 //!
-//! 2. **InternalSignalBus** — the typed channel that replaces the variable
-//!    protocol. New code should prefer `publish_signal()` over `set_flag()`;
-//!    the variable helpers are retained for backward compatibility during
-//!    the migration.
+//! 2. **Reserved variables** (`__`-prefixed) in the workflow variable map
+//!    for the remaining user-visible contracts: node idempotency markers
+//!    (`__completed_{node_id}`, consumed by single-execution node handlers)
+//!    and result slots (`__trigger_*_result`, the default `result_variable`
+//!    targets). Keep them centralized here so the contract stays visible
+//!    and user variables cannot collide with them.
 
 use serde_json::Value;
 use wf_core::internal_signal::{InternalSignal, InternalSignalBus};
 use wf_types::Id;
 
-// ── Legacy variable protocol ──────────────────────────────────────────────
+// ── Reserved user-visible variables ───────────────────────────────────────
 
-/// Stop flag: set by `TriggerAction::StopWorkflowExecution`, consumed by the
-/// workflow coordinator loop (interrupts the execution).
-pub const TRIGGER_STOP: &str = "__trigger_stop";
-/// Pause flag: set by `TriggerAction::PauseWorkflowExecution`, removed by
-/// `ResumeWorkflowExecution`, consumed by the workflow coordinator loop.
-pub const TRIGGER_PAUSE: &str = "__trigger_pause";
-/// Skip marker for `TriggerAction::SkipNode { node_id }`:
-/// `__skipped_{node_id}`.
-pub fn skip_marker(node_id: &str) -> String {
-    format!("__skipped_{}", node_id)
-}
 /// Idempotency marker for single-execution node handlers (START / END /
 /// message nodes): `__completed_{node_id}`.
 pub fn completed_marker(node_id: &str) -> String {
@@ -46,31 +34,12 @@ pub const SCRIPT_RESULT: &str = "__trigger_script_result";
 /// `result_variable` is configured (wf-runtime `AgentTriggerRunner`).
 pub const AGENT_RESULT: &str = "__trigger_agent_result";
 
-/// Set a boolean protocol flag in the variable map.
-pub fn set_flag(variables: &dashmap::DashMap<String, Value>, key: &str) {
-    variables.insert(key.to_string(), Value::Bool(true));
-}
-
-/// Clear a protocol flag from the variable map.
-pub fn clear_flag(variables: &dashmap::DashMap<String, Value>, key: &str) {
-    variables.remove(key);
-}
-
-/// Read a boolean protocol flag (false when absent or non-boolean).
-pub fn read_flag(variables: &dashmap::DashMap<String, Value>, key: &str) -> bool {
-    variables
-        .get(key)
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false)
-}
-
 // ── Internal signal helpers ───────────────────────────────────────────────
 
 /// Publish a stop signal via the `InternalSignalBus` (typed channel).
 ///
-/// This is the preferred method over `set_flag(&vars, TRIGGER_STOP)`;
-/// the coordinator loop can subscribe to the bus and react to the signal
-/// directly without polling the variable map.
+/// This is the only mechanism for stop; the coordinator loop subscribes to
+/// the bus and reacts to the signal at node boundaries.
 pub fn publish_stop_signal(
     bus: &InternalSignalBus,
     source: Id,
@@ -165,24 +134,13 @@ pub fn publish_agent_result(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Arc;
 
-    // ── Legacy variable protocol tests ────────────────────────────────
-
-    #[test]
-    fn flags_roundtrip() {
-        let vars = Arc::new(dashmap::DashMap::new());
-        set_flag(&vars, TRIGGER_STOP);
-        assert!(read_flag(&vars, TRIGGER_STOP));
-        clear_flag(&vars, TRIGGER_STOP);
-        assert!(!read_flag(&vars, TRIGGER_STOP));
-    }
+    // ── Reserved variable helpers tests ───────────────────────────────
 
     #[test]
     fn markers_are_namespaced() {
-        assert_eq!(skip_marker("n1"), "__skipped_n1");
         assert_eq!(completed_marker("n1"), "__completed_n1");
-        assert_ne!(skip_marker("n1"), completed_marker("n1"));
+        assert_ne!(completed_marker("n1"), completed_marker("n2"));
     }
 
     // ── Internal signal bus tests ─────────────────────────────────────

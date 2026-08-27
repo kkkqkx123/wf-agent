@@ -6,6 +6,7 @@ use wf_checkpoint::event::CheckpointEventBus;
 use wf_checkpoint::execution_events::ExecutionEventBus;
 use wf_core::EventBus;
 use wf_core::WorkflowStateMachine;
+use wf_core::internal_signal::InternalSignalBus;
 use wf_execution_shared::context::ExecutorContext;
 use wf_execution_shared::hooks::types::BaseHookDefinition;
 use wf_execution_shared::hooks::HookRegistry;
@@ -41,6 +42,9 @@ pub struct WorkflowExecutionParams {
 
 pub struct WorkflowLifecycleCoordinator {
     event_bus: Option<Arc<EventBus>>,
+    /// Typed signal bus for internal workflow/agent signals (replaces the
+    /// `__`-prefixed variable protocol).
+    signal_bus: Option<Arc<InternalSignalBus>>,
     store: Arc<StorageBackend>,
     checkpoint_strategy: Option<NodeCheckpointStrategy>,
     checkpoint_event_bus: Option<CheckpointEventBus>,
@@ -63,6 +67,7 @@ impl WorkflowLifecycleCoordinator {
     pub fn with_store(event_bus: Option<Arc<EventBus>>, store: Arc<StorageBackend>) -> Self {
         Self {
             event_bus,
+            signal_bus: None,
             store,
             checkpoint_strategy: None,
             checkpoint_event_bus: None,
@@ -81,6 +86,13 @@ impl WorkflowLifecycleCoordinator {
         manager: wf_checkpoint::file::FileCheckpointManager,
     ) -> Self {
         self.file_checkpoint_manager = Some(manager);
+        self
+    }
+
+    /// Inject the typed signal bus: control signals from trigger actions
+    /// reach the coordinator loop of executions started here.
+    pub fn with_signal_bus(mut self, bus: Arc<InternalSignalBus>) -> Self {
+        self.signal_bus = Some(bus);
         self
     }
 
@@ -181,6 +193,9 @@ impl WorkflowLifecycleCoordinator {
         // The coordinator and the entity share one variable map so that
         // checkpoints (built from the entity) capture live variables.
         ctx.variables = entity.variables().clone();
+        if let Some(ref bus) = self.signal_bus {
+            ctx = ctx.with_signal_bus(bus.clone());
+        }
         if let Some(ref regs) = resource_registries {
             ctx = ctx.with_resource_registries(regs.clone());
         }
@@ -356,6 +371,9 @@ impl WorkflowLifecycleCoordinator {
         ctx.variables = entity.variables().clone();
         for (name, value) in &snapshot.variable_state.variables {
             ctx.variables.insert(name.clone(), value.clone());
+        }
+        if let Some(ref bus) = self.signal_bus {
+            ctx = ctx.with_signal_bus(bus.clone());
         }
         if let Some(ref metrics) = self.metrics {
             ctx = ctx.with_metrics(metrics.clone());

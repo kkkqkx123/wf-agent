@@ -10,6 +10,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, warn};
 use wf_core::registry::Registry;
 use wf_core::EventBus;
+use wf_core::internal_signal::InternalSignalBus;
 use wf_execution_shared::context::ExecutorContext;
 use wf_llm::{ContextCompressionRequestedMeta, LlmGateway};
 use wf_resource::registry::ResourceRegistries;
@@ -118,6 +119,8 @@ pub struct WorkflowRunner {
     /// Shared tool registry (builtin handlers + skills + MCP tools). When
     /// absent, a fresh registry is created per run.
     tool_registry: Option<Arc<wf_tools::registry::ToolRegistry>>,
+    /// Typed signal bus for internal workflow/agent signals.
+    signal_bus: Option<Arc<InternalSignalBus>>,
 }
 
 impl WorkflowRunner {
@@ -144,7 +147,15 @@ impl WorkflowRunner {
             contexts,
             skill_loader,
             tool_registry: None,
+            signal_bus: None,
         }
+    }
+
+    /// Inject the typed signal bus: control signals from trigger actions
+    /// reach the executed sub-workflow's coordinator through it.
+    pub fn with_signal_bus(mut self, bus: Arc<InternalSignalBus>) -> Self {
+        self.signal_bus = Some(bus);
+        self
     }
 
     /// Like [`WorkflowRunner::with_skill_loader`], but uses a caller-provided
@@ -164,6 +175,7 @@ impl WorkflowRunner {
             contexts,
             skill_loader: None,
             tool_registry,
+            signal_bus: None,
         }
     }
 }
@@ -235,6 +247,10 @@ impl SubworkflowRunner for WorkflowRunner {
             options,
         )
         .with_resource_registries(self.registries.clone());
+        let exec_ctx = match &self.signal_bus {
+            Some(bus) => exec_ctx.with_signal_bus(bus.clone()),
+            None => exec_ctx,
+        };
         // Lifecycle wiring (compression chain closure): the execution's
         // variable map is the write-back target of its named message arrays;
         // registered at start and unregistered at end, so the trigger

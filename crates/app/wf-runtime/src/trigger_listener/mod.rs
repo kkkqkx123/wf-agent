@@ -50,7 +50,9 @@ use tokio_util::sync::CancellationToken;
 use tracing::warn;
 use wf_agent::registry::AgentLoopRegistry;
 use wf_agent::trigger::AgentExecutorCallback;
+use wf_common::gate::ConcurrencyGate;
 use wf_core::EventBus;
+use wf_core::internal_signal::InternalSignalBus;
 use wf_execution_shared::hooks::HookRegistry;
 use wf_llm::LlmGateway;
 use wf_resource::registry::ResourceRegistries;
@@ -68,6 +70,10 @@ use wf_workflow::trigger_listener::{
 /// not configure one. Shared by the sub-workflow action runner
 /// (`workflow_runner.rs`) and the compression service (`compression.rs`).
 const DEFAULT_TRIGGER_TIMEOUT_MS: u64 = 60000;
+
+/// Default concurrency bound for trigger-action execution, enforced by the
+/// shared `ConcurrencyGate` of the listener.
+const DEFAULT_TRIGGER_ACTION_CONCURRENCY: usize = 32;
 
 /// Minimal object-safe write point for trigger execution records.
 ///
@@ -300,6 +306,7 @@ pub fn start_trigger_listener_with_registry(
         storage,
         trigger_state_registry,
         None,
+        None,
         CancellationToken::new(),
     )
 }
@@ -321,6 +328,7 @@ pub fn start_trigger_listener_with_parts(
     storage: Option<Arc<dyn TriggerExecutionRecorder>>,
     trigger_state_registry: Option<Arc<wf_workflow::TriggerStateRegistry>>,
     hook_registry: Option<Arc<HookRegistry>>,
+    signal_bus: Option<Arc<InternalSignalBus>>,
     shutdown: CancellationToken,
 ) -> TriggerListenerHandle {
     spawn_listener(
@@ -335,6 +343,7 @@ pub fn start_trigger_listener_with_parts(
         storage,
         trigger_state_registry,
         hook_registry,
+        signal_bus,
         shutdown,
     )
 }
@@ -352,6 +361,7 @@ fn spawn_listener(
     storage: Option<Arc<dyn TriggerExecutionRecorder>>,
     trigger_state_registry: Option<Arc<wf_workflow::TriggerStateRegistry>>,
     hook_registry: Option<Arc<HookRegistry>>,
+    signal_bus: Option<Arc<InternalSignalBus>>,
     shutdown: CancellationToken,
 ) -> TriggerListenerHandle {
     let registry: Arc<dyn TriggerTemplateRegistry> =
@@ -388,14 +398,15 @@ fn spawn_listener(
             &gateway,
             &sandbox,
             &tool_registry,
+            signal_bus,
         ),
     ));
-    let listener = Arc::new(TriggerEventListener::new(
-        event_bus,
-        registry,
-        action_runner,
-        shutdown.clone(),
-    ));
+    let listener = Arc::new(
+        TriggerEventListener::new(event_bus, registry, action_runner, shutdown.clone())
+            .with_concurrency_gate(Arc::new(ConcurrencyGate::new(
+                DEFAULT_TRIGGER_ACTION_CONCURRENCY,
+            ))),
+    );
     let handle = tokio::spawn({
         let listener = listener.clone();
         async move { listener.run().await }
@@ -420,6 +431,7 @@ fn context_runner(
     gateway: &Arc<LlmGateway>,
     sandbox: &Option<Arc<wf_sandbox::SandboxRuntime>>,
     tool_registry: &Option<Arc<wf_tools::registry::ToolRegistry>>,
+    signal_bus: Option<Arc<InternalSignalBus>>,
 ) -> Arc<ContextTriggerRunner> {
     Arc::new(ContextTriggerRunner::new(
         event_bus.clone(),
@@ -427,7 +439,8 @@ fn context_runner(
         wf_workflow::create_default_handlers(gateway.clone(), sandbox.clone()),
         tool_registry.clone(),
         shutdown.clone(),
-    ))
+    )
+    .with_signal_bus(signal_bus))
 }
 
 /// Wrap an [`AgentLoopExecutor`] into the child-agent callback consumed by

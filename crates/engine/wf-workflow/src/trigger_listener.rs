@@ -13,7 +13,7 @@
 //! the action itself through [`TriggerActionRunner`], all implemented by
 //! wf-runtime during assembly.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -21,9 +21,10 @@ use dashmap::DashMap;
 use tokio::sync::mpsc;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, warn};
+use wf_common::gate::ConcurrencyGate;
 use wf_core::error::EventError;
 use wf_core::EventBus;
-use wf_types::events::BaseEvent;
+use wf_types::events::{BaseEvent, EventType};
 use wf_types::trigger::{TriggerCondition, TriggerTemplate};
 
 use crate::error::WorkflowResult;
@@ -105,7 +106,42 @@ pub struct TriggerEventListener {
     in_flight: DashMap<String, ()>,
     /// Per-template fire counts (only consulted when `max_triggers > 0`).
     trigger_counts: Arc<std::sync::Mutex<HashMap<String, u32>>>,
+    /// Event types with at least one registered template; the listener
+    /// subscribes a typed channel per type. Empty when no template declares
+    /// a parseable type (general-channel fallback).
+    interested_types: Vec<EventType>,
+    /// Optional concurrency gate bounding concurrent trigger-action
+    /// execution. `None` keeps the previous unbounded behavior.
+    concurrency_gate: Option<Arc<ConcurrencyGate>>,
     shutdown: CancellationToken,
+}
+
+/// Event types that at least one registered template can match, deduplicated
+/// in registration order. A template whose `event_type` does not parse into a
+/// known [`EventType`] forces the general-channel fallback (empty result) so
+/// misconfigured templates keep their previous delivery behavior.
+fn collect_interested_types(registry: &Arc<dyn TriggerTemplateRegistry>) -> Vec<EventType> {
+    let mut seen = HashSet::new();
+    let mut types = Vec::new();
+    for template in registry.templates() {
+        let Some(condition) = &template.condition else {
+            continue;
+        };
+        if !seen.insert(condition.event_type.clone()) {
+            continue;
+        }
+        match condition.event_type.parse::<EventType>() {
+            Ok(event_type) => types.push(event_type),
+            Err(e) => {
+                warn!(
+                    "Trigger template event_type '{}' is not a known event type: {}; falling back to the general event channel",
+                    condition.event_type, e
+                );
+                return Vec::new();
+            }
+        }
+    }
+    types
 }
 
 impl TriggerEventListener {
@@ -121,8 +157,17 @@ impl TriggerEventListener {
             runner,
             in_flight: DashMap::new(),
             trigger_counts: Arc::new(std::sync::Mutex::new(HashMap::new())),
+            interested_types: collect_interested_types(&registry),
+            concurrency_gate: None,
             shutdown,
         }
+    }
+
+    /// Bound concurrent trigger-action execution with a shared gate. When
+    /// `None` (default), actions spawn unbounded as before.
+    pub fn with_concurrency_gate(mut self, gate: Arc<ConcurrencyGate>) -> Self {
+        self.concurrency_gate = Some(gate);
+        self
     }
 
     /// Run the listener loop until shutdown is requested.
@@ -153,16 +198,66 @@ impl TriggerEventListener {
             }
         });
 
+        // Fan-in event source: one forwarder per registered event type
+        // (typed channels), or the general channel when no template declares
+        // a parseable type. The main loop only receives events that at least
+        // one template can match, avoiding irrelevant-channel load.
+        let (event_tx, mut event_rx) = mpsc::unbounded_channel::<BaseEvent>();
+        if self.interested_types.is_empty() {
+            let tx = event_tx.clone();
+            let mut subscription = self.bus.subscribe();
+            tokio::spawn(async move {
+                loop {
+                    match subscription.recv().await {
+                        Ok(event) => {
+                            if tx.send(event).is_err() {
+                                break;
+                            }
+                        }
+                        Err(EventError::Lagged(_)) => {
+                            warn!("TriggerEventListener lagged behind the event bus");
+                            continue;
+                        }
+                        Err(_) => break,
+                    }
+                }
+            });
+        } else {
+            for event_type in &self.interested_types {
+                let tx = event_tx.clone();
+                let event_type = event_type.clone();
+                let mut subscription = self.bus.subscribe_typed(event_type.clone());
+                tokio::spawn(async move {
+                    loop {
+                        match subscription.recv().await {
+                            Ok(event) => {
+                                if tx.send(event).is_err() {
+                                    break;
+                                }
+                            }
+                            Err(EventError::Lagged(_)) => {
+                                warn!(
+                                    "TriggerEventListener lagged behind event type {}",
+                                    event_type.as_str()
+                                );
+                                continue;
+                            }
+                            Err(_) => break,
+                        }
+                    }
+                });
+            }
+        }
+
         // Main event loop: receive events, spawn matching in background tasks.
-        let mut subscription = self.bus.subscribe();
         loop {
             tokio::select! {
                 _ = self.shutdown.cancelled() => {
                     debug!("TriggerEventListener shutdown requested");
                     break;
                 }
-                event = subscription.recv() => match event {
-                    Ok(event) => {
+                event = event_rx.recv() => match event {
+                    Some(event) => {
                         let tx = match_tx.clone();
                         let listener = self.clone();
                         tokio::spawn(async move {
@@ -171,11 +266,7 @@ impl TriggerEventListener {
                             }
                         });
                     }
-                    Err(EventError::Lagged(_)) => {
-                        warn!("TriggerEventListener lagged behind the event bus");
-                        continue;
-                    }
-                    Err(_) => break,
+                    None => break,
                 },
             }
         }
@@ -292,7 +383,25 @@ impl TriggerEventListener {
         let shutdown = self.shutdown.clone();
         let template = template.clone();
         let event = event.clone();
+        let gate = self.concurrency_gate.clone();
         tokio::spawn(async move {
+            // Concurrency gate: wait for a permit before running (queued
+            // triggers hold their in-flight slot). No gate keeps the
+            // previous unbounded behavior.
+            let _permit = match gate {
+                Some(gate) => match gate.acquire_wait().await {
+                    Ok(permit) => Some(permit),
+                    Err(e) => {
+                        warn!(
+                            "Trigger '{}' rejected by concurrency gate: {}",
+                            template.name, e
+                        );
+                        listener.in_flight.remove(&key);
+                        return;
+                    }
+                },
+                None => None,
+            };
             let run = listener.runner.run(&template, &event);
             tokio::select! {
                 outcome = run => {

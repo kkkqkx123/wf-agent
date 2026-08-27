@@ -3,6 +3,7 @@ use std::sync::Arc;
 use wf_core::execution_loop;
 use wf_core::failure_policy::{default_retry_policy, FailurePolicyManager};
 use wf_core::interruption::InterruptionSignal;
+use wf_core::internal_signal::{InternalSignal, InternalSignalBus, InternalSignalReceiver};
 use wf_metrics::MetricsRegistry;
 use wf_types::checkpoint::CheckpointTiming;
 use wf_types::execution::FailurePolicyConfig;
@@ -27,6 +28,10 @@ pub struct AgentExecutionCoordinator {
     checkpoint: Option<AgentCheckpointIntegration>,
     iteration_persist: Option<Arc<dyn IterationPersist>>,
     metrics: Option<Arc<MetricsRegistry>>,
+    /// Receiver for typed internal signals (replaces the `__`-prefixed
+    /// variable protocol); stop/pause/resume are applied at iteration
+    /// boundaries.
+    signal_receiver: Option<InternalSignalReceiver>,
 }
 
 impl AgentExecutionCoordinator {
@@ -36,7 +41,15 @@ impl AgentExecutionCoordinator {
             checkpoint: None,
             iteration_persist: None,
             metrics: None,
+            signal_receiver: None,
         }
+    }
+
+    /// Inject the typed signal bus: control signals targeting an agent loop
+    /// are delivered to this coordinator at iteration boundaries.
+    pub fn with_signal_bus(mut self, bus: Arc<InternalSignalBus>) -> Self {
+        self.signal_receiver = Some(bus.subscribe());
+        self
     }
 
     pub fn with_checkpoint(mut self, checkpoint: Option<AgentCheckpointIntegration>) -> Self {
@@ -108,6 +121,12 @@ impl AgentExecutionCoordinator {
         failure_policy: &FailurePolicyManager,
     ) -> AgentResult<(IterationResult, u32)> {
         for iteration in 0..max_iterations {
+            // Typed internal signals (stop/pause/resume from trigger
+            // actions): drain signals targeting this execution before the
+            // suspension gate so a stop lands on the current boundary.
+            if let Some(receiver) = &mut self.signal_receiver {
+                self.drain_internal_signals(entity, receiver).await;
+            }
             // Suspension gate: a paused loop waits here for resume; a forced
             // stop (wall-clock / pause timeout / explicit stop) exits below.
             execution_loop::wait_for_resume(entity.interruption()).await;
@@ -198,6 +217,48 @@ impl AgentExecutionCoordinator {
         }
 
         Ok((result, max_iterations))
+    }
+
+    /// Drain typed internal signals targeting this execution. Stop/pause/
+    /// resume flip the interruption state (the existing gates act on it);
+    /// async result signals are logged as the extension point for a loop
+    /// awaiting an asynchronous sub-workflow/script/agent result.
+    async fn drain_internal_signals(
+        &self,
+        entity: &AgentLoopEntity,
+        receiver: &mut InternalSignalReceiver,
+    ) {
+        while let Some(signal) = receiver.try_recv() {
+            if signal.target_execution_id() != entity.id() {
+                continue;
+            }
+            match signal {
+                InternalSignal::StopWorkflow { .. } => {
+                    tracing::debug!(execution_id = %entity.id(), "agent loop stop signal");
+                    let _ = entity.interruption().stop();
+                }
+                InternalSignal::PauseWorkflow { .. } => {
+                    tracing::debug!(execution_id = %entity.id(), "agent loop pause signal");
+                    let _ = entity.interruption().pause();
+                }
+                InternalSignal::ResumeWorkflow { .. } => {
+                    tracing::debug!(execution_id = %entity.id(), "agent loop resume signal");
+                    let _ = entity.interruption().resume();
+                }
+                InternalSignal::SkipNode { .. } => {
+                    // Node-level skipping applies to workflows only.
+                }
+                InternalSignal::SubworkflowResult { .. }
+                | InternalSignal::ScriptResult { .. }
+                | InternalSignal::AgentResult { .. } => {
+                    tracing::debug!(
+                        execution_id = %entity.id(),
+                        signal_type = signal.variant_name(),
+                        "agent loop received async result signal"
+                    );
+                }
+            }
+        }
     }
 
     /// The error for a stopped execution. An explicit `stop()` already settled

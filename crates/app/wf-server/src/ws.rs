@@ -308,9 +308,11 @@ mod tests {
         tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
     >;
 
-    async fn connect(addr: std::net::SocketAddr, query: &str) -> Result<WsStream, WsError> {
+    async fn connect(addr: std::net::SocketAddr, query: &str) -> Result<WsStream, Box<WsError>> {
         let url = format!("ws://{addr}/api/v1/ws{query}");
-        let (socket, _) = tokio_tungstenite::connect_async(&url).await?;
+        let (socket, _) = tokio_tungstenite::connect_async(&url)
+            .await
+            .map_err(Box::new)?;
         Ok(socket)
     }
 

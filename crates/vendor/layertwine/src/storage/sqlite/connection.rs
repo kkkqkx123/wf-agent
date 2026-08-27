@@ -135,32 +135,31 @@ impl SqliteStorage {
             let freelist_before: i64 =
                 conn.query_row("PRAGMA freelist_count", [], |row| row.get(0))?;
 
-            let vacuum_performed;
-            let message;
-
-            if page_count == 0 {
-                vacuum_performed = false;
-                message = "database is empty, nothing to compact".into();
+            let (vacuum_performed, message) = if page_count == 0 {
+                (false, "database is empty, nothing to compact".into())
             } else if opts.vacuum_full {
                 conn.execute_batch("VACUUM;")?;
-                vacuum_performed = true;
-                message = "full VACUUM completed".into();
+                (true, "full VACUUM completed".into())
             } else if freelist_before as f64 / page_count as f64 > opts.freelist_threshold {
                 let pages = freelist_before.min(opts.max_vacuum_pages);
                 conn.execute(&format!("PRAGMA incremental_vacuum({})", pages), [])?;
-                vacuum_performed = true;
-                message = format!(
-                    "incremental_vacuum: reclaimed up to {} pages (freelist was {}/{})",
-                    pages, freelist_before, page_count
-                );
+                (
+                    true,
+                    format!(
+                        "incremental_vacuum: reclaimed up to {} pages (freelist was {}/{})",
+                        pages, freelist_before, page_count
+                    ),
+                )
             } else {
-                vacuum_performed = false;
-                message = format!(
-                    "freelist ratio {:.2}% below threshold {:.0}%, skipped vacuum",
-                    freelist_before as f64 / page_count as f64 * 100.0,
-                    opts.freelist_threshold * 100.0,
-                );
-            }
+                (
+                    false,
+                    format!(
+                        "freelist ratio {:.2}% below threshold {:.0}%, skipped vacuum",
+                        freelist_before as f64 / page_count as f64 * 100.0,
+                        opts.freelist_threshold * 100.0,
+                    ),
+                )
+            };
 
             let freelist_after: i64 =
                 conn.query_row("PRAGMA freelist_count", [], |row| row.get(0))?;

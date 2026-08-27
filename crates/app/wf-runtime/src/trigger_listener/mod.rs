@@ -262,6 +262,7 @@ pub fn start_trigger_listener_with_skills(
         None,
         None,
         None,
+        None,
         CancellationToken::new(),
     )
 }

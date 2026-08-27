@@ -31,7 +31,13 @@ pub struct AgentExecutionCoordinator {
     /// Receiver for typed internal signals (replaces the `__`-prefixed
     /// variable protocol); stop/pause/resume are applied at iteration
     /// boundaries.
-    signal_receiver: Option<InternalSignalReceiver>,
+    ///
+    /// Wrapped in a `Mutex` for interior mutability: `execute` is a `&self`
+    /// method, but draining the receiver (`try_recv`) requires `&mut` access.
+    /// The coordinator is drained at each iteration boundary, so the
+    /// mutation is an internal side-effect that must not change the public
+    /// `&self` contract.
+    signal_receiver: tokio::sync::Mutex<Option<InternalSignalReceiver>>,
 }
 
 impl AgentExecutionCoordinator {
@@ -41,14 +47,14 @@ impl AgentExecutionCoordinator {
             checkpoint: None,
             iteration_persist: None,
             metrics: None,
-            signal_receiver: None,
+            signal_receiver: tokio::sync::Mutex::new(None),
         }
     }
 
     /// Inject the typed signal bus: control signals targeting an agent loop
     /// are delivered to this coordinator at iteration boundaries.
     pub fn with_signal_bus(mut self, bus: Arc<InternalSignalBus>) -> Self {
-        self.signal_receiver = Some(bus.subscribe());
+        self.signal_receiver = tokio::sync::Mutex::new(Some(bus.subscribe()));
         self
     }
 
@@ -124,7 +130,8 @@ impl AgentExecutionCoordinator {
             // Typed internal signals (stop/pause/resume from trigger
             // actions): drain signals targeting this execution before the
             // suspension gate so a stop lands on the current boundary.
-            if let Some(receiver) = &mut self.signal_receiver {
+            let mut guard = self.signal_receiver.lock().await;
+            if let Some(receiver) = guard.as_mut() {
                 self.drain_internal_signals(entity, receiver).await;
             }
             // Suspension gate: a paused loop waits here for resume; a forced

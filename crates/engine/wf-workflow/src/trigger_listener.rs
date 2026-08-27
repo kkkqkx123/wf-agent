@@ -151,13 +151,14 @@ impl TriggerEventListener {
         runner: Arc<dyn TriggerActionRunner>,
         shutdown: CancellationToken,
     ) -> Self {
+        let interested_types = collect_interested_types(&registry);
         Self {
             bus,
             registry,
             runner,
             in_flight: DashMap::new(),
             trigger_counts: Arc::new(std::sync::Mutex::new(HashMap::new())),
-            interested_types: collect_interested_types(&registry),
+            interested_types,
             concurrency_gate: None,
             shutdown,
         }

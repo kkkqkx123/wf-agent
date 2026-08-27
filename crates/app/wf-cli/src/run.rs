@@ -28,9 +28,9 @@ use wf_api::entity::user_interaction::{
 use wf_tools::callback::AgentLoopInput;
 use wf_types::Id;
 
-use crate::approval_policy::{
-    default_low_risk_tools, default_sensitive_tools, ApprovalDecision, ApprovalPolicy,
-};
+use crate::approval_policy::{ApprovalDecision, ApprovalPolicy};
+#[cfg(test)]
+use crate::approval_policy::{default_low_risk_tools, default_sensitive_tools};
 use crate::config::{build_agent_loop_config, DEFAULT_MODEL};
 use crate::domain::DomainAdapter;
 use crate::error::{CliError, CliResult};

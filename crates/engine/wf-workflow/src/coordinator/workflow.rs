@@ -34,7 +34,6 @@ use crate::handler::NodeHandler;
 use crate::hook::WorkflowHookHandler;
 use crate::persistence::build_workflow_execution;
 use crate::state::{NodeExecutionRecord, WorkflowExecutionStateSnapshot};
-use crate::trigger_internal;
 
 /// Serialized size of a value in bytes, used for node input/output metrics.
 fn json_size(value: &Value) -> u64 {

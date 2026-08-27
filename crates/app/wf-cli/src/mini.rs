@@ -149,6 +149,27 @@ extern "C" fn sigtstp_handler(_sig: libc::c_int) {
     SUSPEND_PENDING.store(true, Ordering::SeqCst);
 }
 
+/// A boxed, `'static`, `Send` future queued for execution on the event loop.
+type DeferredAction = std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'static>>;
+
+/// A state-update closure produced by a deferred async action.
+type DeferredUpdate = Box<dyn FnOnce(&mut MiniApp) + Send>;
+
+/// Shared, deferred result of an async query: `None` until the action
+/// completes, then `Some(Ok(_))` or `Some(Err(String))`.
+type SharedResult<T> = Arc<std::sync::Mutex<Option<Result<T, String>>>>;
+
+/// Files, skills and workflow summaries collected for the `@` mention panel.
+type MentionQueryResult = (
+    Vec<String>,
+    Vec<wf_types::SkillMetadata>,
+    Vec<wf_api::workflow::summary::WorkflowSummary>,
+);
+
+/// Shared, deferred mention-panel payload: `None` until the action
+/// completes, then `Some((files, skills, workflows))`.
+type SharedMentionResult = Arc<std::sync::Mutex<Option<MentionQueryResult>>>;
+
 /// The mini application: owns the terminal, the footer, the scrollback
 /// settle state and the output channel.
 pub struct MiniApp {
@@ -226,11 +247,10 @@ pub struct MiniApp {
     /// Deferred async actions queued by synchronous command handlers.
     /// Drained at the top of each event-loop iteration to avoid blocking
     /// the tokio runtime with `futures::executor::block_on`.
-    pending_actions:
-        Vec<std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'static>>>,
+    pending_actions: Vec<DeferredAction>,
     /// State-update closures produced by deferred async actions. Each closure
     /// is executed on the event-loop iteration after the action completes.
-    deferred_updates: Vec<Box<dyn FnOnce(&mut MiniApp) + Send>>,
+    deferred_updates: Vec<DeferredUpdate>,
 }
 
 impl MiniApp {
@@ -383,14 +403,14 @@ impl MiniApp {
 
             // Execute any deferred async actions queued by synchronous
             // command handlers (model panel, workflow panel, etc.).
-            let actions: Vec<_> = self.pending_actions.drain(..).collect();
+            let actions = std::mem::take(&mut self.pending_actions);
             for action in actions {
                 action.await;
             }
             // Apply state-update closures produced by deferred async actions.
-            let updates: Vec<_> = self.deferred_updates.drain(..).collect();
+            let updates = std::mem::take(&mut self.deferred_updates);
             for update in updates {
-                update(self);
+                update(&mut self);
                 self.dirty = true;
             }
 
@@ -1524,7 +1544,7 @@ impl MiniApp {
     }
 
     /// Open the model panel (best-effort profile query).
-    async fn open_model_panel(&mut self) {
+    pub async fn open_model_panel(&mut self) {
         let mut profiles = Vec::new();
         match wf_api::llm::llm_profile::list(self.adapter.api_context()).await {
             Ok(list) => profiles = list,
@@ -1548,7 +1568,7 @@ impl MiniApp {
     fn queue_open_model_panel(&mut self) {
         let adapter = self.adapter.clone();
         let current_model = self.model.clone();
-        let result: Arc<std::sync::Mutex<Option<Result<Vec<wf_types::llm::LlmProfile>, String>>>> =
+        let result: SharedResult<Vec<wf_types::llm::LlmProfile>> =
             Arc::new(std::sync::Mutex::new(None));
         let result_clone = result.clone();
         self.pending_actions.push(Box::pin(async move {
@@ -1679,7 +1699,7 @@ impl MiniApp {
     }
 
     /// Open the workflow panel (best-effort workflow enumeration).
-    async fn open_workflow_panel(&mut self) {
+    pub async fn open_workflow_panel(&mut self) {
         let workflows = match wf_api::workflow::search_workflows(
             self.adapter.api_context(),
             &wf_api::workflow::search::WorkflowSearchOptions::default(),
@@ -1707,11 +1727,8 @@ impl MiniApp {
     /// Queue an async action to open the workflow panel.
     fn queue_open_workflow_panel(&mut self) {
         let adapter = self.adapter.clone();
-        let result: Arc<
-            std::sync::Mutex<
-                Option<Result<Vec<wf_api::workflow::search::WorkflowSummary>, String>>,
-            >,
-        > = Arc::new(std::sync::Mutex::new(None));
+        let result: SharedResult<Vec<wf_api::workflow::summary::WorkflowSummary>> =
+            Arc::new(std::sync::Mutex::new(None));
         let result_clone = result.clone();
         self.pending_actions.push(Box::pin(async move {
             let ctx = adapter.api_context();
@@ -1757,21 +1774,14 @@ impl MiniApp {
         }
         let query_str = query.to_string();
         let adapter = self.adapter.clone();
-        let result: Arc<
-            std::sync::Mutex<
-                Option<(
-                    Vec<String>,
-                    Vec<wf_types::llm::LlmProfile>,
-                    Vec<wf_api::workflow::search::WorkflowSummary>,
-                )>,
-            >,
-        > = Arc::new(std::sync::Mutex::new(None));
+        let result: SharedMentionResult = Arc::new(std::sync::Mutex::new(None));
         let result_clone = result.clone();
+        let query_str_async = query_str.clone();
         self.pending_actions.push(Box::pin(async move {
-            let filter = if query_str.is_empty() {
+            let filter = if query_str_async.is_empty() {
                 None
             } else {
-                Some(query_str.as_str())
+                Some(query_str_async.as_str())
             };
             let project_root = std::env::current_dir().unwrap_or_default();
             let files = crate::mention::scan_files_with_limit(&project_root, filter, 200);
@@ -1806,7 +1816,7 @@ impl MiniApp {
 
     /// Open the `@` mention panel: scan files, list skills and workflows,
     /// then present them in a grouped filterable list.
-    async fn open_mention_panel(&mut self) {
+    pub async fn open_mention_panel(&mut self) {
         let query = self.footer.composer.mention_query();
         let query_str = query.unwrap_or_default().to_string();
 
@@ -1853,7 +1863,7 @@ impl MiniApp {
     }
 
     /// Resume the most recent session via replay.
-    async fn resume_latest_session(&mut self) {
+    pub async fn resume_latest_session(&mut self) {
         match crate::replay::latest_session_id(self.adapter.api_context()).await {
             Ok(Some(id)) => {
                 match crate::replay::replay_scrollack(self.adapter.api_context(), &id).await {
@@ -1882,11 +1892,8 @@ impl MiniApp {
     /// Queue an async action to resume the most recent session.
     fn queue_resume_latest_session(&mut self) {
         let adapter = self.adapter.clone();
-        let result: Arc<
-            std::sync::Mutex<
-                Option<Result<(String, Vec<crate::scrollback::HistoryLine>), String>>,
-            >,
-        > = Arc::new(std::sync::Mutex::new(None));
+        let result: SharedResult<(String, Vec<crate::scrollback::HistoryLine>)> =
+            Arc::new(std::sync::Mutex::new(None));
         let result_clone = result.clone();
         self.pending_actions.push(Box::pin(async move {
             let ctx = adapter.api_context();
@@ -1916,7 +1923,7 @@ impl MiniApp {
     }
 
     /// Open the executions panel (recent agent loop summaries).
-    async fn open_executions_panel(&mut self) {
+    pub async fn open_executions_panel(&mut self) {
         let ctx = self.adapter.api_context();
 
         // Fetch agent loop summaries (best-effort).
@@ -1990,10 +1997,7 @@ impl MiniApp {
         }));
         self.deferred_updates.push(Box::new(move |app| {
             let res = result.lock().unwrap().take().unwrap_or(Ok((vec![], vec![])));
-            let (agent_summaries, wf_executions) = match res {
-                Ok(data) => data,
-                Err(_) => (vec![], vec![]),
-            };
+            let (agent_summaries, wf_executions) = res.unwrap_or_default();
             if agent_summaries.is_empty() && wf_executions.is_empty() {
                 app.footer.show_notice("no executions found");
                 return;

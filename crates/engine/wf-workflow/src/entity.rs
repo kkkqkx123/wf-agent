@@ -24,6 +24,8 @@ pub struct WorkflowExecutionEntity {
     /// Resolved from the parent entity when the run is linked, so deep
     /// hierarchies keep full ancestry across checkpoint restore.
     ancestors: Vec<Id>,
+    /// Nesting depth in the execution hierarchy (0 = root).
+    hierarchy_depth: u32,
     /// Final result of the execution, written on completion (both sync and
     /// spawned paths). `None` until the execution settles.
     output: Arc<tokio::sync::RwLock<Option<Value>>>,
@@ -46,6 +48,7 @@ impl WorkflowExecutionEntity {
             parent_execution_id: None,
             child_execution_ids: Arc::new(tokio::sync::RwLock::new(Vec::new())),
             ancestors: Vec::new(),
+            hierarchy_depth: 0,
             output: Arc::new(tokio::sync::RwLock::new(None)),
             retry_budget: None,
         }
@@ -60,6 +63,12 @@ impl WorkflowExecutionEntity {
     /// resolved from the parent execution at build time.
     pub fn with_ancestors(mut self, ancestors: Vec<Id>) -> Self {
         self.ancestors = ancestors;
+        self
+    }
+
+    /// Set the nesting depth in the execution hierarchy (0 = root).
+    pub fn with_hierarchy_depth(mut self, depth: u32) -> Self {
+        self.hierarchy_depth = depth;
         self
     }
 
@@ -214,6 +223,7 @@ impl ExecutionEntity for WorkflowExecutionEntity {
     }
 
     async fn resume(&self) -> Result<(), wf_execution_shared::error::ExecutionSharedError> {
+        self.interruption.resume()?;
         self.state.write().await.resume()?;
         Ok(())
     }
@@ -237,7 +247,7 @@ impl ExecutionEntity for WorkflowExecutionEntity {
     }
 
     fn get_hierarchy_depth(&self) -> u32 {
-        0
+        self.hierarchy_depth
     }
 
     fn get_root_execution_id(&self) -> Option<Id> {

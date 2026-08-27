@@ -2,6 +2,8 @@ use wf_tools::callback::HookConfig;
 use wf_tools::registry::ToolRegistry;
 use wf_types::llm::{ToolCallFormat, ToolCallFormatConfig};
 
+use crate::constants::AGENT_MAX_ITERATIONS_CAP;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ValidationSeverity {
     Error,
@@ -75,10 +77,14 @@ impl AgentLoopValidator {
                     "max_iterations",
                     "max_iterations must be >= 1",
                 ));
-            } else if max_iterations > 100 {
-                issues.push(ValidationIssue::warning(
+            } else if max_iterations > AGENT_MAX_ITERATIONS_CAP {
+                issues.push(ValidationIssue::error(
                     "max_iterations",
-                    "high max_iterations (100+) may cause long-running loops",
+                    format!(
+                        "max_iterations ({}) exceeds the hard limit ({}). \
+                         Reduce max_iterations to prevent resource exhaustion.",
+                        max_iterations, AGENT_MAX_ITERATIONS_CAP
+                    ),
                 ));
             }
         }

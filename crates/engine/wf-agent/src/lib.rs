@@ -3,6 +3,7 @@ pub mod approval;
 pub mod callback;
 pub mod capacity;
 pub mod checkpoint;
+pub mod constants;
 pub mod conversation_compression;
 pub mod coordinator;
 pub mod entity;
@@ -30,6 +31,7 @@ pub use approval::{
 };
 pub use callback::register_builtin_tools;
 pub use checkpoint::{AgentCheckpointStrategy, AgentCheckpointTiming};
+pub use constants::{AGENT_MAX_ITERATIONS_CAP, DEFAULT_MAX_ITERATIONS};
 pub use conversation_compression::{
     apply_compression, apply_versioned_writeback, spawn_conversation_compression_consumer,
     ConversationWritebackOp,

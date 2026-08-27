@@ -223,7 +223,15 @@ pub struct WorkflowCoordinator {
     node_errors: Vec<String>,
     start_time: i64,
     hooks: Vec<BaseHookDefinition>,
+    /// Navigation counter for detecting non-loop dead cycles (e.g., cycles in
+    /// DAG edges that don't pass through LOOP_START/LOOP_END). Reset when
+    /// entering a loop scope; only counts nodes outside loop bodies.
     navigation_count: u32,
+    /// Navigation counter for detecting loops that execute too many iterations.
+    /// Tracks the number of nodes executed within the current loop body.
+    loop_navigation_count: u32,
+    /// Whether the coordinator is currently inside a loop body.
+    in_loop_body: bool,
     total_node_count: u32,
     max_navigation_multiplier: u32,
     checkpoint: Option<WorkflowCheckpointIntegration>,
@@ -319,6 +327,8 @@ impl WorkflowCoordinator {
             start_time: now(),
             hooks: Vec::new(),
             navigation_count: 0,
+            loop_navigation_count: 0,
+            in_loop_body: false,
             total_node_count,
             max_navigation_multiplier,
             checkpoint: None,
@@ -878,33 +888,71 @@ impl WorkflowCoordinator {
             .map(|(_, id)| id.as_str())
     }
 
-    /// Loop heads re-arm the navigation backstop: every iteration passes
-    /// through LOOP_START (and its iteration count is bounded by the loop
-    /// state), so legitimate loops never accumulate navigations here, while
-    /// cycles that never pass through an active loop head keep counting and
-    /// trip the detector. Returns `Err` when the heuristic budget is
-    /// exhausted (a coarse infinite-loop guard; precise loop-convergence
-    /// detection is driven by `LoopState`).
+    /// Loop-aware navigation backstop. Tracks two separate counters:
+    ///
+    /// 1. **`navigation_count`**: Counts node navigations *outside* any loop
+    ///    body. Cycles in DAG edges that never pass through a LOOP_START node
+    ///    keep accumulating and eventually trip the detector.
+    ///
+    /// 2. **`loop_navigation_count`**: Counts node navigations *inside* the
+    ///    current loop body. Reset each time a LOOP_START is re-entered.
+    ///    This catches loops whose body alone is too large relative to the
+    ///    graph size (e.g., a loop body with 100 nodes and a multiplier of 5
+    ///    would trigger at 500 iterations within a single pass).
+    ///
+    /// Both counters use `total_node_count * max_navigation_multiplier` as
+    /// their threshold. The `max_iterations` cap on LOOP_START provides the
+    /// primary bound; this backstop is a safety net for loops that bypass
+    /// the iteration counter or for non-loop cycles.
     fn check_navigation_backstop(&mut self, node_id: &str) -> WorkflowResult<()> {
-        if self
+        let node_type = self
             .traversal
             .get_node(node_id)
-            .is_some_and(|n| n.node_type == "LOOP_START")
-            && !crate::loop_state::stack(&self.ctx.variables).is_empty()
-        {
-            self.navigation_count = 0;
+            .map(|n| n.node_type.as_str());
+
+        match node_type {
+            Some("LOOP_START") => {
+                // Entering a loop body: reset the loop-local counter and
+                // mark that we are inside a loop scope. The global
+                // navigation_count is *not* reset here – it continues to
+                // track non-loop cycles.
+                self.in_loop_body = true;
+                self.loop_navigation_count = 0;
+            }
+            Some("LOOP_END") => {
+                // Exiting the loop body: clear the in-loop flag. The next
+                // node (outside the loop) will resume incrementing
+                // navigation_count.
+                self.in_loop_body = false;
+                self.loop_navigation_count = 0;
+            }
+            _ => {}
         }
 
-        self.navigation_count += 1;
-        let max_allowed = self.total_node_count * self.max_navigation_multiplier;
-        if self.navigation_count > max_allowed && max_allowed > 0 {
-            return Err(WorkflowError::CoordinatorError(format!(
-                "Infinite loop detected: {} navigations exceeded max {} ({} nodes x {})",
-                self.navigation_count,
-                max_allowed,
-                self.total_node_count,
-                self.max_navigation_multiplier
-            )));
+        if self.in_loop_body {
+            self.loop_navigation_count += 1;
+            let max_allowed = self.total_node_count * self.max_navigation_multiplier;
+            if self.loop_navigation_count > max_allowed && max_allowed > 0 {
+                return Err(WorkflowError::CoordinatorError(format!(
+                    "Loop body exceeded navigation limit: {} node visits (max {} = {} nodes x {})",
+                    self.loop_navigation_count,
+                    max_allowed,
+                    self.total_node_count,
+                    self.max_navigation_multiplier
+                )));
+            }
+        } else {
+            self.navigation_count += 1;
+            let max_allowed = self.total_node_count * self.max_navigation_multiplier;
+            if self.navigation_count > max_allowed && max_allowed > 0 {
+                return Err(WorkflowError::CoordinatorError(format!(
+                    "Infinite loop detected: {} navigations exceeded max {} ({} nodes x {})",
+                    self.navigation_count,
+                    max_allowed,
+                    self.total_node_count,
+                    self.max_navigation_multiplier
+                )));
+            }
         }
         Ok(())
     }

@@ -15,6 +15,7 @@ use wf_tools::error::{ToolError, ToolResult};
 use wf_tools::registry::ToolRegistry;
 use wf_types::Id;
 
+use crate::constants::DEFAULT_MAX_ITERATIONS;
 use crate::coordinator::lifecycle::AgentLoopCoordinator;
 use crate::entity::AgentLoopEntity;
 use crate::error::{AgentError, AgentResult};
@@ -45,7 +46,7 @@ impl AgentLoopExecutor {
             gateway,
             registry,
             agent_registry: std::sync::Arc::new(AgentLoopRegistry::new()),
-            max_iterations: 10,
+            max_iterations: DEFAULT_MAX_ITERATIONS,
             max_sub_agent_depth: DEFAULT_MAX_SUB_AGENT_DEPTH,
             event_bus: None,
             signal_bus: None,

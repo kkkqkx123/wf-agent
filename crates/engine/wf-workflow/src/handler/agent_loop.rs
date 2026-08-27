@@ -329,7 +329,9 @@ impl AgentLoopHandler {
                 (None, dynamic_block) => dynamic_block,
             }
         };
-        let max_iterations = agent_config.and_then(|c| c.max_iterations).unwrap_or(10);
+        let max_iterations = agent_config
+            .and_then(|c| c.max_iterations)
+            .unwrap_or(wf_agent::constants::DEFAULT_MAX_ITERATIONS);
         let stream_enabled = agent_config.and_then(|c| c.stream).unwrap_or(false);
         let max_execution_time = config.get("execution_timeout").and_then(|v| v.as_u64());
 

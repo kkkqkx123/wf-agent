@@ -395,7 +395,9 @@ impl AgentLoopCoordinator {
         start_hook_data.insert(
             "max_iterations".to_string(),
             Value::Number(serde_json::Number::from(
-                config.max_iterations.unwrap_or(10),
+                config
+                    .max_iterations
+                    .unwrap_or(crate::constants::DEFAULT_MAX_ITERATIONS),
             )),
         );
         AgentHookHandler::emit_agent_hooks(
@@ -465,7 +467,9 @@ impl AgentLoopCoordinator {
             metrics.agent_loop().record_execution_start();
         }
 
-        let max_iterations = config.max_iterations.unwrap_or(10);
+        let max_iterations = config
+            .max_iterations
+            .unwrap_or(crate::constants::DEFAULT_MAX_ITERATIONS);
         let start = wf_common::now();
         let outcome = execution_coordinator
             .execute(&entity, max_iterations, config.max_execution_time)

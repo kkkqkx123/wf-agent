@@ -28,9 +28,9 @@ use wf_api::entity::user_interaction::{
 use wf_tools::callback::AgentLoopInput;
 use wf_types::Id;
 
-use crate::approval_policy::{ApprovalDecision, ApprovalPolicy};
-#[allow(unused_imports)]
-use crate::approval_policy::{LOW_RISK_TOOLS, SENSITIVE_TOOLS};
+use crate::approval_policy::{
+    default_low_risk_tools, default_sensitive_tools, ApprovalDecision, ApprovalPolicy,
+};
 use crate::config::{build_agent_loop_config, DEFAULT_MODEL};
 use crate::domain::DomainAdapter;
 use crate::error::{CliError, CliResult};
@@ -724,7 +724,7 @@ mod tests {
     #[test]
     fn sensitive_tools_are_denied_with_reason() {
         let policy = ApprovalPolicy::new(vec![]);
-        for tool in SENSITIVE_TOOLS {
+        for tool in default_sensitive_tools() {
             let decision = policy.decide(tool, &serde_json::json!({}));
             match decision {
                 ApprovalDecision::Deny { reason } => {
@@ -739,7 +739,7 @@ mod tests {
     #[test]
     fn low_risk_tools_are_allowed() {
         let policy = ApprovalPolicy::new(vec![]);
-        for tool in LOW_RISK_TOOLS {
+        for tool in default_low_risk_tools() {
             assert!(
                 matches!(
                     policy.decide(tool, &serde_json::json!({})),

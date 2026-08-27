@@ -223,6 +223,14 @@ pub struct MiniApp {
     initial_session_id: Option<String>,
     /// Whether to resume the latest session.
     initial_resume_latest: bool,
+    /// Deferred async actions queued by synchronous command handlers.
+    /// Drained at the top of each event-loop iteration to avoid blocking
+    /// the tokio runtime with `futures::executor::block_on`.
+    pending_actions:
+        Vec<std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'static>>>,
+    /// State-update closures produced by deferred async actions. Each closure
+    /// is executed on the event-loop iteration after the action completes.
+    deferred_updates: Vec<Box<dyn FnOnce(&mut MiniApp) + Send>>,
 }
 
 impl MiniApp {
@@ -292,6 +300,8 @@ impl MiniApp {
             window_rows: Vec::new(),
             initial_session_id: opts.session_id,
             initial_resume_latest: opts.resume_latest,
+            pending_actions: Vec::new(),
+            deferred_updates: Vec::new(),
         };
         if let Some(prompt) = initial_prompt {
             app.footer.composer.set_text(prompt);
@@ -368,6 +378,19 @@ impl MiniApp {
             let now = now_ms();
             self.footer.set_now(now);
             if self.footer.expire_notice() {
+                self.dirty = true;
+            }
+
+            // Execute any deferred async actions queued by synchronous
+            // command handlers (model panel, workflow panel, etc.).
+            let actions: Vec<_> = self.pending_actions.drain(..).collect();
+            for action in actions {
+                action.await;
+            }
+            // Apply state-update closures produced by deferred async actions.
+            let updates: Vec<_> = self.deferred_updates.drain(..).collect();
+            for update in updates {
+                update(self);
                 self.dirty = true;
             }
 
@@ -990,15 +1013,20 @@ impl MiniApp {
                     self.model = Some(id.clone());
                     self.footer.state.model = Some(id.clone());
                     if is_new {
-                        // Persist the default profile and show the masked key.
-                        let ctx = self.adapter.api_context();
-                        let notice = futures::executor::block_on(async {
-                            let mut msg = format!("model set to {id} (next turns)");
-                            if let Err(e) = wf_api::llm::llm_profile::set_default(ctx, &id).await
+                        let adapter = self.adapter.clone();
+                        let id_clone = id.clone();
+                        let model_key: Arc<std::sync::Mutex<Option<String>>> =
+                            Arc::new(std::sync::Mutex::new(None));
+                        let model_key_clone = model_key.clone();
+                        self.pending_actions.push(Box::pin(async move {
+                            let ctx = adapter.api_context();
+                            let mut msg = format!("model set to {id_clone} (next turns)");
+                            if let Err(e) =
+                                wf_api::llm::llm_profile::set_default(ctx, &id_clone).await
                             {
                                 msg.push_str(&format!(" (persist failed: {e})"));
                             }
-                            match wf_api::llm::llm_profile::export(ctx, &id).await {
+                            match wf_api::llm::llm_profile::export(ctx, &id_clone).await {
                                 Ok(val) => {
                                     let key_masked = val
                                         .get("api_key")
@@ -1010,9 +1038,14 @@ impl MiniApp {
                                     msg.push_str(&format!("  (export failed: {e})"));
                                 }
                             }
-                            msg
-                        });
-                        self.footer.show_notice(notice);
+                            *wf_common::lock::lock_ok(model_key_clone.lock()) = Some(msg);
+                        }));
+                        let notice_buf = model_key;
+                        self.deferred_updates.push(Box::new(move |app| {
+                            if let Some(msg) = notice_buf.lock().unwrap().take() {
+                                app.footer.show_notice(msg);
+                            }
+                        }));
                     } else {
                         self.footer
                             .show_notice(format!("model {id} already active"));
@@ -1445,13 +1478,13 @@ impl MiniApp {
     fn handle_command(&mut self, command: CommandId) {
         match command {
             CommandId::New => self.new_session(),
-            CommandId::Model => futures::executor::block_on(self.open_model_panel()),
+            CommandId::Model => self.queue_open_model_panel(),
             CommandId::Skill => self.open_skill_panel(),
             CommandId::Queued => self.open_queued_panel(),
             CommandId::Editor => self.open_editor(),
-            CommandId::Workflows => futures::executor::block_on(self.open_workflow_panel()),
-            CommandId::Resume => futures::executor::block_on(self.resume_latest_session()),
-            CommandId::Executions => futures::executor::block_on(self.open_executions_panel()),
+            CommandId::Workflows => self.queue_open_workflow_panel(),
+            CommandId::Resume => self.queue_resume_latest_session(),
+            CommandId::Executions => self.queue_open_executions_panel(),
             CommandId::Quit => {
                 self.user_stopped = true;
                 self.exit = true;
@@ -1509,6 +1542,40 @@ impl MiniApp {
         self.footer.panel = Some(PanelState::Model(ModelPanel::new(&profiles, current)));
         self.footer.set_route(FooterRoute::Model);
         self.dirty = true;
+    }
+
+    /// Queue an async action to open the model panel.
+    fn queue_open_model_panel(&mut self) {
+        let adapter = self.adapter.clone();
+        let current_model = self.model.clone();
+        let result: Arc<std::sync::Mutex<Option<Result<Vec<wf_types::llm::LlmProfile>, String>>>> =
+            Arc::new(std::sync::Mutex::new(None));
+        let result_clone = result.clone();
+        self.pending_actions.push(Box::pin(async move {
+            let ctx = adapter.api_context();
+            let res = wf_api::llm::llm_profile::list(ctx)
+                .await
+                .map_err(|e| e.to_string());
+            *wf_common::lock::lock_ok(result_clone.lock()) = Some(res);
+        }));
+        self.deferred_updates.push(Box::new(move |app| {
+            let res = result.lock().unwrap().take().unwrap_or(Ok(vec![]));
+            match res {
+                Ok(profiles) if profiles.is_empty() => {
+                    app.footer.show_notice("no model profiles found");
+                }
+                Ok(profiles) => {
+                    let current = current_model.as_deref();
+                    app.footer.panel =
+                        Some(PanelState::Model(ModelPanel::new(&profiles, current)));
+                    app.footer.set_route(FooterRoute::Model);
+                }
+                Err(err) => {
+                    app.footer
+                        .show_notice(format!("model list unavailable: {err}"));
+                }
+            }
+        }));
     }
 
     /// Open the skill panel (best-effort skill enumeration).
@@ -1637,6 +1704,44 @@ impl MiniApp {
         self.dirty = true;
     }
 
+    /// Queue an async action to open the workflow panel.
+    fn queue_open_workflow_panel(&mut self) {
+        let adapter = self.adapter.clone();
+        let result: Arc<
+            std::sync::Mutex<
+                Option<Result<Vec<wf_api::workflow::search::WorkflowSummary>, String>>,
+            >,
+        > = Arc::new(std::sync::Mutex::new(None));
+        let result_clone = result.clone();
+        self.pending_actions.push(Box::pin(async move {
+            let ctx = adapter.api_context();
+            let res = wf_api::workflow::search_workflows(
+                ctx,
+                &wf_api::workflow::search::WorkflowSearchOptions::default(),
+            )
+            .await
+            .map_err(|e| e.to_string());
+            *wf_common::lock::lock_ok(result_clone.lock()) = Some(res);
+        }));
+        self.deferred_updates.push(Box::new(move |app| {
+            let res = result.lock().unwrap().take().unwrap_or(Ok(vec![]));
+            match res {
+                Ok(workflows) if workflows.is_empty() => {
+                    app.footer.show_notice("no workflows found");
+                }
+                Ok(workflows) => {
+                    app.footer.panel =
+                        Some(PanelState::Workflow(WorkflowPanel::new(&workflows)));
+                    app.footer.set_route(FooterRoute::Workflow);
+                }
+                Err(err) => {
+                    app.footer
+                        .show_notice(format!("workflow list unavailable: {err}"));
+                }
+            }
+        }));
+    }
+
     /// Check if the composer has an active `@` mention query and open
     /// the mention panel when needed.
     fn try_open_mention_panel(&mut self) {
@@ -1650,8 +1755,53 @@ impl MiniApp {
         if self.footer.route == FooterRoute::Mention {
             return;
         }
-        let _ = query; // query is used in open_mention_panel for filtering
-        futures::executor::block_on(self.open_mention_panel());
+        let query_str = query.to_string();
+        let adapter = self.adapter.clone();
+        let result: Arc<
+            std::sync::Mutex<
+                Option<(
+                    Vec<String>,
+                    Vec<wf_types::llm::LlmProfile>,
+                    Vec<wf_api::workflow::search::WorkflowSummary>,
+                )>,
+            >,
+        > = Arc::new(std::sync::Mutex::new(None));
+        let result_clone = result.clone();
+        self.pending_actions.push(Box::pin(async move {
+            let filter = if query_str.is_empty() {
+                None
+            } else {
+                Some(query_str.as_str())
+            };
+            let project_root = std::env::current_dir().unwrap_or_default();
+            let files = crate::mention::scan_files_with_limit(&project_root, filter, 200);
+            let ctx = adapter.api_context();
+            let skills = wf_api::entity::skill::list_skills(ctx).unwrap_or_default();
+            let workflows = wf_api::workflow::search_workflows(
+                ctx,
+                &wf_api::workflow::search::WorkflowSearchOptions::default(),
+            )
+            .await
+            .unwrap_or_default();
+            *wf_common::lock::lock_ok(result_clone.lock()) = Some((files, skills, workflows));
+        }));
+        let filter = if query_str.is_empty() {
+            None
+        } else {
+            Some(query_str)
+        };
+        self.deferred_updates.push(Box::new(move |app| {
+            let (files, skills, workflows) = result.lock().unwrap().take().unwrap_or_default();
+            if files.is_empty() && skills.is_empty() && workflows.is_empty() {
+                app.footer.show_notice("no mentions found");
+                return;
+            }
+            let f = filter.as_deref();
+            app.footer.panel = Some(PanelState::Mention(MentionPanel::new(
+                &files, &skills, &workflows, f,
+            )));
+            app.footer.set_route(FooterRoute::Mention);
+        }));
     }
 
     /// Open the `@` mention panel: scan files, list skills and workflows,
@@ -1729,6 +1879,42 @@ impl MiniApp {
         self.dirty = true;
     }
 
+    /// Queue an async action to resume the most recent session.
+    fn queue_resume_latest_session(&mut self) {
+        let adapter = self.adapter.clone();
+        let result: Arc<
+            std::sync::Mutex<
+                Option<Result<(String, Vec<crate::scrollback::HistoryLine>), String>>,
+            >,
+        > = Arc::new(std::sync::Mutex::new(None));
+        let result_clone = result.clone();
+        self.pending_actions.push(Box::pin(async move {
+            let ctx = adapter.api_context();
+            let res = match crate::replay::latest_session_id(ctx).await {
+                Ok(Some(id)) => {
+                    match crate::replay::replay_scrollack(ctx, &id).await {
+                        Ok(lines) => Ok((id, lines)),
+                        Err(err) => Err(format!("resume failed for {id}: {err}")),
+                    }
+                }
+                Ok(None) => Err("no previous session to resume".to_string()),
+                Err(err) => Err(format!("resume failed: {err}")),
+            };
+            *wf_common::lock::lock_ok(result_clone.lock()) = Some(res);
+        }));
+        self.deferred_updates.push(Box::new(move |app| {
+            let res = result.lock().unwrap().take();
+            if let Some(Ok((id, lines))) = res {
+                app.pending_scroll.extend(lines);
+                let _ = app.settle_scrollback();
+                app.footer.state.execution_id = Some(id.clone());
+                app.footer.show_notice(format!("resumed session {id}"));
+            } else if let Some(Err(msg)) = res {
+                app.footer.show_notice(msg);
+            }
+        }));
+    }
+
     /// Open the executions panel (recent agent loop summaries).
     async fn open_executions_panel(&mut self) {
         let ctx = self.adapter.api_context();
@@ -1780,6 +1966,65 @@ impl MiniApp {
         self.footer
             .show_notice(format!("{total} executions listed"));
         self.dirty = true;
+    }
+
+    /// Queue an async action to open the executions panel.
+    fn queue_open_executions_panel(&mut self) {
+        let adapter = self.adapter.clone();
+        type ExecData = (
+            Vec<wf_api::agent::agent_loop_registry::AgentLoopSummary>,
+            Vec<wf_types::workflow_execution::WorkflowExecution>,
+        );
+        let result: Arc<std::sync::Mutex<Option<Result<ExecData, String>>>> =
+            Arc::new(std::sync::Mutex::new(None));
+        let result_clone = result.clone();
+        self.pending_actions.push(Box::pin(async move {
+            let ctx = adapter.api_context();
+            let agent = wf_api::agent::agent_loop_registry::summaries(ctx, None)
+                .await
+                .unwrap_or_default();
+            let wf = wf_api::workflow::execution::list_executions(ctx, None)
+                .await
+                .unwrap_or_default();
+            *wf_common::lock::lock_ok(result_clone.lock()) = Some(Ok((agent, wf)));
+        }));
+        self.deferred_updates.push(Box::new(move |app| {
+            let res = result.lock().unwrap().take().unwrap_or(Ok((vec![], vec![])));
+            let (agent_summaries, wf_executions) = match res {
+                Ok(data) => data,
+                Err(_) => (vec![], vec![]),
+            };
+            if agent_summaries.is_empty() && wf_executions.is_empty() {
+                app.footer.show_notice("no executions found");
+                return;
+            }
+            for summary in agent_summaries.iter().take(15) {
+                app.pending_scroll.push(HistoryLine::new_role(
+                    format!(
+                        "[agent] {} · {} · iter {}",
+                        summary.id,
+                        summary.status.as_str(),
+                        summary.current_iteration
+                    ),
+                    Role::Muted,
+                ));
+            }
+            for wf in wf_executions.iter().take(15) {
+                app.pending_scroll.push(HistoryLine::new_role(
+                    format!(
+                        "[workflow] {} · wf:{} · {}",
+                        wf.id,
+                        wf.workflow_id,
+                        format!("{:?}", wf.status).to_lowercase()
+                    ),
+                    Role::Muted,
+                ));
+            }
+            let _ = app.settle_scrollback();
+            let total = agent_summaries.len() + wf_executions.len();
+            app.footer
+                .show_notice(format!("{total} executions listed"));
+        }));
     }
 
     /// `/editor`: edit the composer draft in `$EDITOR` inside a restored

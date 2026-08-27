@@ -93,7 +93,7 @@ impl From<CommonError> for CliError {
 
 impl From<serde_json::Error> for CliError {
     fn from(err: serde_json::Error) -> Self {
-        Self::Business(format!("serialization error: {err}"))
+        Self::Configuration(format!("serialization error: {err}"))
     }
 }
 

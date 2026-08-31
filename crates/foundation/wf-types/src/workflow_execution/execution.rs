@@ -47,6 +47,11 @@ pub struct WorkflowExecutionOptions {
     /// LOOP_START, so this only bounds accidental cycles. `None` = default 5.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_navigation_multiplier: Option<u32>,
+    /// Runtime-injected cap on `max_iterations` for LOOP_START nodes.
+    /// Overrides the engine's built-in constant when set; `None` falls back
+    /// to the engine default (10000).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub loop_max_iterations_cap: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

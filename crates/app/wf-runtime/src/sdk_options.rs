@@ -96,6 +96,7 @@ impl SdkOptions {
             tools: self.tools,
             file_checkpoint: self.file_checkpoint,
             tool_approval: self.tool_approval,
+            limits: None,
         }
     }
 }

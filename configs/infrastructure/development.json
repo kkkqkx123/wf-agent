@@ -12,6 +12,7 @@
     "presets": "./presets.toml",
     "tools": "./tools.toml",
     "sandbox": "./sandbox.toml",
-    "tool_approval": "./tool-approval.toml"
+    "tool_approval": "./tool-approval.toml",
+    "limits": "./limits.toml"
   }
 }

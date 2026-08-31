@@ -93,6 +93,11 @@ pub struct AgentLoopCoordinator {
     /// Optional file checkpoint manager: file snapshots of the agent loop are
     /// restored together with the execution checkpoint (best-effort).
     file_checkpoint_manager: Option<wf_checkpoint::file::FileCheckpointManager>,
+    /// Default `max_iterations` used when the agent config omits it.
+    default_max_iterations: u32,
+    /// Hard cap on `max_iterations`; configs above it are rejected at
+    /// execution time.
+    max_iterations_cap: u32,
 }
 
 impl AgentLoopCoordinator {
@@ -129,6 +134,8 @@ impl AgentLoopCoordinator {
             parent_execution_id: None,
             hook_registry: None,
             file_checkpoint_manager: None,
+            default_max_iterations: crate::constants::DEFAULT_MAX_ITERATIONS,
+            max_iterations_cap: crate::constants::AGENT_MAX_ITERATIONS_CAP,
         }
     }
 
@@ -200,6 +207,19 @@ impl AgentLoopCoordinator {
     /// Max duration the agent loop may stay paused before it is stopped.
     pub fn with_max_pause_duration(mut self, duration_ms: u64) -> Self {
         self.max_pause_duration = Some(duration_ms);
+        self
+    }
+
+    /// Default `max_iterations` used when the agent config omits it.
+    pub fn with_default_max_iterations(mut self, default: u32) -> Self {
+        self.default_max_iterations = default;
+        self
+    }
+
+    /// Hard cap on `max_iterations`; configs above it are rejected at
+    /// execution time.
+    pub fn with_max_iterations_cap(mut self, cap: u32) -> Self {
+        self.max_iterations_cap = cap;
         self
     }
 
@@ -395,9 +415,7 @@ impl AgentLoopCoordinator {
         start_hook_data.insert(
             "max_iterations".to_string(),
             Value::Number(serde_json::Number::from(
-                config
-                    .max_iterations
-                    .unwrap_or(crate::constants::DEFAULT_MAX_ITERATIONS),
+                config.max_iterations.unwrap_or(self.default_max_iterations),
             )),
         );
         AgentHookHandler::emit_agent_hooks(
@@ -469,7 +487,13 @@ impl AgentLoopCoordinator {
 
         let max_iterations = config
             .max_iterations
-            .unwrap_or(crate::constants::DEFAULT_MAX_ITERATIONS);
+            .unwrap_or(self.default_max_iterations);
+        if max_iterations > self.max_iterations_cap {
+            return Err(AgentError::ExecutionLimitReached(format!(
+                "max_iterations ({max_iterations}) exceeds the configured hard limit ({})",
+                self.max_iterations_cap
+            )));
+        }
         let start = wf_common::now();
         let outcome = execution_coordinator
             .execute(&entity, max_iterations, config.max_execution_time)

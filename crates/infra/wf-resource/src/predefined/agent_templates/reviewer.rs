@@ -18,6 +18,13 @@ pub fn goal_review_reviewer() -> AgentTemplate {
                 profile_id: Some("o3-mini".into()),
                 system_prompt: Some("You are a strict code reviewer.\nReview all changes against the root goal. For each file, assign a score (1-10) and actionable feedback.\n\nCall attempt_completion with:\n  data: { judges: [{ file, score, comment, resolved }] }\n  variables: { complete: boolean, status: \"completed\"|\"reviewing\"|\"stuck\" }\n\nResolved field: set resolved=false for each new defect initially.\nSet status to \"completed\" only if ALL criteria are met.\nIf review results are highly similar to previous rounds (same files, same scores, same issues), set status to \"stuck\".".into()),
                 max_iterations: Some(10),
+                max_execution_time: None,
+                max_retries: None,
+                execution_timeout: None,
+                max_pause_duration: None,
+                token_limit: None,
+                token_warning_threshold: None,
+                enable_token_tracking: None,
                 available_tools: Some(AvailableTools {
                     available: vec![
                         "read_file".into(),

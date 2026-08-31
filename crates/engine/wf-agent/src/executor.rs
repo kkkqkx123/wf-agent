@@ -15,7 +15,7 @@ use wf_tools::error::{ToolError, ToolResult};
 use wf_tools::registry::ToolRegistry;
 use wf_types::Id;
 
-use crate::constants::DEFAULT_MAX_ITERATIONS;
+use crate::constants::{AGENT_MAX_ITERATIONS_CAP, DEFAULT_MAX_ITERATIONS};
 use crate::coordinator::lifecycle::AgentLoopCoordinator;
 use crate::entity::AgentLoopEntity;
 use crate::error::{AgentError, AgentResult};
@@ -29,6 +29,7 @@ pub struct AgentLoopExecutor {
     registry: std::sync::Arc<ToolRegistry>,
     agent_registry: std::sync::Arc<AgentLoopRegistry>,
     max_iterations: u32,
+    max_iterations_cap: u32,
     max_sub_agent_depth: u32,
     event_bus: Option<Arc<wf_core::EventBus>>,
     /// Typed signal bus: control signals (stop/pause/resume) targeting
@@ -47,6 +48,7 @@ impl AgentLoopExecutor {
             registry,
             agent_registry: std::sync::Arc::new(AgentLoopRegistry::new()),
             max_iterations: DEFAULT_MAX_ITERATIONS,
+            max_iterations_cap: AGENT_MAX_ITERATIONS_CAP,
             max_sub_agent_depth: DEFAULT_MAX_SUB_AGENT_DEPTH,
             event_bus: None,
             signal_bus: None,
@@ -56,6 +58,13 @@ impl AgentLoopExecutor {
 
     pub fn with_max_iterations(mut self, max: u32) -> Self {
         self.max_iterations = max;
+        self
+    }
+
+    /// Hard cap on `max_iterations`; configs above it are rejected at
+    /// execution time. Defaults to `AGENT_MAX_ITERATIONS_CAP`.
+    pub fn with_max_iterations_cap(mut self, cap: u32) -> Self {
+        self.max_iterations_cap = cap;
         self
     }
 
@@ -124,6 +133,8 @@ impl AgentLoopExecutor {
             .map(Id::from);
         let mut coordinator =
             AgentLoopCoordinator::new(self.gateway.clone(), self.registry.clone())
+                .with_default_max_iterations(self.max_iterations)
+                .with_max_iterations_cap(self.max_iterations_cap)
                 .with_entity_registry(self.agent_registry.clone())
                 .with_parent_execution_id(parent_execution_id);
         if let Some(bus) = &self.event_bus {

@@ -50,10 +50,21 @@ pub struct ProtocolValidationResult {
 pub struct AgentLoopValidator;
 
 impl AgentLoopValidator {
-    /// Validate a full agent loop config against the tool registry.
+    /// Validate a full agent loop config against the tool registry using
+    /// the default `AGENT_MAX_ITERATIONS_CAP` hard limit.
     pub fn validate_config(
         config: &wf_tools::callback::AgentLoopConfig,
         registry: &ToolRegistry,
+    ) -> Vec<ValidationIssue> {
+        Self::validate_config_with_cap(config, registry, AGENT_MAX_ITERATIONS_CAP)
+    }
+
+    /// Validate a full agent loop config against the tool registry with an
+    /// explicit `max_iterations` hard cap (runtime-configured).
+    pub fn validate_config_with_cap(
+        config: &wf_tools::callback::AgentLoopConfig,
+        registry: &ToolRegistry,
+        max_iterations_cap: u32,
     ) -> Vec<ValidationIssue> {
         let mut issues = Vec::new();
 
@@ -77,13 +88,13 @@ impl AgentLoopValidator {
                     "max_iterations",
                     "max_iterations must be >= 1",
                 ));
-            } else if max_iterations > AGENT_MAX_ITERATIONS_CAP {
+            } else if max_iterations > max_iterations_cap {
                 issues.push(ValidationIssue::error(
                     "max_iterations",
                     format!(
                         "max_iterations ({}) exceeds the hard limit ({}). \
                          Reduce max_iterations to prevent resource exhaustion.",
-                        max_iterations, AGENT_MAX_ITERATIONS_CAP
+                        max_iterations, max_iterations_cap
                     ),
                 ));
             }
@@ -167,6 +178,25 @@ impl AgentLoopValidator {
         registry: &ToolRegistry,
     ) -> Result<Vec<ValidationIssue>, Vec<ValidationIssue>> {
         let issues = Self::validate_config(config, registry);
+        let errors: Vec<ValidationIssue> = issues
+            .iter()
+            .filter(|i| i.severity == ValidationSeverity::Error)
+            .cloned()
+            .collect();
+        if errors.is_empty() {
+            Ok(issues)
+        } else {
+            Err(errors)
+        }
+    }
+
+    /// Cap-aware variant of [`validate_or_fail`](Self::validate_or_fail).
+    pub fn validate_or_fail_with_cap(
+        config: &wf_tools::callback::AgentLoopConfig,
+        registry: &ToolRegistry,
+        max_iterations_cap: u32,
+    ) -> Result<Vec<ValidationIssue>, Vec<ValidationIssue>> {
+        let issues = Self::validate_config_with_cap(config, registry, max_iterations_cap);
         let errors: Vec<ValidationIssue> = issues
             .iter()
             .filter(|i| i.severity == ValidationSeverity::Error)

@@ -32,6 +32,29 @@ system_prompt = "You are a senior software engineer. Use the available tools to 
 # Maximum number of LLM call iterations before the agent stops.
 max_iterations = 50
 
+# Wall-clock execution budget for the whole agent loop in milliseconds.
+# 0 disables the limit.
+# max_execution_time = 180000
+
+# Maximum LLM call retries on transient failures.
+# max_retries = 3
+
+# Single LLM call timeout in milliseconds.
+# execution_timeout = 120000
+
+# Max duration the loop may stay paused before it is stopped, in
+# milliseconds. 0 disables the limit.
+# max_pause_duration = 600000
+
+# Cumulative conversation token limit; 0 disables limit checks.
+# token_limit = 200000
+
+# Warning threshold percentage of the token limit (default 80).
+# token_warning_threshold = 80
+
+# Token usage tracking switch (enabled by default unless disabled).
+# enable_token_tracking = true
+
 # Whether to stream LLM responses in real-time.
 stream = true
 

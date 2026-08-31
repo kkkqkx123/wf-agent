@@ -206,6 +206,7 @@ mod tests {
             exponential_backoff: None,
             fallback_output: None,
             max_navigation_multiplier: None,
+            loop_max_iterations_cap: None,
         };
         partial_options.max_steps = Some(2);
         let partial = wf_api::workflow::workflow_execution::execute(

@@ -333,7 +333,11 @@ impl AgentLoopHandler {
             .and_then(|c| c.max_iterations)
             .unwrap_or(wf_agent::constants::DEFAULT_MAX_ITERATIONS);
         let stream_enabled = agent_config.and_then(|c| c.stream).unwrap_or(false);
-        let max_execution_time = config.get("execution_timeout").and_then(|v| v.as_u64());
+        // Wall-clock execution budget: the agent definition wins, falling
+        // back to the node-level `execution_timeout` override.
+        let max_execution_time = agent_config
+            .and_then(|c| c.max_execution_time)
+            .or_else(|| config.get("execution_timeout").and_then(|v| v.as_u64()));
 
         // Effective tool call format config: the profile-level full config
         // supplies the description options (`include_description` /
@@ -569,6 +573,9 @@ impl AgentLoopHandler {
         let visibility_store =
             std::sync::Arc::new(VariableBackedVisibilityStore::new(ctx.variables.clone()));
         coordinator = coordinator.with_visibility_store(visibility_store);
+        if let Some(max_pause_duration) = agent_config.and_then(|c| c.max_pause_duration) {
+            coordinator = coordinator.with_max_pause_duration(max_pause_duration);
+        }
         if let Some(checkpoint) = agent_config.and_then(|c| c.checkpoint.as_ref()) {
             if checkpoint.enabled {
                 let interval = checkpoint.interval_iterations.unwrap_or(1);
@@ -598,9 +605,15 @@ impl AgentLoopHandler {
             max_iterations: Some(max_iterations),
             max_execution_time,
             tool_call_format: tool_call_format.clone(),
-            token_limit: exec_config.token_limit.map(u64::from),
-            token_warning_threshold: exec_config.token_warning_threshold,
-            enable_token_tracking: exec_config.enable_token_tracking,
+            token_limit: agent_config
+                .and_then(|c| c.token_limit)
+                .or_else(|| exec_config.token_limit.map(u64::from)),
+            token_warning_threshold: agent_config
+                .and_then(|c| c.token_warning_threshold)
+                .or(exec_config.token_warning_threshold),
+            enable_token_tracking: agent_config
+                .and_then(|c| c.enable_token_tracking)
+                .or(exec_config.enable_token_tracking),
             general_description,
             discoverable_metadata_block,
         };

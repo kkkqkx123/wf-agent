@@ -22,6 +22,11 @@ pub const MAX_ITERATIONS_CAP: u32 = 10_000;
 /// Reserved variable key holding the loop state stack.
 pub const LOOP_STATE_STACK_KEY: &str = "__loop_state_stack";
 
+/// Reserved variable key holding the runtime-injected loop iteration cap.
+/// Written by the coordinator from `WorkflowExecutionOptions`; LOOP_START
+/// handlers fall back to [`MAX_ITERATIONS_CAP`] when absent.
+pub const LOOP_MAX_ITERATIONS_CAP_KEY: &str = "__loop_max_iterations_cap";
+
 /// Runtime state of one active loop.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LoopState {

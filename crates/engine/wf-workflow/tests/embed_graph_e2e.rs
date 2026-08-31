@@ -128,6 +128,7 @@ fn options() -> WorkflowExecutionOptions {
         exponential_backoff: None,
         fallback_output: None,
         max_navigation_multiplier: None,
+            loop_max_iterations_cap: None,
     }
 }
 

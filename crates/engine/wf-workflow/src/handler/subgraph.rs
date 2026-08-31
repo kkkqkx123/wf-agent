@@ -86,6 +86,7 @@ pub(crate) async fn execute_subgraph(
         exponential_backoff: None,
         fallback_output: None,
         max_navigation_multiplier: None,
+            loop_max_iterations_cap: None,
     };
 
     // Subgraphs are independent workflow entities with their own
@@ -94,7 +95,7 @@ pub(crate) async fn execute_subgraph(
     let sub_workflow_id = wf_common::generate_id();
 
     let entity = WorkflowExecutionEntity::new(execution_id.clone(), sub_workflow_id.clone())
-        .with_hierarchy_depth(ctx.depth as u32 + 1);
+        .with_hierarchy_depth(ctx.depth + 1);
 
     let event_bus = ctx.event_bus.clone();
     let tool_registry = ctx

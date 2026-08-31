@@ -156,6 +156,7 @@ impl NodeHandler for TemplateSubgraphHandler {
             exponential_backoff: None,
             fallback_output: None,
             max_navigation_multiplier: None,
+            loop_max_iterations_cap: None,
         };
 
         let event_bus = ctx.event_bus.clone();

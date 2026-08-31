@@ -1,0 +1,27 @@
+# Resource limits configuration.
+#
+# All values are optional; an absent section or field falls back to the
+# engine defaults below. `0` means "no explicit limit" and preserves the
+# engine's built-in behavior (CPU-core-derived concurrency, unbounded pause
+# duration).
+
+# Agent resource limits.
+[agent]
+max_iterations_cap = 1000             # hard cap on per-agent max_iterations
+default_max_iterations = 10           # fallback when an agent omits max_iterations
+max_concurrent = 0                    # 0 = derive from CPU core count
+max_sub_agent_depth = 8               # maximum sub-agent recursion depth
+max_pause_duration_ms = 0             # 0 = unbounded pause duration
+
+# Workflow resource limits.
+[workflow]
+loop_max_iterations_cap = 10000       # hard cap on LOOP_START max_iterations
+loop_default_max_iterations = 100     # fallback when LOOP_START omits max_iterations
+max_navigation_multiplier = 5         # dead-loop detection: nodes * multiplier
+max_concurrent = 0                    # 0 = no concurrency budget (reserved)
+
+# Execution timeout defaults applied when neither the workflow options nor
+# the node config specify a value.
+[execution_defaults]
+node_timeout_ms = 30000               # per-node execution timeout fallback
+max_execution_time_ms = 0             # whole-workflow timeout fallback, 0 = unlimited

@@ -6,6 +6,7 @@
 /// ## Module overview
 ///
 /// - `infrastructure` — `merge_*_with_defaults` for storage/timeout/metrics/output/sandbox
+/// - `limits` — merge/validate agent/workflow resource limits
 /// - `llm_profile` — validate/transform LLM profiles
 /// - `workflow` — validate workflow definitions, transform nodes/edges
 /// - `node_config` — validate per-node-type config (LLM, Script, Variable, Route, Fork, Join, etc.)
@@ -25,6 +26,7 @@ pub mod agent_loop;
 pub mod checkpoint;
 pub mod file_checkpoint;
 pub mod infrastructure;
+pub mod limits;
 pub mod llm_profile;
 pub mod node_config;
 pub mod node_template;

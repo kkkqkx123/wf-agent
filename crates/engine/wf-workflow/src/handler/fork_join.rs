@@ -896,6 +896,7 @@ async fn execute_branch(
         exponential_backoff: None,
         fallback_output: None,
         max_navigation_multiplier: None,
+            loop_max_iterations_cap: None,
     };
 
     let tool_registry = branch_ctx

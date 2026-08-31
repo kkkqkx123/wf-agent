@@ -25,6 +25,7 @@ use crate::processor::infrastructure::{
     merge_metrics_with_defaults, merge_output_with_defaults, merge_storage_with_defaults,
     merge_timeout_with_defaults,
 };
+use crate::processor::limits::{merge_limits_with_defaults, validate_limits_config};
 use crate::processor::presets::transform_presets_config;
 use crate::processor::sandbox_global::validate_sandbox_global;
 use crate::processor::tools::{
@@ -33,6 +34,7 @@ use crate::processor::tools::{
 };
 
 use wf_types::config::file_checkpoint::FileCheckpointConfig;
+use wf_types::config::limits::LimitsConfig;
 use wf_types::config::metrics::MetricsConfig;
 use wf_types::config::output::OutputConfig;
 use wf_types::config::presets::PresetsConfig;
@@ -55,6 +57,7 @@ pub struct InfrastructurePresetFiles {
     pub tool_approval: String,
     pub presets: String,
     pub tools: String,
+    pub limits: String,
 }
 
 impl InfrastructurePresetFiles {
@@ -70,6 +73,7 @@ impl InfrastructurePresetFiles {
             tool_approval: "tool-approval.toml".to_string(),
             presets: "presets.toml".to_string(),
             tools: "tools.toml".to_string(),
+            limits: "limits.toml".to_string(),
         }
     }
 }
@@ -103,6 +107,7 @@ pub struct AssembledConfig {
     pub tool_approval: wf_types::config::tool_approval::ToolApprovalConfig,
     pub presets: PresetsConfig,
     pub tools: ToolConfigs,
+    pub limits: LimitsConfig,
 }
 
 impl Default for AssembledConfig {
@@ -123,6 +128,7 @@ impl Default for AssembledConfig {
             tool_approval: wf_types::config::tool_approval::ToolApprovalConfig::default(),
             presets: PresetsConfig::default(),
             tools: ToolConfigs::default(),
+            limits: LimitsConfig::default(),
         }
     }
 }
@@ -139,6 +145,7 @@ pub struct ConfigOverrides {
     pub tool_approval: Option<wf_types::config::tool_approval::ToolApprovalConfig>,
     pub presets: Option<PresetsConfig>,
     pub tools: Option<ToolConfigs>,
+    pub limits: Option<LimitsConfig>,
 }
 
 /// Declarative env var mapping for infrastructure config overrides.
@@ -157,6 +164,66 @@ fn build_infra_env_mapping() -> HashMap<String, crate::env::EnvMappingEntry> {
         .custom(
             "timeout_default",
             "WF_TIMEOUT_DEFAULT",
+            Box::new(env_parse_int),
+            None,
+        )
+        .custom(
+            "limits_agent_max_iterations_cap",
+            "WF_AGENT_MAX_ITERATIONS_CAP",
+            Box::new(env_parse_int),
+            None,
+        )
+        .custom(
+            "limits_agent_default_max_iterations",
+            "WF_AGENT_DEFAULT_MAX_ITERATIONS",
+            Box::new(env_parse_int),
+            None,
+        )
+        .custom(
+            "limits_agent_max_concurrent",
+            "WF_AGENT_MAX_CONCURRENT",
+            Box::new(env_parse_int),
+            None,
+        )
+        .custom(
+            "limits_agent_max_sub_agent_depth",
+            "WF_AGENT_MAX_SUB_AGENT_DEPTH",
+            Box::new(env_parse_int),
+            None,
+        )
+        .custom(
+            "limits_agent_max_pause_duration_ms",
+            "WF_AGENT_MAX_PAUSE_DURATION_MS",
+            Box::new(env_parse_int),
+            None,
+        )
+        .custom(
+            "limits_workflow_loop_max_iterations_cap",
+            "WF_WORKFLOW_LOOP_MAX_ITERATIONS_CAP",
+            Box::new(env_parse_int),
+            None,
+        )
+        .custom(
+            "limits_workflow_loop_default_max_iterations",
+            "WF_WORKFLOW_LOOP_DEFAULT_MAX_ITERATIONS",
+            Box::new(env_parse_int),
+            None,
+        )
+        .custom(
+            "limits_workflow_max_navigation_multiplier",
+            "WF_WORKFLOW_MAX_NAVIGATION_MULTIPLIER",
+            Box::new(env_parse_int),
+            None,
+        )
+        .custom(
+            "limits_exec_node_timeout_ms",
+            "WF_EXEC_NODE_TIMEOUT_MS",
+            Box::new(env_parse_int),
+            None,
+        )
+        .custom(
+            "limits_exec_max_execution_time_ms",
+            "WF_EXEC_MAX_EXECUTION_TIME_MS",
             Box::new(env_parse_int),
             None,
         )
@@ -283,11 +350,13 @@ impl ConfigOrchestratorLoaded {
         let metrics_path = infra_dir.join(&files.metrics);
         let output_path = infra_dir.join(&files.output);
         let sandbox_path = infra_dir.join(&files.sandbox);
+        let limits_path = infra_dir.join(&files.limits);
 
         let storage: StorageConfig = load_domain_config(&storage_path);
         let timeout: TimeoutConfig = load_domain_config(&timeout_path);
         let metrics: MetricsConfig = load_domain_config(&metrics_path);
         let output: OutputConfig = load_domain_config(&output_path);
+        let limits: LimitsConfig = load_domain_config(&limits_path);
 
         // Sandbox config is fail-fast: a malformed sandbox.toml must reject
         // startup instead of silently running with the weaker defaults.
@@ -323,6 +392,8 @@ impl ConfigOrchestratorLoaded {
         let metrics = merge_metrics_with_defaults(&metrics);
         let output = merge_output_with_defaults(&output);
         let file_checkpoint = merge_file_checkpoint_with_defaults(&file_checkpoint);
+        let limits = merge_limits_with_defaults(&limits);
+        validate_limits_config(&limits)?;
 
         Ok(AssembledConfig {
             storage,
@@ -334,6 +405,7 @@ impl ConfigOrchestratorLoaded {
             tool_approval,
             presets,
             tools,
+            limits,
         })
     }
 
@@ -378,6 +450,77 @@ impl ConfigOrchestratorLoaded {
                         config.timeout.default = Some(ms);
                     }
                 }
+                "limits_agent_max_iterations_cap" => {
+                    if let Some(v) = value.as_int() {
+                        set_agent_limit(&mut config.limits, |l| l.max_iterations_cap = Some(v as u32));
+                    }
+                }
+                "limits_agent_default_max_iterations" => {
+                    if let Some(v) = value.as_int() {
+                        set_agent_limit(
+                            &mut config.limits,
+                            |l| l.default_max_iterations = Some(v as u32),
+                        );
+                    }
+                }
+                "limits_agent_max_concurrent" => {
+                    if let Some(v) = value.as_int() {
+                        set_agent_limit(&mut config.limits, |l| l.max_concurrent = Some(v as u32));
+                    }
+                }
+                "limits_agent_max_sub_agent_depth" => {
+                    if let Some(v) = value.as_int() {
+                        set_agent_limit(
+                            &mut config.limits,
+                            |l| l.max_sub_agent_depth = Some(v as u32),
+                        );
+                    }
+                }
+                "limits_agent_max_pause_duration_ms" => {
+                    if let Some(v) = value.as_int() {
+                        set_agent_limit(
+                            &mut config.limits,
+                            |l| l.max_pause_duration_ms = Some(v as u64),
+                        );
+                    }
+                }
+                "limits_workflow_loop_max_iterations_cap" => {
+                    if let Some(v) = value.as_int() {
+                        set_workflow_limit(
+                            &mut config.limits,
+                            |l| l.loop_max_iterations_cap = Some(v as u32),
+                        );
+                    }
+                }
+                "limits_workflow_loop_default_max_iterations" => {
+                    if let Some(v) = value.as_int() {
+                        set_workflow_limit(
+                            &mut config.limits,
+                            |l| l.loop_default_max_iterations = Some(v as u32),
+                        );
+                    }
+                }
+                "limits_workflow_max_navigation_multiplier" => {
+                    if let Some(v) = value.as_int() {
+                        set_workflow_limit(
+                            &mut config.limits,
+                            |l| l.max_navigation_multiplier = Some(v as u32),
+                        );
+                    }
+                }
+                "limits_exec_node_timeout_ms" => {
+                    if let Some(v) = value.as_int() {
+                        set_exec_default(&mut config.limits, |l| l.node_timeout_ms = Some(v as u64));
+                    }
+                }
+                "limits_exec_max_execution_time_ms" => {
+                    if let Some(v) = value.as_int() {
+                        set_exec_default(
+                            &mut config.limits,
+                            |l| l.max_execution_time_ms = Some(v as u64),
+                        );
+                    }
+                }
                 "metrics_enabled" => {
                     if let Some(enabled) = value.as_bool() {
                         config.metrics.enabled = Some(enabled);
@@ -400,8 +543,7 @@ impl ConfigOrchestratorLoaded {
         config: &mut AssembledConfig,
         overrides: ConfigOverrides,
     ) -> ConfigResult<()> {
-        if let Some(storage) = overrides.storage {
-            config.storage = merge_storage_with_defaults(&storage);
+        if let Some(storage) = overrides.storage {            config.storage = merge_storage_with_defaults(&storage);
         }
         if let Some(timeout) = overrides.timeout {
             config.timeout = merge_timeout_with_defaults(&timeout);
@@ -427,8 +569,43 @@ impl ConfigOrchestratorLoaded {
         if let Some(tools) = overrides.tools {
             config.tools = tools;
         }
+        if let Some(limits) = overrides.limits {
+            config.limits = merge_limits_with_defaults(&limits);
+            validate_limits_config(&config.limits)?;
+        }
         Ok(())
     }
+}
+
+/// Update the `agent` section of the limits config, materializing it when
+/// absent.
+fn set_agent_limit(config: &mut LimitsConfig, update: impl FnOnce(&mut wf_types::config::limits::AgentLimits)) {
+    let entry = config.agent.get_or_insert_with(wf_types::config::limits::AgentLimits::default);
+    update(entry);
+}
+
+/// Update the `workflow` section of the limits config, materializing it
+/// when absent.
+fn set_workflow_limit(
+    config: &mut LimitsConfig,
+    update: impl FnOnce(&mut wf_types::config::limits::WorkflowLimits),
+) {
+    let entry = config
+        .workflow
+        .get_or_insert_with(wf_types::config::limits::WorkflowLimits::default);
+    update(entry);
+}
+
+/// Update the `execution_defaults` section of the limits config,
+/// materializing it when absent.
+fn set_exec_default(
+    config: &mut LimitsConfig,
+    update: impl FnOnce(&mut wf_types::config::limits::ExecutionDefaults),
+) {
+    let entry = config
+        .execution_defaults
+        .get_or_insert_with(wf_types::config::limits::ExecutionDefaults::default);
+    update(entry);
 }
 
 /// Load a single-file preset definition (JSON) and extract its `files`
@@ -475,6 +652,7 @@ pub fn load_infrastructure_preset(
             "tool_approval" => mapping.tool_approval = path.to_string_lossy().to_string(),
             "presets" => mapping.presets = path.to_string_lossy().to_string(),
             "tools" => mapping.tools = path.to_string_lossy().to_string(),
+            "limits" => mapping.limits = path.to_string_lossy().to_string(),
             _ => {}
         }
     }
@@ -703,6 +881,16 @@ mod tests {
             "WF_TIMEOUT_DEFAULT",
             "WF_METRICS_ENABLED",
             "WF_OUTPUT_DIR",
+            "WF_AGENT_MAX_ITERATIONS_CAP",
+            "WF_AGENT_DEFAULT_MAX_ITERATIONS",
+            "WF_AGENT_MAX_CONCURRENT",
+            "WF_AGENT_MAX_SUB_AGENT_DEPTH",
+            "WF_AGENT_MAX_PAUSE_DURATION_MS",
+            "WF_WORKFLOW_LOOP_MAX_ITERATIONS_CAP",
+            "WF_WORKFLOW_LOOP_DEFAULT_MAX_ITERATIONS",
+            "WF_WORKFLOW_MAX_NAVIGATION_MULTIPLIER",
+            "WF_EXEC_NODE_TIMEOUT_MS",
+            "WF_EXEC_MAX_EXECUTION_TIME_MS",
         ] {
             std::env::remove_var(var);
         }
@@ -806,6 +994,32 @@ mod tests {
         std::env::set_var("WF_STORAGE_TYPE", "memory");
         let config = ConfigOrchestrator::assemble(&dir, None).unwrap();
         assert_eq!(config.storage.storage_type, StorageType::Memory);
+        clear_wf_env_vars();
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_assemble_limits_env_override() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        clear_wf_env_vars();
+
+        let dir = std::env::temp_dir().join(format!("wf-orch-limits-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        setup_test_project(&dir);
+
+        std::env::set_var("WF_AGENT_MAX_ITERATIONS_CAP", "500");
+        std::env::set_var("WF_WORKFLOW_LOOP_MAX_ITERATIONS_CAP", "3000");
+        std::env::set_var("WF_EXEC_NODE_TIMEOUT_MS", "15000");
+        std::env::set_var("WF_EXEC_MAX_EXECUTION_TIME_MS", "120000");
+        let config = ConfigOrchestrator::assemble(&dir, None).unwrap();
+        let agent = config.limits.agent.as_ref().unwrap();
+        let workflow = config.limits.workflow.as_ref().unwrap();
+        let defaults = config.limits.execution_defaults.as_ref().unwrap();
+        assert_eq!(agent.max_iterations_cap, Some(500));
+        assert_eq!(workflow.loop_max_iterations_cap, Some(3000));
+        assert_eq!(defaults.node_timeout_ms, Some(15000));
+        assert_eq!(defaults.max_execution_time_ms, Some(120000));
         clear_wf_env_vars();
 
         let _ = std::fs::remove_dir_all(&dir);

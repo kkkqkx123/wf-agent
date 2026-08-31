@@ -27,6 +27,22 @@ pub fn validate_agent_definition(definition: &AgentDefinition) -> ConfigResult<(
             validate_hook_type(&hook_type, "config.hooks")?;
         }
     }
+    if let Some(config) = definition.config.as_ref() {
+        if let Some(max_iterations) = config.max_iterations {
+            if max_iterations == 0 {
+                return Err(ConfigError::Validation(
+                    "config.max_iterations must be at least 1".to_string(),
+                ));
+            }
+        }
+        if let Some(threshold) = config.token_warning_threshold {
+            if threshold > 100 {
+                return Err(ConfigError::Validation(format!(
+                    "config.token_warning_threshold must be between 1 and 100, got {threshold}"
+                )));
+            }
+        }
+    }
     Ok(())
 }
 
@@ -59,9 +75,13 @@ pub fn transform_to_agent_loop_config(definition: &AgentDefinition) -> AgentRunt
         profile_id: config.and_then(|c| c.profile_id.clone()),
         system_prompt: config.and_then(|c| c.system_prompt.clone()),
         max_iterations: config.and_then(|c| c.max_iterations),
-        max_execution_time: None,
-        max_retries: None,
-        execution_timeout: None,
+        max_execution_time: config.and_then(|c| c.max_execution_time),
+        max_retries: config.and_then(|c| c.max_retries),
+        execution_timeout: config.and_then(|c| c.execution_timeout),
+        max_pause_duration: config.and_then(|c| c.max_pause_duration),
+        token_limit: config.and_then(|c| c.token_limit),
+        token_warning_threshold: config.and_then(|c| c.token_warning_threshold),
+        enable_token_tracking: config.and_then(|c| c.enable_token_tracking),
         initial_messages: config.and_then(|c| c.initial_messages.clone()),
         available_tools: config
             .and_then(|c| c.available_tools.as_ref().map(|t| t.available.clone())),
@@ -149,6 +169,13 @@ mod tests {
             system_prompt_template_id: None,
             system_prompt_template_variables: None,
             max_iterations: None,
+                max_execution_time: None,
+                max_retries: None,
+                execution_timeout: None,
+                max_pause_duration: None,
+                token_limit: None,
+                token_warning_threshold: None,
+                enable_token_tracking: None,
             initial_messages: None,
             available_tools: None,
             stream: None,
@@ -170,6 +197,13 @@ mod tests {
             system_prompt_template_id: None,
             system_prompt_template_variables: None,
             max_iterations: None,
+                max_execution_time: None,
+                max_retries: None,
+                execution_timeout: None,
+                max_pause_duration: None,
+                token_limit: None,
+                token_warning_threshold: None,
+                enable_token_tracking: None,
             initial_messages: None,
             available_tools: None,
             stream: None,
@@ -191,6 +225,13 @@ mod tests {
             system_prompt_template_id: None,
             system_prompt_template_variables: None,
             max_iterations: Some(10),
+                max_execution_time: None,
+                max_retries: None,
+                execution_timeout: None,
+                max_pause_duration: None,
+                token_limit: None,
+                token_warning_threshold: None,
+                enable_token_tracking: None,
             initial_messages: None,
             available_tools: None,
             stream: Some(true),
@@ -224,6 +265,13 @@ mod tests {
             system_prompt_template_id: None,
             system_prompt_template_variables: None,
             max_iterations: None,
+                max_execution_time: None,
+                max_retries: None,
+                execution_timeout: None,
+                max_pause_duration: None,
+                token_limit: None,
+                token_warning_threshold: None,
+                enable_token_tracking: None,
             initial_messages: None,
             available_tools: None,
             stream: None,

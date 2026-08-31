@@ -121,6 +121,10 @@ pub struct WorkflowRunner {
     tool_registry: Option<Arc<wf_tools::registry::ToolRegistry>>,
     /// Typed signal bus for internal workflow/agent signals.
     signal_bus: Option<Arc<InternalSignalBus>>,
+    /// Resolved resource limits (workflow caps and execution defaults)
+    /// applied to every sub-workflow this runner starts. `None` keeps the
+    /// engine's built-in defaults.
+    limits: Option<wf_types::config::limits::LimitsConfig>,
 }
 
 impl WorkflowRunner {
@@ -148,6 +152,7 @@ impl WorkflowRunner {
             skill_loader,
             tool_registry: None,
             signal_bus: None,
+            limits: None,
         }
     }
 
@@ -155,6 +160,14 @@ impl WorkflowRunner {
     /// reach the executed sub-workflow's coordinator through it.
     pub fn with_signal_bus(mut self, bus: Arc<InternalSignalBus>) -> Self {
         self.signal_bus = Some(bus);
+        self
+    }
+
+    /// Inject resolved resource limits: workflow iteration caps, navigation
+    /// multiplier and execution defaults (node timeout / max execution
+    /// time) applied to every sub-workflow started here.
+    pub fn with_limits(mut self, limits: wf_types::config::limits::LimitsConfig) -> Self {
+        self.limits = Some(limits);
         self
     }
 
@@ -176,6 +189,7 @@ impl WorkflowRunner {
             skill_loader: None,
             tool_registry,
             signal_bus: None,
+            limits: None,
         }
     }
 }
@@ -201,7 +215,15 @@ impl SubworkflowRunner for WorkflowRunner {
             .definition
             .triggered_subworkflow_config
             .as_ref()
-            .and_then(|config| config.timeout);
+            .and_then(|config| config.timeout)
+            // Template-level timeout wins; fall back to the configured
+            // execution default (0 = unlimited, matching the engine).
+            .or_else(|| {
+                self.limits
+                    .as_ref()
+                    .and_then(|l| l.execution_defaults.as_ref())
+                    .and_then(|d| d.max_execution_time_ms)
+            });
         // Checkpoints follow the template's `triggered_subworkflow_config`:
         // a triggered sub-workflow may opt into checkpoint
         // capture; the pre-refactor default (false) stays when unconfigured.
@@ -211,13 +233,17 @@ impl SubworkflowRunner for WorkflowRunner {
             .as_ref()
             .and_then(|config| config.enable_checkpoints)
             .unwrap_or(false);
+        let limits = self.limits.clone().unwrap_or_default();
         let options = WorkflowExecutionOptions {
             input: Some(input),
             max_steps: None,
             timeout: None,
             max_execution_time,
             enable_checkpoints: Some(enable_checkpoints),
-            node_timeout: None,
+            node_timeout: limits
+                .execution_defaults
+                .as_ref()
+                .and_then(|d| d.node_timeout_ms),
             max_pause_duration: None,
             retry_budget: None,
             on_failure: None,
@@ -225,7 +251,14 @@ impl SubworkflowRunner for WorkflowRunner {
             retry_delay_ms: None,
             exponential_backoff: None,
             fallback_output: None,
-            max_navigation_multiplier: None,
+            max_navigation_multiplier: limits
+                .workflow
+                .as_ref()
+                .and_then(|w| w.max_navigation_multiplier),
+            loop_max_iterations_cap: limits
+                .workflow
+                .as_ref()
+                .and_then(|w| w.loop_max_iterations_cap),
         };
 
         let tool_registry = match &self.tool_registry {

@@ -28,6 +28,11 @@ use crate::checkpoint::WorkflowCheckpointIntegration;
 use crate::coordinator::NodeCoordinator;
 use crate::entity::WorkflowExecutionEntity;
 use crate::error::{WorkflowError, WorkflowResult};
+
+/// Engine-wide fallback node timeout in milliseconds. Applied when neither
+/// the node-level `timeout_seconds` nor the global options default is set,
+/// so no node runs unbounded.
+pub const DEFAULT_NODE_TIMEOUT_MS: u64 = 30_000;
 use crate::error_analysis::workflow_error_record;
 use crate::graph::GraphTraversal;
 use crate::handler::NodeHandler;
@@ -312,6 +317,14 @@ impl WorkflowCoordinator {
 
         let total_node_count = traversal.node_count() as u32;
         let max_navigation_multiplier = ctx.options.max_navigation_multiplier.unwrap_or(5);
+
+        // Publish the runtime-injected loop iteration cap through the shared
+        // variable table so LOOP_START handlers resolve it per execution.
+        // Absent, handlers fall back to the engine's built-in constant.
+        if let Some(cap) = ctx.options.loop_max_iterations_cap {
+            ctx.variables
+                .insert(crate::loop_state::LOOP_MAX_ITERATIONS_CAP_KEY.to_string(), Value::from(cap));
+        }
 
         let signal_receiver = ctx.signal_bus.as_ref().map(|bus| bus.subscribe());
 
@@ -1018,8 +1031,15 @@ impl WorkflowCoordinator {
                 })?;
 
         let coordinator = NodeCoordinator::new();
-        let node_timeout_ms =
-            node_timeout.or_else(|| node.inner.get("timeout_seconds").and_then(|v| v.as_u64()));
+        // Node-level `timeout_seconds` wins, then the global options default,
+        // then the engine-wide fallback. The fallback keeps every node
+        // bounded even when no timeout is configured anywhere.
+        let node_timeout_ms = node
+            .inner
+            .get("timeout_seconds")
+            .and_then(|v| v.as_u64())
+            .or(node_timeout)
+            .or(Some(DEFAULT_NODE_TIMEOUT_MS));
         let timeout_dur = node_timeout_ms.map(std::time::Duration::from_millis);
 
         let fut = coordinator.execute_node(
@@ -1707,6 +1727,7 @@ mod tests {
             exponential_backoff: None,
             fallback_output: None,
             max_navigation_multiplier: None,
+            loop_max_iterations_cap: None,
         }
     }
 

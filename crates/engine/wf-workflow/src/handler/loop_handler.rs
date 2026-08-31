@@ -9,7 +9,7 @@ use crate::error::{WorkflowError, WorkflowResult};
 use crate::handler::NodeHandler;
 use crate::loop_state::{
     current_item, enter_loop, exit_loop, find_loop, loop_condition_met, update_loop, LoopState,
-    MAX_ITERATIONS_CAP,
+    LOOP_MAX_ITERATIONS_CAP_KEY, MAX_ITERATIONS_CAP,
 };
 use crate::variable::VariableResolver;
 
@@ -47,10 +47,17 @@ impl LoopStartHandler {
             .get("max_iterations")
             .and_then(|v| v.as_u64())
             .unwrap_or(100) as u32;
-        if max_iterations > MAX_ITERATIONS_CAP {
+        // Runtime-injected cap (from limits configuration) wins over the
+        // built-in constant when present.
+        let max_iterations_cap = ctx
+            .variables
+            .get(LOOP_MAX_ITERATIONS_CAP_KEY)
+            .and_then(|v| v.as_u64())
+            .unwrap_or(MAX_ITERATIONS_CAP as u64) as u32;
+        if max_iterations > max_iterations_cap {
             return Err(WorkflowError::LoopError(format!(
                 "max_iterations ({}) exceeds the allowed limit ({}) for loop '{}'",
-                max_iterations, MAX_ITERATIONS_CAP, loop_id
+                max_iterations, max_iterations_cap, loop_id
             )));
         }
 
@@ -495,6 +502,45 @@ mod tests {
             err.to_string().contains("Invalid variable scope"),
             "{}",
             err
+        );
+    }
+
+    #[tokio::test]
+    async fn loop_cap_injection_controls_max_iterations() {
+        // A runtime-injected cap (from limits configuration) wins over the
+        // built-in constant: a loop declaring more iterations is rejected.
+        let mut ctx = ctx_with(serde_json::json!({
+            "loop_id": "loop-1",
+            "max_iterations": 5000,
+        }));
+        ctx.variables.insert(
+            LOOP_MAX_ITERATIONS_CAP_KEY.to_string(),
+            serde_json::json!(1000),
+        );
+        let handler = LoopStartHandler;
+        let err = handler
+            .execute_inner(&mut ctx)
+            .await
+            .err()
+            .expect("expected LoopError from injected cap");
+        assert!(
+            err.to_string().contains("exceeds the allowed limit"),
+            "unexpected error: {err}"
+        );
+
+        // Without injection the built-in cap (10000) applies.
+        let mut ctx = ctx_with(serde_json::json!({
+            "loop_id": "loop-2",
+            "max_iterations": 10001,
+        }));
+        let err = handler
+            .execute_inner(&mut ctx)
+            .await
+            .err()
+            .expect("expected LoopError from built-in cap");
+        assert!(
+            err.to_string().contains("exceeds the allowed limit"),
+            "unexpected error: {err}"
         );
     }
 }

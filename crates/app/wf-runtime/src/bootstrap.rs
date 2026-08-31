@@ -14,6 +14,7 @@ use wf_llm::LlmGateway;
 use wf_resource::registry::{RegisterOptions as ResourceOptions, ResourceRegistries};
 use wf_resource::resource_plugin::ResourcePluginRegistry;
 use wf_types::config::file_checkpoint::FileCheckpointConfig;
+use wf_types::config::limits::LimitsConfig;
 use wf_types::config::metrics::MetricsConfig;
 use wf_types::config::output::OutputConfig;
 use wf_types::config::presets::PresetsConfig;
@@ -112,6 +113,9 @@ pub struct RuntimeConfig {
     /// File-layer infrastructure config source; `None` keeps the runtime
     /// programmatic-only (storage/metrics/sandbox defaults).
     pub infra: Option<InfraSourceConfig>,
+    /// Resource limits (agent/workflow) resolved from the infrastructure
+    /// file layer when `infra` is set; defaults otherwise.
+    pub limits: LimitsConfig,
     #[cfg(feature = "plugins")]
     pub plugins: PluginConfig,
 }
@@ -243,6 +247,7 @@ fn assemble_trigger_subsystem(
     agent_executor: Arc<wf_agent::executor::AgentLoopExecutor>,
     hook_registry: Arc<HookRegistry>,
     storage: Option<Arc<dyn TriggerExecutionRecorder>>,
+    limits: wf_types::config::limits::LimitsConfig,
 ) -> TriggerSubsystem {
     let execution_contexts = Arc::new(ExecutionContextRegistry::new());
     let trigger_state_registry = Arc::new(wf_workflow::TriggerStateRegistry::new());
@@ -256,7 +261,8 @@ fn assemble_trigger_subsystem(
             Some(tool_registry.clone()),
             Some(sandbox_runtime.clone()),
         )
-        .with_signal_bus(signal_bus.clone()));
+        .with_signal_bus(signal_bus.clone())
+        .with_limits(limits));
     let listener = start_trigger_listener_with_parts(
         event_bus.clone(),
         registries.clone(),
@@ -506,9 +512,26 @@ impl Runtime {
         // singleton and the shared tool registry. Fixes the production path
         // where builtin dispatch tools previously failed with
         // CallbackNotRegistered.
+        let agent_limits = config.limits.agent.clone().unwrap_or_default();
         let agent_executor = std::sync::Arc::new(
             wf_agent::executor::AgentLoopExecutor::new(llm_gateway.clone(), tool_registry.clone())
                 .with_shared_registry(agent_registry.clone())
+                .with_max_iterations_cap(
+                    agent_limits
+                        .max_iterations_cap
+                        .unwrap_or(wf_agent::constants::AGENT_MAX_ITERATIONS_CAP),
+                )
+                .with_max_iterations(
+                    agent_limits
+                        .default_max_iterations
+                        .unwrap_or(wf_agent::constants::DEFAULT_MAX_ITERATIONS),
+                )
+                .with_max_sub_agent_depth(
+                    agent_limits
+                        .max_sub_agent_depth
+                        .unwrap_or(wf_agent::registry::DEFAULT_MAX_SUB_AGENT_DEPTH),
+                )
+                .with_max_concurrent(agent_limits.max_concurrent.unwrap_or(0) as usize)
                 .with_hook_registry(hook_registry.clone())
                 .with_signal_bus(signal_bus.clone()),
         );
@@ -594,6 +617,7 @@ impl Runtime {
             storage_manager.shared_context().map(|ctx| {
                 Arc::new(ctx.trigger_execution.clone()) as Arc<dyn TriggerExecutionRecorder>
             }),
+            config.limits.clone(),
         );
         let execution_contexts = trigger_subsystem.execution_contexts;
         let trigger_state_registry = trigger_subsystem.trigger_state_registry;
@@ -1172,6 +1196,9 @@ async fn resolve_infra_config(
     }
     if config.tool_approval == wf_types::config::tool_approval::ToolApprovalConfig::default() {
         config.tool_approval = assembled.tool_approval;
+    }
+    if config.limits == LimitsConfig::default() {
+        config.limits = assembled.limits;
     }
 
     // Skill settings chain (global -> project, or collection mode). Lenient:

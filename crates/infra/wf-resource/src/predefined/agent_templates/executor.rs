@@ -18,6 +18,13 @@ pub fn goal_review_executor() -> AgentTemplate {
                 profile_id: Some("gpt-4o".into()),
                 system_prompt: Some("You are an executor working toward a goal.\nYou have full file access. Make changes, run tests, and call attempt_completion when the task is done.".into()),
                 max_iterations: Some(30),
+                max_execution_time: None,
+                max_retries: None,
+                execution_timeout: None,
+                max_pause_duration: None,
+                token_limit: None,
+                token_warning_threshold: None,
+                enable_token_tracking: None,
                 available_tools: Some(AvailableTools {
                     available: vec![
                         "read_file".into(),

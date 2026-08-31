@@ -163,6 +163,7 @@ async fn kill_restart_recover_drives_crashed_execution_to_completion() {
             exponential_backoff: None,
             fallback_output: None,
             max_navigation_multiplier: None,
+            loop_max_iterations_cap: None,
         };
         options.max_steps = Some(2);
         let output = wf_api::workflow::workflow_execution::execute(

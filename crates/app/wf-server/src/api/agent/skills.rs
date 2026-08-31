@@ -33,6 +33,7 @@ pub(crate) fn routes() -> Router<ApiState> {
         .route("/skills/{name}/disable", post(handle_disable_skill))
         .route("/skills/{name}/content", get(handle_skill_content))
         .route("/skills/{name}/resources", get(handle_skill_resources))
+        .route("/skills/prompt", get(handle_skill_prompt))
 }
 
 // ── skills ────────────────────────────────────────────────────────
@@ -190,6 +191,15 @@ async fn handle_skill_resources(
     };
     match wf_api::entity::skill::load_resources(&state.ctx, &path.name, resource_type) {
         Ok(resources) => ok(resources).into_response(),
+        Err(e) => error_response(e),
+    }
+}
+
+/// Assemble the enabled-skill prompt: metadata block followed by the body
+/// content of every enabled skill.
+async fn handle_skill_prompt(State(state): State<ApiState>) -> impl IntoResponse {
+    match wf_api::entity::skill::to_prompt(&state.ctx) {
+        Ok(prompt) => ok(prompt).into_response(),
         Err(e) => error_response(e),
     }
 }

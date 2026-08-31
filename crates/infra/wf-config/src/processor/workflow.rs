@@ -135,7 +135,7 @@ fn generate_edge_id() -> String {
     wf_common::generate_id()
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct WorkflowNodeConfig {
     pub id: String,
     pub node_type: String,
@@ -144,7 +144,7 @@ pub struct WorkflowNodeConfig {
     pub config: Option<serde_json::Value>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct WorkflowEdgeConfig {
     pub id: Option<String>,
     pub source_node_id: Option<String>,

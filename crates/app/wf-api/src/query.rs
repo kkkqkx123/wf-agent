@@ -250,7 +250,15 @@ pub fn apply_filter_expressions(
 
 /// Evaluate a single filter expression against a record.
 pub fn evaluate_expression(record: &ExecutionRecord, expr: &FilterExpression) -> bool {
-    let Some(value) = get_field_value(record, &expr.field) else {
+    let value = serde_json::to_value(record).unwrap_or(Value::Null);
+    evaluate_json_expression(&value, expr)
+}
+
+/// Evaluate a single filter expression against an arbitrary JSON value.
+/// Field access follows the same dotted-path and camel/snake-case
+/// resolution as `get_field_value`.
+pub fn evaluate_json_expression(record: &Value, expr: &FilterExpression) -> bool {
+    let Some(value) = json_field_value(record, &expr.field) else {
         // A missing field matches `neq` and never matches the other operators.
         return expr.operator == FilterOperator::Neq;
     };
@@ -282,9 +290,9 @@ pub fn evaluate_expression(record: &ExecutionRecord, expr: &FilterExpression) ->
     }
 }
 
-/// Read a (possibly nested) field from a record by dotted path `a.b.c`.
-pub fn get_field_value(record: &ExecutionRecord, field: &str) -> Option<Value> {
-    let mut current = serde_json::to_value(record).ok()?;
+/// Read a (possibly nested) field from a JSON value by dotted path `a.b.c`.
+pub fn json_field_value(record: &Value, field: &str) -> Option<Value> {
+    let mut current = record.clone();
     for part in field.split('.') {
         let map = current.as_object()?;
         let value = map
@@ -294,6 +302,11 @@ pub fn get_field_value(record: &ExecutionRecord, field: &str) -> Option<Value> {
         current = value.clone();
     }
     Some(current)
+}
+
+/// Read a (possibly nested) field from a record by dotted path `a.b.c`.
+pub fn get_field_value(record: &ExecutionRecord, field: &str) -> Option<Value> {
+    json_field_value(&serde_json::to_value(record).ok()?, field)
 }
 
 /// Apply aggregation operations over a record set.

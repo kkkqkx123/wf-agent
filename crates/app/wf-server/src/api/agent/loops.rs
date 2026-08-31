@@ -44,6 +44,14 @@ pub(crate) fn routes() -> Router<ApiState> {
         .route("/agent-loops/{id}/pause", post(handle_pause_loop))
         .route("/agent-loops/{id}/resume", post(handle_resume_loop))
         .route("/agent-loops/{id}/cancel", post(handle_cancel_loop))
+        .route(
+            "/agent-loops/{id}/status/transition",
+            post(handle_loop_status_transition),
+        )
+        .route(
+            "/agent-loops/cleanup-completed",
+            post(handle_cleanup_completed),
+        )
         .route("/agent-loops/{id}/summary", get(handle_loop_summary))
         .route(
             "/agent-loops/{id}/iteration-history",
@@ -158,6 +166,36 @@ async fn handle_loop_status(
 ) -> impl IntoResponse {
     match wf_api::agent::agent_execution::status(&state.ctx, &path.id).await {
         Ok(status) => ok(status).into_response(),
+        Err(e) => error_response(e),
+    }
+}
+
+/// Live status-machine transition: when the loop is running in memory the
+/// coordinator entity pauses / resumes / stops directly; otherwise the
+/// persisted metadata status is rewritten (fallback of `wf-api`).
+async fn handle_loop_status_transition(
+    State(state): State<ApiState>,
+    Path(path): Path<IdPath>,
+    Json(body): Json<UpdateLoopStatusBody>,
+) -> impl IntoResponse {
+    let status = match parse_execution_status(&body.status) {
+        Ok(status) => status,
+        Err(message) => {
+            return crate::envelope::err::<Value>(crate::envelope::ApiError::validation(message))
+                .into_response()
+        }
+    };
+    match wf_api::agent::agent_loop_registry::update_status(&state.ctx, &path.id, status).await {
+        Ok(()) => ok(()).into_response(),
+        Err(e) => error_response(e),
+    }
+}
+
+/// Remove all terminated (completed/failed/cancelled/stopped) live agent
+/// loops from the in-memory registry.
+async fn handle_cleanup_completed(State(state): State<ApiState>) -> impl IntoResponse {
+    match wf_api::agent::agent_loop_registry::cleanup_completed(&state.ctx).await {
+        Ok(count) => ok(count).into_response(),
         Err(e) => error_response(e),
     }
 }

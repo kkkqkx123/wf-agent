@@ -4,7 +4,7 @@
 
 use axum::extract::{Path, Query, State};
 use axum::response::IntoResponse;
-use axum::routing::get;
+use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::Deserialize;
 use serde_json::Value;
@@ -23,6 +23,10 @@ pub(crate) fn routes() -> Router<ApiState> {
         .route(
             "/agent-loops/{id}/messages/stats",
             get(handle_message_stats),
+        )
+        .route(
+            "/agent-loops/{id}/messages/dedupe",
+            post(handle_dedupe_messages),
         )
         .route("/agent-loops/{id}/conversation", get(handle_conversation))
         // ── agent variables ──
@@ -57,6 +61,18 @@ async fn handle_recent_messages(
 ) -> impl IntoResponse {
     match wf_api::agent::agent_message::recent(&state.ctx, &path.id, query.count).await {
         Ok(messages) => ok(messages).into_response(),
+        Err(e) => error_response(e),
+    }
+}
+
+/// Delete duplicate messages of an agent loop from storage; returns the
+/// number of removed records.
+async fn handle_dedupe_messages(
+    State(state): State<ApiState>,
+    Path(path): Path<IdPath>,
+) -> impl IntoResponse {
+    match wf_api::agent::agent_message::dedupe_and_delete(&state.ctx, &path.id).await {
+        Ok(removed) => ok(removed).into_response(),
         Err(e) => error_response(e),
     }
 }

@@ -97,10 +97,11 @@ pub use llm::llm_profile::{LlmProfileFilter, LlmProfileTemplate, MASKED_API_KEY}
 pub use llm::script::{ScriptExecuteParams, ScriptValidation};
 pub use llm::tool::{ToolParameterValidation, ToolReference};
 pub use query::{
-    aggregate, apply_filter_expressions, evaluate_expression, export_to_csv, export_to_format,
-    export_to_xml, get_distinct, get_field_value, group_by_field, query, AggregationOp,
-    AggregationResult, AggregationType, ExecutionRecord, ExportFormat, FilterCriteria,
-    FilterExpression, FilterOperator, PaginationOptions, QueryBuilder, SortOptions,
+    aggregate, apply_filter_expressions, evaluate_expression, evaluate_json_expression,
+    export_to_csv, export_to_format, export_to_xml, get_distinct, get_field_value, group_by_field,
+    json_field_value, query, AggregationOp, AggregationResult, AggregationType, ExecutionRecord,
+    ExportFormat, FilterCriteria, FilterExpression, FilterOperator, PaginationOptions,
+    QueryBuilder, SortOptions,
 };
 pub use template::agent_template::AgentTemplateFilter;
 pub use template::agent_trigger_template::{

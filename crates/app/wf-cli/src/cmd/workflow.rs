@@ -7,8 +7,8 @@ use crate::error::CliResult;
 use crate::output::OutputEnvelope;
 
 pub async fn run(cli: &Cli, sub: &WorkflowSub) -> CliResult<()> {
-    let adapter = crate::domain::DomainAdapter::bootstrap_for_cli(cli, crate::mode::CliMode::Run)
-        .await?;
+    let adapter =
+        crate::domain::DomainAdapter::bootstrap_for_cli(cli, crate::mode::CliMode::Run).await?;
     let ctx = adapter.api_context();
 
     let result = match sub {
@@ -35,10 +35,7 @@ pub async fn run(cli: &Cli, sub: &WorkflowSub) -> CliResult<()> {
                 filtered
             };
             let data = serde_json::to_value(&limited)?;
-            render_envelope(
-                cli.output,
-                OutputEnvelope::success("workflow-list", data),
-            )
+            render_envelope(cli.output, OutputEnvelope::success("workflow-list", data))
         }
         WorkflowSub::Show { id } => {
             let def = workflow::get_workflow(ctx, id).await?;

@@ -7,8 +7,8 @@ use crate::error::CliResult;
 use crate::output::OutputEnvelope;
 
 pub async fn run(cli: &Cli, sub: &ExecutionSub) -> CliResult<()> {
-    let adapter = crate::domain::DomainAdapter::bootstrap_for_cli(cli, crate::mode::CliMode::Run)
-        .await?;
+    let adapter =
+        crate::domain::DomainAdapter::bootstrap_for_cli(cli, crate::mode::CliMode::Run).await?;
     let ctx = adapter.api_context();
 
     let result = match sub {
@@ -16,10 +16,7 @@ pub async fn run(cli: &Cli, sub: &ExecutionSub) -> CliResult<()> {
             let filter = status.as_deref().and_then(parse_status);
             let summaries = agent_loop_registry::summaries(ctx, filter.as_ref()).await?;
             let data = serde_json::to_value(&summaries)?;
-            render_envelope(
-                cli.output,
-                OutputEnvelope::success("execution-list", data),
-            )
+            render_envelope(cli.output, OutputEnvelope::success("execution-list", data))
         }
         ExecutionSub::Show { id } => {
             let summary = agent_loop_registry::summary(ctx, id).await?;

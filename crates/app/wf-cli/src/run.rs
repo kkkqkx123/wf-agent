@@ -28,9 +28,9 @@ use wf_api::entity::user_interaction::{
 use wf_tools::callback::AgentLoopInput;
 use wf_types::Id;
 
-use crate::approval_policy::{ApprovalDecision, ApprovalPolicy};
 #[cfg(test)]
 use crate::approval_policy::{default_low_risk_tools, default_sensitive_tools};
+use crate::approval_policy::{ApprovalDecision, ApprovalPolicy};
 use crate::config::{build_agent_loop_config, DEFAULT_MODEL};
 use crate::domain::DomainAdapter;
 use crate::error::{CliError, CliResult};
@@ -617,7 +617,10 @@ fn write_summary(p: SummaryParams<'_>) -> CliResult<()> {
     match p.format {
         OutputFormat::Text => {
             let line = if p.had_output {
-                format!("▣ {} · {} iterations · {duration}", p.execution_id, p.iterations)
+                format!(
+                    "▣ {} · {} iterations · {duration}",
+                    p.execution_id, p.iterations
+                )
             } else {
                 format!("▣ {} · no output · {duration}", p.execution_id)
             };
@@ -654,7 +657,8 @@ fn write_summary(p: SummaryParams<'_>) -> CliResult<()> {
                 "success": true,
             });
             if let Some(res) = p.result {
-                record.as_object_mut()
+                record
+                    .as_object_mut()
                     .expect("json object")
                     .insert("result".to_string(), res.clone());
             }

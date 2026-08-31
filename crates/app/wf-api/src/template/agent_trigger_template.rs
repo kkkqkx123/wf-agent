@@ -1,10 +1,13 @@
 //! Trigger template registry.
 
+use std::sync::Arc;
+
 use serde::Serialize;
 
+use wf_core::registry::MutableRegistry;
 use wf_storage::adapter::base::BaseStorageAdapter;
 use wf_storage::adapter::trigger_template::TriggerTemplateListOptions;
-use wf_types::TriggerTemplateStorageMetadata;
+use wf_types::{TriggerTemplate, TriggerTemplateStorageMetadata};
 
 use crate::infra::context::ApiContext;
 use crate::infra::error::{not_found, ApiResult};
@@ -148,6 +151,29 @@ pub async fn search(
 /// Register or overwrite a trigger template.
 pub async fn save(ctx: &ApiContext, template: &TriggerTemplateStorageMetadata) -> ApiResult<()> {
     ctx.storage.trigger_template.save(template).await?;
+    let trigger_template = TriggerTemplate {
+        name: template.name.clone(),
+        description: template.description.clone(),
+        condition: template
+            .condition
+            .as_ref()
+            .and_then(|value| serde_json::from_value(value.clone()).ok()),
+        action: template
+            .action_config
+            .as_ref()
+            .and_then(|value| serde_json::from_value(value.clone()).ok()),
+        enabled: Some(template.enabled),
+        max_triggers: template.max_triggers,
+        priority: template.priority,
+        metadata: None,
+        created_at: template.created_at,
+        updated_at: template.updated_at,
+        create_checkpoint: None,
+        checkpoint_description_template: None,
+    };
+    ctx.registries
+        .trigger_templates
+        .register_or_replace(template.name.clone(), Arc::new(trigger_template));
     Ok(())
 }
 
@@ -224,6 +250,7 @@ pub fn infer_action_type(template: &TriggerTemplateStorageMetadata) -> &'static 
 mod tests {
     use super::*;
     use std::sync::Arc;
+    use wf_core::registry::Registry;
     use wf_resource::registry::ResourceRegistries;
     use wf_resource::resource_plugin::ResourcePluginRegistry;
     use wf_storage::context::StorageContext;
@@ -296,6 +323,24 @@ mod tests {
 
         assert!(delete(&ctx, "tt-1").await.unwrap());
         assert!(!delete(&ctx, "tt-1").await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn save_registers_template_in_memory() {
+        let ctx = make_ctx();
+        let template = make_template("tt-memory", "event");
+
+        save(&ctx, &template).await.unwrap();
+
+        assert!(ctx.registries.trigger_templates.has(&template.name));
+        assert_eq!(
+            ctx.registries
+                .trigger_templates
+                .get(&template.name)
+                .unwrap()
+                .name,
+            template.name
+        );
     }
 
     #[test]

@@ -34,6 +34,7 @@ pub(crate) fn routes() -> Router<ApiState> {
         )
         .route("/triggers/{id}/enable", post(handle_enable_trigger))
         .route("/triggers/{id}/disable", post(handle_disable_trigger))
+        .route("/triggers/{id}/enabled", get(handle_trigger_enabled))
         // ── trigger executions ──
         .route(
             "/trigger-executions",
@@ -154,6 +155,17 @@ async fn handle_disable_trigger(
 ) -> impl IntoResponse {
     match wf_api::entity::trigger::disable_trigger(&state.ctx.storage, &path.id).await {
         Ok(()) => ok(()).into_response(),
+        Err(e) => error_response(e),
+    }
+}
+
+/// Query the persisted enabled state of a trigger.
+async fn handle_trigger_enabled(
+    State(state): State<ApiState>,
+    Path(path): Path<IdPath>,
+) -> impl IntoResponse {
+    match wf_api::entity::trigger::is_trigger_enabled(&state.ctx.storage, &path.id).await {
+        Ok(enabled) => ok(enabled).into_response(),
         Err(e) => error_response(e),
     }
 }

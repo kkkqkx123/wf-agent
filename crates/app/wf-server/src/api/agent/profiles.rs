@@ -3,7 +3,7 @@
 
 use axum::extract::{Path, Query, State};
 use axum::response::IntoResponse;
-use axum::routing::get;
+use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::Deserialize;
 
@@ -19,6 +19,7 @@ pub(crate) fn routes() -> Router<ApiState> {
             "/agents",
             get(handle_list_profiles).post(handle_save_profile),
         )
+        .route("/agents/validate", post(handle_validate_agent))
         .route(
             "/agents/{id}",
             get(handle_get_profile)
@@ -28,6 +29,18 @@ pub(crate) fn routes() -> Router<ApiState> {
 }
 
 // ── agent profiles ────────────────────────────────────────────────
+
+/// Validate an agent definition through the wf-config processor without
+/// persisting it.
+async fn handle_validate_agent(
+    State(_state): State<ApiState>,
+    Json(definition): Json<wf_types::agent::AgentDefinition>,
+) -> impl IntoResponse {
+    match wf_api::infra::config::validate_agent(&definition) {
+        Ok(()) => ok(true).into_response(),
+        Err(e) => error_response(e),
+    }
+}
 
 #[derive(Deserialize)]
 struct ListProfilesQuery {

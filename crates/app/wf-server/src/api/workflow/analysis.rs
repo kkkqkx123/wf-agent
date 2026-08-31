@@ -2,10 +2,14 @@
 //! metrics, workflow error analysis, performance profiling and aggregate
 //! stats. Handlers stay thin; every payload comes from `wf-api::analysis`.
 
+use std::convert::Infallible;
+
+use axum::body::Bytes;
 use axum::extract::{Path, Query, State};
-use axum::response::IntoResponse;
+use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::Router;
+use futures::StreamExt;
 use serde::Deserialize;
 use serde_json::json;
 
@@ -14,6 +18,7 @@ use wf_api::analysis::search::SearchOptions;
 use crate::envelope::{error_response, ok};
 use crate::extract::{IdErrorPath, IdPath};
 use crate::router::ApiState;
+use crate::sse::sse_response;
 
 pub(crate) fn routes() -> Router<ApiState> {
     Router::new()
@@ -62,6 +67,10 @@ pub(crate) fn routes() -> Router<ApiState> {
         .route(
             "/executions/{id}/error-analysis/similar",
             get(handle_error_similar),
+        )
+        .route(
+            "/executions/{id}/error-analysis/stream",
+            get(handle_error_chain_stream),
         )
         .route("/executions/{id}/performance", get(handle_performance))
         .route(
@@ -331,6 +340,31 @@ async fn handle_error_similar(
     }
 }
 
+/// Stream the root-first error chain of an execution as SSE frames.
+/// Degrades to an empty stream (connection closes) when the execution
+/// has no recorded errors.
+async fn handle_error_chain_stream(
+    State(state): State<ApiState>,
+    Path(path): Path<IdPath>,
+) -> Response {
+    let stream =
+        match wf_api::analysis::error_analysis::stream_error_chain(&state.ctx, &path.id).await {
+            Ok(stream) => stream,
+            Err(e) => return error_response(e),
+        };
+    let events = futures::stream::unfold(stream, |mut stream| async move {
+        match stream.next().await {
+            Some(record) => {
+                let payload = serde_json::to_string(&record).unwrap_or_else(|_| "{}".to_string());
+                let frame = format!("data: {payload}\n\n");
+                Some((Ok::<_, Infallible>(Bytes::from(frame)), stream))
+            }
+            None => None,
+        }
+    });
+    sse_response(events)
+}
+
 // ── performance ───────────────────────────────────────────────────
 
 async fn handle_performance(
@@ -422,6 +456,7 @@ mod tests {
             "/api/v1/executions/exec-1/error-analysis/context",
             "/api/v1/executions/exec-1/error-analysis/recovery-recommendations",
             "/api/v1/executions/exec-1/error-analysis/similar",
+            "/api/v1/executions/exec-1/error-analysis/stream",
             "/api/v1/executions/exec-1/performance",
             "/api/v1/executions/exec-1/performance/summary",
             "/api/v1/executions/exec-1/performance/bottlenecks",

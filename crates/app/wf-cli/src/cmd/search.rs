@@ -7,8 +7,8 @@ use crate::error::CliResult;
 use crate::output::OutputEnvelope;
 
 pub async fn run(cli: &Cli, query: &str, limit: Option<usize>) -> CliResult<()> {
-    let adapter = crate::domain::DomainAdapter::bootstrap_for_cli(cli, crate::mode::CliMode::Run)
-        .await?;
+    let adapter =
+        crate::domain::DomainAdapter::bootstrap_for_cli(cli, crate::mode::CliMode::Run).await?;
     let ctx = adapter.api_context();
 
     let options = search::SearchOptions {

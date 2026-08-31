@@ -7,10 +7,11 @@ use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::Deserialize;
+use serde_json::Value;
 
 use wf_api::{
-    aggregate, export_to_format, get_distinct, group_by_field, query, AggregationOp, ExportFormat,
-    FilterCriteria, FilterExpression, PaginationOptions, SortOptions,
+    aggregate, evaluate_json_expression, export_to_format, get_distinct, group_by_field, query,
+    AggregationOp, ExportFormat, FilterCriteria, FilterExpression, PaginationOptions, SortOptions,
 };
 
 use crate::envelope::{error_response, ok};
@@ -26,6 +27,7 @@ pub(crate) fn routes() -> Router<ApiState> {
         .route("/query/aggregate", post(handle_aggregate))
         .route("/query/distinct", get(handle_distinct))
         .route("/query/group-by", post(handle_group_by))
+        .route("/query/evaluate", post(handle_evaluate))
 }
 
 /// Wire shape of the query endpoints: filters (basic + advanced
@@ -180,6 +182,20 @@ async fn handle_group_by(
     }
 }
 
+/// Evaluate a filter expression against an arbitrary JSON record without
+/// persisting anything. Useful for validating query semantics before use.
+#[derive(Deserialize)]
+struct EvaluateBody {
+    record: Value,
+    #[serde(flatten)]
+    expression: FilterExpression,
+}
+
+async fn handle_evaluate(Json(body): Json<EvaluateBody>) -> impl IntoResponse {
+    let matched = evaluate_json_expression(&body.record, &body.expression);
+    ok(matched).into_response()
+}
+
 #[cfg(test)]
 mod tests {
     use axum::body::Body as AxBody;
@@ -251,6 +267,29 @@ mod tests {
 
         let body = serde_json::json!({"format": "xml"});
         let response = post_json(ctx, "/api/v1/query/export", body).await;
+        assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn evaluate_matches_and_misses() {
+        let ctx = make_ctx();
+        let record = serde_json::json!({"status": "completed", "duration_ms": 150});
+        let hit = serde_json::json!({
+            "record": record,
+            "field": "status",
+            "operator": "eq",
+            "value": "completed"
+        });
+        let response = post_json(ctx.clone(), "/api/v1/query/evaluate", hit).await;
+        assert_eq!(response.status(), StatusCode::OK);
+
+        let miss = serde_json::json!({
+            "record": record,
+            "field": "duration_ms",
+            "operator": "gte",
+            "value": 200
+        });
+        let response = post_json(ctx, "/api/v1/query/evaluate", miss).await;
         assert_eq!(response.status(), StatusCode::OK);
     }
 }

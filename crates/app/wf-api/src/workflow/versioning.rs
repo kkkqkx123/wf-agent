@@ -13,7 +13,8 @@ pub enum VersionStrategy {
 }
 
 /// Field-level changes applied by versioned update.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Deserialize)]
+#[serde(default)]
 pub struct WorkflowChanges {
     pub name: Option<String>,
     pub description: Option<Option<String>>,

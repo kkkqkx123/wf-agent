@@ -179,7 +179,10 @@ fn split_file_lines(token: &str) -> Option<(String, Option<(u32, u32)>)> {
     // We search from the end.
     let re = Regex::new(r"^(?P<path>.+?)(?:[:#]#?(?P<start>\d+)(?:-(?P<end>\d+))?)$").ok()?;
     if let Some(caps) = re.captures(token) {
-        let path = caps.name("path").map(|m| m.as_str().to_string()).unwrap_or_default();
+        let path = caps
+            .name("path")
+            .map(|m| m.as_str().to_string())
+            .unwrap_or_default();
         if path.is_empty() {
             return None;
         }
@@ -262,7 +265,12 @@ pub fn scan_files(project_root: &Path, query: Option<&str>) -> Vec<String> {
         };
         for entry in entries.flatten() {
             let path = entry.path();
-            let Ok(rel) = path.strip_prefix(project_root).map(|p| p.to_string_lossy().to_string()) else { continue };
+            let Ok(rel) = path
+                .strip_prefix(project_root)
+                .map(|p| p.to_string_lossy().to_string())
+            else {
+                continue;
+            };
             if let Some(re) = &ignore_re {
                 if re.is_match(&rel) {
                     continue;
@@ -288,7 +296,11 @@ pub fn scan_files(project_root: &Path, query: Option<&str>) -> Vec<String> {
 }
 
 /// Convenience: scan with empty query and no depth limit (tests).
-pub fn scan_files_with_limit(project_root: &Path, query: Option<&str>, limit: usize) -> Vec<String> {
+pub fn scan_files_with_limit(
+    project_root: &Path,
+    query: Option<&str>,
+    limit: usize,
+) -> Vec<String> {
     let mut v = scan_files(project_root, query);
     v.truncate(limit);
     v
@@ -389,7 +401,11 @@ mod tests {
 
     #[test]
     fn query_filters_by_substring_case_insensitive() {
-        let cands = vec!["src/main.rs".to_string(), "src/lib.rs".to_string(), "README.md".to_string()];
+        let cands = vec![
+            "src/main.rs".to_string(),
+            "src/lib.rs".to_string(),
+            "README.md".to_string(),
+        ];
         let filtered = filter_candidates(&cands, "main");
         assert_eq!(filtered, vec!["src/main.rs"]);
         let filtered2 = filter_candidates(&cands, "SRC");
@@ -435,7 +451,11 @@ mod tests {
     #[test]
     fn palette_filter_narrows_like_select_list() {
         // mirrors the SelectList filter behavior tested in panels.rs
-        let cands = vec!["/new".to_string(), "/model".to_string(), "/skills".to_string()];
+        let cands = vec![
+            "/new".to_string(),
+            "/model".to_string(),
+            "/skills".to_string(),
+        ];
         assert_eq!(filter_candidates(&cands, "mo"), vec!["/model"]);
         assert_eq!(filter_candidates(&cands, "s"), vec!["/skills"]);
     }

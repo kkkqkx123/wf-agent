@@ -253,16 +253,18 @@ fn assemble_trigger_subsystem(
     let trigger_state_registry = Arc::new(wf_workflow::TriggerStateRegistry::new());
     let trigger_shutdown = tokio_util::sync::CancellationToken::new();
     let subworkflow_runner: std::sync::Arc<dyn wf_workflow::trigger_listener::SubworkflowRunner> =
-        std::sync::Arc::new(WorkflowRunner::with_tool_registry(
-            registries.clone(),
-            event_bus.clone(),
-            llm_gateway.clone(),
-            execution_contexts.clone(),
-            Some(tool_registry.clone()),
-            Some(sandbox_runtime.clone()),
-        )
-        .with_signal_bus(signal_bus.clone())
-        .with_limits(limits));
+        std::sync::Arc::new(
+            WorkflowRunner::with_tool_registry(
+                registries.clone(),
+                event_bus.clone(),
+                llm_gateway.clone(),
+                execution_contexts.clone(),
+                Some(tool_registry.clone()),
+                Some(sandbox_runtime.clone()),
+            )
+            .with_signal_bus(signal_bus.clone())
+            .with_limits(limits),
+        );
     let listener = start_trigger_listener_with_parts(
         event_bus.clone(),
         registries.clone(),

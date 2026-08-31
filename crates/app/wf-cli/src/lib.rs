@@ -87,8 +87,7 @@ pub async fn run(cli: Cli) -> CliResult<()> {
             workflow_id,
             limit,
         }) => {
-            return cmd::query::run(&cli, status.as_deref(), workflow_id.as_deref(), *limit)
-                .await;
+            return cmd::query::run(&cli, status.as_deref(), workflow_id.as_deref(), *limit).await;
         }
         _ => {}
     }

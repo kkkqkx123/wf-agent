@@ -36,7 +36,7 @@ pub(crate) fn api_router_with_config(
     config: Arc<ServerMiddlewareConfig>,
 ) -> Router {
     use api::agent::{agents, analysis as agent_analysis, llm};
-    use api::resource::{entities, health, templates};
+    use api::resource::{entities, health, openapi, templates};
     use api::workflow::{analysis, approvals, audit, events, executions, query, workflows};
 
     let domain: Router<ApiState> = Router::new()
@@ -54,6 +54,7 @@ pub(crate) fn api_router_with_config(
         .merge(query::routes())
         .merge(analysis::routes())
         .merge(events::routes())
+        .merge(openapi::routes())
         .merge(ws::routes());
     let app = Router::new()
         .merge(health::routes())

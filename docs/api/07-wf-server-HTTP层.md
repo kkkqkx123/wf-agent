@@ -13,9 +13,9 @@
 
 ### 2a. workflow 域（14 文件）
 
-**workflows.rs（424）— 工作流 CRUD**：`GET|POST /workflows`；`GET|PUT|DELETE /workflows/{id}`；`POST /workflows/{id}/clone`；`POST /workflows/validate`；`GET /workflows/summaries`、`/search`、`/by-name/{name}`、`/by-tags`、`/by-category/{category}`、`/by-author/{author}`；`POST /workflows/export-all`、`GET /workflows/{id}/export`、`POST /workflows/import`、`/import-many`；`PATCH /workflows/{id}/metadata`。
+**workflows.rs — 工作流 CRUD**：`GET|POST /workflows`；`GET|PUT|DELETE /workflows/{id}`；`POST /workflows/{id}/clone`；`POST /workflows/validate`、`/validate/node`；`POST /workflows/parse`、`/transform`；`GET /workflows/summaries`、`/search`、`/by-name/{name}`、`/by-tags`、`/by-category/{category}`、`/by-author/{author}`；`POST /workflows/export-all`、`GET /workflows/{id}/export?format=json|toml`、`POST /workflows/import`、`/import-many`；`PATCH /workflows/{id}/metadata`。
 
-**versions.rs（90）**：`GET|POST /workflows/{id}/versions`；`GET /workflows/{id}/versions/{version}`；`POST /workflows/{id}/rollback`。
+**versions.rs**：`GET|POST /workflows/{id}/versions`；`GET /workflows/{id}/versions/{version}`；`POST /workflows/{id}/rollback`、`/versions/increment?level=patch|minor|major`。
 
 **graphs.rs（246）— 图查询**：`GET /workflows/{id}/graph`、`/graph/summary`、`/graph/nodes?node_type=`、`/graph/edges`、`/graph/neighbors/{nodeId}`、`/graph/analysis`、`/graph/cycles`、`/graph/topology`、`/graph/reachability`。
 
@@ -27,7 +27,7 @@
 
 **execution_analysis.rs（476）**：`GET /executions/{id}/graph`、`/graph/nodes|edges|neighbors/{nodeId}|path-stats|reachability`；`POST /executions/{id}/graph/clear`；`GET /executions/{id}/analysis/paths`、`/paths/enumerate`、`/decision-points`、`/slow-nodes?percentile=`、`/efficiency`、`/alternatives`、`/probabilities`；`GET /executions/{id}/nodes`、`/nodes/{nodeId}`、`/nodes/by-type/{nodeType}`、`/nodes/{nodeId}/input-context`、`/nodes/{nodeId}/transitions`、`/tool-chain/{nodeId}`、`/path`、`/optimizations`、`/node-stats`、`/failed-nodes`、`/iterations`、`/llm-reasoning-path/{nodeId}`。
 
-**analysis.rs（410）**：`GET /executions/{id}/progress`；`GET /search?q=&types=`（统一搜索）；`GET /analysis/llm-metrics`；`GET /analysis/performance/compare?baseline=&compared=`；`GET /analysis/stats`、`/stats/top-workflows`、`/top-node-types`、`/agent-profiles`；`GET /executions/{id}/error-analysis` + `/advanced`、`/root-cause`、`/context`、`/context/{errorId}`、`/recovery/{errorId}`、`/recovery-recommendations`、`/similar`；`GET /executions/{id}/performance` + `/summary`、`/bottlenecks`、`/iteration-comparison`。
+**analysis.rs**：`GET /executions/{id}/progress`；`GET /search?q=&types=`（统一搜索）；`GET /analysis/llm-metrics`；`GET /analysis/performance/compare?baseline=&compared=`；`GET /analysis/stats`、`/stats/top-workflows`、`/top-node-types`、`/agent-profiles`；`GET /executions/{id}/error-analysis` + `/advanced`、`/root-cause`、`/context`、`/context/{errorId}`、`/recovery/{errorId}`、`/recovery-recommendations`、`/similar`、`/stream`（SSE）；`GET /executions/{id}/performance` + `/summary`、`/bottlenecks`、`/iteration-comparison`。
 
 **approvals.rs（359）— 人工审批**：`POST /approvals/request`（默认 30s 超时，无 handler 快速失败）、`/approvals/check`、`/approvals/execute-tool`；交互：`GET|POST /interactions`（POST 直接落一条交互记录）；`GET /interactions/by-execution/{executionId}`、`/by-status/{status}`；`GET|DELETE /interactions/{id}`；`POST /interactions/{id}/respond`；`GET /interactions/stats`。
 
@@ -37,15 +37,15 @@
 
 **messages.rs（153）**：`GET|POST /messages`；`GET /messages/stats`、`/search`、`/by-execution/{executionId}`、`/conversation/{executionId}`；`GET|DELETE /messages/{id}`。
 
-**query.rs（256）**：`POST /query`；`POST /query/export`（json/csv/xml）；`POST /query/aggregate`；`GET /query/distinct?field=`；`POST /query/group-by`。
+**query.rs**：`POST /query`；`POST /query/evaluate`（单条 JSON 表达式求值）；`POST /query/export`（json/csv/xml）；`POST /query/aggregate`；`GET /query/distinct?field=`；`POST /query/group-by`。
 
 **tasks.rs（129）**：`GET|POST /tasks`；`GET /tasks/stats`、`/by-execution/{executionId}`；`POST /tasks/cleanup`；`GET|DELETE /tasks/{id}`；`POST /tasks/{id}/cancel`。
 
 ### 2b. agent 域（10 文件）
 
-**profiles.rs（96）**：`GET|POST /agents`；`GET|PUT|DELETE /agents/{id}`。
+**profiles.rs**：`GET|POST /agents`；`GET|PUT|DELETE /agents/{id}`；`POST /agents/validate`。
 
-**loops.rs（372）— Agent Loop 控制**：`GET|POST /agent-loops`；`GET /agent-loops/summaries`（live-first 摘要，`?status=&profile_id=`）、`GET /agent-loops/stats`；`GET|PUT|DELETE /agent-loops/{id}`；`PATCH|GET /agent-loops/{id}/status`；`POST /agent-loops/{id}/run`；`POST /agent-loops/{id}/stream`（**SSE**）；`POST /agent-loops/{id}/pause|resume|cancel`；`GET /agent-loops/{id}/summary`、`/iteration-history` + `/summary`、`/timeline`、`/variable-history/{name}`、`/context-evolution`、`/execution-path`。
+**loops.rs — Agent Loop 控制**：`GET|POST /agent-loops`；`POST /agent-loops/cleanup-completed`；`GET /agent-loops/summaries`（live-first 摘要，`?status=&profile_id=`）、`GET /agent-loops/stats`；`GET|PUT|DELETE /agent-loops/{id}`；`PATCH|GET /agent-loops/{id}/status`；`POST /agent-loops/{id}/status/transition`；`POST /agent-loops/{id}/run`；`POST /agent-loops/{id}/stream`（**SSE**）；`POST /agent-loops/{id}/pause|resume|cancel`；`GET /agent-loops/{id}/summary`、`/iteration-history` + `/summary`、`/timeline`、`/variable-history/{name}`、`/context-evolution`、`/execution-path`。
 
 **executions.rs（215）**：`GET /agent-executions`；`GET|DELETE /agent-executions/{id}`；`GET /agent-executions/by-definition/{defId}`；`GET /agent-executions/stats`；`GET /agent-executions/by-status/{status}`；Agent 检查点：`GET|POST /agent-loops/{id}/checkpoints`；`POST /agent-loops/{id}/checkpoints/{cid}/restore`；`GET /agent-loops/{id}/checkpoints/chain`；`DELETE /agent-loops/{id}/checkpoints`；`GET /agent-checkpoints/stats`。
 
@@ -55,15 +55,17 @@
 
 **llm.rs（387）**：`POST /llm/generate`、`/generate-batch`、`/generate-stream`（**SSE**）、`/count-tokens`；`GET|POST /llm/profiles`；`GET|PUT|DELETE /llm/profiles/{id}`；`POST /llm/profiles/{id}/default`；`GET /llm/profiles/default`；`GET /llm/profiles/{id}/export`；`POST /llm/profiles/import`；`GET /llm/profiles/export-all`；`POST /llm/profiles/import-all`；`POST /llm/profiles/validate`；`GET|POST /llm/profile-templates`；`GET /llm/profile-templates/{name}`；`DELETE /llm/profile-templates?name=`；`POST /llm/profiles/from-template`。
 
-**skills.rs（195）**：`GET /skills`、`/query`；`POST /skills/scan`、`/reload`；`GET /skills/enabled`、`/disabled`；`POST /skills/cache/clear` + `/clear/{name}`；`GET /skills/{name}`；`POST /skills/{name}/enable|disable`；`GET /skills/{name}/content`、`/resources?resource_type=`。
+**skills.rs**：`GET /skills`、`/prompt`、`/query`；`POST /skills/scan`、`/reload`；`GET /skills/enabled`、`/disabled`；`POST /skills/cache/clear` + `/clear/{name}`；`GET /skills/{name}`；`POST /skills/{name}/enable|disable`；`GET /skills/{name}/content`、`/resources?resource_type=`。
 
-**triggers.rs（199）**：`GET|POST /agent-triggers`（GET 列表 `?event=`，POST 注册新触发器，重复 id 409）；`GET /agent-triggers/{tid}`；`GET /agent-triggers/export`；`GET /agent-triggers/history?execution_id=&trigger_name=`；`POST /agent-triggers/{tid}/enable|disable`；`GET /agent-triggers/stats`；交互：`GET /agent-loops/{id}/interactions`；`GET /agent-interactions/{id}`；`POST /agent-interactions/{id}/respond`。
+**triggers.rs**：`GET|POST /agent-triggers`（GET 列表 `?event=`，POST 注册新触发器，重复 id 409）；`GET /agent-triggers/{tid}`、`/{tid}/enabled`；`GET /agent-triggers/export`；`GET /agent-triggers/history?execution_id=&trigger_name=`；`POST /agent-triggers/{tid}/enable|disable`；`GET /agent-triggers/stats`；交互：`GET /agent-loops/{id}/interactions`；`GET /agent-interactions/{id}`；`POST /agent-interactions/{id}/respond`。
 
-**variables.rs（182）**：`GET /agent-loops/{id}/messages` + `/search`、`/stats`、`/conversation`；`GET /agent-loops/{id}/variables` + `/stats`、`/export`；`GET|PUT|DELETE /agent-loops/{id}/variables/{name}`。
+**variables.rs**：`GET /agent-loops/{id}/messages` + `/search`、`/stats`、`/conversation`；`POST /agent-loops/{id}/messages/dedupe`；`GET /agent-loops/{id}/variables` + `/stats`、`/export`；`GET|PUT|DELETE /agent-loops/{id}/variables/{name}`。
 
 ### 2c. resource 域（11 文件）
 
 **health.rs（208）— 系统面**：`GET /`（服务索引 + 端点地图）、`GET /health`（就绪：ready/persistence/storage 操作计数）、`GET /api/v1/info`（name/version/apiVersion/timestamp）、`GET /api/v1/storage/diagnose|health|stats`、`GET /system/diagnostics`、`/system/event-health`。
+
+**openapi.rs — API 发现**：`GET /api/v1/openapi.json`（静态 OpenAPI 风格服务信息与路由清单）。
 
 **metrics.rs（139）**：`GET /api/v1/metrics/workflow?workflow_id=`、`/node-templates?top_n=`、`/agents?profile_id=`、`/report`、`/export?format=json|prometheus`、`/collectors`（顶层另有 `GET /metrics` Prometheus 文本格式）。
 
@@ -77,7 +79,7 @@
 
 **template_library.rs（242）**：`GET /templates/library`、`/featured`、`/popular`；`POST /templates/library/{id}/usage`、`/clone`；`GET|POST /templates/library/workflows` + `GET|DELETE /{id}`；`GET|POST /templates/library/agents` + `GET|DELETE /{id}`。
 
-**triggers.rs（295）**：`GET|POST /triggers`；`GET /triggers/stats`、`/search`；`GET|DELETE /triggers/{id}`；`POST /triggers/{id}/enable|disable`；`GET|POST /trigger-executions`；`POST /trigger-executions/cleanup`；`GET /trigger-executions/stats`、`/by-execution/{executionId}`、`/by-trigger/{name}`、`/by-workflow/{id}`；`GET|DELETE /trigger-executions/{id}`。
+**triggers.rs**：`GET|POST /triggers`；`GET /triggers/stats`、`/search`；`GET|DELETE /triggers/{id}`、`/{id}/enabled`；`POST /triggers/{id}/enable|disable`；`GET|POST /trigger-executions`；`POST /trigger-executions/cleanup`；`GET /trigger-executions/stats`、`/by-execution/{executionId}`、`/by-trigger/{name}`、`/by-workflow/{id}`；`GET|DELETE /trigger-executions/{id}`。
 
 **variables.rs（287）**：`GET|POST /variables`；`POST /variables/batch`、`/import`；`GET /variables/scopes/{executionId}`、`/scope/{scope}`、`/by-node/{executionId}/{nodeId}`；`GET /variables/stats`、`/history?name=`；`GET /variables/export/{executionId}`；`GET|DELETE /variables/{name}?scope=&execution_id=`。
 

@@ -703,9 +703,7 @@ impl MiniApp {
             return;
         }
         // Unbound keys: route by the open route.
-        if self.footer.route == FooterRoute::Command
-            || self.footer.route == FooterRoute::Mention
-        {
+        if self.footer.route == FooterRoute::Command || self.footer.route == FooterRoute::Mention {
             self.handle_palette_editing(key);
             return;
         }
@@ -1586,8 +1584,7 @@ impl MiniApp {
                 }
                 Ok(profiles) => {
                     let current = current_model.as_deref();
-                    app.footer.panel =
-                        Some(PanelState::Model(ModelPanel::new(&profiles, current)));
+                    app.footer.panel = Some(PanelState::Model(ModelPanel::new(&profiles, current)));
                     app.footer.set_route(FooterRoute::Model);
                 }
                 Err(err) => {
@@ -1634,8 +1631,7 @@ impl MiniApp {
                     .show_notice(format!("scanned {} skills", skills.len()));
             }
             Err(err) => {
-                self.footer
-                    .show_notice(format!("scan failed: {err}"));
+                self.footer.show_notice(format!("scan failed: {err}"));
             }
         }
         self.dirty = true;
@@ -1657,8 +1653,7 @@ impl MiniApp {
                     .show_notice(format!("reloaded {} skills", skills.len()));
             }
             Err(err) => {
-                self.footer
-                    .show_notice(format!("reload failed: {err}"));
+                self.footer.show_notice(format!("reload failed: {err}"));
             }
         }
         self.dirty = true;
@@ -1747,8 +1742,7 @@ impl MiniApp {
                     app.footer.show_notice("no workflows found");
                 }
                 Ok(workflows) => {
-                    app.footer.panel =
-                        Some(PanelState::Workflow(WorkflowPanel::new(&workflows)));
+                    app.footer.panel = Some(PanelState::Workflow(WorkflowPanel::new(&workflows)));
                     app.footer.set_route(FooterRoute::Workflow);
                 }
                 Err(err) => {
@@ -1833,8 +1827,8 @@ impl MiniApp {
         );
 
         // Collect skills (best-effort).
-        let skills = wf_api::entity::skill::list_skills(self.adapter.api_context())
-            .unwrap_or_default();
+        let skills =
+            wf_api::entity::skill::list_skills(self.adapter.api_context()).unwrap_or_default();
 
         // Collect workflows (best-effort).
         let workflows = wf_api::workflow::search_workflows(
@@ -1898,12 +1892,10 @@ impl MiniApp {
         self.pending_actions.push(Box::pin(async move {
             let ctx = adapter.api_context();
             let res = match crate::replay::latest_session_id(ctx).await {
-                Ok(Some(id)) => {
-                    match crate::replay::replay_scrollack(ctx, &id).await {
-                        Ok(lines) => Ok((id, lines)),
-                        Err(err) => Err(format!("resume failed for {id}: {err}")),
-                    }
-                }
+                Ok(Some(id)) => match crate::replay::replay_scrollack(ctx, &id).await {
+                    Ok(lines) => Ok((id, lines)),
+                    Err(err) => Err(format!("resume failed for {id}: {err}")),
+                },
                 Ok(None) => Err("no previous session to resume".to_string()),
                 Err(err) => Err(format!("resume failed: {err}")),
             };
@@ -1927,16 +1919,14 @@ impl MiniApp {
         let ctx = self.adapter.api_context();
 
         // Fetch agent loop summaries (best-effort).
-        let agent_summaries =
-            wf_api::agent::agent_loop_registry::summaries(ctx, None)
-                .await
-                .unwrap_or_default();
+        let agent_summaries = wf_api::agent::agent_loop_registry::summaries(ctx, None)
+            .await
+            .unwrap_or_default();
 
         // Fetch workflow execution summaries (best-effort).
-        let wf_executions =
-            wf_api::workflow::execution::list_executions(ctx, None)
-                .await
-                .unwrap_or_default();
+        let wf_executions = wf_api::workflow::execution::list_executions(ctx, None)
+            .await
+            .unwrap_or_default();
 
         if agent_summaries.is_empty() && wf_executions.is_empty() {
             self.footer.show_notice("no executions found");
@@ -1996,7 +1986,11 @@ impl MiniApp {
             *wf_common::lock::lock_ok(result_clone.lock()) = Some(Ok((agent, wf)));
         }));
         self.deferred_updates.push(Box::new(move |app| {
-            let res = result.lock().unwrap().take().unwrap_or(Ok((vec![], vec![])));
+            let res = result
+                .lock()
+                .unwrap()
+                .take()
+                .unwrap_or(Ok((vec![], vec![])));
             let (agent_summaries, wf_executions) = res.unwrap_or_default();
             if agent_summaries.is_empty() && wf_executions.is_empty() {
                 app.footer.show_notice("no executions found");
@@ -2026,8 +2020,7 @@ impl MiniApp {
             }
             let _ = app.settle_scrollback();
             let total = agent_summaries.len() + wf_executions.len();
-            app.footer
-                .show_notice(format!("{total} executions listed"));
+            app.footer.show_notice(format!("{total} executions listed"));
         }));
     }
 

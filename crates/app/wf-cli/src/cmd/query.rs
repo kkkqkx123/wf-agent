@@ -6,9 +6,14 @@ use crate::args::Cli;
 use crate::error::CliResult;
 use crate::output::OutputEnvelope;
 
-pub async fn run(cli: &Cli, status: Option<&str>, workflow_id: Option<&str>, limit: Option<usize>) -> CliResult<()> {
-    let adapter = crate::domain::DomainAdapter::bootstrap_for_cli(cli, crate::mode::CliMode::Run)
-        .await?;
+pub async fn run(
+    cli: &Cli,
+    status: Option<&str>,
+    workflow_id: Option<&str>,
+    limit: Option<usize>,
+) -> CliResult<()> {
+    let adapter =
+        crate::domain::DomainAdapter::bootstrap_for_cli(cli, crate::mode::CliMode::Run).await?;
     let ctx = adapter.api_context();
 
     let filters = FilterCriteria {

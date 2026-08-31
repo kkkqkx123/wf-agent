@@ -11,6 +11,8 @@ use axum::response::IntoResponse;
 use axum::routing::{get, patch, post};
 use axum::{Json, Router};
 use serde::Deserialize;
+use serde::Serialize;
+use serde_json::Value;
 
 use wf_storage::adapter::workflow::WorkflowListOptions;
 use wf_types::WorkflowDefinition;
@@ -35,6 +37,9 @@ pub(crate) fn routes() -> Router<ApiState> {
         )
         .route("/workflows/{id}/clone", post(handle_clone_workflow))
         .route("/workflows/validate", post(handle_validate_workflow))
+        .route("/workflows/validate/node", post(handle_validate_node))
+        .route("/workflows/parse", post(handle_parse_workflow))
+        .route("/workflows/transform", post(handle_transform_workflow))
         .route("/workflows/summaries", get(handle_workflow_summaries))
         .route("/workflows/search", get(handle_search_workflows))
         .route("/workflows/by-name/{name}", get(handle_workflow_by_name))
@@ -146,6 +151,78 @@ async fn handle_validate_workflow(
     }
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ValidateNodeBody {
+    node_type: String,
+    node_id: String,
+    config: Option<Value>,
+}
+
+/// Validate a single node config by node type through the wf-config
+/// processor, mirroring `wf-api::infra::config::validate_node`.
+async fn handle_validate_node(
+    State(_state): State<ApiState>,
+    Json(body): Json<ValidateNodeBody>,
+) -> impl IntoResponse {
+    match wf_api::infra::config::validate_node(&body.node_type, &body.node_id, body.config.as_ref())
+    {
+        Ok(()) => ok(true).into_response(),
+        Err(e) => error_response(e),
+    }
+}
+
+#[derive(Deserialize)]
+struct ParseWorkflowBody {
+    format: Option<String>,
+    content: String,
+}
+
+/// Parse a workflow definition from JSON or TOML text without persisting it.
+async fn handle_parse_workflow(
+    State(_state): State<ApiState>,
+    Json(body): Json<ParseWorkflowBody>,
+) -> impl IntoResponse {
+    let format = match body.format.as_deref() {
+        None | Some("json") => wf_api::infra::config::ConfigFormat::Json,
+        Some("toml") => wf_api::infra::config::ConfigFormat::Toml,
+        Some(other) => {
+            return crate::envelope::err::<Value>(crate::envelope::ApiError::validation(format!(
+                "unsupported config format: {other}"
+            )))
+            .into_response()
+        }
+    };
+    match wf_api::infra::config::parse_workflow(&body.content, format) {
+        Ok(workflow) => ok(workflow).into_response(),
+        Err(e) => error_response(e),
+    }
+}
+
+#[derive(Deserialize)]
+struct TransformWorkflowBody {
+    nodes: Vec<wf_api::infra::config::WorkflowNodeConfig>,
+    edges: Vec<wf_api::infra::config::WorkflowEdgeConfig>,
+}
+
+#[derive(Serialize)]
+struct TransformWorkflowView {
+    nodes: Vec<wf_types::node::BaseStaticNode>,
+    edges: Vec<wf_types::workflow::Edge>,
+}
+
+/// Convert declarative node/edge configs into canonical runtime structures.
+async fn handle_transform_workflow(
+    State(_state): State<ApiState>,
+    Json(body): Json<TransformWorkflowBody>,
+) -> impl IntoResponse {
+    ok(TransformWorkflowView {
+        nodes: wf_api::infra::config::transform_workflow_nodes(&body.nodes),
+        edges: wf_api::infra::config::transform_workflow_edges(&body.edges),
+    })
+    .into_response()
+}
+
 async fn handle_workflow_summaries(
     State(state): State<ApiState>,
     Query(query): Query<ListWorkflowsQuery>,
@@ -162,13 +239,34 @@ async fn handle_workflow_summaries(
     }
 }
 
+#[derive(Deserialize)]
+struct ExportWorkflowQuery {
+    format: Option<String>,
+}
+
 async fn handle_export_workflow(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
+    Query(query): Query<ExportWorkflowQuery>,
 ) -> impl IntoResponse {
-    match wf_api::workflow::export_workflow_json(&state.ctx, &path.id).await {
-        Ok(json) => ok(json).into_response(),
-        Err(e) => error_response(e),
+    match query.format.as_deref() {
+        None | Some("json") => {
+            match wf_api::workflow::export_workflow_json(&state.ctx, &path.id).await {
+                Ok(json) => ok(json).into_response(),
+                Err(e) => error_response(e),
+            }
+        }
+        Some("toml") => match wf_api::workflow::get_workflow(&state.ctx, &path.id).await {
+            Ok(workflow) => match wf_api::infra::config::export_toml(&workflow) {
+                Ok(toml) => ok(toml).into_response(),
+                Err(e) => error_response(e),
+            },
+            Err(e) => error_response(e),
+        },
+        Some(other) => crate::envelope::err::<Value>(crate::envelope::ApiError::validation(
+            format!("unsupported export format: {other}"),
+        ))
+        .into_response(),
     }
 }
 

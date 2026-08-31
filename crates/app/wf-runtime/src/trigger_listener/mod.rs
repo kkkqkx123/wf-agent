@@ -51,8 +51,8 @@ use tracing::warn;
 use wf_agent::registry::AgentLoopRegistry;
 use wf_agent::trigger::AgentExecutorCallback;
 use wf_common::gate::ConcurrencyGate;
-use wf_core::EventBus;
 use wf_core::internal_signal::InternalSignalBus;
+use wf_core::EventBus;
 use wf_execution_shared::hooks::HookRegistry;
 use wf_llm::LlmGateway;
 use wf_resource::registry::ResourceRegistries;
@@ -434,14 +434,16 @@ fn context_runner(
     tool_registry: &Option<Arc<wf_tools::registry::ToolRegistry>>,
     signal_bus: Option<Arc<InternalSignalBus>>,
 ) -> Arc<ContextTriggerRunner> {
-    Arc::new(ContextTriggerRunner::new(
-        event_bus.clone(),
-        contexts.clone(),
-        wf_workflow::create_default_handlers(gateway.clone(), sandbox.clone()),
-        tool_registry.clone(),
-        shutdown.clone(),
+    Arc::new(
+        ContextTriggerRunner::new(
+            event_bus.clone(),
+            contexts.clone(),
+            wf_workflow::create_default_handlers(gateway.clone(), sandbox.clone()),
+            tool_registry.clone(),
+            shutdown.clone(),
+        )
+        .with_signal_bus(signal_bus),
     )
-    .with_signal_bus(signal_bus))
 }
 
 /// Wrap an [`AgentLoopExecutor`] into the child-agent callback consumed by

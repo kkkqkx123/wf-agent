@@ -118,7 +118,7 @@ async fn handle_event_health(State(state): State<ApiState>) -> impl IntoResponse
 #[cfg(test)]
 mod tests {
     use axum::body::Body as AxBody;
-    use axum::http::Request;
+    use axum::http::{Request, StatusCode};
     use axum::response::Response;
     use std::sync::Arc;
     use tower::ServiceExt;
@@ -169,6 +169,13 @@ mod tests {
         let diagnostics = get(ctx, "/system/diagnostics").await;
         let body = json_body(diagnostics).await;
         assert_eq!(body["data"]["healthy"], true);
+    }
+
+    #[tokio::test]
+    async fn openapi_document_is_available() {
+        let response = get(make_ctx(), "/api/v1/openapi.json").await;
+
+        assert_eq!(response.status(), StatusCode::OK);
     }
 
     #[tokio::test]

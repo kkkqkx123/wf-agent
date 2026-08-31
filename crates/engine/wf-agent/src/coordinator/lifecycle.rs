@@ -467,14 +467,15 @@ impl AgentLoopCoordinator {
         // execution context; inject once for the whole run (the coordinator
         // is rebuilt per run, so no unregister step exists).
         iteration_coordinator.set_general_invoker(entity.clone());
-        let mut execution_coordinator = AgentExecutionCoordinator::new(iteration_coordinator.clone())
-            .with_checkpoint(checkpoint)
-            .with_iteration_persist(self.state_manager.as_ref().map(|manager| {
-                Arc::new(AgentRecordPersister {
-                    state_manager: manager.clone(),
-                }) as Arc<dyn IterationPersist>
-            }))
-            .with_metrics(self.metrics.clone());
+        let mut execution_coordinator =
+            AgentExecutionCoordinator::new(iteration_coordinator.clone())
+                .with_checkpoint(checkpoint)
+                .with_iteration_persist(self.state_manager.as_ref().map(|manager| {
+                    Arc::new(AgentRecordPersister {
+                        state_manager: manager.clone(),
+                    }) as Arc<dyn IterationPersist>
+                }))
+                .with_metrics(self.metrics.clone());
         if let Some(ref bus) = self.signal_bus {
             execution_coordinator = execution_coordinator.with_signal_bus(bus.clone());
         }

@@ -3,9 +3,9 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use serde_json::Value;
+use wf_core::internal_signal::InternalSignalBus;
 use wf_core::registry::{MutableRegistry, Registry};
 use wf_core::EventBus;
-use wf_core::internal_signal::InternalSignalBus;
 use wf_execution_shared::hooks::types::BaseHookDefinition;
 use wf_execution_shared::hooks::HookRegistry;
 use wf_execution_shared::types::execution_entity::ExecutionEntity;

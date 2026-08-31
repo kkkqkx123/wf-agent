@@ -1,6 +1,7 @@
 pub mod entities;
 pub mod health;
 pub mod metrics;
+pub mod openapi;
 pub mod scripts;
 pub mod template_library;
 pub mod template_queries;

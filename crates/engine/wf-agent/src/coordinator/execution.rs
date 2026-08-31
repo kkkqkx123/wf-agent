@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use wf_core::execution_loop;
 use wf_core::failure_policy::{default_retry_policy, FailurePolicyManager};
-use wf_core::interruption::InterruptionSignal;
 use wf_core::internal_signal::{InternalSignal, InternalSignalBus, InternalSignalReceiver};
+use wf_core::interruption::InterruptionSignal;
 use wf_metrics::MetricsRegistry;
 use wf_types::checkpoint::CheckpointTiming;
 use wf_types::execution::FailurePolicyConfig;

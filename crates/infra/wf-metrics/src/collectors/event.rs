@@ -80,6 +80,38 @@ impl EventMetricsCollector {
         }
     }
 
+    /// History-aware total and by-type statistics.
+    pub async fn stats_with_history(&self) -> EventStats {
+        let total = crate::collectors::counter_total_with_history(
+            &self.inner,
+            event_metrics::EVENT_COUNT,
+            &std::collections::HashMap::new(),
+        )
+        .await as u64;
+        let mut by_type: std::collections::HashMap<String, u64> = std::collections::HashMap::new();
+        // Merge in-memory grouping with persisted points grouped by event_type.
+        let mem = self.stats_by_type();
+        for (k, v) in mem {
+            *by_type.entry(k).or_insert(0) += v;
+        }
+        if let Some(Ok(points)) = self
+            .inner
+            .query_sink(event_metrics::EVENT_COUNT, 0, wf_common::time::now())
+            .await
+        {
+            for p in points {
+                if let Some(event_type) = p.labels.get("event_type") {
+                    *by_type.entry(event_type.clone()).or_insert(0) += p.value as u64;
+                }
+            }
+        }
+        // Deduplicate when both mem and persisted contain same points before flush:
+        // Since persisted points are from earlier flushes and mem is post-flush,
+        // sum is correct (no overlap). If overlap existed, it would be limited
+        // to retry queue which is small.
+        EventStats { total, by_type }
+    }
+
     pub fn to_prometheus(&self) -> String {
         crate::formatter::format_collector_prometheus(&self.inner)
     }

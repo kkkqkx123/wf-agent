@@ -166,6 +166,78 @@ impl ToolMetricsCollector {
         }
     }
 
+    /// History-aware statistics that merge in-memory buffers with persisted storage.
+    pub async fn usage_stats_with_history(&self) -> ToolUsageStats {
+        let total = crate::collectors::counter_total_with_history(
+            &self.inner,
+            tool_metrics::CALL_COUNT,
+            &std::collections::HashMap::new(),
+        )
+        .await;
+        let duration = crate::collectors::latest_with_history(
+            &self.inner,
+            tool_metrics::CALL_DURATION,
+            &std::collections::HashMap::new(),
+        )
+        .await;
+        let errors = crate::collectors::counter_total_with_history(
+            &self.inner,
+            tool_metrics::ERROR_COUNT,
+            &std::collections::HashMap::new(),
+        )
+        .await;
+        let by_tool = self
+            .inner
+            .query(&crate::metric::MetricFilter {
+                name: Some(tool_metrics::CALL_COUNT.to_string()),
+                ..Default::default()
+            })
+            .metrics
+            .into_iter()
+            .find(|m| m.name == tool_metrics::CALL_COUNT)
+            .map(|m| m.by_label)
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|g| g.labels.contains_key("tool"))
+            .collect();
+
+        let percentile = |p: f64| {
+            duration
+                .as_ref()
+                .and_then(|d| {
+                    d.percentiles
+                        .iter()
+                        .find(|q| (q.percentile - p).abs() < f64::EPSILON)
+                })
+                .map(|q| q.value)
+                .unwrap_or(0.0)
+        };
+
+        ToolUsageStats {
+            total: total as u64,
+            success: (total - errors).max(0.0) as u64,
+            failure: errors as u64,
+            success_rate: if total > 0.0 {
+                (total - errors) / total
+            } else {
+                0.0
+            },
+            avg_duration_ms: duration
+                .as_ref()
+                .map(|d| {
+                    if d.count > 0 {
+                        d.sum / d.count as f64
+                    } else {
+                        0.0
+                    }
+                })
+                .unwrap_or(0.0),
+            p95_duration_ms: percentile(0.95),
+            p99_duration_ms: percentile(0.99),
+            by_tool,
+        }
+    }
+
     pub fn to_prometheus(&self) -> String {
         crate::formatter::format_collector_prometheus(&self.inner)
     }

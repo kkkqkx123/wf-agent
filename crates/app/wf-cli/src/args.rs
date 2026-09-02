@@ -510,6 +510,24 @@ pub enum WorkflowSub {
         /// Execution id.
         #[arg(value_name = "ID")]
         id: String,
+        /// Analyze execution path (paths, critical path, decision points).
+        #[arg(long)]
+        analysis: bool,
+        /// Slow nodes above percentile threshold (0.0-1.0, default 0.8 shows slowest 20%).
+        #[arg(long)]
+        slow_nodes: bool,
+        /// Percentile for --slow-nodes (default 0.8).
+        #[arg(long, value_name = "PERCENTILE", default_value_t = 0.8)]
+        percentile: f64,
+        /// Efficiency analysis (executed vs optimal path).
+        #[arg(long)]
+        efficiency: bool,
+        /// Path probability analysis.
+        #[arg(long = "path-probability")]
+        path_probability: bool,
+        /// Alternative paths at decision points.
+        #[arg(long = "alternative-paths")]
+        alternative_paths: bool,
     },
 }
 
@@ -577,6 +595,15 @@ pub enum ExecutionSub {
         /// Filter by workflow id.
         #[arg(long, value_name = "WORKFLOW")]
         workflow: Option<String>,
+        /// Maximum number of results.
+        #[arg(long, value_name = "N")]
+        limit: Option<usize>,
+        /// Offset into the result set.
+        #[arg(long, value_name = "N")]
+        offset: Option<usize>,
+        /// Sort order by start time (asc or desc, default desc).
+        #[arg(long, value_name = "ORDER", value_parser = ["asc","desc","ASC","DESC"])]
+        order: Option<String>,
     },
     /// Show a single execution summary.
     Show {
@@ -592,6 +619,9 @@ pub enum ExecutionSub {
         /// Include variables.
         #[arg(long)]
         variables: bool,
+        /// Include context evolution.
+        #[arg(long = "context-evolution")]
+        context_evolution: bool,
     },
     /// Run a workflow execution.
     Run {
@@ -604,6 +634,9 @@ pub enum ExecutionSub {
         /// Run in background and return execution id immediately.
         #[arg(long)]
         background: bool,
+        /// Stream execution events to stdout (default true for text when not background).
+        #[arg(long)]
+        stream: bool,
     },
     /// Query status of an execution.
     Status {
@@ -616,18 +649,27 @@ pub enum ExecutionSub {
         /// Execution id.
         #[arg(value_name = "ID")]
         id: String,
+        /// Optional cancel reason.
+        #[arg(long, value_name = "REASON")]
+        reason: Option<String>,
     },
     /// Pause a running execution.
     Pause {
         /// Execution id.
         #[arg(value_name = "ID")]
         id: String,
+        /// Optional pause reason.
+        #[arg(long, value_name = "REASON")]
+        reason: Option<String>,
     },
     /// Resume a paused execution.
     Resume {
         /// Execution id.
         #[arg(value_name = "ID")]
         id: String,
+        /// Optional resume reason.
+        #[arg(long, value_name = "REASON")]
+        reason: Option<String>,
     },
     /// Inspect execution state details.
     Inspect {
@@ -646,6 +688,21 @@ pub enum ExecutionSub {
         /// Include call stack.
         #[arg(long)]
         call_stack: bool,
+        /// Include variable history (requires --var-name).
+        #[arg(long = "variable-history")]
+        variable_history: bool,
+        /// Variable name for --variable-history.
+        #[arg(long = "var-name", value_name = "NAME")]
+        var_name: Option<String>,
+        /// Include context transitions.
+        #[arg(long = "context-transitions")]
+        context_transitions: bool,
+        /// Include node transitions.
+        #[arg(long = "node-transitions")]
+        node_transitions: bool,
+        /// Include memory usage.
+        #[arg(long)]
+        memory: bool,
     },
     /// Performance profile of an execution.
     Performance {
@@ -697,6 +754,33 @@ pub enum ExecutionSub {
         /// Iteration number.
         #[arg(long, value_name = "N")]
         at_iteration: Option<u64>,
+        /// Variable name to show history for.
+        #[arg(long, value_name = "NAME", conflicts_with = "most_changed")]
+        variable: Option<String>,
+        /// Show most-changed variables (ranked by distinct values).
+        #[arg(long, conflicts_with = "variable")]
+        most_changed: bool,
+        /// Show memory usage (current and peak).
+        #[arg(long, conflicts_with_all = ["variable", "most_changed"])]
+        memory: bool,
+        /// Limit for --most-changed (default 10).
+        #[arg(long, value_name = "N", default_value_t = 10)]
+        limit: usize,
+    },
+    /// Delete an execution (workflow record + agent loop if present).
+    Delete {
+        /// Execution id.
+        #[arg(value_name = "ID")]
+        id: String,
+        /// Skip confirmation.
+        #[arg(long, alias = "yes")]
+        force: bool,
+    },
+    /// Cleanup completed agent loop executions.
+    Cleanup {
+        /// Only cleanup before this ISO8601 timestamp or epoch millis (stored as string, lexicographic compare not used; any value triggers cleanup).
+        #[arg(long, value_name = "TIMESTAMP")]
+        before: Option<String>,
     },
 }
 
@@ -840,6 +924,12 @@ pub enum CheckpointSub {
         /// Execution id.
         #[arg(value_name = "ID")]
         id: String,
+        /// Maximum number of results.
+        #[arg(long, value_name = "N")]
+        limit: Option<usize>,
+        /// Offset into results.
+        #[arg(long, value_name = "N")]
+        offset: Option<usize>,
     },
     /// Show a checkpoint.
     Show {
@@ -855,6 +945,27 @@ pub enum CheckpointSub {
         /// Also resume the restored execution.
         #[arg(long)]
         resume: bool,
+    },
+    /// Delete a checkpoint.
+    Delete {
+        /// Checkpoint id.
+        #[arg(value_name = "ID")]
+        id: String,
+    },
+    /// Show the checkpoint chain of an execution (chronological with transitions).
+    Chain {
+        /// Execution id.
+        #[arg(value_name = "ID")]
+        id: String,
+    },
+    /// GC checkpoints of an execution (optionally before a timestamp).
+    Gc {
+        /// Execution id.
+        #[arg(value_name = "ID")]
+        id: String,
+        /// Only delete checkpoints before this epoch millis (when omitted delete all of the execution).
+        #[arg(long, value_name = "TIMESTAMP")]
+        before: Option<i64>,
     },
 }
 
@@ -913,6 +1024,12 @@ pub enum EventSub {
         /// Filter by execution id.
         #[arg(long, value_name = "ID")]
         execution: Option<String>,
+        /// Filter by workflow id.
+        #[arg(long, value_name = "ID")]
+        workflow: Option<String>,
+        /// Filter by agent loop id.
+        #[arg(long = "agent-loop", value_name = "ID")]
+        agent_loop: Option<String>,
         /// Filter by event types (comma-separated).
         #[arg(long, value_name = "TYPES")]
         types: Option<String>,
@@ -933,6 +1050,18 @@ pub enum EventSub {
         /// Execution id.
         #[arg(value_name = "ID")]
         id: String,
+        /// Filter by event types (comma-separated).
+        #[arg(long, value_name = "TYPES")]
+        types: Option<String>,
+        /// Also include workflow id filter.
+        #[arg(long, value_name = "ID")]
+        workflow: Option<String>,
+        /// Polling interval in milliseconds (fallback when subscription unavailable).
+        #[arg(long, value_name = "MS", default_value_t = 500)]
+        interval: u64,
+        /// Only fetch once (no streaming).
+        #[arg(long)]
+        once: bool,
     },
 }
 

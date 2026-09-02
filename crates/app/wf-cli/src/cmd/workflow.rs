@@ -402,13 +402,82 @@ pub async fn run(cli: &Cli, sub: &WorkflowSub) -> CliResult<()> {
                 OutputEnvelope::success("workflow-rollback", data).with_entity(id.clone()),
             )
         }
-        WorkflowSub::ExecutionGraph { id } => {
-            let graph = graph_query::get_execution_graph(ctx, id).await?;
-            let data = serde_json::to_value(&graph)?;
-            render_envelope(
-                cli.output,
-                OutputEnvelope::success("workflow-execution-graph", data).with_entity(id.clone()),
-            )
+        WorkflowSub::ExecutionGraph {
+            id,
+            analysis,
+            slow_nodes,
+            percentile,
+            efficiency,
+            path_probability,
+            alternative_paths,
+        } => {
+            let wants_analysis =
+                *analysis || *slow_nodes || *efficiency || *path_probability || *alternative_paths;
+            if wants_analysis {
+                let mut out = serde_json::Map::new();
+                if *analysis {
+                    let a = wf_api::workflow::execution_graph::analyze(ctx, id).await?;
+                    out.insert(
+                        "analysis".into(),
+                        serde_json::to_value(&a).unwrap_or(serde_json::Value::Null),
+                    );
+                }
+                if *slow_nodes {
+                    let slow =
+                        wf_api::workflow::execution_graph::get_slow_nodes(ctx, id, *percentile)
+                            .await?;
+                    out.insert(
+                        "slowNodes".into(),
+                        serde_json::to_value(&slow).unwrap_or(serde_json::Value::Null),
+                    );
+                }
+                if *efficiency {
+                    let eff =
+                        wf_api::workflow::execution_graph::analyze_efficiency(ctx, id).await?;
+                    out.insert(
+                        "efficiency".into(),
+                        serde_json::to_value(&eff).unwrap_or(serde_json::Value::Null),
+                    );
+                }
+                if *path_probability {
+                    let prob =
+                        wf_api::workflow::execution_graph::get_path_probability_analysis(ctx, id)
+                            .await?;
+                    out.insert(
+                        "pathProbability".into(),
+                        serde_json::to_value(&prob).unwrap_or(serde_json::Value::Null),
+                    );
+                }
+                if *alternative_paths {
+                    let alt =
+                        wf_api::workflow::execution_graph::get_alternative_paths(ctx, id).await?;
+                    out.insert(
+                        "alternativePaths".into(),
+                        serde_json::to_value(&alt).unwrap_or(serde_json::Value::Null),
+                    );
+                }
+                // Always include the raw graph alongside analyses for context.
+                if let Ok(graph) = graph_query::get_execution_graph(ctx, id).await {
+                    out.insert(
+                        "graph".into(),
+                        serde_json::to_value(&graph).unwrap_or(serde_json::Value::Null),
+                    );
+                }
+                let data = serde_json::Value::Object(out);
+                render_envelope(
+                    cli.output,
+                    OutputEnvelope::success("workflow-execution-graph-analysis", data)
+                        .with_entity(id.clone()),
+                )
+            } else {
+                let graph = graph_query::get_execution_graph(ctx, id).await?;
+                let data = serde_json::to_value(&graph)?;
+                render_envelope(
+                    cli.output,
+                    OutputEnvelope::success("workflow-execution-graph", data)
+                        .with_entity(id.clone()),
+                )
+            }
         }
     };
 

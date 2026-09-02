@@ -83,6 +83,88 @@ impl AgentMetricsCollector {
         self.usage_stats_filtered(&crate::labels(&[("profile_id", profile_id)]))
     }
 
+    /// History-aware statistics that merge in-memory buffers with persisted storage.
+    pub async fn usage_stats_with_history(&self) -> AgentUsageStats {
+        self.usage_stats_with_history_filtered(&std::collections::HashMap::new())
+            .await
+    }
+
+    /// History-aware statistics scoped to a single profile.
+    pub async fn usage_stats_with_history_for(&self, profile_id: &str) -> AgentUsageStats {
+        self.usage_stats_with_history_filtered(&crate::labels(&[("profile_id", profile_id)]))
+            .await
+    }
+
+    async fn usage_stats_with_history_filtered(
+        &self,
+        filter: &std::collections::HashMap<String, String>,
+    ) -> AgentUsageStats {
+        let total = crate::collectors::counter_total_with_history(
+            &self.inner,
+            agent_metrics::EXECUTION_COUNT,
+            filter,
+        )
+        .await;
+        let success = crate::collectors::counter_total_with_history(
+            &self.inner,
+            agent_metrics::SUCCESS_COUNT,
+            filter,
+        )
+        .await;
+        let failure = crate::collectors::counter_total_with_history(
+            &self.inner,
+            agent_metrics::FAILURE_COUNT,
+            filter,
+        )
+        .await;
+        let duration = crate::collectors::latest_with_history(
+            &self.inner,
+            agent_metrics::EXECUTION_DURATION,
+            filter,
+        )
+        .await;
+        let total_iterations = crate::collectors::counter_total_with_history(
+            &self.inner,
+            agent_metrics::ITERATION_COUNT,
+            filter,
+        )
+        .await;
+        let total_tool_calls = crate::collectors::counter_total_with_history(
+            &self.inner,
+            agent_metrics::TOOL_CALL_COUNT,
+            filter,
+        )
+        .await;
+
+        AgentUsageStats {
+            total: total as u64,
+            success: success as u64,
+            failure: failure as u64,
+            success_rate: if total > 0.0 { success / total } else { 0.0 },
+            total_iterations: total_iterations as u64,
+            total_tool_calls: total_tool_calls as u64,
+            avg_duration_ms: duration
+                .as_ref()
+                .map(|d| {
+                    if d.count > 0 {
+                        d.sum / d.count as f64
+                    } else {
+                        0.0
+                    }
+                })
+                .unwrap_or(0.0),
+            p95_duration_ms: duration
+                .as_ref()
+                .and_then(|d| {
+                    d.percentiles
+                        .iter()
+                        .find(|q| (q.percentile - 0.95).abs() < f64::EPSILON)
+                })
+                .map(|q| q.value)
+                .unwrap_or(0.0),
+        }
+    }
+
     fn usage_stats_filtered(
         &self,
         filter: &std::collections::HashMap<String, String>,

@@ -32,12 +32,18 @@ wf-llm = { path = "../../infra/wf-llm" }
 wf-tools = { path = "../../engine/wf-tools" }
 wf-storage = { path = "../../infra/wf-storage" }
 wf-workflow = { path = "../../engine/wf-workflow" }
+wf-server = { path = "../wf-server", optional = true }
 
 [dev-dependencies]
 tempfile = "3"
 wf-llm = { path = "../../infra/wf-llm", features = ["mock"] }
 wf-storage = { path = "../../infra/wf-storage" }
 wf-resource = { path = "../../infra/wf-resource" }
+
+[features]
+default = []
+server = ["dep:wf-server"]
+metrics-http = ["server"]
 
 [[bin]]
 name = "wf"

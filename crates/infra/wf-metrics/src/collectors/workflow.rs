@@ -115,6 +115,85 @@ impl WorkflowMetricsCollector {
         self.usage_stats_filtered(&crate::labels(&[("workflow_id", workflow_id)]))
     }
 
+    /// History-aware statistics that merge in-memory buffers with persisted storage.
+    ///
+    /// Use when HTTP server is absent and CLI queries local storage.
+    pub async fn usage_stats_with_history(&self) -> WorkflowUsageStats {
+        self.usage_stats_with_history_filtered(&std::collections::HashMap::new())
+            .await
+    }
+
+    /// History-aware statistics scoped to a single workflow.
+    pub async fn usage_stats_with_history_for(&self, workflow_id: &str) -> WorkflowUsageStats {
+        self.usage_stats_with_history_filtered(&crate::labels(&[("workflow_id", workflow_id)]))
+            .await
+    }
+
+    async fn usage_stats_with_history_filtered(
+        &self,
+        filter: &std::collections::HashMap<String, String>,
+    ) -> WorkflowUsageStats {
+        let total =
+            crate::collectors::counter_total_with_history(&self.inner, workflow_metrics::EXECUTION_COUNT, filter).await;
+        let success =
+            crate::collectors::counter_total_with_history(&self.inner, workflow_metrics::SUCCESS_COUNT, filter).await;
+        let failure =
+            crate::collectors::counter_total_with_history(&self.inner, workflow_metrics::FAILURE_COUNT, filter).await;
+        let duration =
+            crate::collectors::latest_with_history(&self.inner, workflow_metrics::EXECUTION_DURATION, filter).await;
+        let by_version = self
+            .inner
+            .query(&crate::metric::MetricFilter {
+                name: Some(workflow_metrics::SUCCESS_COUNT.to_string()),
+                labels: if filter.is_empty() {
+                    None
+                } else {
+                    Some(filter.clone())
+                },
+                ..Default::default()
+            })
+            .metrics
+            .into_iter()
+            .find(|m| m.name == workflow_metrics::SUCCESS_COUNT)
+            .map(|m| m.by_label)
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|g| g.labels.contains_key("version"))
+            .collect();
+
+        let percentile = |p: f64| {
+            duration
+                .as_ref()
+                .and_then(|d| {
+                    d.percentiles
+                        .iter()
+                        .find(|q| (q.percentile - p).abs() < f64::EPSILON)
+                })
+                .map(|q| q.value)
+                .unwrap_or(0.0)
+        };
+
+        WorkflowUsageStats {
+            total: total as u64,
+            success: success as u64,
+            failure: failure as u64,
+            success_rate: if total > 0.0 { success / total } else { 0.0 },
+            avg_duration_ms: duration
+                .as_ref()
+                .map(|d| {
+                    if d.count > 0 {
+                        d.sum / d.count as f64
+                    } else {
+                        0.0
+                    }
+                })
+                .unwrap_or(0.0),
+            p95_duration_ms: percentile(0.95),
+            p99_duration_ms: percentile(0.99),
+            by_version,
+        }
+    }
+
     fn usage_stats_filtered(
         &self,
         filter: &std::collections::HashMap<String, String>,
@@ -290,5 +369,136 @@ mod tests {
         assert!(text.contains(workflow_metrics::EXECUTION_COUNT));
         let json = c.to_json();
         assert!(json.is_array());
+    }
+
+    #[tokio::test]
+    async fn usage_stats_with_history_merges_persisted() {
+        use crate::sink::{MetricPoint, MetricsError, MetricsSink};
+        use crate::MetricType;
+        use std::sync::{Arc, Mutex};
+
+        struct MockSink {
+            points: Mutex<Vec<MetricPoint>>,
+        }
+
+        #[async_trait::async_trait]
+        impl MetricsSink for MockSink {
+            async fn save_batch(&self, _points: &[MetricPoint]) -> Result<(), MetricsError> {
+                Ok(())
+            }
+            async fn query(
+                &self,
+                name: &str,
+                start_time: i64,
+                end_time: i64,
+            ) -> Result<Vec<MetricPoint>, MetricsError> {
+                Ok(self
+                    .points
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .filter(|p| p.name == name && p.timestamp >= start_time && p.timestamp <= end_time)
+                    .cloned()
+                    .collect())
+            }
+            async fn delete_old(&self, _older_than: i64) -> Result<u64, MetricsError> {
+                Ok(0)
+            }
+        }
+
+        let c = collector();
+        // In-memory: 1 execution
+        c.record_execution_start("wf-1");
+        c.record_execution_complete("wf-1", None, true, 10.0, None);
+        assert_eq!(c.usage_stats().total, 1);
+
+        // Persisted: 2 more executions for same workflow
+        let sink = Arc::new(MockSink {
+            points: Mutex::new(vec![
+                MetricPoint {
+                    name: workflow_metrics::EXECUTION_COUNT.to_string(),
+                    metric_type: MetricType::Counter,
+                    value: 1.0,
+                    timestamp: 1000,
+                    labels: crate::labels(&[("workflow_id", "wf-1")]),
+                    source: String::new(),
+                    buckets: Vec::new(),
+                    sum: 0.0,
+                    count: 0,
+                },
+                MetricPoint {
+                    name: workflow_metrics::SUCCESS_COUNT.to_string(),
+                    metric_type: MetricType::Counter,
+                    value: 1.0,
+                    timestamp: 1000,
+                    labels: crate::labels(&[("workflow_id", "wf-1"), ("success", "true")]),
+                    source: String::new(),
+                    buckets: Vec::new(),
+                    sum: 0.0,
+                    count: 0,
+                },
+                MetricPoint {
+                    name: workflow_metrics::EXECUTION_COUNT.to_string(),
+                    metric_type: MetricType::Counter,
+                    value: 1.0,
+                    timestamp: 1001,
+                    labels: crate::labels(&[("workflow_id", "wf-1")]),
+                    source: String::new(),
+                    buckets: Vec::new(),
+                    sum: 0.0,
+                    count: 0,
+                },
+                MetricPoint {
+                    name: workflow_metrics::SUCCESS_COUNT.to_string(),
+                    metric_type: MetricType::Counter,
+                    value: 1.0,
+                    timestamp: 1001,
+                    labels: crate::labels(&[("workflow_id", "wf-1"), ("success", "true")]),
+                    source: String::new(),
+                    buckets: Vec::new(),
+                    sum: 0.0,
+                    count: 0,
+                },
+            ]),
+        });
+        c.inner.set_sink(sink);
+
+        // With history should include persisted + memory = 3 total
+        let stats = c.usage_stats_with_history().await;
+        assert_eq!(stats.total, 3, "memory 1 + persisted 2");
+        assert_eq!(stats.success, 3);
+
+        // After flush, memory cleared but history still returns 3 via sink
+        c.inner.clear();
+        // Re-attach sink (clear removed sink)
+        let sink2 = Arc::new(MockSink {
+            points: Mutex::new(vec![
+                MetricPoint {
+                    name: workflow_metrics::EXECUTION_COUNT.to_string(),
+                    metric_type: MetricType::Counter,
+                    value: 1.0,
+                    timestamp: 1000,
+                    labels: crate::labels(&[("workflow_id", "wf-1")]),
+                    source: String::new(),
+                    buckets: Vec::new(),
+                    sum: 0.0,
+                    count: 0,
+                },
+                MetricPoint {
+                    name: workflow_metrics::SUCCESS_COUNT.to_string(),
+                    metric_type: MetricType::Counter,
+                    value: 1.0,
+                    timestamp: 1000,
+                    labels: crate::labels(&[("workflow_id", "wf-1"), ("success", "true")]),
+                    source: String::new(),
+                    buckets: Vec::new(),
+                    sum: 0.0,
+                    count: 0,
+                },
+            ]),
+        });
+        c.inner.set_sink(sink2);
+        let stats = c.usage_stats_with_history().await;
+        assert_eq!(stats.total, 1);
     }
 }

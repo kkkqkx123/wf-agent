@@ -115,18 +115,16 @@ fn parse_metric_type(value: &str) -> Option<wf_metrics::MetricType> {
 }
 
 /// Runtime-owned metrics system: registry + persistence sink + background
-/// flush/cleanup/report/sampling tasks, the event bridge subscription and
-/// the optional HTTP export server.
+/// flush/cleanup/report/sampling tasks and the event bridge subscription.
 ///
 /// Created from `SdkOptions`-style metrics config; returns `None` when
-/// metrics are disabled.
+/// metrics are disabled. HTTP export is no longer owned here; the caller
+/// (e.g. `wf-server` composition) decides whether to serve
+/// `MetricsRegistry` via `wf_server::metrics::serve`.
 pub struct MetricsContext {
     registry: Arc<MetricsRegistry>,
     tasks: Vec<tokio::task::JoinHandle<()>>,
     event_bridge_task: Option<tokio::task::JoinHandle<()>>,
-    /// Guarded so `shutdown(&self)` can consume it; the HTTP task itself is
-    /// not part of `tasks`.
-    http: std::sync::Mutex<Option<wf_server::ServerHandle>>,
 }
 
 impl MetricsContext {
@@ -241,46 +239,18 @@ impl MetricsContext {
         let event_bridge_task =
             event_bus.map(|bus| EventMetricsBridge::new(registry.clone()).spawn(bus));
 
-        let http = if let Some(ref addr) = config.http_addr {
-            match addr.parse::<std::net::SocketAddr>() {
-                Ok(socket_addr) => match wf_server::serve(registry.clone(), socket_addr).await {
-                    Ok(handle) => {
-                        tracing::info!(
-                            target: "wf_metrics",
-                            addr = %handle.addr(),
-                            "metrics HTTP server listening"
-                        );
-                        Some(handle)
-                    }
-                    Err(err) => {
-                        tracing::error!(
-                            target: "wf_metrics",
-                            error = %err,
-                            addr = %addr,
-                            "metrics HTTP server failed to start"
-                        );
-                        None
-                    }
-                },
-                Err(err) => {
-                    tracing::warn!(
-                        target: "wf_metrics",
-                        error = %err,
-                        addr = %addr,
-                        "invalid metrics http_addr, server not started"
-                    );
-                    None
-                }
-            }
-        } else {
-            None
-        };
+        if let Some(ref addr) = config.http_addr {
+            tracing::warn!(
+                target: "wf_metrics",
+                addr = %addr,
+                "metrics http_addr is configured but wf-runtime no longer serves HTTP; start wf_server::metrics::serve externally if needed"
+            );
+        }
 
         Ok(Some(Arc::new(Self {
             registry,
             tasks,
             event_bridge_task,
-            http: std::sync::Mutex::new(http),
         })))
     }
 
@@ -288,22 +258,13 @@ impl MetricsContext {
         &self.registry
     }
 
-    /// Abort background tasks, stop the event bridge and gracefully shut
-    /// down the HTTP server (draining in-flight requests).
+    /// Abort background tasks and stop the event bridge.
     pub async fn shutdown(&self) {
         if let Some(task) = self.event_bridge_task.as_ref() {
             task.abort();
         }
         for task in &self.tasks {
             task.abort();
-        }
-        let handle = self
-            .http
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .take();
-        if let Some(handle) = handle {
-            handle.shutdown().await;
         }
     }
 }
@@ -552,7 +513,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn start_serves_http_export_when_addr_configured() {
+    async fn start_with_http_addr_does_not_start_server() {
         let storage = StorageManager::new(StorageConfig {
             storage_type: StorageType::Memory,
             sqlite: None,
@@ -568,8 +529,6 @@ mod tests {
             .await
             .unwrap()
             .expect("metrics should be enabled");
-
-        let _ = ctx; // server task aborts on shutdown; bind is exercised
         ctx.shutdown().await;
     }
 

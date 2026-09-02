@@ -44,12 +44,12 @@ pub async fn run(cli: &Cli, sub: &MetricsSub) -> CliResult<()> {
                     ))),
                 }
             } else {
-                let workflow = stats::workflow_stats(registry);
-                let node = stats::node_stats(registry);
-                let agent = stats::agent_stats(registry);
-                let tool = stats::tool_stats(registry);
-                let error = stats::error_stats(registry);
-                let event = stats::event_stats(registry);
+                let workflow = stats::workflow_stats_with_history(registry).await;
+                let node = stats::node_stats_with_history(registry).await;
+                let agent = stats::agent_stats_with_history(registry).await;
+                let tool = stats::tool_stats_with_history(registry).await;
+                let error = stats::error_stats_with_history(registry).await;
+                let event = stats::event_stats_with_history(registry).await;
                 let data = serde_json::json!({
                     "workflow": workflow,
                     "node": node,

@@ -19,10 +19,14 @@ pub async fn run(cli: &Cli, sub: &CheckpointSub) -> CliResult<()> {
                     .with_entity(checkpoint_id.clone()),
             )
         }
-        CheckpointSub::List { id } => {
-            let list =
+        CheckpointSub::List { id, limit, offset } => {
+            let mut list =
                 checkpoint::list_checkpoints_by_entity(&ctx.storage, id, "checkpoint").await?;
-            let data = serde_json::to_value(&list)?;
+            list.sort_by_key(|c| c.timestamp);
+            let off = offset.unwrap_or(0);
+            let lim = limit.unwrap_or(usize::MAX);
+            let paged: Vec<_> = list.into_iter().skip(off).take(lim).collect();
+            let data = serde_json::to_value(&paged)?;
             render_envelope(
                 cli.output,
                 OutputEnvelope::success("checkpoint-list", data).with_entity(id.clone()),
@@ -54,6 +58,45 @@ pub async fn run(cli: &Cli, sub: &CheckpointSub) -> CliResult<()> {
                         .with_entity(restored.execution_id.clone()),
                 )
             }
+        }
+        CheckpointSub::Delete { id } => {
+            let deleted = checkpoint::delete_checkpoint(&ctx.storage, id).await?;
+            let data = serde_json::json!({"deleted": id, "ok": deleted});
+            render_envelope(
+                cli.output,
+                OutputEnvelope::success("checkpoint-delete", data).with_entity(id.clone()),
+            )
+        }
+        CheckpointSub::Chain { id } => {
+            let chain = checkpoint::get_checkpoint_chain(&ctx.storage, id).await?;
+            let data = serde_json::to_value(&chain)?;
+            render_envelope(
+                cli.output,
+                OutputEnvelope::success("checkpoint-chain", data).with_entity(id.clone()),
+            )
+        }
+        CheckpointSub::Gc { id, before } => {
+            let deleted = if let Some(ts) = before {
+                // Filter by timestamp before deleting.
+                let list =
+                    checkpoint::list_checkpoints_by_entity(&ctx.storage, id, "checkpoint").await?;
+                let mut count = 0u64;
+                for cp in list {
+                    if cp.timestamp < *ts
+                        && checkpoint::delete_checkpoint(&ctx.storage, &cp.id).await?
+                    {
+                        count += 1;
+                    }
+                }
+                count
+            } else {
+                checkpoint::delete_checkpoints_by_entity(&ctx.storage, id, "checkpoint").await?
+            };
+            let data = serde_json::json!({"executionId": id, "deleted": deleted});
+            render_envelope(
+                cli.output,
+                OutputEnvelope::success("checkpoint-gc", data).with_entity(id.clone()),
+            )
         }
     };
     adapter.shutdown().await?;

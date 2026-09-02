@@ -93,3 +93,67 @@ pub(crate) fn latest_labeled(
         .into_iter()
         .find(|m| m.name == name)
 }
+
+/// Counter total merged with persisted storage (history-aware).
+///
+/// Sums in-memory counter value and persisted points filtered by `labels`.
+/// Used when `server` feature is absent and CLI queries local storage.
+pub(crate) async fn counter_total_with_history(
+    collector: &BaseMetricCollector,
+    name: &str,
+    labels: &HashMap<String, String>,
+) -> f64 {
+    let mem = counter_total_labeled(collector, name, labels);
+    let persisted = match collector.query_sink(name, 0, wf_common::time::now()).await {
+        Some(Ok(points)) => points
+            .iter()
+            .filter(|p| labels.iter().all(|(k, v)| p.labels.get(k) == Some(v)))
+            .map(|p| p.value)
+            .sum::<f64>(),
+        _ => 0.0,
+    };
+    mem + persisted
+}
+
+/// Latest snapshot merged with persisted storage.
+///
+/// Prefers in-memory latest; falls back to the most recent persisted
+/// histogram snapshot (rebuilt via `rebuild_persisted`) when memory is empty.
+pub(crate) async fn latest_with_history(
+    collector: &BaseMetricCollector,
+    name: &str,
+    labels: &HashMap<String, String>,
+) -> Option<crate::metric::Metric> {
+    if let Some(m) = latest_labeled(collector, name, labels) {
+        return Some(m);
+    }
+    let points = match collector.query_sink(name, 0, wf_common::time::now()).await {
+        Some(Ok(p)) => p,
+        _ => return None,
+    };
+    let mut filtered: Vec<crate::sink::MetricPoint> = points
+        .into_iter()
+        .filter(|p| labels.iter().all(|(k, v)| p.labels.get(k) == Some(v)))
+        .collect();
+    if filtered.is_empty() {
+        return None;
+    }
+    filtered.sort_by_key(|p| p.timestamp);
+    let latest_point = filtered.into_iter().max_by_key(|p| p.timestamp)?;
+    if let Some(m) = BaseMetricCollector::rebuild_persisted(latest_point.clone()) {
+        Some(m)
+    } else {
+        Some(crate::metric::Metric {
+            name: latest_point.name,
+            metric_type: latest_point.metric_type,
+            value: latest_point.value,
+            timestamp: latest_point.timestamp,
+            labels: latest_point.labels,
+            source: latest_point.source,
+            buckets: latest_point.buckets,
+            percentiles: Vec::new(),
+            sum: latest_point.sum,
+            count: latest_point.count,
+        })
+    }
+}

@@ -20,7 +20,13 @@ pub async fn run(cli: &Cli, sub: &AuditSub) -> CliResult<()> {
         }
         AuditSub::Report { id } => {
             let r = audit::audit_report(ctx, id).await?;
-            let data = serde_json::to_value(&r)?;
+            // Inject explicit source string alongside the report so consumers can
+            // tell live/persisted/checkpoint without parsing the summary.
+            let source_str = format!("{:?}", r.summary.source);
+            let data = serde_json::json!({
+                "source": source_str,
+                "report": r,
+            });
             render_envelope(
                 cli.output,
                 OutputEnvelope::success("audit-report", data).with_entity(id.clone()),

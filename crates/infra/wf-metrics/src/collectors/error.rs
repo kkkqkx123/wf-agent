@@ -70,6 +70,34 @@ impl ErrorMetricsCollector {
         }
     }
 
+    /// History-aware statistics that merge in-memory buffers with persisted storage.
+    pub async fn stats_with_history(&self) -> ErrorStats {
+        let total = crate::collectors::counter_total_with_history(
+            &self.inner,
+            error_metrics::OCCURRENCE_COUNT,
+            &std::collections::HashMap::new(),
+        )
+        .await;
+        let recovered = crate::collectors::counter_total_with_history(
+            &self.inner,
+            error_metrics::RECOVERY_RATE,
+            &std::collections::HashMap::new(),
+        )
+        .await;
+        let affected = crate::collectors::counter_total_with_history(
+            &self.inner,
+            error_metrics::AFFECTED_EXECUTIONS,
+            &std::collections::HashMap::new(),
+        )
+        .await;
+        ErrorStats {
+            total: total as u64,
+            recovered: recovered as u64,
+            recovery_rate: if total > 0.0 { recovered / total } else { 0.0 },
+            affected_executions: affected as u64,
+        }
+    }
+
     pub fn to_prometheus(&self) -> String {
         crate::formatter::format_collector_prometheus(&self.inner)
     }

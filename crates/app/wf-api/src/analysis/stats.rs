@@ -47,6 +47,38 @@ pub fn event_stats(registry: &MetricsRegistry) -> EventStats {
     registry.event().stats()
 }
 
+/// History-aware workflow statistics that merge persisted storage.
+///
+/// Use when HTTP server is absent and CLI queries local storage.
+pub async fn workflow_stats_with_history(registry: &MetricsRegistry) -> WorkflowUsageStats {
+    registry.workflow().usage_stats_with_history().await
+}
+
+/// History-aware node statistics.
+pub async fn node_stats_with_history(registry: &MetricsRegistry) -> NodeUsageStats {
+    registry.node().usage_stats_with_history().await
+}
+
+/// History-aware agent statistics.
+pub async fn agent_stats_with_history(registry: &MetricsRegistry) -> AgentUsageStats {
+    registry.agent().usage_stats_with_history().await
+}
+
+/// History-aware tool statistics.
+pub async fn tool_stats_with_history(registry: &MetricsRegistry) -> ToolUsageStats {
+    registry.tool().usage_stats_with_history().await
+}
+
+/// History-aware error statistics.
+pub async fn error_stats_with_history(registry: &MetricsRegistry) -> ErrorStats {
+    registry.error().stats_with_history().await
+}
+
+/// History-aware event statistics.
+pub async fn event_stats_with_history(registry: &MetricsRegistry) -> EventStats {
+    registry.event().stats_with_history().await
+}
+
 /// Top workflows by execution count (needs the known workflow ids so the
 /// collector can be queried per workflow). Sorted descending, truncated to
 /// `limit`. Workflows without recorded executions are omitted.
@@ -322,5 +354,86 @@ mod tests {
         .await;
         assert!(report.timestamp > 0);
         assert!(report.summary.total_metrics > 0);
+    }
+
+    #[tokio::test]
+    async fn workflow_stats_with_history_merges_persisted() {
+        use std::sync::Mutex;
+        use wf_metrics::{MetricPoint, MetricType, MetricsSink, MetricsError};
+
+        struct MockSink {
+            points: Mutex<Vec<MetricPoint>>,
+        }
+
+        #[async_trait::async_trait]
+        impl MetricsSink for MockSink {
+            async fn save_batch(&self, _points: &[MetricPoint]) -> Result<(), MetricsError> {
+                Ok(())
+            }
+            async fn query(
+                &self,
+                name: &str,
+                start_time: i64,
+                end_time: i64,
+            ) -> Result<Vec<MetricPoint>, MetricsError> {
+                Ok(self
+                    .points
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .filter(|p| p.name == name && p.timestamp >= start_time && p.timestamp <= end_time)
+                    .cloned()
+                    .collect())
+            }
+            async fn delete_old(&self, _older_than: i64) -> Result<u64, MetricsError> {
+                Ok(0)
+            }
+        }
+
+        let registry = wf_metrics::MetricsRegistry::new();
+        registry.workflow().record_execution_start("wf-1");
+        registry
+            .workflow()
+            .record_execution_complete("wf-1", None, true, 10.0, None);
+        // memory only
+        assert_eq!(workflow_stats(&registry).total, 1);
+        assert_eq!(workflow_stats_with_history(&registry).await.total, 1);
+
+        let sink = Arc::new(MockSink {
+            points: Mutex::new(vec![
+                MetricPoint {
+                    name: wf_metrics::constants::workflow_metrics::EXECUTION_COUNT.to_string(),
+                    metric_type: MetricType::Counter,
+                    value: 1.0,
+                    timestamp: 1000,
+                    labels: wf_metrics::labels(&[("workflow_id", "wf-1")]),
+                    source: String::new(),
+                    buckets: Vec::new(),
+                    sum: 0.0,
+                    count: 0,
+                },
+                MetricPoint {
+                    name: wf_metrics::constants::workflow_metrics::SUCCESS_COUNT.to_string(),
+                    metric_type: MetricType::Counter,
+                    value: 1.0,
+                    timestamp: 1000,
+                    labels: wf_metrics::labels(&[
+                        ("workflow_id", "wf-1"),
+                        ("success", "true"),
+                    ]),
+                    source: String::new(),
+                    buckets: Vec::new(),
+                    sum: 0.0,
+                    count: 0,
+                },
+            ]),
+        });
+        let registry = wf_metrics::MetricsRegistry::new().with_sink(sink);
+        registry.workflow().record_execution_start("wf-1");
+        // with history should see persisted + memory
+        let stats = workflow_stats_with_history(&registry).await;
+        // memory 1 + persisted 1 = 2? Actually registry has no memory execution complete, just start.
+        // We recorded 1 start in memory, persisted has 1 count, so total 2.
+        assert_eq!(stats.total, 2);
     }
 }

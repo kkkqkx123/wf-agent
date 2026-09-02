@@ -20,7 +20,6 @@ pub use failure_policy::{
     default_failure_policy_config, default_fallback_policy, default_retry_policy,
     FailurePolicyManager,
 };
-pub use observable_registry::{ObservableRegistry, RegistryEventListener};
 pub use hierarchy::integrity::{
     HierarchyEntityProvider, HierarchyIntegrityService, HierarchyRegistry,
     HierarchyValidationResult,
@@ -33,6 +32,7 @@ pub use interruption::{
     check_execution_interruption, combine_cancellation_tokens, execute_with_interruption_handling,
     iterate_with_interruption_handling, InterruptionSignal, InterruptionState,
 };
+pub use observable_registry::{ObservableRegistry, RegistryEventListener};
 pub use registry::{
     BatchRegistry, ConcurrentRegistry, Exportable, MutableRegistry, PersistableRegistry,
     PersistableStorage, Ref, ReferenceCheckable, Registry, RegistryError, Searchable,

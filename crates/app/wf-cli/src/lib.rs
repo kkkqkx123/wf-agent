@@ -15,6 +15,7 @@ pub mod keymap;
 pub mod markdown;
 pub mod mention;
 pub mod mini;
+pub mod modal;
 pub mod mode;
 pub mod output;
 pub mod panels;
@@ -25,12 +26,14 @@ pub mod render;
 pub mod replay;
 pub mod run;
 pub mod sanitize;
+pub mod screens;
 pub mod scrollback;
 pub mod select;
 pub mod sink;
 pub mod size;
 pub mod terminal;
 pub mod theme;
+pub mod tui;
 pub mod turn;
 
 pub use ansi::AnsiParser;
@@ -73,11 +76,11 @@ pub async fn run(cli: Cli) -> CliResult<()> {
         Some(Command::Execution { sub }) => {
             return cmd::execution::run(&cli, sub).await;
         }
-        Some(Command::LlmProfile { sub: _ }) => {
-            return cmd::llm::run(&cli).await;
+        Some(Command::LlmProfile { sub }) => {
+            return cmd::llm::run(&cli, sub).await;
         }
-        Some(Command::Skill { sub: _ }) => {
-            return cmd::skill::run(&cli).await;
+        Some(Command::Skill { sub }) => {
+            return cmd::skill::run(&cli, sub).await;
         }
         Some(Command::Search { query, limit }) => {
             return cmd::search::run(&cli, query, *limit).await;
@@ -86,8 +89,71 @@ pub async fn run(cli: Cli) -> CliResult<()> {
             status,
             workflow_id,
             limit,
+            sort,
+            desc,
+            offset,
+            aggregate,
+            export,
+            filter,
         }) => {
-            return cmd::query::run(&cli, status.as_deref(), workflow_id.as_deref(), *limit).await;
+            return cmd::query::run(
+                &cli,
+                status.as_deref(),
+                workflow_id.as_deref(),
+                *limit,
+                sort.as_deref(),
+                *desc,
+                *offset,
+                aggregate.as_deref(),
+                export.as_deref(),
+                filter.as_deref(),
+            )
+            .await;
+        }
+        Some(Command::Checkpoint { sub }) => {
+            return cmd::checkpoint::run(&cli, sub).await;
+        }
+        Some(Command::Audit { sub }) => {
+            return cmd::audit::run(&cli, sub).await;
+        }
+        Some(Command::Event { sub }) => {
+            return cmd::event::run(&cli, sub).await;
+        }
+        Some(Command::Variable { sub }) => {
+            return cmd::variable::run(&cli, sub).await;
+        }
+        Some(Command::Message { sub }) => {
+            return cmd::message::run(&cli, sub).await;
+        }
+        Some(Command::Tool { sub }) => {
+            return cmd::tool::run(&cli, sub).await;
+        }
+        Some(Command::Script { sub }) => {
+            return cmd::script::run(&cli, sub).await;
+        }
+        Some(Command::Trigger { sub }) => {
+            return cmd::trigger::run(&cli, sub).await;
+        }
+        Some(Command::Template { sub }) => {
+            return cmd::template::run(&cli, sub).await;
+        }
+        Some(Command::Approval { sub }) => {
+            return cmd::approval::run(&cli, sub).await;
+        }
+        Some(Command::Task { sub }) => {
+            return cmd::task::run(&cli, sub).await;
+        }
+        Some(Command::Metrics { sub }) => {
+            return cmd::metrics::run(&cli, sub).await;
+        }
+        Some(Command::Analysis { sub }) => {
+            return cmd::analysis::run(&cli, sub).await;
+        }
+        Some(Command::Health) => {
+            return cmd::diagnostics::run_health(&cli).await;
+        }
+        Some(Command::Diagnostics) => {
+            return cmd::diagnostics::run_diagnostics(&cli).await;
         }
         _ => {}
     }
@@ -174,8 +240,7 @@ async fn run_headless(cli: &Cli, resolved: &ResolvedMode, stdout_tty: bool) -> C
     session.map(|_| ())
 }
 
-/// Interactive forms (mini / full TUI). Mini dispatches to [`MiniApp`]; the
-/// full TUI renderer is not wired yet.
+/// Interactive forms (mini / full TUI).
 async fn run_interactive(cli: &Cli, resolved: &ResolvedMode, stdout_tty: bool) -> CliResult<()> {
     let cli_mode = resolved.cli_mode;
     if !stdout_tty {
@@ -197,9 +262,11 @@ async fn run_interactive(cli: &Cli, resolved: &ResolvedMode, stdout_tty: bool) -
             };
             MiniApp::new(opts)?.run().await
         }
-        CliMode::Tui => Err(CliError::Configuration(
-            "full TUI not yet implemented; use --mini".into(),
-        )),
+        CliMode::Tui => {
+            let adapter = DomainAdapter::bootstrap_for_cli(cli, CliMode::Tui).await?;
+            let app = crate::tui::TuiApp::new(adapter);
+            app.run().await
+        }
         CliMode::Run => unreachable!("run_interactive called with CliMode::Run"),
     }
 }

@@ -486,9 +486,7 @@ impl AgentLoopCoordinator {
             metrics.agent_loop().record_execution_start();
         }
 
-        let max_iterations = config
-            .max_iterations
-            .unwrap_or(self.default_max_iterations);
+        let max_iterations = config.max_iterations.unwrap_or(self.default_max_iterations);
         if max_iterations > self.max_iterations_cap {
             return Err(AgentError::ExecutionLimitReached(format!(
                 "max_iterations ({max_iterations}) exceeds the configured hard limit ({})",

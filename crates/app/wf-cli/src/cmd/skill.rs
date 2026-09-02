@@ -1,47 +1,77 @@
-use std::io::Write;
-
 use wf_api::entity::skill;
 
-use crate::args::Cli;
+use crate::args::{Cli, SkillSub};
+use crate::cmd::render::render_envelope;
 use crate::error::CliResult;
 use crate::output::OutputEnvelope;
 
-pub async fn run(cli: &Cli) -> CliResult<()> {
+pub async fn run(cli: &Cli, sub: &SkillSub) -> CliResult<()> {
     let adapter =
         crate::domain::DomainAdapter::bootstrap_for_cli(cli, crate::mode::CliMode::Run).await?;
     let ctx = adapter.api_context();
 
-    let skills = skill::list_skills(ctx)?;
-    let data = serde_json::to_value(&skills)?;
-    let envelope = OutputEnvelope::success("skill-list", data);
+    let result = match sub {
+        SkillSub::List => {
+            let skills = skill::list_skills(ctx)?;
+            let data = serde_json::to_value(&skills)?;
+            render_envelope(cli.output, OutputEnvelope::success("skill-list", data))
+        }
+        SkillSub::Query { filter } => {
+            let all = skill::list_skills(ctx)?;
+            let filtered: Vec<_> = if let Some(q) = filter {
+                all.into_iter()
+                    .filter(|s| s.name.contains(q.as_str()))
+                    .collect()
+            } else {
+                all
+            };
+            let data = serde_json::to_value(&filtered)?;
+            render_envelope(cli.output, OutputEnvelope::success("skill-query", data))
+        }
+        SkillSub::Show { name } => {
+            let s = skill::get_skill(ctx, name)?;
+            let data = serde_json::to_value(&s)?;
+            render_envelope(
+                cli.output,
+                OutputEnvelope::success("skill-show", data).with_entity(name.clone()),
+            )
+        }
+        SkillSub::Enable { name } => {
+            skill::enable(ctx, name)?;
+            let data = serde_json::json!({"enabled": name});
+            render_envelope(
+                cli.output,
+                OutputEnvelope::success("skill-enable", data).with_entity(name.clone()),
+            )
+        }
+        SkillSub::Disable { name } => {
+            skill::disable(ctx, name)?;
+            let data = serde_json::json!({"disabled": name});
+            render_envelope(
+                cli.output,
+                OutputEnvelope::success("skill-disable", data).with_entity(name.clone()),
+            )
+        }
+        SkillSub::Scan => {
+            let list = skill::scan_skills(ctx, ".")?;
+            let data = serde_json::json!({"scanned": list.len()});
+            render_envelope(cli.output, OutputEnvelope::success("skill-scan", data))
+        }
+        SkillSub::Reload => {
+            let list = skill::reload(ctx, ".")?;
+            let data = serde_json::json!({"reloaded": list.len()});
+            render_envelope(cli.output, OutputEnvelope::success("skill-reload", data))
+        }
+        SkillSub::ClearCache => {
+            skill::clear_cache(ctx)?;
+            let data = serde_json::json!({"cleared": true});
+            render_envelope(
+                cli.output,
+                OutputEnvelope::success("skill-clear-cache", data),
+            )
+        }
+    };
 
-    render_envelope(cli.output, envelope)?;
     adapter.shutdown().await?;
-    Ok(())
-}
-
-fn render_envelope(format: crate::output::OutputFormat, envelope: OutputEnvelope) -> CliResult<()> {
-    match format {
-        crate::output::OutputFormat::Text => {
-            let text = envelope.render(format);
-            if let Some(line) = text {
-                let mut stdout = std::io::stdout();
-                writeln!(stdout, "{line}")?;
-            }
-            Ok(())
-        }
-        crate::output::OutputFormat::Json => {
-            let json = serde_json::to_string_pretty(&envelope)?;
-            let mut stdout = std::io::stdout();
-            writeln!(stdout, "{json}")?;
-            Ok(())
-        }
-        crate::output::OutputFormat::JsonLines => {
-            let json = serde_json::to_string(&envelope)?;
-            let mut stdout = std::io::stdout();
-            writeln!(stdout, "{json}")?;
-            Ok(())
-        }
-        crate::output::OutputFormat::Silent => Ok(()),
-    }
+    result
 }

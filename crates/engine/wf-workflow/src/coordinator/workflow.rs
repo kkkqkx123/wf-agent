@@ -322,8 +322,10 @@ impl WorkflowCoordinator {
         // variable table so LOOP_START handlers resolve it per execution.
         // Absent, handlers fall back to the engine's built-in constant.
         if let Some(cap) = ctx.options.loop_max_iterations_cap {
-            ctx.variables
-                .insert(crate::loop_state::LOOP_MAX_ITERATIONS_CAP_KEY.to_string(), Value::from(cap));
+            ctx.variables.insert(
+                crate::loop_state::LOOP_MAX_ITERATIONS_CAP_KEY.to_string(),
+                Value::from(cap),
+            );
         }
 
         let signal_receiver = ctx.signal_bus.as_ref().map(|bus| bus.subscribe());

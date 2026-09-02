@@ -108,7 +108,11 @@ pub fn validate_limits_config(config: &LimitsConfig) -> ConfigResult<()> {
             validate_min(cap, 1, "limits.workflow.loop_max_iterations_cap")?;
         }
         if let Some(default_iter) = workflow.loop_default_max_iterations {
-            validate_min(default_iter, 1, "limits.workflow.loop_default_max_iterations")?;
+            validate_min(
+                default_iter,
+                1,
+                "limits.workflow.loop_default_max_iterations",
+            )?;
             if let Some(cap) = workflow.loop_max_iterations_cap {
                 if default_iter > cap {
                     return Err(ConfigError::Validation(format!(

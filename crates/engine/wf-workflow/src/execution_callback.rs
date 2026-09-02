@@ -365,7 +365,7 @@ fn default_options(input: Option<Value>) -> WorkflowExecutionOptions {
         exponential_backoff: None,
         fallback_output: None,
         max_navigation_multiplier: None,
-            loop_max_iterations_cap: None,
+        loop_max_iterations_cap: None,
     }
 }
 

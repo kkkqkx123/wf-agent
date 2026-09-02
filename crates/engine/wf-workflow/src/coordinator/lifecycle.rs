@@ -366,7 +366,7 @@ impl WorkflowLifecycleCoordinator {
                 exponential_backoff: None,
                 fallback_output: None,
                 max_navigation_multiplier: None,
-            loop_max_iterations_cap: None,
+                loop_max_iterations_cap: None,
             },
         );
         ctx.variables = entity.variables().clone();
@@ -527,7 +527,7 @@ mod tests {
                 exponential_backoff: None,
                 fallback_output: None,
                 max_navigation_multiplier: None,
-            loop_max_iterations_cap: None,
+                loop_max_iterations_cap: None,
             },
             handlers: handlers.clone(),
             tool_registry: tool_registry.clone(),
@@ -631,7 +631,7 @@ mod tests {
                 exponential_backoff: None,
                 fallback_output: None,
                 max_navigation_multiplier: None,
-            loop_max_iterations_cap: None,
+                loop_max_iterations_cap: None,
             },
             handlers,
             tool_registry: Arc::new(wf_tools::registry::ToolRegistry::new()),
@@ -1073,7 +1073,7 @@ mod tests {
                 max_retries: Some(0),
                 fallback_output: None,
                 max_navigation_multiplier: None,
-            loop_max_iterations_cap: None,
+                loop_max_iterations_cap: None,
                 ..options_with(Some(serde_json::json!({"greeting": "hello"})))
             },
             handlers: make_handlers(),

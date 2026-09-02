@@ -7,7 +7,8 @@ use serde::Serialize;
 use wf_core::registry::MutableRegistry;
 use wf_storage::adapter::base::BaseStorageAdapter;
 use wf_storage::adapter::trigger_template::TriggerTemplateListOptions;
-use wf_types::{TriggerTemplate, TriggerTemplateStorageMetadata};
+use wf_types::trigger::TriggerTemplate;
+use wf_types::TriggerTemplateStorageMetadata;
 
 use crate::infra::context::ApiContext;
 use crate::infra::error::{not_found, ApiResult};

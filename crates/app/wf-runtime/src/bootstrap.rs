@@ -533,7 +533,16 @@ impl Runtime {
                         .max_sub_agent_depth
                         .unwrap_or(wf_agent::registry::DEFAULT_MAX_SUB_AGENT_DEPTH),
                 )
-                .with_max_concurrent(agent_limits.max_concurrent.unwrap_or(0) as usize)
+                .with_max_concurrent({
+                    let max = agent_limits.max_concurrent.unwrap_or(0);
+                    if max == 0 {
+                        std::thread::available_parallelism()
+                            .map(|n| n.get())
+                            .unwrap_or(4)
+                    } else {
+                        max as usize
+                    }
+                })
                 .with_hook_registry(hook_registry.clone())
                 .with_signal_bus(signal_bus.clone()),
         );

@@ -18,6 +18,7 @@ regex.workspace = true
 globset.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+toml.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 wf-common = { path = "../../foundation/wf-common" }
@@ -29,6 +30,8 @@ wf-agent = { path = "../../engine/wf-agent" }
 wf-config = { path = "../../infra/wf-config" }
 wf-llm = { path = "../../infra/wf-llm" }
 wf-tools = { path = "../../engine/wf-tools" }
+wf-storage = { path = "../../infra/wf-storage" }
+wf-workflow = { path = "../../engine/wf-workflow" }
 
 [dev-dependencies]
 tempfile = "3"

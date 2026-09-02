@@ -281,7 +281,94 @@ pub enum Command {
         /// Maximum number of records (default 100).
         #[arg(long, value_name = "N")]
         limit: Option<usize>,
+        /// Sort field.
+        #[arg(long, value_name = "FIELD")]
+        sort: Option<String>,
+        /// Sort descending.
+        #[arg(long)]
+        desc: bool,
+        /// Offset.
+        #[arg(long, value_name = "N")]
+        offset: Option<usize>,
+        /// Aggregation (count, sum:field, avg:field, min:field, max:field, group_by:field).
+        #[arg(long, value_name = "OP")]
+        aggregate: Option<String>,
+        /// Export format (json, csv, xml).
+        #[arg(long, value_name = "FORMAT")]
+        export: Option<String>,
+        /// Advanced filter expression (field operator value, e.g. 'status eq completed').
+        #[arg(long, value_name = "EXPR")]
+        filter: Option<String>,
     },
+    /// Checkpoint management.
+    Checkpoint {
+        #[command(subcommand)]
+        sub: CheckpointSub,
+    },
+    /// Audit management.
+    Audit {
+        #[command(subcommand)]
+        sub: AuditSub,
+    },
+    /// Event management.
+    Event {
+        #[command(subcommand)]
+        sub: EventSub,
+    },
+    /// Variable management.
+    Variable {
+        #[command(subcommand)]
+        sub: VariableSub,
+    },
+    /// Message management.
+    Message {
+        #[command(subcommand)]
+        sub: MessageSub,
+    },
+    /// Tool management.
+    Tool {
+        #[command(subcommand)]
+        sub: ToolSub,
+    },
+    /// Script management.
+    Script {
+        #[command(subcommand)]
+        sub: ScriptSub,
+    },
+    /// Trigger management.
+    Trigger {
+        #[command(subcommand)]
+        sub: TriggerSub,
+    },
+    /// Template management.
+    Template {
+        #[command(subcommand)]
+        sub: TemplateSub,
+    },
+    /// Approval management.
+    Approval {
+        #[command(subcommand)]
+        sub: ApprovalSub,
+    },
+    /// Task management.
+    Task {
+        #[command(subcommand)]
+        sub: TaskSub,
+    },
+    /// Metrics management.
+    Metrics {
+        #[command(subcommand)]
+        sub: MetricsSub,
+    },
+    /// Analysis management.
+    Analysis {
+        #[command(subcommand)]
+        sub: AnalysisSub,
+    },
+    /// Show storage health.
+    Health,
+    /// Show full diagnostics.
+    Diagnostics,
 }
 
 /// Workflow subcommands.
@@ -295,6 +382,15 @@ pub enum WorkflowSub {
         /// Maximum number of results.
         #[arg(long, value_name = "N")]
         limit: Option<u64>,
+        /// Filter by tags (comma-separated, all must match).
+        #[arg(long, value_name = "TAGS")]
+        tags: Option<String>,
+        /// Filter by category.
+        #[arg(long, value_name = "CATEGORY")]
+        category: Option<String>,
+        /// Filter by author.
+        #[arg(long, value_name = "AUTHOR")]
+        author: Option<String>,
     },
     /// Show a single workflow definition.
     Show {
@@ -307,23 +403,300 @@ pub enum WorkflowSub {
         /// Workflow id.
         #[arg(value_name = "ID")]
         id: String,
+        /// Show aggregate summary instead of nodes+edges.
+        #[arg(long)]
+        summary: bool,
+        /// Detect structural cycles.
+        #[arg(long)]
+        detect_cycles: bool,
+        /// Topological sort.
+        #[arg(long)]
+        topo: bool,
+        /// Reachability analysis from a node.
+        #[arg(long, value_name = "NODE")]
+        reachability: Option<String>,
+        /// Neighbors of a node (predecessors + successors).
+        #[arg(long, value_name = "NODE")]
+        neighbors: Option<String>,
+        /// Filter nodes by type (e.g. LLM, SCRIPT).
+        #[arg(long = "type", value_name = "TYPE")]
+        node_type: Option<String>,
+    },
+    /// Create a workflow from a JSON file.
+    Create {
+        /// Path to workflow definition file (JSON).
+        #[arg(long, value_name = "PATH", value_hint = clap::ValueHint::FilePath)]
+        file: String,
+        /// Input format (json, toml, auto).
+        #[arg(long, value_name = "FORMAT", default_value = "json", value_parser = ["json","toml","auto"])]
+        format: String,
+    },
+    /// Update a workflow from a JSON file.
+    Update {
+        /// Workflow id.
+        #[arg(value_name = "ID")]
+        id: String,
+        /// Path to workflow definition file (JSON).
+        #[arg(long, value_name = "PATH", value_hint = clap::ValueHint::FilePath)]
+        file: String,
+        /// Input format.
+        #[arg(long, value_name = "FORMAT", default_value = "json", value_parser = ["json","toml","auto"])]
+        format: String,
+    },
+    /// Delete a workflow.
+    Delete {
+        /// Workflow id.
+        #[arg(value_name = "ID")]
+        id: String,
+        /// Skip confirmation.
+        #[arg(long, alias = "yes")]
+        force: bool,
+    },
+    /// Clone a workflow.
+    Clone {
+        /// Source workflow id.
+        #[arg(value_name = "ID")]
+        id: String,
+        /// New workflow id (auto-generated when omitted).
+        #[arg(long = "as", value_name = "NEW_ID")]
+        as_id: Option<String>,
+    },
+    /// Validate a workflow definition file.
+    Validate {
+        /// Path to workflow definition file.
+        #[arg(value_name = "FILE", value_hint = clap::ValueHint::FilePath)]
+        file: String,
+        /// Input format (json, toml, auto).
+        #[arg(long, value_name = "FORMAT", default_value = "auto", value_parser = ["json","toml","auto"])]
+        format: String,
+    },
+    /// Export a workflow to a file or stdout.
+    Export {
+        /// Workflow id.
+        #[arg(value_name = "ID")]
+        id: String,
+        /// Output format (json, toml).
+        #[arg(long, value_name = "FORMAT", default_value = "json", value_parser = ["json","toml"])]
+        format: String,
+        /// Output file (stdout when omitted).
+        #[arg(long = "file", value_name = "FILE")]
+        file: Option<String>,
+    },
+    /// Import a workflow from a file.
+    Import {
+        /// Path to workflow file.
+        #[arg(value_name = "FILE", value_hint = clap::ValueHint::FilePath)]
+        file: String,
+        /// Input format (auto, json, toml).
+        #[arg(long, value_name = "FORMAT", default_value = "auto", value_parser = ["json","toml","auto"])]
+        format: String,
+    },
+    /// Workflow version management.
+    Version {
+        #[command(subcommand)]
+        sub: WorkflowVersionSub,
+    },
+    /// Rollback a workflow to a previous version.
+    Rollback {
+        /// Workflow id.
+        #[arg(value_name = "ID")]
+        id: String,
+        /// Target version.
+        #[arg(value_name = "VERSION")]
+        version: String,
+    },
+    /// Show execution graph of a workflow execution.
+    ExecutionGraph {
+        /// Execution id.
+        #[arg(value_name = "ID")]
+        id: String,
+    },
+}
+
+/// Workflow version subcommands.
+#[derive(Debug, Clone, Subcommand)]
+pub enum WorkflowVersionSub {
+    /// List versions of a workflow.
+    List {
+        /// Workflow id.
+        #[arg(value_name = "ID")]
+        id: String,
+    },
+    /// Show a specific version.
+    Show {
+        /// Workflow id.
+        #[arg(value_name = "ID")]
+        id: String,
+        /// Version label.
+        #[arg(value_name = "VERSION")]
+        version: String,
+    },
+    /// Bump the workflow version (patch/minor/major).
+    Bump {
+        /// Workflow id.
+        #[arg(value_name = "ID")]
+        id: String,
+        /// Bump level.
+        #[arg(long, value_name = "LEVEL")]
+        level: String,
+        /// JSON changes object.
+        #[arg(long, value_name = "JSON")]
+        changes: Option<String>,
+        /// Keep original as a version.
+        #[arg(long)]
+        keep_original: bool,
+    },
+    /// Diff two versions of a workflow.
+    Diff {
+        /// Workflow id.
+        #[arg(value_name = "ID")]
+        id: String,
+        /// Source version.
+        #[arg(long, value_name = "VERSION")]
+        from: String,
+        /// Target version.
+        #[arg(long, value_name = "VERSION")]
+        to: String,
+    },
+    /// Show changelog (aggregated versions).
+    Changelog {
+        /// Workflow id.
+        #[arg(value_name = "ID")]
+        id: String,
     },
 }
 
 /// Execution subcommands.
 #[derive(Debug, Clone, Subcommand)]
 pub enum ExecutionSub {
-    /// List agent loop executions.
+    /// List executions.
     List {
         /// Filter by status (running, paused, completed, failed).
         #[arg(long, value_name = "STATUS")]
         status: Option<String>,
+        /// Filter by workflow id.
+        #[arg(long, value_name = "WORKFLOW")]
+        workflow: Option<String>,
     },
     /// Show a single execution summary.
     Show {
         /// Execution id.
         #[arg(value_name = "ID")]
         id: String,
+        /// Include timeline.
+        #[arg(long)]
+        timeline: bool,
+        /// Include iterations.
+        #[arg(long)]
+        iterations: bool,
+        /// Include variables.
+        #[arg(long)]
+        variables: bool,
+    },
+    /// Run a workflow execution.
+    Run {
+        /// Workflow id to execute.
+        #[arg(long, value_name = "ID")]
+        workflow: String,
+        /// Workflow input as JSON.
+        #[arg(long, value_name = "JSON")]
+        input: Option<String>,
+        /// Run in background and return execution id immediately.
+        #[arg(long)]
+        background: bool,
+    },
+    /// Query status of an execution.
+    Status {
+        /// Execution id.
+        #[arg(value_name = "ID")]
+        id: String,
+    },
+    /// Cancel a running execution.
+    Cancel {
+        /// Execution id.
+        #[arg(value_name = "ID")]
+        id: String,
+    },
+    /// Pause a running execution.
+    Pause {
+        /// Execution id.
+        #[arg(value_name = "ID")]
+        id: String,
+    },
+    /// Resume a paused execution.
+    Resume {
+        /// Execution id.
+        #[arg(value_name = "ID")]
+        id: String,
+    },
+    /// Inspect execution state details.
+    Inspect {
+        /// Execution id.
+        #[arg(value_name = "ID")]
+        id: String,
+        /// Include variables.
+        #[arg(long)]
+        variables: bool,
+        /// Include status transitions.
+        #[arg(long)]
+        transitions: bool,
+        /// Include context evolution.
+        #[arg(long)]
+        context: bool,
+        /// Include call stack.
+        #[arg(long)]
+        call_stack: bool,
+    },
+    /// Performance profile of an execution.
+    Performance {
+        /// Execution id.
+        #[arg(value_name = "ID")]
+        id: String,
+    },
+    /// Bottleneck analysis of an execution.
+    Bottleneck {
+        /// Execution id.
+        #[arg(value_name = "ID")]
+        id: String,
+    },
+    /// Error analysis of an execution.
+    Errors {
+        /// Execution id.
+        #[arg(value_name = "ID")]
+        id: String,
+        /// Include error chain.
+        #[arg(long)]
+        chain: bool,
+        /// Include root cause.
+        #[arg(long)]
+        root_cause: bool,
+        /// Include recovery proposal.
+        #[arg(long)]
+        recovery: bool,
+    },
+    /// Compare two executions.
+    Compare {
+        /// Baseline execution id.
+        #[arg(value_name = "BASELINE")]
+        baseline: String,
+        /// Compared execution id.
+        #[arg(value_name = "COMPARED")]
+        compared: String,
+    },
+    /// Execution progress.
+    Progress {
+        /// Execution id.
+        #[arg(value_name = "ID")]
+        id: String,
+    },
+    /// Execution state at iteration (time-travel).
+    State {
+        /// Execution id.
+        #[arg(value_name = "ID")]
+        id: String,
+        /// Iteration number.
+        #[arg(long, value_name = "N")]
+        at_iteration: Option<u64>,
     },
 }
 
@@ -332,6 +705,85 @@ pub enum ExecutionSub {
 pub enum LlmProfileSub {
     /// List registered LLM profiles.
     List,
+    /// Show a single profile.
+    Show {
+        /// Profile id.
+        #[arg(value_name = "ID")]
+        id: String,
+    },
+    /// Create a profile from a JSON file.
+    Create {
+        /// Path to profile JSON file.
+        #[arg(long, value_name = "PATH")]
+        file: String,
+    },
+    /// Update a profile from a JSON file.
+    Update {
+        /// Profile id.
+        #[arg(value_name = "ID")]
+        id: String,
+        /// Path to profile JSON file.
+        #[arg(long, value_name = "PATH")]
+        file: String,
+    },
+    /// Delete a profile.
+    Delete {
+        /// Profile id.
+        #[arg(value_name = "ID")]
+        id: String,
+    },
+    /// Validate a profile file.
+    Validate {
+        /// Path to profile JSON file.
+        #[arg(value_name = "FILE")]
+        file: String,
+    },
+    /// Get or set the default profile.
+    Default {
+        /// Set default to this profile id.
+        #[arg(long, value_name = "ID")]
+        set: Option<String>,
+    },
+    /// Template operations.
+    Template {
+        #[command(subcommand)]
+        sub: LlmTemplateSub,
+    },
+    /// Export a profile (masked) to stdout or file.
+    Export {
+        /// Profile id.
+        #[arg(value_name = "ID")]
+        id: String,
+        /// Output file (stdout when omitted).
+        #[arg(long = "file", value_name = "FILE")]
+        file: Option<String>,
+    },
+    /// Import a profile from a JSON file.
+    Import {
+        /// Path to profile JSON file.
+        #[arg(value_name = "FILE")]
+        file: String,
+    },
+}
+
+/// LLM template subcommands.
+#[derive(Debug, Clone, Subcommand)]
+pub enum LlmTemplateSub {
+    /// List available templates.
+    List {
+        /// Filter by kind (e.g. openai, anthropic).
+        #[arg(long, value_name = "KIND")]
+        kind: Option<String>,
+        /// Filter by category.
+        #[arg(long, value_name = "CATEGORY")]
+        category: Option<String>,
+        /// Filter by tags (comma-separated).
+        #[arg(long, value_name = "TAGS")]
+        tags: Option<String>,
+        /// Filter by author.
+        #[arg(long, value_name = "AUTHOR")]
+        author: Option<String>,
+    },
 }
 
 /// Skill subcommands.
@@ -339,6 +791,592 @@ pub enum LlmProfileSub {
 pub enum SkillSub {
     /// List registered skills.
     List,
+    /// Query skills by filter.
+    Query {
+        /// Filter query.
+        #[arg(long, value_name = "QUERY")]
+        filter: Option<String>,
+    },
+    /// Show a single skill.
+    Show {
+        /// Skill name.
+        #[arg(value_name = "NAME")]
+        name: String,
+    },
+    /// Enable a skill.
+    Enable {
+        /// Skill name.
+        #[arg(value_name = "NAME")]
+        name: String,
+    },
+    /// Disable a skill.
+    Disable {
+        /// Skill name.
+        #[arg(value_name = "NAME")]
+        name: String,
+    },
+    /// Scan for skills.
+    Scan,
+    /// Reload skills.
+    Reload,
+    /// Clear skill cache.
+    ClearCache,
+}
+
+/// Checkpoint subcommands.
+#[derive(Debug, Clone, Subcommand)]
+pub enum CheckpointSub {
+    /// Create a checkpoint for an execution.
+    Create {
+        /// Execution id.
+        #[arg(value_name = "ID")]
+        id: String,
+        /// Checkpoint name.
+        #[arg(long, value_name = "NAME")]
+        name: Option<String>,
+    },
+    /// List checkpoints of an execution.
+    List {
+        /// Execution id.
+        #[arg(value_name = "ID")]
+        id: String,
+    },
+    /// Show a checkpoint.
+    Show {
+        /// Checkpoint id.
+        #[arg(value_name = "ID")]
+        id: String,
+    },
+    /// Restore a checkpoint.
+    Restore {
+        /// Checkpoint id.
+        #[arg(value_name = "ID")]
+        id: String,
+        /// Also resume the restored execution.
+        #[arg(long)]
+        resume: bool,
+    },
+}
+
+/// Audit subcommands.
+#[derive(Debug, Clone, Subcommand)]
+pub enum AuditSub {
+    /// Audit summary.
+    Summary {
+        /// Execution id.
+        #[arg(value_name = "ID")]
+        id: String,
+    },
+    /// Full audit report.
+    Report {
+        /// Execution id.
+        #[arg(value_name = "ID")]
+        id: String,
+    },
+    /// Audit timeline.
+    Timeline {
+        /// Execution id.
+        #[arg(value_name = "ID")]
+        id: String,
+    },
+    /// Iteration audit.
+    Iterations {
+        /// Execution id.
+        #[arg(value_name = "ID")]
+        id: String,
+    },
+    /// Tool calls audit.
+    ToolCalls {
+        /// Execution id.
+        #[arg(value_name = "ID")]
+        id: String,
+    },
+    /// LLM calls audit.
+    LlmCalls {
+        /// Execution id.
+        #[arg(value_name = "ID")]
+        id: String,
+    },
+    /// Node executions audit.
+    NodeExecutions {
+        /// Execution id.
+        #[arg(value_name = "ID")]
+        id: String,
+    },
+}
+
+/// Event subcommands.
+#[derive(Debug, Clone, Subcommand)]
+pub enum EventSub {
+    /// List events.
+    List {
+        /// Filter by execution id.
+        #[arg(long, value_name = "ID")]
+        execution: Option<String>,
+        /// Filter by event types (comma-separated).
+        #[arg(long, value_name = "TYPES")]
+        types: Option<String>,
+        /// Limit.
+        #[arg(long, value_name = "N")]
+        limit: Option<usize>,
+    },
+    /// Event statistics.
+    Stats,
+    /// Execution timeline.
+    Timeline {
+        /// Execution id.
+        #[arg(value_name = "ID")]
+        id: String,
+    },
+    /// Follow events (streaming).
+    Follow {
+        /// Execution id.
+        #[arg(value_name = "ID")]
+        id: String,
+    },
+}
+
+/// Variable subcommands.
+#[derive(Debug, Clone, Subcommand)]
+pub enum VariableSub {
+    /// List variables of an execution.
+    List {
+        /// Execution id.
+        #[arg(long, value_name = "ID")]
+        execution: String,
+        /// Filter by scope.
+        #[arg(long, value_name = "SCOPE")]
+        scope: Option<String>,
+    },
+    /// Get a variable.
+    Get {
+        /// Execution id.
+        #[arg(long, value_name = "ID")]
+        execution: String,
+        /// Scope.
+        #[arg(long, value_name = "SCOPE", default_value = "default")]
+        scope: String,
+        /// Variable name.
+        #[arg(long, value_name = "NAME")]
+        name: String,
+    },
+    /// Set a variable.
+    Set {
+        /// Execution id.
+        #[arg(long, value_name = "ID")]
+        execution: String,
+        /// Scope.
+        #[arg(long, value_name = "SCOPE", default_value = "default")]
+        scope: String,
+        /// Variable name.
+        #[arg(long, value_name = "NAME")]
+        name: String,
+        /// Value as JSON.
+        #[arg(long, value_name = "JSON")]
+        value: String,
+    },
+    /// Delete a variable.
+    Delete {
+        /// Execution id.
+        #[arg(long, value_name = "ID")]
+        execution: String,
+        /// Scope.
+        #[arg(long, value_name = "SCOPE", default_value = "default")]
+        scope: String,
+        /// Variable name.
+        #[arg(long, value_name = "NAME")]
+        name: String,
+    },
+}
+
+/// Message subcommands.
+#[derive(Debug, Clone, Subcommand)]
+pub enum MessageSub {
+    /// List messages of an execution.
+    List {
+        /// Execution id.
+        #[arg(long, value_name = "ID")]
+        execution: String,
+        /// Filter by role.
+        #[arg(long, value_name = "ROLE")]
+        role: Option<String>,
+        /// Limit.
+        #[arg(long, value_name = "N")]
+        limit: Option<u64>,
+    },
+    /// Search messages.
+    Search {
+        /// Keyword.
+        #[arg(value_name = "QUERY")]
+        query: String,
+        /// Limit.
+        #[arg(long, value_name = "N")]
+        limit: Option<usize>,
+    },
+}
+
+/// Tool subcommands.
+#[derive(Debug, Clone, Subcommand)]
+pub enum ToolSub {
+    /// List registered tools.
+    List,
+    /// Show a tool.
+    Show {
+        /// Tool id.
+        #[arg(value_name = "ID")]
+        id: String,
+    },
+    /// Validate tool parameters.
+    Validate {
+        /// Tool id.
+        #[arg(value_name = "ID")]
+        id: String,
+        /// Parameters as JSON.
+        #[arg(long, value_name = "JSON")]
+        params: String,
+    },
+    /// Execute a tool.
+    Execute {
+        /// Tool id.
+        #[arg(value_name = "ID")]
+        id: String,
+        /// Parameters as JSON.
+        #[arg(long, value_name = "JSON")]
+        params: String,
+        /// Execution id for attribution.
+        #[arg(long, value_name = "ID")]
+        execution_id: Option<String>,
+    },
+    /// Save a tool from a JSON file.
+    Save {
+        /// Path to tool JSON file.
+        #[arg(long, value_name = "PATH", value_hint = clap::ValueHint::FilePath)]
+        file: String,
+    },
+    /// Delete a tool.
+    Delete {
+        /// Tool id.
+        #[arg(value_name = "ID")]
+        id: String,
+        /// Force deletion even if referenced.
+        #[arg(long)]
+        force: bool,
+    },
+    /// Enable a tool.
+    Enable {
+        /// Tool id.
+        #[arg(value_name = "ID")]
+        id: String,
+    },
+    /// Disable a tool.
+    Disable {
+        /// Tool id.
+        #[arg(value_name = "ID")]
+        id: String,
+    },
+    /// Search tools by keyword.
+    Search {
+        /// Keyword.
+        #[arg(value_name = "QUERY")]
+        query: String,
+    },
+}
+
+/// Script subcommands.
+#[derive(Debug, Clone, Subcommand)]
+pub enum ScriptSub {
+    /// List scripts.
+    List,
+    /// Show a script.
+    Show {
+        /// Script id.
+        #[arg(value_name = "ID")]
+        id: String,
+    },
+    /// Validate script parameters.
+    Validate {
+        /// Script name.
+        #[arg(value_name = "NAME")]
+        name: String,
+        /// Code.
+        #[arg(long, value_name = "CODE")]
+        code: Option<String>,
+    },
+    /// Execute a script.
+    Execute {
+        /// Script name.
+        #[arg(value_name = "NAME")]
+        name: String,
+        /// Inline code to run.
+        #[arg(long, value_name = "CODE")]
+        code: Option<String>,
+        /// Template to render.
+        #[arg(long, value_name = "TEMPLATE")]
+        template: Option<String>,
+        /// Template args as JSON.
+        #[arg(long, value_name = "JSON")]
+        args: Option<String>,
+    },
+    /// Save a script from a JSON file.
+    Save {
+        /// Path to script JSON file.
+        #[arg(long, value_name = "PATH", value_hint = clap::ValueHint::FilePath)]
+        file: String,
+    },
+    /// Delete a script.
+    Delete {
+        /// Script id.
+        #[arg(value_name = "ID")]
+        id: String,
+        /// Force deletion even if referenced.
+        #[arg(long)]
+        force: bool,
+    },
+    /// Enable a script.
+    Enable {
+        /// Script id.
+        #[arg(value_name = "ID")]
+        id: String,
+    },
+    /// Disable a script.
+    Disable {
+        /// Script id.
+        #[arg(value_name = "ID")]
+        id: String,
+    },
+    /// Search scripts by keyword.
+    Search {
+        /// Keyword.
+        #[arg(value_name = "QUERY")]
+        query: String,
+    },
+}
+
+/// Trigger subcommands.
+#[derive(Debug, Clone, Subcommand)]
+pub enum TriggerSub {
+    /// List triggers.
+    List,
+    /// Show a trigger.
+    Show {
+        /// Trigger id.
+        #[arg(value_name = "ID")]
+        id: String,
+    },
+    /// Enable a trigger.
+    Enable {
+        /// Trigger id.
+        #[arg(value_name = "ID")]
+        id: String,
+    },
+    /// Disable a trigger.
+    Disable {
+        /// Trigger id.
+        #[arg(value_name = "ID")]
+        id: String,
+    },
+    /// Register a trigger from a JSON file.
+    Register {
+        /// Path to trigger JSON file.
+        #[arg(long, value_name = "PATH", value_hint = clap::ValueHint::FilePath)]
+        file: String,
+    },
+    /// Save (upsert) a trigger from a JSON file.
+    Save {
+        /// Path to trigger JSON file.
+        #[arg(long, value_name = "PATH", value_hint = clap::ValueHint::FilePath)]
+        file: String,
+    },
+    /// Delete a trigger.
+    Delete {
+        /// Trigger id.
+        #[arg(value_name = "ID")]
+        id: String,
+    },
+    /// Search triggers by keyword.
+    Search {
+        /// Keyword.
+        #[arg(value_name = "QUERY")]
+        query: String,
+    },
+    /// Show trigger statistics.
+    Stats,
+}
+
+/// Template subcommands.
+#[derive(Debug, Clone, Subcommand)]
+pub enum TemplateSub {
+    /// List templates.
+    List {
+        /// Kind (workflow, agent, node, trigger).
+        #[arg(long, value_name = "KIND")]
+        kind: Option<String>,
+        /// Category filter.
+        #[arg(long, value_name = "CATEGORY")]
+        category: Option<String>,
+        /// Tags filter (comma-separated).
+        #[arg(long, value_name = "TAGS")]
+        tags: Option<String>,
+        /// Author filter.
+        #[arg(long, value_name = "AUTHOR")]
+        author: Option<String>,
+    },
+    /// Show a template.
+    Show {
+        /// Template id.
+        #[arg(value_name = "ID")]
+        id: String,
+        /// Kind.
+        #[arg(long, value_name = "KIND")]
+        kind: Option<String>,
+    },
+    /// Clone a template.
+    Clone {
+        /// Template id.
+        #[arg(value_name = "ID")]
+        id: String,
+    },
+    /// Register a template from a file.
+    Register {
+        /// Path to template file.
+        #[arg(long, value_name = "PATH", value_hint = clap::ValueHint::FilePath)]
+        file: String,
+        /// Template kind (workflow, agent).
+        #[arg(long, value_name = "KIND", default_value = "workflow", value_parser = ["workflow","agent"])]
+        kind: String,
+        /// Input format (json, toml, auto).
+        #[arg(long, value_name = "FORMAT", default_value = "json", value_parser = ["json","toml","auto"])]
+        format: String,
+    },
+    /// Delete a template.
+    Delete {
+        /// Template id.
+        #[arg(value_name = "ID")]
+        id: String,
+        /// Template kind (workflow, agent).
+        #[arg(long, value_name = "KIND", default_value = "workflow", value_parser = ["workflow","agent"])]
+        kind: String,
+    },
+}
+
+/// Approval subcommands.
+#[derive(Debug, Clone, Subcommand)]
+pub enum ApprovalSub {
+    /// List pending approvals.
+    List,
+    /// Approve a pending approval.
+    Approve {
+        /// Agent instance id.
+        #[arg(value_name = "INSTANCE")]
+        instance: String,
+        /// Feature name (auto-derived when omitted).
+        #[arg(long, value_name = "FEATURE")]
+        feature: Option<String>,
+        /// Specific file paths (comma-separated).
+        #[arg(long, value_name = "PATHS")]
+        paths: Option<String>,
+    },
+    /// Reject a pending approval.
+    Reject {
+        /// Agent instance id.
+        #[arg(value_name = "INSTANCE")]
+        instance: String,
+    },
+}
+
+/// Task subcommands.
+#[derive(Debug, Clone, Subcommand)]
+pub enum TaskSub {
+    /// List tasks.
+    List {
+        /// Filter by status.
+        #[arg(long, value_name = "STATUS")]
+        status: Option<String>,
+        /// Filter by task type.
+        #[arg(long, value_name = "TYPE")]
+        task_type: Option<String>,
+        /// Limit.
+        #[arg(long, value_name = "N")]
+        limit: Option<usize>,
+    },
+    /// Show a task.
+    Show {
+        /// Task id.
+        #[arg(value_name = "ID")]
+        id: String,
+    },
+    /// Show task statistics.
+    Stats,
+    /// Cancel a task.
+    Cancel {
+        /// Task id.
+        #[arg(value_name = "ID")]
+        id: String,
+    },
+}
+
+/// Metrics subcommands.
+#[derive(Debug, Clone, Subcommand)]
+pub enum MetricsSub {
+    /// Show metrics snapshot.
+    Show {
+        /// Export format (json or prometheus).
+        #[arg(long, value_name = "FORMAT")]
+        export: Option<String>,
+    },
+    /// Export metrics (alias for show --export).
+    Export {
+        /// Export format (json or prometheus).
+        #[arg(long, value_name = "FORMAT", default_value = "json")]
+        format: String,
+    },
+}
+
+/// Analysis subcommands.
+#[derive(Debug, Clone, Subcommand)]
+pub enum AnalysisSub {
+    /// Performance analysis of an execution.
+    Performance {
+        /// Execution id.
+        #[arg(value_name = "ID")]
+        id: String,
+    },
+    /// Bottleneck analysis.
+    Bottleneck {
+        /// Execution id.
+        #[arg(value_name = "ID")]
+        id: String,
+    },
+    /// Error analysis.
+    Errors {
+        /// Execution id.
+        #[arg(value_name = "ID")]
+        id: String,
+        /// Include error chain.
+        #[arg(long)]
+        chain: bool,
+        /// Include root cause.
+        #[arg(long)]
+        root_cause: bool,
+        /// Include recovery proposals.
+        #[arg(long)]
+        recovery: bool,
+    },
+    /// Compare two executions.
+    Compare {
+        /// Baseline execution id.
+        #[arg(value_name = "BASELINE")]
+        baseline: String,
+        /// Compared execution id.
+        #[arg(value_name = "COMPARED")]
+        compared: String,
+    },
+    /// Progress of an execution.
+    Progress {
+        /// Execution id.
+        #[arg(value_name = "ID")]
+        id: String,
+    },
 }
 
 #[cfg(test)]

@@ -452,15 +452,16 @@ impl ConfigOrchestratorLoaded {
                 }
                 "limits_agent_max_iterations_cap" => {
                     if let Some(v) = value.as_int() {
-                        set_agent_limit(&mut config.limits, |l| l.max_iterations_cap = Some(v as u32));
+                        set_agent_limit(&mut config.limits, |l| {
+                            l.max_iterations_cap = Some(v as u32)
+                        });
                     }
                 }
                 "limits_agent_default_max_iterations" => {
                     if let Some(v) = value.as_int() {
-                        set_agent_limit(
-                            &mut config.limits,
-                            |l| l.default_max_iterations = Some(v as u32),
-                        );
+                        set_agent_limit(&mut config.limits, |l| {
+                            l.default_max_iterations = Some(v as u32)
+                        });
                     }
                 }
                 "limits_agent_max_concurrent" => {
@@ -470,55 +471,51 @@ impl ConfigOrchestratorLoaded {
                 }
                 "limits_agent_max_sub_agent_depth" => {
                     if let Some(v) = value.as_int() {
-                        set_agent_limit(
-                            &mut config.limits,
-                            |l| l.max_sub_agent_depth = Some(v as u32),
-                        );
+                        set_agent_limit(&mut config.limits, |l| {
+                            l.max_sub_agent_depth = Some(v as u32)
+                        });
                     }
                 }
                 "limits_agent_max_pause_duration_ms" => {
                     if let Some(v) = value.as_int() {
-                        set_agent_limit(
-                            &mut config.limits,
-                            |l| l.max_pause_duration_ms = Some(v as u64),
-                        );
+                        set_agent_limit(&mut config.limits, |l| {
+                            l.max_pause_duration_ms = Some(v as u64)
+                        });
                     }
                 }
                 "limits_workflow_loop_max_iterations_cap" => {
                     if let Some(v) = value.as_int() {
-                        set_workflow_limit(
-                            &mut config.limits,
-                            |l| l.loop_max_iterations_cap = Some(v as u32),
-                        );
+                        set_workflow_limit(&mut config.limits, |l| {
+                            l.loop_max_iterations_cap = Some(v as u32)
+                        });
                     }
                 }
                 "limits_workflow_loop_default_max_iterations" => {
                     if let Some(v) = value.as_int() {
-                        set_workflow_limit(
-                            &mut config.limits,
-                            |l| l.loop_default_max_iterations = Some(v as u32),
-                        );
+                        set_workflow_limit(&mut config.limits, |l| {
+                            l.loop_default_max_iterations = Some(v as u32)
+                        });
                     }
                 }
                 "limits_workflow_max_navigation_multiplier" => {
                     if let Some(v) = value.as_int() {
-                        set_workflow_limit(
-                            &mut config.limits,
-                            |l| l.max_navigation_multiplier = Some(v as u32),
-                        );
+                        set_workflow_limit(&mut config.limits, |l| {
+                            l.max_navigation_multiplier = Some(v as u32)
+                        });
                     }
                 }
                 "limits_exec_node_timeout_ms" => {
                     if let Some(v) = value.as_int() {
-                        set_exec_default(&mut config.limits, |l| l.node_timeout_ms = Some(v as u64));
+                        set_exec_default(&mut config.limits, |l| {
+                            l.node_timeout_ms = Some(v as u64)
+                        });
                     }
                 }
                 "limits_exec_max_execution_time_ms" => {
                     if let Some(v) = value.as_int() {
-                        set_exec_default(
-                            &mut config.limits,
-                            |l| l.max_execution_time_ms = Some(v as u64),
-                        );
+                        set_exec_default(&mut config.limits, |l| {
+                            l.max_execution_time_ms = Some(v as u64)
+                        });
                     }
                 }
                 "metrics_enabled" => {
@@ -543,7 +540,8 @@ impl ConfigOrchestratorLoaded {
         config: &mut AssembledConfig,
         overrides: ConfigOverrides,
     ) -> ConfigResult<()> {
-        if let Some(storage) = overrides.storage {            config.storage = merge_storage_with_defaults(&storage);
+        if let Some(storage) = overrides.storage {
+            config.storage = merge_storage_with_defaults(&storage);
         }
         if let Some(timeout) = overrides.timeout {
             config.timeout = merge_timeout_with_defaults(&timeout);
@@ -579,8 +577,13 @@ impl ConfigOrchestratorLoaded {
 
 /// Update the `agent` section of the limits config, materializing it when
 /// absent.
-fn set_agent_limit(config: &mut LimitsConfig, update: impl FnOnce(&mut wf_types::config::limits::AgentLimits)) {
-    let entry = config.agent.get_or_insert_with(wf_types::config::limits::AgentLimits::default);
+fn set_agent_limit(
+    config: &mut LimitsConfig,
+    update: impl FnOnce(&mut wf_types::config::limits::AgentLimits),
+) {
+    let entry = config
+        .agent
+        .get_or_insert_with(wf_types::config::limits::AgentLimits::default);
     update(entry);
 }
 

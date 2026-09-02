@@ -1,8 +1,7 @@
-use std::io::Write;
-
 use wf_api::analysis::search;
 
 use crate::args::Cli;
+use crate::cmd::render::render_envelope;
 use crate::error::CliResult;
 use crate::output::OutputEnvelope;
 
@@ -24,30 +23,4 @@ pub async fn run(cli: &Cli, query: &str, limit: Option<usize>) -> CliResult<()> 
     render_envelope(cli.output, envelope)?;
     adapter.shutdown().await?;
     Ok(())
-}
-
-fn render_envelope(format: crate::output::OutputFormat, envelope: OutputEnvelope) -> CliResult<()> {
-    match format {
-        crate::output::OutputFormat::Text => {
-            let text = envelope.render(format);
-            if let Some(line) = text {
-                let mut stdout = std::io::stdout();
-                writeln!(stdout, "{line}")?;
-            }
-            Ok(())
-        }
-        crate::output::OutputFormat::Json => {
-            let json = serde_json::to_string_pretty(&envelope)?;
-            let mut stdout = std::io::stdout();
-            writeln!(stdout, "{json}")?;
-            Ok(())
-        }
-        crate::output::OutputFormat::JsonLines => {
-            let json = serde_json::to_string(&envelope)?;
-            let mut stdout = std::io::stdout();
-            writeln!(stdout, "{json}")?;
-            Ok(())
-        }
-        crate::output::OutputFormat::Silent => Ok(()),
-    }
 }

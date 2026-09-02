@@ -86,7 +86,7 @@ struct IncrementVersionQuery {
     level: Option<String>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Default)]
 #[serde(default)]
 struct IncrementVersionBody {
     changes: wf_api::workflow::WorkflowChanges,

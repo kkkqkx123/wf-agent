@@ -86,7 +86,7 @@ pub(crate) async fn execute_subgraph(
         exponential_backoff: None,
         fallback_output: None,
         max_navigation_multiplier: None,
-            loop_max_iterations_cap: None,
+        loop_max_iterations_cap: None,
     };
 
     // Subgraphs are independent workflow entities with their own

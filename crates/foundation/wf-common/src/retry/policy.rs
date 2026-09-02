@@ -91,6 +91,7 @@ mod tests {
 
     #[tokio::test]
     async fn execute_with_retry_without_policy_fails_fast() {
+        use std::sync::atomic::{AtomicU32, Ordering};
         let attempts = Arc::new(AtomicU32::new(0));
         let attempts_cb = attempts.clone();
         let result: Result<(), &str> = execute_with_retry(

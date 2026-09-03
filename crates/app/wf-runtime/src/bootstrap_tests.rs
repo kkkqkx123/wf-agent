@@ -1,9 +1,17 @@
+#[allow(clippy::module_inception)]
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use crate::bootstrap::{
+        adjust_log_config, init_checkpoint_store, init_llm_gateway, resolve_infra_config,
+        storage_db_path, InfraSourceConfig, LlmConfig, McpRuntimeConfig, ResourceConfig, Runtime,
+        RuntimeConfig,
+    };
+    #[cfg(feature = "plugins")]
+    use crate::bootstrap::PluginConfig;
     use crate::logger::LogConfig;
-    use crate::mode::ExecutionMode;
+    use crate::mode::{ExecutionMode, ModeInfo};
     use std::path::PathBuf;
+    use std::sync::Arc;
     use wf_core::registry::Registry;
     use wf_types::config::metrics::MetricsConfig;
     use wf_types::config::storage::{StorageConfig, StorageType};
@@ -15,6 +23,102 @@ mod tests {
         std::env::remove_var("TEST_MODE");
         std::env::remove_var("CLI_OUTPUT_FORMAT");
         std::env::remove_var("NO_COLOR");
+    }
+
+    fn memory_storage_config() -> StorageConfig {
+        StorageConfig {
+            storage_type: StorageType::Memory,
+            ..Default::default()
+        }
+    }
+
+    fn default_test_config() -> RuntimeConfig {
+        RuntimeConfig {
+            storage: memory_storage_config(),
+            log_config: LogConfig::default().with_level("off"),
+            mode_override: Some(ExecutionMode::Test),
+            resource: ResourceConfig::default(),
+            metrics: None,
+            llm: LlmConfig::default(),
+            sandbox: None,
+            skills: Default::default(),
+            mcp: Default::default(),
+            shell: Default::default(),
+            #[cfg(feature = "plugins")]
+            plugins: PluginConfig {
+                enabled: false,
+                ..Default::default()
+            },
+            ..Default::default()
+        }
+    }
+
+    fn default_tool_context() -> (
+        wf_tools::executor::trait_def::ToolExecutionContext,
+        wf_types::tool::ToolExecutionOptions,
+    ) {
+        let ctx =
+            wf_tools::executor::trait_def::ToolExecutionContext::new("callback-test".into());
+        let options = wf_types::tool::ToolExecutionOptions {
+            timeout: None,
+            retries: None,
+            retry_delay: None,
+            exponential_backoff: None,
+        };
+        (ctx, options)
+    }
+
+    fn register_agent_tools(runtime: &Runtime) {
+        runtime
+            .tool_registry()
+            .register_tool(wf_tools::predefined::agent::CALL_AGENT.tool_def());
+        runtime
+            .tool_registry()
+            .register_tool(wf_tools::predefined::workflow::QUERY_WORKFLOW_STATUS.tool_def());
+    }
+
+    fn register_workflow_tools(runtime: &Runtime) {
+        runtime
+            .tool_registry()
+            .register_tool(wf_tools::predefined::workflow::EXECUTE_WORKFLOW.tool_def());
+        runtime
+            .tool_registry()
+            .register_tool(wf_tools::predefined::workflow::QUERY_WORKFLOW_STATUS.tool_def());
+    }
+
+    fn mock_llm_gateway(runtime: &Runtime, profile: &str, text: &str) {
+        let mock = Arc::new(wf_llm::mock::MockLlmClient::new());
+        mock.default(wf_llm::mock::LlmResponseSpec::text(text));
+        runtime.llm_gateway().register_mock(profile, mock);
+    }
+
+    /// Query an execution through the query_workflow_status tool, exercising
+    /// the registry-bound composite callback exactly like production.
+    async fn query_status_via_tool(runtime: &Runtime, execution_id: &str) -> serde_json::Value {
+        let (ctx, options) = default_tool_context();
+        let result = runtime
+            .tool_registry()
+            .execute_tool(
+                "query_workflow_status",
+                &serde_json::json!({ "workflow_id": execution_id, "execution_id": execution_id }),
+                &options,
+                &ctx,
+            )
+            .await
+            .expect("query tool must succeed");
+        assert!(result.success, "query failed: {:?}", result.error);
+        result.result.unwrap()
+    }
+
+    async fn poll_until_completed(runtime: &Runtime, execution_id: &str) -> serde_json::Value {
+        for _ in 0..200 {
+            let status = query_status_via_tool(runtime, execution_id).await;
+            if status["status"] == "completed" {
+                return status;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        panic!("execution {execution_id} did not complete within poll window");
     }
 
     /// The checked-in `configs/infrastructure/` bundle (development preset)
@@ -82,30 +186,7 @@ mod tests {
     async fn test_runtime_bootstrap_memory() {
         clear_env_vars();
 
-        let config = RuntimeConfig {
-            storage: StorageConfig {
-                storage_type: StorageType::Memory,
-                sqlite: None,
-                postgres: None,
-                app_name: None,
-            },
-            log_config: LogConfig::default().with_level("off"),
-            mode_override: Some(ExecutionMode::Test),
-            resource: ResourceConfig::default(),
-            metrics: None,
-            llm: LlmConfig::default(),
-            sandbox: None,
-            skills: Default::default(),
-            mcp: Default::default(),
-            shell: Default::default(),
-            #[cfg(feature = "plugins")]
-            plugins: PluginConfig {
-                enabled: false,
-                ..Default::default()
-            },
-            ..Default::default()
-        };
-
+        let config = default_test_config();
         let runtime = Runtime::bootstrap(config).await.unwrap();
 
         assert!(runtime.storage().is_initialized());
@@ -113,7 +194,6 @@ mod tests {
         assert!(!runtime.tool_registry.list().is_empty());
 
         runtime.shutdown().await.unwrap();
-
         clear_env_vars();
     }
 
@@ -144,12 +224,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_init_checkpoint_store_memory() {
-        let config = StorageConfig {
-            storage_type: StorageType::Memory,
-            sqlite: None,
-            postgres: None,
-            app_name: None,
-        };
+        let config = memory_storage_config();
         let store = init_checkpoint_store(&config).await;
         assert!(matches!(
             *store,
@@ -226,7 +301,6 @@ mod tests {
         assert!(!runtime.registries().workflows.is_empty());
 
         runtime.shutdown().await.unwrap();
-
         clear_env_vars();
     }
 
@@ -252,7 +326,6 @@ mod tests {
         assert!(Arc::ptr_eq(&first.tool_registry, &runtime.tool_registry));
 
         runtime.shutdown().await.unwrap();
-
         clear_env_vars();
     }
 
@@ -350,12 +423,11 @@ mod tests {
             .has("@standard/goal-review-planner"));
 
         runtime.shutdown().await.unwrap();
-
         clear_env_vars();
     }
 
     #[tokio::test]
-    async fn test_runtime_sandbox_config_compiled_at_bootstrap() {
+    async fn test_runtime_sandbox_config_valid() {
         clear_env_vars();
 
         use wf_types::script::sandbox::{
@@ -426,6 +498,16 @@ mod tests {
             "rule must route shell to the lenient profile"
         );
         runtime.shutdown().await.unwrap();
+        clear_env_vars();
+    }
+
+    #[tokio::test]
+    async fn test_runtime_sandbox_config_invalid_fails_fast() {
+        clear_env_vars();
+
+        use wf_types::script::sandbox::{
+            SandboxGlobalConfig, SandboxProfileRule, SandboxRuleMatchField,
+        };
 
         // Invalid config (rule references unknown profile): bootstrap must
         // fail fast instead of deferring the error to script execution.
@@ -458,30 +540,7 @@ mod tests {
     async fn test_runtime_trigger_shutdown() {
         clear_env_vars();
 
-        let config = RuntimeConfig {
-            storage: StorageConfig {
-                storage_type: StorageType::Memory,
-                sqlite: None,
-                postgres: None,
-                app_name: None,
-            },
-            log_config: LogConfig::default().with_level("off"),
-            mode_override: Some(ExecutionMode::Test),
-            resource: ResourceConfig::default(),
-            metrics: None,
-            llm: LlmConfig::default(),
-            sandbox: None,
-            skills: Default::default(),
-            mcp: Default::default(),
-            shell: Default::default(),
-            #[cfg(feature = "plugins")]
-            plugins: PluginConfig {
-                enabled: false,
-                ..Default::default()
-            },
-            ..Default::default()
-        };
-
+        let config = default_test_config();
         let runtime = Runtime::bootstrap(config).await.unwrap();
 
         assert!(!runtime.is_shutting_down());
@@ -489,7 +548,6 @@ mod tests {
         assert!(runtime.is_shutting_down());
 
         runtime.shutdown().await.unwrap();
-
         clear_env_vars();
     }
 
@@ -506,33 +564,14 @@ mod tests {
         clear_env_vars();
 
         let config = RuntimeConfig {
-            storage: StorageConfig {
-                storage_type: StorageType::Memory,
-                sqlite: None,
-                postgres: None,
-                app_name: None,
-            },
-            log_config: LogConfig::default().with_level("off"),
-            mode_override: Some(ExecutionMode::Test),
-            resource: ResourceConfig::default(),
-            skills: Default::default(),
-            mcp: Default::default(),
-            shell: Default::default(),
-            metrics: Some(wf_types::config::metrics::MetricsConfig {
+            metrics: Some(MetricsConfig {
                 workflow_metrics: Some(wf_types::config::metrics::MetricCollectorConfig {
                     flush_interval: Some(100),
                     ..Default::default()
                 }),
                 ..Default::default()
             }),
-            llm: LlmConfig::default(),
-            sandbox: None,
-            #[cfg(feature = "plugins")]
-            plugins: PluginConfig {
-                enabled: false,
-                ..Default::default()
-            },
-            ..Default::default()
+            ..default_test_config()
         };
 
         let runtime = Runtime::bootstrap(config).await.unwrap();
@@ -557,7 +596,6 @@ mod tests {
         assert_eq!(loaded.len(), 1);
 
         runtime.shutdown().await.unwrap();
-
         clear_env_vars();
     }
 
@@ -566,113 +604,31 @@ mod tests {
         clear_env_vars();
 
         let config = RuntimeConfig {
-            storage: StorageConfig {
-                storage_type: StorageType::Memory,
-                sqlite: None,
-                postgres: None,
-                app_name: None,
-            },
-            log_config: LogConfig::default().with_level("off"),
-            mode_override: Some(ExecutionMode::Test),
-            resource: ResourceConfig::default(),
-            skills: Default::default(),
-            mcp: Default::default(),
-            shell: Default::default(),
-            metrics: Some(wf_types::config::metrics::MetricsConfig {
+            metrics: Some(MetricsConfig {
                 enabled: Some(false),
                 ..Default::default()
             }),
-            llm: LlmConfig::default(),
-            sandbox: None,
-            #[cfg(feature = "plugins")]
-            plugins: PluginConfig {
-                enabled: false,
-                ..Default::default()
-            },
-            ..Default::default()
+            ..default_test_config()
         };
 
         let runtime = Runtime::bootstrap(config).await.unwrap();
         assert!(runtime.metrics().is_none());
 
         runtime.shutdown().await.unwrap();
-
         clear_env_vars();
-    }
-
-    /// Query an execution through the query_workflow_status tool, exercising
-    /// the registry-bound composite callback exactly like production.
-    async fn query_status_via_tool(runtime: &Runtime, execution_id: &str) -> serde_json::Value {
-        let ctx = wf_tools::executor::trait_def::ToolExecutionContext::new("callback-test".into());
-        let options = wf_types::tool::ToolExecutionOptions {
-            timeout: None,
-            retries: None,
-            retry_delay: None,
-            exponential_backoff: None,
-        };
-        let result = runtime
-            .tool_registry()
-            .execute_tool(
-                "query_workflow_status",
-                &serde_json::json!({ "workflow_id": execution_id, "execution_id": execution_id }),
-                &options,
-                &ctx,
-            )
-            .await
-            .expect("query tool must succeed");
-        assert!(result.success, "query failed: {:?}", result.error);
-        result.result.unwrap()
     }
 
     #[tokio::test]
     async fn test_execution_callback_wired_call_agent_via_tool() {
         clear_env_vars();
 
-        let config = RuntimeConfig {
-            storage: StorageConfig {
-                storage_type: StorageType::Memory,
-                sqlite: None,
-                postgres: None,
-                app_name: None,
-            },
-            log_config: LogConfig::default().with_level("off"),
-            mode_override: Some(ExecutionMode::Test),
-            resource: ResourceConfig::default(),
-            metrics: None,
-            llm: LlmConfig::default(),
-            sandbox: None,
-            skills: Default::default(),
-            mcp: Default::default(),
-            shell: Default::default(),
-            #[cfg(feature = "plugins")]
-            plugins: PluginConfig {
-                enabled: false,
-                ..Default::default()
-            },
-            ..Default::default()
-        };
+        let config = default_test_config();
         let runtime = Runtime::bootstrap(config).await.unwrap();
 
-        // Builtin tool definitions are registered by wf-resource; register
-        // the dispatch defs used by this test into the shared registry.
-        runtime
-            .tool_registry()
-            .register_tool(wf_tools::predefined::agent::CALL_AGENT.tool_def());
-        runtime
-            .tool_registry()
-            .register_tool(wf_tools::predefined::workflow::QUERY_WORKFLOW_STATUS.tool_def());
+        register_agent_tools(&runtime);
+        mock_llm_gateway(&runtime, "mock", "agent answer");
 
-        let mock = Arc::new(wf_llm::mock::MockLlmClient::new());
-        mock.default(wf_llm::mock::LlmResponseSpec::text("agent answer"));
-        runtime.llm_gateway().register_mock("mock", mock);
-
-        let ctx = wf_tools::executor::trait_def::ToolExecutionContext::new("callback-test".into());
-        let options = wf_types::tool::ToolExecutionOptions {
-            timeout: None,
-            retries: None,
-            retry_delay: None,
-            exponential_backoff: None,
-        };
+        let (ctx, options) = default_tool_context();
 
         // call_agent through the shared tool registry hits the composite
         // callback (previously CallbackNotRegistered in production).
@@ -709,49 +665,13 @@ mod tests {
     async fn test_execution_callback_call_agent_wait_false_spawns() {
         clear_env_vars();
 
-        let config = RuntimeConfig {
-            storage: StorageConfig {
-                storage_type: StorageType::Memory,
-                sqlite: None,
-                postgres: None,
-                app_name: None,
-            },
-            log_config: LogConfig::default().with_level("off"),
-            mode_override: Some(ExecutionMode::Test),
-            resource: ResourceConfig::default(),
-            metrics: None,
-            llm: LlmConfig::default(),
-            sandbox: None,
-            skills: Default::default(),
-            mcp: Default::default(),
-            shell: Default::default(),
-            #[cfg(feature = "plugins")]
-            plugins: PluginConfig {
-                enabled: false,
-                ..Default::default()
-            },
-            ..Default::default()
-        };
+        let config = default_test_config();
         let runtime = Runtime::bootstrap(config).await.unwrap();
 
-        runtime
-            .tool_registry()
-            .register_tool(wf_tools::predefined::agent::CALL_AGENT.tool_def());
-        runtime
-            .tool_registry()
-            .register_tool(wf_tools::predefined::workflow::QUERY_WORKFLOW_STATUS.tool_def());
+        register_agent_tools(&runtime);
+        mock_llm_gateway(&runtime, "mock", "async answer");
 
-        let mock = Arc::new(wf_llm::mock::MockLlmClient::new());
-        mock.default(wf_llm::mock::LlmResponseSpec::text("async answer"));
-        runtime.llm_gateway().register_mock("mock", mock);
-
-        let ctx = wf_tools::executor::trait_def::ToolExecutionContext::new("callback-test".into());
-        let options = wf_types::tool::ToolExecutionOptions {
-            timeout: None,
-            retries: None,
-            retry_delay: None,
-            exponential_backoff: None,
-        };
+        let (ctx, options) = default_tool_context();
 
         let result = runtime
             .tool_registry()
@@ -779,16 +699,8 @@ mod tests {
 
         // The spawned execution progresses in the background; polling the
         // query tool eventually returns the result.
-        let mut final_result = None;
-        for _ in 0..200 {
-            let status = query_status_via_tool(&runtime, &execution_id).await;
-            if status["status"] == "completed" {
-                final_result = Some(status["result"].clone());
-                break;
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-        }
-        assert_eq!(final_result, Some(serde_json::json!("async answer")));
+        let status = poll_until_completed(&runtime, &execution_id).await;
+        assert_eq!(status["result"], "async answer");
 
         runtime.shutdown().await.unwrap();
         clear_env_vars();
@@ -798,50 +710,17 @@ mod tests {
     async fn test_execution_callback_execute_workflow_via_tool() {
         clear_env_vars();
 
-        let config = RuntimeConfig {
-            storage: StorageConfig {
-                storage_type: StorageType::Memory,
-                sqlite: None,
-                postgres: None,
-                app_name: None,
-            },
-            log_config: LogConfig::default().with_level("off"),
-            mode_override: Some(ExecutionMode::Test),
-            resource: ResourceConfig::default(),
-            metrics: None,
-            llm: LlmConfig::default(),
-            sandbox: None,
-            skills: Default::default(),
-            mcp: Default::default(),
-            shell: Default::default(),
-            #[cfg(feature = "plugins")]
-            plugins: PluginConfig {
-                enabled: false,
-                ..Default::default()
-            },
-            ..Default::default()
-        };
+        let config = default_test_config();
         let runtime = Runtime::bootstrap(config).await.unwrap();
 
-        runtime
-            .tool_registry()
-            .register_tool(wf_tools::predefined::workflow::EXECUTE_WORKFLOW.tool_def());
-        runtime
-            .tool_registry()
-            .register_tool(wf_tools::predefined::workflow::QUERY_WORKFLOW_STATUS.tool_def());
+        register_workflow_tools(&runtime);
 
         // The llm_summary_workflow LLM node uses the DEFAULT profile.
         let mock = Arc::new(wf_llm::mock::MockLlmClient::new());
         mock.default(wf_llm::mock::LlmResponseSpec::text("compressed").with_usage(50, 30));
         runtime.llm_gateway().register_mock("DEFAULT", mock);
 
-        let ctx = wf_tools::executor::trait_def::ToolExecutionContext::new("callback-test".into());
-        let options = wf_types::tool::ToolExecutionOptions {
-            timeout: None,
-            retries: None,
-            retry_delay: None,
-            exponential_backoff: None,
-        };
+        let (ctx, options) = default_tool_context();
 
         let message = wf_types::message::Message {
             id: wf_common::generate_id(),
@@ -943,30 +822,11 @@ mod tests {
         .unwrap();
 
         let config = RuntimeConfig {
-            storage: StorageConfig {
-                storage_type: StorageType::Memory,
-                sqlite: None,
-                postgres: None,
-                app_name: None,
-            },
-            log_config: LogConfig::default().with_level("off"),
-            mode_override: Some(ExecutionMode::Test),
-            resource: ResourceConfig::default(),
-            skills: Default::default(),
             mcp: McpRuntimeConfig {
                 settings_dir: Some(root.clone()),
                 project_root: Some(root.clone()),
             },
-            metrics: None,
-            llm: LlmConfig::default(),
-            sandbox: None,
-            shell: Default::default(),
-            #[cfg(feature = "plugins")]
-            plugins: PluginConfig {
-                enabled: false,
-                ..Default::default()
-            },
-            ..Default::default()
+            ..default_test_config()
         };
 
         let runtime = Runtime::bootstrap(config).await.unwrap();
@@ -1051,30 +911,11 @@ mod tests {
         clear_env_vars();
 
         let config = RuntimeConfig {
-            storage: StorageConfig {
-                storage_type: StorageType::Memory,
-                sqlite: None,
-                postgres: None,
-                app_name: None,
-            },
-            log_config: LogConfig::default().with_level("off"),
-            mode_override: Some(ExecutionMode::Test),
-            resource: ResourceConfig::default(),
-            metrics: None,
-            llm: LlmConfig::default(),
-            sandbox: None,
-            skills: Default::default(),
-            mcp: Default::default(),
             shell: wf_shell::config::ShellToolConfig {
                 output_event_enabled: true,
                 ..Default::default()
             },
-            #[cfg(feature = "plugins")]
-            plugins: PluginConfig {
-                enabled: false,
-                ..Default::default()
-            },
-            ..Default::default()
+            ..default_test_config()
         };
 
         let runtime = Runtime::bootstrap(config).await.unwrap();
@@ -1087,7 +928,8 @@ mod tests {
             .register_tool(wf_tools::predefined::shell::GET_OR_CREATE_SHELL.tool_def());
 
         std::fs::create_dir_all("/tmp/bootstrap-shell-events").unwrap();
-        let ctx = wf_tools::executor::trait_def::ToolExecutionContext::new("exec-bridge".into());
+        let ctx =
+            wf_tools::executor::trait_def::ToolExecutionContext::new("exec-bridge".into());
         let options = wf_types::tool::ToolExecutionOptions {
             timeout: None,
             retries: None,

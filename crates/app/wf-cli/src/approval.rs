@@ -18,7 +18,7 @@
 use std::time::Duration;
 
 use tokio::sync::{mpsc::UnboundedSender, oneshot};
-use wf_agent::approval::{ToolApprovalHandler, ToolApprovalRequest, ToolApprovalResult};
+use wf_api::{ToolApprovalHandler, ToolApprovalRequest, ToolApprovalResult};
 
 use crate::keymap::KeyAction;
 use crate::mini::MiniSessionEvent;

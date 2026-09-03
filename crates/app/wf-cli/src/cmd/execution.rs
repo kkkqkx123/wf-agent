@@ -1,7 +1,6 @@
 use wf_api::agent::agent_loop_registry;
 use wf_api::workflow::{execution::list_executions, workflow_execution};
 use wf_api::WorkflowExecutionListOptions;
-use wf_storage::adapter::base::BaseStorageAdapter;
 
 use crate::args::{Cli, ExecutionSub};
 use crate::cmd::render::render_envelope;
@@ -9,6 +8,9 @@ use crate::error::CliResult;
 use crate::output::OutputEnvelope;
 
 pub async fn run(cli: &Cli, sub: &ExecutionSub) -> CliResult<()> {
+    if let Some(client) = crate::remote::RemoteClient::from_cli(cli) {
+        return run_remote(cli, sub, &client).await;
+    }
     let adapter =
         crate::domain::DomainAdapter::bootstrap_for_cli(cli, crate::mode::CliMode::Run).await?;
     let ctx = adapter.api_context();
@@ -550,14 +552,7 @@ pub async fn run(cli: &Cli, sub: &ExecutionSub) -> CliResult<()> {
             }
         }
         ExecutionSub::Delete { id, force: _ } => {
-            let mut deleted = false;
-            if let Ok(v) = wf_api::workflow::delete_execution(ctx, id).await {
-                deleted |= v;
-            }
-            // Also remove agent execution/loop when present; ignore not_found.
-            let _ = ctx.storage.agent_execution.delete(id).await;
-            let _ = ctx.storage.agent_loop.delete(id).await;
-            // Legacy aggregate table cleanup: iteration history key prefix handled by persistence?
+            let deleted = wf_api::workflow::execution::delete_execution_full(ctx, id).await?;
             let data = serde_json::json!({"deleted": id, "ok": deleted});
             render_envelope(
                 cli.output,
@@ -593,4 +588,80 @@ fn parse_status(s: &str) -> Option<agent_loop_registry::AgentLoopFilter> {
         tags: None,
         created_at_range: None,
     })
+}
+
+async fn run_remote(
+    cli: &Cli,
+    sub: &ExecutionSub,
+    client: &crate::remote::RemoteClient,
+) -> CliResult<()> {
+    use crate::cmd::render::render_envelope;
+    use crate::output::OutputEnvelope;
+    match sub {
+        ExecutionSub::List { limit, .. } => {
+            let data: serde_json::Value = client.list_executions(*limit).await?;
+            render_envelope(cli.output, OutputEnvelope::success("execution-list", data))
+        }
+        ExecutionSub::Show { id, .. } => {
+            let data: serde_json::Value = client.get_execution(id).await?;
+            render_envelope(
+                cli.output,
+                OutputEnvelope::success("execution-show", data).with_entity(id.clone()),
+            )
+        }
+        ExecutionSub::Run {
+            workflow, input, ..
+        } => {
+            let input_value: Option<serde_json::Value> =
+                input.as_deref().and_then(|s| serde_json::from_str(s).ok());
+            let data: serde_json::Value = client
+                .execute_workflow(workflow, input_value.as_ref())
+                .await?;
+            render_envelope(
+                cli.output,
+                OutputEnvelope::success("execution-run", data).with_entity(workflow.clone()),
+            )
+        }
+        ExecutionSub::Cancel { id, .. } => {
+            let data = client.cancel_execution(id).await?;
+            render_envelope(
+                cli.output,
+                OutputEnvelope::success("execution-cancel", data).with_entity(id.clone()),
+            )
+        }
+        ExecutionSub::Pause { id, .. } => {
+            let data = client.pause_execution(id).await?;
+            render_envelope(
+                cli.output,
+                OutputEnvelope::success("execution-pause", data).with_entity(id.clone()),
+            )
+        }
+        ExecutionSub::Resume { id, .. } => {
+            let data = client.resume_execution(id).await?;
+            render_envelope(
+                cli.output,
+                OutputEnvelope::success("execution-resume", data).with_entity(id.clone()),
+            )
+        }
+        ExecutionSub::Status { id } => {
+            let data: serde_json::Value = client
+                .get_json(&format!("/api/v1/executions/{}/status", id))
+                .await?;
+            render_envelope(
+                cli.output,
+                OutputEnvelope::success("execution-status", data).with_entity(id.clone()),
+            )
+        }
+        ExecutionSub::Delete { id, .. } => {
+            let data = client.delete_execution(id).await?;
+            render_envelope(
+                cli.output,
+                OutputEnvelope::success("execution-delete", data).with_entity(id.clone()),
+            )
+        }
+        _ => Err(crate::error::CliError::Configuration(format!(
+            "remote not yet implemented for execution subcommand {:?}",
+            sub
+        ))),
+    }
 }

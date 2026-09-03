@@ -20,7 +20,7 @@ use wf_types::events::BaseEvent;
 /// protocol at the API boundary (see
 /// [`ExecutionEventStream::from_agent_stream`]); engine lifecycle events
 /// published on the shared bus arrive as [`ExecutionStreamEvent::Engine`].
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ExecutionStreamEvent {
     /// Engine lifecycle event published on the shared event bus

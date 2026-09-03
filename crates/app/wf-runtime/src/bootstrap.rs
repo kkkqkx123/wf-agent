@@ -1,29 +1,24 @@
-use std::path::{Path, PathBuf};
+#[path = "bootstrap_config.rs"]
+mod bootstrap_config;
+#[path = "bootstrap_helpers.rs"]
+mod bootstrap_helpers;
+
 use std::sync::Arc;
 
 use tracing::{info, warn};
 use wf_workflow::trigger_listener::TriggerEventListener;
 
-use wf_config::orchestrator::{default_infra_file_mapping, ConfigOrchestrator};
 use wf_config::processor::infrastructure::merge_metrics_with_defaults;
-use wf_config::processor::llm_profile::{transform_llm_profile, validate_llm_profile};
 use wf_core::event::EventBus;
 use wf_core::internal_signal::InternalSignalBus;
 use wf_execution_shared::hooks::HookRegistry;
 use wf_llm::LlmGateway;
-use wf_resource::registry::{RegisterOptions as ResourceOptions, ResourceRegistries};
+use wf_resource::registry::ResourceRegistries;
 use wf_resource::resource_plugin::ResourcePluginRegistry;
-use wf_types::config::file_checkpoint::FileCheckpointConfig;
-use wf_types::config::limits::LimitsConfig;
-use wf_types::config::metrics::MetricsConfig;
-use wf_types::config::output::OutputConfig;
-use wf_types::config::presets::PresetsConfig;
-use wf_types::config::timeout::TimeoutConfig;
-use wf_types::llm::LlmProfile;
 
 use crate::error::RuntimeResult;
 use crate::lifecycle::{shutdown_channel, ShutdownHandle, ShutdownWaiter};
-use crate::logger::{init_tracing, LogConfig};
+use crate::logger::init_tracing;
 use crate::metrics::MetricsContext;
 use crate::mode::{detect_all, ModeInfo};
 use crate::storage_manager::StorageManager;
@@ -31,115 +26,23 @@ use crate::trigger_listener::{
     register_compression_receiver, start_trigger_listener_with_parts, ExecutionContextRegistry,
     TriggerExecutionRecorder, WorkflowRunner,
 };
-use wf_api::PersistenceLayer as ApiPersistenceLayer;
-use wf_types::config::storage::StorageConfig;
-
-#[derive(Debug, Clone, Default)]
-pub struct ResourceConfig {
-    pub options: ResourceOptions,
-}
-
-/// MCP settings sources used at bootstrap. When both are provided, settings
-/// are merged with the priority chain:
-/// `.wf/mcp.json` > `.agent/mcp.json` > global `mcp-settings.json`.
-#[derive(Debug, Clone, Default)]
-pub struct McpRuntimeConfig {
-    /// Global settings directory (contains `mcp-settings.json`).
-    pub settings_dir: Option<std::path::PathBuf>,
-    /// Project root (contains `.wf/mcp.json` / `.agent/mcp.json`).
-    pub project_root: Option<std::path::PathBuf>,
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct LlmConfig {
-    pub profiles: Vec<LlmProfile>,
-}
-
-/// File-layer infrastructure config sources resolved through the
-/// `ConfigOrchestrator` at bootstrap. The file layer fills the runtime only
-/// where programmatic values are absent; `SdkOptions`-style overrides stay
-/// the highest priority.
-#[derive(Debug, Clone, Default)]
-pub struct InfraSourceConfig {
-    /// Project root (contains `configs/infrastructure`, `configs/skills`, ...).
-    pub project_root: Option<std::path::PathBuf>,
-    /// Infrastructure preset name (defaults to the `development` preset).
-    pub preset_name: Option<String>,
-    /// Global settings directory (contains `mcp-settings.json`,
-    /// `skill-settings.json`, `infrastructure-settings.json`).
-    pub settings_dir: Option<std::path::PathBuf>,
-    /// Skill collection name (skill presets index mode); `None` falls back to
-    /// the legacy global/project skill settings chain.
-    pub skills_collection: Option<String>,
-    /// Programmatic overrides applied on top of the file layer.
-    pub overrides: wf_config::orchestrator::ConfigOverrides,
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct RuntimeConfig {
-    pub storage: StorageConfig,
-    pub log_config: LogConfig,
-    pub mode_override: Option<super::mode::ExecutionMode>,
-    pub resource: ResourceConfig,
-    pub skills: wf_types::skill::SkillConfig,
-    pub mcp: McpRuntimeConfig,
-    pub metrics: Option<MetricsConfig>,
-    pub llm: LlmConfig,
-    /// Shell tool configuration; when `output_event_enabled` is set, shell
-    /// session/output events are bridged to the runtime `EventBus`.
-    pub shell: wf_shell::config::ShellToolConfig,
-    /// Global sandbox configuration (profiles + routing rules). Compiled and
-    /// validated at bootstrap (fail-fast); the resulting shared runtime is
-    /// exposed via [`Runtime::sandbox_runtime`] and injected into every
-    /// script handler. `None` uses the sandbox defaults.
-    pub sandbox: Option<wf_types::script::sandbox::SandboxGlobalConfig>,
-    /// Execution timeout defaults (resolved from the infrastructure file
-    /// layer when `infra` is set).
-    pub timeout: TimeoutConfig,
-    /// Output redirection defaults (resolved from the infrastructure file
-    /// layer when `infra` is set).
-    pub output: OutputConfig,
-    /// Runtime presets (context compression / predefined tools / prompts).
-    pub presets: PresetsConfig,
-    /// Tool-specific configuration sections (read_file / glob / list_files
-    /// and raw pass-through sections).
-    pub tools: wf_config::orchestrator::ToolConfigs,
-    /// File checkpoint configuration.
-    pub file_checkpoint: FileCheckpointConfig,
-    /// Host default tool approval configuration. The type-level default is
-    /// disabled (library contract: auto-approve); hosts enable it in their
-    /// infrastructure config as a product decision.
-    pub tool_approval: wf_types::config::tool_approval::ToolApprovalConfig,
-    /// File-layer infrastructure config source; `None` keeps the runtime
-    /// programmatic-only (storage/metrics/sandbox defaults).
-    pub infra: Option<InfraSourceConfig>,
-    /// Resource limits (agent/workflow) resolved from the infrastructure
-    /// file layer when `infra` is set; defaults otherwise.
-    pub limits: LimitsConfig,
-    #[cfg(feature = "plugins")]
-    pub plugins: PluginConfig,
-}
 
 #[cfg(feature = "plugins")]
-#[derive(Debug, Clone)]
-pub struct PluginConfig {
-    pub enabled: bool,
-    pub paths: Vec<std::path::PathBuf>,
-    pub auto_activate: bool,
-    pub guard_timeout_ms: u64,
-}
-
+pub use bootstrap_config::PluginConfig;
+pub use bootstrap_config::{
+    InfraSourceConfig, LlmConfig, McpRuntimeConfig, ResourceConfig, RuntimeConfig,
+};
+pub use bootstrap_helpers::activate_builtin_resource_plugins_legacy;
 #[cfg(feature = "plugins")]
-impl Default for PluginConfig {
-    fn default() -> Self {
-        Self {
-            enabled: true,
-            paths: vec![std::path::PathBuf::from("./plugins")],
-            auto_activate: true,
-            guard_timeout_ms: 10000,
-        }
-    }
-}
+pub use bootstrap_helpers::init_plugins;
+pub use bootstrap_helpers::{
+    adjust_log_config, init_checkpoint_store, init_event_persistence, init_llm_gateway, init_mcp,
+    resolve_infra_config, storage_db_path,
+};
+#[cfg(feature = "checkpoint")]
+pub use bootstrap_helpers::{
+    init_file_checkpoint_manager, init_gc_timer, init_manual_change_service,
+};
 
 pub struct Runtime {
     pub storage_manager: StorageManager,
@@ -190,7 +93,7 @@ pub struct Runtime {
     checkpoint_store: Arc<wf_storage::backend::StorageBackend>,
     /// Lazily-created application-facing API context; shared so live execution
     /// handles (pause/resume/cancel) stay valid across calls.
-    api_ctx: std::sync::OnceLock<wf_api::ApiContext>,
+    api_ctx: std::sync::OnceLock<std::sync::Arc<wf_api::ApiContext>>,
     /// File checkpoint manager (layertwine-backed): execution file snapshots
     /// are created/restored through it and script handlers capture workspace
     /// changes when it is attached. `None` keeps file checkpointing disabled.
@@ -736,7 +639,7 @@ impl Runtime {
     /// Built once and cached: the live execution handles inside the context
     /// (`WorkflowApi` / `AgentApi` pause/resume/cancel) must be shared by all
     /// callers.
-    pub fn api_context(&self) -> &wf_api::ApiContext {
+    fn ensure_api_context(&self) -> &std::sync::Arc<wf_api::ApiContext> {
         self.api_ctx.get_or_init(|| {
             let storage = self
                 .storage_manager
@@ -791,8 +694,16 @@ impl Runtime {
             // through the persisted interaction flow (the library default
             // without a handler stays auto-approve).
             ctx = ctx.with_tool_approval(self.tool_approval.clone());
-            ctx
+            std::sync::Arc::new(ctx)
         })
+    }
+
+    pub fn api_context(&self) -> &wf_api::ApiContext {
+        self.ensure_api_context().as_ref()
+    }
+
+    pub fn api_context_arc(&self) -> std::sync::Arc<wf_api::ApiContext> {
+        std::sync::Arc::clone(self.ensure_api_context())
     }
 
     pub async fn shutdown(mut self) -> RuntimeResult<()> {
@@ -934,472 +845,16 @@ impl Runtime {
     }
 }
 
-/// Resolve the Sqlite database path from the runtime storage config, shared
-/// by the storage context, the event persistence backend and the checkpoint
-/// store so all durable data lands in one file.
-fn storage_db_path(config: &StorageConfig) -> PathBuf {
-    let app_name = config.app_name.as_deref().unwrap_or("app");
-    config
-        .sqlite
-        .as_ref()
-        .map(|c| c.db_path.as_str())
-        .filter(|s| !s.is_empty())
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(format!("./storage/{}.db", app_name)))
-}
-
-/// Build the file checkpoint manager (layertwine-backed) from the
-/// file-checkpoint config: storage backend (Sqlite by path or in-memory)
-/// plus the workspace context (workspace root + scan rules). Returns `None`
-/// when file checkpointing is disabled. When enabled, a checkpoint event
-/// bridge is started so `CheckpointFileChanged` / `CheckpointMergeConflicted`
-/// events (with the `DeltaSummary` payload) flow onto the shared event bus.
-#[cfg(feature = "checkpoint")]
-fn init_file_checkpoint_manager(
-    config: &wf_types::config::file_checkpoint::FileCheckpointConfig,
-    event_bus: Arc<wf_core::event::EventBus>,
-) -> RuntimeResult<(
-    Option<wf_checkpoint::file::FileCheckpointManager>,
-    Option<tokio::task::JoinHandle<()>>,
-)> {
-    if !config.enabled {
-        return Ok((None, None));
-    }
-    match wf_checkpoint::file::FileCheckpointManager::open_from_config(config) {
-        Ok(manager) => {
-            info!("File checkpoint manager initialized (layertwine Sqlite)");
-            // The bus is sender-only; the bridge subscribes through it, so
-            // recorded file changes and merge conflicts flow onto the shared
-            // event bus with their `DeltaSummary` payload.
-            let bus = wf_checkpoint::event::CheckpointEventBus::new();
-            let handle = crate::checkpoint_event_bridge::spawn(event_bus, bus.clone());
-            let manager = manager.with_event_bus(bus);
-            Ok((Some(manager), Some(handle)))
-        }
-        Err(err) => Err(crate::error::RuntimeError::Config(format!(
-            "Failed to initialize file checkpoint storage: {err}"
-        ))),
-    }
-}
-
-/// Start the manual change service (watcher -> manual partition) when file
-/// checkpointing is enabled with a workspace root and `manual_watch` set.
-#[cfg(feature = "checkpoint")]
-fn init_manual_change_service(
-    config: &wf_types::config::file_checkpoint::FileCheckpointConfig,
-    manager: Option<&wf_checkpoint::file::FileCheckpointManager>,
-) -> RuntimeResult<Option<wf_checkpoint::watcher::ManualChangeService>> {
-    let Some(manager) = manager else {
-        return Ok(None);
-    };
-    let Some(root) = config.workspace_root.as_deref() else {
-        return Ok(None);
-    };
-    if !config.enabled || !config.manual_watch {
-        return Ok(None);
-    }
-    let scan_config = wf_checkpoint::scan::ScanConfig {
-        custom_ignore_patterns: config.custom_ignore_patterns.clone().unwrap_or_default(),
-        failure_behavior: config.failure_behavior,
-    };
-    match wf_checkpoint::watcher::ManualChangeService::start(
-        manager.clone(),
-        root,
-        scan_config,
-        100,
-        200,
-    ) {
-        Ok(service) => {
-            info!(root = %root, "Manual file watcher started");
-            Ok(Some(service))
-        }
-        Err(err) => Err(crate::error::RuntimeError::Config(format!(
-            "Failed to start the manual file watcher: {err}"
-        ))),
-    }
-}
-
-/// Spawn an optional periodic GC timer that runs
-/// `FileCheckpointManager::run_gc` at the configured `gc_interval_secs`
-/// interval. Returns `None` when periodic GC is disabled (`None` or `0`).
-#[cfg(feature = "checkpoint")]
-fn init_gc_timer(
-    config: &wf_types::config::file_checkpoint::FileCheckpointConfig,
-    manager: Option<&wf_checkpoint::file::FileCheckpointManager>,
-) -> Option<tokio::task::JoinHandle<()>> {
-    let interval_secs = config.gc_interval_secs?;
-    if interval_secs == 0 {
-        return None;
-    }
-    let manager = manager?.clone();
-    let retention = config
-        .gc_retention
-        .map(|r| layertwine::git_sync::GcRetention {
-            keep_recent_heads: r.keep_recent_heads,
-        })
-        .unwrap_or_default();
-    let interval = std::time::Duration::from_secs(interval_secs);
-    info!(interval_secs, "Periodic GC timer started");
-    Some(tokio::spawn(async move {
-        let mut ticker = tokio::time::interval(interval);
-        ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-        loop {
-            ticker.tick().await;
-            match manager.run_gc(retention) {
-                Ok(stats) => {
-                    info!(
-                        removed_checkpoints = stats.removed_checkpoints,
-                        removed_snapshots = stats.removed_snapshots,
-                        freed_bytes = stats.freed_bytes,
-                        "Periodic GC completed"
-                    );
-                }
-                Err(err) => {
-                    tracing::warn!("Periodic GC failed: {err}");
-                }
-            }
-        }
-    }))
-}
-
-/// Build the durable checkpoint store backend mirroring the runtime
-/// storage config: Sqlite reuses the storage db file, Postgres reuses the
-/// connection string, each under its own table. Falls back to in-memory when
-/// storage is memory-only or the backend cannot be opened (checkpoints then
-/// do not survive restarts).
-async fn init_checkpoint_store(config: &StorageConfig) -> Arc<wf_storage::backend::StorageBackend> {
-    use wf_storage::backend::StorageBackend;
-    use wf_storage::decorator::instrumented::InstrumentedStore;
-    use wf_types::config::storage::StorageType;
-
-    let backend = match config.storage_type {
-        StorageType::Memory => StorageBackend::new_memory(),
-        #[cfg(feature = "sqlite")]
-        StorageType::Sqlite => {
-            let path = storage_db_path(config);
-            match wf_storage::backend::StorageBackend::new_sqlite(
-                &path.to_string_lossy(),
-                "checkpoint",
-            )
-            .await
-            {
-                Ok(store) => store,
-                Err(err) => {
-                    warn!(error = %err, path = %path.display(), "failed to open checkpoint store backend; checkpoints stay in memory");
-                    StorageBackend::new_memory()
-                }
-            }
-        }
-        #[cfg(not(feature = "sqlite"))]
-        StorageType::Sqlite => {
-            warn!("Sqlite checkpoint store unavailable: enable the 'sqlite' feature");
-            StorageBackend::new_memory()
-        }
-        #[cfg(feature = "postgres")]
-        StorageType::Postgres => {
-            let conn = config
-                .postgres
-                .as_ref()
-                .map(|c| c.host.as_str())
-                .unwrap_or_default();
-            match wf_storage::store::postgres::PostgresStorage::new(conn, "checkpoint").await {
-                Ok(store) => StorageBackend::Postgres(InstrumentedStore::new(store)),
-                Err(err) => {
-                    warn!(error = %err, "failed to open checkpoint store backend; checkpoints stay in memory");
-                    StorageBackend::new_memory()
-                }
-            }
-        }
-        #[cfg(not(feature = "postgres"))]
-        StorageType::Postgres => {
-            warn!("PostgreSQL checkpoint store unavailable: enable the 'postgres' feature");
-            StorageBackend::new_memory()
-        }
-    };
-    Arc::new(backend)
-}
-
-/// Build the durable event persistence backend mirroring the runtime
-/// storage config: a buffered layer over a Sqlite `StorePersistenceLayer`
-/// sharing the storage db file. Returns `None` (events stay in memory) when
-/// storage is not Sqlite or the backend cannot be opened/initialized.
-#[cfg(feature = "sqlite")]
-async fn init_event_persistence(
-    config: &StorageConfig,
-) -> Option<Arc<dyn wf_api::PersistenceLayer>> {
-    use wf_types::config::storage::StorageType;
-
-    if config.storage_type != StorageType::Sqlite {
-        return None;
-    }
-    let db_path = storage_db_path(config);
-
-    let layer = match wf_api::StorePersistenceLayer::sqlite(&db_path.to_string_lossy()).await {
-        Ok(store) => Arc::new(wf_api::BufferedPersistenceLayer::new(Arc::new(store))),
-        Err(err) => {
-            warn!(error = %err, path = %db_path.display(), "failed to open event persistence backend; events stay in memory");
-            return None;
-        }
-    };
-    if let Err(err) = layer.initialize().await {
-        warn!(error = %err, "failed to initialize event persistence backend; events stay in memory");
-        return None;
-    }
-    info!("Event persistence enabled: sqlite at {:?}", db_path);
-    Some(layer as Arc<dyn ApiPersistenceLayer>)
-}
-
-#[cfg(not(feature = "sqlite"))]
-async fn init_event_persistence(_config: &StorageConfig) -> Option<Arc<dyn ApiPersistenceLayer>> {
-    None
-}
-
-/// Resolve the file-layer infrastructure config into the runtime config.
-/// Storage / timeout / metrics / output / sandbox / presets / tools /
-/// file_checkpoint are filled only when the programmatic values are still
-/// defaults; the skill settings chain is loaded when no programmatic skill
-/// config is present; MCP settings chain sources are inherited when absent.
-async fn resolve_infra_config(
-    mut config: RuntimeConfig,
-    infra: &InfraSourceConfig,
-) -> RuntimeResult<RuntimeConfig> {
-    let project_root = infra.project_root.clone().unwrap_or_default();
-    let preset_name = infra
-        .preset_name
-        .clone()
-        .unwrap_or_else(|| wf_config::orchestrator::DEFAULT_INFRA_PRESET.to_string());
-
-    let assembled = ConfigOrchestrator::assemble_with_preset(
-        &project_root,
-        Some(&preset_name),
-        Some(default_infra_file_mapping()),
-        Some(infra.overrides.clone()),
-    )
-    .map_err(|e| {
-        crate::error::RuntimeError::Config(format!(
-            "Infrastructure config resolution failed (preset `{preset_name}`): {e}"
-        ))
-    })?;
-
-    if config.storage == StorageConfig::default() {
-        config.storage = assembled.storage;
-    }
-    if config.timeout == TimeoutConfig::default() {
-        config.timeout = assembled.timeout;
-    }
-    if config.output == OutputConfig::default() {
-        config.output = assembled.output;
-    }
-    if config.metrics.is_none() {
-        config.metrics = Some(assembled.metrics);
-    }
-    if config.sandbox.is_none() {
-        config.sandbox = assembled.sandbox;
-    }
-    if config.presets == PresetsConfig::default() {
-        config.presets = assembled.presets;
-    }
-    if config.tools == wf_config::orchestrator::ToolConfigs::default() {
-        config.tools = assembled.tools;
-    }
-    if config.file_checkpoint == FileCheckpointConfig::default() {
-        config.file_checkpoint = assembled.file_checkpoint;
-    }
-    if config.tool_approval == wf_types::config::tool_approval::ToolApprovalConfig::default() {
-        config.tool_approval = assembled.tool_approval;
-    }
-    if config.limits == LimitsConfig::default() {
-        config.limits = assembled.limits;
-    }
-
-    // Skill settings chain (global -> project, or collection mode). Lenient:
-    // a missing/invalid skill config falls back to the defaults.
-    if config.skills == wf_types::skill::SkillConfig::default() {
-        let settings_dir = infra
-            .settings_dir
-            .as_deref()
-            .unwrap_or_else(|| Path::new(""));
-        let skills = match &infra.skills_collection {
-            Some(name) => wf_config::skill::load_and_merge_skill_config_with_collection(
-                settings_dir,
-                &project_root,
-                Some(name),
-            ),
-            None => wf_config::skill::load_and_merge_skill_config(settings_dir, &project_root),
-        };
-        match skills {
-            Ok(skills) => config.skills = skills,
-            Err(e) => warn!(error = %e, "failed to load skill settings chain; keeping defaults"),
-        }
-    }
-
-    // MCP settings chain sources are inherited when not set explicitly.
-    if config.mcp.settings_dir.is_none() {
-        config.mcp.settings_dir = infra.settings_dir.clone();
-    }
-    if config.mcp.project_root.is_none() {
-        config.mcp.project_root = infra.project_root.clone();
-    }
-
-    Ok(config)
-}
-
-/// Build the shared LLM gateway: validate and register every configured
-/// profile (wf-config llm_profile processors), then attach the runtime token
-/// metrics collector when metrics are enabled.
-fn init_llm_gateway(
-    config: &LlmConfig,
-    metrics: Option<&wf_metrics::MetricsRegistry>,
-) -> RuntimeResult<Arc<LlmGateway>> {
-    let mut gateway = LlmGateway::new();
-
-    for profile in &config.profiles {
-        validate_llm_profile(profile).map_err(|e| {
-            crate::error::RuntimeError::Config(format!("Invalid LLM profile: {}", e))
-        })?;
-        let transformed = transform_llm_profile(profile, &std::collections::HashMap::new())
-            .map_err(|e| {
-                crate::error::RuntimeError::Config(format!("Invalid LLM profile: {}", e))
-            })?;
-        gateway.register_profile(transformed).map_err(|e| {
-            crate::error::RuntimeError::Config(format!("Failed to register LLM profile: {}", e))
-        })?;
-    }
-
-    if let Some(registry) = metrics {
-        gateway = gateway.with_token_metrics(registry.token().as_ref().clone());
-    }
-
-    Ok(Arc::new(gateway))
-}
-
-/// Build the MCP connection manager from merged settings. Returns `None`
-/// when MCP is not configured (no settings sources or no servers). Servers
-/// are registered with their configured lifecycle; eager/keep-alive servers
-/// are connected immediately (failure is logged, not fatal).
-async fn init_mcp(
-    config: &McpRuntimeConfig,
-) -> Option<Arc<wf_tools::mcp::connection::McpConnectionManager>> {
-    use wf_tools::mcp::connection::{McpConnectionManager, McpServerRegistry};
-
-    let (Some(settings_dir), Some(project_root)) = (&config.settings_dir, &config.project_root)
-    else {
-        return None;
-    };
-
-    let settings =
-        wf_config::mcp::load_and_merge_mcp_settings(settings_dir, project_root).unwrap_or_default();
-    if settings.mcp_servers.is_empty() {
-        return None;
-    }
-
-    let registry = Arc::new(McpServerRegistry::new());
-    let manager = Arc::new(McpConnectionManager::new(registry));
-    for (name, server_config) in &settings.mcp_servers {
-        if let Err(e) = manager.connect_server(name, server_config.clone()).await {
-            tracing::warn!("MCP server '{}' failed to connect: {}", name, e);
-        }
-    }
-    Some(manager)
-}
-
-/// Legacy fallback: register + activate built-in resource plugins through
-/// `ResourcePluginRegistry` when the plugin engine is disabled (or the
-/// `plugins` feature is off). Keeps goal-review et al. functional without the
-/// plugin system.
-fn activate_builtin_resource_plugins_legacy(
-    bundles: &ResourcePluginRegistry,
-    opts: &ResourceOptions,
-    registries: &ResourceRegistries,
-    tool_registry: &wf_tools::registry::ToolRegistry,
-) -> RuntimeResult<()> {
-    for plugin in wf_resource::predefined::resource_plugin::builtin_resource_plugins() {
-        bundles.register(plugin).map_err(|e| {
-            crate::error::RuntimeError::Config(format!(
-                "failed to register built-in resource plugin: {e}"
-            ))
-        })?;
-    }
-    for sa in &opts.resource_plugin_activation {
-        bundles
-            .activate(
-                &sa.id,
-                &sa.config,
-                registries,
-                tool_registry,
-                opts.skip_if_exists,
-            )
-            .map_err(|e| {
-                crate::error::RuntimeError::Config(format!(
-                    "failed to activate resource plugin '{}': {e}",
-                    sa.id
-                ))
-            })?;
-    }
-    Ok(())
-}
-
-#[cfg(feature = "plugins")]
-async fn init_plugins(
-    config: &PluginConfig,
-    registries: Arc<wf_resource::registry::ResourceRegistries>,
-    tool_registry: Arc<wf_tools::registry::ToolRegistry>,
-) -> RuntimeResult<Option<wf_plugin::PluginEngine>> {
-    if !config.enabled {
-        return Ok(None);
-    }
-
-    let plugin_config = wf_plugin::PluginSystemConfig {
-        enabled: true,
-        paths: config.paths.clone(),
-        auto_activate: config.auto_activate,
-        guard_timeout_ms: config.guard_timeout_ms,
-        ..Default::default()
-    };
-
-    let registry = Arc::new(wf_plugin::PluginRegistry::new());
-    let contribution_manager = Arc::new(wf_plugin::ContributionManager::new());
-    let bridge: Option<Arc<dyn wf_plugin::ContributionBridge>> = Some(Arc::new(
-        crate::plugin_bridge::WfPluginBridge::new(registries, tool_registry),
-    ));
-
-    let event_bus = wf_core::EventBus::new(256);
-
-    let mut engine = wf_plugin::PluginEngine::new(
-        registry,
-        contribution_manager,
-        bridge,
-        plugin_config,
-        env!("CARGO_PKG_VERSION"),
-    )
-    .with_event_bus(event_bus);
-
-    engine.initialize().await.map_err(|e| {
-        tracing::error!("Plugin engine initialization failed: {}", e);
-        crate::error::RuntimeError::Config(format!("Plugin init failed: {}", e))
-    })?;
-
-    Ok(Some(engine))
-}
-
-fn adjust_log_config(mut config: LogConfig, mode_info: &ModeInfo) -> LogConfig {
-    if mode_info.is_json_mode() && matches!(config.format, crate::logger::LogFormat::Full) {
-        config.format = crate::logger::LogFormat::Json;
-    }
-
-    if mode_info.is_silent_mode() {
-        config.level = "off".to_string();
-    }
-
-    config
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::logger::LogConfig;
     use crate::mode::ExecutionMode;
+    use std::path::PathBuf;
     use wf_core::registry::Registry;
-    use wf_types::config::storage::StorageType;
+    use wf_types::config::metrics::MetricsConfig;
+    use wf_types::config::storage::{StorageConfig, StorageType};
+    use wf_types::config::timeout::TimeoutConfig;
 
     fn clear_env_vars() {
         std::env::remove_var("CLI_MODE");

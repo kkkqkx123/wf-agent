@@ -1,5 +1,5 @@
 use wf_api::entity::task;
-use wf_storage::adapter::task::TaskListOptions;
+use wf_api::TaskListOptions;
 
 use crate::args::{Cli, TaskSub};
 use crate::cmd::render::render_envelope;

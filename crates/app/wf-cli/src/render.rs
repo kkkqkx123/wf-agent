@@ -413,8 +413,8 @@ mod e2e {
     use std::collections::HashMap;
     use std::sync::Arc;
     use wf_api::agent::agent_execution::{self, RunAgentLoopParams};
+    use wf_api::{AgentLoopConfig, AgentLoopInput};
     use wf_llm::{LlmResponseSpec, MockLlmClient};
-    use wf_tools::callback::{AgentLoopConfig, AgentLoopInput};
     use wf_types::Id;
 
     async fn adapter_with_mock(

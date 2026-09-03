@@ -4,7 +4,7 @@ use serde_json::Value;
 use wf_api::infra::context::ApiContext;
 use wf_api::infra::error::ApiError;
 use wf_api::infra::stream::ExecutionEventStream;
-use wf_tools::callback::AgentLoopInput;
+use wf_api::AgentLoopInput;
 use wf_types::Id;
 
 use crate::config::build_agent_loop_config;
@@ -44,7 +44,7 @@ impl TurnParams {
 /// here.
 pub fn build_agent_loop_params(
     params: &TurnParams,
-    approval_handler: Option<Arc<dyn wf_agent::approval::ToolApprovalHandler>>,
+    approval_handler: Option<Arc<dyn wf_api::ToolApprovalHandler>>,
 ) -> wf_api::agent::agent_execution::RunAgentLoopParams {
     let prompt = match &params.kind {
         TurnKind::Agent { prompt } => prompt.clone(),
@@ -67,7 +67,7 @@ pub fn build_agent_loop_params(
 pub async fn stream_agent_turn(
     ctx: &ApiContext,
     params: &TurnParams,
-    approval_handler: Option<Arc<dyn wf_agent::approval::ToolApprovalHandler>>,
+    approval_handler: Option<Arc<dyn wf_api::ToolApprovalHandler>>,
 ) -> Result<(String, ExecutionEventStream), ApiError> {
     let run_params = build_agent_loop_params(params, approval_handler);
     let execution_id = run_params

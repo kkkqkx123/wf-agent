@@ -32,6 +32,15 @@ pub async fn delete_execution(ctx: &ApiContext, id: &str) -> crate::ApiResult<bo
         .map_err(Into::into)
 }
 
+/// Delete an execution and all related records (agent execution, agent loop).
+/// Returns true when the primary workflow execution record was deleted.
+pub async fn delete_execution_full(ctx: &ApiContext, id: &str) -> crate::ApiResult<bool> {
+    let deleted = ctx.storage.workflow_execution.delete(id).await?;
+    let _ = ctx.storage.agent_execution.delete(id).await;
+    let _ = ctx.storage.agent_loop.delete(id).await;
+    Ok(deleted)
+}
+
 pub async fn list_executions(
     ctx: &ApiContext,
     options: Option<WorkflowExecutionListOptions>,

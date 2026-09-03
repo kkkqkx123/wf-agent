@@ -22,6 +22,7 @@ pub mod panels;
 pub mod question;
 pub mod queue;
 pub mod reducer;
+pub mod remote;
 pub mod render;
 pub mod replay;
 pub mod run;
@@ -201,6 +202,7 @@ async fn run_headless(cli: &Cli, resolved: &ResolvedMode, stdout_tty: bool) -> C
             approve_prefixes,
             workflow,
             input,
+            remote: _,
         }) => (
             prompt.clone(),
             agent.clone(),
@@ -225,6 +227,16 @@ async fn run_headless(cli: &Cli, resolved: &ResolvedMode, stdout_tty: bool) -> C
         workflow,
         workflow_input: input,
     };
+
+    if let Some(client) = crate::remote::RemoteClient::from_cli(cli) {
+        let io = RunIo {
+            sink,
+            diag: std::sync::Arc::new(std::sync::Mutex::new(DiagWriter::stderr(diag_color))),
+            format,
+        };
+        let outcome = crate::run::run_session_remote(&client, opts, io).await;
+        return outcome.map(|_| ());
+    }
 
     let adapter = DomainAdapter::bootstrap_for_cli(cli, CliMode::Run).await?;
     let io = RunIo {

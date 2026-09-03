@@ -141,4 +141,18 @@ pub use wf_storage::adapter::base::ListOptions;
 pub use wf_storage::adapter::execution::WorkflowExecutionListOptions;
 pub use wf_storage::domain::QueryFilter;
 
+pub use wf_agent::approval::{ToolApprovalHandler, ToolApprovalRequest, ToolApprovalResult};
+pub use wf_agent::stream::AgentStreamEvent;
+pub use wf_config::parser as config_parser;
+pub use wf_llm::{LlmError, LlmGateway};
+pub use wf_storage::adapter::base::BaseStorageAdapter;
+pub use wf_storage::adapter::task::TaskListOptions;
+pub use wf_storage::adapter::variable::VariableListOptions;
+pub use wf_tools::callback::{AgentLoopConfig, AgentLoopInput, AgentLoopOutput};
+pub use wf_workflow::analysis::{analyze_reachability, get_reachable_nodes};
+
+pub use agent::agent_config::{
+    build_agent_loop_config, DEFAULT_AGENT, DEFAULT_MAX_ITERATIONS, DEFAULT_MODEL,
+};
+
 pub(crate) use infra::error::not_found;

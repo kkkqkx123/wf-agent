@@ -133,14 +133,30 @@ impl WorkflowMetricsCollector {
         &self,
         filter: &std::collections::HashMap<String, String>,
     ) -> WorkflowUsageStats {
-        let total =
-            crate::collectors::counter_total_with_history(&self.inner, workflow_metrics::EXECUTION_COUNT, filter).await;
-        let success =
-            crate::collectors::counter_total_with_history(&self.inner, workflow_metrics::SUCCESS_COUNT, filter).await;
-        let failure =
-            crate::collectors::counter_total_with_history(&self.inner, workflow_metrics::FAILURE_COUNT, filter).await;
-        let duration =
-            crate::collectors::latest_with_history(&self.inner, workflow_metrics::EXECUTION_DURATION, filter).await;
+        let total = crate::collectors::counter_total_with_history(
+            &self.inner,
+            workflow_metrics::EXECUTION_COUNT,
+            filter,
+        )
+        .await;
+        let success = crate::collectors::counter_total_with_history(
+            &self.inner,
+            workflow_metrics::SUCCESS_COUNT,
+            filter,
+        )
+        .await;
+        let failure = crate::collectors::counter_total_with_history(
+            &self.inner,
+            workflow_metrics::FAILURE_COUNT,
+            filter,
+        )
+        .await;
+        let duration = crate::collectors::latest_with_history(
+            &self.inner,
+            workflow_metrics::EXECUTION_DURATION,
+            filter,
+        )
+        .await;
         let by_version = self
             .inner
             .query(&crate::metric::MetricFilter {
@@ -397,7 +413,9 @@ mod tests {
                     .lock()
                     .unwrap()
                     .iter()
-                    .filter(|p| p.name == name && p.timestamp >= start_time && p.timestamp <= end_time)
+                    .filter(|p| {
+                        p.name == name && p.timestamp >= start_time && p.timestamp <= end_time
+                    })
                     .cloned()
                     .collect())
             }

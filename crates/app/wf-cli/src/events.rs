@@ -10,7 +10,7 @@
 
 use std::sync::Arc;
 
-use wf_agent::stream::AgentStreamEvent;
+use wf_api::AgentStreamEvent;
 use wf_api::infra::subscription::EventSubscriptionOptions;
 use wf_api::infra::subscription::{spawn_event_subscription, EventSubscription};
 use wf_core::event::EventBus;
@@ -253,7 +253,7 @@ mod tests {
 
     #[test]
     fn execution_stream_events_map_and_engine_filters_out() {
-        use wf_agent::stream::AgentStreamEvent;
+        use wf_api::AgentStreamEvent;
         use wf_api::infra::stream::ExecutionStreamEvent;
 
         let agent = ExecutionStreamEvent::Agent(AgentStreamEvent::LlmDelta {

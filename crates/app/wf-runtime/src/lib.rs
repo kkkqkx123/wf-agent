@@ -25,6 +25,7 @@ pub mod checkpoint_event_bridge;
 
 pub mod wf_runtime;
 
+pub use bootstrap::{ResourceConfig, Runtime, RuntimeConfig};
 pub use hook_receiver::{
     register_hook_receiver, register_plugin_hook_receivers, HookReceiverError,
 };

@@ -38,7 +38,7 @@ wf-llm = { path = "../../infra/wf-llm", features = ["mock"] }
 tempfile = "3"
 
 [features]
-default = ["sqlite", "postgres"]
+default = ["sqlite", "postgres", "checkpoint"]
 sqlite = ["wf-storage/sqlite", "wf-api/sqlite"]
 postgres = ["wf-storage/postgres"]
 checkpoint = ["wf-checkpoint"]

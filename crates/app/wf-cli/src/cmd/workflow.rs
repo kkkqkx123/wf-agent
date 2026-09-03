@@ -8,6 +8,9 @@ use crate::error::{CliError, CliResult};
 use crate::output::OutputEnvelope;
 
 pub async fn run(cli: &Cli, sub: &WorkflowSub) -> CliResult<()> {
+    if let Some(client) = crate::remote::RemoteClient::from_cli(cli) {
+        return run_remote(cli, sub, &client).await;
+    }
     let adapter =
         crate::domain::DomainAdapter::bootstrap_for_cli(cli, crate::mode::CliMode::Run).await?;
     let ctx = adapter.api_context();
@@ -111,8 +114,8 @@ pub async fn run(cli: &Cli, sub: &WorkflowSub) -> CliResult<()> {
                 )
             } else if let Some(node) = reachability {
                 let graph = graph_query::get_graph(ctx, id).await?;
-                let analysis = wf_workflow::analysis::analyze_reachability(&graph);
-                let reachable = wf_workflow::analysis::get_reachable_nodes(&graph, node);
+                let analysis = wf_api::analyze_reachability(&graph);
+                let reachable = wf_api::get_reachable_nodes(&graph, node);
                 let data = serde_json::json!({
                     "workflowId": id,
                     "node": node,
@@ -501,9 +504,9 @@ fn load_workflow_file(path: &Path, format: &str) -> CliResult<wf_types::Workflow
     })?;
     let fmt = resolve_format(path, format);
     match fmt.as_str() {
-        "toml" => wf_config::parser::parse_toml(&content)
+        "toml" => wf_api::config_parser::parse_toml(&content)
             .map_err(|e| CliError::Arguments(format!("invalid TOML in {}: {e}", path.display()))),
-        _ => wf_config::parser::parse_json(&content)
+        _ => wf_api::config_parser::parse_json(&content)
             .map_err(|e| CliError::Arguments(format!("invalid JSON in {}: {e}", path.display()))),
     }
 }
@@ -581,5 +584,205 @@ fn diff_workflows(
         removed_node_ids,
         added_edge_ids,
         removed_edge_ids,
+    }
+}
+
+async fn run_remote(
+    cli: &Cli,
+    sub: &WorkflowSub,
+    client: &crate::remote::RemoteClient,
+) -> CliResult<()> {
+    let (data, typ, entity) = match sub {
+        WorkflowSub::List { keyword, limit, .. } => {
+            let mut workflows: serde_json::Value = client.list_workflows().await?;
+            if let Some(kw) = keyword {
+                let kw_lower = kw.to_lowercase();
+                if let Some(arr) = workflows.as_array().cloned() {
+                    let filtered: Vec<serde_json::Value> = arr
+                        .into_iter()
+                        .filter(|v| {
+                            let name = v.get("name").and_then(|n| n.as_str()).unwrap_or("");
+                            let desc = v.get("description").and_then(|d| d.as_str()).unwrap_or("");
+                            name.to_lowercase().contains(&kw_lower)
+                                || desc.to_lowercase().contains(&kw_lower)
+                        })
+                        .collect();
+                    workflows = serde_json::Value::Array(filtered);
+                }
+            }
+            if let Some(lim) = *limit {
+                if let Some(arr) = workflows.as_array().cloned() {
+                    let limited: Vec<serde_json::Value> =
+                        arr.into_iter().take(lim as usize).collect();
+                    workflows = serde_json::Value::Array(limited);
+                }
+            }
+            (workflows, "workflow-list", None)
+        }
+        WorkflowSub::Show { id } => (
+            client.get_workflow(id).await?,
+            "workflow-show",
+            Some(id.clone()),
+        ),
+        WorkflowSub::Graph {
+            id,
+            summary: show_summary,
+            ..
+        } => {
+            let data = if *show_summary {
+                client
+                    .get_json(&format!("/api/v1/workflows/{}/graph/summary", id))
+                    .await?
+            } else {
+                let nodes: serde_json::Value = client
+                    .get_json(&format!("/api/v1/workflows/{}/graph/nodes", id))
+                    .await
+                    .unwrap_or(serde_json::Value::Null);
+                let edges: serde_json::Value = client
+                    .get_json(&format!("/api/v1/workflows/{}/graph/edges", id))
+                    .await
+                    .unwrap_or(serde_json::Value::Null);
+                serde_json::json!({"workflowId": id, "nodes": nodes, "edges": edges})
+            };
+            (data, "workflow-graph", Some(id.clone()))
+        }
+        WorkflowSub::Create { file, format } => {
+            let def = load_workflow_file(Path::new(file), format)?;
+            let body = serde_json::to_value(&def)?;
+            let data = client.create_workflow(&body).await?;
+            let wf_id = data
+                .get("id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            (data, "workflow-create", Some(wf_id))
+        }
+        WorkflowSub::Update { id, file, format } => {
+            let mut def = load_workflow_file(Path::new(file), format)?;
+            def.id = id.clone();
+            let body = serde_json::to_value(&def)?;
+            let data = client.update_workflow(id, &body).await?;
+            (data, "workflow-update", Some(id.clone()))
+        }
+        WorkflowSub::Delete { id, force: _ } => {
+            let data = client.delete_workflow(id).await?;
+            (data, "workflow-delete", Some(id.clone()))
+        }
+        WorkflowSub::Clone { id, as_id } => {
+            let data = client.clone_workflow(id, as_id.as_deref()).await?;
+            let new_id = data
+                .get("cloned")
+                .and_then(|v| v.as_str())
+                .unwrap_or(id)
+                .to_string();
+            (data, "workflow-clone", Some(new_id))
+        }
+        WorkflowSub::Validate { file, format } => {
+            let def = load_workflow_file(Path::new(file), format)?;
+            let body = serde_json::to_value(&def)?;
+            let data: serde_json::Value = client
+                .post_json("/api/v1/workflows/validate", &body)
+                .await?;
+            (data, "workflow-validate", None)
+        }
+        WorkflowSub::Export {
+            id,
+            format: _,
+            file,
+        } => {
+            let data = client.export_workflow(id).await?;
+            if let Some(path) = file {
+                let content = if data.is_string() {
+                    data.as_str().unwrap_or("").to_string()
+                } else {
+                    serde_json::to_string_pretty(&data)?
+                };
+                std::fs::write(path, content)
+                    .map_err(|e| CliError::Configuration(format!("write failed: {e}")))?;
+                let out = serde_json::json!({"exported": id, "output": path});
+                (out, "workflow-export", Some(id.clone()))
+            } else {
+                (data, "workflow-export", Some(id.clone()))
+            }
+        }
+        WorkflowSub::Import { file, format } => {
+            let def = load_workflow_file(Path::new(file), format)?;
+            let body = serde_json::to_value(&def)?;
+            let data = client.import_workflow(&body).await?;
+            let wf_id = data
+                .get("imported")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            (data, "workflow-import", Some(wf_id))
+        }
+        WorkflowSub::Version { sub } => match sub {
+            WorkflowVersionSub::List { id } => {
+                let data = client.list_workflow_versions(id).await?;
+                (data, "workflow-version-list", Some(id.clone()))
+            }
+            WorkflowVersionSub::Show { id, version } => {
+                let data = client.get_workflow_version(id, version).await?;
+                (
+                    data,
+                    "workflow-version-show",
+                    Some(format!("{id}:{version}")),
+                )
+            }
+            WorkflowVersionSub::Bump {
+                id,
+                level,
+                changes,
+                keep_original,
+            } => {
+                let changes_obj: serde_json::Value = if let Some(json) = changes {
+                    serde_json::from_str(json)?
+                } else {
+                    serde_json::json!({})
+                };
+                let body = serde_json::json!({
+                    "level": level,
+                    "changes": changes_obj,
+                    "keep_original": keep_original,
+                });
+                let data: serde_json::Value = client
+                    .post_json(
+                        &format!("/api/v1/workflows/{}/versions/increment", id),
+                        &body,
+                    )
+                    .await?;
+                (data, "workflow-version-bump", Some(id.clone()))
+            }
+            WorkflowVersionSub::Diff { id, from, to } => {
+                let a = client.get_workflow_version(id, from).await?;
+                let b = client.get_workflow_version(id, to).await?;
+                let data = serde_json::json!({
+                    "from": a,
+                    "to": b,
+                });
+                (data, "workflow-version-diff", Some(id.clone()))
+            }
+            WorkflowVersionSub::Changelog { id } => {
+                let data = client.list_workflow_versions(id).await?;
+                (data, "workflow-version-changelog", Some(id.clone()))
+            }
+        },
+        WorkflowSub::Rollback { id, version } => {
+            let data = client.rollback_workflow(id, version).await?;
+            (data, "workflow-rollback", Some(id.clone()))
+        }
+        WorkflowSub::ExecutionGraph { id, .. } => {
+            let data: serde_json::Value = client
+                .get_json(&format!("/api/v1/workflows/{}/execution-graph", id))
+                .await
+                .unwrap_or(serde_json::Value::Null);
+            (data, "workflow-execution-graph", Some(id.clone()))
+        }
+    };
+    let envelope = OutputEnvelope::success(typ, data);
+    if let Some(e) = entity {
+        crate::cmd::render::render_envelope(cli.output, envelope.with_entity(e))
+    } else {
+        crate::cmd::render::render_envelope(cli.output, envelope)
     }
 }

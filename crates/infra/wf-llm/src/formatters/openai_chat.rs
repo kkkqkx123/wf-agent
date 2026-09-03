@@ -101,6 +101,18 @@ impl LlmFormatter for OpenaiChatFormatter {
             .map_err(crate::error::LlmError::HttpError)
     }
 
+    // Chat Completions has no token counting endpoint (unlike the Responses
+    // API `/responses/input_tokens`): keep the default `None` so the caller
+    // falls back to local estimation. Covers all OpenAI-compatible third
+    // parties routed through this formatter as well.
+    fn build_count_tokens_request(
+        &self,
+        _request: &LlmRequest,
+        _profile: &LlmProfile,
+    ) -> LlmResult<Option<reqwest::Request>> {
+        Ok(None)
+    }
+
     fn parse_response(&self, body: &str, request: &LlmRequest) -> LlmResult<LlmResponseType> {
         let mut result = shared::parse_openai_chat_response(body)?;
         if shared::is_text_mode(request) {

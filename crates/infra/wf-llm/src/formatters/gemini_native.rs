@@ -154,6 +154,47 @@ impl LlmFormatter for GeminiNativeFormatter {
             .map_err(crate::error::LlmError::HttpError)
     }
 
+    fn build_count_tokens_request(
+        &self,
+        request: &LlmRequest,
+        profile: &LlmProfile,
+    ) -> LlmResult<Option<reqwest::Request>> {
+        let url = format!(
+            "{}/models/{}:countTokens?key={}",
+            profile.base_url.as_deref().unwrap_or(&self.base_url),
+            profile.model,
+            profile.api_key.as_deref().unwrap_or("")
+        );
+
+        // Reuse the inference body so the count covers exactly what would
+        // be sent, minus `generationConfig` (output steering does not
+        // affect the input count and is not part of the count schema).
+        let mut body = self.build_body(request, profile)?;
+        if let Some(map) = body.as_object_mut() {
+            map.remove("generationConfig");
+        }
+
+        let mut req_builder = reqwest::Client::new()
+            .request(Method::POST, &url)
+            .header("Content-Type", "application/json")
+            .json(&body);
+
+        req_builder = super::shared::apply_auth_and_headers(req_builder, profile, "native");
+
+        req_builder
+            .build()
+            .map(Some)
+            .map_err(crate::error::LlmError::HttpError)
+    }
+
+    fn parse_count_tokens_response(&self, body: &serde_json::Value) -> LlmResult<u32> {
+        Ok(body
+            .get("totalTokens")
+            .and_then(|v| v.as_u64())
+            .or_else(|| body.get("total_tokens").and_then(|v| v.as_u64()))
+            .unwrap_or(0) as u32)
+    }
+
     fn parse_response(&self, body: &str, request: &LlmRequest) -> LlmResult<LlmResponseType> {
         let mut result = self.parse_gemini_response(body)?;
         if super::shared::is_text_mode(request) {
@@ -612,5 +653,77 @@ mod tests {
             body["generationConfig"]["maxOutputTokens"],
             serde_json::json!(128)
         );
+    }
+
+    fn count_request() -> LlmRequest {
+        request(
+            vec![
+                msg(wf_types::message::MessageRole::System, "You are a helper"),
+                msg(wf_types::message::MessageRole::User, "Hello"),
+            ],
+            None,
+        )
+    }
+
+    #[test]
+    fn count_tokens_request_targets_count_tokens_endpoint() {
+        let formatter = GeminiNativeFormatter::new();
+        let req = formatter
+            .build_count_tokens_request(&count_request(), &profile())
+            .expect("count request must build")
+            .expect("gemini native supports counting");
+        assert_eq!(
+            req.url().as_str(),
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:countTokens?key=sk-test"
+        );
+        let body: serde_json::Value = req
+            .body()
+            .unwrap()
+            .as_bytes()
+            .map(|b| serde_json::from_slice(b).unwrap())
+            .unwrap();
+        assert_eq!(body["contents"][0]["role"], serde_json::json!("user"));
+        assert_eq!(
+            body["systemInstruction"]["parts"][0]["text"],
+            serde_json::json!("You are a helper")
+        );
+        assert!(
+            body.get("generationConfig").is_none(),
+            "count body must not carry output steering"
+        );
+    }
+
+    #[test]
+    fn count_tokens_body_covers_same_contents_as_inference() {
+        let formatter = GeminiNativeFormatter::new();
+        let inference = formatter
+            .build_body(&count_request(), &profile())
+            .expect("inference body must build");
+        let req = formatter
+            .build_count_tokens_request(&count_request(), &profile())
+            .expect("count request must build")
+            .unwrap();
+        let count_body: serde_json::Value = req
+            .body()
+            .unwrap()
+            .as_bytes()
+            .map(|b| serde_json::from_slice(b).unwrap())
+            .unwrap();
+        assert_eq!(count_body["contents"], inference["contents"]);
+        assert_eq!(
+            count_body["systemInstruction"],
+            inference["systemInstruction"]
+        );
+    }
+
+    #[test]
+    fn count_tokens_response_parses_total_tokens() {
+        let formatter = GeminiNativeFormatter::new();
+        let body: serde_json::Value = serde_json::from_str(r#"{"totalTokens": 42}"#).unwrap();
+        assert_eq!(formatter.parse_count_tokens_response(&body).unwrap(), 42);
+        let snake: serde_json::Value = serde_json::from_str(r#"{"total_tokens": 7}"#).unwrap();
+        assert_eq!(formatter.parse_count_tokens_response(&snake).unwrap(), 7);
+        let empty: serde_json::Value = serde_json::from_str("{}").unwrap();
+        assert_eq!(formatter.parse_count_tokens_response(&empty).unwrap(), 0);
     }
 }

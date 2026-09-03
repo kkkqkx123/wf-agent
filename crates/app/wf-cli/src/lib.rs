@@ -58,7 +58,7 @@ use std::sync::Arc;
 
 use wf_runtime::bootstrap::RuntimeConfig;
 
-use crate::domain::DomainAdapter;
+use crate::domain::{DomainAdapter, DomainHandle};
 use crate::mode::{CliMode, ModeResolver, ResolvedMode};
 use crate::output::OutputSink;
 
@@ -228,27 +228,18 @@ async fn run_headless(cli: &Cli, resolved: &ResolvedMode, stdout_tty: bool) -> C
         workflow_input: input,
     };
 
-    if let Some(client) = crate::remote::RemoteClient::from_cli(cli) {
-        let io = RunIo {
-            sink,
-            diag: std::sync::Arc::new(std::sync::Mutex::new(DiagWriter::stderr(diag_color))),
-            format,
-        };
-        let outcome = crate::run::run_session_remote(&client, opts, io).await;
-        return outcome.map(|_| ());
-    }
-
-    let adapter = DomainAdapter::bootstrap_for_cli(cli, CliMode::Run).await?;
+    let domain = DomainHandle::from_cli(cli, CliMode::Run).await?;
     let io = RunIo {
         sink,
         diag: std::sync::Arc::new(std::sync::Mutex::new(DiagWriter::stderr(diag_color))),
         format,
     };
 
-    // `run_session` owns the exit-code semantics (business failure → 1,
-    // SIGINT → 4); shutdown must run even when the session fails.
-    let session = run::run_session(&adapter, opts, io).await;
-    adapter.shutdown().await?;
+    let session = match &domain {
+        DomainHandle::Embedded(adapter) => run::run_session(adapter, opts, io).await,
+        DomainHandle::Remote(remote) => run::run_session_remote(remote.client(), opts, io).await,
+    };
+    domain.shutdown().await?;
     session.map(|_| ())
 }
 
@@ -263,6 +254,7 @@ async fn run_interactive(cli: &Cli, resolved: &ResolvedMode, stdout_tty: bool) -
     }
     match cli_mode {
         CliMode::Mini => {
+            let adapter = DomainAdapter::bootstrap_for_cli(cli, CliMode::Mini).await?;
             let opts = MiniOptions {
                 agent: cli.agent.clone(),
                 model: cli.model.clone(),
@@ -270,7 +262,7 @@ async fn run_interactive(cli: &Cli, resolved: &ResolvedMode, stdout_tty: bool) -
                 session_id: resolved.resume_session.clone(),
                 resume_latest: resolved.resume_latest,
                 storage_spec: cli.storage.clone(),
-                adapter: Arc::new(DomainAdapter::bootstrap_for_cli(cli, CliMode::Mini).await?),
+                adapter: Arc::new(adapter),
             };
             MiniApp::new(opts)?.run().await
         }

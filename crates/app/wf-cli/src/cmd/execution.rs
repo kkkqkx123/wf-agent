@@ -8,12 +8,11 @@ use crate::error::CliResult;
 use crate::output::OutputEnvelope;
 
 pub async fn run(cli: &Cli, sub: &ExecutionSub) -> CliResult<()> {
-    if let Some(client) = crate::remote::RemoteClient::from_cli(cli) {
-        return run_remote(cli, sub, &client).await;
+    let domain = crate::domain::DomainHandle::from_cli(cli, crate::mode::CliMode::Run).await?;
+    if let Some(remote) = domain.as_remote() {
+        return run_remote(cli, sub, remote.client()).await;
     }
-    let adapter =
-        crate::domain::DomainAdapter::bootstrap_for_cli(cli, crate::mode::CliMode::Run).await?;
-    let ctx = adapter.api_context();
+    let ctx = domain.api_context().expect("embedded mode must have api_context");
 
     let result = match sub {
         ExecutionSub::List {
@@ -569,7 +568,7 @@ pub async fn run(cli: &Cli, sub: &ExecutionSub) -> CliResult<()> {
         }
     };
 
-    adapter.shutdown().await?;
+    domain.shutdown().await?;
     result
 }
 

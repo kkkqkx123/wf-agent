@@ -430,3 +430,130 @@ pub fn adjust_log_config(mut config: LogConfig, mode_info: &ModeInfo) -> LogConf
 
     config
 }
+
+pub async fn init_tool_registry_with_mcp(
+    shell_config: &mut wf_shell::config::ShellToolConfig,
+    sandbox_runtime: &Arc<wf_sandbox::SandboxRuntime>,
+    skill_loader: Arc<wf_tools::SkillLoader>,
+    mcp_manager: &Option<Arc<wf_tools::mcp::connection::McpConnectionManager>>,
+    event_bus: &Arc<wf_core::event::EventBus>,
+) -> RuntimeResult<Arc<wf_tools::registry::ToolRegistry>> {
+    if shell_config.output_event_enabled && shell_config.event_sink.is_none() {
+        shell_config.event_sink = Some(Arc::new(
+            crate::shell_event_bridge::ShellEventBusBridge::new(event_bus.clone()),
+        ));
+    }
+    shell_config.sandbox_policy = Some(sandbox_runtime.default_policy().clone());
+    let tool_registry = Arc::new(wf_tools::registry::ToolRegistry::new());
+    wf_tools::register_builtin_handlers(
+        &tool_registry,
+        wf_tools::BuiltinHandlersConfig {
+            shell: shell_config.clone(),
+            ..Default::default()
+        },
+    )
+    .map_err(|e| {
+        crate::error::RuntimeError::Config(format!(
+            "Failed to register builtin handlers: {}",
+            e
+        ))
+    })?;
+    tool_registry.set_skill_loader(skill_loader);
+    if let Some(manager) = mcp_manager {
+        tool_registry.set_mcp_manager(manager.clone());
+        let registry = tool_registry.clone();
+        let manager_clone = manager.clone();
+        manager.set_on_connected(Arc::new(move |_server| {
+            wf_tools::mcp::registration::register_connected_tools(&registry, &manager_clone);
+        }));
+        wf_tools::mcp::registration::register_use_mcp(&tool_registry).map_err(|e| {
+            crate::error::RuntimeError::Config(format!("Failed to register use_mcp: {}", e))
+        })?;
+        wf_tools::mcp::registration::register_connected_tools(&tool_registry, manager);
+    }
+    Ok(tool_registry)
+}
+
+pub async fn init_metrics_context(
+    config: &Option<wf_types::config::metrics::MetricsConfig>,
+    storage_manager: &crate::storage_manager::StorageManager,
+    event_bus: &Arc<wf_core::event::EventBus>,
+    agent_registry: &Arc<wf_agent::registry::AgentLoopRegistry>,
+) -> RuntimeResult<Option<Arc<crate::metrics::MetricsContext>>> {
+    use wf_config::processor::infrastructure::merge_metrics_with_defaults;
+
+    let Some(cfg) = config.as_ref() else {
+        return Ok(None);
+    };
+    let config_metrics = Arc::new(wf_metrics::ConfigMetricsCollector::new(
+        wf_metrics::CollectorConfig::default(),
+    ));
+    let merged = merge_metrics_with_defaults(cfg);
+    let ctx = crate::metrics::MetricsContext::start(
+        &merged,
+        storage_manager,
+        Some(event_bus.clone()),
+        Some(config_metrics),
+        Some(agent_registry.capacity_gate()),
+    )
+    .await?;
+    Ok(ctx)
+}
+
+pub async fn init_plugins_and_resources(
+    bundles: &wf_resource::resource_plugin::ResourcePluginRegistry,
+    opts: &wf_resource::registry::RegisterOptions,
+    registries: &wf_resource::registry::ResourceRegistries,
+    tool_registry: &wf_tools::registry::ToolRegistry,
+    #[cfg(feature = "plugins")] plugin_engine: &Option<wf_plugin::PluginEngine>,
+) -> RuntimeResult<()> {
+    #[cfg(feature = "plugins")]
+    match plugin_engine {
+        Some(engine) => {
+            crate::resource_plugin_adapter::activate_builtin_resource_plugins_via_engine(
+                engine,
+                opts,
+            )
+            .await?;
+        }
+        None => {
+            activate_builtin_resource_plugins_legacy(bundles, opts, registries, tool_registry)?;
+        }
+    };
+    #[cfg(not(feature = "plugins"))]
+    activate_builtin_resource_plugins_legacy(bundles, opts, registries, tool_registry)?;
+
+    let resource_result = wf_resource::register_all(registries, tool_registry, opts);
+    info!(
+        "Resource registration: {} succeeded, {} failed",
+        resource_result.succeeded.len(),
+        resource_result.failed.len(),
+    );
+    for fail in &resource_result.failed {
+        tracing::warn!("Resource registration failed: {} - {}", fail.id, fail.error);
+    }
+    Ok(())
+}
+
+pub async fn hydrate_tool_registry_from_storage(
+    tool_registry: &wf_tools::registry::ToolRegistry,
+    storage_manager: &crate::storage_manager::StorageManager,
+) {
+    let Some(ctx) = storage_manager.shared_context() else {
+        return;
+    };
+    let bridge = crate::tool_storage::StorageToolBridge::new(ctx.tool_definition.clone());
+    match tool_registry.initialize_from_storage(&bridge).await {
+        Ok(()) => {
+            if tool_registry.tool_count() > 0 {
+                info!(
+                    "Tool registry hydrated from storage: {} persisted tools",
+                    tool_registry.tool_count()
+                );
+            }
+        }
+        Err(err) => {
+            warn!(error = %err, "failed to restore persisted tools; registry continues with runtime-registered tools");
+        }
+    }
+}

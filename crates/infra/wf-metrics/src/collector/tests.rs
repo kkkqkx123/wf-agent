@@ -1,4 +1,5 @@
 use super::*;
+use crate::collector_math::*;
 use crate::labels;
 use crate::sink::MetricsError;
 use std::sync::atomic::{AtomicBool, Ordering as AtomicOrdering};

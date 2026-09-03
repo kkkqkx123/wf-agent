@@ -24,13 +24,19 @@ pub enum StrategyKind {
 pub const DEFAULT_SHELL_CHAIN: &[&str] = &["static-analyzer", "vfs-gate", "os-hook"];
 pub const DEFAULT_PYTHON_CHAIN: &[&str] = &["ast-analyzer", "builtin-hook"];
 pub const DEFAULT_JS_CHAIN: &[&str] = &["vm-context"];
+#[cfg(feature = "lua")]
 pub const DEFAULT_LUA_CHAIN: &[&str] = &["static-analyzer", "mlua-sandbox"];
+#[cfg(not(feature = "lua"))]
+pub const DEFAULT_LUA_CHAIN: &[&str] = &["static-analyzer"];
 
 pub fn default_chain(language: &str) -> &'static [&'static str] {
     match language {
         "shell" => DEFAULT_SHELL_CHAIN,
         "python" => DEFAULT_PYTHON_CHAIN,
         "javascript" | "js" => DEFAULT_JS_CHAIN,
+        #[cfg(feature = "lua")]
+        "lua" => DEFAULT_LUA_CHAIN,
+        #[cfg(not(feature = "lua"))]
         "lua" => DEFAULT_LUA_CHAIN,
         _ => &[],
     }
@@ -211,7 +217,7 @@ impl DefaultStrategyResolver {
             "static-analyzer".to_string(),
             Arc::new(LuaStaticAnalyzerStrategy),
         );
-        #[cfg(feature = "lua-mlua-sandbox")]
+        #[cfg(feature = "lua")]
         {
             use crate::strategy::lua::mlua_sandbox::LuaMluaSandboxStrategy;
             self.lua_strategies

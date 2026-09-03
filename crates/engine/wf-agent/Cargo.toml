@@ -13,6 +13,8 @@ wf-checkpoint = { path = "../wf-checkpoint" }
 wf-storage = { path = "../../infra/wf-storage" }
 wf-execution-shared = { path = "../wf-execution-shared" }
 wf-metrics = { path = "../../infra/wf-metrics" }
+wf-sandbox = { path = "../../infra/wf-sandbox", optional = true }
+wf-plugin = { path = "../../infra/wf-plugin", optional = true }
 
 async-trait.workspace = true
 serde.workspace = true
@@ -23,6 +25,10 @@ dashmap.workspace = true
 thiserror.workspace = true
 tokio-util.workspace = true
 futures.workspace = true
+
+[features]
+lua = ["wf-plugin/lua", "wf-sandbox/lua"]
+native = ["wf-plugin/native"]
 
 [dev-dependencies]
 wf-llm = { path = "../../infra/wf-llm", features = ["mock"] }

@@ -8,8 +8,7 @@
 //! [`FooterView::Question`]; the answer travels back through
 //! `agent_user_interaction::respond_interaction` (the domain's own reply
 //! channel), never through a private one. Tool approvals are a no-op here —
-//! they ride the [`crate::approval::MiniApprovalHandler`] channel instead
-//! (decision D8).
+//! they ride the [`crate::approval::MiniApprovalHandler`] channel instead.
 //!
 //! [`QuestionView`] is the pure view/state machine: it parses the request
 //! payload (prompt / options / multi-select flag), tracks the toggled picks,

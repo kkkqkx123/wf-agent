@@ -1,4 +1,5 @@
 pub mod collector;
+pub mod collector_math;
 pub mod collectors;
 pub mod constants;
 pub mod formatter;

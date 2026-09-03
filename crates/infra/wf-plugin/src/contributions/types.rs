@@ -18,7 +18,7 @@ pub enum ContributionType {
     Formatter,
     EventHandler,
     Middleware,
-    // —— 声明式资源贡献（载荷均来自 wf-types，不引入新依赖）——
+    // Declarative resource contributions (payloads from wf-types, no new dependencies)
     Workflow,
     Prompt,
     Fragment,

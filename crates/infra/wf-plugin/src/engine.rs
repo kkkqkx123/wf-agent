@@ -746,8 +746,14 @@ fn resolve_plugin_type(manifest: &PluginManifest) -> PluginResult<PluginType> {
 
 async fn load_plugin_module(manifest: PluginManifest) -> PluginResult<Arc<dyn Plugin>> {
     match resolve_plugin_type(&manifest)? {
+        #[cfg(feature = "lua")]
         PluginType::Lua => load_lua_plugin(&manifest).await,
+        #[cfg(not(feature = "lua"))]
+        PluginType::Lua => Err(PluginError::LoadFailed("lua feature not enabled".into())),
+        #[cfg(feature = "native")]
         PluginType::Native => load_native_plugin(&manifest),
+        #[cfg(not(feature = "native"))]
+        PluginType::Native => Err(PluginError::LoadFailed("native feature not enabled".into())),
     }
 }
 

@@ -59,7 +59,7 @@ impl ContributionBridge for WfPluginBridge {
             tracing::debug!("  middleware: {}", phase);
         }
 
-        // —— 声明式资源贡献落位（skip-existing，幂等）——
+        // Declarative resource contribution placement (skip-existing, idempotent)
         for (id, owner) in manager.all_workflows() {
             if owner == plugin_id {
                 if let Some(wf) = manager.get_workflow(&id) {

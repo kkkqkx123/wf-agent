@@ -28,5 +28,8 @@ thiserror.workspace = true
 futures.workspace = true
 tokio-util.workspace = true
 
+[features]
+lua = ["wf-sandbox/lua"]
+
 [dev-dependencies]
 wf-llm = { path = "../../infra/wf-llm", features = ["mock"] }

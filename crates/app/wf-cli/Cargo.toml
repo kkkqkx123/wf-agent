@@ -41,6 +41,8 @@ wf-resource = { path = "../../infra/wf-resource" }
 default = ["embedded"]
 embedded = ["dep:wf-runtime"]
 remote = ["reqwest/json", "reqwest/stream"]
+lua = ["wf-runtime/lua"]
+native = ["wf-runtime/native"]
 
 [[bin]]
 name = "wf"

@@ -5,6 +5,8 @@ pub mod layered;
 pub mod loader;
 pub mod mcp;
 pub mod orchestrator;
+pub mod orchestrator_env;
+pub mod orchestrator_loader;
 pub mod parser;
 pub mod preset;
 pub mod processor;

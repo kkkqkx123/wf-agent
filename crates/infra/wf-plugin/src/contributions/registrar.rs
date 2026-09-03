@@ -23,7 +23,7 @@ pub trait ContributionRegistrar {
         priority: i32,
         handler: Arc<dyn PluginMiddlewareHandler>,
     );
-    // —— 声明式资源贡献（载荷来自 wf-types，经桥接落入 ResourceRegistries）——
+    // Declarative resource contributions (payloads from wf-types, bridged into ResourceRegistries)
     fn register_workflow(&mut self, id: &str, wf: WorkflowTemplate);
     fn register_prompt(&mut self, id: &str, template: Template);
     fn register_fragment(&mut self, id: &str, fragment: SystemPromptFragment);

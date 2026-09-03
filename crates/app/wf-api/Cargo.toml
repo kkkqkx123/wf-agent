@@ -40,3 +40,4 @@ wf-llm = { path = "../../infra/wf-llm", features = ["mock"] }
 default = []
 sqlite = ["wf-storage/sqlite"]
 postgres = ["wf-storage/postgres"]
+lua = ["wf-sandbox/lua"]

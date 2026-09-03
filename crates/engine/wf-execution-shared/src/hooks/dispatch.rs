@@ -418,6 +418,11 @@ mod tests {
         assert_eq!(receivers[0]["name"], serde_json::json!("r1"));
         assert_eq!(receivers[0]["outcome"], serde_json::json!("continue"));
         assert!(metadata["duration_ms"].is_number());
+        assert_eq!(
+            metadata["receiver_errors"].as_array().unwrap().len(),
+            0,
+            "no receiver errors when all receivers resolve"
+        );
     }
 
     #[tokio::test]

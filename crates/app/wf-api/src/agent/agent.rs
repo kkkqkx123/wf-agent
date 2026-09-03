@@ -141,6 +141,18 @@ pub fn validate_agent_definition(
             )));
         }
     }
+    if let Some(template_id) = definition
+        .config
+        .as_ref()
+        .and_then(|c| c.system_prompt_template_id.as_ref())
+    {
+        if !ctx.registries.templates.has(template_id) {
+            return Err(crate::ApiError::Validation(format!(
+                "agent '{}' references prompt template '{}' which is not registered",
+                definition.id, template_id
+            )));
+        }
+    }
     if let Some(tools) = definition
         .config
         .as_ref()

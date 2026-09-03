@@ -27,7 +27,7 @@ pub(crate) fn node_path(node_id: &str) -> String {
     format!("nodes.{}", node_id)
 }
 
-pub(crate) fn is_valid_identifier(name: &str) -> bool {
+pub fn is_valid_identifier(name: &str) -> bool {
     let mut chars = name.chars();
     match chars.next() {
         Some(c) if c.is_ascii_alphabetic() || c == '_' => {}

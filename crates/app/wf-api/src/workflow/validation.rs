@@ -113,12 +113,41 @@ pub async fn build_reference_context(ctx: &ApiContext) -> ReferenceContext {
     ref_ctx.workflow_graphs = workflow_graphs;
 
     for id in ctx.registries.trigger_templates.list() {
-        ref_ctx.trigger_ids.insert(id);
+        ref_ctx.trigger_ids.insert(id.clone());
+        if let Some(template) = ctx.registries.trigger_templates.get(&id) {
+            ref_ctx.trigger_templates.push((*template).clone());
+        }
     }
     if let Ok(stored) = ctx.storage.trigger_template.list(None).await {
         for meta in &stored {
             ref_ctx.trigger_ids.insert(meta.id.to_string());
             ref_ctx.trigger_ids.insert(meta.name.clone());
+            if let (Some(condition_val), Some(action_val)) = (&meta.condition, &meta.action_config)
+            {
+                if let (Ok(condition), Ok(action)) = (
+                    serde_json::from_value::<wf_types::trigger::TriggerCondition>(
+                        condition_val.clone(),
+                    ),
+                    serde_json::from_value::<wf_types::trigger::TriggerAction>(
+                        action_val.clone(),
+                    ),
+                ) {
+                    ref_ctx.trigger_templates.push(wf_types::trigger::TriggerTemplate {
+                        name: meta.name.clone(),
+                        description: meta.description.clone(),
+                        condition: Some(condition),
+                        action: Some(action),
+                        enabled: Some(meta.enabled),
+                        max_triggers: meta.max_triggers,
+                        priority: meta.priority,
+                        metadata: None,
+                        created_at: meta.created_at,
+                        updated_at: meta.updated_at,
+                        create_checkpoint: None,
+                        checkpoint_description_template: None,
+                    });
+                }
+            }
         }
     }
 
@@ -133,6 +162,18 @@ pub async fn validate_workflow_for_publish(
 ) -> crate::ApiResult<Vec<wf_workflow::validation::ValidationError>> {
     wf_config::processor::workflow::validate_workflow_definition(workflow)
         .map_err(|e| ApiError::Validation(e.to_string()))?;
+
+    if let Some(ref config) = workflow.config {
+        if let Some(ref template_id) = config.system_prompt_template_id {
+            if !ctx.registries.templates.has(template_id) {
+                return Err(ApiError::Validation(format!(
+                    "workflow '{}' references prompt template '{}' which is not registered",
+                    workflow.id, template_id
+                )));
+            }
+        }
+    }
+
     let graph = definition_to_graph(workflow);
     let ref_ctx = build_reference_context(ctx).await;
     match wf_workflow::validation::GraphValidator::validate_with_reference_context(graph, &ref_ctx)

@@ -8,7 +8,7 @@ mod script;
 mod subgraph;
 mod variable;
 
-pub use common::NodeConfigIssue;
+pub use common::{is_valid_identifier, NodeConfigIssue};
 
 use serde_json::Value;
 

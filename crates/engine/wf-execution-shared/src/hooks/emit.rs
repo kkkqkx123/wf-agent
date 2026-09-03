@@ -104,6 +104,9 @@ pub fn publish_hook_audit_event(
         "weights": weights,
         "payloads": payloads,
         "receivers": receivers,
+        "receiver_errors": results.iter().filter_map(|r| r.error.as_ref().map(|e| {
+            serde_json::json!({"name": r.name, "error": e})
+        })).collect::<Vec<_>>(),
         "duration_ms": duration_ms,
     });
     let metadata = metadata_value
@@ -282,5 +285,38 @@ mod tests {
 
         let event = sub.try_recv().unwrap();
         assert_eq!(event.workflow_id.as_deref(), Some("wf-1"));
+    }
+
+    #[test]
+    fn test_receiver_errors_aggregated_in_metadata() {
+        let bus = Arc::new(EventBus::new(16));
+        let ctx = hook_ctx("exec-1", HashMap::new());
+        let mut sub = bus.subscribe();
+
+        let results = vec![
+            ReceiverResult {
+                name: "ok-receiver".to_string(),
+                outcome: HookOutcome::Continue,
+                duration_ms: 1,
+                error: None,
+            },
+            ReceiverResult {
+                name: "missing-receiver".to_string(),
+                outcome: HookOutcome::Continue,
+                duration_ms: 0,
+                error: Some("receiver not registered".to_string()),
+            },
+        ];
+        publish_hook_audit_event(Some(&bus), &ctx, &[Value::Null], &[1], &results, 1);
+
+        let event = sub.try_recv().unwrap();
+        let metadata = event.metadata.as_ref().unwrap();
+        let errors = metadata["receiver_errors"].as_array().unwrap();
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0]["name"], serde_json::json!("missing-receiver"));
+        assert_eq!(
+            errors[0]["error"],
+            serde_json::json!("receiver not registered")
+        );
     }
 }

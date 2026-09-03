@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 
 use wf_types::llm::ToolCallFormat;
+use wf_types::trigger::TriggerTemplate;
 use wf_types::workflow_execution::{WorkflowGraphStructure, WorkflowNode};
 
 use crate::validation::ValidationError;
@@ -22,6 +23,7 @@ pub struct ReferenceContext {
     pub workflow_ids: HashSet<String>,
     pub workflow_graphs: HashMap<String, WorkflowGraphStructure>,
     pub trigger_ids: HashSet<String>,
+    pub trigger_templates: Vec<TriggerTemplate>,
 }
 
 impl ReferenceContext {
@@ -67,6 +69,11 @@ impl ReferenceContext {
 
     pub fn with_trigger(mut self, id: impl Into<String>) -> Self {
         self.trigger_ids.insert(id.into());
+        self
+    }
+
+    pub fn with_trigger_template(mut self, template: TriggerTemplate) -> Self {
+        self.trigger_templates.push(template);
         self
     }
 
@@ -129,6 +136,9 @@ fn validate_reference_closure_inner(
     for node in &graph.nodes {
         validate_node_references(node, ctx, &mut report);
         validate_subgraph_recursion(node, ctx, depth, visited, &mut report);
+    }
+    for template in &ctx.trigger_templates {
+        validate_trigger_action_references(template, ctx, &mut report);
     }
     report
 }
@@ -509,6 +519,62 @@ fn validate_trigger_reference(
     }
 }
 
+fn validate_trigger_action_references(
+    template: &TriggerTemplate,
+    ctx: &ReferenceContext,
+    report: &mut ReferenceClosureReport,
+) {
+    let Some(ref action) = template.action else {
+        return;
+    };
+    match action {
+        wf_types::trigger::TriggerAction::ExecuteTriggeredSubworkflow {
+            triggered_workflow_id,
+            ..
+        } => {
+            if !ctx.workflow_ids.contains(triggered_workflow_id) {
+                report.errors.push(error(
+                    format!("trigger.{}.action.triggered_workflow_id", template.name),
+                    format!(
+                        "Trigger '{}' references workflow '{}' which is not registered",
+                        template.name, triggered_workflow_id
+                    ),
+                ));
+            }
+        }
+        wf_types::trigger::TriggerAction::ExecuteScript { script_name, .. } => {
+            if !ctx.script_names.contains(script_name) {
+                report.errors.push(error(
+                    format!("trigger.{}.action.script_name", template.name),
+                    format!(
+                        "Trigger '{}' references script '{}' which is not registered",
+                        template.name, script_name
+                    ),
+                ));
+            }
+        }
+        wf_types::trigger::TriggerAction::ExecuteTriggeredAgentExecution {
+            model: Some(profile),
+            ..
+        } => {
+            if !ctx.profile_ids.contains(profile) {
+                report.errors.push(error(
+                    format!("trigger.{}.action.model", template.name),
+                    format!(
+                        "Trigger '{}' references profile '{}' which is not registered",
+                        template.name, profile
+                    ),
+                ));
+            }
+        }
+        wf_types::trigger::TriggerAction::ExecuteTriggeredAgentExecution {
+            model: None,
+            ..
+        } => {}
+        _ => {}
+    }
+}
+
 fn validate_agent_loop_shape(node: &WorkflowNode, report: &mut ReferenceClosureReport) {
     if node.node_type != "AGENT_LOOP" {
         return;
@@ -792,5 +858,178 @@ mod tests {
         let report = validate_reference_closure(&graph, &ctx);
         assert_eq!(report.errors.len(), 1);
         assert_eq!(report.warnings.len(), 1);
+    }
+
+    fn make_trigger_template(
+        name: &str,
+        action: wf_types::trigger::TriggerAction,
+    ) -> TriggerTemplate {
+        TriggerTemplate {
+            name: name.to_string(),
+            description: None,
+            condition: None,
+            action: Some(action),
+            enabled: Some(true),
+            max_triggers: None,
+            priority: None,
+            metadata: None,
+            created_at: 0,
+            updated_at: 0,
+            create_checkpoint: None,
+            checkpoint_description_template: None,
+        }
+    }
+
+    #[test]
+    fn trigger_action_workflow_reference_valid() {
+        let ctx = ReferenceContext::new()
+            .with_workflow("my-workflow", None)
+            .with_trigger_template(make_trigger_template(
+                "t1",
+                wf_types::trigger::TriggerAction::ExecuteTriggeredSubworkflow {
+                    triggered_workflow_id: "my-workflow".to_string(),
+                    wait_for_completion: None,
+                    timeout: None,
+                    input_mapping: None,
+                    output_mapping: None,
+                },
+            ));
+        let graph = graph_with(vec![]);
+        let report = validate_reference_closure(&graph, &ctx);
+        assert!(report.errors.is_empty());
+    }
+
+    #[test]
+    fn trigger_action_workflow_reference_invalid() {
+        let ctx = ReferenceContext::new()
+            .with_trigger_template(make_trigger_template(
+                "t1",
+                wf_types::trigger::TriggerAction::ExecuteTriggeredSubworkflow {
+                    triggered_workflow_id: "ghost-wf".to_string(),
+                    wait_for_completion: None,
+                    timeout: None,
+                    input_mapping: None,
+                    output_mapping: None,
+                },
+            ));
+        let graph = graph_with(vec![]);
+        let report = validate_reference_closure(&graph, &ctx);
+        assert_eq!(report.errors.len(), 1);
+        assert!(report.errors[0].message.contains("ghost-wf"));
+        assert!(report.errors[0].message.contains("workflow"));
+    }
+
+    #[test]
+    fn trigger_action_script_reference_valid() {
+        let ctx = ReferenceContext::new()
+            .with_script("my-script")
+            .with_trigger_template(make_trigger_template(
+                "t1",
+                wf_types::trigger::TriggerAction::ExecuteScript {
+                    script_name: "my-script".to_string(),
+                    parameters: None,
+                    timeout: None,
+                    ignore_error: None,
+                },
+            ));
+        let graph = graph_with(vec![]);
+        let report = validate_reference_closure(&graph, &ctx);
+        assert!(report.errors.is_empty());
+    }
+
+    #[test]
+    fn trigger_action_script_reference_invalid() {
+        let ctx = ReferenceContext::new()
+            .with_trigger_template(make_trigger_template(
+                "t1",
+                wf_types::trigger::TriggerAction::ExecuteScript {
+                    script_name: "ghost-script".to_string(),
+                    parameters: None,
+                    timeout: None,
+                    ignore_error: None,
+                },
+            ));
+        let graph = graph_with(vec![]);
+        let report = validate_reference_closure(&graph, &ctx);
+        assert_eq!(report.errors.len(), 1);
+        assert!(report.errors[0].message.contains("ghost-script"));
+        assert!(report.errors[0].message.contains("script"));
+    }
+
+    #[test]
+    fn trigger_action_profile_reference_valid() {
+        let ctx = ReferenceContext::new()
+            .with_profile("my-profile", None)
+            .with_trigger_template(make_trigger_template(
+                "t1",
+                wf_types::trigger::TriggerAction::ExecuteTriggeredAgentExecution {
+                    agent_id: "child-agent".to_string(),
+                    prompt: None,
+                    model: Some("my-profile".to_string()),
+                    result_variable: None,
+                    wait_for_completion: None,
+                    timeout: None,
+                    input_mode: None,
+                    writeback: None,
+                },
+            ));
+        let graph = graph_with(vec![]);
+        let report = validate_reference_closure(&graph, &ctx);
+        assert!(report.errors.is_empty());
+    }
+
+    #[test]
+    fn trigger_action_profile_reference_invalid() {
+        let ctx = ReferenceContext::new()
+            .with_trigger_template(make_trigger_template(
+                "t1",
+                wf_types::trigger::TriggerAction::ExecuteTriggeredAgentExecution {
+                    agent_id: "child-agent".to_string(),
+                    prompt: None,
+                    model: Some("ghost-profile".to_string()),
+                    result_variable: None,
+                    wait_for_completion: None,
+                    timeout: None,
+                    input_mode: None,
+                    writeback: None,
+                },
+            ));
+        let graph = graph_with(vec![]);
+        let report = validate_reference_closure(&graph, &ctx);
+        assert_eq!(report.errors.len(), 1);
+        assert!(report.errors[0].message.contains("ghost-profile"));
+        assert!(report.errors[0].message.contains("profile"));
+    }
+
+    #[test]
+    fn trigger_action_no_action_skipped() {
+        let ctx = ReferenceContext::new().with_trigger_template(TriggerTemplate {
+            name: "t1".to_string(),
+            description: None,
+            condition: None,
+            action: None,
+            enabled: Some(true),
+            max_triggers: None,
+            priority: None,
+            metadata: None,
+            created_at: 0,
+            updated_at: 0,
+            create_checkpoint: None,
+            checkpoint_description_template: None,
+        });
+        let graph = graph_with(vec![]);
+        let report = validate_reference_closure(&graph, &ctx);
+        assert!(report.errors.is_empty());
+    }
+
+    #[test]
+    fn trigger_action_other_variants_skipped() {
+        let ctx = ReferenceContext::new().with_trigger_template(make_trigger_template(
+            "t1",
+            wf_types::trigger::TriggerAction::StopWorkflowExecution {},
+        ));
+        let graph = graph_with(vec![]);
+        let report = validate_reference_closure(&graph, &ctx);
+        assert!(report.errors.is_empty());
     }
 }

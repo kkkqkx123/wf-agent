@@ -20,14 +20,40 @@ use crate::workflow::version::{get_workflow_version, save_workflow_version};
 use crate::{not_found, ApiContext};
 
 /// Persist a workflow and keep the execution registry in sync.
+/// Formal save: shape plus graph plus reference closure must pass;
+/// warnings allow registration and are logged.
 pub async fn save_workflow(
     ctx: &ApiContext,
     workflow: &WorkflowDefinition,
 ) -> crate::ApiResult<()> {
-    crate::workflow::validation::validate_workflow(workflow)?;
+    save_workflow_with_impact(ctx, workflow).await.map(|_| ())
+}
+
+/// Formal save that also reports the impact on workflows referencing this
+/// workflow as a sub-workflow. The save always applies when its own formal
+/// validation passes; dependents that now fail are reported.
+pub async fn save_workflow_with_impact(
+    ctx: &ApiContext,
+    workflow: &WorkflowDefinition,
+) -> crate::ApiResult<crate::infra::dependency::UpdateImpactReport> {
+    let warnings =
+        crate::workflow::validation::validate_workflow_for_publish(ctx, workflow).await?;
+    if !warnings.is_empty() {
+        tracing::warn!(
+            workflow_id = %workflow.id,
+            warnings = %warnings.iter().map(|w| format!("{}: {}", w.field, w.message)).collect::<Vec<_>>().join("; "),
+            "workflow saved with reference warnings"
+        );
+    }
     ctx.storage.workflow.save(workflow).await?;
     upsert_workflow_registry(&ctx.registries, workflow)?;
-    Ok(())
+    ctx.clear_stale(&workflow.id.to_string());
+    crate::infra::dependency::check_update_impact(
+        ctx,
+        crate::infra::dependency::DependencyKind::SubWorkflow,
+        &workflow.id.to_string(),
+    )
+    .await
 }
 
 pub async fn get_workflow(ctx: &ApiContext, id: &str) -> crate::ApiResult<WorkflowDefinition> {
@@ -89,7 +115,6 @@ pub async fn clone_workflow(
 /// Roll back a workflow to a saved version.
 pub async fn rollback_workflow(ctx: &ApiContext, id: &str, version: &str) -> crate::ApiResult<()> {
     let template = get_workflow_version(ctx, id, version).await?;
-    crate::workflow::validation::validate_workflow(&template)?;
 
     if let Ok(current) = get_workflow(ctx, id).await {
         let label = current
@@ -106,6 +131,8 @@ pub async fn rollback_workflow(ctx: &ApiContext, id: &str, version: &str) -> cra
 /// Delete a workflow and cascade its dependent records.
 pub async fn delete_workflow(ctx: &ApiContext, id: &str) -> crate::ApiResult<bool> {
     ctx.registries.workflows.unregister(id);
+    ctx.clear_stale(id);
+    let _ = ctx.storage.workflow_draft.delete(id).await;
 
     let executions = crate::workflow::execution::list_executions(
         ctx,

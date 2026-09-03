@@ -6,6 +6,7 @@ use wf_types::workflow_execution::{WorkflowEdge, WorkflowGraphStructure, Workflo
 use crate::analysis::{analyze_graph, analyze_reachability, detect_cycles, get_reachable_nodes};
 use crate::node_validation::validate_node_configs;
 use crate::protocol_consistency::validate_protocol_consistency_with;
+use crate::reference_closure::{ReferenceClosureReport, ReferenceContext};
 
 #[derive(Debug, Clone)]
 pub struct ValidationError {
@@ -14,7 +15,7 @@ pub struct ValidationError {
 }
 
 impl ValidationError {
-    pub(crate) fn new(field: impl Into<String>, message: impl Into<String>) -> Self {
+    pub fn new(field: impl Into<String>, message: impl Into<String>) -> Self {
         Self {
             field: field.into(),
             message: message.into(),
@@ -132,6 +133,8 @@ impl GraphValidator {
         errors.extend(Self::validate_embed_graph(&graph));
         errors.extend(Self::validate_subgraph_nodes(&graph));
         errors.extend(Self::validate_triggered_subgraph(&graph));
+        errors.extend(Self::validate_route_targets(&graph));
+        errors.extend(Self::validate_fork_children(&graph));
         errors.extend(Self::validate_cycles(&graph));
         errors.extend(Self::validate_reachability(&graph));
         errors.extend(validate_node_configs(&graph));
@@ -139,6 +142,42 @@ impl GraphValidator {
 
         if errors.is_empty() {
             Ok(ValidatedGraph(graph))
+        } else {
+            Err(errors)
+        }
+    }
+
+    /// Formal validation with an assembled reference context: shape, graph
+    /// and external reference closure in one pass. Warnings never block;
+    /// they are returned alongside the validated graph for the caller report.
+    pub fn validate_with_reference_context(
+        graph: WorkflowGraphStructure,
+        ctx: &ReferenceContext,
+    ) -> Result<(ValidatedGraph, Vec<ValidationError>), Vec<ValidationError>> {
+        let mut errors: Vec<ValidationError> = Vec::new();
+        errors.extend(Self::validate_nodes(&graph));
+        errors.extend(Self::validate_edges(&graph));
+        errors.extend(Self::validate_start_end(&graph));
+        errors.extend(Self::validate_references(&graph));
+        errors.extend(Self::validate_start_end_topology(&graph));
+        errors.extend(Self::validate_isolated_nodes(&graph));
+        errors.extend(Self::validate_fork_join_pairs(&graph));
+        errors.extend(Self::validate_loop_pairs(&graph));
+        errors.extend(Self::validate_sync_nodes(&graph));
+        errors.extend(Self::validate_embed_graph(&graph));
+        errors.extend(Self::validate_subgraph_nodes(&graph));
+        errors.extend(Self::validate_triggered_subgraph(&graph));
+        errors.extend(Self::validate_route_targets(&graph));
+        errors.extend(Self::validate_fork_children(&graph));
+        errors.extend(Self::validate_cycles(&graph));
+        errors.extend(Self::validate_reachability(&graph));
+        errors.extend(validate_node_configs(&graph));
+        let report: ReferenceClosureReport =
+            crate::reference_closure::validate_reference_closure(&graph, ctx);
+        errors.extend(report.errors.clone());
+        let warnings = report.warnings;
+        if errors.is_empty() {
+            Ok((ValidatedGraph(graph), warnings))
         } else {
             Err(errors)
         }
@@ -904,6 +943,87 @@ impl GraphValidator {
             }
         }
 
+        errors
+    }
+
+    /// ROUTE targets must resolve to real graph nodes: every condition
+    /// target and the default target are instance-level references.
+    fn validate_route_targets(graph: &WorkflowGraphStructure) -> Vec<ValidationError> {
+        use std::collections::HashSet;
+        let mut errors = Vec::new();
+        let node_ids: HashSet<&str> = graph.nodes.iter().map(|n| n.id.as_str()).collect();
+        for node in &graph.nodes {
+            if node.node_type != "ROUTE" {
+                continue;
+            }
+            if let Some(conditions) = node.inner.get("conditions").and_then(|v| v.as_array()) {
+                for (idx, condition) in conditions.iter().enumerate() {
+                    if let Some(target) = condition
+                        .get("target_node_id")
+                        .and_then(|v| v.as_str())
+                        .filter(|s| !s.is_empty())
+                    {
+                        if !node_ids.contains(target) {
+                            errors.push(ValidationError::new(
+                                format!("nodes.{}.config.conditions[{}]", node.id, idx),
+                                format!(
+                                    "ROUTE node '{}' targets unknown node '{}'",
+                                    node.id, target
+                                ),
+                            ));
+                        }
+                    }
+                }
+            }
+            if let Some(target) = node
+                .inner
+                .get("default_target_node_id")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty())
+            {
+                if !node_ids.contains(target) {
+                    errors.push(ValidationError::new(
+                        format!("nodes.{}.config.default_target_node_id", node.id),
+                        format!(
+                            "ROUTE node '{}' default target '{}' does not exist in the graph",
+                            node.id, target
+                        ),
+                    ));
+                }
+            }
+        }
+        errors
+    }
+
+    /// FORK branch entry nodes must resolve to real graph nodes.
+    fn validate_fork_children(graph: &WorkflowGraphStructure) -> Vec<ValidationError> {
+        use std::collections::HashSet;
+        let mut errors = Vec::new();
+        let node_ids: HashSet<&str> = graph.nodes.iter().map(|n| n.id.as_str()).collect();
+        for node in &graph.nodes {
+            if node.node_type != "FORK" {
+                continue;
+            }
+            if let Some(paths) = node.inner.get("fork_paths").and_then(|v| v.as_array()) {
+                for (idx, path) in paths.iter().enumerate() {
+                    if let Some(child) = path
+                        .get("child_node_id")
+                        .and_then(|v| v.as_str())
+                        .filter(|s| !s.is_empty())
+                    {
+                        if !node_ids.contains(child) {
+                            errors.push(ValidationError::new(
+                                format!("nodes.{}.config.fork_paths[{}]", node.id, idx),
+                                format!(
+                                    "FORK node '{}' branch targets unknown node '{}'",
+                                    node.id, child
+                                ),
+                            ));
+                        }
+                    }
+                }
+            }
+        }
         errors
     }
 

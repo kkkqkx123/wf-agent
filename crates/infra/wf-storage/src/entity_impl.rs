@@ -21,6 +21,42 @@ impl Entity for wf_types::WorkflowDefinition {
     }
 }
 
+impl Entity for wf_types::agent::AgentDefinition {
+    type Metadata = Value;
+
+    fn entity_id(&self) -> &str {
+        &self.id
+    }
+
+    fn entity_type() -> &'static str {
+        "agent_definition"
+    }
+
+    fn metadata(&self) -> Self::Metadata {
+        serde_json::json!({
+            "name": self.name,
+        })
+    }
+}
+
+impl Entity for wf_types::agent::AgentTemplate {
+    type Metadata = Value;
+
+    fn entity_id(&self) -> &str {
+        &self.id
+    }
+
+    fn entity_type() -> &'static str {
+        "agent_template"
+    }
+
+    fn metadata(&self) -> Self::Metadata {
+        serde_json::json!({
+            "name": self.name,
+        })
+    }
+}
+
 impl Entity for wf_types::WorkflowExecution {
     type Metadata = Value;
 

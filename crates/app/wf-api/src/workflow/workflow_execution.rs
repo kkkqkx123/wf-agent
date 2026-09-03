@@ -76,12 +76,19 @@ pub struct RestoredCheckpoint {
 /// keeps a live entity handle in the context so `pause` / `resume` / `cancel`
 /// and status queries work while the coordinator drives the same entity.
 /// Load a stored workflow definition and convert it into an executable
-/// graph, running the full graph validator (start/end, fork-join pairs,
-/// loop pairs, subgraph, sync nodes, isolated nodes, cycles).
+/// graph, running shape plus graph plus reference closure validation.
+/// Stored workflows that went stale after an upstream change fail here
+/// explicitly instead of failing piecemeal at node runtime.
 pub async fn resolve_graph(
     ctx: &ApiContext,
     workflow_id: &str,
 ) -> crate::infra::error::ApiResult<WorkflowGraphStructure> {
+    if ctx.is_stale(workflow_id) {
+        tracing::warn!(
+            workflow_id = %workflow_id,
+            "workflow is marked stale after an upstream update; revalidation runs before execution"
+        );
+    }
     let definition = ctx
         .storage
         .workflow
@@ -89,18 +96,45 @@ pub async fn resolve_graph(
         .await?
         .ok_or_else(|| not_found("workflow", workflow_id))?;
     let graph = definition_to_graph(&definition);
-    let validated = GraphValidator::validate(graph).map_err(|errors| {
-        let detail = errors
+    let ref_ctx = crate::workflow::validation::build_reference_context(ctx).await;
+    let (validated, warnings) = GraphValidator::validate_with_reference_context(graph, &ref_ctx)
+        .map_err(|errors| {
+            let detail = errors
+                .iter()
+                .map(|e| format!("{}: {}", e.field, e.message))
+                .collect::<Vec<_>>()
+                .join("; ");
+            ApiError::Validation(format!(
+                "workflow reference closure failed ({} error(s)): {}",
+                errors.len(),
+                detail
+            ))
+        })?;
+    if !warnings.is_empty() {
+        tracing::warn!(
+            workflow_id = %workflow_id,
+            warnings = %warnings.iter().map(|w| format!("{}: {}", w.field, w.message)).collect::<Vec<_>>().join("; "),
+            "workflow executes with reference warnings"
+        );
+    }
+    let tool_report = wf_workflow::reference_closure::validate_workflow_tool_lists(
+        workflow_id,
+        definition.available_tools.as_ref(),
+        &ref_ctx,
+    );
+    if !tool_report.errors.is_empty() {
+        let detail = tool_report
+            .errors
             .iter()
             .map(|e| format!("{}: {}", e.field, e.message))
             .collect::<Vec<_>>()
             .join("; ");
-        ApiError::Validation(format!(
-            "workflow graph validation failed ({} error(s)): {}",
-            errors.len(),
+        return Err(ApiError::Validation(format!(
+            "workflow reference closure failed ({} error(s)): {}",
+            tool_report.errors.len(),
             detail
-        ))
-    })?;
+        )));
+    }
     Ok(validated.into_inner())
 }
 

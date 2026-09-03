@@ -113,18 +113,29 @@ impl AgentLoopValidator {
             validate_hook(hook, &mut issues);
         }
 
-        if !config.available_tool_names.is_empty() {
-            let known: Vec<String> = registry.list_tools().into_iter().map(|t| t.name).collect();
-            for name in &config.available_tool_names {
-                if !known.contains(name) {
-                    issues.push(ValidationIssue::error(
-                        "available_tool_names",
-                        format!("tool '{}' is not registered in the tool registry", name),
-                    ));
-                }
-            }
-        }
+        validate_tool_lists(config, registry, &mut issues);
 
+        issues
+    }
+
+    /// Profile-aware validation: the `model` (profile id) must exist in the
+    /// known profile set when the set is provided. Tool lists are checked
+    /// against the tool registry with enabled-state distinction.
+    pub fn validate_config_with_profiles(
+        config: &wf_tools::callback::AgentLoopConfig,
+        registry: &ToolRegistry,
+        known_profile_ids: &std::collections::HashSet<String>,
+    ) -> Vec<ValidationIssue> {
+        let mut issues = Self::validate_config(config, registry);
+        if !config.model.trim().is_empty() && !known_profile_ids.contains(&config.model) {
+            issues.push(ValidationIssue::error(
+                "model",
+                format!(
+                    "model '{}' references profile '{}' which is not registered",
+                    config.model, config.model
+                ),
+            ));
+        }
         issues
     }
 
@@ -217,6 +228,51 @@ fn validate_hook(hook: &HookConfig, issues: &mut Vec<ValidationIssue>) {
             "hooks",
             format!("unknown hook type '{}' will never fire", hook.hook_type),
         ));
+    }
+}
+
+fn validate_tool_lists(
+    config: &wf_tools::callback::AgentLoopConfig,
+    registry: &ToolRegistry,
+    issues: &mut Vec<ValidationIssue>,
+) {
+    use std::collections::{HashMap, HashSet};
+    let tools = registry.list_tools();
+    let mut known: HashSet<String> = HashSet::new();
+    let mut disabled: HashSet<String> = HashSet::new();
+    let mut enabled_by_name: HashMap<String, bool> = HashMap::new();
+    for tool in &tools {
+        known.insert(tool.name.clone());
+        known.insert(tool.id.to_string());
+        let is_enabled = tool.enabled.unwrap_or(true);
+        enabled_by_name.insert(tool.name.clone(), is_enabled);
+        enabled_by_name.insert(tool.id.to_string(), is_enabled);
+        if !is_enabled {
+            disabled.insert(tool.name.clone());
+            disabled.insert(tool.id.to_string());
+        }
+    }
+    let lists: [(&str, &Vec<String>); 5] = [
+        ("available_tool_names", &config.available_tool_names),
+        ("initial_tool_names", &config.initial_tool_names),
+        ("discoverable_tool_names", &config.discoverable_tool_names),
+        ("hidden_tool_names", &config.hidden_tool_names),
+        ("activated_tool_names", &config.activated_tool_names),
+    ];
+    for (field, names) in lists {
+        for name in names {
+            if !known.contains(name) {
+                issues.push(ValidationIssue::error(
+                    field,
+                    format!("tool '{}' is not registered in the tool registry", name),
+                ));
+            } else if disabled.contains(name) {
+                issues.push(ValidationIssue::warning(
+                    field,
+                    format!("tool '{}' is registered but disabled", name),
+                ));
+            }
+        }
     }
 }
 

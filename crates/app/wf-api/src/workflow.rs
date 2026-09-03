@@ -4,6 +4,7 @@
 pub mod approval;
 pub mod checkpoint;
 pub mod definition;
+pub mod draft;
 pub mod execution;
 pub mod execution_graph;
 pub mod execution_state;
@@ -24,7 +25,7 @@ pub mod workflow_iteration;
 
 pub use definition::{
     clone_workflow, delete_workflow, get_workflow, list_workflows, rollback_workflow,
-    save_workflow, update_workflow_metadata, workflow_exists,
+    save_workflow, save_workflow_with_impact, update_workflow_metadata, workflow_exists,
 };
 pub use execution::{
     delete_execution, get_execution, list_executions, save_execution, update_execution_status,

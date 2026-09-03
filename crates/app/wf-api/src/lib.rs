@@ -10,6 +10,11 @@ pub mod template;
 pub mod workflow;
 
 pub use agent::agent_checkpoint::AgentCheckpointStatistics;
+pub use agent::agent_draft::{
+    delete_draft as delete_agent_draft, get_draft as get_agent_draft,
+    list_drafts as list_agent_drafts, promote_draft as promote_agent_draft,
+    save_draft as save_agent_draft,
+};
 pub use agent::agent_error_analysis::{
     AdvancedErrorAnalysis, AgentErrorStatistics, ErrorRecoveryProposal, ExecutionErrorRecord,
     RootCauseAnalysis,
@@ -68,6 +73,10 @@ pub use entity::resource::ResourceApi;
 pub use entity::skill::{SkillFilter, SkillResourceEntry};
 pub use entity::variable::{VariableHistoryEntry, VariableStatistics};
 pub use infra::context::ApiContext;
+pub use infra::dependency::{
+    audit_all_workflows, check_update_impact, find_dependents, request_async_revalidation,
+    DependencyKind, DependentEntry, DependentImpact, ImpactLevel, UpdateImpactReport,
+};
 pub use infra::diagnostics::{StorageDiagnosticReport, StorageDiagnosticsReport, StoreDiagnostic};
 pub use infra::error::{with_timeout, ApiError, ApiResult};
 pub use infra::events::{
@@ -110,6 +119,14 @@ pub use template::agent_trigger_template::{
 pub use template::node_template::NodeTemplateSummary;
 pub use template::template_library::{TemplateFilter, TemplateKind, TemplateSummary};
 pub use workflow::approval::{ApprovalResult, ApprovalStatus};
+pub use workflow::draft::{
+    delete_draft as delete_workflow_draft, get_draft as get_workflow_draft, hot_reload_to_draft,
+    lifecycle_of as workflow_lifecycle_of, list_drafts as list_workflow_drafts, promote_all_drafts,
+    promote_draft as promote_workflow_draft, save_draft as save_workflow_draft,
+    validate_draft_complete as validate_workflow_draft_complete,
+    validate_draft_internal as validate_workflow_draft_internal,
+    LifecycleStatus as WorkflowLifecycleStatus,
+};
 pub use workflow::execution_graph::{
     analyze_decision_points, enumerate_paths, reachable_nodes, AlternativeDecision, DecisionPoint,
     EfficiencyAnalysis, ExecutionPath, ExecutionPathAnalysis, PathProbabilityAnalysis,

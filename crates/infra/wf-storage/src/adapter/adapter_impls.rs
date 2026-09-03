@@ -1,6 +1,8 @@
 use serde_json::Value;
 use std::collections::HashMap;
 
+use crate::adapter::agent_draft::{AgentDraftListOptions, AgentDraftStorageAdapter};
+use crate::adapter::agent_template::{AgentTemplateListOptions, AgentTemplateStorageAdapter};
 use crate::adapter::agent_execution::{AgentExecutionListOptions, AgentExecutionStorageAdapter};
 use crate::adapter::agent_loop::{AgentLoopListOptions, AgentLoopStorageAdapter};
 use crate::adapter::agent_profile::{AgentProfileListOptions, AgentProfileStorageAdapter};
@@ -22,6 +24,7 @@ use crate::adapter::trigger_template::{TriggerTemplateListOptions, TriggerTempla
 use crate::adapter::user_interaction::{UserInteractionListOptions, UserInteractionStorageAdapter};
 use crate::adapter::variable::{VariableListOptions, VariableStorageAdapter};
 use crate::adapter::workflow::{WorkflowListOptions, WorkflowStorageAdapter};
+use crate::adapter::workflow_draft::{WorkflowDraftListOptions, WorkflowDraftStorageAdapter};
 use crate::domain::store::{BatchStore, QueryFilter, Store};
 use crate::error::StorageError;
 use crate::make_base_adapter;
@@ -33,6 +36,11 @@ make_base_adapter!(
     WorkflowStorage,
     wf_types::WorkflowDefinition,
     WorkflowListOptions
+);
+make_base_adapter!(
+    WorkflowDraftStorage,
+    wf_types::WorkflowDefinition,
+    WorkflowDraftListOptions
 );
 make_base_adapter!(
     WorkflowExecutionStorage,
@@ -56,6 +64,11 @@ make_base_adapter!(
     AgentExecutionListOptions
 );
 make_base_adapter!(
+    AgentDraftStorage,
+    wf_types::agent::AgentDefinition,
+    AgentDraftListOptions
+);
+make_base_adapter!(
     TriggerStorage,
     wf_types::TriggerStorageMetadata,
     TriggerListOptions
@@ -65,6 +78,11 @@ make_base_adapter!(
     ToolDefinitionStorage,
     wf_types::tool::Tool,
     ToolDefinitionListOptions
+);
+make_base_adapter!(
+    AgentTemplateStorage,
+    wf_types::agent::AgentTemplate,
+    AgentTemplateListOptions
 );
 make_base_adapter!(
     ScriptStorage,
@@ -687,3 +705,11 @@ impl<S: Store + BatchStore> MetricsStorageAdapter for MetricsStorage<S> {
         Ok(deleted)
     }
 }
+
+// ─── Draft / Template storage adapters ───
+
+impl<S: Store> WorkflowDraftStorageAdapter for WorkflowDraftStorage<S> {}
+
+impl<S: Store> AgentDraftStorageAdapter for AgentDraftStorage<S> {}
+
+impl<S: Store> AgentTemplateStorageAdapter for AgentTemplateStorage<S> {}

@@ -80,6 +80,7 @@ pub async fn run(
     ctx: &ApiContext,
     params: RunAgentLoopParams,
 ) -> crate::infra::error::ApiResult<AgentLoopOutput> {
+    gate_agent_config(ctx, &params.config)?;
     let agent_loop_id = params
         .agent_loop_id
         .clone()
@@ -130,6 +131,7 @@ pub async fn stream(
     ctx: &ApiContext,
     params: RunAgentLoopParams,
 ) -> crate::infra::error::ApiResult<ExecutionEventStream> {
+    gate_agent_config(ctx, &params.config)?;
     // Resolve the loop id up front (instead of inside the coordinator) so
     // the host-default approval handler can scope its interaction records
     // to the same execution.
@@ -237,6 +239,26 @@ fn live_entity(
 ) -> crate::infra::error::ApiResult<Arc<AgentLoopEntity>> {
     ctx.agent_loop(agent_loop_id)
         .ok_or_else(|| ApiError::execution_not_found(agent_loop_id))
+}
+
+/// Execution gate: reject error-level agent config issues before the loop
+/// starts instead of failing piecemeal mid-execution. Warnings pass.
+fn gate_agent_config(ctx: &ApiContext, config: &AgentLoopConfig) -> crate::ApiResult<()> {
+    match wf_agent::validation::AgentLoopValidator::validate_or_fail(config, &ctx.tool_registry) {
+        Ok(_) => Ok(()),
+        Err(errors) => {
+            let detail = errors
+                .iter()
+                .map(|e| format!("{}: {}", e.field, e.message))
+                .collect::<Vec<_>>()
+                .join("; ");
+            Err(ApiError::Validation(format!(
+                "agent config validation failed ({} error(s)): {}",
+                errors.len(),
+                detail
+            )))
+        }
+    }
 }
 
 /// Persist the final conversation of an agent loop into the message

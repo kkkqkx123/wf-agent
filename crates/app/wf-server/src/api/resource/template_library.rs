@@ -143,22 +143,19 @@ async fn handle_clone_template(
     Json(body): Json<CloneTemplateBody>,
 ) -> impl IntoResponse {
     let new_name = body.new_name.unwrap_or_default();
-    let result: Result<serde_json::Value, wf_api::ApiError> = match body.kind.as_str() {
-        "workflow" => wf_api::template::template_library::clone_workflow_template(
-            &state.ctx, &path.id, &new_name,
-        )
-        .map(|t| serde_json::to_value(&t).unwrap_or_default()),
-        "agent" => wf_api::template::template_library::clone_agent_template(
-            &state.ctx, &path.id, &new_name,
-        )
-        .map(|t| serde_json::to_value(&t).unwrap_or_default()),
-        other => {
-            return crate::envelope::err::<serde_json::Value>(
-                crate::envelope::ApiError::validation(format!("unknown template kind: {other}")),
+    let result: Result<serde_json::Value, wf_api::ApiError> =
+        if body.kind == "agent" {
+            wf_api::template::template_library::clone_agent_template(
+                &state.ctx, &path.id, &new_name,
             )
-            .into_response()
-        }
-    };
+            .await
+            .map(|t| serde_json::to_value(&t).unwrap_or_default())
+        } else {
+            wf_api::template::template_library::clone_workflow_template(
+                &state.ctx, &path.id, &new_name,
+            )
+            .map(|t| serde_json::to_value(&t).unwrap_or_default())
+        };
     match result {
         Ok(template) => ok(template).into_response(),
         Err(e) => error_response(e),
@@ -225,7 +222,7 @@ async fn handle_register_agent_template(
     State(state): State<ApiState>,
     Json(template): Json<wf_types::agent::AgentTemplate>,
 ) -> impl IntoResponse {
-    match wf_api::template::template_library::register_agent_template(&state.ctx, &template) {
+    match wf_api::template::template_library::register_agent_template(&state.ctx, &template).await {
         Ok(()) => ok(template.id.to_string()).into_response(),
         Err(e) => error_response(e),
     }
@@ -235,7 +232,7 @@ async fn handle_delete_agent_template(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
-    match wf_api::template::template_library::delete_agent_template(&state.ctx, &path.id) {
+    match wf_api::template::template_library::delete_agent_template(&state.ctx, &path.id).await {
         Ok(()) => ok(()).into_response(),
         Err(e) => error_response(e),
     }

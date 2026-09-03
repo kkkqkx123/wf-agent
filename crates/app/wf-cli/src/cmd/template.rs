@@ -78,7 +78,7 @@ pub async fn run(cli: &Cli, sub: &TemplateSub) -> CliResult<()> {
             match kind.to_ascii_lowercase().as_str() {
                 "agent" => {
                     let template = load_agent_template(path, &fmt)?;
-                    template_library::register_agent_template(ctx, &template)?;
+                    template_library::register_agent_template(ctx, &template).await?;
                     let data = serde_json::json!({"registered": template.id, "kind": "agent"});
                     render_envelope(
                         cli.output,
@@ -100,7 +100,7 @@ pub async fn run(cli: &Cli, sub: &TemplateSub) -> CliResult<()> {
         }
         TemplateSub::Delete { id, kind } => match kind.to_ascii_lowercase().as_str() {
             "agent" => {
-                template_library::delete_agent_template(ctx, id)?;
+                template_library::delete_agent_template(ctx, id).await?;
                 let data = serde_json::json!({"deleted": id, "kind": "agent"});
                 render_envelope(
                     cli.output,

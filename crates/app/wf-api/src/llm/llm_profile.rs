@@ -58,6 +58,22 @@ pub async fn update(ctx: &ApiContext, profile: &LlmProfile) -> ApiResult<()> {
     Ok(())
 }
 
+/// Update a profile and report the impact on dependent workflows and agent
+/// templates. The update always applies; dependents that now fail formal
+/// validation are reported.
+pub async fn update_with_impact(
+    ctx: &ApiContext,
+    profile: &LlmProfile,
+) -> ApiResult<crate::infra::dependency::UpdateImpactReport> {
+    update(ctx, profile).await?;
+    crate::infra::dependency::check_update_impact(
+        ctx,
+        crate::infra::dependency::DependencyKind::Profile,
+        &profile.id,
+    )
+    .await
+}
+
 /// Get a profile by id; an empty id resolves to the default profile.
 pub async fn get(ctx: &ApiContext, id: &str) -> ApiResult<LlmProfile> {
     ctx.llm_gateway

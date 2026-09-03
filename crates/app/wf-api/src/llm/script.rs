@@ -378,6 +378,21 @@ pub async fn save_script(
     Ok(())
 }
 
+/// Save a script through the application context and report the update
+/// impact on dependent workflows.
+pub async fn save_script_with_impact(
+    ctx: &crate::infra::context::ApiContext,
+    script: &ScriptStorageMetadata,
+) -> crate::ApiResult<crate::infra::dependency::UpdateImpactReport> {
+    ctx.storage.script.save(script).await?;
+    crate::infra::dependency::check_update_impact(
+        ctx,
+        crate::infra::dependency::DependencyKind::Script,
+        &script.id.to_string(),
+    )
+    .await
+}
+
 pub async fn get_script(ctx: &StorageContext, id: &str) -> crate::ApiResult<ScriptStorageMetadata> {
     ctx.script
         .load(id)

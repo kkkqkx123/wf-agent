@@ -5,6 +5,7 @@
 pub mod agent;
 pub mod agent_checkpoint;
 pub mod agent_config;
+pub mod agent_draft;
 pub mod agent_error_analysis;
 pub mod agent_execution;
 pub mod agent_execution_registry;

@@ -14,7 +14,6 @@
 use std::marker::PhantomData;
 use std::sync::Arc;
 
-use wf_core::registry::MutableRegistry;
 use wf_tools::callback::{AgentLoopConfig, AgentLoopInput, HookConfig};
 use wf_types::agent::{
     AgentConfig, AgentDefinition, AgentHookConfig, AgentHookType, AgentMetadata,
@@ -455,23 +454,11 @@ impl AgentDefinitionBuilder<DefNamed> {
     }
 
     /// Build and register the agent as an agent template on the shared
-    /// registry.
+    /// registry. Formal save: shape plus profile and tool reference closure
+    /// must pass; warnings allow registration.
     pub async fn register(self, ctx: &ApiContext) -> crate::ApiResult<()> {
         let definition = self.build()?;
-        let template = wf_types::agent::AgentTemplate {
-            id: definition.id.clone(),
-            name: definition.name.clone(),
-            description: definition.description.clone().unwrap_or_default(),
-            definition,
-            template_category: None,
-            template_tags: None,
-            is_public: None,
-            enabled: None,
-        };
-        ctx.registries
-            .agent_templates
-            .register(template.id.clone(), Arc::new(template))
-            .map_err(|e| crate::ApiError::Conflict(e.to_string()))?;
+        crate::agent::agent::save_agent_template(ctx, &definition).await?;
         Ok(())
     }
 }

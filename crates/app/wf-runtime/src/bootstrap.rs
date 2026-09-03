@@ -5,16 +5,18 @@ mod bootstrap_helpers;
 
 use std::sync::Arc;
 
-use tracing::info;
+use tracing::{info, warn};
 use wf_workflow::trigger_listener::TriggerEventListener;
 
 
 use wf_core::event::EventBus;
 use wf_core::internal_signal::InternalSignalBus;
+use wf_core::registry::{MutableRegistry, Registry};
 use wf_execution_shared::hooks::HookRegistry;
 use wf_llm::LlmGateway;
 use wf_resource::registry::ResourceRegistries;
 use wf_resource::resource_plugin::ResourcePluginRegistry;
+use wf_storage::adapter::base::BaseStorageAdapter;
 
 use crate::error::RuntimeResult;
 use crate::lifecycle::{shutdown_channel, ShutdownHandle, ShutdownWaiter};
@@ -315,6 +317,31 @@ impl Runtime {
             &plugin_engine,
         )
         .await?;
+
+        // Hydrate persisted agent templates into the runtime registry so
+        // templates created through the API survive restarts. Predefined
+        // and plugin-owned entries keep their registry version.
+        if let Some(storage_ctx) = storage_manager.shared_context() {
+            if let Ok(templates) = storage_ctx.agent_template.list(None).await {
+                let mut restored = 0usize;
+                for template in templates {
+                    let key = template.id.to_string();
+                    if !registries.agent_templates.has(&key) {
+                        if let Err(e) = registries
+                            .agent_templates
+                            .register(key, std::sync::Arc::new(template))
+                        {
+                            warn!(error = %e, "hydrate persisted agent template skipped");
+                        } else {
+                            restored += 1;
+                        }
+                    }
+                }
+                if restored > 0 {
+                    info!("Restored {} persisted agent template(s) from storage", restored);
+                }
+            }
+        }
 
         // The agent loop registry is created before metrics so the runtime
         // can wire its capacity gate into the resource sampler from the

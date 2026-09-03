@@ -263,7 +263,7 @@ mod tests {
         let g = graph_with(vec![node(
             "a",
             "AGENT_LOOP",
-            serde_json::json!({"inline_definition": {"id": "a1", "name": "agent"}}),
+            serde_json::json!({"inline_definition": {"id": "a1", "name": "agent", "config": {"profile_id": "mock"}}}),
         )]);
         assert!(validate_node_configs(&g).is_empty());
 

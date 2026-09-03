@@ -122,11 +122,241 @@ fn hash_context(context: &HashMap<String, Value>) -> String {
     hash.to_hex().to_string()
 }
 
+enum ExpectedArity {
+    Exact(usize),
+    AtLeast(usize),
+}
+
+fn expected_arity(name: &str) -> Option<ExpectedArity> {
+    match name {
+        "eq" | "ne" | "gt" | "lt" | "ge" | "le" | "contains" | "startsWith" | "endsWith"
+        | "length" => Some(ExpectedArity::Exact(2)),
+        "not" | "isNull" | "isEmpty" | "isTrue" | "isFalse" | "hasValue" => {
+            Some(ExpectedArity::Exact(1))
+        }
+        "and" | "or" => Some(ExpectedArity::AtLeast(1)),
+        _ => None,
+    }
+}
+
+fn is_identifier_name(name: &str) -> bool {
+    let mut chars = name.chars();
+    match chars.next() {
+        Some(c) if c.is_ascii_alphabetic() || c == '_' => {}
+        _ => return false,
+    }
+    chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
+fn first_paren_outside_quotes(s: &str) -> Option<usize> {
+    let mut quote: Option<char> = None;
+    for (idx, c) in s.char_indices() {
+        match quote {
+            Some(q) => {
+                if c == q {
+                    quote = None;
+                }
+            }
+            None => match c {
+                '"' | '\'' => quote = Some(c),
+                '(' => return Some(idx),
+                _ => {}
+            },
+        }
+    }
+    None
+}
+
+fn check_balanced(condition: &str) -> Result<(), String> {
+    let mut depth = 0i32;
+    let mut quote: Option<char> = None;
+    for c in condition.chars() {
+        match quote {
+            Some(q) => {
+                if c == q {
+                    quote = None;
+                }
+            }
+            None => match c {
+                '"' | '\'' => quote = Some(c),
+                '(' => depth += 1,
+                ')' => {
+                    depth -= 1;
+                    if depth < 0 {
+                        return Err(format!(
+                            "Invalid condition expression '{}': unbalanced parentheses",
+                            condition
+                        ));
+                    }
+                }
+                _ => {}
+            },
+        }
+    }
+    if quote.is_some() {
+        return Err(format!(
+            "Invalid condition expression '{}': unterminated string literal",
+            condition
+        ));
+    }
+    if depth != 0 {
+        return Err(format!(
+            "Invalid condition expression '{}': unbalanced parentheses",
+            condition
+        ));
+    }
+    Ok(())
+}
+
+fn check_braces_balanced(condition: &str) -> Result<(), String> {
+    if condition.contains("${") {
+        let mut search = condition;
+        while let Some(start) = search.find("${") {
+            let rest = &search[start + 2..];
+            match rest.find('}') {
+                Some(_) => search = &rest[rest.find('}').unwrap() + 1..],
+                None => {
+                    return Err(format!(
+                        "Invalid condition expression '{}': unterminated '${{...}}' reference",
+                        condition
+                    ));
+                }
+            }
+        }
+    }
+    if condition.contains("{{") {
+        let mut search = condition;
+        while let Some(start) = search.find("{{") {
+            let rest = &search[start + 2..];
+            match rest.find("}}") {
+                Some(end) => search = &rest[end + 2..],
+                None => {
+                    return Err(format!(
+                        "Invalid condition expression '{}': unterminated '{{{{...}}}}' reference",
+                        condition
+                    ));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+fn split_top_level_args(inner: &str) -> Vec<&str> {
+    let mut args = Vec::new();
+    let mut depth = 0i32;
+    let mut quote: Option<char> = None;
+    let mut start = 0usize;
+    for (idx, c) in inner.char_indices() {
+        match quote {
+            Some(q) => {
+                if c == q {
+                    quote = None;
+                }
+            }
+            None => match c {
+                '"' | '\'' => quote = Some(c),
+                '(' => depth += 1,
+                ')' => depth -= 1,
+                ',' if depth == 0 => {
+                    args.push(&inner[start..idx]);
+                    start = idx + 1;
+                }
+                _ => {}
+            },
+        }
+    }
+    if start < inner.len() {
+        args.push(&inner[start..]);
+    } else if inner.trim().is_empty() {
+        args.clear();
+    }
+    args
+}
+
 pub struct ConditionEvaluator;
 
 impl ConditionEvaluator {
     pub fn normalize_condition(condition: &str) -> String {
         condition.replace("===", "==").replace("!==", "!=")
+    }
+
+    /// Static syntax check for route/break conditions without a runtime
+    /// context. Accepts bare existence checks and known function calls with
+    /// valid arity; rejects empty expressions, unbalanced delimiters,
+    /// unknown function names and arity mismatches. Value semantics (numeric
+    /// types, nullability) are runtime concerns and are not checked here.
+    pub fn validate_syntax(condition: &str) -> Result<(), String> {
+        let trimmed = condition.trim();
+        if trimmed.is_empty() {
+            return Err("Condition expression cannot be empty".to_string());
+        }
+        check_balanced(trimmed)?;
+        check_braces_balanced(trimmed)?;
+        if let Some(paren) = first_paren_outside_quotes(trimmed) {
+            let name = trimmed[..paren].trim();
+            if name.is_empty() || !is_identifier_name(name) {
+                return Err(format!(
+                    "Invalid condition expression '{}': expected a function name before '('",
+                    condition
+                ));
+            }
+            let Some(expected) = expected_arity(name) else {
+                return Err(format!(
+                    "Unknown condition function '{}'. Supported: eq, ne, gt, lt, ge, le, and, or, not, isNull, isEmpty, isTrue, isFalse, hasValue, contains, startsWith, endsWith, length",
+                    name
+                ));
+            };
+            if !trimmed.ends_with(')') {
+                return Err(format!(
+                    "Invalid condition expression '{}': missing closing ')'",
+                    condition
+                ));
+            }
+            let after = trimmed[trimmed.rfind(')').unwrap_or(trimmed.len()) + 1..].trim();
+            if !after.is_empty() {
+                return Err(format!(
+                    "Invalid condition expression '{}': unexpected trailing tokens '{}'",
+                    condition, after
+                ));
+            }
+            let inner = &trimmed[paren + 1..trimmed.len() - 1];
+            let args = split_top_level_args(inner);
+            match expected {
+                ExpectedArity::Exact(n) => {
+                    if args.len() != n {
+                        return Err(format!("{}() expects {} args, got {}", name, n, args.len()));
+                    }
+                }
+                ExpectedArity::AtLeast(n) => {
+                    if args.len() < n {
+                        return Err(format!(
+                            "{}() expects at least {} arg(s), got {}",
+                            name,
+                            n,
+                            args.len()
+                        ));
+                    }
+                }
+            }
+            for arg in &args {
+                if arg.trim().is_empty() {
+                    return Err(format!(
+                        "{}() has an empty argument in '{}'",
+                        name, condition
+                    ));
+                }
+            }
+            if matches!(name, "and" | "or" | "not") {
+                for arg in args {
+                    let arg = arg.trim();
+                    if first_paren_outside_quotes(arg).is_some() {
+                        Self::validate_syntax(arg)?;
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 
     pub fn evaluate(condition: &str, context: &HashMap<String, Value>) -> CoreResult<bool> {
@@ -871,5 +1101,28 @@ mod tests {
 
         assert_eq!(cache.get_execution_result("gt(x, 0)", &ctx1), Some(true));
         assert_eq!(cache.get_execution_result("gt(x, 0)", &ctx2), Some(true));
+    }
+
+    #[test]
+    fn syntax_accepts_known_functions_and_bare_refs() {
+        assert!(ConditionEvaluator::validate_syntax("eq(status, \"active\")").is_ok());
+        assert!(ConditionEvaluator::validate_syntax("and(eq(a, true), eq(b, false))").is_ok());
+        assert!(ConditionEvaluator::validate_syntax("status").is_ok());
+        assert!(ConditionEvaluator::validate_syntax("${status}").is_ok());
+    }
+
+    #[test]
+    fn syntax_rejects_empty_unbalanced_unknown_and_arity() {
+        assert!(ConditionEvaluator::validate_syntax("").is_err());
+        assert!(ConditionEvaluator::validate_syntax("   ").is_err());
+        assert!(ConditionEvaluator::validate_syntax("eq(a, b").is_err());
+        assert!(ConditionEvaluator::validate_syntax("eq(a))").is_err());
+        assert!(ConditionEvaluator::validate_syntax("foo(a, b)").is_err());
+        assert!(ConditionEvaluator::validate_syntax("eq(a)").is_err());
+        assert!(ConditionEvaluator::validate_syntax("not(a, b)").is_err());
+        assert!(ConditionEvaluator::validate_syntax("and()").is_err());
+        assert!(ConditionEvaluator::validate_syntax("eq(a, )").is_err());
+        assert!(ConditionEvaluator::validate_syntax("eq(${x}, \"a\") extra").is_err());
+        assert!(ConditionEvaluator::validate_syntax("and(eq(a, true), foo(b))").is_err());
     }
 }

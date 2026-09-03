@@ -103,7 +103,7 @@ pub use trigger_listener::{
 };
 pub use trigger_states::{TriggerStateRecord, TriggerStateRegistry};
 pub use types::WorkflowExecutionParams as WorkflowExecutionParamsType;
-pub use validation::{GraphValidator, ValidationError, ValidationResult};
+pub use validation::{format_validation_report, GraphValidator, ValidationError, ValidationResult};
 pub use variable::{
     convert_variable_type, create_variable_store, evaluate_expression, ExprEvaluator,
     ExpressionError, VariableResolver, VariableStore,

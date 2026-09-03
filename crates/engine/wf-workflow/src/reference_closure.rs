@@ -723,6 +723,56 @@ mod tests {
     }
 
     #[test]
+    fn inline_agent_tool_lists_are_checked() {
+        let ctx = ReferenceContext::new()
+            .with_profile("mock", None)
+            .with_tool("live_tool", true)
+            .with_tool("old_tool", false);
+        let graph = graph_with(vec![node(
+            "a1",
+            "AGENT_LOOP",
+            serde_json::json!({
+                "inline_definition": {
+                    "id": "a1",
+                    "name": "agent",
+                    "config": {
+                        "profile_id": "mock",
+                        "available_tools": {
+                            "available": ["ghost_tool"],
+                            "initial": ["old_tool"],
+                            "hidden": ["live_tool"],
+                        },
+                    },
+                },
+            }),
+        )]);
+        let report = validate_reference_closure(&graph, &ctx);
+        assert_eq!(report.errors.len(), 1);
+        assert!(report.errors[0].message.contains("ghost_tool"));
+        assert_eq!(report.warnings.len(), 1);
+        assert!(report.warnings[0].message.contains("old_tool"));
+    }
+
+    #[test]
+    fn inline_agent_profile_must_be_registered() {
+        let ctx = ReferenceContext::new().with_profile("known", None);
+        let graph = graph_with(vec![node(
+            "a1",
+            "AGENT_LOOP",
+            serde_json::json!({
+                "inline_definition": {
+                    "id": "a1",
+                    "name": "agent",
+                    "config": {"profile_id": "ghost"},
+                },
+            }),
+        )]);
+        let report = validate_reference_closure(&graph, &ctx);
+        assert_eq!(report.errors.len(), 1);
+        assert!(report.errors[0].message.contains("ghost"));
+    }
+
+    #[test]
     fn incompatible_format_is_error_and_json_diff_is_warning() {
         let ctx = ReferenceContext::new()
             .with_profile("xml-p", Some(ToolCallFormat::Xml))

@@ -50,6 +50,10 @@ pub struct InfraSourceConfig {
     /// Skill collection name (skill presets index mode); `None` falls back to
     /// the legacy global/project skill settings chain.
     pub skills_collection: Option<String>,
+    /// Runtime environment used to select environment-optimized defaults when
+    /// an infrastructure config file is missing/unparseable. `None` keeps the
+    /// orchestrator default (`Development`).
+    pub runtime_env: Option<wf_config::processor::infrastructure::RuntimeEnvironment>,
     /// Programmatic overrides applied on top of the file layer.
     pub overrides: ConfigOverrides,
 }

@@ -20,11 +20,15 @@ use crate::layered;
 use crate::orchestrator_loader::{load_domain_config, normalize_camel_case, resolve_file_mapping};
 use crate::processor::file_checkpoint::merge_file_checkpoint_with_defaults;
 use crate::processor::infrastructure::{
-    merge_metrics_with_defaults, merge_output_with_defaults, merge_storage_with_defaults,
-    merge_timeout_with_defaults,
+    get_metrics_environment_defaults, get_output_environment_defaults,
+    get_storage_environment_defaults, get_timeout_environment_defaults, merge_metrics_with_defaults,
+    merge_output_with_defaults, merge_storage_with_defaults, merge_timeout_with_defaults,
+    RuntimeEnvironment,
 };
 use crate::processor::limits::{merge_limits_with_defaults, validate_limits_config};
-use crate::processor::presets::transform_presets_config;
+use crate::processor::presets::{
+    get_presets_environment_defaults, transform_presets_config,
+};
 use crate::processor::sandbox_global::validate_sandbox_global;
 use crate::processor::tools::{
     transform_glob_config, transform_list_files_config, transform_read_file_config, GlobConfig,
@@ -184,6 +188,7 @@ pub struct ConfigOrchestratorBuilder {
     infra_dir: PathBuf,
     preset_name: Option<String>,
     default_paths: Option<InfrastructurePresetFiles>,
+    runtime_env: RuntimeEnvironment,
 }
 
 impl ConfigOrchestratorBuilder {
@@ -192,6 +197,7 @@ impl ConfigOrchestratorBuilder {
             infra_dir: project_dir.join("configs").join("infrastructure"),
             preset_name: None,
             default_paths: None,
+            runtime_env: RuntimeEnvironment::Development,
         }
     }
 
@@ -213,11 +219,19 @@ impl ConfigOrchestratorBuilder {
         self
     }
 
+    /// Set the runtime environment used to select environment-optimized
+    /// defaults when a config file is missing or unparseable.
+    pub fn runtime_env(mut self, env: RuntimeEnvironment) -> Self {
+        self.runtime_env = env;
+        self
+    }
+
     pub fn build(self) -> ConfigOrchestratorLoaded {
         ConfigOrchestratorLoaded {
             infra_dir: self.infra_dir,
             preset_name: self.preset_name,
             default_paths: self.default_paths,
+            runtime_env: self.runtime_env,
         }
     }
 }
@@ -227,6 +241,7 @@ pub struct ConfigOrchestratorLoaded {
     infra_dir: PathBuf,
     preset_name: Option<String>,
     default_paths: Option<InfrastructurePresetFiles>,
+    runtime_env: RuntimeEnvironment,
 }
 
 impl ConfigOrchestratorLoaded {
@@ -236,7 +251,7 @@ impl ConfigOrchestratorLoaded {
             self.preset_name.as_deref(),
             self.default_paths,
         );
-        let mut config = Self::load_infrastructure_configs(&self.infra_dir, &files)?;
+        let mut config = Self::load_infrastructure_configs(&self.infra_dir, &files, self.runtime_env)?;
         Self::apply_env_overrides(&mut config)?;
         if let Some(o) = overrides {
             Self::apply_overrides(&mut config, o)?;
@@ -245,9 +260,11 @@ impl ConfigOrchestratorLoaded {
     }
 
     /// Load all infrastructure config domains using the resolved file mapping.
+    /// Missing/unparseable files fall back to `runtime_env`-optimized defaults.
     fn load_infrastructure_configs(
         infra_dir: &Path,
         files: &InfrastructurePresetFiles,
+        runtime_env: RuntimeEnvironment,
     ) -> ConfigResult<AssembledConfig> {
         let storage_path = infra_dir.join(&files.storage);
         let timeout_path = infra_dir.join(&files.timeout);
@@ -256,11 +273,15 @@ impl ConfigOrchestratorLoaded {
         let sandbox_path = infra_dir.join(&files.sandbox);
         let limits_path = infra_dir.join(&files.limits);
 
-        let storage: StorageConfig = load_domain_config(&storage_path);
-        let timeout: TimeoutConfig = load_domain_config(&timeout_path);
-        let metrics: MetricsConfig = load_domain_config(&metrics_path);
-        let output: OutputConfig = load_domain_config(&output_path);
-        let limits: LimitsConfig = load_domain_config(&limits_path);
+        let storage: StorageConfig =
+            load_domain_config(&storage_path, get_storage_environment_defaults(runtime_env));
+        let timeout: TimeoutConfig =
+            load_domain_config(&timeout_path, get_timeout_environment_defaults(runtime_env));
+        let metrics: MetricsConfig =
+            load_domain_config(&metrics_path, get_metrics_environment_defaults(runtime_env));
+        let output: OutputConfig =
+            load_domain_config(&output_path, get_output_environment_defaults(runtime_env));
+        let limits: LimitsConfig = load_domain_config(&limits_path, LimitsConfig::default());
 
         // Sandbox config is fail-fast: a malformed sandbox.toml must reject
         // startup instead of silently running with the weaker defaults.
@@ -281,12 +302,17 @@ impl ConfigOrchestratorLoaded {
         // File-checkpoint / tool-approval / presets / tools load leniently:
         // parse failures fall back to defaults (presets additionally fail
         // fast on validation errors).
-        let file_checkpoint =
-            load_domain_config::<FileCheckpointConfig>(&infra_dir.join(&files.file_checkpoint));
-        let tool_approval =
-            load_domain_config::<ToolApprovalConfig>(&infra_dir.join(&files.tool_approval));
+        let file_checkpoint = load_domain_config::<FileCheckpointConfig>(
+            &infra_dir.join(&files.file_checkpoint),
+            FileCheckpointConfig::default(),
+        );
+        let tool_approval = load_domain_config::<ToolApprovalConfig>(
+            &infra_dir.join(&files.tool_approval),
+            ToolApprovalConfig::default(),
+        );
         let presets = transform_presets_config(load_domain_config::<PresetsConfig>(
             &infra_dir.join(&files.presets),
+            get_presets_environment_defaults(runtime_env),
         ))?;
         let tools = load_tool_configs(infra_dir, files);
 

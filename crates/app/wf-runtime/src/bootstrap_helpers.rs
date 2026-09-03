@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use tracing::{info, warn};
 
-use wf_config::orchestrator::{default_infra_file_mapping, ConfigOrchestrator};
+use wf_config::orchestrator::{default_infra_file_mapping, ConfigOrchestratorBuilder};
 use wf_config::processor::llm_profile::{transform_llm_profile, validate_llm_profile};
 use wf_llm::LlmGateway;
 use wf_types::config::file_checkpoint::FileCheckpointConfig;
@@ -217,13 +217,17 @@ pub async fn resolve_infra_config(
         .clone()
         .unwrap_or_else(|| wf_config::orchestrator::DEFAULT_INFRA_PRESET.to_string());
 
-    let assembled = ConfigOrchestrator::assemble_with_preset(
-        &project_root,
-        Some(&preset_name),
-        Some(default_infra_file_mapping()),
-        Some(infra.overrides.clone()),
-    )
-    .map_err(|e| {
+    let assembled = ConfigOrchestratorBuilder::new(&project_root)
+        .preset_name(Some(&preset_name))
+        .default_paths(Some(default_infra_file_mapping()))
+        .runtime_env(
+            infra
+                .runtime_env
+                .unwrap_or(wf_config::processor::infrastructure::RuntimeEnvironment::Development),
+        )
+        .build()
+        .assemble(Some(infra.overrides.clone()))
+        .map_err(|e| {
         crate::error::RuntimeError::Config(format!(
             "Infrastructure config resolution failed (preset `{preset_name}`): {e}"
         ))

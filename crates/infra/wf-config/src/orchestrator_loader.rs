@@ -95,11 +95,17 @@ pub(crate) fn resolve_file_mapping(
     }
 }
 
-/// Load a single config domain file leniently: a missing or unparseable
-/// file falls back to the domain defaults (with a warning).
-pub(crate) fn load_domain_config<T: serde::de::DeserializeOwned + Default>(path: &Path) -> T {
+/// Load a single config domain file leniently. On a missing or unparseable
+/// file the caller-provided `env_default` is returned (with a warning when
+/// parsing failed). The orchestrator supplies an environment-specific
+/// default so dev/prod fallbacks differ without polluting field-level merge
+/// semantics.
+pub(crate) fn load_domain_config<T>(path: &Path, env_default: T) -> T
+where
+    T: serde::de::DeserializeOwned,
+{
     if !path.exists() {
-        return T::default();
+        return env_default;
     }
     match layered::load_layered_config_sync::<T>(&[path]) {
         Ok(config) => config,
@@ -109,7 +115,7 @@ pub(crate) fn load_domain_config<T: serde::de::DeserializeOwned + Default>(path:
                 "failed to parse config file {}; falling back to defaults",
                 path.display()
             );
-            T::default()
+            env_default
         }
     }
 }

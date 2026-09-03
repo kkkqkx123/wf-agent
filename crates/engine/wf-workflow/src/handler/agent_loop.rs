@@ -351,7 +351,22 @@ impl AgentLoopHandler {
                 .and_then(|p| p.tool_call_format);
             let agent_format = agent_config
                 .and_then(|c| c.tool_call_format.as_ref())
-                .and_then(|format| wf_types::llm::ToolCallFormatConfig::from_format_str(format));
+                .and_then(|format| {
+                    match wf_types::llm::ToolCallFormatConfig::from_format_str(format) {
+                        Some(config) => Some(config),
+                        None => {
+                            // An explicit but unknown agent-level override must
+                            // not silently dissolve into the profile default.
+                            tracing::warn!(
+                                node_id = %ctx.node_id,
+                                field = "inner.inline_definition.config.tool_call_format",
+                                value = %format,
+                                "unknown tool call format, ignoring agent-level override"
+                            );
+                            None
+                        }
+                    }
+                });
             match (profile_config, agent_format) {
                 (Some(mut profile), Some(agent)) => {
                     profile.format = agent.format;

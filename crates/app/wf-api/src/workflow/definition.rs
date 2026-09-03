@@ -26,7 +26,7 @@ pub async fn save_workflow(
 ) -> crate::ApiResult<()> {
     crate::workflow::validation::validate_workflow(workflow)?;
     ctx.storage.workflow.save(workflow).await?;
-    upsert_workflow_registry(&ctx.registries, workflow);
+    upsert_workflow_registry(&ctx.registries, workflow)?;
     Ok(())
 }
 
@@ -178,11 +178,13 @@ pub async fn update_workflow_metadata(
     Ok(())
 }
 
-/// Register the workflow in the execution index.
+/// Register the workflow in the execution index. A registry failure fails
+/// the whole save: validation failure equals registration failure, so the
+/// storage write and the index entry never silently diverge.
 pub(super) fn upsert_workflow_registry(
     registries: &Arc<ResourceRegistries>,
     workflow: &WorkflowDefinition,
-) {
+) -> crate::ApiResult<()> {
     let template = WorkflowTemplate {
         id: workflow.id.clone(),
         name: workflow.name.clone(),
@@ -196,17 +198,10 @@ pub(super) fn upsert_workflow_registry(
     if registries.workflows.has(&workflow.id) {
         registries.workflows.unregister(&workflow.id);
     }
-    if let Err(err) = registries
+    registries
         .workflows
         .register(workflow.id.clone(), Arc::new(template))
-    {
-        tracing::warn!(
-            target: "wf_api",
-            workflow = %workflow.id,
-            error = %err,
-            "failed to register workflow in execution index"
-        );
-    }
+        .map_err(|err| crate::ApiError::Conflict(err.to_string()))
 }
 
 #[cfg(test)]

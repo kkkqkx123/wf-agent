@@ -54,42 +54,75 @@ pub fn validate_workflow_definition(definition: &WorkflowDefinition) -> ConfigRe
 
 fn node_type_name(node_type: &StaticNodeType) -> String {
     match node_type {
-        StaticNodeType::Llm => "LLM".to_string(),
-        StaticNodeType::Script => "SCRIPT".to_string(),
+        StaticNodeType::Start => "START".to_string(),
+        StaticNodeType::End => "END".to_string(),
+        StaticNodeType::EmbedStart => "EMBED_START".to_string(),
+        StaticNodeType::EmbedEnd => "EMBED_END".to_string(),
         StaticNodeType::Variable => "VARIABLE".to_string(),
-        StaticNodeType::Route => "ROUTE".to_string(),
         StaticNodeType::Fork => "FORK".to_string(),
         StaticNodeType::Join => "JOIN".to_string(),
+        StaticNodeType::Sync => "SYNC".to_string(),
         StaticNodeType::Subgraph => "SUBGRAPH".to_string(),
+        StaticNodeType::EmbedGraph => "EMBED_GRAPH".to_string(),
+        StaticNodeType::Script => "SCRIPT".to_string(),
+        StaticNodeType::InteractiveScript => "INTERACTIVE_SCRIPT".to_string(),
+        StaticNodeType::Llm => "LLM".to_string(),
+        StaticNodeType::ToolVisibility => "TOOL_VISIBILITY".to_string(),
         StaticNodeType::UserInteraction => "USER_INTERACTION".to_string(),
+        StaticNodeType::Route => "ROUTE".to_string(),
+        StaticNodeType::ContextProcessor => "CONTEXT_PROCESSOR".to_string(),
+        StaticNodeType::LoopStart => "LOOP_START".to_string(),
+        StaticNodeType::LoopEnd => "LOOP_END".to_string(),
         StaticNodeType::AgentLoop => "AGENT_LOOP".to_string(),
-        _ => format!("{:?}", node_type),
+        StaticNodeType::StartFromMessage => "START_FROM_MESSAGE".to_string(),
+        StaticNodeType::ContinueFromMessage => "CONTINUE_FROM_MESSAGE".to_string(),
     }
 }
 
-pub fn transform_nodes(nodes: &[WorkflowNodeConfig]) -> Vec<BaseStaticNode> {
+pub fn transform_nodes(nodes: &[WorkflowNodeConfig]) -> ConfigResult<Vec<BaseStaticNode>> {
     nodes
         .iter()
-        .map(|node| BaseStaticNode {
-            id: node.id.clone(),
-            node_type: parse_node_type(&node.node_type),
-            name: Some(node.name.as_deref().unwrap_or(&node.id).to_string()),
-            description: node.description.clone(),
-            config: node.config.clone(),
-            execution_config: None,
+        .map(|node| {
+            Ok(BaseStaticNode {
+                id: node.id.clone(),
+                node_type: parse_node_type(&node.node_type, &node.id)?,
+                name: Some(node.name.as_deref().unwrap_or(&node.id).to_string()),
+                description: node.description.clone(),
+                config: node.config.clone(),
+                execution_config: None,
+            })
         })
         .collect()
 }
 
-pub fn transform_edges(edges: &[WorkflowEdgeConfig]) -> Vec<Edge> {
+pub fn transform_edges(edges: &[WorkflowEdgeConfig]) -> ConfigResult<Vec<Edge>> {
     edges
         .iter()
-        .map(|edge| {
+        .enumerate()
+        .map(|(idx, edge)| {
+            let source_node_id = edge
+                .source_node_id
+                .clone()
+                .filter(|s| !s.is_empty())
+                .ok_or_else(|| {
+                    ConfigError::Validation(format!(
+                        "edge at index {idx} is missing required source_node_id"
+                    ))
+                })?;
+            let target_node_id = edge
+                .target_node_id
+                .clone()
+                .filter(|s| !s.is_empty())
+                .ok_or_else(|| {
+                    ConfigError::Validation(format!(
+                        "edge at index {idx} is missing required target_node_id"
+                    ))
+                })?;
             let has_condition = edge.condition.is_some();
-            Edge {
+            Ok(Edge {
                 id: edge.id.clone().unwrap_or_else(generate_edge_id),
-                source_node_id: edge.source_node_id.clone().unwrap_or_default(),
-                target_node_id: edge.target_node_id.clone().unwrap_or_default(),
+                source_node_id,
+                target_node_id,
                 r#type: if has_condition {
                     EdgeType::Conditional
                 } else {
@@ -100,34 +133,38 @@ pub fn transform_edges(edges: &[WorkflowEdgeConfig]) -> Vec<Edge> {
                 description: edge.description.clone(),
                 weight: edge.weight,
                 metadata: None,
-            }
+            })
         })
         .collect()
 }
 
-fn parse_node_type(type_str: &str) -> StaticNodeType {
+fn parse_node_type(type_str: &str, node_id: &str) -> ConfigResult<StaticNodeType> {
     match type_str.to_uppercase().as_str() {
-        "START" => StaticNodeType::Start,
-        "END" => StaticNodeType::End,
-        "VARIABLE" => StaticNodeType::Variable,
-        "FORK" => StaticNodeType::Fork,
-        "JOIN" => StaticNodeType::Join,
-        "SYNC" => StaticNodeType::Sync,
-        "SUBGRAPH" => StaticNodeType::Subgraph,
-        "EMBED_GRAPH" => StaticNodeType::EmbedGraph,
-        "SCRIPT" => StaticNodeType::Script,
-        "INTERACTIVE_SCRIPT" => StaticNodeType::InteractiveScript,
-        "LLM" => StaticNodeType::Llm,
-        "TOOL_VISIBILITY" => StaticNodeType::ToolVisibility,
-        "USER_INTERACTION" => StaticNodeType::UserInteraction,
-        "ROUTE" => StaticNodeType::Route,
-        "CONTEXT_PROCESSOR" => StaticNodeType::ContextProcessor,
-        "LOOP_START" => StaticNodeType::LoopStart,
-        "LOOP_END" => StaticNodeType::LoopEnd,
-        "AGENT_LOOP" => StaticNodeType::AgentLoop,
-        "START_FROM_MESSAGE" => StaticNodeType::StartFromMessage,
-        "CONTINUE_FROM_MESSAGE" => StaticNodeType::ContinueFromMessage,
-        _ => StaticNodeType::Llm,
+        "START" => Ok(StaticNodeType::Start),
+        "END" => Ok(StaticNodeType::End),
+        "VARIABLE" => Ok(StaticNodeType::Variable),
+        "FORK" => Ok(StaticNodeType::Fork),
+        "JOIN" => Ok(StaticNodeType::Join),
+        "SYNC" => Ok(StaticNodeType::Sync),
+        "SUBGRAPH" => Ok(StaticNodeType::Subgraph),
+        "EMBED_GRAPH" => Ok(StaticNodeType::EmbedGraph),
+        "SCRIPT" => Ok(StaticNodeType::Script),
+        "INTERACTIVE_SCRIPT" => Ok(StaticNodeType::InteractiveScript),
+        "LLM" => Ok(StaticNodeType::Llm),
+        "TOOL_VISIBILITY" => Ok(StaticNodeType::ToolVisibility),
+        "USER_INTERACTION" => Ok(StaticNodeType::UserInteraction),
+        "ROUTE" => Ok(StaticNodeType::Route),
+        "CONTEXT_PROCESSOR" => Ok(StaticNodeType::ContextProcessor),
+        "LOOP_START" => Ok(StaticNodeType::LoopStart),
+        "LOOP_END" => Ok(StaticNodeType::LoopEnd),
+        "AGENT_LOOP" => Ok(StaticNodeType::AgentLoop),
+        "START_FROM_MESSAGE" => Ok(StaticNodeType::StartFromMessage),
+        "CONTINUE_FROM_MESSAGE" => Ok(StaticNodeType::ContinueFromMessage),
+        "EMBED_START" => Ok(StaticNodeType::EmbedStart),
+        "EMBED_END" => Ok(StaticNodeType::EmbedEnd),
+        _ => Err(ConfigError::Validation(format!(
+            "node '{node_id}' has unknown node type '{type_str}'"
+        ))),
     }
 }
 
@@ -259,7 +296,7 @@ mod tests {
             },
         ];
 
-        let nodes = transform_nodes(&configs);
+        let nodes = transform_nodes(&configs).expect("known types transform");
         assert_eq!(nodes.len(), 2);
         assert_eq!(nodes[0].id, "n1");
         assert_eq!(nodes[0].name, Some("My LLM".to_string()));
@@ -292,10 +329,38 @@ mod tests {
             },
         ];
 
-        let edges = transform_edges(&configs);
+        let edges = transform_edges(&configs).expect("valid edges transform");
         assert_eq!(edges.len(), 2);
         assert_eq!(edges[0].r#type, EdgeType::Default);
         assert_eq!(edges[1].r#type, EdgeType::Conditional);
         assert_eq!(edges[1].id, "e2".to_string());
+    }
+
+    #[test]
+    fn test_transform_nodes_rejects_unknown_type() {
+        let configs = vec![WorkflowNodeConfig {
+            id: "n1".to_string(),
+            node_type: "LLMM".to_string(),
+            name: None,
+            description: None,
+            config: None,
+        }];
+        let err = transform_nodes(&configs).unwrap_err();
+        assert!(err.to_string().contains("unknown node type"));
+    }
+
+    #[test]
+    fn test_transform_edges_rejects_missing_endpoints() {
+        let configs = vec![WorkflowEdgeConfig {
+            id: None,
+            source_node_id: Some("n1".to_string()),
+            target_node_id: None,
+            condition: None,
+            label: None,
+            description: None,
+            weight: None,
+        }];
+        let err = transform_edges(&configs).unwrap_err();
+        assert!(err.to_string().contains("target_node_id"));
     }
 }

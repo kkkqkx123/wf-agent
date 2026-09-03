@@ -38,6 +38,6 @@ pub async fn save_workflow(
 ) -> crate::ApiResult<()> {
     validate_workflow(workflow)?;
     ctx.storage.workflow.save(workflow).await?;
-    upsert_workflow_registry(&ctx.registries, workflow);
+    upsert_workflow_registry(&ctx.registries, workflow)?;
     Ok(())
 }

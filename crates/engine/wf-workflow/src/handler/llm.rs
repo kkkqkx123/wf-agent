@@ -722,11 +722,35 @@ impl LlmHandler {
             })?;
 
         // Node-level tool call format (canonical string) is applied at runtime
-        // so validation and execution agree on the effective protocol.
-        let tool_call_format = config
-            .get("tool_call_format")
-            .and_then(|v| v.as_str())
-            .and_then(ToolCallFormatConfig::from_format_str);
+        // so validation and execution agree on the effective protocol. An
+        // unknown or non-string value is ignored as before, but now warns:
+        // registered graphs are statically rejected for this, so reaching
+        // here means an unvalidated graph where silence would hide a typo.
+        let tool_call_format = match config.get("tool_call_format") {
+            None | Some(Value::Null) => None,
+            Some(v) => match v.as_str() {
+                Some(s) => match ToolCallFormatConfig::from_format_str(s) {
+                    Some(format) => Some(format),
+                    None => {
+                        tracing::warn!(
+                            node_id = %ctx.node_id,
+                            field = "inner.tool_call_format",
+                            value = %s,
+                            "unknown tool call format, ignoring node-level override"
+                        );
+                        None
+                    }
+                },
+                None => {
+                    tracing::warn!(
+                        node_id = %ctx.node_id,
+                        field = "inner.tool_call_format",
+                        "tool_call_format must be a canonical format string, ignoring"
+                    );
+                    None
+                }
+            },
+        };
         let violation_policy = match config.get("violation_policy") {
             None => None,
             Some(v) => crate::config_parse::parse_node_config_or_warn(
@@ -805,10 +829,27 @@ impl LlmHandler {
         // calls, feeding tool results back, up to max_tool_calls_per_request.
         // A loop that exhausts the budget while the model keeps emitting tool
         // calls is an error, not a silent truncation.
-        let node_generation: Option<wf_types::llm::generation::LlmGenerationParams> = config
-            .get("generation")
-            .and_then(|v| serde_json::from_value(v.clone()).ok())
-            .or_else(|| exec_config.generation.clone());
+        // An invalid node-level `generation` warns and falls through to the
+        // execution defaults, mirroring the previous `.ok()` fallback with
+        // observability added. Registered graphs are statically rejected
+        // for this; this path only serves unvalidated graphs.
+        let parsed_generation: Option<wf_types::llm::generation::LlmGenerationParams> =
+            match config.get("generation") {
+                None | Some(Value::Null) => None,
+                Some(v) => match serde_json::from_value(v.clone()) {
+                    Ok(parsed) => Some(parsed),
+                    Err(e) => {
+                        tracing::warn!(
+                            node_id = %ctx.node_id,
+                            field = "inner.generation",
+                            error = %e,
+                            "invalid node generation config, falling back to execution defaults"
+                        );
+                        None
+                    }
+                },
+            };
+        let node_generation = parsed_generation.or_else(|| exec_config.generation.clone());
         let mut tool_loop_exhausted = false;
         for _round in 0..max_tool_calls {
             let request = LlmRequest {

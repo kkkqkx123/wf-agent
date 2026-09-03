@@ -216,11 +216,15 @@ async fn handle_transform_workflow(
     State(_state): State<ApiState>,
     Json(body): Json<TransformWorkflowBody>,
 ) -> impl IntoResponse {
-    ok(TransformWorkflowView {
-        nodes: wf_api::infra::config::transform_workflow_nodes(&body.nodes),
-        edges: wf_api::infra::config::transform_workflow_edges(&body.edges),
-    })
-    .into_response()
+    let nodes = match wf_api::infra::config::transform_workflow_nodes(&body.nodes) {
+        Ok(nodes) => nodes,
+        Err(e) => return error_response(e),
+    };
+    let edges = match wf_api::infra::config::transform_workflow_edges(&body.edges) {
+        Ok(edges) => edges,
+        Err(e) => return error_response(e),
+    };
+    ok(TransformWorkflowView { nodes, edges }).into_response()
 }
 
 async fn handle_workflow_summaries(

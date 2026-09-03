@@ -908,11 +908,14 @@ async fn finalize_failed(ctx: &ApiContext, entity: &WorkflowExecutionEntity) {
 /// Convert a stored [`WorkflowDefinition`] into an executable graph.
 ///
 /// Nodes map their `config` onto the flattened `inner` field consumed by the
-/// node handlers; edges map directly. The first node is the start and the
-/// last node the end (flat template semantics).
+/// node handlers; edges map directly. Graph boundaries are derived from node
+/// types (the START / END nodes, or the message pair for triggered
+/// subgraphs): node order carries no semantics. A definition without a
+/// boundary node yields an empty boundary and fails graph validation.
 pub fn definition_to_graph(
     definition: &wf_types::workflow::WorkflowDefinition,
 ) -> WorkflowGraphStructure {
+    use wf_types::node::StaticNodeType;
     let nodes: Vec<WorkflowNode> = definition
         .nodes
         .iter()
@@ -937,11 +940,35 @@ pub fn definition_to_graph(
         })
         .collect();
     WorkflowGraphStructure {
-        start_node_id: nodes.first().map(|node| node.id.clone()),
-        end_node_ids: nodes
-            .last()
-            .map(|node| vec![node.id.clone()])
-            .unwrap_or_default(),
+        start_node_id: definition
+            .nodes
+            .iter()
+            .find(|n| n.node_type == StaticNodeType::Start)
+            .or_else(|| {
+                definition
+                    .nodes
+                    .iter()
+                    .find(|n| n.node_type == StaticNodeType::StartFromMessage)
+            })
+            .map(|n| n.id.clone()),
+        end_node_ids: {
+            let ends: Vec<String> = definition
+                .nodes
+                .iter()
+                .filter(|n| n.node_type == StaticNodeType::End)
+                .map(|n| n.id.clone())
+                .collect();
+            if ends.is_empty() {
+                definition
+                    .nodes
+                    .iter()
+                    .filter(|n| n.node_type == StaticNodeType::ContinueFromMessage)
+                    .map(|n| n.id.clone())
+                    .collect()
+            } else {
+                ends
+            }
+        },
         nodes,
         edges,
         adjacency_list: HashMap::new(),
@@ -1223,6 +1250,15 @@ mod tests {
             Some("final")
         );
         assert_eq!(graph.nodes[1].node_type, "VARIABLE");
+    }
+
+    #[test]
+    fn derives_boundaries_from_node_types_not_positions() {
+        let mut definition = make_definition("wf-order");
+        definition.nodes.reverse();
+        let graph = definition_to_graph(&definition);
+        assert_eq!(graph.start_node_id.as_deref(), Some("start"));
+        assert_eq!(graph.end_node_ids, vec!["end".to_string()]);
     }
 
     #[tokio::test]

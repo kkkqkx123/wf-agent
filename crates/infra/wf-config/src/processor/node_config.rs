@@ -1,5 +1,11 @@
 use serde_json::Value;
 
+use wf_types::agent::AgentConfig;
+use wf_types::llm::{
+    DeadLoopDetectionConfig, LlmExecutionConfig, LlmGenerationParams,
+    ToolCallProtocolViolationPolicy,
+};
+
 /// A single config issue found on a workflow node. Field carries a dotted
 /// path pointing at the offending attribute (e.g. `nodes.n1.config.profile_id`).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -77,6 +83,59 @@ fn field_not_in(
     ))
 }
 
+/// Validate one optional typed field: absent or null passes, a present
+/// value must deserialize to `T` (the same serde shape the execution
+/// handlers parse, so static and runtime agree on what is valid).
+fn validate_typed_field<T: serde::de::DeserializeOwned>(
+    node_id: &str,
+    node_type: &str,
+    config: &Value,
+    field: &str,
+) -> Option<NodeConfigIssue> {
+    let value = config.get(field)?;
+    if value.is_null() {
+        return None;
+    }
+    serde_json::from_value::<T>(value.clone()).err().map(|e| {
+        NodeConfigIssue::new(
+            field_path(node_id, field),
+            format!(
+                "Node '{}' ({}) field '{}' has invalid value: {}",
+                node_id, node_type, field, e
+            ),
+        )
+    })
+}
+
+/// Validate the flattened execution settings carried on the node config
+/// (token limits, timeouts, nested generation). The handlers parse this
+/// same blob as `LlmExecutionConfig` and degrade the whole blob to defaults
+/// on a type mismatch, so a mismatch is a registration error, not a
+/// runtime warning. Unknown node-level keys are ignored by the typed
+/// struct, exactly as at runtime. `generation` is excluded here because it
+/// gets its own field-level issue via `validate_typed_field`.
+fn validate_execution_settings(
+    node_id: &str,
+    node_type: &str,
+    config: &Value,
+) -> Option<NodeConfigIssue> {
+    let mut blob = config.clone();
+    if let Some(object) = blob.as_object_mut() {
+        object.remove("generation");
+    }
+    serde_json::from_value::<LlmExecutionConfig>(blob)
+        .err()
+        .map(|e| {
+            NodeConfigIssue::new(
+                format!("nodes.{}.config", node_id),
+                format!(
+                    "Node '{}' ({}) has invalid execution settings: {}",
+                    node_id, node_type, e
+                ),
+            )
+        })
+}
+
 fn validate_llm_node(
     node_id: &str,
     node_type: &str,
@@ -86,6 +145,36 @@ fn validate_llm_node(
     if let Some(config) = config.and_then(|c| c.as_object()) {
         let config = Value::Object(config.clone());
         if let Some(err) = require_string(node_id, node_type, &config, "profile_id", true) {
+            errors.push(err);
+        }
+        // Enhancement fields with closed vocabularies or typed shapes are
+        // validated here so typos fail registration. The execution handlers
+        // degrade these to defaults with a warning; static rejection runs
+        // first and keeps the typo from ever reaching that fallback.
+        // (`tool_call_format` strings stay owned by protocol-consistency
+        // validation, which also checks them against profile formats.)
+        if let Some(err) = validate_typed_field::<ToolCallProtocolViolationPolicy>(
+            node_id,
+            node_type,
+            &config,
+            "violation_policy",
+        ) {
+            errors.push(err);
+        }
+        if let Some(err) = validate_typed_field::<DeadLoopDetectionConfig>(
+            node_id,
+            node_type,
+            &config,
+            "dead_loop_detection",
+        ) {
+            errors.push(err);
+        }
+        if let Some(err) =
+            validate_typed_field::<LlmGenerationParams>(node_id, node_type, &config, "generation")
+        {
+            errors.push(err);
+        }
+        if let Some(err) = validate_execution_settings(node_id, node_type, &config) {
             errors.push(err);
         }
     }
@@ -454,7 +543,7 @@ fn validate_user_interaction_node(
 
 fn validate_agent_loop_node(
     node_id: &str,
-    _node_type: &str,
+    node_type: &str,
     config: Option<&Value>,
 ) -> Vec<NodeConfigIssue> {
     let mut errors = Vec::new();
@@ -471,11 +560,8 @@ fn validate_agent_loop_node(
         .get("agent_loop_id")
         .and_then(|v| v.as_str())
         .is_some_and(|s| !s.is_empty());
-    let has_inline = config
-        .get("inline_definition")
-        .filter(|v| !v.is_null())
-        .is_some();
-    if !has_loop_id && !has_inline {
+    let inline = config.get("inline_definition").filter(|v| !v.is_null());
+    if !has_loop_id && inline.is_none() {
         errors.push(NodeConfigIssue::new(
             format!("nodes.{}.config", node_id),
             format!(
@@ -484,13 +570,50 @@ fn validate_agent_loop_node(
             ),
         ));
     }
+    // Inline agent content is validated compositionally: no registry lookup
+    // is needed to check its shape. The inline value is a partial agent
+    // definition by design (storage metadata such as timestamps is absent),
+    // so only its `config` block is typed-checked as `AgentConfig` — the
+    // same serde shape the handler consumes, which also pins down the
+    // nested `violation_policy` vocabulary. A non-object inline value or an
+    // unparsable `config` fails registration instead of degrading to a
+    // generic "requires an inline_definition" error at runtime.
+    if let Some(inline) = inline {
+        match inline.as_object() {
+            None => errors.push(NodeConfigIssue::new(
+                format!("nodes.{}.config.inline_definition", node_id),
+                format!(
+                    "AGENT_LOOP node '{}' has invalid inline_definition: expected an object",
+                    node_id
+                ),
+            )),
+            Some(_) => {
+                if let Some(agent_config) = inline.get("config").filter(|v| !v.is_null()) {
+                    if let Err(e) = serde_json::from_value::<AgentConfig>(agent_config.clone()) {
+                        errors.push(NodeConfigIssue::new(
+                            format!("nodes.{}.config.inline_definition.config", node_id),
+                            format!(
+                                "AGENT_LOOP node '{}' has invalid inline agent config: {}",
+                                node_id, e
+                            ),
+                        ));
+                    }
+                }
+            }
+        }
+    }
+    // The handler also parses the node-level blob as `LlmExecutionConfig`
+    // (token limits, timeouts); a type mismatch there degrades the whole
+    // blob at runtime, so it is a registration error here.
+    if let Some(err) = validate_execution_settings(node_id, node_type, &config) {
+        errors.push(err);
+    }
     errors
 }
 
-/// Validate the config of one workflow node by its node type. Unsupported
-/// node types return no issues (their config invariants are checked by
-/// graph-level validation instead).
+/// Validate the config of one workflow node by its node type.
 ///
+/// Unknown node types are rejected with an issue: there is no fallback type.
 /// `config` is the node's config value (`WorkflowNode.inner` or
 /// `BaseStaticNode.config`). Node type names are case-insensitive.
 pub fn validate_node_config(
@@ -517,7 +640,23 @@ pub fn validate_node_config(
         "SUBGRAPH" => validate_subgraph_node(node_id, node_type, effective),
         "USER_INTERACTION" => validate_user_interaction_node(node_id, node_type, effective),
         "AGENT_LOOP" => validate_agent_loop_node(node_id, node_type, effective),
-        _ => Vec::new(),
+        "START"
+        | "END"
+        | "EMBED_START"
+        | "EMBED_END"
+        | "SYNC"
+        | "EMBED_GRAPH"
+        | "INTERACTIVE_SCRIPT"
+        | "TOOL_VISIBILITY"
+        | "CONTEXT_PROCESSOR"
+        | "LOOP_START"
+        | "LOOP_END"
+        | "START_FROM_MESSAGE"
+        | "CONTINUE_FROM_MESSAGE" => Vec::new(),
+        _ => vec![NodeConfigIssue::new(
+            node_path(node_id),
+            format!("Node '{node_id}' has unknown node type '{node_type}'"),
+        )],
     }
 }
 
@@ -763,10 +902,109 @@ mod tests {
     }
 
     #[test]
-    fn unknown_node_types_are_skipped() {
+    fn known_types_without_field_validators_pass() {
         assert!(validate_node_config("START", "s", Some(&serde_json::json!({}))).is_empty());
         assert!(validate_node_config("END", "e", Some(&serde_json::json!({}))).is_empty());
         assert!(validate_node_config("LOOP_START", "ls", Some(&serde_json::json!({}))).is_empty());
+    }
+
+    #[test]
+    fn unknown_node_type_is_rejected() {
+        let errors = validate_node_config("LLMM", "n1", Some(&serde_json::json!({})));
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].message.contains("unknown node type"));
+    }
+
+    #[test]
+    fn llm_rejects_invalid_violation_policy() {
+        let ok = validate_node_config(
+            "LLM",
+            "n1",
+            Some(&serde_json::json!({"profile_id": "mock", "violation_policy": "auto_convert"})),
+        );
+        assert!(ok.is_empty());
+
+        let errors = validate_node_config(
+            "LLM",
+            "n1",
+            Some(&serde_json::json!({"profile_id": "mock", "violation_policy": "auto-convertt"})),
+        );
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].message.contains("violation_policy"));
+    }
+
+    #[test]
+    fn llm_rejects_invalid_typed_enhancement_fields() {
+        let errors = validate_node_config(
+            "LLM",
+            "n1",
+            Some(&serde_json::json!({
+                "profile_id": "mock",
+                "dead_loop_detection": {"enabled": "yes"},
+            })),
+        );
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].message.contains("dead_loop_detection"));
+
+        let errors = validate_node_config(
+            "LLM",
+            "n1",
+            Some(&serde_json::json!({
+                "profile_id": "mock",
+                "generation": {"temperature": "hot"},
+            })),
+        );
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].message.contains("generation"));
+
+        let errors = validate_node_config(
+            "LLM",
+            "n1",
+            Some(&serde_json::json!({
+                "profile_id": "mock",
+                "max_tool_calls_per_request": "many",
+            })),
+        );
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].message.contains("execution settings"));
+    }
+
+    #[test]
+    fn agent_loop_validates_inline_agent_config() {
+        let ok = validate_node_config(
+            "AGENT_LOOP",
+            "a",
+            Some(&serde_json::json!({
+                "inline_definition": {
+                    "id": "a1",
+                    "name": "agent",
+                    "config": {"profile_id": "mock", "violation_policy": "fail"},
+                },
+            })),
+        );
+        assert!(ok.is_empty());
+
+        let errors = validate_node_config(
+            "AGENT_LOOP",
+            "a",
+            Some(&serde_json::json!({"inline_definition": "a1"})),
+        );
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].message.contains("inline_definition"));
+
+        let errors = validate_node_config(
+            "AGENT_LOOP",
+            "a",
+            Some(&serde_json::json!({
+                "inline_definition": {
+                    "id": "a1",
+                    "name": "agent",
+                    "config": {"violation_policy": "explod"},
+                },
+            })),
+        );
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].message.contains("inline agent config"));
     }
 
     #[test]

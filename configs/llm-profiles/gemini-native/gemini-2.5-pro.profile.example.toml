@@ -2,6 +2,11 @@
 #
 # Schema:  wf_types::llm::profile::LlmProfile
 # Provider: LlmProvider::GEMINI_NATIVE
+#
+# Gemini 2.5 uses thinkingBudget (tokens). Omit [generation.thinking] for
+# dynamic thinking (the default). Set budget_tokens = 0 on Flash to disable.
+# Gemini 3 uses thinkingLevel instead: level = "minimal" | "low" | "medium" | "high".
+# thinkingLevel and budget_tokens are mutually exclusive.
 
 id = "gemini-2.5-pro"
 name = "Gemini 2.5 Pro"
@@ -15,10 +20,14 @@ timeout = 120000
 maxRetries = 3
 retryDelay = 2000
 
-[parameters]
+[generation]
 temperature = 0.4
-maxTokens = 16384
-topP = 0.95
+max_tokens = 16384
+top_p = 0.95
+# Thinking budget (optional, 2.5 series):
+# [generation.thinking]
+# budget_tokens = 2048
+# include_thoughts = false
 
 [queryParams]
 key = "${GEMINI_API_KEY}"

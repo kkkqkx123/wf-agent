@@ -52,6 +52,8 @@ impl OpenaiChatFormatter {
             "messages": messages,
         });
 
+        let generation = shared::resolve_generation(request, profile)?;
+        crate::generation::apply_openai_chat(&mut body, &generation);
         shared::merge_and_apply_params(&mut body, profile, &request.parameters);
 
         if !use_text_mode {
@@ -169,6 +171,7 @@ mod tests {
             api_key: Some("sk-test".to_string()),
             base_url: None,
             parameters: None,
+            generation: None,
             timeout: None,
             max_retries: None,
             retry_delay: None,
@@ -193,6 +196,7 @@ mod tests {
                 text_msg(MessageRole::User, "What is the weather?"),
             ],
             parameters: None,
+            generation: None,
             tools: Some(vec![serde_json::from_value(serde_json::json!({
                 "id": wf_types::Id::new(),
                 "name": "get_weather",

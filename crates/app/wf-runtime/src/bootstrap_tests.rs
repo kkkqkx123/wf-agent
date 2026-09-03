@@ -1,13 +1,13 @@
 #[allow(clippy::module_inception)]
 #[cfg(test)]
 mod tests {
+    #[cfg(feature = "plugins")]
+    use crate::bootstrap::PluginConfig;
     use crate::bootstrap::{
         adjust_log_config, init_checkpoint_store, init_llm_gateway, resolve_infra_config,
         storage_db_path, InfraSourceConfig, LlmConfig, McpRuntimeConfig, ResourceConfig, Runtime,
         RuntimeConfig,
     };
-    #[cfg(feature = "plugins")]
-    use crate::bootstrap::PluginConfig;
     use crate::logger::LogConfig;
     use crate::mode::{ExecutionMode, ModeInfo};
     use std::path::PathBuf;
@@ -57,8 +57,7 @@ mod tests {
         wf_tools::executor::trait_def::ToolExecutionContext,
         wf_types::tool::ToolExecutionOptions,
     ) {
-        let ctx =
-            wf_tools::executor::trait_def::ToolExecutionContext::new("callback-test".into());
+        let ctx = wf_tools::executor::trait_def::ToolExecutionContext::new("callback-test".into());
         let options = wf_types::tool::ToolExecutionOptions {
             timeout: None,
             retries: None,
@@ -856,6 +855,7 @@ mod tests {
             api_key: None,
             base_url: None,
             parameters: None,
+            generation: None,
             timeout: None,
             max_retries: None,
             retry_delay: None,
@@ -883,6 +883,7 @@ mod tests {
                     api_key: None,
                     base_url: None,
                     parameters: None,
+                    generation: None,
                     timeout: None,
                     max_retries: None,
                     retry_delay: None,
@@ -928,8 +929,7 @@ mod tests {
             .register_tool(wf_tools::predefined::shell::GET_OR_CREATE_SHELL.tool_def());
 
         std::fs::create_dir_all("/tmp/bootstrap-shell-events").unwrap();
-        let ctx =
-            wf_tools::executor::trait_def::ToolExecutionContext::new("exec-bridge".into());
+        let ctx = wf_tools::executor::trait_def::ToolExecutionContext::new("exec-bridge".into());
         let options = wf_types::tool::ToolExecutionOptions {
             timeout: None,
             retries: None,

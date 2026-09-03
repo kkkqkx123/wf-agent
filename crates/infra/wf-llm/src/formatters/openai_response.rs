@@ -210,16 +210,9 @@ impl LlmFormatter for OpenaiResponseFormatter {
             body["stream"] = serde_json::json!(true);
         }
 
-        // Pass through all merged parameters untouched (matching the
-        // `Object.assign(body, otherParams)` behavior), except `stream` which
-        // is controlled by the caller above.
-        let merged_params =
-            crate::formatter_helpers::merge_parameters(profile, &request.parameters);
-        for (key, value) in merged_params {
-            if key != "stream" {
-                body[key] = value;
-            }
-        }
+        let generation = super::shared::resolve_generation(request, profile)?;
+        crate::generation::apply_openai_responses(&mut body, &generation);
+        super::shared::merge_and_apply_params(&mut body, profile, &request.parameters);
 
         if !use_text_mode {
             if let Some(tools) = &request.tools {
@@ -644,6 +637,7 @@ mod tests {
                     profile_id: "p".to_string(),
                     messages: Vec::new(),
                     parameters: None,
+                    generation: None,
                     tools: None,
                     tool_call_format: None,
                     locked_tool_call_format: None,
@@ -682,6 +676,7 @@ mod tests {
                     profile_id: "p".to_string(),
                     messages: Vec::new(),
                     parameters: None,
+                    generation: None,
                     tools: None,
                     tool_call_format: None,
                     locked_tool_call_format: None,
@@ -710,6 +705,7 @@ mod tests {
                     profile_id: "p".to_string(),
                     messages: Vec::new(),
                     parameters: None,
+                    generation: None,
                     tools: None,
                     tool_call_format: None,
                     locked_tool_call_format: None,
@@ -735,6 +731,7 @@ mod tests {
             api_key: Some("sk-test".to_string()),
             base_url: None,
             parameters: None,
+            generation: None,
             timeout: None,
             max_retries: None,
             retry_delay: None,
@@ -766,6 +763,7 @@ mod tests {
                 metadata: None,
             }],
             parameters: None,
+            generation: None,
             tools: None,
             tool_call_format: None,
             locked_tool_call_format: None,

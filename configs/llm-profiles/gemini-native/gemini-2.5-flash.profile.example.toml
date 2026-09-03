@@ -17,10 +17,13 @@ timeout = 30000
 maxRetries = 2
 retryDelay = 1000
 
-[parameters]
+[generation]
 temperature = 0.5
-maxTokens = 8192
-topP = 0.95
+max_tokens = 8192
+top_p = 0.95
+# Low-latency thinking level (Gemini 3 style, optional):
+# [generation.thinking]
+# level = "low"
 
 [queryParams]
 key = "${GEMINI_API_KEY}"

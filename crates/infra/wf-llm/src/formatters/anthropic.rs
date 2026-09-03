@@ -49,7 +49,6 @@ impl AnthropicFormatter {
         let mut body = serde_json::json!({
             "model": profile.model,
             "messages": messages,
-            "max_tokens": 4096,
         });
 
         if use_text_mode {
@@ -63,21 +62,9 @@ impl AnthropicFormatter {
             }
         }
 
-        // Pass through all merged parameters except `stream` (controlled below)
-        // and `stop` (mapped to `stop_sequences`, which is what the API accepts).
-        let merged_params =
-            crate::formatter_helpers::merge_parameters(profile, &request.parameters);
-        for (key, value) in merged_params {
-            match key.as_str() {
-                "stream" => {}
-                "stop" => {
-                    body["stop_sequences"] = value;
-                }
-                _ => {
-                    body[key] = value;
-                }
-            }
-        }
+        let generation = super::shared::resolve_generation(request, profile)?;
+        crate::generation::apply_anthropic(&mut body, &generation)?;
+        super::shared::merge_and_apply_params(&mut body, profile, &request.parameters);
 
         if !use_text_mode {
             if let Some(tools) = &request.tools {
@@ -695,6 +682,7 @@ mod tests {
             api_key: Some("sk-test".to_string()),
             base_url: None,
             parameters: None,
+            generation: None,
             timeout: None,
             max_retries: None,
             retry_delay: None,
@@ -733,6 +721,7 @@ mod tests {
             profile_id: "p1".to_string(),
             messages,
             parameters: params,
+            generation: None,
             tools: None,
             tool_call_format: None,
             locked_tool_call_format: None,

@@ -323,7 +323,11 @@ fn mask_profile(profile: &LlmProfile) -> Value {
     value
 }
 
-fn template_profile(provider: LlmProvider, model: &str, parameters: Value) -> LlmProfile {
+fn template_profile(
+    provider: LlmProvider,
+    model: &str,
+    generation: wf_types::llm::generation::LlmGenerationParams,
+) -> LlmProfile {
     LlmProfile {
         id: String::new(),
         name: String::new(),
@@ -331,7 +335,8 @@ fn template_profile(provider: LlmProvider, model: &str, parameters: Value) -> Ll
         model: model.to_string(),
         api_key: None,
         base_url: None,
-        parameters: Some(parameters),
+        parameters: None,
+        generation: Some(generation),
         timeout: None,
         max_retries: None,
         retry_delay: None,
@@ -349,6 +354,7 @@ fn template_profile(provider: LlmProvider, model: &str, parameters: Value) -> Ll
 }
 
 fn builtin_templates() -> Vec<LlmProfileTemplate> {
+    use wf_types::llm::generation::LlmGenerationParams;
     vec![
         LlmProfileTemplate {
             name: "openai-chat".into(),
@@ -356,7 +362,11 @@ fn builtin_templates() -> Vec<LlmProfileTemplate> {
             profile: template_profile(
                 LlmProvider::OpenaiChat,
                 "gpt-5",
-                json!({ "temperature": 0.7, "maxTokens": 8192 }),
+                LlmGenerationParams {
+                    temperature: Some(0.7),
+                    max_tokens: Some(8192),
+                    ..Default::default()
+                },
             ),
         },
         LlmProfileTemplate {
@@ -365,7 +375,11 @@ fn builtin_templates() -> Vec<LlmProfileTemplate> {
             profile: template_profile(
                 LlmProvider::Anthropic,
                 "claude-4.5-opus",
-                json!({ "temperature": 0.7, "maxTokens": 8192 }),
+                LlmGenerationParams {
+                    temperature: Some(0.7),
+                    max_tokens: Some(8192),
+                    ..Default::default()
+                },
             ),
         },
         LlmProfileTemplate {
@@ -374,7 +388,11 @@ fn builtin_templates() -> Vec<LlmProfileTemplate> {
             profile: template_profile(
                 LlmProvider::GeminiNative,
                 "gemini-2.5-pro",
-                json!({ "temperature": 0.7, "maxOutputTokens": 8192 }),
+                LlmGenerationParams {
+                    temperature: Some(0.7),
+                    max_tokens: Some(8192),
+                    ..Default::default()
+                },
             ),
         },
     ]
@@ -403,7 +421,11 @@ mod tests {
             provider,
             model: model.into(),
             api_key: key.map(ToOwned::to_owned),
-            ..template_profile(LlmProvider::OpenaiChat, "x", json!({}))
+            ..template_profile(
+                LlmProvider::OpenaiChat,
+                "x",
+                wf_types::llm::generation::LlmGenerationParams::default(),
+            )
         }
     }
 
@@ -539,7 +561,11 @@ mod tests {
         let custom = LlmProfileTemplate {
             name: "custom-chat".into(),
             description: "A runtime template".into(),
-            profile: template_profile(LlmProvider::OpenaiChat, "gpt-custom", json!({})),
+            profile: template_profile(
+                LlmProvider::OpenaiChat,
+                "gpt-custom",
+                wf_types::llm::generation::LlmGenerationParams::default(),
+            ),
         };
         add_template(&ctx, custom.clone()).await.unwrap();
         let err = add_template(&ctx, custom.clone()).await.unwrap_err();
@@ -549,7 +575,11 @@ mod tests {
             LlmProfileTemplate {
                 name: "openai-chat".into(),
                 description: "clashes with builtin".into(),
-                profile: template_profile(LlmProvider::OpenaiChat, "x", json!({})),
+                profile: template_profile(
+                    LlmProvider::OpenaiChat,
+                    "x",
+                    wf_types::llm::generation::LlmGenerationParams::default(),
+                ),
             },
         )
         .await

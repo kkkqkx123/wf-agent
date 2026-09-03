@@ -99,31 +99,25 @@ impl GeminiNativeFormatter {
         &self,
         request: &LlmRequest,
         profile: &LlmProfile,
-    ) -> serde_json::Value {
-        let merged_params =
-            crate::formatter_helpers::merge_parameters(profile, &request.parameters);
+    ) -> LlmResult<serde_json::Value> {
+        let generation = super::shared::resolve_generation(request, profile)?;
 
-        // Defaults match the deprecated formatter.
         let mut config = serde_json::json!({
-            "temperature": merged_params.get("temperature").cloned().unwrap_or_else(|| serde_json::json!(0.7)),
-            "maxOutputTokens": merged_params.get("max_tokens").cloned().unwrap_or_else(|| serde_json::json!(4096)),
-            "topP": merged_params.get("top_p").cloned().unwrap_or_else(|| serde_json::json!(1.0)),
-            "topK": merged_params.get("top_k").cloned().unwrap_or_else(|| serde_json::json!(40)),
+            "temperature": generation.temperature.unwrap_or(0.7),
+            "maxOutputTokens": generation.max_tokens.unwrap_or(
+                crate::generation::GEMINI_DEFAULT_MAX_OUTPUT_TOKENS
+            ),
+            "topP": generation.top_p.unwrap_or(1.0),
+            "topK": generation.top_k.unwrap_or(40),
         });
 
-        if let Some(stop) = merged_params.get("stop") {
-            let stop_seqs: Vec<String> = stop
-                .as_array()
-                .map(|arr| {
-                    arr.iter()
-                        .filter_map(|v| v.as_str().map(String::from))
-                        .collect()
-                })
-                .unwrap_or_default();
-            config["stopSequences"] = serde_json::json!(stop_seqs);
+        if let Some(ref stop) = generation.stop {
+            config["stopSequences"] = serde_json::json!(stop);
         }
 
-        config
+        crate::generation::apply_gemini_generation_config(&mut config, &generation)?;
+
+        Ok(config)
     }
 }
 
@@ -298,7 +292,7 @@ impl GeminiNativeFormatter {
         request: &LlmRequest,
         profile: &LlmProfile,
     ) -> LlmResult<serde_json::Value> {
-        let generation_config = self.convert_generation_config(request, profile);
+        let generation_config = self.convert_generation_config(request, profile)?;
 
         let use_text_mode = super::shared::is_text_mode(request);
 
@@ -413,7 +407,10 @@ impl GeminiNativeFormatter {
                     .get("totalTokenCount")
                     .and_then(|v| v.as_u64())
                     .unwrap_or(0) as u32,
-                reasoning_tokens: None,
+                reasoning_tokens: u
+                    .get("thoughtsTokenCount")
+                    .and_then(|v| v.as_u64())
+                    .map(|r| r as u32),
                 cache_read_tokens: u
                     .get("cachedContentTokenCount")
                     .and_then(|v| v.as_u64())
@@ -455,6 +452,8 @@ impl GeminiNativeFormatter {
             Some(metadata)
         };
 
+        let reasoning_tokens = usage.as_ref().and_then(|u| u.reasoning_tokens);
+
         Ok(LlmResponseType {
             id: Some(wf_common::generate_id()),
             model: json
@@ -477,7 +476,7 @@ impl GeminiNativeFormatter {
             finish_reason,
             duration: 0,
             reasoning_content: reasoning_content.clone(),
-            reasoning_tokens: None,
+            reasoning_tokens,
             metadata,
             stream_stats: None,
             warnings: None,
@@ -516,6 +515,7 @@ mod tests {
             api_key: Some("sk-test".to_string()),
             base_url: None,
             parameters: None,
+            generation: None,
             timeout: None,
             max_retries: None,
             retry_delay: None,
@@ -554,6 +554,7 @@ mod tests {
             profile_id: "p1".to_string(),
             messages,
             parameters: params,
+            generation: None,
             tools: None,
             tool_call_format: None,
             locked_tool_call_format: None,

@@ -38,6 +38,8 @@ pub struct LlmRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub parameters: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub generation: Option<super::generation::LlmGenerationParams>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub tools: Option<Vec<super::super::tool::Tool>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_call_format: Option<super::ToolCallFormat>,

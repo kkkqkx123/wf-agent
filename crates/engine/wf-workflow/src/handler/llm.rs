@@ -805,12 +805,17 @@ impl LlmHandler {
         // calls, feeding tool results back, up to max_tool_calls_per_request.
         // A loop that exhausts the budget while the model keeps emitting tool
         // calls is an error, not a silent truncation.
+        let node_generation: Option<wf_types::llm::generation::LlmGenerationParams> = config
+            .get("generation")
+            .and_then(|v| serde_json::from_value(v.clone()).ok())
+            .or_else(|| exec_config.generation.clone());
         let mut tool_loop_exhausted = false;
         for _round in 0..max_tool_calls {
             let request = LlmRequest {
                 profile_id: profile_id.clone(),
                 messages: messages.clone(),
                 parameters: config.get("parameters").cloned(),
+                generation: node_generation.clone(),
                 tools: if tools.is_empty() {
                     None
                 } else {

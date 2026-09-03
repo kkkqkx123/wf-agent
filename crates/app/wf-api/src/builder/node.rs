@@ -83,6 +83,7 @@ impl NodeBuilder<NoType> {
             context_id: None,
             output_context: None,
             parameters: None,
+            generation: None,
             max_tool_calls_per_request: None,
             tool_call_format: None,
         };

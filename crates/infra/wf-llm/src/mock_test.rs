@@ -17,6 +17,7 @@ fn request(profile_id: &str, text: &str) -> LlmRequest {
             metadata: None,
         }],
         parameters: None,
+        generation: None,
         tools: None,
         tool_call_format: None,
         locked_tool_call_format: None,

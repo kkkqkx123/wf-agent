@@ -300,6 +300,7 @@ mod tests {
                 text_message(MessageRole::User, "你好"),
             ],
             parameters: None,
+            generation: None,
             tools: None,
             tool_call_format: None,
             locked_tool_call_format: None,

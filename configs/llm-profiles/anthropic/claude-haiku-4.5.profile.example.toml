@@ -1,7 +1,7 @@
-# Claude Haiku 4.5 — Fast & Cheap
+# LLM Profile: Claude Haiku 4.5 (Anthropic)
 #
-# Anthropic's fastest and most cost-effective model.
-# Ideal for high-volume classification, moderation, and simple extraction.
+# Schema:  wf_types::llm::profile::LlmProfile
+# Provider: LlmProvider::ANTHROPIC
 
 id = "claude-haiku-4.5"
 name = "Claude Haiku 4.5"
@@ -9,13 +9,21 @@ provider = "ANTHROPIC"
 model = "claude-haiku-4.5"
 apiKey = "${ANTHROPIC_API_KEY}"
 baseUrl = "https://api.anthropic.com/v1"
+authType = "native"
+[toolCallFormat]
+format = "json_wrapped"
+contextWindowSize = 200000
+
 timeout = 30000
 maxRetries = 2
 retryDelay = 1000
 
-[parameters]
+[generation]
 temperature = 0.3
-maxTokens = 8192
+max_tokens = 8192
+# Thinking (optional, budget style on Haiku; must be < max_tokens):
+# [generation.thinking]
+# budget_tokens = 4000
 
 [metadata]
 tags = ["anthropic", "claude-haiku", "fast", "cheap"]

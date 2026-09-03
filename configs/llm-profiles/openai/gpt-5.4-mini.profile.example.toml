@@ -2,6 +2,11 @@
 #
 # Use for high-volume, low-complexity tasks: classification, extraction,
 # simple Q&A, or as a cost-effective fallback model.
+#
+# GPT-5.4 supports reasoning effort none/low/medium/high/xhigh over Chat
+# Completions (top-level reasoning_effort) plus verbosity low/medium/high.
+# Do NOT set temperature/top_p together with thinking: reasoning models
+# ignore them (a warning is logged).
 
 id = "gpt-5.4-mini"
 name = "GPT-5.4-mini"
@@ -13,9 +18,12 @@ timeout = 30000
 maxRetries = 2
 retryDelay = 5000
 
-[parameters]
-reasoningEffort = "max"
-maxTokens = 12800
+[generation]
+max_tokens = 12800
+verbosity = "medium"
+
+[generation.thinking]
+level = "medium"
 
 [metadata]
 tags = ["openai", "gpt-4o-mini", "fast", "cheap"]

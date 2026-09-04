@@ -1,4 +1,5 @@
 use crate::content::SizeBudget;
+use crate::coordinator::base::restored_status;
 use crate::coordinator::CheckpointCoordinator;
 use crate::delta::CheckpointLoader;
 use crate::delta::DeltaRestorer;
@@ -535,11 +536,6 @@ impl WorkflowCheckpointCoordinator {
     }
 }
 
-fn parse_execution_status(value: &serde_json::Value) -> Option<ExecutionStatus> {
-    let status = value.get("status")?.as_str()?;
-    Some(parse_status_string(status))
-}
-
 /// Restore a single child from its pre-resolved latest checkpoint metadata
 /// through the restore strategy registry when one is registered for the
 /// child's execution type. Spawned with bounded concurrency by
@@ -569,7 +565,7 @@ async fn restore_child(
             if let Ok(value) = restore_result {
                 outcome.restored = true;
                 if let Some(exec_registry) = registry {
-                    let status = parse_execution_status(&value);
+                    let status = restored_status(&value);
                     register_child(
                         exec_registry,
                         &child.child_id,
@@ -596,18 +592,6 @@ struct ChildRestoreOutcome {
     metadata: Option<CheckpointStorageMetadata>,
     restored: bool,
     failed: bool,
-}
-
-fn parse_status_string(status: &str) -> ExecutionStatus {
-    match status {
-        "completed" => ExecutionStatus::Completed,
-        "failed" => ExecutionStatus::Failed,
-        "cancelled" => ExecutionStatus::Cancelled,
-        "paused" => ExecutionStatus::Paused,
-        "stopped" => ExecutionStatus::Stopped,
-        "created" => ExecutionStatus::Created,
-        _ => ExecutionStatus::Running,
-    }
 }
 
 fn register_child(
@@ -957,7 +941,7 @@ impl CheckpointCoordinator for WorkflowCheckpointCoordinator {
                 .and_then(|h| h.parent_execution_id.clone());
             registry.register_with_parent(
                 &entity.execution_id,
-                parse_status_string(&entity.status),
+                ExecutionStatus::from_wire(&entity.status),
                 parent.as_deref(),
             );
 

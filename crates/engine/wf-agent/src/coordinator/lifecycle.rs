@@ -580,16 +580,16 @@ impl AgentLoopCoordinator {
                     }
                 }
                 // Snapshot the settled terminal status with a trigger that
-                // says how the run ended, so cancelled, timed-out and failed
-                // runs stay distinguishable instead of all reading as an
-                // in-flight error checkpoint.
+                // says how the run ended, so cancelled, timed-out, stopped
+                // and failed runs stay distinguishable instead of all reading
+                // as an in-flight error checkpoint.
                 if let Some(ref cp) = outcome_checkpoint {
                     let settled = entity.state.read().await.status();
                     let trigger = match settled {
                         ExecutionStatus::Timeout => CheckpointTiming::OnTimeout,
-                        ExecutionStatus::Cancelled | ExecutionStatus::Stopped => {
-                            CheckpointTiming::OnCancel
-                        }
+                        ExecutionStatus::Cancelled => CheckpointTiming::OnCancel,
+                        ExecutionStatus::Stopped => CheckpointTiming::OnStopped,
+                        ExecutionStatus::Failed => CheckpointTiming::OnFailure,
                         _ => CheckpointTiming::OnError,
                     };
                     cp.create_checkpoint(&entity, trigger)

@@ -589,8 +589,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_after_agent_fires_on_failure_path_with_error_details() {
-        use std::collections::HashMap;
-
         use wf_execution_shared::hooks::{HookContext, HookOutcome, HookReceiver, HookRegistry};
         use wf_llm::error::LlmError;
 

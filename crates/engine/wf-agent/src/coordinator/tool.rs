@@ -25,6 +25,7 @@ use crate::approval::{RejectionMessageBuilder, ToolApprovalHandler, ToolApproval
 use crate::entity::AgentLoopEntity;
 use crate::error::AgentResult;
 use crate::hook::AgentHookHandler;
+use crate::state::ToolCallRecord;
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub enum ToolExecutionMode {
@@ -910,7 +911,7 @@ impl ToolExecutionCoordinator {
         };
 
         entity_state.write().await.record_tool_call_with_details(ToolCallRecord {
-            name: tool_name,
+            name: tool_name.clone(),
             arguments: params.clone(),
             result: call_result,
             error: call_error,

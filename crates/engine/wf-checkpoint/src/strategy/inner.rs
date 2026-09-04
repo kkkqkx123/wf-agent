@@ -197,6 +197,8 @@ pub fn policy_standard() -> UnifiedCheckpointPolicy {
             CheckpointTiming::OnPause,
             CheckpointTiming::OnCancel,
             CheckpointTiming::OnTimeout,
+            CheckpointTiming::OnFailure,
+            CheckpointTiming::OnStopped,
             CheckpointTiming::OnComplete,
             CheckpointTiming::Manual,
         ],
@@ -233,6 +235,8 @@ pub fn policy_comprehensive() -> UnifiedCheckpointPolicy {
             CheckpointTiming::OnPause,
             CheckpointTiming::OnCancel,
             CheckpointTiming::OnTimeout,
+            CheckpointTiming::OnFailure,
+            CheckpointTiming::OnStopped,
             CheckpointTiming::OnComplete,
             CheckpointTiming::Manual,
         ],
@@ -427,5 +431,28 @@ mod tests {
     fn compression_strategy_defaults_to_auto() {
         let strategy = create_checkpoint_strategy(&make_policy(vec![CheckpointTiming::Manual]));
         assert_eq!(strategy.compression_strategy(), CompressionStrategy::Auto);
+    }
+
+    #[test]
+    fn comprehensive_preset_enables_terminal_triggers() {
+        let strategy = create_checkpoint_strategy_by_name("comprehensive").unwrap();
+        let ctx = make_context();
+
+        // Terminal-state triggers must be on by default so that cancelled,
+        // stopped and failed runs each get a distinguishable checkpoint.
+        assert!(strategy.should_checkpoint(&CheckpointTiming::OnFailure, &ctx));
+        assert!(strategy.should_checkpoint(&CheckpointTiming::OnStopped, &ctx));
+
+        // The legacy in-flight error trigger remains enabled as well.
+        assert!(strategy.should_checkpoint(&CheckpointTiming::OnError, &ctx));
+    }
+
+    #[test]
+    fn standard_preset_keeps_terminal_triggers() {
+        let strategy = create_checkpoint_strategy_by_name("standard").unwrap();
+        let ctx = make_context();
+
+        assert!(strategy.should_checkpoint(&CheckpointTiming::OnFailure, &ctx));
+        assert!(strategy.should_checkpoint(&CheckpointTiming::OnStopped, &ctx));
     }
 }

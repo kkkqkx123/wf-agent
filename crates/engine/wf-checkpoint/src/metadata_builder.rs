@@ -83,6 +83,8 @@ pub fn trigger_description(trigger: &CheckpointTiming) -> String {
         CheckpointTiming::OnPause => "Pause checkpoint",
         CheckpointTiming::OnCancel => "Cancel checkpoint",
         CheckpointTiming::OnTimeout => "Timeout checkpoint",
+        CheckpointTiming::OnFailure => "Failure checkpoint",
+        CheckpointTiming::OnStopped => "Stopped checkpoint",
         CheckpointTiming::OnComplete => "Complete checkpoint",
         CheckpointTiming::Interval => "Interval checkpoint",
         CheckpointTiming::Manual => "Manual checkpoint",
@@ -112,6 +114,8 @@ fn trigger_wire_name(trigger: &CheckpointTiming) -> &'static str {
         CheckpointTiming::OnPause => "ON_PAUSE",
         CheckpointTiming::OnCancel => "ON_CANCEL",
         CheckpointTiming::OnTimeout => "ON_TIMEOUT",
+        CheckpointTiming::OnFailure => "ON_FAILURE",
+        CheckpointTiming::OnStopped => "ON_STOPPED",
         CheckpointTiming::OnComplete => "ON_COMPLETE",
         CheckpointTiming::Interval => "INTERVAL",
         CheckpointTiming::Manual => "MANUAL",
@@ -232,6 +236,37 @@ mod tests {
             "trigger:BEFORE_EXECUTE"
         );
         assert_eq!(trigger_tag(&CheckpointTiming::OnPause), "trigger:ON_PAUSE");
+        assert_eq!(
+            trigger_tag(&CheckpointTiming::OnFailure),
+            "trigger:ON_FAILURE"
+        );
+        assert_eq!(
+            trigger_tag(&CheckpointTiming::OnStopped),
+            "trigger:ON_STOPPED"
+        );
+    }
+
+    #[test]
+    fn terminal_triggers_stay_distinguishable() {
+        // A failed run must not read as an in-flight error checkpoint, and a
+        // stopped run must not read as a cancel: both pairs used to share one
+        // trigger and were indistinguishable on restore.
+        assert_ne!(
+            trigger_tag(&CheckpointTiming::OnFailure),
+            trigger_tag(&CheckpointTiming::OnError)
+        );
+        assert_ne!(
+            trigger_tag(&CheckpointTiming::OnStopped),
+            trigger_tag(&CheckpointTiming::OnCancel)
+        );
+        assert_eq!(
+            trigger_description(&CheckpointTiming::OnFailure),
+            "Failure checkpoint"
+        );
+        assert_eq!(
+            trigger_description(&CheckpointTiming::OnStopped),
+            "Stopped checkpoint"
+        );
     }
 
     #[test]

@@ -168,6 +168,8 @@ pub enum CheckpointTiming {
     OnPause,
     OnCancel,
     OnTimeout,
+    OnFailure,
+    OnStopped,
     OnComplete,
     Interval,
     Manual,

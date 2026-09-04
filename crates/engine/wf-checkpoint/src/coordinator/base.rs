@@ -1,6 +1,7 @@
 use crate::error::CheckpointError;
 use crate::strategy::CheckpointStrategy;
 use wf_types::checkpoint::{CheckpointContext, CheckpointTiming, DeltaStorageConfig};
+use wf_types::execution::ExecutionStatus;
 
 pub trait CheckpointCoordinator: Send + Sync {
     type Checkpoint: Send + Sync + serde::Serialize;
@@ -155,6 +156,18 @@ pub trait CheckpointCoordinator: Send + Sync {
             Ok(Some(id))
         }
     }
+}
+
+/// Read the execution status carried by a restored checkpoint payload.
+///
+/// Shared by the agent-loop and workflow coordinators so both resolve the
+/// status field identically. Returns `None` when the payload carries no
+/// usable status string, letting the caller apply its own default.
+pub fn restored_status(value: &serde_json::Value) -> Option<ExecutionStatus> {
+    value
+        .get("status")
+        .and_then(|status| status.as_str())
+        .map(ExecutionStatus::from_wire)
 }
 
 /// Extract the checkpoint id for event/metadata correlation. Serialization

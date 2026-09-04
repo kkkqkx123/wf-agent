@@ -575,13 +575,10 @@ pub async fn run(cli: &Cli, sub: &ExecutionSub) -> CliResult<()> {
 }
 
 fn parse_status(s: &str) -> Option<agent_loop_registry::AgentLoopFilter> {
-    let status = match s.to_ascii_lowercase().as_str() {
-        "running" => wf_types::ExecutionStatus::Running,
-        "paused" => wf_types::ExecutionStatus::Paused,
-        "completed" => wf_types::ExecutionStatus::Completed,
-        "failed" => wf_types::ExecutionStatus::Failed,
-        _ => return None,
-    };
+    // Strict parse: every known status is accepted, and an unrecognized one
+    // is rejected instead of being coerced, so a typo never silently filters
+    // on an unrelated status.
+    let status = s.parse::<wf_types::ExecutionStatus>().ok()?;
     Some(agent_loop_registry::AgentLoopFilter {
         ids: None,
         status: Some(status),

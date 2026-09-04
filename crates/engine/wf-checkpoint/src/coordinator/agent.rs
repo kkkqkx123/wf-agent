@@ -1,4 +1,5 @@
 use crate::content::SizeBudget;
+use crate::coordinator::base::restored_status;
 use crate::coordinator::CheckpointCoordinator;
 use crate::delta::AgentDiffCalculator;
 use crate::delta::CheckpointLoader;
@@ -422,7 +423,7 @@ async fn restore_child(
             if let Ok(value) = restore_result {
                 outcome.restored = true;
                 if let Some(exec_registry) = registry {
-                    let status = parse_execution_status(&value);
+                    let status = restored_status(&value);
                     register_child(
                         exec_registry,
                         &child.child_id,
@@ -449,19 +450,6 @@ struct ChildRestoreOutcome {
     metadata: Option<CheckpointStorageMetadata>,
     restored: bool,
     failed: bool,
-}
-
-fn parse_execution_status(value: &serde_json::Value) -> Option<ExecutionStatus> {
-    let status = value.get("status")?.as_str()?;
-    Some(match status {
-        "completed" => ExecutionStatus::Completed,
-        "failed" => ExecutionStatus::Failed,
-        "cancelled" => ExecutionStatus::Cancelled,
-        "paused" => ExecutionStatus::Paused,
-        "stopped" => ExecutionStatus::Stopped,
-        "created" => ExecutionStatus::Created,
-        _ => ExecutionStatus::Running,
-    })
 }
 
 fn register_child(
@@ -734,7 +722,7 @@ impl CheckpointCoordinator for AgentCheckpointCoordinator {
                 .and_then(|h| h.parent_execution_id.clone());
             registry.register_with_parent(
                 &entity.agent_loop_id,
-                parse_status(&entity.status),
+                ExecutionStatus::from_wire(&entity.status),
                 parent.as_deref(),
             );
 
@@ -921,18 +909,6 @@ pub struct AgentLoopEntity {
     pub snapshot: AgentStateSnapshot,
     pub restore_summary: Option<RestoreSummary>,
     pub hierarchy_validation: Option<HierarchyValidationResult>,
-}
-
-fn parse_status(status: &str) -> ExecutionStatus {
-    match status {
-        "completed" => ExecutionStatus::Completed,
-        "failed" => ExecutionStatus::Failed,
-        "cancelled" => ExecutionStatus::Cancelled,
-        "paused" => ExecutionStatus::Paused,
-        "stopped" => ExecutionStatus::Stopped,
-        "created" => ExecutionStatus::Created,
-        _ => ExecutionStatus::Running,
-    }
 }
 
 #[cfg(test)]

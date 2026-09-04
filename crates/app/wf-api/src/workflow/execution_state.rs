@@ -1050,31 +1050,16 @@ fn record_variable_map(
 }
 
 /// Parse the persisted string status of an `AgentLoopStorageMetadata` onto
-/// the typed contract, defaulting to `Created` for unknown values.
+/// the typed contract. Delegates to the canonical status parser so that every
+/// known status (including `timeout`) resolves identically across crates;
+/// unknown values resolve to `Running`.
 pub(crate) fn parse_status(status: &str) -> ExecutionStatus {
-    match status {
-        "created" => ExecutionStatus::Created,
-        "running" => ExecutionStatus::Running,
-        "paused" => ExecutionStatus::Paused,
-        "stopped" => ExecutionStatus::Stopped,
-        "completed" => ExecutionStatus::Completed,
-        "failed" => ExecutionStatus::Failed,
-        "cancelled" => ExecutionStatus::Cancelled,
-        _ => ExecutionStatus::Created,
-    }
+    ExecutionStatus::from_wire(status)
 }
 
 /// The serialized status string (serde snake_case form).
 pub(crate) fn status_str(status: &ExecutionStatus) -> &'static str {
-    match status {
-        ExecutionStatus::Created => "created",
-        ExecutionStatus::Running => "running",
-        ExecutionStatus::Paused => "paused",
-        ExecutionStatus::Stopped => "stopped",
-        ExecutionStatus::Completed => "completed",
-        ExecutionStatus::Failed => "failed",
-        ExecutionStatus::Cancelled => "cancelled",
-    }
+    status.as_str()
 }
 
 fn iteration_record_view(record: wf_agent::state::IterationRecord) -> IterationRecordView {

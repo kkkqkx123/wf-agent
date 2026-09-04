@@ -3,27 +3,15 @@ use std::collections::{HashMap, HashSet};
 use wf_llm::ProfileManager;
 use wf_types::workflow_execution::{WorkflowEdge, WorkflowGraphStructure, WorkflowNode};
 
+// Re-export for crate-internal use (e.g. preprocess.rs, node_validation.rs, protocol_consistency.rs)
+pub use wf_types::{ValidationError, ValidationResult};
+
 use crate::analysis::{analyze_graph, analyze_reachability, detect_cycles, get_reachable_nodes};
 use crate::node_validation::validate_node_configs;
 use crate::protocol_consistency::validate_protocol_consistency_with;
 use crate::reference_closure::{ReferenceClosureReport, ReferenceContext};
 
-#[derive(Debug, Clone)]
-pub struct ValidationError {
-    pub field: String,
-    pub message: String,
-}
-
-impl ValidationError {
-    pub fn new(field: impl Into<String>, message: impl Into<String>) -> Self {
-        Self {
-            field: field.into(),
-            message: message.into(),
-        }
-    }
-}
-
-pub type ValidationResult = Result<(), Vec<ValidationError>>;
+pub type WorkflowValidationResult = Result<(), Vec<ValidationError>>;
 
 /// A workflow graph that has passed structural validation.
 ///

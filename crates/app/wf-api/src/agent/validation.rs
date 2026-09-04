@@ -1,6 +1,9 @@
 //! Agent definition validation using the shared [`ValidationContext`].
 
-use crate::infra::validation::{ValidationContext, ValidationError, ValidationResult};
+use wf_types::{
+    validate_hook_type, validate_profile_reference, validate_tool_list, ValidationContext,
+    ValidationError, ValidationResult,
+};
 
 /// Agent-specific validator that uses the shared [`ValidationContext`].
 pub struct AgentValidator<'a> {
@@ -17,9 +20,7 @@ impl<'a> AgentValidator<'a> {
         let mut result = ValidationResult::default();
 
         // 1. Shape validation.
-        if let Err(e) =
-            wf_config::processor::agent_loop::validate_agent_definition(definition)
-        {
+        if let Err(e) = wf_config::processor::agent_loop::validate_agent_definition(definition) {
             result.push_error(ValidationError::new("definition", e.to_string()));
         }
 
@@ -29,19 +30,14 @@ impl<'a> AgentValidator<'a> {
             .as_ref()
             .and_then(|c| c.profile_id.as_ref())
         {
-            if let Some(e) =
-                crate::infra::validation::validate_profile_reference(profile_id, self.ctx)
-            {
+            if let Some(e) = validate_profile_reference(profile_id, self.ctx) {
                 result.push_error(e);
             }
         }
 
         // 3. Tool list validation (using shared validator).
         let tool_names = extract_tool_names(definition);
-        result.extend_errors(crate::infra::validation::validate_tool_list(
-            &tool_names,
-            self.ctx,
-        ));
+        result.extend_errors(validate_tool_list(&tool_names, self.ctx));
 
         // 4. Hook type validation (using shared validator).
         if let Some(config) = &definition.config {
@@ -51,25 +47,44 @@ impl<'a> AgentValidator<'a> {
                         .unwrap_or_default()
                         .trim_matches('"')
                         .to_string();
-                    if let Some(e) =
-                        crate::infra::validation::validate_hook_type(&hook_type_str)
-                    {
+                    if let Some(e) = validate_hook_type(&hook_type_str) {
                         result.push_warning(e);
                     }
                 }
             }
         }
 
-        // 5. Validate with known profiles (existing logic).
-        let known_profiles: std::collections::HashSet<String> =
-            self.ctx.profile_ids.iter().cloned().collect();
-        if let Err(e) =
-            wf_config::processor::agent_loop::validate_agent_definition_with_profiles(
-                definition,
-                &known_profiles,
-            )
-        {
-            result.push_error(ValidationError::new("definition", e.to_string()));
+        // 5. Tool call format protocol compatibility check: agent config
+        // format must be compatible with the referenced profile format.
+        // Uses the shared engine validator so API-time and runtime rules match.
+        if let Some(config) = &definition.config {
+            if let Some(tool_call_format) = config.tool_call_format.as_ref() {
+                if let Some(format_config) =
+                    wf_types::llm::ToolCallFormatConfig::from_format_str(tool_call_format)
+                {
+                    if let Some(profile_id) = config.profile_id.as_ref() {
+                        if let Some(profile_format) = self.ctx.profile_formats.get(profile_id) {
+                            let protocol_result =
+                                wf_agent::validation::AgentLoopValidator::validate_tool_call_protocol(
+                                    Some(&format_config),
+                                    Some(profile_format.clone()),
+                                );
+                            for error in &protocol_result.errors {
+                                result.push_error(ValidationError::new(
+                                    "tool_call_format",
+                                    error.clone(),
+                                ));
+                            }
+                            for warning in &protocol_result.warnings {
+                                result.push_warning(ValidationError::new(
+                                    "tool_call_format",
+                                    warning.clone(),
+                                ));
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         result

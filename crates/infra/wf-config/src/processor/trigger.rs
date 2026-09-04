@@ -69,7 +69,9 @@ pub fn validate_trigger_action(action: &TriggerAction, field_prefix: &str) -> Co
             }
         }
         TriggerAction::ExecuteScript {
-            script_name, timeout, ..
+            script_name,
+            timeout,
+            ..
         } => {
             validate_not_empty(script_name, &format!("{field_prefix}.script_name"))?;
             if let Some(t) = timeout {

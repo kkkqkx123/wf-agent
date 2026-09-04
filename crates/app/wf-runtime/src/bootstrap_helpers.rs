@@ -228,10 +228,10 @@ pub async fn resolve_infra_config(
         .build()
         .assemble(Some(infra.overrides.clone()))
         .map_err(|e| {
-        crate::error::RuntimeError::Config(format!(
-            "Infrastructure config resolution failed (preset `{preset_name}`): {e}"
-        ))
-    })?;
+            crate::error::RuntimeError::Config(format!(
+                "Infrastructure config resolution failed (preset `{preset_name}`): {e}"
+            ))
+        })?;
 
     if config.storage == StorageConfig::default() {
         config.storage = assembled.storage;
@@ -457,10 +457,7 @@ pub async fn init_tool_registry_with_mcp(
         },
     )
     .map_err(|e| {
-        crate::error::RuntimeError::Config(format!(
-            "Failed to register builtin handlers: {}",
-            e
-        ))
+        crate::error::RuntimeError::Config(format!("Failed to register builtin handlers: {}", e))
     })?;
     tool_registry.set_skill_loader(skill_loader);
     if let Some(manager) = mcp_manager {
@@ -515,8 +512,7 @@ pub async fn init_plugins_and_resources(
     match plugin_engine {
         Some(engine) => {
             crate::resource_plugin_adapter::activate_builtin_resource_plugins_via_engine(
-                engine,
-                opts,
+                engine, opts,
             )
             .await?;
         }

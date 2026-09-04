@@ -67,12 +67,13 @@ pub fn apply_plugin_sandbox(lua: &mlua::Lua) -> Result<(), mlua::Error> {
     })?;
     globals.set("print", safe_print)?;
 
-    let safe_require = lua.create_function(|_, module_name: String| -> mlua::Result<mlua::Value> {
-        Err(mlua::Error::RuntimeError(format!(
-            "module '{}' not allowed in plugin sandbox",
-            module_name
-        )))
-    })?;
+    let safe_require =
+        lua.create_function(|_, module_name: String| -> mlua::Result<mlua::Value> {
+            Err(mlua::Error::RuntimeError(format!(
+                "module '{}' not allowed in plugin sandbox",
+                module_name
+            )))
+        })?;
     globals.set("require", safe_require)?;
 
     Ok(())

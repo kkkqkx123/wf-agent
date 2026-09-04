@@ -109,6 +109,27 @@ impl AgentLoopValidator {
             }
         }
 
+        if let Some(token_limit) = config.token_limit {
+            if token_limit == 0 {
+                issues.push(ValidationIssue::warning(
+                    "token_limit",
+                    "token_limit of 0 disables token limit checks",
+                ));
+            }
+        }
+
+        if let Some(token_warning_threshold) = config.token_warning_threshold {
+            if token_warning_threshold > 100 {
+                issues.push(ValidationIssue::error(
+                    "token_warning_threshold",
+                    format!(
+                        "token_warning_threshold must be between 0 and 100, got {}",
+                        token_warning_threshold
+                    ),
+                ));
+            }
+        }
+
         for hook in &config.hooks {
             validate_hook(hook, &mut issues);
         }
@@ -221,6 +242,10 @@ impl AgentLoopValidator {
     }
 }
 
+/// Validates hook configuration. Unknown hook types produce warnings
+/// (not errors) because they represent hooks that will never fire
+/// but won't cause runtime failures. This is intentional for agent
+/// definitions where users may define hooks for future hook types.
 fn validate_hook(hook: &HookConfig, issues: &mut Vec<ValidationIssue>) {
     use wf_execution_shared::hooks::types::is_known_hook_type;
     if !is_known_hook_type(&hook.hook_type) {
@@ -487,5 +512,53 @@ mod tests {
         };
         let issues = validate_tool_call_format_config(&cfg);
         assert_eq!(issues.len(), 1);
+    }
+
+    #[test]
+    fn test_token_limit_zero_warns() {
+        let registry = ToolRegistry::new();
+        let config = AgentLoopConfig {
+            token_limit: Some(0),
+            ..base_config()
+        };
+        let issues = AgentLoopValidator::validate_config(&config, &registry);
+        assert!(issues
+            .iter()
+            .any(|i| i.field == "token_limit" && i.severity == ValidationSeverity::Warning));
+    }
+
+    #[test]
+    fn test_token_limit_positive_accepted() {
+        let registry = ToolRegistry::new();
+        let config = AgentLoopConfig {
+            token_limit: Some(100000),
+            ..base_config()
+        };
+        let issues = AgentLoopValidator::validate_config(&config, &registry);
+        assert!(!issues.iter().any(|i| i.field == "token_limit"));
+    }
+
+    #[test]
+    fn test_token_warning_threshold_exceeds_100_rejected() {
+        let registry = ToolRegistry::new();
+        let config = AgentLoopConfig {
+            token_warning_threshold: Some(150),
+            ..base_config()
+        };
+        let issues = AgentLoopValidator::validate_config(&config, &registry);
+        assert!(issues.iter().any(
+            |i| i.field == "token_warning_threshold" && i.severity == ValidationSeverity::Error
+        ));
+    }
+
+    #[test]
+    fn test_token_warning_threshold_valid_accepted() {
+        let registry = ToolRegistry::new();
+        let config = AgentLoopConfig {
+            token_warning_threshold: Some(80),
+            ..base_config()
+        };
+        let issues = AgentLoopValidator::validate_config(&config, &registry);
+        assert!(!issues.iter().any(|i| i.field == "token_warning_threshold"));
     }
 }

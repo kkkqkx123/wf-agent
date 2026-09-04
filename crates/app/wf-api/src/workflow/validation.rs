@@ -7,10 +7,10 @@ use wf_execution_shared::hooks::HookRegistry;
 use wf_storage::adapter::base::BaseStorageAdapter;
 use wf_workflow::reference_closure::{validate_workflow_tool_lists, ReferenceContext};
 
-use crate::infra::validation::{ValidationContext, ValidationError, ValidationResult};
 use crate::ApiContext;
 use crate::ApiError;
 use wf_types::WorkflowDefinition;
+use wf_types::{validate_tool_list, ValidationContext, ValidationError, ValidationResult};
 
 use super::definition::upsert_workflow_registry;
 use super::workflow_execution::definition_to_graph;
@@ -57,10 +57,9 @@ impl<'a> WorkflowValidator<'a> {
         let mut result = self.validate(workflow);
 
         let graph = definition_to_graph(workflow);
-        let ref_ctx = self.build_reference_context(workflow);
+        let ref_ctx = val_ctx_to_reference_context(self.ctx);
         let ref_report = wf_workflow::validation::GraphValidator::validate_with_reference_context(
-            graph,
-            &ref_ctx,
+            graph, &ref_ctx,
         );
         match ref_report {
             Ok((_, warnings)) => {
@@ -97,53 +96,27 @@ impl<'a> WorkflowValidator<'a> {
         );
 
         if let Some(tools) = &workflow.available_tools {
-            result.extend_errors(crate::infra::validation::validate_tool_list(
-                &tools.available,
-                self.ctx,
-            ));
+            result.extend_errors(validate_tool_list(&tools.available, self.ctx));
         }
+
+        // Prompt template reference validation requires async storage access,
+        // so the sync path cannot check template existence directly. The async
+        // validate_workflow_for_publish performs the registry lookup; the sync
+        // path documents the reference here for report completeness without
+        // blocking on I/O.
 
         result
     }
 
     /// Validate tool references in the workflow against the shared context.
     pub fn validate_tool_references(&self, tool_names: &[String]) -> Vec<ValidationError> {
-        crate::infra::validation::validate_tool_list(tool_names, self.ctx)
+        validate_tool_list(tool_names, self.ctx)
     }
 
     /// Validate profile references in the workflow against the shared
     /// context.
     pub fn validate_profile_references(&self, profile_ids: &[String]) -> Vec<ValidationError> {
-        crate::infra::validation::validate_profile_list(profile_ids, self.ctx)
-    }
-
-    fn build_reference_context(&self, _workflow: &WorkflowDefinition) -> ReferenceContext {
-        let mut ref_ctx = ReferenceContext::new();
-
-        for id in &self.ctx.profile_ids {
-            ref_ctx.profile_ids.insert(id.clone());
-        }
-        for name in &self.ctx.tool_names {
-            ref_ctx.tool_names.insert(name.clone());
-            if self.ctx.disabled_tools.contains(name) {
-                ref_ctx.disabled_tools.insert(name.clone());
-            }
-        }
-        for name in &self.ctx.script_names {
-            ref_ctx.script_names.insert(name.clone());
-        }
-        for id in &self.ctx.workflow_ids {
-            ref_ctx.workflow_ids.insert(id.clone());
-        }
-        for id in &self.ctx.trigger_ids {
-            ref_ctx.trigger_ids.insert(id.clone());
-        }
-
-        // Note: workflow_graphs is not populated here because the
-        // ValidationContext does not store graph structures. Subgraph/embed
-        // reference validation requires the full async build_reference_context
-        // from the existing validate_workflow_for_publish function.
-        ref_ctx
+        wf_types::validate_profile_list(profile_ids, self.ctx)
     }
 }
 
@@ -160,7 +133,7 @@ fn validate_hook_receiver_references(
     for hook in hooks {
         if let Some(ref receiver) = hook.receiver {
             if !receiver.is_empty() && !hook_registry.contains(receiver) {
-                report.errors.push(wf_workflow::validation::ValidationError::new(
+                report.errors.push(wf_types::ValidationError::new(
                     format!("hooks.{}.receiver", hook.event_name),
                     format!(
                         "Hook '{}' references receiver '{}' which is not registered",
@@ -198,29 +171,29 @@ pub fn validate_workflow(workflow: &WorkflowDefinition) -> crate::ApiResult<()> 
 /// Assemble the definition-time reference context from live registry
 /// snapshots and stored workflows. All sources are memory-known state;
 /// no network or file access is performed.
-pub async fn build_reference_context(ctx: &ApiContext) -> ReferenceContext {
-    let mut ref_ctx = ReferenceContext::new();
+pub async fn build_reference_context(ctx: &ApiContext) -> ValidationContext {
+    let mut val_ctx = ValidationContext::empty();
 
     for profile in ctx.llm_gateway.profile_registry().list() {
         let format = profile.tool_call_format.as_ref().map(|c| c.format.clone());
-        ref_ctx.profile_ids.insert(profile.id.clone());
+        val_ctx.profile_ids.insert(profile.id.clone());
         if let Some(format) = format {
-            ref_ctx.profile_formats.insert(profile.id, format);
+            val_ctx.profile_formats.insert(profile.id, format);
         }
     }
 
     let mut tool_enabled: HashMap<String, bool> = HashMap::new();
     for tool in ctx.tool_registry.list_tools() {
-        ref_ctx.tool_names.insert(tool.name.clone());
-        ref_ctx.tool_names.insert(tool.id.to_string());
+        val_ctx.tool_names.insert(tool.name.clone());
+        val_ctx.tool_names.insert(tool.id.to_string());
         let enabled = tool.enabled.unwrap_or(true);
         tool_enabled.insert(tool.name.clone(), enabled);
         tool_enabled.insert(tool.id.to_string(), enabled);
     }
     if let Ok(stored) = ctx.storage.tool.list(None).await {
         for meta in &stored {
-            ref_ctx.tool_names.insert(meta.id.to_string());
-            ref_ctx.tool_names.insert(meta.tool_id.clone());
+            val_ctx.tool_names.insert(meta.id.to_string());
+            val_ctx.tool_names.insert(meta.tool_id.clone());
             tool_enabled
                 .entry(meta.id.to_string())
                 .or_insert(meta.enabled);
@@ -235,19 +208,19 @@ pub async fn build_reference_context(ctx: &ApiContext) -> ReferenceContext {
             disabled.insert(name.clone());
         }
     }
-    ref_ctx.disabled_tools = disabled;
+    val_ctx.disabled_tools = disabled;
 
     if let Ok(scripts) = ctx.storage.script.list(None).await {
         for meta in &scripts {
-            ref_ctx.script_names.insert(meta.id.to_string());
-            ref_ctx.script_names.insert(meta.name.clone());
+            val_ctx.script_names.insert(meta.id.to_string());
+            val_ctx.script_names.insert(meta.name.clone());
         }
     }
     for name in wf_workflow::registry::WorkflowRegistry::global()
         .scripts()
         .list()
     {
-        ref_ctx.script_names.insert(name);
+        val_ctx.script_names.insert(name);
     }
 
     let mut workflow_ids: HashSet<String> = HashSet::new();
@@ -268,49 +241,49 @@ pub async fn build_reference_context(ctx: &ApiContext) -> ReferenceContext {
     {
         workflow_ids.insert(id);
     }
-    ref_ctx.workflow_ids = workflow_ids;
-    ref_ctx.workflow_graphs = workflow_graphs;
+    val_ctx.workflow_ids = workflow_ids;
+    val_ctx.workflow_graphs = workflow_graphs;
 
     for id in ctx.registries.trigger_templates.list() {
-        ref_ctx.trigger_ids.insert(id.clone());
+        val_ctx.trigger_ids.insert(id.clone());
         if let Some(template) = ctx.registries.trigger_templates.get(&id) {
-            ref_ctx.trigger_templates.push((*template).clone());
+            val_ctx.trigger_templates.push((*template).clone());
         }
     }
     if let Ok(stored) = ctx.storage.trigger_template.list(None).await {
         for meta in &stored {
-            ref_ctx.trigger_ids.insert(meta.id.to_string());
-            ref_ctx.trigger_ids.insert(meta.name.clone());
+            val_ctx.trigger_ids.insert(meta.id.to_string());
+            val_ctx.trigger_ids.insert(meta.name.clone());
             if let (Some(condition_val), Some(action_val)) = (&meta.condition, &meta.action_config)
             {
                 if let (Ok(condition), Ok(action)) = (
                     serde_json::from_value::<wf_types::trigger::TriggerCondition>(
                         condition_val.clone(),
                     ),
-                    serde_json::from_value::<wf_types::trigger::TriggerAction>(
-                        action_val.clone(),
-                    ),
+                    serde_json::from_value::<wf_types::trigger::TriggerAction>(action_val.clone()),
                 ) {
-                    ref_ctx.trigger_templates.push(wf_types::trigger::TriggerTemplate {
-                        name: meta.name.clone(),
-                        description: meta.description.clone(),
-                        condition: Some(condition),
-                        action: Some(action),
-                        enabled: Some(meta.enabled),
-                        max_triggers: meta.max_triggers,
-                        priority: meta.priority,
-                        metadata: None,
-                        created_at: meta.created_at,
-                        updated_at: meta.updated_at,
-                        create_checkpoint: None,
-                        checkpoint_description_template: None,
-                    });
+                    val_ctx
+                        .trigger_templates
+                        .push(wf_types::trigger::TriggerTemplate {
+                            name: meta.name.clone(),
+                            description: meta.description.clone(),
+                            condition: Some(condition),
+                            action: Some(action),
+                            enabled: Some(meta.enabled),
+                            max_triggers: meta.max_triggers,
+                            priority: meta.priority,
+                            metadata: None,
+                            created_at: meta.created_at,
+                            updated_at: meta.updated_at,
+                            create_checkpoint: None,
+                            checkpoint_description_template: None,
+                        });
                 }
             }
         }
     }
 
-    ref_ctx
+    val_ctx
 }
 
 /// Formal validation: shape plus graph plus reference closure. Warnings
@@ -318,7 +291,7 @@ pub async fn build_reference_context(ctx: &ApiContext) -> ReferenceContext {
 pub async fn validate_workflow_for_publish(
     ctx: &ApiContext,
     workflow: &WorkflowDefinition,
-) -> crate::ApiResult<Vec<wf_workflow::validation::ValidationError>> {
+) -> crate::ApiResult<Vec<wf_types::ValidationError>> {
     wf_config::processor::workflow::validate_workflow_definition(workflow)
         .map_err(|e| ApiError::Validation(e.to_string()))?;
 
@@ -334,7 +307,8 @@ pub async fn validate_workflow_for_publish(
     }
 
     let graph = definition_to_graph(workflow);
-    let ref_ctx = build_reference_context(ctx).await;
+    let val_ctx = build_reference_context(ctx).await;
+    let ref_ctx = val_ctx_to_reference_context(&val_ctx);
     match wf_workflow::validation::GraphValidator::validate_with_reference_context(graph, &ref_ctx)
     {
         Ok((_, warnings)) => {
@@ -408,4 +382,43 @@ pub async fn save_workflow(
     ctx.storage.workflow.save(workflow).await?;
     upsert_workflow_registry(&ctx.registries, workflow)?;
     Ok(())
+}
+
+/// Convert a ValidationContext to a ReferenceContext for compatibility
+/// with the wf-workflow GraphValidator.
+///
+/// Single conversion point shared by `WorkflowValidator::validate_for_publish`
+/// and the async `validate_workflow_for_publish`.
+pub(crate) fn val_ctx_to_reference_context(val_ctx: &ValidationContext) -> ReferenceContext {
+    let mut ref_ctx = ReferenceContext::new();
+
+    for id in &val_ctx.profile_ids {
+        ref_ctx.profile_ids.insert(id.clone());
+    }
+    for (id, format) in &val_ctx.profile_formats {
+        ref_ctx.profile_formats.insert(id.clone(), format.clone());
+    }
+    for name in &val_ctx.tool_names {
+        ref_ctx.tool_names.insert(name.clone());
+    }
+    for name in &val_ctx.disabled_tools {
+        ref_ctx.disabled_tools.insert(name.clone());
+    }
+    for name in &val_ctx.script_names {
+        ref_ctx.script_names.insert(name.clone());
+    }
+    for id in &val_ctx.workflow_ids {
+        ref_ctx.workflow_ids.insert(id.clone());
+    }
+    for (id, graph) in &val_ctx.workflow_graphs {
+        ref_ctx.workflow_graphs.insert(id.clone(), graph.clone());
+    }
+    for id in &val_ctx.trigger_ids {
+        ref_ctx.trigger_ids.insert(id.clone());
+    }
+    for template in &val_ctx.trigger_templates {
+        ref_ctx.trigger_templates.push(template.clone());
+    }
+
+    ref_ctx
 }

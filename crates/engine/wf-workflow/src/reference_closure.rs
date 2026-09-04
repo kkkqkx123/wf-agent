@@ -4,8 +4,7 @@ use std::str::FromStr;
 use wf_types::llm::ToolCallFormat;
 use wf_types::trigger::TriggerTemplate;
 use wf_types::workflow_execution::{WorkflowGraphStructure, WorkflowNode};
-
-use crate::validation::ValidationError;
+use wf_types::ValidationError;
 
 /// Maximum recursion depth for subgraph reference closure.
 pub const MAX_REFERENCE_DEPTH: usize = 16;
@@ -568,8 +567,7 @@ fn validate_trigger_action_references(
             }
         }
         wf_types::trigger::TriggerAction::ExecuteTriggeredAgentExecution {
-            model: None,
-            ..
+            model: None, ..
         } => {}
         _ => {}
     }
@@ -901,17 +899,16 @@ mod tests {
 
     #[test]
     fn trigger_action_workflow_reference_invalid() {
-        let ctx = ReferenceContext::new()
-            .with_trigger_template(make_trigger_template(
-                "t1",
-                wf_types::trigger::TriggerAction::ExecuteTriggeredSubworkflow {
-                    triggered_workflow_id: "ghost-wf".to_string(),
-                    wait_for_completion: None,
-                    timeout: None,
-                    input_mapping: None,
-                    output_mapping: None,
-                },
-            ));
+        let ctx = ReferenceContext::new().with_trigger_template(make_trigger_template(
+            "t1",
+            wf_types::trigger::TriggerAction::ExecuteTriggeredSubworkflow {
+                triggered_workflow_id: "ghost-wf".to_string(),
+                wait_for_completion: None,
+                timeout: None,
+                input_mapping: None,
+                output_mapping: None,
+            },
+        ));
         let graph = graph_with(vec![]);
         let report = validate_reference_closure(&graph, &ctx);
         assert_eq!(report.errors.len(), 1);
@@ -939,16 +936,15 @@ mod tests {
 
     #[test]
     fn trigger_action_script_reference_invalid() {
-        let ctx = ReferenceContext::new()
-            .with_trigger_template(make_trigger_template(
-                "t1",
-                wf_types::trigger::TriggerAction::ExecuteScript {
-                    script_name: "ghost-script".to_string(),
-                    parameters: None,
-                    timeout: None,
-                    ignore_error: None,
-                },
-            ));
+        let ctx = ReferenceContext::new().with_trigger_template(make_trigger_template(
+            "t1",
+            wf_types::trigger::TriggerAction::ExecuteScript {
+                script_name: "ghost-script".to_string(),
+                parameters: None,
+                timeout: None,
+                ignore_error: None,
+            },
+        ));
         let graph = graph_with(vec![]);
         let report = validate_reference_closure(&graph, &ctx);
         assert_eq!(report.errors.len(), 1);
@@ -980,20 +976,19 @@ mod tests {
 
     #[test]
     fn trigger_action_profile_reference_invalid() {
-        let ctx = ReferenceContext::new()
-            .with_trigger_template(make_trigger_template(
-                "t1",
-                wf_types::trigger::TriggerAction::ExecuteTriggeredAgentExecution {
-                    agent_id: "child-agent".to_string(),
-                    prompt: None,
-                    model: Some("ghost-profile".to_string()),
-                    result_variable: None,
-                    wait_for_completion: None,
-                    timeout: None,
-                    input_mode: None,
-                    writeback: None,
-                },
-            ));
+        let ctx = ReferenceContext::new().with_trigger_template(make_trigger_template(
+            "t1",
+            wf_types::trigger::TriggerAction::ExecuteTriggeredAgentExecution {
+                agent_id: "child-agent".to_string(),
+                prompt: None,
+                model: Some("ghost-profile".to_string()),
+                result_variable: None,
+                wait_for_completion: None,
+                timeout: None,
+                input_mode: None,
+                writeback: None,
+            },
+        ));
         let graph = graph_with(vec![]);
         let report = validate_reference_closure(&graph, &ctx);
         assert_eq!(report.errors.len(), 1);

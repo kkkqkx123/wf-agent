@@ -12,7 +12,9 @@ pub async fn run(cli: &Cli, sub: &ExecutionSub) -> CliResult<()> {
     if let Some(remote) = domain.as_remote() {
         return run_remote(cli, sub, remote.client()).await;
     }
-    let ctx = domain.api_context().expect("embedded mode must have api_context");
+    let ctx = domain
+        .api_context()
+        .expect("embedded mode must have api_context");
 
     let result = match sub {
         ExecutionSub::List {

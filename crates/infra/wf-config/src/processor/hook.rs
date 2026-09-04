@@ -1,16 +1,23 @@
 use crate::error::ConfigResult;
-use crate::validator::{validate_hook_type, validate_min, validate_not_empty};
+use crate::validator::{validate_min, validate_not_empty};
 
-use wf_types::hook::{BaseHookConfig, BaseHookStaticConfig};
+use wf_types::hook::{is_known_hook_type, BaseHookConfig, BaseHookStaticConfig};
 
 /// Validate a `BaseHookConfig` (workflow-level hook).
 ///
 /// Checks:
-/// - `hook_type` is a known hook type
+/// - `hook_type` is a known hook type (unknown types are allowed with a
+///   warning for forward compatibility; they simply never fire)
 /// - `event_name` is non-empty
 /// - `weight` is in a reasonable range (if present)
 pub fn validate_base_hook_config(hook: &BaseHookConfig, field_prefix: &str) -> ConfigResult<()> {
-    validate_hook_type(&hook.hook_type, &format!("{field_prefix}.hook_type"))?;
+    if !is_known_hook_type(&hook.hook_type) {
+        tracing::warn!(
+            "{}.hook_type references unknown hook type '{}'; allowing registration but it will never fire",
+            field_prefix,
+            hook.hook_type
+        );
+    }
     validate_not_empty(&hook.event_name, &format!("{field_prefix}.event_name"))?;
     if let Some(weight) = hook.weight {
         validate_min(weight, 0, &format!("{field_prefix}.weight"))?;
@@ -26,7 +33,13 @@ pub fn validate_base_hook_static_config(
     hook: &BaseHookStaticConfig,
     field_prefix: &str,
 ) -> ConfigResult<()> {
-    validate_hook_type(&hook.hook_type, &format!("{field_prefix}.hook_type"))?;
+    if !is_known_hook_type(&hook.hook_type) {
+        tracing::warn!(
+            "{}.hook_type references unknown hook type '{}'; allowing registration but it will never fire",
+            field_prefix,
+            hook.hook_type
+        );
+    }
     validate_not_empty(&hook.event_name, &format!("{field_prefix}.event_name"))?;
     if let Some(weight) = hook.weight {
         validate_min(weight, 0, &format!("{field_prefix}.weight"))?;
@@ -35,8 +48,9 @@ pub fn validate_base_hook_static_config(
 }
 
 /// Validate an agent-level hook config by serializing the typed
-/// `AgentHookType` to string and delegating to `validate_hook_type`.
+/// `AgentHookType` to string and checking it against the known hook types.
 ///
+/// Unknown hook types are allowed with a warning for forward compatibility.
 /// `event_name` is validated for non-emptiness; `weight` is validated
 /// for range.
 pub fn validate_agent_hook_config(
@@ -47,7 +61,13 @@ pub fn validate_agent_hook_config(
         .ok()
         .and_then(|v| v.as_str().map(ToString::to_string))
         .unwrap_or_default();
-    validate_hook_type(&hook_type_str, &format!("{field_prefix}.hook_type"))?;
+    if !hook_type_str.is_empty() && !is_known_hook_type(&hook_type_str) {
+        tracing::warn!(
+            "{}.hook_type references unknown hook type '{}'; allowing registration but it will never fire",
+            field_prefix,
+            hook_type_str
+        );
+    }
     validate_not_empty(&hook.event_name, &format!("{field_prefix}.event_name"))?;
     if let Some(weight) = hook.weight {
         validate_min(weight, 0, &format!("{field_prefix}.weight"))?;
@@ -93,10 +113,10 @@ mod tests {
     }
 
     #[test]
-    fn base_hook_unknown_type_rejected() {
+    fn base_hook_unknown_type_allowed_with_warning() {
         let mut hook = make_base_hook();
         hook.hook_type = "NOPE".to_string();
-        assert!(validate_base_hook_config(&hook, "hooks[0]").is_err());
+        assert!(validate_base_hook_config(&hook, "hooks[0]").is_ok());
     }
 
     #[test]

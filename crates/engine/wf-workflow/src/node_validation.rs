@@ -1,6 +1,5 @@
 use wf_types::workflow_execution::WorkflowGraphStructure;
-
-use crate::validation::ValidationError;
+use wf_types::ValidationError;
 
 /// Validate the config of each workflow node. Field-level business rules are
 /// owned by the shared `wf-config` node validators (single source of truth,

@@ -84,7 +84,11 @@ pub async fn get_draft(ctx: &ApiContext, id: &str) -> ApiResult<wf_types::Workfl
 }
 
 pub async fn list_drafts(ctx: &ApiContext) -> ApiResult<Vec<wf_types::WorkflowDefinition>> {
-    ctx.storage.workflow_draft.list(None).await.map_err(Into::into)
+    ctx.storage
+        .workflow_draft
+        .list(None)
+        .await
+        .map_err(Into::into)
 }
 
 pub async fn delete_draft(ctx: &ApiContext, id: &str) -> ApiResult<bool> {
@@ -95,8 +99,8 @@ pub async fn delete_draft(ctx: &ApiContext, id: &str) -> ApiResult<bool> {
 /// external references, no persistence, no state change.
 pub async fn validate_draft_internal(
     workflow: &wf_types::WorkflowDefinition,
-) -> crate::infra::validation::ValidationResult {
-    let ctx = crate::infra::validation::ValidationContext::empty();
+) -> wf_types::ValidationResult {
+    let ctx = wf_types::ValidationContext::empty();
     let validator = crate::workflow::validation::WorkflowValidator::new(&ctx);
     validator.validate(workflow)
 }
@@ -106,7 +110,7 @@ pub async fn validate_draft_internal(
 pub async fn validate_draft_complete(
     ctx: &ApiContext,
     id: &str,
-) -> ApiResult<Vec<wf_workflow::validation::ValidationError>> {
+) -> ApiResult<Vec<wf_types::ValidationError>> {
     let draft = get_draft(ctx, id).await?;
     crate::workflow::validation::validate_workflow_for_publish(ctx, &draft)
         .await
@@ -163,7 +167,7 @@ pub async fn promote_all_drafts(
 pub async fn hot_reload_to_draft(
     ctx: &ApiContext,
     workflow: &wf_types::WorkflowDefinition,
-) -> ApiResult<Vec<wf_workflow::validation::ValidationError>> {
+) -> ApiResult<Vec<wf_types::ValidationError>> {
     save_draft(ctx, workflow).await?;
     validate_draft_complete(ctx, &workflow.id.to_string()).await
 }

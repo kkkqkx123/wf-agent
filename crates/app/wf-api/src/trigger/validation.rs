@@ -1,6 +1,6 @@
 //! Trigger template validation using the shared [`ValidationContext`].
 
-use crate::infra::validation::{ValidationContext, ValidationError, ValidationResult};
+use wf_types::{validate_profile_reference, ValidationContext, ValidationError, ValidationResult};
 
 /// Trigger-specific validator that uses the shared [`ValidationContext`].
 pub struct TriggerValidator<'a> {
@@ -48,9 +48,7 @@ impl<'a> TriggerValidator<'a> {
                     ));
                 }
             }
-            TriggerAction::ExecuteScript {
-                script_name, ..
-            } => {
+            TriggerAction::ExecuteScript { script_name, .. } => {
                 if !self.ctx.script_names.contains(script_name) {
                     errors.push(ValidationError::new(
                         "script_name",
@@ -59,14 +57,26 @@ impl<'a> TriggerValidator<'a> {
                 }
             }
             TriggerAction::ExecuteTriggeredAgentExecution {
-                model: Some(profile),
-                ..
+                agent_id, model, ..
             } => {
-                if let Some(e) = crate::infra::validation::validate_profile_reference(
-                    profile,
-                    self.ctx,
-                ) {
-                    errors.push(e);
+                if agent_id.trim().is_empty() {
+                    errors.push(ValidationError::new(
+                        "agent_id",
+                        "Agent id must not be empty for ExecuteTriggeredAgentExecution",
+                    ));
+                }
+                // When an agent registry is added to ValidationContext,
+                // validate agent_id existence here:
+                // if !self.ctx.agent_ids.contains(agent_id) {
+                //     errors.push(ValidationError::new(
+                //         "agent_id",
+                //         format!("Agent '{}' not registered", agent_id),
+                //     ));
+                // }
+                if let Some(profile) = model {
+                    if let Some(e) = validate_profile_reference(profile, self.ctx) {
+                        errors.push(e);
+                    }
                 }
             }
             _ => {}

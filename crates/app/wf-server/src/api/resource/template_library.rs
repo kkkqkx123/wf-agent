@@ -143,19 +143,14 @@ async fn handle_clone_template(
     Json(body): Json<CloneTemplateBody>,
 ) -> impl IntoResponse {
     let new_name = body.new_name.unwrap_or_default();
-    let result: Result<serde_json::Value, wf_api::ApiError> =
-        if body.kind == "agent" {
-            wf_api::template::template_library::clone_agent_template(
-                &state.ctx, &path.id, &new_name,
-            )
+    let result: Result<serde_json::Value, wf_api::ApiError> = if body.kind == "agent" {
+        wf_api::template::template_library::clone_agent_template(&state.ctx, &path.id, &new_name)
             .await
             .map(|t| serde_json::to_value(&t).unwrap_or_default())
-        } else {
-            wf_api::template::template_library::clone_workflow_template(
-                &state.ctx, &path.id, &new_name,
-            )
+    } else {
+        wf_api::template::template_library::clone_workflow_template(&state.ctx, &path.id, &new_name)
             .map(|t| serde_json::to_value(&t).unwrap_or_default())
-        };
+    };
     match result {
         Ok(template) => ok(template).into_response(),
         Err(e) => error_response(e),

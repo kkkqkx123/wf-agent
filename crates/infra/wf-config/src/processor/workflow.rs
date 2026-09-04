@@ -1,9 +1,7 @@
-use std::collections::{HashMap, HashSet};
-
 use crate::error::{ConfigError, ConfigResult};
 use crate::processor::hook::validate_base_hook_config;
-use crate::processor::node_config;
-use crate::validator::{validate_min, validate_no_intersection, validate_required};
+use crate::processor::tool_list::validate_available_tools;
+use crate::validator::{validate_min, validate_required};
 
 use wf_types::node::r#static::{BaseStaticNode, StaticNodeType};
 use wf_types::workflow::definition::{WorkflowDefinition, WorkflowDefinitionType};
@@ -19,8 +17,6 @@ pub fn validate_workflow_definition(definition: &WorkflowDefinition) -> ConfigRe
         ));
     }
 
-    let node_ids: HashSet<&str> = definition.nodes.iter().map(|n| n.id.as_str()).collect();
-
     for node in &definition.nodes {
         validate_required(&node.id, "node.id")?;
     }
@@ -32,23 +28,13 @@ pub fn validate_workflow_definition(definition: &WorkflowDefinition) -> ConfigRe
         if let Some(weight) = edge.weight {
             validate_min(weight, 1, "edge.weight")?;
         }
-        if !node_ids.contains(edge.source_node_id.as_str()) {
-            return Err(ConfigError::Validation(format!(
-                "edge '{edge_id}' references unknown source node '{source}'",
-                edge_id = edge.id,
-                source = edge.source_node_id
-            )));
-        }
-        if !node_ids.contains(edge.target_node_id.as_str()) {
-            return Err(ConfigError::Validation(format!(
-                "edge '{edge_id}' references unknown target node '{target}'",
-                edge_id = edge.id,
-                target = edge.target_node_id
-            )));
-        }
+        // Edge source/target existence is validated by GraphValidator in the
+        // engine layer (single source of truth for graph semantics).
     }
 
-    validate_workflow_cycle(definition)?;
+    // Cycle detection is performed by GraphValidator in the engine layer
+    // (which correctly excludes legal LOOP_END -> LOOP_START control edges).
+    // Removed here to avoid redundant work and divergent semantics.
 
     if let Some(r#type) = definition.r#type.as_ref() {
         if *r#type == WorkflowDefinitionType::TriggeredSubworkflow
@@ -63,6 +49,8 @@ pub fn validate_workflow_definition(definition: &WorkflowDefinition) -> ConfigRe
 
     if let Some(hooks) = definition.hooks.as_ref() {
         for (idx, hook) in hooks.iter().enumerate() {
+            // Unknown hook types produce warnings, not errors, to allow
+            // forward-compatible definitions (see validate_base_hook_config).
             validate_base_hook_config(hook, &format!("definition.hooks[{idx}]"))?;
         }
     }
@@ -81,22 +69,9 @@ pub fn validate_workflow_definition(definition: &WorkflowDefinition) -> ConfigRe
 
     validate_workflow_available_tools_intersection(definition)?;
 
-    let mut issues = Vec::new();
-    for node in &definition.nodes {
-        issues.extend(node_config::validate_node_config(
-            &node_type_name(&node.node_type),
-            &node.id,
-            node.config.as_ref(),
-        ));
-    }
-    if !issues.is_empty() {
-        let details = issues
-            .iter()
-            .map(|i| format!("{}: {}", i.field, i.message))
-            .collect::<Vec<_>>()
-            .join("; ");
-        return Err(ConfigError::Validation(details));
-    }
+    // Node config validation is performed by GraphValidator in the engine
+    // layer via the shared node_config validators. Removed here to avoid
+    // redundant work.
 
     Ok(())
 }
@@ -131,116 +106,15 @@ pub fn validate_workflow_config(config: &wf_types::workflow::WorkflowConfig) -> 
     Ok(())
 }
 
-fn validate_workflow_cycle(definition: &WorkflowDefinition) -> ConfigResult<()> {
-    let mut adj: HashMap<&str, Vec<&str>> = HashMap::new();
-    for node in &definition.nodes {
-        adj.entry(node.id.as_str()).or_default();
-    }
-    for edge in &definition.edges {
-        adj.entry(edge.source_node_id.as_str())
-            .or_default()
-            .push(edge.target_node_id.as_str());
-    }
-
-    #[derive(Clone, Copy, PartialEq)]
-    enum Color {
-        White,
-        Gray,
-        Black,
-    }
-
-    let mut color: HashMap<&str, Color> = HashMap::new();
-    for node_id in adj.keys() {
-        color.insert(node_id, Color::White);
-    }
-
-    fn detect_cycle<'a>(
-        node: &'a str,
-        adj: &HashMap<&'a str, Vec<&'a str>>,
-        color: &mut HashMap<&'a str, Color>,
-    ) -> Result<(), &'a str> {
-        color.insert(node, Color::Gray);
-        if let Some(neighbors) = adj.get(node) {
-            for &next in neighbors {
-                match color.get(next) {
-                    Some(Color::Gray) => return Err(next),
-                    Some(Color::White) => detect_cycle(next, adj, color)?,
-                    _ => {}
-                }
-            }
-        }
-        color.insert(node, Color::Black);
-        Ok(())
-    }
-
-    let node_ids: Vec<String> = definition.nodes.iter().map(|n| n.id.clone()).collect();
-    for node_id in &node_ids {
-        if color.get(node_id.as_str()) == Some(&Color::White) {
-            if let Err(cycle_node) = detect_cycle(node_id, &adj, &mut color) {
-                return Err(ConfigError::Validation(format!(
-                    "workflow contains a cycle involving node '{cycle_node}'"
-                )));
-            }
-        }
-    }
-    Ok(())
-}
-
 fn validate_workflow_available_tools_intersection(
     definition: &WorkflowDefinition,
 ) -> ConfigResult<()> {
     if let Some(ref tools) = definition.available_tools {
-        if let Some(ref hidden) = tools.hidden {
-            validate_no_intersection(
-                &tools.available,
-                hidden,
-                "definition.available_tools.available",
-                "definition.available_tools.hidden",
-            )?;
-        }
-        if let Some(ref discoverable) = tools.discoverable {
-            validate_no_intersection(
-                &tools.available,
-                discoverable,
-                "definition.available_tools.available",
-                "definition.available_tools.discoverable",
-            )?;
-            if let Some(ref hidden) = tools.hidden {
-                validate_no_intersection(
-                    discoverable,
-                    hidden,
-                    "definition.available_tools.discoverable",
-                    "definition.available_tools.hidden",
-                )?;
-            }
-        }
+        validate_available_tools(tools, "definition.available_tools")?;
     }
     if let Some(ref config) = definition.config {
         if let Some(ref tools) = config.available_tools {
-            if let Some(ref hidden) = tools.hidden {
-                validate_no_intersection(
-                    &tools.available,
-                    hidden,
-                    "config.available_tools.available",
-                    "config.available_tools.hidden",
-                )?;
-            }
-            if let Some(ref discoverable) = tools.discoverable {
-                validate_no_intersection(
-                    &tools.available,
-                    discoverable,
-                    "config.available_tools.available",
-                    "config.available_tools.discoverable",
-                )?;
-                if let Some(ref hidden) = tools.hidden {
-                    validate_no_intersection(
-                        discoverable,
-                        hidden,
-                        "config.available_tools.discoverable",
-                        "config.available_tools.hidden",
-                    )?;
-                }
-            }
+            validate_available_tools(tools, "config.available_tools")?;
         }
     }
     Ok(())
@@ -293,33 +167,6 @@ fn validate_workflow_variables(
         }
     }
     Ok(())
-}
-
-fn node_type_name(node_type: &StaticNodeType) -> String {
-    match node_type {
-        StaticNodeType::Start => "START".to_string(),
-        StaticNodeType::End => "END".to_string(),
-        StaticNodeType::EmbedStart => "EMBED_START".to_string(),
-        StaticNodeType::EmbedEnd => "EMBED_END".to_string(),
-        StaticNodeType::Variable => "VARIABLE".to_string(),
-        StaticNodeType::Fork => "FORK".to_string(),
-        StaticNodeType::Join => "JOIN".to_string(),
-        StaticNodeType::Sync => "SYNC".to_string(),
-        StaticNodeType::Subgraph => "SUBGRAPH".to_string(),
-        StaticNodeType::EmbedGraph => "EMBED_GRAPH".to_string(),
-        StaticNodeType::Script => "SCRIPT".to_string(),
-        StaticNodeType::InteractiveScript => "INTERACTIVE_SCRIPT".to_string(),
-        StaticNodeType::Llm => "LLM".to_string(),
-        StaticNodeType::ToolVisibility => "TOOL_VISIBILITY".to_string(),
-        StaticNodeType::UserInteraction => "USER_INTERACTION".to_string(),
-        StaticNodeType::Route => "ROUTE".to_string(),
-        StaticNodeType::ContextProcessor => "CONTEXT_PROCESSOR".to_string(),
-        StaticNodeType::LoopStart => "LOOP_START".to_string(),
-        StaticNodeType::LoopEnd => "LOOP_END".to_string(),
-        StaticNodeType::AgentLoop => "AGENT_LOOP".to_string(),
-        StaticNodeType::StartFromMessage => "START_FROM_MESSAGE".to_string(),
-        StaticNodeType::ContinueFromMessage => "CONTINUE_FROM_MESSAGE".to_string(),
-    }
 }
 
 pub fn transform_nodes(nodes: &[WorkflowNodeConfig]) -> ConfigResult<Vec<BaseStaticNode>> {
@@ -487,7 +334,7 @@ mod tests {
     }
 
     #[test]
-    fn test_unknown_hook_type_rejected() {
+    fn test_unknown_hook_type_allowed_with_warning() {
         let mut wf = make_workflow();
         wf.hooks = Some(vec![wf_types::hook::BaseHookConfig {
             hook_type: "BEFORE_ECECUTE".to_string(),
@@ -500,7 +347,7 @@ mod tests {
             checkpoint_description: None,
             receiver: None,
         }]);
-        assert!(validate_workflow_definition(&wf).is_err());
+        assert!(validate_workflow_definition(&wf).is_ok());
     }
 
     #[test]
@@ -748,18 +595,20 @@ mod tests {
     #[test]
     fn test_triggered_subworkflow_config_validation() {
         let mut wf = make_workflow();
-        wf.triggered_subworkflow_config = Some(wf_types::workflow::definition::TriggeredSubworkflowConfig {
-            enable_checkpoints: None,
-            timeout: Some(0),
-            max_retries: None,
-        });
+        wf.triggered_subworkflow_config =
+            Some(wf_types::workflow::definition::TriggeredSubworkflowConfig {
+                enable_checkpoints: None,
+                timeout: Some(0),
+                max_retries: None,
+            });
         assert!(validate_workflow_definition(&wf).is_err());
 
-        wf.triggered_subworkflow_config = Some(wf_types::workflow::definition::TriggeredSubworkflowConfig {
-            enable_checkpoints: None,
-            timeout: Some(5000),
-            max_retries: Some(3),
-        });
+        wf.triggered_subworkflow_config =
+            Some(wf_types::workflow::definition::TriggeredSubworkflowConfig {
+                enable_checkpoints: None,
+                timeout: Some(5000),
+                max_retries: Some(3),
+            });
         assert!(validate_workflow_definition(&wf).is_ok());
     }
 
@@ -826,7 +675,7 @@ mod tests {
     }
 
     #[test]
-    fn test_edge_references_unknown_source_node() {
+    fn test_edge_references_unknown_source_node_deferred_to_engine() {
         let mut wf = make_workflow();
         wf.edges = vec![wf_types::workflow::edge::Edge {
             id: "e1".to_string(),
@@ -839,12 +688,12 @@ mod tests {
             weight: None,
             metadata: None,
         }];
-        let err = validate_workflow_definition(&wf).unwrap_err();
-        assert!(err.to_string().contains("unknown source node"));
+        // Edge existence is owned by GraphValidator; config layer only checks shape.
+        assert!(validate_workflow_definition(&wf).is_ok());
     }
 
     #[test]
-    fn test_edge_references_unknown_target_node() {
+    fn test_edge_references_unknown_target_node_deferred_to_engine() {
         let mut wf = make_workflow();
         wf.edges = vec![wf_types::workflow::edge::Edge {
             id: "e1".to_string(),
@@ -857,8 +706,8 @@ mod tests {
             weight: None,
             metadata: None,
         }];
-        let err = validate_workflow_definition(&wf).unwrap_err();
-        assert!(err.to_string().contains("unknown target node"));
+        // Edge existence is owned by GraphValidator; config layer only checks shape.
+        assert!(validate_workflow_definition(&wf).is_ok());
     }
 
     #[test]
@@ -887,7 +736,7 @@ mod tests {
     }
 
     #[test]
-    fn test_cycle_detection_rejects_self_loop() {
+    fn test_cycle_detection_deferred_to_engine_self_loop() {
         let mut wf = make_workflow();
         wf.edges = vec![wf_types::workflow::edge::Edge {
             id: "e1".to_string(),
@@ -900,12 +749,12 @@ mod tests {
             weight: None,
             metadata: None,
         }];
-        let err = validate_workflow_definition(&wf).unwrap_err();
-        assert!(err.to_string().contains("cycle"));
+        // Cycle detection is owned by GraphValidator; config layer allows it.
+        assert!(validate_workflow_definition(&wf).is_ok());
     }
 
     #[test]
-    fn test_cycle_detection_rejects_two_node_cycle() {
+    fn test_cycle_detection_deferred_to_engine_two_node_cycle() {
         let mut wf = make_workflow();
         wf.nodes.push(BaseStaticNode {
             id: "node-2".to_string(),
@@ -939,8 +788,8 @@ mod tests {
                 metadata: None,
             },
         ];
-        let err = validate_workflow_definition(&wf).unwrap_err();
-        assert!(err.to_string().contains("cycle"));
+        // Cycle detection is owned by GraphValidator; config layer allows it.
+        assert!(validate_workflow_definition(&wf).is_ok());
     }
 
     #[test]
@@ -995,18 +844,21 @@ mod tests {
         wf.r#type = Some(WorkflowDefinitionType::TriggeredSubworkflow);
         wf.triggered_subworkflow_config = None;
         let err = validate_workflow_definition(&wf).unwrap_err();
-        assert!(err.to_string().contains("triggered_subworkflow_config is missing"));
+        assert!(err
+            .to_string()
+            .contains("triggered_subworkflow_config is missing"));
     }
 
     #[test]
     fn test_triggered_subworkflow_type_with_config_accepted() {
         let mut wf = make_workflow();
         wf.r#type = Some(WorkflowDefinitionType::TriggeredSubworkflow);
-        wf.triggered_subworkflow_config = Some(wf_types::workflow::definition::TriggeredSubworkflowConfig {
-            enable_checkpoints: None,
-            timeout: None,
-            max_retries: None,
-        });
+        wf.triggered_subworkflow_config =
+            Some(wf_types::workflow::definition::TriggeredSubworkflowConfig {
+                enable_checkpoints: None,
+                timeout: None,
+                max_retries: None,
+            });
         assert!(validate_workflow_definition(&wf).is_ok());
     }
 

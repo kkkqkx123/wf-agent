@@ -124,7 +124,7 @@ pub fn validate_agent_definition(
     ctx: &ApiContext,
     definition: &wf_types::agent::AgentDefinition,
 ) -> crate::ApiResult<Vec<String>> {
-    let val_ctx = crate::infra::validation::ValidationContext::empty();
+    let val_ctx = wf_types::ValidationContext::empty();
     let validator = super::validation::AgentValidator::new(&val_ctx);
     let result = validator.validate(definition);
 

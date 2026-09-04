@@ -1,8 +1,8 @@
 use serde_json::Value;
 
 use super::common::{
-    field_not_in, field_path, is_valid_identifier, require_string, validate_embedded_variable_paths,
-    NodeConfigIssue,
+    field_not_in, field_path, is_valid_identifier, require_string,
+    validate_embedded_variable_paths, NodeConfigIssue,
 };
 
 pub(crate) fn validate_variable_node(

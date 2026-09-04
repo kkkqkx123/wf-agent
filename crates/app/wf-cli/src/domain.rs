@@ -35,7 +35,9 @@ impl DomainHandle {
         if let Some(client) = crate::remote::RemoteClient::from_cli(cli) {
             return Ok(Self::Remote(RemoteDomain::new(client)));
         }
-        Ok(Self::Embedded(Box::new(DomainAdapter::bootstrap_for_cli(cli, cli_mode).await?)))
+        Ok(Self::Embedded(Box::new(
+            DomainAdapter::bootstrap_for_cli(cli, cli_mode).await?,
+        )))
     }
 
     pub fn api_context(&self) -> Option<&ApiContext> {

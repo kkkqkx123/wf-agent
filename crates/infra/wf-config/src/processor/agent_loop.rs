@@ -3,7 +3,8 @@ use std::str::FromStr;
 
 use crate::error::{ConfigError, ConfigResult};
 use crate::processor::hook::validate_agent_hook_config;
-use crate::validator::{validate_min, validate_no_intersection, validate_required};
+use crate::processor::tool_list::validate_available_tools;
+use crate::validator::{validate_min, validate_required};
 
 use wf_types::agent::definition::AgentDefinition;
 use wf_types::agent_execution::runtime_config::AgentRuntimeConfig;
@@ -49,7 +50,12 @@ pub fn validate_agent_definition(definition: &AgentDefinition) -> ConfigResult<(
             validate_min(max_pause_duration, 0, "config.max_pause_duration")?;
         }
         if let Some(token_limit) = config.token_limit {
-            validate_min(token_limit, 1, "config.token_limit")?;
+            // token_limit=0 is allowed to disable the limit, matching the
+            // runtime semantics in wf-agent AgentLoopValidator (warns but
+            // allows). Only positive values need the minimum check.
+            if token_limit != 0 {
+                validate_min(token_limit, 1, "config.token_limit")?;
+            }
         }
         validate_available_tools_intersection(config)?;
         if let Some(ref checkpoint) = config.checkpoint {
@@ -62,20 +68,13 @@ pub fn validate_agent_definition(definition: &AgentDefinition) -> ConfigResult<(
     Ok(())
 }
 
-fn validate_available_tools_intersection(config: &wf_types::agent::config::AgentConfig) -> ConfigResult<()> {
+fn validate_available_tools_intersection(
+    config: &wf_types::agent::config::AgentConfig,
+) -> ConfigResult<()> {
     let Some(tools) = config.available_tools.as_ref() else {
         return Ok(());
     };
-    if let Some(ref hidden) = tools.hidden {
-        validate_no_intersection(&tools.available, hidden, "config.available_tools.available", "config.available_tools.hidden")?;
-    }
-    if let Some(ref discoverable) = tools.discoverable {
-        validate_no_intersection(&tools.available, discoverable, "config.available_tools.available", "config.available_tools.discoverable")?;
-        if let Some(ref hidden) = tools.hidden {
-            validate_no_intersection(discoverable, hidden, "config.available_tools.discoverable", "config.available_tools.hidden")?;
-        }
-    }
-    Ok(())
+    validate_available_tools(tools, "config.available_tools")
 }
 
 fn validate_agent_checkpoint_config(
@@ -403,13 +402,13 @@ mod tests {
     }
 
     #[test]
-    fn test_token_limit_zero_rejected() {
+    fn test_token_limit_zero_accepted_disables_limit() {
         let mut def = make_definition();
         def.config = Some(wf_types::agent::config::AgentConfig {
             token_limit: Some(0),
             ..make_config()
         });
-        assert!(validate_agent_definition(&def).is_err());
+        assert!(validate_agent_definition(&def).is_ok());
     }
 
     #[test]

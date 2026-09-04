@@ -47,11 +47,7 @@ pub async fn get_draft(ctx: &ApiContext, id: &str) -> ApiResult<wf_types::agent:
 }
 
 pub async fn list_drafts(ctx: &ApiContext) -> ApiResult<Vec<wf_types::agent::AgentDefinition>> {
-    ctx.storage
-        .agent_draft
-        .list(None)
-        .await
-        .map_err(Into::into)
+    ctx.storage.agent_draft.list(None).await.map_err(Into::into)
 }
 
 pub async fn delete_draft(ctx: &ApiContext, id: &str) -> ApiResult<bool> {

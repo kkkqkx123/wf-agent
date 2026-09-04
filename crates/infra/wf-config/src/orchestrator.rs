@@ -21,14 +21,12 @@ use crate::orchestrator_loader::{load_domain_config, normalize_camel_case, resol
 use crate::processor::file_checkpoint::merge_file_checkpoint_with_defaults;
 use crate::processor::infrastructure::{
     get_metrics_environment_defaults, get_output_environment_defaults,
-    get_storage_environment_defaults, get_timeout_environment_defaults, merge_metrics_with_defaults,
-    merge_output_with_defaults, merge_storage_with_defaults, merge_timeout_with_defaults,
-    RuntimeEnvironment,
+    get_storage_environment_defaults, get_timeout_environment_defaults,
+    merge_metrics_with_defaults, merge_output_with_defaults, merge_storage_with_defaults,
+    merge_timeout_with_defaults, RuntimeEnvironment,
 };
 use crate::processor::limits::{merge_limits_with_defaults, validate_limits_config};
-use crate::processor::presets::{
-    get_presets_environment_defaults, transform_presets_config,
-};
+use crate::processor::presets::{get_presets_environment_defaults, transform_presets_config};
 use crate::processor::sandbox_global::validate_sandbox_global;
 use crate::processor::tools::{
     transform_glob_config, transform_list_files_config, transform_read_file_config, GlobConfig,
@@ -251,7 +249,8 @@ impl ConfigOrchestratorLoaded {
             self.preset_name.as_deref(),
             self.default_paths,
         );
-        let mut config = Self::load_infrastructure_configs(&self.infra_dir, &files, self.runtime_env)?;
+        let mut config =
+            Self::load_infrastructure_configs(&self.infra_dir, &files, self.runtime_env)?;
         Self::apply_env_overrides(&mut config)?;
         if let Some(o) = overrides {
             Self::apply_overrides(&mut config, o)?;

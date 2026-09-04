@@ -132,10 +132,7 @@ pub fn list_agent_templates(ctx: &ApiContext) -> ApiResult<Vec<AgentTemplate>> {
     Ok(templates)
 }
 
-pub async fn register_agent_template(
-    ctx: &ApiContext,
-    template: &AgentTemplate,
-) -> ApiResult<()> {
+pub async fn register_agent_template(ctx: &ApiContext, template: &AgentTemplate) -> ApiResult<()> {
     let registries = &ctx.registries;
     if registries.agent_templates.has(&template.id) {
         return Err(ApiError::already_exists(
@@ -150,7 +147,10 @@ pub async fn register_agent_template(
         .map_err(crate::ApiError::from)?;
     registries
         .agent_templates
-        .register(template.id.to_string(), std::sync::Arc::new(template.clone()))
+        .register(
+            template.id.to_string(),
+            std::sync::Arc::new(template.clone()),
+        )
         .map_err(|e| ApiError::Conflict(e.to_string()))?;
     Ok(())
 }
@@ -530,7 +530,9 @@ mod tests {
         assert_eq!(cloned.name, "My Clone");
         assert!(ctx.registries.workflows.has(&cloned.id));
 
-        let cloned_agent = clone_agent_template(&ctx, "agent-a", "Agent Clone").await.unwrap();
+        let cloned_agent = clone_agent_template(&ctx, "agent-a", "Agent Clone")
+            .await
+            .unwrap();
         assert!(ctx.registries.agent_templates.has(&cloned_agent.id));
 
         let err = get_workflow_template(&ctx, "missing").unwrap_err();

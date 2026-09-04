@@ -96,7 +96,8 @@ pub async fn resolve_graph(
         .await?
         .ok_or_else(|| not_found("workflow", workflow_id))?;
     let graph = definition_to_graph(&definition);
-    let ref_ctx = crate::workflow::validation::build_reference_context(ctx).await;
+    let val_ctx = crate::workflow::validation::build_reference_context(ctx).await;
+    let ref_ctx = crate::workflow::validation::val_ctx_to_reference_context(&val_ctx);
     let (validated, warnings) = GraphValidator::validate_with_reference_context(graph, &ref_ctx)
         .map_err(|errors| {
             let detail = errors

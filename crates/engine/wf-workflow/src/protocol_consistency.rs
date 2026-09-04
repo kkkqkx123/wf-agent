@@ -4,8 +4,7 @@ use std::str::FromStr;
 use wf_llm::ProfileManager;
 use wf_types::llm::ToolCallFormat;
 use wf_types::workflow_execution::WorkflowGraphStructure;
-
-use crate::validation::ValidationError;
+use wf_types::ValidationError;
 
 /// Extract the explicit tool call format from a node config:
 /// - LLM nodes: top-level `tool_call_format` string

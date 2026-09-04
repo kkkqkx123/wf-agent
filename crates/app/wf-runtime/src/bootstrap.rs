@@ -8,7 +8,6 @@ use std::sync::Arc;
 use tracing::{info, warn};
 use wf_workflow::trigger_listener::TriggerEventListener;
 
-
 use wf_core::event::EventBus;
 use wf_core::internal_signal::InternalSignalBus;
 use wf_core::registry::{MutableRegistry, Registry};
@@ -39,9 +38,8 @@ pub use bootstrap_helpers::activate_builtin_resource_plugins_legacy;
 pub use bootstrap_helpers::init_plugins;
 pub use bootstrap_helpers::{
     adjust_log_config, hydrate_tool_registry_from_storage, init_checkpoint_store,
-    init_event_persistence, init_llm_gateway, init_metrics_context, init_mcp,
-    init_plugins_and_resources, init_tool_registry_with_mcp, resolve_infra_config,
-    storage_db_path,
+    init_event_persistence, init_llm_gateway, init_mcp, init_metrics_context,
+    init_plugins_and_resources, init_tool_registry_with_mcp, resolve_infra_config, storage_db_path,
 };
 #[cfg(feature = "checkpoint")]
 pub use bootstrap_helpers::{
@@ -338,7 +336,10 @@ impl Runtime {
                     }
                 }
                 if restored > 0 {
-                    info!("Restored {} persisted agent template(s) from storage", restored);
+                    info!(
+                        "Restored {} persisted agent template(s) from storage",
+                        restored
+                    );
                 }
             }
         }

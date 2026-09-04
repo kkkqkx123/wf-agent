@@ -193,8 +193,8 @@ impl TriggerTemplateBuilder {
     /// profile existence).
     pub fn build_with_validation(
         self,
-        val_ctx: &crate::infra::validation::ValidationContext,
-    ) -> crate::ApiResult<(TriggerTemplate, crate::infra::validation::ValidationResult)> {
+        val_ctx: &wf_types::ValidationContext,
+    ) -> crate::ApiResult<(TriggerTemplate, wf_types::ValidationResult)> {
         let template = self.build()?;
         let validator = crate::trigger::validation::TriggerValidator::new(val_ctx);
         let result = validator.validate(&template);

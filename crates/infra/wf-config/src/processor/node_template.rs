@@ -24,10 +24,7 @@ pub fn validate_node_template(template: &NodeTemplate) -> ConfigResult<()> {
     Ok(())
 }
 
-fn validate_node_default_config(
-    node_type: &str,
-    config: &serde_json::Value,
-) -> ConfigResult<()> {
+fn validate_node_default_config(node_type: &str, config: &serde_json::Value) -> ConfigResult<()> {
     let issues = crate::processor::node_config::validate_node_config(
         node_type,
         "default_config",

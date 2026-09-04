@@ -134,6 +134,12 @@ impl AgentExecutionCoordinator {
             if let Some(receiver) = guard.as_mut() {
                 self.drain_internal_signals(entity, receiver).await;
             }
+            // Snapshot the paused state before the loop suspends, so the
+            // pause is recoverable from storage after a crash. No-op unless
+            // the entity is actually paused.
+            if let Some(ref cp) = self.checkpoint {
+                cp.on_pause(entity).await;
+            }
             // Suspension gate: a paused loop waits here for resume; a forced
             // stop (wall-clock / pause timeout / explicit stop) exits below.
             execution_loop::wait_for_resume(entity.interruption()).await;
@@ -209,13 +215,10 @@ impl AgentExecutionCoordinator {
             tool_call_count: 0,
         };
 
-        if let Some(ref cp) = self.checkpoint {
-            cp.create_checkpoint(entity, CheckpointTiming::OnComplete)
-                .await
-                .unwrap_or_else(|e| {
-                    tracing::warn!("Failed to create agent completion checkpoint: {}", e);
-                });
-        }
+        // No completion checkpoint here: the terminal status is only settled
+        // after this returns, so the `OnComplete` checkpoint is taken by the
+        // outer lifecycle once `Completed` is applied and the snapshot can
+        // actually record it.
 
         // File-checkpoint approval policy at loop end (auto merge / submit
         // to the approval layer).

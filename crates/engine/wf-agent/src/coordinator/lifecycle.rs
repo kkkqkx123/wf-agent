@@ -10,7 +10,7 @@ use wf_core::internal_signal::InternalSignalBus;
 use wf_execution_shared::execution_state::ExecutionStateManager;
 use wf_execution_shared::hooks::types::BaseHookDefinition;
 use wf_execution_shared::hooks::HookRegistry;
-use wf_execution_shared::types::execution_entity::ExecutionEntity;
+use wf_execution_shared::types::execution_entity::{ExecutionEntity, ExecutionStatus};
 use wf_execution_shared::types::state_manager::StateManager;
 use wf_llm::messaging::conversation_session::ConversationSession;
 use wf_llm::LlmGateway;
@@ -428,6 +428,10 @@ impl AgentLoopCoordinator {
         .await;
 
         let checkpoint = self.build_checkpoint_integration();
+        // A second handle kept for the outcome checkpoints: the first one is
+        // moved into the execution coordinator that drives the iteration
+        // loop, and the terminal status only settles after it returns.
+        let outcome_checkpoint = self.build_checkpoint_integration();
         if let Some(ref cp) = checkpoint {
             cp.create_checkpoint(&entity, CheckpointTiming::Manual)
                 .await
@@ -507,6 +511,20 @@ impl AgentLoopCoordinator {
                         self.event_bus.as_deref(),
                     )
                     .await?;
+                    // Snapshot the settled `Completed` status. The loop-end
+                    // boundary inside the execution coordinator runs before
+                    // the status settles, so this is the record that actually
+                    // carries the completed state.
+                    if let Some(ref cp) = outcome_checkpoint {
+                        cp.create_checkpoint(&entity, CheckpointTiming::OnComplete)
+                            .await
+                            .unwrap_or_else(|e| {
+                                tracing::warn!(
+                                    "Failed to create agent completion checkpoint: {}",
+                                    e
+                                );
+                            });
+                    }
                 }
                 if let Some(ref metrics) = self.metrics {
                     metrics
@@ -560,6 +578,28 @@ impl AgentLoopCoordinator {
                         )
                         .await?;
                     }
+                }
+                // Snapshot the settled terminal status with a trigger that
+                // says how the run ended, so cancelled, timed-out and failed
+                // runs stay distinguishable instead of all reading as an
+                // in-flight error checkpoint.
+                if let Some(ref cp) = outcome_checkpoint {
+                    let settled = entity.state.read().await.status();
+                    let trigger = match settled {
+                        ExecutionStatus::Timeout => CheckpointTiming::OnTimeout,
+                        ExecutionStatus::Cancelled | ExecutionStatus::Stopped => {
+                            CheckpointTiming::OnCancel
+                        }
+                        _ => CheckpointTiming::OnError,
+                    };
+                    cp.create_checkpoint(&entity, trigger)
+                        .await
+                        .unwrap_or_else(|err| {
+                            tracing::warn!(
+                                "Failed to create agent terminal checkpoint: {}",
+                                err
+                            );
+                        });
                 }
                 if let Some(ref metrics) = self.metrics {
                     metrics

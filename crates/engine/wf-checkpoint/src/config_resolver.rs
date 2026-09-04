@@ -218,6 +218,14 @@ impl CheckpointConfigResolver {
         triggers.contains(&CheckpointTiming::OnPause)
     }
 
+    pub fn should_checkpoint_on_cancel(triggers: &[CheckpointTiming]) -> bool {
+        triggers.contains(&CheckpointTiming::OnCancel)
+    }
+
+    pub fn should_checkpoint_on_timeout(triggers: &[CheckpointTiming]) -> bool {
+        triggers.contains(&CheckpointTiming::OnTimeout)
+    }
+
     pub fn should_checkpoint_on_tool(triggers: &[CheckpointTiming]) -> bool {
         triggers.contains(&CheckpointTiming::ToolBefore)
             || triggers.contains(&CheckpointTiming::ToolAfter)

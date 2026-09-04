@@ -825,6 +825,11 @@ impl WorkflowCoordinator {
                     &serde_json::json!({ "reason": "interrupted" }),
                 )
                 .await;
+                // Persist the cancelled state so the run can be audited and
+                // resumed from storage instead of only living in memory.
+                if let Some(ref mut cp) = self.checkpoint {
+                    cp.on_interruption(entity).await;
+                }
                 return Err(WorkflowError::CoordinatorError(
                     "Execution stopped by interruption".to_string(),
                 ));
@@ -846,6 +851,11 @@ impl WorkflowCoordinator {
                     &serde_json::json!({ "node_id": node_id }),
                 )
                 .await;
+                // The state is already `Paused`; snapshot it so a paused run
+                // survives a crash and can be resumed from storage.
+                if let Some(ref mut cp) = self.checkpoint {
+                    cp.on_pause(entity).await;
+                }
                 return Err(WorkflowError::CoordinatorError(
                     "Execution paused".to_string(),
                 ));
@@ -880,10 +890,10 @@ impl WorkflowCoordinator {
                         "recovered": false,
                         "timestamp": now(),
                     }));
-                    state.fail("Workflow execution exceeded max_execution_time".to_string())?;
+                    state.timeout("Workflow execution exceeded max_execution_time".to_string())?;
                 }
                 if let Some(ref mut cp) = self.checkpoint {
-                    cp.on_interruption(entity).await;
+                    cp.on_timeout(entity).await;
                 }
                 return Err(WorkflowError::CoordinatorError(format!(
                     "Workflow execution exceeded max_execution_time ({}ms)",

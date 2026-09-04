@@ -948,29 +948,31 @@ mod tests {
         }
         assert!(saw_cancelled, "cancelled event must be published");
 
-        // Interruption checkpoint persisted with failed status. Several
-        // checkpoints may share the same millisecond, so scan rather than
-        // relying on get_latest (tie-breaking is arbitrary).
+        // Interruption checkpoint persisted with the timeout status: the
+        // coordinator records wall-clock timeout as ExecutionStatus::Timeout
+        // instead of collapsing it into Failed. Several checkpoints may share
+        // the same millisecond, so scan rather than relying on get_latest
+        // (tie-breaking is arbitrary).
         let sm = WorkflowCheckpointStateManager::new(store.clone());
         let all = sm
             .list_by_entity("exec-timeout-1")
             .await
             .expect("checkpoints listed");
         assert!(!all.is_empty(), "at least the start checkpoint must exist");
-        let mut found_failed = false;
+        let mut found_timeout = false;
         for meta in &all {
             let coord = WorkflowCheckpointCoordinator::new(WorkflowCheckpointStateManager::new(
                 store.clone(),
             ));
             let restored = coord.restore(&meta.id).await.expect("restore ok");
-            if restored.snapshot.status == "Failed" {
-                found_failed = true;
+            if restored.snapshot.status == "Timeout" {
+                found_timeout = true;
                 break;
             }
         }
         assert!(
-            found_failed,
-            "interruption checkpoint with failed status must exist"
+            found_timeout,
+            "interruption checkpoint with timeout status must exist"
         );
     }
 

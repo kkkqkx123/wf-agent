@@ -12,6 +12,9 @@ pub enum WorkflowCheckpointTiming {
     OnNodeError,
     OnWorkflowStart,
     OnWorkflowEnd,
+    OnWorkflowPause,
+    OnWorkflowCancel,
+    OnWorkflowTimeout,
 }
 
 impl CheckpointTimingVariant for WorkflowCheckpointTiming {
@@ -22,6 +25,9 @@ impl CheckpointTimingVariant for WorkflowCheckpointTiming {
             WorkflowCheckpointTiming::OnNodeError => CheckpointTiming::OnError,
             WorkflowCheckpointTiming::OnWorkflowStart => CheckpointTiming::Manual,
             WorkflowCheckpointTiming::OnWorkflowEnd => CheckpointTiming::OnComplete,
+            WorkflowCheckpointTiming::OnWorkflowPause => CheckpointTiming::OnPause,
+            WorkflowCheckpointTiming::OnWorkflowCancel => CheckpointTiming::OnCancel,
+            WorkflowCheckpointTiming::OnWorkflowTimeout => CheckpointTiming::OnTimeout,
         }
     }
 }
@@ -33,6 +39,9 @@ fn map_trigger(t: &CheckpointTiming) -> Option<WorkflowCheckpointTiming> {
         CheckpointTiming::OnError => Some(WorkflowCheckpointTiming::OnNodeError),
         CheckpointTiming::Manual => Some(WorkflowCheckpointTiming::OnWorkflowStart),
         CheckpointTiming::OnComplete => Some(WorkflowCheckpointTiming::OnWorkflowEnd),
+        CheckpointTiming::OnPause => Some(WorkflowCheckpointTiming::OnWorkflowPause),
+        CheckpointTiming::OnCancel => Some(WorkflowCheckpointTiming::OnWorkflowCancel),
+        CheckpointTiming::OnTimeout => Some(WorkflowCheckpointTiming::OnWorkflowTimeout),
         _ => None,
     }
 }

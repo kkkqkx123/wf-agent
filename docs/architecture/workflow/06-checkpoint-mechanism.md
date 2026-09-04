@@ -39,8 +39,17 @@ CheckpointCoordinator (extends BaseCheckpointCoordinator)
 |-------------|--------|---------------|
 | `BEFORE_EXECUTE` | Before each node execution | Per-node or global |
 | `AFTER_EXECUTE` | After each node execution | Per-node or global |
-| `MANUAL` | On-demand | Via API or command |
 | `ON_ERROR` | On node failure | Global policy |
+| `MANUAL` | Workflow start | Workflow scope（不受节点配置影响） |
+| `ON_COMPLETE` | Workflow end（在 `complete()` 之后） | Workflow scope |
+| `ON_PAUSE` | 观测到 Paused 中断时 | 始终落盘（不经策略门控） |
+| `ON_CANCEL` | 观测到 Stopped 中断时 | 始终落盘（不经策略门控） |
+| `ON_TIMEOUT` | 超出 `max_execution_time` 时 | 始终落盘（不经策略门控） |
+
+> `ON_PAUSE` / `ON_CANCEL` / `ON_TIMEOUT` 三个中断触发与节点级策略无关：
+> 无论 `NodeCheckpointStrategy` 如何配置都会落盘，保证被暂停/取消/超时的执行
+> 都能从存储恢复或审计。三者在 `check_interruption_and_timeout` 中分别对应
+> `Paused` / `Stopped` / 超时分支。
 
 ## 4. State Extraction
 
@@ -58,6 +67,24 @@ Checkpoint State:
 ├── Trigger state: trigger runtime state
 └── Interruption state: pause/stop signals
 ```
+
+### 实际落盘字段
+
+`WorkflowCheckpointIntegration::build_snapshot` 当前填充的字段（其余为 `None`）：
+
+| 字段 | 状态 |
+|------|------|
+| `executionId` / `status` / `currentNodeId` | 已捕获 |
+| `variableState` / `nodeResults` / `nodeExecutionRecords` | 已捕获 |
+| `errorRecords` / `interruptionRecords` / `eventRecords` | 已捕获 |
+| `triggerStates` | 已捕获（需 `with_trigger_state_registry` 注入） |
+| `hierarchy` / `executionConfig` / `forkJoinContext` | **未捕获**（始终为 `None`） |
+| `forkJoinAggregationState` / `hookExecutionContext` | **未捕获**（始终为 `None`） |
+| `input` / `output` / `messages` / `conversationState` | **未捕获**（始终为 `None`） |
+
+> `status` 字段是 `ExecutionStatus` 的 Debug 字符串。中断触发（`ON_PAUSE` / `ON_CANCEL` /
+> `ON_TIMEOUT`）在实体状态落定**之后**写快照，因此 `Paused` / `Cancelled` / `Timeout`
+> 都能被真实记录；`Timeout` 不再坍缩成 `Failed`。
 
 ## 5. Checkpoint Strategies
 

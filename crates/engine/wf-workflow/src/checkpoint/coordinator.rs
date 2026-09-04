@@ -223,6 +223,40 @@ impl WorkflowCheckpointIntegration {
         }
     }
 
+    /// Create a pause checkpoint. The entity state is already `Paused` when
+    /// the coordinator observes the interruption, so the snapshot carries the
+    /// paused status and the loop can be resumed from storage after a crash.
+    /// Like interruption checkpoints, pause checkpoints are always persisted.
+    pub async fn on_pause(&mut self, entity: &WorkflowExecutionEntity) {
+        if let Err(e) = self
+            .create_checkpoint(entity, CheckpointTiming::OnPause, None)
+            .await
+        {
+            tracing::warn!(
+                execution_id = %entity.id(),
+                error = %e,
+                "Failed to create pause checkpoint"
+            );
+        }
+    }
+
+    /// Create a timeout checkpoint (wall-clock `max_execution_time`
+    /// exceeded). Always persisted, and distinct from the cancel checkpoint,
+    /// so a timed-out run is identifiable at restore time instead of being
+    /// folded into a generic failure.
+    pub async fn on_timeout(&mut self, entity: &WorkflowExecutionEntity) {
+        if let Err(e) = self
+            .create_checkpoint(entity, CheckpointTiming::OnTimeout, None)
+            .await
+        {
+            tracing::warn!(
+                execution_id = %entity.id(),
+                error = %e,
+                "Failed to create timeout checkpoint"
+            );
+        }
+    }
+
     async fn create_checkpoint(
         &self,
         entity: &WorkflowExecutionEntity,

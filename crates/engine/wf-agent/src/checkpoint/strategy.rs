@@ -11,6 +11,9 @@ pub enum AgentCheckpointTiming {
     OnIterationError,
     OnAgentStart,
     OnAgentEnd,
+    OnAgentPause,
+    OnAgentCancel,
+    OnAgentTimeout,
 }
 
 impl CheckpointTimingVariant for AgentCheckpointTiming {
@@ -21,6 +24,9 @@ impl CheckpointTimingVariant for AgentCheckpointTiming {
             AgentCheckpointTiming::OnIterationError => CheckpointTiming::OnError,
             AgentCheckpointTiming::OnAgentStart => CheckpointTiming::Manual,
             AgentCheckpointTiming::OnAgentEnd => CheckpointTiming::OnComplete,
+            AgentCheckpointTiming::OnAgentPause => CheckpointTiming::OnPause,
+            AgentCheckpointTiming::OnAgentCancel => CheckpointTiming::OnCancel,
+            AgentCheckpointTiming::OnAgentTimeout => CheckpointTiming::OnTimeout,
         }
     }
 }
@@ -32,6 +38,9 @@ fn map_trigger(t: &CheckpointTiming) -> Option<AgentCheckpointTiming> {
         CheckpointTiming::OnError => Some(AgentCheckpointTiming::OnIterationError),
         CheckpointTiming::Manual => Some(AgentCheckpointTiming::OnAgentStart),
         CheckpointTiming::OnComplete => Some(AgentCheckpointTiming::OnAgentEnd),
+        CheckpointTiming::OnPause => Some(AgentCheckpointTiming::OnAgentPause),
+        CheckpointTiming::OnCancel => Some(AgentCheckpointTiming::OnAgentCancel),
+        CheckpointTiming::OnTimeout => Some(AgentCheckpointTiming::OnAgentTimeout),
         _ => None,
     }
 }

@@ -114,6 +114,26 @@ impl AgentCheckpointIntegration {
         Ok(())
     }
 
+    /// Create a pause checkpoint. Only fires while the entity state is
+    /// `Paused`, so a paused loop is snapshotted once per pause episode; the
+    /// snapshot then carries the paused status and the loop can be resumed
+    /// from storage instead of only surviving in memory.
+    pub async fn on_pause(&self, entity: &AgentLoopEntity) {
+        if !entity.state.read().await.is_paused() {
+            return;
+        }
+        if let Err(err) = self
+            .create_checkpoint(entity, CheckpointTiming::OnPause)
+            .await
+        {
+            tracing::warn!(
+                error = %err,
+                entity_id = %entity.id(),
+                "failed to create pause checkpoint"
+            );
+        }
+    }
+
     /// Restore a checkpointed agent loop into a re-driveable runtime state:
     /// the snapshot (state + conversation) is lifted from storage and
     /// translated into the runtime `AgentLoopStateSnapshot`, including the
@@ -273,6 +293,17 @@ impl AgentCheckpointIntegration {
             }
         };
 
+        // Error / interruption / event records are restored by
+        // `runtime_state_from_snapshot`, so they have to be captured here —
+        // leaving them empty silently dropped them across a restore.
+        let error_record_values: Vec<serde_json::Value> = state
+            .error_records()
+            .iter()
+            .filter_map(|r| serde_json::to_value(r).ok())
+            .collect();
+        let interruption_records = state.interruption_records().to_vec();
+        let event_records = state.event_records().to_vec();
+
         AgentStateSnapshot {
             agent_loop_id: entity.id().to_string(),
             status: format!("{:?}", state.status()),
@@ -280,14 +311,26 @@ impl AgentCheckpointIntegration {
             tool_call_count: state.tool_call_count(),
             conversation_snapshot: messages,
             tool_call_history: None,
-            is_streaming: None,
+            is_streaming: Some(state.is_streaming()),
             variable_snapshots: vars,
             error: state.error().map(String::from),
             started_at: Some(state.start_time()),
             completed_at: state.end_time(),
-            error_records: None,
-            interruption_records: None,
-            event_records: None,
+            error_records: if error_record_values.is_empty() {
+                None
+            } else {
+                Some(error_record_values)
+            },
+            interruption_records: if interruption_records.is_empty() {
+                None
+            } else {
+                Some(interruption_records)
+            },
+            event_records: if event_records.is_empty() {
+                None
+            } else {
+                Some(event_records)
+            },
             // The runtime iteration trail (including `llm_calls`)
             // becomes part of the snapshot blob, so audit queries can fall
             // back to the checkpoint when the execution record was cleaned
@@ -311,7 +354,7 @@ impl AgentCheckpointIntegration {
                 .last()
                 .filter(|record| record.end_time.is_none())
                 .and_then(|record| serde_json::to_value(record).ok()),
-            stream_message: None,
+            stream_message: state.streaming_message_buffer().map(String::from),
             // persist the in-flight tool call ids — the only clue a
             // restore has about which calls were mid-execution at crash time.
             // Calls that completed are cached in `completed_tool_results` and
@@ -333,18 +376,18 @@ impl AgentCheckpointIntegration {
 }
 
 /// Parse the persisted status string (Debug form of `ExecutionStatus`, e.g.
-/// "Running", or lowercase wire forms) back into the runtime status. Unknown
-/// values fall back to `Running` so restored snapshots always re-drive.
+/// "Running", or lowercase wire forms) back into the runtime status.
+///
+/// A restored snapshot is always re-driven, and the state machine only
+/// accepts a start from a non-terminal state — so terminal statuses and
+/// unknown values normalize to `Running`. The snapshot blob itself keeps the
+/// recorded terminal status for audit; only the runtime re-drive starts
+/// fresh. `Paused` / `Created` stay as-is: both may legally transition to
+/// `Running` on start.
 fn parse_runtime_status(status: &str) -> ExecutionStatus {
     match status.to_ascii_lowercase().as_str() {
-        "running" => ExecutionStatus::Running,
-        "paused" => ExecutionStatus::Paused,
-        "completed" => ExecutionStatus::Completed,
-        "failed" => ExecutionStatus::Failed,
-        "cancelled" => ExecutionStatus::Cancelled,
-        "stopped" => ExecutionStatus::Stopped,
-        "timeout" => ExecutionStatus::Timeout,
         "created" => ExecutionStatus::Created,
+        "paused" => ExecutionStatus::Paused,
         _ => ExecutionStatus::Running,
     }
 }

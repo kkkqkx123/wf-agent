@@ -197,6 +197,15 @@ impl WorkflowExecutionState {
         self.transition(ExecutionStatus::Cancelled)
     }
 
+    /// Settle the execution as timed out (wall-clock `max_execution_time`
+    /// exceeded). Kept distinct from `fail` so the terminal status records a
+    /// timeout rather than a generic failure.
+    pub fn timeout(&mut self, error: String) -> crate::WorkflowResult<()> {
+        self.transition(ExecutionStatus::Timeout)?;
+        self.error = Some(error);
+        Ok(())
+    }
+
     /// Apply a status transition with a source-state guard. Illegal
     /// transitions (e.g. `Completed -> Paused`) return an error instead of
     /// silently corrupting the machine. All status changes in the workflow

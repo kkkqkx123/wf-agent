@@ -167,6 +167,7 @@ pub enum CheckpointTiming {
     ToolAfter,
     OnPause,
     OnCancel,
+    OnTimeout,
     OnComplete,
     Interval,
     Manual,

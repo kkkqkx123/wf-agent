@@ -61,28 +61,46 @@ interface CheckpointDependencies extends BaseCheckpointDependencies<AgentLoopChe
 
 The policy defines which events trigger checkpoint creation:
 
-| Trigger | Timing | Use Case |
-|---------|--------|----------|
-| `ON_ITERATION` | After each iteration | Frequent checkpointing |
-| `ON_COMPLETE` | On loop completion | Final state capture |
-| `ON_ERROR` | On error | Fault recovery |
-| `ON_PAUSE` | On pause | Resume support |
-| `ON_TOOL_CALL` | On tool call | Tool-level checkpoint |
-| `ON_TOOL_RESULT` | On tool result | Post-tool state |
-| `ON_INTERVAL` | Periodic | Time-based checkpointing |
-| `MANUAL` | On-demand | Via API |
-| `NEVER` | Never | Disable auto-checkpoint |
+| Trigger | Timing | Use Case | 接线状态 |
+|---------|--------|----------|----------|
+| `AFTER_EXECUTE` | After each iteration | Frequent checkpointing | 已接线（`AgentCheckpointTiming::AfterIteration`） |
+| `ON_COMPLETE` | On loop completion | Final state capture（记录 `Completed`） | 已接线（`OnAgentEnd`） |
+| `ON_ERROR` | On iteration error / terminal failure | Fault recovery | 已接线（`OnIterationError`） |
+| `ON_PAUSE` | On pause | Resume support（记录 `Paused`） | 已接线（`OnAgentPause`） |
+| `ON_CANCEL` | On cancel / stop | Cancel capture（记录 `Cancelled`/`Stopped`） | 已接线（`OnAgentCancel`） |
+| `ON_TIMEOUT` | On wall-clock timeout | Timeout capture（记录 `Timeout`） | 已接线（`OnAgentTimeout`） |
+| `MANUAL` | On agent start | Start capture | 已接线（`OnAgentStart`） |
+| `ON_TOOL_CALL` / `ON_TOOL_RESULT` | Tool 前后 | Tool-level checkpoint | 工具通过 `ToolMetadata::create_checkpoint` opt-in |
+| `BEFORE_EXECUTE` | Before each iteration | — | 已接线（`BeforeIteration`） |
+| `ON_INTERVAL` | Periodic | Time-based checkpointing | 未接线 |
+| `NEVER` | Never | Disable auto-checkpoint | 支持 |
+
+> 说明：`OnAgentPause` 只在实体状态确实处于 `Paused` 时落盘（每次暂停一轮），避免重复快照；
+> `OnAgentEnd`/`OnAgentCancel`/`OnAgentTimeout` 在终态**落定之后**由外层生命周期写入，
+> 因此快照里的 `status` 字段是真实终态，而不是落定前的 `Running`。
 
 ### Default Policy
 
 ```typescript
 const DEFAULT_AGENT_CHECKPOINT_POLICY: AgentCheckpointPolicy = {
   enabled: true,
-  trigger: [ON_ERROR, ON_PAUSE, ON_COMPLETE],
-  content: { includeState: true, includeMessages: true },
-  retention: { maxCheckpoints: 1000, maxAge: 7 days },
+  // `AgentCheckpointStrategy::every_iteration()`
+  trigger: [AFTER_EXECUTE],
+  content: { includeState: true, includeHistory: true, includeStatistics: false },
+  retention: undefined, // 未配置时不过期清理
 };
 ```
+
+### 终态检查点策略
+
+外层生命周期在执行结束后按**落定后的状态**选择触发类型并落盘一次：
+
+| 落定状态 | 触发类型 |
+|----------|----------|
+| `Completed` | `ON_COMPLETE` |
+| `Timeout` | `ON_TIMEOUT` |
+| `Cancelled` / `Stopped` | `ON_CANCEL` |
+| `Failed`（其他） | `ON_ERROR` |
 
 ### Content Configuration
 
@@ -113,12 +131,33 @@ AgentLoopState:
 └── _executionRecordManager state
 ```
 
+### What Gets Serialized（实际落盘字段）
+
+```
+AgentCheckpoint（AgentStateSnapshot）
+├── status / agentLoopId              执行状态；终态在落定之后写入
+├── currentIteration / toolCallCount
+├── conversationSnapshot              会话消息
+├── variableSnapshots
+├── error / startedAt / completedAt
+├── iterationHistory / currentIterationRecord
+├── pendingToolCallIds                崩溃时判断哪些工具调用仍在飞行中
+├── toolDiscoveryState
+├── isStreaming / streamMessage       流式中的部分消息
+├── errorRecords / interruptionRecords / eventRecords   恢复时回填
+└── toolCallHistory / triggerState / hierarchy / messages   未捕获（始终 None）
+```
+
 ### What Does NOT Get Serialized
 
 - **AgentLoopRuntimeConfig**: Contains unserializable functions (callbacks)
 - **ConversationSession**: Messages are stored separately via delta/incremental storage
 - **Runtime managers**: TimeoutManager, InterruptionState (recreated on restore)
-- **Transient state**: Partial streaming messages, pending tool calls
+- **未捕获字段**: `toolCallHistory` / `triggerState` / `hierarchy` / `messages` 目前仍写入 `None`
+
+> `errorRecords` / `interruptionRecords` / `eventRecords` 必须捕获：
+> `runtime_state_from_snapshot` 在恢复时会读取它们，若快照为空则这部分现场会静默丢失。
+> `hierarchy` 与 `triggerState` 属于已知遗留缺口（workflow 侧的 `hierarchy` 同样未捕获）。
 
 ### Incremental Message Storage
 

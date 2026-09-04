@@ -313,11 +313,36 @@ mod tests {
     use crate::workflow::save_workflow;
 
     fn make_ctx() -> Arc<ApiContext> {
-        Arc::new(ApiContext::new(
+        let ctx = Arc::new(ApiContext::new(
             StorageContext::new_memory(),
             Arc::new(ResourceRegistries::new()),
             Arc::new(ResourcePluginRegistry::new()),
-        ))
+        ));
+        let profile = wf_types::llm::LlmProfile {
+            id: "default".into(),
+            name: "default".into(),
+            provider: wf_types::llm::LlmProvider::OpenaiChat,
+            model: "mock-model".into(),
+            api_key: None,
+            base_url: None,
+            parameters: None,
+            generation: None,
+            timeout: None,
+            max_retries: None,
+            retry_delay: None,
+            headers: None,
+            metadata: None,
+            tool_call_format: None,
+            auth_type: None,
+            custom_headers: None,
+            custom_body: None,
+            custom_body_enabled: None,
+            query_params: None,
+            stream_options: None,
+            context_window_size: None,
+        };
+        let _ = ctx.llm_gateway.profile_registry().register(profile);
+        ctx
     }
 
     fn make_workflow(id: &str) -> wf_types::WorkflowDefinition {

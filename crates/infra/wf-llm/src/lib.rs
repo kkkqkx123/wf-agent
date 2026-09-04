@@ -4,6 +4,7 @@ pub mod error;
 pub mod formatter_helpers;
 pub mod formatters;
 pub mod gateway;
+pub mod generation;
 pub mod message_helper;
 pub mod message_stream;
 pub mod messaging;

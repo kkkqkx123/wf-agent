@@ -1,9 +1,9 @@
 use crate::adapter::adapter_impls::{
-    AgentExecutionStorage, AgentLoopStorage, AgentProfileStorage, CheckpointStorage,
-    MessageStorage, MetricsStorage, NodeTemplateStorage, ScriptStorage, TaskStorage,
-    ToolDefinitionStorage, ToolStorage, TriggerExecutionStorage, TriggerStorage,
-    TriggerTemplateStorage, UserInteractionStorage, VariableStorage, WorkflowExecutionStorage,
-    WorkflowStorage,
+    AgentDraftStorage, AgentExecutionStorage, AgentLoopStorage, AgentProfileStorage,
+    AgentTemplateStorage, CheckpointStorage, MessageStorage, MetricsStorage, NodeTemplateStorage,
+    ScriptStorage, TaskStorage, ToolDefinitionStorage, ToolStorage, TriggerExecutionStorage,
+    TriggerStorage, TriggerTemplateStorage, UserInteractionStorage, VariableStorage,
+    WorkflowDraftStorage, WorkflowExecutionStorage, WorkflowStorage,
 };
 use crate::backend::StorageBackend;
 use crate::decorator::instrumented::{InstrumentedStore, StorageMetrics};
@@ -15,12 +15,15 @@ use crate::store::postgres::PostgresStorage;
 
 pub struct StorageContext {
     pub workflow: WorkflowStorage<StorageBackend>,
+    pub workflow_draft: WorkflowDraftStorage<StorageBackend>,
     pub workflow_execution: WorkflowExecutionStorage<StorageBackend>,
     pub checkpoint: CheckpointStorage<StorageBackend>,
     pub task: TaskStorage<StorageBackend>,
     pub agent_loop: AgentLoopStorage<StorageBackend>,
     pub agent_execution: AgentExecutionStorage<StorageBackend>,
     pub agent_profile: AgentProfileStorage<StorageBackend>,
+    pub agent_template: AgentTemplateStorage<StorageBackend>,
+    pub agent_draft: AgentDraftStorage<StorageBackend>,
     pub trigger_template: TriggerTemplateStorage<StorageBackend>,
     pub trigger: TriggerStorage<StorageBackend>,
     pub trigger_execution: TriggerExecutionStorage<StorageBackend>,
@@ -44,12 +47,15 @@ impl StorageContext {
     pub fn new_memory() -> Self {
         Self {
             workflow: WorkflowStorage::new(make_backend!(Memory, "workflow")),
+            workflow_draft: WorkflowDraftStorage::new(make_backend!(Memory, "workflow_draft")),
             workflow_execution: WorkflowExecutionStorage::new(make_backend!(Memory, "execution")),
             checkpoint: CheckpointStorage::new(make_backend!(Memory, "checkpoint")),
             task: TaskStorage::new(make_backend!(Memory, "task")),
             agent_loop: AgentLoopStorage::new(make_backend!(Memory, "agent_loop")),
             agent_execution: AgentExecutionStorage::new(make_backend!(Memory, "agent_execution")),
             agent_profile: AgentProfileStorage::new(make_backend!(Memory, "agent_profile")),
+            agent_template: AgentTemplateStorage::new(make_backend!(Memory, "agent_template")),
+            agent_draft: AgentDraftStorage::new(make_backend!(Memory, "agent_draft")),
             trigger_template: TriggerTemplateStorage::new(make_backend!(
                 Memory,
                 "trigger_template"
@@ -82,12 +88,15 @@ impl StorageContext {
         }
         Ok(Self {
             workflow: WorkflowStorage::new(sqlite_backend!("workflow")),
+            workflow_draft: WorkflowDraftStorage::new(sqlite_backend!("workflow_draft")),
             workflow_execution: WorkflowExecutionStorage::new(sqlite_backend!("execution")),
             checkpoint: CheckpointStorage::new(sqlite_backend!("checkpoint")),
             task: TaskStorage::new(sqlite_backend!("task")),
             agent_loop: AgentLoopStorage::new(sqlite_backend!("agent_loop")),
             agent_execution: AgentExecutionStorage::new(sqlite_backend!("agent_execution")),
             agent_profile: AgentProfileStorage::new(sqlite_backend!("agent_profile")),
+            agent_template: AgentTemplateStorage::new(sqlite_backend!("agent_template")),
+            agent_draft: AgentDraftStorage::new(sqlite_backend!("agent_draft")),
             trigger_template: TriggerTemplateStorage::new(sqlite_backend!("trigger_template")),
             trigger: TriggerStorage::new(sqlite_backend!("trigger")),
             trigger_execution: TriggerExecutionStorage::new(sqlite_backend!("trigger_execution")),
@@ -113,12 +122,15 @@ impl StorageContext {
         }
         Ok(Self {
             workflow: WorkflowStorage::new(pg_backend!("workflow")),
+            workflow_draft: WorkflowDraftStorage::new(pg_backend!("workflow_draft")),
             workflow_execution: WorkflowExecutionStorage::new(pg_backend!("execution")),
             checkpoint: CheckpointStorage::new(pg_backend!("checkpoint")),
             task: TaskStorage::new(pg_backend!("task")),
             agent_loop: AgentLoopStorage::new(pg_backend!("agent_loop")),
             agent_execution: AgentExecutionStorage::new(pg_backend!("agent_execution")),
             agent_profile: AgentProfileStorage::new(pg_backend!("agent_profile")),
+            agent_template: AgentTemplateStorage::new(pg_backend!("agent_template")),
+            agent_draft: AgentDraftStorage::new(pg_backend!("agent_draft")),
             trigger_template: TriggerTemplateStorage::new(pg_backend!("trigger_template")),
             trigger: TriggerStorage::new(pg_backend!("trigger")),
             trigger_execution: TriggerExecutionStorage::new(pg_backend!("trigger_execution")),
@@ -141,12 +153,15 @@ impl StorageContext {
         let mut total = StorageMetrics::default();
         let backends = [
             self.workflow.store().op_metrics(),
+            self.workflow_draft.store().op_metrics(),
             self.workflow_execution.store().op_metrics(),
             self.checkpoint.store().op_metrics(),
             self.task.store().op_metrics(),
             self.agent_loop.store().op_metrics(),
             self.agent_execution.store().op_metrics(),
             self.agent_profile.store().op_metrics(),
+            self.agent_template.store().op_metrics(),
+            self.agent_draft.store().op_metrics(),
             self.trigger_template.store().op_metrics(),
             self.trigger.store().op_metrics(),
             self.trigger_execution.store().op_metrics(),

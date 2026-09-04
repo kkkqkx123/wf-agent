@@ -4,7 +4,7 @@
 # Provider: LlmProvider::OPENAI_RESPONSE
 #
 # The o1 model uses the OpenAI Responses API (not Chat Completions).
-# It supports extended reasoning via the reasoningEffort parameter.
+# o1 supports reasoning effort low/medium/high (no minimal/none/xhigh/max).
 
 id = "o1"
 name = "OpenAI o1"
@@ -19,9 +19,11 @@ timeout = 300000
 maxRetries = 3
 retryDelay = 15000
 
-[parameters]
-reasoningEffort = "max"
-maxTokens = 32768
+[generation]
+max_tokens = 32768
+
+[generation.thinking]
+level = "high"
 
 [metadata]
 tags = ["openai", "o1", "reasoning", "deep", "complex"]

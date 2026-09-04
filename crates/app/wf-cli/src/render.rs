@@ -344,9 +344,10 @@ mod tests {
         assert_eq!(renderer.finish().stdout, "next");
     }
 
-    /// 同源测试：同一合成事件序列驱动 ① HeadlessRenderer 与 ②
-    /// SessionReducer→MiniCommit→HistoryLine，断言文本一致——无头文本输出
-    /// 与 mini 滚动区内容同源（同一 reducer 产物）。
+    /// Same-source test: the same synthetic event sequence drives both
+    /// HeadlessRenderer and SessionReducer -> MiniCommit -> HistoryLine,
+    /// asserting text consistency - headless output and mini scrollback
+    /// share the same reducer output.
     #[test]
     fn headless_stdout_matches_mini_scrollback_from_same_reducer() {
         use crate::reducer::{fold, MiniCommit};
@@ -413,8 +414,8 @@ mod e2e {
     use std::collections::HashMap;
     use std::sync::Arc;
     use wf_api::agent::agent_execution::{self, RunAgentLoopParams};
+    use wf_api::{AgentLoopConfig, AgentLoopInput};
     use wf_llm::{LlmResponseSpec, MockLlmClient};
-    use wf_tools::callback::{AgentLoopConfig, AgentLoopInput};
     use wf_types::Id;
 
     async fn adapter_with_mock(

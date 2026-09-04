@@ -55,36 +55,8 @@ async fn load_lua_plugin_at(
 }
 
 fn apply_sandbox(lua: &mlua::Lua) -> PluginResult<()> {
-    let denied = ["os", "io", "package", "debug", "ffi"];
-    let globals = lua.globals();
-
-    for module in &denied {
-        let _ = globals.set(*module, mlua::Value::Nil);
-    }
-
-    let safe_print = lua
-        .create_function(|_, s: String| {
-            tracing::info!("[lua:print] {}", s);
-            Ok(())
-        })
-        .map_err(|e| PluginError::LuaError(e.to_string()))?;
-    globals
-        .set("print", safe_print)
-        .map_err(|e| PluginError::LuaError(e.to_string()))?;
-
-    let safe_require = lua
-        .create_function(|_, module_name: String| -> mlua::Result<mlua::Value> {
-            Err(mlua::Error::RuntimeError(format!(
-                "module '{}' not allowed in plugin sandbox",
-                module_name
-            )))
-        })
-        .map_err(|e| PluginError::LuaError(e.to_string()))?;
-    globals
-        .set("require", safe_require)
-        .map_err(|e| PluginError::LuaError(e.to_string()))?;
-
-    Ok(())
+    wf_sandbox::strategy::lua::mlua_sandbox::apply_plugin_sandbox(lua)
+        .map_err(|e| PluginError::LuaError(e.to_string()))
 }
 
 fn determine_base_path(manifest: &PluginManifest) -> PluginResult<std::path::PathBuf> {

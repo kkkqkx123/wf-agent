@@ -39,9 +39,9 @@ use tokio::time::{sleep_until, Duration, Instant as TokioInstant};
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
-use wf_agent::approval::{ToolApprovalRequest, ToolApprovalResult};
 use wf_api::agent::agent_execution;
 use wf_api::infra::stream::ExecutionStreamEvent;
+use wf_api::{ToolApprovalRequest, ToolApprovalResult};
 use wf_types::Id;
 
 use crate::approval::{ApprovalChoice, ApprovalRemembered, ApprovalView, MiniApprovalHandler};

@@ -9,8 +9,8 @@
 
 use serde_json::json;
 
-use wf_agent::approval::ToolApprovalRequest;
 use wf_api::infra::stream::ExecutionStreamEvent;
+use wf_api::ToolApprovalRequest;
 use wf_cli::approval::ApprovalView;
 use wf_cli::footer::{Footer, FooterView};
 use wf_cli::markdown::MarkdownStream;

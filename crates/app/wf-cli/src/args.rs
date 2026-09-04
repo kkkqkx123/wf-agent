@@ -64,6 +64,12 @@ pub struct Cli {
     /// Tool approval mode: `auto`, `llm`, `manual`.
     #[arg(long, global = true)]
     pub approval: Option<String>,
+    /// Remote server URL (e.g. http://localhost:3000). Overrides WF_REMOTE env.
+    #[arg(long, global = true)]
+    pub remote: Option<String>,
+    /// API key for remote server (x-api-key header). Also reads WF_API_KEY env.
+    #[arg(long, global = true)]
+    pub api_key: Option<String>,
     /// Subcommand; absent selects an interactive form.
     #[command(subcommand)]
     pub command: Option<Command>,
@@ -226,6 +232,9 @@ pub enum Command {
         /// Workflow input as JSON (requires --workflow).
         #[arg(long)]
         input: Option<String>,
+        /// Remote server URL for this run (overrides --remote / WF_REMOTE).
+        #[arg(long)]
+        remote: Option<String>,
     },
     /// Print resolved CLI mode / output routing (diagnostics).
     DebugMode,

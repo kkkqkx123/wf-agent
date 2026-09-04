@@ -67,7 +67,7 @@ struct ActorPairPath {
 }
 
 async fn handle_list_partitions(State(state): State<ApiState>) -> impl IntoResponse {
-    match wf_api::workflow::file_provenance::list_partitions(&state.ctx) {
+    match wf_api::checkpoint::provenance::list_partitions(&state.ctx) {
         Ok(partitions) => ok(partitions).into_response(),
         Err(err) => error_response(err),
     }
@@ -78,7 +78,7 @@ async fn handle_list_changes_by_actor(
     Path(path): Path<IdPath>,
     Query(query): Query<ChangeQuery>,
 ) -> impl IntoResponse {
-    match wf_api::workflow::file_provenance::list_changes_by_actor(
+    match wf_api::checkpoint::provenance::list_changes_by_actor(
         &state.ctx,
         &path.id,
         query.path.as_deref(),
@@ -94,7 +94,7 @@ async fn handle_list_changes_by_path(
     Path(path): Path<IdPath>,
     Query(query): Query<ChangeQuery>,
 ) -> impl IntoResponse {
-    match wf_api::workflow::file_provenance::list_changes_by_path(
+    match wf_api::checkpoint::provenance::list_changes_by_path(
         &state.ctx,
         &path.id,
         query.time_range(),
@@ -108,7 +108,7 @@ async fn handle_get_actor_workspace(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
-    match wf_api::workflow::file_provenance::get_actor_workspace(&state.ctx, &path.id) {
+    match wf_api::checkpoint::provenance::get_actor_workspace(&state.ctx, &path.id) {
         Ok(files) => ok(files).into_response(),
         Err(err) => error_response(err),
     }
@@ -118,7 +118,7 @@ async fn handle_diff_actors(
     State(state): State<ApiState>,
     Path(path): Path<ActorPairPath>,
 ) -> impl IntoResponse {
-    match wf_api::workflow::file_provenance::diff_actors(&state.ctx, &path.a, &path.b) {
+    match wf_api::checkpoint::provenance::diff_actors(&state.ctx, &path.a, &path.b) {
         Ok(diffs) => ok(diffs).into_response(),
         Err(err) => error_response(err),
     }
@@ -128,7 +128,7 @@ async fn handle_diff_against_staged(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
-    match wf_api::workflow::file_provenance::diff_against_staged(&state.ctx, &path.id) {
+    match wf_api::checkpoint::provenance::diff_against_staged(&state.ctx, &path.id) {
         Ok(diffs) => ok(diffs).into_response(),
         Err(err) => error_response(err),
     }
@@ -144,7 +144,7 @@ async fn handle_run_gc(
     State(state): State<ApiState>,
     Query(query): Query<GcQuery>,
 ) -> impl IntoResponse {
-    match wf_api::workflow::file_provenance::run_gc(&state.ctx, query.keep_recent_heads) {
+    match wf_api::checkpoint::provenance::run_gc(&state.ctx, query.keep_recent_heads) {
         Ok(stats) => ok(stats).into_response(),
         Err(err) => error_response(err),
     }

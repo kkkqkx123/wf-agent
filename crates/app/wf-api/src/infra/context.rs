@@ -98,6 +98,10 @@ pub struct ApiContext {
     /// through this context route every tool call through the persisted
     /// interaction flow. `None` keeps the library default (auto-approve).
     pub tool_approval: Option<wf_types::config::tool_approval::ToolApprovalConfig>,
+    /// In-memory stale marks for formal workflows whose upstream references
+    /// failed revalidation after an update. Cleared when the workflow is
+    /// re-saved formally. Phase three persists this as a lifecycle state.
+    pub stale_workflows: Arc<dashmap::DashSet<String>>,
 }
 
 impl ApiContext {
@@ -136,6 +140,7 @@ impl ApiContext {
             hook_registry: None,
             file_checkpoint_manager: None,
             tool_approval: None,
+            stale_workflows: Arc::new(dashmap::DashSet::new()),
         };
         // Persist every engine event published on the shared bus.
         ctx.restart_persistence_bridge();
@@ -181,6 +186,7 @@ impl ApiContext {
             hook_registry: None,
             file_checkpoint_manager: None,
             tool_approval: None,
+            stale_workflows: Arc::new(dashmap::DashSet::new()),
         };
         // Persist every engine event published on the shared bus.
         ctx.restart_persistence_bridge();
@@ -319,6 +325,28 @@ impl ApiContext {
     /// Look up a live workflow execution handle by id.
     pub fn workflow_execution(&self, id: &str) -> Option<Arc<WorkflowExecutionEntity>> {
         self.workflow_executions.get(id)
+    }
+
+    /// Whether a formal workflow is marked stale after an upstream update.
+    pub fn is_stale(&self, workflow_id: &str) -> bool {
+        self.stale_workflows.contains(workflow_id)
+    }
+
+    /// Mark a formal workflow stale. Idempotent.
+    pub fn mark_stale(&self, workflow_id: &str) {
+        self.stale_workflows.insert(workflow_id.to_string());
+    }
+
+    /// Clear the stale mark after a successful formal re-save.
+    pub fn clear_stale(&self, workflow_id: &str) {
+        self.stale_workflows.remove(workflow_id);
+    }
+
+    /// All currently stale workflow ids, sorted for stable output.
+    pub fn list_stale(&self) -> Vec<String> {
+        let mut ids: Vec<String> = self.stale_workflows.iter().map(|r| r.clone()).collect();
+        ids.sort();
+        ids
     }
 
     /// Look up a live agent loop handle by id.

@@ -16,7 +16,7 @@ use wf_types::events::{BaseEvent, EventType};
 /// Sink that forwards shell session events to the shared EventBus.
 ///
 /// Publishing is best-effort: a full or closed broadcast channel only logs a
-/// warning (aligned with the plan's "sink 尽力而为" policy).
+/// warning and never blocks the caller.
 pub struct ShellEventBusBridge {
     bus: Arc<EventBus>,
 }

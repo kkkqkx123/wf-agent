@@ -4,6 +4,10 @@
 # Provider: LlmProvider::OPENAI_CHAT
 #
 # Provider enum values: OPENAI_CHAT | OPENAI_RESPONSE | ANTHROPIC | GEMINI_NATIVE | GEMINI_OPENAI | Custom(String)
+#
+# Generation params live under [generation] (typed, validated, mapped per
+# provider). The legacy [parameters] table still works as a passthrough for
+# provider-specific keys (e.g. logit_bias, logprobs).
 
 id = "gpt-4o"
 name = "GPT-4o"
@@ -18,7 +22,8 @@ authType = "native"
 
 # Format to use for tool call serialization.
 # Options: "json_wrapped" (default) | "json_unwrapped" | "json_schema" | "strict_json_schema" | "native"
-toolCallFormat = "json_wrapped"
+[toolCallFormat]
+format = "json_wrapped"
 
 # Model's maximum input context window (tokens).
 contextWindowSize = 128000
@@ -27,9 +32,13 @@ timeout = 30000
 maxRetries = 2
 retryDelay = 5000
 
-[parameters]
+[generation]
 temperature = 0.5
-maxTokens = 12800
+max_tokens = 12800
+# GPT-4o is not a reasoning model: omit [generation.thinking].
+# Tool control (optional):
+# tool_choice = { mode = "auto" }
+# parallel_tool_calls = true
 
 [streamOptions]
 includeUsage = true

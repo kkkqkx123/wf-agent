@@ -2,6 +2,9 @@
 #
 # OpenAI's most capable reasoning model. Use for the hardest problems:
 # deep code review, mathematical proofs, architectural analysis.
+#
+# Uses the Responses API: thinking maps to reasoning { effort, summary },
+# verbosity maps to text { verbosity }. max_tokens maps to max_output_tokens.
 
 id = "gpt-5.5"
 name = "5.5 Deep Reasoning"
@@ -13,9 +16,16 @@ timeout = 300000
 maxRetries = 3
 retryDelay = 15000
 
-[parameters]
-reasoningEffort = "max"
-maxTokens = 32768
+[generation]
+max_tokens = 32768
+verbosity = "medium"
+# Tool control (optional):
+# parallel_tool_calls = true
+# service_tier = "auto"
+
+[generation.thinking]
+level = "max"
+summary = "auto"
 
 [metadata]
 tags = ["openai", "gpt-max", "reasoning", "deep", "complex"]

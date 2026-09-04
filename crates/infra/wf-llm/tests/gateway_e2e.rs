@@ -36,6 +36,7 @@ fn profile(server: &MockServer, id: &str, format: Option<ToolCallFormat>) -> Llm
         api_key: Some("sk-test".to_string()),
         base_url: Some(server.url("/v1")),
         parameters: Some(serde_json::json!({"temperature": 0.7})),
+        generation: None,
         timeout: None,
         max_retries: Some(1),
         retry_delay: Some(10),
@@ -76,6 +77,7 @@ fn user_request(profile_id: &str) -> LlmRequest {
             metadata: None,
         }],
         parameters: None,
+        generation: None,
         tools: None,
         tool_call_format: None,
         locked_tool_call_format: None,
@@ -365,4 +367,60 @@ async fn gateway_count_tokens_uses_provider_api_when_available() {
         .expect("count");
     assert_eq!(server.call_count(), 1, "provider API must be called");
     assert_eq!(result.input_tokens, 42);
+}
+
+#[tokio::test]
+async fn gateway_count_tokens_uses_openai_responses_api_when_available() {
+    // OpenAI Responses exposes POST /responses/input_tokens; the gateway
+    // must route count_tokens through it instead of estimating locally.
+    let server = MockServer::spawn(|req: &MockRequest| {
+        if req.path.ends_with("/responses/input_tokens") {
+            MockResponse::ok_json(r#"{"object":"response.input_tokens","input_tokens": 13}"#)
+        } else {
+            MockResponse::status(404, "not found")
+        }
+    })
+    .await;
+
+    let mut p = profile(&server, "p1", None);
+    p.provider = LlmProvider::OpenaiResponse;
+    p.model = "gpt-4o".to_string();
+    let gateway = LlmGateway::new();
+    gateway.register_profile(p).expect("register");
+
+    let result = gateway
+        .count_tokens(&user_request("p1"), None)
+        .await
+        .expect("count");
+    assert_eq!(server.call_count(), 1, "provider API must be called");
+    assert_eq!(result.input_tokens, 13);
+    assert!(result.raw.is_some());
+}
+
+#[tokio::test]
+async fn gateway_count_tokens_uses_gemini_api_when_available() {
+    // Gemini native exposes POST /models/*:countTokens returning
+    // `totalTokens` (camelCase); the gateway must parse that shape.
+    let server = MockServer::spawn(|req: &MockRequest| {
+        if req.path.contains(":countTokens") {
+            MockResponse::ok_json(r#"{"totalTokens": 21}"#)
+        } else {
+            MockResponse::status(404, "not found")
+        }
+    })
+    .await;
+
+    let mut p = profile(&server, "p1", None);
+    p.provider = LlmProvider::GeminiNative;
+    p.model = "gemini-1.5-flash".to_string();
+    p.base_url = Some(server.url("/v1beta"));
+    let gateway = LlmGateway::new();
+    gateway.register_profile(p).expect("register");
+
+    let result = gateway
+        .count_tokens(&user_request("p1"), None)
+        .await
+        .expect("count");
+    assert_eq!(server.call_count(), 1, "provider API must be called");
+    assert_eq!(result.input_tokens, 21);
 }

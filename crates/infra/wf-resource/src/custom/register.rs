@@ -29,6 +29,26 @@ fn validate_tool(tool: &CustomToolDefinition) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
+fn validate_parameters_schema(schema: &ToolParameterSchema) -> Result<(), String> {
+    for required_field in &schema.required {
+        if !schema.properties.contains_key(required_field) {
+            return Err(format!(
+                "Required field '{}' is not defined in properties",
+                required_field
+            ));
+        }
+    }
+    for (key, prop) in &schema.properties {
+        match prop.property_type.as_str() {
+            "string" | "number" | "integer" | "boolean" | "array" | "object" | "null" => {}
+            other => {
+                return Err(format!("Property '{}' has invalid type '{}'", key, other));
+            }
+        }
+    }
+    Ok(())
+}
+
 fn convert_tool_type(tt: &CustomToolType) -> ToolType {
     match tt {
         CustomToolType::Stateless => ToolType::Stateless,
@@ -75,6 +95,13 @@ pub fn register_custom_tools(
             required,
             additional_properties: None,
         };
+        if let Err(e) = validate_parameters_schema(&schema) {
+            total.merge(Summary::err(
+                &t.id,
+                format!("Invalid parameters schema: {}", e),
+            ));
+            continue;
+        }
 
         let tool = ToolDef {
             id: t.id.clone(),

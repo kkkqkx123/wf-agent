@@ -11,6 +11,7 @@
 /// - `workflow` — validate workflow definitions, transform nodes/edges
 /// - `node_config` — validate per-node-type config (LLM, Script, Variable, Route, Fork, Join, etc.)
 /// - `agent_loop` — validate/transform agent definitions
+/// - `hook` — validate hook configs (BaseHookConfig, AgentHookConfig)
 /// - `checkpoint` — merge/validate checkpoint policies
 /// - `file_checkpoint` — merge/validate file checkpoint configs
 /// - `node_template` — validate/transform node templates
@@ -25,6 +26,7 @@
 pub mod agent_loop;
 pub mod checkpoint;
 pub mod file_checkpoint;
+pub mod hook;
 pub mod infrastructure;
 pub mod limits;
 pub mod llm_profile;
@@ -37,6 +39,7 @@ pub mod script;
 pub mod script_flow;
 pub mod script_interactive;
 pub mod substitute;
+pub mod tool_list;
 pub mod tools;
 pub mod trigger;
 pub mod workflow;

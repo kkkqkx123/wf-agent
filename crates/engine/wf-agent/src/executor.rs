@@ -125,6 +125,28 @@ impl AgentLoopExecutor {
         self
     }
 
+    /// Execution gate: reject error-level config issues before the loop
+    /// starts instead of failing piecemeal mid-execution. Warnings pass.
+    fn gate_config(config: &AgentLoopConfig, registry: &ToolRegistry, cap: u32) -> AgentResult<()> {
+        match crate::validation::AgentLoopValidator::validate_or_fail_with_cap(
+            config, registry, cap,
+        ) {
+            Ok(_) => Ok(()),
+            Err(errors) => {
+                let detail = errors
+                    .iter()
+                    .map(|e| format!("{}: {}", e.field, e.message))
+                    .collect::<Vec<_>>()
+                    .join("; ");
+                Err(AgentError::ExecutionError(format!(
+                    "agent config validation failed ({} error(s)): {}",
+                    errors.len(),
+                    detail
+                )))
+            }
+        }
+    }
+
     fn coordinator(&self, input: &AgentLoopInput) -> AgentLoopCoordinator {
         let parent_execution_id = input
             .context
@@ -154,6 +176,7 @@ impl AgentLoopExecutor {
         config: AgentLoopConfig,
         input: AgentLoopInput,
     ) -> AgentResult<AgentLoopOutput> {
+        Self::gate_config(&config, &self.registry, self.max_iterations_cap)?;
         let coordinator = self.coordinator(&input);
         let output = coordinator.execute(config, input).await;
         // Sync path writes the result slot too, keeping both dispatch paths
@@ -178,6 +201,7 @@ impl AgentLoopExecutor {
         config: AgentLoopConfig,
         input: AgentLoopInput,
     ) -> AgentResult<SpawnedAgentLoop> {
+        Self::gate_config(&config, &self.registry, self.max_iterations_cap)?;
         let execution_id = Id::from(wf_common::generate_id());
 
         // Depth gate: a nested spawn whose resolved depth would exceed

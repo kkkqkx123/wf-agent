@@ -114,13 +114,15 @@ pub fn validate_node(
 }
 
 /// Transform declarative node configs into static nodes.
-pub fn transform_workflow_nodes(nodes: &[WorkflowNodeConfig]) -> Vec<BaseStaticNode> {
-    transform_nodes(nodes)
+pub fn transform_workflow_nodes(
+    nodes: &[WorkflowNodeConfig],
+) -> crate::ApiResult<Vec<BaseStaticNode>> {
+    transform_nodes(nodes).map_err(Into::into)
 }
 
 /// Transform declarative edge configs into edges.
-pub fn transform_workflow_edges(edges: &[WorkflowEdgeConfig]) -> Vec<Edge> {
-    transform_edges(edges)
+pub fn transform_workflow_edges(edges: &[WorkflowEdgeConfig]) -> crate::ApiResult<Vec<Edge>> {
+    transform_edges(edges).map_err(Into::into)
 }
 
 /// Serialize a config value as pretty JSON.
@@ -175,7 +177,7 @@ mod tests {
             description: None,
             config: Some(serde_json::json!({"profile_id": "mock"})),
         }];
-        let built = transform_workflow_nodes(&nodes);
+        let built = transform_workflow_nodes(&nodes).expect("known types transform");
         assert_eq!(built.len(), 1);
         assert_eq!(built[0].node_type, wf_types::node::StaticNodeType::Llm);
 
@@ -188,9 +190,22 @@ mod tests {
             description: None,
             weight: None,
         }];
-        let built = transform_workflow_edges(&edges);
+        let built = transform_workflow_edges(&edges).expect("valid edges transform");
         assert_eq!(built.len(), 1);
         assert_eq!(built[0].r#type, wf_types::workflow::EdgeType::Default);
+    }
+
+    #[test]
+    fn rejects_unknown_node_type_on_transform() {
+        let nodes = vec![WorkflowNodeConfig {
+            id: "n1".into(),
+            node_type: "LLMM".into(),
+            name: None,
+            description: None,
+            config: None,
+        }];
+        let err = transform_workflow_nodes(&nodes).unwrap_err();
+        assert!(matches!(err, crate::ApiError::Validation(_)));
     }
 
     #[test]

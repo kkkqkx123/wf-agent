@@ -21,18 +21,15 @@ serde_json.workspace = true
 toml.workspace = true
 tokio.workspace = true
 tracing.workspace = true
+thiserror.workspace = true
+reqwest.workspace = true
+eventsource-stream.workspace = true
+tokio-util.workspace = true
 wf-common = { path = "../../foundation/wf-common" }
 wf-types = { path = "../../foundation/wf-types" }
 wf-core = { path = "../../foundation/wf-core" }
-wf-runtime = { path = "../wf-runtime" }
 wf-api = { path = "../wf-api" }
-wf-agent = { path = "../../engine/wf-agent" }
-wf-config = { path = "../../infra/wf-config" }
-wf-llm = { path = "../../infra/wf-llm" }
-wf-tools = { path = "../../engine/wf-tools" }
-wf-storage = { path = "../../infra/wf-storage" }
-wf-workflow = { path = "../../engine/wf-workflow" }
-wf-server = { path = "../wf-server", optional = true }
+wf-runtime = { path = "../wf-runtime", optional = true }
 
 [dev-dependencies]
 tempfile = "3"
@@ -41,9 +38,11 @@ wf-storage = { path = "../../infra/wf-storage" }
 wf-resource = { path = "../../infra/wf-resource" }
 
 [features]
-default = []
-server = ["dep:wf-server"]
-metrics-http = ["server"]
+default = ["embedded"]
+embedded = ["dep:wf-runtime"]
+remote = ["reqwest/json", "reqwest/stream"]
+lua = ["wf-runtime/lua"]
+native = ["wf-runtime/native"]
 
 [[bin]]
 name = "wf"

@@ -112,6 +112,36 @@ pub async fn disable(ctx: &ApiContext, tool_id: &str) -> ApiResult<()> {
     Ok(())
 }
 
+/// Disable a tool and report the update impact on dependent workflows.
+/// The update always applies; dependents that now fail formal validation
+/// are reported for the caller to handle.
+pub async fn disable_with_impact(
+    ctx: &ApiContext,
+    tool_id: &str,
+) -> ApiResult<crate::infra::dependency::UpdateImpactReport> {
+    disable(ctx, tool_id).await?;
+    crate::infra::dependency::check_update_impact(
+        ctx,
+        crate::infra::dependency::DependencyKind::Tool,
+        tool_id,
+    )
+    .await
+}
+
+/// Enable a tool and report the update impact.
+pub async fn enable_with_impact(
+    ctx: &ApiContext,
+    tool_id: &str,
+) -> ApiResult<crate::infra::dependency::UpdateImpactReport> {
+    enable(ctx, tool_id).await?;
+    crate::infra::dependency::check_update_impact(
+        ctx,
+        crate::infra::dependency::DependencyKind::Tool,
+        tool_id,
+    )
+    .await
+}
+
 fn sync_registry_enabled(ctx: &ApiContext, tool_id: &str, enabled: bool) {
     if let Some(mut tool) = ctx.tool_registry.get_tool(tool_id) {
         tool.enabled = Some(enabled);

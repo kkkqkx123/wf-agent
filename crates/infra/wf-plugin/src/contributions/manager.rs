@@ -34,7 +34,7 @@ pub struct ContributionManager {
     formatter_registry: Registry<String, Arc<dyn PluginLlmFormatter>>,
     event_handler_registry: MultiRegistry<String, Arc<dyn PluginEventHandler>>,
     middleware_registry: MultiRegistry<String, (i32, Arc<dyn PluginMiddlewareHandler>)>,
-    // —— 声明式资源贡献注册表（owner 跟踪 + 桥接落位）——
+    // Declarative resource contribution registry (owner tracking + bridge placement)
     workflow_registry: Registry<String, Arc<WorkflowTemplate>>,
     prompt_registry: Registry<String, Arc<Template>>,
     fragment_registry: Registry<String, Arc<SystemPromptFragment>>,

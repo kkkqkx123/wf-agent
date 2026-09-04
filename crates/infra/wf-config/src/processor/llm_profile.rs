@@ -2,14 +2,14 @@ use std::collections::HashMap;
 
 use crate::error::ConfigResult;
 use crate::processor::substitute::substitute_in_struct;
-use crate::validator::validate_required;
+use crate::validator::validate_not_empty;
 
 use wf_types::llm::profile::LlmProfile;
 
 pub fn validate_llm_profile(profile: &LlmProfile) -> ConfigResult<()> {
-    validate_required(&profile.id, "id")?;
-    validate_required(&profile.name, "name")?;
-    validate_required(&profile.model, "model")?;
+    validate_not_empty(&profile.id, "id")?;
+    validate_not_empty(&profile.name, "name")?;
+    validate_not_empty(&profile.model, "model")?;
     Ok(())
 }
 
@@ -39,6 +39,7 @@ mod tests {
             api_key: None,
             base_url: None,
             parameters: None,
+            generation: None,
             timeout: None,
             max_retries: None,
             retry_delay: None,
@@ -72,6 +73,27 @@ mod tests {
     fn test_empty_model() {
         let mut profile = make_profile();
         profile.model = String::new();
+        assert!(validate_llm_profile(&profile).is_err());
+    }
+
+    #[test]
+    fn test_whitespace_only_id_rejected() {
+        let mut profile = make_profile();
+        profile.id = "   ".to_string();
+        assert!(validate_llm_profile(&profile).is_err());
+    }
+
+    #[test]
+    fn test_whitespace_only_name_rejected() {
+        let mut profile = make_profile();
+        profile.name = "   ".to_string();
+        assert!(validate_llm_profile(&profile).is_err());
+    }
+
+    #[test]
+    fn test_whitespace_only_model_rejected() {
+        let mut profile = make_profile();
+        profile.model = "   ".to_string();
         assert!(validate_llm_profile(&profile).is_err());
     }
 

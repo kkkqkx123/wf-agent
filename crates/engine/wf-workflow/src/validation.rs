@@ -3,26 +3,15 @@ use std::collections::{HashMap, HashSet};
 use wf_llm::ProfileManager;
 use wf_types::workflow_execution::{WorkflowEdge, WorkflowGraphStructure, WorkflowNode};
 
+// Re-export for crate-internal use (e.g. preprocess.rs, node_validation.rs, protocol_consistency.rs)
+pub use wf_types::{ValidationError, ValidationResult};
+
 use crate::analysis::{analyze_graph, analyze_reachability, detect_cycles, get_reachable_nodes};
 use crate::node_validation::validate_node_configs;
 use crate::protocol_consistency::validate_protocol_consistency_with;
+use crate::reference_closure::{ReferenceClosureReport, ReferenceContext};
 
-#[derive(Debug, Clone)]
-pub struct ValidationError {
-    pub field: String,
-    pub message: String,
-}
-
-impl ValidationError {
-    pub(crate) fn new(field: impl Into<String>, message: impl Into<String>) -> Self {
-        Self {
-            field: field.into(),
-            message: message.into(),
-        }
-    }
-}
-
-pub type ValidationResult = Result<(), Vec<ValidationError>>;
+pub type WorkflowValidationResult = Result<(), Vec<ValidationError>>;
 
 /// A workflow graph that has passed structural validation.
 ///
@@ -45,6 +34,16 @@ impl ValidatedGraph {
 }
 
 pub type ValidatedGraphResult = Result<ValidatedGraph, Vec<ValidationError>>;
+
+/// Render a validation error list as a human-readable report, one finding
+/// per line with its field path. Used by CLI/TUI registration output.
+pub fn format_validation_report(errors: &[ValidationError]) -> String {
+    let mut report = format!("{} error(s) found:", errors.len());
+    for error in errors {
+        report.push_str(&format!("\n  - [{}] {}", error.field, error.message));
+    }
+    report
+}
 
 fn node_type_of<'a>(graph: &'a WorkflowGraphStructure, node_id: &str) -> Option<&'a str> {
     graph
@@ -132,6 +131,8 @@ impl GraphValidator {
         errors.extend(Self::validate_embed_graph(&graph));
         errors.extend(Self::validate_subgraph_nodes(&graph));
         errors.extend(Self::validate_triggered_subgraph(&graph));
+        errors.extend(Self::validate_route_targets(&graph));
+        errors.extend(Self::validate_fork_children(&graph));
         errors.extend(Self::validate_cycles(&graph));
         errors.extend(Self::validate_reachability(&graph));
         errors.extend(validate_node_configs(&graph));
@@ -139,6 +140,42 @@ impl GraphValidator {
 
         if errors.is_empty() {
             Ok(ValidatedGraph(graph))
+        } else {
+            Err(errors)
+        }
+    }
+
+    /// Formal validation with an assembled reference context: shape, graph
+    /// and external reference closure in one pass. Warnings never block;
+    /// they are returned alongside the validated graph for the caller report.
+    pub fn validate_with_reference_context(
+        graph: WorkflowGraphStructure,
+        ctx: &ReferenceContext,
+    ) -> Result<(ValidatedGraph, Vec<ValidationError>), Vec<ValidationError>> {
+        let mut errors: Vec<ValidationError> = Vec::new();
+        errors.extend(Self::validate_nodes(&graph));
+        errors.extend(Self::validate_edges(&graph));
+        errors.extend(Self::validate_start_end(&graph));
+        errors.extend(Self::validate_references(&graph));
+        errors.extend(Self::validate_start_end_topology(&graph));
+        errors.extend(Self::validate_isolated_nodes(&graph));
+        errors.extend(Self::validate_fork_join_pairs(&graph));
+        errors.extend(Self::validate_loop_pairs(&graph));
+        errors.extend(Self::validate_sync_nodes(&graph));
+        errors.extend(Self::validate_embed_graph(&graph));
+        errors.extend(Self::validate_subgraph_nodes(&graph));
+        errors.extend(Self::validate_triggered_subgraph(&graph));
+        errors.extend(Self::validate_route_targets(&graph));
+        errors.extend(Self::validate_fork_children(&graph));
+        errors.extend(Self::validate_cycles(&graph));
+        errors.extend(Self::validate_reachability(&graph));
+        errors.extend(validate_node_configs(&graph));
+        let report: ReferenceClosureReport =
+            crate::reference_closure::validate_reference_closure(&graph, ctx);
+        errors.extend(report.errors.clone());
+        let warnings = report.warnings;
+        if errors.is_empty() {
+            Ok((ValidatedGraph(graph), warnings))
         } else {
             Err(errors)
         }
@@ -385,8 +422,10 @@ impl GraphValidator {
     }
 
     /// FORK/JOIN pairing: every FORK must have branches and a matching JOIN,
-    /// every JOIN must match a FORK; paired path ids must agree; the JOIN
-    /// must be reachable from its FORK.
+    /// every JOIN must match a FORK; paired path ids must agree as sets with
+    /// matching counts; empty or duplicate path ids fail; the JOIN must be
+    /// reachable from its FORK. Threshold compatibility for `wait_for_n`
+    /// lives in the node-level JOIN validator where the path count is known.
     fn validate_fork_join_pairs(graph: &WorkflowGraphStructure) -> Vec<ValidationError> {
         let mut errors = Vec::new();
 
@@ -401,10 +440,55 @@ impl GraphValidator {
             .filter(|n| n.node_type == "JOIN")
             .collect();
 
+        // Empty path ids fail with a dedicated message before uniqueness.
+        for fork in &fork_nodes {
+            for (idx, raw) in fork
+                .inner
+                .get("fork_paths")
+                .and_then(|v| v.as_array())
+                .map(Vec::as_slice)
+                .unwrap_or(&[])
+                .iter()
+                .enumerate()
+            {
+                let empty = raw
+                    .get("path_id")
+                    .and_then(|v| v.as_str())
+                    .is_none_or(|s| s.trim().is_empty());
+                if empty {
+                    errors.push(ValidationError::new(
+                        format!("nodes.{}.config.fork_paths[{}].path_id", fork.id, idx),
+                        format!(
+                            "FORK node '{}' has an empty path_id; each branch needs a non-empty unique path id",
+                            fork.id
+                        ),
+                    ));
+                }
+            }
+        }
+        for join in &join_nodes {
+            if let Some(arr) = join.inner.get("fork_path_ids").and_then(|v| v.as_array()) {
+                for (idx, entry) in arr.iter().enumerate() {
+                    if entry.as_str().is_none_or(|s| s.trim().is_empty()) {
+                        errors.push(ValidationError::new(
+                            format!("nodes.{}.config.fork_path_ids[{}]", join.id, idx),
+                            format!(
+                                "JOIN node '{}' has an empty path id; each entry must be a non-empty string",
+                                join.id
+                            ),
+                        ));
+                    }
+                }
+            }
+        }
+
         // Global path id uniqueness across all FORK nodes.
         let mut all_path_ids: HashSet<String> = HashSet::new();
         for fork in &fork_nodes {
             for path_id in fork_path_ids(fork) {
+                if path_id.trim().is_empty() {
+                    continue;
+                }
                 if !all_path_ids.insert(path_id.clone()) {
                     errors.push(ValidationError::new(
                         format!("nodes.{}", fork.id),
@@ -473,14 +557,28 @@ impl GraphValidator {
                 Some(join) => {
                     let join_ids = join_path_ids(join);
                     let fork_ids = fork_path_ids(fork);
-                    if !fork_ids.is_empty() && !join_ids.is_empty() && fork_ids != join_ids {
-                        errors.push(ValidationError::new(
-                            format!("nodes.{}", fork.id),
-                            format!(
-                                "fork_path_ids of FORK node ({}) and JOIN node ({}) do not match",
-                                fork.id, join.id
-                            ),
-                        ));
+                    if !fork_ids.is_empty() && !join_ids.is_empty() {
+                        let mut sorted_fork = fork_ids.clone();
+                        let mut sorted_join = join_ids.clone();
+                        sorted_fork.sort();
+                        sorted_join.sort();
+                        if sorted_fork != sorted_join {
+                            errors.push(ValidationError::new(
+                                format!("nodes.{}", fork.id),
+                                format!(
+                                    "fork_path_ids of FORK node ({}) and JOIN node ({}) do not match: FORK has {} path(s) [{}], JOIN has {} path(s) [{}]",
+                                    fork.id,
+                                    join.id,
+                                    fork_ids.len(),
+                                    fork_ids.join(", "),
+                                    join_ids.len(),
+                                    join_ids.join(", "),
+                                ),
+                            ));
+                        } else {
+                            pairs.push((fork, join));
+                            paired_joins.insert(join.id.as_str());
+                        }
                     } else {
                         pairs.push((fork, join));
                         paired_joins.insert(join.id.as_str());
@@ -904,6 +1002,137 @@ impl GraphValidator {
             }
         }
 
+        errors
+    }
+
+    /// ROUTE targets must resolve to real graph nodes: every condition
+    /// target and the default target are instance-level references.
+    /// Condition expressions are checked for static syntax (empty, unknown
+    /// function, arity, unbalanced delimiters); value semantics stay runtime.
+    /// A ROUTE must declare at least one condition or a default target, and
+    /// no condition target may duplicate the default target.
+    fn validate_route_targets(graph: &WorkflowGraphStructure) -> Vec<ValidationError> {
+        use std::collections::HashSet;
+        let mut errors = Vec::new();
+        let node_ids: HashSet<&str> = graph.nodes.iter().map(|n| n.id.as_str()).collect();
+        for node in &graph.nodes {
+            if node.node_type != "ROUTE" {
+                continue;
+            }
+            let conditions = node.inner.get("conditions").and_then(|v| v.as_array());
+            let has_conditions = conditions.is_some_and(|c| !c.is_empty());
+            let default_target = node
+                .inner
+                .get("default_target_node_id")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty());
+            if !has_conditions && default_target.is_none() {
+                errors.push(ValidationError::new(
+                    format!("nodes.{}.config", node.id),
+                    format!(
+                        "ROUTE node '{}' must define at least one condition or a default_target_node_id",
+                        node.id
+                    ),
+                ));
+            }
+            if let Some(conditions) = conditions {
+                for (idx, condition) in conditions.iter().enumerate() {
+                    if let Some(expression) = condition.get("expression").and_then(|v| v.as_str()) {
+                        if expression.trim().is_empty() {
+                            errors.push(ValidationError::new(
+                                format!("nodes.{}.config.conditions[{}].expression", node.id, idx),
+                                format!(
+                                    "ROUTE node '{}' has an empty condition expression",
+                                    node.id
+                                ),
+                            ));
+                        } else if let Err(reason) =
+                            wf_core::condition::ConditionEvaluator::validate_syntax(expression)
+                        {
+                            errors.push(ValidationError::new(
+                                format!("nodes.{}.config.conditions[{}].expression", node.id, idx),
+                                format!(
+                                    "ROUTE node '{}' has an invalid condition expression: {}",
+                                    node.id, reason
+                                ),
+                            ));
+                        }
+                    }
+                    if let Some(target) = condition
+                        .get("target_node_id")
+                        .and_then(|v| v.as_str())
+                        .filter(|s| !s.is_empty())
+                    {
+                        if !node_ids.contains(target) {
+                            errors.push(ValidationError::new(
+                                format!("nodes.{}.config.conditions[{}]", node.id, idx),
+                                format!(
+                                    "ROUTE node '{}' targets unknown node '{}'",
+                                    node.id, target
+                                ),
+                            ));
+                        }
+                        if Some(target) == default_target {
+                            errors.push(ValidationError::new(
+                                format!("nodes.{}.config.conditions[{}]", node.id, idx),
+                                format!(
+                                    "ROUTE node '{}' condition target '{}' duplicates the default target; use distinct targets",
+                                    node.id, target
+                                ),
+                            ));
+                        }
+                    }
+                }
+            }
+            if let Some(target) = node
+                .inner
+                .get("default_target_node_id")
+                .and_then(|v| v.as_str())
+                .filter(|s| !s.is_empty())
+            {
+                if !node_ids.contains(target) {
+                    errors.push(ValidationError::new(
+                        format!("nodes.{}.config.default_target_node_id", node.id),
+                        format!(
+                            "ROUTE node '{}' default target '{}' does not exist in the graph",
+                            node.id, target
+                        ),
+                    ));
+                }
+            }
+        }
+        errors
+    }
+
+    /// FORK branch entry nodes must resolve to real graph nodes.
+    fn validate_fork_children(graph: &WorkflowGraphStructure) -> Vec<ValidationError> {
+        use std::collections::HashSet;
+        let mut errors = Vec::new();
+        let node_ids: HashSet<&str> = graph.nodes.iter().map(|n| n.id.as_str()).collect();
+        for node in &graph.nodes {
+            if node.node_type != "FORK" {
+                continue;
+            }
+            if let Some(paths) = node.inner.get("fork_paths").and_then(|v| v.as_array()) {
+                for (idx, path) in paths.iter().enumerate() {
+                    if let Some(child) = path
+                        .get("child_node_id")
+                        .and_then(|v| v.as_str())
+                        .filter(|s| !s.is_empty())
+                    {
+                        if !node_ids.contains(child) {
+                            errors.push(ValidationError::new(
+                                format!("nodes.{}.config.fork_paths[{}]", node.id, idx),
+                                format!(
+                                    "FORK node '{}' branch targets unknown node '{}'",
+                                    node.id, child
+                                ),
+                            ));
+                        }
+                    }
+                }
+            }
+        }
         errors
     }
 
@@ -1659,5 +1888,214 @@ mod tests {
         assert!(errors
             .iter()
             .any(|e| e.message.contains("Inconsistent tool call protocols")));
+    }
+
+    #[test]
+    fn test_route_with_invalid_expression_syntax_rejected() {
+        let graph = make_graph(
+            vec![
+                make_node("start", "START"),
+                make_node_with_inner(
+                    "route",
+                    "ROUTE",
+                    serde_json::json!({
+                        "conditions": [{"expression": "eq(only_one)", "target_node_id": "a"}],
+                        "default_target_node_id": "end",
+                    }),
+                ),
+                make_node_with_inner(
+                    "a",
+                    "VARIABLE",
+                    serde_json::json!({"variable_name": "x", "expression": "1"}),
+                ),
+                make_node("end", "END"),
+            ],
+            vec![
+                make_edge("e1", "start", "route"),
+                make_edge("e2", "route", "a"),
+                make_edge("e3", "route", "end"),
+                make_edge("e4", "a", "end"),
+            ],
+            Some("start"),
+            vec!["end"],
+        );
+        let result = GraphValidator::validate(graph);
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert!(errors
+            .iter()
+            .any(|e| e.message.contains("invalid condition expression")));
+    }
+
+    #[test]
+    fn test_route_without_conditions_or_default_rejected() {
+        let graph = make_graph(
+            vec![
+                make_node("start", "START"),
+                make_node_with_inner("route", "ROUTE", serde_json::json!({})),
+                make_node("end", "END"),
+            ],
+            vec![
+                make_edge("e1", "start", "route"),
+                make_edge("e2", "route", "end"),
+            ],
+            Some("start"),
+            vec!["end"],
+        );
+        let result = GraphValidator::validate(graph);
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert!(errors.iter().any(|e| e
+            .message
+            .contains("at least one condition or a default_target_node_id")));
+    }
+
+    #[test]
+    fn test_route_duplicate_default_target_rejected() {
+        let graph = make_graph(
+            vec![
+                make_node("start", "START"),
+                make_node_with_inner(
+                    "route",
+                    "ROUTE",
+                    serde_json::json!({
+                        "conditions": [{"expression": "eq(a, 1)", "target_node_id": "end"}],
+                        "default_target_node_id": "end",
+                    }),
+                ),
+                make_node("end", "END"),
+            ],
+            vec![
+                make_edge("e1", "start", "route"),
+                make_edge("e2", "route", "end"),
+            ],
+            Some("start"),
+            vec!["end"],
+        );
+        let result = GraphValidator::validate(graph);
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert!(errors
+            .iter()
+            .any(|e| e.message.contains("duplicates the default target")));
+    }
+
+    #[test]
+    fn test_route_with_default_only_passes() {
+        let graph = make_graph(
+            vec![
+                make_node("start", "START"),
+                make_node_with_inner(
+                    "route",
+                    "ROUTE",
+                    serde_json::json!({"default_target_node_id": "end"}),
+                ),
+                make_node("end", "END"),
+            ],
+            vec![
+                make_edge("e1", "start", "route"),
+                make_edge("e2", "route", "end"),
+            ],
+            Some("start"),
+            vec!["end"],
+        );
+        assert!(GraphValidator::validate(graph).is_ok());
+    }
+
+    #[test]
+    fn test_fork_with_empty_path_id_rejected() {
+        let graph = make_graph(
+            vec![
+                make_node("start", "START"),
+                make_node_with_inner(
+                    "fork",
+                    "FORK",
+                    serde_json::json!({
+                        "fork_paths": [{"path_id": "", "child_node_id": "a1"}]
+                    }),
+                ),
+                make_node_with_inner(
+                    "a1",
+                    "VARIABLE",
+                    serde_json::json!({"variable_name": "x", "expression": "1"}),
+                ),
+                make_node_with_inner("join", "JOIN", serde_json::json!({"fork_path_ids": ["p1"]})),
+                make_node("end", "END"),
+            ],
+            vec![
+                make_edge("e1", "start", "fork"),
+                make_edge("e2", "fork", "a1"),
+                make_edge("e3", "a1", "join"),
+                make_edge("e4", "join", "end"),
+            ],
+            Some("start"),
+            vec!["end"],
+        );
+        let result = GraphValidator::validate(graph);
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert!(errors.iter().any(|e| e.message.contains("empty path_id")));
+    }
+
+    #[test]
+    fn test_fork_join_count_mismatch_reports_counts() {
+        let graph = make_graph(
+            vec![
+                make_node("start", "START"),
+                make_node_with_inner(
+                    "fork",
+                    "FORK",
+                    serde_json::json!({
+                        "fork_paths": [
+                            {"path_id": "p1", "child_node_id": "a1"},
+                            {"path_id": "p2", "child_node_id": "a2"}
+                        ]
+                    }),
+                ),
+                make_node_with_inner(
+                    "a1",
+                    "VARIABLE",
+                    serde_json::json!({"variable_name": "x", "expression": "1"}),
+                ),
+                make_node_with_inner(
+                    "a2",
+                    "VARIABLE",
+                    serde_json::json!({"variable_name": "y", "expression": "2"}),
+                ),
+                make_node_with_inner("join", "JOIN", serde_json::json!({"fork_path_ids": ["p1"]})),
+                make_node("end", "END"),
+            ],
+            vec![
+                make_edge("e1", "start", "fork"),
+                make_edge("e2", "fork", "a1"),
+                make_edge("e3", "fork", "a2"),
+                make_edge("e4", "a1", "join"),
+                make_edge("e5", "a2", "join"),
+                make_edge("e6", "join", "end"),
+            ],
+            Some("start"),
+            vec!["end"],
+        );
+        let result = GraphValidator::validate(graph);
+        assert!(result.is_err());
+        let errors = result.unwrap_err();
+        assert!(errors
+            .iter()
+            .any(|e| e.message.contains("do not match") && e.message.contains("2 path(s)")));
+    }
+
+    #[test]
+    fn test_format_validation_report_lists_each_finding() {
+        let errors = vec![
+            ValidationError::new("nodes.a", "first problem"),
+            ValidationError::new("nodes.b.config.x", "second problem"),
+        ];
+        let report = format_validation_report(&errors);
+        assert!(report.contains("2 error(s) found:"));
+        assert!(report.contains("[nodes.a] first problem"));
+        assert!(report.contains("[nodes.b.config.x] second problem"));
+
+        let empty = format_validation_report(&[]);
+        assert!(empty.contains("0 error(s) found:"));
     }
 }

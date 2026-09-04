@@ -359,7 +359,7 @@ mod tests {
     #[tokio::test]
     async fn workflow_stats_with_history_merges_persisted() {
         use std::sync::Mutex;
-        use wf_metrics::{MetricPoint, MetricType, MetricsSink, MetricsError};
+        use wf_metrics::{MetricPoint, MetricType, MetricsError, MetricsSink};
 
         struct MockSink {
             points: Mutex<Vec<MetricPoint>>,
@@ -381,7 +381,9 @@ mod tests {
                     .lock()
                     .unwrap()
                     .iter()
-                    .filter(|p| p.name == name && p.timestamp >= start_time && p.timestamp <= end_time)
+                    .filter(|p| {
+                        p.name == name && p.timestamp >= start_time && p.timestamp <= end_time
+                    })
                     .cloned()
                     .collect())
             }
@@ -417,10 +419,7 @@ mod tests {
                     metric_type: MetricType::Counter,
                     value: 1.0,
                     timestamp: 1000,
-                    labels: wf_metrics::labels(&[
-                        ("workflow_id", "wf-1"),
-                        ("success", "true"),
-                    ]),
+                    labels: wf_metrics::labels(&[("workflow_id", "wf-1"), ("success", "true")]),
                     source: String::new(),
                     buckets: Vec::new(),
                     sum: 0.0,

@@ -20,12 +20,11 @@ use std::time::Instant;
 use futures::StreamExt;
 use serde_json::Value;
 
-use wf_agent::approval::{ToolApprovalHandler, ToolApprovalRequest, ToolApprovalResult};
 use wf_api::agent::agent_execution::{self, RunAgentLoopParams};
 use wf_api::entity::user_interaction::{
     register_handler, AgentUserInteractionEventRecord, UserInteractionHandler,
 };
-use wf_tools::callback::AgentLoopInput;
+use wf_api::{AgentLoopInput, ToolApprovalHandler, ToolApprovalRequest, ToolApprovalResult};
 use wf_types::Id;
 
 #[cfg(test)]
@@ -708,6 +707,150 @@ fn format_duration(duration_ms: u64) -> String {
     } else {
         format!("{:.1}s", duration_ms as f64 / 1_000.0)
     }
+}
+
+/// Remote execution path: drive the session through the HTTP server instead of
+/// an embedded runtime. Mirrors `run_session` but uses `RemoteClient` for the
+/// engine calls and keeps the same sink/diag/summary contract.
+pub async fn run_session_remote(
+    client: &crate::remote::RemoteClient,
+    opts: RunOptions,
+    mut io: RunIo,
+) -> CliResult<RunOutcome> {
+    use std::time::Instant;
+    let started = Instant::now();
+    if let Some(workflow_id) = opts.workflow.clone() {
+        let input = crate::turn::parse_workflow_input(opts.workflow_input.as_deref())
+            .map_err(CliError::Arguments)?;
+        if !io.format.is_silent() {
+            io.sink.write_message(&OutputMessage::new(
+                "user",
+                format!("workflow:{workflow_id}"),
+            ))?;
+        }
+        let body = serde_json::json!({ "input": input });
+        let resp: serde_json::Value = client
+            .post_json(&format!("/api/v1/workflows/{}/execute", workflow_id), &body)
+            .await?;
+        let execution_id = resp
+            .get("execution_id")
+            .or_else(|| resp.get("executionId"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("remote-exec")
+            .to_string();
+        let result = resp.get("result").cloned().unwrap_or(resp.clone());
+        let had_output = !result.is_null()
+            && result
+                .as_str()
+                .map(|s| !s.trim().is_empty())
+                .unwrap_or(true);
+        if !io.format.is_silent() {
+            if let OutputFormat::Text = io.format {
+                let text = match &result {
+                    serde_json::Value::String(s) => s.clone(),
+                    other => {
+                        serde_json::to_string_pretty(other).unwrap_or_else(|_| other.to_string())
+                    }
+                };
+                if !text.is_empty() {
+                    io.sink.write_chunk(&text)?;
+                    if !text.ends_with('\n') {
+                        io.sink.write_chunk("\n")?;
+                    }
+                }
+            }
+        }
+        io.sink.flush()?;
+        let duration_ms = started.elapsed().as_millis() as u64;
+        write_summary(SummaryParams {
+            sink: io.sink.as_mut(),
+            format: io.format,
+            execution_id: &execution_id,
+            iterations: 1,
+            duration_ms,
+            had_output,
+            opts: &opts,
+            result: Some(&result),
+        })?;
+        io.sink.flush()?;
+        return Ok(RunOutcome {
+            execution_id,
+            iterations: 1,
+            duration_ms,
+            had_output,
+        });
+    }
+
+    if opts.prompt.trim().is_empty() {
+        return Err(CliError::Arguments(
+            "no prompt given: pass a positional argument or pipe stdin".into(),
+        ));
+    }
+    if !io.format.is_silent() {
+        io.sink
+            .write_message(&OutputMessage::new("user", &opts.prompt))?;
+    }
+    let sanitized = crate::sanitize::sanitize_user_text(&opts.prompt);
+    let body = serde_json::json!({
+        "agent_id": opts.agent_id.clone().unwrap_or_else(|| crate::config::DEFAULT_AGENT.to_string()),
+        "model": opts.model.clone().unwrap_or_else(|| DEFAULT_MODEL.to_string()),
+        "message": sanitized,
+        "max_iterations": 50,
+        "context": {},
+    });
+    let resp: serde_json::Value = client
+        .post_json("/api/v1/agent-loops/cli/run", &body)
+        .await?;
+    let execution_id = resp
+        .get("agent_loop_id")
+        .or_else(|| resp.get("agentLoopId"))
+        .or_else(|| resp.get("execution_id"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("remote-agent")
+        .to_string();
+    let result = resp
+        .get("result")
+        .cloned()
+        .unwrap_or(serde_json::Value::Null);
+    let iterations = resp.get("iterations").and_then(|v| v.as_u64()).unwrap_or(1) as u32;
+    let had_output = !result.is_null()
+        && result
+            .as_str()
+            .map(|s| !s.trim().is_empty())
+            .unwrap_or(true);
+    if !io.format.is_silent() {
+        if let OutputFormat::Text = io.format {
+            let text = match &result {
+                serde_json::Value::String(s) => s.clone(),
+                other => serde_json::to_string_pretty(other).unwrap_or_else(|_| other.to_string()),
+            };
+            if !text.is_empty() {
+                io.sink.write_chunk(&text)?;
+                if !text.ends_with('\n') {
+                    io.sink.write_chunk("\n")?;
+                }
+            }
+        }
+    }
+    io.sink.flush()?;
+    let duration_ms = started.elapsed().as_millis() as u64;
+    write_summary(SummaryParams {
+        sink: io.sink.as_mut(),
+        format: io.format,
+        execution_id: &execution_id,
+        iterations,
+        duration_ms,
+        had_output,
+        opts: &opts,
+        result: Some(&result),
+    })?;
+    io.sink.flush()?;
+    Ok(RunOutcome {
+        execution_id,
+        iterations,
+        duration_ms,
+        had_output,
+    })
 }
 
 // ── tests ────────────────────────────────────────────────────────────

@@ -187,11 +187,13 @@ pub async fn get(ctx: &ApiContext, id: &str) -> ApiResult<TriggerTemplateStorage
 }
 
 pub async fn delete(ctx: &ApiContext, id: &str) -> ApiResult<bool> {
-    ctx.storage
-        .trigger_template
-        .delete(id)
-        .await
-        .map_err(Into::into)
+    crate::infra::reference::delete_with_reference_check(
+        ctx,
+        crate::infra::reference::ReferenceKind::Trigger,
+        id,
+        false,
+    )
+    .await
 }
 
 /// Export a template by name as a JSON string.

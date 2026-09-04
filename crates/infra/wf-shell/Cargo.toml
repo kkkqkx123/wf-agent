@@ -17,3 +17,6 @@ regex.workspace = true
 once_cell.workspace = true
 libc.workspace = true
 portable-pty.workspace = true
+
+[features]
+lua = ["wf-sandbox/lua"]

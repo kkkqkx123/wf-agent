@@ -15,7 +15,7 @@ pub const VALID_CONTRIBUTION_TYPES: &[&str] = &[
     "formatter",
     "event-handler",
     "middleware",
-    // —— 声明式资源贡献 ——
+    // Declarative resource contributions
     "workflow",
     "prompt",
     "fragment",

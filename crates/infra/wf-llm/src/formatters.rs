@@ -34,12 +34,28 @@ pub trait LlmFormatter: Send + Sync {
     /// Build a count-tokens request. Returns `Ok(None)` when the provider
     /// does not support a token counting API (the caller falls back to
     /// an estimate). Default implementation returns `None`.
+    ///
+    /// Provider support: Anthropic (`POST /messages/count_tokens`), OpenAI
+    /// Responses (`POST /responses/input_tokens`) and Gemini native
+    /// (`POST /models/*:countTokens`) expose a counting API. OpenAI Chat
+    /// Completions, Gemini OpenAI-compatible and custom OpenAI-compatible
+    /// providers have no counting endpoint and keep the default `None`.
     fn build_count_tokens_request(
         &self,
         _request: &LlmRequest,
         _profile: &LlmProfile,
     ) -> LlmResult<Option<reqwest::Request>> {
         Ok(None)
+    }
+
+    /// Parse a count-tokens response body into input tokens. Default reads
+    /// `input_tokens` (Anthropic and OpenAI Responses shape); providers
+    /// with a different shape (Gemini `totalTokens`) override it.
+    fn parse_count_tokens_response(&self, body: &serde_json::Value) -> LlmResult<u32> {
+        Ok(body
+            .get("input_tokens")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0) as u32)
     }
 }
 

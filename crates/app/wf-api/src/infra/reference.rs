@@ -53,6 +53,7 @@ pub async fn collect_node_references(
 pub enum ReferenceKind {
     Tool,
     Script,
+    Trigger,
 }
 
 impl ReferenceKind {
@@ -60,6 +61,7 @@ impl ReferenceKind {
         match self {
             ReferenceKind::Tool => "tool",
             ReferenceKind::Script => "script",
+            ReferenceKind::Trigger => "trigger",
         }
     }
 }
@@ -101,7 +103,59 @@ pub async fn check_references(
                 })
                 .collect()
         }
+        ReferenceKind::Trigger => {
+            collect_trigger_delete_references(&ctx.storage, resource_id).await?
+        }
     };
+    Ok(references)
+}
+
+/// Scan all stored workflows for nodes whose config references `trigger_id`
+/// or `trigger_template_id` matching `resource_id` or its name.
+async fn collect_trigger_delete_references(
+    ctx: &wf_storage::context::StorageContext,
+    resource_id: &str,
+) -> ApiResult<Vec<DeleteReference>> {
+    use wf_storage::adapter::base::BaseStorageAdapter;
+    let template = match ctx.trigger_template.load(resource_id).await? {
+        Some(t) => t,
+        None => return Ok(Vec::new()),
+    };
+    let candidates = [template.id.clone(), template.name.clone()];
+    let is_trigger_node = |node: &wf_types::node::BaseStaticNode| {
+        matches!(
+            node.node_type,
+            wf_types::node::StaticNodeType::Route
+                | wf_types::node::StaticNodeType::Start
+                | wf_types::node::StaticNodeType::End
+        )
+    };
+    let config_keys = &["trigger_id", "trigger_template_id"];
+    let mut references = Vec::new();
+    let workflows = ctx.workflow.list(None).await?;
+    for workflow in &workflows {
+        for node in &workflow.nodes {
+            if !is_trigger_node(node) {
+                continue;
+            }
+            let Some(config) = &node.config else {
+                continue;
+            };
+            let referenced = config_keys.iter().any(|key| {
+                config
+                    .get(*key)
+                    .and_then(|v| v.as_str())
+                    .is_some_and(|value| candidates.iter().any(|c| c == value))
+            });
+            if referenced {
+                references.push(DeleteReference {
+                    workflow_id: workflow.id.to_string(),
+                    workflow_name: workflow.name.clone(),
+                    node_id: node.id.to_string(),
+                });
+            }
+        }
+    }
     Ok(references)
 }
 
@@ -138,6 +192,14 @@ pub async fn delete_with_reference_check(
     match kind {
         ReferenceKind::Tool => crate::llm::tool::delete_tool(&ctx.storage, resource_id).await,
         ReferenceKind::Script => crate::llm::script::delete_script(&ctx.storage, resource_id).await,
+        ReferenceKind::Trigger => {
+            use wf_storage::adapter::base::BaseStorageAdapter;
+            ctx.storage
+                .trigger_template
+                .delete(resource_id)
+                .await
+                .map_err(Into::into)
+        }
     }
 }
 
@@ -245,5 +307,115 @@ mod tests {
         assert!(!crate::llm::tool::get_tool(&ctx.storage, "t-2")
             .await
             .is_ok());
+    }
+
+    fn make_trigger_template(id: &str, name: &str) -> wf_types::TriggerTemplateStorageMetadata {
+        wf_types::TriggerTemplateStorageMetadata {
+            id: id.into(),
+            name: name.into(),
+            trigger_type: "event".into(),
+            description: None,
+            category: None,
+            tags: None,
+            enabled: true,
+            max_triggers: None,
+            priority: None,
+            condition: None,
+            action_config: None,
+            created_at: 1000,
+            updated_at: 1000,
+        }
+    }
+
+    fn make_workflow_with_trigger(
+        id: &str,
+        trigger_template_id: &str,
+    ) -> wf_types::WorkflowDefinition {
+        use wf_types::node::BaseStaticNode;
+        use wf_types::node::StaticNodeType;
+        wf_types::WorkflowDefinition {
+            id: id.into(),
+            name: format!("Workflow {id}"),
+            description: None,
+            r#type: None,
+            version: None,
+            nodes: vec![BaseStaticNode {
+                id: "node-1".into(),
+                node_type: StaticNodeType::Start,
+                name: None,
+                description: None,
+                config: Some(serde_json::json!({
+                    "trigger_template_id": trigger_template_id
+                })),
+                execution_config: None,
+            }],
+            edges: vec![],
+            config: None,
+            variables: None,
+            triggered_subworkflow_config: None,
+            metadata: None,
+            available_tools: None,
+            created_at: 1000,
+            updated_at: 1000,
+            hooks: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn trigger_delete_refused_when_referenced() {
+        let ctx = make_ctx();
+        let template = make_trigger_template("tt-1", "my-trigger");
+        crate::template::agent_trigger_template::save(&ctx, &template)
+            .await
+            .unwrap();
+        ctx.storage
+            .workflow
+            .save(&make_workflow_with_trigger("wf-1", "tt-1"))
+            .await
+            .unwrap();
+
+        let err = delete_with_reference_check(&ctx, ReferenceKind::Trigger, "tt-1", false)
+            .await
+            .unwrap_err();
+        assert!(matches!(err, ApiError::Conflict(_)));
+
+        let references = check_references(&ctx, ReferenceKind::Trigger, "tt-1")
+            .await
+            .unwrap();
+        assert_eq!(references.len(), 1);
+        assert_eq!(references[0].workflow_id, "wf-1");
+    }
+
+    #[tokio::test]
+    async fn trigger_delete_by_name_refused_when_referenced() {
+        let ctx = make_ctx();
+        let template = make_trigger_template("tt-2", "named-trigger");
+        crate::template::agent_trigger_template::save(&ctx, &template)
+            .await
+            .unwrap();
+        ctx.storage
+            .workflow
+            .save(&make_workflow_with_trigger("wf-2", "named-trigger"))
+            .await
+            .unwrap();
+
+        let references = check_references(&ctx, ReferenceKind::Trigger, "tt-2")
+            .await
+            .unwrap();
+        assert_eq!(references.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn unreferenced_trigger_deletes_normally() {
+        let ctx = make_ctx();
+        let template = make_trigger_template("tt-3", "unused-trigger");
+        crate::template::agent_trigger_template::save(&ctx, &template)
+            .await
+            .unwrap();
+
+        let deleted = delete_with_reference_check(&ctx, ReferenceKind::Trigger, "tt-3", false)
+            .await
+            .unwrap();
+        assert!(deleted);
     }
 }

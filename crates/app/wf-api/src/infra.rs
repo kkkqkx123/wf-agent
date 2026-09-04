@@ -3,6 +3,7 @@
 
 pub mod config;
 pub mod context;
+pub mod dependency;
 pub mod diagnostics;
 pub mod error;
 pub mod event_persistence;
@@ -15,3 +16,4 @@ pub mod stream;
 pub mod subscription;
 pub mod tasks;
 pub mod util;
+pub mod validation;

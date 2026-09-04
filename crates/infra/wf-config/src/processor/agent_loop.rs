@@ -2,7 +2,9 @@ use std::collections::HashSet;
 use std::str::FromStr;
 
 use crate::error::{ConfigError, ConfigResult};
-use crate::validator::{validate_hook_type, validate_required};
+use crate::processor::hook::validate_agent_hook_config;
+use crate::processor::tool_list::validate_available_tools;
+use crate::validator::{validate_min, validate_required};
 
 use wf_types::agent::definition::AgentDefinition;
 use wf_types::agent_execution::runtime_config::AgentRuntimeConfig;
@@ -19,12 +21,8 @@ pub fn validate_agent_definition(definition: &AgentDefinition) -> ConfigResult<(
         ToolCallFormat::from_str(format).map_err(ConfigError::Validation)?;
     }
     if let Some(hooks) = definition.config.as_ref().and_then(|c| c.hooks.as_ref()) {
-        for hook in hooks {
-            let hook_type = serde_json::to_value(&hook.hook_type)
-                .ok()
-                .and_then(|v| v.as_str().map(ToString::to_string))
-                .unwrap_or_default();
-            validate_hook_type(&hook_type, "config.hooks")?;
+        for (idx, hook) in hooks.iter().enumerate() {
+            validate_agent_hook_config(hook, &format!("config.hooks[{idx}]"))?;
         }
     }
     if let Some(config) = definition.config.as_ref() {
@@ -42,6 +40,65 @@ pub fn validate_agent_definition(definition: &AgentDefinition) -> ConfigResult<(
                 )));
             }
         }
+        if let Some(max_retries) = config.max_retries {
+            validate_min(max_retries, 0, "config.max_retries")?;
+        }
+        if let Some(execution_timeout) = config.execution_timeout {
+            validate_min(execution_timeout, 1, "config.execution_timeout")?;
+        }
+        if let Some(max_pause_duration) = config.max_pause_duration {
+            validate_min(max_pause_duration, 0, "config.max_pause_duration")?;
+        }
+        if let Some(token_limit) = config.token_limit {
+            // token_limit=0 is allowed to disable the limit, matching the
+            // runtime semantics in wf-agent AgentLoopValidator (warns but
+            // allows). Only positive values need the minimum check.
+            if token_limit != 0 {
+                validate_min(token_limit, 1, "config.token_limit")?;
+            }
+        }
+        validate_available_tools_intersection(config)?;
+        if let Some(ref checkpoint) = config.checkpoint {
+            validate_agent_checkpoint_config(checkpoint)?;
+        }
+        if let Some(ref dynamic_context) = config.dynamic_context {
+            validate_dynamic_context_config(dynamic_context)?;
+        }
+    }
+    Ok(())
+}
+
+fn validate_available_tools_intersection(
+    config: &wf_types::agent::config::AgentConfig,
+) -> ConfigResult<()> {
+    let Some(tools) = config.available_tools.as_ref() else {
+        return Ok(());
+    };
+    validate_available_tools(tools, "config.available_tools")
+}
+
+fn validate_agent_checkpoint_config(
+    config: &wf_types::checkpoint::agent::AgentCheckpointConfig,
+) -> ConfigResult<()> {
+    if let Some(interval) = config.interval_iterations {
+        validate_min(interval, 1, "config.checkpoint.interval_iterations")?;
+    }
+    if let Some(ref content) = config.content {
+        if let Some(limit) = content.message_limit {
+            validate_min(limit, 1, "config.checkpoint.content.message_limit")?;
+        }
+        if let Some(limit) = content.tool_call_limit {
+            validate_min(limit, 1, "config.checkpoint.content.tool_call_limit")?;
+        }
+    }
+    Ok(())
+}
+
+fn validate_dynamic_context_config(
+    config: &wf_types::dynamic_context::DynamicContextConfig,
+) -> ConfigResult<()> {
+    if let Some(max_depth) = config.max_file_depth {
+        validate_min(max_depth, 1, "config.dynamic_context.max_file_depth")?;
     }
     Ok(())
 }
@@ -291,5 +348,222 @@ mod tests {
         // Without a registry the plain validator stays lenient about the
         // profile reference (checked at assembly time instead).
         assert!(validate_agent_definition(&def).is_ok());
+    }
+
+    #[test]
+    fn test_max_retries_zero_accepted() {
+        let mut def = make_definition();
+        def.config = Some(wf_types::agent::config::AgentConfig {
+            max_retries: Some(0),
+            ..make_config()
+        });
+        assert!(validate_agent_definition(&def).is_ok());
+    }
+
+    #[test]
+    fn test_max_retries_negative_rejected() {
+        let mut def = make_definition();
+        def.config = Some(wf_types::agent::config::AgentConfig {
+            max_retries: Some(u32::MAX),
+            ..make_config()
+        });
+        // u32::MAX is a valid value, just very large
+        assert!(validate_agent_definition(&def).is_ok());
+    }
+
+    #[test]
+    fn test_execution_timeout_zero_rejected() {
+        let mut def = make_definition();
+        def.config = Some(wf_types::agent::config::AgentConfig {
+            execution_timeout: Some(0),
+            ..make_config()
+        });
+        assert!(validate_agent_definition(&def).is_err());
+    }
+
+    #[test]
+    fn test_execution_timeout_positive_accepted() {
+        let mut def = make_definition();
+        def.config = Some(wf_types::agent::config::AgentConfig {
+            execution_timeout: Some(5000),
+            ..make_config()
+        });
+        assert!(validate_agent_definition(&def).is_ok());
+    }
+
+    #[test]
+    fn test_max_pause_duration_zero_accepted() {
+        let mut def = make_definition();
+        def.config = Some(wf_types::agent::config::AgentConfig {
+            max_pause_duration: Some(0),
+            ..make_config()
+        });
+        assert!(validate_agent_definition(&def).is_ok());
+    }
+
+    #[test]
+    fn test_token_limit_zero_accepted_disables_limit() {
+        let mut def = make_definition();
+        def.config = Some(wf_types::agent::config::AgentConfig {
+            token_limit: Some(0),
+            ..make_config()
+        });
+        assert!(validate_agent_definition(&def).is_ok());
+    }
+
+    #[test]
+    fn test_token_limit_positive_accepted() {
+        let mut def = make_definition();
+        def.config = Some(wf_types::agent::config::AgentConfig {
+            token_limit: Some(100000),
+            ..make_config()
+        });
+        assert!(validate_agent_definition(&def).is_ok());
+    }
+
+    #[test]
+    fn test_checkpoint_interval_iterations_zero_rejected() {
+        let mut def = make_definition();
+        def.config = Some(wf_types::agent::config::AgentConfig {
+            checkpoint: Some(wf_types::checkpoint::agent::AgentCheckpointConfig {
+                enabled: true,
+                interval_iterations: Some(0),
+                on_error: None,
+                on_tool_call: None,
+                content: None,
+            }),
+            ..make_config()
+        });
+        let err = validate_agent_definition(&def).unwrap_err();
+        assert!(err.to_string().contains("interval_iterations"));
+    }
+
+    #[test]
+    fn test_checkpoint_interval_iterations_positive_accepted() {
+        let mut def = make_definition();
+        def.config = Some(wf_types::agent::config::AgentConfig {
+            checkpoint: Some(wf_types::checkpoint::agent::AgentCheckpointConfig {
+                enabled: true,
+                interval_iterations: Some(5),
+                on_error: None,
+                on_tool_call: None,
+                content: None,
+            }),
+            ..make_config()
+        });
+        assert!(validate_agent_definition(&def).is_ok());
+    }
+
+    #[test]
+    fn test_checkpoint_content_limits_zero_rejected() {
+        let mut def = make_definition();
+        def.config = Some(wf_types::agent::config::AgentConfig {
+            checkpoint: Some(wf_types::checkpoint::agent::AgentCheckpointConfig {
+                enabled: true,
+                interval_iterations: None,
+                on_error: None,
+                on_tool_call: None,
+                content: Some(wf_types::checkpoint::agent::AgentCheckpointContentConfig {
+                    include_state: None,
+                    include_messages: None,
+                    message_limit: Some(0),
+                    include_tool_calls: None,
+                    tool_call_limit: Some(0),
+                }),
+            }),
+            ..make_config()
+        });
+        let err = validate_agent_definition(&def).unwrap_err();
+        assert!(err.to_string().contains("message_limit"));
+    }
+
+    #[test]
+    fn test_checkpoint_content_limits_positive_accepted() {
+        let mut def = make_definition();
+        def.config = Some(wf_types::agent::config::AgentConfig {
+            checkpoint: Some(wf_types::checkpoint::agent::AgentCheckpointConfig {
+                enabled: true,
+                interval_iterations: None,
+                on_error: None,
+                on_tool_call: None,
+                content: Some(wf_types::checkpoint::agent::AgentCheckpointContentConfig {
+                    include_state: None,
+                    include_messages: None,
+                    message_limit: Some(10),
+                    include_tool_calls: None,
+                    tool_call_limit: Some(5),
+                }),
+            }),
+            ..make_config()
+        });
+        assert!(validate_agent_definition(&def).is_ok());
+    }
+
+    #[test]
+    fn test_dynamic_context_max_file_depth_zero_rejected() {
+        let mut def = make_definition();
+        def.config = Some(wf_types::agent::config::AgentConfig {
+            dynamic_context: Some(wf_types::dynamic_context::DynamicContextConfig {
+                include_current_time: None,
+                include_todo_list: None,
+                include_workspace_files: None,
+                max_file_depth: Some(0),
+                ignore_patterns: None,
+                include_pinned_files: None,
+                include_skills: None,
+                include_workflows: None,
+                include_environment_info: None,
+                custom_sections: None,
+            }),
+            ..make_config()
+        });
+        let err = validate_agent_definition(&def).unwrap_err();
+        assert!(err.to_string().contains("max_file_depth"));
+    }
+
+    #[test]
+    fn test_dynamic_context_max_file_depth_positive_accepted() {
+        let mut def = make_definition();
+        def.config = Some(wf_types::agent::config::AgentConfig {
+            dynamic_context: Some(wf_types::dynamic_context::DynamicContextConfig {
+                include_current_time: None,
+                include_todo_list: None,
+                include_workspace_files: None,
+                max_file_depth: Some(3),
+                ignore_patterns: None,
+                include_pinned_files: None,
+                include_skills: None,
+                include_workflows: None,
+                include_environment_info: None,
+                custom_sections: None,
+            }),
+            ..make_config()
+        });
+        assert!(validate_agent_definition(&def).is_ok());
+    }
+
+    fn make_config() -> wf_types::agent::config::AgentConfig {
+        wf_types::agent::config::AgentConfig {
+            profile_id: None,
+            system_prompt: None,
+            system_prompt_template_id: None,
+            system_prompt_template_variables: None,
+            max_iterations: None,
+            max_execution_time: None,
+            max_retries: None,
+            execution_timeout: None,
+            max_pause_duration: None,
+            token_limit: None,
+            token_warning_threshold: None,
+            enable_token_tracking: None,
+            initial_messages: None,
+            available_tools: None,
+            stream: None,
+            tool_call_format: None,
+            hooks: None,
+            dynamic_context: None,
+            checkpoint: None,
+            violation_policy: None,
+        }
     }
 }

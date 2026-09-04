@@ -69,15 +69,29 @@ pub fn convert_input_schema(input_schema: &Value) -> ToolParameterSchema {
     }
 }
 
+/// Valid JSON Schema type values for tool property declarations.
+const VALID_PROPERTY_TYPES: &[&str] = &[
+    "string", "number", "integer", "boolean", "array", "object", "null",
+];
+
 /// Convert one JSON-Schema property (MCP subset) into a strongly-typed
 /// schema. Recognized keywords: type, description, enum, default, items,
 /// pattern, min/max bounds and min/max items/properties.
 fn convert_json_property(json: &Value, _required: bool) -> ToolPropertySchema {
-    let property_type = json
+    let raw_type = json
         .get("type")
         .and_then(|t| t.as_str())
-        .unwrap_or("string")
-        .to_string();
+        .unwrap_or("string");
+
+    let property_type = if VALID_PROPERTY_TYPES.contains(&raw_type) {
+        raw_type.to_string()
+    } else {
+        tracing::warn!(
+            "MCP property schema has unrecognized type '{}'; defaulting to 'string'",
+            raw_type
+        );
+        "string".into()
+    };
 
     let items = json
         .get("items")
@@ -447,6 +461,18 @@ mod tests {
         let items = filter.items.as_ref().unwrap();
         assert_eq!(items.property_type, "string");
         assert_eq!(items.pattern.as_deref(), Some("^[a-z]+$"));
+    }
+
+    #[test]
+    fn test_convert_unknown_type_defaults_to_string() {
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": {
+                "data": {"type": "custom_type"}
+            }
+        });
+        let converted = convert_input_schema(&schema);
+        assert_eq!(converted.properties["data"].property_type, "string");
     }
 
     #[test]

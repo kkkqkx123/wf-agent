@@ -8,6 +8,7 @@ use std::sync::Arc;
 use serde::Serialize;
 
 use wf_core::registry::{MutableRegistry, Registry};
+use wf_storage::adapter::base::BaseStorageAdapter;
 use wf_types::agent::AgentTemplate;
 use wf_types::workflow::WorkflowTemplate;
 
@@ -131,7 +132,7 @@ pub fn list_agent_templates(ctx: &ApiContext) -> ApiResult<Vec<AgentTemplate>> {
     Ok(templates)
 }
 
-pub fn register_agent_template(ctx: &ApiContext, template: &AgentTemplate) -> ApiResult<()> {
+pub async fn register_agent_template(ctx: &ApiContext, template: &AgentTemplate) -> ApiResult<()> {
     let registries = &ctx.registries;
     if registries.agent_templates.has(&template.id) {
         return Err(ApiError::already_exists(
@@ -139,14 +140,27 @@ pub fn register_agent_template(ctx: &ApiContext, template: &AgentTemplate) -> Ap
             &template.id.to_string(),
         ));
     }
+    ctx.storage
+        .agent_template
+        .save(template)
+        .await
+        .map_err(crate::ApiError::from)?;
     registries
         .agent_templates
-        .register(template.id.to_string(), Arc::new(template.clone()))
+        .register(
+            template.id.to_string(),
+            std::sync::Arc::new(template.clone()),
+        )
         .map_err(|e| ApiError::Conflict(e.to_string()))?;
     Ok(())
 }
 
-pub fn delete_agent_template(ctx: &ApiContext, id: &str) -> ApiResult<()> {
+pub async fn delete_agent_template(ctx: &ApiContext, id: &str) -> ApiResult<()> {
+    ctx.storage
+        .agent_template
+        .delete(id)
+        .await
+        .map_err(crate::ApiError::from)?;
     ctx.registries
         .agent_templates
         .unregister(id)
@@ -289,7 +303,7 @@ pub fn clone_workflow_template(
 }
 
 /// Clone an agent template under a new id/name and register the clone.
-pub fn clone_agent_template(
+pub async fn clone_agent_template(
     ctx: &ApiContext,
     id: &str,
     new_name: &str,
@@ -307,7 +321,7 @@ pub fn clone_agent_template(
     cloned.definition.name = new_name.to_string();
     cloned.definition.created_at = wf_common::now();
     cloned.definition.updated_at = wf_common::now();
-    register_agent_template(ctx, &cloned)?;
+    register_agent_template(ctx, &cloned).await?;
     Ok(cloned)
 }
 
@@ -516,7 +530,9 @@ mod tests {
         assert_eq!(cloned.name, "My Clone");
         assert!(ctx.registries.workflows.has(&cloned.id));
 
-        let cloned_agent = clone_agent_template(&ctx, "agent-a", "Agent Clone").unwrap();
+        let cloned_agent = clone_agent_template(&ctx, "agent-a", "Agent Clone")
+            .await
+            .unwrap();
         assert!(ctx.registries.agent_templates.has(&cloned_agent.id));
 
         let err = get_workflow_template(&ctx, "missing").unwrap_err();

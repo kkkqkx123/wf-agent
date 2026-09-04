@@ -1,6 +1,5 @@
 use wf_types::workflow_execution::WorkflowGraphStructure;
-
-use crate::validation::ValidationError;
+use wf_types::ValidationError;
 
 /// Validate the config of each workflow node. Field-level business rules are
 /// owned by the shared `wf-config` node validators (single source of truth,
@@ -263,7 +262,7 @@ mod tests {
         let g = graph_with(vec![node(
             "a",
             "AGENT_LOOP",
-            serde_json::json!({"inline_definition": {"id": "a1", "name": "agent"}}),
+            serde_json::json!({"inline_definition": {"id": "a1", "name": "agent", "config": {"profile_id": "mock"}}}),
         )]);
         assert!(validate_node_configs(&g).is_empty());
 
@@ -316,12 +315,39 @@ mod tests {
     }
 
     #[test]
-    fn unknown_node_types_are_skipped() {
+    fn known_types_without_field_validators_pass() {
         let g = graph_with(vec![
             node("s", "START", serde_json::json!({})),
             node("e", "END", serde_json::json!({})),
             node("ls", "LOOP_START", serde_json::json!({})),
         ]);
+        assert!(validate_node_configs(&g).is_empty());
+    }
+
+    #[test]
+    fn unknown_node_type_is_rejected() {
+        let g = graph_with(vec![node("x", "LLMM", serde_json::json!({}))]);
+        let errors = validate_node_configs(&g);
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].message.contains("unknown node type"));
+    }
+
+    #[test]
+    fn llm_typed_enhancement_fields_are_checked() {
+        let g = graph_with(vec![node(
+            "n1",
+            "LLM",
+            serde_json::json!({"profile_id": "mock", "violation_policy": "auto-convertt"}),
+        )]);
+        let errors = validate_node_configs(&g);
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].message.contains("violation_policy"));
+
+        let g = graph_with(vec![node(
+            "n1",
+            "LLM",
+            serde_json::json!({"profile_id": "mock", "violation_policy": "fail"}),
+        )]);
         assert!(validate_node_configs(&g).is_empty());
     }
 }

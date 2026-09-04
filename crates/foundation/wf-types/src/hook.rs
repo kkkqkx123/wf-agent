@@ -113,29 +113,3 @@ pub struct BaseHookStaticConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub receiver: Option<String>,
 }
-
-/// A registrable hook template definition, used by the hook template
-/// registry to let users define reusable hook configurations.
-///
-/// Analogous to `HookTemplate` in the TypeScript version.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct HookTemplate {
-    pub id: String,
-    pub name: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
-    /// The hook type this template applies to
-    /// (e.g. `BEFORE_LLM_CALL`, `AFTER_TOOL_CALL`).
-    pub hook_type: String,
-    /// JSON Schema for the config that users can provide.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub config_schema: Option<serde_json::Value>,
-    /// Default config values.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub config_default: Option<serde_json::Value>,
-    /// Optional tags for search/filtering.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tags: Option<Vec<String>>,
-    pub created_at: i64,
-    pub updated_at: i64,
-}

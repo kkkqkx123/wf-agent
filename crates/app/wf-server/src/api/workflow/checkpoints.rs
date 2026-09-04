@@ -81,7 +81,7 @@ async fn handle_checkpoint_chain(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
-    match wf_api::workflow::checkpoint::get_checkpoint_chain(&state.ctx.storage, &path.id).await {
+    match wf_api::checkpoint::record::get_checkpoint_chain(&state.ctx.storage, &path.id).await {
         Ok(chain) => ok(chain).into_response(),
         Err(e) => error_response(e),
     }
@@ -129,7 +129,7 @@ async fn handle_list_checkpoints(
         entity_type_filter: query.entity_type,
         entity_id_filter: query.entity_id,
     };
-    match wf_api::workflow::checkpoint::list_checkpoints(&state.ctx.storage, Some(options)).await {
+    match wf_api::checkpoint::record::list_checkpoints(&state.ctx.storage, Some(options)).await {
         Ok(checkpoints) => ok(checkpoints).into_response(),
         Err(e) => error_response(e),
     }
@@ -139,7 +139,7 @@ async fn handle_save_checkpoint(
     State(state): State<ApiState>,
     Json(checkpoint): Json<wf_types::Checkpoint>,
 ) -> impl IntoResponse {
-    match wf_api::workflow::checkpoint::save_checkpoint(&state.ctx.storage, &checkpoint).await {
+    match wf_api::checkpoint::record::save_checkpoint(&state.ctx.storage, &checkpoint).await {
         Ok(()) => ok(checkpoint.id).into_response(),
         Err(e) => error_response(e),
     }
@@ -149,7 +149,7 @@ async fn handle_get_checkpoint(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
-    match wf_api::workflow::checkpoint::get_checkpoint(&state.ctx.storage, &path.id).await {
+    match wf_api::checkpoint::record::get_checkpoint(&state.ctx.storage, &path.id).await {
         Ok(checkpoint) => ok(checkpoint).into_response(),
         Err(e) => error_response(e),
     }
@@ -159,7 +159,7 @@ async fn handle_delete_checkpoint(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
-    match wf_api::workflow::checkpoint::delete_checkpoint(&state.ctx.storage, &path.id).await {
+    match wf_api::checkpoint::record::delete_checkpoint(&state.ctx.storage, &path.id).await {
         Ok(deleted) => ok(deleted).into_response(),
         Err(e) => error_response(e),
     }
@@ -169,7 +169,7 @@ async fn handle_list_checkpoints_by_entity(
     State(state): State<ApiState>,
     Path(path): Path<EntityIdPath>,
 ) -> impl IntoResponse {
-    match wf_api::workflow::checkpoint::list_checkpoints_by_entity(
+    match wf_api::checkpoint::record::list_checkpoints_by_entity(
         &state.ctx.storage,
         &path.entity_id,
         "checkpoint",
@@ -185,7 +185,7 @@ async fn handle_latest_checkpoint(
     State(state): State<ApiState>,
     Path(path): Path<EntityIdPath>,
 ) -> impl IntoResponse {
-    match wf_api::workflow::checkpoint::get_latest_checkpoint(
+    match wf_api::checkpoint::record::get_latest_checkpoint(
         &state.ctx.storage,
         &path.entity_id,
         "checkpoint",
@@ -208,7 +208,7 @@ async fn handle_delete_checkpoints_by_entity(
     Query(query): Query<DeleteCheckpointsQuery>,
 ) -> impl IntoResponse {
     let entity_type = query.entity_type.as_deref().unwrap_or("checkpoint");
-    match wf_api::workflow::checkpoint::delete_checkpoints_by_entity(
+    match wf_api::checkpoint::record::delete_checkpoints_by_entity(
         &state.ctx.storage,
         &path.entity_id,
         entity_type,
@@ -224,7 +224,7 @@ async fn handle_checkpoint_entity_metadata(
     State(state): State<ApiState>,
     Path(path): Path<EntityIdPath>,
 ) -> impl IntoResponse {
-    match wf_api::workflow::checkpoint::get_checkpoint_entity_metadata(
+    match wf_api::checkpoint::record::get_checkpoint_entity_metadata(
         &state.ctx.storage,
         &path.entity_id,
     )
@@ -240,7 +240,7 @@ async fn handle_set_checkpoint_entity_metadata(
     Path(path): Path<EntityIdPath>,
     Json(metadata): Json<std::collections::HashMap<String, Value>>,
 ) -> impl IntoResponse {
-    match wf_api::workflow::checkpoint::set_checkpoint_entity_metadata(
+    match wf_api::checkpoint::record::set_checkpoint_entity_metadata(
         &state.ctx.storage,
         &path.entity_id,
         &metadata,
@@ -269,7 +269,7 @@ async fn handle_list_checkpoints_by_entities(
         .filter(|s| !s.is_empty())
         .collect();
     let entity_type = query.entity_type.as_deref().unwrap_or("checkpoint");
-    match wf_api::workflow::checkpoint::list_checkpoints_by_entities(
+    match wf_api::checkpoint::record::list_checkpoints_by_entities(
         &state.ctx.storage,
         &ids,
         entity_type,
@@ -293,7 +293,7 @@ async fn handle_checkpoints_by_time_range(
     State(state): State<ApiState>,
     Query(query): Query<CheckpointsTimeRangeQuery>,
 ) -> impl IntoResponse {
-    match wf_api::workflow::checkpoint::list_checkpoints_by_time_range(
+    match wf_api::checkpoint::record::list_checkpoints_by_time_range(
         &state.ctx.storage,
         &query.workflow_id,
         query.start,

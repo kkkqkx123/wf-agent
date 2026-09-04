@@ -12,12 +12,18 @@ tracing.workspace = true
 thiserror.workspace = true
 http.workspace = true
 futures.workspace = true
+clap.workspace = true
 wf-metrics = { path = "../../infra/wf-metrics" }
 wf-api = { path = "../wf-api" }
 wf-types = { path = "../../foundation/wf-types" }
 wf-storage = { path = "../../infra/wf-storage" }
 wf-tools = { path = "../../engine/wf-tools" }
 wf-common = { path = "../../foundation/wf-common" }
+wf-runtime = { path = "../wf-runtime" }
+
+[[bin]]
+name = "wf-server"
+path = "src/main.rs"
 
 [dev-dependencies]
 tower = { workspace = true }

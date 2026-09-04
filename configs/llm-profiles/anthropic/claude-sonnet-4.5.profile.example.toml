@@ -1,7 +1,14 @@
-# Claude Sonnet 4.5 — Balanced
+# LLM Profile: Claude Sonnet 4.5 (Anthropic)
 #
-# Anthropic's balanced model. Good for general agent tasks, coding,
-# and tool use. Offers a good speed/quality tradeoff.
+# Schema:  wf_types::llm::profile::LlmProfile
+# Provider: LlmProvider::ANTHROPIC
+#
+# Sonnet 4.5 uses legacy budget thinking: set
+# [generation.thinking] budget_tokens (< max_tokens, >= 1024) to enable it.
+# Newer models (Opus 4.6+/Sonnet 4.6+) prefer adaptive thinking with effort:
+#   [generation.thinking]
+#   level = "high"   # low | medium | high | xhigh | max
+#   adaptive = true
 
 id = "claude-sonnet-4.5"
 name = "Claude Sonnet 4.5"
@@ -9,13 +16,26 @@ provider = "ANTHROPIC"
 model = "claude-sonnet-4.5"
 apiKey = "${ANTHROPIC_API_KEY}"
 baseUrl = "https://api.anthropic.com/v1"
+authType = "native"
+[toolCallFormat]
+format = "json_wrapped"
+contextWindowSize = 200000
+
 timeout = 120000
 maxRetries = 3
 retryDelay = 2000
 
-[parameters]
+[generation]
 temperature = 0.5
-maxTokens = 12800
+max_tokens = 12800
+# Thinking (optional, pick ONE style):
+# Budget style (Sonnet 4.5 / Opus 4.x):
+# [generation.thinking]
+# budget_tokens = 8000
+# Adaptive style (Opus 4.6+ / Sonnet 4.6+):
+# [generation.thinking]
+# level = "high"
+# adaptive = true
 
 [metadata]
 tags = ["anthropic", "claude-sonnet", "balanced", "production"]

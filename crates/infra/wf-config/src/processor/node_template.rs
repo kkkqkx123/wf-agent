@@ -1,16 +1,45 @@
 use std::collections::HashMap;
 
-use crate::error::ConfigResult;
+use crate::error::{ConfigError, ConfigResult};
 use crate::processor::substitute::substitute_in_struct;
 use crate::validator::validate_required;
 
+use wf_types::node::StaticNodeType;
 use wf_types::workflow::node_template::NodeTemplate;
 
 pub fn validate_node_template(template: &NodeTemplate) -> ConfigResult<()> {
     validate_required(&template.id, "id")?;
     validate_required(&template.name, "name")?;
     validate_required(&template.node_type, "node_type")?;
+    if StaticNodeType::from_str_ci(&template.node_type).is_none() {
+        return Err(ConfigError::Validation(format!(
+            "unknown node_type '{}'; expected one of: {}",
+            template.node_type,
+            StaticNodeType::ALL.join(", ")
+        )));
+    }
+    if let Some(ref config) = template.default_config {
+        validate_node_default_config(&template.node_type, config)?;
+    }
     Ok(())
+}
+
+fn validate_node_default_config(node_type: &str, config: &serde_json::Value) -> ConfigResult<()> {
+    let issues = crate::processor::node_config::validate_node_config(
+        node_type,
+        "default_config",
+        Some(config),
+    );
+    if issues.is_empty() {
+        Ok(())
+    } else {
+        let detail = issues
+            .iter()
+            .map(|i| format!("{}: {}", i.field, i.message))
+            .collect::<Vec<_>>()
+            .join("; ");
+        Err(ConfigError::Validation(detail))
+    }
 }
 
 pub fn transform_node_template(
@@ -35,7 +64,7 @@ mod tests {
             id: "node-1".to_string(),
             name: "Code Review".to_string(),
             description: "Reviews code".to_string(),
-            node_type: "llm".to_string(),
+            node_type: "LLM".to_string(),
             default_config: None,
         }
     }
@@ -57,6 +86,44 @@ mod tests {
     fn test_empty_node_type() {
         let mut template = make_template();
         template.node_type = String::new();
+        assert!(validate_node_template(&template).is_err());
+    }
+
+    #[test]
+    fn test_invalid_node_type_rejected() {
+        let mut template = make_template();
+        template.node_type = "NOT_A_TYPE".to_string();
+        assert!(validate_node_template(&template).is_err());
+    }
+
+    #[test]
+    fn test_case_insensitive_node_type() {
+        let mut template = make_template();
+        template.node_type = "llm".to_string();
+        assert!(validate_node_template(&template).is_ok());
+    }
+
+    #[test]
+    fn test_default_config_validates_against_node_type() {
+        let template = NodeTemplate {
+            id: "nt-1".to_string(),
+            name: "LLM Template".to_string(),
+            description: String::new(),
+            node_type: "LLM".to_string(),
+            default_config: Some(serde_json::json!({"profile_id": "valid-profile"})),
+        };
+        assert!(validate_node_template(&template).is_ok());
+    }
+
+    #[test]
+    fn test_default_config_invalid_for_node_type() {
+        let template = NodeTemplate {
+            id: "nt-2".to_string(),
+            name: "LLM Bad".to_string(),
+            description: String::new(),
+            node_type: "LLM".to_string(),
+            default_config: Some(serde_json::json!({})),
+        };
         assert!(validate_node_template(&template).is_err());
     }
 

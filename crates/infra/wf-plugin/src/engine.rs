@@ -746,11 +746,18 @@ fn resolve_plugin_type(manifest: &PluginManifest) -> PluginResult<PluginType> {
 
 async fn load_plugin_module(manifest: PluginManifest) -> PluginResult<Arc<dyn Plugin>> {
     match resolve_plugin_type(&manifest)? {
+        #[cfg(feature = "lua")]
         PluginType::Lua => load_lua_plugin(&manifest).await,
+        #[cfg(not(feature = "lua"))]
+        PluginType::Lua => Err(PluginError::LoadFailed("lua feature not enabled".into())),
+        #[cfg(feature = "native")]
         PluginType::Native => load_native_plugin(&manifest),
+        #[cfg(not(feature = "native"))]
+        PluginType::Native => Err(PluginError::LoadFailed("native feature not enabled".into())),
     }
 }
 
+#[cfg_attr(not(any(feature = "lua", feature = "native")), allow(unused_variables))]
 async fn load_plugin_module_with_base(
     manifest: &PluginManifest,
     base: &Path,
@@ -772,19 +779,9 @@ async fn load_lua_plugin(manifest: &PluginManifest) -> PluginResult<Arc<dyn Plug
     crate::lua::loader::load_lua_plugin(manifest).await
 }
 
-#[cfg(not(feature = "lua"))]
-async fn load_lua_plugin(_manifest: &PluginManifest) -> PluginResult<Arc<dyn Plugin>> {
-    Err(PluginError::LoadFailed("lua feature not enabled".into()))
-}
-
 #[cfg(feature = "native")]
 fn load_native_plugin(manifest: &PluginManifest) -> PluginResult<Arc<dyn Plugin>> {
     crate::native::loader::load_native_plugin(manifest)
-}
-
-#[cfg(not(feature = "native"))]
-fn load_native_plugin(_manifest: &PluginManifest) -> PluginResult<Arc<dyn Plugin>> {
-    Err(PluginError::LoadFailed("native feature not enabled".into()))
 }
 
 #[cfg(test)]

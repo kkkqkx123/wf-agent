@@ -109,22 +109,54 @@ impl AgentLoopValidator {
             }
         }
 
+        if let Some(token_limit) = config.token_limit {
+            if token_limit == 0 {
+                issues.push(ValidationIssue::warning(
+                    "token_limit",
+                    "token_limit of 0 disables token limit checks",
+                ));
+            }
+        }
+
+        if let Some(token_warning_threshold) = config.token_warning_threshold {
+            if token_warning_threshold > 100 {
+                issues.push(ValidationIssue::error(
+                    "token_warning_threshold",
+                    format!(
+                        "token_warning_threshold must be between 0 and 100, got {}",
+                        token_warning_threshold
+                    ),
+                ));
+            }
+        }
+
         for hook in &config.hooks {
             validate_hook(hook, &mut issues);
         }
 
-        if !config.available_tool_names.is_empty() {
-            let known: Vec<String> = registry.list_tools().into_iter().map(|t| t.name).collect();
-            for name in &config.available_tool_names {
-                if !known.contains(name) {
-                    issues.push(ValidationIssue::error(
-                        "available_tool_names",
-                        format!("tool '{}' is not registered in the tool registry", name),
-                    ));
-                }
-            }
-        }
+        validate_tool_lists(config, registry, &mut issues);
 
+        issues
+    }
+
+    /// Profile-aware validation: the `model` (profile id) must exist in the
+    /// known profile set when the set is provided. Tool lists are checked
+    /// against the tool registry with enabled-state distinction.
+    pub fn validate_config_with_profiles(
+        config: &wf_tools::callback::AgentLoopConfig,
+        registry: &ToolRegistry,
+        known_profile_ids: &std::collections::HashSet<String>,
+    ) -> Vec<ValidationIssue> {
+        let mut issues = Self::validate_config(config, registry);
+        if !config.model.trim().is_empty() && !known_profile_ids.contains(&config.model) {
+            issues.push(ValidationIssue::error(
+                "model",
+                format!(
+                    "model '{}' references profile '{}' which is not registered",
+                    config.model, config.model
+                ),
+            ));
+        }
         issues
     }
 
@@ -210,6 +242,10 @@ impl AgentLoopValidator {
     }
 }
 
+/// Validates hook configuration. Unknown hook types produce warnings
+/// (not errors) because they represent hooks that will never fire
+/// but won't cause runtime failures. This is intentional for agent
+/// definitions where users may define hooks for future hook types.
 fn validate_hook(hook: &HookConfig, issues: &mut Vec<ValidationIssue>) {
     use wf_execution_shared::hooks::types::is_known_hook_type;
     if !is_known_hook_type(&hook.hook_type) {
@@ -217,6 +253,51 @@ fn validate_hook(hook: &HookConfig, issues: &mut Vec<ValidationIssue>) {
             "hooks",
             format!("unknown hook type '{}' will never fire", hook.hook_type),
         ));
+    }
+}
+
+fn validate_tool_lists(
+    config: &wf_tools::callback::AgentLoopConfig,
+    registry: &ToolRegistry,
+    issues: &mut Vec<ValidationIssue>,
+) {
+    use std::collections::{HashMap, HashSet};
+    let tools = registry.list_tools();
+    let mut known: HashSet<String> = HashSet::new();
+    let mut disabled: HashSet<String> = HashSet::new();
+    let mut enabled_by_name: HashMap<String, bool> = HashMap::new();
+    for tool in &tools {
+        known.insert(tool.name.clone());
+        known.insert(tool.id.to_string());
+        let is_enabled = tool.enabled.unwrap_or(true);
+        enabled_by_name.insert(tool.name.clone(), is_enabled);
+        enabled_by_name.insert(tool.id.to_string(), is_enabled);
+        if !is_enabled {
+            disabled.insert(tool.name.clone());
+            disabled.insert(tool.id.to_string());
+        }
+    }
+    let lists: [(&str, &Vec<String>); 5] = [
+        ("available_tool_names", &config.available_tool_names),
+        ("initial_tool_names", &config.initial_tool_names),
+        ("discoverable_tool_names", &config.discoverable_tool_names),
+        ("hidden_tool_names", &config.hidden_tool_names),
+        ("activated_tool_names", &config.activated_tool_names),
+    ];
+    for (field, names) in lists {
+        for name in names {
+            if !known.contains(name) {
+                issues.push(ValidationIssue::error(
+                    field,
+                    format!("tool '{}' is not registered in the tool registry", name),
+                ));
+            } else if disabled.contains(name) {
+                issues.push(ValidationIssue::warning(
+                    field,
+                    format!("tool '{}' is registered but disabled", name),
+                ));
+            }
+        }
     }
 }
 
@@ -431,5 +512,53 @@ mod tests {
         };
         let issues = validate_tool_call_format_config(&cfg);
         assert_eq!(issues.len(), 1);
+    }
+
+    #[test]
+    fn test_token_limit_zero_warns() {
+        let registry = ToolRegistry::new();
+        let config = AgentLoopConfig {
+            token_limit: Some(0),
+            ..base_config()
+        };
+        let issues = AgentLoopValidator::validate_config(&config, &registry);
+        assert!(issues
+            .iter()
+            .any(|i| i.field == "token_limit" && i.severity == ValidationSeverity::Warning));
+    }
+
+    #[test]
+    fn test_token_limit_positive_accepted() {
+        let registry = ToolRegistry::new();
+        let config = AgentLoopConfig {
+            token_limit: Some(100000),
+            ..base_config()
+        };
+        let issues = AgentLoopValidator::validate_config(&config, &registry);
+        assert!(!issues.iter().any(|i| i.field == "token_limit"));
+    }
+
+    #[test]
+    fn test_token_warning_threshold_exceeds_100_rejected() {
+        let registry = ToolRegistry::new();
+        let config = AgentLoopConfig {
+            token_warning_threshold: Some(150),
+            ..base_config()
+        };
+        let issues = AgentLoopValidator::validate_config(&config, &registry);
+        assert!(issues.iter().any(
+            |i| i.field == "token_warning_threshold" && i.severity == ValidationSeverity::Error
+        ));
+    }
+
+    #[test]
+    fn test_token_warning_threshold_valid_accepted() {
+        let registry = ToolRegistry::new();
+        let config = AgentLoopConfig {
+            token_warning_threshold: Some(80),
+            ..base_config()
+        };
+        let issues = AgentLoopValidator::validate_config(&config, &registry);
+        assert!(!issues.iter().any(|i| i.field == "token_warning_threshold"));
     }
 }

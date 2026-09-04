@@ -141,10 +141,7 @@ pub(crate) async fn count_tokens_client(
 
         let body = response.text().await?;
         let json: serde_json::Value = serde_json::from_str(&body)?;
-        let input_tokens = json
-            .get("input_tokens")
-            .and_then(|v| v.as_u64())
-            .unwrap_or(0) as u32;
+        let input_tokens = client_impl.formatter.parse_count_tokens_response(&json)?;
         Ok(TokenCountResult {
             input_tokens,
             raw: Some(json),
@@ -303,6 +300,7 @@ mod tests {
                 text_message(MessageRole::User, "你好"),
             ],
             parameters: None,
+            generation: None,
             tools: None,
             tool_call_format: None,
             locked_tool_call_format: None,

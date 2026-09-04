@@ -1,5 +1,6 @@
 pub mod client;
 pub mod execution_config;
+pub mod generation;
 pub mod ledger;
 pub mod message_stream_events;
 pub mod profile;
@@ -12,6 +13,7 @@ pub mod usage;
 
 pub use client::*;
 pub use execution_config::*;
+pub use generation::*;
 pub use ledger::*;
 pub use message_stream_events::*;
 pub use profile::*;

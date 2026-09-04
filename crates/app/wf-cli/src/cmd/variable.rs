@@ -14,7 +14,7 @@ pub async fn run(cli: &Cli, sub: &VariableSub) -> CliResult<()> {
             let vars = if let Some(scope) = scope {
                 variable::list(
                     ctx,
-                    &wf_storage::adapter::variable::VariableListOptions {
+                    &wf_api::VariableListOptions {
                         execution_id_filter: Some(execution.clone()),
                         scope_filter: Some(scope.clone()),
                         ..Default::default()

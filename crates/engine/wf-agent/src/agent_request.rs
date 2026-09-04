@@ -101,6 +101,7 @@ pub async fn build_agent_request(
         profile_id: entity.model().to_string(),
         messages,
         parameters: None,
+        generation: None,
         tools,
         tool_call_format: entity
             .tool_call_format()

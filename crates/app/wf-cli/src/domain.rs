@@ -4,6 +4,10 @@
 //! Every CLI form (headless run / mini / TUI) drives a single
 //! [`DomainAdapter`] built through [`Runtime::bootstrap`]; the adapter hides
 //! runtime assembly details and keeps one teardown path (`shutdown`).
+//!
+//! For remote mode, [`RemoteDomain`] wraps a [`RemoteClient`] and provides
+//! the same public API surface.  Callers use [`DomainHandle`] to dispatch
+//! to the correct implementation.
 
 use std::sync::Arc;
 
@@ -17,7 +21,86 @@ use crate::args::Cli;
 use crate::error::{CliError, CliResult};
 use crate::mode::CliMode;
 
-/// Application-facing runtime handle for a CLI session.
+/// Unified domain handle: dispatches to embedded or remote adapter.
+///
+/// Command handlers receive a `DomainHandle` and branch once at the top
+/// for the remote path; the rest of the handler works through `api_context()`.
+pub enum DomainHandle {
+    Embedded(Box<DomainAdapter>),
+    Remote(RemoteDomain),
+}
+
+impl DomainHandle {
+    pub async fn from_cli(cli: &Cli, cli_mode: CliMode) -> CliResult<Self> {
+        if let Some(client) = crate::remote::RemoteClient::from_cli(cli) {
+            return Ok(Self::Remote(RemoteDomain::new(client)));
+        }
+        Ok(Self::Embedded(Box::new(
+            DomainAdapter::bootstrap_for_cli(cli, cli_mode).await?,
+        )))
+    }
+
+    pub fn api_context(&self) -> Option<&ApiContext> {
+        match self {
+            Self::Embedded(a) => Some(a.api_context()),
+            Self::Remote(_) => None,
+        }
+    }
+
+    pub fn is_shutting_down(&self) -> bool {
+        match self {
+            Self::Embedded(a) => a.is_shutting_down(),
+            Self::Remote(_) => false,
+        }
+    }
+
+    pub async fn shutdown(self) -> CliResult<()> {
+        match self {
+            Self::Embedded(a) => a.shutdown().await,
+            Self::Remote(_) => Ok(()),
+        }
+    }
+
+    pub fn as_embedded(&self) -> Option<&DomainAdapter> {
+        match self {
+            Self::Embedded(a) => Some(a),
+            Self::Remote(_) => None,
+        }
+    }
+
+    pub fn as_remote(&self) -> Option<&RemoteDomain> {
+        match self {
+            Self::Embedded(_) => None,
+            Self::Remote(r) => Some(r),
+        }
+    }
+}
+
+/// Remote-mode domain: wraps an HTTP client and provides the same surface
+/// as [`DomainAdapter`] but without a local runtime.
+pub struct RemoteDomain {
+    client: crate::remote::RemoteClient,
+}
+
+impl RemoteDomain {
+    pub fn new(client: crate::remote::RemoteClient) -> Self {
+        Self { client }
+    }
+
+    pub fn client(&self) -> &crate::remote::RemoteClient {
+        &self.client
+    }
+
+    pub fn is_shutting_down(&self) -> bool {
+        false
+    }
+
+    pub async fn shutdown(self) -> CliResult<()> {
+        Ok(())
+    }
+}
+
+/// Application-facing runtime handle for a CLI session (embedded mode).
 pub struct DomainAdapter {
     runtime: Runtime,
 }
@@ -61,7 +144,7 @@ impl DomainAdapter {
     /// LLM gateway (profile resolution + model invocation). Headless runs
     /// surface gateway diagnostics through it; profile listing / warm-up
     /// also use the same handle.
-    pub fn llm_gateway(&self) -> &std::sync::Arc<wf_llm::LlmGateway> {
+    pub fn llm_gateway(&self) -> &std::sync::Arc<wf_api::LlmGateway> {
         &self.api_context().llm_gateway
     }
 

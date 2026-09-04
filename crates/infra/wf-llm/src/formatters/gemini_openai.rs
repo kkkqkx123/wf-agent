@@ -58,6 +58,8 @@ impl LlmFormatter for GeminiOpenaiFormatter {
             "messages": messages,
         });
 
+        let generation = shared::resolve_generation(request, profile)?;
+        crate::generation::apply_openai_chat(&mut body, &generation);
         shared::merge_and_apply_params(&mut body, profile, &request.parameters);
 
         if !use_text_mode {
@@ -82,6 +84,18 @@ impl LlmFormatter for GeminiOpenaiFormatter {
         req_builder
             .build()
             .map_err(crate::error::LlmError::HttpError)
+    }
+
+    // The OpenAI-compatible Gemini endpoint exposes no counting API (the
+    // native `:countTokens` endpoint belongs to a different protocol and
+    // auth scheme): keep the default `None` so the caller falls back to
+    // local estimation.
+    fn build_count_tokens_request(
+        &self,
+        _request: &LlmRequest,
+        _profile: &LlmProfile,
+    ) -> LlmResult<Option<reqwest::Request>> {
+        Ok(None)
     }
 
     fn parse_response(&self, body: &str, request: &LlmRequest) -> LlmResult<LlmResponseType> {
@@ -129,6 +143,7 @@ mod tests {
             api_key: Some("gsk-test".to_string()),
             base_url: base_url.map(String::from),
             parameters: None,
+            generation: None,
             timeout: None,
             max_retries: None,
             retry_delay: None,
@@ -160,6 +175,7 @@ mod tests {
                 metadata: None,
             }],
             parameters: None,
+            generation: None,
             tools: None,
             tool_call_format: format,
             locked_tool_call_format: None,
@@ -359,6 +375,7 @@ mod tests {
             profile_id: "p1".to_string(),
             messages: Vec::new(),
             parameters: None,
+            generation: None,
             tools: None,
             // The gateway always mirrors the locked format into
             // `tool_call_format`; the custom markers come from the lock.

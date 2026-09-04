@@ -12,6 +12,7 @@ pub mod template;
 pub mod todo;
 pub mod tool_description;
 pub mod user_config;
+pub mod validation;
 
 pub mod agent;
 pub mod agent_execution;
@@ -48,6 +49,7 @@ pub use template::*;
 pub use todo::*;
 pub use tool_description::*;
 pub use user_config::*;
+pub use validation::*;
 
 pub use agent_execution::AgentExecution;
 pub use execution::ExecutionStatus;

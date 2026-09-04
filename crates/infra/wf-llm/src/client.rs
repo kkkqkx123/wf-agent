@@ -253,6 +253,7 @@ mod tests {
             api_key: None,
             base_url: None,
             parameters: None,
+            generation: None,
             timeout: None,
             max_retries: None,
             retry_delay: None,

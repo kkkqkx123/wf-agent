@@ -7,6 +7,8 @@ pub struct LlmExecutionConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub parameters: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub generation: Option<super::generation::LlmGenerationParams>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub max_tool_calls_per_request: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub timeout: Option<u64>,

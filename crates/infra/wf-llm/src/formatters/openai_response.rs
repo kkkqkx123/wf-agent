@@ -92,6 +92,55 @@ impl OpenaiResponseFormatter {
             .collect()
     }
 
+    fn response_tool_defs(tools: &[Tool]) -> Vec<serde_json::Value> {
+        tools
+            .iter()
+            .map(|t| {
+                serde_json::json!({
+                    "type": "function",
+                    "function": {
+                        "name": t.name,
+                        "description": t.description,
+                        "parameters": t.parameters,
+                    }
+                })
+            })
+            .collect()
+    }
+
+    /// Build the count-tokens body: the same `input` (plus native `tools`)
+    /// that `build_request` sends, without stream flags or generation
+    /// parameters (they do not affect the input count).
+    fn build_count_tokens_body(
+        &self,
+        request: &LlmRequest,
+        profile: &LlmProfile,
+    ) -> LlmResult<serde_json::Value> {
+        let use_text_mode = super::shared::is_text_mode(request);
+
+        let mut body = serde_json::json!({
+            "model": profile.model,
+            "input": self.convert_messages(&request.messages),
+        });
+
+        if use_text_mode {
+            let history = super::shared::convert_history_for_text_mode(&request.messages, request);
+            body["input"] = serde_json::json!(self.convert_messages(&history));
+            let system = super::shared::text_mode_system_content(request);
+            if !system.is_empty() {
+                let mut input = body["input"].take();
+                if let Some(arr) = input.as_array_mut() {
+                    arr.insert(0, serde_json::json!({"role": "system", "content": system}));
+                }
+                body["input"] = input;
+            }
+        } else if let Some(tools) = &request.tools {
+            body["tools"] = serde_json::json!(Self::response_tool_defs(tools));
+        }
+
+        Ok(body)
+    }
+
     fn parse_tool_calls_from_output(
         &self,
         output: &[serde_json::Value],
@@ -161,33 +210,13 @@ impl LlmFormatter for OpenaiResponseFormatter {
             body["stream"] = serde_json::json!(true);
         }
 
-        // Pass through all merged parameters untouched (matching the
-        // `Object.assign(body, otherParams)` behavior), except `stream` which
-        // is controlled by the caller above.
-        let merged_params =
-            crate::formatter_helpers::merge_parameters(profile, &request.parameters);
-        for (key, value) in merged_params {
-            if key != "stream" {
-                body[key] = value;
-            }
-        }
+        let generation = super::shared::resolve_generation(request, profile)?;
+        crate::generation::apply_openai_responses(&mut body, &generation);
+        super::shared::merge_and_apply_params(&mut body, profile, &request.parameters);
 
         if !use_text_mode {
             if let Some(tools) = &request.tools {
-                let tool_defs: Vec<serde_json::Value> = tools
-                    .iter()
-                    .map(|t| {
-                        serde_json::json!({
-                            "type": "function",
-                            "function": {
-                                "name": t.name,
-                                "description": t.description,
-                                "parameters": t.parameters,
-                            }
-                        })
-                    })
-                    .collect();
-                body["tools"] = serde_json::json!(tool_defs);
+                body["tools"] = serde_json::json!(Self::response_tool_defs(tools));
             }
         }
 
@@ -202,6 +231,31 @@ impl LlmFormatter for OpenaiResponseFormatter {
 
         req_builder
             .build()
+            .map_err(crate::error::LlmError::HttpError)
+    }
+
+    fn build_count_tokens_request(
+        &self,
+        request: &LlmRequest,
+        profile: &LlmProfile,
+    ) -> LlmResult<Option<reqwest::Request>> {
+        let url = format!(
+            "{}/responses/input_tokens",
+            profile.base_url.as_deref().unwrap_or(&self.base_url)
+        );
+
+        let body = self.build_count_tokens_body(request, profile)?;
+
+        let mut req_builder = reqwest::Client::new()
+            .request(Method::POST, &url)
+            .header("Content-Type", "application/json")
+            .json(&body);
+
+        req_builder = super::shared::apply_auth_and_headers(req_builder, profile, "bearer");
+
+        req_builder
+            .build()
+            .map(Some)
             .map_err(crate::error::LlmError::HttpError)
     }
 
@@ -337,20 +391,7 @@ impl LlmFormatter for OpenaiResponseFormatter {
     }
 
     fn convert_tools(&self, tools: &[Tool]) -> LlmResult<Vec<serde_json::Value>> {
-        let tool_defs: Vec<serde_json::Value> = tools
-            .iter()
-            .map(|t| {
-                serde_json::json!({
-                    "type": "function",
-                    "function": {
-                        "name": t.name,
-                        "description": t.description,
-                        "parameters": t.parameters,
-                    }
-                })
-            })
-            .collect();
-        Ok(tool_defs)
+        Ok(Self::response_tool_defs(tools))
     }
 
     fn parse_tool_calls(&self, result: &LlmResponseType) -> Vec<wf_types::message::LlmToolCall> {
@@ -596,6 +637,7 @@ mod tests {
                     profile_id: "p".to_string(),
                     messages: Vec::new(),
                     parameters: None,
+                    generation: None,
                     tools: None,
                     tool_call_format: None,
                     locked_tool_call_format: None,
@@ -634,6 +676,7 @@ mod tests {
                     profile_id: "p".to_string(),
                     messages: Vec::new(),
                     parameters: None,
+                    generation: None,
                     tools: None,
                     tool_call_format: None,
                     locked_tool_call_format: None,
@@ -662,6 +705,7 @@ mod tests {
                     profile_id: "p".to_string(),
                     messages: Vec::new(),
                     parameters: None,
+                    generation: None,
                     tools: None,
                     tool_call_format: None,
                     locked_tool_call_format: None,
@@ -676,5 +720,165 @@ mod tests {
         assert_eq!(result.content, None);
         assert_eq!(result.tool_calls, None);
         assert_eq!(result.usage, None);
+    }
+
+    fn count_profile() -> LlmProfile {
+        LlmProfile {
+            id: "p1".to_string(),
+            name: "test".to_string(),
+            provider: wf_types::llm::LlmProvider::OpenaiResponse,
+            model: "gpt-4o".to_string(),
+            api_key: Some("sk-test".to_string()),
+            base_url: None,
+            parameters: None,
+            generation: None,
+            timeout: None,
+            max_retries: None,
+            retry_delay: None,
+            headers: None,
+            metadata: None,
+            tool_call_format: None,
+            auth_type: None,
+            custom_headers: None,
+            custom_body: None,
+            custom_body_enabled: None,
+            query_params: None,
+            stream_options: None,
+            context_window_size: None,
+        }
+    }
+
+    fn count_request() -> LlmRequest {
+        LlmRequest {
+            profile_id: "p1".to_string(),
+            messages: vec![wf_types::message::Message {
+                id: wf_types::Id::new(),
+                role: wf_types::message::MessageRole::User,
+                content: wf_types::message::MessageContentValue::Text("hello".to_string()),
+                timestamp: 0,
+                tool_call_id: None,
+                tool_name: None,
+                tool_calls: None,
+                thinking: None,
+                metadata: None,
+            }],
+            parameters: None,
+            generation: None,
+            tools: None,
+            tool_call_format: None,
+            locked_tool_call_format: None,
+            violation_policy: None,
+            execution_id: None,
+            stream: None,
+            dead_loop_detection: None,
+            protocol_auto_converted: None,
+        }
+    }
+
+    fn request_body(req: &reqwest::Request) -> serde_json::Value {
+        req.body()
+            .unwrap()
+            .as_bytes()
+            .map(|b| serde_json::from_slice(b).unwrap())
+            .unwrap()
+    }
+
+    #[test]
+    fn count_tokens_request_targets_input_tokens_endpoint() {
+        let formatter = OpenaiResponseFormatter::new();
+        let req = formatter
+            .build_count_tokens_request(&count_request(), &count_profile())
+            .expect("count request must build")
+            .expect("responses provider supports counting");
+        assert_eq!(
+            req.url().as_str(),
+            "https://api.openai.com/v1/responses/input_tokens"
+        );
+        assert_eq!(
+            req.headers().get("Authorization").unwrap(),
+            "Bearer sk-test"
+        );
+        let body = request_body(&req);
+        assert_eq!(body["model"], serde_json::json!("gpt-4o"));
+        assert_eq!(body["input"][0]["content"], serde_json::json!("hello"));
+        assert!(
+            body.get("stream").is_none(),
+            "count body must not carry stream flags"
+        );
+    }
+
+    #[test]
+    fn count_tokens_body_carries_native_tools() {
+        let formatter = OpenaiResponseFormatter::new();
+        let mut req = count_request();
+        req.tool_call_format = Some(wf_types::llm::ToolCallFormat::Native);
+        req.tools = Some(vec![serde_json::from_value(serde_json::json!({
+            "id": wf_types::Id::new(),
+            "name": "get_weather",
+            "description": "Get weather",
+            "tool_type": "built_in",
+            "parameters": {"type": "object", "properties": {}, "required": []},
+            "enabled": true
+        }))
+        .unwrap()]);
+        let body = formatter
+            .build_count_tokens_body(&req, &count_profile())
+            .unwrap();
+        assert_eq!(
+            body["tools"][0]["function"]["name"],
+            serde_json::json!("get_weather")
+        );
+    }
+
+    #[test]
+    fn count_tokens_body_text_mode_inlines_tools_into_system() {
+        let formatter = OpenaiResponseFormatter::new();
+        let mut req = count_request();
+        req.messages.insert(
+            0,
+            wf_types::message::Message {
+                id: wf_types::Id::new(),
+                role: wf_types::message::MessageRole::System,
+                content: wf_types::message::MessageContentValue::Text(
+                    "You are a helper".to_string(),
+                ),
+                timestamp: 0,
+                tool_call_id: None,
+                tool_name: None,
+                tool_calls: None,
+                thinking: None,
+                metadata: None,
+            },
+        );
+        req.tool_call_format = Some(wf_types::llm::ToolCallFormat::Xml);
+        req.tools = Some(vec![serde_json::from_value(serde_json::json!({
+            "id": wf_types::Id::new(),
+            "name": "get_weather",
+            "description": "Get weather",
+            "tool_type": "built_in",
+            "parameters": {"type": "object", "properties": {}, "required": []},
+            "enabled": true
+        }))
+        .unwrap()]);
+        let body = formatter
+            .build_count_tokens_body(&req, &count_profile())
+            .unwrap();
+        assert!(
+            body.get("tools").is_none(),
+            "text mode must not send native tools"
+        );
+        let system = body["input"][0]["content"].as_str().unwrap();
+        assert!(system.contains("get_weather"), "system must declare tools");
+    }
+
+    #[test]
+    fn count_tokens_response_parses_input_tokens() {
+        let formatter = OpenaiResponseFormatter::new();
+        let body: serde_json::Value =
+            serde_json::from_str(r#"{"object":"response.input_tokens","input_tokens":13}"#)
+                .unwrap();
+        assert_eq!(formatter.parse_count_tokens_response(&body).unwrap(), 13);
+        let empty: serde_json::Value = serde_json::from_str("{}").unwrap();
+        assert_eq!(formatter.parse_count_tokens_response(&empty).unwrap(), 0);
     }
 }

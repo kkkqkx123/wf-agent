@@ -18,9 +18,13 @@ blake3.workspace = true
 wf-types = { path = "../../foundation/wf-types" }
 wf-common = { path = "../../foundation/wf-common" }
 
+# mlua send feature is not required for sandbox; kept without send for minimal
+# dependency. When built together with wf-plugin (which enables send), workspace
+# feature unification will enable send implicitly. This is intentional and
+# documented; future decoupling of mlua dependencies may be considered.
 mlua = { version = "0.9", optional = true, default-features = false, features = ["luajit"] }
 libc = "0.2"
 
 [features]
-default = ["lua-mlua-sandbox"]
-lua-mlua-sandbox = ["dep:mlua"]
+default = []
+lua = ["dep:mlua"]

@@ -33,6 +33,7 @@ default = ["sqlite"]
 sqlite = ["dep:rusqlite"]
 # Layertwine gRPC remote executor (embedded + remote deployment modes).
 remote-layertwine = ["dep:layertwine", "dep:tonic"]
+lua = ["wf-sandbox/lua"]
 
 [dev-dependencies]
 tempfile = "3"

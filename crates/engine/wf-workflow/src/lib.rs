@@ -20,6 +20,7 @@ pub mod node_validation;
 pub mod persistence;
 pub mod preprocess;
 pub mod protocol_consistency;
+pub mod reference_closure;
 pub mod registry;
 pub mod state;
 pub mod trigger_internal;
@@ -87,6 +88,7 @@ pub use message_context::{
     append_context, get_context, has_context, register_context, DEFAULT_CONTEXT_ID,
 };
 pub use persistence::build_workflow_execution;
+pub use reference_closure::{ReferenceClosureReport, ReferenceContext, MAX_REFERENCE_DEPTH};
 pub use registry::{
     create_execution_registry, create_graph_registry, lookup_graph, lookup_script, register_graph,
     register_script, ScriptDefinition, ScriptRegistry, WorkflowExecutionRegistry,
@@ -101,11 +103,12 @@ pub use trigger_listener::{
 };
 pub use trigger_states::{TriggerStateRecord, TriggerStateRegistry};
 pub use types::WorkflowExecutionParams as WorkflowExecutionParamsType;
-pub use validation::{GraphValidator, ValidationError, ValidationResult};
+pub use validation::{format_validation_report, GraphValidator};
 pub use variable::{
     convert_variable_type, create_variable_store, evaluate_expression, ExprEvaluator,
     ExpressionError, VariableResolver, VariableStore,
 };
+pub use wf_types::{ValidationError, ValidationResult};
 
 use std::collections::HashMap;
 use std::sync::Arc;

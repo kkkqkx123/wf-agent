@@ -257,7 +257,7 @@ pub async fn restore(
 
 /// Checkpoints of one agent loop, newest first.
 pub async fn list(ctx: &ApiContext, agent_loop_id: &str) -> ApiResult<Vec<Checkpoint>> {
-    let mut checkpoints = crate::workflow::checkpoint::list_checkpoints_by_entity(
+    let mut checkpoints = crate::checkpoint::record::list_checkpoints_by_entity(
         &ctx.storage,
         agent_loop_id,
         "checkpoint",
@@ -290,7 +290,7 @@ pub async fn chain(ctx: &ApiContext, agent_loop_id: &str) -> ApiResult<Vec<Vec<C
 
 /// Delete all checkpoints of one agent loop; returns the number removed.
 pub async fn delete_for(ctx: &ApiContext, agent_loop_id: &str) -> ApiResult<u64> {
-    crate::workflow::checkpoint::delete_checkpoints_by_entity(
+    crate::checkpoint::record::delete_checkpoints_by_entity(
         &ctx.storage,
         agent_loop_id,
         "checkpoint",

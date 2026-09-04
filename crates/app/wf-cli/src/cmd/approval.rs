@@ -1,4 +1,4 @@
-use wf_api::workflow::file_approval;
+use wf_api::checkpoint::approval;
 
 use crate::args::{ApprovalSub, Cli};
 use crate::cmd::render::render_envelope;
@@ -11,7 +11,7 @@ pub async fn run(cli: &Cli, sub: &ApprovalSub) -> CliResult<()> {
     let ctx = adapter.api_context();
     let result = match sub {
         ApprovalSub::List => {
-            let pending = file_approval::list_pending_approvals(ctx)?;
+            let pending = approval::list_pending_approvals(ctx)?;
             let data = serde_json::to_value(&pending)?;
             render_envelope(cli.output, OutputEnvelope::success("approval-list", data))
         }
@@ -27,7 +27,7 @@ pub async fn run(cli: &Cli, sub: &ApprovalSub) -> CliResult<()> {
                     .filter(|v| !v.is_empty())
                     .collect::<Vec<_>>()
             });
-            let outcome = file_approval::approve_changes(ctx, instance, feature_name, path_vec)?;
+            let outcome = approval::approve_changes(ctx, instance, feature_name, path_vec)?;
             let data = serde_json::to_value(&outcome)?;
             render_envelope(
                 cli.output,
@@ -35,7 +35,7 @@ pub async fn run(cli: &Cli, sub: &ApprovalSub) -> CliResult<()> {
             )
         }
         ApprovalSub::Reject { instance } => {
-            let snapshot = file_approval::reject_changes(ctx, instance)?;
+            let snapshot = approval::reject_changes(ctx, instance)?;
             let data =
                 serde_json::json!({"instance": instance, "rejected": true, "snapshot": snapshot});
             render_envelope(

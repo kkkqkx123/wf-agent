@@ -1,4 +1,5 @@
-use wf_api::workflow::{checkpoint, workflow_execution};
+use wf_api::checkpoint::record as checkpoint;
+use wf_api::workflow::workflow_execution;
 
 use crate::args::{CheckpointSub, Cli};
 use crate::cmd::render::render_envelope;

@@ -143,7 +143,7 @@ pub async fn delete_workflow(ctx: &ApiContext, id: &str) -> crate::ApiResult<boo
     )
     .await?;
     for execution in executions {
-        let _ = crate::workflow::checkpoint::delete_checkpoints_by_entity(
+        let _ = crate::checkpoint::record::delete_checkpoints_by_entity(
             &ctx.storage,
             &execution.id,
             "checkpoint",
@@ -234,7 +234,7 @@ pub(super) fn upsert_workflow_registry(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::workflow::checkpoint::{get_checkpoint, save_checkpoint};
+    use crate::checkpoint::record::{get_checkpoint, save_checkpoint};
     use crate::workflow::version::{
         list_workflow_versions as list_vers, save_workflow_version as save_ver,
     };

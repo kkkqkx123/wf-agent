@@ -45,7 +45,7 @@ struct RejectResponse {
 }
 
 async fn handle_list_pending_approvals(State(state): State<ApiState>) -> impl IntoResponse {
-    match wf_api::workflow::file_approval::list_pending_approvals(&state.ctx) {
+    match wf_api::checkpoint::approval::list_pending_approvals(&state.ctx) {
         Ok(approvals) => ok(approvals).into_response(),
         Err(err) => error_response(err),
     }
@@ -57,7 +57,7 @@ async fn handle_approve_changes(
     body: Option<axum::extract::Json<ApproveRequest>>,
 ) -> impl IntoResponse {
     let (feature, paths) = body.map(|b| (b.0.feature, b.0.paths)).unwrap_or_default();
-    match wf_api::workflow::file_approval::approve_changes(&state.ctx, &path.id, &feature, paths) {
+    match wf_api::checkpoint::approval::approve_changes(&state.ctx, &path.id, &feature, paths) {
         Ok(outcome) => ok(outcome).into_response(),
         Err(err) => error_response(err),
     }
@@ -67,7 +67,7 @@ async fn handle_reject_changes(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
-    match wf_api::workflow::file_approval::reject_changes(&state.ctx, &path.id) {
+    match wf_api::checkpoint::approval::reject_changes(&state.ctx, &path.id) {
         Ok(baseline_snapshot_id) => ok(RejectResponse {
             baseline_snapshot_id,
         })

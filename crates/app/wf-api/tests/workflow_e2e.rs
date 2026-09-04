@@ -5,7 +5,7 @@
 
 use std::sync::Arc;
 
-use wf_api::workflow::checkpoint::{get_checkpoint, list_checkpoints, save_checkpoint};
+use wf_api::checkpoint::record::{get_checkpoint, list_checkpoints, save_checkpoint};
 use wf_api::workflow::workflow_execution::ExecuteWorkflowParams;
 use wf_api::ApiContext;
 use wf_resource::registry::ResourceRegistries;

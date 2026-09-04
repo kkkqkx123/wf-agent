@@ -15,3 +15,4 @@ pub mod agent_message;
 pub mod agent_performance;
 pub mod agent_user_interaction;
 pub mod agent_variable;
+pub mod validation;

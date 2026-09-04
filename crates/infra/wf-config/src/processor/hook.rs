@@ -1,7 +1,7 @@
 use crate::error::ConfigResult;
-use crate::validator::{validate_hook_type, validate_min, validate_not_empty, validate_required};
+use crate::validator::{validate_hook_type, validate_min, validate_not_empty};
 
-use wf_types::hook::{BaseHookConfig, BaseHookStaticConfig, HookTemplate};
+use wf_types::hook::{BaseHookConfig, BaseHookStaticConfig};
 
 /// Validate a `BaseHookConfig` (workflow-level hook).
 ///
@@ -55,19 +55,6 @@ pub fn validate_agent_hook_config(
     Ok(())
 }
 
-/// Validate a `HookTemplate` definition.
-///
-/// Checks:
-/// - `id` is non-empty
-/// - `name` is non-empty
-/// - `hook_type` is a known hook type
-pub fn validate_hook_template(template: &HookTemplate) -> ConfigResult<()> {
-    validate_required(&template.id, "id")?;
-    validate_required(&template.name, "name")?;
-    validate_hook_type(&template.hook_type, "hook_type")?;
-    Ok(())
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -97,20 +84,6 @@ mod tests {
             create_checkpoint: None,
             checkpoint_description: None,
             receiver: None,
-        }
-    }
-
-    fn make_hook_template() -> HookTemplate {
-        HookTemplate {
-            id: "tpl-1".to_string(),
-            name: "My Hook".to_string(),
-            description: None,
-            hook_type: "BEFORE_LLM_CALL".to_string(),
-            config_schema: None,
-            config_default: None,
-            tags: None,
-            created_at: 0,
-            updated_at: 0,
         }
     }
 
@@ -157,32 +130,6 @@ mod tests {
         let mut hook = make_agent_hook();
         hook.event_name = String::new();
         assert!(validate_agent_hook_config(&hook, "config.hooks[0]").is_err());
-    }
-
-    #[test]
-    fn valid_hook_template_passes() {
-        assert!(validate_hook_template(&make_hook_template()).is_ok());
-    }
-
-    #[test]
-    fn hook_template_empty_id_rejected() {
-        let mut tpl = make_hook_template();
-        tpl.id = String::new();
-        assert!(validate_hook_template(&tpl).is_err());
-    }
-
-    #[test]
-    fn hook_template_empty_name_rejected() {
-        let mut tpl = make_hook_template();
-        tpl.name = String::new();
-        assert!(validate_hook_template(&tpl).is_err());
-    }
-
-    #[test]
-    fn hook_template_unknown_type_rejected() {
-        let mut tpl = make_hook_template();
-        tpl.hook_type = "INVALID".to_string();
-        assert!(validate_hook_template(&tpl).is_err());
     }
 
     #[test]

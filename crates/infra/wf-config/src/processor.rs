@@ -11,7 +11,7 @@
 /// - `workflow` — validate workflow definitions, transform nodes/edges
 /// - `node_config` — validate per-node-type config (LLM, Script, Variable, Route, Fork, Join, etc.)
 /// - `agent_loop` — validate/transform agent definitions
-/// - `hook` — validate hook configs (BaseHookConfig, AgentHookConfig, HookTemplate)
+/// - `hook` — validate hook configs (BaseHookConfig, AgentHookConfig)
 /// - `checkpoint` — merge/validate checkpoint policies
 /// - `file_checkpoint` — merge/validate file checkpoint configs
 /// - `node_template` — validate/transform node templates

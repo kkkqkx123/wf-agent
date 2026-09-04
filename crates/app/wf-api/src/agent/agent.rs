@@ -1,5 +1,3 @@
-use std::collections::HashSet;
-
 use wf_core::registry::{MutableRegistry, Registry};
 use wf_storage::adapter::agent_execution::{
     AgentExecutionListOptions, AgentExecutionStorageAdapter,
@@ -126,21 +124,20 @@ pub fn validate_agent_definition(
     ctx: &ApiContext,
     definition: &wf_types::agent::AgentDefinition,
 ) -> crate::ApiResult<Vec<String>> {
-    wf_config::processor::agent_loop::validate_agent_definition(definition)
-        .map_err(crate::ApiError::from)?;
-    let mut warnings = Vec::new();
-    if let Some(profile_id) = definition
-        .config
-        .as_ref()
-        .and_then(|c| c.profile_id.as_ref())
-    {
-        if !ctx.llm_gateway.profile_registry().has(profile_id) {
-            return Err(crate::ApiError::Validation(format!(
-                "agent '{}' references profile '{}' which is not registered",
-                definition.id, profile_id
-            )));
-        }
+    let val_ctx = crate::infra::validation::ValidationContext::empty();
+    let validator = super::validation::AgentValidator::new(&val_ctx);
+    let result = validator.validate(definition);
+
+    if !result.is_valid() {
+        let detail: Vec<String> = result
+            .errors
+            .iter()
+            .map(|e| format!("{}: {}", e.field, e.message))
+            .collect();
+        return Err(crate::ApiError::Validation(detail.join("; ")));
     }
+
+    // Additional template existence check (not in shared validator).
     if let Some(template_id) = definition
         .config
         .as_ref()
@@ -153,63 +150,13 @@ pub fn validate_agent_definition(
             )));
         }
     }
-    if let Some(tools) = definition
-        .config
-        .as_ref()
-        .and_then(|c| c.available_tools.as_ref())
-    {
-        let known: HashSet<String> = ctx
-            .tool_registry
-            .list_tools()
-            .into_iter()
-            .flat_map(|t| [t.name, t.id.to_string()])
-            .collect();
-        let disabled: HashSet<String> = ctx
-            .tool_registry
-            .list_tools()
-            .into_iter()
-            .filter(|t| t.enabled == Some(false))
-            .flat_map(|t| [t.name, t.id.to_string()])
-            .collect();
-        let empty: &[String] = &[];
-        let lists: [(&str, &[String]); 4] = [
-            ("available", &tools.available),
-            ("initial", tools.initial.as_deref().unwrap_or(empty)),
-            (
-                "discoverable",
-                tools.discoverable.as_deref().unwrap_or(empty),
-            ),
-            ("hidden", tools.hidden.as_deref().unwrap_or(empty)),
-        ];
-        for (key, names) in lists {
-            for name in names {
-                if !known.contains(name) {
-                    return Err(crate::ApiError::Validation(format!(
-                        "agent '{}' references tool '{}' ({}) which is not registered",
-                        definition.id, name, key
-                    )));
-                }
-                if disabled.contains(name) {
-                    warnings.push(format!(
-                        "agent '{}' references tool '{}' which is registered but disabled",
-                        definition.id, name
-                    ));
-                }
-            }
-        }
-    }
-    let known_profiles: HashSet<String> = ctx
-        .llm_gateway
-        .profile_registry()
-        .list()
+
+    // Return warnings as strings.
+    let warnings: Vec<String> = result
+        .warnings
         .into_iter()
-        .map(|p| p.id)
+        .map(|w| format!("agent '{}': {}", definition.id, w.message))
         .collect();
-    wf_config::processor::agent_loop::validate_agent_definition_with_profiles(
-        definition,
-        &known_profiles,
-    )
-    .map_err(crate::ApiError::from)?;
     Ok(warnings)
 }
 

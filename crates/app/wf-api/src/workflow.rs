@@ -39,7 +39,7 @@ pub use search::{
     get_workflows_by_tags, search_workflows, WorkflowSearchOptions,
 };
 pub use summary::{to_summary, workflow_summaries, WorkflowSummary};
-pub use validation::validate_workflow;
+pub use validation::{validate_workflow, WorkflowValidator};
 pub use version::{get_workflow_version, list_workflow_versions, save_workflow_version};
 pub use versioning::{
     auto_increment_version, create_versioned_update, VersionStrategy, WorkflowChanges,

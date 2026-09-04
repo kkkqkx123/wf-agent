@@ -188,6 +188,19 @@ impl TriggerTemplateBuilder {
         Ok(template)
     }
 
+    /// Build and validate with the shared validation context. Checks
+    /// structural validity plus action reference closure (workflow, script,
+    /// profile existence).
+    pub fn build_with_validation(
+        self,
+        val_ctx: &crate::infra::validation::ValidationContext,
+    ) -> crate::ApiResult<(TriggerTemplate, crate::infra::validation::ValidationResult)> {
+        let template = self.build()?;
+        let validator = crate::trigger::validation::TriggerValidator::new(val_ctx);
+        let result = validator.validate(&template);
+        Ok((template, result))
+    }
+
     /// Build, validate and register the template (storage adapter + shared
     /// registry), so agent loops can reference it by name.
     pub async fn register(self, ctx: &ApiContext) -> crate::ApiResult<()> {

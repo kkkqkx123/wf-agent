@@ -95,21 +95,10 @@ pub async fn delete_draft(ctx: &ApiContext, id: &str) -> ApiResult<bool> {
 /// external references, no persistence, no state change.
 pub async fn validate_draft_internal(
     workflow: &wf_types::WorkflowDefinition,
-) -> Result<
-    Vec<wf_workflow::validation::ValidationError>,
-    Vec<wf_workflow::validation::ValidationError>,
-> {
-    if let Err(e) = wf_config::processor::workflow::validate_workflow_definition(workflow) {
-        return Err(vec![wf_workflow::validation::ValidationError::new(
-            "workflow",
-            e.to_string(),
-        )]);
-    }
-    let graph = crate::workflow::workflow_execution::definition_to_graph(workflow);
-    match wf_workflow::validation::GraphValidator::validate(graph) {
-        Ok(_) => Ok(Vec::new()),
-        Err(errors) => Err(errors),
-    }
+) -> crate::infra::validation::ValidationResult {
+    let ctx = crate::infra::validation::ValidationContext::empty();
+    let validator = crate::workflow::validation::WorkflowValidator::new(&ctx);
+    validator.validate(workflow)
 }
 
 /// Complete validation preview for publish: shape plus graph plus reference
@@ -278,7 +267,7 @@ mod tests {
             lifecycle_of(&ctx, "draft-1").await,
             Some(LifecycleStatus::Draft)
         );
-        assert!(validate_draft_internal(&draft).await.is_err());
+        assert!(!validate_draft_internal(&draft).await.is_valid());
         assert!(
             crate::workflow::workflow_execution::resolve_graph(&ctx, "draft-1")
                 .await

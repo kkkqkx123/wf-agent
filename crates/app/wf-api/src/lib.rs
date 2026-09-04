@@ -7,6 +7,7 @@ pub mod infra;
 pub mod llm;
 pub mod query;
 pub mod template;
+pub mod trigger;
 pub mod workflow;
 
 pub use agent::agent_checkpoint::AgentCheckpointStatistics;
@@ -15,6 +16,8 @@ pub use agent::agent_draft::{
     list_drafts as list_agent_drafts, promote_draft as promote_agent_draft,
     save_draft as save_agent_draft,
 };
+pub use agent::validation::AgentValidator;
+pub use trigger::validation::TriggerValidator;
 pub use agent::agent_error_analysis::{
     AdvancedErrorAnalysis, AgentErrorStatistics, ErrorRecoveryProposal, ExecutionErrorRecord,
     RootCauseAnalysis,
@@ -79,6 +82,7 @@ pub use infra::dependency::{
 };
 pub use infra::diagnostics::{StorageDiagnosticReport, StorageDiagnosticsReport, StoreDiagnostic};
 pub use infra::error::{with_timeout, ApiError, ApiResult};
+pub use infra::validation::{ValidationError, ValidationContext, ValidationResult};
 pub use infra::events::{
     event_history_size, event_system_health, event_time_range, execution_listener_stats,
     execution_timeline_summary, EventQueryOptions, EventStats, EventSystemHealth,

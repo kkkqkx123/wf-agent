@@ -108,17 +108,26 @@ async fn publish_forced_compression(ctx: &NodeExecutionContext, request: &LlmReq
     let tokens_used = u64::from(wf_llm::estimate_request_tokens(request));
     let message_count = request.messages.len();
     let array_version = message_context::array_version(&ctx.variables, &target);
+    let compression_request = wf_llm::ContextCompressionRequest {
+        target_context_id: &target,
+        tokens_used,
+        token_limit: u64::MAX,
+        message_count,
+        array_version,
+        forced: true,
+        messages: &request.messages,
+    };
     bus.publish_logged(
         wf_llm::build_context_compression_requested_event(
             &ctx.execution_id,
             None,
-            &target,
-            tokens_used,
-            u64::MAX,
-            message_count,
-            array_version,
-            true,
-            Some(&request.messages),
+            compression_request.target_context_id,
+            compression_request.tokens_used,
+            compression_request.token_limit,
+            compression_request.message_count,
+            compression_request.array_version,
+            compression_request.forced,
+            Some(compression_request.messages),
         ),
         &format!(
             "workflow={} llm={} forced-compression",
@@ -126,69 +135,22 @@ async fn publish_forced_compression(ctx: &NodeExecutionContext, request: &LlmReq
         ),
     )
     .ok();
-    dispatch_compression_signal(
-        ctx,
-        &target,
-        tokens_used,
-        u64::MAX,
-        message_count,
-        array_version,
-        true,
-        &request.messages,
-    )
-    .await;
+    dispatch_compression_signal(ctx, &compression_request).await;
 }
 
 /// Dispatch the `CONTEXT_COMPRESSION_REQUESTED` engine signal: registered
 /// receivers (the compression service) are notified synchronously so the
 /// summary sub-workflow takes over immediately. Workflow targets have no
 /// `agent_loop_id`: the write-back goes through the execution registry.
-#[allow(clippy::too_many_arguments)]
 async fn dispatch_compression_signal(
     ctx: &NodeExecutionContext,
-    target_context_id: &str,
-    tokens_used: u64,
-    token_limit: u64,
-    message_count: usize,
-    array_version: u64,
-    forced: bool,
-    messages: &[Message],
+    request: &wf_llm::ContextCompressionRequest<'_>,
 ) {
     use wf_execution_shared::hooks::HookContext;
-    use wf_llm::token_events::{
-        KEY_ARRAY_VERSION, KEY_FORCED, KEY_MESSAGES, KEY_MESSAGE_COUNT, KEY_TARGET_CONTEXT_ID,
-        KEY_TOKENS_USED, KEY_TOKEN_LIMIT,
-    };
     let Some(registry) = &ctx.hook_registry else {
         return;
     };
-    let mut data = HashMap::new();
-    data.insert(
-        KEY_TARGET_CONTEXT_ID.to_string(),
-        Value::String(target_context_id.to_string()),
-    );
-    data.insert(
-        KEY_TOKENS_USED.to_string(),
-        Value::Number(tokens_used.into()),
-    );
-    data.insert(
-        KEY_TOKEN_LIMIT.to_string(),
-        Value::Number(token_limit.into()),
-    );
-    data.insert(
-        KEY_MESSAGE_COUNT.to_string(),
-        Value::Number(serde_json::Number::from(message_count as u64)),
-    );
-    data.insert(
-        KEY_ARRAY_VERSION.to_string(),
-        Value::Number(serde_json::Number::from(array_version)),
-    );
-    if forced {
-        data.insert(KEY_FORCED.to_string(), Value::Bool(true));
-    }
-    if let Ok(value) = serde_json::to_value(messages) {
-        data.insert(KEY_MESSAGES.to_string(), value);
-    }
+    let data = wf_llm::compression_request_hook_data(request);
     wf_execution_shared::hooks::dispatch(
         registry,
         &[],
@@ -342,16 +304,25 @@ async fn emit_token_usage_events(ctx: &NodeExecutionContext, warning_threshold: 
         if estimated > token_limit
             && message_context::should_emit_compression(&ctx.variables, &context_id, version)
         {
+            let compression_request = wf_llm::ContextCompressionRequest {
+                target_context_id: &context_id,
+                tokens_used: estimated,
+                token_limit,
+                message_count: context_messages.len(),
+                array_version: version,
+                forced: false,
+                messages: &context_messages,
+            };
             let mut event = wf_llm::build_context_compression_requested_event(
                 &ctx.execution_id,
                 None,
-                &context_id,
-                estimated,
-                token_limit,
-                context_messages.len(),
-                version,
-                false,
-                Some(&context_messages),
+                compression_request.target_context_id,
+                compression_request.tokens_used,
+                compression_request.token_limit,
+                compression_request.message_count,
+                compression_request.array_version,
+                compression_request.forced,
+                Some(compression_request.messages),
             );
             if injected_count > 0 {
                 if let Some(meta) = event.metadata.as_mut() {
@@ -371,17 +342,7 @@ async fn emit_token_usage_events(ctx: &NodeExecutionContext, warning_threshold: 
             .ok();
             // Synchronous signal delivery: the compression service registered
             // as a receiver takes over immediately.
-            dispatch_compression_signal(
-                ctx,
-                &context_id,
-                estimated,
-                token_limit,
-                context_messages.len(),
-                version,
-                false,
-                &context_messages,
-            )
-            .await;
+            dispatch_compression_signal(ctx, &compression_request).await;
             message_context::mark_compression_emitted(&ctx.variables, &context_id, version);
         }
     }

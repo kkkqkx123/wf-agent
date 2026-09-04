@@ -1,4 +1,3 @@
-#![allow(clippy::manual_is_multiple_of)]
 
 use wf_storage::adapter::adapter_impls::*;
 use wf_storage::adapter::base::BaseStorageAdapter;
@@ -15,7 +14,7 @@ fn make_wf(i: u32) -> wf_types::WorkflowDefinition {
         id: format!("wf-{}", i),
         name: format!("wf_{}", i),
         description: None,
-        r#type: Some(if i % 2 == 0 {
+        r#type: Some(if i.is_multiple_of(2) {
             WorkflowDefinitionType::Standalone
         } else {
             WorkflowDefinitionType::Dependent

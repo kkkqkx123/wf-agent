@@ -67,7 +67,6 @@ pub struct ContextTriggerRunner {
 }
 
 impl ContextTriggerRunner {
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
         bus: Arc<EventBus>,
         contexts: Arc<ExecutionContextRegistry>,

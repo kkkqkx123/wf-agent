@@ -132,17 +132,10 @@ struct TriggerSubsystem {
     listener: crate::trigger_listener::TriggerListenerHandle,
 }
 
-/// Assemble the event-driven trigger subsystem in one step.
-///
-/// Wires the trigger listener (powers the nested-agent-execution action
-/// `HookTriggered` etc. and user trigger templates) and the builtin
-/// context-compression hook receiver together: both share the same
-/// sub-workflow runner, shutdown token, execution-context registry and
-/// trigger-state registry so engine compression signals and user triggers
-/// run over one consistent lifecycle. Trigger executions are recorded in
-/// the durable ledger when storage is available (management surface).
-#[allow(clippy::too_many_arguments)]
-fn assemble_trigger_subsystem(
+/// Dependencies of the trigger subsystem assembly: the shared buses,
+/// registries and engine components the listener and the builtin compression
+/// receiver operate on. Bundled so the assembly signature stays readable.
+struct TriggerSubsystemDeps {
     registries: Arc<ResourceRegistries>,
     event_bus: Arc<EventBus>,
     signal_bus: Arc<InternalSignalBus>,
@@ -153,7 +146,30 @@ fn assemble_trigger_subsystem(
     hook_registry: Arc<HookRegistry>,
     storage: Option<Arc<dyn TriggerExecutionRecorder>>,
     limits: wf_types::config::limits::LimitsConfig,
-) -> TriggerSubsystem {
+}
+
+/// Assemble the event-driven trigger subsystem in one step.
+///
+/// Wires the trigger listener (powers the nested-agent-execution action
+/// `HookTriggered` etc. and user trigger templates) and the builtin
+/// context-compression hook receiver together: both share the same
+/// sub-workflow runner, shutdown token, execution-context registry and
+/// trigger-state registry so engine compression signals and user triggers
+/// run over one consistent lifecycle. Trigger executions are recorded in
+/// the durable ledger when storage is available (management surface).
+fn assemble_trigger_subsystem(deps: TriggerSubsystemDeps) -> TriggerSubsystem {
+    let TriggerSubsystemDeps {
+        registries,
+        event_bus,
+        signal_bus,
+        llm_gateway,
+        tool_registry,
+        sandbox_runtime,
+        agent_executor,
+        hook_registry,
+        storage,
+        limits,
+    } = deps;
     let execution_contexts = Arc::new(ExecutionContextRegistry::new());
     let trigger_state_registry = Arc::new(wf_workflow::TriggerStateRegistry::new());
     let trigger_shutdown = tokio_util::sync::CancellationToken::new();
@@ -456,20 +472,20 @@ impl Runtime {
         // dispatches the CONTEXT_COMPRESSION_REQUESTED signal synchronously
         // and the compression receiver (assembled below) takes over
         // immediately.
-        let trigger_subsystem = assemble_trigger_subsystem(
-            registries.clone(),
-            event_bus.clone(),
-            signal_bus.clone(),
-            llm_gateway.clone(),
-            tool_registry.clone(),
-            sandbox_runtime.clone(),
-            agent_executor.clone(),
-            hook_registry.clone(),
-            storage_manager.shared_context().map(|ctx| {
+        let trigger_subsystem = assemble_trigger_subsystem(TriggerSubsystemDeps {
+            registries: registries.clone(),
+            event_bus: event_bus.clone(),
+            signal_bus: signal_bus.clone(),
+            llm_gateway: llm_gateway.clone(),
+            tool_registry: tool_registry.clone(),
+            sandbox_runtime: sandbox_runtime.clone(),
+            agent_executor: agent_executor.clone(),
+            hook_registry: hook_registry.clone(),
+            storage: storage_manager.shared_context().map(|ctx| {
                 Arc::new(ctx.trigger_execution.clone()) as Arc<dyn TriggerExecutionRecorder>
             }),
-            config.limits.clone(),
-        );
+            limits: config.limits.clone(),
+        });
         let execution_contexts = trigger_subsystem.execution_contexts;
         let trigger_state_registry = trigger_subsystem.trigger_state_registry;
         let listener = trigger_subsystem.listener;

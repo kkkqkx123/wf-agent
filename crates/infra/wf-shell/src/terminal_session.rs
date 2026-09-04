@@ -44,6 +44,28 @@ impl SessionStatus {
     }
 }
 
+/// Creation parameters of a terminal session: identity, terminal mode flags,
+/// environment and the event-sink wiring. Bundled so the constructor stays
+/// readable as the store's session options grow.
+pub struct TerminalSessionConfig {
+    pub session_id: String,
+    /// Whether commands in this session prefer a real terminal (PTY).
+    pub interactive: bool,
+    /// Request a PTY even when `interactive` is false.
+    pub force_pty: bool,
+    /// Terminal size used when spawning commands.
+    pub pty_size: (u16, u16),
+    /// Session-level environment (store defaults + creation env).
+    pub env: HashMap<String, String>,
+    pub mode: SessionMode,
+    pub cwd: Option<PathBuf>,
+    pub task_id: Option<String>,
+    pub graceful_kill_timeout_ms: u64,
+    /// Master switch for pushing events to the sink.
+    pub events_enabled: bool,
+    pub event_sink: Option<Arc<EventDispatcher>>,
+}
+
 /// Session record: one entry in the store that outlives individual commands.
 /// Commands (each an independent [`ShellSession`]) share the session cwd/env,
 /// terminal mode, task binding and the accumulated output buffer.
@@ -82,30 +104,17 @@ pub struct TerminalSession {
 }
 
 impl TerminalSession {
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn new(
-        session_id: String,
-        interactive: bool,
-        force_pty: bool,
-        pty_size: (u16, u16),
-        env: HashMap<String, String>,
-        mode: SessionMode,
-        cwd: Option<PathBuf>,
-        task_id: Option<String>,
-        graceful_kill_timeout_ms: u64,
-        events_enabled: bool,
-        event_sink: Option<Arc<EventDispatcher>>,
-    ) -> Arc<Self> {
+    pub(crate) fn new(config: TerminalSessionConfig) -> Arc<Self> {
         Arc::new(Self {
-            session_id,
-            cwd,
-            env,
-            interactive,
-            force_pty,
-            pty_size,
-            mode: Mutex::new(mode),
+            session_id: config.session_id,
+            cwd: config.cwd,
+            env: config.env,
+            interactive: config.interactive,
+            force_pty: config.force_pty,
+            pty_size: config.pty_size,
+            mode: Mutex::new(config.mode),
             status: Mutex::new(SessionStatus::Idle),
-            task_id: Arc::new(Mutex::new(task_id)),
+            task_id: Arc::new(Mutex::new(config.task_id)),
             created_at: wf_common::time::now(),
             last_active_at: Mutex::new(wf_common::time::now()),
             output: Arc::new(Mutex::new(OutputBuffer::default())),
@@ -113,9 +122,9 @@ impl TerminalSession {
             last_pid: Mutex::new(None),
             last_exit_code: Mutex::new(None),
             killed: AtomicBool::new(false),
-            graceful_kill_timeout_ms,
-            events_enabled,
-            event_sink,
+            graceful_kill_timeout_ms: config.graceful_kill_timeout_ms,
+            events_enabled: config.events_enabled,
+            event_sink: config.event_sink,
         })
     }
 

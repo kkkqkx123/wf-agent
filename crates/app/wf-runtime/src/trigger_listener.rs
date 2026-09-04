@@ -250,21 +250,21 @@ pub fn start_trigger_listener_with_skills(
         contexts.clone(),
         skill_loader,
     ));
-    spawn_listener(
+    spawn_listener(ListenerDeps {
         event_bus,
         registries,
         contexts,
         runner,
         gateway,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        None,
-        CancellationToken::new(),
-    )
+        tool_registry: None,
+        sandbox: None,
+        agent_executor: None,
+        storage: None,
+        trigger_state_registry: None,
+        hook_registry: None,
+        signal_bus: None,
+        shutdown: CancellationToken::new(),
+    })
 }
 
 /// Like `start_trigger_listener`, but uses a caller-provided shared tool
@@ -316,7 +316,6 @@ pub fn start_trigger_listener_with_registry(
 /// sub-workflow runner and shutdown token. The runtime bootstrap uses this so
 /// the compression service registered on the hook registry shares the same
 /// runner and shutdown lifecycle as the listener.
-#[allow(clippy::too_many_arguments)]
 pub fn start_trigger_listener_with_parts(
     event_bus: Arc<EventBus>,
     registries: Arc<ResourceRegistries>,
@@ -332,7 +331,7 @@ pub fn start_trigger_listener_with_parts(
     signal_bus: Option<Arc<InternalSignalBus>>,
     shutdown: CancellationToken,
 ) -> TriggerListenerHandle {
-    spawn_listener(
+    spawn_listener(ListenerDeps {
         event_bus,
         registries,
         contexts,
@@ -346,11 +345,14 @@ pub fn start_trigger_listener_with_parts(
         hook_registry,
         signal_bus,
         shutdown,
-    )
+    })
 }
 
-#[allow(clippy::too_many_arguments)]
-fn spawn_listener(
+/// Bundled dependencies for starting the listener loop: the shared buses,
+/// registries and optional engine components every triggered action can
+/// reach. Keeps the listener wiring signatures readable as the dependency
+/// set grows.
+struct ListenerDeps {
     event_bus: Arc<EventBus>,
     registries: Arc<ResourceRegistries>,
     contexts: Arc<ExecutionContextRegistry>,
@@ -364,7 +366,24 @@ fn spawn_listener(
     hook_registry: Option<Arc<HookRegistry>>,
     signal_bus: Option<Arc<InternalSignalBus>>,
     shutdown: CancellationToken,
-) -> TriggerListenerHandle {
+}
+
+fn spawn_listener(deps: ListenerDeps) -> TriggerListenerHandle {
+    let ListenerDeps {
+        event_bus,
+        registries,
+        contexts,
+        runner,
+        gateway,
+        tool_registry,
+        sandbox,
+        agent_executor,
+        storage,
+        trigger_state_registry,
+        hook_registry,
+        signal_bus,
+        shutdown,
+    } = deps;
     let registry: Arc<dyn TriggerTemplateRegistry> =
         Arc::new(ResourceTriggerRegistry::new(registries));
     let compression = SubworkflowActionRunner::with_storage(

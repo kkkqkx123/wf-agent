@@ -127,6 +127,57 @@ pub fn build_token_limit_exceeded_event(
     event
 }
 
+/// One `CONTEXT_COMPRESSION_REQUESTED` emission's full data set: the target
+/// message array identity, the token accounting that triggered it and the
+/// message snapshot. Shared by the event builder (audit copy) and the hook
+/// dispatch (synchronous takeover) so both channels stay in lockstep.
+pub struct ContextCompressionRequest<'a> {
+    /// Name of the message array targeted by the compression.
+    pub target_context_id: &'a str,
+    /// Estimated tokens of the target array at emission time.
+    pub tokens_used: u64,
+    /// Token budget the array is checked against.
+    pub token_limit: u64,
+    /// Message count of the target array at emission time.
+    pub message_count: usize,
+    /// Ledger version of the target array at emission time (idempotency).
+    pub array_version: u64,
+    /// `true` when the request is a safety-net re-emission over real request
+    /// messages after an API context-length-exceeded error.
+    pub forced: bool,
+    /// Snapshot of the messages the compression will summarize.
+    pub messages: &'a [Message],
+}
+
+/// Convert a [`ContextCompressionRequest`] into the hook payload map shared
+/// by the agent and workflow compression dispatchers.
+pub fn compression_request_hook_data(
+    request: &ContextCompressionRequest<'_>,
+) -> std::collections::HashMap<String, serde_json::Value> {
+    let mut data = std::collections::HashMap::new();
+    data.insert(
+        KEY_TARGET_CONTEXT_ID.to_string(),
+        serde_json::json!(request.target_context_id),
+    );
+    data.insert(KEY_TOKENS_USED.to_string(), serde_json::json!(request.tokens_used));
+    data.insert(KEY_TOKEN_LIMIT.to_string(), serde_json::json!(request.token_limit));
+    data.insert(
+        KEY_MESSAGE_COUNT.to_string(),
+        serde_json::json!(request.message_count),
+    );
+    data.insert(
+        KEY_ARRAY_VERSION.to_string(),
+        serde_json::json!(request.array_version),
+    );
+    if request.forced {
+        data.insert(KEY_FORCED.to_string(), serde_json::json!(true));
+    }
+    if let Ok(value) = serde_json::to_value(request.messages) {
+        data.insert(KEY_MESSAGES.to_string(), value);
+    }
+    data
+}
+
 /// Build a CONTEXT_COMPRESSION_REQUESTED event.
 ///
 /// Emitted when a named message array exceeds the configured token limit (or

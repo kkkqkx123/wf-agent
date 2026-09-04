@@ -474,31 +474,30 @@ impl AgentIterationCoordinator {
                     if estimated > token_limit && conversation.should_emit_compression(version) {
                         let message_count = conversation.messages().len();
                         let messages = conversation.messages().to_vec();
+                        let request = wf_llm::ContextCompressionRequest {
+                            target_context_id: wf_llm::CONVERSATION_CONTEXT_ID,
+                            tokens_used: estimated,
+                            token_limit,
+                            message_count,
+                            array_version: version,
+                            forced: false,
+                            messages: &messages,
+                        };
                         // The event-bus copy stays the audit / persistence /
                         // user-rule channel; delivery is the synchronous hook
                         // dispatch (the compression service takes over here).
                         let _ = bus.publish(wf_llm::build_context_compression_requested_event(
                             &execution_id,
                             Some(entity.id()),
-                            wf_llm::CONVERSATION_CONTEXT_ID,
-                            estimated,
-                            token_limit,
-                            message_count,
-                            version,
-                            false,
-                            Some(&messages),
+                            request.target_context_id,
+                            request.tokens_used,
+                            request.token_limit,
+                            request.message_count,
+                            request.array_version,
+                            request.forced,
+                            Some(request.messages),
                         ));
-                        self.dispatch_compression(
-                            entity,
-                            wf_llm::CONVERSATION_CONTEXT_ID,
-                            estimated,
-                            token_limit,
-                            message_count,
-                            version,
-                            false,
-                            &messages,
-                        )
-                        .await;
+                        self.dispatch_compression(entity, &request).await;
                         conversation.mark_compression_emitted(version);
                     }
                 }
@@ -694,28 +693,27 @@ impl AgentIterationCoordinator {
         let token_limit = conversation.token_limit();
         let tokens_used = u64::from(wf_llm::estimate_request_tokens(request));
         let messages = request.messages.clone();
+        let compression_request = wf_llm::ContextCompressionRequest {
+            target_context_id: wf_llm::CONVERSATION_CONTEXT_ID,
+            tokens_used,
+            token_limit,
+            message_count: request.messages.len(),
+            array_version: version,
+            forced: true,
+            messages: &messages,
+        };
         let _ = bus.publish(wf_llm::build_context_compression_requested_event(
             &entity.id().clone(),
             Some(entity.id()),
-            wf_llm::CONVERSATION_CONTEXT_ID,
-            tokens_used,
-            token_limit,
-            request.messages.len(),
-            version,
-            true,
-            Some(&messages),
+            compression_request.target_context_id,
+            compression_request.tokens_used,
+            compression_request.token_limit,
+            compression_request.message_count,
+            compression_request.array_version,
+            compression_request.forced,
+            Some(compression_request.messages),
         ));
-        self.dispatch_compression(
-            entity,
-            wf_llm::CONVERSATION_CONTEXT_ID,
-            tokens_used,
-            token_limit,
-            request.messages.len(),
-            version,
-            true,
-            &messages,
-        )
-        .await;
+        self.dispatch_compression(entity, &compression_request).await;
         conversation.mark_compression_emitted(version);
     }
 
@@ -723,53 +721,16 @@ impl AgentIterationCoordinator {
     /// receivers (the compression service) are notified synchronously so the
     /// summary sub-workflow takes over immediately; the event-bus audit copy
     /// is published by the caller.
-    #[allow(clippy::too_many_arguments)]
     async fn dispatch_compression(
         &self,
         entity: &AgentLoopEntity,
-        target_context_id: &str,
-        tokens_used: u64,
-        token_limit: u64,
-        message_count: usize,
-        array_version: u64,
-        forced: bool,
-        messages: &[Message],
+        request: &wf_llm::ContextCompressionRequest<'_>,
     ) {
         let Some(registry) = &self.hook_registry else {
             return;
         };
         use wf_execution_shared::hooks::{dispatch, HookContext};
-        use wf_llm::token_events::{
-            KEY_ARRAY_VERSION, KEY_FORCED, KEY_MESSAGES, KEY_MESSAGE_COUNT, KEY_TARGET_CONTEXT_ID,
-            KEY_TOKENS_USED, KEY_TOKEN_LIMIT,
-        };
-        let mut data = HashMap::new();
-        data.insert(
-            KEY_TARGET_CONTEXT_ID.to_string(),
-            Value::String(target_context_id.to_string()),
-        );
-        data.insert(
-            KEY_TOKENS_USED.to_string(),
-            Value::Number(tokens_used.into()),
-        );
-        data.insert(
-            KEY_TOKEN_LIMIT.to_string(),
-            Value::Number(token_limit.into()),
-        );
-        data.insert(
-            KEY_MESSAGE_COUNT.to_string(),
-            Value::Number(serde_json::Number::from(message_count as u64)),
-        );
-        data.insert(
-            KEY_ARRAY_VERSION.to_string(),
-            Value::Number(serde_json::Number::from(array_version)),
-        );
-        if forced {
-            data.insert(KEY_FORCED.to_string(), Value::Bool(true));
-        }
-        if let Ok(value) = serde_json::to_value(messages) {
-            data.insert(KEY_MESSAGES.to_string(), value);
-        }
+        let mut data = wf_llm::compression_request_hook_data(request);
         // Agent-owned target: the agent conversation consumes the completed
         // event itself (no registry write-back).
         data.insert(
@@ -1176,7 +1137,6 @@ fn build_response_summary(
 
 /// Assemble one LLM call audit record. `seq` is assigned by the
 /// state (`AgentLoopState::record_llm_call`).
-#[allow(clippy::too_many_arguments)]
 fn llm_call_record(
     request: &LlmRequest,
     started_at: i64,

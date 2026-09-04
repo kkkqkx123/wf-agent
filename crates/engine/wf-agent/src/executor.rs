@@ -397,6 +397,10 @@ mod tests {
     use wf_llm::mock::{LlmResponseSpec, MockLlmClient};
     use wf_tools::callback::AgentLoopInput;
 
+    /// Shared hook-dispatch log captured by the test hook receivers.
+    type FailureLog =
+        Arc<std::sync::Mutex<Vec<(String, std::collections::HashMap<String, serde_json::Value>)>>>;
+
     fn agent_config(agent_id: &str) -> AgentLoopConfig {
         AgentLoopConfig {
             agent_id: Id::from(agent_id.to_string()),
@@ -596,10 +600,7 @@ mod tests {
         let bus = Arc::new(wf_core::EventBus::new(32));
         let hook_registry = Arc::new(HookRegistry::new());
         let captured = Arc::new(std::sync::Mutex::new(Vec::new()));
-        struct FailureRecorder(
-            #[allow(clippy::type_complexity)]
-            Arc<std::sync::Mutex<Vec<(String, HashMap<String, serde_json::Value>)>>>,
-        );
+        struct FailureRecorder(FailureLog);
         #[async_trait::async_trait]
         impl HookReceiver for FailureRecorder {
             fn name(&self) -> &str {

@@ -909,15 +909,15 @@ impl ToolExecutionCoordinator {
             _ => None,
         };
 
-        entity_state.write().await.record_tool_call_with_details(
-            &tool_name,
-            duration_ms as i64,
+        entity_state.write().await.record_tool_call_with_details(ToolCallRecord {
+            name: tool_name,
+            arguments: params.clone(),
+            result: call_result,
+            error: call_error,
+            tool_call_id: Some(tc.id.clone()),
+            duration_ms: duration_ms as i64,
             success,
-            params.clone(),
-            call_result,
-            call_error,
-            Some(tc.id.clone()),
-        );
+        });
 
         if let Some(ref metrics) = ctx.metrics {
             match &result {

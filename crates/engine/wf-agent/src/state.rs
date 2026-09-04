@@ -282,43 +282,25 @@ impl AgentLoopState {
     }
 
     pub fn record_tool_call(&mut self, name: &str, duration_ms: i64, success: bool) {
-        self.record_tool_call_with_details(
-            name,
+        self.record_tool_call_with_details(ToolCallRecord {
+            name: name.to_string(),
+            arguments: serde_json::Value::Null,
+            result: None,
+            error: None,
+            tool_call_id: None,
             duration_ms,
             success,
-            serde_json::Value::Null,
-            None,
-            None,
-            None,
-        );
+        });
     }
 
     /// Record a tool call with its full audit payload (arguments, result,
     /// error, tool call id). The argument-free variant keeps callers that
     /// only track counts/durations working unchanged.
-    #[allow(clippy::too_many_arguments)]
-    pub fn record_tool_call_with_details(
-        &mut self,
-        name: &str,
-        duration_ms: i64,
-        success: bool,
-        arguments: serde_json::Value,
-        result: Option<serde_json::Value>,
-        error: Option<String>,
-        tool_call_id: Option<String>,
-    ) {
+    pub fn record_tool_call_with_details(&mut self, record: ToolCallRecord) {
         self.tool_call_count += 1;
-        if let Some(record) = self.iteration_history.last_mut() {
-            record.tool_call_count += 1;
-            record.tool_calls.push(ToolCallRecord {
-                name: name.to_string(),
-                arguments,
-                result,
-                error,
-                tool_call_id,
-                duration_ms,
-                success,
-            });
+        if let Some(iteration) = self.iteration_history.last_mut() {
+            iteration.tool_call_count += 1;
+            iteration.tool_calls.push(record);
         }
     }
 

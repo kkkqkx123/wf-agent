@@ -82,7 +82,6 @@ impl WorkflowExecutor {
         self
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub async fn execute_workflow(
         &self,
         workflow_id: wf_types::Id,

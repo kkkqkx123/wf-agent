@@ -62,7 +62,6 @@ impl SubgraphHandler {
 /// `WorkflowCoordinator`, applies variable mappings, emits the subgraph
 /// start/complete events and records subgraph metrics. SUBGRAPH keeps its
 /// independent execution_id semantics (a sub-workflow entity of its own).
-#[allow(clippy::too_many_arguments)]
 pub(crate) async fn execute_subgraph(
     ctx: &NodeExecutionContext,
     config: &Value,

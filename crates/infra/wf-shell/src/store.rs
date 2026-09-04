@@ -26,7 +26,7 @@ use crate::line_dispatcher::OutputLineDispatcher;
 use crate::session::{wait_for_command_exit, OutputPipeline, ShellSession};
 use crate::shell_detector::ShellType;
 use crate::spawn::{spawn_pipe_backend, spawn_pty_backend};
-use crate::terminal_session::{SessionStatus, TerminalSession};
+use crate::terminal_session::{SessionStatus, TerminalSession, TerminalSessionConfig};
 
 const MAX_SESSIONS: usize = 64;
 const DEFAULT_GRACEFUL_KILL_TIMEOUT_MS: u64 = 5000;
@@ -553,19 +553,19 @@ impl BackgroundShellStore {
         for (key, value) in &options.env {
             env.insert(key.clone(), value.clone());
         }
-        let session = TerminalSession::new(
-            session_id.clone(),
-            options.interactive,
-            options.force_pty,
-            options.pty_size,
+        let session = TerminalSession::new(TerminalSessionConfig {
+            session_id: session_id.clone(),
+            interactive: options.interactive,
+            force_pty: options.force_pty,
+            pty_size: options.pty_size,
             env,
             mode,
             cwd,
-            task_id.map(String::from),
-            self.graceful_kill_timeout_ms,
-            self.output_event_enabled,
-            self.event_sink.clone(),
-        );
+            task_id: task_id.map(String::from),
+            graceful_kill_timeout_ms: self.graceful_kill_timeout_ms,
+            events_enabled: self.output_event_enabled,
+            event_sink: self.event_sink.clone(),
+        });
         self.sessions.insert(session_id.clone(), session.clone());
         session.dispatch_created(false);
         let task_id = wf_common::lock::lock_ok(session.task_id.lock()).clone();

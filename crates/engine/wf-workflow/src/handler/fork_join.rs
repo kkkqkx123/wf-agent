@@ -346,31 +346,28 @@ impl ForkHandler {
         let results: Vec<BranchResult> = if fork_strategy == "serial" {
             let mut results = Vec::new();
             for (idx, (path, branch_execution_id)) in branches.iter().enumerate() {
-                results.push(
-                    run_branch(
-                        idx,
-                        path.clone(),
-                        branch_execution_id.clone(),
-                        registry.clone(),
-                        fork_registries.clone(),
-                        event_bus_clone.clone(),
-                        execution_id_clone.clone(),
-                        node_id_clone.clone(),
-                        handlers.clone(),
-                        graph.clone(),
-                        join_node_id.clone(),
-                        tool_registry.clone(),
-                        parent_variables.clone(),
-                        resource_registries.clone(),
-                        branch_input.clone(),
-                        cancellation.clone(),
-                        retry_budget.clone(),
-                        tool_approval_options.clone(),
-                        tool_approval_handler.clone(),
-                        child_execution_timeout,
-                    )
-                    .await,
-                );
+                let run_ctx = BranchRunContext {
+                    parent_execution_id: execution_id_clone.clone(),
+                    node_id: node_id_clone.clone(),
+                    graph: graph.clone(),
+                    join_node_id: join_node_id.clone(),
+                    branch_input: branch_input.clone(),
+                    cancellation: cancellation.clone(),
+                    child_execution_timeout,
+                    branch_ctx: BranchContext {
+                        handlers: handlers.clone(),
+                        event_bus: event_bus_clone.clone(),
+                        tool_registry: tool_registry.clone(),
+                        resource_registries: resource_registries.clone(),
+                        parent_variables: parent_variables.clone(),
+                        retry_budget: retry_budget.clone(),
+                        tool_approval_options: tool_approval_options.clone(),
+                        tool_approval_handler: tool_approval_handler.clone(),
+                        fork_registries: fork_registries.clone(),
+                        fork_registry: registry.clone(),
+                    },
+                };
+                results.push(run_branch(idx, path.clone(), branch_execution_id.clone(), run_ctx).await);
                 if cancellation.as_ref().is_some_and(|t| t.is_cancelled()) {
                     break;
                 }
@@ -390,46 +387,30 @@ impl ForkHandler {
                     .unwrap_or("path")
                     .to_string();
                 let handle = tokio::spawn({
-                    let registry = registry.clone();
-                    let fork_registries = fork_registries.clone();
-                    let event_bus_clone = event_bus_clone.clone();
-                    let execution_id_clone = execution_id_clone.clone();
-                    let node_id_clone = node_id_clone.clone();
-                    let handlers = handlers.clone();
-                    let graph = graph.clone();
-                    let join_node_id = join_node_id.clone();
-                    let tool_registry = tool_registry.clone();
-                    let parent_variables = parent_variables.clone();
-                    let resource_registries = resource_registries.clone();
-                    let branch_input = branch_input.clone();
-                    let cancellation = cancellation.clone();
-                    let retry_budget = retry_budget.clone();
-                    let tool_approval_options = tool_approval_options.clone();
-                    let tool_approval_handler = tool_approval_handler.clone();
+                    let run_ctx = BranchRunContext {
+                        parent_execution_id: execution_id_clone.clone(),
+                        node_id: node_id_clone.clone(),
+                        graph: graph.clone(),
+                        join_node_id: join_node_id.clone(),
+                        branch_input: branch_input.clone(),
+                        cancellation: cancellation.clone(),
+                        child_execution_timeout,
+                        branch_ctx: BranchContext {
+                            handlers: handlers.clone(),
+                            event_bus: event_bus_clone.clone(),
+                            tool_registry: tool_registry.clone(),
+                            resource_registries: resource_registries.clone(),
+                            parent_variables: parent_variables.clone(),
+                            retry_budget: retry_budget.clone(),
+                            tool_approval_options: tool_approval_options.clone(),
+                            tool_approval_handler: tool_approval_handler.clone(),
+                            fork_registries: fork_registries.clone(),
+                            fork_registry: registry.clone(),
+                        },
+                    };
                     async move {
-                        let _ = run_branch(
-                            idx,
-                            path.clone(),
-                            branch_execution_id.clone(),
-                            registry,
-                            fork_registries,
-                            event_bus_clone,
-                            execution_id_clone,
-                            node_id_clone,
-                            handlers,
-                            graph,
-                            join_node_id,
-                            tool_registry,
-                            parent_variables,
-                            resource_registries,
-                            branch_input,
-                            cancellation,
-                            retry_budget,
-                            tool_approval_options,
-                            tool_approval_handler,
-                            child_execution_timeout,
-                        )
-                        .await;
+                        let _ =
+                            run_branch(idx, path.clone(), branch_execution_id.clone(), run_ctx).await;
                     }
                 });
                 if let Some(registry) = &registry {
@@ -440,28 +421,28 @@ impl ForkHandler {
         } else {
             let mut set = tokio::task::JoinSet::new();
             for (idx, (path, branch_execution_id)) in branches.iter().enumerate() {
-                set.spawn(run_branch(
-                    idx,
-                    path.clone(),
-                    branch_execution_id.clone(),
-                    registry.clone(),
-                    fork_registries.clone(),
-                    event_bus_clone.clone(),
-                    execution_id_clone.clone(),
-                    node_id_clone.clone(),
-                    handlers.clone(),
-                    graph.clone(),
-                    join_node_id.clone(),
-                    tool_registry.clone(),
-                    parent_variables.clone(),
-                    resource_registries.clone(),
-                    branch_input.clone(),
-                    cancellation.clone(),
-                    retry_budget.clone(),
-                    tool_approval_options.clone(),
-                    tool_approval_handler.clone(),
+                let run_ctx = BranchRunContext {
+                    parent_execution_id: execution_id_clone.clone(),
+                    node_id: node_id_clone.clone(),
+                    graph: graph.clone(),
+                    join_node_id: join_node_id.clone(),
+                    branch_input: branch_input.clone(),
+                    cancellation: cancellation.clone(),
                     child_execution_timeout,
-                ));
+                    branch_ctx: BranchContext {
+                        handlers: handlers.clone(),
+                        event_bus: event_bus_clone.clone(),
+                        tool_registry: tool_registry.clone(),
+                        resource_registries: resource_registries.clone(),
+                        parent_variables: parent_variables.clone(),
+                        retry_budget: retry_budget.clone(),
+                        tool_approval_options: tool_approval_options.clone(),
+                        tool_approval_handler: tool_approval_handler.clone(),
+                        fork_registries: fork_registries.clone(),
+                        fork_registry: registry.clone(),
+                    },
+                };
+                set.spawn(run_branch(idx, path.clone(), branch_execution_id.clone(), run_ctx));
             }
             let mut results = Vec::with_capacity(paths.len());
             let total_deadline = (total_branch_timeout > 0).then(|| {
@@ -659,32 +640,29 @@ struct BranchContext {
     fork_registry: Option<Arc<ForkRegistry>>,
 }
 
+/// Per-branch execution inputs bundled together so the branch runners take
+/// only the branch-specific values; `branch_ctx` carries the runtime
+/// environment shared by every branch of the fork.
+struct BranchRunContext {
+    parent_execution_id: wf_types::Id,
+    node_id: String,
+    graph: Option<WorkflowGraphStructure>,
+    join_node_id: Option<String>,
+    branch_input: Value,
+    cancellation: Option<CancellationToken>,
+    child_execution_timeout: u64,
+    branch_ctx: BranchContext,
+}
+
 /// Execute one fork branch: extract the branch subgraph from the edge
 /// carrying the path label and run it up to the join node. Emits the branch
 /// lifecycle events with the branch's own execution id and settles the
 /// branch in the fork registry.
-#[allow(clippy::too_many_arguments)]
 async fn run_branch(
     idx: usize,
     path: Value,
     branch_execution_id: wf_types::Id,
-    fork_registry: Option<Arc<ForkRegistry>>,
-    fork_registries: Arc<std::collections::HashMap<String, Arc<ForkRegistry>>>,
-    event_bus: Option<Arc<EventBus>>,
-    execution_id: wf_types::Id,
-    node_id: String,
-    handlers: Arc<HashMap<StaticNodeType, Box<dyn NodeHandler>>>,
-    graph: Option<WorkflowGraphStructure>,
-    join_node_id: Option<String>,
-    tool_registry: Option<Arc<ToolRegistry>>,
-    parent_variables: Arc<dashmap::DashMap<String, Value>>,
-    resource_registries: Option<Arc<wf_resource::registry::ResourceRegistries>>,
-    branch_input: Value,
-    cancellation: Option<CancellationToken>,
-    retry_budget: Option<Arc<wf_common::retry::RetryBudget>>,
-    tool_approval_options: Option<wf_types::tool::approval::ToolApprovalOptions>,
-    tool_approval_handler: Option<Arc<dyn ToolApprovalHandler>>,
-    child_execution_timeout: u64,
+    ctx: BranchRunContext,
 ) -> BranchResult {
     let path_id = path
         .get("path_id")
@@ -693,7 +671,7 @@ async fn run_branch(
         .to_string();
 
     emit_fork_event(
-        event_bus.as_ref(),
+        ctx.branch_ctx.event_bus.as_ref(),
         EventType::ForkBranchStarted,
         &branch_execution_id,
         HashMap::from([
@@ -702,35 +680,18 @@ async fn run_branch(
                 "branch_index".to_string(),
                 Value::Number(serde_json::Number::from(idx as u64)),
             ),
-            ("node_id".to_string(), Value::String(node_id.clone())),
+            ("node_id".to_string(), Value::String(ctx.node_id.clone())),
             (
                 "parent_execution_id".to_string(),
-                Value::String(execution_id.to_string()),
+                Value::String(ctx.parent_execution_id.to_string()),
             ),
         ]),
     );
 
-    let run = run_branch_inner(
-        idx,
-        &path,
-        branch_execution_id.clone(),
-        execution_id,
-        node_id,
-        event_bus.clone(),
-        handlers,
-        graph,
-        join_node_id,
-        tool_registry,
-        parent_variables,
-        resource_registries,
-        branch_input,
-        cancellation,
-        retry_budget,
-        tool_approval_options,
-        tool_approval_handler,
-        fork_registries,
-        fork_registry.clone(),
-    );
+    let event_bus = ctx.branch_ctx.event_bus.clone();
+    let child_execution_timeout = ctx.child_execution_timeout;
+    let fork_registry = ctx.branch_ctx.fork_registry.clone();
+    let run = run_branch_inner(idx, &path, branch_execution_id.clone(), ctx);
 
     let result = if child_execution_timeout > 0 {
         // A slow branch fails fast instead of blocking the fork past the
@@ -779,27 +740,11 @@ async fn run_branch(
 }
 
 /// Extract the subgraph for a branch edge and run it up to the join node.
-#[allow(clippy::too_many_arguments)]
 async fn run_branch_inner(
     idx: usize,
     path: &Value,
     branch_execution_id: wf_types::Id,
-    parent_execution_id: wf_types::Id,
-    node_id: String,
-    event_bus: Option<Arc<EventBus>>,
-    handlers: Arc<HashMap<StaticNodeType, Box<dyn NodeHandler>>>,
-    graph: Option<WorkflowGraphStructure>,
-    join_node_id: Option<String>,
-    tool_registry: Option<Arc<ToolRegistry>>,
-    parent_variables: Arc<dashmap::DashMap<String, Value>>,
-    resource_registries: Option<Arc<wf_resource::registry::ResourceRegistries>>,
-    branch_input: Value,
-    cancellation: Option<CancellationToken>,
-    retry_budget: Option<Arc<wf_common::retry::RetryBudget>>,
-    tool_approval_options: Option<wf_types::tool::approval::ToolApprovalOptions>,
-    tool_approval_handler: Option<Arc<dyn ToolApprovalHandler>>,
-    fork_registries: Arc<std::collections::HashMap<String, Arc<ForkRegistry>>>,
-    fork_registry: Option<Arc<ForkRegistry>>,
+    ctx: BranchRunContext,
 ) -> BranchResult {
     let path_id = path
         .get("path_id")
@@ -812,12 +757,12 @@ async fn run_branch_inner(
         .unwrap_or_default()
         .to_string();
 
-    let result = match &graph {
+    let result = match &ctx.graph {
         Some(g) => {
             let outgoing: Vec<&WorkflowEdge> = g
                 .edges
                 .iter()
-                .filter(|e| e.source_node_id == node_id)
+                .filter(|e| e.source_node_id == ctx.node_id)
                 .collect();
 
             let branch_edge = outgoing
@@ -828,31 +773,20 @@ async fn run_branch_inner(
 
             match branch_edge {
                 Some(edge) => {
-                    let join_target = join_node_id.clone().unwrap_or_default();
-                    let subgraph = extract_branch_subgraph(g, &node_id, edge, &join_target);
+                    let join_target = ctx.join_node_id.clone().unwrap_or_default();
+                    let subgraph = extract_branch_subgraph(g, &ctx.node_id, edge, &join_target);
 
                     if subgraph.nodes.is_empty() {
-                        BranchResult::success(&path_id, branch_input)
+                        BranchResult::success(&path_id, ctx.branch_input)
                     } else {
                         match execute_branch(
                             &branch_execution_id,
-                            &parent_execution_id,
+                            &ctx.parent_execution_id,
                             &path_id,
-                            branch_input,
+                            ctx.branch_input,
                             subgraph,
-                            BranchContext {
-                                handlers,
-                                event_bus,
-                                tool_registry,
-                                resource_registries,
-                                parent_variables,
-                                retry_budget,
-                                tool_approval_options,
-                                tool_approval_handler,
-                                fork_registries,
-                                fork_registry,
-                            },
-                            cancellation,
+                            ctx.branch_ctx,
+                            ctx.cancellation,
                         )
                         .await
                         {
@@ -861,10 +795,10 @@ async fn run_branch_inner(
                         }
                     }
                 }
-                None => BranchResult::success(&path_id, branch_input),
+                None => BranchResult::success(&path_id, ctx.branch_input),
             }
         }
-        None => BranchResult::success(&path_id, branch_input),
+        None => BranchResult::success(&path_id, ctx.branch_input),
     };
     result
 }

@@ -421,6 +421,12 @@ mod tests {
     use std::sync::atomic::{AtomicU32, Ordering};
     use wf_types::Id;
 
+    /// Shared hook-type log captured by the test hook receivers.
+    type HookLog = Arc<std::sync::Mutex<Vec<String>>>;
+    /// Shared hook-context log (hook type + data) captured by the test hook
+    /// receivers.
+    type HookContextLog = Arc<std::sync::Mutex<Vec<(String, HashMap<String, Value>)>>>;
+
     fn make_parent() -> Arc<AgentLoopEntity> {
         Arc::new(AgentLoopEntity::new(Id::from("parent-1".to_string())))
     }
@@ -635,11 +641,10 @@ mod tests {
 
     /// Records hook dispatches into a shared log (hook types for ordering,
     /// contexts for data assertions).
-    #[allow(clippy::type_complexity)]
     struct HookRecorder {
         name: &'static str,
-        log: Arc<std::sync::Mutex<Vec<String>>>,
-        contexts: Arc<std::sync::Mutex<Vec<(String, HashMap<String, Value>)>>>,
+        log: HookLog,
+        contexts: HookContextLog,
     }
 
     #[async_trait::async_trait]
@@ -661,10 +666,9 @@ mod tests {
         }
     }
 
-    #[allow(clippy::type_complexity)]
     fn recorder_pair(
-        log: &Arc<std::sync::Mutex<Vec<String>>>,
-        contexts: &Arc<std::sync::Mutex<Vec<(String, HashMap<String, Value>)>>>,
+        log: &HookLog,
+        contexts: &HookContextLog,
     ) -> (
         Arc<wf_execution_shared::hooks::HookRegistry>,
         Vec<Arc<HookRecorder>>,

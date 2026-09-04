@@ -95,8 +95,9 @@ impl ProfileManager {
     }
 }
 
-/// Validate a profile's required fields (`api_key` is optional because it
-/// may be injected per request).
+/// Validate a profile's required fields and provider-specific generation
+/// constraints (`api_key` is optional because it may be injected per
+/// request).
 pub fn validate_profile(profile: &LlmProfile) -> LlmResult<()> {
     if profile.id.trim().is_empty() {
         return Err(LlmError::ConfigError(
@@ -114,6 +115,41 @@ pub fn validate_profile(profile: &LlmProfile) -> LlmResult<()> {
             "Profile validation failed: profile '{}' is missing 'model'",
             profile.id
         )));
+    }
+    if let Some(ref gen) = profile.generation {
+        validate_generation_params(gen, &profile.provider, &profile.id)?;
+    }
+    Ok(())
+}
+
+/// Validate provider-specific generation parameter constraints at profile
+/// registration time. Constraints that depend on per-request values (e.g.
+/// `budget_tokens < max_tokens`) are deferred to runtime validation.
+fn validate_generation_params(
+    gen: &wf_types::llm::generation::LlmGenerationParams,
+    provider: &wf_types::llm::LlmProvider,
+    profile_id: &str,
+) -> LlmResult<()> {
+    if let Some(ref thinking) = gen.thinking {
+        if matches!(provider, wf_types::llm::LlmProvider::GeminiNative)
+            && thinking.level.is_some()
+            && thinking.budget_tokens.is_some()
+        {
+            return Err(LlmError::ConfigError(format!(
+                "Profile '{}': Gemini thinkingLevel and thinkingBudget are mutually exclusive; set only one",
+                profile_id
+            )));
+        }
+        if matches!(provider, wf_types::llm::LlmProvider::Anthropic) {
+            if let Some(budget) = thinking.budget_tokens {
+                if budget < 1024 {
+                    return Err(LlmError::ConfigError(format!(
+                        "Profile '{}': Anthropic thinking budget_tokens must be at least 1024, got {}",
+                        profile_id, budget
+                    )));
+                }
+            }
+        }
     }
     Ok(())
 }
@@ -217,5 +253,73 @@ mod tests {
         assert_eq!(manager.size(), 0);
         assert!(!manager.has("p1"));
         assert!(manager.get_default().is_none());
+    }
+
+    #[test]
+    fn gemini_thinking_level_and_budget_mutually_exclusive() {
+        use wf_types::llm::generation::{LlmGenerationParams, LlmThinkingConfig, ThinkingLevel};
+
+        let mut profile = valid_profile();
+        profile.provider = LlmProvider::GeminiNative;
+        profile.generation = Some(LlmGenerationParams {
+            thinking: Some(LlmThinkingConfig {
+                level: Some(ThinkingLevel::High),
+                budget_tokens: Some(1024),
+                ..Default::default()
+            }),
+            ..Default::default()
+        });
+        assert!(validate_profile(&profile).is_err());
+    }
+
+    #[test]
+    fn gemini_thinking_level_only_accepted() {
+        use wf_types::llm::generation::{LlmGenerationParams, LlmThinkingConfig, ThinkingLevel};
+
+        let mut profile = valid_profile();
+        profile.provider = LlmProvider::GeminiNative;
+        profile.generation = Some(LlmGenerationParams {
+            thinking: Some(LlmThinkingConfig {
+                level: Some(ThinkingLevel::High),
+                budget_tokens: None,
+                ..Default::default()
+            }),
+            ..Default::default()
+        });
+        assert!(validate_profile(&profile).is_ok());
+    }
+
+    #[test]
+    fn anthropic_budget_tokens_below_minimum_rejected() {
+        use wf_types::llm::generation::{LlmGenerationParams, LlmThinkingConfig};
+
+        let mut profile = valid_profile();
+        profile.provider = LlmProvider::Anthropic;
+        profile.generation = Some(LlmGenerationParams {
+            thinking: Some(LlmThinkingConfig {
+                level: None,
+                budget_tokens: Some(512),
+                ..Default::default()
+            }),
+            ..Default::default()
+        });
+        assert!(validate_profile(&profile).is_err());
+    }
+
+    #[test]
+    fn anthropic_budget_tokens_above_minimum_accepted() {
+        use wf_types::llm::generation::{LlmGenerationParams, LlmThinkingConfig};
+
+        let mut profile = valid_profile();
+        profile.provider = LlmProvider::Anthropic;
+        profile.generation = Some(LlmGenerationParams {
+            thinking: Some(LlmThinkingConfig {
+                level: None,
+                budget_tokens: Some(2048),
+                ..Default::default()
+            }),
+            ..Default::default()
+        });
+        assert!(validate_profile(&profile).is_ok());
     }
 }

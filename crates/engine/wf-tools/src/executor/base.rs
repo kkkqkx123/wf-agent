@@ -58,7 +58,9 @@ impl BaseExecutor {
     }
 
     fn validate_property(key: &str, value: &Value, prop: &ToolPropertySchema) -> ToolResult<()> {
-        Self::validate_type(key, value, &prop.property_type)?;
+        if prop.r#ref.is_none() {
+            Self::validate_type(key, value, &prop.property_type)?;
+        }
 
         if let Some(ref enum_values) = prop.r#enum {
             if !enum_values.is_empty() && !enum_values.contains(value) {
@@ -537,6 +539,16 @@ mod tests {
         )
         .unwrap_err();
         assert!(err.to_string().contains("Unknown parameter"));
+    }
+
+    #[test]
+    fn validate_ref_property_skips_type_check() {
+        let mut schema = property("object");
+        schema.r#ref = Some("#/definitions/SomeType".into());
+        let tool = make_tool(BTreeMap::from([("config".to_string(), schema)]));
+
+        BaseExecutor::validate_parameters(&tool, &serde_json::json!({ "config": { "nested": true } }))
+            .unwrap();
     }
 
     #[test]

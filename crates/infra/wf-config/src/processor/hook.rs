@@ -22,6 +22,9 @@ pub fn validate_base_hook_config(hook: &BaseHookConfig, field_prefix: &str) -> C
     if let Some(weight) = hook.weight {
         validate_min(weight, 0, &format!("{field_prefix}.weight"))?;
     }
+    if let Some(ref receiver) = hook.receiver {
+        validate_not_empty(receiver, &format!("{field_prefix}.receiver"))?;
+    }
     Ok(())
 }
 
@@ -43,6 +46,9 @@ pub fn validate_base_hook_static_config(
     validate_not_empty(&hook.event_name, &format!("{field_prefix}.event_name"))?;
     if let Some(weight) = hook.weight {
         validate_min(weight, 0, &format!("{field_prefix}.weight"))?;
+    }
+    if let Some(ref receiver) = hook.receiver {
+        validate_not_empty(receiver, &format!("{field_prefix}.receiver"))?;
     }
     Ok(())
 }
@@ -71,6 +77,9 @@ pub fn validate_agent_hook_config(
     validate_not_empty(&hook.event_name, &format!("{field_prefix}.event_name"))?;
     if let Some(weight) = hook.weight {
         validate_min(weight, 0, &format!("{field_prefix}.weight"))?;
+    }
+    if let Some(ref receiver) = hook.receiver {
+        validate_not_empty(receiver, &format!("{field_prefix}.receiver"))?;
     }
     Ok(())
 }
@@ -180,6 +189,50 @@ mod tests {
             create_checkpoint: None,
             checkpoint_description: None,
             receiver: None,
+        };
+        assert!(validate_base_hook_static_config(&hook, "hooks[0]").is_err());
+    }
+
+    #[test]
+    fn base_hook_empty_receiver_rejected() {
+        let mut hook = make_base_hook();
+        hook.receiver = Some(String::new());
+        assert!(validate_base_hook_config(&hook, "hooks[0]").is_err());
+    }
+
+    #[test]
+    fn base_hook_valid_receiver_accepted() {
+        let mut hook = make_base_hook();
+        hook.receiver = Some("my-handler".to_string());
+        assert!(validate_base_hook_config(&hook, "hooks[0]").is_ok());
+    }
+
+    #[test]
+    fn agent_hook_empty_receiver_rejected() {
+        let mut hook = make_agent_hook();
+        hook.receiver = Some(String::new());
+        assert!(validate_agent_hook_config(&hook, "config.hooks[0]").is_err());
+    }
+
+    #[test]
+    fn agent_hook_valid_receiver_accepted() {
+        let mut hook = make_agent_hook();
+        hook.receiver = Some("my-handler".to_string());
+        assert!(validate_agent_hook_config(&hook, "config.hooks[0]").is_ok());
+    }
+
+    #[test]
+    fn base_hook_static_empty_receiver_rejected() {
+        let hook = BaseHookStaticConfig {
+            hook_type: "AFTER_TOOL_CALL".to_string(),
+            condition: None,
+            event_name: "tool-done".to_string(),
+            event_payload: None,
+            enabled: Some(true),
+            weight: None,
+            create_checkpoint: None,
+            checkpoint_description: None,
+            receiver: Some(String::new()),
         };
         assert!(validate_base_hook_static_config(&hook, "hooks[0]").is_err());
     }

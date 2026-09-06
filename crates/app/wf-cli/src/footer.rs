@@ -722,6 +722,8 @@ mod tests {
             active_tools: vec!["bash".to_string()],
             message_count: 7,
             last_error: None,
+            usage: None,
+            subagent_count: 0,
         };
         footer.state.merge_reducer(&reducer);
         assert_eq!(footer.state.phase, Phase::Streaming);

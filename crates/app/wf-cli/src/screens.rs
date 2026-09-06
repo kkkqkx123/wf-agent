@@ -1,10 +1,17 @@
+//! Full-TUI screen set: navigation stack plus data-bound rendering.
+//!
+//! Every screen renders from a plain display model ([`ScreenData`]) so the
+//! draw path stays synchronous and free of domain types. The async fetch that
+//! produces these models lives with the application shell; this module only
+//! knows how to lay them out.
+
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
-use ratatui::widgets::{Block, Borders, List, ListItem, Paragraph};
+use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph};
 use ratatui::Frame;
 
 /// Identifier for the 8 full-TUI screens.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ScreenKind {
     Dashboard,
     Workflow,
@@ -41,6 +48,14 @@ impl ScreenKind {
             Self::Settings,
             Self::Help,
         ]
+    }
+
+    /// Whether this screen renders from a fetched [`ScreenData`] model.
+    ///
+    /// Session and Help are self-contained: Session owns its own streaming
+    /// state (wired separately) and Help is static text.
+    pub fn has_data(self) -> bool {
+        !matches!(self, Self::Session | Self::Help)
     }
 }
 
@@ -135,72 +150,284 @@ impl Screens {
         self.pop()
     }
 
-    /// Render the current screen into the frame.
-    pub fn draw(&self, frame: &mut Frame, area: Rect) {
+    /// Render the current screen into the frame using the supplied data model.
+    pub fn draw(&self, frame: &mut Frame, area: Rect, data: &ScreenData) {
         match self.current_kind() {
-            ScreenKind::Dashboard => Self::draw_dashboard(frame, area, self.selected),
-            ScreenKind::Workflow => Self::draw_workflow(frame, area),
-            ScreenKind::Executions => Self::draw_executions(frame, area),
+            ScreenKind::Dashboard => Self::draw_dashboard(frame, area, data),
+            ScreenKind::Workflow => Self::draw_workflow(frame, area, data, self.selected),
+            ScreenKind::Executions => Self::draw_executions(frame, area, data, self.selected),
             ScreenKind::Session => Self::draw_session(frame, area),
-            ScreenKind::Checkpoints => Self::draw_checkpoints(frame, area),
-            ScreenKind::Search => Self::draw_search(frame, area),
-            ScreenKind::Settings => Self::draw_settings(frame, area),
+            ScreenKind::Checkpoints => Self::draw_checkpoints(frame, area, data, self.selected),
+            ScreenKind::Search => Self::draw_search(frame, area, data),
+            ScreenKind::Settings => Self::draw_settings(frame, area, data),
             ScreenKind::Help => Self::draw_help(frame, area),
         }
     }
+}
 
-    fn draw_dashboard(frame: &mut Frame, area: Rect, selected: usize) {
-        let items = [
-            "1  Workflows      - asset management",
-            "2  Executions     - unified execution tracking",
-            "3  Session        - foreground session view",
-            "4  Checkpoints    - checkpoint management",
-            "5  Search         - cross-resource search",
-            "6  Settings       - configuration",
-            "7  Dashboard      - (current)",
-            "8  Help           - key bindings",
-        ];
-        let list_items: Vec<ListItem> = items
-            .iter()
-            .enumerate()
-            .map(|(idx, text)| {
-                let style = if idx == selected {
-                    Style::default()
-                        .fg(Color::Black)
-                        .bg(Color::Cyan)
-                        .add_modifier(Modifier::BOLD)
+// ---------------------------------------------------------------------------
+// Display models
+// ---------------------------------------------------------------------------
+
+/// Aggregate counters rendered on the dashboard.
+#[derive(Debug, Clone, Default)]
+pub struct DashboardData {
+    pub workflow_count: usize,
+    pub execution_count: usize,
+    pub running_count: usize,
+    pub checkpoint_count: usize,
+    pub recent: Vec<String>,
+}
+
+/// One workflow row rendered on the workflow screen.
+#[derive(Debug, Clone)]
+pub struct WorkflowRow {
+    pub id: String,
+    pub name: String,
+    pub description: Option<String>,
+    pub node_count: usize,
+}
+
+/// One execution row rendered on the executions screen.
+#[derive(Debug, Clone)]
+pub struct ExecRow {
+    pub id: String,
+    pub status: String,
+    pub iteration: u32,
+    pub tool_calls: u32,
+    pub started: String,
+}
+
+/// Status filter applied to the execution list.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExecStatusFilter {
+    All,
+    Running,
+    Paused,
+    Completed,
+    Failed,
+    Cancelled,
+}
+
+impl ExecStatusFilter {
+    pub const ALL: &'static [ExecStatusFilter] = &[
+        Self::All,
+        Self::Running,
+        Self::Paused,
+        Self::Completed,
+        Self::Failed,
+        Self::Cancelled,
+    ];
+
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::All => "All",
+            Self::Running => "Running",
+            Self::Paused => "Paused",
+            Self::Completed => "Completed",
+            Self::Failed => "Failed",
+            Self::Cancelled => "Cancelled",
+        }
+    }
+
+    /// Whether a status label survives the filter.
+    pub fn matches(&self, status: &str) -> bool {
+        match self {
+            Self::All => true,
+            other => status.eq_ignore_ascii_case(other.label()),
+        }
+    }
+}
+
+/// One checkpoint row rendered on the checkpoints screen.
+#[derive(Debug, Clone)]
+pub struct CheckpointRow {
+    pub id: String,
+    pub entity: String,
+    pub timestamp: String,
+}
+
+/// One search hit rendered on the search screen.
+#[derive(Debug, Clone)]
+pub struct SearchRow {
+    pub id: String,
+    pub kind: String,
+    pub label: String,
+    pub score: u32,
+}
+
+/// Search screen state: the submitted query plus its result rows.
+#[derive(Debug, Clone, Default)]
+pub struct SearchData {
+    pub query: String,
+    pub results: Vec<SearchRow>,
+    pub total: usize,
+    pub truncated: bool,
+    pub running: bool,
+}
+
+/// One LLM profile row rendered on the settings screen.
+#[derive(Debug, Clone)]
+pub struct ProfileRow {
+    pub id: String,
+    pub name: String,
+    pub model: String,
+}
+
+/// Settings screen state.
+#[derive(Debug, Clone, Default)]
+pub struct SettingsData {
+    pub profiles: Vec<ProfileRow>,
+    pub default_profile: Option<String>,
+    pub theme: String,
+}
+
+/// Data bound to the currently visible screen.
+#[derive(Debug, Clone, Default)]
+pub enum ScreenData {
+    #[default]
+    None,
+    Dashboard(DashboardData),
+    Workflow(Vec<WorkflowRow>),
+    Executions(Vec<ExecRow>),
+    Checkpoints(Vec<CheckpointRow>),
+    Search(SearchData),
+    Settings(SettingsData),
+}
+
+impl ScreenData {
+    /// Number of selectable rows on the screen (drives `j/k` navigation).
+    pub fn row_count(&self) -> usize {
+        match self {
+            Self::None | Self::Dashboard(_) => 0,
+            Self::Workflow(rows) => rows.len(),
+            Self::Executions(rows) => rows.len(),
+            Self::Checkpoints(rows) => rows.len(),
+            Self::Search(data) => data.results.len(),
+            Self::Settings(data) => data.profiles.len(),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Rendering
+// ---------------------------------------------------------------------------
+
+fn titled_block(title: &str, color: Color) -> Block<'_> {
+    Block::default()
+        .title(format!(" {title} "))
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(color))
+}
+
+fn selected_style(selected: bool) -> Style {
+    if selected {
+        Style::default()
+            .fg(Color::Black)
+            .bg(Color::Cyan)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(Color::White)
+    }
+}
+
+fn render_rows(frame: &mut Frame, area: Rect, block: Block<'_>, rows: &[String], selected: usize) {
+    if rows.is_empty() {
+        let empty = Paragraph::new("Empty - no records yet.").block(block);
+        frame.render_widget(empty, area);
+        return;
+    }
+    let items: Vec<ListItem> = rows
+        .iter()
+        .enumerate()
+        .map(|(idx, text)| ListItem::new(text.as_str()).style(selected_style(idx == selected)))
+        .collect();
+    let mut state = ListState::default();
+    state.select(Some(selected.min(rows.len() - 1)));
+    frame.render_stateful_widget(List::new(items).block(block), area, &mut state);
+}
+
+/// Shorten an identifier for list rendering.
+pub fn short_id(id: &str) -> String {
+    let mut chars = id.chars();
+    let head: String = chars.by_ref().take(8).collect();
+    if chars.next().is_some() {
+        format!("{head}...")
+    } else {
+        head
+    }
+}
+
+impl Screens {
+    fn draw_dashboard(frame: &mut Frame, area: Rect, data: &ScreenData) {
+        let inner = match data {
+            ScreenData::Dashboard(d) => format!(
+                "Workflows    : {}\nExecutions   : {} ({} running)\nCheckpoints  : {}\n\nRecent executions:\n{}",
+                d.workflow_count,
+                d.execution_count,
+                d.running_count,
+                d.checkpoint_count,
+                if d.recent.is_empty() {
+                    "  (none)".to_string()
                 } else {
-                    Style::default().fg(Color::White)
-                };
-                ListItem::new(*text).style(style)
-            })
-            .collect();
-        let block = Block::default()
-            .title(" Dashboard (q quit, 1-8 switch, ? help) ")
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Cyan));
-        let list = List::new(list_items).block(block);
-        frame.render_widget(list, area);
+                    d.recent
+                        .iter()
+                        .take(5)
+                        .map(|r| format!("  - {r}"))
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                }
+            ),
+            _ => "Loading...".to_string(),
+        };
+        let block = titled_block("Dashboard (q quit, 1-8 switch, ? help)", Color::Cyan);
+        frame.render_widget(Paragraph::new(inner).block(block), area);
     }
 
-    fn draw_workflow(frame: &mut Frame, area: Rect) {
-        let text = "Workflow Management\n\n- list / show / graph\n- create / update / delete / clone / validate\n- export / import / version\n\nPress Esc to go back";
-        let block = Block::default()
-            .title(" Workflows ")
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Green));
-        let paragraph = Paragraph::new(text).block(block);
-        frame.render_widget(paragraph, area);
+    fn draw_workflow(frame: &mut Frame, area: Rect, data: &ScreenData, selected: usize) {
+        let rows = match data {
+            ScreenData::Workflow(rows) => rows
+                .iter()
+                .map(|r| {
+                    let desc = r.description.clone().unwrap_or_default();
+                    format!("{} · {} nodes · {}", r.name, r.node_count, desc)
+                })
+                .collect::<Vec<_>>(),
+            _ => Vec::new(),
+        };
+        let block = titled_block("Workflows (Enter run, d delete, Esc back)", Color::Green);
+        render_rows(frame, area, block, &rows, selected);
     }
 
-    fn draw_executions(frame: &mut Frame, area: Rect) {
-        let text = "Executions (unified)\n\n- list / show --timeline --iterations\n- run --workflow <id> [--background]\n- status / pause / resume / cancel / inspect\n- performance / bottleneck / errors / compare / progress\n\nPress Esc to go back";
-        let block = Block::default()
-            .title(" Executions ")
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Yellow));
-        let paragraph = Paragraph::new(text).block(block);
-        frame.render_widget(paragraph, area);
+    fn draw_executions(frame: &mut Frame, area: Rect, data: &ScreenData, selected: usize) {
+        let rows = match data {
+            ScreenData::Executions(rows) => rows
+                .iter()
+                .map(|r| {
+                    format!(
+                        "{} · {} · iter {} · {} tools · {}",
+                        short_id(&r.id),
+                        r.status,
+                        r.iteration,
+                        r.tool_calls,
+                        r.started
+                    )
+                })
+                .collect::<Vec<_>>(),
+            _ => Vec::new(),
+        };
+
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Length(3), Constraint::Min(3)])
+            .split(area);
+
+        let header = Paragraph::new("f cycle status filter · Enter inspect · Esc back")
+            .block(titled_block("Filter", Color::Yellow));
+        frame.render_widget(header, chunks[0]);
+
+        let block = titled_block("Executions", Color::Yellow);
+        render_rows(frame, chunks[1], block, &rows, selected);
     }
 
     fn draw_session(frame: &mut Frame, area: Rect) {
@@ -208,60 +435,106 @@ impl Screens {
             .direction(Direction::Vertical)
             .constraints([Constraint::Min(5), Constraint::Length(3)])
             .split(area);
-        let log_block = Block::default()
-            .title(" Session (logs) ")
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Magenta));
-        let log = Paragraph::new("Session log stream (placeholder)\n\nStreaming agent/workflow events will appear here.\nUse Mini mode (wf --mini) for interactive sessions.")
-            .block(log_block);
+        let log_block = titled_block("Session (logs)", Color::Magenta);
+        let log = Paragraph::new(
+            "Session log stream (placeholder)\n\nStreaming agent/workflow events will appear here.\nUse Mini mode (wf --mini) for interactive sessions.",
+        )
+        .block(log_block);
         frame.render_widget(log, chunks[0]);
 
-        let input_block = Block::default()
-            .title(" Input (Enter to send, Esc back) ")
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Cyan));
+        let input_block = titled_block("Input (Enter to send, Esc back)", Color::Cyan);
         let input = Paragraph::new(">").block(input_block);
         frame.render_widget(input, chunks[1]);
     }
 
-    fn draw_checkpoints(frame: &mut Frame, area: Rect) {
-        let text = "Checkpoints\n\n- checkpoint create <execution-id>\n- checkpoint list <execution-id>\n- checkpoint show <id>\n- checkpoint restore <id> [--resume]\n\nPress Esc to go back";
-        let block = Block::default()
-            .title(" Checkpoints ")
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Blue));
-        let paragraph = Paragraph::new(text).block(block);
-        frame.render_widget(paragraph, area);
+    fn draw_checkpoints(frame: &mut Frame, area: Rect, data: &ScreenData, selected: usize) {
+        let rows = match data {
+            ScreenData::Checkpoints(rows) => rows
+                .iter()
+                .map(|r| format!("{} · {} · {}", short_id(&r.id), r.entity, r.timestamp))
+                .collect::<Vec<_>>(),
+            _ => Vec::new(),
+        };
+        let block = titled_block("Checkpoints (r restore, Esc back)", Color::Blue);
+        render_rows(frame, area, block, &rows, selected);
     }
 
-    fn draw_search(frame: &mut Frame, area: Rect) {
-        let text = "Search\n\n- search <query> [--limit]\n- template / workflow / execution search\n\nPress Esc to go back";
-        let block = Block::default()
-            .title(" Search ")
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Cyan));
-        let paragraph = Paragraph::new(text).block(block);
-        frame.render_widget(paragraph, area);
+    fn draw_search(frame: &mut Frame, area: Rect, data: &ScreenData) {
+        let (text, query) = match data {
+            ScreenData::Search(d) => {
+                let mut out = String::new();
+                if d.running {
+                    out.push_str("Searching...\n\n");
+                }
+                if d.results.is_empty() && !d.query.is_empty() && !d.running {
+                    out.push_str(&format!("No results for \"{}\"\n", d.query));
+                }
+                for row in &d.results {
+                    out.push_str(&format!(
+                        "[{}] {} · {} (score {})\n",
+                        row.kind,
+                        row.label,
+                        short_id(&row.id),
+                        row.score
+                    ));
+                }
+                if d.truncated {
+                    out.push_str("\n(results truncated)");
+                }
+                if out.is_empty() {
+                    out.push_str("Type a query and press Enter to search.\n");
+                }
+                (out, d.query.clone())
+            }
+            _ => (
+                "Type a query and press Enter to search.\n".to_string(),
+                String::new(),
+            ),
+        };
+
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Length(3), Constraint::Min(3)])
+            .split(area);
+        let input_block = titled_block("Search (Enter run, Esc back)", Color::Cyan);
+        let input = Paragraph::new(format!("> {query}")).block(input_block);
+        frame.render_widget(input, chunks[0]);
+        frame.render_widget(
+            Paragraph::new(text).block(titled_block("Results", Color::Cyan)),
+            chunks[1],
+        );
     }
 
-    fn draw_settings(frame: &mut Frame, area: Rect) {
-        let text = "Settings\n\n- storage health / diagnostics\n- llm profiles / templates\n- skill / trigger / tool / script management\n- metrics / analysis configuration\n\nPress Esc to go back";
-        let block = Block::default()
-            .title(" Settings ")
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::White));
-        let paragraph = Paragraph::new(text).block(block);
-        frame.render_widget(paragraph, area);
+    fn draw_settings(frame: &mut Frame, area: Rect, data: &ScreenData) {
+        let text = match data {
+            ScreenData::Settings(d) => {
+                let mut out = format!("Theme: {}\n\nLLM profiles:\n", d.theme);
+                if d.profiles.is_empty() {
+                    out.push_str("  (none configured)\n");
+                }
+                for p in &d.profiles {
+                    let marker = if d.default_profile.as_deref() == Some(p.id.as_str()) {
+                        " *"
+                    } else {
+                        ""
+                    };
+                    out.push_str(&format!(
+                        "  {} · {} · {}{}\n",
+                        p.id, p.name, p.model, marker
+                    ));
+                }
+                out
+            }
+            _ => "Loading...".to_string(),
+        };
+        let block = titled_block("Settings (Esc back)", Color::White);
+        frame.render_widget(Paragraph::new(text).block(block), area);
     }
 
     fn draw_help(frame: &mut Frame, area: Rect) {
-        let text = "Help - Key Bindings\n\n  q / Esc    - quit / back\n  1-8        - switch screens\n  j/k / Up/Down - navigate\n  Enter      - select / push screen\n  ?          - toggle help overlay\n\nScreens: Dashboard, Workflows, Executions, Session, Checkpoints, Search, Settings, Help";
-        let block = Block::default()
-            .title(" Help ")
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Yellow));
-        let paragraph = Paragraph::new(text).block(block);
-        frame.render_widget(paragraph, area);
+        let text = "Help - Key Bindings\n\n  q / Esc    - quit / back\n  1-8        - switch screens\n  j/k / Up/Down - navigate\n  Enter      - select / push screen\n  f          - cycle execution status filter\n  d          - delete selected workflow\n  r          - restore selected checkpoint\n  ?          - toggle help overlay\n\nScreens: Dashboard, Workflows, Executions, Session, Checkpoints, Search, Settings, Help";
+        let block = titled_block("Help", Color::Yellow);
+        frame.render_widget(Paragraph::new(text).block(block), area);
     }
 }
 
@@ -300,5 +573,25 @@ mod tests {
         for kind in ScreenKind::all() {
             assert!(!kind.title().is_empty());
         }
+    }
+
+    #[test]
+    fn screen_data_row_count_tracks_rows() {
+        let data = ScreenData::Workflow(vec![WorkflowRow {
+            id: "wf-1".into(),
+            name: "demo".into(),
+            description: None,
+            node_count: 3,
+        }]);
+        assert_eq!(data.row_count(), 1);
+        assert_eq!(ScreenData::None.row_count(), 0);
+    }
+
+    #[test]
+    fn exec_filter_matches_expected_labels() {
+        assert!(ExecStatusFilter::All.matches("Completed"));
+        assert!(ExecStatusFilter::Running.matches("Running"));
+        assert!(!ExecStatusFilter::Running.matches("Completed"));
+        assert_eq!(ExecStatusFilter::ALL.len(), 6);
     }
 }

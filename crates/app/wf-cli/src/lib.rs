@@ -26,13 +26,14 @@ pub mod remote;
 pub mod render;
 pub mod replay;
 pub mod run;
-pub mod splash;
 pub mod sanitize;
 pub mod screens;
 pub mod scrollback;
 pub mod select;
+pub mod session;
 pub mod sink;
 pub mod size;
+pub mod splash;
 pub mod terminal;
 pub mod theme;
 pub mod tui;
@@ -269,7 +270,7 @@ async fn run_interactive(cli: &Cli, resolved: &ResolvedMode, stdout_tty: bool) -
         }
         CliMode::Tui => {
             let adapter = DomainAdapter::bootstrap_for_cli(cli, CliMode::Tui).await?;
-            let app = crate::tui::TuiApp::new(adapter);
+            let app = crate::tui::TuiApp::new(Arc::new(adapter));
             app.run().await
         }
         CliMode::Run => unreachable!("run_interactive called with CliMode::Run"),

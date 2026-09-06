@@ -10,6 +10,8 @@
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use unicode_segmentation::UnicodeSegmentation;
+
+use crate::mention::fuzzy_score;
 use unicode_width::UnicodeWidthStr;
 
 /// Navigation direction.
@@ -190,26 +192,26 @@ impl<T> SelectList<T> {
         Style::default().add_modifier(Modifier::REVERSED)
     }
 
-    /// Flat indices (into all items) that pass the filter.
+    /// Flat indices (into all items) that pass the filter, ordered by fuzzy
+    /// relevance so the best match is the default selection (fuzzysort-style).
     fn candidates(&self) -> Vec<usize> {
-        let mut out = Vec::new();
+        let needle = self.filter.as_deref().unwrap_or("").to_lowercase();
+        let mut scored: Vec<(i64, usize)> = Vec::new();
         let mut flat = 0usize;
         for g in &self.groups {
             for item in &g.items {
-                if self.matches(item) {
-                    out.push(flat);
+                let label = item.label.to_lowercase();
+                if let Some(score) = fuzzy_score(&needle, &label) {
+                    scored.push((score, flat));
                 }
                 flat += 1;
             }
         }
-        out
-    }
-
-    fn matches(&self, item: &GroupItem<T>) -> bool {
-        match self.filter.as_deref() {
-            None | Some("") => true,
-            Some(needle) => item.label.to_lowercase().contains(&needle.to_lowercase()),
+        if !needle.is_empty() {
+            // Highest score first; stable so equal scores keep item order.
+            scored.sort_by(|a, b| b.0.cmp(&a.0));
         }
+        scored.into_iter().map(|(_, f)| f).collect()
     }
 
     /// Resolve a global flat item index back to a group item.

@@ -55,6 +55,21 @@ pub enum AgentStreamEvent {
     Interrupted {
         reason: String,
     },
+    /// Incremental reasoning / thinking text delta (e.g. an anthropic
+    /// `thinking_delta`). Surfaced distinctly from the assistant answer so
+    /// the CLI can render it as a `Thinking:` part.
+    ReasoningDelta { content: String },
+    /// Cumulative token usage + estimated cost for the run. Carried so the
+    /// status line can show `tokens · cost` without re-deriving it.
+    Usage {
+        prompt_tokens: u32,
+        completion_tokens: u32,
+        cost: Option<f64>,
+    },
+    /// A sub-agent (triggered child agent) started.
+    SubAgentStarted { id: String, name: String },
+    /// A sub-agent finished (success distinguishes a clean vs failed child).
+    SubAgentEnded { id: String, name: String, success: bool },
 }
 
 /// Async stream of agent loop events (message deltas, tool lifecycle,
@@ -108,6 +123,13 @@ fn publish_to_bus(event_bus: Option<&EventBus>, agent_loop_id: &str, event: &Age
         AgentStreamEvent::Completed { .. } => EventType::AgentCompleted,
         AgentStreamEvent::Failed { .. } => EventType::AgentFailed,
         AgentStreamEvent::Interrupted { .. } => EventType::AgentCancelled,
+        // Best-effort bus mirror: reasoning rides the LLM stream channel,
+        // usage shares the stream-done slot, and sub-agents reuse the
+        // agent lifecycle events (no new wire types just for the mirror).
+        AgentStreamEvent::ReasoningDelta { .. } => EventType::LlmStreamChunk,
+        AgentStreamEvent::Usage { .. } => EventType::LlmStreamDone,
+        AgentStreamEvent::SubAgentStarted { .. } => EventType::AgentStarted,
+        AgentStreamEvent::SubAgentEnded { .. } => EventType::AgentCompleted,
     };
     let bus_event = BaseEvent {
         id: wf_common::generate_id(),

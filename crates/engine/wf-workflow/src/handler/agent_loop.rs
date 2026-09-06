@@ -673,6 +673,18 @@ impl AgentLoopHandler {
                         wf_agent::AgentStreamEvent::Interrupted { .. } => {
                             wf_types::events::EventType::AgentCancelled
                         }
+                        wf_agent::AgentStreamEvent::ReasoningDelta { .. } => {
+                            wf_types::events::EventType::LlmStreamChunk
+                        }
+                        wf_agent::AgentStreamEvent::Usage { .. } => {
+                            wf_types::events::EventType::LlmStreamDone
+                        }
+                        wf_agent::AgentStreamEvent::SubAgentStarted { .. } => {
+                            wf_types::events::EventType::AgentStarted
+                        }
+                        wf_agent::AgentStreamEvent::SubAgentEnded { .. } => {
+                            wf_types::events::EventType::AgentCompleted
+                        }
                     };
                     let bus_event = wf_types::events::BaseEvent {
                         id: wf_common::generate_id(),

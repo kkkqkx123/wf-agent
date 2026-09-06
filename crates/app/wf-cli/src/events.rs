@@ -48,6 +48,18 @@ pub enum UnifiedEvent {
     Failed { error: String },
     /// Agent session was interrupted.
     Interrupted { reason: String },
+    /// Incremental reasoning / thinking text delta.
+    ReasoningDelta { content: String },
+    /// Cumulative token usage + estimated cost for the run.
+    Usage {
+        prompt_tokens: u32,
+        completion_tokens: u32,
+        cost: Option<f64>,
+    },
+    /// A sub-agent (triggered child agent) started.
+    SubAgentStarted { id: String, name: String },
+    /// A sub-agent finished.
+    SubAgentEnded { id: String, name: String, success: bool },
     /// Execution lifecycle event (checkpoint bus adapter).
     Execution(ExecutionEvent),
 }
@@ -64,6 +76,10 @@ impl UnifiedEvent {
             Self::Completed { .. } => "completed",
             Self::Failed { .. } => "failed",
             Self::Interrupted { .. } => "interrupted",
+            Self::ReasoningDelta { .. } => "reasoning_delta",
+            Self::Usage { .. } => "usage",
+            Self::SubAgentStarted { .. } => "subagent_started",
+            Self::SubAgentEnded { .. } => "subagent_ended",
             Self::Execution(e) => match e {
                 ExecutionEvent::StateChanged(_) => "execution_state_changed",
                 ExecutionEvent::ErrorOccurred(_) => "execution_error",
@@ -110,6 +126,22 @@ impl From<AgentStreamEvent> for UnifiedEvent {
             }
             AgentStreamEvent::Failed { error } => Self::Failed { error },
             AgentStreamEvent::Interrupted { reason } => Self::Interrupted { reason },
+            AgentStreamEvent::ReasoningDelta { content } => Self::ReasoningDelta { content },
+            AgentStreamEvent::Usage {
+                prompt_tokens,
+                completion_tokens,
+                cost,
+            } => Self::Usage {
+                prompt_tokens,
+                completion_tokens,
+                cost,
+            },
+            AgentStreamEvent::SubAgentStarted { id, name } => {
+                Self::SubAgentStarted { id, name }
+            }
+            AgentStreamEvent::SubAgentEnded { id, name, success } => {
+                Self::SubAgentEnded { id, name, success }
+            }
         }
     }
 }
@@ -127,6 +159,24 @@ pub fn unified_from_execution_stream(
         }
         wf_api::infra::stream::ExecutionStreamEvent::Failed { error } => {
             Some(UnifiedEvent::Failed { error })
+        }
+        wf_api::infra::stream::ExecutionStreamEvent::ReasoningDelta { content } => {
+            Some(UnifiedEvent::ReasoningDelta { content })
+        }
+        wf_api::infra::stream::ExecutionStreamEvent::Usage {
+            prompt_tokens,
+            completion_tokens,
+            cost,
+        } => Some(UnifiedEvent::Usage {
+            prompt_tokens,
+            completion_tokens,
+            cost,
+        }),
+        wf_api::infra::stream::ExecutionStreamEvent::SubAgentStarted { id, name } => {
+            Some(UnifiedEvent::SubAgentStarted { id, name })
+        }
+        wf_api::infra::stream::ExecutionStreamEvent::SubAgentEnded { id, name, success } => {
+            Some(UnifiedEvent::SubAgentEnded { id, name, success })
         }
         wf_api::infra::stream::ExecutionStreamEvent::Engine(_) => None,
     }

@@ -377,6 +377,10 @@ impl MiniApp {
             "wf mini — type a prompt; Ctrl-C twice or Ctrl-Q to exit",
             Role::Muted,
         ));
+        // Logo splash (pure scrollback rows, survives the inline footer).
+        for row in crate::splash::splash_lines() {
+            self.pending_scroll.push(HistoryLine::new_role(row, Role::Accent));
+        }
         // `-p/--prompt`: submit the preset prompt once the loop is live.
         let initial = self.footer.composer.content().trim().to_string();
         if !initial.is_empty() {
@@ -1429,6 +1433,40 @@ impl MiniApp {
                     Role::Warning,
                 ));
                 self.finish_turn(TurnEnd::Completed { iterations: 0 });
+            }
+            // Reasoning deltas render as a distinct `Thinking:` part (muted),
+            // kept separate from the assistant answer that flows through the
+            // markdown pipeline.
+            ExecutionStreamEvent::ReasoningDelta { content } => {
+                self.pending_scroll.push(HistoryLine::new_role(
+                    format!("💭 {content}"),
+                    Role::Muted,
+                ));
+                self.dirty = true;
+                return;
+            }
+            // Usage updates the footer snapshot already folded by the reducer
+            // above; nothing new to render here beyond the status line.
+            ExecutionStreamEvent::Usage { .. } => {
+                self.dirty = true;
+                return;
+            }
+            ExecutionStreamEvent::SubAgentStarted { name, .. } => {
+                self.pending_scroll.push(HistoryLine::new_role(
+                    format!("◇ subagent started: {name}"),
+                    Role::Muted,
+                ));
+                self.dirty = true;
+                return;
+            }
+            ExecutionStreamEvent::SubAgentEnded { name, success, .. } => {
+                let mark = if *success { "✓" } else { "✗" };
+                self.pending_scroll.push(HistoryLine::new_role(
+                    format!("{mark} subagent ended: {name}"),
+                    if *success { Role::Add } else { Role::Error },
+                ));
+                self.dirty = true;
+                return;
             }
         }
         let _ = self.settle_scrollback();

@@ -870,7 +870,7 @@ impl AgentIterationCoordinator {
                     if let Some(ref sink) = self.event_sink {
                         sink.emit_quiet(
                             entity.id(),
-                            AgentStreamEvent::LlmDelta {
+                            AgentStreamEvent::ReasoningDelta {
                                 content: reasoning.reasoning,
                             },
                         )
@@ -974,6 +974,22 @@ impl AgentIterationCoordinator {
                 message,
             )));
         };
+
+        // Surface cumulative token usage for the run (status line `tokens · cost`).
+        // `request_usage` is already merged across mid-stream deltas above.
+        if let Some(usage) = &request_usage {
+            if let Some(ref sink) = self.event_sink {
+                sink.emit_quiet(
+                    entity.id(),
+                    AgentStreamEvent::Usage {
+                        prompt_tokens: usage.prompt_tokens,
+                        completion_tokens: usage.completion_tokens,
+                        cost: usage.total_cost,
+                    },
+                )
+                .await;
+            }
+        }
 
         let content = text_of(&assistant_msg.content);
         let response_summary = build_response_summary(

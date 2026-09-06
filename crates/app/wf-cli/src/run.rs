@@ -312,6 +312,13 @@ impl<'a> SessionRenderer<'a> {
             }
             ExecutionStreamEvent::IterationEnd { .. } => self.flush_iteration()?,
             ExecutionStreamEvent::IterationStart { .. } => {}
+            // Reasoning / usage / sub-agent lifecycle carry no business or
+            // diagnostics output in the headless renderer; the reducer still
+            // folds them into the footer snapshot.
+            ExecutionStreamEvent::ReasoningDelta { .. }
+            | ExecutionStreamEvent::Usage { .. }
+            | ExecutionStreamEvent::SubAgentStarted { .. }
+            | ExecutionStreamEvent::SubAgentEnded { .. } => return Ok(()),
         }
         Ok(())
     }

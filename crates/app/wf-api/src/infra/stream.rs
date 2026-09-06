@@ -59,6 +59,19 @@ pub enum ExecutionStreamEvent {
     Completed { result: Value, iterations: u32 },
     /// Terminal failure payload.
     Failed { error: String },
+    /// Incremental reasoning / thinking text delta (forwarded from the agent
+    /// loop; rendered distinctly from the assistant answer).
+    ReasoningDelta { content: String },
+    /// Cumulative token usage + estimated cost for the run.
+    Usage {
+        prompt_tokens: u32,
+        completion_tokens: u32,
+        cost: Option<f64>,
+    },
+    /// A sub-agent (triggered child agent) started.
+    SubAgentStarted { id: String, name: String },
+    /// A sub-agent finished.
+    SubAgentEnded { id: String, name: String, success: bool },
 }
 
 /// Async stream of execution events (SSE/WS friendly).
@@ -135,6 +148,24 @@ impl ExecutionEventStream {
                         ExecutionStreamEvent::Completed { result, iterations }
                     }
                     AgentStreamEvent::Failed { error } => ExecutionStreamEvent::Failed { error },
+                    AgentStreamEvent::ReasoningDelta { content } => {
+                        ExecutionStreamEvent::ReasoningDelta { content }
+                    }
+                    AgentStreamEvent::Usage {
+                        prompt_tokens,
+                        completion_tokens,
+                        cost,
+                    } => ExecutionStreamEvent::Usage {
+                        prompt_tokens,
+                        completion_tokens,
+                        cost,
+                    },
+                    AgentStreamEvent::SubAgentStarted { id, name } => {
+                        ExecutionStreamEvent::SubAgentStarted { id, name }
+                    }
+                    AgentStreamEvent::SubAgentEnded { id, name, success } => {
+                        ExecutionStreamEvent::SubAgentEnded { id, name, success }
+                    }
                 };
                 let terminal = matches!(
                     mapped,

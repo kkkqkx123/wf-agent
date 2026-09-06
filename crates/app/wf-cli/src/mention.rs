@@ -227,19 +227,64 @@ pub fn mention_query_at_cursor(text: &str, cursor: usize) -> Option<String> {
     Some(after.to_string())
 }
 
-/// Fuzzy filter candidates by case-insensitive substring, aligned with the
-/// `SelectList` filter semantics used elsewhere. `query` may be empty (returns
-/// all candidates).
+/// Fuzzy filter candidates by a case-insensitive subsequence match with a
+/// relevance score (prefix / contiguous-run bonuses), aligned with the
+/// fuzzysort behaviour of the opencode command palette. `query` may be empty
+/// (returns all candidates in their original order).
 pub fn filter_candidates(candidates: &[String], query: &str) -> Vec<String> {
     if query.is_empty() {
         return candidates.to_vec();
     }
     let needle = query.to_ascii_lowercase();
-    candidates
+    let mut scored: Vec<(i64, &String)> = candidates
         .iter()
-        .filter(|c| c.to_ascii_lowercase().contains(&needle))
-        .cloned()
-        .collect()
+        .filter_map(|c| fuzzy_score(&needle, &c.to_ascii_lowercase()).map(|s| (s, c)))
+        .collect();
+    // Higher score first; ties keep the original order (stable sort).
+    scored.sort_by(|a, b| b.0.cmp(&a.0));
+    scored.into_iter().map(|(_, c)| c.clone()).collect()
+}
+
+/// Score `needle` against `haystack` (both already lower-cased). Returns
+/// `None` when `needle` is not a subsequence of `haystack`; otherwise a
+/// higher score means a better match (prefix and contiguous runs win).
+pub(crate) fn fuzzy_score(needle: &str, haystack: &str) -> Option<i64> {
+    if needle.is_empty() {
+        return Some(0);
+    }
+    let n: Vec<char> = needle.chars().collect();
+    let h: Vec<char> = haystack.chars().collect();
+    let mut hi = 0usize;
+    let mut score: i64 = 0;
+    let mut prev_match: Option<usize> = None;
+    let mut first_pos: Option<usize> = None;
+    for &nc in &n {
+        // Find the next occurrence of `nc` in the remaining haystack.
+        let found = h[hi..].iter().position(|&c| c == nc).map(|p| hi + p);
+        let pos = found?;
+        if first_pos.is_none() {
+            first_pos = Some(pos);
+        }
+        // Contiguous-run bonus when the previous match was adjacent.
+        if let Some(prev) = prev_match {
+            if pos == prev + 1 {
+                score += 8;
+            }
+        }
+        // Penalize gaps so tighter matches rank higher.
+        if let Some(prev) = prev_match {
+            score -= (pos - prev).saturating_sub(1) as i64 * 2;
+        }
+        prev_match = Some(pos);
+        hi = pos + 1;
+    }
+    // Prefix bonus: a match that starts at the very first character.
+    if first_pos == Some(0) {
+        score += 16;
+    }
+    // Shorter haystack (more specific) wins on ties.
+    score -= h.len() as i64 / 4;
+    Some(score)
 }
 
 /// Scan `project_root` recursively for files, returning relative paths.

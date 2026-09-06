@@ -60,6 +60,15 @@ pub enum MiniCommit {
     Interrupted { reason: String },
 }
 
+/// Cumulative token usage for a run, surfaced in the status line.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct UsageMeta {
+    pub prompt_tokens: u32,
+    pub completion_tokens: u32,
+    /// Estimated cost in USD, when the provider reports it.
+    pub cost: Option<f64>,
+}
+
 /// Footer lifecycle phase.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Phase {
@@ -72,13 +81,17 @@ pub enum Phase {
 
 /// Pure footer state consumed by the mini footer. Maintained
 /// incrementally by the reduction pass.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct FooterState {
     pub phase: Phase,
     pub iteration: u32,
     pub active_tools: Vec<String>,
     pub message_count: u32,
     pub last_error: Option<String>,
+    /// Cumulative token usage (status line `tokens · cost`).
+    pub usage: Option<UsageMeta>,
+    /// Number of sub-agents currently running (status line hint).
+    pub subagent_count: u32,
 }
 
 impl Default for FooterState {
@@ -89,6 +102,8 @@ impl Default for FooterState {
             active_tools: Vec::new(),
             message_count: 0,
             last_error: None,
+            usage: None,
+            subagent_count: 0,
         }
     }
 }
@@ -106,6 +121,10 @@ enum EventSig {
     Completed(u32),
     Failed(String),
     Interrupted(String),
+    Reasoning,
+    Usage,
+    SubAgentStart(String, String),
+    SubAgentEnd(String, String, bool),
     Engine,
 }
 
@@ -143,6 +162,14 @@ impl From<&ExecutionStreamEvent> for EventSig {
             ExecutionStreamEvent::Interrupted { reason } => EventSig::Interrupted(reason.clone()),
             ExecutionStreamEvent::Completed { iterations, .. } => EventSig::Completed(*iterations),
             ExecutionStreamEvent::Failed { error } => EventSig::Failed(error.clone()),
+            ExecutionStreamEvent::ReasoningDelta { .. } => EventSig::Reasoning,
+            ExecutionStreamEvent::Usage { .. } => EventSig::Usage,
+            ExecutionStreamEvent::SubAgentStarted { id, name } => {
+                EventSig::SubAgentStart(id.clone(), name.clone())
+            }
+            ExecutionStreamEvent::SubAgentEnded { id, name, success } => {
+                EventSig::SubAgentEnd(id.clone(), name.clone(), *success)
+            }
         }
     }
 }
@@ -285,6 +312,31 @@ impl SessionReducer {
                         error: error.clone(),
                     },
                 );
+            }
+            // Reasoning deltas are not assistant text: the UI renders them as
+            // a distinct `Thinking:` part, so the reducer only marks the
+            // streaming phase and lets the front-end own the rendering.
+            ExecutionStreamEvent::ReasoningDelta { .. } => {
+                self.footer.phase = Phase::Streaming;
+            }
+            // Usage replaces the running cumulative snapshot (the engine
+            // emits the full tally each time, not a delta).
+            ExecutionStreamEvent::Usage {
+                prompt_tokens,
+                completion_tokens,
+                cost,
+            } => {
+                self.footer.usage = Some(UsageMeta {
+                    prompt_tokens: *prompt_tokens,
+                    completion_tokens: *completion_tokens,
+                    cost: *cost,
+                });
+            }
+            ExecutionStreamEvent::SubAgentStarted { .. } => {
+                self.footer.subagent_count = self.footer.subagent_count.saturating_add(1);
+            }
+            ExecutionStreamEvent::SubAgentEnded { .. } => {
+                self.footer.subagent_count = self.footer.subagent_count.saturating_sub(1);
             }
         }
     }

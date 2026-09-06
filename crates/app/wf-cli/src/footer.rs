@@ -32,7 +32,7 @@ use crate::panels::{
     CommandPalette, MentionPanel, ModelPanel, QueuedPanel, SkillPanel, WorkflowPanel,
 };
 use crate::question::QuestionView;
-use crate::reducer::Phase;
+use crate::reducer::{Phase, UsageMeta};
 use crate::scrollback::{HistoryLine, Role};
 use crate::theme::Theme;
 
@@ -111,7 +111,7 @@ pub enum PanelState {
 /// UI-side footer state: the reducer's [`crate::reducer::FooterState`] plus
 /// the mini-only presentation fields (model label, execution id, elapsed
 /// time, notice).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct FooterState {
     pub phase: Phase,
     pub iteration: u32,
@@ -124,6 +124,10 @@ pub struct FooterState {
     pub execution_id: Option<String>,
     /// Wall-clock duration of the current turn (ms).
     pub duration_ms: u64,
+    /// Cumulative token usage (status line `tokens · cost`).
+    pub usage: Option<UsageMeta>,
+    /// Number of sub-agents currently running (status line hint).
+    pub subagent_count: u32,
     /// Pending notice: `(text, expires_at_ms)`.
     pub notice: Option<(String, u64)>,
 }
@@ -139,6 +143,8 @@ impl Default for FooterState {
             model: None,
             execution_id: None,
             duration_ms: 0,
+            usage: None,
+            subagent_count: 0,
             notice: None,
         }
     }
@@ -152,6 +158,8 @@ impl FooterState {
         self.active_tools = reducer.active_tools.clone();
         self.message_count = reducer.message_count;
         self.last_error = reducer.last_error.clone();
+        self.usage = reducer.usage;
+        self.subagent_count = reducer.subagent_count;
     }
 }
 
@@ -419,13 +427,25 @@ impl Footer {
                     theme_style(theme, Role::Muted),
                 ));
             }
+            if let Some(usage) = &self.state.usage {
+                let total = usage.prompt_tokens + usage.completion_tokens;
+                let cost = usage
+                    .cost
+                    .map(|c| format!(" · ${c:.4}"))
+                    .unwrap_or_default();
+                spans.push(Span::styled(
+                    format!(" ◧ {total} tok{cost}"),
+                    theme_style(theme, Role::Muted),
+                ));
+            }
         }
 
         render_line_into(area, buf, &Line::from(spans));
     }
 
-    /// The middle status text: agent · iteration · message count, with tool
-    /// names and the last error appended when present.
+    /// The middle status text: agent · model · iteration · message count,
+    /// with tool names, the sub-agent count and the last error appended
+    /// when present.
     fn status_text(&self) -> String {
         if let Some(err) = &self.state.last_error {
             return format!("⚠ {err}");
@@ -434,8 +454,14 @@ impl Footer {
             format!("wf agent · iter:{}", self.state.iteration),
             format!("msgs:{}", self.state.message_count),
         ];
+        if let Some(model) = &self.state.model {
+            parts.push(format!("model:{}", model));
+        }
         if !self.state.active_tools.is_empty() {
             parts.push(format!("tools:{}", self.state.active_tools.join(", ")));
+        }
+        if self.state.subagent_count > 0 {
+            parts.push(format!("subagents:{}", self.state.subagent_count));
         }
         parts.join(" · ")
     }

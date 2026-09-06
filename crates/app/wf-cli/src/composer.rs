@@ -21,8 +21,9 @@ use unicode_width::UnicodeWidthStr;
 
 use crate::mention::{parse_mentions, Mention, MentionKind};
 
-/// Bound of the prompt history ring.
-pub const HISTORY_LIMIT: usize = 100;
+/// Bound of the prompt history ring (aligned with the opencode 200-entry
+/// cap; consecutive duplicates are skipped in `submit`).
+pub const HISTORY_LIMIT: usize = 200;
 
 /// Placeholder shown while the buffer is empty.
 pub const PLACEHOLDER: &str = "> Type a message…";

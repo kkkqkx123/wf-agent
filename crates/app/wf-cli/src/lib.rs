@@ -26,6 +26,7 @@ pub mod remote;
 pub mod render;
 pub mod replay;
 pub mod run;
+pub mod splash;
 pub mod sanitize;
 pub mod screens;
 pub mod scrollback;

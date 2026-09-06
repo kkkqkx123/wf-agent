@@ -32,7 +32,7 @@ use crate::question::{QuestionOutcome, QuestionView};
 use crate::reducer::{Phase, SessionReducer};
 use crate::scrollback::{HistoryLine, LineState, Role};
 use crate::terminal::{DoublePressTracker, PressOutcome, SIGINT_DOUBLE_PRESS_WINDOW};
-use crate::theme::fallback_theme;
+use crate::theme::Theme;
 use crate::turn::{stream_agent_turn, TurnKind, TurnParams};
 
 /// Events from the domain side into the session event loop.
@@ -50,6 +50,8 @@ pub enum SessionEvent {
     },
     /// One execution stream event from the active turn.
     TurnEvent(ExecutionStreamEvent),
+    /// A replay-history page finished loading on the background task.
+    ReplayLoaded(Vec<HistoryLine>),
 }
 
 /// What the caller should do after a key press.
@@ -57,6 +59,17 @@ pub enum SessionEvent {
 pub enum SessionAction {
     Continue,
     Exit,
+}
+
+/// Pagination state for replay-history loading.
+///
+/// The full-TUI loads history asynchronously: `LoadingBeginning` shows the
+/// placeholder while the background fetch runs, `Complete` means the page has
+/// landed and replaced it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ReplayPhase {
+    LoadingBeginning,
+    Complete,
 }
 
 /// Domain-side approval handler: post the request to the session channel and
@@ -153,7 +166,14 @@ pub struct SessionController {
     scroll_cover: usize,
     tool_started_at: HashMap<String, Instant>,
     exit_tracker: DoublePressTracker,
-    last_frame: Instant,
+    /// Monotonic origin for the injected clock. `now_ms` reports elapsed
+    /// milliseconds since here so notice expiry, spinner rotation and the
+    /// exit double-press all observe a real increasing timestamp. The old
+    /// per-frame `last_frame` delta collapsed to ~0 between draws, breaking
+    /// those timers.
+    origin: Instant,
+    /// Pagination state for replay-history loading (see `load_replay`).
+    replay_phase: ReplayPhase,
 }
 
 impl SessionController {
@@ -186,7 +206,8 @@ impl SessionController {
             scroll_cover: 0,
             tool_started_at: HashMap::new(),
             exit_tracker: DoublePressTracker::new(SIGINT_DOUBLE_PRESS_WINDOW),
-            last_frame: Instant::now(),
+            origin: Instant::now(),
+            replay_phase: ReplayPhase::Complete,
         }
     }
 
@@ -206,18 +227,36 @@ impl SessionController {
     }
 
     /// Load persisted scrollback for an existing execution/session.
-    pub async fn load_replay(&mut self, session_id: &str) -> crate::error::CliResult<()> {
-        let ctx = self.adapter.api_context();
-        match crate::replay::replay_scrollack(ctx, session_id).await {
-            Ok(lines) => {
-                self.scrollback.extend(lines);
-                self.footer.state.execution_id = Some(session_id.to_string());
-                Ok(())
-            }
-            Err(err) => Err(crate::error::CliError::Business(format!(
-                "replay failed: {err}"
-            ))),
-        }
+    ///
+    /// Runs the (potentially large) history fetch on a background task so the
+    /// event loop never blocks: a `LoadingBeginning` placeholder shows
+    /// immediately and is replaced by the paged result (`ReplayLoaded`) when it
+    /// lands. The whole history arrives as one `Complete` page here; the state
+    /// machine keeps `Partial` reserved for incremental cursor paging once the
+    /// storage layer exposes a continuation token.
+    pub fn load_replay(&mut self, session_id: &str) {
+        self.replay_phase = ReplayPhase::LoadingBeginning;
+        self.scrollback.clear();
+        self.scrollback.push(HistoryLine::new_role(
+            format!("▦ Loading history for {session_id}…"),
+            Role::Muted,
+        ));
+        self.footer.state.execution_id = Some(session_id.to_string());
+
+        let adapter = Arc::clone(&self.adapter);
+        let session_id = session_id.to_string();
+        let tx = self.tx.clone();
+        tokio::spawn(async move {
+            let ctx = adapter.api_context();
+            let lines = match crate::replay::replay_scrollack(ctx, &session_id).await {
+                Ok(lines) => lines,
+                Err(err) => vec![HistoryLine::new_role(
+                    format!("✗ replay failed: {err}"),
+                    Role::Error,
+                )],
+            };
+            let _ = tx.send(SessionEvent::ReplayLoaded(lines));
+        });
     }
 
     /// Start an agent turn with the given prompt.
@@ -294,6 +333,10 @@ impl SessionController {
                     self.footer.present(FooterView::Question);
                 }
                 SessionEvent::TurnEvent(event) => self.handle_turn_event(event),
+                SessionEvent::ReplayLoaded(lines) => {
+                    self.replay_phase = ReplayPhase::Complete;
+                    self.scrollback = lines;
+                }
             }
         }
         self.settle_scrollback();
@@ -571,9 +614,7 @@ impl SessionController {
     }
 
     /// Render the session into the supplied area.
-    pub fn draw(&mut self, frame: &mut Frame, area: Rect) {
-        self.last_frame = Instant::now();
-        let theme = fallback_theme();
+    pub fn draw(&mut self, frame: &mut Frame, area: Rect, theme: &Theme) {
         self.footer.set_now(self.now_ms());
 
         // Top: scrollback. Middle: footer. Bottom: prompt line.
@@ -629,7 +670,7 @@ impl SessionController {
     }
 
     fn now_ms(&self) -> u64 {
-        Instant::now().duration_since(self.last_frame).as_millis() as u64 + 1
+        Instant::now().duration_since(self.origin).as_millis() as u64
     }
 }
 

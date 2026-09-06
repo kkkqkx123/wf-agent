@@ -156,7 +156,10 @@ impl Screens {
             ScreenKind::Dashboard => Self::draw_dashboard(frame, area, data),
             ScreenKind::Workflow => Self::draw_workflow(frame, area, data, self.selected),
             ScreenKind::Executions => Self::draw_executions(frame, area, data, self.selected),
-            ScreenKind::Session => Self::draw_session(frame, area),
+            // The Session screen is rendered by `SessionController::draw`
+            // directly from `tui.rs` (it owns streaming state), so it is never
+            // reached here — kept as an explicit no-op for exhaustiveness.
+            ScreenKind::Session => {}
             ScreenKind::Checkpoints => Self::draw_checkpoints(frame, area, data, self.selected),
             ScreenKind::Search => Self::draw_search(frame, area, data),
             ScreenKind::Settings => Self::draw_settings(frame, area, data),
@@ -428,23 +431,6 @@ impl Screens {
 
         let block = titled_block("Executions", Color::Yellow);
         render_rows(frame, chunks[1], block, &rows, selected);
-    }
-
-    fn draw_session(frame: &mut Frame, area: Rect) {
-        let chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([Constraint::Min(5), Constraint::Length(3)])
-            .split(area);
-        let log_block = titled_block("Session (logs)", Color::Magenta);
-        let log = Paragraph::new(
-            "Session log stream (placeholder)\n\nStreaming agent/workflow events will appear here.\nUse Mini mode (wf --mini) for interactive sessions.",
-        )
-        .block(log_block);
-        frame.render_widget(log, chunks[0]);
-
-        let input_block = titled_block("Input (Enter to send, Esc back)", Color::Cyan);
-        let input = Paragraph::new(">").block(input_block);
-        frame.render_widget(input, chunks[1]);
     }
 
     fn draw_checkpoints(frame: &mut Frame, area: Rect, data: &ScreenData, selected: usize) {

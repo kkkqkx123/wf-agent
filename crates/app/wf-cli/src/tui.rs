@@ -9,11 +9,15 @@ use std::collections::HashMap;
 use std::io;
 use std::str::FromStr;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
+use libc;
+
 use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
+use crossterm::terminal::size;
 use ratatui::backend::CrosstermBackend;
-use ratatui::layout::{Constraint, Direction, Layout};
+use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Style};
 use ratatui::widgets::Paragraph;
 use ratatui::{Frame, Terminal};
@@ -25,6 +29,7 @@ use wf_api::ApiContext;
 
 use crate::domain::DomainAdapter;
 use crate::error::{CliError, CliResult};
+use crate::framer::FrameRequester;
 use crate::keymap::{CKey, Key};
 use crate::modal::{ConfirmModal, HelpModal, ModalResult, ModalStack, ModelPicker};
 use crate::screens::{
@@ -32,7 +37,21 @@ use crate::screens::{
     ScreenKind, Screens, SearchData, SearchRow, SettingsData, WorkflowRow,
 };
 use crate::session::{SessionAction, SessionController};
+use crate::size::{ResizeDebouncer, Size};
 use crate::terminal::{CrosstermControl, TerminalGuard, TerminalModes};
+use crate::theme::{self, Theme};
+
+/// Set by the SIGTSTP handler when the user suspends the app (Ctrl-Z); the
+/// event loop observes it and runs the suspend / resume cycle. Only a flag
+/// store happens inside the handler, which is async-signal-safe.
+static SUSPEND_PENDING: AtomicBool = AtomicBool::new(false);
+
+/// SIGTSTP handler: record the suspension request. The actual terminal
+/// restore / `SIGSTOP` sequence runs in the event loop (not here) so it can
+/// use normal Rust calls. Mirrors the mini-mode implementation.
+extern "C" fn sigtstp_handler(_sig: libc::c_int) {
+    SUSPEND_PENDING.store(true, Ordering::SeqCst);
+}
 
 /// Cached screen data is considered stale after this duration.
 const DATA_TTL: Duration = Duration::from_secs(5);
@@ -97,6 +116,17 @@ pub struct TuiApp {
     session_exit: bool,
     /// Execution id selected on the executions screen to replay in Session.
     pending_replay: Option<String>,
+    /// Monotonic origin for the injected frame clock (ms).
+    start: Instant,
+    /// Frame scheduler: merges redraw requests and caps the rate (120 FPS).
+    frame: FrameRequester,
+    /// Whether the next loop iteration must repaint. Cleared after a draw;
+    /// set on key / data / resize / theme changes and while a session streams.
+    dirty: bool,
+    /// Debouncer collapsing a burst of `Event::Resize` into one final size.
+    resize: ResizeDebouncer,
+    /// Live theme; refreshed on SIGUSR2 via the event loop.
+    theme: Theme,
 }
 
 impl TuiApp {
@@ -120,12 +150,26 @@ impl TuiApp {
             session: None,
             session_exit: false,
             pending_replay: None,
+            start: Instant::now(),
+            frame: FrameRequester::new(0),
+            dirty: true,
+            resize: ResizeDebouncer::default_window(),
+            theme: theme::probe_theme(),
         }
     }
 
     pub async fn run(mut self) -> CliResult<()> {
         let mut guard = TerminalGuard::new(CrosstermControl::new(io::stdout()));
         guard.enter(TerminalModes::TUI)?;
+
+        // Suspend support (Ctrl-Z): the handler only records the request; the
+        // restore / SIGSTOP cycle runs in the event loop.
+        unsafe {
+            libc::signal(
+                libc::SIGTSTP,
+                sigtstp_handler as *const () as libc::sighandler_t,
+            );
+        }
 
         let backend = CrosstermBackend::new(io::stdout());
         let mut terminal = Terminal::new(backend)
@@ -135,10 +179,22 @@ impl TuiApp {
             .clear()
             .map_err(|e| CliError::Configuration(format!("clear failed: {e}")))?;
 
+        // Hot-reload the theme on SIGUSR2: re-probe and forward to the loop.
+        let (theme_tx, mut theme_rx) = mpsc::unbounded_channel::<Theme>();
+        tokio::spawn(async move {
+            if let Ok(mut rx) = theme::theme_reload_signals().await {
+                while rx.recv().await.is_some() {
+                    let _ = theme_tx.send(theme::probe_theme());
+                }
+            }
+        });
+
         // Prime the screen the user lands on before the first draw.
         self.request_data(ScreenKind::Dashboard);
 
-        let result = self.event_loop(&mut terminal, &mut guard).await;
+        let result = self
+            .event_loop(&mut terminal, &mut guard, &mut theme_rx)
+            .await;
 
         let _ = terminal.clear();
         guard.restore()?;
@@ -165,22 +221,52 @@ impl TuiApp {
     async fn event_loop(
         &mut self,
         terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
-        _guard: &mut TerminalGuard<CrosstermControl<io::Stdout>>,
+        guard: &mut TerminalGuard<CrosstermControl<io::Stdout>>,
+        theme_rx: &mut mpsc::UnboundedReceiver<Theme>,
     ) -> CliResult<()> {
         loop {
+            // Honor a pending Ctrl-Z suspend / resume cycle (top of loop so a
+            // resume re-enters the terminal cleanly).
+            self.check_suspend(guard, terminal)?;
+
             if let Some(session) = &mut self.session {
                 session.handle_events();
             }
-            self.drain_data();
+            if self.drain_data() {
+                self.dirty = true;
+            }
             self.ensure_session().await?;
             self.request_data(self.screens.current_kind());
 
-            let data = self.current_data();
-            terminal
-                .draw(|frame| self.draw(frame, &data))
-                .map_err(|e| CliError::Configuration(format!("draw failed: {e}")))?;
+            let now = self.now_ms();
+            self.frame.set_now(now);
 
-            if event::poll(POLL_INTERVAL)
+            // A live session streams, so it always wants a redraw; otherwise
+            // only redraw when something marked the state dirty.
+            let interactive = self.session.is_some();
+            self.expire_notice();
+            if self.notice.is_some() {
+                // Keep repainting while a transient notice is visible so it
+                // disappears on schedule.
+                self.dirty = true;
+            }
+            if self.dirty || interactive {
+                self.frame.request_frame();
+            }
+
+            // Poll until the next redraw is due (or a key arrives). Idle loops
+            // wait the full interval; a dirty / streaming loop waits at most the
+            // rate-limit floor so we never busy-spin.
+            let timeout = if self.dirty || interactive {
+                self.frame
+                    .deadline()
+                    .map(|d| Duration::from_millis(d.saturating_sub(now)))
+                    .unwrap_or(POLL_INTERVAL)
+            } else {
+                POLL_INTERVAL
+            };
+
+            if event::poll(timeout)
                 .map_err(|e| CliError::Configuration(format!("poll failed: {e}")))?
             {
                 let ev = event::read()
@@ -188,19 +274,47 @@ impl TuiApp {
                 match ev {
                     Event::Key(key) => {
                         if key.kind != KeyEventKind::Press {
-                            continue;
-                        }
-                        if self.handle_key(map_key(key))? == LoopAction::Quit {
+                            // A release event is not input; keep current state.
+                        } else if self.handle_key(map_key(key))? == LoopAction::Quit {
                             break;
+                        } else {
+                            self.dirty = true;
+                            self.apply_session_exit().await;
+                            self.apply_pending_replay().await?;
                         }
-                        self.apply_session_exit().await;
-                        self.apply_pending_replay().await?;
                     }
-                    Event::Resize(_, _) => {
-                        // The next iteration redraws with the new size.
+                    Event::Resize(w, h) => {
+                        // Debounce: remember the latest size; the final settle
+                        // (after the drag storm) triggers the actual reflow.
+                        self.resize.push(Size::new(w, h), self.now_ms());
                     }
                     _ => {}
                 }
+            }
+
+            // Honor a deferred Ctrl-Z that arrived during the poll.
+            self.check_suspend(guard, terminal)?;
+
+            // Settle a debounced resize once the storm passes; force one reflow.
+            if self.resize.settle_if_elapsed(self.now_ms()).is_some() {
+                self.dirty = true;
+            }
+
+            // Apply a hot-reloaded theme (SIGUSR2) and repaint.
+            while let Ok(theme) = theme_rx.try_recv() {
+                self.theme = theme;
+                self.dirty = true;
+            }
+
+            // Repaint when something changed and the rate limiter allows it.
+            self.frame.set_now(self.now_ms());
+            if (self.dirty || interactive) && self.frame.deadline().is_none() {
+                let data = self.current_data();
+                terminal
+                    .draw(|frame| self.draw(frame, &data))
+                    .map_err(|e| CliError::Configuration(format!("draw failed: {e}")))?;
+                self.frame.frame_done();
+                self.dirty = false;
             }
 
             // External signal (SIGINT/SIGTERM) routed through the runtime.
@@ -208,6 +322,49 @@ impl TuiApp {
                 break;
             }
         }
+        Ok(())
+    }
+
+    /// Monotonic millisecond clock since the app started (drives the frame
+    /// scheduler).
+    fn now_ms(&self) -> u64 {
+        Instant::now().duration_since(self.start).as_millis() as u64
+    }
+
+    /// When a SIGTSTP (Ctrl-Z) arrived since the last tick, run the suspend /
+    /// resume cycle: restore the terminal so the shell below renders normally,
+    /// stop the process with the default disposition, then re-apply the TUI
+    /// modes, re-query geometry and force a full redraw. Mirrors the mini-mode
+    /// implementation.
+    fn check_suspend(
+        &mut self,
+        guard: &mut TerminalGuard<CrosstermControl<io::Stdout>>,
+        terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    ) -> CliResult<()> {
+        if !SUSPEND_PENDING.swap(false, Ordering::SeqCst) {
+            return Ok(());
+        }
+        // Restore the terminal so the shell below renders normally while we are
+        // stopped.
+        guard.restore()?;
+        // Stop with the default SIGTSTP disposition so the shell gains control;
+        // SIGCONT (fg) resumes execution right after `raise`.
+        unsafe {
+            libc::signal(libc::SIGTSTP, libc::SIG_DFL);
+            libc::raise(libc::SIGTSTP);
+            libc::signal(
+                libc::SIGTSTP,
+                sigtstp_handler as *const () as libc::sighandler_t,
+            );
+        }
+        // Resumed: re-apply the full TUI terminal modes.
+        guard.enter(TerminalModes::TUI)?;
+        // Force a fresh geometry query: the terminal may have been resized
+        // while we were stopped.
+        let (cols, rows) = size()?;
+        terminal.resize(Rect::new(0, 0, cols, rows))?;
+        terminal.clear()?;
+        self.dirty = true;
         Ok(())
     }
 
@@ -251,7 +408,10 @@ impl TuiApp {
         };
         self.ensure_session().await?;
         if let Some(session) = &mut self.session {
-            session.load_replay(&id).await?;
+            // `load_replay` fetches asynchronously; the `ReplayLoaded` event
+            // replaces the loading placeholder when the history lands.
+            session.load_replay(&id);
+            self.dirty = true;
         }
         Ok(())
     }
@@ -267,7 +427,7 @@ impl TuiApp {
 
         if self.screens.current_kind() == ScreenKind::Session {
             if let Some(session) = &mut self.session {
-                session.draw(frame, chunks[0]);
+                session.draw(frame, chunks[0], &self.theme);
             }
         } else {
             self.screens.draw(frame, chunks[0], data);
@@ -328,16 +488,20 @@ impl TuiApp {
         self.data.remove(&kind);
     }
 
-    /// Reap finished fetches and fold them into the cache.
-    fn drain_data(&mut self) {
+    /// Reap finished fetches and fold them into the cache. Returns whether the
+    /// cache or a notice changed (so the caller can request a repaint).
+    fn drain_data(&mut self) -> bool {
+        let mut changed = false;
         while let Ok((kind, result)) = self.data_rx.try_recv() {
             self.inflight.remove(&kind);
             match result {
                 Ok(data) => {
                     self.data.insert(kind, (data, Instant::now()));
+                    changed = true;
                 }
                 Err(err) => {
                     self.set_notice(format!("{}: {err}", kind.title()));
+                    changed = true;
                 }
             }
         }
@@ -346,9 +510,11 @@ impl TuiApp {
                 Feedback::Notice(text) => self.set_notice(text),
                 Feedback::Refresh(kind) => self.invalidate(kind),
             }
+            changed = true;
         }
         // Keep finished handles from growing without bound.
         self.tasks.retain(|task| !task.is_finished());
+        changed
     }
 
     fn current_data(&self) -> ScreenData {
@@ -368,6 +534,16 @@ impl TuiApp {
             Some(text.clone())
         } else {
             None
+        }
+    }
+
+    /// Drop an expired transient notice so the slot does not keep forcing
+    /// redraws after its TTL elapses.
+    fn expire_notice(&mut self) {
+        if let Some((_, at)) = &self.notice {
+            if at.elapsed() >= NOTICE_TTL {
+                self.notice = None;
+            }
         }
     }
 

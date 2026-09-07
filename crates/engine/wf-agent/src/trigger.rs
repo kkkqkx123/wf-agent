@@ -62,6 +62,16 @@ pub struct TriggeredTaskSubmission {
     pub submit_time: i64,
 }
 
+/// How and how long to run a child, plus where its result is written back.
+/// Extracted from [`TriggeredAgentExecutionConfig`] so `execute_child` can take
+/// the child's run inputs and its delivery settings as two coherent groups.
+struct ChildDelivery {
+    result_variable: String,
+    timeout_ms: Option<u64>,
+    writeback: TriggerAgentWriteback,
+    anchor: Option<ConversationAnchor>,
+}
+
 /// Manages triggered (nested) agent loop executions started from a trigger
 /// event. Children are registered on the parent entity and their results are
 /// written back into the parent's variable snapshots; a failing child never
@@ -174,10 +184,12 @@ impl TriggeredAgentExecutionManager {
                     child_entity,
                     child_config,
                     child_input,
-                    config.result_variable,
-                    config.timeout_ms,
-                    config.writeback,
-                    config.anchor,
+                    ChildDelivery {
+                        result_variable: config.result_variable,
+                        timeout_ms: config.timeout_ms,
+                        writeback: config.writeback,
+                        anchor: config.anchor,
+                    },
                 )
                 .await;
             // SUBAGENT_STOP: child finished (success or failure); mounted on
@@ -277,18 +289,20 @@ impl TriggeredAgentExecutionManager {
     /// Run a child agent to completion, write its result back into the
     /// parent and unregister it. A child failure is reported back but does
     /// not touch the parent's execution state.
-    #[allow(clippy::too_many_arguments)]
     async fn execute_child(
         &self,
         parent: Arc<AgentLoopEntity>,
         child_entity: AgentLoopEntity,
         child_config: AgentLoopConfig,
         child_input: AgentLoopInput,
-        result_variable: String,
-        timeout_ms: Option<u64>,
-        writeback: TriggerAgentWriteback,
-        anchor: Option<ConversationAnchor>,
+        delivery: ChildDelivery,
     ) -> AgentResult<Value> {
+        let ChildDelivery {
+            result_variable,
+            timeout_ms,
+            writeback,
+            anchor,
+        } = delivery;
         let mut future = Box::pin((self.executor)(child_config, child_input));
         let output = match timeout_ms {
             Some(ms) if ms > 0 => {

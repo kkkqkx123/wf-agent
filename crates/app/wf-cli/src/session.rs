@@ -50,8 +50,25 @@ pub enum SessionEvent {
     },
     /// One execution stream event from the active turn.
     TurnEvent(ExecutionStreamEvent),
-    /// A replay-history page finished loading on the background task.
-    ReplayLoaded(Vec<HistoryLine>),
+    /// The first replay page landed: it replaces the whole scrollback.
+    ReplayLoaded {
+        lines: Vec<HistoryLine>,
+        /// Older records still exist beyond this page.
+        has_more: bool,
+        /// Cursor for the next older page (see `replay::ReplayPage`).
+        next_before: Option<i64>,
+        /// The fetch failed; no further pages can be requested.
+        failed: bool,
+    },
+    /// An earlier replay page landed: its lines are prepended, never
+    /// replacing the scrollback already on screen.
+    ReplayEarlier {
+        lines: Vec<HistoryLine>,
+        has_more: bool,
+        next_before: Option<i64>,
+        /// The fetch failed; no further pages can be requested.
+        failed: bool,
+    },
 }
 
 /// What the caller should do after a key press.
@@ -61,15 +78,89 @@ pub enum SessionAction {
     Exit,
 }
 
-/// Pagination state for replay-history loading.
+/// Pagination phase of a replay-history load.
 ///
-/// The full-TUI loads history asynchronously: `LoadingBeginning` shows the
-/// placeholder while the background fetch runs, `Complete` means the page has
-/// landed and replaced it.
+/// The full-TUI loads history asynchronously in pages: `LoadingBeginning`
+/// shows the placeholder while the first (tail) page is fetched, `Partial`
+/// means an earlier page exists behind the loaded rows and can be prepended
+/// on demand, `Complete` means the beginning of the session was reached.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ReplayPhase {
     LoadingBeginning,
+    Partial,
     Complete,
+}
+
+/// Pure cursor/phase state machine for paged replay loads. Kept free of any
+/// I/O so the transitions are unit-testable in isolation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ReplayPager {
+    phase: ReplayPhase,
+    /// `before_timestamp` for the next (older) page; `None` once the
+    /// beginning of the session was reached.
+    cursor: Option<i64>,
+    /// True while an earlier-page fetch is in flight (guards double loads).
+    loading: bool,
+}
+
+impl Default for ReplayPager {
+    fn default() -> Self {
+        Self {
+            phase: ReplayPhase::Complete,
+            cursor: None,
+            loading: false,
+        }
+    }
+}
+
+impl ReplayPager {
+    /// A new replay starts from the tail page placeholder.
+    fn begin(&mut self) {
+        self.phase = ReplayPhase::LoadingBeginning;
+        self.cursor = None;
+        self.loading = false;
+    }
+
+    /// The tail (first) page landed: `Partial` when older records remain,
+    /// `Complete` otherwise.
+    fn land_initial(&mut self, has_more: bool, next_before: Option<i64>) {
+        self.phase = if has_more {
+            ReplayPhase::Partial
+        } else {
+            ReplayPhase::Complete
+        };
+        self.cursor = if has_more { next_before } else { None };
+        self.loading = false;
+    }
+
+    /// Whether an older page may be requested right now.
+    fn can_load_earlier(&self) -> bool {
+        self.phase == ReplayPhase::Partial && !self.loading && self.cursor.is_some()
+    }
+
+    /// Mark an earlier-page fetch as in flight (guard against double loads).
+    fn start_earlier(&mut self) {
+        self.loading = true;
+    }
+
+    /// An earlier page landed: prepend its rows and keep paging while more
+    /// older records exist.
+    fn land_earlier(&mut self, has_more: bool, next_before: Option<i64>) {
+        self.phase = if has_more {
+            ReplayPhase::Partial
+        } else {
+            ReplayPhase::Complete
+        };
+        self.cursor = if has_more { next_before } else { None };
+        self.loading = false;
+    }
+
+    /// A fetch failed: no further pages can be requested.
+    fn fail(&mut self) {
+        self.phase = ReplayPhase::Complete;
+        self.cursor = None;
+        self.loading = false;
+    }
 }
 
 /// Domain-side approval handler: post the request to the session channel and
@@ -172,11 +263,42 @@ pub struct SessionController {
     /// per-frame `last_frame` delta collapsed to ~0 between draws, breaking
     /// those timers.
     origin: Instant,
-    /// Pagination state for replay-history loading (see `load_replay`).
-    replay_phase: ReplayPhase,
+    /// Pagination state machine for replay-history loading (see `load_replay`).
+    pager: ReplayPager,
+    /// Viewport scrolled up from the bottom of the scrollback (display rows).
+    /// `0` is tail-follow; scrolling up grows it until the loaded content
+    /// starts, at which point a `Partial` replay page loads older history.
+    view_scroll: usize,
+    /// Whether the last draw already showed the oldest loaded row (the user
+    /// pressed scroll-up at the very top and can page further back).
+    scroll_at_top: bool,
+    /// Whether the session was torn down gracefully (user quit / runtime
+    /// shutdown). Once set, late terminal error events are not rendered so
+    /// quitting never flashes a spurious error row.
+    graceful: bool,
 }
 
 impl SessionController {
+    /// Mark the session as exiting gracefully: from now on, terminal
+    /// `Failed` / `Interrupted` stream events are drained without rendering
+    /// error rows (see [`SessionController::begin_graceful_exit`]).
+    pub fn begin_graceful_exit(&mut self) {
+        self.graceful = true;
+    }
+
+    /// Whether a terminal stream event may still render rows. During a
+    /// graceful exit late `Failed` / `Interrupted` events are suppressed so
+    /// the exit never flashes an error line on screen.
+    fn should_render_terminal(graceful: bool, event: &ExecutionStreamEvent) -> bool {
+        if !graceful {
+            return true;
+        }
+        !matches!(
+            event,
+            ExecutionStreamEvent::Failed { .. } | ExecutionStreamEvent::Interrupted { .. }
+        )
+    }
+
     /// Register the interaction handler and prepare an empty session.
     pub async fn start(adapter: Arc<DomainAdapter>, execution_id: String) -> Self {
         let (tx, rx) = mpsc::unbounded_channel();
@@ -207,7 +329,10 @@ impl SessionController {
             tool_started_at: HashMap::new(),
             exit_tracker: DoublePressTracker::new(SIGINT_DOUBLE_PRESS_WINDOW),
             origin: Instant::now(),
-            replay_phase: ReplayPhase::Complete,
+            pager: ReplayPager::default(),
+            view_scroll: 0,
+            scroll_at_top: false,
+            graceful: false,
         }
     }
 
@@ -230,13 +355,15 @@ impl SessionController {
     ///
     /// Runs the (potentially large) history fetch on a background task so the
     /// event loop never blocks: a `LoadingBeginning` placeholder shows
-    /// immediately and is replaced by the paged result (`ReplayLoaded`) when it
-    /// lands. The whole history arrives as one `Complete` page here; the state
-    /// machine keeps `Partial` reserved for incremental cursor paging once the
-    /// storage layer exposes a continuation token.
+    /// immediately and is replaced by the paged result (`ReplayLoaded`) when
+    /// it lands. The tail page (newest records) is fetched first; when older
+    /// records remain the state machine stays `Partial` so scrolling up past
+    /// the top can page them in (`request_earlier_page`).
     pub fn load_replay(&mut self, session_id: &str) {
-        self.replay_phase = ReplayPhase::LoadingBeginning;
+        self.pager.begin();
         self.scrollback.clear();
+        self.view_scroll = 0;
+        self.scroll_at_top = false;
         self.scrollback.push(HistoryLine::new_role(
             format!("▦ Loading history for {session_id}…"),
             Role::Muted,
@@ -248,14 +375,74 @@ impl SessionController {
         let tx = self.tx.clone();
         tokio::spawn(async move {
             let ctx = adapter.api_context();
-            let lines = match crate::replay::replay_scrollack(ctx, &session_id).await {
-                Ok(lines) => lines,
-                Err(err) => vec![HistoryLine::new_role(
-                    format!("✗ replay failed: {err}"),
-                    Role::Error,
-                )],
+            let (lines, has_more, next_before, failed) = match crate::replay::replay_scrollack_page(
+                ctx,
+                &session_id,
+                None,
+                crate::replay::REPLAY_PAGE_LIMIT,
+            )
+            .await
+            {
+                Ok(page) => (page.lines, page.has_more, page.next_before, false),
+                Err(err) => (
+                    vec![HistoryLine::new_role(
+                        format!("✗ replay failed: {err}"),
+                        Role::Error,
+                    )],
+                    false,
+                    None,
+                    true,
+                ),
             };
-            let _ = tx.send(SessionEvent::ReplayLoaded(lines));
+            let _ = tx.send(SessionEvent::ReplayLoaded {
+                lines,
+                has_more,
+                next_before,
+                failed,
+            });
+        });
+    }
+
+    /// Request the replay page that precedes the loaded history (older
+    /// records), when the pager allows it. Runs on a background task; the
+    /// result arrives as `SessionEvent::ReplayEarlier` and is prepended.
+    pub fn request_earlier_page(&mut self) {
+        if !self.pager.can_load_earlier() {
+            return;
+        }
+        let before = self.pager.cursor.expect("Partial pager holds a cursor");
+        self.pager.start_earlier();
+
+        let adapter = Arc::clone(&self.adapter);
+        let session_id = self.footer.state.execution_id.clone().unwrap_or_default();
+        let tx = self.tx.clone();
+        tokio::spawn(async move {
+            let ctx = adapter.api_context();
+            let (lines, has_more, next_before, failed) = match crate::replay::replay_scrollack_page(
+                ctx,
+                &session_id,
+                Some(before),
+                crate::replay::REPLAY_PAGE_LIMIT,
+            )
+            .await
+            {
+                Ok(page) => (page.lines, page.has_more, page.next_before, false),
+                Err(err) => (
+                    vec![HistoryLine::new_role(
+                        format!("✗ earlier history failed: {err}"),
+                        Role::Error,
+                    )],
+                    false,
+                    None,
+                    true,
+                ),
+            };
+            let _ = tx.send(SessionEvent::ReplayEarlier {
+                lines,
+                has_more,
+                next_before,
+                failed,
+            });
         });
     }
 
@@ -333,9 +520,48 @@ impl SessionController {
                     self.footer.present(FooterView::Question);
                 }
                 SessionEvent::TurnEvent(event) => self.handle_turn_event(event),
-                SessionEvent::ReplayLoaded(lines) => {
-                    self.replay_phase = ReplayPhase::Complete;
+                SessionEvent::ReplayLoaded {
+                    lines,
+                    has_more,
+                    next_before,
+                    failed,
+                } => {
+                    if failed {
+                        self.pager.fail();
+                    } else {
+                        self.pager.land_initial(has_more, next_before);
+                    }
                     self.scrollback = lines;
+                    self.view_scroll = 0;
+                    self.scroll_at_top = false;
+                }
+                SessionEvent::ReplayEarlier {
+                    lines,
+                    has_more,
+                    next_before,
+                    failed,
+                } => {
+                    // Newest-to-oldest ordering: prepend the earlier rows
+                    // instead of replacing the visible history.
+                    if failed {
+                        self.pager.fail();
+                    } else {
+                        self.pager.land_earlier(has_more, next_before);
+                    }
+                    if !lines.is_empty() {
+                        let added = lines.len();
+                        let mut merged = lines;
+                        merged.extend(std::mem::take(&mut self.scrollback));
+                        self.scrollback = merged;
+                        // Keep the viewport anchored on the same content: the
+                        // older rows pushed it upward, so adjust the scroll to
+                        // compensate (only relevant while scrolled into
+                        // history; the next draw re-clamps).
+                        if self.view_scroll > 0 {
+                            self.view_scroll = self.view_scroll.saturating_add(added);
+                        }
+                        self.scroll_at_top = false;
+                    }
                 }
             }
         }
@@ -356,17 +582,21 @@ impl SessionController {
                 self.finish_turn();
             }
             ExecutionStreamEvent::Failed { error } => {
-                self.pending_scroll.push(HistoryLine::new_role(
-                    format!("✗ failed: {error}"),
-                    Role::Error,
-                ));
+                if Self::should_render_terminal(self.graceful, &event) {
+                    self.pending_scroll.push(HistoryLine::new_role(
+                        format!("✗ failed: {error}"),
+                        Role::Error,
+                    ));
+                }
                 self.finish_turn();
             }
             ExecutionStreamEvent::Interrupted { reason } => {
-                self.pending_scroll.push(HistoryLine::new_role(
-                    format!("■ interrupted: {reason}"),
-                    Role::Warning,
-                ));
+                if Self::should_render_terminal(self.graceful, &event) {
+                    self.pending_scroll.push(HistoryLine::new_role(
+                        format!("■ interrupted: {reason}"),
+                        Role::Warning,
+                    ));
+                }
                 self.finish_turn();
             }
             ExecutionStreamEvent::LlmDelta { content } => {
@@ -496,11 +726,39 @@ impl SessionController {
             };
         }
 
+        // Scrolling belongs to the scrollback regardless of the active footer
+        // view (a prompt, an approval or a question all leave history above).
+        match key.code {
+            CKey::PageUp => {
+                self.scroll_history_up();
+                return SessionAction::Continue;
+            }
+            CKey::PageDown => {
+                self.view_scroll = self.view_scroll.saturating_sub(10);
+                return SessionAction::Continue;
+            }
+            _ => {}
+        }
+
         match self.footer.view {
             FooterView::Permission => self.handle_approval_key(key),
             FooterView::Question => self.handle_question_key(key),
             FooterView::Prompt => self.handle_prompt_key(key),
         }
+    }
+
+    /// Scroll the scrollback viewport up by one page. When the viewport is
+    /// already pinned to the oldest loaded row and the replay is `Partial`,
+    /// request the next (older) page instead: the only way to reveal history
+    /// behind the loaded window is to load it.
+    fn scroll_history_up(&mut self) {
+        if self.scroll_at_top {
+            if self.pager.phase == ReplayPhase::Partial {
+                self.request_earlier_page();
+            }
+            return;
+        }
+        self.view_scroll = self.view_scroll.saturating_add(10);
     }
 
     fn handle_approval_key(&mut self, key: Key) -> SessionAction {
@@ -628,11 +886,11 @@ impl SessionController {
             .areas(area);
 
         self.draw_scrollback(frame, scroll_area);
-        self.footer.draw(footer_area, frame.buffer_mut(), &theme);
+        self.footer.draw(footer_area, frame.buffer_mut(), theme);
         self.draw_input(frame, input_area);
     }
 
-    fn draw_scrollback(&self, frame: &mut Frame, area: Rect) {
+    fn draw_scrollback(&mut self, frame: &mut Frame, area: Rect) {
         let block = Block::default()
             .title(" Session (Ctrl-C twice to exit) ")
             .borders(Borders::ALL)
@@ -657,9 +915,16 @@ impl SessionController {
             lines.extend(streaming.display_lines(width));
         }
 
-        // Keep only the rows that fit, anchoring to the bottom (tail follow).
+        // Anchor to the bottom (tail follow) unless the user scrolled up.
+        // `view_scroll` counts display rows above the tail; the oldest loaded
+        // row is reached when it equals the surplus over the viewport. The
+        // scroll pin is refreshed here so key handling (which cannot know the
+        // terminal size) can decide whether another page is reachable.
         let capacity = usize::from(inner.height.max(1));
-        let start = lines.len().saturating_sub(capacity);
+        let max_scroll = lines.len().saturating_sub(capacity);
+        self.view_scroll = self.view_scroll.min(max_scroll);
+        self.scroll_at_top = self.view_scroll >= max_scroll;
+        let start = max_scroll - self.view_scroll;
         let visible: Vec<Line<'static>> = lines.into_iter().skip(start).collect();
         frame.render_widget(Paragraph::new(visible), inner);
     }
@@ -686,5 +951,121 @@ mod tests {
             Some(ApprovalChoice::Approve)
         );
         assert!(Key::ctrl(CKey::Char('c')).ctrl);
+    }
+
+    // ── replay pager state machine ──────────────────────────────────────
+
+    #[test]
+    fn replay_pager_initial_landing_partial_then_complete() {
+        let mut pager = ReplayPager::default();
+        pager.begin();
+        assert_eq!(pager.phase, ReplayPhase::LoadingBeginning);
+        assert!(!pager.can_load_earlier());
+
+        // Tail page with older records remaining: Partial + cursor.
+        pager.land_initial(true, Some(500));
+        assert_eq!(pager.phase, ReplayPhase::Partial);
+        assert_eq!(pager.cursor, Some(500));
+        assert!(pager.can_load_earlier());
+
+        // One earlier page, still more behind it.
+        pager.start_earlier();
+        assert!(!pager.can_load_earlier());
+        pager.land_earlier(true, Some(300));
+        assert!(pager.can_load_earlier());
+
+        // Final page: Complete and no further loads.
+        pager.start_earlier();
+        pager.land_earlier(false, None);
+        assert_eq!(pager.phase, ReplayPhase::Complete);
+        assert_eq!(pager.cursor, None);
+        assert!(!pager.can_load_earlier());
+    }
+
+    #[test]
+    fn replay_pager_no_more_on_first_page() {
+        let mut pager = ReplayPager::default();
+        pager.begin();
+        pager.land_initial(false, Some(999));
+        assert_eq!(pager.phase, ReplayPhase::Complete);
+        assert_eq!(pager.cursor, None);
+        assert!(!pager.can_load_earlier());
+    }
+
+    #[test]
+    fn replay_pager_failure_stops_paging() {
+        let mut pager = ReplayPager::default();
+        pager.begin();
+        pager.land_initial(true, Some(700));
+        pager.start_earlier();
+        pager.fail();
+        assert_eq!(pager.phase, ReplayPhase::Complete);
+        assert!(!pager.can_load_earlier());
+    }
+
+    #[test]
+    fn replay_pager_begin_resets_state() {
+        let mut pager = ReplayPager::default();
+        pager.begin();
+        pager.land_initial(true, Some(50));
+        pager.begin();
+        assert_eq!(pager.phase, ReplayPhase::LoadingBeginning);
+        assert_eq!(pager.cursor, None);
+        assert!(!pager.can_load_earlier());
+    }
+
+    #[test]
+    fn scroll_history_up_pages_earlier_at_partial_top() {
+        // Verify the scroll pin decides between paging the viewport and
+        // requesting the next older replay page (no session I/O here: the
+        // request is only gated by the pager state).
+        let mut pager = ReplayPager::default();
+        pager.begin();
+        pager.land_initial(true, Some(10));
+        assert!(pager.can_load_earlier());
+        pager.start_earlier();
+        assert!(!pager.can_load_earlier());
+        pager.land_earlier(false, None);
+        assert!(!pager.can_load_earlier());
+    }
+
+    // ── graceful-exit error suppression (I5-1) ──────────────────────────
+
+    #[test]
+    fn terminal_events_render_normally_when_active() {
+        let failed = ExecutionStreamEvent::Failed {
+            error: "boom".into(),
+        };
+        let interrupted = ExecutionStreamEvent::Interrupted {
+            reason: "user".into(),
+        };
+        assert!(SessionController::should_render_terminal(false, &failed));
+        assert!(SessionController::should_render_terminal(
+            false,
+            &interrupted
+        ));
+    }
+
+    #[test]
+    fn terminal_failures_are_suppressed_after_graceful_exit() {
+        // A `Failed`/`Interrupted` event that arrives while the session is
+        // exiting must not land on screen (or be treated as a failure the UI
+        // needs to reflect); the graceful flag routes it into the quiet drain.
+        let failed = ExecutionStreamEvent::Failed {
+            error: "runtime closed".into(),
+        };
+        let interrupted = ExecutionStreamEvent::Interrupted {
+            reason: "shutdown".into(),
+        };
+        assert!(!SessionController::should_render_terminal(true, &failed));
+        assert!(!SessionController::should_render_terminal(
+            true,
+            &interrupted
+        ));
+        // Non-terminal events are unaffected by the flag.
+        let llm = ExecutionStreamEvent::LlmDelta {
+            content: "ok".into(),
+        };
+        assert!(SessionController::should_render_terminal(true, &llm));
     }
 }

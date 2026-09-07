@@ -18,7 +18,7 @@ use wf_types::workflow_execution::{
     WorkflowEdge, WorkflowExecutionOptions, WorkflowGraphStructure, WorkflowNode,
 };
 use wf_workflow::handler::NodeHandler;
-use wf_workflow::{HandlerRegistry, WorkflowExecutor, WorkflowResult};
+use wf_workflow::{HandlerRegistry, WorkflowExecutor, WorkflowResult, WorkflowRunRequest};
 
 /// Recording stand-in for SCRIPT nodes: appends the current `item` loop
 /// variable (or a fixed marker) to the `recorded` shared vec and writes the
@@ -148,15 +148,15 @@ async fn run_workflow(
     handlers: Arc<HashMap<StaticNodeType, Box<dyn NodeHandler>>>,
 ) -> WorkflowResult<serde_json::Value> {
     let output = WorkflowExecutor::new()
-        .execute_workflow(
-            wf_types::Id::new(),
+        .execute_workflow(WorkflowRunRequest {
+            workflow_id: wf_types::Id::new(),
             graph,
-            options(),
-            Arc::new(ToolRegistry::new()),
-            Some(handlers),
-            Vec::new(),
-            None,
-        )
+            options: options(),
+            tool_registry: Arc::new(ToolRegistry::new()),
+            handlers: Some(handlers),
+            hooks: Vec::new(),
+            resource_registries: None,
+        })
         .await?;
     Ok(output.result)
 }
@@ -386,15 +386,15 @@ async fn embed_graph_publishes_no_subgraph_events() {
     let handlers = reg.into_arc();
 
     WorkflowExecutor::with_event_bus(bus.clone())
-        .execute_workflow(
-            wf_types::Id::new(),
-            g,
-            options(),
-            Arc::new(ToolRegistry::new()),
-            Some(handlers),
-            Vec::new(),
-            None,
-        )
+        .execute_workflow(WorkflowRunRequest {
+            workflow_id: wf_types::Id::new(),
+            graph: g,
+            options: options(),
+            tool_registry: Arc::new(ToolRegistry::new()),
+            handlers: Some(handlers),
+            hooks: Vec::new(),
+            resource_registries: None,
+        })
         .await
         .expect("workflow must complete");
 

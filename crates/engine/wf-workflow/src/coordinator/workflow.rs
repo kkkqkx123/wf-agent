@@ -47,6 +47,25 @@ fn json_size(value: &Value) -> u64 {
         .unwrap_or(0)
 }
 
+/// Identity of the node being executed in the coordinator loop: the execution
+/// entity it runs under plus the node's id and parsed type. Grouped so the
+/// execute / record / retry helpers stay small.
+struct NodeAttempt<'a> {
+    entity: &'a WorkflowExecutionEntity,
+    node_id: &'a str,
+    node_type: &'a StaticNodeType,
+}
+
+/// Timing and accounting inputs captured once a node execution has a result.
+/// Shared by the success/failure recording and retry paths.
+struct NodeOutcome<'a> {
+    node_type_str: &'a str,
+    metrics: Option<&'a NodeMetricsCollector>,
+    start: i64,
+    duration_ms: f64,
+    checkpoint_config: Option<NodeCheckpointConfig>,
+}
+
 /// Parse the node-level checkpoint configuration embedded in the node config
 /// under the `checkpoint` key. A malformed config is a user error: it fails
 /// with a structured `ConfigError` instead of silently falling back to the
@@ -712,59 +731,36 @@ impl WorkflowCoordinator {
             }
             let node_start = wf_common::now();
 
+            let attempt = NodeAttempt {
+                entity: &entity,
+                node_id: node_id.as_str(),
+                node_type: &node_type,
+            };
+
             let result = self
-                .execute_node_once(
-                    &entity,
-                    &mut node_ctx,
-                    event_bus_ref,
-                    node_timeout,
-                    node_id,
-                    node,
-                    &node_type,
-                )
+                .execute_node_once(&attempt, node, &mut node_ctx, event_bus_ref, node_timeout)
                 .await;
             let node_duration_ms = (wf_common::now() - node_start) as f64;
 
+            let outcome = NodeOutcome {
+                node_type_str: &node_type_str,
+                metrics: node_metrics.as_deref(),
+                start: node_start,
+                duration_ms: node_duration_ms,
+                checkpoint_config,
+            };
+
             match result {
                 Ok(output) => {
-                    self.record_node_success(
-                        &entity,
-                        node_id,
-                        &node_type_str,
-                        &node_ctx,
-                        &output,
-                        node_metrics.as_deref(),
-                        node_start,
-                        node_duration_ms,
-                        checkpoint_config,
-                    )
-                    .await;
+                    self.record_node_success(&attempt, &outcome, &node_ctx, &output)
+                        .await;
                     self.current_node_id = self.determine_next_node(&output).await?;
                 }
                 Err(e) => {
-                    self.record_node_failure(
-                        &entity,
-                        node_id,
-                        &node_type_str,
-                        &node_ctx,
-                        &e,
-                        node_metrics.as_deref(),
-                        node_start,
-                        node_duration_ms,
-                        checkpoint_config,
-                    )
-                    .await;
-                    self.handle_node_retry(
-                        &entity,
-                        node_id,
-                        &node_type,
-                        &node_type_str,
-                        e,
-                        &retry_config,
-                        node_metrics.as_deref(),
-                        node_duration_ms,
-                    )
-                    .await?;
+                    self.record_node_failure(&attempt, &outcome, &node_ctx, &e)
+                        .await;
+                    self.handle_node_retry(&attempt, &outcome, e, &retry_config)
+                        .await?;
                 }
             }
 
@@ -1024,17 +1020,18 @@ impl WorkflowCoordinator {
 
     /// Execute one node through the `NodeCoordinator`, wrapped in the
     /// node-level timeout when configured.
-    #[allow(clippy::too_many_arguments)]
     async fn execute_node_once(
         &self,
-        entity: &WorkflowExecutionEntity,
+        attempt: &NodeAttempt<'_>,
+        node: &wf_types::workflow_execution::WorkflowNode,
         node_ctx: &mut NodeExecutionContext,
         event_bus: Option<&EventBus>,
         node_timeout: Option<u64>,
-        node_id: &str,
-        node: &wf_types::workflow_execution::WorkflowNode,
-        node_type: &StaticNodeType,
     ) -> WorkflowResult<NodeExecutionResult> {
+        let entity = attempt.entity;
+        let node_id = attempt.node_id;
+        let node_type = attempt.node_type;
+
         let handler =
             self.handlers
                 .get(node_type)
@@ -1076,19 +1073,21 @@ impl WorkflowCoordinator {
 
     /// Record a successful node execution: outputs, completion state, audit
     /// record, metrics and node-level checkpoint.
-    #[allow(clippy::too_many_arguments)]
     async fn record_node_success(
         &mut self,
-        entity: &WorkflowExecutionEntity,
-        node_id: &str,
-        node_type_str: &str,
+        attempt: &NodeAttempt<'_>,
+        outcome: &NodeOutcome<'_>,
         node_ctx: &NodeExecutionContext,
         output: &NodeExecutionResult,
-        node_metrics: Option<&NodeMetricsCollector>,
-        node_start: i64,
-        node_duration_ms: f64,
-        checkpoint_config: Option<NodeCheckpointConfig>,
     ) {
+        let entity = attempt.entity;
+        let node_id = attempt.node_id;
+        let node_type_str = outcome.node_type_str;
+        let node_metrics = outcome.metrics;
+        let node_start = outcome.start;
+        let node_duration_ms = outcome.duration_ms;
+        let checkpoint_config = &outcome.checkpoint_config;
+
         self.node_outputs
             .insert(node_id.to_string(), output.output.clone());
         self.completed_nodes.push(node_id.to_string());
@@ -1154,19 +1153,21 @@ impl WorkflowCoordinator {
 
     /// Record a failed node execution: error chain, audit record, metrics and
     /// node-level checkpoint.
-    #[allow(clippy::too_many_arguments)]
     async fn record_node_failure(
         &mut self,
-        entity: &WorkflowExecutionEntity,
-        node_id: &str,
-        node_type_str: &str,
+        attempt: &NodeAttempt<'_>,
+        outcome: &NodeOutcome<'_>,
         node_ctx: &NodeExecutionContext,
         error: &WorkflowError,
-        node_metrics: Option<&NodeMetricsCollector>,
-        node_start: i64,
-        node_duration_ms: f64,
-        checkpoint_config: Option<NodeCheckpointConfig>,
     ) {
+        let entity = attempt.entity;
+        let node_id = attempt.node_id;
+        let node_type_str = outcome.node_type_str;
+        let node_metrics = outcome.metrics;
+        let node_start = outcome.start;
+        let node_duration_ms = outcome.duration_ms;
+        let checkpoint_config = &outcome.checkpoint_config;
+
         self.node_errors
             .push(format!("Node {}: {}", node_id, error));
 
@@ -1209,18 +1210,20 @@ impl WorkflowCoordinator {
     /// success the node result is recorded and the loop continues through the
     /// retried output; on `continue`/`fallback` the failure is absorbed; on
     /// `fail` (or retries exhausted without a fallback) the error propagates.
-    #[allow(clippy::too_many_arguments)]
     async fn handle_node_retry(
         &mut self,
-        entity: &WorkflowExecutionEntity,
-        node_id: &str,
-        node_type: &StaticNodeType,
-        node_type_str: &str,
+        attempt: &NodeAttempt<'_>,
+        outcome: &NodeOutcome<'_>,
         error: WorkflowError,
         retry_config: &NodeRetryConfig,
-        node_metrics: Option<&NodeMetricsCollector>,
-        node_duration_ms: f64,
     ) -> WorkflowResult<()> {
+        let entity = attempt.entity;
+        let node_id = attempt.node_id;
+        let node_type = attempt.node_type;
+        let node_type_str = outcome.node_type_str;
+        let node_metrics = outcome.metrics;
+        let node_duration_ms = outcome.duration_ms;
+
         let handler =
             self.handlers
                 .get(node_type)

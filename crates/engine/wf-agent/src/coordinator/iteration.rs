@@ -489,13 +489,7 @@ impl AgentIterationCoordinator {
                         let _ = bus.publish(wf_llm::build_context_compression_requested_event(
                             &execution_id,
                             Some(entity.id()),
-                            request.target_context_id,
-                            request.tokens_used,
-                            request.token_limit,
-                            request.message_count,
-                            request.array_version,
-                            request.forced,
-                            Some(request.messages),
+                            &request,
                         ));
                         self.dispatch_compression(entity, &request).await;
                         conversation.mark_compression_emitted(version);
@@ -705,15 +699,10 @@ impl AgentIterationCoordinator {
         let _ = bus.publish(wf_llm::build_context_compression_requested_event(
             &entity.id().clone(),
             Some(entity.id()),
-            compression_request.target_context_id,
-            compression_request.tokens_used,
-            compression_request.token_limit,
-            compression_request.message_count,
-            compression_request.array_version,
-            compression_request.forced,
-            Some(compression_request.messages),
+            &compression_request,
         ));
-        self.dispatch_compression(entity, &compression_request).await;
+        self.dispatch_compression(entity, &compression_request)
+            .await;
         conversation.mark_compression_emitted(version);
     }
 

@@ -67,6 +67,8 @@ pub enum ThemeKind {
 /// How the returned theme came to be.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ThemeSource {
+    /// Explicit user theme file (highest priority).
+    File,
     /// Live OSC 10/11 response.
     Probed,
     /// Last-known-good cache file.
@@ -431,6 +433,30 @@ pub fn load_theme_cache() -> Option<Theme> {
     Some(theme)
 }
 
+// ── explicit user theme file ──────────────────────────────────────────
+
+/// User theme file path: `$XDG_CONFIG_HOME/wf-cli/theme.json` (fallback
+/// `$HOME/.config/wf-cli/theme.json`). `None` when no home is discoverable.
+pub fn theme_config_path() -> Option<PathBuf> {
+    let base = std::env::var_os("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .filter(|p| p.is_absolute())
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))?;
+    Some(base.join("wf-cli").join("theme.json"))
+}
+
+/// Load the explicit user theme file, marked [`ThemeSource::File`]. Takes
+/// priority over probing: a user edits this file and sends SIGUSR2 to switch
+/// themes even when the terminal never answers OSC color queries. A missing
+/// or malformed file is ignored and the probe / cache chain still applies.
+pub fn load_theme_file() -> Option<Theme> {
+    let path = theme_config_path()?;
+    let raw = std::fs::read_to_string(path).ok()?;
+    let mut theme: Theme = serde_json::from_str(&raw).ok()?;
+    theme.source = ThemeSource::File;
+    Some(theme)
+}
+
 // ── live probing ──────────────────────────────────────────────────────
 
 /// Probe the terminal theme (OSC 11 background + OSC 10 foreground) with
@@ -442,6 +468,10 @@ pub fn probe_theme() -> Theme {
 
 /// [`probe_theme`] with an explicit timeout.
 pub fn probe_theme_with_timeout(timeout: Duration) -> Theme {
+    // Priority: explicit user file → live OSC probe → cache → built-in.
+    if let Some(theme) = load_theme_file() {
+        return theme;
+    }
     match probe_osc_colors(timeout) {
         (Some(bg), fg) => {
             let theme = derive_theme(bg, fg);
@@ -741,6 +771,64 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         std::env::set_var("XDG_CACHE_HOME", dir.path());
         assert_eq!(fallback_theme().source, ThemeSource::Default);
+        std::env::remove_var("XDG_CACHE_HOME");
+    }
+
+    #[test]
+    fn theme_config_path_uses_xdg_config_home() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        std::env::set_var("XDG_CONFIG_HOME", dir.path());
+        let path = theme_config_path().expect("config home is set");
+        assert_eq!(path, dir.path().join("wf-cli").join("theme.json"));
+        std::env::remove_var("XDG_CONFIG_HOME");
+    }
+
+    #[test]
+    fn explicit_theme_file_wins_over_cache() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        let cfg_dir = tempfile::tempdir().unwrap();
+        let cache_dir = tempfile::tempdir().unwrap();
+        std::env::set_var("XDG_CONFIG_HOME", cfg_dir.path());
+        std::env::set_var("XDG_CACHE_HOME", cache_dir.path());
+
+        // A stale last-known-good snapshot (as if a probe ran before).
+        save_theme_cache(&Theme::dark_default());
+        // The explicit user file requests the light theme.
+        let user = Theme::light_default();
+        let cfg_path = theme_config_path().unwrap();
+        std::fs::create_dir_all(cfg_path.parent().unwrap()).unwrap();
+        std::fs::write(cfg_path, serde_json::to_vec_pretty(&user).unwrap()).unwrap();
+
+        // The probe timeout is irrelevant: the file short-circuits first.
+        let theme = probe_theme_with_timeout(Duration::from_millis(1));
+        assert_eq!(theme.source, ThemeSource::File);
+        assert_eq!(theme.kind, ThemeKind::Light);
+        assert_eq!(theme.bg, user.bg);
+
+        std::env::remove_var("XDG_CONFIG_HOME");
+        std::env::remove_var("XDG_CACHE_HOME");
+    }
+
+    #[test]
+    fn malformed_theme_file_falls_through_to_cache() {
+        let _lock = ENV_LOCK.lock().unwrap();
+        let cfg_dir = tempfile::tempdir().unwrap();
+        let cache_dir = tempfile::tempdir().unwrap();
+        std::env::set_var("XDG_CONFIG_HOME", cfg_dir.path());
+        std::env::set_var("XDG_CACHE_HOME", cache_dir.path());
+        save_theme_cache(&Theme::dark_default());
+        let cfg_path = theme_config_path().unwrap();
+        std::fs::create_dir_all(cfg_path.parent().unwrap()).unwrap();
+        std::fs::write(cfg_path, b"not json {").unwrap();
+
+        let theme = probe_theme_with_timeout(Duration::from_millis(1));
+        // The malformed file is ignored; with no OSC responder the cached
+        // snapshot (CI: the built-in dark theme) is used.
+        assert_ne!(theme.source, ThemeSource::File);
+        assert_eq!(theme.kind, ThemeKind::Dark);
+
+        std::env::remove_var("XDG_CONFIG_HOME");
         std::env::remove_var("XDG_CACHE_HOME");
     }
 

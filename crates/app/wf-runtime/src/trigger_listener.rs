@@ -101,19 +101,30 @@ where
     }
 }
 
-/// Record a trigger execution in the optional durable ledger (management
-/// surface). Best-effort: storage failures are logged, never propagated.
-#[allow(clippy::too_many_arguments)]
-pub(crate) async fn record_trigger_execution(
-    storage: &Option<Arc<dyn TriggerExecutionRecorder>>,
-    template: &TriggerTemplate,
-    event: &BaseEvent,
-    action_type: &str,
+/// Result of one trigger-action execution, recorded to the durable ledger.
+pub(crate) struct TriggerOutcome<'a> {
+    action_type: &'a str,
     success: bool,
     error: Option<String>,
     execution_time_ms: i64,
     child_execution_id: Option<Id>,
+}
+
+/// Record a trigger execution in the optional durable ledger (management
+/// surface). Best-effort: storage failures are logged, never propagated.
+pub(crate) async fn record_trigger_execution(
+    storage: &Option<Arc<dyn TriggerExecutionRecorder>>,
+    template: &TriggerTemplate,
+    event: &BaseEvent,
+    outcome: TriggerOutcome<'_>,
 ) {
+    let TriggerOutcome {
+        action_type,
+        success,
+        error,
+        execution_time_ms,
+        child_execution_id,
+    } = outcome;
     let Some(storage) = storage else {
         return;
     };
@@ -275,18 +286,20 @@ pub fn start_trigger_listener_with_skills(
 /// action ([`AgentTriggerRunner`]); `storage` records trigger executions in
 /// the durable management ledger; `trigger_state_registry` feeds the
 /// checkpoint `trigger_states` audit field.
-#[allow(clippy::too_many_arguments)]
 pub fn start_trigger_listener_with_registry(
     event_bus: Arc<EventBus>,
     registries: Arc<ResourceRegistries>,
     gateway: Arc<LlmGateway>,
     contexts: Arc<ExecutionContextRegistry>,
-    tool_registry: Option<Arc<wf_tools::registry::ToolRegistry>>,
-    sandbox: Option<Arc<wf_sandbox::SandboxRuntime>>,
-    agent_executor: Option<Arc<wf_agent::executor::AgentLoopExecutor>>,
-    storage: Option<Arc<dyn TriggerExecutionRecorder>>,
-    trigger_state_registry: Option<Arc<wf_workflow::TriggerStateRegistry>>,
+    options: ListenerOptions,
 ) -> TriggerListenerHandle {
+    let ListenerOptions {
+        tool_registry,
+        sandbox,
+        agent_executor,
+        storage,
+        trigger_state_registry,
+    } = options;
     let runner: Arc<dyn SubworkflowRunner> = Arc::new(WorkflowRunner::with_tool_registry(
         registries.clone(),
         event_bus.clone(),
@@ -295,7 +308,7 @@ pub fn start_trigger_listener_with_registry(
         tool_registry.clone(),
         sandbox.clone(),
     ));
-    start_trigger_listener_with_parts(
+    start_trigger_listener_with_parts(ListenerDeps {
         event_bus,
         registries,
         contexts,
@@ -306,66 +319,52 @@ pub fn start_trigger_listener_with_registry(
         agent_executor,
         storage,
         trigger_state_registry,
-        None,
-        None,
-        CancellationToken::new(),
-    )
+        hook_registry: None,
+        signal_bus: None,
+        shutdown: CancellationToken::new(),
+    })
 }
 
-/// Like `start_trigger_listener_with_registry`, but with a caller-provided
-/// sub-workflow runner and shutdown token. The runtime bootstrap uses this so
-/// the compression service registered on the hook registry shares the same
-/// runner and shutdown lifecycle as the listener.
-pub fn start_trigger_listener_with_parts(
-    event_bus: Arc<EventBus>,
-    registries: Arc<ResourceRegistries>,
-    contexts: Arc<ExecutionContextRegistry>,
-    runner: Arc<dyn SubworkflowRunner>,
-    gateway: Arc<LlmGateway>,
-    tool_registry: Option<Arc<wf_tools::registry::ToolRegistry>>,
-    sandbox: Option<Arc<wf_sandbox::SandboxRuntime>>,
-    agent_executor: Option<Arc<wf_agent::executor::AgentLoopExecutor>>,
-    storage: Option<Arc<dyn TriggerExecutionRecorder>>,
-    trigger_state_registry: Option<Arc<wf_workflow::TriggerStateRegistry>>,
-    hook_registry: Option<Arc<HookRegistry>>,
-    signal_bus: Option<Arc<InternalSignalBus>>,
-    shutdown: CancellationToken,
-) -> TriggerListenerHandle {
-    spawn_listener(ListenerDeps {
-        event_bus,
-        registries,
-        contexts,
-        runner,
-        gateway,
-        tool_registry,
-        sandbox,
-        agent_executor,
-        storage,
-        trigger_state_registry,
-        hook_registry,
-        signal_bus,
-        shutdown,
-    })
+/// Like `start_trigger_listener_with_registry`, but takes a fully-assembled
+/// [`ListenerDeps`] (caller-provided sub-workflow runner, shutdown token, hook
+/// registry and signal bus). The runtime bootstrap uses this so the compression
+/// service registered on the hook registry shares the same runner and shutdown
+/// lifecycle as the listener.
+pub(crate) fn start_trigger_listener_with_parts(deps: ListenerDeps) -> TriggerListenerHandle {
+    spawn_listener(deps)
+}
+
+/// Optional engine collaborators for [`start_trigger_listener_with_registry`]:
+/// the shared tool registry / sandbox used to build the sub-workflow runner,
+/// plus the nested-agent executor and durable-ledger components. Every field
+/// defaults to `None` for the plain wiring.
+#[derive(Default)]
+pub struct ListenerOptions {
+    pub tool_registry: Option<Arc<wf_tools::registry::ToolRegistry>>,
+    pub sandbox: Option<Arc<wf_sandbox::SandboxRuntime>>,
+    pub agent_executor: Option<Arc<wf_agent::executor::AgentLoopExecutor>>,
+    pub storage: Option<Arc<dyn TriggerExecutionRecorder>>,
+    pub trigger_state_registry: Option<Arc<wf_workflow::TriggerStateRegistry>>,
 }
 
 /// Bundled dependencies for starting the listener loop: the shared buses,
 /// registries and optional engine components every triggered action can
 /// reach. Keeps the listener wiring signatures readable as the dependency
 /// set grows.
-struct ListenerDeps {
-    event_bus: Arc<EventBus>,
-    registries: Arc<ResourceRegistries>,
-    contexts: Arc<ExecutionContextRegistry>,
-    runner: Arc<dyn SubworkflowRunner>,
-    gateway: Arc<LlmGateway>,
-    tool_registry: Option<Arc<wf_tools::registry::ToolRegistry>>,
-    sandbox: Option<Arc<wf_sandbox::SandboxRuntime>>,
-    agent_executor: Option<Arc<wf_agent::executor::AgentLoopExecutor>>,
-    storage: Option<Arc<dyn TriggerExecutionRecorder>>,
-    trigger_state_registry: Option<Arc<wf_workflow::TriggerStateRegistry>>,
-    hook_registry: Option<Arc<HookRegistry>>,
-    signal_bus: Option<Arc<InternalSignalBus>>,
-    shutdown: CancellationToken,
+pub(crate) struct ListenerDeps {
+    pub(crate) event_bus: Arc<EventBus>,
+    pub(crate) registries: Arc<ResourceRegistries>,
+    pub(crate) contexts: Arc<ExecutionContextRegistry>,
+    pub(crate) runner: Arc<dyn SubworkflowRunner>,
+    pub(crate) gateway: Arc<LlmGateway>,
+    pub(crate) tool_registry: Option<Arc<wf_tools::registry::ToolRegistry>>,
+    pub(crate) sandbox: Option<Arc<wf_sandbox::SandboxRuntime>>,
+    pub(crate) agent_executor: Option<Arc<wf_agent::executor::AgentLoopExecutor>>,
+    pub(crate) storage: Option<Arc<dyn TriggerExecutionRecorder>>,
+    pub(crate) trigger_state_registry: Option<Arc<wf_workflow::TriggerStateRegistry>>,
+    pub(crate) hook_registry: Option<Arc<HookRegistry>>,
+    pub(crate) signal_bus: Option<Arc<InternalSignalBus>>,
+    pub(crate) shutdown: CancellationToken,
 }
 
 fn spawn_listener(deps: ListenerDeps) -> TriggerListenerHandle {
@@ -481,6 +480,15 @@ fn executor_agent_registry(
     executor.agent_registry().clone()
 }
 
+/// Durable-ledger collaborators threaded into a trigger-action runner: the
+/// optional execution recorder and the checkpoint trigger-state registry. Both
+/// default to `None` for engine wiring that does not persist trigger runs.
+#[derive(Default)]
+pub struct TriggerLedger {
+    pub storage: Option<Arc<dyn TriggerExecutionRecorder>>,
+    pub trigger_state_registry: Option<Arc<wf_workflow::TriggerStateRegistry>>,
+}
+
 /// Build the builtin context-compression hook receiver and register it on
 /// the shared hook registry under the `CONTEXT_COMPRESSION_REQUESTED` signal
 /// point.
@@ -488,7 +496,6 @@ fn executor_agent_registry(
 /// Returns the registered service (kept alive by the registry; the returned
 /// handle is optional). The service shares the listener's shutdown token so
 /// in-flight summary sub-workflows are stopped at runtime shutdown.
-#[allow(clippy::too_many_arguments)]
 pub fn register_compression_receiver(
     registry: &HookRegistry,
     event_bus: Arc<EventBus>,
@@ -496,8 +503,7 @@ pub fn register_compression_receiver(
     contexts: Arc<ExecutionContextRegistry>,
     summary_workflow_id: String,
     shutdown: CancellationToken,
-    storage: Option<Arc<dyn TriggerExecutionRecorder>>,
-    trigger_state_registry: Option<Arc<wf_workflow::TriggerStateRegistry>>,
+    ledger: TriggerLedger,
 ) -> Arc<CompressionService> {
     let mut service = CompressionService::with_storage(
         event_bus,
@@ -505,9 +511,9 @@ pub fn register_compression_receiver(
         contexts,
         summary_workflow_id,
         shutdown,
-        storage,
+        ledger.storage,
     );
-    if let Some(registry) = trigger_state_registry {
+    if let Some(registry) = ledger.trigger_state_registry {
         service = service.with_trigger_state_registry(registry);
     }
     let service = Arc::new(service);
@@ -579,7 +585,7 @@ mod tests {
     /// must fail loudly instead of spinning forever.
     async fn wait_for_listener(bus: &EventBus, expected_receivers: usize) {
         for _ in 0..200 {
-            if bus.receiver_count() >= expected_receivers {
+            if bus.total_receiver_count() >= expected_receivers {
                 return;
             }
             tokio::time::sleep(Duration::from_millis(10)).await;
@@ -587,7 +593,7 @@ mod tests {
         panic!(
             "expected {} receivers within 2s, got {}",
             expected_receivers,
-            bus.receiver_count()
+            bus.total_receiver_count()
         );
     }
 
@@ -708,11 +714,10 @@ mod tests {
             registries.clone(),
             gateway,
             contexts,
-            None,
-            None,
-            Some(agent_executor.clone()),
-            None,
-            None,
+            ListenerOptions {
+                agent_executor: Some(agent_executor.clone()),
+                ..Default::default()
+            },
         );
         wait_for_listener(&bus, 1).await;
 
@@ -809,11 +814,10 @@ mod tests {
             registries.clone(),
             gateway,
             contexts,
-            None,
-            None,
-            Some(agent_executor.clone()),
-            None,
-            None,
+            ListenerOptions {
+                agent_executor: Some(agent_executor.clone()),
+                ..Default::default()
+            },
         );
         wait_for_listener(&bus, 1).await;
         // The listener's subscription is live only after `wait_for_listener`
@@ -952,8 +956,7 @@ mod tests {
             contexts.clone(),
             wf_resource::predefined::workflow::LLM_SUMMARY_WORKFLOW_ID.to_string(),
             CancellationToken::new(),
-            None,
-            None,
+            TriggerLedger::default(),
         );
 
         // 4. Main workflow: an LLM node reading the "chat" named context
@@ -1153,11 +1156,12 @@ mod tests {
             registries.clone(),
             gateway,
             contexts,
-            None,
-            None,
-            Some(agent_executor.clone()),
-            Some(recorder.clone() as Arc<dyn TriggerExecutionRecorder>),
-            Some(trigger_states.clone()),
+            ListenerOptions {
+                agent_executor: Some(agent_executor.clone()),
+                storage: Some(recorder.clone() as Arc<dyn TriggerExecutionRecorder>),
+                trigger_state_registry: Some(trigger_states.clone()),
+                ..Default::default()
+            },
         );
         wait_for_listener(&bus, 1).await;
 
@@ -1239,8 +1243,7 @@ mod tests {
             contexts.clone(),
             wf_resource::predefined::workflow::LLM_SUMMARY_WORKFLOW_ID.to_string(),
             CancellationToken::new(),
-            None,
-            None,
+            TriggerLedger::default(),
         );
 
         // A short array stays within the limit: no compression requested.
@@ -1352,8 +1355,7 @@ mod tests {
             contexts.clone(),
             wf_resource::predefined::workflow::LLM_SUMMARY_WORKFLOW_ID.to_string(),
             CancellationToken::new(),
-            None,
-            None,
+            TriggerLedger::default(),
         );
 
         // A valid compression payload (message snapshot present).

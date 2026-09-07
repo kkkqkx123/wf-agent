@@ -51,7 +51,7 @@ pub use error_analysis::{
 };
 pub use execution_callback::WorkflowExecutionCallback;
 pub use execution_context::{ExecutionContextRegistry, WriteBackError};
-pub use executor::WorkflowExecutor;
+pub use executor::{WorkflowExecutor, WorkflowRunRequest};
 pub use factory::WorkflowExecutionBuilder;
 pub use handler::{
     agent_loop::AgentLoopHandler,

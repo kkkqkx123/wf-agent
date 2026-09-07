@@ -1,7 +1,7 @@
 # wf-cli 剩余问题 - 全屏 TUI 深化方案
 
-> 状态：方案设计 / 待评审
-> 日期：2026-09-02
+> 状态：已落地 / 归档（2026-09-06 复核：E1–E4 完整落地，E5/E6 部分落地；剩余与决策记录见 `docs/issue/wf-cli-stage7-剩余问题-运行时冒烟收尾-分析与修改方案.md`）
+> 日期：2026-09-02（2026-09-06 复核同步）
 > 范围：`crates/app/wf-cli` 全屏 TUI（Stage 7）的联调与硬化
 > 关联文档：`docs/plan/cli/wf-cli-剩余问题-分阶段深化总览.md`、`docs/plan/cli/wf-cli-分阶段实现方案.md:Stage7`、`docs/cli/02-ui布局与页面划分.md`、`docs/cli/03-组件设计方案.md`、`docs/cli/04-终端交互设计.md`、`docs/cli/05-opencode-mini模式与无头模式设计.md`
 > 源码锚点：`crates/app/wf-cli/src/screens.rs:1` / `modal.rs:1` / `tui.rs:16` / `terminal.rs:1` / `theme.rs:1` / `replay.rs:1` / `lib.rs:244` `run_interactive` / `wf-api/src/workflow/*` / `wf-api/src/infra/events.rs`
@@ -10,23 +10,23 @@
 
 ## 一、现状与剩余问题
 
-### 1.1 已完成（骨架）
+### 1.1 已完成（原始骨架，2026-09-02 事实，后随阶段落地演进）
 
 - `screens.rs:1` 实现 8 屏枚举 `ScreenKind::{Dashboard, Workflow, Executions, Session, Checkpoints, Search, Settings, Help}` + `Screens` 栈（`push/pop/depth/selected/select_next/select_prev/navigate_to/go_back`）+ `draw` 的占位渲染（`Block + Paragraph/List`，`Dashboard` 的 `selected` 高亮、`Session` 的 `Layout [Min(5), Length(3)]` 输入占位）。
 - `modal.rs:1` 实现 `Modal` trait + `ModalStack` + `ConfirmModal`（`y/n/q/Esc`）+ `HelpModal`（`Esc/q/?`）+ `centered_rect(60,30)` 布局。
 - `tui.rs:16` 实现 `TuiApp { adapter, screens, modals }` 的 `TerminalGuard::enter(TUI) → Terminal::new(CrosstermBackend) → event_loop(poll 100ms)` 循环，键映射 `map_key(CKey)` + `digit_to_screen`（`1-8` 切屏）+ `j/k/Up/Down` 导航 + `Enter` 下钻 + `q/Esc` 返回/退出 + `?` 弹窗 + `Ctrl-C` 退出 + `Resize` 重绘。
 - `lib.rs:244` `run_interactive` 的 `Tui` 分支已从 `Configuration("full TUI not yet implemented")` 改为 `TuiApp::new(adapter).run().await`。
 
-### 1.2 剩余问题
+### 1.2 各阶段落地状态（2026-09-06 复核同步）
 
-| 编号 | 层 | 现状 | 剩余缺口 | 影响 |
+| 编号 | 层 | 落地状态（代码锚点为复核时行号） | 剩余缺口 / 决策记录 | 影响 |
 | :--- | :--- | :--- | :--- | :--- |
-| E1 | 屏幕数据 | 8 屏均为静态占位文本，未接 `DomainAdapter` 真实数据 | 未调用 `workflow_summaries / agent_loop_registry::summaries / checkpoint::list / search` 等；`Workflow/Executions` 列表为空；`Search` 无输入框 | TUI 无业务价值 |
-| E2 | 模态框 | 仅 `Confirm/Help`，缺 `FileViewer/DiffViewer/ModelPicker/SessionPicker/PasswordModal/FileSelectionDialog` 等 02 文档要求的 6+ 模态 | 未实现 `Modal` 的 `on_confirm` 异步回填；缺 `oneshot` 结果通道（03 文档 `Modal trait + oneshot`） | 删除/凭证/文件选择无法交互 |
-| E3 | 会话屏幕 | `Session` 为 `Placeholder` 日志 + `>` 输入框，未接 `workflow_execution::stream` 的 `ExecutionStreamEvent` 流式 | 未复用 `run.rs:402` 的 `SessionRenderer` + `reducer.rs:14` 的 `MiniCommit` + `markdown.rs:14` 的 `MarkdownStream` | 无法前台运行 |
-| E4 | 执行跟踪 | `Executions` 为静态文本，未实现 `ExecutionType` 统一过滤（`Workflow + AgentLoop`）与 `status` 过滤 | 未暴露 `ExecutionType::{Workflow, AgentLoop}` 的统一列表；缺 `execution list --status` 的 TUI 侧 `Filter` 组件 | 执行跟踪与 headless 不一致 |
-| E5 | 状态与重放 | 缺 `replay.rs` 的 `Partial/Complete/LoadingBeginning` 分页补载与 `resize` 后的 `reflow` | 未实现 `scrollback.rs:HistoryLine` 的 `display_lines(width)/reflow` 在 TUI 侧的宽度键控缓存；长会话滚动到顶部不补载 | 长会话截断 |
-| E6 | 终端与性能 | `tui.rs:70` 的 `poll 100ms` 未与 `FrameRequester` 限帧联动；未处理 `SIGTSTP/SIGCONT` 挂起恢复 | 未复用 `framer.rs:FrameRequester` 的 `30-60fps` 限帧；`size.rs:ResizeDebouncer` 的 `75ms` 防抖未接入 | 帧率抖动、resize 闪烁 |
+| E1 | 屏幕数据 | ✅ 已落地：各屏 `draw_*` 已接 `ScreenData`，`tui.rs:821 fetch_for` 真实调用 `wf_api`（workflow / execution / checkpoint / search 数据面） | 无 | — |
+| E2 | 模态框 | ✅ 已落地：`modal.rs` 8 个模态 + `ModalStack::push_with_result`(82) + `is_transparent`(40) | 无 | — |
+| E3 | 会话屏幕 | ✅ 已落地：`session.rs::SessionController` 完整移植（reducer / markdown / footer 管线），`tui.rs` 路由 `session.draw(frame, area, &theme)` | 无 | — |
+| E4 | 执行跟踪 | ✅ 已落地：`tui.rs:900 fetch_executions` 带 `ExecStatusFilter`；Enter → replay 下钻（`tui.rs:405 apply_pending_replay` → `session.rs:237 load_replay`） | 无 | — |
+| E5 | 状态与重放 | ◐ 部分落地：`session.rs:70 ReplayPhase{LoadingBeginning, Complete}` + 后台拉取整页替换已实现（`session.rs:237 load_replay`）；**cursor 分页补载未做** | `Partial` 仅为注释预留；依赖存储层游标 API（复核文档 §8.1 决策 + issue 归档 I4 开放项，不私自造游标） | 超长会话全量拉取的内存 / 时延成本 |
+| E6 | 终端与性能 | ✅ 已落地：`FrameRequester` 限帧 + `dirty` 标记（`tui.rs` 事件循环 `deadline()`）；resize 防抖（`size.rs:69 settle_if_elapsed`）；SIGTSTP / Ctrl-Z 挂起恢复（`tui.rs:339 check_suspend`）；SIGUSR2 主题热更新（`tui.rs:183-190 / 303-307`，用户主题文件源 `theme.rs load_theme_file`，File > probe > cache） | 模态配色不跟随热更新（issue 归档 I6：维持内置回退主题并文档声明，选 B） | 热更新后 Session 屏与模态配色不一致（低收益，已声明） |
 
 ---
 

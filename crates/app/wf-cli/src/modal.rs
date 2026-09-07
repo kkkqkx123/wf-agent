@@ -18,6 +18,12 @@ use tokio::sync::oneshot;
 
 use crate::keymap::{CKey, Key};
 use crate::select::{Group, GroupItem, NavigateDir, SelectList};
+use crate::theme::{Rgb, Theme};
+
+/// Convert one theme color value into a ratatui color.
+fn to_color(rgb: Rgb) -> Color {
+    Color::Rgb(rgb.r, rgb.g, rgb.b)
+}
 
 /// Result of a modal interaction.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -32,7 +38,7 @@ pub enum ModalResult {
 /// Behavior of a modal component.
 pub trait Modal {
     fn title(&self) -> &str;
-    fn draw(&self, frame: &mut Frame, area: Rect);
+    fn draw(&self, frame: &mut Frame, area: Rect, theme: &Theme);
     fn handle_key(&mut self, key: Key) -> ModalAction;
     /// Transparent modals skip the `Clear` pass so the underlying screen keeps
     /// showing through the overlay. Overlays that must fully hide the screen
@@ -115,14 +121,14 @@ impl ModalStack {
             .map(|entry| entry.modal.as_mut() as &mut (dyn Modal + Send))
     }
 
-    pub fn draw(&self, frame: &mut Frame, area: Rect) {
+    pub fn draw(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
         let Some(top) = self.stack.last() else {
             return;
         };
         if !top.modal.is_transparent() {
             frame.render_widget(Clear, area);
         }
-        top.modal.draw(frame, area);
+        top.modal.draw(frame, area, theme);
     }
 
     pub fn handle_key(&mut self, key: Key) -> Option<ModalResult> {
@@ -211,11 +217,12 @@ fn render_viewer(
     hint: &str,
     rows: &[Line<'static>],
     scroll: &Scroll,
+    theme: &Theme,
 ) {
     let outer = Block::default()
         .title(format!(" {title} "))
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::Cyan));
+        .border_style(Style::default().fg(to_color(theme.accent)));
     let inner = outer.inner(area);
     frame.render_widget(outer, area);
 
@@ -239,7 +246,8 @@ fn render_viewer(
         format!("({}/{})", scroll.offset + 1, rows.len())
     };
     frame.render_widget(
-        Paragraph::new(format!("{position}  {hint}")).style(Style::default().fg(Color::DarkGray)),
+        Paragraph::new(format!("{position}  {hint}"))
+            .style(Style::default().fg(to_color(theme.muted))),
         chunks[1],
     );
 }
@@ -268,14 +276,14 @@ impl Modal for ConfirmModal {
         &self.title
     }
 
-    fn draw(&self, frame: &mut Frame, area: Rect) {
+    fn draw(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
         let block = Block::default()
             .title(self.title.clone())
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Yellow));
+            .border_style(Style::default().fg(to_color(theme.warning)));
         let paragraph = Paragraph::new(format!("{}\n\n[y] confirm / [n] cancel", self.message))
             .block(block)
-            .style(Style::default().fg(Color::White))
+            .style(Style::default().fg(to_color(theme.fg)))
             .wrap(Wrap { trim: false });
         let centered = centered_rect(60, 30, area);
         frame.render_widget(paragraph, centered);
@@ -306,13 +314,15 @@ impl Modal for HelpModal {
         true
     }
 
-    fn draw(&self, frame: &mut Frame, area: Rect) {
-        let help_text = "Keys:\n  q / Esc - quit / close\n  1-8 - switch screens\n  ? - help\n  j/k - navigate\n  Enter - select\n  y/n - confirm/cancel";
+    fn draw(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
+        let help_text = "Keys:\n  q / Esc - quit / close\n  1-8 - switch screens\n  ? - help\n  j/k - navigate\n  Enter - select\n  y/n - confirm/cancel\n  Ctrl-Z - suspend (fg to resume)";
         let block = Block::default()
             .title(" Help (?) ")
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Cyan));
-        let paragraph = Paragraph::new(help_text).block(block);
+            .border_style(Style::default().fg(to_color(theme.accent)));
+        let paragraph = Paragraph::new(help_text)
+            .block(block)
+            .style(Style::default().fg(to_color(theme.fg)));
         let centered = centered_rect(70, 60, area);
         // Transparent: no Clear, the underlying screen stays visible.
         frame.render_widget(paragraph, centered);
@@ -379,7 +389,7 @@ impl Modal for FileViewer {
         &self.title
     }
 
-    fn draw(&self, frame: &mut Frame, area: Rect) {
+    fn draw(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
         render_viewer(
             frame,
             area,
@@ -387,6 +397,7 @@ impl Modal for FileViewer {
             "j/k scroll · PgUp/PgDn page · Home/End · q close",
             &self.rows,
             &self.scroll,
+            theme,
         );
     }
 
@@ -412,12 +423,12 @@ pub enum DiffSign {
 }
 
 impl DiffSign {
-    fn style(&self) -> Style {
+    fn style(&self, theme: &Theme) -> Style {
         match self {
-            Self::Add => Style::default().fg(Color::Green),
-            Self::Remove => Style::default().fg(Color::Red),
-            Self::Hunk => Style::default().fg(Color::Cyan),
-            Self::Context => Style::default().fg(Color::White),
+            Self::Add => Style::default().fg(to_color(theme.add)),
+            Self::Remove => Style::default().fg(to_color(theme.remove)),
+            Self::Hunk => Style::default().fg(to_color(theme.accent)),
+            Self::Context => Style::default().fg(to_color(theme.fg)),
         }
     }
 }
@@ -432,16 +443,12 @@ pub struct DiffRow {
 /// Side-free diff viewer: unified diff in, coloured rows out.
 pub struct DiffViewer {
     title: String,
-    rows: Vec<Line<'static>>,
+    rows: Vec<DiffRow>,
     scroll: Scroll,
 }
 
 impl DiffViewer {
     pub fn new(title: impl Into<String>, rows: Vec<DiffRow>) -> Self {
-        let rows = rows
-            .iter()
-            .map(|row| Line::from(Span::styled(row.text.clone(), row.sign.style())))
-            .collect();
         Self {
             title: title.into(),
             rows,
@@ -472,6 +479,14 @@ impl DiffViewer {
     pub fn row_count(&self) -> usize {
         self.rows.len()
     }
+
+    /// Theme-coloured display lines for the current diff.
+    fn display_lines(&self, theme: &Theme) -> Vec<Line<'static>> {
+        self.rows
+            .iter()
+            .map(|row| Line::from(Span::styled(row.text.clone(), row.sign.style(theme))))
+            .collect()
+    }
 }
 
 impl Modal for DiffViewer {
@@ -479,14 +494,16 @@ impl Modal for DiffViewer {
         &self.title
     }
 
-    fn draw(&self, frame: &mut Frame, area: Rect) {
+    fn draw(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
+        let rows = self.display_lines(theme);
         render_viewer(
             frame,
             area,
             &self.title,
             "j/k scroll · PgUp/PgDn page · Home/End · q close",
-            &self.rows,
+            &rows,
             &self.scroll,
+            theme,
         );
     }
 
@@ -580,11 +597,12 @@ fn render_picker(
     hint: &str,
     list: &SelectList<String>,
     filter: &str,
+    theme: &Theme,
 ) {
     let outer = Block::default()
         .title(format!(" {title} "))
         .borders(Borders::ALL)
-        .border_style(Style::default().fg(Color::Magenta));
+        .border_style(Style::default().fg(to_color(theme.accent)));
     let inner = outer.inner(area);
     frame.render_widget(outer, area);
 
@@ -598,14 +616,14 @@ fn render_picker(
         .split(inner);
 
     frame.render_widget(
-        Paragraph::new(format!("/{filter}")).style(Style::default().fg(Color::DarkGray)),
+        Paragraph::new(format!("/{filter}")).style(Style::default().fg(to_color(theme.muted))),
         chunks[0],
     );
     let rows = list.render_lines(chunks[1].width, chunks[1].height);
     frame.render_widget(Paragraph::new(rows), chunks[1]);
     frame.render_widget(
         Paragraph::new(format!("{}  {}", list.position_string(), hint))
-            .style(Style::default().fg(Color::DarkGray)),
+            .style(Style::default().fg(to_color(theme.muted))),
         chunks[2],
     );
 }
@@ -633,7 +651,7 @@ impl Modal for ModelPicker {
         "Select model"
     }
 
-    fn draw(&self, frame: &mut Frame, area: Rect) {
+    fn draw(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
         let centered = centered_rect(70, 70, area);
         render_picker(
             frame,
@@ -642,6 +660,7 @@ impl Modal for ModelPicker {
             "type to filter · j/k move · Enter apply · Esc cancel",
             &self.core.list,
             &self.core.filter,
+            theme,
         );
     }
 
@@ -676,7 +695,7 @@ impl Modal for SessionPicker {
         "Open session"
     }
 
-    fn draw(&self, frame: &mut Frame, area: Rect) {
+    fn draw(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
         let centered = centered_rect(70, 70, area);
         render_picker(
             frame,
@@ -685,6 +704,7 @@ impl Modal for SessionPicker {
             "type to filter · j/k move · Enter open · Esc cancel",
             &self.core.list,
             &self.core.filter,
+            theme,
         );
     }
 
@@ -731,11 +751,11 @@ impl Modal for PasswordModal {
         &self.title
     }
 
-    fn draw(&self, frame: &mut Frame, area: Rect) {
+    fn draw(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
         let block = Block::default()
             .title(format!(" {} ", self.title))
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Red));
+            .border_style(Style::default().fg(to_color(theme.error)));
         let body = format!(
             "{}\n\n> {}\n\nEnter submit · Esc cancel",
             self.prompt,
@@ -743,7 +763,7 @@ impl Modal for PasswordModal {
         );
         let paragraph = Paragraph::new(body)
             .block(block)
-            .style(Style::default().add_modifier(Modifier::BOLD));
+            .style(Style::default().fg(to_color(theme.fg)).add_modifier(Modifier::BOLD));
         let centered = centered_rect(60, 30, area);
         frame.render_widget(paragraph, centered);
     }
@@ -857,11 +877,11 @@ impl Modal for FileSelectionDialog {
         &self.title
     }
 
-    fn draw(&self, frame: &mut Frame, area: Rect) {
+    fn draw(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
         let outer = Block::default()
             .title(format!(" {} ", self.title))
             .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Blue));
+            .border_style(Style::default().fg(to_color(theme.accent)));
         let inner = outer.inner(area);
         frame.render_widget(outer, area);
 
@@ -876,14 +896,14 @@ impl Modal for FileSelectionDialog {
 
         frame.render_widget(
             Paragraph::new(format!("{}  /{}", self.root.display(), self.filter))
-                .style(Style::default().fg(Color::DarkGray)),
+                .style(Style::default().fg(to_color(theme.muted))),
             chunks[0],
         );
         let rows = self.list.render_lines(chunks[1].width, chunks[1].height);
         frame.render_widget(Paragraph::new(rows), chunks[1]);
         frame.render_widget(
             Paragraph::new("type to filter · j/k move · Enter open · Esc cancel")
-                .style(Style::default().fg(Color::DarkGray)),
+                .style(Style::default().fg(to_color(theme.muted))),
             chunks[2],
         );
     }

@@ -241,7 +241,7 @@ pub fn filter_candidates(candidates: &[String], query: &str) -> Vec<String> {
         .filter_map(|c| fuzzy_score(&needle, &c.to_ascii_lowercase()).map(|s| (s, c)))
         .collect();
     // Higher score first; ties keep the original order (stable sort).
-    scored.sort_by(|a, b| b.0.cmp(&a.0));
+    scored.sort_by_key(|item| std::cmp::Reverse(item.0));
     scored.into_iter().map(|(_, c)| c.clone()).collect()
 }
 

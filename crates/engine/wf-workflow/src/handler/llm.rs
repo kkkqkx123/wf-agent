@@ -121,13 +121,7 @@ async fn publish_forced_compression(ctx: &NodeExecutionContext, request: &LlmReq
         wf_llm::build_context_compression_requested_event(
             &ctx.execution_id,
             None,
-            compression_request.target_context_id,
-            compression_request.tokens_used,
-            compression_request.token_limit,
-            compression_request.message_count,
-            compression_request.array_version,
-            compression_request.forced,
-            Some(compression_request.messages),
+            &compression_request,
         ),
         &format!(
             "workflow={} llm={} forced-compression",
@@ -316,13 +310,7 @@ async fn emit_token_usage_events(ctx: &NodeExecutionContext, warning_threshold: 
             let mut event = wf_llm::build_context_compression_requested_event(
                 &ctx.execution_id,
                 None,
-                compression_request.target_context_id,
-                compression_request.tokens_used,
-                compression_request.token_limit,
-                compression_request.message_count,
-                compression_request.array_version,
-                compression_request.forced,
-                Some(compression_request.messages),
+                &compression_request,
             );
             if injected_count > 0 {
                 if let Some(meta) = event.metadata.as_mut() {

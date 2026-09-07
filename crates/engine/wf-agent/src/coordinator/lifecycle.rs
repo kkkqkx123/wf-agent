@@ -40,6 +40,28 @@ use crate::registry::AgentLoopRegistry;
 use crate::stream::{AgentEventSink, AgentEventStream, AgentStreamEvent};
 use tokio::sync::RwLock;
 
+/// How a run error settles the terminal state of an agent loop.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SettleKind {
+    Timeout,
+    Cancel,
+    Fail,
+}
+
+/// Decide the terminal settle for a run error. When the host runtime is
+/// closing (`active_shutdown`), an in-flight run must not be turned into a
+/// spurious `Failed`: cancel it so no failure is dispatched or persisted for
+/// an execution the user deliberately left.
+fn settle_kind(err: &AgentError, active_shutdown: bool) -> SettleKind {
+    if active_shutdown {
+        SettleKind::Cancel
+    } else if matches!(err, AgentError::ExecutionTimeout(_)) {
+        SettleKind::Timeout
+    } else {
+        SettleKind::Fail
+    }
+}
+
 /// Per-iteration `AgentExecution` record persister backed by the shared
 /// execution state manager.
 struct AgentRecordPersister {
@@ -561,22 +583,33 @@ impl AgentLoopCoordinator {
                 let duration_ms = (wf_common::now() - start) as f64;
                 // Settle the terminal state. An explicit stop already reached
                 // a terminal state through the entity's `stop()`; a wall-clock
-                // or pause timeout lands on `Timeout`; everything else fails.
+                // or pause timeout lands on `Timeout`; an active host shutdown
+                // cancels instead of failing; everything else fails.
                 let status = entity.state.read().await.status();
                 if !status.is_terminal() {
-                    if matches!(e, AgentError::ExecutionTimeout(_)) {
-                        AgentLoopStateTransitor::timeout_agent_loop(
-                            &entity,
-                            self.event_bus.as_deref(),
-                        )
-                        .await?;
-                    } else {
-                        AgentLoopStateTransitor::fail_agent_loop(
-                            &entity,
-                            e.to_string(),
-                            self.event_bus.as_deref(),
-                        )
-                        .await?;
+                    match settle_kind(&e, wf_common::shutdown::is_active_shutdown()) {
+                        SettleKind::Timeout => {
+                            AgentLoopStateTransitor::timeout_agent_loop(
+                                &entity,
+                                self.event_bus.as_deref(),
+                            )
+                            .await?
+                        }
+                        SettleKind::Cancel => {
+                            AgentLoopStateTransitor::cancel_agent_loop(
+                                &entity,
+                                self.event_bus.as_deref(),
+                            )
+                            .await?
+                        }
+                        SettleKind::Fail => {
+                            AgentLoopStateTransitor::fail_agent_loop(
+                                &entity,
+                                e.to_string(),
+                                self.event_bus.as_deref(),
+                            )
+                            .await?
+                        }
                     }
                 }
                 // Snapshot the settled terminal status with a trigger that
@@ -847,5 +880,31 @@ impl AgentLoopCoordinator {
         });
 
         AgentEventStream::new(rx).with_task(task)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn settle_kind_fails_on_generic_errors_when_running() {
+        let err = AgentError::ExecutionError("boom".to_string());
+        assert_eq!(settle_kind(&err, false), SettleKind::Fail);
+    }
+
+    #[test]
+    fn settle_kind_timeouts_only_while_running() {
+        let err = AgentError::ExecutionTimeout("slow".to_string());
+        assert_eq!(settle_kind(&err, false), SettleKind::Timeout);
+        // While the host is closing, even a timeout settles as a cancel so
+        // no spurious failure is recorded for a run the user left behind.
+        assert_eq!(settle_kind(&err, true), SettleKind::Cancel);
+    }
+
+    #[test]
+    fn settle_kind_cancels_every_error_during_active_shutdown() {
+        let err = AgentError::ExecutionError("teardown".to_string());
+        assert_eq!(settle_kind(&err, true), SettleKind::Cancel);
     }
 }

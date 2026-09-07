@@ -23,7 +23,7 @@ use wf_types::Id;
 use wf_workflow::error::{WorkflowError, WorkflowResult};
 use wf_workflow::trigger_listener::TriggerActionRunner;
 
-use super::{record_trigger_execution, TriggerExecutionRecorder};
+use super::{record_trigger_execution, TriggerExecutionRecorder, TriggerOutcome};
 
 /// The nested-agent-execution trigger action: the concrete
 /// [`TriggerActionRunner`] behind `TriggerAction::ExecuteTriggeredAgentExecution`.
@@ -253,11 +253,13 @@ impl TriggerActionRunner for AgentTriggerRunner {
             &self.storage,
             template,
             event,
-            action_type,
-            success,
-            error.clone(),
-            wf_common::now() - start,
-            Some(child_execution_id),
+            TriggerOutcome {
+                action_type,
+                success,
+                error: error.clone(),
+                execution_time_ms: wf_common::now() - start,
+                child_execution_id: Some(child_execution_id),
+            },
         )
         .await;
         if success {

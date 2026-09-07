@@ -8,26 +8,28 @@ use crate::cmd::render::render_envelope;
 use crate::error::{CliError, CliResult};
 use crate::output::OutputEnvelope;
 
-#[allow(clippy::too_many_arguments)]
-pub async fn run(
-    cli: &Cli,
-    status: Option<&str>,
-    workflow_id: Option<&str>,
-    limit: Option<usize>,
-    sort: Option<&str>,
-    desc: bool,
-    offset: Option<usize>,
-    aggregate: Option<&str>,
-    export: Option<&str>,
-    filter: Option<&str>,
-) -> CliResult<()> {
+/// Filter, pagination, and post-processing options for `wf query`.
+#[derive(Debug, Default)]
+pub struct QueryOptions<'a> {
+    pub status: Option<&'a str>,
+    pub workflow_id: Option<&'a str>,
+    pub limit: Option<usize>,
+    pub sort: Option<&'a str>,
+    pub desc: bool,
+    pub offset: Option<usize>,
+    pub aggregate: Option<&'a str>,
+    pub export: Option<&'a str>,
+    pub filter: Option<&'a str>,
+}
+
+pub async fn run(cli: &Cli, opts: QueryOptions<'_>) -> CliResult<()> {
     let adapter =
         crate::domain::DomainAdapter::bootstrap_for_cli(cli, crate::mode::CliMode::Run).await?;
     let ctx = adapter.api_context();
 
     let filters = FilterCriteria {
-        workflow_id: workflow_id.map(String::from),
-        status: status.map(String::from),
+        workflow_id: opts.workflow_id.map(String::from),
+        status: opts.status.map(String::from),
         start_time_from: None,
         start_time_to: None,
         tags: None,
@@ -35,25 +37,25 @@ pub async fn run(
     };
 
     let pagination = PaginationOptions {
-        limit: limit.unwrap_or(query::DEFAULT_QUERY_LIMIT),
-        offset: offset.unwrap_or(0),
+        limit: opts.limit.unwrap_or(query::DEFAULT_QUERY_LIMIT),
+        offset: opts.offset.unwrap_or(0),
     };
 
-    let sort_opts = sort.map(|field| SortOptions {
+    let sort_opts = opts.sort.map(|field| SortOptions {
         field: field.to_string(),
-        descending: desc,
+        descending: opts.desc,
     });
 
     let mut records =
         query::query(ctx, Some(&filters), sort_opts.as_ref(), Some(&pagination)).await?;
 
-    if let Some(expr_str) = filter {
+    if let Some(expr_str) = opts.filter {
         if let Ok(expr) = parse_filter_expr(expr_str) {
             records = query::apply_filter_expressions(&records, &[expr]);
         }
     }
 
-    if let Some(agg) = aggregate {
+    if let Some(agg) = opts.aggregate {
         let op = parse_aggregate(agg)?;
         let result = query::aggregate(&records, &[op]);
         let data = serde_json::to_value(&result)?;
@@ -63,7 +65,7 @@ pub async fn run(
         return Ok(());
     }
 
-    if let Some(fmt) = export {
+    if let Some(fmt) = opts.export {
         let format = match fmt.to_ascii_lowercase().as_str() {
             "json" => ExportFormat::Json,
             "csv" => ExportFormat::Csv,

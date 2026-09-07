@@ -25,7 +25,7 @@ use crate::mode::{detect_all, ModeInfo};
 use crate::storage_manager::StorageManager;
 use crate::trigger_listener::{
     register_compression_receiver, start_trigger_listener_with_parts, ExecutionContextRegistry,
-    TriggerExecutionRecorder, WorkflowRunner,
+    ListenerDeps, TriggerExecutionRecorder, TriggerLedger, WorkflowRunner,
 };
 
 #[cfg(feature = "plugins")]
@@ -122,6 +122,17 @@ pub struct Runtime {
     gc_timer_handle: Option<tokio::task::JoinHandle<()>>,
 }
 
+/// Clears the process-wide active-shutdown marker when dropped. `Runtime::run`
+/// and `Runtime::shutdown` own one for their whole body so the marker covers
+/// every teardown step but does not leak into later runtimes in one process.
+struct ActiveShutdownScope;
+
+impl Drop for ActiveShutdownScope {
+    fn drop(&mut self) {
+        wf_common::shutdown::clear_active_shutdown();
+    }
+}
+
 /// Assembled event-driven trigger subsystem produced by
 /// [`assemble_trigger_subsystem`]: the listener handle plus the shared
 /// write-back registries both the listener and the builtin compression
@@ -186,21 +197,21 @@ fn assemble_trigger_subsystem(deps: TriggerSubsystemDeps) -> TriggerSubsystem {
             .with_signal_bus(signal_bus.clone())
             .with_limits(limits),
         );
-    let listener = start_trigger_listener_with_parts(
-        event_bus.clone(),
-        registries.clone(),
-        execution_contexts.clone(),
-        subworkflow_runner.clone(),
-        llm_gateway.clone(),
-        Some(tool_registry.clone()),
-        Some(sandbox_runtime.clone()),
-        Some(agent_executor.clone()),
-        storage.clone(),
-        Some(trigger_state_registry.clone()),
-        Some(hook_registry.clone()),
-        Some(signal_bus.clone()),
-        trigger_shutdown.clone(),
-    );
+    let listener = start_trigger_listener_with_parts(ListenerDeps {
+        event_bus: event_bus.clone(),
+        registries: registries.clone(),
+        contexts: execution_contexts.clone(),
+        runner: subworkflow_runner.clone(),
+        gateway: llm_gateway.clone(),
+        tool_registry: Some(tool_registry.clone()),
+        sandbox: Some(sandbox_runtime.clone()),
+        agent_executor: Some(agent_executor.clone()),
+        storage: storage.clone(),
+        trigger_state_registry: Some(trigger_state_registry.clone()),
+        hook_registry: Some(hook_registry.clone()),
+        signal_bus: Some(signal_bus.clone()),
+        shutdown: trigger_shutdown.clone(),
+    });
     // The builtin compression receiver shares the listener's shutdown token
     // and sub-workflow runner: engine signals dispatch to it, the summary
     // sub-workflow is spawned immediately and stopped at runtime shutdown
@@ -212,8 +223,10 @@ fn assemble_trigger_subsystem(deps: TriggerSubsystemDeps) -> TriggerSubsystem {
         execution_contexts.clone(),
         wf_resource::predefined::workflow::LLM_SUMMARY_WORKFLOW_ID.to_string(),
         trigger_shutdown,
-        storage,
-        Some(trigger_state_registry.clone()),
+        TriggerLedger {
+            storage,
+            trigger_state_registry: Some(trigger_state_registry.clone()),
+        },
     );
     TriggerSubsystem {
         execution_contexts,
@@ -660,6 +673,13 @@ impl Runtime {
     }
 
     pub async fn shutdown(mut self) -> RuntimeResult<()> {
+        // Mark the close as active before aborting driver tasks: executions
+        // that settle during teardown are cancelled instead of recorded as
+        // failed, so quitting never leaves spurious `Failed` executions or
+        // dispatches behind. Cleared again when teardown finishes so later
+        // runtimes in the same process are unaffected.
+        wf_common::shutdown::begin_active_shutdown();
+        let _shutdown_scope = ActiveShutdownScope;
         if let Some(metrics) = self.metrics.take() {
             metrics.shutdown().await;
         }

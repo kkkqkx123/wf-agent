@@ -30,7 +30,7 @@ use wf_workflow::{WorkflowCoordinator, WorkflowExecutionEntity};
 
 use super::{
     handle_subworkflow_output, record_trigger_execution, ExecutionContextRegistry,
-    TriggerExecutionRecorder, DEFAULT_TRIGGER_TIMEOUT_MS,
+    TriggerExecutionRecorder, TriggerOutcome, DEFAULT_TRIGGER_TIMEOUT_MS,
 };
 
 /// Trigger template registry backed by the wf-resource registrar.
@@ -538,11 +538,13 @@ impl TriggerActionRunner for SubworkflowActionRunner {
                     &storage,
                     &template,
                     &event,
-                    action_type,
-                    success,
-                    error,
-                    wf_common::now() - start,
-                    None,
+                    TriggerOutcome {
+                        action_type,
+                        success,
+                        error,
+                        execution_time_ms: wf_common::now() - start,
+                        child_execution_id: None,
+                    },
                 )
                 .await;
             };
@@ -569,11 +571,13 @@ impl TriggerActionRunner for SubworkflowActionRunner {
             &self.storage,
             template,
             event,
-            "execute_triggered_subworkflow",
-            success,
-            error,
-            wf_common::now() - start,
-            None,
+            TriggerOutcome {
+                action_type: "execute_triggered_subworkflow",
+                success,
+                error,
+                execution_time_ms: wf_common::now() - start,
+                child_execution_id: None,
+            },
         )
         .await;
         result

@@ -54,6 +54,7 @@ async fn handle_list_messages(
     let options = MessageListOptions {
         offset: query.page.offset,
         limit: query.page.limit,
+        before_timestamp: None,
         execution_id_filter: query.execution_id,
         agent_loop_id_filter: query.agent_loop_id,
         role_filter: query.role,

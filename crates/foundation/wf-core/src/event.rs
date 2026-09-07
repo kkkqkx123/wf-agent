@@ -161,6 +161,16 @@ impl EventBus {
         self.sender.receiver_count()
     }
 
+    /// Total receiver count across the general channel and all typed channels.
+    pub fn total_receiver_count(&self) -> usize {
+        let general = self.sender.receiver_count();
+        let typed = wf_common::lock::lock_ok(self.typed_channels.lock())
+            .values()
+            .map(|s| s.receiver_count())
+            .sum::<usize>();
+        general + typed
+    }
+
     /// Number of events sent but not yet received by any subscriber
     /// (backlog depth of the broadcast channel).
     pub fn queue_len(&self) -> usize {

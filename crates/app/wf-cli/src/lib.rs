@@ -101,15 +101,17 @@ pub async fn run(cli: Cli) -> CliResult<()> {
         }) => {
             return cmd::query::run(
                 &cli,
-                status.as_deref(),
-                workflow_id.as_deref(),
-                *limit,
-                sort.as_deref(),
-                *desc,
-                *offset,
-                aggregate.as_deref(),
-                export.as_deref(),
-                filter.as_deref(),
+                cmd::query::QueryOptions {
+                    status: status.as_deref(),
+                    workflow_id: workflow_id.as_deref(),
+                    limit: *limit,
+                    sort: sort.as_deref(),
+                    desc: *desc,
+                    offset: *offset,
+                    aggregate: aggregate.as_deref(),
+                    export: export.as_deref(),
+                    filter: filter.as_deref(),
+                },
             )
             .await;
         }
@@ -340,6 +342,7 @@ pub async fn debug_terminal(cli: &Cli) -> CliResult<()> {
             theme.bg.hex(),
             theme.kind,
             match theme.source {
+                ThemeSource::File => "file",
                 ThemeSource::Probed => "probed",
                 ThemeSource::Cached => "cached",
                 ThemeSource::Default => "default fallback",
@@ -393,6 +396,7 @@ pub async fn debug_terminal(cli: &Cli) -> CliResult<()> {
         if exit_ok { "ok" } else { "failed" },
         theme.bg.hex(),
         match theme.source {
+            ThemeSource::File => "file",
             ThemeSource::Probed => "probed",
             ThemeSource::Cached => "cached",
             ThemeSource::Default => "default fallback",

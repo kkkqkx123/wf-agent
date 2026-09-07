@@ -12,7 +12,7 @@ use wf_types::workflow::EdgeType;
 use wf_types::workflow_execution::{
     WorkflowEdge, WorkflowExecutionOptions, WorkflowGraphStructure, WorkflowNode,
 };
-use wf_workflow::{HandlerRegistry, WorkflowExecutor, WorkflowResult};
+use wf_workflow::{HandlerRegistry, WorkflowExecutor, WorkflowResult, WorkflowRunRequest};
 
 fn node(id: &str, node_type: &str, inner: serde_json::Value) -> WorkflowNode {
     WorkflowNode {
@@ -106,15 +106,15 @@ async fn execution_completes_when_event_publish_fails() {
 
     let executor = WorkflowExecutor::with_event_bus(bus);
     let output = executor
-        .execute_workflow(
-            wf_types::Id::new(),
-            g,
-            options(),
-            Arc::new(ToolRegistry::new()),
-            Some(handlers()),
-            Vec::new(),
-            None,
-        )
+        .execute_workflow(WorkflowRunRequest {
+            workflow_id: wf_types::Id::new(),
+            graph: g,
+            options: options(),
+            tool_registry: Arc::new(ToolRegistry::new()),
+            handlers: Some(handlers()),
+            hooks: Vec::new(),
+            resource_registries: None,
+        })
         .await;
     assert!(
         output.is_ok(),
@@ -142,15 +142,15 @@ async fn execution_completes_with_live_subscriber() {
 
     let executor = WorkflowExecutor::with_event_bus(bus);
     let output: WorkflowResult<serde_json::Value> = executor
-        .execute_workflow(
-            wf_types::Id::new(),
-            g,
-            options(),
-            Arc::new(ToolRegistry::new()),
-            Some(handlers()),
-            Vec::new(),
-            None,
-        )
+        .execute_workflow(WorkflowRunRequest {
+            workflow_id: wf_types::Id::new(),
+            graph: g,
+            options: options(),
+            tool_registry: Arc::new(ToolRegistry::new()),
+            handlers: Some(handlers()),
+            hooks: Vec::new(),
+            resource_registries: None,
+        })
         .await
         .map(|o| o.result);
     assert!(output.is_ok());

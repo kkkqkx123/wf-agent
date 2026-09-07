@@ -14,7 +14,7 @@ use wf_types::workflow_execution::{
     WorkflowEdge, WorkflowExecutionOptions, WorkflowGraphStructure, WorkflowNode,
 };
 use wf_workflow::handler::NodeHandler;
-use wf_workflow::{HandlerRegistry, WorkflowExecutor, WorkflowResult};
+use wf_workflow::{HandlerRegistry, WorkflowExecutor, WorkflowResult, WorkflowRunRequest};
 
 /// Recording SCRIPT stand-in: appends `name` and exposes a per-branch
 /// variable export (`value = <name>:<i>`).
@@ -166,15 +166,15 @@ async fn run_workflow(
     handlers: Arc<HashMap<StaticNodeType, Box<dyn NodeHandler>>>,
 ) -> WorkflowResult<serde_json::Value> {
     let output = WorkflowExecutor::new()
-        .execute_workflow(
-            wf_types::Id::new(),
+        .execute_workflow(WorkflowRunRequest {
+            workflow_id: wf_types::Id::new(),
             graph,
-            options(),
-            Arc::new(ToolRegistry::new()),
-            Some(handlers),
-            Vec::new(),
-            None,
-        )
+            options: options(),
+            tool_registry: Arc::new(ToolRegistry::new()),
+            handlers: Some(handlers),
+            hooks: Vec::new(),
+            resource_registries: None,
+        })
         .await?;
     Ok(output.result)
 }

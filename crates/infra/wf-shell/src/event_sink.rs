@@ -116,7 +116,7 @@ pub(crate) enum ShellEvent {
 /// on sink work. Events are delivered in queue order. A
 /// [`Flush`](ShellEvent::Flush) marker lets a caller wait until every event
 /// queued before the call has been delivered.
-pub(crate) struct EventDispatcher {
+pub struct EventDispatcher {
     tx: tokio::sync::mpsc::UnboundedSender<ShellEvent>,
     /// Number of `Output` events currently queued (incremented on successful
     /// enqueue, decremented on consume). Drives the output cap so lifecycle

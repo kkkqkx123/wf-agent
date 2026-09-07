@@ -8,8 +8,8 @@
 use std::collections::HashMap;
 use std::io;
 use std::str::FromStr;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use libc;
@@ -200,11 +200,16 @@ impl TuiApp {
         guard.restore()?;
 
         // Abort and join every fetch so no task keeps the runtime alive;
-        // `Arc::try_unwrap` below then succeeds and shutdown can run.
+        // `Arc::try_unwrap` below then succeeds and shutdown can run. Mark the
+        // teardown graceful first so the final session drain never renders a
+        // spurious `Failed` row while the runtime closes underneath it.
         let tasks = std::mem::take(&mut self.tasks);
         for task in tasks {
             task.abort();
             let _ = task.await;
+        }
+        if let Some(session) = self.session.as_mut() {
+            session.begin_graceful_exit();
         }
         if let Some(session) = self.session.take() {
             session.shutdown().await;
@@ -395,6 +400,9 @@ impl TuiApp {
             return;
         }
         self.session_exit = false;
+        if let Some(session) = self.session.as_mut() {
+            session.begin_graceful_exit();
+        }
         if let Some(session) = self.session.take() {
             session.shutdown().await;
         }
@@ -441,7 +449,7 @@ impl TuiApp {
         }
 
         if !self.modals.is_empty() {
-            self.modals.draw(frame, area);
+            self.modals.draw(frame, area, &self.theme);
         }
     }
 
@@ -552,6 +560,14 @@ impl TuiApp {
     // -----------------------------------------------------------------------
 
     fn handle_key(&mut self, key: Key) -> CliResult<LoopAction> {
+        // Ctrl-Z suspends the TUI like a terminal job. Raw mode disables
+        // ISIG, so the keystroke never reaches the kernel as SIGTSTP; flag
+        // the request here and let the loop run the restore / raise cycle.
+        if key.ctrl && key.code == CKey::Char('z') {
+            SUSPEND_PENDING.store(true, Ordering::SeqCst);
+            return Ok(LoopAction::Continue);
+        }
+
         if key.ctrl
             && key.code == CKey::Char('c')
             && self.screens.current_kind() != ScreenKind::Session

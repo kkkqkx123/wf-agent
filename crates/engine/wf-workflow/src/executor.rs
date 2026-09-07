@@ -31,6 +31,20 @@ impl Default for WorkflowExecutor {
     }
 }
 
+/// Everything a caller must supply to start one workflow execution through
+/// [`WorkflowExecutor::execute_workflow`]. Grouping these into a single struct
+/// keeps the entry point's signature small and the optional collaborators
+/// (`handlers`, `resource_registries`, `hooks`) explicit at the call site.
+pub struct WorkflowRunRequest {
+    pub workflow_id: wf_types::Id,
+    pub graph: WorkflowGraphStructure,
+    pub options: WorkflowExecutionOptions,
+    pub tool_registry: Arc<wf_tools::registry::ToolRegistry>,
+    pub handlers: Option<Arc<HashMap<StaticNodeType, Box<dyn NodeHandler>>>>,
+    pub hooks: Vec<BaseHookDefinition>,
+    pub resource_registries: Option<Arc<wf_resource::registry::ResourceRegistries>>,
+}
+
 impl WorkflowExecutor {
     pub fn new() -> Self {
         Self {
@@ -84,14 +98,18 @@ impl WorkflowExecutor {
 
     pub async fn execute_workflow(
         &self,
-        workflow_id: wf_types::Id,
-        graph: WorkflowGraphStructure,
-        options: WorkflowExecutionOptions,
-        tool_registry: Arc<wf_tools::registry::ToolRegistry>,
-        handlers: Option<Arc<HashMap<StaticNodeType, Box<dyn NodeHandler>>>>,
-        hooks: Vec<BaseHookDefinition>,
-        resource_registries: Option<Arc<wf_resource::registry::ResourceRegistries>>,
+        request: WorkflowRunRequest,
     ) -> WorkflowResult<WorkflowOutput> {
+        let WorkflowRunRequest {
+            workflow_id,
+            graph,
+            options,
+            tool_registry,
+            handlers,
+            hooks,
+            resource_registries,
+        } = request;
+
         let handlers = handlers.unwrap_or_else(|| {
             let mut registry = HandlerRegistry::new();
             registry.register_defaults_with_sandbox(self.gateway.clone(), self.sandbox.clone());

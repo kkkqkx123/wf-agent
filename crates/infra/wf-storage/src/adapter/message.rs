@@ -9,6 +9,10 @@ use crate::error::StorageError;
 pub struct MessageListOptions {
     pub offset: Option<u64>,
     pub limit: Option<u64>,
+    /// Cursor paging: return only messages strictly older than this
+    /// timestamp. Implies newest-first ordering so a `limit + 1` fetch can
+    /// detect whether older messages remain (`has_more`).
+    pub before_timestamp: Option<i64>,
     pub execution_id_filter: Option<String>,
     pub agent_loop_id_filter: Option<String>,
     pub role_filter: Option<String>,
@@ -17,6 +21,12 @@ pub struct MessageListOptions {
 impl From<MessageListOptions> for QueryFilter {
     fn from(opts: MessageListOptions) -> Self {
         let mut filter = QueryFilter::new();
+        if let Some(before) = opts.before_timestamp {
+            filter.add_op(FilterOp::Lt("timestamp".into(), before));
+            // The cursor page must be deterministic: newest first, so the
+            // backend applies `limit` after the timestamp sort.
+            filter.add_op(FilterOp::OrderBy("timestamp".into(), true));
+        }
         if let Some(offset) = opts.offset {
             filter.add_op(FilterOp::Offset(offset));
         }

@@ -35,6 +35,15 @@ pub enum MessageOrder {
     Desc,
 }
 
+/// One page of a cursor query. Records are returned newest first; `has_more`
+/// tells whether even older messages exist, so the next page continues with
+/// the oldest record of this page as its `before_timestamp`.
+#[derive(Debug, Clone, Default)]
+pub struct MessagePage {
+    pub records: Vec<MessageStorageMetadata>,
+    pub has_more: bool,
+}
+
 /// Default number of recent messages returned when no explicit limit is given.
 const DEFAULT_RECENT_LIMIT: usize = 20;
 /// Default maximum search results when no explicit limit is given.
@@ -96,6 +105,7 @@ pub async fn recent(
     let options = MessageListOptions {
         offset: None,
         limit: Some(limit as u64),
+        before_timestamp: None,
         execution_id_filter: None,
         agent_loop_id_filter: None,
         role_filter: None,
@@ -129,6 +139,7 @@ pub async fn by_execution_paginated(
     let options = MessageListOptions {
         offset: Some(offset),
         limit: Some(limit),
+        before_timestamp: None,
         execution_id_filter: Some(execution_id.to_string()),
         agent_loop_id_filter: None,
         role_filter: None,
@@ -141,6 +152,60 @@ pub async fn by_execution_paginated(
         }
     }
     Ok(messages)
+}
+
+/// Fetch up to `limit` messages of one execution, newest first. When
+/// `before_timestamp` is `Some`, only messages strictly older than it are
+/// returned; `None` starts at the newest message.
+pub async fn page_by_execution(
+    ctx: &ApiContext,
+    execution_id: &str,
+    before_timestamp: Option<i64>,
+    limit: u64,
+) -> ApiResult<MessagePage> {
+    let options = MessageListOptions {
+        offset: None,
+        limit: Some(limit.saturating_add(1)),
+        before_timestamp: Some(before_timestamp.unwrap_or(i64::MAX)),
+        execution_id_filter: None,
+        agent_loop_id_filter: None,
+        role_filter: None,
+    };
+    let mut records = ctx
+        .storage
+        .message
+        .list_by_execution(execution_id, Some(options))
+        .await?;
+    let has_more = records.len() as u64 > limit;
+    records.truncate(limit as usize);
+    Ok(MessagePage { records, has_more })
+}
+
+/// Cursor variant of [`by_agent_loop`]: fetch up to `limit` messages of one
+/// agent loop, newest first, optionally strictly older than
+/// `before_timestamp`.
+pub async fn page_by_agent_loop(
+    ctx: &ApiContext,
+    agent_loop_id: &str,
+    before_timestamp: Option<i64>,
+    limit: u64,
+) -> ApiResult<MessagePage> {
+    let options = MessageListOptions {
+        offset: None,
+        limit: Some(limit.saturating_add(1)),
+        before_timestamp: Some(before_timestamp.unwrap_or(i64::MAX)),
+        execution_id_filter: None,
+        agent_loop_id_filter: None,
+        role_filter: None,
+    };
+    let mut records = ctx
+        .storage
+        .message
+        .list_by_agent_loop(agent_loop_id, Some(options))
+        .await?;
+    let has_more = records.len() as u64 > limit;
+    records.truncate(limit as usize);
+    Ok(MessagePage { records, has_more })
 }
 
 /// Normalized conversation history of an execution: messages deduplicated by
@@ -431,5 +496,91 @@ mod tests {
         assert_eq!(stats.total, 5);
         assert_eq!(stats.by_type.get("text"), Some(&5));
         assert!(stats.total_token_usage > 0);
+    }
+
+    #[tokio::test]
+    async fn cursor_page_newest_first_with_more() {
+        let ctx = make_ctx();
+        for i in 0..5 {
+            add_message(
+                &ctx,
+                "exec-page",
+                None,
+                make_message(&format!("q{i}"), MessageRole::User, &format!("msg {i}"), 100 + i),
+            )
+            .await
+            .unwrap();
+        }
+        // First page starts at the newest message.
+        let page = page_by_execution(&ctx, "exec-page", None, 2).await.unwrap();
+        assert!(page.has_more);
+        let ids: Vec<String> = page.records.iter().map(|r| r.id.to_string()).collect();
+        assert_eq!(ids, vec!["q4", "q3"]);
+        // Cursor continues strictly before the oldest record of the page.
+        let cursor = page.records.last().unwrap().message.timestamp;
+        let next = page_by_execution(&ctx, "exec-page", Some(cursor), 2)
+            .await
+            .unwrap();
+        assert!(next.has_more);
+        let ids: Vec<String> = next.records.iter().map(|r| r.id.to_string()).collect();
+        assert_eq!(ids, vec!["q2", "q1"]);
+        // Last page: has_more turns false when no older message remains.
+        let last = page_by_execution(&ctx, "exec-page", Some(next.records.last().unwrap().message.timestamp), 2)
+            .await
+            .unwrap();
+        assert!(!last.has_more);
+        let ids: Vec<String> = last.records.iter().map(|r| r.id.to_string()).collect();
+        assert_eq!(ids, vec!["q0"]);
+    }
+
+    #[tokio::test]
+    async fn cursor_page_boundaries() {
+        let ctx = make_ctx();
+        // No records at all: an empty, complete page.
+        let empty = page_by_execution(&ctx, "exec-void", None, 5).await.unwrap();
+        assert!(!empty.has_more);
+        assert!(empty.records.is_empty());
+
+        // Exactly `limit` records: the page is complete.
+        for i in 0..3 {
+            add_message(
+                &ctx,
+                "exec-exact",
+                None,
+                make_message(&format!("e{i}"), MessageRole::User, "x", i),
+            )
+            .await
+            .unwrap();
+        }
+        let exact = page_by_execution(&ctx, "exec-exact", None, 3).await.unwrap();
+        assert!(!exact.has_more);
+        assert_eq!(exact.records.len(), 3);
+
+        // A cursor older than every record yields an empty tail page.
+        let tail = page_by_execution(&ctx, "exec-exact", Some(-1), 3)
+            .await
+            .unwrap();
+        assert!(!tail.has_more);
+        assert!(tail.records.is_empty());
+
+        // Agent-loop scoped page returns only its own records.
+        add_message(
+            &ctx,
+            "exec-loop",
+            Some("loop-9"),
+            make_message("a0", MessageRole::User, "agent", 100),
+        )
+        .await
+        .unwrap();
+        let loop_page = page_by_agent_loop(&ctx, "loop-9", None, 1)
+            .await
+            .unwrap();
+        assert!(!loop_page.has_more);
+        assert_eq!(loop_page.records.len(), 1);
+        let missing = page_by_agent_loop(&ctx, "loop-nope", None, 1)
+            .await
+            .unwrap();
+        assert!(!missing.has_more);
+        assert!(missing.records.is_empty());
     }
 }

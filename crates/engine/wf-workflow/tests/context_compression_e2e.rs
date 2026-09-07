@@ -29,7 +29,7 @@ use wf_types::workflow_execution::{
 use wf_workflow::execution_context::{ContextWriter, ExecutionContextRegistry, WriteBackError};
 use wf_workflow::message_context;
 use wf_workflow::trigger_listener::SubworkflowRunner;
-use wf_workflow::{get_context, WorkflowExecutor, WorkflowResult};
+use wf_workflow::{get_context, WorkflowExecutor, WorkflowResult, WorkflowRunRequest};
 use wf_workflow::{HandlerRegistry, LlmHandler, NodeHandler};
 
 fn text_message(role: MessageRole, text: &str) -> Message {
@@ -152,15 +152,15 @@ impl SubworkflowRunner for SummaryRunner {
         };
 
         let output = WorkflowExecutor::new()
-            .execute_workflow(
-                wf_types::Id::new(),
+            .execute_workflow(WorkflowRunRequest {
+                workflow_id: wf_types::Id::new(),
                 graph,
                 options,
-                Arc::new(ToolRegistry::new()),
-                Some(handlers),
-                Vec::new(),
-                None,
-            )
+                tool_registry: Arc::new(ToolRegistry::new()),
+                handlers: Some(handlers),
+                hooks: Vec::new(),
+                resource_registries: None,
+            })
             .await?;
         Ok(output.result)
     }

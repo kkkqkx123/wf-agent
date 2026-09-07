@@ -63,10 +63,7 @@ impl ConcurrencyGate {
             .acquire_owned()
             .await
             .map_err(|_| GateError::Closed("gate is closed".to_string()))?;
-        Ok(GatePermit {
-            _permit: permit,
-            active: self.active_count.clone(),
-        })
+        Ok(self.make_permit(permit))
     }
 
     /// Acquire a permit without waiting; fails when the gate is exhausted or
@@ -83,10 +80,17 @@ impl ConcurrencyGate {
                 }
             })
         })?;
-        Ok(GatePermit {
+        Ok(self.make_permit(permit))
+    }
+
+    /// Wrap a fresh semaphore permit in a gate permit and account it in the
+    /// active counter (released by `GatePermit::drop`).
+    fn make_permit(&self, permit: OwnedSemaphorePermit) -> GatePermit {
+        self.active_count.fetch_add(1, Ordering::Relaxed);
+        GatePermit {
             _permit: permit,
             active: self.active_count.clone(),
-        })
+        }
     }
 
     pub fn max_concurrent(&self) -> usize {

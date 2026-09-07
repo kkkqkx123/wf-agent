@@ -379,7 +379,8 @@ impl MiniApp {
         ));
         // Logo splash (pure scrollback rows, survives the inline footer).
         for row in crate::splash::splash_lines() {
-            self.pending_scroll.push(HistoryLine::new_role(row, Role::Accent));
+            self.pending_scroll
+                .push(HistoryLine::new_role(row, Role::Accent));
         }
         // `-p/--prompt`: submit the preset prompt once the loop is live.
         let initial = self.footer.composer.content().trim().to_string();
@@ -701,6 +702,13 @@ impl MiniApp {
         let Some(key) = key_from_event(event) else {
             return;
         };
+        // Ctrl-Z suspends the session like a terminal job. Raw mode disables
+        // ISIG, so the keystroke never reaches the kernel as SIGTSTP; flag
+        // the request here and let the tick run the restore / raise cycle.
+        if key.ctrl && key.code == CKey::Char('z') {
+            SUSPEND_PENDING.store(true, Ordering::SeqCst);
+            return;
+        }
         let ctx = self.footer.keymap_context();
         if let Some(action) = self.keymap.resolve(ctx, key) {
             self.handle_action(action);
@@ -1438,10 +1446,8 @@ impl MiniApp {
             // kept separate from the assistant answer that flows through the
             // markdown pipeline.
             ExecutionStreamEvent::ReasoningDelta { content } => {
-                self.pending_scroll.push(HistoryLine::new_role(
-                    format!("💭 {content}"),
-                    Role::Muted,
-                ));
+                self.pending_scroll
+                    .push(HistoryLine::new_role(format!("💭 {content}"), Role::Muted));
                 self.dirty = true;
                 return;
             }

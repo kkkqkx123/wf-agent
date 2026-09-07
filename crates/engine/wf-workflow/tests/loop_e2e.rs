@@ -17,7 +17,9 @@ use wf_types::workflow_execution::{
 };
 use wf_workflow::handler::NodeHandler;
 use wf_workflow::loop_state::MAX_ITERATIONS_CAP;
-use wf_workflow::{HandlerRegistry, WorkflowError, WorkflowExecutor, WorkflowResult};
+use wf_workflow::{
+    HandlerRegistry, WorkflowError, WorkflowExecutor, WorkflowResult, WorkflowRunRequest,
+};
 
 /// Loop body stand-in: records the current `item` (loop variable) plus the
 /// `n` counter, writes them back to the variables.
@@ -168,15 +170,15 @@ async fn run_workflow(
     opts: WorkflowExecutionOptions,
 ) -> WorkflowResult<serde_json::Value> {
     let output = WorkflowExecutor::new()
-        .execute_workflow(
-            wf_types::Id::new(),
+        .execute_workflow(WorkflowRunRequest {
+            workflow_id: wf_types::Id::new(),
             graph,
-            opts,
-            Arc::new(ToolRegistry::new()),
-            Some(handlers),
-            Vec::new(),
-            None,
-        )
+            options: opts,
+            tool_registry: Arc::new(ToolRegistry::new()),
+            handlers: Some(handlers),
+            hooks: Vec::new(),
+            resource_registries: None,
+        })
         .await?;
     Ok(output.result)
 }

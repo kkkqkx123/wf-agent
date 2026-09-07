@@ -149,9 +149,10 @@ pub async fn replay_scrollack_page(
     }
 
     // Prefer agent-loop scoped messages, fall back to execution scoped.
-    let mut page = wf_api::entity::message::page_by_agent_loop(ctx, session_id, before_timestamp, limit)
-        .await
-        .unwrap_or_default();
+    let mut page =
+        wf_api::entity::message::page_by_agent_loop(ctx, session_id, before_timestamp, limit)
+            .await
+            .unwrap_or_default();
     if page.records.is_empty() && !page.has_more {
         page = wf_api::entity::message::page_by_execution(ctx, session_id, before_timestamp, limit)
             .await
@@ -285,8 +286,8 @@ fn records_to_lines(records: &[wf_types::MessageStorageMetadata]) -> Vec<History
                     .tool_name
                     .clone()
                     .unwrap_or_else(|| "tool".to_string());
-                let is_error = text.to_lowercase().contains("error")
-                    || text.to_lowercase().contains("failed");
+                let is_error =
+                    text.to_lowercase().contains("error") || text.to_lowercase().contains("failed");
                 let prefix = if is_error { "✗" } else { "✓" };
                 let role = if is_error { Role::Error } else { Role::Add };
                 if text.is_empty() {
@@ -308,7 +309,12 @@ fn records_to_lines(records: &[wf_types::MessageStorageMetadata]) -> Vec<History
 
 /// Closing summary line (▣ id · iterations · duration), shared by the full
 /// and paged loaders so the newest page ends exactly like a live session.
-fn summary_history_line(id: &str, iterations: u32, start: Option<i64>, end: Option<i64>) -> HistoryLine {
+fn summary_history_line(
+    id: &str,
+    iterations: u32,
+    start: Option<i64>,
+    end: Option<i64>,
+) -> HistoryLine {
     let duration_ms = match (start, end) {
         (Some(start), Some(end)) => (end - start).max(0) as u64,
         _ => 0,
@@ -529,8 +535,11 @@ mod tests {
             .flat_map(|l| l.raw_lines(80))
             .collect();
         paged.retain(|t| !t.contains("▣"));
-        let full_wo_summary: Vec<String> =
-            full_texts.iter().filter(|t| !t.contains("▣")).cloned().collect();
+        let full_wo_summary: Vec<String> = full_texts
+            .iter()
+            .filter(|t| !t.contains("▣"))
+            .cloned()
+            .collect();
         assert_eq!(paged, full_wo_summary);
     }
 

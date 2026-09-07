@@ -1,0 +1,200 @@
+# 录制 Ratatui diff 输出字节实现
+ratatui 的工作流程：
+`Terminal<B>.draw()` → 对比前后 Buffer 得到 diff 变更单元格 → 调用 backend 的 `draw()` 写出 ANSI 字节。
+我们可以**包装原有 Backend（CrosstermBackend），做一层代理包装**，拦截所有写入的字节，同时原样透写给真实后端；把 diff 字节保存到文件/内存，用来分析每帧输出大小、定位卡顿。
+
+> 关键点：我们不需要修改 ratatui 源码；用新的包装类型实现 `ratatui::backend::Backend` trait。
+> 输出的就是每一帧 diff 产生的全部 ANSI 转义+文本，不是完整屏幕缓冲区。
+
+## 1. 包装 DiffRecorderBackend
+```rust
+use ratatui::backend::{Backend, CrosstermBackend};
+use ratatui::buffer::Cell;
+use std::io::{self, Write};
+
+/// 代理后端：拦截所有 draw 输出，复制一份到 recorder_writer，同时透传给真实后端
+pub struct DiffRecorderBackend<B: Backend> {
+    inner: B,
+    recorder: Box<dyn Write + Send + 'static>,
+    frame_count: u64,
+}
+
+impl<B: Backend> DiffRecorderBackend<B> {
+    pub fn new(inner: B, recorder: impl Write + Send + 'static) -> Self {
+        Self {
+            inner,
+            recorder: Box::new(recorder),
+            frame_count: 0,
+        }
+    }
+
+    /// 获取内层 backend，用于 terminal 销毁恢复
+    pub fn into_inner(self) -> B {
+        self.inner
+    }
+
+    pub fn frame_count(&self) -> u64 {
+        self.frame_count
+    }
+}
+
+/// 实现 Backend trait，全部方法转发 inner，唯独 draw 拦截字节
+impl<B: Backend> Backend for DiffRecorderBackend<B> {
+    fn draw<'a, I>(&mut self, content: I) -> io::Result<()>
+    where
+        I: Iterator<Item = (u16, u16, &'a Cell)>,
+    {
+        // 1. 先把 diff 内容渲染到内存 buffer，拿到完整ANSI字节流
+        let mut buf: Vec<u8> = Vec::new();
+        {
+            // 临时包装一个只写内存的 CrosstermBackend
+            let mut temp_backend = CrosstermBackend::new(&mut buf);
+            temp_backend.draw(content)?;
+            temp_backend.flush()?;
+        }
+
+        // 2. 把这一帧diff字节写入录制输出，加帧分隔标记方便分析
+        self.recorder.write_all(format!("\n==== FRAME {} (bytes:{}) ====\n", self.frame_count, buf.len()).as_bytes())?;
+        self.recorder.write_all(&buf)?;
+        self.recorder.flush()?;
+        self.frame_count += 1;
+
+        // 3. 透传给真实后端，正常绘制到终端
+        let mut temp_inner = self.inner;
+        temp_inner.draw(content)?;
+        *self = Self { inner: temp_inner, recorder: self.recorder, frame_count: self.frame_count };
+        Ok(())
+    }
+
+    fn size(&self) -> io::Result<ratatui::layout::Rect> {
+        self.inner.size()
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.inner.flush()
+    }
+
+    fn clear(&mut self) -> io::Result<()> {
+        self.inner.clear()
+    }
+
+    fn hide_cursor(&mut self) -> io::Result<()> {
+        self.inner.hide_cursor()
+    }
+
+    fn show_cursor(&mut self) -> io::Result<()> {
+        self.inner.show_cursor()
+    }
+
+    fn set_cursor_position(&mut self, x: u16, y: u16) -> io::Result<()> {
+        self.inner.set_cursor_position(x, y)
+    }
+}
+```
+
+> 原理说明：
+> ratatui `Backend::draw(content)` 的 content 就是**diff之后变更的单元格迭代器**，不是全部屏幕。
+> 我们把同样的变更单元格喂给一个内存版 `CrosstermBackend`，让它生成ANSI字节流，保存下来；再原样交给真正终端后端渲染。
+
+## 2. 在 example 中启用录制
+```rust
+// examples/tui_diff_record.rs
+use anyhow::Result;
+use ratatui::{Terminal, backend::CrosstermBackend};
+use std::fs::File;
+
+use my_agent::tui_debug::DiffRecorderBackend;
+
+fn main() -> Result<()> {
+    // 真实终端stdout后端
+    let stdout = std::io::stdout();
+    let real_backend = CrosstermBackend::new(stdout);
+
+    // 录制输出到diff_log.txt文件
+    let record_file = File::create("diff_log.txt")?;
+    let rec_backend = DiffRecorderBackend::new(real_backend, record_file);
+
+    let mut terminal = Terminal::new(rec_backend)?;
+
+    // ---- 你的TUI事件循环，模拟流式/滚动/resize ----
+    // terminal.draw(...);
+
+    // 恢复：取出内层原始backend，做ratatui恢复
+    let rec_backend = terminal.into_inner();
+    let _real_backend = rec_backend.into_inner();
+    ratatui::restore();
+    Ok(())
+}
+```
+
+运行：
+```bash
+cargo run --example tui_diff_record
+```
+程序运行结束后，项目目录产生 `diff_log.txt`：
+```
+==== FRAME 0 (bytes:1240) ====
+...ANSI转义序列与文本...
+
+==== FRAME 1 (bytes:86) ====
+...
+```
+每帧标注字节数，可以直观看到哪一帧输出暴增。
+
+## 3. 扩展：增加简单统计（打印每帧字节，控制台看）
+在写入文件同时打印帧号+字节大小到**日志文件（千万不要println到stdout，会污染TUI）**。
+```rust
+// 在draw内部
+eprintln!("[diff-record] frame {} bytes {}", self.frame_count, buf.len());
+```
+> 交互TUI模式不要用eprintln，输出到tracing日志文件。
+
+## 4. 可以做哪些分析？
+打开 `diff_log.txt`：
+1. **看帧字节大小**：
+   - 正常打字（只改输入框）：每帧几十~200字节。
+   - 如果上千字节：说明**不该变的区域被大量重绘**，说明渲染逻辑有bug。
+2. 观察流式输出：每一个token进来，diff输出多少字节；评估SSH压力。
+3. resize发生那一帧，看输出字节（resize必然整屏重绘，字节大属于正常）。
+4. 查看ANSI序列，确认是否产生大量多余颜色重置序列。
+
+### 典型问题信号
+- 用户打字，每一帧输出几千字节：说明聊天区本应不变，却全部重渲染；检查你的渲染逻辑是否每次生成全新Line，导致Buffer全部cell变更。
+- 流式输出每token几百字节：节流没生效，token粒度太碎。
+
+## 5. 备选方案二：直接统计变更cell数量（不保存完整ANSI）
+如果你只需要性能统计，不想保存完整ANSI文本，可以不生成ANSI，直接统计迭代器`content`的元素个数（diff变更单元格数目）。
+```rust
+let diff_cell_count = content.count();
+// 记录 frame N , changed_cells: X
+```
+优点：开销极低，不需要序列化ANSI；缺点看不到具体输出内容。适合压测统计。
+
+## 6. 注意坑点
+1. **不要直接把 stdout 传给 recorder，TUI交互模式绝对不能打印到stdout**，全部录制输出写入文件。
+2. `Terminal::into_inner()` 取出包装backend顺序：Terminal → DiffRecorderBackend → CrosstermBackend。退出时要正确取出内层，调用ratatui恢复终端。
+3. 只用于 example / 调试；**不要打包进正式产品二进制**，会带来IO开销。可以用feature flag控制：
+```toml
+# Cargo.toml
+[features]
+diff-record = []
+```
+代码中用 `#[cfg(feature="diff-record")]` 把 DiffRecorderBackend 编译开关。
+4. 当开启 alternate screen，录制的diff依然有效，逻辑不变。
+5. Mini模式（main‑screen）同样可以套这个后端，只拦截ratatui渲染部分（输入框）；`println!`打印的历史文本不走ratatui backend，不会被录制。
+
+## 7. 如何解析diff_log.txt
+日志原始内容是原始ANSI，阅读很麻烦。
+可以用 `ansi-to-html` 工具，把日志转成html方便浏览器查看：
+```bash
+cargo install ansi-to-html
+cat diff_log.txt | ansi-to-html > diff_log.html
+```
+打开html就可以可视化每一帧渲染的屏幕。
+
+## 8. 结合前面调试体系的使用场景
+- 在`tui_animation.rs`示例打开diff录制，循环模拟LLM token流，观察每一帧diff字节，验证节流、可视切片优化是否生效。
+- 复现SSH卡顿场景，对比优化前后diff字节数。
+- 发现异常大帧，回溯对应日志`tui_debug.log`看AppState状态：滚动偏移、消息数量、是否resize触发。
+
+如果你需要，我可以补充一个带feature开关的完整可复制模块代码。

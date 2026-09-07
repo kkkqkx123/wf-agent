@@ -1,0 +1,7 @@
+---
+source: crates/app/wf-cli/tests/tui_snapshot.rs
+expression: output
+---
+First line
+Second line
+Third line

@@ -1,0 +1,8 @@
+---
+source: crates/app/wf-cli/tests/tui_snapshot.rs
+expression: output
+---
+This is a very long message th
+at should wrap across multiple
+ lines when rendered at a narr
+ow width.

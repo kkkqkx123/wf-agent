@@ -1,0 +1,5 @@
+---
+source: crates/app/wf-cli/tests/tui_snapshot.rs
+expression: output
+---
+Still streaming...

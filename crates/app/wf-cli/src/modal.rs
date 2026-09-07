@@ -761,9 +761,11 @@ impl Modal for PasswordModal {
             self.prompt,
             self.masked()
         );
-        let paragraph = Paragraph::new(body)
-            .block(block)
-            .style(Style::default().fg(to_color(theme.fg)).add_modifier(Modifier::BOLD));
+        let paragraph = Paragraph::new(body).block(block).style(
+            Style::default()
+                .fg(to_color(theme.fg))
+                .add_modifier(Modifier::BOLD),
+        );
         let centered = centered_rect(60, 30, area);
         frame.render_widget(paragraph, centered);
     }

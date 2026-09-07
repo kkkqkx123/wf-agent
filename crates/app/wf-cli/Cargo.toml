@@ -34,6 +34,7 @@ wf-runtime = { path = "../wf-runtime", optional = true }
 
 [dev-dependencies]
 tempfile = "3"
+insta = "1"
 wf-llm = { path = "../../infra/wf-llm", features = ["mock"] }
 wf-storage = { path = "../../infra/wf-storage" }
 wf-resource = { path = "../../infra/wf-resource" }
@@ -44,6 +45,7 @@ embedded = ["dep:wf-runtime"]
 remote = ["reqwest/json", "reqwest/stream"]
 lua = ["wf-runtime/lua"]
 native = ["wf-runtime/native"]
+diff-record = []
 
 [[bin]]
 name = "wf"

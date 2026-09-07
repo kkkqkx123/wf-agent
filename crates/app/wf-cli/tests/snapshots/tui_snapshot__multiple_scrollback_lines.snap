@@ -1,0 +1,8 @@
+---
+source: crates/app/wf-cli/tests/tui_snapshot.rs
+expression: output
+---
+User message
+Assistant response with some detail
+▲ tool_call
+✓ tool_call completed

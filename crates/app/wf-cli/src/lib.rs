@@ -37,6 +37,7 @@ pub mod splash;
 pub mod terminal;
 pub mod theme;
 pub mod tui;
+pub mod tui_debug;
 pub mod turn;
 
 pub use ansi::AnsiParser;

@@ -16,10 +16,6 @@ pub struct Cli {
     /// Enter the full-screen TUI (alt-screen; requires a TTY).
     #[arg(long)]
     pub tui: bool,
-    /// Enter the lightweight mini session (inline split-footer; requires a
-    /// TTY).
-    #[arg(long)]
-    pub mini: bool,
     /// Force headless mode even when stdout is a TTY (no interactive UI).
     #[arg(long)]
     pub no_tui: bool,
@@ -40,10 +36,7 @@ pub struct Cli {
     /// Headless runs use `wf run --model` instead.
     #[arg(long)]
     pub model: Option<String>,
-    /// Initial prompt for the mini session.
-    #[arg(long, short = 'p')]
-    pub prompt: Option<String>,
-    /// Session id to resume in an interactive form.
+    /// Session id to resume in the interactive form.
     #[arg(long)]
     pub session: Option<String>,
     /// Resume the most recent session in an interactive form.
@@ -79,19 +72,11 @@ impl Cli {
     /// Validate cross-option compatibility; returns an error message on
     /// invalid combinations.
     pub fn validate(&self) -> Result<(), String> {
-        if self.tui && self.mini {
-            return Err("--tui and --mini are mutually exclusive".to_string());
+        if self.command.is_some() && self.tui {
+            return Err("--tui cannot be combined with a subcommand".to_string());
         }
-        if self.command.is_some() && (self.tui || self.mini) {
-            return Err(
-                "interactive flags (--tui/--mini) cannot be combined with a subcommand".to_string(),
-            );
-        }
-        if self.no_tui && (self.tui || self.mini) {
-            return Err("--no-tui conflicts with --tui/--mini".to_string());
-        }
-        if self.prompt.is_some() && !self.mini {
-            return Err("--prompt/-p requires --mini".to_string());
+        if self.no_tui && self.tui {
+            return Err("--no-tui conflicts with --tui".to_string());
         }
         if self.session.is_some() && self.resume {
             return Err("--session and --resume are mutually exclusive".to_string());
@@ -113,9 +98,9 @@ impl Cli {
         }
         // --no-tui forces headless even on a TTY; the interactive options
         // would be silently ignored, so reject the combination up front.
-        if self.no_tui && (self.session.is_some() || self.resume || self.prompt.is_some()) {
+        if self.no_tui && (self.session.is_some() || self.resume) {
             return Err(
-                "--session/--resume/--prompt require an interactive form (--no-tui forces headless)"
+                "--session/--resume require an interactive form (--no-tui forces headless)"
                     .to_string(),
             );
         }
@@ -1574,10 +1559,6 @@ mod tests {
 
     #[test]
     fn parses_interactive_flags() {
-        let cli = parse(&["--mini"]).unwrap();
-        assert!(cli.mini);
-        assert!(!cli.tui);
-
         let cli = parse(&["--tui"]).unwrap();
         assert!(cli.tui);
     }
@@ -1608,38 +1589,23 @@ mod tests {
     }
 
     #[test]
-    fn rejects_tui_mini_conflict() {
-        let cli = parse(&["--tui", "--mini"]).unwrap();
-        assert!(cli.validate().is_err());
-    }
-
-    #[test]
     fn rejects_subcommand_with_interactive_flag() {
-        let cli = parse(&["--mini", "run", "x"]).unwrap();
+        let cli = parse(&["--tui", "run", "x"]).unwrap();
         assert!(cli.validate().is_err());
     }
 
     #[test]
-    fn parses_mini_session_options() {
-        let cli = parse(&["--mini", "-p", "hello", "--agent", "ag", "--model", "m"]).unwrap();
-        assert!(cli.mini);
-        assert_eq!(cli.prompt.as_deref(), Some("hello"));
+    fn parses_tui_session_options() {
+        let cli = parse(&["--tui", "--agent", "ag", "--model", "m"]).unwrap();
+        assert!(cli.tui);
         assert_eq!(cli.agent.as_deref(), Some("ag"));
         assert_eq!(cli.model.as_deref(), Some("m"));
 
-        let cli = parse(&["--mini", "--session", "abc"]).unwrap();
+        let cli = parse(&["--tui", "--session", "abc"]).unwrap();
         assert_eq!(cli.session.as_deref(), Some("abc"));
 
-        let cli = parse(&["--mini", "--resume"]).unwrap();
+        let cli = parse(&["--tui", "--resume"]).unwrap();
         assert!(cli.resume);
-    }
-
-    #[test]
-    fn rejects_prompt_without_mini() {
-        let cli = parse(&["-p", "hello"]).unwrap();
-        assert!(cli.validate().is_err());
-        let cli = parse(&["--tui", "-p", "hello"]).unwrap();
-        assert!(cli.validate().is_err());
     }
 
     #[test]
@@ -1653,7 +1619,7 @@ mod tests {
 
     #[test]
     fn rejects_session_and_resume_together() {
-        let cli = parse(&["--mini", "--session", "abc", "--resume"]).unwrap();
+        let cli = parse(&["--tui", "--session", "abc", "--resume"]).unwrap();
         assert!(cli.validate().is_err());
     }
 
@@ -1663,14 +1629,6 @@ mod tests {
         assert!(cli.validate().is_err());
         let cli = parse(&["--no-tui", "--session", "abc"]).unwrap();
         assert!(cli.validate().is_err());
-        let cli = parse(&["--no-tui", "-p", "hi"]).unwrap();
-        assert!(cli.validate().is_err());
-    }
-
-    #[test]
-    fn rejects_prompt_leaking_into_run_subcommand() {
-        // The mini-only -p short flag must not be accepted by `wf run`.
-        assert!(parse(&["run", "x", "-p", "y"]).is_err());
     }
 
     #[test]
@@ -1689,16 +1647,16 @@ mod tests {
 
     #[test]
     fn session_requires_sqlite_storage() {
-        let cli = parse(&["--mini", "--session", "abc"]).unwrap();
+        let cli = parse(&["--tui", "--session", "abc"]).unwrap();
         let err = cli.validate().unwrap_err();
         assert!(err.contains("requires --storage sqlite"), "{err}");
 
-        let cli = parse(&["--mini", "--resume"]).unwrap();
+        let cli = parse(&["--tui", "--resume"]).unwrap();
         let err = cli.validate().unwrap_err();
         assert!(err.contains("requires --storage sqlite"), "{err}");
 
         let cli = parse(&[
-            "--mini",
+            "--tui",
             "--session",
             "abc",
             "--storage",
@@ -1707,10 +1665,10 @@ mod tests {
         .unwrap();
         assert!(cli.validate().is_ok());
 
-        let cli = parse(&["--mini", "--resume", "--storage", "sqlite:/tmp/wf.db"]).unwrap();
+        let cli = parse(&["--tui", "--resume", "--storage", "sqlite:/tmp/wf.db"]).unwrap();
         assert!(cli.validate().is_ok());
 
-        let cli = parse(&["--mini", "--session", "abc", "--storage", "memory"]).unwrap();
+        let cli = parse(&["--tui", "--session", "abc", "--storage", "memory"]).unwrap();
         assert!(cli.validate().is_err());
     }
 

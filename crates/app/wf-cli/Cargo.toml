@@ -2,7 +2,7 @@
 name = "wf-cli"
 version.workspace = true
 edition.workspace = true
-description = "wf-agent command line interface: headless run, mini and full TUI modes"
+description = "wf-agent command line interface: headless run and full TUI modes"
 
 [dependencies]
 clap.workspace = true

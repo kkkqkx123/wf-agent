@@ -33,7 +33,7 @@ use crate::panels::{
 };
 use crate::question::QuestionView;
 use crate::reducer::{Phase, UsageMeta};
-use crate::scrollback::{HistoryLine, Role};
+use crate::scrollback::Role;
 use crate::theme::Theme;
 
 /// Fixed footer frame rows: top decoration + status line + bottom
@@ -109,7 +109,7 @@ pub enum PanelState {
 }
 
 /// UI-side footer state: the reducer's [`crate::reducer::FooterState`] plus
-/// the mini-only presentation fields (model label, execution id, elapsed
+/// the interactive presentation fields (model label, execution id, elapsed
 /// time, notice).
 #[derive(Debug, Clone, PartialEq)]
 pub struct FooterState {
@@ -170,9 +170,6 @@ pub struct Footer {
     pub route: FooterRoute,
     pub state: FooterState,
     pub composer: Composer,
-    /// In-flight streaming line held back from the scrollback (rendered in
-    /// the main area until it settles — the "streaming tail line" rule).
-    pub streaming: Option<HistoryLine>,
     /// Panel attached to the current prompt route (command palette / model /
     /// skill / queued).
     pub panel: Option<PanelState>,
@@ -191,7 +188,6 @@ impl Default for Footer {
             route: FooterRoute::Composer,
             state: FooterState::default(),
             composer: Composer::new(),
-            streaming: None,
             panel: None,
             approval: None,
             question: None,
@@ -248,18 +244,9 @@ impl Footer {
     /// given terminal width to compute streaming tail row count. Pass 0 to
     /// skip streaming row estimation (the streaming row always occupies at
     /// least 1 row when present).
-    pub fn apply_height_with_width(&self, width: u16) -> u16 {
+    pub fn apply_height_with_width(&self, _width: u16) -> u16 {
         let main = match (self.view, self.route) {
-            (FooterView::Prompt, FooterRoute::Composer) => {
-                let stream_rows = match (&self.streaming, width) {
-                    (Some(s), w) if w > 0 => s
-                        .desired_height(w.saturating_sub(STREAMING_WIDTH_MARGIN))
-                        .max(1),
-                    (Some(_), _) => 1,
-                    (None, _) => 0,
-                };
-                COMPOSER_MAIN_HEIGHT + stream_rows
-            }
+            (FooterView::Prompt, FooterRoute::Composer) => COMPOSER_MAIN_HEIGHT,
             (FooterView::Prompt, _) => PANEL_MAIN_HEIGHT,
             (FooterView::Permission, _) => PERMISSION_MAIN_HEIGHT,
             (FooterView::Question, _) => QUESTION_MAIN_HEIGHT,
@@ -325,30 +312,7 @@ impl Footer {
         match (self.view, self.route) {
             (FooterView::Prompt, FooterRoute::Composer) => {
                 let style = theme_style(theme, Role::Default);
-                if let Some(streaming) = &self.streaming {
-                    // The streaming tail renders at width - 2 (reserved
-                    // margin) so its row count stays stable across stream
-                    // ticks and
-                    // a resize never shifts the viewport height mid-stream.
-                    let render_width = area.width.saturating_sub(STREAMING_WIDTH_MARGIN);
-                    let lines = streaming.display_lines(render_width);
-                    let stream_rows = lines.len() as u16;
-                    let [tail, rest] =
-                        Layout::vertical([Constraint::Length(stream_rows), Constraint::Min(1)])
-                            .areas(area);
-                    for (i, line) in lines.iter().enumerate() {
-                        let row = Rect {
-                            x: tail.x,
-                            y: tail.y + i as u16,
-                            width: tail.width,
-                            height: 1,
-                        };
-                        render_line_into(row, buf, line);
-                    }
-                    self.composer.render(rest, buf, style);
-                } else {
-                    self.composer.render(area, buf, style);
-                }
+                self.composer.render(area, buf, style);
             }
             (FooterView::Prompt, _) => {
                 let lines = self.panel.as_ref().map(|panel| match panel {
@@ -624,50 +588,10 @@ mod tests {
 
     #[test]
     fn composer_height_is_base_plus_one() {
-        let mut footer = Footer::new();
+        let footer = Footer::new();
         assert_eq!(
             footer.apply_height(),
             FOOTER_BASE_HEIGHT + COMPOSER_MAIN_HEIGHT
-        );
-        footer.streaming = Some(HistoryLine::new_with_role(
-            "…",
-            crate::scrollback::LineState::Streaming,
-            Role::Muted,
-        ));
-        assert_eq!(
-            footer.apply_height(),
-            FOOTER_BASE_HEIGHT + COMPOSER_MAIN_HEIGHT + 1
-        );
-        footer.streaming = None;
-    }
-
-    #[test]
-    fn streaming_rows_reserve_two_columns() {
-        // An 80-column row wraps at render width 78 (width - 2) but not at
-        // 80: the reserved margin keeps the viewport height stable when the
-        // tail streams and reserves space for a terminal scrollbar.
-        let mut footer = Footer::new();
-        let content = "x".repeat(80);
-        footer.streaming = Some(HistoryLine::new_with_role(
-            content,
-            crate::scrollback::LineState::Streaming,
-            Role::Default,
-        ));
-        assert_eq!(
-            footer.apply_height_with_width(80),
-            FOOTER_BASE_HEIGHT + COMPOSER_MAIN_HEIGHT + 2,
-            "80 cols stream at 78 => two rows, not one"
-        );
-        assert_eq!(
-            footer.apply_height_with_width(0),
-            FOOTER_BASE_HEIGHT + COMPOSER_MAIN_HEIGHT + 1,
-            "unknown width falls back to one streaming row"
-        );
-        footer.streaming = None;
-        assert_eq!(
-            footer.apply_height_with_width(80),
-            FOOTER_BASE_HEIGHT + COMPOSER_MAIN_HEIGHT,
-            "no streaming tail => base composer height"
         );
     }
 

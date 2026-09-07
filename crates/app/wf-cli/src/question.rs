@@ -1,68 +1,20 @@
-//! Follow-up question view for the mini session: the domain-side
-//! interaction handler plus the footer question view.
+//! Follow-up question view for the interactive session: the pure
+//! view/state machine.
 //!
-//! [`MiniInteractionHandler`] implements the wf-api
-//! [`UserInteractionHandler`] for the interactive form: a follow-up question
-//! request is posted to the mini event loop
-//! ([`MiniSessionEvent::QuestionRequested`]) and rendered as
-//! [`FooterView::Question`]; the answer travels back through
-//! `agent_user_interaction::respond_interaction` (the domain's own reply
-//! channel), never through a private one. Tool approvals are a no-op here —
-//! they ride the [`crate::approval::MiniApprovalHandler`] channel instead.
-//!
-//! [`QuestionView`] is the pure view/state machine: it parses the request
-//! payload (prompt / options / multi-select flag), tracks the toggled picks,
-//! maps keymap actions (`Pick(1..=9)` / `Select` / `Cancel`) onto a
-//! [`QuestionOutcome`] and renders the option list with selection markers.
+//! [`QuestionView`] parses the request payload (prompt / options /
+//! multi-select flag), tracks the toggled picks, maps keymap actions
+//! (`Pick(1..=9)` / `Select` / `Cancel`) onto a [`QuestionOutcome`] and
+//! renders the option list with selection markers. The domain-side
+//! interaction handler lives with the session controller
+//! (`crate::session::TuiInteractionHandler`).
 
 use serde_json::Value;
-use tokio::sync::mpsc::UnboundedSender;
-
-use wf_api::entity::user_interaction::{AgentUserInteractionEventRecord, UserInteractionHandler};
 
 use crate::keymap::KeyAction;
-use crate::mini::MiniSessionEvent;
 
 /// How long the view waits for the user before giving up (the question is
 /// then answered with a cancellation).
 pub const QUESTION_TIMEOUT_SECS: u64 = 600;
-
-/// Domain-side interaction handler: forward follow-up questions to the mini
-/// event loop. `on_tool_approval_requested` is a no-op by design (approvals
-/// flow through `MiniApprovalHandler`).
-pub struct MiniInteractionHandler {
-    tx: UnboundedSender<MiniSessionEvent>,
-}
-
-impl MiniInteractionHandler {
-    pub fn new(tx: UnboundedSender<MiniSessionEvent>) -> Self {
-        Self { tx }
-    }
-}
-
-impl UserInteractionHandler for MiniInteractionHandler {
-    fn on_interaction(&self, _record: &AgentUserInteractionEventRecord) {}
-
-    fn on_tool_approval_requested(&self, _execution_id: &str, _request: &Value) {
-        // Approvals go through the dedicated `MiniApprovalHandler` channel.
-    }
-
-    fn on_followup_question_requested(&self, _execution_id: &str, request: &Value) {
-        let interaction_id = request
-            .get("interactionId")
-            .or_else(|| request.get("interaction_id"))
-            .or_else(|| request.get("id"))
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .to_string();
-        // The UI owns the reply; a closed channel only means the session is
-        // already tearing down.
-        let _ = self.tx.send(MiniSessionEvent::QuestionRequested {
-            interaction_id,
-            request: request.clone(),
-        });
-    }
-}
 
 /// One selectable option of a question.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -434,28 +386,5 @@ mod tests {
             Some(QuestionOutcome::Cancelled)
         );
         assert_eq!(outcome_for_action(KeyAction::Help), None);
-    }
-
-    #[tokio::test]
-    async fn handler_forwards_questions_to_the_event_loop() {
-        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-        let handler = MiniInteractionHandler::new(tx);
-        handler.on_followup_question_requested(
-            "exec-1",
-            &json!({ "interactionId": "ui-9", "prompt": "q" }),
-        );
-        match rx.recv().await {
-            Some(MiniSessionEvent::QuestionRequested {
-                interaction_id,
-                request,
-            }) => {
-                assert_eq!(interaction_id, "ui-9");
-                assert_eq!(request["prompt"], "q");
-            }
-            other => panic!("expected a question event, got {other:?}"),
-        }
-        // Approval requests must not surface here.
-        handler.on_tool_approval_requested("exec-1", &json!({ "tool": "bash" }));
-        assert!(rx.try_recv().is_err());
     }
 }

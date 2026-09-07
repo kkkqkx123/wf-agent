@@ -1,4 +1,4 @@
-//! wf-cli: headless run, mini and full TUI forms over the wf-agent runtime.
+//! wf-cli: headless run and full TUI forms over the wf-agent runtime.
 
 pub mod ansi;
 pub mod approval;
@@ -14,7 +14,6 @@ pub mod framer;
 pub mod keymap;
 pub mod markdown;
 pub mod mention;
-pub mod mini;
 pub mod modal;
 pub mod mode;
 pub mod output;
@@ -31,9 +30,7 @@ pub mod screens;
 pub mod scrollback;
 pub mod select;
 pub mod session;
-pub mod sink;
 pub mod size;
-pub mod splash;
 pub mod terminal;
 pub mod theme;
 pub mod tui;
@@ -47,14 +44,12 @@ pub use error::{CliError, CliResult};
 pub use footer::{Footer, FooterRoute, FooterView};
 pub use framer::{FrameRateLimiter, FrameRequester};
 pub use keymap::{Key, KeyAction, Keymap, KeymapContext};
-pub use mini::{MiniApp, MiniOptions};
 pub use output::{
     HeadlessFileSink, MemorySink, OutputEnvelope, OutputFormat, OutputMessage, TeeSink,
 };
 pub use run::{DiagWriter, RunIo, RunOptions, RunOutcome};
 pub use scrollback::{HistoryLine, LineState, LinesView, Role};
 pub use select::{Group, GroupItem, NavigateDir, SelectList};
-pub use sink::{MiniOutputEvent, MiniSink};
 pub use size::{ResizeDebouncer, Size};
 
 use std::sync::Arc;
@@ -169,7 +164,7 @@ pub async fn run(cli: Cli) -> CliResult<()> {
 
     match resolved.cli_mode {
         CliMode::Run => run_headless(&cli, &resolved, stdout_tty).await,
-        CliMode::Mini | CliMode::Tui => run_interactive(&cli, &resolved, stdout_tty).await,
+        CliMode::Tui => run_interactive(&cli, &resolved, stdout_tty).await,
     }
 }
 
@@ -258,19 +253,6 @@ async fn run_interactive(cli: &Cli, resolved: &ResolvedMode, stdout_tty: bool) -
         )));
     }
     match cli_mode {
-        CliMode::Mini => {
-            let adapter = DomainAdapter::bootstrap_for_cli(cli, CliMode::Mini).await?;
-            let opts = MiniOptions {
-                agent: cli.agent.clone(),
-                model: cli.model.clone(),
-                initial_prompt: cli.prompt.clone(),
-                session_id: resolved.resume_session.clone(),
-                resume_latest: resolved.resume_latest,
-                storage_spec: cli.storage.clone(),
-                adapter: Arc::new(adapter),
-            };
-            MiniApp::new(opts)?.run().await
-        }
         CliMode::Tui => {
             let adapter = DomainAdapter::bootstrap_for_cli(cli, CliMode::Tui).await?;
             let app = crate::tui::TuiApp::new(Arc::new(adapter));
@@ -289,7 +271,6 @@ pub async fn debug_mode(cli: &Cli) -> CliResult<()> {
     let data = serde_json::json!({
         "mode": match resolved.cli_mode {
             CliMode::Run => "run",
-            CliMode::Mini => "mini",
             CliMode::Tui => "tui",
         },
         "outputFormat": format!("{:?}", cli.output),

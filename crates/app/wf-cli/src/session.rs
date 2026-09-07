@@ -1,8 +1,8 @@
 //! TUI session controller: one interactive agent turn.
 //!
-//! This is a port of the mini-mode streaming pipeline to the full-screen
-//! event loop. It reuses the same reducer, markdown stream, composer and
-//! approval/question views so the output is identical to `wf --mini`.
+//! This drives the streaming pipeline on the full-screen event loop. It
+//! reuses the same reducer, markdown stream, composer and approval/question
+//! views as the interactive session rendering.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -251,6 +251,9 @@ pub struct SessionController {
     footer: Footer,
     scrollback: Vec<HistoryLine>,
     pending_scroll: Vec<HistoryLine>,
+    /// In-flight streaming line held back from the scrollback (rendered in
+    /// the scrollback area until it settles — the "streaming tail line" rule).
+    streaming: Option<HistoryLine>,
     turn_task: Option<JoinHandle<()>>,
     approval_reply: Option<oneshot::Sender<ToolApprovalResult>>,
     remembered: ApprovalRemembered,
@@ -322,6 +325,7 @@ impl SessionController {
             footer,
             scrollback: Vec::new(),
             pending_scroll: Vec::new(),
+            streaming: None,
             turn_task: None,
             approval_reply: None,
             remembered: ApprovalRemembered::default(),
@@ -613,9 +617,9 @@ impl SessionController {
                 }
                 let view = self.stream.streaming_text().to_string();
                 if view.is_empty() {
-                    self.footer.streaming = None;
+                    self.streaming = None;
                 } else {
-                    self.footer.streaming = Some(HistoryLine::new_with_role(
+                    self.streaming = Some(HistoryLine::new_with_role(
                         view,
                         LineState::Streaming,
                         Role::Default,
@@ -688,7 +692,7 @@ impl SessionController {
         }
         let _ = self.stream.finish();
         self.scroll_cover = 0;
-        self.footer.streaming = None;
+        self.streaming = None;
     }
 
     fn finish_turn(&mut self) {
@@ -898,7 +902,7 @@ impl SessionController {
         let inner = block.inner(area);
         frame.render_widget(block, area);
 
-        if self.scrollback.is_empty() && self.footer.streaming.is_none() {
+        if self.scrollback.is_empty() && self.streaming.is_none() {
             frame.render_widget(
                 Paragraph::new("Type a prompt and press Enter to start an agent turn."),
                 inner,
@@ -911,7 +915,7 @@ impl SessionController {
         for line in &self.scrollback {
             lines.extend(line.display_lines(width));
         }
-        if let Some(streaming) = &self.footer.streaming {
+        if let Some(streaming) = &self.streaming {
             lines.extend(streaming.display_lines(width));
         }
 

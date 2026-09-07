@@ -1,8 +1,8 @@
 //! Interactive form resolution.
 //!
 //! Resolution order:
-//!   --tui  >  --mini  >  subcommand (headless run)  >  --no-tui
-//!   >  stdout not a TTY (headless run)  >  TTY default (configurable).
+//!   --tui  >  subcommand (headless run)  >  --no-tui
+//!   >  stdout not a TTY (headless run)  >  TTY default (full TUI).
 
 use std::io::IsTerminal;
 
@@ -14,8 +14,6 @@ use crate::error::{CliError, CliResult};
 pub enum CliMode {
     /// Single headless agent session (`wf run` or piped stdin).
     Run,
-    /// Lightweight inline split-footer session (`--mini`).
-    Mini,
     /// Full-screen alt-screen TUI (`--tui`).
     Tui,
 }
@@ -47,18 +45,10 @@ impl ModeResolver {
     pub fn resolve(cli: &Cli, is_stdin_tty: bool, is_stdout_tty: bool) -> CliResult<ResolvedMode> {
         cli.validate().map_err(CliError::Arguments)?;
 
-        // 1. Explicit interactive forms (highest priority).
+        // 1. Explicit interactive form (highest priority).
         if cli.tui {
             return Ok(ResolvedMode {
                 cli_mode: CliMode::Tui,
-                stdin_prompt: None,
-                resume_session: cli.session.clone(),
-                resume_latest: cli.resume,
-            });
-        }
-        if cli.mini {
-            return Ok(ResolvedMode {
-                cli_mode: CliMode::Mini,
                 stdin_prompt: None,
                 resume_session: cli.session.clone(),
                 resume_latest: cli.resume,
@@ -121,19 +111,9 @@ impl ModeResolver {
             });
         }
 
-        // 5. Interactive TTY default (configurable via WF_CLI_MODE).
-        let default_mode = std::env::var("WF_CLI_MODE").unwrap_or_else(|_| "mini".to_string());
-        let cli_mode = match default_mode.as_str() {
-            "tui" => CliMode::Tui,
-            "mini" => CliMode::Mini,
-            other => {
-                return Err(CliError::Arguments(format!(
-                    "WF_CLI_MODE must be 'mini' or 'tui', got '{other}'"
-                )))
-            }
-        };
+        // 5. Interactive TTY default: the full TUI.
         Ok(ResolvedMode {
-            cli_mode,
+            cli_mode: CliMode::Tui,
             stdin_prompt: None,
             resume_session: cli.session.clone(),
             resume_latest: cli.resume,
@@ -183,10 +163,6 @@ mod tests {
     use super::*;
     use clap::Parser;
 
-    /// Serializes tests that read/write the `WF_CLI_MODE` env var (parallel
-    /// test runners otherwise observe each other's mutations).
-    static ENV_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
-
     fn cli(args: &[&str]) -> Cli {
         Cli::try_parse_from(std::iter::once("wf").chain(args.iter().copied())).unwrap()
     }
@@ -195,12 +171,6 @@ mod tests {
     fn explicit_tui_wins_over_default() {
         let r = ModeResolver::resolve(&cli(&["--tui"]), true, true).unwrap();
         assert_eq!(r.cli_mode, CliMode::Tui);
-    }
-
-    #[test]
-    fn explicit_mini_wins_over_default() {
-        let r = ModeResolver::resolve(&cli(&["--mini"]), true, true).unwrap();
-        assert_eq!(r.cli_mode, CliMode::Mini);
     }
 
     #[test]
@@ -232,34 +202,8 @@ mod tests {
     }
 
     #[test]
-    fn tty_default_is_mini() {
-        let _guard = ENV_TEST_LOCK.lock().unwrap();
-        std::env::remove_var("WF_CLI_MODE");
-        let r = ModeResolver::resolve(&cli(&[]), true, true).unwrap();
-        assert_eq!(r.cli_mode, CliMode::Mini);
-    }
-
-    #[test]
-    fn env_var_overrides_default() {
-        let _guard = ENV_TEST_LOCK.lock().unwrap();
-        std::env::set_var("WF_CLI_MODE", "tui");
+    fn tty_default_is_tui() {
         let r = ModeResolver::resolve(&cli(&[]), true, true).unwrap();
         assert_eq!(r.cli_mode, CliMode::Tui);
-        std::env::remove_var("WF_CLI_MODE");
-    }
-
-    #[test]
-    fn invalid_env_value_is_rejected() {
-        let _guard = ENV_TEST_LOCK.lock().unwrap();
-        std::env::set_var("WF_CLI_MODE", "bogus");
-        let err = ModeResolver::resolve(&cli(&[]), true, true).unwrap_err();
-        assert_eq!(err.exit_code(), 2);
-        std::env::remove_var("WF_CLI_MODE");
-    }
-
-    #[test]
-    fn tui_mini_conflict_is_rejected() {
-        let err = ModeResolver::resolve(&cli(&["--tui", "--mini"]), true, true).unwrap_err();
-        assert_eq!(err.exit_code(), 2);
     }
 }

@@ -1,6 +1,7 @@
-//! Integration smoke for the mini rendering kernel: synthetic execution
-//! stream events drive the exact same reducer → footer → view path as a
-//! real mini session, so these assertions cover the wiring without a TTY.
+//! Integration smoke for the interactive session rendering kernel:
+//! synthetic execution stream events drive the exact same
+//! reducer → footer → view path as a live session, so these assertions
+//! cover the wiring without a TTY.
 
 use serde_json::json;
 
@@ -21,7 +22,7 @@ fn markdown_script() -> Vec<ExecutionStreamEvent> {
             array_version: 0,
         },
         ExecutionStreamEvent::LlmDelta {
-            content: "# demo reply\n\nstreaming through the mini pipeline".to_string(),
+            content: "# demo reply\n\nstreaming through the session pipeline".to_string(),
         },
         ExecutionStreamEvent::IterationEnd {
             iteration: 1,

@@ -566,7 +566,7 @@ pub async fn run_session(
             if followup_requested.load(Ordering::SeqCst) {
                 return Err(CliError::Business(
                     "follow-up question requested in headless mode; \
-                     re-run interactively (wf --mini) to answer it"
+                     re-run interactively (wf --tui) to answer it"
                         .into(),
                 ));
             }

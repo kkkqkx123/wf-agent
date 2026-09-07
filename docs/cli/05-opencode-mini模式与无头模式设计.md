@@ -1,10 +1,17 @@
 # wf-cli mini 模式与无头模式设计（opencode mini 参考引入）
 
+> **状态：mini 形态已废弃（2026-09）**
+>
+> 经实现与对比分析（`docs/ref/wf-cli-mini-对比与改进建议.md`、`docs/ref/wf-cli-mini-移除决策分析.md`）：
+> mini 的输入/输出隔离问题是 inline 渲染模型的结构性缺陷（双渲染路径拼合），根治方案（全屏单树）恰好消灭其性能优势；且完整 TUI 的 Session 屏已复用同一渲染栈并支持输出随屏切换。
+> **决策：移除 mini 模式**，交互形态收敛为「headless（`wf run` / `--no-tui`）+ 完整 TUI（`--tui`，TTY 默认）」两档。
+> 本文档保留 mini 的原始设计作为历史记录；四、六、七节中 mini 相关内容均已不适用于当前实现。
+
 > 本文档基于对 opencode `--mini` 模式（`/workspace/opencode/packages/opencode/src/cli/cmd/run/`，分析见 `/workspace/docs/analysis/opencode-mini-*.md`）
 > 的源码复核，结合 `docs/cli/01-04` 既有设计（全屏 alt-screen TUI + headless 管理命令面）与 Rust 侧领域层
 > （`wf-runtime` / `wf-api` / `wf-agent` / `wf-types`）现状，给出 wf-cli 的两种新形态设计：
 >
-> 1. **mini 模式**：轻量会话式交互（inline split-footer），对齐 opencode `--mini`；
+> 1. ~~**mini 模式**：轻量会话式交互（inline split-footer），对齐 opencode `--mini`~~（**已废弃**，见上）；
 > 2. **无头模式（非交互会话）**：单次 prompt 执行后退出（stdout 输出），对齐 opencode `run` 非交互形态。
 >
 > 本文档是 01-04 的**补充设计**，不推翻既有决策；三、四、五节分别回答"opencode 技术栈如何映射到 Rust"、
@@ -48,8 +55,8 @@ opencode 与 codex 的 TUI 均为 **inline 渲染**（不切 alt-screen），对
 | :--- | :--- | :--- | :--- |
 | **无头会话**（run，非交互） | `wf run "<prompt>"`；stdin 管道；stdout 非 TTY；显式 `--no-tui` | stdout 文本 / JSON / silent | 单次执行、CI、脚本、管道 |
 | **无头管理命令面**（既有设计） | 显式子命令（`wf workflow list` 等） | 表格 / JSON / silent | 资产 CRUD、运维 |
-| **mini 会话**（新） | TTY 且显式 `--mini`（推荐）；或 TTY 默认（见 2.3） | **inline split-footer** | 日常轻量 agent 会话、workflow 前台执行 |
-| **全屏 TUI**（既有设计 01-04） | `--tui`；或 TTY 默认 | alt-screen 8 屏 | 完整管理 + 交互 |
+| ~~**mini 会话**（~~**已废弃**~~）~~ | ~~TTY 且显式 `--mini`~~ | ~~inline split-footer~~ | 由完整 TUI Session 屏取代 |
+| **全屏 TUI**（既有设计 01-04） | `--tui`；或 TTY 默认 | alt-screen 8 屏 | 完整管理 + 交互（含会话） |
 
 ### 2.2 判定顺序（`wf` 入口）
 
@@ -284,14 +291,14 @@ wf run "<prompt>" [--agent <name>] [--model <profile>] [--session <id>] [--outpu
 
 | 项 | 决策 | 理由 |
 | :--- | :--- | :--- |
-| mini 渲染模式 | **inline（`Viewport::Inline`）**，与全屏 TUI 的 alt-screen 并存 | 轻量体验 = 退出后内容留终端 scrollback；两形态语义不同，不冲突 |
-| 默认交互入口 | 推荐方案 A（`--mini` 显式）；CLI 阶段可暂以 mini 为默认 | 保持 01 文档决策一致性，具体由 config `cli.default_mode` 收敛 |
-| streaming markdown | **自研**按 top-level block 增量提交（不用现成 markdown widget） | 对齐 opencode 行为：未完结 block 不固化、避免闪烁；是 mini 核心件 |
+| ~~mini 渲染模式~~ | ~~**inline（`Viewport::Inline`）**，与全屏 TUI 的 alt-screen 并存~~ | **已废弃**：inline 双渲染路径导致输入/输出无法隔离（见 `docs/ref/wf-cli-mini-移除决策分析.md`） |
+| ~~默认交互入口~~ | ~~推荐方案 A（`--mini` 显式）；CLI 阶段可暂以 mini 为默认~~ | **已废弃**：TTY 默认直接进完整 TUI（`--tui`） |
+| streaming markdown | **自研**按 top-level block 增量提交（不用现成 markdown widget） | 对齐 opencode 行为：未完结 block 不固化、避免闪烁；是会话渲染核心件（现由完整 TUI Session 屏复用） |
 | mention 区域标记 | **简化区间高亮**（不做 extmark 虚拟文本） | extmark 无 ratatui 对应，完整虚拟文本成本高 |
 | 多行输入 | P0 单行自研，P1 外购 `ratatui-textarea` | 对齐 03 文档决策（外购优先） |
 | 无头审批 | 默认 deny + 白名单 + `--approve-prefix` 预授权 | 对齐 opencode 非交互语义，安全默认 |
 | 事件粒度 | `LlmDelta` 按 token 流 → 帧调度合并后渲染 | 对齐 03 文档 3.2 FrameRequester 限帧，防逐 token 重绘 |
-| 执行事件统一 | agent 与 workflow 统一为 `ExecutionType`（无头与 mini 的摘要行/状态栏同一套） | 对齐 01 文档"执行跟踪统一"概念模型 |
+| 执行事件统一 | agent 与 workflow 统一为 `ExecutionType`（无头与交互会话的摘要行/状态栏同一套） | 对齐 01 文档"执行跟踪统一"概念模型 |
 
 ---
 

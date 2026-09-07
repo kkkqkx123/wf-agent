@@ -168,7 +168,7 @@ pub fn runtime_config_for_cli(cli: &Cli, cli_mode: CliMode) -> RuntimeConfig {
     let mut config = RuntimeConfig {
         mode_override: Some(match cli_mode {
             CliMode::Run => ExecutionMode::Headless,
-            CliMode::Mini | CliMode::Tui => ExecutionMode::Interactive,
+            CliMode::Tui => ExecutionMode::Interactive,
         }),
         ..Default::default()
     };
@@ -304,8 +304,8 @@ mod tests {
         assert_eq!(config.mode_override, Some(ExecutionMode::Headless));
 
         let config = runtime_config_for_cli(
-            &Cli::try_parse_from(["wf", "--mini"]).unwrap(),
-            CliMode::Mini,
+            &Cli::try_parse_from(["wf", "--tui"]).unwrap(),
+            CliMode::Tui,
         );
         assert_eq!(config.mode_override, Some(ExecutionMode::Interactive));
     }

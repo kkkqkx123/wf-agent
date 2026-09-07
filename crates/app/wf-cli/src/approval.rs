@@ -1,27 +1,20 @@
-//! Tool approval for the mini session: the domain-side handler plus the
-//! footer approval view.
+//! Tool approval view for the interactive session: the pure view/state
+//! machine plus session-scoped remember state.
 //!
-//! [`MiniApprovalHandler`] implements [`ToolApprovalHandler`] for the
-//! interactive form: the request is posted to the mini event loop
-//! ([`MiniSessionEvent::ApprovalRequested`]) with a oneshot reply channel
-//! and the handler awaits the user's key press (bounded by
-//! [`APPROVAL_TIMEOUT`]). This is the interactive counterpart of the
-//! headless deny policy in `run.rs` — the two forms register their own
-//! handlers and never mix; the interactive form must confirm.
-//!
-//! [`ApprovalView`] is the pure view/state machine: it renders the tool
-//! name, an arguments preview and the key hints, and maps a keymap action
-//! (y/a/d/n/c) onto a [`ToolApprovalResult`]. "Allow all" / "deny" are
-//! session-scoped remembers — the event loop consults
-//! [`ApprovalRemembered`] to auto-answer later requests for the same tool.
+//! [`ApprovalView`] renders the tool name, an arguments preview and the key
+//! hints, and maps a keymap action (y/a/d/n/c) onto a
+//! [`ToolApprovalResult`]. "Allow all" / "deny" are session-scoped
+//! remembers — the session event loop consults [`ApprovalRemembered`] to
+//! auto-answer later requests for the same tool. The domain-side approval
+//! handler lives with the session controller
+//! (`crate::session::TuiApprovalHandler`); the headless deny policy lives
+//! in `run.rs`. Each form registers its own handler and never mixes.
 
 use std::time::Duration;
 
-use tokio::sync::{mpsc::UnboundedSender, oneshot};
-use wf_api::{ToolApprovalHandler, ToolApprovalRequest, ToolApprovalResult};
+use wf_api::{ToolApprovalRequest, ToolApprovalResult};
 
 use crate::keymap::KeyAction;
-use crate::mini::MiniSessionEvent;
 
 /// How long the handler waits for the user before rejecting by timeout
 /// (generous: an approval view is allowed to sit while the user thinks).
@@ -64,49 +57,6 @@ impl ApprovalRemembered {
     pub fn clear(&mut self) {
         self.allowed.clear();
         self.denied.clear();
-    }
-}
-
-/// Domain-side approval handler: post the request to the mini event loop
-/// and await the oneshot reply.
-pub struct MiniApprovalHandler {
-    tx: UnboundedSender<MiniSessionEvent>,
-}
-
-impl MiniApprovalHandler {
-    pub fn new(tx: UnboundedSender<MiniSessionEvent>) -> Self {
-        Self { tx }
-    }
-}
-
-#[async_trait::async_trait]
-impl ToolApprovalHandler for MiniApprovalHandler {
-    async fn request_approval(&self, request: &ToolApprovalRequest) -> ToolApprovalResult {
-        let (reply_tx, reply_rx) = oneshot::channel();
-        if self
-            .tx
-            .send(MiniSessionEvent::ApprovalRequested {
-                request: request.clone(),
-                reply: reply_tx,
-            })
-            .is_err()
-        {
-            return ToolApprovalResult::rejected(
-                request.tool_call_id.clone(),
-                "mini session closed before the approval was answered",
-            );
-        }
-        match tokio::time::timeout(APPROVAL_TIMEOUT, reply_rx).await {
-            Ok(Ok(result)) => result,
-            Ok(Err(_)) => ToolApprovalResult::rejected(
-                request.tool_call_id.clone(),
-                "approval reply channel closed",
-            ),
-            Err(_) => ToolApprovalResult::rejected(
-                request.tool_call_id.clone(),
-                "approval timed out waiting for the user",
-            ),
-        }
     }
 }
 
@@ -299,37 +249,5 @@ mod tests {
         assert!(short.chars().count() <= 8, "{short}");
         let full = view.arguments_preview(200);
         assert!(full.contains("rm -rf"));
-    }
-
-    #[tokio::test]
-    async fn handler_replies_through_the_oneshot() {
-        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-        let handler = MiniApprovalHandler::new(tx);
-        let req = request("write_file");
-
-        let handle = tokio::spawn(async move { handler.request_approval(&req).await });
-        let event = rx.recv().await.unwrap();
-        let MiniSessionEvent::ApprovalRequested { request, reply } = event else {
-            panic!("expected an approval request event");
-        };
-        assert_eq!(request.tool_name, "write_file");
-        reply.send(ToolApprovalResult::approved("call-1")).unwrap();
-
-        let result = handle.await.unwrap();
-        assert!(result.approved);
-    }
-
-    #[tokio::test]
-    async fn handler_rejects_when_the_ui_is_gone() {
-        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-        let handler = MiniApprovalHandler::new(tx);
-        let req = request("write_file");
-        let handle = tokio::spawn(async move { handler.request_approval(&req).await });
-        // Drop the reply channel without answering.
-        if let MiniSessionEvent::ApprovalRequested { reply, .. } = rx.recv().await.unwrap() {
-            drop(reply);
-        }
-        let result = handle.await.unwrap();
-        assert!(!result.approved);
     }
 }

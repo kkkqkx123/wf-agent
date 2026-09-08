@@ -4,7 +4,7 @@
 //! It serves as the final preparation area for checkpoint commits.
 //!
 //! Responsibility:
-//! 1. Accept merge results from unified layer (unique entry point)
+//! 1. Accept merge results from manual and integrated (feature) layers (unique entry point)
 //! 2. Support final validation before checkpoint submission
 //! 3. Provide checkpoint commit functionality
 
@@ -482,8 +482,17 @@ mod tests {
         let staged = storage.get_partition(&staged_partition_id()).unwrap();
         assert_eq!(staged.current_snapshot, merged_id.snapshot_id);
 
+        // Content addressing: staged sat at the shared baseline, so the merge
+        // result is content-identical to the feature snapshot and deduplicates
+        // to the same snapshot id (cross-layer dedup).
+        assert_eq!(merged_id.snapshot_id, feature_snap_id);
+
+        // Reconstructed staged content equals the feature content.
         let merged_snap = storage.get_snapshot(&merged_id.snapshot_id).unwrap();
-        assert_eq!(merged_snap.parents.len(), 2);
+        let text = crate::layered::transition::reconstruct_text(&storage, &merged_snap)
+            .unwrap()
+            .unwrap();
+        assert_eq!(text, "base\nfeature-added\n");
     }
 
     #[test]

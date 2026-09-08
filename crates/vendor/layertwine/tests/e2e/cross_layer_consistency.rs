@@ -34,7 +34,7 @@ fn test_full_pipeline_layer_consistency() {
     approve_agent(&env, "agent-loop-1", "feature-1");
 
     // Step 3: Merge features directly to staged (no unified intermediary)
-    merge_to_unified(&env, None);
+    merge_features_to_staged(&env, None);
 
     // Verify final staged content has agent's changes
     let staged_parts = get_partitions_by_layer(&env, LayerType::Staged);
@@ -90,7 +90,7 @@ fn test_multiple_agents_pipeline_consistency() {
     approve_agent(&env, "agent-b", "feature-b");
 
     // Merge all integrated directly to staged
-    merge_to_unified(&env, None);
+    merge_features_to_staged(&env, None);
 
     // Final staged content should contain at least one agent's changes
     let staged_parts = get_partitions_by_layer(&env, LayerType::Staged);

@@ -677,29 +677,6 @@ impl Layertwine for LayertwineGrpc {
         }))
     }
 
-    async fn merge_to_unified(
-        &self,
-        request: Request<layertwine_proto::MergeToUnifiedRequest>,
-    ) -> Result<Response<layertwine_proto::MergeToUnifiedResponse>, Status> {
-        let req = request.into_inner();
-        let api_req = MergeToUnifiedRequest {
-            integration_names: if req.integration_names.is_empty() {
-                None
-            } else {
-                Some(req.integration_names)
-            },
-        };
-        let service = self.service.clone();
-        let result = tokio::task::spawn_blocking(move || service.merge_to_unified(api_req))
-            .await
-            .map_err(|e| Status::internal(format!("join error: {}", e)))?
-            .map_err(to_status)?;
-        Ok(Response::new(layertwine_proto::MergeToUnifiedResponse {
-            unified_snapshot_id: result.unified_snapshot_id,
-            merged_count: result.merged_count as u32,
-        }))
-    }
-
     async fn merge_to_staged(
         &self,
         request: Request<layertwine_proto::MergeToStagedRequest>,

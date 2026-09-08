@@ -12,6 +12,7 @@ use crate::core::types::{BackupId, ContentId, SnapshotId, SourceType};
 use crate::engine::diff::diff_to_line_diff;
 use crate::engine::merge::apply_deltas;
 use crate::error::{LayertwineError, Result};
+use crate::storage::migrations::{BACKUP_MIGRATION_SQL, PRAGMA_JOURNAL_MODE_WAL};
 use crate::storage::repository::{DeltaStore, FileNodeStore, PartitionStore, SnapshotStore};
 use crate::{StorageError, StorageResult};
 
@@ -32,38 +33,6 @@ fn decompress_deltas(compressed: &[u8]) -> StorageResult<Vec<Delta>> {
     })
 }
 
-const BACKUP_MIGRATION_SQL: &str = "
-CREATE TABLE IF NOT EXISTS backup_snapshots (
-    id              BLOB PRIMARY KEY,
-    source_snapshot BLOB NOT NULL,
-    file_path       TEXT NOT NULL,
-    file_hash       BLOB NOT NULL,
-    deltas          BLOB NOT NULL,
-    label           TEXT,
-    backed_at       INTEGER NOT NULL,
-    metadata        BLOB NOT NULL,
-    agent_id        TEXT,
-    source_type     TEXT,
-    file_content    BLOB NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_backup_label ON backup_snapshots(label);
-CREATE INDEX IF NOT EXISTS idx_backup_backed_at ON backup_snapshots(backed_at);
-CREATE INDEX IF NOT EXISTS idx_backup_agent_id ON backup_snapshots(agent_id);
-CREATE INDEX IF NOT EXISTS idx_backup_source_type ON backup_snapshots(source_type);
-
--- Separate key-value table for SQL-level metadata filtering.
--- Avoids deserializing the JSON blob and filtering in memory.
-CREATE TABLE IF NOT EXISTS backup_metadata (
-    backup_id BLOB NOT NULL,
-    key TEXT NOT NULL,
-    value TEXT NOT NULL,
-    PRIMARY KEY (backup_id, key)
-) WITHOUT ROWID;
-
-CREATE INDEX IF NOT EXISTS idx_backup_meta_key ON backup_metadata(key, value);
-";
-
 fn map_db_err(e: rusqlite::Error) -> LayertwineError {
     LayertwineError::Storage(StorageError::Database(e))
 }
@@ -75,7 +44,7 @@ pub struct BackupRepo {
 impl BackupRepo {
     pub fn new_in_memory() -> StorageResult<Self> {
         let conn = Connection::open_in_memory()?;
-        conn.execute_batch("PRAGMA journal_mode=WAL;")?;
+        conn.execute_batch(PRAGMA_JOURNAL_MODE_WAL)?;
         conn.execute_batch(BACKUP_MIGRATION_SQL)?;
         Ok(BackupRepo {
             conn: Arc::new(ReentrantMutex::new(conn)),
@@ -84,7 +53,7 @@ impl BackupRepo {
 
     pub fn new(path: &Path) -> StorageResult<Self> {
         let conn = Connection::open(path)?;
-        conn.execute_batch("PRAGMA journal_mode=WAL;")?;
+        conn.execute_batch(PRAGMA_JOURNAL_MODE_WAL)?;
         conn.execute_batch(BACKUP_MIGRATION_SQL)?;
         Ok(BackupRepo {
             conn: Arc::new(ReentrantMutex::new(conn)),
@@ -369,6 +338,12 @@ impl BackupRepo {
 
     pub fn delete_backup(&self, backup_id: &BackupId) -> Result<()> {
         let conn = self.conn.lock();
+        // Remove metadata rows first (no FK cascade in the backup schema).
+        conn.execute(
+            "DELETE FROM backup_metadata WHERE backup_id = ?1",
+            params![&backup_id.0.to_vec()],
+        )
+        .map_err(map_db_err)?;
         let affected = conn
             .execute(
                 "DELETE FROM backup_snapshots WHERE id = ?1",
@@ -591,6 +566,76 @@ mod tests {
         assert_eq!(loaded.source_snapshot, snap_id);
         assert_eq!(loaded.label, Some("test-backup".to_string()));
         assert_eq!(loaded.deltas.len(), 1);
+    }
+
+    #[test]
+    fn test_repeated_backup_same_source_is_idempotent() {
+        let core = setup_core_repo();
+        let backup_repo = BackupRepo::new_in_memory().unwrap();
+
+        let snap_id = create_test_snapshot(&core, "idem.txt", b"same content", SourceType::Manual);
+
+        // Content-hash addressing: re-backing up the same source snapshot with
+        // the same label must yield the same id and not grow the store.
+        let id1 = backup_repo
+            .backup_snapshot(&core, snap_id, Some("dedup".to_string()))
+            .unwrap();
+        let id2 = backup_repo
+            .backup_snapshot(&core, snap_id, Some("dedup".to_string()))
+            .unwrap();
+        assert_eq!(id1, id2);
+        assert_eq!(backup_repo.count().unwrap(), 1);
+
+        // A different label is a distinct backup intent, so it stays separate.
+        let id3 = backup_repo
+            .backup_snapshot(&core, snap_id, Some("another".to_string()))
+            .unwrap();
+        assert_ne!(id1, id3);
+        assert_eq!(backup_repo.count().unwrap(), 2);
+    }
+
+    #[test]
+    fn test_delete_backup_removes_metadata() {
+        let core = setup_core_repo();
+        let backup_repo = BackupRepo::new_in_memory().unwrap();
+
+        let snap_id = create_test_snapshot(&core, "meta.txt", b"meta content", SourceType::Manual);
+        let backup_id = backup_repo
+            .backup_snapshot(&core, snap_id, Some("meta-backup".to_string()))
+            .unwrap();
+
+        // Attach metadata rows the way a labelled/annotated backup would.
+        {
+            let conn = backup_repo.conn.lock();
+            conn.execute(
+                "INSERT INTO backup_metadata (backup_id, key, value) VALUES (?1, ?2, ?3)",
+                params![&backup_id.0.to_vec(), "branch", "feature-x"],
+            )
+            .unwrap();
+            let rows: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM backup_metadata WHERE backup_id = ?1",
+                    params![&backup_id.0.to_vec()],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(rows, 1);
+        }
+
+        // Deleting the backup must cascade to its metadata rows.
+        backup_repo.delete_backup(&backup_id).unwrap();
+        {
+            let conn = backup_repo.conn.lock();
+            let rows: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM backup_metadata WHERE backup_id = ?1",
+                    params![&backup_id.0.to_vec()],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(rows, 0);
+        }
+        assert_eq!(backup_repo.count().unwrap(), 0);
     }
 
     #[test]

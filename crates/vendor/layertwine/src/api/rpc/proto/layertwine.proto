@@ -47,7 +47,6 @@ service Layertwine {
     rpc ListPendingApprovals(Empty) returns (ListPendingApprovalsResponse);
     rpc ApproveAgent(ApproveAgentRequest) returns (ApproveAgentResponse);
     rpc RejectAgent(RejectAgentRequest) returns (RejectAgentResponse);
-    rpc MergeToUnified(MergeToUnifiedRequest) returns (MergeToUnifiedResponse);
     rpc MergeToStaged(MergeToStagedRequest) returns (MergeToStagedResponse);
 }
 
@@ -350,16 +349,6 @@ message RejectAgentResponse {
     string agent_id = 1;
     string baseline_snapshot_id = 2;
 }
-
-message MergeToUnifiedRequest {
-    repeated string integration_names = 1;
-}
-
-message MergeToUnifiedResponse {
-    string unified_snapshot_id = 1;
-    uint32 merged_count = 2;
-}
-
 message MergeToStagedRequest {}
 
 message MergeToStagedResponse {

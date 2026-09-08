@@ -1,6 +1,6 @@
 //! Layered State Machine Module
 //!
-//! Manages the six-layer pipeline: manual_edit → agent_edit → approval → integrated → unified → staged.
+//! Manages the layered pipeline: manual_edit / agent_edit → approval → integrated → staged.
 //! Provides forward flow and reverse rollback with ironclad layer-gating rules.
 
 pub mod agent;
@@ -11,15 +11,13 @@ pub mod manual;
 pub mod staged;
 pub mod transition;
 
-use crate::core::layer::Layer;
 use crate::core::partition::Partition;
 use crate::core::types::{CheckpointId, PartitionId, PartitionType, SnapshotId};
 use crate::error::{LayertwineError, Result};
-use crate::storage::repository::{AtomicOps, CheckpointPersist, LayerStore, PartitionStore};
-use std::collections::HashMap;
+use crate::storage::repository::{AtomicOps, CheckpointPersist, PartitionStore};
 use std::sync::Arc;
 
-/// Unified merge result for all merge operations
+/// Merge result shared by all layer merge operations
 ///
 /// Replaces FeatureMergeResult and UnifiedMergeResult with a single type.
 #[derive(Debug, Clone)]
@@ -67,7 +65,7 @@ pub struct StateMachine<S> {
 
 impl<S> StateMachine<S>
 where
-    S: PartitionStore + CheckpointPersist + LayerStore + AtomicOps,
+    S: PartitionStore + CheckpointPersist + AtomicOps,
 {
     /// Creating a new state machine instance
     pub fn new(storage: Arc<S>) -> Self {
@@ -119,11 +117,6 @@ where
 
     // Layer management -
 
-    /// Creating a Default Layer
-    pub fn create_layer(&self, layer_type: &crate::core::types::LayerType) -> Layer {
-        Layer::new(layer_type.clone())
-    }
-
     /// Switch branches and synchronize the layer status
     ///
     /// 1. Get the head checkpoint for the target branch
@@ -145,12 +138,15 @@ where
         }
         let base_snapshot = head_cp.baseline_snapshots[0];
 
-        // Reset staged partition to the branch's base snapshot
+        // Reset staged partition to the branch's base snapshot.
+        // Truncating reset: the base snapshot becomes staged's sole baseline
+        // (single history entry), so switching branches does not pollute the
+        // staged history with the previous branch's accumulated state.
         let staged_pid = crate::layered::staged::staged_partition_id();
         match self.storage.get_partition(&staged_pid) {
             Ok(_) => {
                 self.storage
-                    .update_pointer(&staged_pid, &base_snapshot)
+                    .reset_partition_to(&staged_pid, &base_snapshot)
                     .map_err(LayertwineError::Storage)?;
             }
             Err(_) => {
@@ -163,34 +159,6 @@ where
         }
 
         Ok(branch.head)
-    }
-
-    /// Sync the `layers` table to reflect current partition state.
-    ///
-    /// Reads all partitions, groups them by layer type, and writes
-    /// corresponding entries into the `layers` table.
-    pub fn sync_layers(&self) -> Result<()> {
-        let partitions = self
-            .storage
-            .list_partitions()
-            .map_err(LayertwineError::Storage)?;
-
-        let mut layer_map: HashMap<crate::core::types::LayerType, Vec<PartitionId>> =
-            HashMap::new();
-        for p in &partitions {
-            let lt = p.partition_type.to_layer();
-            layer_map.entry(lt).or_default().push(p.id);
-        }
-
-        for (lt, pids) in &layer_map {
-            let mut layer = Layer::new(lt.clone());
-            layer.partitions = pids.clone();
-            self.storage
-                .store_layer(&layer)
-                .map_err(LayertwineError::Storage)?;
-        }
-
-        Ok(())
     }
 
     // Transaction support -
@@ -228,7 +196,7 @@ mod tests {
     use crate::core::delta::Delta;
     use crate::core::file_node::FileNode;
     use crate::core::snapshot::Snapshot;
-    use crate::core::types::{LayerType, SourceType};
+    use crate::core::types::SourceType;
     use crate::storage::repository::{DeltaStore, FileNodeStore, PartitionStore, SnapshotStore};
     use crate::test_utils::{create_initial_snapshot, setup_storage_full};
     use std::sync::Arc;
@@ -242,25 +210,6 @@ mod tests {
             result.is_err(),
             "non-existent partition should return error"
         );
-    }
-
-    #[test]
-    fn test_state_machine_create_layer() {
-        let storage = Arc::new(setup_storage_full());
-        let sm = StateMachine::new(storage);
-
-        let manual_layer = sm.create_layer(&LayerType::ManualEdit);
-        assert_eq!(manual_layer.layer_type, LayerType::ManualEdit);
-        assert!(manual_layer.partitions.is_empty());
-
-        let agent_layer = sm.create_layer(&LayerType::AgentEdit);
-        assert_eq!(agent_layer.layer_type, LayerType::AgentEdit);
-
-        let approval_layer = sm.create_layer(&LayerType::Approval);
-        assert_eq!(approval_layer.layer_type, LayerType::Approval);
-
-        let staged_layer = sm.create_layer(&LayerType::Staged);
-        assert_eq!(staged_layer.layer_type, LayerType::Staged);
     }
 
     #[test]
@@ -370,27 +319,6 @@ mod tests {
             result.is_err(),
             "switching to nonexistent branch should error"
         );
-    }
-
-    #[test]
-    fn test_state_machine_sync_layers() {
-        let storage = Arc::new(setup_storage_full());
-        let sm = StateMachine::new(storage.clone());
-
-        let initial_id = create_initial_snapshot(&storage, "base\n", SourceType::Manual);
-
-        let storage_ref = &*storage;
-        crate::layered::manual::ensure_manual_partition(storage_ref, initial_id, None).unwrap();
-        crate::layered::staged::ensure_staged_partition(storage_ref, initial_id, None).unwrap();
-
-        let result = sm.sync_layers();
-        assert!(result.is_ok());
-
-        let manual_layer = sm.storage().get_layer(&LayerType::ManualEdit).unwrap();
-        assert_eq!(manual_layer.partitions.len(), 1);
-
-        let staged_layer = sm.storage().get_layer(&LayerType::Staged).unwrap();
-        assert_eq!(staged_layer.partitions.len(), 1);
     }
 
     #[test]

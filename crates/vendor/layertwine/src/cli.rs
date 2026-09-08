@@ -548,24 +548,11 @@ pub fn run_with_cli(cli: Cli) -> i32 {
                     }
                     resp.map(|_| ())
                 }
-                ApprovalCommands::MergeToUnified { names } => {
-                    let resp = service.merge_to_unified(MergeToUnifiedRequest {
-                        integration_names: names.clone(),
-                    });
-                    if let Ok(ref r) = resp {
-                        println!(
-                            "Merged {} integration(s) to unified -> snapshot {}",
-                            r.merged_count,
-                            &r.unified_snapshot_id[..12]
-                        );
-                    }
-                    resp.map(|_| ())
-                }
                 ApprovalCommands::MergeToStaged => {
                     let resp = service.merge_to_staged(MergeToStagedRequest {});
                     if let Ok(ref r) = resp {
                         println!(
-                            "Merged unified to staged -> snapshot {}",
+                            "Merged integrated features to staged -> snapshot {}",
                             &r.staged_snapshot_id[..12]
                         );
                     }

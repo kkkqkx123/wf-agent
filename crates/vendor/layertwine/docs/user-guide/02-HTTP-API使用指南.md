@@ -393,9 +393,9 @@ curl -X POST http://127.0.0.1:8080/api/v1/reject-agent \
   -d '{"agent_id": "agent-01"}'
 ```
 
-#### 6d. 合并到 Unified — `POST /api/v1/merge-to-unified`
+#### 6. 合并到 Staged — `POST /api/v1/merge-to-staged`
 
-将已审批的 integrated 分区合并到 unified 分区。
+将已审批的 integrated（feature）分区直接合并到 staged 层，取代旧版的 unified 中间层。
 
 **请求体：**
 
@@ -415,32 +415,6 @@ curl -X POST http://127.0.0.1:8080/api/v1/reject-agent \
 {
   "success": true,
   "data": {
-    "unified_snapshot_id": "e5f6a1b2c3d4...",
-    "merged_count": 2
-  }
-}
-```
-
-**cURL 示例：**
-
-```bash
-curl -X POST http://127.0.0.1:8080/api/v1/merge-to-unified \
-  -H 'Content-Type: application/json' \
-  -d '{"integration_names": ["agent-01"]}'
-```
-
-#### 6e. 合并到 Staged — `POST /api/v1/merge-to-staged`
-
-将 unified 分区合并到 staged 层。
-
-**请求：** 无请求体。
-
-**响应：**
-
-```json
-{
-  "success": true,
-  "data": {
     "staged_snapshot_id": "f6e5d4c3b2a1..."
   }
 }
@@ -449,7 +423,9 @@ curl -X POST http://127.0.0.1:8080/api/v1/merge-to-unified \
 **cURL 示例：**
 
 ```bash
-curl -X POST http://127.0.0.1:8080/api/v1/merge-to-staged
+curl -X POST http://127.0.0.1:8080/api/v1/merge-to-staged \
+  -H 'Content-Type: application/json' \
+  -d '{"integration_names": ["agent-01"]}'
 ```
 
 ---
@@ -938,7 +914,7 @@ curl -X POST http://127.0.0.1:8080/api/v1/pull \
 | -------- | -------------- | ---------------------------------------------------------- |
 | `all`    | boolean (可选) | 清理所有 Layertwine 数据，重置为初始状态                   |
 | `branch` | string (可选)  | 清理指定分支的所有检查点及相关数据                         |
-| `layer`  | string (可选)  | 清理指定层的数据（如 `staged`、`unified`、`integrated`）  |
+| `layer`  | string (可选)  | 清理指定层的数据（如 `staged`、`integrated`）  |
 
 **响应：**
 
@@ -993,7 +969,7 @@ curl -X POST http://127.0.0.1:8080/api/v1/clean \
     "diffs": [
       {
         "file_path": "src/main.rs",
-        "unified_diff": "@@ -1,3 +1,3 @@\n fn main() {\n-    old\n+    new\n }\n",
+        "diff": "@@ -1,3 +1,3 @@\n fn main() {\n-    old\n+    new\n }\n",
         "inserts": 1,
         "deletes": 1
       }
@@ -1170,15 +1146,12 @@ curl -X POST http://127.0.0.1:8080/api/v1/approve-agent \
   -H 'Content-Type: application/json' \
   -d '{"agent_id":"agent-b"}'
 
-# 6. 合并到 unified
-curl -X POST http://127.0.0.1:8080/api/v1/merge-to-unified \
+# 6. 合并 feature 到 staged
+curl -X POST http://127.0.0.1:8080/api/v1/merge-to-staged \
   -H 'Content-Type: application/json' \
   -d '{}'
 
-# 7. 合并到 staged
-curl -X POST http://127.0.0.1:8080/api/v1/merge-to-staged
-
-# 8. 提交最终检查点
+# 7. 提交最终检查点
 curl -X POST http://127.0.0.1:8080/api/v1/commit \
   -H 'Content-Type: application/json' \
   -d '{"message":"合并 auth 和 db 模块","author":"reviewer"}'
@@ -1258,8 +1231,7 @@ curl http://127.0.0.1:8080/api/v1/branches
 | `GET  /api/v1/approvals`                            | `api::service` + `state_machine`         | P3 审批查询         |
 | `POST /api/v1/approve-agent`                        | `state_machine::approval`                | P3 approval 层      |
 | `POST /api/v1/reject-agent`                         | `state_machine::approval`                | P3 approval 层      |
-| `POST /api/v1/merge-to-unified`                     | `layered::integrated` + `unified`        | P3 多层流水线       |
-| `POST /api/v1/merge-to-staged`                      | `layered::unified` + `staged`            | P3 多层流水线       |
+| `POST /api/v1/merge-to-staged`                     | `layered::staged` (features → staged)    | 多层流水线         |
 | `POST /api/v1/commit`                               | `checkpoint::repo`                       | P4 检查点仓库       |
 | `GET  /api/v1/log`                                  | `checkpoint::repo`                       | P4 历史查询         |
 | `GET  /api/v1/branches`                             | `checkpoint::branch`                     | P4 分支管理         |

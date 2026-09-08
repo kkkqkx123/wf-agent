@@ -366,9 +366,18 @@ mod tests {
             .unwrap();
         assert_eq!(staged.current_snapshot, merged_id);
 
-        // Verify the dual parent of the merge snapshot
+        // Content addressing: staged had no independent changes, so the merge
+        // result is content-identical to the manual snapshot and deduplicates
+        // to the same snapshot id (cross-layer dedup).
+        let manual_partition = storage.get_partition(&manual_partition_id()).unwrap();
+        assert_eq!(merged_id, manual_partition.current_snapshot);
+
+        // Reconstructed staged content equals the manual edit outcome.
         let merged = storage.get_snapshot(&merged_id).unwrap();
-        assert_eq!(merged.parents.len(), 2);
+        let text = crate::layered::transition::reconstruct_text(&storage, &merged)
+            .unwrap()
+            .unwrap();
+        assert_eq!(text, "base\nmodified\n");
     }
 
     #[test]

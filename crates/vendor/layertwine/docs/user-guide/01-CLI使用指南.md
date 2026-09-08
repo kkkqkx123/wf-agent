@@ -178,8 +178,7 @@ Agent 'agent-01' submitted for approval -> snapshot c3d4e5f6a1b2
 layertwine approval list
 layertwine approval approve <AGENT_ID> [--integrated-name <NAME>]
 layertwine approval reject <AGENT_ID>
-layertwine approval merge-to-unified [--names <NAMES>...]
-layertwine approval merge-to-staged
+layertwine approval merge-to-staged [--names <NAMES>...]
 ```
 
 细粒度的审批操作管理，替代旧版 `approve <AGENT_ID>` 单步命令。
@@ -191,8 +190,7 @@ layertwine approval merge-to-staged
 | `list`                                          | 列出所有待审批的 Agent 提交                         |
 | `approve <AGENT_ID> [--integrated-name <NAME>]` | 审批通过指定 Agent，迁移到 integrated 分区         |
 | `reject <AGENT_ID>`                             | 拒绝指定 Agent 的提交，回滚到基线                   |
-| `merge-to-unified [--names <NAMES>...]`         | 将已审批的 integrated 分区合并到 unified 分区      |
-| `merge-to-staged`                               | 将 unified 分区合并到 staged 层                     |
+| `merge-to-staged [--names <NAMES>...]`          | 将已审批的 integrated（feature）分区直接合并到 staged 层 |
 
 **示例：**
 
@@ -206,10 +204,7 @@ layertwine approval approve agent-01
 # 拒绝 Agent
 layertwine approval reject agent-01
 
-# 合并到 unified
-layertwine approval merge-to-unified
-
-# 合并到 staged
+# 合并已审批 feature 到 staged
 layertwine approval merge-to-staged
 ```
 
@@ -665,13 +660,10 @@ layertwine approval list
 layertwine approval approve agent-a
 layertwine approval approve agent-b
 
-# 6. 合并到 unified
-layertwine approval merge-to-unified
-
-# 7. 合并到 staged
+# 6. 合并已审批 feature 到 staged
 layertwine approval merge-to-staged
 
-# 8. 提交最终检查点
+# 7. 提交最终检查点
 layertwine commit -m "合并 auth 和 db 模块"
 ```
 
@@ -708,8 +700,7 @@ layertwine --git-repo /path/to/repo pull
 | `edit`                        | `state_machine::manual`                  | P3 manual_edit 层 |
 | `agent edit/submit`           | `state_machine::agent`                   | P3 agent_edit 层  |
 | `approval list/approve/reject`| `state_machine::approval`                | P3 approval 层    |
-| `approval merge-to-unified`   | `state_machine::integrated` + `unified`  | P3 多层流水线     |
-| `approval merge-to-staged`    | `state_machine::unified` + `staged`      | P3 多层流水线     |
+| `approval merge-to-staged`    | `state_machine::staged`（feature → staged）| P3 多层流水线     |
 | `commit`                      | `state_machine::staged` + `checkpoint`   | P4 检查点仓库     |
 | `log`                         | `checkpoint` + `storage`                 | P4 历史查询       |
 | `show`                        | `api::service` + `engine::diff`          | P2/P4 差异查看    |

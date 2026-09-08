@@ -155,7 +155,6 @@ layertwine approval approve agent-a
 layertwine approval approve agent-b
 
 # Merge approvals and commit
-layertwine approval merge-to-unified
 layertwine approval merge-to-staged
 layertwine commit -m "Merge auth and db modules"
 ```

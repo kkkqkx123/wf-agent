@@ -18,11 +18,11 @@ use layertwine::core::file_node::FileNode;
 use layertwine::core::partition::Partition;
 use layertwine::core::snapshot::{Snapshot, SnapshotCompression};
 use layertwine::core::types::{
-    AgentInstanceId, ContentId, DiffOp, Hunk, LayerType, LineDiff, PartitionType, SourceType,
+    AgentInstanceId, ContentId, DiffOp, Hunk, LineDiff, PartitionType, SourceType,
 };
 use layertwine::storage::repository::{
-    AtomicOps, CheckpointPersist, DeltaStore, FileNodeStore, LayerStore, MetadataStore,
-    PartitionStore, SnapshotStore,
+    AtomicOps, CheckpointPersist, DeltaStore, FileNodeStore, MetadataStore, PartitionStore,
+    SnapshotStore,
 };
 use layertwine::storage::SqliteStorage;
 use layertwine::StorageResult;
@@ -1140,76 +1140,6 @@ fn test_store_and_load_metadata() -> StorageResult<()> {
 
     let value3 = storage.load_metadata("key3")?;
     assert_eq!(value3, None);
-
-    Ok(())
-}
-
-// ---------------------------------------------------------------------------
-// LayerStore Tests
-// ---------------------------------------------------------------------------
-
-#[test]
-fn test_store_and_get_layer() -> StorageResult<()> {
-    let storage = create_test_storage()?;
-
-    let partition_id1 = uuid::Uuid::now_v7();
-    let partition_id2 = uuid::Uuid::now_v7();
-
-    let layer = layertwine::core::layer::Layer {
-        layer_type: LayerType::ManualEdit,
-        partitions: vec![partition_id1, partition_id2],
-    };
-
-    storage.store_layer(&layer)?;
-    let retrieved = storage.get_layer(&LayerType::ManualEdit)?;
-
-    assert_eq!(retrieved.layer_type, LayerType::ManualEdit);
-    assert_eq!(retrieved.partitions.len(), 2);
-    assert!(retrieved.partitions.contains(&partition_id1));
-    assert!(retrieved.partitions.contains(&partition_id2));
-
-    Ok(())
-}
-
-#[test]
-fn test_list_layer_types() -> StorageResult<()> {
-    let storage = create_test_storage()?;
-
-    let layer1 = layertwine::core::layer::Layer {
-        layer_type: LayerType::ManualEdit,
-        partitions: vec![uuid::Uuid::now_v7()],
-    };
-
-    let layer2 = layertwine::core::layer::Layer {
-        layer_type: LayerType::AgentEdit,
-        partitions: vec![uuid::Uuid::now_v7()],
-    };
-
-    storage.store_layer(&layer1)?;
-    storage.store_layer(&layer2)?;
-
-    let layer_types = storage.list_layer_types()?;
-    assert_eq!(layer_types.len(), 2);
-    assert!(layer_types.contains(&LayerType::ManualEdit));
-    assert!(layer_types.contains(&LayerType::AgentEdit));
-
-    Ok(())
-}
-
-#[test]
-fn test_delete_layer() -> StorageResult<()> {
-    let storage = create_test_storage()?;
-
-    let layer = layertwine::core::layer::Layer {
-        layer_type: LayerType::ManualEdit,
-        partitions: vec![uuid::Uuid::now_v7()],
-    };
-
-    storage.store_layer(&layer)?;
-    storage.delete_layer(&LayerType::ManualEdit)?;
-
-    let result = storage.get_layer(&LayerType::ManualEdit);
-    assert!(result.is_err());
 
     Ok(())
 }

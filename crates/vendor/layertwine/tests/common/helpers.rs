@@ -81,21 +81,32 @@ pub fn approve_agent(env: &TestEnvironment, agent_id: &str, feature_name: &str) 
     SnapshotId::from_hex(&response.integrated_snapshot_id).expect("Invalid snapshot ID")
 }
 
-/// Merge integrated layers to unified layer
-pub fn merge_to_unified(
+/// Merge integrated features directly to staged
+pub fn merge_features_to_staged(
     env: &TestEnvironment,
     integration_names: Option<Vec<String>>,
 ) -> SnapshotId {
-    use layertwine::api::MergeToUnifiedRequest;
-    let response = env
-        .api
-        .merge_to_unified(MergeToUnifiedRequest { integration_names })
-        .expect("Failed to merge to unified");
+    let names = integration_names.unwrap_or_else(|| {
+        env.storage
+            .list_partitions()
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|p| match p.partition_type {
+                layertwine::core::types::PartitionType::Integrated(name) => Some(name),
+                _ => None,
+            })
+            .collect()
+    });
+    if names.is_empty() {
+        panic!("merge_features_to_staged: no integrated partitions found to merge");
+    }
+    let result = layertwine::layered::staged::merge_features_to_staged(&env.storage, &names, None)
+        .expect("Failed to merge features to staged");
 
-    SnapshotId::from_hex(&response.unified_snapshot_id).expect("Invalid snapshot ID")
+    result.snapshot_id
 }
 
-/// Merge unified layer to staged layer
+/// Merge all integrated features to staged
 pub fn merge_to_staged(env: &TestEnvironment) -> SnapshotId {
     use layertwine::api::MergeToStagedRequest;
     let response = env

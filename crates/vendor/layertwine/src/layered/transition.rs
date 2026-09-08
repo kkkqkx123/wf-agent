@@ -203,6 +203,14 @@ where
         .get_snapshot(&staged_partition.current_snapshot)
         .map_err(LayertwineError::Storage)?;
 
+    // Content-addressed dedup: when staged had no independent changes the
+    // merge result is content-identical to the source layer snapshot, so
+    // staged already points at a snapshot of the target layer. Rolling back
+    // is then a no-op instead of a parent lookup.
+    if partition_type_matches_layer(&staged_snapshot.partition_type, &target_layer) {
+        return Ok(staged_partition.current_snapshot);
+    }
+
     // Find the source of the target layer from staged parents
     for parent_id in &staged_snapshot.parents {
         let parent_snapshot = storage

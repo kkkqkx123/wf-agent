@@ -106,7 +106,6 @@ pub enum LayerType {
     AgentEdit,
     Approval,
     Integrated,
-    Unified,
     Staged,
 }
 
@@ -117,7 +116,6 @@ impl LayerType {
             LayerType::AgentEdit => "agent_edit",
             LayerType::Approval => "approval",
             LayerType::Integrated => "integrated",
-            LayerType::Unified => "unified",
             LayerType::Staged => "staged",
         }
     }
@@ -130,7 +128,6 @@ impl LayerType {
             "agent_edit" => Some(LayerType::AgentEdit),
             "approval" => Some(LayerType::Approval),
             "integrated" => Some(LayerType::Integrated),
-            "unified" => Some(LayerType::Unified),
             "staged" => Some(LayerType::Staged),
             _ => None,
         }
@@ -148,8 +145,6 @@ pub enum PartitionType {
     Approval(AgentInstanceId),
     /// INTEGRATED Merged area
     Integrated(String),
-    /// UNIFIED catchment area
-    Unified,
     /// staged unique partition
     Staged,
 }
@@ -161,7 +156,6 @@ impl PartitionType {
             PartitionType::Agent(id) => format!("agent/{}", id),
             PartitionType::Approval(id) => format!("approval/{}", id),
             PartitionType::Integrated(name) => format!("integrated/{}", name),
-            PartitionType::Unified => "unified".to_string(),
             PartitionType::Staged => "staged".to_string(),
         }
     }
@@ -172,7 +166,6 @@ impl PartitionType {
             PartitionType::Agent(_) => crate::core::types::LayerType::AgentEdit,
             PartitionType::Approval(_) => crate::core::types::LayerType::Approval,
             PartitionType::Integrated(_) => crate::core::types::LayerType::Integrated,
-            PartitionType::Unified => crate::core::types::LayerType::Unified,
             PartitionType::Staged => crate::core::types::LayerType::Staged,
         }
     }
@@ -180,14 +173,13 @@ impl PartitionType {
     /// Parse a string representation back into a PartitionType.
     ///
     /// This is the inverse of `name()` and supports the canonical formats:
-    /// - `"manual"`, `"unified"`, `"staged"` (singleton layers)
+    /// - `"manual"`, `"staged"` (singleton layers)
     /// - `"agent/<id>"`, `"approval/<id>"`, `"integrated/<name>"` (multi-instance layers)
     ///
     /// Returns `None` for unrecognized formats instead of panicking.
     pub fn from_name(s: &str) -> Option<Self> {
         match s {
             "manual" => Some(PartitionType::Manual),
-            "unified" => Some(PartitionType::Unified),
             "staged" => Some(PartitionType::Staged),
             _ => s
                 .strip_prefix("agent/")
@@ -324,8 +316,6 @@ mod tests {
             PartitionType::Integrated("test".to_string()).to_layer(),
             LayerType::Integrated
         );
-
-        assert_eq!(PartitionType::Unified.to_layer(), LayerType::Unified);
 
         assert_eq!(PartitionType::Staged.to_layer(), LayerType::Staged);
     }

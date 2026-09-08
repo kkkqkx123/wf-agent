@@ -11,17 +11,15 @@ type PartitionRow = (Vec<u8>, String, Vec<u8>, Option<String>);
 impl PartitionStore for SqliteStorage {
     fn create_partition(&self, partition: &Partition) -> StorageResult<()> {
         let conn = self.conn.lock();
-        let partition_type_str = format!("{:?}", partition.partition_type);
         let now = chrono::Utc::now().timestamp_millis();
 
         conn.execute(
-            "INSERT INTO partitions (id, name, current_snapshot, partition_type, partition_data, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            "INSERT INTO partitions (id, name, current_snapshot, partition_data, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             params![
                 &partition.id.as_bytes().to_vec(),
                 partition.name,
                 &partition.current_snapshot.0.to_vec(),
-                partition_type_str,
                 serde_json::to_string(&partition.partition_type)?,
                 now,
                 now,
@@ -57,7 +55,7 @@ impl PartitionStore for SqliteStorage {
         let conn = self.conn.lock();
         let id_bytes = id.as_bytes().to_vec();
         let mut stmt = conn.prepare(
-            "SELECT id, name, current_snapshot, partition_type, partition_data, created_at, updated_at
+            "SELECT id, name, current_snapshot, partition_data, created_at, updated_at
              FROM partitions WHERE id = ?1"
         )?;
 
@@ -67,7 +65,7 @@ impl PartitionStore for SqliteStorage {
             let snap_bytes: Vec<u8> = row.get(2)?;
             let mut snap_arr = [0u8; 32];
             snap_arr.copy_from_slice(&snap_bytes);
-            let partition_data: Option<String> = row.get(4)?;
+            let partition_data: Option<String> = row.get(3)?;
             let partition_type: PartitionType = partition_data
                 .and_then(|s| serde_json::from_str(&s).ok())
                 .unwrap_or(PartitionType::Manual);
@@ -89,7 +87,7 @@ impl PartitionStore for SqliteStorage {
         let conn = self.conn.lock();
 
         let mut stmt = conn.prepare(
-            "SELECT id, name, current_snapshot, partition_type, partition_data, created_at, updated_at
+            "SELECT id, name, current_snapshot, partition_data, created_at, updated_at
              FROM partitions WHERE name = ?1"
         )?;
 
@@ -98,7 +96,7 @@ impl PartitionStore for SqliteStorage {
                 let id_bytes: Vec<u8> = row.get(0)?;
                 let name: String = row.get(1)?;
                 let snap_bytes: Vec<u8> = row.get(2)?;
-                let partition_data: Option<String> = row.get(4)?;
+                let partition_data: Option<String> = row.get(3)?;
                 Ok((id_bytes, name, snap_bytes, partition_data))
             })?;
 
@@ -156,10 +154,37 @@ impl PartitionStore for SqliteStorage {
         Ok(())
     }
 
+    fn reset_partition_to(
+        &self,
+        partition_id: &PartitionId,
+        snapshot_id: &SnapshotId,
+    ) -> StorageResult<()> {
+        let conn = self.conn.lock();
+        let now = chrono::Utc::now().timestamp_millis();
+
+        // Truncate history to a single baseline entry. The history insert is the
+        // single write path: trg_partition_current_from_history keeps
+        // partitions.current_snapshot in lockstep with the new sole history entry.
+        conn.execute(
+            "DELETE FROM partition_history WHERE partition_id = ?1",
+            params![&partition_id.as_bytes().to_vec()],
+        )?;
+        conn.execute(
+            "INSERT INTO partition_history (partition_id, snapshot_id, seq, created_at)
+             VALUES (?1, ?2, 0, ?3)",
+            params![
+                &partition_id.as_bytes().to_vec(),
+                &snapshot_id.0.to_vec(),
+                now,
+            ],
+        )?;
+        Ok(())
+    }
+
     fn list_partitions(&self) -> StorageResult<Vec<Partition>> {
         let conn = self.conn.lock();
         let mut stmt = conn.prepare(
-            "SELECT id, name, current_snapshot, partition_type, partition_data, created_at, updated_at
+            "SELECT id, name, current_snapshot, partition_data, created_at, updated_at
              FROM partitions ORDER BY name"
         )?;
 
@@ -168,7 +193,7 @@ impl PartitionStore for SqliteStorage {
                 let id_bytes: Vec<u8> = row.get(0)?;
                 let name: String = row.get(1)?;
                 let snap_bytes: Vec<u8> = row.get(2)?;
-                let partition_data: Option<String> = row.get(4)?;
+                let partition_data: Option<String> = row.get(3)?;
                 Ok((id_bytes, name, snap_bytes, partition_data))
             })?
             .collect::<Result<Vec<_>, _>>()?;
@@ -262,21 +287,15 @@ impl SqliteStorage {
     ) -> StorageResult<()> {
         let now = chrono::Utc::now().timestamp_millis();
 
-        conn.execute(
-            "UPDATE partitions SET current_snapshot = ?1, updated_at = ?2 WHERE id = ?3",
-            params![
-                &snapshot_id.0.to_vec(),
-                now,
-                &partition_id.as_bytes().to_vec()
-            ],
-        )?;
-
         let max_seq: i64 = conn.query_row(
             "SELECT COALESCE(MAX(seq), -1) FROM partition_history WHERE partition_id = ?1",
             params![&partition_id.as_bytes().to_vec()],
             |row| row.get(0),
         )?;
 
+        // Single write path: appending to partition_history is the only way the
+        // current_snapshot moves. The trg_partition_current_from_history trigger
+        // keeps partitions.current_snapshot in lockstep with the new history tail.
         conn.execute(
             "INSERT INTO partition_history (partition_id, snapshot_id, seq, created_at)
              VALUES (?1, ?2, ?3, ?4)",

@@ -544,20 +544,7 @@ pub struct RejectAgentResponse {
     pub baseline_snapshot_id: String,
 }
 
-/// Merge integrated → unified
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MergeToUnifiedRequest {
-    /// List of integration names to merge. If empty, all integrated partitions are used.
-    pub integration_names: Option<Vec<String>>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MergeToUnifiedResponse {
-    pub unified_snapshot_id: String,
-    pub merged_count: usize,
-}
-
-/// Merge unified → staged
+/// Merge integrated features directly to staged
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MergeToStagedRequest {}
 

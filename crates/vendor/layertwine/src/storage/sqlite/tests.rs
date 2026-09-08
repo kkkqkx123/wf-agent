@@ -27,7 +27,7 @@ fn test_atomic_rollback() {
     let result: Result<(), StorageError> = storage.with_atomic(|s| {
         let conn = s.conn.lock();
         conn.execute(
-            "INSERT INTO layers (layer_type, partition_ids, created_at, updated_at) VALUES (?1, ?2, ?3, ?4)",
+            "INSERT INTO branches (name, head, created_at, updated_at) VALUES (?1, ?2, ?3, ?4)",
             rusqlite::params!["test_layer", b"[]", 1000, 1000],
         )?;
 
@@ -41,7 +41,7 @@ fn test_atomic_rollback() {
     let conn = storage.conn.lock();
     let count: i64 = conn
         .query_row(
-            "SELECT COUNT(*) FROM layers WHERE layer_type = ?1",
+            "SELECT COUNT(*) FROM branches WHERE name = ?1",
             rusqlite::params!["test_layer"],
             |row| row.get(0),
         )
@@ -62,7 +62,7 @@ fn test_nested_atomic_rollback_outer_fails() {
         s.with_atomic(|inner| {
             let conn = inner.conn.lock();
             conn.execute(
-                "INSERT INTO layers (layer_type, partition_ids, created_at, updated_at) VALUES (?1, ?2, ?3, ?4)",
+                "INSERT INTO branches (name, head, created_at, updated_at) VALUES (?1, ?2, ?3, ?4)",
                 rusqlite::params!["inner_ok", b"[]", 2000, 2000],
             )?;
             Ok(())
@@ -79,7 +79,7 @@ fn test_nested_atomic_rollback_outer_fails() {
     let conn = storage.conn.lock();
     let count: i64 = conn
         .query_row(
-            "SELECT COUNT(*) FROM layers WHERE layer_type = ?1",
+            "SELECT COUNT(*) FROM branches WHERE name = ?1",
             rusqlite::params!["inner_ok"],
             |row| row.get(0),
         )

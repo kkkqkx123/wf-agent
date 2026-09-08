@@ -202,7 +202,6 @@ pub fn list_partitions(storage: &SqliteStorage) -> Result<Vec<PartitionView>, Ch
             PartitionType::Agent(id) => ("agent", Some(id.0.clone())),
             PartitionType::Approval(id) => ("approval", Some(id.0.clone())),
             PartitionType::Integrated(name) => ("integrated", Some(name.clone())),
-            PartitionType::Unified => ("unified", None),
             PartitionType::Staged => ("staged", None),
         };
         let mut created_at = 0;

@@ -75,7 +75,6 @@ service Layertwine {
     rpc ListPendingApprovals(Empty) returns (ListPendingApprovalsResponse);
     rpc ApproveAgent(ApproveAgentRequest) returns (ApproveAgentResponse);
     rpc RejectAgent(RejectAgentRequest) returns (RejectAgentResponse);
-    rpc MergeToUnified(MergeToUnifiedRequest) returns (MergeToUnifiedResponse);
     rpc MergeToStaged(MergeToStagedRequest) returns (MergeToStagedResponse);
 }
 ```
@@ -115,8 +114,7 @@ service Layertwine {
 | `ListPendingApprovals`    | `Empty`                        | `ListPendingApprovalsResponse`  | 待审批列表                 |
 | `ApproveAgent`            | `ApproveAgentRequest`          | `ApproveAgentResponse`          | 审批通过 Agent             |
 | `RejectAgent`             | `RejectAgentRequest`           | `RejectAgentResponse`           | 拒绝 Agent 提交            |
-| `MergeToUnified`          | `MergeToUnifiedRequest`        | `MergeToUnifiedResponse`        | 合并到 unified 分区        |
-| `MergeToStaged`           | `MergeToStagedRequest`         | `MergeToStagedResponse`         | 合并到 staged 层           |
+| `MergeToStaged`           | `MergeToStagedRequest`         | `MergeToStagedResponse`         | 合并 feature 到 staged 层  |
 
 ---
 
@@ -539,15 +537,6 @@ message RejectAgentResponse {
     string baseline_snapshot_id = 2;
 }
 
-message MergeToUnifiedRequest {
-    repeated string integration_names = 1;
-}
-
-message MergeToUnifiedResponse {
-    string unified_snapshot_id = 1;
-    uint32 merged_count = 2;
-}
-
 message MergeToStagedRequest {}
 
 message MergeToStagedResponse {
@@ -593,7 +582,6 @@ tonic Server (LayertwineGrpc)
     │  ├─ ListPendingApprovals()→ service.list_pending_approvals()
     │  ├─ ApproveAgent()        → service.approve_agent(...)
     │  ├─ RejectAgent()         → service.reject_agent(...)
-    │  ├─ MergeToUnified()      → service.merge_to_unified(...)
     │  └─ MergeToStaged()       → service.merge_to_staged()
     ▼
 ApiServiceImpl → StateMachine → SqliteStorage
@@ -641,5 +629,4 @@ gRPC 服务和 HTTP 端点共享相同的业务逻辑，以下为对应关系：
 | `ListPendingApprovals`      | `GET  /api/v1/approvals`                            |
 | `ApproveAgent`              | `POST /api/v1/approve-agent`                        |
 | `RejectAgent`               | `POST /api/v1/reject-agent`                         |
-| `MergeToUnified`            | `POST /api/v1/merge-to-unified`                     |
 | `MergeToStaged`             | `POST /api/v1/merge-to-staged`                      |

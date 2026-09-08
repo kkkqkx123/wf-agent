@@ -30,20 +30,6 @@ impl SnapshotContent {
         }
     }
 
-    /// Deserialize bytes to content based on source identifier
-    pub fn from_bytes(source: &str, bytes: Vec<u8>) -> Result<Self> {
-        match source {
-            _ if source.starts_with("file://") => Ok(Self::FileContent(bytes)),
-            _ if source.starts_with("agent://") | source.starts_with("graph://") => {
-                Ok(Self::JsonMetadata(serde_json::from_slice(&bytes)?))
-            }
-            _ if source.starts_with("system://") => {
-                Ok(Self::JsonMetadata(serde_json::from_slice(&bytes)?))
-            }
-            _ => Ok(Self::Structured(bytes)),
-        }
-    }
-
     /// Get content type label
     pub fn content_type(&self) -> &str {
         match self {
@@ -136,7 +122,14 @@ impl Snapshot {
             partition_type,
             created_at: now,
             has_conflicts: false,
-            content: parent.content.clone(),
+            // File-type parent content is never carried forward: the delta
+            // chain (file_nodes base + deltas) is the single source of truth
+            // for reconstruction. Only metadata-style payloads (JSON,
+            // structured, deletion marker) propagate to children.
+            content: match &parent.content {
+                Some(SnapshotContent::FileContent(_)) | None => None,
+                other => other.clone(),
+            },
             source: parent.source.clone(),
             compression: parent.compression,
         };
@@ -224,7 +217,14 @@ impl Snapshot {
             partition_type,
             created_at: now,
             has_conflicts,
-            content: parents[0].content.clone(),
+            // File-type content is reconstructed from the delta chain, never
+            // cloned from a parent: cloning would leave a stale full-file copy
+            // that diverges from `deltas`. Metadata payloads (JSON, structured,
+            // deletion marker) propagate from the destination parent.
+            content: match &parents[0].content {
+                Some(SnapshotContent::FileContent(_)) | None => None,
+                other => other.clone(),
+            },
             source: parents[0].source.clone(),
             compression: parents[0].compression,
         };
@@ -236,6 +236,12 @@ impl Snapshot {
     pub fn compute_id(&self) -> SnapshotId {
         let mut hasher = blake3::Hasher::new();
 
+        // Content-addressable identity: only content-deterministic factors are
+        // hashed — file identity plus the reconstruction inputs (base content
+        // hash + delta chain) or the explicit content payload. Lineage and
+        // contextual metadata (parents, partition_type, source, conflict flag)
+        // do not participate, so identical content produced in different
+        // partitions deduplicates to the same snapshot id.
         let path = self.file.path_str();
         hasher.update(path.as_bytes());
         hasher.update(&self.file.base_hash);
@@ -243,14 +249,6 @@ impl Snapshot {
         for delta in &self.deltas {
             hasher.update(delta.0.as_ref());
         }
-
-        for parent in &self.parents {
-            hasher.update(parent.0.as_ref());
-        }
-
-        hasher.update(self.partition_type.as_bytes());
-        hasher.update(&[self.has_conflicts as u8]);
-        hasher.update(self.source.as_bytes());
 
         match &self.content {
             None => {
@@ -295,7 +293,11 @@ impl Snapshot {
                 let decompressed = zstd::decode_all(bytes.as_slice()).map_err(|e| {
                     LayertwineError::Serialization(format!("zstd decompression failed: {}", e))
                 })?;
-                self.content = Some(SnapshotContent::from_bytes(&self.source, decompressed)?);
+                // The payload stays Structured: content type is an explicit
+                // attribute (stored in the content_type column), never inferred
+                // from the source prefix. Callers that know the original type
+                // rewrap the decoded bytes accordingly.
+                self.content = Some(SnapshotContent::Structured(decompressed));
                 self.compression = SnapshotCompression::None;
             }
         }

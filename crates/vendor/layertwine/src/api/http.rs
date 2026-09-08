@@ -53,7 +53,6 @@ pub async fn serve(
         .route("/api/v1/approvals", get(handle_list_pending_approvals))
         .route("/api/v1/approve-agent", post(handle_approve_agent))
         .route("/api/v1/reject-agent", post(handle_reject_agent))
-        .route("/api/v1/merge-to-unified", post(handle_merge_to_unified))
         .route("/api/v1/merge-to-staged", post(handle_merge_to_staged))
         // Checkpoint operations
         .route("/api/v1/commit", post(handle_commit))
@@ -303,13 +302,6 @@ async fn handle_reject_agent(
     Json(req): Json<RejectAgentRequest>,
 ) -> Response {
     run_blocking(move || state.service.reject_agent(req)).await
-}
-
-async fn handle_merge_to_unified(
-    State(state): State<Arc<AppState>>,
-    Json(req): Json<MergeToUnifiedRequest>,
-) -> Response {
-    run_blocking(move || state.service.merge_to_unified(req)).await
 }
 
 async fn handle_merge_to_staged(

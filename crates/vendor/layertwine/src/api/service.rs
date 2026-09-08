@@ -17,8 +17,7 @@ use crate::git_sync::gc::collect_garbage;
 use crate::git_sync::git_bridge::GitBridge;
 use crate::layered::StateMachine;
 use crate::storage::repository::{
-    AtomicOps, CheckpointPersist, DeltaStore, FileNodeStore, LayerStore, PartitionStore,
-    SnapshotStore,
+    AtomicOps, CheckpointPersist, DeltaStore, FileNodeStore, PartitionStore, SnapshotStore,
 };
 use crate::storage::SqliteStorage;
 
@@ -408,7 +407,6 @@ impl ApiService {
                     PartitionType::Agent(_) => "agent_edit",
                     PartitionType::Approval(_) => "approval",
                     PartitionType::Integrated(_) => "integrated",
-                    PartitionType::Unified => "unified",
                     PartitionType::Staged => "staged",
                 };
                 PartitionInfo {
@@ -1154,7 +1152,6 @@ impl ApiService {
                 }
                 s.clear_all_checkpoints().ok();
                 s.clear_all_branches().ok();
-                s.clear_all_layers().ok();
                 s.clear_all_snapshots().ok();
                 s.clear_all_deltas().ok();
                 Ok(())
@@ -1177,17 +1174,22 @@ impl ApiService {
             }
         }
 
-        // Clean specific layer
+        // Clean specific layer (deletes every partition whose type belongs to it)
         if let Some(layer_type_name) = &req.layer {
             let storage = self.storage.as_ref();
             if let Some(lt) = crate::core::types::LayerType::from_name(layer_type_name) {
-                if let Ok(layer) = storage.get_layer(&lt) {
-                    for pid in &layer.partitions {
-                        let _ = storage.delete_partition(pid);
+                if let Ok(partitions) = storage.list_partitions() {
+                    let mut removed = 0;
+                    for p in partitions
+                        .iter()
+                        .filter(|p| p.partition_type.to_layer() == lt)
+                    {
+                        if storage.delete_partition(&p.id).is_ok() {
+                            removed += 1;
+                        }
                     }
+                    response.removed_layers += removed;
                 }
-                storage.delete_layer(&lt).ok();
-                response.removed_layers += 1;
             }
         }
 
@@ -1318,48 +1320,7 @@ impl ApiService {
         })
     }
 
-    /// Merge integrated partitions directly to staged (replaces former unified layer).
-    /// Kept for backward compatibility — the unified layer has been removed.
-    pub fn merge_to_unified(
-        &self,
-        req: MergeToUnifiedRequest,
-    ) -> ApiResult<MergeToUnifiedResponse> {
-        let names = req.integration_names.unwrap_or_else(|| {
-            // Auto-detect all integrated partition names
-            self.storage
-                .list_partitions()
-                .ok()
-                .map(|partitions| {
-                    partitions
-                        .into_iter()
-                        .filter_map(|p| match p.partition_type {
-                            crate::core::types::PartitionType::Integrated(name) => Some(name),
-                            _ => None,
-                        })
-                        .collect()
-                })
-                .unwrap_or_default()
-        });
-
-        if names.is_empty() {
-            return Err(ApiError::invalid_params(
-                "no integrated partitions found to merge",
-            ));
-        }
-
-        let merged_count = names.len();
-        let result =
-            crate::layered::staged::merge_features_to_staged(self.storage.as_ref(), &names, None)
-                .map_err(map_error)?;
-
-        Ok(MergeToUnifiedResponse {
-            unified_snapshot_id: snapshot_id_to_hex(&result.snapshot_id),
-            merged_count,
-        })
-    }
-
-    /// Merge to staged (now merges integrated features directly).
-    /// Kept for backward compatibility.
+    /// Merge integrated partitions directly to staged.
     pub fn merge_to_staged(&self, _req: MergeToStagedRequest) -> ApiResult<MergeToStagedResponse> {
         // Auto-detect all integrated partition names and merge directly to staged
         let names: Vec<String> = self

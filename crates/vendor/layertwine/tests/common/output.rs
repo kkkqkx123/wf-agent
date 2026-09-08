@@ -370,7 +370,6 @@ pub fn print_all_layer_states(all_partitions: &[Partition]) {
         LayerType::AgentEdit,
         LayerType::Approval,
         LayerType::Integrated,
-        LayerType::Unified,
         LayerType::Staged,
     ];
 

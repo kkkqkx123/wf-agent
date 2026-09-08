@@ -107,7 +107,7 @@ fn test_single_agent_workflow() {
 
     // Merge features directly to staged (no unified intermediary)
     print_info("Step 7.5: Merge features directly to staged");
-    let staged_snapshot_id = merge_to_unified(&env, None);
+    let staged_snapshot_id = merge_features_to_staged(&env, None);
     print_success(&format!(
         "Merged features to staged, snapshot_id: {}",
         staged_snapshot_id.to_hex()
@@ -219,15 +219,15 @@ fn test_two_agents_sequential() {
         "feature-2 should be in integrated layer"
     );
 
-    // Merge integrated to unified
-    print_info("Step 5.5: Merge integrated to unified layer");
-    merge_to_unified(&env, None);
-    print_success("Merged integrated to unified");
+    // Merge integrated features directly to staged
+    print_info("Step 5.5: Merge integrated features to staged layer");
+    merge_features_to_staged(&env, None);
+    print_success("Merged integrated features to staged");
 
-    // Merge unified to staged
-    print_info("Step 5.6: Merge unified to staged layer");
+    // Merge integrated features to staged
+    print_info("Step 5.6: Merge integrated features to staged");
     merge_to_staged(&env);
-    print_success("Merged unified to staged");
+    print_success("Merged integrated features to staged");
 
     // Commit merged changes
     print_info("Step 6: Commit merged changes");
@@ -371,15 +371,15 @@ fn test_three_agents_parallel() {
         ));
     }
 
-    // Merge integrated to unified
-    print_info("Step 6.5: Merge integrated to unified layer");
-    merge_to_unified(&env, None);
-    print_success("Merged integrated to unified");
+    // Merge integrated features directly to staged
+    print_info("Step 6.5: Merge integrated features to staged layer");
+    merge_features_to_staged(&env, None);
+    print_success("Merged integrated features to staged");
 
-    // Merge unified to staged
-    print_info("Step 6.6: Merge unified to staged layer");
+    // Merge integrated features to staged
+    print_info("Step 6.6: Merge integrated features to staged");
     merge_to_staged(&env);
-    print_success("Merged unified to staged");
+    print_success("Merged integrated features to staged");
 
     // Commit merged changes
     print_info("Step 7: Commit merged changes");

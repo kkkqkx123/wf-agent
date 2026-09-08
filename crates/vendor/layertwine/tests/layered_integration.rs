@@ -556,6 +556,10 @@ fn test_state_machine_integration() {
     let part = sm.get_partition(&staged_pid).unwrap();
     assert_eq!(part.current_snapshot, sid);
 
-    // Sync layers
-    sm.sync_layers().unwrap();
+    // Verify the state machine can still enumerate partitions after the flow
+    let partitions = s.list_partitions().unwrap();
+    assert!(
+        partitions.iter().any(|p| p.id == staged_pid),
+        "staged partition should be visible after flow"
+    );
 }

@@ -269,14 +269,7 @@ pub enum ApprovalCommands {
         /// Agent ID to reject
         agent_id: String,
     },
-    /// Merge integrated partitions to unified
-    #[command(name = "merge-to-unified")]
-    MergeToUnified {
-        /// Integration names (auto-detect if empty)
-        #[arg(long = "names")]
-        names: Option<Vec<String>>,
-    },
-    /// Merge unified to staged
+    /// Merge integrated features directly to staged
     #[command(name = "merge-to-staged")]
     MergeToStaged,
 }

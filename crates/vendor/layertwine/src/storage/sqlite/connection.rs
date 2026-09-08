@@ -83,7 +83,7 @@ impl SqliteStorage {
     pub fn list_metadata_by_prefix(&self, prefix: &str) -> StorageResult<Vec<(String, String)>> {
         self.with_conn(|conn| {
             let mut stmt =
-                conn.prepare("SELECT key, value FROM dag_store WHERE key LIKE ?1 ORDER BY key")?;
+                conn.prepare("SELECT key, value FROM meta_kv WHERE key LIKE ?1 ORDER BY key")?;
             let rows = stmt
                 .query_map([format!("{}%", prefix)], |row| {
                     let key: String = row.get(0)?;
@@ -180,22 +180,14 @@ impl SqliteStorage {
     /// Delete all checkpoints from storage.
     pub fn clear_all_checkpoints(&self) -> StorageResult<usize> {
         let conn = self.conn.lock();
-        let count = conn.execute("DELETE FROM time_index", [])?;
-        let count2 = conn.execute("DELETE FROM checkpoints", [])?;
-        Ok(count + count2)
+        let count = conn.execute("DELETE FROM checkpoints", [])?;
+        Ok(count)
     }
 
     /// Delete all branches from storage.
     pub fn clear_all_branches(&self) -> StorageResult<usize> {
         let conn = self.conn.lock();
         let count = conn.execute("DELETE FROM branches", [])?;
-        Ok(count)
-    }
-
-    /// Delete all layers from storage.
-    pub fn clear_all_layers(&self) -> StorageResult<usize> {
-        let conn = self.conn.lock();
-        let count = conn.execute("DELETE FROM layers", [])?;
         Ok(count)
     }
 

@@ -5,7 +5,7 @@
 //!   - Commit without changes
 //!   - Branch operations on non-existent branches
 //!   - Approval operations without prior agent edits
-//!   - Merge unified without integrated partitions
+//!   - Reject an agent without a pending approval
 //!   - ApiError serialization correctness
 
 use crate::common::fixture::{TestConfig, TestEnvironment};
@@ -13,7 +13,7 @@ use crate::common::helpers::*;
 use crate::common::output::*;
 use layertwine::api::{
     BranchCreateRequest, BranchSwitchRequest, CommitRequest, EditRequest, MergeRequest,
-    MergeToUnifiedRequest, ShowRequest,
+    ShowRequest,
 };
 
 // ── Edit error cases ──
@@ -147,13 +147,13 @@ fn test_approval_error_cases() {
         print_info(&format!("  Error: {}", e));
     }
 
-    print_info("Step 3: Try to merge to unified with no integrated partitions");
-    let resp = env.api.merge_to_unified(MergeToUnifiedRequest {
-        integration_names: None,
+    print_info("Step 3: Try to reject an agent that never submitted");
+    let resp = env.api.reject_agent(layertwine::api::RejectAgentRequest {
+        agent_id: "never-submitted".into(),
     });
     assert!(
         resp.is_err(),
-        "merge to unified without integrated should fail"
+        "reject without a pending approval partition should fail"
     );
     if let Err(e) = resp {
         print_info(&format!("  Error: {}", e));

@@ -2,14 +2,12 @@ use crate::checkpoint::branch::Branch;
 use crate::checkpoint::types::Checkpoint;
 use crate::core::delta::Delta;
 use crate::core::file_node::FileNode;
-use crate::core::layer::Layer;
 use crate::core::partition::Partition;
 use crate::core::snapshot::Snapshot;
 use crate::core::types::{
-    CheckpointId, DeltaId, LayerType, PartitionId, PartitionType, SnapshotId,
+    CheckpointId, DeltaId, PartitionId, PartitionType, SnapshotId,
 };
 use crate::StorageResult;
-use std::collections::{HashMap, HashSet};
 
 /// Snapshot storage trait
 pub trait SnapshotStore {
@@ -69,6 +67,22 @@ pub trait PartitionStore {
     /// List all partitions
     fn list_partitions(&self) -> StorageResult<Vec<Partition>>;
 
+    /// Reset partition pointer to the given snapshot and truncate history.
+    ///
+    /// Repositions the partition so that `snapshot_id` becomes the sole
+    /// baseline (single history entry). Used by branch switching, which must
+    /// not pollute history with the previous branch's state.
+    ///
+    /// The default implementation falls back to `update_pointer` (append);
+    /// backends that support history truncation (e.g., Sqlite) override this.
+    fn reset_partition_to(
+        &self,
+        partition_id: &PartitionId,
+        snapshot_id: &SnapshotId,
+    ) -> StorageResult<()> {
+        self.update_pointer(partition_id, snapshot_id)
+    }
+
     /// Reset partition to its baseline (first history entry).
     ///
     /// Sets current_snapshot to history[0] and truncates history to just that entry.
@@ -92,18 +106,6 @@ pub trait FileNodeStore {
     fn get_file_content(&self, file_path: &str, base_hash: &[u8; 32]) -> StorageResult<Vec<u8>>;
     /// Determine if a file node exists
     fn file_node_exists(&self, file_path: &str, base_hash: &[u8; 32]) -> StorageResult<bool>;
-}
-
-/// Layer storage trait
-pub trait LayerStore {
-    /// Store or update a layer
-    fn store_layer(&self, layer: &Layer) -> StorageResult<()>;
-    /// Get a layer by its type
-    fn get_layer(&self, layer_type: &LayerType) -> StorageResult<Layer>;
-    /// List all layer types
-    fn list_layer_types(&self) -> StorageResult<Vec<LayerType>>;
-    /// Delete a layer
-    fn delete_layer(&self, layer_type: &LayerType) -> StorageResult<()>;
 }
 
 /// Atomic operations trait for transactional guarantees
@@ -139,46 +141,8 @@ pub trait Repository:
     + PartitionStore
     + FileNodeStore
     + CheckpointPersist
-    + LayerStore
     + AtomicOps
 {
-}
-
-/// DAG persistent storage trait
-///
-/// DAG adjacency map (parent -> children) plus per-node generation numbers,
-/// loaded together from storage.
-pub type DagGraph = (
-    HashMap<CheckpointId, HashSet<CheckpointId>>,
-    HashMap<CheckpointId, u64>,
-);
-
-/// Stores the graph structure (parent-child edges and generation numbers)
-/// separately from full checkpoint entities, enabling lazy loading.
-pub trait DagStore: Send + Sync {
-    /// Bulk store DAG nodes and edges after full rebuild
-    fn store_dag_batch(
-        &self,
-        nodes: &[(CheckpointId, u64)],
-        edges: &[(CheckpointId, CheckpointId)],
-    ) -> StorageResult<()>;
-
-    /// Add a single edge during commit/merge (incremental update)
-    fn store_dag_edge(
-        &self,
-        parent_id: &CheckpointId,
-        child_id: &CheckpointId,
-        child_generation: u64,
-    ) -> StorageResult<()>;
-
-    /// Delete a node and all its associated edges
-    fn delete_dag_node(&self, node_id: &CheckpointId) -> StorageResult<()>;
-
-    /// Load the entire DAG structure from storage
-    fn load_dag(&self) -> StorageResult<DagGraph>;
-
-    /// Check if the DAG contains a node
-    fn dag_has_node(&self, node_id: &CheckpointId) -> StorageResult<bool>;
 }
 
 /// Checkpoint & Branch persistence trait — unified interface for CheckpointRepo
@@ -186,7 +150,7 @@ pub trait DagStore: Send + Sync {
 /// Combines checkpoint, branch, metadata, and snapshot storage into a single trait.
 /// Storage backends (e.g. Sqlite) implement this trait directly.
 pub trait CheckpointPersist:
-    MetadataStore + SnapshotStore + DagStore + FileNodeStore + DeltaStore + Send + Sync
+    MetadataStore + SnapshotStore + FileNodeStore + DeltaStore + Send + Sync
 {
     /// Store a checkpoint
     fn store_checkpoint(&self, checkpoint: &Checkpoint) -> StorageResult<()>;

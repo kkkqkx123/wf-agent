@@ -26,13 +26,14 @@ use ratatui::text::{Line, Span};
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
 
-use crate::approval::ApprovalView;
+use crate::approval_overlay::ApprovalView;
 use crate::composer::Composer;
 use crate::panels::{
     CommandPalette, MentionPanel, ModelPanel, QueuedPanel, SkillPanel, WorkflowPanel,
 };
-use crate::question::QuestionView;
-use crate::reducer::{Phase, UsageMeta};
+use crate::question_overlay::QuestionView;
+use crate::reducer::Phase;
+use crate::status_line::FooterState;
 use crate::transcript::Role;
 use crate::theme::Theme;
 
@@ -106,61 +107,6 @@ pub enum PanelState {
     Queued(QueuedPanel),
     Workflow(WorkflowPanel),
     Mention(MentionPanel),
-}
-
-/// UI-side footer state: the reducer's [`crate::reducer::FooterState`] plus
-/// the interactive presentation fields (model label, execution id, elapsed
-/// time, notice).
-#[derive(Debug, Clone, PartialEq)]
-pub struct FooterState {
-    pub phase: Phase,
-    pub iteration: u32,
-    pub active_tools: Vec<String>,
-    pub message_count: u32,
-    pub last_error: Option<String>,
-    /// Active model profile label (status line).
-    pub model: Option<String>,
-    /// Active execution id (right summary block / exit hint).
-    pub execution_id: Option<String>,
-    /// Wall-clock duration of the current turn (ms).
-    pub duration_ms: u64,
-    /// Cumulative token usage (status line `tokens · cost`).
-    pub usage: Option<UsageMeta>,
-    /// Number of sub-agents currently running (status line hint).
-    pub subagent_count: u32,
-    /// Pending notice: `(text, expires_at_ms)`.
-    pub notice: Option<(String, u64)>,
-}
-
-impl Default for FooterState {
-    fn default() -> Self {
-        Self {
-            phase: Phase::Idle,
-            iteration: 0,
-            active_tools: Vec::new(),
-            message_count: 0,
-            last_error: None,
-            model: None,
-            execution_id: None,
-            duration_ms: 0,
-            usage: None,
-            subagent_count: 0,
-            notice: None,
-        }
-    }
-}
-
-impl FooterState {
-    /// Adopt the reducer footer snapshot (keeps the UI-only fields).
-    pub fn merge_reducer(&mut self, reducer: &crate::reducer::FooterState) {
-        self.phase = reducer.phase;
-        self.iteration = reducer.iteration;
-        self.active_tools = reducer.active_tools.clone();
-        self.message_count = reducer.message_count;
-        self.last_error = reducer.last_error.clone();
-        self.usage = reducer.usage;
-        self.subagent_count = reducer.subagent_count;
-    }
 }
 
 /// The mini footer component. Pure data: rendering and height math only.
@@ -465,7 +411,7 @@ pub fn theme_style(theme: &Theme, role: Role) -> Style {
 
 /// Render one pre-wrapped line into `buf` at `area` (clears the row first,
 /// clips graphemes to the area width).
-fn render_line_into(area: Rect, buf: &mut Buffer, line: &Line<'_>) {
+pub(crate) fn render_line_into(area: Rect, buf: &mut Buffer, line: &Line<'_>) {
     let width = usize::from(area.width.max(1));
     buf.set_string(area.x, area.y, " ".repeat(width), Style::default());
     let mut col = 0usize;
@@ -497,14 +443,14 @@ fn render_line_into(area: Rect, buf: &mut Buffer, line: &Line<'_>) {
 }
 
 /// Fill `area` with a repeated character.
-fn fill_area(area: Rect, buf: &mut Buffer, ch: char, style: Style) {
+pub(crate) fn fill_area(area: Rect, buf: &mut Buffer, ch: char, style: Style) {
     let text: String = ch.to_string().repeat(usize::from(area.width));
     buf.set_string(area.x, area.y, &text, style);
 }
 
 /// Render a column of lines into `area` (one row per line, clipped to the
 /// area height). Spans without an explicit foreground take `role`'s style.
-fn render_rows(area: Rect, buf: &mut Buffer, lines: &[Line<'static>], theme: &Theme, role: Role) {
+pub(crate) fn render_rows(area: Rect, buf: &mut Buffer, lines: &[Line<'static>], theme: &Theme, role: Role) {
     let fallback = theme_style(theme, role);
     for (i, line) in lines.iter().enumerate() {
         if i as u16 >= area.height {
@@ -534,9 +480,7 @@ fn render_rows(area: Rect, buf: &mut Buffer, lines: &[Line<'static>], theme: &Th
 
 /// Split `text` into chunks of at most `width` columns on grapheme
 /// boundaries.
-fn wrap_columns(text: &str, width: usize) -> Vec<String> {
-    use unicode_segmentation::UnicodeSegmentation;
-    use unicode_width::UnicodeWidthStr;
+pub(crate) fn wrap_columns(text: &str, width: usize) -> Vec<String> {
     if width == 0 {
         return Vec::new();
     }
@@ -561,7 +505,6 @@ fn wrap_columns(text: &str, width: usize) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::reducer::FooterState as ReducerFooter;
 
     fn theme() -> Theme {
         Theme::dark_default()
@@ -635,25 +578,6 @@ mod tests {
         assert_eq!(footer.keymap_context(), KeymapContext::Approval);
         footer.present(FooterView::Question);
         assert_eq!(footer.keymap_context(), KeymapContext::Question);
-    }
-
-    #[test]
-    fn reducer_state_merges_into_ui_state() {
-        let mut footer = Footer::new();
-        let reducer = ReducerFooter {
-            phase: Phase::Streaming,
-            iteration: 3,
-            active_tools: vec!["bash".to_string()],
-            message_count: 7,
-            last_error: None,
-            usage: None,
-            subagent_count: 0,
-        };
-        footer.state.merge_reducer(&reducer);
-        assert_eq!(footer.state.phase, Phase::Streaming);
-        assert_eq!(footer.state.iteration, 3);
-        assert_eq!(footer.state.active_tools, vec!["bash".to_string()]);
-        assert_eq!(footer.state.message_count, 7);
     }
 
     #[test]

@@ -23,7 +23,7 @@ use wf_cli::screens::{
 const DASHBOARD_ENTRIES: &[ScreenKind] = &[
     ScreenKind::Workflow,
     ScreenKind::Executions,
-    ScreenKind::Session,
+    ScreenKind::Interactive,
     ScreenKind::Checkpoints,
     ScreenKind::Search,
     ScreenKind::Settings,
@@ -218,7 +218,7 @@ fn dashboard_entry_label(kind: ScreenKind) -> &'static str {
     match kind {
         ScreenKind::Workflow => "Workflows",
         ScreenKind::Executions => "Executions",
-        ScreenKind::Session => "Session (live)",
+        ScreenKind::Interactive => "Interactive (live)",
         ScreenKind::Checkpoints => "Checkpoints",
         ScreenKind::Search => "Search",
         ScreenKind::Settings => "Settings",
@@ -231,7 +231,7 @@ fn dashboard_entry_color(kind: ScreenKind) -> Color {
     match kind {
         ScreenKind::Workflow => Color::Green,
         ScreenKind::Executions => Color::Yellow,
-        ScreenKind::Session => Color::Cyan,
+        ScreenKind::Interactive => Color::Cyan,
         ScreenKind::Checkpoints => Color::Blue,
         ScreenKind::Search => Color::Magenta,
         ScreenKind::Settings => Color::White,
@@ -342,7 +342,7 @@ impl DemoState {
             ScreenKind::Dashboard => synthetic_dashboard(),
             ScreenKind::Workflow => synthetic_workflows(),
             ScreenKind::Executions => synthetic_executions(),
-            ScreenKind::Session => ScreenData::None,
+            ScreenKind::Interactive => ScreenData::None,
             ScreenKind::Checkpoints => synthetic_checkpoints(),
             ScreenKind::Search => synthetic_search_results(),
             ScreenKind::Settings => synthetic_settings(),

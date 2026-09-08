@@ -23,11 +23,11 @@ use wf_api::{
     ToolApprovalResult,
 };
 
-use crate::approval::{ApprovalChoice, ApprovalRemembered, ApprovalView};
+use crate::approval_overlay::{ApprovalChoice, ApprovalRemembered, ApprovalView};
 use crate::domain::DomainAdapter;
-use crate::bottom_pane::{Footer, FooterView};
+use crate::footer::{Footer, FooterView};
 use crate::keymap::{CKey, Key};
-use crate::question::{QuestionOutcome, QuestionView};
+use crate::question_overlay::{QuestionOutcome, QuestionView};
 use crate::reducer::{Phase, SessionReducer};
 use crate::transcript::{HistoryLine, LineState, Role};
 use crate::terminal::{DoublePressTracker, PressOutcome, SIGINT_DOUBLE_PRESS_WINDOW};
@@ -191,7 +191,7 @@ impl ToolApprovalHandler for TuiApprovalHandler {
                 "TUI session closed before the approval was answered",
             );
         }
-        match tokio::time::timeout(crate::approval::APPROVAL_TIMEOUT, reply_rx).await {
+        match tokio::time::timeout(crate::approval_overlay::APPROVAL_TIMEOUT, reply_rx).await {
             Ok(Ok(result)) => result,
             Ok(Err(_)) => ToolApprovalResult::rejected(
                 request.tool_call_id.clone(),

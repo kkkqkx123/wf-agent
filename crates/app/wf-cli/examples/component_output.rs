@@ -17,7 +17,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use wf_cli::ansi::{plain_text, AnsiParser};
-use wf_cli::scrollback::{lines_to_string, HistoryLine, LineState, Role};
+use wf_cli::transcript::{lines_to_string, HistoryLine, LineState, Role};
 use wf_cli::select::{Group, GroupItem, SelectList};
 
 /// The crate's `outputs/` directory (rooted at the manifest dir, not CWD).

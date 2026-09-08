@@ -1,7 +1,7 @@
 //! wf-cli: headless run and full TUI forms over the wf-agent runtime.
 
 pub mod ansi;
-pub mod approval;
+pub mod approval_overlay;
 pub mod approval_policy;
 pub mod args;
 pub mod cmd;
@@ -9,7 +9,8 @@ pub mod composer;
 pub mod config;
 pub mod domain;
 pub mod error;
-pub mod bottom_pane;
+pub mod footer;
+pub mod status_line;
 pub mod framer;
 pub mod history_cell;
 pub mod keymap;
@@ -19,11 +20,12 @@ pub mod modal;
 pub mod mode;
 pub mod output;
 pub mod panels;
-pub mod question;
+pub mod question_overlay;
 pub mod queue;
 pub mod reducer;
 pub mod remote;
 pub mod render;
+pub mod renderable;
 pub mod replay;
 pub mod run;
 pub mod sanitize;
@@ -42,7 +44,8 @@ pub use ansi::AnsiParser;
 pub use args::{Cli, Command};
 pub use composer::Composer;
 pub use error::{CliError, CliResult};
-pub use bottom_pane::{Footer, FooterRoute, FooterView};
+pub use footer::{Footer, FooterRoute, FooterView};
+pub use status_line::FooterState;
 pub use framer::{FrameRateLimiter, FrameRequester};
 pub use history_cell::{
     AssistantMessageCell, ErrorCell, HistoryCell, PlainCell, StatusCell, ToolCallCell,

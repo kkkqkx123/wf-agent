@@ -10,6 +10,7 @@
 //! The composer owns no terminal state: `render` draws into a caller-provided
 //! ratatui [`Buffer`] with a caller-provided style.
 
+use std::cell::Cell;
 use std::collections::VecDeque;
 use std::ops::Range;
 
@@ -29,17 +30,30 @@ pub const HISTORY_LIMIT: usize = 200;
 pub const PLACEHOLDER: &str = "> Type a message…";
 
 /// A one-line prompt buffer.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct Composer {
     buf: String,
     /// Byte offset of the cursor into `buf`; always on a grapheme boundary.
     cursor: usize,
     /// Horizontal scroll offset in columns (kept so the cursor is visible).
-    scroll_x: u16,
+    scroll_x: Cell<u16>,
     history: VecDeque<String>,
     /// Draft saved while navigating history (↑), restored at the end (↓).
     stash: Option<String>,
     placeholder: &'static str,
+}
+
+impl Default for Composer {
+    fn default() -> Self {
+        Self {
+            buf: String::new(),
+            cursor: 0,
+            scroll_x: Cell::new(0),
+            history: VecDeque::new(),
+            stash: None,
+            placeholder: PLACEHOLDER,
+        }
+    }
 }
 
 impl Composer {
@@ -65,7 +79,7 @@ impl Composer {
     pub fn set_text(&mut self, text: impl Into<String>) {
         self.buf = text.into();
         self.cursor = self.buf.len();
-        self.scroll_x = 0;
+        self.scroll_x.set(0);
     }
 
     /// Insert a single character at the cursor.
@@ -211,16 +225,16 @@ impl Composer {
     pub fn clear(&mut self) {
         self.buf.clear();
         self.cursor = 0;
-        self.scroll_x = 0;
+        self.scroll_x.set(0);
         self.stash = None;
     }
 
     /// Column (0-based) at which the cursor is drawn for the given area
     /// width, after re-anchoring the horizontal scroll.
-    pub fn cursor_col(&mut self, width: u16) -> u16 {
+    pub fn cursor_col(&self, width: u16) -> u16 {
         self.update_scroll(width);
         let before = self.buf[..self.cursor].width() as u16;
-        before.saturating_sub(self.scroll_x)
+        before.saturating_sub(self.scroll_x.get())
     }
 
     /// All mention intervals in the current buffer, as byte ranges.
@@ -253,13 +267,13 @@ impl Composer {
         let insert = format!("@{candidate} ");
         self.buf.replace_range(at_pos..cursor, &insert);
         self.cursor = at_pos + insert.len();
-        self.scroll_x = 0;
+        self.scroll_x.set(0);
     }
 
     /// Render the single line into `area`, applying the horizontal scroll.
     /// Mention intervals are highlighted with a reversed style so `@file`
     /// ranges are visually distinct from plain text.
-    pub fn render(&mut self, area: Rect, buf: &mut Buffer, style: Style) {
+    pub fn render(&self, area: Rect, buf: &mut Buffer, style: Style) {
         let width = area.width.max(1);
         buf.set_string(area.x, area.y, " ".repeat(width.into()), Style::default());
         if self.buf.is_empty() {
@@ -270,7 +284,7 @@ impl Composer {
         self.update_scroll(width);
         let mention_ranges = self.mention_ranges();
         let mut col = 0u16;
-        let mut skip = self.scroll_x;
+        let mut skip = self.scroll_x.get();
         let mut byte_offset = 0usize;
         for grapheme in self.buf.graphemes(true) {
             let w = grapheme.width() as u16;
@@ -314,17 +328,35 @@ impl Composer {
 
     /// Keep the cursor visible: adjust `scroll_x` so the cursor column falls
     /// inside `[scroll_x, scroll_x + width)`.
-    fn update_scroll(&mut self, width: u16) {
+    fn update_scroll(&self, width: u16) {
         if width == 0 {
             return;
         }
         let cursor_col = self.buf[..self.cursor].width() as u16;
-        let right_edge = self.scroll_x.saturating_add(width);
+        let right_edge = self.scroll_x.get().saturating_add(width);
         if cursor_col >= right_edge {
-            self.scroll_x = cursor_col.saturating_add(1).saturating_sub(width);
-        } else if cursor_col < self.scroll_x {
-            self.scroll_x = cursor_col;
+            self.scroll_x
+                .set(cursor_col.saturating_add(1).saturating_sub(width));
+        } else if cursor_col < self.scroll_x.get() {
+            self.scroll_x.set(cursor_col);
         }
+    }
+}
+
+impl crate::renderable::Renderable for Composer {
+    fn render(&self, area: ratatui::layout::Rect, buf: &mut ratatui::buffer::Buffer) {
+        // Default style; callers needing a custom style should use the
+        // concrete `render(area, buf, style)` method directly.
+        self.render(area, buf, Style::default());
+    }
+
+    fn desired_height(&self, _width: u16) -> u16 {
+        1
+    }
+
+    fn cursor_pos(&self, area: ratatui::layout::Rect) -> Option<(u16, u16)> {
+        let col = self.cursor_col(area.width);
+        Some((col, 0))
     }
 }
 
@@ -467,7 +499,7 @@ mod tests {
 
     #[test]
     fn renders_placeholder_when_empty() {
-        let mut c = Composer::new();
+        let c = Composer::new();
         let mut buf = Buffer::empty(Rect::new(0, 0, 10, 1));
         c.render(Rect::new(0, 0, 10, 1), &mut buf, Style::default());
         let first = buf[(0, 0)].symbol();

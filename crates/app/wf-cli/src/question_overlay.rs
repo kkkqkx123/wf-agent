@@ -238,6 +238,29 @@ impl QuestionView {
     }
 }
 
+impl crate::renderable::Renderable for QuestionView {
+    fn render(&self, area: ratatui::layout::Rect, buf: &mut ratatui::buffer::Buffer) {
+        let width = usize::from(area.width.max(1));
+        let lines = self.render_lines(width);
+        for (i, line) in lines.iter().enumerate() {
+            if i as u16 >= area.height {
+                break;
+            }
+            let row = ratatui::layout::Rect {
+                x: area.x,
+                y: area.y + i as u16,
+                width: area.width,
+                height: 1,
+            };
+            crate::footer::render_line_into(row, buf, line);
+        }
+    }
+
+    fn desired_height(&self, _width: u16) -> u16 {
+        14
+    }
+}
+
 /// Truncate to `width` columns on a grapheme boundary.
 fn truncate(text: &str, width: usize) -> String {
     use unicode_segmentation::UnicodeSegmentation;

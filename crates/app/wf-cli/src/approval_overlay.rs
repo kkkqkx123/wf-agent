@@ -155,7 +155,46 @@ impl ApprovalView {
     }
 }
 
-/// Truncate to `width` columns on a grapheme boundary.
+impl crate::renderable::Renderable for ApprovalView {
+    fn render(&self, area: ratatui::layout::Rect, buf: &mut ratatui::buffer::Buffer) {
+        use ratatui::text::{Line, Span};
+
+        let width = usize::from(area.width.max(1));
+        let mut lines: Vec<Line<'static>> = vec![
+            Line::from(Span::raw(self.title())),
+            Line::from(Span::raw("")),
+        ];
+        let preview_rows = area.height.saturating_sub(4) as usize;
+        let preview = self.arguments_preview(width.saturating_sub(2));
+        let mut remaining = preview_rows;
+        for chunk in crate::footer::wrap_columns(&preview, width.saturating_sub(2)) {
+            if remaining == 0 {
+                break;
+            }
+            lines.push(Line::from(Span::raw(chunk)));
+            remaining -= 1;
+        }
+        lines.push(Line::from(Span::raw("")));
+        lines.push(Line::from(Span::raw(self.hints())));
+
+        for (i, line) in lines.iter().enumerate() {
+            if i as u16 >= area.height {
+                break;
+            }
+            let row = ratatui::layout::Rect {
+                x: area.x,
+                y: area.y + i as u16,
+                width: area.width,
+                height: 1,
+            };
+            crate::footer::render_line_into(row, buf, line);
+        }
+    }
+
+    fn desired_height(&self, _width: u16) -> u16 {
+        12
+    }
+}
 fn truncate_graphemes(text: &str, width: usize) -> String {
     use unicode_segmentation::UnicodeSegmentation;
     use unicode_width::UnicodeWidthStr;

@@ -17,7 +17,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::Terminal;
 
-use wf_cli::scrollback::{HistoryLine, LineState, Role};
+use wf_cli::transcript::{HistoryLine, LineState, Role};
 
 /// Convert a `Buffer` to a string representation for snapshot comparison.
 ///

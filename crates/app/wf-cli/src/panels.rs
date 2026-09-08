@@ -617,6 +617,92 @@ impl QueuedPanel {
     }
 }
 
+/// Helper: render `lines` into `area` of `buf`, clipping to the area height.
+fn render_lines_into(
+    area: ratatui::layout::Rect,
+    buf: &mut ratatui::buffer::Buffer,
+    lines: &[ratatui::text::Line<'static>],
+) {
+    for (i, line) in lines.iter().enumerate() {
+        if i as u16 >= area.height {
+            break;
+        }
+        let row = ratatui::layout::Rect {
+            x: area.x,
+            y: area.y + i as u16,
+            width: area.width,
+            height: 1,
+        };
+        crate::footer::render_line_into(row, buf, line);
+    }
+}
+
+impl crate::renderable::Renderable for CommandPalette {
+    fn render(&self, area: ratatui::layout::Rect, buf: &mut ratatui::buffer::Buffer) {
+        let lines = self.render_lines(area.width, area.height);
+        render_lines_into(area, buf, &lines);
+    }
+
+    fn desired_height(&self, _width: u16) -> u16 {
+        16
+    }
+}
+
+impl crate::renderable::Renderable for ModelPanel {
+    fn render(&self, area: ratatui::layout::Rect, buf: &mut ratatui::buffer::Buffer) {
+        let lines = self.render_lines(area.width, area.height);
+        render_lines_into(area, buf, &lines);
+    }
+
+    fn desired_height(&self, _width: u16) -> u16 {
+        16
+    }
+}
+
+impl crate::renderable::Renderable for SkillPanel {
+    fn render(&self, area: ratatui::layout::Rect, buf: &mut ratatui::buffer::Buffer) {
+        let lines = self.render_lines(area.width, area.height);
+        render_lines_into(area, buf, &lines);
+    }
+
+    fn desired_height(&self, _width: u16) -> u16 {
+        16
+    }
+}
+
+impl crate::renderable::Renderable for WorkflowPanel {
+    fn render(&self, area: ratatui::layout::Rect, buf: &mut ratatui::buffer::Buffer) {
+        let lines = self.render_lines(area.width, area.height);
+        render_lines_into(area, buf, &lines);
+    }
+
+    fn desired_height(&self, _width: u16) -> u16 {
+        16
+    }
+}
+
+impl crate::renderable::Renderable for MentionPanel {
+    fn render(&self, area: ratatui::layout::Rect, buf: &mut ratatui::buffer::Buffer) {
+        let lines = self.render_lines(area.width, area.height);
+        render_lines_into(area, buf, &lines);
+    }
+
+    fn desired_height(&self, _width: u16) -> u16 {
+        16
+    }
+}
+
+impl crate::renderable::Renderable for QueuedPanel {
+    fn render(&self, area: ratatui::layout::Rect, buf: &mut ratatui::buffer::Buffer) {
+        let lines = self.render_lines(area.width, area.height);
+        render_lines_into(area, buf, &lines);
+    }
+
+    fn desired_height(&self, _width: u16) -> u16 {
+        16
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

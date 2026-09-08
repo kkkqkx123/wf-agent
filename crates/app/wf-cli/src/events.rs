@@ -153,7 +153,6 @@ pub fn unified_from_execution_stream(
     event: wf_api::infra::stream::ExecutionStreamEvent,
 ) -> Option<UnifiedEvent> {
     match event {
-        wf_api::infra::stream::ExecutionStreamEvent::Agent(agent) => Some(agent.into()),
         wf_api::infra::stream::ExecutionStreamEvent::Completed { result, iterations } => {
             Some(UnifiedEvent::Completed { result, iterations })
         }
@@ -179,6 +178,7 @@ pub fn unified_from_execution_stream(
             Some(UnifiedEvent::SubAgentEnded { id, name, success })
         }
         wf_api::infra::stream::ExecutionStreamEvent::Engine(_) => None,
+        _ => None,
     }
 }
 
@@ -303,14 +303,14 @@ mod tests {
 
     #[test]
     fn execution_stream_events_map_and_engine_filters_out() {
-        use wf_api::AgentStreamEvent;
         use wf_api::infra::stream::ExecutionStreamEvent;
 
-        let agent = ExecutionStreamEvent::Agent(AgentStreamEvent::LlmDelta {
+        // Agent variant no longer exists; LlmDelta is now a top-level variant
+        let llm_delta = ExecutionStreamEvent::LlmDelta {
             content: "hi".into(),
-        });
+        };
         assert_eq!(
-            unified_from_execution_stream(agent),
+            unified_from_execution_stream(llm_delta),
             Some(UnifiedEvent::TextDelta {
                 content: "hi".into()
             })

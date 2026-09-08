@@ -7,22 +7,19 @@
 //! stack (on shutdown) drops the sender, so waiting tasks resolve with
 //! `RecvError` instead of hanging.
 
-use std::path::{Path, PathBuf};
-
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
-use ratatui::style::{Color, Modifier, Style};
-use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
+use ratatui::style::Style;
+use ratatui::text::Line;
+use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 use ratatui::Frame;
 use tokio::sync::oneshot;
 
 use crate::keymap::{CKey, Key};
-use crate::select::{Group, GroupItem, NavigateDir, SelectList};
 use crate::theme::{Rgb, Theme};
 
 /// Convert one theme color value into a ratatui color.
-fn to_color(rgb: Rgb) -> Color {
-    Color::Rgb(rgb.r, rgb.g, rgb.b)
+fn to_color(rgb: Rgb) -> ratatui::style::Color {
+    ratatui::style::Color::Rgb(rgb.r, rgb.g, rgb.b)
 }
 
 /// Result of a modal interaction.
@@ -152,25 +149,25 @@ impl ModalStack {
 
 /// Vertical scroll offset shared by the file and diff viewers.
 #[derive(Debug, Clone, Copy, Default)]
-struct Scroll {
+pub(crate) struct Scroll {
     offset: usize,
 }
 
 impl Scroll {
-    fn up(&mut self, step: usize) {
+    pub(crate) fn up(&mut self, step: usize) {
         self.offset = self.offset.saturating_sub(step);
     }
 
-    fn down(&mut self, total: usize, view: usize, step: usize) {
+    pub(crate) fn down(&mut self, total: usize, view: usize, step: usize) {
         let max = total.saturating_sub(view);
         self.offset = (self.offset + step).min(max);
     }
 
-    fn home(&mut self) {
+    pub(crate) fn home(&mut self) {
         self.offset = 0;
     }
 
-    fn end(&mut self, total: usize, view: usize) {
+    pub(crate) fn end(&mut self, total: usize, view: usize) {
         self.offset = total.saturating_sub(view);
     }
 }
@@ -179,7 +176,7 @@ impl Scroll {
 ///
 /// `q` and `Esc` fall through to the caller, which decides whether the modal
 /// closes.
-fn scroll_key(scroll: &mut Scroll, key: Key, total: usize, view: usize) -> bool {
+pub(crate) fn scroll_key(scroll: &mut Scroll, key: Key, total: usize, view: usize) -> bool {
     match key.code {
         CKey::Char('j') | CKey::Down => {
             scroll.down(total, view, 1);
@@ -210,7 +207,7 @@ fn scroll_key(scroll: &mut Scroll, key: Key, total: usize, view: usize) -> bool 
 }
 
 /// Render a windowed list of styled rows inside a bordered block.
-fn render_viewer(
+pub(crate) fn render_viewer(
     frame: &mut Frame,
     area: Rect,
     title: &str,
@@ -252,724 +249,18 @@ fn render_viewer(
     );
 }
 
-// ---------------------------------------------------------------------------
-// Confirm / help
-// ---------------------------------------------------------------------------
-
-/// Simple confirmation modal.
-pub struct ConfirmModal {
-    title: String,
-    message: String,
-}
-
-impl ConfirmModal {
-    pub fn new(title: impl Into<String>, message: impl Into<String>) -> Self {
-        Self {
-            title: title.into(),
-            message: message.into(),
-        }
-    }
-}
-
-impl Modal for ConfirmModal {
-    fn title(&self) -> &str {
-        &self.title
-    }
-
-    fn draw(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
-        let block = Block::default()
-            .title(self.title.clone())
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(to_color(theme.warning)));
-        let paragraph = Paragraph::new(format!("{}\n\n[y] confirm / [n] cancel", self.message))
-            .block(block)
-            .style(Style::default().fg(to_color(theme.fg)))
-            .wrap(Wrap { trim: false });
-        let centered = centered_rect(60, 30, area);
-        frame.render_widget(paragraph, centered);
-    }
-
-    fn handle_key(&mut self, key: Key) -> ModalAction {
-        match key.code {
-            CKey::Char('y') | CKey::Char('Y') => ModalAction::Close(ModalResult::Confirmed),
-            CKey::Char('n') | CKey::Char('N') | CKey::Char('q') | CKey::Char('Q') => {
-                ModalAction::Close(ModalResult::Cancelled)
-            }
-            CKey::Esc => ModalAction::Close(ModalResult::Cancelled),
-            _ => ModalAction::Stay,
-        }
-    }
-}
-
-/// Help modal showing key bindings. It is transparent: the screen behind it
-/// keeps rendering so the user can read the shortcut in context.
-pub struct HelpModal;
-
-impl Modal for HelpModal {
-    fn title(&self) -> &str {
-        "Help"
-    }
-
-    fn is_transparent(&self) -> bool {
-        true
-    }
-
-    fn draw(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
-        let help_text = "Keys:\n  q / Esc - quit / close\n  1-8 - switch screens\n  ? - help\n  j/k - navigate\n  Enter - select\n  y/n - confirm/cancel\n  Ctrl-Z - suspend (fg to resume)";
-        let block = Block::default()
-            .title(" Help (?) ")
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(to_color(theme.accent)));
-        let paragraph = Paragraph::new(help_text)
-            .block(block)
-            .style(Style::default().fg(to_color(theme.fg)));
-        let centered = centered_rect(70, 60, area);
-        // Transparent: no Clear, the underlying screen stays visible.
-        frame.render_widget(paragraph, centered);
-    }
-
-    fn handle_key(&mut self, key: Key) -> ModalAction {
-        match key.code {
-            CKey::Esc => ModalAction::Close(ModalResult::Dismissed),
-            CKey::Char('q') | CKey::Char('?') => ModalAction::Close(ModalResult::Dismissed),
-            _ => ModalAction::Stay,
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// File / diff viewers
-// ---------------------------------------------------------------------------
-
-/// Read-only text viewer built from pre-wrapped rows.
-pub struct FileViewer {
-    title: String,
-    rows: Vec<Line<'static>>,
-    scroll: Scroll,
-}
-
-impl FileViewer {
-    pub fn new(title: impl Into<String>, content: &str) -> Self {
-        let rows = content
-            .lines()
-            .map(|line| Line::from(line.to_string()))
-            .collect();
-        Self {
-            title: title.into(),
-            rows,
-            scroll: Scroll::default(),
-        }
-    }
-
-    /// Build a viewer from history lines, reusing the scrollback reflow so the
-    /// modal wraps exactly like the transcript does.
-    pub fn from_history_lines(
-        title: impl Into<String>,
-        lines: &[crate::transcript::HistoryLine],
-        width: u16,
-    ) -> Self {
-        let mut rows = Vec::new();
-        for line in lines {
-            rows.extend(line.display_lines(width));
-        }
-        Self {
-            title: title.into(),
-            rows,
-            scroll: Scroll::default(),
-        }
-    }
-
-    pub fn row_count(&self) -> usize {
-        self.rows.len()
-    }
-}
-
-impl Modal for FileViewer {
-    fn title(&self) -> &str {
-        &self.title
-    }
-
-    fn draw(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
-        render_viewer(
-            frame,
-            area,
-            &self.title,
-            "j/k scroll · PgUp/PgDn page · Home/End · q close",
-            &self.rows,
-            &self.scroll,
-            theme,
-        );
-    }
-
-    fn handle_key(&mut self, key: Key) -> ModalAction {
-        let view = area_rows(20);
-        if scroll_key(&mut self.scroll, key, self.rows.len(), view) {
-            return ModalAction::Stay;
-        }
-        match key.code {
-            CKey::Esc | CKey::Char('q') => ModalAction::Close(ModalResult::Dismissed),
-            _ => ModalAction::Stay,
-        }
-    }
-}
-
-/// Sign of one diff row.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DiffSign {
-    Add,
-    Remove,
-    Context,
-    Hunk,
-}
-
-impl DiffSign {
-    fn style(&self, theme: &Theme) -> Style {
-        match self {
-            Self::Add => Style::default().fg(to_color(theme.add)),
-            Self::Remove => Style::default().fg(to_color(theme.remove)),
-            Self::Hunk => Style::default().fg(to_color(theme.accent)),
-            Self::Context => Style::default().fg(to_color(theme.fg)),
-        }
-    }
-}
-
-/// One row of a diff: a sign plus its text.
-#[derive(Debug, Clone)]
-pub struct DiffRow {
-    pub sign: DiffSign,
-    pub text: String,
-}
-
-/// Side-free diff viewer: unified diff in, coloured rows out.
-pub struct DiffViewer {
-    title: String,
-    rows: Vec<DiffRow>,
-    scroll: Scroll,
-}
-
-impl DiffViewer {
-    pub fn new(title: impl Into<String>, rows: Vec<DiffRow>) -> Self {
-        Self {
-            title: title.into(),
-            rows,
-            scroll: Scroll::default(),
-        }
-    }
-
-    /// Parse a unified diff (`+`/`-`/`@@`/context) into coloured rows.
-    pub fn from_unified(title: impl Into<String>, diff: &str) -> Self {
-        let rows = diff
-            .lines()
-            .map(|line| {
-                let (sign, text) = if let Some(rest) = line.strip_prefix("@@") {
-                    (DiffSign::Hunk, format!("@@{rest}"))
-                } else if let Some(rest) = line.strip_prefix('+') {
-                    (DiffSign::Add, format!("+{rest}"))
-                } else if let Some(rest) = line.strip_prefix('-') {
-                    (DiffSign::Remove, format!("-{rest}"))
-                } else {
-                    (DiffSign::Context, line.to_string())
-                };
-                DiffRow { sign, text }
-            })
-            .collect();
-        Self::new(title, rows)
-    }
-
-    pub fn row_count(&self) -> usize {
-        self.rows.len()
-    }
-
-    /// Theme-coloured display lines for the current diff.
-    fn display_lines(&self, theme: &Theme) -> Vec<Line<'static>> {
-        self.rows
-            .iter()
-            .map(|row| Line::from(Span::styled(row.text.clone(), row.sign.style(theme))))
-            .collect()
-    }
-}
-
-impl Modal for DiffViewer {
-    fn title(&self) -> &str {
-        &self.title
-    }
-
-    fn draw(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
-        let rows = self.display_lines(theme);
-        render_viewer(
-            frame,
-            area,
-            &self.title,
-            "j/k scroll · PgUp/PgDn page · Home/End · q close",
-            &rows,
-            &self.scroll,
-            theme,
-        );
-    }
-
-    fn handle_key(&mut self, key: Key) -> ModalAction {
-        let view = area_rows(20);
-        if scroll_key(&mut self.scroll, key, self.rows.len(), view) {
-            return ModalAction::Stay;
-        }
-        match key.code {
-            CKey::Esc | CKey::Char('q') => ModalAction::Close(ModalResult::Dismissed),
-            _ => ModalAction::Stay,
-        }
-    }
-}
-
 /// Conservative viewport height used when the real area is unknown.
-fn area_rows(default: usize) -> usize {
+pub(crate) fn area_rows(default: usize) -> usize {
     default
 }
 
-// ---------------------------------------------------------------------------
-// Pickers
-// ---------------------------------------------------------------------------
-
-/// Shared state for the picker modals: a filterable select list.
-#[derive(Debug)]
-struct PickerCore {
-    list: SelectList<String>,
-    filter: String,
-}
-
-impl PickerCore {
-    fn new(items: Vec<(String, String)>) -> Self {
-        let mut group = Group::new(None);
-        for (label, data) in items {
-            group = group.item(GroupItem::new(label, data));
-        }
-        Self {
-            list: SelectList::groups(vec![group]),
-            filter: String::new(),
-        }
-    }
-
-    fn apply_filter(&mut self) {
-        if self.filter.is_empty() {
-            self.list.set_filter(None);
-        } else {
-            self.list.set_filter(Some(&self.filter));
-        }
-    }
-
-    fn selected_id(&self) -> Option<String> {
-        self.list.selected().map(|item| item.data.clone())
-    }
-
-    /// Returns `Some(result)` when the key closes the picker.
-    fn handle_key(&mut self, key: Key) -> Option<ModalResult> {
-        match key.code {
-            CKey::Up | CKey::Char('k') => {
-                self.list.navigate(NavigateDir::Prev);
-                None
-            }
-            CKey::Down | CKey::Char('j') => {
-                self.list.navigate(NavigateDir::Next);
-                None
-            }
-            CKey::Enter => match self.selected_id() {
-                Some(id) => Some(ModalResult::Value(id)),
-                None => Some(ModalResult::Cancelled),
-            },
-            CKey::Esc | CKey::Char('q') if !key.ctrl => Some(ModalResult::Cancelled),
-            CKey::Backspace => {
-                self.filter.pop();
-                self.apply_filter();
-                None
-            }
-            CKey::Char(c) if !key.ctrl && !key.alt => {
-                self.filter.push(c);
-                self.apply_filter();
-                None
-            }
-            _ => None,
-        }
-    }
-}
-
-fn render_picker(
-    frame: &mut Frame,
-    area: Rect,
-    title: &str,
-    hint: &str,
-    list: &SelectList<String>,
-    filter: &str,
-    theme: &Theme,
-) {
-    let outer = Block::default()
-        .title(format!(" {title} "))
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(to_color(theme.accent)));
-    let inner = outer.inner(area);
-    frame.render_widget(outer, area);
-
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(1),
-            Constraint::Min(1),
-            Constraint::Length(1),
-        ])
-        .split(inner);
-
-    frame.render_widget(
-        Paragraph::new(format!("/{filter}")).style(Style::default().fg(to_color(theme.muted))),
-        chunks[0],
-    );
-    let rows = list.render_lines(chunks[1].width, chunks[1].height);
-    frame.render_widget(Paragraph::new(rows), chunks[1]);
-    frame.render_widget(
-        Paragraph::new(format!("{}  {}", list.position_string(), hint))
-            .style(Style::default().fg(to_color(theme.muted))),
-        chunks[2],
-    );
-}
-
-/// Model picker: chooses an LLM profile id.
-pub struct ModelPicker {
-    core: PickerCore,
-}
-
-impl ModelPicker {
-    /// `models` pairs a display label with the profile id to apply.
-    pub fn new(models: Vec<(String, String)>) -> Self {
-        Self {
-            core: PickerCore::new(models),
-        }
-    }
-
-    pub fn selected_id(&self) -> Option<String> {
-        self.core.selected_id()
-    }
-}
-
-impl Modal for ModelPicker {
-    fn title(&self) -> &str {
-        "Select model"
-    }
-
-    fn draw(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
-        let centered = centered_rect(70, 70, area);
-        render_picker(
-            frame,
-            centered,
-            "Select model",
-            "type to filter · j/k move · Enter apply · Esc cancel",
-            &self.core.list,
-            &self.core.filter,
-            theme,
-        );
-    }
-
-    fn handle_key(&mut self, key: Key) -> ModalAction {
-        match self.core.handle_key(key) {
-            Some(result) => ModalAction::Close(result),
-            None => ModalAction::Stay,
-        }
-    }
-}
-
-/// Session picker: chooses a stored session to replay.
-pub struct SessionPicker {
-    core: PickerCore,
-}
-
-impl SessionPicker {
-    /// `sessions` pairs a display label with the session id.
-    pub fn new(sessions: Vec<(String, String)>) -> Self {
-        Self {
-            core: PickerCore::new(sessions),
-        }
-    }
-
-    pub fn selected_id(&self) -> Option<String> {
-        self.core.selected_id()
-    }
-}
-
-impl Modal for SessionPicker {
-    fn title(&self) -> &str {
-        "Open session"
-    }
-
-    fn draw(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
-        let centered = centered_rect(70, 70, area);
-        render_picker(
-            frame,
-            centered,
-            "Open session",
-            "type to filter · j/k move · Enter open · Esc cancel",
-            &self.core.list,
-            &self.core.filter,
-            theme,
-        );
-    }
-
-    fn handle_key(&mut self, key: Key) -> ModalAction {
-        match self.core.handle_key(key) {
-            Some(result) => ModalAction::Close(result),
-            None => ModalAction::Stay,
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Secret input
-// ---------------------------------------------------------------------------
-
-/// Single-line secret prompt; the buffer is rendered masked.
-pub struct PasswordModal {
-    title: String,
-    prompt: String,
-    input: String,
-}
-
-impl PasswordModal {
-    pub fn new(title: impl Into<String>, prompt: impl Into<String>) -> Self {
-        Self {
-            title: title.into(),
-            prompt: prompt.into(),
-            input: String::new(),
-        }
-    }
-
-    /// The typed secret; empty after a successful submit.
-    pub fn value(&self) -> &str {
-        &self.input
-    }
-
-    fn masked(&self) -> String {
-        "*".repeat(self.input.chars().count())
-    }
-}
-
-impl Modal for PasswordModal {
-    fn title(&self) -> &str {
-        &self.title
-    }
-
-    fn draw(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
-        let block = Block::default()
-            .title(format!(" {} ", self.title))
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(to_color(theme.error)));
-        let body = format!(
-            "{}\n\n> {}\n\nEnter submit · Esc cancel",
-            self.prompt,
-            self.masked()
-        );
-        let paragraph = Paragraph::new(body).block(block).style(
-            Style::default()
-                .fg(to_color(theme.fg))
-                .add_modifier(Modifier::BOLD),
-        );
-        let centered = centered_rect(60, 30, area);
-        frame.render_widget(paragraph, centered);
-    }
-
-    fn handle_key(&mut self, key: Key) -> ModalAction {
-        match key.code {
-            CKey::Enter => {
-                let value = std::mem::take(&mut self.input);
-                if value.is_empty() {
-                    ModalAction::Close(ModalResult::Cancelled)
-                } else {
-                    ModalAction::Close(ModalResult::Value(value))
-                }
-            }
-            CKey::Esc => ModalAction::Close(ModalResult::Cancelled),
-            CKey::Backspace => {
-                self.input.pop();
-                ModalAction::Stay
-            }
-            CKey::Char(c) if !key.ctrl && !key.alt => {
-                self.input.push(c);
-                ModalAction::Stay
-            }
-            _ => ModalAction::Stay,
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// File selection
-// ---------------------------------------------------------------------------
-
-/// One directory entry: display name plus whether it is a directory.
-#[derive(Debug, Clone)]
-pub struct FileEntry {
-    pub name: String,
-    pub is_dir: bool,
-}
-
-/// Directory browser; the scan runs off the draw path.
-pub struct FileSelectionDialog {
-    title: String,
-    root: PathBuf,
-    entries: Vec<FileEntry>,
-    list: SelectList<String>,
-    filter: String,
-}
-
-impl FileSelectionDialog {
-    pub fn new(title: impl Into<String>, root: impl Into<PathBuf>) -> Self {
-        let mut dialog = Self {
-            title: title.into(),
-            root: root.into(),
-            entries: Vec::new(),
-            list: SelectList::groups(vec![Group::new(None)]),
-            filter: String::new(),
-        };
-        dialog.set_entries(Vec::new());
-        dialog
-    }
-
-    pub fn root(&self) -> &Path {
-        &self.root
-    }
-
-    /// Replace the listed entries and rebuild the select list.
-    pub fn set_entries(&mut self, entries: Vec<FileEntry>) {
-        self.entries = entries;
-        self.rebuild();
-    }
-
-    fn rebuild(&mut self) {
-        let mut group = Group::new(None).item(GroupItem::new("..".to_string(), "..".to_string()));
-        for entry in &self.entries {
-            let label = if entry.is_dir {
-                format!("{}/", entry.name)
-            } else {
-                entry.name.clone()
-            };
-            group = group.item(GroupItem::new(label, entry.name.clone()));
-        }
-        self.list = SelectList::groups(vec![group]);
-        self.apply_filter();
-    }
-
-    fn apply_filter(&mut self) {
-        if self.filter.is_empty() {
-            self.list.set_filter(None);
-        } else {
-            self.list.set_filter(Some(&self.filter));
-        }
-    }
-
-    pub fn selected_name(&self) -> Option<String> {
-        self.list.selected().map(|item| item.data.clone())
-    }
-
-    /// Absolute path of the current selection; `None` for the `..` row.
-    pub fn selected_path(&self) -> Option<PathBuf> {
-        let name = self.selected_name()?;
-        if name == ".." {
-            None
-        } else {
-            Some(self.root.join(name))
-        }
-    }
-}
-
-impl Modal for FileSelectionDialog {
-    fn title(&self) -> &str {
-        &self.title
-    }
-
-    fn draw(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
-        let outer = Block::default()
-            .title(format!(" {} ", self.title))
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(to_color(theme.accent)));
-        let inner = outer.inner(area);
-        frame.render_widget(outer, area);
-
-        let chunks = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Length(1),
-                Constraint::Min(1),
-                Constraint::Length(1),
-            ])
-            .split(inner);
-
-        frame.render_widget(
-            Paragraph::new(format!("{}  /{}", self.root.display(), self.filter))
-                .style(Style::default().fg(to_color(theme.muted))),
-            chunks[0],
-        );
-        let rows = self.list.render_lines(chunks[1].width, chunks[1].height);
-        frame.render_widget(Paragraph::new(rows), chunks[1]);
-        frame.render_widget(
-            Paragraph::new("type to filter · j/k move · Enter open · Esc cancel")
-                .style(Style::default().fg(to_color(theme.muted))),
-            chunks[2],
-        );
-    }
-
-    fn handle_key(&mut self, key: Key) -> ModalAction {
-        match key.code {
-            CKey::Up | CKey::Char('k') => {
-                self.list.navigate(NavigateDir::Prev);
-            }
-            CKey::Down | CKey::Char('j') => {
-                self.list.navigate(NavigateDir::Next);
-            }
-            CKey::Esc | CKey::Char('q') if !key.ctrl => {
-                return ModalAction::Close(ModalResult::Cancelled);
-            }
-            CKey::Enter => match self.selected_path() {
-                Some(path) => {
-                    return ModalAction::Close(ModalResult::Value(path.display().to_string()));
-                }
-                None => {
-                    // `..` moves up one directory in place.
-                    if let Some(parent) = self.root.parent() {
-                        self.root = parent.to_path_buf();
-                        self.entries.clear();
-                        self.rebuild();
-                    }
-                }
-            },
-            CKey::Backspace => {
-                self.filter.pop();
-                self.apply_filter();
-            }
-            CKey::Char(c) if !key.ctrl && !key.alt => {
-                self.filter.push(c);
-                self.apply_filter();
-            }
-            _ => {}
-        }
-        ModalAction::Stay
-    }
-}
-
-/// Scan a directory off the draw path; directories are listed first.
-pub async fn scan_dir(root: PathBuf) -> std::io::Result<Vec<FileEntry>> {
-    tokio::task::spawn_blocking(move || {
-        let mut entries = Vec::new();
-        for entry in std::fs::read_dir(&root)? {
-            let entry = entry?;
-            let is_dir = entry.file_type().map(|t| t.is_dir()).unwrap_or(false);
-            entries.push(FileEntry {
-                name: entry.file_name().to_string_lossy().to_string(),
-                is_dir,
-            });
-        }
-        entries.sort_by(|a, b| match (a.is_dir, b.is_dir) {
-            (true, false) => std::cmp::Ordering::Less,
-            (false, true) => std::cmp::Ordering::Greater,
-            _ => a.name.cmp(&b.name),
-        });
-        Ok(entries)
-    })
-    .await
-    .unwrap_or_else(|err| Err(std::io::Error::other(err)))
-}
+// Re-export concrete modal types so existing `use crate::modal::*` works.
+pub use crate::confirm_modal::ConfirmModal;
+pub use crate::help_modal::HelpModal;
+pub use crate::model_picker::{ModelPicker, SessionPicker};
+pub use crate::password_modal::PasswordModal;
+pub use crate::file_viewer::{DiffRow, DiffSign, DiffViewer, FileViewer};
+pub use crate::file_selection::{FileEntry, FileSelectionDialog, scan_dir};
 
 /// Center a rectangle covering `percent_x` x `percent_y` of `r`.
 pub fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {
@@ -997,6 +288,8 @@ mod tests {
 
     #[test]
     fn modal_stack_push_pop() {
+        use crate::confirm_modal::ConfirmModal;
+        use crate::help_modal::HelpModal;
         let mut stack = ModalStack::new();
         assert!(stack.is_empty());
         stack.push(Box::new(ConfirmModal::new("t", "m")));
@@ -1008,21 +301,16 @@ mod tests {
     }
 
     #[test]
-    fn confirm_modal_key_handling() {
-        let mut modal = ConfirmModal::new("Delete?", "Sure?");
-        assert_eq!(
-            modal.handle_key(Key::plain(CKey::Char('y'))),
-            ModalAction::Close(ModalResult::Confirmed)
-        );
-        let mut modal = ConfirmModal::new("Delete?", "Sure?");
-        assert_eq!(
-            modal.handle_key(Key::plain(CKey::Char('n'))),
-            ModalAction::Close(ModalResult::Cancelled)
-        );
+    fn help_modal_is_transparent_and_confirm_is_not() {
+        use crate::confirm_modal::ConfirmModal;
+        use crate::help_modal::HelpModal;
+        assert!(HelpModal.is_transparent());
+        assert!(!ConfirmModal::new("t", "m").is_transparent());
     }
 
     #[tokio::test]
     async fn push_with_result_delivers_the_answer() {
+        use crate::confirm_modal::ConfirmModal;
         let mut stack = ModalStack::new();
         let rx = stack.push_with_result(Box::new(ConfirmModal::new("Delete?", "Sure?")));
         assert_eq!(stack.len(), 1);
@@ -1036,92 +324,10 @@ mod tests {
 
     #[tokio::test]
     async fn clearing_the_stack_cancels_waiters() {
+        use crate::confirm_modal::ConfirmModal;
         let mut stack = ModalStack::new();
         let rx = stack.push_with_result(Box::new(ConfirmModal::new("Delete?", "Sure?")));
         stack.clear();
         assert!(rx.await.is_err(), "dropped sender must resolve the waiter");
-    }
-
-    #[test]
-    fn help_modal_is_transparent_and_confirm_is_not() {
-        assert!(HelpModal.is_transparent());
-        assert!(!ConfirmModal::new("t", "m").is_transparent());
-    }
-
-    #[test]
-    fn diff_viewer_parses_unified_diff() {
-        let viewer =
-            DiffViewer::from_unified("diff", "@@ -1,2 +1,2 @@\n context\n-removed\n+added\n");
-        assert_eq!(viewer.row_count(), 4);
-        let mut viewer = viewer;
-        assert_eq!(
-            viewer.handle_key(Key::plain(CKey::Char('q'))),
-            ModalAction::Close(ModalResult::Dismissed)
-        );
-    }
-
-    #[test]
-    fn file_viewer_splits_content_into_rows() {
-        let viewer = FileViewer::new("readme", "one\ntwo\nthree");
-        assert_eq!(viewer.row_count(), 3);
-    }
-
-    #[test]
-    fn model_picker_returns_the_selected_id() {
-        let models = vec![
-            ("gpt-4o · openai".to_string(), "openai:gpt-4o".to_string()),
-            (
-                "claude · anthropic".to_string(),
-                "anthropic:claude".to_string(),
-            ),
-        ];
-        let mut picker = ModelPicker::new(models);
-        assert_eq!(picker.selected_id().as_deref(), Some("openai:gpt-4o"));
-        assert_eq!(picker.handle_key(Key::plain(CKey::Down)), ModalAction::Stay);
-        assert_eq!(picker.selected_id().as_deref(), Some("anthropic:claude"));
-        assert_eq!(
-            picker.handle_key(Key::plain(CKey::Enter)),
-            ModalAction::Close(ModalResult::Value("anthropic:claude".to_string()))
-        );
-    }
-
-    #[test]
-    fn session_picker_filters_and_selects() {
-        let sessions = vec![
-            ("today · fix build".to_string(), "sess-1".to_string()),
-            ("yesterday · refactor".to_string(), "sess-2".to_string()),
-        ];
-        let mut picker = SessionPicker::new(sessions);
-        let _ = picker.handle_key(Key::plain(CKey::Char('y')));
-        assert_eq!(picker.core.filter, "y");
-        assert_eq!(
-            picker.handle_key(Key::plain(CKey::Enter)),
-            ModalAction::Close(ModalResult::Value("sess-2".to_string()))
-        );
-    }
-
-    #[test]
-    fn password_modal_masks_and_submits() {
-        let mut modal = PasswordModal::new("Token", "Enter API token");
-        let _ = modal.handle_key(Key::plain(CKey::Char('a')));
-        let _ = modal.handle_key(Key::plain(CKey::Char('b')));
-        assert_eq!(modal.masked(), "**");
-        assert_eq!(
-            modal.handle_key(Key::plain(CKey::Enter)),
-            ModalAction::Close(ModalResult::Value("ab".to_string()))
-        );
-    }
-
-    #[test]
-    fn file_selection_starts_at_the_parent_row() {
-        let mut dialog = FileSelectionDialog::new("Pick", "/tmp");
-        dialog.set_entries(vec![FileEntry {
-            name: "a.txt".into(),
-            is_dir: false,
-        }]);
-        assert_eq!(dialog.selected_name().as_deref(), Some(".."));
-        assert_eq!(dialog.selected_path(), None);
-        assert_eq!(dialog.handle_key(Key::plain(CKey::Down)), ModalAction::Stay);
-        assert_eq!(dialog.selected_path(), Some(PathBuf::from("/tmp/a.txt")));
     }
 }

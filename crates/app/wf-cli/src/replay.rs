@@ -2,7 +2,7 @@ use wf_api::infra::context::ApiContext;
 use wf_api::infra::error::ApiError;
 use wf_types::message::{Message, MessageContent, MessageContentValue, MessageRole};
 
-use crate::scrollback::{HistoryLine, Role};
+use crate::transcript::{HistoryLine, Role};
 
 /// Rebuild scrollback lines for a session id (execution or agent loop id).
 ///

@@ -351,7 +351,7 @@ mod tests {
     #[test]
     fn headless_stdout_matches_mini_scrollback_from_same_reducer() {
         use crate::reducer::{fold, MiniCommit};
-        use crate::scrollback::{lines_to_string, HistoryLine};
+        use crate::transcript::{lines_to_string, HistoryLine};
 
         let events = vec![
             delta("Hello, "),

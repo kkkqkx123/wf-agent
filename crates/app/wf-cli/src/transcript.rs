@@ -1,4 +1,4 @@
-//! Scrollback primitives shared by the mini footer and the full TUI.
+//! Transcript primitives shared by the mini footer and the full TUI.
 //!
 //! The core type is [`HistoryLine`]: it holds the **source text** (never a
 //! width-fixed render cache) so that `display_lines(width)` recomputes the
@@ -109,7 +109,7 @@ impl HistoryLine {
 
     /// Plain-text view of the reflowed rows at `width`: same wrapping as
     /// [`HistoryLine::display_lines`] but copy-friendly `String` rows without
-    /// styling. Used by the mini scrollback-window snapshot / common-prefix
+    /// styling. Used by the mini transcript-window snapshot / common-prefix
     /// diff and shared by
     /// future copy / transcript / export paths.
     pub fn raw_lines(&self, width: u16) -> Vec<String> {

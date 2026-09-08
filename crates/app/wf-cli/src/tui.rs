@@ -36,7 +36,7 @@ use crate::screens::{
     short_id, CheckpointRow, DashboardData, ExecRow, ExecStatusFilter, ProfileRow, ScreenData,
     ScreenKind, Screens, SearchData, SearchRow, SettingsData, WorkflowRow,
 };
-use crate::session::{SessionAction, SessionController};
+use crate::interactive::{InteractiveAction, InteractiveController};
 use crate::size::{ResizeDebouncer, Size};
 use crate::terminal::{CrosstermControl, TerminalGuard, TerminalModes};
 use crate::theme::{self, Theme};
@@ -66,7 +66,7 @@ const NOTICE_TTL: Duration = Duration::from_secs(6);
 const DASHBOARD_ENTRIES: &[ScreenKind] = &[
     ScreenKind::Workflow,
     ScreenKind::Executions,
-    ScreenKind::Session,
+    ScreenKind::Interactive,
     ScreenKind::Checkpoints,
     ScreenKind::Search,
     ScreenKind::Settings,
@@ -90,11 +90,26 @@ enum LoopAction {
     Quit,
 }
 
+/// Overlay mode for secondary views.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OverlayMode {
+    /// No overlay - show main screen
+    None,
+    /// Sidebar showing other screens
+    Sidebar,
+    /// History overlay showing full conversation history
+    History,
+    /// Command palette for quick actions
+    CommandPalette,
+}
+
 /// Full-screen TUI application state.
 pub struct TuiApp {
     adapter: Arc<DomainAdapter>,
     screens: Screens,
     modals: ModalStack,
+    /// Current overlay mode
+    overlay: OverlayMode,
     /// Last successfully fetched data per screen plus its fetch time.
     data: HashMap<ScreenKind, (ScreenData, Instant)>,
     /// Fetches currently in flight, keyed by screen.
@@ -110,10 +125,10 @@ pub struct TuiApp {
     exec_filter: ExecStatusFilter,
     /// Transient status/error line rendered under the screen.
     notice: Option<(String, Instant)>,
-    /// Live interactive session shown on the Session screen.
-    session: Option<SessionController>,
-    /// Set by the session when the user wants to leave it (Ctrl-C twice).
-    session_exit: bool,
+    /// Live interactive controller shown on the Interactive screen.
+    interactive: Option<InteractiveController>,
+    /// Set by the interactive controller when the user wants to leave it (Ctrl-C twice).
+    interactive_exit: bool,
     /// Execution id selected on the executions screen to replay in Session.
     pending_replay: Option<String>,
     /// Monotonic origin for the injected frame clock (ms).
@@ -121,7 +136,7 @@ pub struct TuiApp {
     /// Frame scheduler: merges redraw requests and caps the rate (120 FPS).
     frame: FrameRequester,
     /// Whether the next loop iteration must repaint. Cleared after a draw;
-    /// set on key / data / resize / theme changes and while a session streams.
+    /// set on key / data / resize / theme changes and while the interactive controller streams.
     dirty: bool,
     /// Debouncer collapsing a burst of `Event::Resize` into one final size.
     resize: ResizeDebouncer,
@@ -137,6 +152,7 @@ impl TuiApp {
             adapter,
             screens: Screens::new(),
             modals: ModalStack::new(),
+            overlay: OverlayMode::None,
             data: HashMap::new(),
             inflight: HashMap::new(),
             data_tx,
@@ -147,8 +163,8 @@ impl TuiApp {
             search_input: String::new(),
             exec_filter: ExecStatusFilter::All,
             notice: None,
-            session: None,
-            session_exit: false,
+            interactive: None,
+            interactive_exit: false,
             pending_replay: None,
             start: Instant::now(),
             frame: FrameRequester::new(0),
@@ -201,17 +217,17 @@ impl TuiApp {
 
         // Abort and join every fetch so no task keeps the runtime alive;
         // `Arc::try_unwrap` below then succeeds and shutdown can run. Mark the
-        // teardown graceful first so the final session drain never renders a
+        // teardown graceful first so the final interactive drain never renders a
         // spurious `Failed` row while the runtime closes underneath it.
         let tasks = std::mem::take(&mut self.tasks);
         for task in tasks {
             task.abort();
             let _ = task.await;
         }
-        if let Some(session) = self.session.as_mut() {
+        if let Some(session) = self.interactive.as_mut() {
             session.begin_graceful_exit();
         }
-        if let Some(session) = self.session.take() {
+        if let Some(session) = self.interactive.take() {
             session.shutdown().await;
         }
         match Arc::try_unwrap(self.adapter) {
@@ -234,21 +250,21 @@ impl TuiApp {
             // resume re-enters the terminal cleanly).
             self.check_suspend(guard, terminal)?;
 
-            if let Some(session) = &mut self.session {
+            if let Some(session) = &mut self.interactive {
                 session.handle_events();
             }
             if self.drain_data() {
                 self.dirty = true;
             }
-            self.ensure_session().await?;
+            self.ensure_interactive().await?;
             self.request_data(self.screens.current_kind());
 
             let now = self.now_ms();
             self.frame.set_now(now);
 
-            // A live session streams, so it always wants a redraw; otherwise
+            // A live interactive controller streams, so it always wants a redraw; otherwise
             // only redraw when something marked the state dirty.
-            let interactive = self.session.is_some();
+            let interactive = self.interactive.is_some();
             self.expire_notice();
             if self.notice.is_some() {
                 // Keep repainting while a transient notice is visible so it
@@ -284,7 +300,7 @@ impl TuiApp {
                             break;
                         } else {
                             self.dirty = true;
-                            self.apply_session_exit().await;
+                            self.apply_interactive_exit().await;
                             self.apply_pending_replay().await?;
                         }
                     }
@@ -373,19 +389,19 @@ impl TuiApp {
         Ok(())
     }
 
-    /// Create or tear down the live session controller to match the current
+    /// Create or tear down the live interactive controller to match the current
     /// screen.
-    async fn ensure_session(&mut self) -> CliResult<()> {
-        let on_session = self.screens.current_kind() == ScreenKind::Session;
-        match (on_session, self.session.is_some()) {
+    async fn ensure_interactive(&mut self) -> CliResult<()> {
+        let on_interactive = self.screens.current_kind() == ScreenKind::Interactive;
+        match (on_interactive, self.interactive.is_some()) {
             (true, false) => {
                 let session =
-                    SessionController::start(Arc::clone(&self.adapter), wf_common::generate_id())
+                    InteractiveController::start(Arc::clone(&self.adapter), wf_common::generate_id())
                         .await;
-                self.session = Some(session);
+                self.interactive = Some(session);
             }
             (false, true) => {
-                if let Some(session) = self.session.take() {
+                if let Some(session) = self.interactive.take() {
                     session.shutdown().await;
                 }
             }
@@ -394,28 +410,28 @@ impl TuiApp {
         Ok(())
     }
 
-    /// Leave the session screen when the session requests it.
-    async fn apply_session_exit(&mut self) {
-        if !self.session_exit {
+    /// Leave the interactive screen when the interactive controller requests it.
+    async fn apply_interactive_exit(&mut self) {
+        if !self.interactive_exit {
             return;
         }
-        self.session_exit = false;
-        if let Some(session) = self.session.as_mut() {
+        self.interactive_exit = false;
+        if let Some(session) = self.interactive.as_mut() {
             session.begin_graceful_exit();
         }
-        if let Some(session) = self.session.take() {
+        if let Some(session) = self.interactive.take() {
             session.shutdown().await;
         }
         self.go_back();
     }
 
-    /// Load replay history into the session after navigating from Executions.
+    /// Load replay history into the interactive controller after navigating from Executions.
     async fn apply_pending_replay(&mut self) -> CliResult<()> {
         let Some(id) = self.pending_replay.take() else {
             return Ok(());
         };
-        self.ensure_session().await?;
-        if let Some(session) = &mut self.session {
+        self.ensure_interactive().await?;
+        if let Some(session) = &mut self.interactive {
             // `load_replay` fetches asynchronously; the `ReplayLoaded` event
             // replaces the loading placeholder when the history lands.
             session.load_replay(&id);
@@ -433,12 +449,26 @@ impl TuiApp {
             .constraints([Constraint::Min(3), Constraint::Length(1)])
             .split(area);
 
-        if self.screens.current_kind() == ScreenKind::Session {
-            if let Some(session) = &mut self.session {
-                session.draw(frame, chunks[0], &self.theme);
-            }
+        // Interactive is always the primary interface
+        if let Some(session) = &mut self.interactive {
+            session.draw(frame, chunks[0], &self.theme);
         } else {
+            // Fallback to screens if no interactive controller is active
             self.screens.draw(frame, chunks[0], data);
+        }
+
+        // Draw overlay if active
+        match self.overlay {
+            OverlayMode::Sidebar => {
+                self.draw_sidebar_overlay(frame, area);
+            }
+            OverlayMode::History => {
+                self.draw_transcript_overlay(frame, area);
+            }
+            OverlayMode::CommandPalette => {
+                // Command palette is handled by modals
+            }
+            OverlayMode::None => {}
         }
 
         if let Some(text) = notice {
@@ -451,6 +481,76 @@ impl TuiApp {
         if !self.modals.is_empty() {
             self.modals.draw(frame, area, &self.theme);
         }
+    }
+
+    fn draw_sidebar_overlay(&self, frame: &mut Frame, area: Rect) {
+        use ratatui::widgets::{Block, Borders, Clear};
+
+        // Sidebar takes up 30% of width on the left side
+        let sidebar_width = (area.width as f32 * 0.3) as u16;
+        let sidebar_area = Rect {
+            x: area.x,
+            y: area.y,
+            width: sidebar_width,
+            height: area.height - 1, // Leave room for notice
+        };
+
+        // Clear the area first
+        frame.render_widget(Clear, sidebar_area);
+
+        // Draw sidebar with list of screens
+        let block = Block::default()
+            .title(" Screens ")
+            .borders(Borders::ALL)
+            .style(Style::default().fg(Color::Cyan));
+
+        let screens = [
+            ("1. Workflow", ScreenKind::Workflow),
+            ("2. Executions", ScreenKind::Executions),
+            ("3. Checkpoints", ScreenKind::Checkpoints),
+            ("4. Search", ScreenKind::Search),
+            ("5. Settings", ScreenKind::Settings),
+            ("6. Dashboard", ScreenKind::Dashboard),
+            ("7. Help", ScreenKind::Help),
+        ];
+
+        let items: Vec<ratatui::widgets::ListItem> = screens
+            .iter()
+            .map(|(name, _)| ratatui::widgets::ListItem::new(*name))
+            .collect();
+
+        let list = ratatui::widgets::List::new(items)
+            .block(block)
+            .highlight_style(Style::default().fg(Color::Black).bg(Color::Cyan));
+
+        frame.render_widget(list, sidebar_area);
+    }
+
+    fn draw_transcript_overlay(&self, frame: &mut Frame, area: Rect) {
+        use ratatui::widgets::{Block, Borders, Clear};
+
+        // Full screen overlay
+        let overlay_area = Rect {
+            x: area.x,
+            y: area.y,
+            width: area.width,
+            height: area.height - 1, // Leave room for notice
+        };
+
+        // Clear the area first
+        frame.render_widget(Clear, overlay_area);
+
+        // Draw transcript with border
+        let block = Block::default()
+            .title(" History (Ctrl+T to close) ")
+            .borders(Borders::ALL)
+            .style(Style::default().fg(Color::Magenta));
+
+        // For now, show a placeholder - full history rendering would need
+        // access to the interactive controller's transcript history
+        let text = "History view - Press Ctrl+T to close";
+        let paragraph = Paragraph::new(text).block(block);
+        frame.render_widget(paragraph, overlay_area);
     }
 
     // -----------------------------------------------------------------------
@@ -568,9 +668,10 @@ impl TuiApp {
             return Ok(LoopAction::Continue);
         }
 
+        // Ctrl-C: quit if not in interactive, otherwise handled by interactive controller
         if key.ctrl
             && key.code == CKey::Char('c')
-            && self.screens.current_kind() != ScreenKind::Session
+            && self.screens.current_kind() != ScreenKind::Interactive
         {
             return Ok(LoopAction::Quit);
         }
@@ -581,13 +682,42 @@ impl TuiApp {
             return Ok(LoopAction::Continue);
         }
 
-        // The session screen owns all keys while active.
-        if self.screens.current_kind() == ScreenKind::Session {
-            if let Some(session) = &mut self.session {
+        // Handle overlay-specific keys
+        if self.overlay != OverlayMode::None {
+            return self.handle_overlay_key(key);
+        }
+
+        // Global shortcuts (work in any mode)
+        match key.code {
+            // Ctrl+T: Toggle history overlay
+            CKey::Char('t') if key.ctrl => {
+                self.overlay = OverlayMode::History;
+                self.dirty = true;
+                return Ok(LoopAction::Continue);
+            }
+            // Ctrl+B: Toggle sidebar overlay
+            CKey::Char('b') if key.ctrl => {
+                self.overlay = OverlayMode::Sidebar;
+                self.dirty = true;
+                return Ok(LoopAction::Continue);
+            }
+            // /: Open command palette (when in interactive)
+            CKey::Char('/') if self.screens.current_kind() == ScreenKind::Interactive && !key.ctrl && !key.alt => {
+                // For now, show sidebar as a simple command palette
+                self.overlay = OverlayMode::Sidebar;
+                self.dirty = true;
+                return Ok(LoopAction::Continue);
+            }
+            _ => {}
+        }
+
+        // The interactive screen owns all keys while active.
+        if self.screens.current_kind() == ScreenKind::Interactive {
+            if let Some(session) = &mut self.interactive {
                 match session.handle_key(key) {
-                    SessionAction::Continue => return Ok(LoopAction::Continue),
-                    SessionAction::Exit => {
-                        self.session_exit = true;
+                    InteractiveAction::Continue => return Ok(LoopAction::Continue),
+                    InteractiveAction::Exit => {
+                        self.interactive_exit = true;
                         return Ok(LoopAction::Continue);
                     }
                 }
@@ -633,7 +763,7 @@ impl TuiApp {
                         let idx = self.screens.selected().min(rows.len().saturating_sub(1));
                         if let Some(row) = rows.get(idx) {
                             let id = row.id.clone();
-                            self.goto(ScreenKind::Session);
+                            self.goto(ScreenKind::Interactive);
                             self.pending_replay = Some(id);
                         }
                     }
@@ -656,6 +786,63 @@ impl TuiApp {
             }
             CKey::Char('m') if self.screens.current_kind() == ScreenKind::Settings => {
                 self.pick_default_model();
+            }
+            _ => {}
+        }
+        Ok(LoopAction::Continue)
+    }
+
+    fn handle_overlay_key(&mut self, key: Key) -> CliResult<LoopAction> {
+        match key.code {
+            // Escape or q: close overlay
+            CKey::Esc | CKey::Char('q') if !key.ctrl => {
+                self.overlay = OverlayMode::None;
+                self.dirty = true;
+                return Ok(LoopAction::Continue);
+            }
+            // Ctrl+T: close history overlay
+            CKey::Char('t') if key.ctrl && self.overlay == OverlayMode::History => {
+                self.overlay = OverlayMode::None;
+                self.dirty = true;
+                return Ok(LoopAction::Continue);
+            }
+            // Ctrl+B: close sidebar overlay
+            CKey::Char('b') if key.ctrl && self.overlay == OverlayMode::Sidebar => {
+                self.overlay = OverlayMode::None;
+                self.dirty = true;
+                return Ok(LoopAction::Continue);
+            }
+            // Number keys: navigate to screen (sidebar mode)
+            CKey::Char(c) if c.is_ascii_digit() && self.overlay == OverlayMode::Sidebar => {
+                if let Some(kind) = digit_to_screen(c) {
+                    self.overlay = OverlayMode::None;
+                    self.goto(kind);
+                    self.dirty = true;
+                    return Ok(LoopAction::Continue);
+                }
+            }
+            // j/k or arrows: navigate sidebar
+            CKey::Char('j') | CKey::Down if self.overlay == OverlayMode::Sidebar => {
+                let len = DASHBOARD_ENTRIES.len();
+                self.screens.select_next(len);
+                self.dirty = true;
+                return Ok(LoopAction::Continue);
+            }
+            CKey::Char('k') | CKey::Up if self.overlay == OverlayMode::Sidebar => {
+                let len = DASHBOARD_ENTRIES.len();
+                self.screens.select_prev(len);
+                self.dirty = true;
+                return Ok(LoopAction::Continue);
+            }
+            // Enter: select from sidebar
+            CKey::Enter if self.overlay == OverlayMode::Sidebar => {
+                let idx = self.screens.selected();
+                if let Some(kind) = DASHBOARD_ENTRIES.get(idx).copied() {
+                    self.overlay = OverlayMode::None;
+                    self.goto(kind);
+                    self.dirty = true;
+                    return Ok(LoopAction::Continue);
+                }
             }
             _ => {}
         }
@@ -839,7 +1026,7 @@ async fn fetch_for(
         ScreenKind::Checkpoints => fetch_checkpoints(ctx).await,
         ScreenKind::Search => fetch_search(ctx, query).await,
         ScreenKind::Settings => fetch_settings(ctx).await,
-        ScreenKind::Session | ScreenKind::Help => Ok(ScreenData::None),
+        ScreenKind::Interactive | ScreenKind::Help => Ok(ScreenData::None),
     }
 }
 
@@ -1066,7 +1253,7 @@ fn digit_to_screen(c: char) -> Option<ScreenKind> {
     match c {
         '1' => Some(ScreenKind::Workflow),
         '2' => Some(ScreenKind::Executions),
-        '3' => Some(ScreenKind::Session),
+        '3' => Some(ScreenKind::Interactive),
         '4' => Some(ScreenKind::Checkpoints),
         '5' => Some(ScreenKind::Search),
         '6' => Some(ScreenKind::Settings),

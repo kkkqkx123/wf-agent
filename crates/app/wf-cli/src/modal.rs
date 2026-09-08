@@ -365,7 +365,7 @@ impl FileViewer {
     /// modal wraps exactly like the transcript does.
     pub fn from_history_lines(
         title: impl Into<String>,
-        lines: &[crate::scrollback::HistoryLine],
+        lines: &[crate::transcript::HistoryLine],
         width: u16,
     ) -> Self {
         let mut rows = Vec::new();

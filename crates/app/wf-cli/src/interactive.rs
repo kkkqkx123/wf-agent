@@ -1,8 +1,8 @@
-//! TUI session controller: one interactive agent turn.
+//! TUI interactive controller: one interactive agent turn.
 //!
 //! This drives the streaming pipeline on the full-screen event loop. It
 //! reuses the same reducer, markdown stream, composer and approval/question
-//! views as the interactive session rendering.
+//! views as the interactive rendering.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -10,9 +10,8 @@ use std::time::Instant;
 
 use futures::StreamExt;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
-use ratatui::style::{Color, Style};
 use ratatui::text::Line;
-use ratatui::widgets::{Block, Borders, Paragraph};
+use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 use serde_json::Value;
 use tokio::sync::{mpsc, oneshot};
@@ -26,18 +25,18 @@ use wf_api::{
 
 use crate::approval::{ApprovalChoice, ApprovalRemembered, ApprovalView};
 use crate::domain::DomainAdapter;
-use crate::footer::{Footer, FooterView};
+use crate::bottom_pane::{Footer, FooterView};
 use crate::keymap::{CKey, Key};
 use crate::question::{QuestionOutcome, QuestionView};
 use crate::reducer::{Phase, SessionReducer};
-use crate::scrollback::{HistoryLine, LineState, Role};
+use crate::transcript::{HistoryLine, LineState, Role};
 use crate::terminal::{DoublePressTracker, PressOutcome, SIGINT_DOUBLE_PRESS_WINDOW};
 use crate::theme::Theme;
 use crate::turn::{stream_agent_turn, TurnKind, TurnParams};
 
-/// Events from the domain side into the session event loop.
+/// Events from the domain side into the interactive event loop.
 #[derive(Debug)]
-pub enum SessionEvent {
+pub enum InteractiveEvent {
     /// A tool call awaits the user's approval.
     ApprovalRequested {
         request: ToolApprovalRequest,
@@ -73,7 +72,7 @@ pub enum SessionEvent {
 
 /// What the caller should do after a key press.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SessionAction {
+pub enum InteractiveAction {
     Continue,
     Exit,
 }
@@ -166,11 +165,11 @@ impl ReplayPager {
 /// Domain-side approval handler: post the request to the session channel and
 /// await the oneshot reply.
 pub struct TuiApprovalHandler {
-    tx: mpsc::UnboundedSender<SessionEvent>,
+    tx: mpsc::UnboundedSender<InteractiveEvent>,
 }
 
 impl TuiApprovalHandler {
-    pub fn new(tx: mpsc::UnboundedSender<SessionEvent>) -> Self {
+    pub fn new(tx: mpsc::UnboundedSender<InteractiveEvent>) -> Self {
         Self { tx }
     }
 }
@@ -181,7 +180,7 @@ impl ToolApprovalHandler for TuiApprovalHandler {
         let (reply_tx, reply_rx) = oneshot::channel();
         if self
             .tx
-            .send(SessionEvent::ApprovalRequested {
+            .send(InteractiveEvent::ApprovalRequested {
                 request: request.clone(),
                 reply: reply_tx,
             })
@@ -209,11 +208,11 @@ impl ToolApprovalHandler for TuiApprovalHandler {
 /// Domain-side interaction handler: forward follow-up questions to the
 /// session channel. Tool approvals go through [`TuiApprovalHandler`].
 pub struct TuiInteractionHandler {
-    tx: mpsc::UnboundedSender<SessionEvent>,
+    tx: mpsc::UnboundedSender<InteractiveEvent>,
 }
 
 impl TuiInteractionHandler {
-    pub fn new(tx: mpsc::UnboundedSender<SessionEvent>) -> Self {
+    pub fn new(tx: mpsc::UnboundedSender<InteractiveEvent>) -> Self {
         Self { tx }
     }
 }
@@ -233,7 +232,7 @@ impl UserInteractionHandler for TuiInteractionHandler {
             .and_then(Value::as_str)
             .unwrap_or_default()
             .to_string();
-        let _ = self.tx.send(SessionEvent::QuestionRequested {
+        let _ = self.tx.send(InteractiveEvent::QuestionRequested {
             interaction_id,
             request: request.clone(),
         });
@@ -241,11 +240,11 @@ impl UserInteractionHandler for TuiInteractionHandler {
 }
 
 /// State machine for one interactive session in the full TUI.
-pub struct SessionController {
+pub struct InteractiveController {
     adapter: Arc<DomainAdapter>,
     execution_id: String,
-    tx: mpsc::UnboundedSender<SessionEvent>,
-    rx: mpsc::UnboundedReceiver<SessionEvent>,
+    tx: mpsc::UnboundedSender<InteractiveEvent>,
+    rx: mpsc::UnboundedReceiver<InteractiveEvent>,
     reducer: SessionReducer,
     stream: crate::markdown::MarkdownStream,
     footer: Footer,
@@ -281,10 +280,10 @@ pub struct SessionController {
     graceful: bool,
 }
 
-impl SessionController {
+impl InteractiveController {
     /// Mark the session as exiting gracefully: from now on, terminal
     /// `Failed` / `Interrupted` stream events are drained without rendering
-    /// error rows (see [`SessionController::begin_graceful_exit`]).
+    /// error rows (see [`InteractiveController::begin_graceful_exit`]).
     pub fn begin_graceful_exit(&mut self) {
         self.graceful = true;
     }
@@ -398,7 +397,7 @@ impl SessionController {
                     true,
                 ),
             };
-            let _ = tx.send(SessionEvent::ReplayLoaded {
+            let _ = tx.send(InteractiveEvent::ReplayLoaded {
                 lines,
                 has_more,
                 next_before,
@@ -409,7 +408,7 @@ impl SessionController {
 
     /// Request the replay page that precedes the loaded history (older
     /// records), when the pager allows it. Runs on a background task; the
-    /// result arrives as `SessionEvent::ReplayEarlier` and is prepended.
+    /// result arrives as `InteractiveEvent::ReplayEarlier` and is prepended.
     pub fn request_earlier_page(&mut self) {
         if !self.pager.can_load_earlier() {
             return;
@@ -441,7 +440,7 @@ impl SessionController {
                     true,
                 ),
             };
-            let _ = tx.send(SessionEvent::ReplayEarlier {
+            let _ = tx.send(InteractiveEvent::ReplayEarlier {
                 lines,
                 has_more,
                 next_before,
@@ -476,7 +475,7 @@ impl SessionController {
                                 | ExecutionStreamEvent::Failed { .. }
                                 | ExecutionStreamEvent::Interrupted { .. }
                         );
-                        if tx.send(SessionEvent::TurnEvent(event)).is_err() {
+                        if tx.send(InteractiveEvent::TurnEvent(event)).is_err() {
                             break;
                         }
                         if terminal {
@@ -485,7 +484,7 @@ impl SessionController {
                     }
                 }
                 Err(err) => {
-                    let _ = tx.send(SessionEvent::TurnEvent(ExecutionStreamEvent::Failed {
+                    let _ = tx.send(InteractiveEvent::TurnEvent(ExecutionStreamEvent::Failed {
                         error: err.to_string(),
                     }));
                 }
@@ -498,7 +497,7 @@ impl SessionController {
     pub fn handle_events(&mut self) {
         while let Ok(event) = self.rx.try_recv() {
             match event {
-                SessionEvent::ApprovalRequested { request, reply } => {
+                InteractiveEvent::ApprovalRequested { request, reply } => {
                     if let Some(decision) = self.remembered.decision_for(&request.tool_name) {
                         let result = if decision {
                             ToolApprovalResult::approved(request.tool_call_id.clone())
@@ -515,7 +514,7 @@ impl SessionController {
                     self.approval_reply = Some(reply);
                     self.footer.present(FooterView::Permission);
                 }
-                SessionEvent::QuestionRequested {
+                InteractiveEvent::QuestionRequested {
                     interaction_id,
                     request,
                 } => {
@@ -523,8 +522,8 @@ impl SessionController {
                         Some(QuestionView::from_request(interaction_id, &request));
                     self.footer.present(FooterView::Question);
                 }
-                SessionEvent::TurnEvent(event) => self.handle_turn_event(event),
-                SessionEvent::ReplayLoaded {
+                InteractiveEvent::TurnEvent(event) => self.handle_turn_event(event),
+                InteractiveEvent::ReplayLoaded {
                     lines,
                     has_more,
                     next_before,
@@ -539,7 +538,7 @@ impl SessionController {
                     self.view_scroll = 0;
                     self.scroll_at_top = false;
                 }
-                SessionEvent::ReplayEarlier {
+                InteractiveEvent::ReplayEarlier {
                     lines,
                     has_more,
                     next_before,
@@ -715,17 +714,17 @@ impl SessionController {
     }
 
     /// Handle one key while the session screen is active.
-    pub fn handle_key(&mut self, key: Key) -> SessionAction {
+    pub fn handle_key(&mut self, key: Key) -> InteractiveAction {
         if key.ctrl && key.code == CKey::Char('c') {
             let now_ms = self.now_ms();
             return match self.exit_tracker.press(now_ms) {
-                PressOutcome::SecondPress => SessionAction::Exit,
+                PressOutcome::SecondPress => InteractiveAction::Exit,
                 PressOutcome::FirstPress => {
                     self.pending_scroll.push(HistoryLine::new_role(
                         "Press Ctrl-C again within 5s to exit the session.".to_string(),
                         Role::Warning,
                     ));
-                    SessionAction::Continue
+                    InteractiveAction::Continue
                 }
             };
         }
@@ -735,11 +734,11 @@ impl SessionController {
         match key.code {
             CKey::PageUp => {
                 self.scroll_history_up();
-                return SessionAction::Continue;
+                return InteractiveAction::Continue;
             }
             CKey::PageDown => {
                 self.view_scroll = self.view_scroll.saturating_sub(10);
-                return SessionAction::Continue;
+                return InteractiveAction::Continue;
             }
             _ => {}
         }
@@ -765,7 +764,7 @@ impl SessionController {
         self.view_scroll = self.view_scroll.saturating_add(10);
     }
 
-    fn handle_approval_key(&mut self, key: Key) -> SessionAction {
+    fn handle_approval_key(&mut self, key: Key) -> InteractiveAction {
         let choice = match key.code {
             CKey::Char('y') => Some(ApprovalChoice::Approve),
             CKey::Char('a') => Some(ApprovalChoice::ApproveAll),
@@ -787,7 +786,7 @@ impl SessionController {
             }
             self.footer.present(FooterView::Prompt);
         }
-        SessionAction::Continue
+        InteractiveAction::Continue
     }
 
     fn resolve_approval(&self, choice: ApprovalChoice) -> ToolApprovalResult {
@@ -798,10 +797,10 @@ impl SessionController {
             .unwrap_or_else(|| ToolApprovalResult::rejected("", "no approval view"))
     }
 
-    fn handle_question_key(&mut self, key: Key) -> SessionAction {
+    fn handle_question_key(&mut self, key: Key) -> InteractiveAction {
         let Some(question) = self.footer.question.as_mut() else {
             self.footer.present(FooterView::Prompt);
-            return SessionAction::Continue;
+            return InteractiveAction::Continue;
         };
         match key.code {
             CKey::Esc => {
@@ -817,7 +816,7 @@ impl SessionController {
             }
             _ => {}
         }
-        SessionAction::Continue
+        InteractiveAction::Continue
     }
 
     fn finish_question(&mut self, outcome: &QuestionOutcome) {
@@ -853,7 +852,7 @@ impl SessionController {
         });
     }
 
-    fn handle_prompt_key(&mut self, key: Key) -> SessionAction {
+    fn handle_prompt_key(&mut self, key: Key) -> InteractiveAction {
         match key.code {
             CKey::Enter => {
                 let text = self.footer.composer.submit().unwrap_or_default();
@@ -872,7 +871,7 @@ impl SessionController {
             CKey::Char(c) if !key.ctrl && !key.alt => self.footer.composer.insert_char(c),
             _ => {}
         }
-        SessionAction::Continue
+        InteractiveAction::Continue
     }
 
     /// Render the session into the supplied area.
@@ -895,12 +894,8 @@ impl SessionController {
     }
 
     fn draw_scrollback(&mut self, frame: &mut Frame, area: Rect) {
-        let block = Block::default()
-            .title(" Session (Ctrl-C twice to exit) ")
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(Color::Magenta));
-        let inner = block.inner(area);
-        frame.render_widget(block, area);
+        // No border - Session is now the full-screen primary interface
+        let inner = area;
 
         if self.scrollback.is_empty() && self.streaming.is_none() {
             frame.render_widget(
@@ -1043,8 +1038,8 @@ mod tests {
         let interrupted = ExecutionStreamEvent::Interrupted {
             reason: "user".into(),
         };
-        assert!(SessionController::should_render_terminal(false, &failed));
-        assert!(SessionController::should_render_terminal(
+        assert!(InteractiveController::should_render_terminal(false, &failed));
+        assert!(InteractiveController::should_render_terminal(
             false,
             &interrupted
         ));
@@ -1061,8 +1056,8 @@ mod tests {
         let interrupted = ExecutionStreamEvent::Interrupted {
             reason: "shutdown".into(),
         };
-        assert!(!SessionController::should_render_terminal(true, &failed));
-        assert!(!SessionController::should_render_terminal(
+        assert!(!InteractiveController::should_render_terminal(true, &failed));
+        assert!(!InteractiveController::should_render_terminal(
             true,
             &interrupted
         ));
@@ -1070,6 +1065,6 @@ mod tests {
         let llm = ExecutionStreamEvent::LlmDelta {
             content: "ok".into(),
         };
-        assert!(SessionController::should_render_terminal(true, &llm));
+        assert!(InteractiveController::should_render_terminal(true, &llm));
     }
 }

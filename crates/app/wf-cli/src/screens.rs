@@ -16,7 +16,7 @@ pub enum ScreenKind {
     Dashboard,
     Workflow,
     Executions,
-    Session,
+    Interactive,
     Checkpoints,
     Search,
     Settings,
@@ -29,7 +29,7 @@ impl ScreenKind {
             Self::Dashboard => "Dashboard",
             Self::Workflow => "Workflows",
             Self::Executions => "Executions",
-            Self::Session => "Session",
+            Self::Interactive => "Interactive",
             Self::Checkpoints => "Checkpoints",
             Self::Search => "Search",
             Self::Settings => "Settings",
@@ -42,7 +42,7 @@ impl ScreenKind {
             Self::Dashboard,
             Self::Workflow,
             Self::Executions,
-            Self::Session,
+            Self::Interactive,
             Self::Checkpoints,
             Self::Search,
             Self::Settings,
@@ -55,7 +55,7 @@ impl ScreenKind {
     /// Session and Help are self-contained: Session owns its own streaming
     /// state (wired separately) and Help is static text.
     pub fn has_data(self) -> bool {
-        !matches!(self, Self::Session | Self::Help)
+        !matches!(self, Self::Interactive | Self::Help)
     }
 }
 
@@ -87,8 +87,9 @@ impl Default for Screens {
 
 impl Screens {
     pub fn new() -> Self {
+        // Interactive is the primary interface; other screens are accessed via overlays
         Self {
-            stack: vec![Screen::new(ScreenKind::Dashboard)],
+            stack: vec![Screen::new(ScreenKind::Interactive)],
             selected: 0,
         }
     }
@@ -156,10 +157,10 @@ impl Screens {
             ScreenKind::Dashboard => Self::draw_dashboard(frame, area, data),
             ScreenKind::Workflow => Self::draw_workflow(frame, area, data, self.selected),
             ScreenKind::Executions => Self::draw_executions(frame, area, data, self.selected),
-            // The Session screen is rendered by `SessionController::draw`
+            // The Interactive screen is rendered by `InteractiveController::draw`
             // directly from `tui.rs` (it owns streaming state), so it is never
             // reached here — kept as an explicit no-op for exhaustiveness.
-            ScreenKind::Session => {}
+            ScreenKind::Interactive => {}
             ScreenKind::Checkpoints => Self::draw_checkpoints(frame, area, data, self.selected),
             ScreenKind::Search => Self::draw_search(frame, area, data),
             ScreenKind::Settings => Self::draw_settings(frame, area, data),
@@ -531,13 +532,13 @@ mod tests {
     #[test]
     fn screens_navigation_stack() {
         let mut screens = Screens::new();
-        assert_eq!(screens.current_kind(), ScreenKind::Dashboard);
+        assert_eq!(screens.current_kind(), ScreenKind::Interactive);
         assert_eq!(screens.depth(), 1);
         screens.push(ScreenKind::Workflow);
         assert_eq!(screens.current_kind(), ScreenKind::Workflow);
         assert_eq!(screens.depth(), 2);
         assert!(screens.pop());
-        assert_eq!(screens.current_kind(), ScreenKind::Dashboard);
+        assert_eq!(screens.current_kind(), ScreenKind::Interactive);
         assert!(!screens.pop());
     }
 

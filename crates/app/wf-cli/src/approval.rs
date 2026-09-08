@@ -6,8 +6,8 @@
 //! [`ToolApprovalResult`]. "Allow all" / "deny" are session-scoped
 //! remembers — the session event loop consults [`ApprovalRemembered`] to
 //! auto-answer later requests for the same tool. The domain-side approval
-//! handler lives with the session controller
-//! (`crate::session::TuiApprovalHandler`); the headless deny policy lives
+//! handler lives with the interactive controller
+//! (`crate::interactive::TuiApprovalHandler`); the headless deny policy lives
 //! in `run.rs`. Each form registers its own handler and never mixes.
 
 use std::time::Duration;

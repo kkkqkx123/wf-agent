@@ -5,8 +5,8 @@
 //! multi-select flag), tracks the toggled picks, maps keymap actions
 //! (`Pick(1..=9)` / `Select` / `Cancel`) onto a [`QuestionOutcome`] and
 //! renders the option list with selection markers. The domain-side
-//! interaction handler lives with the session controller
-//! (`crate::session::TuiInteractionHandler`).
+//! interaction handler lives with the interactive controller
+//! (`crate::interactive::TuiInteractionHandler`).
 
 use serde_json::Value;
 

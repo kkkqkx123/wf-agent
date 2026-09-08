@@ -9,8 +9,9 @@ pub mod composer;
 pub mod config;
 pub mod domain;
 pub mod error;
-pub mod footer;
+pub mod bottom_pane;
 pub mod framer;
+pub mod history_cell;
 pub mod keymap;
 pub mod markdown;
 pub mod mention;
@@ -27,9 +28,9 @@ pub mod replay;
 pub mod run;
 pub mod sanitize;
 pub mod screens;
-pub mod scrollback;
+pub mod transcript;
 pub mod select;
-pub mod session;
+pub mod interactive;
 pub mod size;
 pub mod terminal;
 pub mod theme;
@@ -41,14 +42,18 @@ pub use ansi::AnsiParser;
 pub use args::{Cli, Command};
 pub use composer::Composer;
 pub use error::{CliError, CliResult};
-pub use footer::{Footer, FooterRoute, FooterView};
+pub use bottom_pane::{Footer, FooterRoute, FooterView};
 pub use framer::{FrameRateLimiter, FrameRequester};
+pub use history_cell::{
+    AssistantMessageCell, ErrorCell, HistoryCell, PlainCell, StatusCell, ToolCallCell,
+    UserMessageCell,
+};
 pub use keymap::{Key, KeyAction, Keymap, KeymapContext};
 pub use output::{
     HeadlessFileSink, MemorySink, OutputEnvelope, OutputFormat, OutputMessage, TeeSink,
 };
 pub use run::{DiagWriter, RunIo, RunOptions, RunOutcome};
-pub use scrollback::{HistoryLine, LineState, LinesView, Role};
+pub use transcript::{HistoryLine, LineState, LinesView, Role};
 pub use select::{Group, GroupItem, NavigateDir, SelectList};
 pub use size::{ResizeDebouncer, Size};
 

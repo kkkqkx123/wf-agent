@@ -1,4 +1,4 @@
-//! Mini footer: the inline split-footer view stack and status line.
+//! Bottom pane: the inline split-view stack and status line.
 //!
 //! Layout model: the footer owns the bottom
 //! `Viewport::Inline(n)` rows and consists of a top decoration row, a main
@@ -33,7 +33,7 @@ use crate::panels::{
 };
 use crate::question::QuestionView;
 use crate::reducer::{Phase, UsageMeta};
-use crate::scrollback::Role;
+use crate::transcript::Role;
 use crate::theme::Theme;
 
 /// Fixed footer frame rows: top decoration + status line + bottom

@@ -17,6 +17,7 @@ use std::fmt::Debug;
 
 use ratatui::text::Line;
 
+use crate::motion::MotionMode;
 use crate::theme;
 
 /// Trait for conversation display units.
@@ -126,14 +127,39 @@ impl HistoryCell for UserMessageCell {
 }
 
 /// Assistant message cell with plain text (Markdown rendering can be added later).
+///
+/// Supports optional animation via [`MotionMode`]. When in animated mode,
+/// the cell can apply shimmer effects to streaming content.
 #[derive(Debug, Clone)]
 pub struct AssistantMessageCell {
     text: String,
+    motion_mode: MotionMode,
 }
 
 impl AssistantMessageCell {
     pub fn new(text: impl Into<String>) -> Self {
-        Self { text: text.into() }
+        Self {
+            text: text.into(),
+            motion_mode: MotionMode::default(),
+        }
+    }
+
+    /// Create with a specific motion mode.
+    pub fn with_motion_mode(text: impl Into<String>, mode: MotionMode) -> Self {
+        Self {
+            text: text.into(),
+            motion_mode: mode,
+        }
+    }
+
+    /// Set the motion mode for this cell.
+    pub fn set_motion_mode(&mut self, mode: MotionMode) {
+        self.motion_mode = mode;
+    }
+
+    /// Get the current motion mode.
+    pub fn motion_mode(&self) -> MotionMode {
+        self.motion_mode
     }
 }
 
@@ -142,11 +168,22 @@ impl HistoryCell for AssistantMessageCell {
         let w = usize::from(width.max(1));
         let mut out = Vec::new();
 
+        // Apply shimmer animation to text when in animated mode
         for line in self.text.lines() {
             if line.width() <= w {
-                out.push(Line::raw(line.to_string()));
+                let spans = crate::motion::shimmer_text(line, self.motion_mode);
+                out.push(Line::from(spans));
             } else {
-                out.extend(word_wrap_plain(line, w));
+                // For wrapped lines, apply shimmer to each wrapped segment
+                for wrapped_line in word_wrap_plain(line, w) {
+                    let plain_text: String = wrapped_line
+                        .spans
+                        .iter()
+                        .map(|s| s.content.as_ref())
+                        .collect();
+                    let spans = crate::motion::shimmer_text(&plain_text, self.motion_mode);
+                    out.push(Line::from(spans));
+                }
             }
         }
 
@@ -155,6 +192,17 @@ impl HistoryCell for AssistantMessageCell {
         }
 
         out
+    }
+
+    fn animation_tick(&self) -> Option<u64> {
+        if self.motion_mode.should_animate() {
+            // Return a tick that changes every 100ms for animation updates
+            let now = std::time::Instant::now();
+            let tick = now.elapsed().as_millis() / 100;
+            Some(tick as u64)
+        } else {
+            None
+        }
     }
 
     fn as_any(&self) -> &dyn Any {

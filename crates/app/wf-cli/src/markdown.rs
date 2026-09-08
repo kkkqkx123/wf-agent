@@ -469,6 +469,7 @@ fn is_block_start(tag: &Tag<'_>) -> bool {
 
 use ratatui::text::{Line, Span};
 
+use crate::motion::{self, MotionMode};
 use crate::theme;
 
 /// Render markdown source to styled ratatui Lines.
@@ -545,6 +546,124 @@ pub fn render_styled_lines(src: &str, width: u16) -> Vec<Line<'static>> {
                     ));
                 } else {
                     current_line.push(Span::raw(text.to_string()));
+                }
+            }
+            Event::Code(code) => {
+                current_line.push(Span::styled(
+                    code.to_string(),
+                    theme::tool_call_style(),
+                ));
+            }
+            Event::SoftBreak | Event::HardBreak => {
+                lines.push(Line::from(current_line.clone()));
+                current_line.clear();
+            }
+            Event::Rule => {
+                lines.push(Line::raw("─".repeat(width as usize)));
+            }
+            _ => {}
+        }
+    }
+
+    // Add any remaining content
+    if !current_line.is_empty() {
+        lines.push(Line::from(current_line));
+    }
+
+    lines
+}
+
+/// Render markdown source to styled ratatui Lines with animation support.
+///
+/// Similar to [`render_styled_lines`] but applies shimmer animation to
+/// streaming content when in animated mode. The shimmer effect creates a
+/// time-based sweeping highlight band across text characters.
+///
+/// # Arguments
+///
+/// * `src` - The markdown source text
+/// * `width` - The terminal width for wrapping
+/// * `motion_mode` - The current motion mode for animation control
+///
+/// # Returns
+///
+/// A vector of styled lines with optional animation effects.
+pub fn render_styled_lines_animated(
+    src: &str,
+    width: u16,
+    motion_mode: MotionMode,
+) -> Vec<Line<'static>> {
+    let mut lines = Vec::new();
+    let mut current_line = Vec::new();
+    let mut in_code_block = false;
+    let mut in_blockquote = false;
+
+    for event in Parser::new(src) {
+        match event {
+            Event::Start(tag) => match tag {
+                Tag::Heading { level, .. } => {
+                    let style = match level {
+                        pulldown_cmark::HeadingLevel::H1 => theme::to_bold_style(theme::Rgb::new(0xE5, 0xE7, 0xEB)),
+                        pulldown_cmark::HeadingLevel::H2 => theme::to_bold_style(theme::Rgb::new(0xE5, 0xE7, 0xEB)),
+                        pulldown_cmark::HeadingLevel::H3 => theme::to_style(theme::Rgb::new(0xE5, 0xE7, 0xEB)),
+                        _ => theme::muted_style(),
+                    };
+                    current_line.push(Span::styled(
+                        "#".repeat(level as usize) + " ",
+                        style,
+                    ));
+                }
+                Tag::CodeBlock(_) => {
+                    in_code_block = true;
+                    current_line.push(Span::styled("```", theme::tool_call_style()));
+                }
+                Tag::BlockQuote(_) => {
+                    in_blockquote = true;
+                    current_line.push(Span::styled("> ", theme::success_style()));
+                }
+                Tag::Emphasis => {
+                    // Will be styled when we see the text
+                }
+                Tag::Strong => {
+                    // Will be styled when we see the text
+                }
+                _ => {}
+            },
+            Event::End(tag_end) => match tag_end {
+                TagEnd::Heading(_) => {
+                    lines.push(Line::from(current_line.clone()));
+                    current_line.clear();
+                }
+                TagEnd::CodeBlock => {
+                    current_line.push(Span::styled("```", theme::tool_call_style()));
+                    lines.push(Line::from(current_line.clone()));
+                    current_line.clear();
+                    in_code_block = false;
+                }
+                TagEnd::BlockQuote(_) => {
+                    in_blockquote = false;
+                }
+                TagEnd::Paragraph if !current_line.is_empty() => {
+                    lines.push(Line::from(current_line.clone()));
+                    current_line.clear();
+                }
+                _ => {}
+            },
+            Event::Text(text) => {
+                if in_code_block {
+                    current_line.push(Span::styled(
+                        text.to_string(),
+                        theme::tool_call_style(),
+                    ));
+                } else if in_blockquote {
+                    current_line.push(Span::styled(
+                        text.to_string(),
+                        theme::success_style(),
+                    ));
+                } else {
+                    // Apply shimmer animation to regular text
+                    let spans = motion::shimmer_text(text.as_ref(), motion_mode);
+                    current_line.extend(spans);
                 }
             }
             Event::Code(code) => {

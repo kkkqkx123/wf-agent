@@ -11,6 +11,8 @@
 //! [`Line`]s into a ratatui [`Buffer`] with a scroll offset; it never
 //! wraps, because wrapping happens in [`HistoryLine::display_lines`].
 
+use std::time::Instant;
+
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::Style;
@@ -18,6 +20,8 @@ use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::Widget;
 use unicode_segmentation::UnicodeSegmentation;
 use unicode_width::UnicodeWidthStr;
+
+use crate::motion::MotionMode;
 
 /// Role palette for a history line; the theme maps it to a color.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -68,11 +72,17 @@ pub enum LineState {
 }
 
 /// A scrollback entry holding reflowable source text.
+///
+/// Supports optional animation via [`MotionMode`]. When in animated mode,
+/// streaming lines can apply shimmer effects to their content.
 #[derive(Debug, Clone)]
 pub struct HistoryLine {
     pub state: LineState,
     pub role: Role,
     text: Text<'static>,
+    motion_mode: MotionMode,
+    /// Start time for animation timing (used for shimmer effects).
+    animation_start: Option<Instant>,
 }
 
 impl HistoryLine {
@@ -92,6 +102,66 @@ impl HistoryLine {
             state,
             role,
             text: Text::from(content.into()),
+            motion_mode: MotionMode::default(),
+            animation_start: None,
+        }
+    }
+
+    /// New line with motion mode for animation support.
+    pub fn with_motion_mode(
+        content: impl Into<String>,
+        state: LineState,
+        role: Role,
+        motion_mode: MotionMode,
+    ) -> Self {
+        Self {
+            state,
+            role,
+            text: Text::from(content.into()),
+            motion_mode,
+            animation_start: if state == LineState::Streaming {
+                Some(Instant::now())
+            } else {
+                None
+            },
+        }
+    }
+
+    /// Set the motion mode for this line.
+    pub fn set_motion_mode(&mut self, mode: MotionMode) {
+        self.motion_mode = mode;
+    }
+
+    /// Get the current motion mode.
+    pub fn motion_mode(&self) -> MotionMode {
+        self.motion_mode
+    }
+
+    /// Start animation for streaming content.
+    pub fn start_animation(&mut self) {
+        if self.state == LineState::Streaming {
+            self.animation_start = Some(Instant::now());
+        }
+    }
+
+    /// Stop animation (e.g., when line is committed).
+    pub fn stop_animation(&mut self) {
+        self.animation_start = None;
+    }
+
+    /// Check if animation is active.
+    pub fn is_animating(&self) -> bool {
+        self.animation_start.is_some() && self.motion_mode.should_animate()
+    }
+
+    /// Get animation tick for cache invalidation.
+    pub fn animation_tick(&self) -> Option<u64> {
+        if self.is_animating() {
+            let start = self.animation_start?;
+            let tick = start.elapsed().as_millis() / 100;
+            Some(tick as u64)
+        } else {
+            None
         }
     }
 
@@ -102,16 +172,45 @@ impl HistoryLine {
 
     /// Reflow the source text to `width` columns. Always returns at least
     /// one line per source line; empty content yields a single empty line.
+    ///
+    /// When animation is active for streaming content, applies shimmer
+    /// effects to the rendered lines.
     pub fn display_lines(&self, width: u16) -> Vec<Line<'static>> {
         let w = usize::from(width.max(1));
         let mut out = Vec::new();
+        
         for line in &self.text.lines {
             if line.width() <= w {
-                out.push(own_line(line));
+                if self.is_animating() {
+                    // Apply shimmer animation to streaming content
+                    let plain_text: String = line
+                        .spans
+                        .iter()
+                        .map(|s| s.content.as_ref())
+                        .collect();
+                    let spans = crate::motion::shimmer_text(&plain_text, self.motion_mode);
+                    out.push(Line::from(spans));
+                } else {
+                    out.push(own_line(line));
+                }
             } else {
-                out.extend(wrap_line(line, w));
+                if self.is_animating() {
+                    // Apply shimmer to wrapped lines
+                    for wrapped_line in wrap_line(line, w) {
+                        let plain_text: String = wrapped_line
+                            .spans
+                            .iter()
+                            .map(|s| s.content.as_ref())
+                            .collect();
+                        let spans = crate::motion::shimmer_text(&plain_text, self.motion_mode);
+                        out.push(Line::from(spans));
+                    }
+                } else {
+                    out.extend(wrap_line(line, w));
+                }
             }
         }
+        
         if out.is_empty() {
             out.push(Line::from(""));
         }

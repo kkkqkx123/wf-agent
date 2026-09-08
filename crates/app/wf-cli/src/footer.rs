@@ -502,6 +502,103 @@ pub(crate) fn wrap_columns(text: &str, width: usize) -> Vec<String> {
     out
 }
 
+/// Status indicator widget with animation support.
+///
+/// Displays an animated spinner or static indicator based on the current
+/// [`MotionMode`]. Supports different indicator styles and can be used
+/// for loading states, processing indicators, or other status displays.
+#[derive(Debug, Clone)]
+pub struct StatusIndicatorWidget {
+    /// Current animation frame index.
+    frame: usize,
+    /// Motion mode for animation control.
+    motion_mode: crate::motion::MotionMode,
+    /// Status message to display alongside the indicator.
+    message: Option<String>,
+    /// Style for the indicator.
+    style: Style,
+}
+
+impl StatusIndicatorWidget {
+    /// Create a new status indicator widget.
+    pub fn new() -> Self {
+        Self {
+            frame: 0,
+            motion_mode: crate::motion::MotionMode::default(),
+            message: None,
+            style: Style::default(),
+        }
+    }
+
+    /// Create with a specific motion mode.
+    pub fn with_motion_mode(mode: crate::motion::MotionMode) -> Self {
+        Self {
+            frame: 0,
+            motion_mode: mode,
+            message: None,
+            style: Style::default(),
+        }
+    }
+
+    /// Set the motion mode.
+    pub fn set_motion_mode(&mut self, mode: crate::motion::MotionMode) {
+        self.motion_mode = mode;
+    }
+
+    /// Set the status message.
+    pub fn set_message(&mut self, message: impl Into<String>) {
+        self.message = Some(message.into());
+    }
+
+    /// Clear the status message.
+    pub fn clear_message(&mut self) {
+        self.message = None;
+    }
+
+    /// Set the indicator style.
+    pub fn set_style(&mut self, style: Style) {
+        self.style = style;
+    }
+
+    /// Advance the animation frame.
+    pub fn tick(&mut self) {
+        if self.motion_mode.should_animate() {
+            self.frame = (self.frame + 1) % SPINNER_FRAMES.len();
+        }
+    }
+
+    /// Get the current indicator character.
+    pub fn indicator_char(&self) -> char {
+        if self.motion_mode.should_animate() {
+            SPINNER_FRAMES[self.frame]
+        } else {
+            // Static bullet for reduced/static mode
+            '●'
+        }
+    }
+
+    /// Render the indicator into a single line.
+    pub fn render_line(&self) -> Line<'static> {
+        let indicator = self.indicator_char();
+        let mut spans = vec![Span::styled(
+            format!("{} ", indicator),
+            self.style,
+        )];
+
+        if let Some(msg) = &self.message {
+            spans.push(Span::styled(msg.clone(), self.style));
+        }
+
+        Line::from(spans)
+    }
+}
+
+impl Default for StatusIndicatorWidget {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

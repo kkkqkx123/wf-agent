@@ -2,8 +2,48 @@
 //!
 //! This module provides animation primitives for core UI components.
 //! Animations are optional and can be disabled via configuration.
+//! Supports three animation modes: full animation, reduced motion (accessibility),
+//! and static (no animation).
 
 use std::time::{Duration, Instant};
+
+/// Animation mode for controlling animation behavior.
+///
+/// This enum controls how animations are rendered throughout the TUI:
+/// - `Animated`: Full animation support with all effects enabled.
+/// - `Reduced`: Reduced motion mode for accessibility; only essential animations.
+/// - `Static`: No animations; all components render in their final state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AnimationMode {
+    /// Full animation support.
+    #[default]
+    Animated,
+    /// Reduced motion for accessibility (respects system preferences).
+    Reduced,
+    /// No animations; static rendering only.
+    Static,
+}
+
+impl AnimationMode {
+    /// Create mode from a boolean: `true` = Animated, `false` = Static.
+    pub fn from_enabled(enabled: bool) -> Self {
+        if enabled {
+            Self::Animated
+        } else {
+            Self::Static
+        }
+    }
+
+    /// Returns true if animations should run (Animated mode).
+    pub fn should_animate(self) -> bool {
+        self == Self::Animated
+    }
+
+    /// Returns true if reduced motion is requested (Reduced or Static mode).
+    pub fn is_reduced(self) -> bool {
+        self != Self::Animated
+    }
+}
 
 /// Animation state for a component.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -50,18 +90,42 @@ impl Default for AnimationConfig {
     }
 }
 
+/// Trait for components that support animation ticks.
+///
+/// Components implementing this trait can receive animation tick notifications
+/// to update their visual state. The `animation_tick()` method is called
+/// periodically to advance animation frames.
+pub trait Animatable {
+    /// Advance the animation by one tick.
+    ///
+    /// Called periodically to update animation state. Implementations should
+    /// update any time-dependent visual elements and invalidate caches as needed.
+    fn animation_tick(&mut self);
+
+    /// Returns true if this component should animate.
+    ///
+    /// Components can override this to disable animation based on their
+    /// current state or configuration.
+    fn should_animate(&self) -> bool {
+        true
+    }
+}
+
 /// Animation controller for managing multiple animations.
 #[derive(Debug)]
 pub struct AnimationController {
     config: AnimationConfig,
+    mode: AnimationMode,
     start_time: Instant,
 }
 
 impl AnimationController {
     /// Create a new animation controller.
     pub fn new(config: AnimationConfig) -> Self {
+        let enabled = config.enabled;
         Self {
             config,
+            mode: AnimationMode::from_enabled(enabled),
             start_time: Instant::now(),
         }
     }
@@ -77,6 +141,29 @@ impl AnimationController {
             enabled: false,
             ..Default::default()
         })
+    }
+
+    /// Create a controller with a specific animation mode.
+    pub fn with_mode(mode: AnimationMode) -> Self {
+        Self {
+            config: AnimationConfig {
+                enabled: mode.should_animate(),
+                ..Default::default()
+            },
+            mode,
+            start_time: Instant::now(),
+        }
+    }
+
+    /// Set the animation mode.
+    pub fn set_mode(&mut self, mode: AnimationMode) {
+        self.mode = mode;
+        self.config.enabled = mode.should_animate();
+    }
+
+    /// Get the current animation mode.
+    pub fn mode(&self) -> AnimationMode {
+        self.mode
     }
 
     /// Get the current frame index for a spinner animation.
@@ -199,6 +286,48 @@ mod tests {
     use super::*;
 
     #[test]
+    fn animation_mode_from_enabled() {
+        assert_eq!(AnimationMode::from_enabled(true), AnimationMode::Animated);
+        assert_eq!(AnimationMode::from_enabled(false), AnimationMode::Static);
+    }
+
+    #[test]
+    fn animation_mode_should_animate() {
+        assert!(AnimationMode::Animated.should_animate());
+        assert!(!AnimationMode::Reduced.should_animate());
+        assert!(!AnimationMode::Static.should_animate());
+    }
+
+    #[test]
+    fn animation_mode_is_reduced() {
+        assert!(!AnimationMode::Animated.is_reduced());
+        assert!(AnimationMode::Reduced.is_reduced());
+        assert!(AnimationMode::Static.is_reduced());
+    }
+
+    #[test]
+    fn controller_with_mode() {
+        let controller = AnimationController::with_mode(AnimationMode::Reduced);
+        assert_eq!(controller.mode(), AnimationMode::Reduced);
+        assert!(!controller.is_enabled());
+        assert_eq!(controller.spinner_frame(), 0);
+    }
+
+    #[test]
+    fn controller_set_mode() {
+        let mut controller = AnimationController::default_enabled();
+        assert!(controller.is_enabled());
+        
+        controller.set_mode(AnimationMode::Static);
+        assert_eq!(controller.mode(), AnimationMode::Static);
+        assert!(!controller.is_enabled());
+        assert_eq!(controller.spinner_frame(), 0);
+        
+        controller.set_mode(AnimationMode::Animated);
+        assert!(controller.is_enabled());
+    }
+
+    #[test]
     fn spinner_frame_cycles() {
         let controller = AnimationController::default_enabled();
         // The spinner should cycle through 0-7
@@ -264,7 +393,7 @@ mod tests {
         for _ in 0..100 {
             let opacity = controller.fade_opacity();
             assert!(
-                opacity >= 0.0 && opacity <= 1.0,
+                (0.0..=1.0).contains(&opacity),
                 "fade opacity should be 0.0-1.0, got {}",
                 opacity
             );

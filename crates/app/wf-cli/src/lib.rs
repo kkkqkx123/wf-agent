@@ -24,6 +24,7 @@ pub mod keymap;
 pub mod markdown;
 pub mod mention;
 pub mod modal;
+pub mod motion;
 pub mod confirm_modal;
 pub mod help_modal;
 pub mod model_picker;

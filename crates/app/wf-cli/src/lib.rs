@@ -2,9 +2,9 @@
 
 // Re-export shared modules from wf-cli-shared.
 pub use wf_cli_shared::{
-    args, cmd, config, domain, error, mode, output, remote, sanitize, turn, Cli, Command,
-    CliError, CliResult, HeadlessFileSink, OutputEnvelope, OutputFormat, OutputMessage, TeeSink,
-    DiagWriter, RunIo, RunOptions, RunOutcome,
+    app_config, approval_policy, args, cmd, config, domain, error, mode, output, remote, sanitize,
+    turn, Cli, Command, CliError, CliResult, HeadlessFileSink, OutputEnvelope, OutputFormat,
+    OutputMessage, TeeSink, DiagWriter, RunIo, RunOptions, RunOutcome,
 };
 pub use wf_cli_shared::run as shared_run;
 #[cfg(feature = "embedded")]
@@ -14,8 +14,6 @@ pub use wf_cli_shared::default_runtime_config;
 pub mod animation;
 pub mod ansi;
 pub mod approval_overlay;
-pub mod approval_policy;
-pub mod app_config;
 pub mod bottom_pane;
 pub mod capabilities;
 pub mod composer;

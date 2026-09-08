@@ -20,11 +20,11 @@ tokio-util.workspace = true
 regex.workspace = true
 globset.workspace = true
 futures.workspace = true
-wf-common = { path = "../../foundation/wf-common" }
-wf-types = { path = "../../foundation/wf-types" }
-wf-core = { path = "../../foundation/wf-core" }
-wf-api = { path = "../wf-api" }
-wf-runtime = { path = "../wf-runtime", optional = true }
+wf-common = { path = "../../../foundation/wf-common" }
+wf-types = { path = "../../../foundation/wf-types" }
+wf-core = { path = "../../../foundation/wf-core" }
+wf-api = { path = "../../wf-api" }
+wf-runtime = { path = "../../wf-runtime", optional = true }
 
 [features]
 default = ["embedded"]
@@ -36,6 +36,6 @@ native = ["wf-runtime/native"]
 [dev-dependencies]
 tempfile = "3"
 insta = "1"
-wf-llm = { path = "../../infra/wf-llm", features = ["mock"] }
-wf-storage = { path = "../../infra/wf-storage" }
-wf-resource = { path = "../../infra/wf-resource" }
+wf-llm = { path = "../../../infra/wf-llm", features = ["mock"] }
+wf-storage = { path = "../../../infra/wf-storage" }
+wf-resource = { path = "../../../infra/wf-resource" }

@@ -51,7 +51,12 @@ wf-agent/
 │   │   ├── wf-api/      # Application-facing API facade
 │   │   ├── wf-server/   # HTTP transport layer
 │   │   ├── wf-runtime/  # Runtime bootstrap
-│   │   └── wf-cli/      # CLI: headless run / mini / full TUI forms
+│   │   └── cli/         # CLI frontends (peer of a future desktop app)
+│   │       ├── wf-cli-shared/  # Shared CLI logic (zero TUI deps)
+│   │       ├── wf-headless/    # Headless CLI binary
+│   │       ├── wf-mini/        # Lightweight crossterm TUI binary
+│   │       ├── wf-tui/         # Full ratatui TUI library + wf binary
+│   │       └── wf-cli-demo/    # Demo examples for all CLI forms
 │   └── vendor/          # Standalone subsystems
 │       └── layertwine/  # File-edit history storage engine
 ├── package.json
@@ -69,9 +74,17 @@ infra:  wf-metrics  wf-storage  wf-config  wf-script
                    ↑
 engine:  wf-tools  wf-execution-shared  wf-agent  wf-workflow  wf-checkpoint
                    ↑
-app:  wf-api  wf-server  wf-runtime  wf-cli
+app:  wf-api  wf-server  wf-runtime
+      └── cli/:  wf-cli-shared  ←  wf-headless / wf-mini / wf-tui  ←  wf-cli-demo
 vendor:  layertwine (used by wf-checkpoint, wf-tools)
 ```
+
+`app/cli/` groups every CLI frontend under one submodule so a future desktop
+app can sit as a peer (`app/desktop/`) instead of mixing frontend crates with
+the core app facade (`wf-api` / `wf-server` / `wf-runtime`). `wf-cli-shared`
+holds the TUI-free logic shared by all three frontends; `wf-tui` is the full
+ratatui TUI product; `wf-cli-demo` is a demo-only package with runnable
+examples for every CLI form.
 
 ## Rust Development Conventions
 

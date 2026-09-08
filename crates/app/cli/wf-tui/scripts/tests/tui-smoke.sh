@@ -15,7 +15,7 @@
 set -u
 
 SELF_DIR="$(cd "$(dirname "$0")" && pwd)"
-ROOT="$(cd "$SELF_DIR/../../../../.." && pwd)"
+ROOT="$(cd "$SELF_DIR/../../../../../.." && pwd)"
 BIN="${WF_BIN:-$ROOT/target/debug/wf}"
 SESS="wfsmoke"
 TMP="$(mktemp -d /tmp/wfsmoke.XXXXXX)"

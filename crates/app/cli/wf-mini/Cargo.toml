@@ -13,9 +13,9 @@ futures.workspace = true
 serde_json.workspace = true
 unicode-width.workspace = true
 unicode-segmentation.workspace = true
-wf-common = { path = "../../foundation/wf-common" }
-wf-types = { path = "../../foundation/wf-types" }
-wf-api = { path = "../wf-api" }
+wf-common = { path = "../../../foundation/wf-common" }
+wf-types = { path = "../../../foundation/wf-types" }
+wf-api = { path = "../../wf-api" }
 wf-cli-shared = { path = "../wf-cli-shared" }
 
 [features]

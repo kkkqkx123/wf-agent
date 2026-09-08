@@ -2,7 +2,7 @@
 //!
 //! The lib tests stay side-effect free (pure in-memory assertions). This
 //! example is the single place that *writes* rendering output, regenerating
-//! the reference files in `crates/wf-cli-demo/outputs/` so they are reviewable and
+//! the reference files in `crates/app/cli/wf-cli-demo/outputs/` so they are reviewable and
 //! diffable without polluting `src/`.
 //!
 //! Run with:

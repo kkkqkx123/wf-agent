@@ -193,7 +193,7 @@ cargo build --features http,grpc
 
 ### 内容寻址 ID
 
-所有实体 ID 均为它们规范 JSON 表示的 Blake3 哈希：
+Snapshot、Checkpoint、FileNode 的 ID 均为其规范 JSON 表示的 Blake3 哈希。Delta 的 ID 额外包含编辑时间戳与进程内单调递增的调用序号，因此即使内容完全相同，每次编辑工具调用也会生成唯一记录：
 ```rust
 let id = blake3::hash(serde_json::to_vec(&entity).unwrap());
 ```

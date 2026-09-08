@@ -353,6 +353,7 @@ fn test_store_and_get_delta() -> StorageResult<()> {
         },
         source: SourceType::Manual,
         timestamp: chrono::Utc::now().timestamp_millis(),
+        seq: 0,
     };
 
     storage.store_delta(&delta)?;
@@ -383,6 +384,7 @@ fn test_delta_exists() -> StorageResult<()> {
         },
         source: SourceType::Manual,
         timestamp: chrono::Utc::now().timestamp_millis(),
+        seq: 0,
     };
 
     assert!(!storage.delta_exists(&delta_id)?);
@@ -411,6 +413,7 @@ fn test_get_deltas_batch() -> StorageResult<()> {
         },
         source: SourceType::Manual,
         timestamp: 1000,
+        seq: 0,
     };
 
     let delta2 = Delta {
@@ -425,6 +428,7 @@ fn test_get_deltas_batch() -> StorageResult<()> {
         },
         source: SourceType::Manual,
         timestamp: 2000,
+        seq: 0,
     };
 
     storage.store_delta(&delta1)?;
@@ -465,6 +469,7 @@ fn test_get_single_delta_batch() -> StorageResult<()> {
         },
         source: SourceType::Manual,
         timestamp: 1000,
+        seq: 0,
     };
 
     storage.store_delta(&delta)?;
@@ -495,6 +500,7 @@ fn test_delta_with_agent_source() -> StorageResult<()> {
         },
         source: SourceType::Agent(agent_instance_id.clone()),
         timestamp: chrono::Utc::now().timestamp_millis(),
+        seq: 0,
     };
 
     storage.store_delta(&delta)?;

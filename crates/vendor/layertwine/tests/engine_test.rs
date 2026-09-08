@@ -14,6 +14,7 @@ fn create_test_delta(diff: LineDiff) -> Delta {
         diff,
         source: SourceType::Manual,
         timestamp: 0,
+        seq: 0,
     }
 }
 

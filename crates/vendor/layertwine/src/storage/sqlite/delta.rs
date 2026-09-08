@@ -46,6 +46,9 @@ fn row_to_delta(row: &Row) -> Result<Delta, rusqlite::Error> {
         diff,
         source: source_type,
         timestamp,
+        // seq is creation-time only: the id is already persisted, so a
+        // reconstructed delta keeps a neutral ordinal.
+        seq: 0,
     })
 }
 

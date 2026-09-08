@@ -45,8 +45,24 @@ fn test_delta_compute_id() {
     std::thread::sleep(std::time::Duration::from_millis(10));
     let delta2 = Delta::new(file, diff, source);
 
-    assert_eq!(delta1.id, delta2.id);
+    // Each invocation is an independent record: identical content applied at
+    // different times must yield different ids.
+    assert_ne!(delta1.id, delta2.id);
     assert_ne!(delta1.timestamp, delta2.timestamp);
+}
+
+#[test]
+fn test_delta_id_unique_per_invocation() {
+    let file = create_test_file_node();
+    let diff = create_simple_diff();
+    let source = SourceType::Manual;
+
+    let delta1 = Delta::new(file.clone(), diff.clone(), source.clone());
+    let delta2 = Delta::new(file, diff, source);
+
+    // Even within the same millisecond, the invocation counter guarantees
+    // distinct ids.
+    assert_ne!(delta1.id, delta2.id);
 }
 
 #[test]

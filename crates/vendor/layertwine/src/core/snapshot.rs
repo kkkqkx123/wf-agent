@@ -240,8 +240,9 @@ impl Snapshot {
         // hashed — file identity plus the reconstruction inputs (base content
         // hash + delta chain) or the explicit content payload. Lineage and
         // contextual metadata (parents, partition_type, source, conflict flag)
-        // do not participate, so identical content produced in different
-        // partitions deduplicates to the same snapshot id.
+        // do not participate. Delta ids embed timestamp + seq, so identical
+        // content reached through different edit records yields different
+        // snapshot ids.
         let path = self.file.path_str();
         hasher.update(path.as_bytes());
         hasher.update(&self.file.base_hash);

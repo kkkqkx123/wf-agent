@@ -1,12 +1,19 @@
 use crate::core::file_node::FileNode;
 use crate::core::types::{ContentId, DeltaId, DiffOp, LineDiff, SourceType};
 use serde::{Deserialize, Serialize};
+use std::sync::atomic::{AtomicU64, Ordering};
+
+/// Monotonic counter that makes each Delta::new invocation unique even when
+/// two identical edits happen within the same millisecond.
+static DELTA_SEQ: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Serialize)]
 struct DeltaForId<'a> {
     file: &'a FileNode,
     diff: &'a LineDiff,
     source: &'a SourceType,
+    timestamp: i64,
+    seq: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -16,17 +23,21 @@ pub struct Delta {
     pub diff: LineDiff,
     pub source: SourceType,
     pub timestamp: i64,
+    /// Per-invocation ordinal; guarantees id uniqueness for same-millisecond edits.
+    pub seq: u64,
 }
 
 impl Delta {
     pub fn new(file: FileNode, diff: LineDiff, source: SourceType) -> Self {
         let timestamp = chrono::Utc::now().timestamp_millis();
+        let seq = DELTA_SEQ.fetch_add(1, Ordering::Relaxed);
         let mut delta = Delta {
             id: ContentId([0u8; 32]),
             file,
             diff,
             source,
             timestamp,
+            seq,
         };
         delta.id = delta.compute_id();
         delta
@@ -37,6 +48,8 @@ impl Delta {
             file: &self.file,
             diff: &self.diff,
             source: &self.source,
+            timestamp: self.timestamp,
+            seq: self.seq,
         };
         let json = serde_json::to_vec(&delta_for_id).unwrap_or_default();
         ContentId::from_content(&json)

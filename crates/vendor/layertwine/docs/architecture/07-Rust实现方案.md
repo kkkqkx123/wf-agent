@@ -270,7 +270,24 @@ type SnapshotId = ContentId;
 type DeltaId = ContentId;
 type CheckpointId = ContentId;
 
-/// 快照 ID 由其内容决定
+/// Delta 以编辑工具调用为记录单位：
+/// id 由 file + diff + source + timestamp + seq 共同哈希决定。
+/// timestamp 区分跨时间调用，进程内单调递增的 seq 保证同毫秒内也唯一，
+/// 因此相同内容的重复编辑不会被去重合并。
+static DELTA_SEQ: AtomicU64 = AtomicU64::new(0);
+
+impl Delta {
+    fn new(file: FileNode, diff: LineDiff, source: SourceType) -> Self {
+        let timestamp = chrono::Utc::now().timestamp_millis();
+        let seq = DELTA_SEQ.fetch_add(1, Ordering::Relaxed);
+        // id = blake3(file + diff + source + timestamp + seq)
+        ...
+    }
+}
+
+/// 快照 ID 由其内容决定：file + base_hash + deltas 链 + content 共同哈希。
+/// 由于 delta id 含 timestamp + seq，相同内容的不同编辑记录会产生
+/// 不同快照 id，跨层内容去重不再成立。
 impl Snapshot {
     fn compute_id(&self) -> SnapshotId {
         let data = serde_json::to_vec(self).unwrap();

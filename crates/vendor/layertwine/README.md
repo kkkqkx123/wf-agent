@@ -192,7 +192,7 @@ Only partition pointers and layer state are mutable:
 
 ### Content-Addressed IDs
 
-All entity IDs are Blake3 hashes of their canonical JSON representation:
+Snapshot, Checkpoint and FileNode IDs are Blake3 hashes of their canonical JSON representation. Delta IDs additionally include the edit timestamp and a per-process monotonic invocation counter, so each edit-tool call gets a unique record even when the content change is identical:
 ```rust
 let id = blake3::hash(serde_json::to_vec(&entity).unwrap());
 ```

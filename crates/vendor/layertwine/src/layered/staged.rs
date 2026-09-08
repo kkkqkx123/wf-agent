@@ -482,10 +482,10 @@ mod tests {
         let staged = storage.get_partition(&staged_partition_id()).unwrap();
         assert_eq!(staged.current_snapshot, merged_id.snapshot_id);
 
-        // Content addressing: staged sat at the shared baseline, so the merge
-        // result is content-identical to the feature snapshot and deduplicates
-        // to the same snapshot id (cross-layer dedup).
-        assert_eq!(merged_id.snapshot_id, feature_snap_id);
+        // Per-invocation recording: the merge creates its own delta, so the
+        // merged snapshot id differs from the feature snapshot id even though
+        // the reconstructed content is identical.
+        assert_ne!(merged_id.snapshot_id, feature_snap_id);
 
         // Reconstructed staged content equals the feature content.
         let merged_snap = storage.get_snapshot(&merged_id.snapshot_id).unwrap();

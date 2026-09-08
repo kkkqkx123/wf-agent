@@ -366,11 +366,11 @@ mod tests {
             .unwrap();
         assert_eq!(staged.current_snapshot, merged_id);
 
-        // Content addressing: staged had no independent changes, so the merge
-        // result is content-identical to the manual snapshot and deduplicates
-        // to the same snapshot id (cross-layer dedup).
+        // Per-invocation recording: the merge is itself an edit event with its
+        // own delta id, so the merged snapshot no longer deduplicates to the
+        // manual snapshot id even though the content is identical.
         let manual_partition = storage.get_partition(&manual_partition_id()).unwrap();
-        assert_eq!(merged_id, manual_partition.current_snapshot);
+        assert_ne!(merged_id, manual_partition.current_snapshot);
 
         // Reconstructed staged content equals the manual edit outcome.
         let merged = storage.get_snapshot(&merged_id).unwrap();

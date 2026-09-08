@@ -9,8 +9,8 @@
 //!
 //! Run with:
 //! ```sh
-//! cargo run -p wf-cli --example tui_animation
-//! cargo run -p wf-cli --example tui_animation --features diff-record
+//! cargo run -p wf-cli-demo --example tui_animation
+//! cargo run -p wf-cli-demo --example tui_animation --features diff-record
 //! ```
 
 use std::io;
@@ -27,7 +27,7 @@ use ratatui::Terminal;
 #[cfg(feature = "diff-record")]
 use std::fs::File;
 #[cfg(feature = "diff-record")]
-use wf_cli::tui_debug::DiffRecorderBackend;
+use wf_tui::tui_debug::DiffRecorderBackend;
 
 /// Simulated LLM token stream content.
 const MOCK_TOKENS: &[&str] = &[

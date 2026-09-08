@@ -1,0 +1,15 @@
+[package]
+name = "wf-cli-demo"
+version.workspace = true
+edition.workspace = true
+description = "Demo examples for wf-agent CLI implementations (headless, mini, full TUI)"
+
+[dependencies]
+crossterm.workspace = true
+ratatui.workspace = true
+wf-tui = { path = "../wf-tui" }
+wf-cli-shared = { path = "../wf-cli-shared" }
+
+[features]
+default = []
+diff-record = ["wf-tui/diff-record"]

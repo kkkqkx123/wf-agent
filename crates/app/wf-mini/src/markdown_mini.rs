@@ -1,7 +1,7 @@
 //! Simplified streaming markdown accumulator for the mini TUI.
 //!
 //! This is a stripped-down version of the full `MarkdownStream` from
-//! `wf-cli`, keeping only the core committed/streaming split logic
+//! `wf-tui`, keeping only the core committed/streaming split logic
 //! without the pulldown-cmark dependency. It provides:
 //!
 //! - `push(delta)` — append text and return the new committed/streaming split

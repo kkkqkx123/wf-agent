@@ -1,4 +1,4 @@
-//! wf-cli: headless run and full TUI forms over the wf-agent runtime.
+//! wf-tui: full ratatui TUI over the wf-agent runtime.
 
 // Re-export shared modules from wf-cli-shared.
 pub use wf_cli_shared::{

@@ -11,7 +11,7 @@
 //!
 //! Run the recording example:
 //! ```sh
-//! cargo run -p wf-cli --example tui_diff_record --features diff-record
+//! cargo run -p wf-cli-demo --example tui_diff_record --features diff-record
 //! ```
 
 use std::io::{self, Write};

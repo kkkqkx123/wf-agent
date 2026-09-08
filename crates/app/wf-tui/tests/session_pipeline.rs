@@ -7,11 +7,11 @@ use serde_json::json;
 
 use wf_api::infra::stream::ExecutionStreamEvent;
 use wf_api::ToolApprovalRequest;
-use wf_cli::approval_overlay::ApprovalView;
-use wf_cli::footer::{Footer, FooterView};
-use wf_cli::keymap::KeymapContext;
-use wf_cli::question_overlay::QuestionView;
-use wf_cli::reducer::{MiniCommit, Phase, SessionReducer};
+use wf_tui::approval_overlay::ApprovalView;
+use wf_tui::footer::{Footer, FooterView};
+use wf_tui::keymap::KeymapContext;
+use wf_tui::question_overlay::QuestionView;
+use wf_tui::reducer::{MiniCommit, Phase, SessionReducer};
 
 /// One iteration of markdown streaming that completes.
 fn markdown_script() -> Vec<ExecutionStreamEvent> {

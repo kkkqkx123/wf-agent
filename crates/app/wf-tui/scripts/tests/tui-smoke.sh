@@ -62,8 +62,8 @@ build_binary() {
             exit 0
         fi
         log "building $BIN ..."
-        (cd "$ROOT" && cargo build -p wf-cli --bin wf >/dev/null 2>&1) \
-            || { skip "binary" "cargo build -p wf-cli failed"; exit 0; }
+        (cd "$ROOT" && cargo build -p wf-tui --bin wf >/dev/null 2>&1) \
+            || { skip "binary" "cargo build -p wf-tui failed"; exit 0; }
     fi
 }
 

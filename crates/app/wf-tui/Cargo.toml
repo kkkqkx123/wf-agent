@@ -1,8 +1,8 @@
 [package]
-name = "wf-cli"
+name = "wf-tui"
 version.workspace = true
 edition.workspace = true
-description = "wf-agent command line interface: headless run and full TUI modes"
+description = "wf-agent full TUI implementation (ratatui): interactive agent forms and widgets"
 
 [dependencies]
 clap.workspace = true
@@ -30,7 +30,6 @@ wf-common = { path = "../../foundation/wf-common" }
 wf-types = { path = "../../foundation/wf-types" }
 wf-core = { path = "../../foundation/wf-core" }
 wf-api = { path = "../wf-api" }
-wf-runtime = { path = "../wf-runtime", optional = true }
 wf-cli-shared = { path = "../wf-cli-shared" }
 
 [dev-dependencies]
@@ -42,10 +41,10 @@ wf-resource = { path = "../../infra/wf-resource" }
 
 [features]
 default = ["embedded"]
-embedded = ["dep:wf-runtime", "wf-cli-shared/embedded"]
+embedded = ["wf-cli-shared/embedded"]
 remote = ["reqwest/json", "reqwest/stream", "wf-cli-shared/remote"]
-lua = ["wf-runtime/lua", "wf-cli-shared/lua"]
-native = ["wf-runtime/native", "wf-cli-shared/native"]
+lua = ["wf-cli-shared/lua"]
+native = ["wf-cli-shared/native"]
 diff-record = []
 
 [[bin]]

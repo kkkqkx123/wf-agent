@@ -8,7 +8,7 @@
 //!
 //! Run with:
 //! ```sh
-//! cargo run -p wf-cli --example tui_diff_record --features diff-record
+//! cargo run -p wf-cli-demo --example tui_diff_record --features diff-record
 //! ```
 //!
 //! After quitting, inspect `diff_log.txt`:
@@ -31,7 +31,7 @@ use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::Terminal;
 
 #[cfg(feature = "diff-record")]
-use wf_cli::tui_debug::DiffRecorderBackend;
+use wf_tui::tui_debug::DiffRecorderBackend;
 
 /// A simple counter that changes every few frames to produce visible diffs.
 struct DemoState {

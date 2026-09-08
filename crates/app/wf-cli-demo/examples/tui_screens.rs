@@ -3,7 +3,7 @@
 //! in a full-screen TUI. Navigate between screens with `1`-`8` / `j`/`k`,
 //! select items with Enter, and press `q` to quit.
 //!
-//! Run with: `cargo run -p wf-cli --example tui_screens`
+//! Run with: `cargo run -p wf-cli-demo --example tui_screens`
 
 use std::io;
 
@@ -15,11 +15,11 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::Terminal;
 
-use wf_cli::screens::{
+use wf_tui::screens::{
     CheckpointRow, DashboardData, ExecRow, ProfileRow, ScreenData, ScreenKind, Screens, SearchData,
     SearchRow, SettingsData, WorkflowRow,
 };
-use wf_cli::theme::{Theme, probe_theme};
+use wf_tui::theme::{Theme, probe_theme};
 
 const DASHBOARD_ENTRIES: &[ScreenKind] = &[
     ScreenKind::Workflow,

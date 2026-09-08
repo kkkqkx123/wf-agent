@@ -5,7 +5,7 @@
 //! `insta` crate. Run with:
 //!
 //! ```sh
-//! cargo test -p wf-cli --test tui_snapshot
+//! cargo test -p wf-tui --test tui_snapshot
 //! cargo insta review   # review / accept new snapshots
 //! ```
 
@@ -17,7 +17,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::Terminal;
 
-use wf_cli::transcript::{HistoryLine, LineState, Role};
+use wf_tui::transcript::{HistoryLine, LineState, Role};
 
 /// Convert a `Buffer` to a string representation for snapshot comparison.
 ///

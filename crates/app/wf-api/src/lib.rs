@@ -173,7 +173,7 @@ pub use wf_storage::adapter::variable::VariableListOptions;
 pub use wf_tools::callback::{AgentLoopConfig, AgentLoopInput, AgentLoopOutput};
 pub use wf_workflow::analysis::{analyze_reachability, get_reachable_nodes};
 
-// Engine types re-exported for downstream consumers (wf-server, wf-cli).
+// Engine types re-exported for downstream consumers (wf-server, wf-tui, wf-cli-shared).
 // These types are used in ApiContext fields or engine APIs; re-exporting them
 // lets consumers work with engine types without adding direct engine deps.
 

@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 use wf_api::infra::context::ApiContext;
 use wf_api::BaseStorageAdapter;
-use wf_cli::replay::replay_scrollack;
+use wf_tui::replay::replay_scrollack;
 use wf_resource::registry::ResourceRegistries;
 use wf_resource::resource_plugin::ResourcePluginRegistry;
 use wf_storage::context::StorageContext;

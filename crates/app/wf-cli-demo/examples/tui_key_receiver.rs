@@ -9,7 +9,7 @@
 //!
 //! Run with:
 //! ```sh
-//! cargo run -p wf-cli --example tui_key_receiver
+//! cargo run -p wf-cli-demo --example tui_key_receiver
 //! ```
 
 use std::io;
@@ -22,7 +22,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::Terminal;
 
-use wf_cli::keymap::{builtin_keymap, CKey, Key, KeyAction, KeymapContext};
+use wf_tui::keymap::{builtin_keymap, CKey, Key, KeyAction, KeymapContext};
 
 /// Maximum number of history entries kept in the ring buffer.
 const MAX_HISTORY: usize = 100;

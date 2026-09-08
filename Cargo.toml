@@ -28,7 +28,8 @@ members = [
     "crates/app/wf-cli-shared",
     "crates/app/wf-headless",
     "crates/app/wf-mini",
-    "crates/app/wf-cli",
+    "crates/app/wf-tui",
+    "crates/app/wf-cli-demo",
     # vendor
     "crates/vendor/layertwine",
 ]

@@ -177,6 +177,9 @@ pub fn unified_from_execution_stream(
         wf_api::infra::stream::ExecutionStreamEvent::SubAgentEnded { id, name, success } => {
             Some(UnifiedEvent::SubAgentEnded { id, name, success })
         }
+        wf_api::infra::stream::ExecutionStreamEvent::LlmDelta { content } => {
+            Some(UnifiedEvent::TextDelta { content })
+        }
         wf_api::infra::stream::ExecutionStreamEvent::Engine(_) => None,
         _ => None,
     }

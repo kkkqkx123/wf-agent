@@ -19,6 +19,7 @@ use wf_cli::screens::{
     CheckpointRow, DashboardData, ExecRow, ProfileRow, ScreenData, ScreenKind, Screens, SearchData,
     SearchRow, SettingsData, WorkflowRow,
 };
+use wf_cli::theme::{Theme, probe_theme};
 
 const DASHBOARD_ENTRIES: &[ScreenKind] = &[
     ScreenKind::Workflow,
@@ -324,6 +325,7 @@ struct DemoState {
     data: ScreenData,
     screen_selected: usize,
     quit: bool,
+    theme: Theme,
 }
 
 impl DemoState {
@@ -334,6 +336,7 @@ impl DemoState {
             data: synthetic_dashboard(),
             screen_selected: 0,
             quit: false,
+            theme: probe_theme(),
         }
     }
 
@@ -434,7 +437,7 @@ impl DemoState {
                 .constraints([Constraint::Min(3), Constraint::Length(1)])
                 .split(area);
 
-            self.screens.draw(frame, chunks[0], &self.data);
+            self.screens.draw(frame, chunks[0], &self.data, &self.theme);
 
             let footer = Paragraph::new(Line::from(vec![
                 Span::styled(

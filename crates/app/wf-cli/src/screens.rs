@@ -9,6 +9,7 @@ use ratatui::layout::Rect;
 use ratatui::Frame;
 
 use crate::screen_draw;
+use crate::theme::Theme;
 
 /// Identifier for the 8 full-TUI screens.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -74,6 +75,7 @@ impl Screen {
 }
 
 /// Navigation stack managing the 8 TUI screens.
+#[derive(Debug)]
 pub struct Screens {
     stack: Vec<Screen>,
     selected: usize,
@@ -152,19 +154,19 @@ impl Screens {
     }
 
     /// Render the current screen into the frame using the supplied data model.
-    pub fn draw(&self, frame: &mut Frame, area: Rect, data: &ScreenData) {
+    pub fn draw(&self, frame: &mut Frame, area: Rect, data: &ScreenData, theme: &Theme) {
         match self.current_kind() {
-            ScreenKind::Dashboard => screen_draw::draw_dashboard(frame, area, data),
-            ScreenKind::Workflow => screen_draw::draw_workflow(frame, area, data, self.selected),
-            ScreenKind::Executions => screen_draw::draw_executions(frame, area, data, self.selected),
+            ScreenKind::Dashboard => screen_draw::draw_dashboard(frame, area, data, theme),
+            ScreenKind::Workflow => screen_draw::draw_workflow(frame, area, data, self.selected, theme),
+            ScreenKind::Executions => screen_draw::draw_executions(frame, area, data, self.selected, theme),
             // The Interactive screen is rendered by `InteractiveController::draw`
             // directly from `tui.rs` (it owns streaming state), so it is never
             // reached here — kept as an explicit no-op for exhaustiveness.
             ScreenKind::Interactive => {}
-            ScreenKind::Checkpoints => screen_draw::draw_checkpoints(frame, area, data, self.selected),
-            ScreenKind::Search => screen_draw::draw_search(frame, area, data),
-            ScreenKind::Settings => screen_draw::draw_settings(frame, area, data),
-            ScreenKind::Help => screen_draw::draw_help(frame, area),
+            ScreenKind::Checkpoints => screen_draw::draw_checkpoints(frame, area, data, self.selected, theme),
+            ScreenKind::Search => screen_draw::draw_search(frame, area, data, theme),
+            ScreenKind::Settings => screen_draw::draw_settings(frame, area, data, theme),
+            ScreenKind::Help => screen_draw::draw_help(frame, area, theme),
         }
     }
 }

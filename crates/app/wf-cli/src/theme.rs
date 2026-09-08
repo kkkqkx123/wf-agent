@@ -86,6 +86,28 @@ pub enum ColorDomain {
     Ansi16,
 }
 
+/// Semantic color role for a history line or UI element.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ColorRole {
+    /// Default text/foreground.
+    #[default]
+    Default,
+    /// Muted/dimmed secondary text.
+    Muted,
+    /// Accent/brand emphasis.
+    Accent,
+    /// Additions (diff +, success).
+    Add,
+    /// Removals (diff -).
+    Remove,
+    /// Warnings.
+    Warning,
+    /// Errors.
+    Error,
+    /// Highlights/selection.
+    Highlight,
+}
+
 impl ColorDomain {
     /// Detect from `COLORTERM` / `TERM` (pure; env injected for tests).
     pub fn detect(colorterm: Option<&str>, term: Option<&str>) -> Self {
@@ -106,6 +128,16 @@ impl ColorDomain {
             std::env::var("COLORTERM").ok().as_deref(),
             std::env::var("TERM").ok().as_deref(),
         )
+    }
+
+    /// Whether this color domain supports RGB colors.
+    pub fn supports_rgb(&self) -> bool {
+        matches!(self, Self::TrueColor)
+    }
+
+    /// Whether this color domain supports 256 colors.
+    pub fn supports_256(&self) -> bool {
+        matches!(self, Self::TrueColor | Self::Ansi256)
     }
 }
 
@@ -133,6 +165,142 @@ pub struct Theme {
     pub highlight: Rgb,
     #[serde(skip)]
     pub source: ThemeSource,
+}
+
+/// User-configurable theme overrides.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct ThemeOverrides {
+    /// Override for the foreground color.
+    pub fg: Option<Rgb>,
+    /// Override for the background color.
+    pub bg: Option<Rgb>,
+    /// Override for the muted color.
+    pub muted: Option<Rgb>,
+    /// Override for the accent color.
+    pub accent: Option<Rgb>,
+    /// Override for the add/success color.
+    pub add: Option<Rgb>,
+    /// Override for the remove/error color.
+    pub remove: Option<Rgb>,
+    /// Override for the warning color.
+    pub warning: Option<Rgb>,
+    /// Override for the error color.
+    pub error: Option<Rgb>,
+    /// Override for the highlight color.
+    pub highlight: Option<Rgb>,
+}
+
+impl ThemeOverrides {
+    /// Apply these overrides to a theme, returning a new theme with the overrides applied.
+    pub fn apply(&self, mut theme: Theme) -> Theme {
+        if let Some(fg) = self.fg {
+            theme.fg = fg;
+        }
+        if let Some(bg) = self.bg {
+            theme.bg = bg;
+        }
+        if let Some(muted) = self.muted {
+            theme.muted = muted;
+        }
+        if let Some(accent) = self.accent {
+            theme.accent = accent;
+        }
+        if let Some(add) = self.add {
+            theme.add = add;
+        }
+        if let Some(remove) = self.remove {
+            theme.remove = remove;
+        }
+        if let Some(warning) = self.warning {
+            theme.warning = warning;
+        }
+        if let Some(error) = self.error {
+            theme.error = error;
+        }
+        if let Some(highlight) = self.highlight {
+            theme.highlight = highlight;
+        }
+        theme
+    }
+}
+
+impl Theme {
+    /// Get the ANSI color for a color role based on terminal capabilities.
+    /// Returns an ANSI color code that provides best compatibility.
+    pub fn ansi_color_for_role(&self, role: ColorRole) -> ratatui::style::Color {
+        match role {
+            ColorRole::Default => ratatui::style::Color::Reset,
+            ColorRole::Muted => ratatui::style::Color::DarkGray,
+            ColorRole::Accent => ratatui::style::Color::Cyan,
+            ColorRole::Add => ratatui::style::Color::Green,
+            ColorRole::Remove => ratatui::style::Color::Red,
+            ColorRole::Warning => ratatui::style::Color::Yellow,
+            ColorRole::Error => ratatui::style::Color::Red,
+            ColorRole::Highlight => ratatui::style::Color::Cyan,
+        }
+    }
+
+    /// Get the ratatui style for a color role, using RGB colors from the theme.
+    /// This preserves the current visual appearance while providing semantic meaning.
+    pub fn style_for_role(&self, role: ColorRole) -> ratatui::style::Style {
+        let color = match role {
+            ColorRole::Default => self.fg,
+            ColorRole::Muted => self.muted,
+            ColorRole::Accent => self.accent,
+            ColorRole::Add => self.add,
+            ColorRole::Remove => self.remove,
+            ColorRole::Warning => self.warning,
+            ColorRole::Error => self.error,
+            ColorRole::Highlight => self.highlight,
+        };
+        ratatui::style::Style::default().fg(to_ratatui_color(color))
+    }
+
+    /// Get the style for a color role, using ANSI colors if RGB is not supported.
+    /// This provides fallback for terminals with limited color support.
+    pub fn style_for_role_with_fallback(&self, role: ColorRole, color_domain: ColorDomain) -> ratatui::style::Style {
+        if color_domain.supports_rgb() {
+            self.style_for_role(role)
+        } else {
+            ratatui::style::Style::default().fg(self.ansi_color_for_role(role))
+        }
+    }
+
+    /// Get the bold style for a color role.
+    pub fn bold_style_for_role(&self, role: ColorRole) -> ratatui::style::Style {
+        self.style_for_role(role)
+            .add_modifier(ratatui::style::Modifier::BOLD)
+    }
+
+    /// Get the dim style for a color role.
+    pub fn dim_style_for_role(&self, role: ColorRole) -> ratatui::style::Style {
+        self.style_for_role(role)
+            .add_modifier(ratatui::style::Modifier::DIM)
+    }
+
+    /// Get the foreground color as a ratatui Color.
+    pub fn fg(&self) -> ratatui::style::Color {
+        to_ratatui_color(self.fg)
+    }
+
+    /// Get the background color as a ratatui Color.
+    pub fn bg(&self) -> ratatui::style::Color {
+        to_ratatui_color(self.bg)
+    }
+
+    /// Get the RGB color for a color role.
+    pub fn rgb_for_role(&self, role: ColorRole) -> Rgb {
+        match role {
+            ColorRole::Default => self.fg,
+            ColorRole::Muted => self.muted,
+            ColorRole::Accent => self.accent,
+            ColorRole::Add => self.add,
+            ColorRole::Remove => self.remove,
+            ColorRole::Warning => self.warning,
+            ColorRole::Error => self.error,
+            ColorRole::Highlight => self.highlight,
+        }
+    }
 }
 
 impl Theme {
@@ -556,6 +724,23 @@ pub fn load_theme_file() -> Option<Theme> {
     Some(theme)
 }
 
+/// Theme overrides file path: `$XDG_CONFIG_HOME/wf-cli/theme-overrides.json` (fallback
+/// `$HOME/.config/wf-cli/theme-overrides.json`). `None` when no home is discoverable.
+pub fn theme_overrides_path() -> Option<PathBuf> {
+    let base = std::env::var_os("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .filter(|p| p.is_absolute())
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))?;
+    Some(base.join("wf-cli").join("theme-overrides.json"))
+}
+
+/// Load theme overrides from the user's config directory.
+pub fn load_theme_overrides() -> Option<ThemeOverrides> {
+    let path = theme_overrides_path()?;
+    let raw = std::fs::read_to_string(path).ok()?;
+    serde_json::from_str(&raw).ok()
+}
+
 // ── live probing ──────────────────────────────────────────────────────
 
 /// Probe the terminal theme (OSC 11 background + OSC 10 foreground) with
@@ -568,17 +753,25 @@ pub fn probe_theme() -> Theme {
 /// [`probe_theme`] with an explicit timeout.
 pub fn probe_theme_with_timeout(timeout: Duration) -> Theme {
     // Priority: explicit user file → live OSC probe → cache → built-in.
-    if let Some(theme) = load_theme_file() {
-        return theme;
-    }
-    match probe_osc_colors(timeout) {
-        (Some(bg), fg) => {
-            let theme = derive_theme(bg, fg);
-            save_theme_cache(&theme);
-            theme
+    let mut theme = if let Some(theme) = load_theme_file() {
+        theme
+    } else {
+        match probe_osc_colors(timeout) {
+            (Some(bg), fg) => {
+                let theme = derive_theme(bg, fg);
+                save_theme_cache(&theme);
+                theme
+            }
+            (None, _) => fallback_theme(),
         }
-        (None, _) => fallback_theme(),
+    };
+
+    // Apply user overrides if present.
+    if let Some(overrides) = load_theme_overrides() {
+        theme = overrides.apply(theme);
     }
+
+    theme
 }
 
 /// Fallback chain: last-known-good cache → built-in dark theme.

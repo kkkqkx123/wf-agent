@@ -41,6 +41,22 @@ pub enum Role {
     Highlight,
 }
 
+impl Role {
+    /// Convert to the semantic ColorRole used by the theme.
+    pub fn to_color_role(self) -> crate::theme::ColorRole {
+        match self {
+            Role::Default => crate::theme::ColorRole::Default,
+            Role::Muted => crate::theme::ColorRole::Muted,
+            Role::Accent => crate::theme::ColorRole::Accent,
+            Role::Add => crate::theme::ColorRole::Add,
+            Role::Remove => crate::theme::ColorRole::Remove,
+            Role::Warning => crate::theme::ColorRole::Warning,
+            Role::Error => crate::theme::ColorRole::Error,
+            Role::Highlight => crate::theme::ColorRole::Highlight,
+        }
+    }
+}
+
 /// How a history line is presented.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum LineState {

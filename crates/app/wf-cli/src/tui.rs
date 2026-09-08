@@ -425,7 +425,7 @@ impl TuiApp {
             session.draw(frame, chunks[0], &self.theme);
         } else {
             // Fallback to screens if no interactive controller is active
-            self.screens.draw(frame, chunks[0], data);
+            self.screens.draw(frame, chunks[0], data, &self.theme);
         }
 
         // Draw overlay if active

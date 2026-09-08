@@ -1,14 +1,19 @@
 //! wf-cli: headless run and full TUI forms over the wf-agent runtime.
 
+pub mod animation;
 pub mod ansi;
 pub mod approval_overlay;
 pub mod approval_policy;
+pub mod app_config;
 pub mod args;
+pub mod bottom_pane;
+pub mod capabilities;
 pub mod cmd;
 pub mod composer;
 pub mod config;
 pub mod domain;
 pub mod error;
+pub mod event_dispatch;
 pub mod events;
 pub mod fetch;
 pub mod footer;
@@ -40,6 +45,7 @@ pub mod run;
 pub mod sanitize;
 pub mod screens;
 pub mod screen_draw;
+pub mod state;
 pub mod transcript;
 pub mod select;
 pub mod interactive;

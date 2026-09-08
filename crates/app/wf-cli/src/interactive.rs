@@ -23,6 +23,7 @@ use wf_api::{
     ToolApprovalResult,
 };
 
+use crate::animation::AnimationController;
 use crate::approval_overlay::{ApprovalChoice, ApprovalRemembered, ApprovalView};
 use crate::domain::DomainAdapter;
 use crate::footer::{Footer, FooterView};
@@ -278,6 +279,8 @@ pub struct InteractiveController {
     /// shutdown). Once set, late terminal error events are not rendered so
     /// quitting never flashes a spurious error row.
     graceful: bool,
+    /// Animation controller for UI animations.
+    animation: AnimationController,
 }
 
 impl InteractiveController {
@@ -336,6 +339,7 @@ impl InteractiveController {
             view_scroll: 0,
             scroll_at_top: false,
             graceful: false,
+            animation: AnimationController::default_enabled(),
         }
     }
 
@@ -911,7 +915,20 @@ impl InteractiveController {
             lines.extend(line.display_lines(width));
         }
         if let Some(streaming) = &self.streaming {
-            lines.extend(streaming.display_lines(width));
+            // Show spinner animation while streaming
+            let spinner_char = self.animation.spinner_char();
+            let mut streaming_lines = streaming.display_lines(width);
+            if let Some(first_line) = streaming_lines.first_mut() {
+                // Prepend spinner to the first line
+                let spinner_span = ratatui::text::Span::styled(
+                    format!("{} ", spinner_char),
+                    ratatui::style::Style::default()
+                        .fg(ratatui::style::Color::Cyan)
+                        .add_modifier(ratatui::style::Modifier::BOLD),
+                );
+                first_line.spans.insert(0, spinner_span);
+            }
+            lines.extend(streaming_lines);
         }
 
         // Anchor to the bottom (tail follow) unless the user scrolled up.

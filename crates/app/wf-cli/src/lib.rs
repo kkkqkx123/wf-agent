@@ -1,18 +1,24 @@
 //! wf-cli: headless run and full TUI forms over the wf-agent runtime.
 
+// Re-export shared modules from wf-cli-shared.
+pub use wf_cli_shared::{
+    args, cmd, config, domain, error, mode, output, remote, sanitize, turn, Cli, Command,
+    CliError, CliResult, HeadlessFileSink, OutputEnvelope, OutputFormat, OutputMessage, TeeSink,
+    DiagWriter, RunIo, RunOptions, RunOutcome,
+};
+pub use wf_cli_shared::run as shared_run;
+#[cfg(feature = "embedded")]
+pub use wf_cli_shared::default_runtime_config;
+
+// TUI-specific modules (ratatui-dependent).
 pub mod animation;
 pub mod ansi;
 pub mod approval_overlay;
 pub mod approval_policy;
 pub mod app_config;
-pub mod args;
 pub mod bottom_pane;
 pub mod capabilities;
-pub mod cmd;
 pub mod composer;
-pub mod config;
-pub mod domain;
-pub mod error;
 pub mod event_dispatch;
 pub mod events;
 pub mod fetch;
@@ -31,19 +37,14 @@ pub mod model_picker;
 pub mod password_modal;
 pub mod file_viewer;
 pub mod file_selection;
-pub mod mode;
-pub mod output;
 pub mod overlay;
 pub mod panels;
 pub mod question_overlay;
 pub mod queue;
 pub mod reducer;
-pub mod remote;
 pub mod render;
 pub mod renderable;
 pub mod replay;
-pub mod run;
-pub mod sanitize;
 pub mod screens;
 pub mod screen_draw;
 pub mod state;
@@ -58,131 +59,44 @@ pub mod sigint;
 pub mod theme;
 pub mod tui;
 pub mod tui_debug;
-pub mod turn;
-
-pub use ansi::AnsiParser;
-pub use args::{Cli, Command};
-pub use composer::Composer;
-pub use error::{CliError, CliResult};
-pub use footer::{Footer, FooterRoute, FooterView};
-pub use status_line::FooterState;
-pub use framer::{FrameRateLimiter, FrameRequester};
-pub use history_cell::{
-    AssistantMessageCell, ErrorCell, HistoryCell, PlainCell, StatusCell, ToolCallCell,
-    UserMessageCell,
-};
-pub use keymap::{Key, KeyAction, Keymap, KeymapContext};
-pub use output::{
-    HeadlessFileSink, MemorySink, OutputEnvelope, OutputFormat, OutputMessage, TeeSink,
-};
-pub use run::{DiagWriter, RunIo, RunOptions, RunOutcome};
-pub use transcript::{HistoryLine, LineState, LinesView, Role};
-pub use select::{Group, GroupItem, NavigateDir, SelectList};
-pub use size::{ResizeDebouncer, Size};
 
 use std::sync::Arc;
 
-use wf_runtime::bootstrap::RuntimeConfig;
-
-use crate::domain::{DomainAdapter, DomainHandle};
-use crate::mode::{CliMode, ModeResolver, ResolvedMode};
-use crate::output::OutputSink;
+use wf_cli_shared::domain::DomainAdapter;
+use wf_cli_shared::mode::{CliMode, ModeResolver};
 
 /// CLI entry point: resolve the interactive form and dispatch.
 pub async fn run(cli: Cli) -> CliResult<()> {
     if matches!(cli.command, Some(Command::DebugMode)) {
-        return debug_mode(&cli).await;
+        return wf_cli_shared::debug_mode(&cli).await;
     }
     if matches!(cli.command, Some(Command::DebugTerminal { .. })) {
         return debug_terminal(&cli).await;
     }
+    // Delegate subcommands and headless to shared library.
     match &cli.command {
-        Some(Command::Workflow { sub }) => {
-            return cmd::workflow::run(&cli, sub).await;
-        }
-        Some(Command::Execution { sub }) => {
-            return cmd::execution::run(&cli, sub).await;
-        }
-        Some(Command::LlmProfile { sub }) => {
-            return cmd::llm::run(&cli, sub).await;
-        }
-        Some(Command::Skill { sub }) => {
-            return cmd::skill::run(&cli, sub).await;
-        }
-        Some(Command::Search { query, limit }) => {
-            return cmd::search::run(&cli, query, *limit).await;
-        }
-        Some(Command::Query {
-            status,
-            workflow_id,
-            limit,
-            sort,
-            desc,
-            offset,
-            aggregate,
-            export,
-            filter,
-        }) => {
-            return cmd::query::run(
-                &cli,
-                cmd::query::QueryOptions {
-                    status: status.as_deref(),
-                    workflow_id: workflow_id.as_deref(),
-                    limit: *limit,
-                    sort: sort.as_deref(),
-                    desc: *desc,
-                    offset: *offset,
-                    aggregate: aggregate.as_deref(),
-                    export: export.as_deref(),
-                    filter: filter.as_deref(),
-                },
-            )
-            .await;
-        }
-        Some(Command::Checkpoint { sub }) => {
-            return cmd::checkpoint::run(&cli, sub).await;
-        }
-        Some(Command::Audit { sub }) => {
-            return cmd::audit::run(&cli, sub).await;
-        }
-        Some(Command::Event { sub }) => {
-            return cmd::event::run(&cli, sub).await;
-        }
-        Some(Command::Variable { sub }) => {
-            return cmd::variable::run(&cli, sub).await;
-        }
-        Some(Command::Message { sub }) => {
-            return cmd::message::run(&cli, sub).await;
-        }
-        Some(Command::Tool { sub }) => {
-            return cmd::tool::run(&cli, sub).await;
-        }
-        Some(Command::Script { sub }) => {
-            return cmd::script::run(&cli, sub).await;
-        }
-        Some(Command::Trigger { sub }) => {
-            return cmd::trigger::run(&cli, sub).await;
-        }
-        Some(Command::Template { sub }) => {
-            return cmd::template::run(&cli, sub).await;
-        }
-        Some(Command::Approval { sub }) => {
-            return cmd::approval::run(&cli, sub).await;
-        }
-        Some(Command::Task { sub }) => {
-            return cmd::task::run(&cli, sub).await;
-        }
-        Some(Command::Metrics { sub }) => {
-            return cmd::metrics::run(&cli, sub).await;
-        }
-        Some(Command::Analysis { sub }) => {
-            return cmd::analysis::run(&cli, sub).await;
-        }
-        Some(Command::Health) => {
-            return cmd::diagnostics::run_health(&cli).await;
-        }
-        Some(Command::Diagnostics) => {
-            return cmd::diagnostics::run_diagnostics(&cli).await;
+        Some(Command::Workflow { .. })
+        | Some(Command::Execution { .. })
+        | Some(Command::LlmProfile { .. })
+        | Some(Command::Skill { .. })
+        | Some(Command::Search { .. })
+        | Some(Command::Query { .. })
+        | Some(Command::Checkpoint { .. })
+        | Some(Command::Audit { .. })
+        | Some(Command::Event { .. })
+        | Some(Command::Variable { .. })
+        | Some(Command::Message { .. })
+        | Some(Command::Tool { .. })
+        | Some(Command::Script { .. })
+        | Some(Command::Trigger { .. })
+        | Some(Command::Template { .. })
+        | Some(Command::Approval { .. })
+        | Some(Command::Task { .. })
+        | Some(Command::Metrics { .. })
+        | Some(Command::Analysis { .. })
+        | Some(Command::Health)
+        | Some(Command::Diagnostics) => {
+            return wf_cli_shared::run(cli).await;
         }
         _ => {}
     }
@@ -191,96 +105,23 @@ pub async fn run(cli: Cli) -> CliResult<()> {
     let resolved = ModeResolver::resolve(&cli, stdin_tty, stdout_tty)?;
 
     match resolved.cli_mode {
-        CliMode::Run => run_headless(&cli, &resolved, stdout_tty).await,
+        CliMode::Run => {
+            // Delegate headless to shared library.
+            wf_cli_shared::run(cli).await
+        }
         CliMode::Tui => run_interactive(&cli, &resolved, stdout_tty).await,
     }
 }
 
-/// Build the primary output sink for a CLI invocation: stdout (or the file /
-/// pipe target) optionally teed into the `--log` file.
-fn build_sink(cli: &Cli, stdout_tty: bool) -> CliResult<Box<dyn OutputSink + Send>> {
-    let color = !cli.no_color && stdout_tty;
-    let main: Box<dyn OutputSink + Send> = Box::new(HeadlessFileSink::stdout(cli.output, color));
-    if let Some(path) = &cli.log {
-        // Files never receive ANSI escapes.
-        let file = HeadlessFileSink::file(path, cli.output, false)?;
-        Ok(Box::new(TeeSink::new(vec![main, Box::new(file)])))
-    } else {
-        Ok(main)
-    }
-}
-
-/// Headless single-session form (`wf run` / piped stdin / `--no-tui`).
-///
-/// Bootstrap the runtime, drive one streaming agent or workflow session
-/// ([`run::run_session`]) with the headless approval degradation, then tear
-/// the runtime down preserving the session outcome.
-async fn run_headless(cli: &Cli, resolved: &ResolvedMode, stdout_tty: bool) -> CliResult<()> {
-    use std::io::IsTerminal;
-
-    let format = cli.output;
-    let sink = build_sink(cli, stdout_tty)?;
-    let diag_color = !cli.no_color && std::io::stderr().is_terminal();
-
-    let (arg_prompt, agent, model, approve_prefixes, workflow, input) = match &cli.command {
-        Some(Command::Run {
-            prompt,
-            agent,
-            model,
-            approve_prefixes,
-            workflow,
-            input,
-            remote: _,
-        }) => (
-            prompt.clone(),
-            agent.clone(),
-            model.clone(),
-            approve_prefixes.clone(),
-            workflow.clone(),
-            input.clone(),
-        ),
-        _ => (None, None, None, Vec::new(), None, None),
-    };
-    let prompt = resolved
-        .stdin_prompt
-        .clone()
-        .or(arg_prompt)
-        .unwrap_or_default();
-
-    let opts = RunOptions {
-        prompt,
-        agent_id: agent,
-        model,
-        approve_prefixes,
-        workflow,
-        workflow_input: input,
-    };
-
-    let domain = DomainHandle::from_cli(cli, CliMode::Run).await?;
-    let io = RunIo {
-        sink,
-        diag: std::sync::Arc::new(std::sync::Mutex::new(DiagWriter::stderr(diag_color))),
-        format,
-    };
-
-    let session = match &domain {
-        DomainHandle::Embedded(adapter) => run::run_session(adapter, opts, io).await,
-        DomainHandle::Remote(remote) => run::run_session_remote(remote.client(), opts, io).await,
-    };
-    domain.shutdown().await?;
-    session.map(|_| ())
-}
-
-/// Interactive forms (mini / full TUI).
-async fn run_interactive(cli: &Cli, resolved: &ResolvedMode, stdout_tty: bool) -> CliResult<()> {
-    let cli_mode = resolved.cli_mode;
+/// Interactive forms (full TUI).
+async fn run_interactive(cli: &Cli, resolved: &wf_cli_shared::mode::ResolvedMode, stdout_tty: bool) -> CliResult<()> {
     if !stdout_tty {
         return Err(CliError::Arguments(format!(
             "interactive form {:?} requires a TTY (use `wf run` or --no-tui in pipes)",
-            cli_mode
+            resolved.cli_mode
         )));
     }
-    match cli_mode {
+    match resolved.cli_mode {
         CliMode::Tui => {
             let adapter = DomainAdapter::bootstrap_for_cli(cli, CliMode::Tui).await?;
             let app = crate::tui::TuiApp::new(Arc::new(adapter));
@@ -290,49 +131,13 @@ async fn run_interactive(cli: &Cli, resolved: &ResolvedMode, stdout_tty: bool) -
     }
 }
 
-/// Diagnostics for the `debug-mode` subcommand (resolved routing).
-pub async fn debug_mode(cli: &Cli) -> CliResult<()> {
-    let (stdin_tty, stdout_tty) = mode::real_tty_status();
-    let resolved = ModeResolver::resolve(cli, stdin_tty, stdout_tty)?;
-    let mut sink = build_sink(cli, stdout_tty)?;
-
-    let data = serde_json::json!({
-        "mode": match resolved.cli_mode {
-            CliMode::Run => "run",
-            CliMode::Tui => "tui",
-        },
-        "outputFormat": format!("{:?}", cli.output),
-        "stdinTty": stdin_tty,
-        "stdoutTty": stdout_tty,
-        "logFile": cli.log.as_ref().map(|p| p.to_string_lossy().to_string()),
-    });
-    let envelope = OutputEnvelope::success("debug", data);
-    if let Some(line) = envelope.render(cli.output) {
-        sink.write_raw(&line)?;
-    }
-    sink.flush()?;
-    Ok(())
-}
-
-/// Construct a runtime config with CLI defaults (memory storage, warn
-/// logging). Interactive forms and tests build on this.
-pub fn default_runtime_config() -> RuntimeConfig {
-    RuntimeConfig::default()
-}
-
 /// Terminal facility probe (`wf debug-terminal`).
-///
-/// Exercises the whole terminal facility surface against the *real* terminal
-/// when stdout is a TTY: theme detection, guard enter/restore, a
-/// `with_restored` external-command window and the "redraw after re-enter"
-/// duty. Without a TTY it only verifies the degradation paths (default
-/// theme fallback, no guard activation) and exits 0.
 pub async fn debug_terminal(cli: &Cli) -> CliResult<()> {
     use crate::terminal::{install_panic_hook, CrosstermControl, TerminalGuard, TerminalModes};
     use crate::theme::{self, ThemeSource};
 
     let (_stdin_tty, stdout_tty) = mode::real_tty_status();
-    let mut sink = build_sink(cli, stdout_tty)?;
+    let mut sink = wf_cli_shared::build_sink(cli, stdout_tty)?;
     let theme = theme::probe_theme();
 
     let Some(Command::DebugTerminal { alt_screen, exec }) = &cli.command else {
@@ -342,7 +147,6 @@ pub async fn debug_terminal(cli: &Cli) -> CliResult<()> {
     };
 
     if !stdout_tty {
-        // CI / pipe degradation path: no guard, default/cached theme.
         sink.write_text(&format!(
             "[wf] no tty: terminal guard not activated (alt_screen={alt_screen}, would run {:?}); \
              theme {} kind {:?} ({}), domain {:?}",
@@ -377,8 +181,6 @@ pub async fn debug_terminal(cli: &Cli) -> CliResult<()> {
     let mut guard = TerminalGuard::new(CrosstermControl::new(std::io::stdout()));
     guard.enter(entered)?;
 
-    // Simulated frame while the modes are active (raw mode needs \r\n and
-    // writes bypass the headless sink — stderr keeps stdout clean).
     eprintln!("[frame] terminal modes active: {:?}", guard.modes());
 
     let exec_status = guard.with_restored(None, || {
@@ -389,7 +191,6 @@ pub async fn debug_terminal(cli: &Cli) -> CliResult<()> {
             .status()
     })?;
 
-    // Redraw duty after the window: another simulated frame.
     eprintln!(
         "[frame] redraw after with_restored (modes: {:?})",
         guard.modes()

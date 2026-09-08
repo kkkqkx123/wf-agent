@@ -1,0 +1,30 @@
+[package]
+name = "wf-mini"
+version.workspace = true
+edition.workspace = true
+description = "wf-agent lightweight TUI: crossterm-based interactive agent without ratatui"
+
+[dependencies]
+clap.workspace = true
+crossterm.workspace = true
+tokio.workspace = true
+async-trait.workspace = true
+futures.workspace = true
+serde_json.workspace = true
+unicode-width.workspace = true
+unicode-segmentation.workspace = true
+wf-common = { path = "../../foundation/wf-common" }
+wf-types = { path = "../../foundation/wf-types" }
+wf-api = { path = "../wf-api" }
+wf-cli-shared = { path = "../wf-cli-shared" }
+
+[features]
+default = ["embedded"]
+embedded = ["wf-cli-shared/embedded"]
+remote = ["wf-cli-shared/remote"]
+lua = ["wf-cli-shared/lua"]
+native = ["wf-cli-shared/native"]
+
+[[bin]]
+name = "wf-mini"
+path = "src/main.rs"

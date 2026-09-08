@@ -1,21 +1,12 @@
 [package]
-name = "wf-cli"
+name = "wf-cli-shared"
 version.workspace = true
 edition.workspace = true
-description = "wf-agent command line interface: headless run and full TUI modes"
+description = "Shared logic for wf-cli targets (headless, mini, full TUI)"
 
 [dependencies]
 clap.workspace = true
 async-trait.workspace = true
-crossterm.workspace = true
-ratatui.workspace = true
-unicode-width.workspace = true
-unicode-segmentation.workspace = true
-pulldown-cmark.workspace = true
-futures.workspace = true
-libc.workspace = true
-regex.workspace = true
-globset.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 toml.workspace = true
@@ -26,12 +17,21 @@ thiserror.workspace = true
 reqwest.workspace = true
 eventsource-stream.workspace = true
 tokio-util.workspace = true
+regex.workspace = true
+globset.workspace = true
+futures.workspace = true
 wf-common = { path = "../../foundation/wf-common" }
 wf-types = { path = "../../foundation/wf-types" }
 wf-core = { path = "../../foundation/wf-core" }
 wf-api = { path = "../wf-api" }
 wf-runtime = { path = "../wf-runtime", optional = true }
-wf-cli-shared = { path = "../wf-cli-shared" }
+
+[features]
+default = ["embedded"]
+embedded = ["dep:wf-runtime"]
+remote = ["reqwest/json", "reqwest/stream"]
+lua = ["wf-runtime/lua"]
+native = ["wf-runtime/native"]
 
 [dev-dependencies]
 tempfile = "3"
@@ -39,15 +39,3 @@ insta = "1"
 wf-llm = { path = "../../infra/wf-llm", features = ["mock"] }
 wf-storage = { path = "../../infra/wf-storage" }
 wf-resource = { path = "../../infra/wf-resource" }
-
-[features]
-default = ["embedded"]
-embedded = ["dep:wf-runtime", "wf-cli-shared/embedded"]
-remote = ["reqwest/json", "reqwest/stream", "wf-cli-shared/remote"]
-lua = ["wf-runtime/lua", "wf-cli-shared/lua"]
-native = ["wf-runtime/native", "wf-cli-shared/native"]
-diff-record = []
-
-[[bin]]
-name = "wf"
-path = "src/main.rs"

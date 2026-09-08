@@ -25,6 +25,9 @@ members = [
     "crates/app/wf-api",
     "crates/app/wf-server",
     "crates/app/wf-runtime",
+    "crates/app/wf-cli-shared",
+    "crates/app/wf-headless",
+    "crates/app/wf-mini",
     "crates/app/wf-cli",
     # vendor
     "crates/vendor/layertwine",

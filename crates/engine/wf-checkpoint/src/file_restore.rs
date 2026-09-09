@@ -200,9 +200,11 @@ impl FileCheckpointManager {
             let base = base_dir.canonicalize().map_err(CheckpointError::Io)?;
             let mut existing = dir.as_path();
             while !existing.exists() {
-                existing = existing.parent().ok_or_else(|| CheckpointError::Validation {
-                    reason: format!("cannot resolve restore path '{empty_dir}'"),
-                })?;
+                existing = existing
+                    .parent()
+                    .ok_or_else(|| CheckpointError::Validation {
+                        reason: format!("cannot resolve restore path '{empty_dir}'"),
+                    })?;
             }
             let canonical_parent = existing.canonicalize().map_err(CheckpointError::Io)?;
             if !canonical_parent.starts_with(&base) {

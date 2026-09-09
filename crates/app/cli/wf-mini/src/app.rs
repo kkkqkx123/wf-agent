@@ -192,12 +192,9 @@ impl MiniApp {
             let _ = task.await;
         }
         // Convert Arc back to Box for shutdown.
-        match Arc::try_unwrap(self.adapter) {
-            Ok(adapter) => {
-                let boxed = Box::new(adapter);
-                let _ = boxed.shutdown().await;
-            }
-            Err(_) => {}
+        if let Ok(adapter) = Arc::try_unwrap(self.adapter) {
+            let boxed = Box::new(adapter);
+            let _ = boxed.shutdown().await;
         }
 
         result
@@ -498,26 +495,24 @@ impl MiniApp {
         let width = self.renderer.width() as usize;
         let rows = self.renderer.scrollback_rows();
 
-        // Build visible scrollback lines.
-        let mut visible: Vec<(Role, String)> = Vec::new();
+        // Visible scrollback window, honoring the PageUp/PageDown offset.
+        // At the tail this matches the previous unconditional tail-follow.
+        let mut visible: Vec<(Role, String)> = self.scrollback.visible(rows, width);
 
-        // Add committed scrollback lines.
-        for line in self.scrollback.lines() {
-            for wrapped in line.wrapped(width) {
-                visible.push((line.role, wrapped.to_string()));
+        // Streaming tail line with spinner. Pinned at the live tail only: a
+        // scrolled-up viewport stays frozen on history until PageDown
+        // returns to the tail.
+        if self.scrollback.is_at_tail() {
+            if let Some(ref tail) = self.streaming_tail {
+                let spinner = SPINNER_FRAMES[self.spinner_tick as usize % SPINNER_FRAMES.len()];
+                let line = format!("{spinner} {tail}");
+                for wrapped in wrap_string(&line, width) {
+                    visible.push((Role::Default, wrapped));
+                }
             }
         }
 
-        // Add streaming tail line with spinner.
-        if let Some(ref tail) = self.streaming_tail {
-            let spinner = SPINNER_FRAMES[self.spinner_tick as usize % SPINNER_FRAMES.len()];
-            let line = format!("{spinner} {tail}");
-            for wrapped in wrap_string(&line, width) {
-                visible.push((Role::Default, wrapped));
-            }
-        }
-
-        // Compute visible window (tail-follow: show the last `rows` lines).
+        // Fit the viewport: show the last `rows` lines.
         let total = visible.len();
         let start = total.saturating_sub(rows);
         let window: Vec<(Role, String)> = visible.into_iter().skip(start).take(rows).collect();

@@ -318,10 +318,9 @@ fn filter_event(
             return None;
         }
         let ignored = |p: &Path| {
-            p.strip_prefix(root).map(|relative| {
-                scanner.is_ignored(&relative.to_string_lossy().replace('\\', "/"))
-            })
-            .unwrap_or(false)
+            p.strip_prefix(root)
+                .map(|relative| scanner.is_ignored(&relative.to_string_lossy().replace('\\', "/")))
+                .unwrap_or(false)
         };
         if ignored(&from) || ignored(&to) {
             return None;

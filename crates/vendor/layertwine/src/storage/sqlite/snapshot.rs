@@ -1,6 +1,6 @@
 use crate::core::file_node::FileNode;
 use crate::core::snapshot::{Snapshot, SnapshotCompression, SnapshotContent};
-use crate::core::types::{ContentId, SnapshotId};
+use crate::core::types::{ContentId, DeltaId, SnapshotId};
 use crate::storage::repository::{AtomicOps, SnapshotStore};
 use crate::storage::sqlite::connection::SqliteStorage;
 use crate::StorageResult;
@@ -98,18 +98,14 @@ fn is_missing_message_column(e: &crate::StorageError) -> bool {
             use rusqlite::ErrorCode;
             // `no such column: message` surfaces as UnknownFailure; match the
             // message text instead of the extended code for robustness.
-            err.code == ErrorCode::Unknown
-                && msg.as_deref().unwrap_or_default().contains("message")
+            err.code == ErrorCode::Unknown && msg.as_deref().unwrap_or_default().contains("message")
         }
         crate::StorageError::Database(e) => e.to_string().contains("message"),
         _ => false,
     }
 }
 
-fn insert_snapshot_row(
-    conn: &rusqlite::Connection,
-    snapshot: &Snapshot,
-) -> StorageResult<()> {
+fn insert_snapshot_row(conn: &rusqlite::Connection, snapshot: &Snapshot) -> StorageResult<()> {
     let deltas_json = serde_json::to_vec(&snapshot.deltas)?;
     let parents_json = serde_json::to_vec(&snapshot.parents)?;
 
@@ -323,6 +319,40 @@ impl SnapshotStore for SqliteStorage {
         Ok(result)
     }
 
+    fn snapshot_chain_heads(
+        &self,
+        ids: &[SnapshotId],
+    ) -> StorageResult<Vec<(SnapshotId, Option<DeltaId>)>> {
+        let mut out = Vec::with_capacity(ids.len());
+        if ids.is_empty() {
+            return Ok(out);
+        }
+        let conn = self.conn.lock();
+        // Only (id, deltas) columns: no content blobs cross the wire.
+        for chunk in ids.chunks(400) {
+            let placeholders: Vec<String> = (0..chunk.len()).map(|_| "?".to_string()).collect();
+            let sql = format!(
+                "SELECT id, deltas FROM snapshots WHERE id IN ({})",
+                placeholders.join(", ")
+            );
+            let mut stmt = conn.prepare(&sql)?;
+            let blob_params: Vec<Vec<u8>> = chunk.iter().map(|id| id.0.to_vec()).collect();
+            let param_refs: Vec<&[u8]> = blob_params.iter().map(|v| v.as_slice()).collect();
+            let rows = stmt.query_map(rusqlite::params_from_iter(&param_refs), |row| {
+                let id_bytes: Vec<u8> = row.get(0)?;
+                let deltas_json: Vec<u8> = row.get(1)?;
+                Ok((id_bytes, deltas_json))
+            })?;
+            for row in rows {
+                let (id_bytes, deltas_json) = row?;
+                let deltas: Vec<DeltaId> = serde_json::from_slice(&deltas_json)
+                    .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(e)))?;
+                out.push((ContentId(bytes_to_array(&id_bytes)), deltas.last().copied()));
+            }
+        }
+        Ok(out)
+    }
+
     fn store_snapshots_batch(&self, snapshots: &[(&Snapshot, &[u8])]) -> StorageResult<()> {
         self.with_atomic(|storage| {
             for (snapshot, content) in snapshots {
@@ -353,16 +383,14 @@ impl SqliteStorage {
         let conn = self.conn.lock();
         // Chunk the IN list to stay under SQLite's variable limit.
         for chunk in ids.chunks(400) {
-            let placeholders: Vec<String> =
-                (0..chunk.len()).map(|_| "?".to_string()).collect();
+            let placeholders: Vec<String> = (0..chunk.len()).map(|_| "?".to_string()).collect();
             let sql = format!(
                 "SELECT {} FROM snapshots WHERE id IN ({})",
                 snapshot_select_columns(),
                 placeholders.join(", ")
             );
             let mut stmt = conn.prepare(&sql)?;
-            let blob_params: Vec<Vec<u8>> =
-                chunk.iter().map(|id| id.0.to_vec()).collect();
+            let blob_params: Vec<Vec<u8>> = chunk.iter().map(|id| id.0.to_vec()).collect();
             let param_refs: Vec<&[u8]> = blob_params.iter().map(|v| v.as_slice()).collect();
             let rows = stmt.query_map(rusqlite::params_from_iter(&param_refs), row_to_snapshot)?;
             for snapshot in rows {
@@ -373,5 +401,3 @@ impl SqliteStorage {
         Ok(map)
     }
 }
-
-

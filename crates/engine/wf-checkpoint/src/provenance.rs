@@ -11,12 +11,12 @@
 //! Plus workspace state (`get_actor_workspace`) and difference queries
 //! (`diff_actors` /.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use layertwine::core::delta::Delta;
 use layertwine::core::partition::Partition;
 use layertwine::core::snapshot::Snapshot;
-use layertwine::core::types::{AgentInstanceId, PartitionType, SnapshotId, SourceType};
+use layertwine::core::types::{AgentInstanceId, DeltaId, PartitionType, SnapshotId, SourceType};
 use layertwine::engine::merge::merge_texts;
 use layertwine::storage::repository::{DeltaStore, PartitionStore, SnapshotStore};
 use layertwine::storage::sqlite::SqliteStorage;
@@ -158,22 +158,31 @@ fn snapshot_content_bytes(
     crate::file_util::snapshot_content_bytes(storage, snapshot)
 }
 
-/// Batch-resolve the file path of many snapshots with two SQL queries
-/// (one snapshot batch + one delta batch) instead of N+1 round trips.
-/// Snapshots without a resolvable path are skipped.
-fn batch_snapshot_paths(
+/// Batch-load the chain-head delta of many snapshots with a single SQL
+/// query instead of N+1 round trips. Callers build the map once and reuse
+/// it for both path resolution (`batch_snapshot_paths_from_map`) and
+/// source/message lookup.
+fn chain_head_delta_map(
     storage: &SqliteStorage,
     snapshots: &HashMap<SnapshotId, Snapshot>,
-) -> HashMap<SnapshotId, String> {
-    use layertwine::storage::repository::DeltaStore;
-    let delta_ids: Vec<layertwine::core::types::DeltaId> = snapshots
+) -> HashMap<DeltaId, Delta> {
+    let delta_ids: Vec<DeltaId> = snapshots
         .values()
         .filter_map(|s| s.deltas.last().copied())
         .collect();
-    let delta_map: HashMap<layertwine::core::types::DeltaId, Delta> = storage
+    storage
         .get_deltas(&delta_ids)
         .map(|deltas| deltas.into_iter().map(|d| (d.id, d)).collect())
-        .unwrap_or_default();
+        .unwrap_or_default()
+}
+
+/// Resolve the file path of many snapshots from a preloaded chain-head
+/// delta map (pure, no I/O). Snapshots without a resolvable path are
+/// skipped by the caller.
+fn batch_snapshot_paths_from_map(
+    snapshots: &HashMap<SnapshotId, Snapshot>,
+    delta_map: &HashMap<DeltaId, Delta>,
+) -> HashMap<SnapshotId, String> {
     snapshots
         .iter()
         .map(|(id, snapshot)| {
@@ -186,6 +195,17 @@ fn batch_snapshot_paths(
             (*id, path)
         })
         .collect()
+}
+
+/// Batch-resolve the file path of many snapshots with two SQL queries
+/// (one snapshot batch + one delta batch) instead of N+1 round trips.
+/// Snapshots without a resolvable path are skipped.
+fn batch_snapshot_paths(
+    storage: &SqliteStorage,
+    snapshots: &HashMap<SnapshotId, Snapshot>,
+) -> HashMap<SnapshotId, String> {
+    let delta_map = chain_head_delta_map(storage, snapshots);
+    batch_snapshot_paths_from_map(snapshots, &delta_map)
 }
 
 /// Resolve the last snapshot per file path from a partition history, in
@@ -285,7 +305,8 @@ pub fn list_changes_by_actor(
     let snap_map = storage
         .get_snapshots_map(&partition.history)
         .map_err(map_layertwine_error)?;
-    let path_map = batch_snapshot_paths(storage, &snap_map);
+    let delta_map = chain_head_delta_map(storage, &snap_map);
+    let path_map = batch_snapshot_paths_from_map(&snap_map, &delta_map);
     let mut changes = Vec::new();
     for snapshot_id in &partition.history {
         let Some(snapshot) = snap_map.get(snapshot_id) else {
@@ -302,7 +323,10 @@ pub fn list_changes_by_actor(
                 continue;
             }
         }
-        let last_delta = snapshot_last_delta(storage, snapshot)?;
+        let last_delta = snapshot
+            .deltas
+            .last()
+            .and_then(|delta_id| delta_map.get(delta_id));
         let source = last_delta
             .as_ref()
             .map(|d| source_label(&d.source))
@@ -321,6 +345,60 @@ pub fn list_changes_by_actor(
     Ok(changes)
 }
 
+/// Candidate snapshot ids touching `path` that are referenced by some
+/// partition history, in deterministic order.
+///
+/// A delta-chain snapshot's own file node is its base (see layertwine
+/// `Snapshot::from_parent`), so the edited path is only visible through the
+/// chain-head delta. Candidates are therefore the union of:
+/// (a) history snapshots whose chain head is a delta recorded for `path`
+///     (SQL-indexed via `idx_deltas_file_timestamp`), and
+/// (b) history snapshots stored directly under `path` that carry no delta
+///     (full-content snapshots).
+/// Time filtering stays on `Snapshot.created_at` in memory: delta and
+/// snapshot timestamps are distinct clocks and must not be mixed.
+fn candidate_snapshot_ids_for_path(
+    storage: &SqliteStorage,
+    path: &str,
+) -> Result<Vec<SnapshotId>, CheckpointError> {
+    let partitions = storage.list_partitions().map_err(map_layertwine_error)?;
+    let history_ids: Vec<SnapshotId> = partitions
+        .iter()
+        .flat_map(|p| p.history.iter().copied())
+        .collect();
+    let head_by_snapshot: HashMap<SnapshotId, Option<DeltaId>> = storage
+        .snapshot_chain_heads(&history_ids)
+        .map_err(map_layertwine_error)?
+        .into_iter()
+        .collect();
+    let delta_hits: HashSet<DeltaId> = storage
+        .find_deltas_by_file_and_time(path, None)
+        .map_err(map_layertwine_error)?
+        .into_iter()
+        .map(|d| d.id)
+        .collect();
+    let mut seen: HashSet<SnapshotId> = HashSet::new();
+    let mut ordered: Vec<SnapshotId> = Vec::new();
+    for id in history_ids {
+        let matches_path =
+            matches!(head_by_snapshot.get(&id), Some(Some(head)) if delta_hits.contains(head));
+        if matches_path && seen.insert(id) {
+            ordered.push(id);
+        }
+    }
+    // Full-content snapshots (empty delta chain) are stored under the edited
+    // path directly; the chain-head join above cannot see them.
+    let direct = storage
+        .find_snapshots_by_file(path)
+        .map_err(map_layertwine_error)?;
+    for snapshot in direct {
+        if snapshot.deltas.is_empty() && seen.insert(snapshot.id) {
+            ordered.push(snapshot.id);
+        }
+    }
+    Ok(ordered)
+}
+
 /// Changes touching `path` across every partition (`list_changes_by_path`).
 /// `time_range` (inclusive `(start, end)` timestamps) narrows the window.
 pub fn list_changes_by_path(
@@ -328,50 +406,52 @@ pub fn list_changes_by_path(
     path: &str,
     time_range: Option<(i64, i64)>,
 ) -> Result<Vec<DeltaSummary>, CheckpointError> {
-    let partitions = storage.list_partitions().map_err(map_layertwine_error)?;
-    // One batched snapshot load across all partitions; path/time filters
-    // apply before content reconstruction.
-    let all_ids: Vec<SnapshotId> = partitions
-        .iter()
-        .flat_map(|p| p.history.iter().copied())
-        .collect();
+    // SQL-indexed candidate prefilter (delta path match + full-content
+    // match): only snapshots that can resolve to `path` are loaded, instead
+    // of every partition's full history.
+    let ordered_ids = candidate_snapshot_ids_for_path(storage, path)?;
     let snap_map = storage
-        .get_snapshots_map(&all_ids)
+        .get_snapshots_map(&ordered_ids)
         .map_err(map_layertwine_error)?;
-    let path_map = batch_snapshot_paths(storage, &snap_map);
+    let delta_map = chain_head_delta_map(storage, &snap_map);
+    let path_map = batch_snapshot_paths_from_map(&snap_map, &delta_map);
     let mut changes = Vec::new();
-    for partition in &partitions {
-        for snapshot_id in &partition.history {
-            let Some(snapshot) = snap_map.get(snapshot_id) else {
-                continue;
-            };
-            let Some(snapshot_path) = path_map.get(snapshot_id) else {
-                continue;
-            };
-            if *snapshot_path == SEED_PATH || *snapshot_path != path {
-                continue;
-            }
-            if let Some((start, end)) = time_range {
-                if snapshot.created_at < start || snapshot.created_at > end {
-                    continue;
-                }
-            }
-            let last_delta = snapshot_last_delta(storage, snapshot)?;
-            let source = last_delta
-                .as_ref()
-                .map(|d| source_label(&d.source))
-                .unwrap_or_else(|| "agent".to_string());
-            let message = last_delta.and_then(|d| d.message.clone());
-            let content = snapshot_content_bytes(storage, snapshot)?;
-            changes.push(DeltaSummary {
-                file: snapshot_path.clone(),
-                source,
-                timestamp: snapshot.created_at,
-                snapshot_id: snapshot.id.to_hex(),
-                hash: sha256_hex(&content),
-                message,
-            });
+    for snapshot_id in &ordered_ids {
+        let Some(snapshot) = snap_map.get(snapshot_id) else {
+            continue;
+        };
+        let Some(snapshot_path) = path_map.get(snapshot_id) else {
+            continue;
+        };
+        // Path is re-resolved through the chain-head delta (a snapshot's own
+        // file node is its base, which may differ for merges); the SQL
+        // prefilter is only a candidate set.
+        if *snapshot_path == SEED_PATH || *snapshot_path != path {
+            continue;
         }
+        if let Some((start, end)) = time_range {
+            if snapshot.created_at < start || snapshot.created_at > end {
+                continue;
+            }
+        }
+        let last_delta = snapshot
+            .deltas
+            .last()
+            .and_then(|delta_id| delta_map.get(delta_id));
+        let source = last_delta
+            .as_ref()
+            .map(|d| source_label(&d.source))
+            .unwrap_or_else(|| "agent".to_string());
+        let message = last_delta.and_then(|d| d.message.clone());
+        let content = snapshot_content_bytes(storage, snapshot)?;
+        changes.push(DeltaSummary {
+            file: snapshot_path.clone(),
+            source,
+            timestamp: snapshot.created_at,
+            snapshot_id: snapshot.id.to_hex(),
+            hash: sha256_hex(&content),
+            message,
+        });
     }
     changes.sort_by_key(|c| c.timestamp);
     Ok(changes)
@@ -807,44 +887,51 @@ pub fn file_timeline(storage: &SqliteStorage, path: &str) -> Result<FileTimeline
         moved_from_map.insert(m.to_path.clone(), m.from_path.clone());
     }
 
-    // Collect all snapshots touching any of these paths across all partitions
-    // (single batched snapshot load).
-    let partitions = storage.list_partitions().map_err(map_layertwine_error)?;
-    let all_ids: Vec<SnapshotId> = partitions
-        .iter()
-        .flat_map(|p| p.history.iter().copied())
-        .collect();
+    // Collect snapshots touching any of these paths via SQL-indexed
+    // candidate lookup per path (delta path match + full-content match)
+    // instead of loading every partition's full history.
+    let mut seen: HashSet<SnapshotId> = HashSet::new();
+    let mut ordered_ids: Vec<SnapshotId> = Vec::new();
+    for candidate_path in &all_paths {
+        for id in candidate_snapshot_ids_for_path(storage, candidate_path)? {
+            if seen.insert(id) {
+                ordered_ids.push(id);
+            }
+        }
+    }
     let snap_map = storage
-        .get_snapshots_map(&all_ids)
+        .get_snapshots_map(&ordered_ids)
         .map_err(map_layertwine_error)?;
-    let path_map = batch_snapshot_paths(storage, &snap_map);
+    let delta_map = chain_head_delta_map(storage, &snap_map);
+    let path_map = batch_snapshot_paths_from_map(&snap_map, &delta_map);
     let mut entries: Vec<FileTimelineEntry> = Vec::new();
 
-    for partition in &partitions {
-        for snapshot_id in &partition.history {
-            let Some(snapshot) = snap_map.get(snapshot_id) else {
-                continue;
-            };
-            let Some(snapshot_path) = path_map.get(snapshot_id) else {
-                continue;
-            };
-            if *snapshot_path == SEED_PATH || !all_paths.contains(snapshot_path) {
-                continue;
-            }
-            let source = snapshot_last_delta(storage, snapshot)?
-                .map(|d| source_label(&d.source))
-                .unwrap_or_else(|| "agent".to_string());
-            let content = snapshot_content_bytes(storage, snapshot)?;
-            let moved_from = moved_from_map.get(snapshot_path).cloned();
-            entries.push(FileTimelineEntry {
-                path: snapshot_path.clone(),
-                snapshot_id: snapshot.id.to_hex(),
-                content_hash: sha256_hex(&content),
-                timestamp: snapshot.created_at,
-                source,
-                moved_from,
-            });
+    for snapshot_id in &ordered_ids {
+        let Some(snapshot) = snap_map.get(snapshot_id) else {
+            continue;
+        };
+        let Some(snapshot_path) = path_map.get(snapshot_id) else {
+            continue;
+        };
+        if *snapshot_path == SEED_PATH || !all_paths.contains(snapshot_path) {
+            continue;
         }
+        let source = snapshot
+            .deltas
+            .last()
+            .and_then(|delta_id| delta_map.get(delta_id))
+            .map(|d| source_label(&d.source))
+            .unwrap_or_else(|| "agent".to_string());
+        let content = snapshot_content_bytes(storage, snapshot)?;
+        let moved_from = moved_from_map.get(snapshot_path).cloned();
+        entries.push(FileTimelineEntry {
+            path: snapshot_path.clone(),
+            snapshot_id: snapshot.id.to_hex(),
+            content_hash: sha256_hex(&content),
+            timestamp: snapshot.created_at,
+            source,
+            moved_from,
+        });
     }
 
     entries.sort_by_key(|e| e.timestamp);

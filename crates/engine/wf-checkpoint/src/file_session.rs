@@ -143,9 +143,7 @@ impl FileCheckpointManager {
         let actor = self.actor_id_for(entity_id);
         let agent_id = actor.to_agent_instance_id();
         let pid = layertwine::layered::agent::agent_partition_id(&agent_id);
-        let partition = storage
-            .get_partition(&pid)
-            .map_err(map_layertwine_error)?;
+        let partition = storage.get_partition(&pid).map_err(map_layertwine_error)?;
         Ok(!partition.redo_stack.is_empty())
     }
 }

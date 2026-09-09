@@ -37,10 +37,7 @@ pub(crate) fn routes() -> Router<ApiState> {
             get(handle_diff_against_staged),
         )
         .route("/file-checkpoint/gc", post(handle_run_gc))
-        .route(
-            "/file-checkpoint/timeline/{id}",
-            get(handle_file_timeline),
-        )
+        .route("/file-checkpoint/timeline/{id}", get(handle_file_timeline))
         .route(
             "/file-checkpoint/sessions",
             get(handle_list_sessions).post(handle_begin_session),

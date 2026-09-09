@@ -164,18 +164,12 @@ impl EditSessionStore for SqliteStorage {
         Ok(())
     }
 
-    fn get_session_snapshots(
-        &self,
-        session_id: &EditSessionId,
-    ) -> StorageResult<Vec<SnapshotId>> {
+    fn get_session_snapshots(&self, session_id: &EditSessionId) -> StorageResult<Vec<SnapshotId>> {
         let conn = self.conn.lock();
         self.get_session_snapshots_inner(&conn, session_id)
     }
 
-    fn get_snapshot_session(
-        &self,
-        snapshot_id: &SnapshotId,
-    ) -> StorageResult<Option<EditSession>> {
+    fn get_snapshot_session(&self, snapshot_id: &SnapshotId) -> StorageResult<Option<EditSession>> {
         let conn = self.conn.lock();
         let mut stmt = conn.prepare(
             "SELECT es.id, es.label, es.created_at

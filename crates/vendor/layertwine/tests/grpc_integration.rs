@@ -24,6 +24,7 @@ mod common;
 fn setup_grpc(db_path: &str) -> LayertwineGrpc {
     let api = ApiService::open(ServiceConfig {
         db_path: db_path.to_string(),
+        workspace_key: None,
     })
     .expect("failed to create ApiService");
     LayertwineGrpc::new(Arc::new(api))

@@ -44,17 +44,6 @@ impl TextEditor {
         &self.buf
     }
 
-    /// Whether the buffer is empty.
-    pub fn is_empty(&self) -> bool {
-        self.buf.is_empty()
-    }
-
-    /// Clear the buffer.
-    pub fn clear(&mut self) {
-        self.buf.clear();
-        self.cursor = 0;
-    }
-
     /// Submit the current buffer: push to history, return the text, clear.
     pub fn submit(&mut self) -> Option<String> {
         let text = std::mem::take(&mut self.buf);
@@ -177,11 +166,6 @@ impl TextEditor {
             self.buf = stash;
             self.cursor = self.buf.len();
         }
-    }
-
-    /// Visible width of the current buffer content (for scrolling).
-    pub fn content_width(&self) -> usize {
-        UnicodeWidthStr::width(self.buf.as_str())
     }
 
     /// Cursor column offset (for rendering).

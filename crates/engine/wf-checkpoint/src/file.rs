@@ -268,8 +268,7 @@ impl FileCheckpointManager {
             scan_config: ScanConfig::default(),
             approval_policy: ApprovalPolicy::default(),
             conflict_behavior: ConflictBehavior::default(),
-            full_snapshot_threshold:
-                layertwine::engine::diff::DEFAULT_FULL_SNAPSHOT_THRESHOLD,
+            full_snapshot_threshold: layertwine::engine::diff::DEFAULT_FULL_SNAPSHOT_THRESHOLD,
             gc_interval_secs: None,
             gc_retention: None,
             actor_index: Arc::new(DashMap::new()),
@@ -294,8 +293,7 @@ impl FileCheckpointManager {
             scan_config: ScanConfig::default(),
             approval_policy: ApprovalPolicy::default(),
             conflict_behavior: ConflictBehavior::default(),
-            full_snapshot_threshold:
-                layertwine::engine::diff::DEFAULT_FULL_SNAPSHOT_THRESHOLD,
+            full_snapshot_threshold: layertwine::engine::diff::DEFAULT_FULL_SNAPSHOT_THRESHOLD,
             gc_interval_secs: None,
             gc_retention: None,
             actor_index: Arc::new(DashMap::new()),
@@ -409,8 +407,7 @@ impl FileCheckpointManager {
             scan_config: ScanConfig::default(),
             approval_policy: ApprovalPolicy::default(),
             conflict_behavior: ConflictBehavior::default(),
-            full_snapshot_threshold:
-                layertwine::engine::diff::DEFAULT_FULL_SNAPSHOT_THRESHOLD,
+            full_snapshot_threshold: layertwine::engine::diff::DEFAULT_FULL_SNAPSHOT_THRESHOLD,
             gc_interval_secs: None,
             gc_retention: None,
             actor_index: Arc::new(DashMap::new()),

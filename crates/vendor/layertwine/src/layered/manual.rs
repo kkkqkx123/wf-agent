@@ -442,6 +442,56 @@ mod tests {
     }
 
     #[test]
+    fn full_snapshot_resets_delta_chain() {
+        // P1-4 disposition lock-in: a full-content snapshot acts as the new
+        // chain base, so no explicit base-promotion API is needed. Small
+        // edits accumulate a chain; a super-threshold rewrite stores inline
+        // content with an empty chain; the next small edit starts a fresh
+        // length-1 chain that reconstructs without replaying old deltas.
+        let storage = setup_storage();
+        let initial_id =
+            create_initial_snapshot(&storage, "alpha\nbeta\ngamma\n", SourceType::Manual);
+        ensure_manual_partition(&storage, initial_id, None).unwrap();
+
+        let first =
+            apply_manual_edit(&storage, "test.txt", "alpha\nbeta\ngamma\ndelta\n", None).unwrap();
+        let first_snapshot = storage.get_snapshot(&first).unwrap();
+        // The test seed snapshot already carries one (empty) delta.
+        let chained_len = first_snapshot.deltas.len();
+        assert!(chained_len >= 1);
+
+        let second = apply_manual_edit(
+            &storage,
+            "test.txt",
+            "alpha\nbeta\ngamma\ndelta\nepsilon\n",
+            None,
+        )
+        .unwrap();
+        let second_snapshot = storage.get_snapshot(&second).unwrap();
+        assert_eq!(second_snapshot.deltas.len(), chained_len + 1);
+
+        let rewrite = "completely unrelated rewritten file body 0123456789\n\
+            second line with no overlap whatsoever abcdefghij\n";
+        let full_id =
+            apply_manual_edit_full(&storage, "test.txt", rewrite, None, None, 0.5).unwrap();
+        let full_snapshot = storage.get_snapshot(&full_id).unwrap();
+        assert!(full_snapshot.deltas.is_empty());
+        assert!(matches!(
+            full_snapshot.content,
+            Some(SnapshotContent::FileContent(_))
+        ));
+
+        let after =
+            apply_manual_edit(&storage, "test.txt", &format!("{rewrite}trailing\n"), None).unwrap();
+        let after_snapshot = storage.get_snapshot(&after).unwrap();
+        assert_eq!(after_snapshot.deltas.len(), 1);
+        let text = crate::layered::transition::reconstruct_text(&storage, &after_snapshot)
+            .unwrap()
+            .unwrap();
+        assert_eq!(text, format!("{rewrite}trailing\n"));
+    }
+
+    #[test]
     fn test_merge_manual_to_staged() {
         let storage = setup_storage();
         let initial_id = create_initial_snapshot(&storage, "base\ncontent\n", SourceType::Manual);

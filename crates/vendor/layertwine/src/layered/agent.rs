@@ -77,7 +77,14 @@ pub fn apply_agent_edit_with_session<S>(
 where
     S: SnapshotStore + DeltaStore + FileNodeStore + PartitionStore,
 {
-    apply_agent_edit_full(storage, agent_id, file_path, new_content, session_id, crate::engine::diff::DEFAULT_FULL_SNAPSHOT_THRESHOLD)
+    apply_agent_edit_full(
+        storage,
+        agent_id,
+        file_path,
+        new_content,
+        session_id,
+        crate::engine::diff::DEFAULT_FULL_SNAPSHOT_THRESHOLD,
+    )
 }
 
 /// Agent edit with explicit full-snapshot threshold and optional session.
@@ -430,36 +437,26 @@ where
         if agent_deleted && approval_deleted {
             continue;
         }
-        if !agent_deleted
-            && !approval_deleted
-            && !agent_binary
-            && !approval_binary
-            && approval_snapshot_opt.is_some()
-        {
-            let approval_text = crate::layered::transition::reconstruct_text(
-                storage,
-                approval_snapshot_opt.expect("checked some"),
-            )?
-            .unwrap_or_default();
-            let agent_text =
-                crate::layered::transition::reconstruct_text(storage, agent_snapshot)?
-                    .unwrap_or_default();
-            if approval_text == agent_text {
-                continue;
+        if !agent_deleted && !approval_deleted && !agent_binary && !approval_binary {
+            if let Some(approval_snapshot) = approval_snapshot_opt {
+                let approval_text =
+                    crate::layered::transition::reconstruct_text(storage, approval_snapshot)?
+                        .unwrap_or_default();
+                let agent_text =
+                    crate::layered::transition::reconstruct_text(storage, agent_snapshot)?
+                        .unwrap_or_default();
+                if approval_text == agent_text {
+                    continue;
+                }
             }
         }
-        if (agent_binary || approval_binary)
-            && !agent_deleted
-            && !approval_deleted
-            && approval_snapshot_opt.is_some()
-        {
-            let approval_bytes = snapshot_raw_bytes(
-                approval_snapshot_opt.expect("checked some"),
-            )
-            .unwrap_or_default();
-            let agent_bytes = snapshot_raw_bytes(agent_snapshot).unwrap_or_default();
-            if approval_bytes == agent_bytes {
-                continue;
+        if (agent_binary || approval_binary) && !agent_deleted && !approval_deleted {
+            if let Some(approval_snapshot) = approval_snapshot_opt {
+                let approval_bytes = snapshot_raw_bytes(approval_snapshot).unwrap_or_default();
+                let agent_bytes = snapshot_raw_bytes(agent_snapshot).unwrap_or_default();
+                if approval_bytes == agent_bytes {
+                    continue;
+                }
             }
         }
 
@@ -470,9 +467,7 @@ where
             let content = if agent_deleted {
                 SnapshotContent::Deleted
             } else {
-                SnapshotContent::FileContent(
-                    snapshot_raw_bytes(agent_snapshot).unwrap_or_default(),
-                )
+                SnapshotContent::FileContent(snapshot_raw_bytes(agent_snapshot).unwrap_or_default())
             };
             let head_snapshot = storage
                 .get_snapshot(&head_id)
@@ -520,9 +515,8 @@ where
             }
             None => String::new(),
         };
-        let agent_text =
-            crate::layered::transition::reconstruct_text(storage, agent_snapshot)?
-                .unwrap_or_default();
+        let agent_text = crate::layered::transition::reconstruct_text(storage, agent_snapshot)?
+            .unwrap_or_default();
 
         // Per-path three-way base: the approval baseline text when it
         // applies to this path, otherwise empty (path created after seeding).
@@ -538,9 +532,8 @@ where
         // The partition history is a single linear transform chain shared by
         // all paths: the new delta must transform the actual head text into
         // the merged text, not the per-path approval text.
-        let head_text =
-            crate::layered::transition::reconstruct_text(storage, &head_snapshot)?
-                .unwrap_or_default();
+        let head_text = crate::layered::transition::reconstruct_text(storage, &head_snapshot)?
+            .unwrap_or_default();
         let merge_diff = diff_to_line_diff(&head_text, &merged_text);
         if merge_diff.is_empty() {
             continue;

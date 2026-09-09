@@ -71,11 +71,8 @@ where
     }
 
     // 6. Merge feature directly to staged (no unified intermediary)
-    let staged_result = staged::merge_features_to_staged(
-        storage,
-        &[feature_name.to_string()],
-        workspace_key,
-    )?;
+    let staged_result =
+        staged::merge_features_to_staged(storage, &[feature_name.to_string()], workspace_key)?;
     if staged_result.has_conflicts() {
         return Err(crate::error::LayertwineError::General(format!(
             "Merge conflicts detected: {}",
@@ -148,11 +145,8 @@ where
     }
 
     // 4. Merge feature directly to staged (no unified intermediary)
-    let staged_result = staged::merge_features_to_staged(
-        storage,
-        &[feature_name.to_string()],
-        workspace_key,
-    )?;
+    let staged_result =
+        staged::merge_features_to_staged(storage, &[feature_name.to_string()], workspace_key)?;
     if staged_result.has_conflicts() {
         return Err(crate::error::LayertwineError::General(format!(
             "Merge conflicts detected: {}",
@@ -195,8 +189,7 @@ where
     }
 
     // 1. Merge features directly to staged
-    let staged_result =
-        staged::merge_features_to_staged(storage, feature_names, workspace_key)?;
+    let staged_result = staged::merge_features_to_staged(storage, feature_names, workspace_key)?;
     if staged_result.has_conflicts() {
         return Err(crate::error::LayertwineError::General(format!(
             "Merge conflicts detected: {}",

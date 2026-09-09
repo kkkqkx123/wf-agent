@@ -174,7 +174,13 @@ impl Snapshot {
         deltas: Vec<DeltaId>,
     ) -> Self {
         Self::new_with_content_and_message(
-            file, content, source, partition_type, parents, deltas, None,
+            file,
+            content,
+            source,
+            partition_type,
+            parents,
+            deltas,
+            None,
         )
     }
 

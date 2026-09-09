@@ -96,18 +96,6 @@ impl MarkdownStream {
         &self.buffer[from.min(len)..to.min(len)]
     }
 
-    /// Finalize: return remaining undelivered bytes and clear.
-    pub fn finish(&mut self) -> MarkdownFrame {
-        let committed = self.buffer[self.committed_upto..].to_string();
-        self.buffer.clear();
-        self.committed_upto = 0;
-        self.streamed_upto = 0;
-        MarkdownFrame {
-            new_committed: committed,
-            new_streaming: String::new(),
-        }
-    }
-
     fn force_truncate(&mut self) -> MarkdownFrame {
         let mut end = self.max_source_bytes;
         while end > 0 && !self.buffer.is_char_boundary(end) {
@@ -154,15 +142,6 @@ mod tests {
         let f2 = md.push("world\n\n");
         assert_eq!(f2.new_committed, "hello world\n\n");
         assert!(f2.new_streaming.is_empty());
-    }
-
-    #[test]
-    fn finish_returns_remaining() {
-        let mut md = MarkdownStream::new(1024);
-        md.push("partial text");
-        let f = md.finish();
-        assert_eq!(f.new_committed, "partial text");
-        assert!(f.new_streaming.is_empty());
     }
 
     #[test]

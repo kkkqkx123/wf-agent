@@ -150,7 +150,7 @@ impl Middleware for LoggingMiddleware {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::keymap::{CKey, KeyAction};
+    use crate::keymap::CKey;
 
     struct TestHandler {
         priority: i32,

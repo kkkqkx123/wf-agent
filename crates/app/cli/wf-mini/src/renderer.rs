@@ -35,7 +35,6 @@ pub fn role_to_sgr(role: Role) -> &'static str {
         Role::Muted => FG_BRIGHT_BLACK,
         Role::Accent => FG_CYAN,
         Role::Add => FG_GREEN,
-        Role::Remove => FG_RED,
         Role::Warning => FG_YELLOW,
         Role::Error => FG_RED,
     }
@@ -70,11 +69,6 @@ impl TerminalWriter {
         write!(self.stdout, "\x1b[K")
     }
 
-    /// Hide the cursor.
-    pub fn hide_cursor(&mut self) -> io::Result<()> {
-        write!(self.stdout, "\x1b[?25l")
-    }
-
     /// Show the cursor.
     pub fn show_cursor(&mut self) -> io::Result<()> {
         write!(self.stdout, "\x1b[?25h")
@@ -88,11 +82,6 @@ impl TerminalWriter {
     /// Write a raw string.
     pub fn write_str(&mut self, s: &str) -> io::Result<()> {
         self.stdout.write_all(s.as_bytes())
-    }
-
-    /// Write a byte.
-    pub fn write_byte(&mut self, b: u8) -> io::Result<()> {
-        self.stdout.write_all(&[b])
     }
 }
 
@@ -123,11 +112,6 @@ impl Renderer {
     /// The total terminal width.
     pub fn width(&self) -> u16 {
         self.width
-    }
-
-    /// The total terminal height.
-    pub fn height(&self) -> u16 {
-        self.height
     }
 
     /// Number of rows available for the scrollback (above status + input).
@@ -182,41 +166,6 @@ impl Renderer {
         self.writer.show_cursor()?;
 
         self.writer.flush()
-    }
-
-    /// Draw only the streaming tail line (append to scrollback region).
-    /// Used during streaming to avoid full redraws.
-    pub fn draw_streaming_tail(
-        &mut self,
-        role: Role,
-        text: &str,
-        row_offset: u16,
-    ) -> io::Result<()> {
-        let w = self.width as usize;
-        self.writer.move_to(0, row_offset)?;
-        self.writer.write_str(role_to_sgr(role))?;
-        let truncated: String = text.chars().take(w).collect();
-        self.writer.write_str(&truncated)?;
-        self.writer.write_str(RESET)?;
-        self.writer.clear_to_eol()?;
-        self.writer.flush()
-    }
-
-    /// Erase the streaming tail line (restore to blank).
-    pub fn clear_row(&mut self, row: u16) -> io::Result<()> {
-        self.writer.move_to(0, row)?;
-        self.writer.clear_to_eol()?;
-        self.writer.flush()
-    }
-
-    /// Hide the cursor.
-    pub fn hide_cursor(&mut self) -> io::Result<()> {
-        self.writer.hide_cursor()
-    }
-
-    /// Show the cursor.
-    pub fn show_cursor(&mut self) -> io::Result<()> {
-        self.writer.show_cursor()
     }
 
     /// Reset the terminal to a clean state.

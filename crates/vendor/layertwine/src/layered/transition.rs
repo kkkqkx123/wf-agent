@@ -307,8 +307,7 @@ where
     // to neither the session's delta set nor its snapshot set: that is the
     // state before the session started.
     use std::collections::HashSet;
-    let session_snapshots: HashSet<SnapshotId> =
-        session.snapshot_ids.iter().copied().collect();
+    let session_snapshots: HashSet<SnapshotId> = session.snapshot_ids.iter().copied().collect();
     for snap_id in partition.history.iter().rev() {
         if session_snapshots.contains(snap_id) {
             continue;

@@ -142,8 +142,7 @@ fn manual_changes_skip_agent_writes_and_record_human_edits() {
 
     // Human edits b.txt: recorded into the manual partition.
     std::fs::write(root.join("b.txt"), b"human-edit").unwrap();
-    let human =
-        FileChangeRecord::new(root.join("b.txt"), FileChangeKind::Change, wf_common::now());
+    let human = FileChangeRecord::new(root.join("b.txt"), FileChangeKind::Change, wf_common::now());
     let applied = manager
         .process_manual_changes(&[human])
         .expect("human edit applied");

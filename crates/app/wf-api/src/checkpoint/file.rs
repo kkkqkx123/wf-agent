@@ -165,11 +165,7 @@ mod tests {
                 FileChangeKind::Change,
                 1000,
             ),
-            FileChangeRecord::new(
-                std::path::PathBuf::from("b.txt"),
-                FileChangeKind::Add,
-                2000,
-            ),
+            FileChangeRecord::new(std::path::PathBuf::from("b.txt"), FileChangeKind::Add, 2000),
             FileChangeRecord::new(
                 std::path::PathBuf::from("c.txt"),
                 FileChangeKind::Change,

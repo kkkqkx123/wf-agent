@@ -16,8 +16,6 @@ pub enum Role {
     Accent,
     /// Additions (diff +, success).
     Add,
-    /// Removals (diff -).
-    Remove,
     /// Warnings.
     Warning,
     /// Errors.
@@ -116,19 +114,6 @@ impl Scrollback {
         }
     }
 
-    /// Append multiple lines.
-    pub fn extend(&mut self, iter: impl IntoIterator<Item = ScrollLine>) {
-        for line in iter {
-            self.push(line);
-        }
-    }
-
-    /// Clear all lines and reset scroll.
-    pub fn clear(&mut self) {
-        self.lines.clear();
-        self.scroll = 0;
-    }
-
     /// Scroll up (older content).
     pub fn scroll_up(&mut self, amount: usize) {
         self.scroll = self.scroll.saturating_add(amount);
@@ -139,29 +124,9 @@ impl Scrollback {
         self.scroll = self.scroll.saturating_sub(amount);
     }
 
-    /// Jump to the tail (tail-follow).
-    pub fn scroll_to_tail(&mut self) {
-        self.scroll = 0;
-    }
-
     /// Whether the viewport is at the tail.
     pub fn is_at_tail(&self) -> bool {
         self.scroll == 0
-    }
-
-    /// All lines in the buffer (for rendering).
-    pub fn lines(&self) -> &[ScrollLine] {
-        &self.lines
-    }
-
-    /// Number of lines.
-    pub fn len(&self) -> usize {
-        self.lines.len()
-    }
-
-    /// Whether the buffer is empty.
-    pub fn is_empty(&self) -> bool {
-        self.lines.is_empty()
     }
 
     /// Compute the visible line range for a viewport of `height` rows and

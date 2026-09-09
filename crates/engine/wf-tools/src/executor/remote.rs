@@ -851,7 +851,6 @@ pub mod layertwine_impl {
             Ok(())
         }
     }
-
 }
 
 #[cfg(feature = "remote-layertwine")]
@@ -879,6 +878,7 @@ mod tests {
         let service = Arc::new(
             ApiService::open(ServiceConfig {
                 db_path: db_path_str.clone(),
+                workspace_key: None,
             })
             .expect("create ApiService"),
         );

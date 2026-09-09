@@ -174,12 +174,10 @@ where
         });
     }
     let baseline_snapshot = get_feature_baseline(storage, feature_name)?;
-    let mut integrated_latest =
-        latest_per_path(storage, &integrated_partition.history)?;
+    let mut integrated_latest = latest_per_path(storage, &integrated_partition.history)?;
     let baseline_path = snapshot_path(storage, &baseline_snapshot).unwrap_or_default();
-    let baseline_text =
-        crate::layered::transition::reconstruct_text(storage, &baseline_snapshot)?
-            .unwrap_or_default();
+    let baseline_text = crate::layered::transition::reconstruct_text(storage, &baseline_snapshot)?
+        .unwrap_or_default();
 
     let mut head_id = integrated_partition.current_snapshot;
     let mut all_conflicts = Vec::new();
@@ -188,8 +186,7 @@ where
         // Idempotency across partitions: compare content state, not snapshot
         // IDs (merge copies always differ in ID even for identical content).
         if let Some(integrated_snapshot) = integrated_snapshot_opt {
-            let both_deleted =
-                integrated_snapshot.is_deleted() && approval_snapshot.is_deleted();
+            let both_deleted = integrated_snapshot.is_deleted() && approval_snapshot.is_deleted();
             if both_deleted {
                 continue;
             }
@@ -198,16 +195,12 @@ where
                 && !snapshot_is_binary(integrated_snapshot)
                 && !snapshot_is_binary(approval_snapshot)
             {
-                let integrated_text = crate::layered::transition::reconstruct_text(
-                    storage,
-                    integrated_snapshot,
-                )?
-                .unwrap_or_default();
-                let approval_text = crate::layered::transition::reconstruct_text(
-                    storage,
-                    approval_snapshot,
-                )?
-                .unwrap_or_default();
+                let integrated_text =
+                    crate::layered::transition::reconstruct_text(storage, integrated_snapshot)?
+                        .unwrap_or_default();
+                let approval_text =
+                    crate::layered::transition::reconstruct_text(storage, approval_snapshot)?
+                        .unwrap_or_default();
                 if integrated_text == approval_text {
                     continue;
                 }
@@ -222,8 +215,7 @@ where
         if approval_snapshot.is_deleted() || snapshot_is_binary(approval_snapshot) {
             let content = if approval_snapshot.is_deleted() {
                 SnapshotContent::Deleted
-            } else if let Some(SnapshotContent::FileContent(bytes)) = &approval_snapshot.content
-            {
+            } else if let Some(SnapshotContent::FileContent(bytes)) = &approval_snapshot.content {
                 SnapshotContent::FileContent(bytes.clone())
             } else {
                 SnapshotContent::Deleted
@@ -277,9 +269,8 @@ where
 
         // Linear transform chain: the delta must transform the actual head
         // text (previous path in this batch) into the merged text.
-        let head_text =
-            crate::layered::transition::reconstruct_text(storage, &head_snapshot)?
-                .unwrap_or_default();
+        let head_text = crate::layered::transition::reconstruct_text(storage, &head_snapshot)?
+            .unwrap_or_default();
         let merge_diff = diff_to_line_diff(&head_text, &merged_text);
         if merge_diff.is_empty() {
             all_conflicts.extend(conflicts);

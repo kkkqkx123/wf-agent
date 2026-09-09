@@ -39,6 +39,26 @@ pub trait SnapshotStore {
     /// Determining if a snapshot exists
     fn snapshot_exists(&self, id: &SnapshotId) -> StorageResult<bool>;
 
+    /// Chain-head delta of each snapshot (lightweight: skips content blobs).
+    ///
+    /// Returns `(snapshot_id, chain-head delta id)` in input order; snapshots
+    /// with an empty delta chain (e.g. full-content snapshots) map to `None`,
+    /// missing ids are skipped. Path-scoped provenance queries need this
+    /// because a delta-chain snapshot's own file node is its base (see
+    /// `Snapshot::from_parent`), so the edited path is only visible through
+    /// the chain head — `find_snapshots_by_file` alone would miss those rows.
+    fn snapshot_chain_heads(
+        &self,
+        ids: &[SnapshotId],
+    ) -> StorageResult<Vec<(SnapshotId, Option<DeltaId>)>> {
+        let mut out = Vec::with_capacity(ids.len());
+        for id in ids {
+            let snapshot = self.get_snapshot(id)?;
+            out.push((*id, snapshot.deltas.last().copied()));
+        }
+        Ok(out)
+    }
+
     /// Query snapshots by file path and optional time range.
     /// `time_range` is inclusive `(start, end)` in milliseconds.
     fn find_snapshots_by_file_and_time(
@@ -114,18 +134,12 @@ pub trait EditSessionStore {
         Ok(())
     }
     /// Get all snapshot IDs belonging to a session, in creation order.
-    fn get_session_snapshots(
-        &self,
-        session_id: &EditSessionId,
-    ) -> StorageResult<Vec<SnapshotId>> {
+    fn get_session_snapshots(&self, session_id: &EditSessionId) -> StorageResult<Vec<SnapshotId>> {
         let _ = session_id;
         Ok(Vec::new())
     }
     /// Get the session that a snapshot belongs to (if any).
-    fn get_snapshot_session(
-        &self,
-        snapshot_id: &SnapshotId,
-    ) -> StorageResult<Option<EditSession>> {
+    fn get_snapshot_session(&self, snapshot_id: &SnapshotId) -> StorageResult<Option<EditSession>> {
         let _ = snapshot_id;
         Ok(None)
     }

@@ -170,8 +170,7 @@ where
                     .map_err(LayertwineError::Storage)?;
             }
             Err(_) => {
-                let partition =
-                    Partition::new(staged_name, PartitionType::Staged, base_snapshot);
+                let partition = Partition::new(staged_name, PartitionType::Staged, base_snapshot);
                 self.storage
                     .create_partition(&partition)
                     .map_err(LayertwineError::Storage)?;
@@ -197,8 +196,7 @@ where
                     .map_err(LayertwineError::Storage)?;
             }
             Err(_) => {
-                let partition =
-                    Partition::new(manual_name, PartitionType::Manual, base_snapshot);
+                let partition = Partition::new(manual_name, PartitionType::Manual, base_snapshot);
                 self.storage
                     .create_partition(&partition)
                     .map_err(LayertwineError::Storage)?;

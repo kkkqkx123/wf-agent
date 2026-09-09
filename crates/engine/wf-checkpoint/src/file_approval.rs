@@ -243,10 +243,12 @@ impl FileCheckpointManager {
                         .unwrap_or_default();
                     std::fs::write(&target, bytes)?;
                 } else {
-                    let merged_text =
-                        layertwine::layered::transition::reconstruct_text(storage, &merged_snapshot)
-                            .map_err(map_layertwine_error)?
-                            .unwrap_or_default();
+                    let merged_text = layertwine::layered::transition::reconstruct_text(
+                        storage,
+                        &merged_snapshot,
+                    )
+                    .map_err(map_layertwine_error)?
+                    .unwrap_or_default();
                     let marked = inject_conflict_markers(&merged_text, &merged.conflicts);
                     std::fs::write(&target, marked)?;
                 }

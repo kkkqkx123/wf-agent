@@ -74,8 +74,7 @@ pub fn file_timeline(
     let storage = manager(ctx)?
         .storage()
         .ok_or_else(|| ApiError::execution("file checkpoint storage is not configured"))?;
-    wf_checkpoint::provenance::file_timeline(storage, path)
-        .map_err(ApiError::execution_with_source)
+    wf_checkpoint::provenance::file_timeline(storage, path).map_err(ApiError::execution_with_source)
 }
 
 /// Explicit rename: record the move linkage and apply it as delete-old +
@@ -95,10 +94,7 @@ pub fn rename_file(
 }
 
 /// Begin a new edit session for grouping a multi-file operation.
-pub fn begin_session(
-    ctx: &ApiContext,
-    label: Option<String>,
-) -> ApiResult<String> {
+pub fn begin_session(ctx: &ApiContext, label: Option<String>) -> ApiResult<String> {
     manager(ctx)?
         .begin_session(label)
         .map(|id| id.to_string())
@@ -115,14 +111,10 @@ pub fn list_sessions(
 }
 
 /// Roll back an entire edit session on an actor's partition.
-pub fn rollback_session(
-    ctx: &ApiContext,
-    actor: &str,
-    session_id: &str,
-) -> ApiResult<String> {
-    let session_id = session_id.parse().map_err(|_| {
-        ApiError::execution(format!("invalid session id '{session_id}'"))
-    })?;
+pub fn rollback_session(ctx: &ApiContext, actor: &str, session_id: &str) -> ApiResult<String> {
+    let session_id = session_id
+        .parse()
+        .map_err(|_| ApiError::execution(format!("invalid session id '{session_id}'")))?;
     manager(ctx)?
         .rollback_session(actor, &session_id)
         .map_err(ApiError::execution_with_source)

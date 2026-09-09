@@ -39,6 +39,7 @@ pub fn ensure_integrated_partition<S: PartitionStore>(
                 current_snapshot: initial_snapshot_id,
                 history: vec![initial_snapshot_id],
                 partition_type: PartitionType::Integrated(name.to_string()),
+                redo_stack: Vec::new(),
             };
             storage
                 .create_partition(&partition)
@@ -62,6 +63,7 @@ pub fn create_feature_branch<S: PartitionStore>(
         current_snapshot: baseline_snapshot_id,
         history: vec![baseline_snapshot_id],
         partition_type: PartitionType::Integrated(name.to_string()),
+        redo_stack: Vec::new(),
     };
     storage
         .create_partition(&partition)

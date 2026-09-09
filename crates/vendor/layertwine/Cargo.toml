@@ -33,6 +33,7 @@ similar = { workspace = true }
 git2 = "0.21"
 parking_lot = { workspace = true }
 lazy_static = "1.5"
+rand = { workspace = true }
 zstd = { workspace = true }
 smallvec = { workspace = true }
 

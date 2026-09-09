@@ -37,6 +37,19 @@ fn row_to_delta(row: &Row) -> Result<Delta, rusqlite::Error> {
         _ => crate::core::types::SourceType::Manual,
     };
 
+    let content_hash: Option<Vec<u8>> = row.get(8).ok();
+    let content_hash = content_hash.and_then(|bytes| {
+        if bytes.len() == 32 {
+            let mut arr = [0u8; 32];
+            arr.copy_from_slice(&bytes);
+            Some(ContentId(arr))
+        } else {
+            None
+        }
+    });
+
+    let message: Option<String> = row.get(9).ok().flatten();
+
     Ok(Delta {
         id,
         file: FileNode {
@@ -46,9 +59,10 @@ fn row_to_delta(row: &Row) -> Result<Delta, rusqlite::Error> {
         diff,
         source: source_type,
         timestamp,
-        // seq is creation-time only: the id is already persisted, so a
-        // reconstructed delta keeps a neutral ordinal.
         seq: 0,
+        session_id: None,
+        content_hash,
+        message,
     })
 }
 
@@ -65,10 +79,11 @@ impl DeltaStore for SqliteStorage {
             crate::core::types::SourceType::Agent(_) => "agent",
             crate::core::types::SourceType::Backup => "backup",
         };
+        let content_hash_bytes = delta.content_hash.map(|h| h.0.to_vec());
 
         conn.execute(
-            "INSERT OR IGNORE INTO deltas (id, file_path, file_hash, diff, source, source_data, timestamp, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            "INSERT OR IGNORE INTO deltas (id, file_path, file_hash, diff, source, source_data, timestamp, created_at, content_hash, message)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             params![
                 &delta.id.0.to_vec(),
                 delta.file.path_str(),
@@ -78,6 +93,8 @@ impl DeltaStore for SqliteStorage {
                 source_data,
                 delta.timestamp,
                 chrono::Utc::now().timestamp_millis(),
+                content_hash_bytes,
+                delta.message,
             ],
         )?;
         Ok(())
@@ -133,5 +150,34 @@ impl DeltaStore for SqliteStorage {
         let mut stmt = conn.prepare("SELECT COUNT(*) FROM deltas WHERE id = ?1")?;
         let count: i64 = stmt.query_row(params![&id.0.to_vec()], |row| row.get(0))?;
         Ok(count > 0)
+    }
+
+    fn find_deltas_by_file_and_time(
+        &self,
+        file_path: &str,
+        time_range: Option<(i64, i64)>,
+    ) -> StorageResult<Vec<Delta>> {
+        let conn = self.conn.lock();
+        let sql = match time_range {
+            Some(_) => {
+                "SELECT id, file_path, file_hash, diff, source, source_data, timestamp
+                 FROM deltas WHERE file_path = ?1 AND timestamp >= ?2 AND timestamp <= ?3
+                 ORDER BY timestamp ASC"
+            }
+            None => {
+                "SELECT id, file_path, file_hash, diff, source, source_data, timestamp
+                 FROM deltas WHERE file_path = ?1 ORDER BY timestamp ASC"
+            }
+        };
+        let mut stmt = conn.prepare(sql)?;
+        let deltas = match time_range {
+            Some((start, end)) => stmt.query_map(params![file_path, start, end], row_to_delta)?,
+            None => stmt.query_map(params![file_path], row_to_delta)?,
+        };
+        let mut result = Vec::new();
+        for d in deltas {
+            result.push(d?);
+        }
+        Ok(result)
     }
 }

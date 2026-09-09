@@ -6,8 +6,8 @@ use crate::core::delta::Delta;
 use crate::core::file_node::FileNode;
 use crate::core::partition::Partition;
 use crate::core::snapshot::{Snapshot, SnapshotContent};
-use crate::core::types::{PartitionId, PartitionType, SnapshotId, SourceType};
-use crate::engine::diff::diff_to_line_diff;
+use crate::core::types::{EditSessionId, PartitionId, PartitionType, SnapshotId, SourceType};
+use crate::engine::diff::{diff_to_line_diff, should_use_full_snapshot};
 use crate::engine::merge::apply_deltas;
 use crate::error::{LayertwineError, Result};
 use crate::storage::repository::{DeltaStore, FileNodeStore, PartitionStore, SnapshotStore};
@@ -60,6 +60,7 @@ pub fn ensure_manual_partition<S: PartitionStore>(
                 current_snapshot: initial_snapshot_id,
                 history: vec![initial_snapshot_id],
                 partition_type: PartitionType::Manual,
+                redo_stack: Vec::new(),
             };
             storage
                 .create_partition(&partition)
@@ -75,11 +76,36 @@ pub fn ensure_manual_partition<S: PartitionStore>(
 /// 2. Calculate old ↔ new Delta
 /// 3. Create a new Snapshot to append to the manual_edit partition
 /// 4. Return the new Snapshot ID
+///
+/// When the change magnitude (byte-length difference / old content length)
+/// meets or exceeds 50%, the edit is stored as a full-content snapshot
+/// via `SnapshotContent::FileContent` instead of a line-level delta.
+///
+/// If `session_id` is provided, the created delta is tagged with the
+/// session so that all deltas from one logical operation can be rolled
+/// back atomically.
 pub fn apply_manual_edit<S>(
     storage: &S,
     file_path: &str,
     new_content: &str,
     workspace_key: Option<&str>,
+) -> Result<SnapshotId>
+where
+    S: SnapshotStore + DeltaStore + FileNodeStore + PartitionStore,
+{
+    apply_manual_edit_with_session(storage, file_path, new_content, workspace_key, None)
+}
+
+/// Apply manual editing with an optional edit session grouping.
+///
+/// When `session_id` is provided, the created delta is associated with
+/// the session, enabling atomic rollback of the entire logical operation.
+pub fn apply_manual_edit_with_session<S>(
+    storage: &S,
+    file_path: &str,
+    new_content: &str,
+    workspace_key: Option<&str>,
+    session_id: Option<EditSessionId>,
 ) -> Result<SnapshotId>
 where
     S: SnapshotStore + DeltaStore + FileNodeStore + PartitionStore,
@@ -96,21 +122,25 @@ where
         .get_snapshot(&partition.current_snapshot)
         .map_err(LayertwineError::Storage)?;
 
-    // Read old content
-    let old_content = {
-        let deltas = storage
-            .get_deltas(&current_snapshot.deltas)
-            .map_err(LayertwineError::Storage)?;
-        let content_str = String::from_utf8_lossy(
-            &storage
-                .get_file_content(
-                    current_snapshot.file.path_str(),
-                    &current_snapshot.file.base_hash,
-                )
-                .map_err(LayertwineError::Storage)?,
-        )
-        .to_string();
-        apply_deltas(&content_str, &deltas).map_err(|e| LayertwineError::Engine(e.to_string()))?
+    // Read old content — prefer inline full-content snapshot over delta chain
+    let old_content = match &current_snapshot.content {
+        Some(SnapshotContent::FileContent(bytes)) => String::from_utf8_lossy(bytes).to_string(),
+        _ => {
+            let deltas = storage
+                .get_deltas(&current_snapshot.deltas)
+                .map_err(LayertwineError::Storage)?;
+            let content_str = String::from_utf8_lossy(
+                &storage
+                    .get_file_content(
+                        current_snapshot.file.path_str(),
+                        &current_snapshot.file.base_hash,
+                    )
+                    .map_err(LayertwineError::Storage)?,
+            )
+            .to_string();
+            apply_deltas(&content_str, &deltas)
+                .map_err(|e| LayertwineError::Engine(e.to_string()))?
+        }
     };
 
     // Calculate diff
@@ -119,9 +149,34 @@ where
         return Ok(partition.current_snapshot); // No change, return current snapshot
     }
 
+    // Check if this edit should bypass the delta chain and store full content.
+    // The heuristic uses byte-length difference to avoid the cost of computing
+    // a diff that would be nearly as large as the file itself.
+    if should_use_full_snapshot(old_content.len(), new_content.len(), 0.5) {
+        let file_node = FileNode::new(PathBuf::from(file_path), new_content.as_bytes());
+        let snapshot = Snapshot::new_with_content(
+            file_node.clone(),
+            SnapshotContent::FileContent(new_content.as_bytes().to_vec()),
+            format!("file://{}", file_path),
+            PartitionType::Manual.name().to_string(),
+            vec![current_snapshot.id],
+            vec![],
+        );
+        storage
+            .store_file_node(&file_node, new_content.as_bytes())
+            .map_err(LayertwineError::Storage)?;
+        storage
+            .store_snapshot(&snapshot, new_content.as_bytes())
+            .map_err(LayertwineError::Storage)?;
+        storage
+            .update_pointer(&pid, &snapshot.id)
+            .map_err(LayertwineError::Storage)?;
+        return Ok(snapshot.id);
+    }
+
     // Create Delta
     let file_node = FileNode::new(PathBuf::from(file_path), old_content.as_bytes());
-    let delta = Delta::new(file_node.clone(), line_diff, SourceType::Manual);
+    let delta = Delta::new_with_session(file_node.clone(), line_diff, SourceType::Manual, session_id);
     storage
         .store_file_node(&file_node, old_content.as_bytes())
         .map_err(LayertwineError::Storage)?;
@@ -160,6 +215,19 @@ pub fn apply_manual_delete<S>(
 where
     S: SnapshotStore + DeltaStore + FileNodeStore + PartitionStore,
 {
+    apply_manual_delete_with_session(storage, file_path, workspace_key, None)
+}
+
+/// Delete a file with optional edit session grouping.
+pub fn apply_manual_delete_with_session<S>(
+    storage: &S,
+    file_path: &str,
+    workspace_key: Option<&str>,
+    session_id: Option<EditSessionId>,
+) -> Result<SnapshotId>
+where
+    S: SnapshotStore + DeltaStore + FileNodeStore + PartitionStore,
+{
     let pid = manual_pid(workspace_key);
     let partition = storage.get_partition(&pid).map_err(|_| {
         LayertwineError::NotFound(
@@ -193,7 +261,7 @@ where
 
     // Create Delta
     let file_node = FileNode::new(PathBuf::from(file_path), old_content.as_bytes());
-    let delta = Delta::new(file_node.clone(), line_diff, SourceType::Manual);
+    let delta = Delta::new_with_session(file_node.clone(), line_diff, SourceType::Manual, session_id);
     storage
         .store_file_node(&file_node, old_content.as_bytes())
         .map_err(LayertwineError::Storage)?;
@@ -297,7 +365,7 @@ where
     let merge_file = manual_deltas
         .last()
         .map(|d| d.file.clone())
-        .unwrap_or_else(|| staged_snapshot.file.clone());
+        .unwrap_or_else(|| manual_snapshot.file.clone());
     let merge_delta = Delta::new(merge_file, merge_diff, SourceType::Manual);
     storage
         .store_delta(&merge_delta)

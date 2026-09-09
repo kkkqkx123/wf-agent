@@ -83,10 +83,22 @@ pub struct LayertwineConfig {
     /// Maintenance / compaction settings.
     #[serde(default)]
     pub maintenance: MaintenanceConfig,
+
+    /// Full-snapshot threshold for text edits. When the change magnitude
+    /// (measured as the byte-length difference relative to the old content)
+    /// meets or exceeds this ratio, the edit bypasses the line-level delta
+    /// chain and stores the entire file as `SnapshotContent::FileContent`.
+    /// Range: 0.0 – 1.0. Default: 0.5 (50%).
+    #[serde(default = "default_full_snapshot_threshold")]
+    pub full_snapshot_threshold: f64,
 }
 
 fn default_db_path() -> String {
     ".layertwine/layertwine.db".to_string()
+}
+
+fn default_full_snapshot_threshold() -> f64 {
+    0.5
 }
 
 impl Default for LayertwineConfig {
@@ -94,6 +106,7 @@ impl Default for LayertwineConfig {
         LayertwineConfig {
             db_path: default_db_path(),
             maintenance: MaintenanceConfig::default(),
+            full_snapshot_threshold: default_full_snapshot_threshold(),
         }
     }
 }

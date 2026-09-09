@@ -36,6 +36,7 @@ fn row_to_snapshot(row: &Row) -> Result<Snapshot, rusqlite::Error> {
     let content_type: String = row.get(9).unwrap_or_else(|_| "file".to_string());
     let content_blob: Option<Vec<u8>> = row.get(10).ok();
     let compression_str: String = row.get(11).unwrap_or_else(|_| "none".to_string());
+    let content_hash_blob: Option<Vec<u8>> = row.get(12).ok();
 
     let content = content_blob.map(|bytes| match content_type.as_str() {
         "json" => SnapshotContent::JsonMetadata(
@@ -52,6 +53,16 @@ fn row_to_snapshot(row: &Row) -> Result<Snapshot, rusqlite::Error> {
         _ => SnapshotCompression::None,
     };
 
+    let content_hash = content_hash_blob.and_then(|bytes| {
+        if bytes.len() == 32 {
+            let mut arr = [0u8; 32];
+            arr.copy_from_slice(&bytes);
+            Some(ContentId(arr))
+        } else {
+            None
+        }
+    });
+
     Ok(Snapshot {
         id,
         file: FileNode {
@@ -66,6 +77,7 @@ fn row_to_snapshot(row: &Row) -> Result<Snapshot, rusqlite::Error> {
         content,
         source,
         compression,
+        content_hash,
     })
 }
 
@@ -85,9 +97,11 @@ impl SnapshotStore for SqliteStorage {
             SnapshotCompression::Zstd => "zstd",
         };
 
+        let content_hash_bytes = snapshot.content_hash.map(|h| h.0.to_vec());
+
         conn.execute(
-            "INSERT OR IGNORE INTO snapshots (id, file_path, file_hash, deltas, parents, partition_type, created_at, has_conflicts, source, content_type, content, compression)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+            "INSERT OR IGNORE INTO snapshots (id, file_path, file_hash, deltas, parents, partition_type, created_at, has_conflicts, source, content_type, content, compression, content_hash)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
             params![
                 &snapshot.id.0.to_vec(),
                 snapshot.file.path_str(),
@@ -101,6 +115,7 @@ impl SnapshotStore for SqliteStorage {
                 content_type,
                 content_blob,
                 compression_str,
+                content_hash_bytes,
             ],
         )?;
         Ok(())
@@ -158,12 +173,40 @@ impl SnapshotStore for SqliteStorage {
         Ok(count > 0)
     }
 
+    fn find_snapshots_by_file_and_time(
+        &self,
+        file_path: &str,
+        time_range: Option<(i64, i64)>,
+    ) -> StorageResult<Vec<Snapshot>> {
+        let conn = self.conn.lock();
+        let sql = match time_range {
+            Some(_) => {
+                "SELECT id, file_path, file_hash, deltas, parents, partition_type, created_at, has_conflicts, source, content_type, content, compression
+                 FROM snapshots WHERE file_path = ?1 AND created_at >= ?2 AND created_at <= ?3 ORDER BY created_at DESC"
+            }
+            None => {
+                "SELECT id, file_path, file_hash, deltas, parents, partition_type, created_at, has_conflicts, source, content_type, content, compression
+                 FROM snapshots WHERE file_path = ?1 ORDER BY created_at DESC"
+            }
+        };
+        let mut stmt = conn.prepare(sql)?;
+        let snapshots = match time_range {
+            Some((start, end)) => stmt.query_map(params![file_path, start, end], row_to_snapshot)?,
+            None => stmt.query_map(params![file_path], row_to_snapshot)?,
+        };
+        let mut result = Vec::new();
+        for s in snapshots {
+            result.push(s?);
+        }
+        Ok(result)
+    }
+
     fn store_snapshots_batch(&self, snapshots: &[(&Snapshot, &[u8])]) -> StorageResult<()> {
         self.with_atomic(|storage| {
             let conn = storage.conn.lock();
             let mut stmt = conn.prepare_cached(
-                "INSERT OR IGNORE INTO snapshots (id, file_path, file_hash, deltas, parents, partition_type, created_at, has_conflicts, source, content_type, content, compression)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                "INSERT OR IGNORE INTO snapshots (id, file_path, file_hash, deltas, parents, partition_type, created_at, has_conflicts, source, content_type, content, compression, content_hash)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
             )?;
 
             for (snapshot, _content) in snapshots {
@@ -183,6 +226,8 @@ impl SnapshotStore for SqliteStorage {
                     SnapshotCompression::Zstd => "zstd",
                 };
 
+                let content_hash_bytes = snapshot.content_hash.map(|h| h.0.to_vec());
+
                 stmt.execute(params![
                     &snapshot.id.0.to_vec(),
                     snapshot.file.path_str(),
@@ -196,6 +241,7 @@ impl SnapshotStore for SqliteStorage {
                     content_type,
                     content_blob,
                     compression_str,
+                    content_hash_bytes,
                 ])?;
             }
 

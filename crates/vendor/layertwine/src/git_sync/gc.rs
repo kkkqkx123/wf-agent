@@ -4,6 +4,9 @@ use crate::checkpoint::repo::CheckpointRepo;
 use crate::core::types::CheckpointId;
 use crate::error::Result;
 
+/// Threshold for delta chain depth that triggers a mid-task checkpoint suggestion.
+const MID_TASK_DEPTH_THRESHOLD: usize = 100;
+
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct GcStats {
     pub removed_checkpoints: u64,
@@ -11,6 +14,20 @@ pub struct GcStats {
     pub freed_bytes: u64,
     pub delta_chain_depth_triggered: bool,
     pub max_chain_depth: usize,
+}
+
+/// Suggestion emitted when GC detects an excessively deep delta chain.
+///
+/// The caller should create a mid-task checkpoint + Git sync as a natural
+/// boundary, rather than folding the chain (which violates immutability).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct MidTaskSuggestion {
+    /// Current maximum chain depth observed.
+    pub current_depth: usize,
+    /// Threshold that was exceeded.
+    pub threshold: usize,
+    /// Human-readable recommendation message.
+    pub message: String,
 }
 
 impl GcStats {
@@ -246,8 +263,31 @@ fn calculate_checkpoint_depth(repo: &CheckpointRepo, cp_id: &CheckpointId) -> us
 /// Check if the delta chain depth exceeds the threshold for repacking.
 pub fn check_delta_chain_depth(repo: &CheckpointRepo) -> Result<(usize, bool)> {
     let max_depth = calculate_max_depth(repo);
-    let triggered = max_depth > 100;
+    let triggered = max_depth > MID_TASK_DEPTH_THRESHOLD;
     Ok((max_depth, triggered))
+}
+
+/// Check if a mid-task checkpoint is recommended.
+///
+/// Returns `Some(MidTaskSuggestion)` when the chain depth exceeds the
+/// threshold, prompting the caller to create a mid-task checkpoint + Git
+/// sync as a natural boundary. Returns `None` when depth is within bounds.
+pub fn suggest_mid_task_checkpoint(repo: &CheckpointRepo) -> Option<MidTaskSuggestion> {
+    let max_depth = calculate_max_depth(repo);
+    if max_depth > MID_TASK_DEPTH_THRESHOLD {
+        Some(MidTaskSuggestion {
+            current_depth: max_depth,
+            threshold: MID_TASK_DEPTH_THRESHOLD,
+            message: format!(
+                "Delta chain depth ({}) exceeds threshold ({}). \
+                 Consider creating a mid-task checkpoint and syncing to Git \
+                 as a natural boundary, rather than continuing to accumulate edits.",
+                max_depth, MID_TASK_DEPTH_THRESHOLD
+            ),
+        })
+    } else {
+        None
+    }
 }
 
 #[cfg(test)]

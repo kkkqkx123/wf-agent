@@ -57,6 +57,7 @@ fn test_store_and_get_snapshot() -> StorageResult<()> {
         content: None,
         source: String::new(),
         compression: SnapshotCompression::None,
+        content_hash: None,
     };
 
     storage.store_snapshot(&snapshot, b"hello world")?;
@@ -90,6 +91,7 @@ fn test_snapshot_exists() -> StorageResult<()> {
         content: None,
         source: String::new(),
         compression: SnapshotCompression::None,
+        content_hash: None,
     };
 
     assert!(!storage.snapshot_exists(&snapshot_id)?);
@@ -119,6 +121,7 @@ fn test_find_snapshots_by_file() -> StorageResult<()> {
         content: None,
         source: String::new(),
         compression: SnapshotCompression::None,
+        content_hash: None,
     };
 
     let snapshot2 = Snapshot {
@@ -135,6 +138,7 @@ fn test_find_snapshots_by_file() -> StorageResult<()> {
         content: None,
         source: String::new(),
         compression: SnapshotCompression::None,
+        content_hash: None,
     };
 
     storage.store_snapshot(&snapshot1, b"version1")?;
@@ -167,6 +171,7 @@ fn test_find_snapshots_by_partition() -> StorageResult<()> {
         content: None,
         source: String::new(),
         compression: SnapshotCompression::None,
+        content_hash: None,
     };
 
     let snapshot2 = Snapshot {
@@ -183,6 +188,7 @@ fn test_find_snapshots_by_partition() -> StorageResult<()> {
         content: None,
         source: String::new(),
         compression: SnapshotCompression::None,
+        content_hash: None,
     };
 
     storage.store_snapshot(&snapshot1, b"version1")?;
@@ -217,6 +223,7 @@ fn test_store_snapshots_batch_atomic() -> StorageResult<()> {
         content: None,
         source: String::new(),
         compression: SnapshotCompression::None,
+        content_hash: None,
     };
 
     let snapshot2 = Snapshot {
@@ -233,6 +240,7 @@ fn test_store_snapshots_batch_atomic() -> StorageResult<()> {
         content: None,
         source: String::new(),
         compression: SnapshotCompression::None,
+        content_hash: None,
     };
 
     let snapshot3 = Snapshot {
@@ -244,11 +252,12 @@ fn test_store_snapshots_batch_atomic() -> StorageResult<()> {
         deltas: vec![],
         parents: vec![],
         partition_type: PartitionType::Manual.name(),
-        created_at: 3000,
+        created_at: chrono::Utc::now().timestamp_millis(),
         has_conflicts: false,
         content: None,
         source: String::new(),
         compression: SnapshotCompression::None,
+        content_hash: None,
     };
 
     // Store snapshots in a batch with atomic guarantee
@@ -306,6 +315,7 @@ fn test_snapshot_with_deltas_and_parents() -> StorageResult<()> {
         content: None,
         source: String::new(),
         compression: SnapshotCompression::None,
+        content_hash: None,
     };
 
     storage.store_snapshot(&snapshot, b"content")?;
@@ -354,6 +364,9 @@ fn test_store_and_get_delta() -> StorageResult<()> {
         source: SourceType::Manual,
         timestamp: chrono::Utc::now().timestamp_millis(),
         seq: 0,
+        session_id: None,
+        content_hash: None,
+        message: None,
     };
 
     storage.store_delta(&delta)?;
@@ -385,6 +398,9 @@ fn test_delta_exists() -> StorageResult<()> {
         source: SourceType::Manual,
         timestamp: chrono::Utc::now().timestamp_millis(),
         seq: 0,
+        session_id: None,
+        content_hash: None,
+        message: None,
     };
 
     assert!(!storage.delta_exists(&delta_id)?);
@@ -414,6 +430,9 @@ fn test_get_deltas_batch() -> StorageResult<()> {
         source: SourceType::Manual,
         timestamp: 1000,
         seq: 0,
+        session_id: None,
+        content_hash: None,
+        message: None,
     };
 
     let delta2 = Delta {
@@ -429,6 +448,9 @@ fn test_get_deltas_batch() -> StorageResult<()> {
         source: SourceType::Manual,
         timestamp: 2000,
         seq: 0,
+        session_id: None,
+        content_hash: None,
+        message: None,
     };
 
     storage.store_delta(&delta1)?;
@@ -470,6 +492,9 @@ fn test_get_single_delta_batch() -> StorageResult<()> {
         source: SourceType::Manual,
         timestamp: 1000,
         seq: 0,
+        session_id: None,
+        content_hash: None,
+        message: None,
     };
 
     storage.store_delta(&delta)?;
@@ -501,6 +526,9 @@ fn test_delta_with_agent_source() -> StorageResult<()> {
         source: SourceType::Agent(agent_instance_id.clone()),
         timestamp: chrono::Utc::now().timestamp_millis(),
         seq: 0,
+        session_id: None,
+        content_hash: None,
+        message: None,
     };
 
     storage.store_delta(&delta)?;
@@ -531,6 +559,7 @@ fn test_create_and_get_partition() -> StorageResult<()> {
         current_snapshot: snapshot_id,
         history: vec![snapshot_id],
         partition_type: PartitionType::Manual,
+            redo_stack: Vec::new(),
     };
 
     storage.create_partition(&partition)?;
@@ -559,6 +588,7 @@ fn test_get_partition_by_name() -> StorageResult<()> {
         current_snapshot: snapshot_id,
         history: vec![snapshot_id],
         partition_type: PartitionType::Manual,
+            redo_stack: Vec::new(),
     };
 
     storage.create_partition(&partition)?;
@@ -584,6 +614,7 @@ fn test_update_partition_pointer() -> StorageResult<()> {
         current_snapshot: snapshot1_id,
         history: vec![snapshot1_id],
         partition_type: PartitionType::Manual,
+            redo_stack: Vec::new(),
     };
 
     storage.create_partition(&partition)?;
@@ -611,6 +642,7 @@ fn test_list_partitions() -> StorageResult<()> {
         current_snapshot: snapshot_id,
         history: vec![snapshot_id],
         partition_type: PartitionType::Manual,
+            redo_stack: Vec::new(),
     };
 
     let partition2 = Partition {
@@ -619,6 +651,7 @@ fn test_list_partitions() -> StorageResult<()> {
         current_snapshot: snapshot_id,
         history: vec![snapshot_id],
         partition_type: PartitionType::Agent(agent_id),
+            redo_stack: Vec::new(),
     };
 
     storage.create_partition(&partition1)?;
@@ -647,6 +680,7 @@ fn test_partition_with_empty_history() -> StorageResult<()> {
         current_snapshot: snapshot_id,
         history: vec![],
         partition_type: PartitionType::Manual,
+            redo_stack: Vec::new(),
     };
 
     storage.create_partition(&partition)?;
@@ -760,6 +794,7 @@ fn test_atomic_ops_success() -> StorageResult<()> {
             content: None,
             source: String::new(),
             compression: SnapshotCompression::None,
+            content_hash: None,
         };
 
         storage.store_snapshot(&snapshot, b"content")?;
@@ -794,6 +829,7 @@ fn test_atomic_ops_rollback_on_error() -> StorageResult<()> {
             content: None,
             source: String::new(),
             compression: SnapshotCompression::None,
+            content_hash: None,
         };
 
         storage.store_snapshot(&snapshot, b"content")?;
@@ -1173,6 +1209,7 @@ fn test_clone_storage() -> StorageResult<()> {
         content: None,
         source: String::new(),
         compression: SnapshotCompression::None,
+        content_hash: None,
     };
 
     storage.store_snapshot(&snapshot, b"content")?;
@@ -1204,6 +1241,7 @@ fn test_share_storage() -> StorageResult<()> {
         content: None,
         source: String::new(),
         compression: SnapshotCompression::None,
+        content_hash: None,
     };
 
     storage.store_snapshot(&snapshot, b"content")?;

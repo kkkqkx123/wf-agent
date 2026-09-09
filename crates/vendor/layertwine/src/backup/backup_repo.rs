@@ -524,6 +524,7 @@ mod tests {
             current_snapshot: snapshot_id,
             history: vec![snapshot_id],
             partition_type: crate::core::types::PartitionType::Staged,
+            redo_stack: Vec::new(),
         };
         store.create_partition(&partition).unwrap();
     }

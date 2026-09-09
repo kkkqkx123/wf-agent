@@ -3,6 +3,19 @@ use crate::core::types::{ContentId, DeltaId, SnapshotId};
 use crate::error::{LayertwineError, Result};
 use serde::{Deserialize, Serialize};
 
+/// Compute a pure content hash from snapshot content bytes. Returns `None`
+/// when the content is absent (delta-chain reconstructed) or a deletion
+/// marker — these cases have no fixed content to hash.
+pub fn compute_snapshot_content_hash(content: &Option<SnapshotContent>) -> Option<ContentId> {
+    match content {
+        Some(c) if !c.is_deleted() => {
+            let bytes = c.to_bytes();
+            Some(ContentId::from_content(&bytes))
+        }
+        _ => None,
+    }
+}
+
 /// Snapshot content type - supports multiple content forms
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum SnapshotContent {
@@ -79,6 +92,11 @@ pub struct Snapshot {
     /// Compression method
     #[serde(default)]
     pub compression: SnapshotCompression,
+    /// Pure content hash of the snapshot's resulting file bytes. Enables
+    /// storage-level deduplication and cross-layer content identity checks
+    /// without depending on the delta chain (which embeds timestamps).
+    #[serde(default)]
+    pub content_hash: Option<ContentId>,
 }
 
 /// Snapshot compression method
@@ -103,6 +121,7 @@ impl Snapshot {
             content: None,
             source: String::new(),
             compression: SnapshotCompression::None,
+            content_hash: None,
         };
         let mut s = snapshot;
         s.id = s.compute_id();
@@ -114,6 +133,10 @@ impl Snapshot {
         deltas.push(delta_id);
 
         let now = chrono::Utc::now().timestamp_millis();
+        let content = match &parent.content {
+            Some(SnapshotContent::FileContent(_)) | None => None,
+            other => other.clone(),
+        };
         let snapshot = Snapshot {
             id: ContentId([0u8; 32]),
             file: parent.file.clone(),
@@ -122,16 +145,10 @@ impl Snapshot {
             partition_type,
             created_at: now,
             has_conflicts: false,
-            // File-type parent content is never carried forward: the delta
-            // chain (file_nodes base + deltas) is the single source of truth
-            // for reconstruction. Only metadata-style payloads (JSON,
-            // structured, deletion marker) propagate to children.
-            content: match &parent.content {
-                Some(SnapshotContent::FileContent(_)) | None => None,
-                other => other.clone(),
-            },
+            content,
             source: parent.source.clone(),
             compression: parent.compression,
+            content_hash: compute_snapshot_content_hash(&None),
         };
         let mut s = snapshot;
         s.id = s.compute_id();
@@ -148,6 +165,7 @@ impl Snapshot {
         deltas: Vec<DeltaId>,
     ) -> Self {
         let now = chrono::Utc::now().timestamp_millis();
+        let content_hash = compute_snapshot_content_hash(&Some(content.clone()));
         let snapshot = Snapshot {
             id: ContentId([0u8; 32]),
             file,
@@ -159,6 +177,7 @@ impl Snapshot {
             content: Some(content),
             source,
             compression: SnapshotCompression::None,
+            content_hash,
         };
         let mut s = snapshot;
         s.id = s.compute_id();
@@ -209,6 +228,10 @@ impl Snapshot {
         deltas.push(delta_id);
 
         let now = chrono::Utc::now().timestamp_millis();
+        let content = match &parents[0].content {
+            Some(SnapshotContent::FileContent(_)) | None => None,
+            other => other.clone(),
+        };
         let snapshot = Snapshot {
             id: ContentId([0u8; 32]),
             file,
@@ -217,16 +240,10 @@ impl Snapshot {
             partition_type,
             created_at: now,
             has_conflicts,
-            // File-type content is reconstructed from the delta chain, never
-            // cloned from a parent: cloning would leave a stale full-file copy
-            // that diverges from `deltas`. Metadata payloads (JSON, structured,
-            // deletion marker) propagate from the destination parent.
-            content: match &parents[0].content {
-                Some(SnapshotContent::FileContent(_)) | None => None,
-                other => other.clone(),
-            },
+            content,
             source: parents[0].source.clone(),
             compression: parents[0].compression,
+            content_hash: None,
         };
         let mut s = snapshot;
         s.id = s.compute_id();
@@ -317,6 +334,7 @@ pub struct SnapshotBuilder {
     content: Option<SnapshotContent>,
     source: String,
     compression: SnapshotCompression,
+    content_hash: Option<ContentId>,
 }
 
 impl SnapshotBuilder {
@@ -330,6 +348,7 @@ impl SnapshotBuilder {
             content: None,
             source: String::new(),
             compression: SnapshotCompression::None,
+            content_hash: None,
         }
     }
 
@@ -373,11 +392,19 @@ impl SnapshotBuilder {
         self
     }
 
+    pub fn with_content_hash(mut self, content_hash: ContentId) -> Self {
+        self.content_hash = Some(content_hash);
+        self
+    }
+
     pub fn build(self) -> Result<Snapshot> {
         let file = self.file.ok_or_else(|| {
             LayertwineError::Checkpoint("file is required for snapshot".to_string())
         })?;
         let now = chrono::Utc::now().timestamp_millis();
+        let content_hash = self
+            .content_hash
+            .or_else(|| compute_snapshot_content_hash(&self.content));
         let snapshot = Snapshot {
             id: ContentId([0u8; 32]),
             file,
@@ -389,6 +416,7 @@ impl SnapshotBuilder {
             content: self.content,
             source: self.source,
             compression: self.compression,
+            content_hash,
         };
         let mut s = snapshot;
         s.id = s.compute_id();

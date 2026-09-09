@@ -63,6 +63,7 @@ pub type DeltaId = ContentId;
 pub type CheckpointId = ContentId;
 pub type BackupId = ContentId;
 pub type PartitionId = uuid::Uuid;
+pub type EditSessionId = uuid::Uuid;
 
 /// Type of source
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

@@ -101,6 +101,7 @@ fn setup_storage_with_partition(
         current_snapshot: snapshot.id,
         history: vec![snapshot.id],
         partition_type: PartitionType::Staged,
+        redo_stack: Vec::new(),
     };
     storage.create_partition(&partition).unwrap();
 

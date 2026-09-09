@@ -1,6 +1,8 @@
 mod checkpoint;
 mod connection;
 mod delta;
+mod edit_session;
+mod file_move;
 mod file_node;
 mod meta;
 mod partition;

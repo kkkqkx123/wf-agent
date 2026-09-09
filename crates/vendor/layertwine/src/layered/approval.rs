@@ -30,6 +30,7 @@ pub fn ensure_approval_agent_partition<S: PartitionStore>(
                 current_snapshot: initial_snapshot_id,
                 history: vec![initial_snapshot_id],
                 partition_type: PartitionType::Approval(agent_id.clone()),
+                redo_stack: Vec::new(),
             };
             storage
                 .create_partition(&partition)

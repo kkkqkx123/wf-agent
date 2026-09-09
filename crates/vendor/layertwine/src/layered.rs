@@ -158,6 +158,24 @@ where
             }
         }
 
+        // Reset manual partition to the branch's base snapshot so that edits
+        // from the previous branch do not leak into the new branch.
+        let manual_pid = crate::layered::manual::manual_partition_id();
+        match self.storage.get_partition(&manual_pid) {
+            Ok(_) => {
+                self.storage
+                    .reset_partition_to(&manual_pid, &base_snapshot)
+                    .map_err(LayertwineError::Storage)?;
+            }
+            Err(_) => {
+                let partition =
+                    Partition::new("manual".to_string(), PartitionType::Manual, base_snapshot);
+                self.storage
+                    .create_partition(&partition)
+                    .map_err(LayertwineError::Storage)?;
+            }
+        }
+
         Ok(branch.head)
     }
 
@@ -225,6 +243,7 @@ mod tests {
             current_snapshot: initial_id,
             history: vec![initial_id],
             partition_type: PartitionType::Manual,
+                redo_stack: Vec::new(),
         };
         storage.create_partition(&partition).unwrap();
 
@@ -275,6 +294,7 @@ mod tests {
             current_snapshot: initial_id,
             history: vec![initial_id],
             partition_type: PartitionType::Manual,
+                redo_stack: Vec::new(),
         };
         storage.create_partition(&partition).unwrap();
 
@@ -298,6 +318,7 @@ mod tests {
             current_snapshot: initial_id,
             history: vec![initial_id],
             partition_type: PartitionType::Manual,
+                redo_stack: Vec::new(),
         };
 
         let result = sm.get_or_create_partition(&pid, &partition);
@@ -336,6 +357,7 @@ mod tests {
                 current_snapshot: initial_id,
                 history: vec![initial_id],
                 partition_type: PartitionType::Manual,
+                redo_stack: Vec::new(),
             };
             storage.create_partition(&partition)?;
             Ok(pid)

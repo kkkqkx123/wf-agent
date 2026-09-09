@@ -130,6 +130,29 @@ pub fn diff_to_line_diff(old: &str, new: &str) -> LineDiff {
     }
 }
 
+/// Decide whether a text edit should be stored as a full-content snapshot
+/// rather than a line-level delta. The heuristic compares the byte-length
+/// change ratio against `threshold` (0.0 – 1.0).
+///
+/// Returns `true` when the change magnitude meets or exceeds the threshold,
+/// meaning the delta chain would carry near-redundant data. This commonly
+/// happens with whole-file rewrites (formatters, code generators, bulk
+/// replacements).
+///
+/// A zero-length old content (new file creation) always returns `false` —
+/// there is no base to compare against and the delta is minimal.
+pub fn should_use_full_snapshot(
+    old_content_len: usize,
+    new_content_len: usize,
+    threshold: f64,
+) -> bool {
+    if old_content_len == 0 || threshold <= 0.0 {
+        return false;
+    }
+    let diff_len = old_content_len.abs_diff(new_content_len);
+    (diff_len as f64) >= (old_content_len as f64) * threshold
+}
+
 /// Unified diff output (with context preserved) for displaying the
 pub fn format_unified_diff(old: &str, new: &str, context: usize) -> String {
     // Try cache for small files
@@ -308,5 +331,35 @@ mod tests {
             !diff.is_empty(),
             "different newline count should produce diff"
         );
+    }
+
+    #[test]
+    fn test_should_use_full_snapshot_small_change() {
+        assert!(!should_use_full_snapshot(1000, 1010, 0.5));
+    }
+
+    #[test]
+    fn test_should_use_full_snapshot_large_change() {
+        assert!(should_use_full_snapshot(1000, 400, 0.5));
+    }
+
+    #[test]
+    fn test_should_use_full_snapshot_exact_threshold() {
+        assert!(should_use_full_snapshot(1000, 500, 0.5));
+    }
+
+    #[test]
+    fn test_should_use_full_snapshot_new_file() {
+        assert!(!should_use_full_snapshot(0, 5000, 0.5));
+    }
+
+    #[test]
+    fn test_should_use_full_snapshot_zero_threshold() {
+        assert!(!should_use_full_snapshot(100, 200, 0.0));
+    }
+
+    #[test]
+    fn test_should_use_full_snapshot_whole_rewrite() {
+        assert!(should_use_full_snapshot(100, 200, 0.5));
     }
 }

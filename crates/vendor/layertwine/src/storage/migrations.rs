@@ -19,7 +19,9 @@ CREATE TABLE IF NOT EXISTS deltas (
     source       TEXT NOT NULL,
     source_data  TEXT,
     timestamp    INTEGER NOT NULL,
-    created_at   INTEGER NOT NULL
+    created_at   INTEGER NOT NULL,
+    content_hash BLOB,
+    message      TEXT
 );
 
 -- Snapshot Table (Immutable, INSERT ONLY)
@@ -35,7 +37,8 @@ CREATE TABLE IF NOT EXISTS snapshots (
     source          TEXT DEFAULT '',
     content_type    TEXT DEFAULT 'file',
     content         BLOB,
-    compression     TEXT DEFAULT 'none'
+    compression     TEXT DEFAULT 'none',
+    content_hash    BLOB
 );
 
 -- Partition Table
@@ -62,8 +65,45 @@ CREATE TABLE IF NOT EXISTS partition_history (
 CREATE INDEX IF NOT EXISTS idx_snapshots_file_created ON snapshots(file_path, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_snapshots_partition_created ON snapshots(partition_type, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_snapshots_source ON snapshots(source);
+CREATE INDEX IF NOT EXISTS idx_snapshots_created_at ON snapshots(created_at);
 CREATE INDEX IF NOT EXISTS idx_deltas_file ON deltas(file_path);
+CREATE INDEX IF NOT EXISTS idx_deltas_file_timestamp ON deltas(file_path, timestamp);
+CREATE INDEX IF NOT EXISTS idx_deltas_timestamp ON deltas(timestamp);
+CREATE INDEX IF NOT EXISTS idx_deltas_content_hash ON deltas(content_hash);
 CREATE INDEX IF NOT EXISTS idx_partition_history_snapshot ON partition_history(snapshot_id);
+CREATE INDEX IF NOT EXISTS idx_snapshots_content_hash ON snapshots(content_hash);
+
+-- Edit Session Table (groups deltas from a single user/Agent operation)
+CREATE TABLE IF NOT EXISTS edit_sessions (
+    id              BLOB PRIMARY KEY,
+    label           TEXT,
+    created_at      INTEGER NOT NULL
+);
+
+-- Delta-Session association table
+CREATE TABLE IF NOT EXISTS delta_sessions (
+    delta_id        BLOB NOT NULL,
+    session_id      BLOB NOT NULL,
+    seq             INTEGER NOT NULL,
+    PRIMARY KEY (delta_id, session_id),
+    FOREIGN KEY (delta_id) REFERENCES deltas(id),
+    FOREIGN KEY (session_id) REFERENCES edit_sessions(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_delta_sessions_session ON delta_sessions(session_id);
+
+-- File Move/Rename Tracking Table
+CREATE TABLE IF NOT EXISTS file_moves (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    from_path   TEXT NOT NULL,
+    to_path     TEXT NOT NULL,
+    timestamp   INTEGER NOT NULL,
+    source      TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_file_moves_from ON file_moves(from_path);
+CREATE INDEX IF NOT EXISTS idx_file_moves_to ON file_moves(to_path);
+CREATE INDEX IF NOT EXISTS idx_file_moves_timestamp ON file_moves(timestamp);
 
 -- Single-truth pointer guarantee: whenever a history row is appended the
 -- partition's current_snapshot is kept in lockstep, so the DB itself ensures

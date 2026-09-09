@@ -1,4 +1,6 @@
 pub mod delta;
+pub mod edit_session;
+pub mod file_move;
 pub mod file_node;
 pub mod partition;
 pub mod snapshot;

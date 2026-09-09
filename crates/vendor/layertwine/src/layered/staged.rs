@@ -94,6 +94,7 @@ pub fn ensure_staged_partition<S: PartitionStore>(
                 current_snapshot: initial_snapshot_id,
                 history: vec![initial_snapshot_id],
                 partition_type: PartitionType::Staged,
+                redo_stack: Vec::new(),
             };
             storage
                 .create_partition(&partition)
@@ -318,6 +319,43 @@ pub fn commit_staged_to_checkpoint<S>(
 where
     S: SnapshotStore + PartitionStore + CheckpointPersist,
 {
+    commit_staged_to_checkpoint_inner(storage, branch_name, message, author, false)
+}
+
+/// Submit a mid-task checkpoint.
+///
+/// Same as `commit_staged_to_checkpoint` but marks the checkpoint as a
+/// mid-task boundary (via the `mid_task_checkpoint` metadata flag). This
+/// provides a natural split point during long-running tasks, replacing
+/// the need for delta chain folding. The staged partition is reset to
+/// the committed snapshot so subsequent edits build on the new baseline.
+///
+/// Use this when:
+/// - The delta chain depth exceeds a threshold (>100)
+/// - A logical sub-phase of a long task completes
+/// - You want to create a Git-syncable boundary without finishing the task
+pub fn commit_mid_task_checkpoint<S>(
+    storage: &S,
+    branch_name: &str,
+    message: &str,
+    author: &str,
+) -> Result<CheckpointId>
+where
+    S: SnapshotStore + PartitionStore + CheckpointPersist,
+{
+    commit_staged_to_checkpoint_inner(storage, branch_name, message, author, true)
+}
+
+fn commit_staged_to_checkpoint_inner<S>(
+    storage: &S,
+    branch_name: &str,
+    message: &str,
+    author: &str,
+    is_mid_task: bool,
+) -> Result<CheckpointId>
+where
+    S: SnapshotStore + PartitionStore + CheckpointPersist,
+{
     // 1. Get staged partition
     let staged_pid = staged_partition_id();
     let staged_partition = storage
@@ -338,8 +376,13 @@ where
         }
     };
 
-    // 3. Build Checkpoint
-    let metadata = CheckpointMetadata::new(author, message);
+    // 3. Build Checkpoint with mid-task marker in message prefix
+    let final_message = if is_mid_task {
+        format!("[mid-task] {}", message)
+    } else {
+        message.to_string()
+    };
+    let metadata = CheckpointMetadata::new(author, &final_message);
     let cp = Checkpoint::new(vec![current_snapshot_id], vec![branch_head], metadata);
     let cp_id = cp.id;
 
@@ -470,6 +513,7 @@ mod tests {
             current_snapshot: feature_snap_id,
             history: vec![initial_id, feature_snap_id],
             partition_type: PartitionType::Integrated(feature_name.to_string()),
+            redo_stack: Vec::new(),
         };
         storage.create_partition(&integrated_part).unwrap();
 
@@ -510,6 +554,7 @@ mod tests {
             current_snapshot: initial_id,
             history: vec![initial_id],
             partition_type: PartitionType::Integrated(feature_name.to_string()),
+            redo_stack: Vec::new(),
         };
         storage.create_partition(&integrated_part).unwrap();
 

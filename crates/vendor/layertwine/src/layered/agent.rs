@@ -7,8 +7,8 @@ use crate::core::delta::Delta;
 use crate::core::file_node::FileNode;
 use crate::core::partition::Partition;
 use crate::core::snapshot::{Snapshot, SnapshotContent};
-use crate::core::types::{AgentInstanceId, PartitionId, PartitionType, SnapshotId, SourceType};
-use crate::engine::diff::diff_to_line_diff;
+use crate::core::types::{AgentInstanceId, EditSessionId, PartitionId, PartitionType, SnapshotId, SourceType};
+use crate::engine::diff::{diff_to_line_diff, should_use_full_snapshot};
 use crate::engine::merge::apply_deltas;
 use crate::error::{LayertwineError, Result};
 use crate::storage::repository::{DeltaStore, FileNodeStore, PartitionStore, SnapshotStore};
@@ -35,6 +35,7 @@ pub fn ensure_agent_partition<S: PartitionStore>(
                 current_snapshot: initial_snapshot_id,
                 history: vec![initial_snapshot_id],
                 partition_type: PartitionType::Agent(agent_id.clone()),
+                redo_stack: Vec::new(),
             };
             storage
                 .create_partition(&partition)
@@ -57,6 +58,23 @@ pub fn apply_agent_edit<S>(
 where
     S: SnapshotStore + DeltaStore + FileNodeStore + PartitionStore,
 {
+    apply_agent_edit_with_session(storage, agent_id, file_path, new_content, None)
+}
+
+/// Agent edit with optional edit session grouping.
+///
+/// When `session_id` is provided, the created delta is associated with
+/// the session, enabling atomic rollback of the entire logical operation.
+pub fn apply_agent_edit_with_session<S>(
+    storage: &S,
+    agent_id: &AgentInstanceId,
+    file_path: &str,
+    new_content: &str,
+    session_id: Option<EditSessionId>,
+) -> Result<SnapshotId>
+where
+    S: SnapshotStore + DeltaStore + FileNodeStore + PartitionStore,
+{
     let pid = agent_partition_id(agent_id);
     let partition = storage.get_partition(&pid).map_err(|_| {
         LayertwineError::NotFound(format!(
@@ -69,21 +87,27 @@ where
         .get_snapshot(&partition.current_snapshot)
         .map_err(LayertwineError::Storage)?;
 
-    // Read old content
-    let old_content = {
-        let deltas = storage
-            .get_deltas(&current_snapshot.deltas)
-            .map_err(LayertwineError::Storage)?;
-        let content_str = String::from_utf8_lossy(
-            &storage
-                .get_file_content(
-                    current_snapshot.file.path_str(),
-                    &current_snapshot.file.base_hash,
-                )
-                .map_err(LayertwineError::Storage)?,
-        )
-        .to_string();
-        apply_deltas(&content_str, &deltas).map_err(|e| LayertwineError::Engine(e.to_string()))?
+    // Read old content — prefer inline full-content snapshot over delta chain
+    let old_content = match &current_snapshot.content {
+        Some(crate::core::snapshot::SnapshotContent::FileContent(bytes)) => {
+            String::from_utf8_lossy(bytes).to_string()
+        }
+        _ => {
+            let deltas = storage
+                .get_deltas(&current_snapshot.deltas)
+                .map_err(LayertwineError::Storage)?;
+            let content_str = String::from_utf8_lossy(
+                &storage
+                    .get_file_content(
+                        current_snapshot.file.path_str(),
+                        &current_snapshot.file.base_hash,
+                    )
+                    .map_err(LayertwineError::Storage)?,
+            )
+            .to_string();
+            apply_deltas(&content_str, &deltas)
+                .map_err(|e| LayertwineError::Engine(e.to_string()))?
+        }
     };
 
     // Calculate diff
@@ -92,12 +116,36 @@ where
         return Ok(partition.current_snapshot);
     }
 
+    // Check if this edit should bypass the delta chain and store full content.
+    if should_use_full_snapshot(old_content.len(), new_content.len(), 0.5) {
+        let file_node = FileNode::new(PathBuf::from(file_path), new_content.as_bytes());
+        let snapshot = Snapshot::new_with_content(
+            file_node.clone(),
+            SnapshotContent::FileContent(new_content.as_bytes().to_vec()),
+            format!("agent://{}/{}", agent_id, file_path),
+            PartitionType::Agent(agent_id.clone()).name(),
+            vec![current_snapshot.id],
+            vec![],
+        );
+        storage
+            .store_file_node(&file_node, new_content.as_bytes())
+            .map_err(LayertwineError::Storage)?;
+        storage
+            .store_snapshot(&snapshot, new_content.as_bytes())
+            .map_err(LayertwineError::Storage)?;
+        storage
+            .update_pointer(&pid, &snapshot.id)
+            .map_err(LayertwineError::Storage)?;
+        return Ok(snapshot.id);
+    }
+
     // Create Delta
     let file_node = FileNode::new(PathBuf::from(file_path), old_content.as_bytes());
-    let delta = Delta::new(
+    let delta = Delta::new_with_session(
         file_node.clone(),
         line_diff,
         SourceType::Agent(agent_id.clone()),
+        session_id,
     );
     storage
         .store_file_node(&file_node, old_content.as_bytes())
@@ -138,6 +186,19 @@ pub fn apply_agent_delete<S>(
 where
     S: SnapshotStore + DeltaStore + FileNodeStore + PartitionStore,
 {
+    apply_agent_delete_with_session(storage, agent_id, file_path, None)
+}
+
+/// Delete a file with optional edit session grouping.
+pub fn apply_agent_delete_with_session<S>(
+    storage: &S,
+    agent_id: &AgentInstanceId,
+    file_path: &str,
+    session_id: Option<EditSessionId>,
+) -> Result<SnapshotId>
+where
+    S: SnapshotStore + DeltaStore + FileNodeStore + PartitionStore,
+{
     let pid = agent_partition_id(agent_id);
     let partition = storage.get_partition(&pid).map_err(|_| {
         LayertwineError::NotFound(format!(
@@ -150,21 +211,25 @@ where
         .get_snapshot(&partition.current_snapshot)
         .map_err(LayertwineError::Storage)?;
 
-    // Read old content
-    let old_content = {
-        let deltas = storage
-            .get_deltas(&current_snapshot.deltas)
-            .map_err(LayertwineError::Storage)?;
-        let content_str = String::from_utf8_lossy(
-            &storage
-                .get_file_content(
-                    current_snapshot.file.path_str(),
-                    &current_snapshot.file.base_hash,
-                )
-                .map_err(LayertwineError::Storage)?,
-        )
-        .to_string();
-        apply_deltas(&content_str, &deltas).map_err(|e| LayertwineError::Engine(e.to_string()))?
+    // Read old content — prefer inline full-content snapshot over delta chain
+    let old_content = match &current_snapshot.content {
+        Some(SnapshotContent::FileContent(bytes)) => String::from_utf8_lossy(bytes).to_string(),
+        _ => {
+            let deltas = storage
+                .get_deltas(&current_snapshot.deltas)
+                .map_err(LayertwineError::Storage)?;
+            let content_str = String::from_utf8_lossy(
+                &storage
+                    .get_file_content(
+                        current_snapshot.file.path_str(),
+                        &current_snapshot.file.base_hash,
+                    )
+                    .map_err(LayertwineError::Storage)?,
+            )
+            .to_string();
+            apply_deltas(&content_str, &deltas)
+                .map_err(|e| LayertwineError::Engine(e.to_string()))?
+        }
     };
 
     // Full-file deletion diff: old content -> empty. An already-empty file
@@ -174,10 +239,11 @@ where
 
     // Create Delta
     let file_node = FileNode::new(PathBuf::from(file_path), old_content.as_bytes());
-    let delta = Delta::new(
+    let delta = Delta::new_with_session(
         file_node.clone(),
         line_diff,
         SourceType::Agent(agent_id.clone()),
+        session_id,
     );
     storage
         .store_file_node(&file_node, old_content.as_bytes())
@@ -481,6 +547,7 @@ mod tests {
             current_snapshot: initial_id,
             history: vec![initial_id],
             partition_type: PartitionType::Approval(agent_id.clone()),
+            redo_stack: Vec::new(),
         };
         storage.create_partition(&approval_part).unwrap();
 

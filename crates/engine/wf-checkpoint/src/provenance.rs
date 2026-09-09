@@ -53,6 +53,9 @@ pub struct DeltaSummary {
     pub snapshot_id: String,
     /// Content hash (SHA-256 hex) of the resulting file bytes.
     pub hash: String,
+    /// Optional human-readable description of the edit intent.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
 }
 
 /// Read view of a partition.
@@ -254,9 +257,12 @@ pub fn list_changes_by_actor(
                 continue;
             }
         }
-        let source = snapshot_last_delta(storage, &snapshot)?
+        let last_delta = snapshot_last_delta(storage, &snapshot)?;
+        let source = last_delta
+            .as_ref()
             .map(|d| source_label(&d.source))
             .unwrap_or_else(|| "agent".to_string());
+        let message = last_delta.and_then(|d| d.message.clone());
         let content = snapshot_content_bytes(storage, &snapshot)?;
         changes.push(DeltaSummary {
             file: path,
@@ -264,6 +270,7 @@ pub fn list_changes_by_actor(
             timestamp: snapshot.created_at,
             snapshot_id: snapshot.id.to_hex(),
             hash: sha256_hex(&content),
+            message,
         });
     }
     Ok(changes)
@@ -292,9 +299,12 @@ pub fn list_changes_by_path(
                     continue;
                 }
             }
-            let source = snapshot_last_delta(storage, &snapshot)?
+            let last_delta = snapshot_last_delta(storage, &snapshot)?;
+            let source = last_delta
+                .as_ref()
                 .map(|d| source_label(&d.source))
                 .unwrap_or_else(|| "agent".to_string());
+            let message = last_delta.and_then(|d| d.message.clone());
             let content = snapshot_content_bytes(storage, &snapshot)?;
             changes.push(DeltaSummary {
                 file: snapshot_path,
@@ -302,6 +312,7 @@ pub fn list_changes_by_path(
                 timestamp: snapshot.created_at,
                 snapshot_id: snapshot.id.to_hex(),
                 hash: sha256_hex(&content),
+                message,
             });
         }
     }
@@ -664,9 +675,12 @@ impl DeltaSummary {
         if path == SEED_PATH {
             return Ok(None);
         }
-        let source = snapshot_last_delta(storage, snapshot)?
+        let last_delta = snapshot_last_delta(storage, snapshot)?;
+        let source = last_delta
+            .as_ref()
             .map(|d| source_label(&d.source))
             .unwrap_or_else(|| "agent".to_string());
+        let message = last_delta.and_then(|d| d.message.clone());
         let content = snapshot_content_bytes(storage, snapshot)?;
         Ok(Some(DeltaSummary {
             file: path,
@@ -674,8 +688,109 @@ impl DeltaSummary {
             timestamp: snapshot.created_at,
             snapshot_id: snapshot.id.to_hex(),
             hash: sha256_hex(&content),
+            message,
         }))
     }
+}
+
+/// A single entry in a file's version timeline, including optional move context.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct FileTimelineEntry {
+    /// File path at this point in time.
+    pub path: String,
+    /// Snapshot id (hex).
+    pub snapshot_id: String,
+    /// Content hash (SHA-256 hex) of the resulting file bytes.
+    pub content_hash: String,
+    /// Change time (Unix milliseconds).
+    pub timestamp: i64,
+    /// Origin label (e.g. "manual", "agent:loop-1").
+    pub source: String,
+    /// If this entry follows a rename, the previous path.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub moved_from: Option<String>,
+}
+
+/// Complete timeline for a file, including renames/moves.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct FileTimeline {
+    /// Original path (the first path this file was known at).
+    pub original_path: String,
+    /// All versions in chronological order.
+    pub entries: Vec<FileTimelineEntry>,
+}
+
+/// Build the complete version timeline for a file path, including
+/// rename/move追溯. The timeline walks backwards through file_moves to find
+/// the original path, then collects all snapshots that touched any path in
+/// the rename chain, and returns them in chronological order.
+pub fn file_timeline(
+    storage: &SqliteStorage,
+    path: &str,
+) -> Result<FileTimeline, CheckpointError> {
+    use layertwine::storage::repository::FileMoveStore;
+
+    // Trace the rename chain to find the original path
+    let rename_chain = storage.trace_rename_chain(path).map_err(map_layertwine_error)?;
+
+    // Collect all paths in the rename chain (including the current path)
+    let mut all_paths: Vec<String> = Vec::new();
+    for m in &rename_chain {
+        if !all_paths.contains(&m.from_path) {
+            all_paths.push(m.from_path.clone());
+        }
+    }
+    if !all_paths.contains(&path.to_string()) {
+        all_paths.push(path.to_string());
+    }
+
+    // Build a map of path -> moved_from for quick lookup
+    let mut moved_from_map: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    for m in &rename_chain {
+        moved_from_map.insert(m.to_path.clone(), m.from_path.clone());
+    }
+
+    // Collect all snapshots touching any of these paths across all partitions
+    let partitions = storage.list_partitions().map_err(map_layertwine_error)?;
+    let mut entries: Vec<FileTimelineEntry> = Vec::new();
+
+    for partition in &partitions {
+        for snapshot_id in &partition.history {
+            let snapshot = storage
+                .get_snapshot(snapshot_id)
+                .map_err(map_layertwine_error)?;
+            let snapshot_path = snapshot_file_path(storage, &snapshot)?;
+            if snapshot_path == SEED_PATH || !all_paths.contains(&snapshot_path) {
+                continue;
+            }
+            let source = snapshot_last_delta(storage, &snapshot)?
+                .map(|d| source_label(&d.source))
+                .unwrap_or_else(|| "agent".to_string());
+            let content = snapshot_content_bytes(storage, &snapshot)?;
+            let moved_from = moved_from_map.get(&snapshot_path).cloned();
+            entries.push(FileTimelineEntry {
+                path: snapshot_path,
+                snapshot_id: snapshot.id.to_hex(),
+                content_hash: sha256_hex(&content),
+                timestamp: snapshot.created_at,
+                source,
+                moved_from,
+            });
+        }
+    }
+
+    entries.sort_by_key(|e| e.timestamp);
+
+    // The original path is the first path in the rename chain, or the given path
+    let original_path = rename_chain
+        .first()
+        .map(|m| m.from_path.clone())
+        .unwrap_or_else(|| path.to_string());
+
+    Ok(FileTimeline {
+        original_path,
+        entries,
+    })
 }
 
 #[cfg(test)]

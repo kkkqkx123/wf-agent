@@ -3,11 +3,11 @@
 //! Define all allowed forward/reverse flow operations, and state machine irony checks.
 
 use crate::backup::backup_repo::BackupRepo;
-use crate::core::snapshot::Snapshot;
-use crate::core::types::{BackupId, LayerType, PartitionId, SnapshotId};
+use crate::core::snapshot::{Snapshot, SnapshotContent};
+use crate::core::types::{BackupId, EditSessionId, LayerType, PartitionId, SnapshotId};
 use crate::engine::merge::apply_deltas;
 use crate::error::{LayertwineError, Result};
-use crate::storage::repository::{DeltaStore, FileNodeStore, PartitionStore, SnapshotStore};
+use crate::storage::repository::{DeltaStore, EditSessionStore, FileNodeStore, PartitionStore, SnapshotStore};
 
 // ===== Allowable Direction of Flow =====
 
@@ -187,6 +187,128 @@ pub fn rollback_partition<S: PartitionStore>(
     Ok(prev_id)
 }
 
+/// Roll back one step and push the undone snapshot onto the redo stack.
+///
+/// Unlike `rollback_partition` which truncates history, this preserves the
+/// undone snapshot for later redo. The redo stack is persisted to storage.
+pub fn rollback_partition_with_redo<S: PartitionStore>(
+    storage: &S,
+    partition_id: &PartitionId,
+) -> Result<SnapshotId> {
+    let mut partition = storage
+        .get_partition(partition_id)
+        .map_err(|_| LayertwineError::NotFound("partition not found".into()))?;
+
+    if partition.history.len() <= 1 {
+        return Err(LayertwineError::StateMachine(
+            "cannot rollback: only one snapshot in history".into(),
+        ));
+    }
+
+    let undone = partition.history.pop().expect("history non-empty");
+    let prev_id = partition.history[partition.history.len() - 1];
+    partition.current_snapshot = prev_id;
+    partition.redo_stack.push(undone);
+
+    // Persist: update pointer (appends to history) and redo stack
+    storage
+        .update_pointer(partition_id, &prev_id)
+        .map_err(LayertwineError::Storage)?;
+    storage
+        .update_redo_stack(partition_id, &partition.redo_stack)
+        .map_err(LayertwineError::Storage)?;
+
+    Ok(prev_id)
+}
+
+/// Redo: restore the most recently undone snapshot from the redo stack.
+///
+/// Pops the top of the redo stack, appends it to history, and moves the
+/// pointer forward. Returns the restored snapshot ID.
+pub fn redo_partition<S: PartitionStore>(
+    storage: &S,
+    partition_id: &PartitionId,
+) -> Result<SnapshotId> {
+    let mut partition = storage
+        .get_partition(partition_id)
+        .map_err(|_| LayertwineError::NotFound("partition not found".into()))?;
+
+    let restored = partition.redo_stack.pop().ok_or_else(|| {
+        LayertwineError::StateMachine("redo stack is empty, nothing to redo".into())
+    })?;
+
+    partition.current_snapshot = restored;
+    partition.history.push(restored);
+
+    // Persist: update pointer (appends to history) and redo stack
+    storage
+        .update_pointer(partition_id, &restored)
+        .map_err(LayertwineError::Storage)?;
+    storage
+        .update_redo_stack(partition_id, &partition.redo_stack)
+        .map_err(LayertwineError::Storage)?;
+
+    Ok(restored)
+}
+
+/// Roll back all deltas in an edit session within a partition.
+///
+/// Finds the snapshot produced by the first delta in the session and
+/// switches the partition pointer to it, effectively undoing the entire
+/// logical operation. The session's deltas and snapshots remain in the
+/// immutable store — only the partition pointer moves.
+///
+/// Returns the snapshot ID that the partition was rolled back to.
+pub fn rollback_session<S>(
+    storage: &S,
+    partition_id: &PartitionId,
+    session_id: &EditSessionId,
+) -> Result<SnapshotId>
+where
+    S: SnapshotStore + DeltaStore + PartitionStore + EditSessionStore,
+{
+    let session = storage
+        .get_session(session_id)
+        .map_err(|_| LayertwineError::NotFound(format!("session {} not found", session_id)))?;
+
+    if session.delta_ids.is_empty() {
+        return Err(LayertwineError::StateMachine(
+            "session has no deltas to roll back".into(),
+        ));
+    }
+
+    let partition = storage
+        .get_partition(partition_id)
+        .map_err(|_| LayertwineError::NotFound("partition not found".into()))?;
+
+    // Find the snapshot before the first delta in the session.
+    // Walk the partition history backwards to find a snapshot whose
+    // delta chain does NOT contain the session's first delta.
+    let _first_delta_id = &session.delta_ids[0];
+    for snap_id in partition.history.iter().rev() {
+        let snap = storage
+            .get_snapshot(snap_id)
+            .map_err(LayertwineError::Storage)?;
+        // If this snapshot does NOT reference any session delta, it is
+        // the state before the session started.
+        if !snap.deltas.iter().any(|d| session.delta_ids.contains(d)) {
+            storage
+                .update_pointer(partition_id, snap_id)
+                .map_err(LayertwineError::Storage)?;
+            return Ok(*snap_id);
+        }
+    }
+
+    // All history entries belong to the session — roll back to the very first.
+    let first = partition.history.first().ok_or_else(|| {
+        LayertwineError::StateMachine("partition has empty history".into())
+    })?;
+    storage
+        .update_pointer(partition_id, first)
+        .map_err(LayertwineError::Storage)?;
+    Ok(*first)
+}
+
 /// Fallback staged to the specified layer
 ///
 /// Finds the target layer source from the parents of the staged current snapshot.
@@ -317,6 +439,10 @@ where
 {
     if snapshot.is_deleted() {
         return Ok(None);
+    }
+    // Prefer inline full-content snapshot
+    if let Some(SnapshotContent::FileContent(bytes)) = &snapshot.content {
+        return Ok(Some(String::from_utf8_lossy(bytes).to_string()));
     }
     let file_content = storage
         .get_file_content(snapshot.file.path_str(), &snapshot.file.base_hash)
@@ -479,6 +605,7 @@ mod tests {
             current_snapshot: initial_id,
             history: vec![initial_id],
             partition_type: PartitionType::Staged,
+                redo_stack: Vec::new(),
         };
         storage.create_partition(&partition).unwrap();
 
@@ -508,6 +635,7 @@ mod tests {
             current_snapshot: initial_id,
             history: vec![initial_id],
             partition_type: PartitionType::Staged,
+                redo_stack: Vec::new(),
         };
         storage.create_partition(&partition).unwrap();
 
@@ -619,6 +747,7 @@ mod tests {
             current_snapshot: initial_id,
             history: vec![initial_id],
             partition_type: PartitionType::Approval(agent_id.clone()),
+                redo_stack: Vec::new(),
         };
         storage.create_partition(&approval_part).unwrap();
 

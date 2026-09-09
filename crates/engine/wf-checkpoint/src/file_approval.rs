@@ -159,6 +159,7 @@ impl FileCheckpointManager {
                             timestamp: wf_common::now(),
                             snapshot_id: snap.clone(),
                             hash: sha256_hex(&content),
+                            message: None,
                         }),
                     ));
                 }

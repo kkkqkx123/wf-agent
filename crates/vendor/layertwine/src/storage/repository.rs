@@ -1,11 +1,13 @@
 use crate::checkpoint::branch::Branch;
 use crate::checkpoint::types::Checkpoint;
 use crate::core::delta::Delta;
+use crate::core::edit_session::EditSession;
+use crate::core::file_move::FileMove;
 use crate::core::file_node::FileNode;
 use crate::core::partition::Partition;
 use crate::core::snapshot::Snapshot;
 use crate::core::types::{
-    CheckpointId, DeltaId, PartitionId, PartitionType, SnapshotId,
+    CheckpointId, DeltaId, EditSessionId, PartitionId, PartitionType, SnapshotId,
 };
 use crate::StorageResult;
 
@@ -36,6 +38,23 @@ pub trait SnapshotStore {
     ) -> StorageResult<Vec<Snapshot>>;
     /// Determining if a snapshot exists
     fn snapshot_exists(&self, id: &SnapshotId) -> StorageResult<bool>;
+
+    /// Query snapshots by file path and optional time range.
+    /// `time_range` is inclusive `(start, end)` in milliseconds.
+    fn find_snapshots_by_file_and_time(
+        &self,
+        file_path: &str,
+        time_range: Option<(i64, i64)>,
+    ) -> StorageResult<Vec<Snapshot>> {
+        let all = self.find_snapshots_by_file(file_path)?;
+        match time_range {
+            Some((start, end)) => Ok(all
+                .into_iter()
+                .filter(|s| s.created_at >= start && s.created_at <= end)
+                .collect()),
+            None => Ok(all),
+        }
+    }
 }
 
 /// Delta storage trait
@@ -48,6 +67,33 @@ pub trait DeltaStore {
     fn get_deltas(&self, ids: &[DeltaId]) -> StorageResult<Vec<Delta>>;
     /// Determine if Delta exists
     fn delta_exists(&self, id: &DeltaId) -> StorageResult<bool>;
+
+    /// Query deltas by file path and optional time range.
+    /// `time_range` is inclusive `(start, end)` in milliseconds.
+    fn find_deltas_by_file_and_time(
+        &self,
+        file_path: &str,
+        time_range: Option<(i64, i64)>,
+    ) -> StorageResult<Vec<Delta>> {
+        let _ = (file_path, time_range);
+        Ok(Vec::new())
+    }
+}
+
+/// Edit Session storage trait
+pub trait EditSessionStore {
+    /// Store an edit session
+    fn store_session(&self, session: &EditSession) -> StorageResult<()>;
+    /// Get an edit session by ID
+    fn get_session(&self, id: &EditSessionId) -> StorageResult<EditSession>;
+    /// List all edit sessions (ordered by created_at)
+    fn list_sessions(&self) -> StorageResult<Vec<EditSession>>;
+    /// Get all delta IDs belonging to a session
+    fn get_session_deltas(&self, session_id: &EditSessionId) -> StorageResult<Vec<DeltaId>>;
+    /// Get the session that a delta belongs to (if any)
+    fn get_delta_session(&self, delta_id: &DeltaId) -> StorageResult<Option<EditSession>>;
+    /// Delete an edit session and its associations
+    fn delete_session(&self, id: &EditSessionId) -> StorageResult<()>;
 }
 
 /// Partition storage trait
@@ -96,6 +142,18 @@ pub trait PartitionStore {
         })?;
         self.update_pointer(partition_id, baseline)
     }
+
+    /// Persist the redo stack for a partition.
+    ///
+    /// Updates the `partition_data` column to reflect the current redo stack
+    /// state. Called after `rollback_one_with_redo` or `redo_one` operations.
+    fn update_redo_stack(
+        &self,
+        _partition_id: &PartitionId,
+        _redo_stack: &[SnapshotId],
+    ) -> StorageResult<()> {
+        Ok(())
+    }
 }
 
 /// File node storage trait
@@ -106,6 +164,18 @@ pub trait FileNodeStore {
     fn get_file_content(&self, file_path: &str, base_hash: &[u8; 32]) -> StorageResult<Vec<u8>>;
     /// Determine if a file node exists
     fn file_node_exists(&self, file_path: &str, base_hash: &[u8; 32]) -> StorageResult<bool>;
+}
+
+/// File move/rename tracking storage trait
+pub trait FileMoveStore {
+    /// Record a file move/rename operation
+    fn store_file_move(&self, file_move: &FileMove) -> StorageResult<()>;
+    /// Get all moves originating from a path (file was moved FROM this path)
+    fn get_moves_from(&self, from_path: &str) -> StorageResult<Vec<FileMove>>;
+    /// Get all moves targeting a path (file was moved TO this path)
+    fn get_moves_to(&self, to_path: &str) -> StorageResult<Vec<FileMove>>;
+    /// Trace the full rename chain for a path (walks backwards through moves)
+    fn trace_rename_chain(&self, path: &str) -> StorageResult<Vec<FileMove>>;
 }
 
 /// Atomic operations trait for transactional guarantees

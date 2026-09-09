@@ -8,10 +8,30 @@ use std::collections::HashMap;
 
 type PartitionRow = (Vec<u8>, String, Vec<u8>, Option<String>);
 
+/// Serialized partition metadata stored in the `partition_data` column.
+///
+/// Contains both the partition type and the redo stack. Older databases
+/// may contain a bare JSON string (just the partition type); `deserialize`
+/// handles both formats.
+#[derive(Debug, Serialize, Deserialize)]
+struct PartitionData {
+    partition_type: PartitionType,
+    #[serde(default)]
+    redo_stack: Vec<SnapshotId>,
+}
+
+use serde::{Deserialize, Serialize};
+
 impl PartitionStore for SqliteStorage {
     fn create_partition(&self, partition: &Partition) -> StorageResult<()> {
         let conn = self.conn.lock();
         let now = chrono::Utc::now().timestamp_millis();
+
+        let data = PartitionData {
+            partition_type: partition.partition_type.clone(),
+            redo_stack: partition.redo_stack.clone(),
+        };
+        let partition_data = serde_json::to_string(&data)?;
 
         conn.execute(
             "INSERT INTO partitions (id, name, current_snapshot, partition_data, created_at, updated_at)
@@ -20,7 +40,7 @@ impl PartitionStore for SqliteStorage {
                 &partition.id.as_bytes().to_vec(),
                 partition.name,
                 &partition.current_snapshot.0.to_vec(),
-                serde_json::to_string(&partition.partition_type)?,
+                partition_data,
                 now,
                 now,
             ],
@@ -59,17 +79,15 @@ impl PartitionStore for SqliteStorage {
              FROM partitions WHERE id = ?1"
         )?;
 
-        let (name, snap_arr, partition_type) = stmt.query_row(params![&id_bytes], |row| {
+        let (name, snap_arr, partition_type, redo_stack) = stmt.query_row(params![&id_bytes], |row| {
             let _: Vec<u8> = row.get(0)?;
             let name: String = row.get(1)?;
             let snap_bytes: Vec<u8> = row.get(2)?;
             let mut snap_arr = [0u8; 32];
             snap_arr.copy_from_slice(&snap_bytes);
             let partition_data: Option<String> = row.get(3)?;
-            let partition_type: PartitionType = partition_data
-                .and_then(|s| serde_json::from_str(&s).ok())
-                .unwrap_or(PartitionType::Manual);
-            Ok((name, snap_arr, partition_type))
+            let (partition_type, redo_stack) = parse_partition_data(&partition_data);
+            Ok((name, snap_arr, partition_type, redo_stack))
         })?;
 
         let history = self.load_history(&conn, &id_bytes)?;
@@ -80,6 +98,7 @@ impl PartitionStore for SqliteStorage {
             current_snapshot: ContentId(snap_arr),
             history,
             partition_type,
+            redo_stack,
         })
     }
 
@@ -106,9 +125,7 @@ impl PartitionStore for SqliteStorage {
         let mut snap_arr = [0u8; 32];
         snap_arr.copy_from_slice(&snap_bytes);
 
-        let partition_type: PartitionType = partition_data
-            .and_then(|s| serde_json::from_str(&s).ok())
-            .unwrap_or(PartitionType::Manual);
+        let (partition_type, redo_stack) = parse_partition_data(&partition_data);
 
         let history = self.load_history(&conn, &id_bytes)?;
 
@@ -118,6 +135,7 @@ impl PartitionStore for SqliteStorage {
             current_snapshot: ContentId(snap_arr),
             history,
             partition_type,
+            redo_stack,
         })
     }
 
@@ -151,6 +169,36 @@ impl PartitionStore for SqliteStorage {
             params![&partition_id.as_bytes().to_vec(), first_seq],
         )?;
 
+        Ok(())
+    }
+
+    fn update_redo_stack(
+        &self,
+        partition_id: &PartitionId,
+        redo_stack: &[SnapshotId],
+    ) -> StorageResult<()> {
+        let conn = self.conn.lock();
+        let now = chrono::Utc::now().timestamp_millis();
+
+        // Read current partition_data to preserve partition_type
+        let current_data: Option<String> = conn.query_row(
+            "SELECT partition_data FROM partitions WHERE id = ?1",
+            params![&partition_id.as_bytes().to_vec()],
+            |row| row.get(0),
+        )?;
+
+        let (partition_type, _) = parse_partition_data(&current_data);
+
+        let data = PartitionData {
+            partition_type,
+            redo_stack: redo_stack.to_vec(),
+        };
+        let new_data = serde_json::to_string(&data)?;
+
+        conn.execute(
+            "UPDATE partitions SET partition_data = ?1, updated_at = ?2 WHERE id = ?3",
+            params![new_data, now, &partition_id.as_bytes().to_vec()],
+        )?;
         Ok(())
     }
 
@@ -226,9 +274,7 @@ impl PartitionStore for SqliteStorage {
             let mut snap_arr = [0u8; 32];
             snap_arr.copy_from_slice(&snap_bytes);
 
-            let partition_type: PartitionType = partition_data
-                .and_then(|s| serde_json::from_str(&s).ok())
-                .unwrap_or(PartitionType::Manual);
+            let (partition_type, redo_stack) = parse_partition_data(&partition_data);
 
             let history = history_map.remove(&id_bytes).unwrap_or_default();
 
@@ -238,6 +284,7 @@ impl PartitionStore for SqliteStorage {
                 current_snapshot: ContentId(snap_arr),
                 history,
                 partition_type,
+                redo_stack,
             });
         }
         Ok(result)
@@ -308,5 +355,22 @@ impl SqliteStorage {
         )?;
 
         Ok(())
+    }
+}
+
+/// Parse `partition_data` column, supporting both legacy bare JSON strings
+/// (just the partition type) and the new `PartitionData` format.
+fn parse_partition_data(data: &Option<String>) -> (PartitionType, Vec<SnapshotId>) {
+    match data {
+        None => (PartitionType::Manual, Vec::new()),
+        Some(s) => {
+            // Try the new format first
+            if let Ok(pd) = serde_json::from_str::<PartitionData>(s) {
+                return (pd.partition_type, pd.redo_stack);
+            }
+            // Fallback: bare PartitionType JSON string
+            let pt = serde_json::from_str::<PartitionType>(s).unwrap_or(PartitionType::Manual);
+            (pt, Vec::new())
+        }
     }
 }

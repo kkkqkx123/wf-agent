@@ -221,6 +221,7 @@ impl FileCheckpointManager {
                     timestamp: wf_common::now(),
                     snapshot_id: snapshot_id.to_hex(),
                     hash: write_hash.clone(),
+                    message: None,
                 }),
             ));
         }
@@ -265,6 +266,7 @@ impl FileCheckpointManager {
                     timestamp: wf_common::now(),
                     snapshot_id: snapshot_id.to_hex(),
                     hash: write_hash.clone(),
+                    message: None,
                 }),
             ));
         }
@@ -323,6 +325,7 @@ impl FileCheckpointManager {
                     timestamp: wf_common::now(),
                     snapshot_id: snapshot_id.to_hex(),
                     hash: write_hash,
+                    message: None,
                 }),
             ));
         }
@@ -362,6 +365,7 @@ impl FileCheckpointManager {
                     timestamp: wf_common::now(),
                     snapshot_id: snapshot_id.to_hex(),
                     hash: write_hash,
+                    message: None,
                 }),
             ));
         }
@@ -467,6 +471,30 @@ impl FileCheckpointManager {
             .get(author)
             .map(|set| set.clone())
             .unwrap_or_default()
+    }
+
+    /// Record a file move/rename operation in the file_moves table. This
+    /// enables `file_timeline` to trace the full history of a file across
+    /// renames. The `source` parameter identifies who performed the move
+    /// (e.g. "manual", "agent:loop-1").
+    pub fn track_file_move(
+        &self,
+        from_path: &str,
+        to_path: &str,
+        source: &str,
+    ) -> Result<(), crate::error::CheckpointError> {
+        use layertwine::core::file_move::FileMove;
+        use layertwine::storage::repository::FileMoveStore;
+
+        let storage = self.storage_ref()?;
+        let file_move = FileMove::new(
+            from_path.to_string(),
+            to_path.to_string(),
+            source.to_string(),
+        );
+        storage
+            .store_file_move(&file_move)
+            .map_err(crate::file_util::map_layertwine_error)
     }
 }
 

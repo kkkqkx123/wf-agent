@@ -367,7 +367,9 @@ impl ForkHandler {
                         fork_registry: registry.clone(),
                     },
                 };
-                results.push(run_branch(idx, path.clone(), branch_execution_id.clone(), run_ctx).await);
+                results.push(
+                    run_branch(idx, path.clone(), branch_execution_id.clone(), run_ctx).await,
+                );
                 if cancellation.as_ref().is_some_and(|t| t.is_cancelled()) {
                     break;
                 }
@@ -409,8 +411,8 @@ impl ForkHandler {
                         },
                     };
                     async move {
-                        let _ =
-                            run_branch(idx, path.clone(), branch_execution_id.clone(), run_ctx).await;
+                        let _ = run_branch(idx, path.clone(), branch_execution_id.clone(), run_ctx)
+                            .await;
                     }
                 });
                 if let Some(registry) = &registry {
@@ -442,7 +444,12 @@ impl ForkHandler {
                         fork_registry: registry.clone(),
                     },
                 };
-                set.spawn(run_branch(idx, path.clone(), branch_execution_id.clone(), run_ctx));
+                set.spawn(run_branch(
+                    idx,
+                    path.clone(),
+                    branch_execution_id.clone(),
+                    run_ctx,
+                ));
             }
             let mut results = Vec::with_capacity(paths.len());
             let total_deadline = (total_branch_timeout > 0).then(|| {

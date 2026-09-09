@@ -325,10 +325,8 @@ mod tests {
         );
         assert_eq!(config.mode_override, Some(ExecutionMode::Headless));
 
-        let config = runtime_config_for_cli(
-            &Cli::try_parse_from(["wf", "--tui"]).unwrap(),
-            CliMode::Tui,
-        );
+        let config =
+            runtime_config_for_cli(&Cli::try_parse_from(["wf", "--tui"]).unwrap(), CliMode::Tui);
         assert_eq!(config.mode_override, Some(ExecutionMode::Interactive));
     }
 

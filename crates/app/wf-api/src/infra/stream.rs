@@ -71,7 +71,11 @@ pub enum ExecutionStreamEvent {
     /// A sub-agent (triggered child agent) started.
     SubAgentStarted { id: String, name: String },
     /// A sub-agent finished.
-    SubAgentEnded { id: String, name: String, success: bool },
+    SubAgentEnded {
+        id: String,
+        name: String,
+        success: bool,
+    },
 }
 
 /// Async stream of execution events (SSE/WS friendly).

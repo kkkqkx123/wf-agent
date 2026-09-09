@@ -27,13 +27,11 @@ use crate::domain::DomainAdapter;
 use crate::error::{CliError, CliResult};
 use crate::fetch::fetch_for;
 use crate::framer::FrameRequester;
+use crate::interactive::{InteractiveAction, InteractiveController};
 use crate::keymap::{CKey, Key};
 use crate::modal::{ConfirmModal, HelpModal, ModalResult, ModalStack, ModelPicker};
 use crate::overlay::{Feedback, LoopAction, OverlayMode};
-use crate::screens::{
-    ExecStatusFilter, ScreenData, ScreenKind, Screens,
-};
-use crate::interactive::{InteractiveAction, InteractiveController};
+use crate::screens::{ExecStatusFilter, ScreenData, ScreenKind, Screens};
 use crate::size::{ResizeDebouncer, Size};
 use crate::terminal::{CrosstermControl, TerminalGuard, TerminalModes};
 use crate::theme::{self, Theme};
@@ -366,9 +364,11 @@ impl TuiApp {
         let on_interactive = self.screens.current_kind() == ScreenKind::Interactive;
         match (on_interactive, self.interactive.is_some()) {
             (true, false) => {
-                let session =
-                    InteractiveController::start(Arc::clone(&self.adapter), wf_common::generate_id())
-                        .await;
+                let session = InteractiveController::start(
+                    Arc::clone(&self.adapter),
+                    wf_common::generate_id(),
+                )
+                .await;
                 self.interactive = Some(session);
             }
             (false, true) => {
@@ -673,7 +673,11 @@ impl TuiApp {
                 return Ok(LoopAction::Continue);
             }
             // /: Open command palette (when in interactive)
-            CKey::Char('/') if self.screens.current_kind() == ScreenKind::Interactive && !key.ctrl && !key.alt => {
+            CKey::Char('/')
+                if self.screens.current_kind() == ScreenKind::Interactive
+                    && !key.ctrl
+                    && !key.alt =>
+            {
                 // For now, show sidebar as a simple command palette
                 self.overlay = OverlayMode::Sidebar;
                 self.dirty = true;

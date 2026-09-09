@@ -7,8 +7,10 @@ use crate::core::delta::Delta;
 use crate::core::file_node::FileNode;
 use crate::core::partition::Partition;
 use crate::core::snapshot::{Snapshot, SnapshotContent};
-use crate::core::types::{AgentInstanceId, EditSessionId, PartitionId, PartitionType, SnapshotId, SourceType};
-use crate::engine::diff::{diff_to_line_diff, should_use_full_snapshot};
+use crate::core::types::{
+    AgentInstanceId, EditSessionId, PartitionId, PartitionType, SnapshotId, SourceType,
+};
+use crate::engine::diff::{diff_to_line_diff, should_use_full_snapshot_content};
 use crate::engine::merge::apply_deltas;
 use crate::error::{LayertwineError, Result};
 use crate::storage::repository::{DeltaStore, FileNodeStore, PartitionStore, SnapshotStore};
@@ -117,7 +119,7 @@ where
     }
 
     // Check if this edit should bypass the delta chain and store full content.
-    if should_use_full_snapshot(old_content.len(), new_content.len(), 0.5) {
+    if should_use_full_snapshot_content(old_content.as_bytes(), new_content.as_bytes(), 0.5) {
         let file_node = FileNode::new(PathBuf::from(file_path), new_content.as_bytes());
         let snapshot = Snapshot::new_with_content(
             file_node.clone(),

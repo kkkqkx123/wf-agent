@@ -70,7 +70,7 @@ fn create_staged_partition(store: &SqliteStorage, snapshot_id: SnapshotId) {
         current_snapshot: snapshot_id,
         history: vec![snapshot_id],
         partition_type: PartitionType::Staged,
-            redo_stack: Vec::new(),
+        redo_stack: Vec::new(),
     };
     store.create_partition(&partition).unwrap();
 }

@@ -506,7 +506,12 @@ mod tests {
                 &ctx,
                 "exec-page",
                 None,
-                make_message(&format!("q{i}"), MessageRole::User, &format!("msg {i}"), 100 + i),
+                make_message(
+                    &format!("q{i}"),
+                    MessageRole::User,
+                    &format!("msg {i}"),
+                    100 + i,
+                ),
             )
             .await
             .unwrap();
@@ -525,9 +530,14 @@ mod tests {
         let ids: Vec<String> = next.records.iter().map(|r| r.id.to_string()).collect();
         assert_eq!(ids, vec!["q2", "q1"]);
         // Last page: has_more turns false when no older message remains.
-        let last = page_by_execution(&ctx, "exec-page", Some(next.records.last().unwrap().message.timestamp), 2)
-            .await
-            .unwrap();
+        let last = page_by_execution(
+            &ctx,
+            "exec-page",
+            Some(next.records.last().unwrap().message.timestamp),
+            2,
+        )
+        .await
+        .unwrap();
         assert!(!last.has_more);
         let ids: Vec<String> = last.records.iter().map(|r| r.id.to_string()).collect();
         assert_eq!(ids, vec!["q0"]);
@@ -552,7 +562,9 @@ mod tests {
             .await
             .unwrap();
         }
-        let exact = page_by_execution(&ctx, "exec-exact", None, 3).await.unwrap();
+        let exact = page_by_execution(&ctx, "exec-exact", None, 3)
+            .await
+            .unwrap();
         assert!(!exact.has_more);
         assert_eq!(exact.records.len(), 3);
 
@@ -572,9 +584,7 @@ mod tests {
         )
         .await
         .unwrap();
-        let loop_page = page_by_agent_loop(&ctx, "loop-9", None, 1)
-            .await
-            .unwrap();
+        let loop_page = page_by_agent_loop(&ctx, "loop-9", None, 1).await.unwrap();
         assert!(!loop_page.has_more);
         assert_eq!(loop_page.records.len(), 1);
         let missing = page_by_agent_loop(&ctx, "loop-nope", None, 1)

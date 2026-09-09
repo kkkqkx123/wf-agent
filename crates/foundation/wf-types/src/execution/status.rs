@@ -99,12 +99,18 @@ mod tests {
             ExecutionStatus::from_str("timeout").expect("timeout is a known status"),
             ExecutionStatus::Timeout
         );
-        assert_eq!(ExecutionStatus::from_wire("timeout"), ExecutionStatus::Timeout);
+        assert_eq!(
+            ExecutionStatus::from_wire("timeout"),
+            ExecutionStatus::Timeout
+        );
     }
 
     #[test]
     fn parsing_is_case_and_whitespace_insensitive() {
-        assert_eq!(ExecutionStatus::from_wire("Running"), ExecutionStatus::Running);
+        assert_eq!(
+            ExecutionStatus::from_wire("Running"),
+            ExecutionStatus::Running
+        );
         assert_eq!(
             ExecutionStatus::from_wire(" TIMEOUT "),
             ExecutionStatus::Timeout

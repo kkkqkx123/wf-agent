@@ -487,15 +487,18 @@ pub fn render_styled_lines(src: &str, width: u16) -> Vec<Line<'static>> {
             Event::Start(tag) => match tag {
                 Tag::Heading { level, .. } => {
                     let style = match level {
-                        pulldown_cmark::HeadingLevel::H1 => theme::to_bold_style(theme::Rgb::new(0xE5, 0xE7, 0xEB)),
-                        pulldown_cmark::HeadingLevel::H2 => theme::to_bold_style(theme::Rgb::new(0xE5, 0xE7, 0xEB)),
-                        pulldown_cmark::HeadingLevel::H3 => theme::to_style(theme::Rgb::new(0xE5, 0xE7, 0xEB)),
+                        pulldown_cmark::HeadingLevel::H1 => {
+                            theme::to_bold_style(theme::Rgb::new(0xE5, 0xE7, 0xEB))
+                        }
+                        pulldown_cmark::HeadingLevel::H2 => {
+                            theme::to_bold_style(theme::Rgb::new(0xE5, 0xE7, 0xEB))
+                        }
+                        pulldown_cmark::HeadingLevel::H3 => {
+                            theme::to_style(theme::Rgb::new(0xE5, 0xE7, 0xEB))
+                        }
                         _ => theme::muted_style(),
                     };
-                    current_line.push(Span::styled(
-                        "#".repeat(level as usize) + " ",
-                        style,
-                    ));
+                    current_line.push(Span::styled("#".repeat(level as usize) + " ", style));
                 }
                 Tag::CodeBlock(_) => {
                     in_code_block = true;
@@ -535,24 +538,15 @@ pub fn render_styled_lines(src: &str, width: u16) -> Vec<Line<'static>> {
             },
             Event::Text(text) => {
                 if in_code_block {
-                    current_line.push(Span::styled(
-                        text.to_string(),
-                        theme::tool_call_style(),
-                    ));
+                    current_line.push(Span::styled(text.to_string(), theme::tool_call_style()));
                 } else if in_blockquote {
-                    current_line.push(Span::styled(
-                        text.to_string(),
-                        theme::success_style(),
-                    ));
+                    current_line.push(Span::styled(text.to_string(), theme::success_style()));
                 } else {
                     current_line.push(Span::raw(text.to_string()));
                 }
             }
             Event::Code(code) => {
-                current_line.push(Span::styled(
-                    code.to_string(),
-                    theme::tool_call_style(),
-                ));
+                current_line.push(Span::styled(code.to_string(), theme::tool_call_style()));
             }
             Event::SoftBreak | Event::HardBreak => {
                 lines.push(Line::from(current_line.clone()));
@@ -603,15 +597,18 @@ pub fn render_styled_lines_animated(
             Event::Start(tag) => match tag {
                 Tag::Heading { level, .. } => {
                     let style = match level {
-                        pulldown_cmark::HeadingLevel::H1 => theme::to_bold_style(theme::Rgb::new(0xE5, 0xE7, 0xEB)),
-                        pulldown_cmark::HeadingLevel::H2 => theme::to_bold_style(theme::Rgb::new(0xE5, 0xE7, 0xEB)),
-                        pulldown_cmark::HeadingLevel::H3 => theme::to_style(theme::Rgb::new(0xE5, 0xE7, 0xEB)),
+                        pulldown_cmark::HeadingLevel::H1 => {
+                            theme::to_bold_style(theme::Rgb::new(0xE5, 0xE7, 0xEB))
+                        }
+                        pulldown_cmark::HeadingLevel::H2 => {
+                            theme::to_bold_style(theme::Rgb::new(0xE5, 0xE7, 0xEB))
+                        }
+                        pulldown_cmark::HeadingLevel::H3 => {
+                            theme::to_style(theme::Rgb::new(0xE5, 0xE7, 0xEB))
+                        }
                         _ => theme::muted_style(),
                     };
-                    current_line.push(Span::styled(
-                        "#".repeat(level as usize) + " ",
-                        style,
-                    ));
+                    current_line.push(Span::styled("#".repeat(level as usize) + " ", style));
                 }
                 Tag::CodeBlock(_) => {
                     in_code_block = true;
@@ -651,15 +648,9 @@ pub fn render_styled_lines_animated(
             },
             Event::Text(text) => {
                 if in_code_block {
-                    current_line.push(Span::styled(
-                        text.to_string(),
-                        theme::tool_call_style(),
-                    ));
+                    current_line.push(Span::styled(text.to_string(), theme::tool_call_style()));
                 } else if in_blockquote {
-                    current_line.push(Span::styled(
-                        text.to_string(),
-                        theme::success_style(),
-                    ));
+                    current_line.push(Span::styled(text.to_string(), theme::success_style()));
                 } else {
                     // Apply shimmer animation to regular text
                     let spans = motion::shimmer_text(text.as_ref(), motion_mode);
@@ -667,10 +658,7 @@ pub fn render_styled_lines_animated(
                 }
             }
             Event::Code(code) => {
-                current_line.push(Span::styled(
-                    code.to_string(),
-                    theme::tool_call_style(),
-                ));
+                current_line.push(Span::styled(code.to_string(), theme::tool_call_style()));
             }
             Event::SoftBreak | Event::HardBreak => {
                 lines.push(Line::from(current_line.clone()));

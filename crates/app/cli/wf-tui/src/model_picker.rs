@@ -1,7 +1,7 @@
 //! Model and session picker modals.
 
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
-use ratatui::style::{Style, Color};
+use ratatui::style::{Color, Style};
 use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::Frame;
 

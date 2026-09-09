@@ -37,7 +37,7 @@ fn row_to_delta(row: &Row) -> Result<Delta, rusqlite::Error> {
         _ => crate::core::types::SourceType::Manual,
     };
 
-    let content_hash: Option<Vec<u8>> = row.get(8).ok();
+    let content_hash: Option<Vec<u8>> = row.get(7).ok();
     let content_hash = content_hash.and_then(|bytes| {
         if bytes.len() == 32 {
             let mut arr = [0u8; 32];
@@ -48,7 +48,13 @@ fn row_to_delta(row: &Row) -> Result<Delta, rusqlite::Error> {
         }
     });
 
-    let message: Option<String> = row.get(9).ok().flatten();
+    let message: Option<String> = row.get(8).ok().flatten();
+    let session_id = row
+        .get::<_, Option<Vec<u8>>>(9)
+        .ok()
+        .flatten()
+        .and_then(|bytes| uuid::Uuid::from_slice(&bytes).ok());
+    let seq = row.get::<_, Option<i64>>(10).ok().flatten().unwrap_or(0) as u64;
 
     Ok(Delta {
         id,
@@ -59,8 +65,8 @@ fn row_to_delta(row: &Row) -> Result<Delta, rusqlite::Error> {
         diff,
         source: source_type,
         timestamp,
-        seq: 0,
-        session_id: None,
+        seq,
+        session_id,
         content_hash,
         message,
     })
@@ -103,7 +109,8 @@ impl DeltaStore for SqliteStorage {
     fn get_delta(&self, id: &DeltaId) -> StorageResult<Delta> {
         let conn = self.conn.lock();
         let mut stmt = conn.prepare(
-            "SELECT id, file_path, file_hash, diff, source, source_data, timestamp FROM deltas WHERE id = ?1"
+            "SELECT d.id, d.file_path, d.file_hash, d.diff, d.source, d.source_data, d.timestamp, d.content_hash, d.message, ds.session_id, ds.seq
+             FROM deltas d LEFT JOIN delta_sessions ds ON d.id = ds.delta_id WHERE d.id = ?1 LIMIT 1"
         )?;
 
         let result = stmt.query_row(params![&id.0.to_vec()], row_to_delta)?;
@@ -118,8 +125,8 @@ impl DeltaStore for SqliteStorage {
         let conn = self.conn.lock();
         let placeholders: Vec<String> = (0..ids.len()).map(|_| "?".to_string()).collect();
         let sql = format!(
-            "SELECT id, file_path, file_hash, diff, source, source_data, timestamp \
-             FROM deltas WHERE id IN ({})",
+            "SELECT d.id, d.file_path, d.file_hash, d.diff, d.source, d.source_data, d.timestamp, d.content_hash, d.message, ds.session_id, ds.seq \
+             FROM deltas d LEFT JOIN delta_sessions ds ON d.id = ds.delta_id WHERE d.id IN ({})",
             placeholders.join(", ")
         );
         let mut stmt = conn.prepare(&sql)?;
@@ -160,13 +167,13 @@ impl DeltaStore for SqliteStorage {
         let conn = self.conn.lock();
         let sql = match time_range {
             Some(_) => {
-                "SELECT id, file_path, file_hash, diff, source, source_data, timestamp
-                 FROM deltas WHERE file_path = ?1 AND timestamp >= ?2 AND timestamp <= ?3
+                "SELECT d.id, d.file_path, d.file_hash, d.diff, d.source, d.source_data, d.timestamp, d.content_hash, d.message, ds.session_id, ds.seq
+                 FROM deltas d LEFT JOIN delta_sessions ds ON d.id = ds.delta_id WHERE d.file_path = ?1 AND d.timestamp >= ?2 AND d.timestamp <= ?3
                  ORDER BY timestamp ASC"
             }
             None => {
-                "SELECT id, file_path, file_hash, diff, source, source_data, timestamp
-                 FROM deltas WHERE file_path = ?1 ORDER BY timestamp ASC"
+                "SELECT d.id, d.file_path, d.file_hash, d.diff, d.source, d.source_data, d.timestamp, d.content_hash, d.message, ds.session_id, ds.seq
+                 FROM deltas d LEFT JOIN delta_sessions ds ON d.id = ds.delta_id WHERE d.file_path = ?1 ORDER BY d.timestamp ASC"
             }
         };
         let mut stmt = conn.prepare(sql)?;

@@ -7,7 +7,7 @@ use crate::core::file_node::FileNode;
 use crate::core::partition::Partition;
 use crate::core::snapshot::{Snapshot, SnapshotContent};
 use crate::core::types::{EditSessionId, PartitionId, PartitionType, SnapshotId, SourceType};
-use crate::engine::diff::{diff_to_line_diff, should_use_full_snapshot};
+use crate::engine::diff::{diff_to_line_diff, should_use_full_snapshot_content};
 use crate::engine::merge::apply_deltas;
 use crate::error::{LayertwineError, Result};
 use crate::storage::repository::{DeltaStore, FileNodeStore, PartitionStore, SnapshotStore};
@@ -152,7 +152,7 @@ where
     // Check if this edit should bypass the delta chain and store full content.
     // The heuristic uses byte-length difference to avoid the cost of computing
     // a diff that would be nearly as large as the file itself.
-    if should_use_full_snapshot(old_content.len(), new_content.len(), 0.5) {
+    if should_use_full_snapshot_content(old_content.as_bytes(), new_content.as_bytes(), 0.5) {
         let file_node = FileNode::new(PathBuf::from(file_path), new_content.as_bytes());
         let snapshot = Snapshot::new_with_content(
             file_node.clone(),
@@ -176,7 +176,8 @@ where
 
     // Create Delta
     let file_node = FileNode::new(PathBuf::from(file_path), old_content.as_bytes());
-    let delta = Delta::new_with_session(file_node.clone(), line_diff, SourceType::Manual, session_id);
+    let delta =
+        Delta::new_with_session(file_node.clone(), line_diff, SourceType::Manual, session_id);
     storage
         .store_file_node(&file_node, old_content.as_bytes())
         .map_err(LayertwineError::Storage)?;
@@ -261,7 +262,8 @@ where
 
     // Create Delta
     let file_node = FileNode::new(PathBuf::from(file_path), old_content.as_bytes());
-    let delta = Delta::new_with_session(file_node.clone(), line_diff, SourceType::Manual, session_id);
+    let delta =
+        Delta::new_with_session(file_node.clone(), line_diff, SourceType::Manual, session_id);
     storage
         .store_file_node(&file_node, old_content.as_bytes())
         .map_err(LayertwineError::Storage)?;

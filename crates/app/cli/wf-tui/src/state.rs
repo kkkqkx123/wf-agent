@@ -12,7 +12,7 @@ use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 use crate::approval_overlay::ApprovalView;
-use crate::footer::{FooterView, FooterRoute, PanelState};
+use crate::footer::{FooterRoute, FooterView, PanelState};
 use crate::question_overlay::QuestionView;
 use crate::screens::{ExecStatusFilter, ScreenData, ScreenKind, Screens};
 use crate::theme::Theme;

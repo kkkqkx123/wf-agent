@@ -153,6 +153,26 @@ pub fn should_use_full_snapshot(
     (diff_len as f64) >= (old_content_len as f64) * threshold
 }
 
+/// Decide from the actual bytes whether a rewrite is large enough to store
+/// as a full snapshot. This catches same-length rewrites that a length-only
+/// heuristic cannot distinguish from a no-op.
+pub fn should_use_full_snapshot_content(old: &[u8], new: &[u8], threshold: f64) -> bool {
+    if old.is_empty() || threshold <= 0.0 {
+        return false;
+    }
+    if old == new {
+        return false;
+    }
+    let common = old.len().min(new.len());
+    let differing = old[..common]
+        .iter()
+        .zip(&new[..common])
+        .filter(|(a, b)| a != b)
+        .count()
+        + old.len().abs_diff(new.len());
+    (differing as f64) >= (old.len() as f64 * threshold)
+}
+
 /// Unified diff output (with context preserved) for displaying the
 pub fn format_unified_diff(old: &str, new: &str, context: usize) -> String {
     // Try cache for small files

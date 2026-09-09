@@ -243,7 +243,7 @@ mod tests {
             current_snapshot: initial_id,
             history: vec![initial_id],
             partition_type: PartitionType::Manual,
-                redo_stack: Vec::new(),
+            redo_stack: Vec::new(),
         };
         storage.create_partition(&partition).unwrap();
 
@@ -294,7 +294,7 @@ mod tests {
             current_snapshot: initial_id,
             history: vec![initial_id],
             partition_type: PartitionType::Manual,
-                redo_stack: Vec::new(),
+            redo_stack: Vec::new(),
         };
         storage.create_partition(&partition).unwrap();
 
@@ -318,7 +318,7 @@ mod tests {
             current_snapshot: initial_id,
             history: vec![initial_id],
             partition_type: PartitionType::Manual,
-                redo_stack: Vec::new(),
+            redo_stack: Vec::new(),
         };
 
         let result = sm.get_or_create_partition(&pid, &partition);

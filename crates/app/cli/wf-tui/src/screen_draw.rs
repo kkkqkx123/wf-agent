@@ -9,8 +9,8 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph};
 use ratatui::Frame;
 
-use crate::screens::{ScreenData, short_id};
-use crate::theme::{Theme, ColorRole};
+use crate::screens::{short_id, ScreenData};
+use crate::theme::{ColorRole, Theme};
 
 fn titled_block<'a>(title: &'a str, role: ColorRole, theme: &Theme) -> Block<'a> {
     Block::default()
@@ -23,14 +23,24 @@ fn selected_style(selected: bool, theme: &Theme) -> Style {
     if selected {
         Style::default()
             .fg(Color::Black)
-            .bg(theme.style_for_role(ColorRole::Accent).fg.unwrap_or(Color::Cyan))
+            .bg(theme
+                .style_for_role(ColorRole::Accent)
+                .fg
+                .unwrap_or(Color::Cyan))
             .add_modifier(Modifier::BOLD)
     } else {
         Style::default().fg(theme.fg())
     }
 }
 
-fn render_rows(frame: &mut Frame, area: Rect, block: Block<'_>, rows: &[String], selected: usize, theme: &Theme) {
+fn render_rows(
+    frame: &mut Frame,
+    area: Rect,
+    block: Block<'_>,
+    rows: &[String],
+    selected: usize,
+    theme: &Theme,
+) {
     if rows.is_empty() {
         let empty = Paragraph::new("Empty - no records yet.").block(block);
         frame.render_widget(empty, area);
@@ -39,7 +49,9 @@ fn render_rows(frame: &mut Frame, area: Rect, block: Block<'_>, rows: &[String],
     let items: Vec<ListItem> = rows
         .iter()
         .enumerate()
-        .map(|(idx, text)| ListItem::new(text.as_str()).style(selected_style(idx == selected, theme)))
+        .map(|(idx, text)| {
+            ListItem::new(text.as_str()).style(selected_style(idx == selected, theme))
+        })
         .collect();
     let mut state = ListState::default();
     state.select(Some(selected.min(rows.len() - 1)));
@@ -67,11 +79,21 @@ pub fn draw_dashboard(frame: &mut Frame, area: Rect, data: &ScreenData, theme: &
         ),
         _ => "Loading...".to_string(),
     };
-    let block = titled_block("Dashboard (q quit, 1-8 switch, ? help)", ColorRole::Accent, theme);
+    let block = titled_block(
+        "Dashboard (q quit, 1-8 switch, ? help)",
+        ColorRole::Accent,
+        theme,
+    );
     frame.render_widget(Paragraph::new(inner).block(block), area);
 }
 
-pub fn draw_workflow(frame: &mut Frame, area: Rect, data: &ScreenData, selected: usize, theme: &Theme) {
+pub fn draw_workflow(
+    frame: &mut Frame,
+    area: Rect,
+    data: &ScreenData,
+    selected: usize,
+    theme: &Theme,
+) {
     let rows = match data {
         ScreenData::Workflow(rows) => rows
             .iter()
@@ -82,11 +104,21 @@ pub fn draw_workflow(frame: &mut Frame, area: Rect, data: &ScreenData, selected:
             .collect::<Vec<_>>(),
         _ => Vec::new(),
     };
-    let block = titled_block("Workflows (Enter run, d delete, Esc back)", ColorRole::Add, theme);
+    let block = titled_block(
+        "Workflows (Enter run, d delete, Esc back)",
+        ColorRole::Add,
+        theme,
+    );
     render_rows(frame, area, block, &rows, selected, theme);
 }
 
-pub fn draw_executions(frame: &mut Frame, area: Rect, data: &ScreenData, selected: usize, theme: &Theme) {
+pub fn draw_executions(
+    frame: &mut Frame,
+    area: Rect,
+    data: &ScreenData,
+    selected: usize,
+    theme: &Theme,
+) {
     let rows = match data {
         ScreenData::Executions(rows) => rows
             .iter()
@@ -117,7 +149,13 @@ pub fn draw_executions(frame: &mut Frame, area: Rect, data: &ScreenData, selecte
     render_rows(frame, chunks[1], block, &rows, selected, theme);
 }
 
-pub fn draw_checkpoints(frame: &mut Frame, area: Rect, data: &ScreenData, selected: usize, theme: &Theme) {
+pub fn draw_checkpoints(
+    frame: &mut Frame,
+    area: Rect,
+    data: &ScreenData,
+    selected: usize,
+    theme: &Theme,
+) {
     let rows = match data {
         ScreenData::Checkpoints(rows) => rows
             .iter()
@@ -125,7 +163,11 @@ pub fn draw_checkpoints(frame: &mut Frame, area: Rect, data: &ScreenData, select
             .collect::<Vec<_>>(),
         _ => Vec::new(),
     };
-    let block = titled_block("Checkpoints (r restore, Esc back)", ColorRole::Highlight, theme);
+    let block = titled_block(
+        "Checkpoints (r restore, Esc back)",
+        ColorRole::Highlight,
+        theme,
+    );
     render_rows(frame, area, block, &rows, selected, theme);
 }
 

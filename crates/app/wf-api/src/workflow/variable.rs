@@ -6,8 +6,8 @@ use std::collections::HashMap;
 use serde::Serialize;
 
 use wf_workflow::variable::{
-    convert_variable_type, create_variable_store, evaluate_expression,
-    ExpressionError, VariableStore,
+    convert_variable_type, create_variable_store, evaluate_expression, ExpressionError,
+    VariableStore,
 };
 
 /// Result of evaluating an expression.
@@ -44,7 +44,10 @@ pub fn remove_variable(store: &VariableStore, name: &str) -> Option<serde_json::
 
 /// Get all variables as a map.
 pub fn list_variables(store: &VariableStore) -> HashMap<String, serde_json::Value> {
-    store.iter().map(|r| (r.key().clone(), r.value().clone())).collect()
+    store
+        .iter()
+        .map(|r| (r.key().clone(), r.value().clone()))
+        .collect()
 }
 
 /// Evaluate an expression against the variable store.
@@ -80,10 +83,7 @@ mod tests {
         assert!(!has_variable(&store, "x"));
         set_variable(&store, "x", serde_json::json!(42));
         assert!(has_variable(&store, "x"));
-        assert_eq!(
-            get_variable(&store, "x"),
-            Some(serde_json::json!(42))
-        );
+        assert_eq!(get_variable(&store, "x"), Some(serde_json::json!(42)));
         remove_variable(&store, "x");
         assert!(!has_variable(&store, "x"));
     }

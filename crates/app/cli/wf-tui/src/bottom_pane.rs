@@ -12,8 +12,10 @@
 
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 
-use crate::footer::{FOOTER_BASE_HEIGHT, COMPOSER_MAIN_HEIGHT, PANEL_MAIN_HEIGHT,
-    PERMISSION_MAIN_HEIGHT, QUESTION_MAIN_HEIGHT};
+use crate::footer::{
+    COMPOSER_MAIN_HEIGHT, FOOTER_BASE_HEIGHT, PANEL_MAIN_HEIGHT, PERMISSION_MAIN_HEIGHT,
+    QUESTION_MAIN_HEIGHT,
+};
 
 /// Layout configuration for the bottom pane.
 #[derive(Debug, Clone)]
@@ -86,12 +88,15 @@ pub fn split_content_and_notice(area: Rect) -> (Rect, Rect) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::footer::{Footer, FooterView, FooterRoute};
+    use crate::footer::{Footer, FooterRoute, FooterView};
 
     #[test]
     fn layout_calculates_correctly() {
         let layout = BottomPaneLayout::for_view(FooterView::Prompt, FooterRoute::Composer);
-        assert_eq!(layout.total_height, FOOTER_BASE_HEIGHT + COMPOSER_MAIN_HEIGHT);
+        assert_eq!(
+            layout.total_height,
+            FOOTER_BASE_HEIGHT + COMPOSER_MAIN_HEIGHT
+        );
         assert_eq!(layout.main_height, COMPOSER_MAIN_HEIGHT);
         assert_eq!(layout.top_decoration, 1);
         assert_eq!(layout.status_line, 1);

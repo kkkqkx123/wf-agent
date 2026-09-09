@@ -6,7 +6,7 @@ use dashmap::DashMap;
 use layertwine::core::file_node::FileNode;
 use layertwine::core::snapshot::{Snapshot, SnapshotContent};
 use layertwine::layered::StateMachine;
-use layertwine::storage::repository::{MetadataStore, SnapshotStore};
+use layertwine::storage::repository::{MetadataStore, PartitionStore, SnapshotStore};
 use layertwine::storage::sqlite::SqliteStorage;
 pub use wf_types::config::file_checkpoint::ApprovalPolicy;
 use wf_types::config::file_checkpoint::{ConflictBehavior, FailureBehavior};
@@ -112,6 +112,7 @@ impl From<&FileCheckpoint> for FileCheckpointMetadata {
 pub struct FileContentEntry {
     pub path: String,
     pub content: Vec<u8>,
+    pub deleted: bool,
 }
 
 impl FileContentEntry {
@@ -119,6 +120,15 @@ impl FileContentEntry {
         Self {
             path: path.into(),
             content,
+            deleted: false,
+        }
+    }
+
+    pub fn deleted(path: impl Into<String>) -> Self {
+        Self {
+            path: path.into(),
+            content: Vec::new(),
+            deleted: true,
         }
     }
 }
@@ -511,10 +521,39 @@ impl FileCheckpointManager {
         });
         let scan = scanner.scan(base_dir)?;
         let mut entries = Vec::with_capacity(scan.files.len());
+        let actor = self.actor_id_for(entity_id);
+        let existing_paths = self
+            .storage
+            .as_ref()
+            .and_then(|storage| {
+                let pid =
+                    layertwine::layered::agent::agent_partition_id(&actor.to_agent_instance_id());
+                storage.get_partition(&pid).ok().and_then(|partition| {
+                    crate::file_util::partition_latest_snapshot_ids(storage, &partition)
+                        .ok()
+                        .and_then(|ids| {
+                            let mut paths = HashSet::new();
+                            for id in ids {
+                                if let Ok(snapshot) = storage.get_snapshot(&id) {
+                                    if let Ok(path) =
+                                        crate::file_util::snapshot_file_path(storage, &snapshot)
+                                    {
+                                        if path != crate::file_util::SEED_PATH {
+                                            paths.insert(path);
+                                        }
+                                    }
+                                }
+                            }
+                            Some(paths)
+                        })
+                })
+            })
+            .unwrap_or_default();
         for state in &scan.files {
-            let path = base_dir.join(&state.path);
+            let relative = crate::file_util::validate_workspace_relative_path(&state.path)?;
+            let path = base_dir.join(&relative);
             match std::fs::read(&path) {
-                Ok(content) => entries.push(FileContentEntry::new(state.path.clone(), content)),
+                Ok(content) => entries.push(FileContentEntry::new(relative, content)),
                 Err(err) => match opts.failure_behavior {
                     FailureBehavior::Error => {
                         return Err(CheckpointError::Io(std::io::Error::other(format!(
@@ -529,10 +568,26 @@ impl FileCheckpointManager {
                 },
             }
         }
+        let scanned_paths: HashSet<String> = scan
+            .files
+            .iter()
+            .map(|state| state.path.replace('\\', "/"))
+            .collect();
+        for path in existing_paths {
+            if !scanned_paths.contains(&path) {
+                entries.push(FileContentEntry::deleted(path));
+            }
+        }
         let mut checkpoint = self.create_checkpoint_with_content(entity_id, &entries)?;
         checkpoint.empty_dirs = Some(scan.empty_dirs.clone());
         self.empty_dirs
             .insert(checkpoint.id.clone(), scan.empty_dirs.clone());
+        self.storage_ref()?
+            .store_metadata(
+                &format!("wf-checkpoint:empty-dirs:{}", checkpoint.id),
+                &serde_json::to_string(&scan.empty_dirs)?,
+            )
+            .map_err(map_layertwine_error)?;
         Ok(checkpoint)
     }
 
@@ -553,10 +608,12 @@ impl FileCheckpointManager {
             let Ok(relative) = change.path.strip_prefix(base_dir) else {
                 continue;
             };
-            let relative = relative.to_string_lossy().replace('\\', "/");
+            let relative = crate::file_util::validate_workspace_relative_path(
+                &relative.to_string_lossy().replace('\\', "/"),
+            )?;
             match change.kind {
                 FileChangeKind::Unlink => {
-                    entries.push(FileContentEntry::new(relative, Vec::new()));
+                    entries.push(FileContentEntry::deleted(relative));
                 }
                 FileChangeKind::Add | FileChangeKind::Change => {
                     match std::fs::read(base_dir.join(&relative)) {
@@ -826,12 +883,9 @@ mod tests {
     #[test]
     fn restore_content_rejects_paths_escaping_base_dir() {
         let manager = manager();
-        let cp = manager
+        let err = manager
             .create_checkpoint("exec-1", &[entry("../escape.txt", b"bad")])
-            .unwrap();
-
-        let dir = tempfile::tempdir().unwrap();
-        let err = manager.restore_content(&cp.id, dir.path()).unwrap_err();
+            .unwrap_err();
         assert!(matches!(err, CheckpointError::Validation { .. }));
     }
 

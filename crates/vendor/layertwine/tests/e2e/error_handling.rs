@@ -12,8 +12,7 @@ use crate::common::fixture::{TestConfig, TestEnvironment};
 use crate::common::helpers::*;
 use crate::common::output::*;
 use layertwine::api::{
-    BranchCreateRequest, BranchSwitchRequest, CommitRequest, EditRequest, MergeRequest,
-    ShowRequest,
+    BranchCreateRequest, BranchSwitchRequest, CommitRequest, EditRequest, MergeRequest, ShowRequest,
 };
 
 // ── Edit error cases ──

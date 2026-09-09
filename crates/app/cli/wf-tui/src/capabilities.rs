@@ -228,8 +228,8 @@ struct KeyboardEnhancementProbe;
 impl CapabilityProbe for KeyboardEnhancementProbe {
     fn probe(&self, caps: &mut TerminalCapabilities) {
         let term_type = TerminalType::detect_from_env();
-        caps.kitty_keyboard = term_type.supports_kitty_keyboard()
-            || detect_keyboard_enhancement_heuristic();
+        caps.kitty_keyboard =
+            term_type.supports_kitty_keyboard() || detect_keyboard_enhancement_heuristic();
     }
 
     fn name(&self) -> &'static str {
@@ -336,9 +336,7 @@ pub fn detect_default_colors() -> Option<ColorSet> {
 fn parse_osc_color_response(response: &str) -> Option<ColorSet> {
     let rgb_start = response.find("rgb:")?;
     let hex = &response[rgb_start + 4..];
-    let hex = hex
-        .trim_end_matches('\x07')
-        .trim_end_matches("\x1b\\");
+    let hex = hex.trim_end_matches('\x07').trim_end_matches("\x1b\\");
 
     let parts: Vec<&str> = hex.split('/').collect();
     if parts.len() != 3 {
@@ -406,7 +404,14 @@ mod tests {
     fn parse_osc_color_response_4digit_hex() {
         let resp = "\x1b]11;rgb:ffff/8080/0000\x1b\\";
         let c = parse_osc_color_response(resp).unwrap();
-        assert_eq!(c, ColorSet { r: 255, g: 128, b: 0 });
+        assert_eq!(
+            c,
+            ColorSet {
+                r: 255,
+                g: 128,
+                b: 0
+            }
+        );
     }
 
     #[test]

@@ -29,7 +29,12 @@ impl FileCheckpointManager {
         let agent_id = actor.to_agent_instance_id();
         self.ensure_agent_partition(&actor)?;
         for entry in entries {
-            self.apply_agent_edit(&actor, &entry.path, &entry.content)?;
+            let path = crate::file_util::validate_workspace_relative_path(&entry.path)?;
+            if entry.deleted {
+                self.apply_agent_delete(&actor, &path)?;
+            } else {
+                self.apply_agent_edit(&actor, &path, &entry.content)?;
+            }
         }
         let partition = storage
             .get_partition(&agent::agent_partition_id(&agent_id))

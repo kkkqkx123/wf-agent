@@ -170,19 +170,26 @@ impl FileCheckpointManager {
         path: &str,
         content: &[u8],
     ) -> Result<String, CheckpointError> {
+        let path = crate::file_util::validate_workspace_relative_path(path)?;
         let storage = self.storage_ref()?;
         let agent_id = actor.to_agent_instance_id();
         self.ensure_agent_partition(actor)?;
         let snapshot_id = if let Ok(text) = std::str::from_utf8(content) {
-            agent::apply_agent_edit(storage, &agent_id, path, text).map_err(map_layertwine_error)?
+            agent::apply_agent_edit(storage, &agent_id, &path, text)
+                .map_err(map_layertwine_error)?
         } else {
-            let file_node = FileNode::new(PathBuf::from(path), content);
+            let file_node = FileNode::new(PathBuf::from(&path), content);
             let snapshot = Snapshot::new_with_content(
                 file_node,
                 SnapshotContent::FileContent(content.to_vec()),
                 format!("file://{}", path),
                 format!("agent/{}", agent_id),
-                vec![],
+                vec![
+                    storage
+                        .get_partition(&agent::agent_partition_id(&agent_id))
+                        .map_err(map_layertwine_error)?
+                        .current_snapshot,
+                ],
                 vec![],
             );
             storage
@@ -200,20 +207,20 @@ impl FileCheckpointManager {
         // path — watcher events always carry absolute paths.
         if !content.is_empty() {
             if let Some(mut deleted) = self.deleted_files.get_mut(actor.as_str()) {
-                deleted.remove(path);
+                deleted.remove(&path);
             }
         }
         let write_hash = sha256_hex(content);
         self.recent_agent_writes
-            .register(PathBuf::from(path), write_hash.clone());
+            .register(PathBuf::from(&path), write_hash.clone());
         if let Some(root) = &self.workspace_root {
             self.recent_agent_writes
-                .register(root.join(path), write_hash.clone());
+                .register(root.join(&path), write_hash.clone());
         }
         if let Some(ref bus) = self.event_bus {
             bus.publish(CheckpointEventBus::file_changed_with_summary(
                 snapshot_id.to_hex(),
-                path,
+                &path,
                 actor.as_str(),
                 Some(DeltaSummary {
                     file: path.to_string(),
@@ -239,26 +246,27 @@ impl FileCheckpointManager {
         actor: &ActorId,
         path: &str,
     ) -> Result<String, CheckpointError> {
+        let path = crate::file_util::validate_workspace_relative_path(path)?;
         let storage = self.storage_ref()?;
         let agent_id = actor.to_agent_instance_id();
         self.ensure_agent_partition(actor)?;
         let snapshot_id =
-            agent::apply_agent_delete(storage, &agent_id, path).map_err(map_layertwine_error)?;
+            agent::apply_agent_delete(storage, &agent_id, &path).map_err(map_layertwine_error)?;
         self.deleted_files
             .entry(actor.as_str().to_string())
             .or_default()
-            .insert(path.to_string());
+            .insert(path.clone());
         let write_hash = sha256_hex(b"");
         self.recent_agent_writes
-            .register(PathBuf::from(path), write_hash.clone());
+            .register(PathBuf::from(&path), write_hash.clone());
         if let Some(root) = &self.workspace_root {
             self.recent_agent_writes
-                .register(root.join(path), write_hash.clone());
+                .register(root.join(&path), write_hash.clone());
         }
         if let Some(ref bus) = self.event_bus {
             bus.publish(CheckpointEventBus::file_changed_with_summary(
                 snapshot_id.to_hex(),
-                path,
+                &path,
                 actor.as_str(),
                 Some(DeltaSummary {
                     file: path.to_string(),
@@ -278,6 +286,7 @@ impl FileCheckpointManager {
     /// `apply_manual_edit`; binary content is snapshotted verbatim via
     /// `SnapshotContent::FileContent`. Returns the new snapshot id (hex).
     pub fn apply_manual_edit(&self, path: &str, content: &[u8]) -> Result<String, CheckpointError> {
+        let path = crate::file_util::validate_workspace_relative_path(path)?;
         let storage = self.storage_ref()?;
         let ws = self.workspace_key();
         let manual_pid = match ws.as_deref() {
@@ -293,16 +302,21 @@ impl FileCheckpointManager {
                 .map_err(map_layertwine_error)?;
         }
         let snapshot_id = if let Ok(text) = std::str::from_utf8(content) {
-            layertwine::layered::manual::apply_manual_edit(storage, path, text, ws.as_deref())
+            layertwine::layered::manual::apply_manual_edit(storage, &path, text, ws.as_deref())
                 .map_err(map_layertwine_error)?
         } else {
-            let file_node = FileNode::new(PathBuf::from(path), content);
+            let file_node = FileNode::new(PathBuf::from(&path), content);
             let snapshot = Snapshot::new_with_content(
                 file_node,
                 SnapshotContent::FileContent(content.to_vec()),
                 format!("file://{}", path),
                 "manual".to_string(),
-                vec![],
+                vec![
+                    storage
+                        .get_partition(&manual_pid)
+                        .map_err(map_layertwine_error)?
+                        .current_snapshot,
+                ],
                 vec![],
             );
             storage
@@ -317,7 +331,7 @@ impl FileCheckpointManager {
             let write_hash = sha256_hex(content);
             bus.publish(CheckpointEventBus::file_changed_with_summary(
                 snapshot_id.to_hex(),
-                path,
+                &path,
                 "manual",
                 Some(DeltaSummary {
                     file: path.to_string(),
@@ -336,6 +350,7 @@ impl FileCheckpointManager {
     /// partition (explicit deletion semantics via
     /// `SnapshotContent::Deleted`). Returns the new snapshot id (hex).
     pub fn apply_manual_delete(&self, path: &str) -> Result<String, CheckpointError> {
+        let path = crate::file_util::validate_workspace_relative_path(path)?;
         let storage = self.storage_ref()?;
         let ws = self.workspace_key();
         let manual_pid = match ws.as_deref() {
@@ -351,13 +366,13 @@ impl FileCheckpointManager {
                 .map_err(map_layertwine_error)?;
         }
         let snapshot_id =
-            layertwine::layered::manual::apply_manual_delete(storage, path, ws.as_deref())
+            layertwine::layered::manual::apply_manual_delete(storage, &path, ws.as_deref())
                 .map_err(map_layertwine_error)?;
         if let Some(ref bus) = self.event_bus {
             let write_hash = sha256_hex(b"");
             bus.publish(CheckpointEventBus::file_changed_with_summary(
                 snapshot_id.to_hex(),
-                path,
+                &path,
                 "manual",
                 Some(DeltaSummary {
                     file: path.to_string(),

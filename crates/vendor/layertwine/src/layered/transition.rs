@@ -7,7 +7,9 @@ use crate::core::snapshot::{Snapshot, SnapshotContent};
 use crate::core::types::{BackupId, EditSessionId, LayerType, PartitionId, SnapshotId};
 use crate::engine::merge::apply_deltas;
 use crate::error::{LayertwineError, Result};
-use crate::storage::repository::{DeltaStore, EditSessionStore, FileNodeStore, PartitionStore, SnapshotStore};
+use crate::storage::repository::{
+    DeltaStore, EditSessionStore, FileNodeStore, PartitionStore, SnapshotStore,
+};
 
 // ===== Allowable Direction of Flow =====
 
@@ -300,9 +302,10 @@ where
     }
 
     // All history entries belong to the session — roll back to the very first.
-    let first = partition.history.first().ok_or_else(|| {
-        LayertwineError::StateMachine("partition has empty history".into())
-    })?;
+    let first = partition
+        .history
+        .first()
+        .ok_or_else(|| LayertwineError::StateMachine("partition has empty history".into()))?;
     storage
         .update_pointer(partition_id, first)
         .map_err(LayertwineError::Storage)?;
@@ -605,7 +608,7 @@ mod tests {
             current_snapshot: initial_id,
             history: vec![initial_id],
             partition_type: PartitionType::Staged,
-                redo_stack: Vec::new(),
+            redo_stack: Vec::new(),
         };
         storage.create_partition(&partition).unwrap();
 
@@ -635,7 +638,7 @@ mod tests {
             current_snapshot: initial_id,
             history: vec![initial_id],
             partition_type: PartitionType::Staged,
-                redo_stack: Vec::new(),
+            redo_stack: Vec::new(),
         };
         storage.create_partition(&partition).unwrap();
 
@@ -747,7 +750,7 @@ mod tests {
             current_snapshot: initial_id,
             history: vec![initial_id],
             partition_type: PartitionType::Approval(agent_id.clone()),
-                redo_stack: Vec::new(),
+            redo_stack: Vec::new(),
         };
         storage.create_partition(&approval_part).unwrap();
 

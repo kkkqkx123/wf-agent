@@ -59,13 +59,7 @@ pub trait Middleware: Send + Sync {
     }
 
     /// Called after event dispatch with the result.
-    fn after_dispatch(
-        &self,
-        _event: &EventType,
-        _state: &mut AppState,
-        _result: &EventResult,
-    ) {
-    }
+    fn after_dispatch(&self, _event: &EventType, _state: &mut AppState, _result: &EventResult) {}
 }
 
 /// The event dispatcher: routes events through handlers with middleware.
@@ -143,12 +137,7 @@ impl Default for EventDispatcher {
 pub struct LoggingMiddleware;
 
 impl Middleware for LoggingMiddleware {
-    fn after_dispatch(
-        &self,
-        event: &EventType,
-        _state: &mut AppState,
-        result: &EventResult,
-    ) {
+    fn after_dispatch(&self, event: &EventType, _state: &mut AppState, result: &EventResult) {
         let label = match event {
             EventType::Key(k) => format!("key({:?})", k.code),
             EventType::Resize(w, h) => format!("resize({w}x{h})"),

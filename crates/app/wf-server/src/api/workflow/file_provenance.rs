@@ -54,8 +54,12 @@ struct ChangeQuery {
 impl ChangeQuery {
     fn time_range(&self) -> Option<(i64, i64)> {
         match (self.start, self.end) {
-            (Some(start), Some(end)) => Some((start, end)),
-            _ => None,
+            (None, None) => None,
+            (start, end) => {
+                let start_ms = start.unwrap_or(i64::MIN / 2).saturating_mul(1000);
+                let end_ms = end.unwrap_or(i64::MAX / 2).saturating_mul(1000);
+                Some((start_ms, end_ms))
+            }
         }
     }
 }

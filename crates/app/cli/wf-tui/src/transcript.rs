@@ -178,16 +178,13 @@ impl HistoryLine {
     pub fn display_lines(&self, width: u16) -> Vec<Line<'static>> {
         let w = usize::from(width.max(1));
         let mut out = Vec::new();
-        
+
         for line in &self.text.lines {
             if line.width() <= w {
                 if self.is_animating() {
                     // Apply shimmer animation to streaming content
-                    let plain_text: String = line
-                        .spans
-                        .iter()
-                        .map(|s| s.content.as_ref())
-                        .collect();
+                    let plain_text: String =
+                        line.spans.iter().map(|s| s.content.as_ref()).collect();
                     let spans = crate::motion::shimmer_text(&plain_text, self.motion_mode);
                     out.push(Line::from(spans));
                 } else {
@@ -210,7 +207,7 @@ impl HistoryLine {
                 }
             }
         }
-        
+
         if out.is_empty() {
             out.push(Line::from(""));
         }

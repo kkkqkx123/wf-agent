@@ -559,7 +559,7 @@ fn test_create_and_get_partition() -> StorageResult<()> {
         current_snapshot: snapshot_id,
         history: vec![snapshot_id],
         partition_type: PartitionType::Manual,
-            redo_stack: Vec::new(),
+        redo_stack: Vec::new(),
     };
 
     storage.create_partition(&partition)?;
@@ -588,7 +588,7 @@ fn test_get_partition_by_name() -> StorageResult<()> {
         current_snapshot: snapshot_id,
         history: vec![snapshot_id],
         partition_type: PartitionType::Manual,
-            redo_stack: Vec::new(),
+        redo_stack: Vec::new(),
     };
 
     storage.create_partition(&partition)?;
@@ -614,7 +614,7 @@ fn test_update_partition_pointer() -> StorageResult<()> {
         current_snapshot: snapshot1_id,
         history: vec![snapshot1_id],
         partition_type: PartitionType::Manual,
-            redo_stack: Vec::new(),
+        redo_stack: Vec::new(),
     };
 
     storage.create_partition(&partition)?;
@@ -642,7 +642,7 @@ fn test_list_partitions() -> StorageResult<()> {
         current_snapshot: snapshot_id,
         history: vec![snapshot_id],
         partition_type: PartitionType::Manual,
-            redo_stack: Vec::new(),
+        redo_stack: Vec::new(),
     };
 
     let partition2 = Partition {
@@ -651,7 +651,7 @@ fn test_list_partitions() -> StorageResult<()> {
         current_snapshot: snapshot_id,
         history: vec![snapshot_id],
         partition_type: PartitionType::Agent(agent_id),
-            redo_stack: Vec::new(),
+        redo_stack: Vec::new(),
     };
 
     storage.create_partition(&partition1)?;
@@ -680,7 +680,7 @@ fn test_partition_with_empty_history() -> StorageResult<()> {
         current_snapshot: snapshot_id,
         history: vec![],
         partition_type: PartitionType::Manual,
-            redo_stack: Vec::new(),
+        redo_stack: Vec::new(),
     };
 
     storage.create_partition(&partition)?;

@@ -256,11 +256,11 @@ pub(crate) fn area_rows(default: usize) -> usize {
 
 // Re-export concrete modal types so existing `use crate::modal::*` works.
 pub use crate::confirm_modal::ConfirmModal;
+pub use crate::file_selection::{scan_dir, FileEntry, FileSelectionDialog};
+pub use crate::file_viewer::{DiffRow, DiffSign, DiffViewer, FileViewer};
 pub use crate::help_modal::HelpModal;
 pub use crate::model_picker::{ModelPicker, SessionPicker};
 pub use crate::password_modal::PasswordModal;
-pub use crate::file_viewer::{DiffRow, DiffSign, DiffViewer, FileViewer};
-pub use crate::file_selection::{FileEntry, FileSelectionDialog, scan_dir};
 
 /// Center a rectangle covering `percent_x` x `percent_y` of `r`.
 pub fn centered_rect(percent_x: u16, percent_y: u16, r: Rect) -> Rect {

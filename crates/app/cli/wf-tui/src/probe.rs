@@ -146,9 +146,7 @@ fn parse_osc_color_response(response: &str) -> Option<ColorSet> {
     let hex = &response[rgb_start + 4..];
 
     // Strip the OSC terminator: ESC \ (ST) or BEL (\x07) at the end.
-    let hex = hex
-        .trim_end_matches('\x07')
-        .trim_end_matches("\x1b\\");
+    let hex = hex.trim_end_matches('\x07').trim_end_matches("\x1b\\");
 
     // Split on '/' – expect 3 parts (R, G, B), each 4 or 2 hex digits
     let parts: Vec<&str> = hex.split('/').collect();
@@ -181,14 +179,28 @@ mod tests {
     fn parse_osc_color_response_4digit_hex() {
         let resp = "\x1b]11;rgb:ffff/8080/0000\x1b\\";
         let c = parse_osc_color_response(resp).unwrap();
-        assert_eq!(c, ColorSet { r: 255, g: 128, b: 0 });
+        assert_eq!(
+            c,
+            ColorSet {
+                r: 255,
+                g: 128,
+                b: 0
+            }
+        );
     }
 
     #[test]
     fn parse_osc_color_response_2digit_hex() {
         let resp = "\x1b]11;rgb:ff/80/00\x1b\\";
         let c = parse_osc_color_response(resp).unwrap();
-        assert_eq!(c, ColorSet { r: 255, g: 128, b: 0 });
+        assert_eq!(
+            c,
+            ColorSet {
+                r: 255,
+                g: 128,
+                b: 0
+            }
+        );
     }
 
     #[test]

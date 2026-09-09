@@ -39,9 +39,8 @@ pub use search::{
 pub use summary::{to_summary, workflow_summaries, WorkflowSummary};
 pub use validation::{validate_workflow, WorkflowValidator};
 pub use variable::{
-    convert_type, create_store, eval_expression,
-    get_variable, has_variable, list_variables, remove_variable, set_variable,
-    ExpressionResult,
+    convert_type, create_store, eval_expression, get_variable, has_variable, list_variables,
+    remove_variable, set_variable, ExpressionResult,
 };
 pub use version::{get_workflow_version, list_workflow_versions, save_workflow_version};
 pub use versioning::{

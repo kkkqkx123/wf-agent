@@ -143,11 +143,16 @@ impl FileCheckpointManager {
             let mut approved: Vec<String> = Vec::new();
             let mut last_snapshot = submitted;
             for path in &paths {
-                let Some(content) = self.approval_file_content(storage, &agent_id, path)? else {
+                let Some((content, deleted)) =
+                    self.approval_file_content(storage, &agent_id, path)?
+                else {
                     continue;
                 };
-                let snap =
-                    self.apply_feature_edit(storage, feature_name, path, &content, baseline)?;
+                let snap = if deleted {
+                    self.apply_feature_delete(storage, feature_name, path, baseline)?
+                } else {
+                    self.apply_feature_edit(storage, feature_name, path, &content, baseline)?
+                };
                 if let Some(ref bus) = self.event_bus {
                     bus.publish(CheckpointEventBus::file_changed_with_summary(
                         snap.clone(),
@@ -301,33 +306,34 @@ impl FileCheckpointManager {
         storage: &SqliteStorage,
         agent_id: &AgentInstanceId,
         path: &str,
-    ) -> Result<Option<Vec<u8>>, CheckpointError> {
-        let latest_in = |partition: &Partition| -> Result<Option<Vec<u8>>, CheckpointError> {
-            let mut latest: Option<Vec<u8>> = None;
-            for snapshot_id in &partition.history {
-                let snapshot = storage
-                    .get_snapshot(snapshot_id)
-                    .map_err(map_layertwine_error)?;
-                let spath = crate::provenance::snapshot_file_path(storage, &snapshot)?;
-                if spath != path {
-                    continue;
+    ) -> Result<Option<(Vec<u8>, bool)>, CheckpointError> {
+        let latest_in =
+            |partition: &Partition| -> Result<Option<(Vec<u8>, bool)>, CheckpointError> {
+                let mut latest: Option<(Vec<u8>, bool)> = None;
+                for snapshot_id in &partition.history {
+                    let snapshot = storage
+                        .get_snapshot(snapshot_id)
+                        .map_err(map_layertwine_error)?;
+                    let spath = crate::provenance::snapshot_file_path(storage, &snapshot)?;
+                    if spath != path {
+                        continue;
+                    }
+                    if snapshot.is_deleted() {
+                        latest = Some((Vec::new(), true));
+                        continue;
+                    }
+                    if let Some(content) = &snapshot.content {
+                        latest = Some((content.to_bytes(), false));
+                    } else {
+                        let text =
+                            layertwine::layered::transition::reconstruct_text(storage, &snapshot)
+                                .map_err(map_layertwine_error)?
+                                .unwrap_or_default();
+                        latest = Some((text.into_bytes(), false));
+                    }
                 }
-                if snapshot.is_deleted() {
-                    latest = Some(Vec::new());
-                    continue;
-                }
-                if let Some(content) = &snapshot.content {
-                    latest = Some(content.to_bytes());
-                } else {
-                    let text =
-                        layertwine::layered::transition::reconstruct_text(storage, &snapshot)
-                            .map_err(map_layertwine_error)?
-                            .unwrap_or_default();
-                    latest = Some(text.into_bytes());
-                }
-            }
-            Ok(latest)
-        };
+                Ok(latest)
+            };
 
         let approval_pid = layertwine::layered::approval::approval_agent_partition_id(agent_id);
         if let Ok(partition) = storage.get_partition(&approval_pid) {
@@ -387,6 +393,49 @@ impl FileCheckpointManager {
             .map_err(map_layertwine_error)?;
         storage
             .store_snapshot(&snapshot, content)
+            .map_err(map_layertwine_error)?;
+        storage
+            .update_pointer(&pid, &snapshot.id)
+            .map_err(map_layertwine_error)?;
+        Ok(snapshot.id.to_hex())
+    }
+
+    fn apply_feature_delete(
+        &self,
+        storage: &SqliteStorage,
+        feature_name: &str,
+        path: &str,
+        initial_snapshot_id: SnapshotId,
+    ) -> Result<String, CheckpointError> {
+        let pid = layertwine::layered::integrated::integrated_partition_id(feature_name);
+        let partition = layertwine::layered::integrated::ensure_integrated_partition(
+            storage,
+            feature_name,
+            initial_snapshot_id,
+        )
+        .map_err(map_layertwine_error)?;
+        let parent = partition.history.iter().rev().find_map(|sid| {
+            storage
+                .get_snapshot(sid)
+                .ok()
+                .filter(|s| {
+                    crate::provenance::snapshot_file_path(storage, s)
+                        .map(|p| p == path)
+                        .unwrap_or(false)
+                })
+                .map(|s| s.id)
+        });
+        let file_node = FileNode::new(PathBuf::from(path), &[]);
+        let snapshot = Snapshot::new_with_content(
+            file_node,
+            SnapshotContent::Deleted,
+            format!("file://{path}"),
+            layertwine::core::types::PartitionType::Integrated(feature_name.to_string()).name(),
+            parent.map_or_else(Vec::new, |p| vec![p]),
+            vec![],
+        );
+        storage
+            .store_snapshot(&snapshot, &[])
             .map_err(map_layertwine_error)?;
         storage
             .update_pointer(&pid, &snapshot.id)

@@ -82,7 +82,9 @@ impl TextEditor {
         }
         let idx = self.cursor;
         self.buf.insert(idx, ch);
-        self.cursor = self.buf.grapheme_indices(true)
+        self.cursor = self
+            .buf
+            .grapheme_indices(true)
             .find(|&(i, _)| i >= idx + ch.len_utf8())
             .map(|(i, _)| i)
             .unwrap_or(self.buf.len());
@@ -93,7 +95,9 @@ impl TextEditor {
         if self.cursor == 0 {
             return;
         }
-        let prev = self.buf.grapheme_indices(true)
+        let prev = self
+            .buf
+            .grapheme_indices(true)
             .take_while(|&(i, _)| i < self.cursor)
             .last()
             .map(|(i, g)| (i, g.len()))
@@ -107,7 +111,9 @@ impl TextEditor {
         if self.cursor >= self.buf.len() {
             return;
         }
-        let grapheme_len = self.buf.grapheme_indices(true)
+        let grapheme_len = self
+            .buf
+            .grapheme_indices(true)
             .find(|&(i, _)| i >= self.cursor)
             .map(|(_, g)| g.len())
             .unwrap_or(0);
@@ -116,7 +122,9 @@ impl TextEditor {
 
     /// Move cursor left by one grapheme.
     pub fn move_left(&mut self) {
-        if let Some((i, _)) = self.buf.grapheme_indices(true)
+        if let Some((i, _)) = self
+            .buf
+            .grapheme_indices(true)
             .take_while(|&(idx, _)| idx < self.cursor)
             .last()
         {
@@ -126,7 +134,9 @@ impl TextEditor {
 
     /// Move cursor right by one grapheme.
     pub fn move_right(&mut self) {
-        if let Some((i, _)) = self.buf.grapheme_indices(true)
+        if let Some((i, _)) = self
+            .buf
+            .grapheme_indices(true)
             .find(|&(idx, _)| idx > self.cursor)
         {
             self.cursor = i;

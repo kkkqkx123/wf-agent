@@ -102,9 +102,8 @@ impl HistoryCell for UserMessageCell {
 
         for line in self.text.lines() {
             if line.width() <= w {
-                let spans: Vec<ratatui::text::Span<'static>> = vec![
-                    ratatui::text::Span::styled(line.to_string(), style),
-                ];
+                let spans: Vec<ratatui::text::Span<'static>> =
+                    vec![ratatui::text::Span::styled(line.to_string(), style)];
                 out.push(Line::from(spans));
             } else {
                 out.extend(word_wrap_with_style(line, w, style));
@@ -112,9 +111,8 @@ impl HistoryCell for UserMessageCell {
         }
 
         if out.is_empty() {
-            let spans: Vec<ratatui::text::Span<'static>> = vec![
-                ratatui::text::Span::styled(String::new(), style),
-            ];
+            let spans: Vec<ratatui::text::Span<'static>> =
+                vec![ratatui::text::Span::styled(String::new(), style)];
             out.push(Line::from(spans));
         }
 
@@ -260,7 +258,7 @@ impl HistoryCell for ToolCallCell {
         };
 
         let indicator = match self.success {
-            Some(true) => "\u{2713}", // checkmark
+            Some(true) => "\u{2713}",  // checkmark
             Some(false) => "\u{2717}", // cross
             None => "\u{25B2}",        // triangle up (in progress)
         };
@@ -282,7 +280,10 @@ impl HistoryCell for ToolCallCell {
             } else {
                 args.clone()
             };
-            lines.push(Line::styled(format!("  {}", truncated), theme::muted_style()));
+            lines.push(Line::styled(
+                format!("  {}", truncated),
+                theme::muted_style(),
+            ));
         }
 
         // Result (if present)
@@ -459,10 +460,7 @@ mod tests {
 
     #[test]
     fn plain_cell_renders_lines() {
-        let cell = PlainCell::new(vec![
-            Line::raw("line 1"),
-            Line::raw("line 2"),
-        ]);
+        let cell = PlainCell::new(vec![Line::raw("line 1"), Line::raw("line 2")]);
         let lines = cell.display_lines(80);
         assert_eq!(lines.len(), 2);
     }

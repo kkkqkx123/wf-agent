@@ -11,7 +11,7 @@
 use crate::checkpoint::types::{Checkpoint, CheckpointMetadata};
 use crate::core::delta::Delta;
 use crate::core::partition::Partition;
-use crate::core::snapshot::Snapshot;
+use crate::core::snapshot::{Snapshot, SnapshotContent};
 use crate::core::types::{CheckpointId, PartitionId, PartitionType, SnapshotId, SourceType};
 use crate::engine::diff::diff_to_line_diff;
 use crate::error::{LayertwineError, Result};
@@ -168,6 +168,29 @@ where
     let staged_snapshot = storage
         .get_snapshot(&staged_partition.current_snapshot)
         .map_err(LayertwineError::Storage)?;
+
+    if let Some(SnapshotContent::FileContent(bytes)) = &feature_snapshot.content {
+        if std::str::from_utf8(bytes).is_err() {
+            let snapshot = Snapshot::new_with_content(
+                feature_snapshot.file.clone(),
+                SnapshotContent::FileContent(bytes.clone()),
+                feature_snapshot.source.clone(),
+                PartitionType::Staged.name(),
+                vec![staged_snapshot.id, feature_snapshot.id],
+                vec![],
+            );
+            storage
+                .store_snapshot(&snapshot, bytes)
+                .map_err(LayertwineError::Storage)?;
+            storage
+                .update_pointer(&staged_pid, &snapshot.id)
+                .map_err(LayertwineError::Storage)?;
+            return Ok(MergeResult {
+                snapshot_id: snapshot.id,
+                conflicts: vec![],
+            });
+        }
+    }
 
     // Reconstruct texts for three-way merge. A deleted side (None) is
     // treated as empty content: merge inputs only need text.

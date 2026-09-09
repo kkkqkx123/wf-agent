@@ -70,7 +70,10 @@ impl Partition {
     /// removed from the history tail is pushed onto `redo_stack`.
     pub fn rollback_one_with_redo(&mut self) -> Option<SnapshotId> {
         if self.history.len() > 1 {
-            let undone = self.history.pop().expect("history non-empty after len check");
+            let undone = self
+                .history
+                .pop()
+                .expect("history non-empty after len check");
             self.current_snapshot = self.history[self.history.len() - 1];
             self.redo_stack.push(undone);
             Some(self.current_snapshot)

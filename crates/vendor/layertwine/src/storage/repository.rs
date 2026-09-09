@@ -206,12 +206,7 @@ pub trait MetadataStore {
 
 /// Combined storage trait (full storage interface)
 pub trait Repository:
-    SnapshotStore
-    + DeltaStore
-    + PartitionStore
-    + FileNodeStore
-    + CheckpointPersist
-    + AtomicOps
+    SnapshotStore + DeltaStore + PartitionStore + FileNodeStore + CheckpointPersist + AtomicOps
 {
 }
 

@@ -40,7 +40,11 @@ impl Modal for ConfirmModal {
             .border_style(Style::default().fg(to_color(theme.warning)));
         let paragraph = Paragraph::new(format!("{}\n\n[y] confirm / [n] cancel", self.message))
             .block(block)
-            .style(Style::default().fg(to_color(theme.fg)).add_modifier(Modifier::BOLD))
+            .style(
+                Style::default()
+                    .fg(to_color(theme.fg))
+                    .add_modifier(Modifier::BOLD),
+            )
             .wrap(Wrap { trim: false });
         let centered = centered_rect(60, 30, area);
         frame.render_widget(paragraph, centered);

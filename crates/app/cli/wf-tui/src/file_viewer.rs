@@ -1,9 +1,9 @@
 //! Read-only text viewer and diff viewer modals.
 
-use ratatui::style::{Style, Color};
+use ratatui::layout::Rect;
+use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
 use ratatui::Frame;
-use ratatui::layout::Rect;
 
 use crate::keymap::{CKey, Key};
 use crate::modal::{area_rows, render_viewer, scroll_key, Modal, ModalAction, ModalResult, Scroll};

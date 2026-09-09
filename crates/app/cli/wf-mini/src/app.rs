@@ -87,10 +87,9 @@ impl ToolApprovalHandler for MiniApprovalHandler {
                 request.tool_call_id.clone(),
                 "approval reply channel closed",
             ),
-            Err(_) => ToolApprovalResult::rejected(
-                request.tool_call_id.clone(),
-                "approval timed out",
-            ),
+            Err(_) => {
+                ToolApprovalResult::rejected(request.tool_call_id.clone(), "approval timed out")
+            }
         }
     }
 }
@@ -288,10 +287,8 @@ impl MiniApp {
                 self.phase = Phase::Idle;
             }
             ExecutionStreamEvent::Failed { error } => {
-                self.scrollback.push(ScrollLine::new(
-                    format!("✗ failed: {error}"),
-                    Role::Error,
-                ));
+                self.scrollback
+                    .push(ScrollLine::new(format!("✗ failed: {error}"), Role::Error));
                 self.flush_stream_tail();
                 self.phase = Phase::Idle;
             }
@@ -315,11 +312,7 @@ impl MiniApp {
                     self.committed_upto = committed_to;
                 }
                 let view = self.markdown.streaming_text().to_string();
-                self.streaming_tail = if view.is_empty() {
-                    None
-                } else {
-                    Some(view)
-                };
+                self.streaming_tail = if view.is_empty() { None } else { Some(view) };
             }
             ExecutionStreamEvent::ToolStart { tool_name, .. } => {
                 self.flush_stream_tail();
@@ -327,9 +320,7 @@ impl MiniApp {
                     .push(ScrollLine::new(format!("▲ {tool_name}"), Role::Muted));
             }
             ExecutionStreamEvent::ToolEnd {
-                tool_name,
-                success,
-                ..
+                tool_name, success, ..
             } => {
                 self.flush_stream_tail();
                 let mark = if *success { "✓" } else { "✗" };
@@ -338,10 +329,8 @@ impl MiniApp {
                     .push(ScrollLine::new(format!("{mark} {tool_name}"), role));
             }
             ExecutionStreamEvent::ReasoningDelta { content } => {
-                self.scrollback.push(ScrollLine::new(
-                    format!("💭 {content}"),
-                    Role::Muted,
-                ));
+                self.scrollback
+                    .push(ScrollLine::new(format!("💭 {content}"), Role::Muted));
             }
             ExecutionStreamEvent::SubAgentStarted { name, .. } => {
                 self.scrollback.push(ScrollLine::new(

@@ -153,7 +153,7 @@ fn shimmer_spans(text: &str) -> Vec<Span<'static>> {
     let mut spans = Vec::new();
     let chars: Vec<char> = text.chars().collect();
     let len = chars.len();
-    
+
     if len == 0 {
         return spans;
     }
@@ -161,7 +161,7 @@ fn shimmer_spans(text: &str) -> Vec<Span<'static>> {
     let elapsed = start.elapsed().as_secs_f64();
     let sweep_period = 2.0; // 2-second sweep
     let sweep_pos = (elapsed % sweep_period) / sweep_period; // 0.0 to 1.0
-    
+
     for (i, ch) in chars.iter().enumerate() {
         let pos = i as f64 / len as f64; // 0.0 to 1.0 position in text
         let distance = (pos - sweep_pos).abs();
@@ -176,13 +176,13 @@ fn shimmer_spans(text: &str) -> Vec<Span<'static>> {
             // Dim region
             ratatui::style::Color::Rgb(0x60, 0x60, 0x60)
         };
-        
+
         spans.push(Span::styled(
             ch.to_string(),
             ratatui::style::Style::default().fg(highlight),
         ));
     }
-    
+
     spans
 }
 
@@ -210,7 +210,7 @@ fn lerp(a: u8, b: u8, t: f32) -> u8 {
 /// The detected [`MotionMode`] based on environment and system preferences.
 pub fn detect_motion_preference() -> MotionMode {
     // Check for common reduced motion indicators
-    
+
     // macOS: System Preferences > Accessibility > Display > Reduce Motion
     if cfg!(target_os = "macos") {
         // On macOS, we can check for the reduce motion preference
@@ -225,7 +225,7 @@ pub fn detect_motion_preference() -> MotionMode {
             }
         }
     }
-    
+
     // Linux: GNOME reduce motion setting
     if cfg!(target_os = "linux") {
         if let Ok(output) = std::process::Command::new("gsettings")
@@ -238,19 +238,19 @@ pub fn detect_motion_preference() -> MotionMode {
             }
         }
     }
-    
+
     // Check for NO_COLOR environment variable (common convention)
     if std::env::var("NO_COLOR").is_ok() {
         return MotionMode::Reduced;
     }
-    
+
     // Check for specific terminal programs that may indicate CI/headless
     if let Ok(term) = std::env::var("TERM") {
         if term == "dumb" || term == "linux" {
             return MotionMode::Reduced;
         }
     }
-    
+
     // Default to animated if no reduced motion indicators found
     MotionMode::Animated
 }
@@ -270,12 +270,12 @@ pub fn supports_truecolor() -> bool {
             return true;
         }
     }
-    
+
     // Check specific terminal programs known to support truecolor
     if let Ok(term_program) = std::env::var("TERM_PROGRAM") {
         let program = term_program.to_lowercase();
-        if program.contains("iterm") 
-            || program.contains("apple_terminal") 
+        if program.contains("iterm")
+            || program.contains("apple_terminal")
             || program.contains("vscode")
             || program.contains("hyper")
             || program.contains("alacritty")
@@ -284,14 +284,14 @@ pub fn supports_truecolor() -> bool {
             return true;
         }
     }
-    
+
     // Check for common modern terminals
     if let Ok(term) = std::env::var("TERM") {
         if term.contains("256color") || term.contains("truecolor") {
             return true;
         }
     }
-    
+
     false
 }
 
@@ -311,7 +311,7 @@ pub fn get_optimal_motion_mode(explicit_mode: Option<MotionMode>) -> MotionMode 
     if let Some(mode) = explicit_mode {
         return mode;
     }
-    
+
     // Auto-detect from environment
     detect_motion_preference()
 }
@@ -352,7 +352,8 @@ mod tests {
     #[test]
     fn activity_indicator_animated_mode() {
         let start = Instant::now();
-        let indicator = activity_indicator(start, MotionMode::Animated, ReducedMotionIndicator::Hidden);
+        let indicator =
+            activity_indicator(start, MotionMode::Animated, ReducedMotionIndicator::Hidden);
         assert!(indicator.is_some());
         let span = indicator.unwrap();
         assert!(!span.content.is_empty());
@@ -361,14 +362,19 @@ mod tests {
     #[test]
     fn activity_indicator_reduced_mode_hidden() {
         let start = Instant::now();
-        let indicator = activity_indicator(start, MotionMode::Reduced, ReducedMotionIndicator::Hidden);
+        let indicator =
+            activity_indicator(start, MotionMode::Reduced, ReducedMotionIndicator::Hidden);
         assert!(indicator.is_none());
     }
 
     #[test]
     fn activity_indicator_reduced_mode_bullet() {
         let start = Instant::now();
-        let indicator = activity_indicator(start, MotionMode::Reduced, ReducedMotionIndicator::StaticBullet);
+        let indicator = activity_indicator(
+            start,
+            MotionMode::Reduced,
+            ReducedMotionIndicator::StaticBullet,
+        );
         assert!(indicator.is_some());
         let span = indicator.unwrap();
         assert_eq!(span.content.as_ref(), "●");
@@ -423,7 +429,7 @@ mod tests {
     fn get_optimal_motion_mode_with_explicit() {
         let mode = get_optimal_motion_mode(Some(MotionMode::Reduced));
         assert_eq!(mode, MotionMode::Reduced);
-        
+
         let mode = get_optimal_motion_mode(Some(MotionMode::Static));
         assert_eq!(mode, MotionMode::Static);
     }

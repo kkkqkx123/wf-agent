@@ -58,7 +58,9 @@ pub enum AgentStreamEvent {
     /// Incremental reasoning / thinking text delta (e.g. an anthropic
     /// `thinking_delta`). Surfaced distinctly from the assistant answer so
     /// the CLI can render it as a `Thinking:` part.
-    ReasoningDelta { content: String },
+    ReasoningDelta {
+        content: String,
+    },
     /// Cumulative token usage + estimated cost for the run. Carried so the
     /// status line can show `tokens · cost` without re-deriving it.
     Usage {
@@ -67,9 +69,16 @@ pub enum AgentStreamEvent {
         cost: Option<f64>,
     },
     /// A sub-agent (triggered child agent) started.
-    SubAgentStarted { id: String, name: String },
+    SubAgentStarted {
+        id: String,
+        name: String,
+    },
     /// A sub-agent finished (success distinguishes a clean vs failed child).
-    SubAgentEnded { id: String, name: String, success: bool },
+    SubAgentEnded {
+        id: String,
+        name: String,
+        success: bool,
+    },
 }
 
 /// Async stream of agent loop events (message deltas, tool lifecycle,

@@ -195,7 +195,12 @@ mod tests {
     impl Renderable for DummyWidget {
         fn render(&self, area: Rect, buf: &mut Buffer) {
             use ratatui::style::Style;
-            buf.set_string(area.x, area.y, "X".repeat(area.width as usize), Style::default());
+            buf.set_string(
+                area.x,
+                area.y,
+                "X".repeat(area.width as usize),
+                Style::default(),
+            );
         }
         fn desired_height(&self, _width: u16) -> u16 {
             self.height
@@ -208,19 +213,25 @@ mod tests {
     #[test]
     fn composite_sums_visible_heights() {
         let composite = CompositeRenderable::new()
-            .with_child(Box::new(DummyWidget { height: 3, visible: true }))
-            .with_child(Box::new(DummyWidget { height: 2, visible: true }))
-            .with_child(Box::new(DummyWidget { height: 1, visible: false }));
+            .with_child(Box::new(DummyWidget {
+                height: 3,
+                visible: true,
+            }))
+            .with_child(Box::new(DummyWidget {
+                height: 2,
+                visible: true,
+            }))
+            .with_child(Box::new(DummyWidget {
+                height: 1,
+                visible: false,
+            }));
         assert_eq!(composite.desired_height(80), 5);
     }
 
     #[test]
     fn layout_calculator_vertical_split() {
         let area = Rect::new(0, 0, 80, 20);
-        let rects = LayoutCalculator::vertical(
-            area,
-            &[Constraint::Length(5), Constraint::Min(10)],
-        );
+        let rects = LayoutCalculator::vertical(area, &[Constraint::Length(5), Constraint::Min(10)]);
         assert_eq!(rects.len(), 2);
         assert_eq!(rects[0].height, 5);
         assert_eq!(rects[1].height, 15);

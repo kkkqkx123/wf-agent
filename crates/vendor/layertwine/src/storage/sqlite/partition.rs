@@ -76,19 +76,20 @@ impl PartitionStore for SqliteStorage {
         let id_bytes = id.as_bytes().to_vec();
         let mut stmt = conn.prepare(
             "SELECT id, name, current_snapshot, partition_data, created_at, updated_at
-             FROM partitions WHERE id = ?1"
+             FROM partitions WHERE id = ?1",
         )?;
 
-        let (name, snap_arr, partition_type, redo_stack) = stmt.query_row(params![&id_bytes], |row| {
-            let _: Vec<u8> = row.get(0)?;
-            let name: String = row.get(1)?;
-            let snap_bytes: Vec<u8> = row.get(2)?;
-            let mut snap_arr = [0u8; 32];
-            snap_arr.copy_from_slice(&snap_bytes);
-            let partition_data: Option<String> = row.get(3)?;
-            let (partition_type, redo_stack) = parse_partition_data(&partition_data);
-            Ok((name, snap_arr, partition_type, redo_stack))
-        })?;
+        let (name, snap_arr, partition_type, redo_stack) =
+            stmt.query_row(params![&id_bytes], |row| {
+                let _: Vec<u8> = row.get(0)?;
+                let name: String = row.get(1)?;
+                let snap_bytes: Vec<u8> = row.get(2)?;
+                let mut snap_arr = [0u8; 32];
+                snap_arr.copy_from_slice(&snap_bytes);
+                let partition_data: Option<String> = row.get(3)?;
+                let (partition_type, redo_stack) = parse_partition_data(&partition_data);
+                Ok((name, snap_arr, partition_type, redo_stack))
+            })?;
 
         let history = self.load_history(&conn, &id_bytes)?;
 
@@ -107,7 +108,7 @@ impl PartitionStore for SqliteStorage {
 
         let mut stmt = conn.prepare(
             "SELECT id, name, current_snapshot, partition_data, created_at, updated_at
-             FROM partitions WHERE name = ?1"
+             FROM partitions WHERE name = ?1",
         )?;
 
         let (id_bytes, name_ret, snap_bytes, partition_data) =
@@ -233,7 +234,7 @@ impl PartitionStore for SqliteStorage {
         let conn = self.conn.lock();
         let mut stmt = conn.prepare(
             "SELECT id, name, current_snapshot, partition_data, created_at, updated_at
-             FROM partitions ORDER BY name"
+             FROM partitions ORDER BY name",
         )?;
 
         let rows: Vec<PartitionRow> = stmt

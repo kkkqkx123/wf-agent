@@ -547,8 +547,11 @@ mod tests {
         schema.r#ref = Some("#/definitions/SomeType".into());
         let tool = make_tool(BTreeMap::from([("config".to_string(), schema)]));
 
-        BaseExecutor::validate_parameters(&tool, &serde_json::json!({ "config": { "nested": true } }))
-            .unwrap();
+        BaseExecutor::validate_parameters(
+            &tool,
+            &serde_json::json!({ "config": { "nested": true } }),
+        )
+        .unwrap();
     }
 
     #[test]

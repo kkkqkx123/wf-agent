@@ -317,12 +317,12 @@ mod tests {
     fn controller_set_mode() {
         let mut controller = AnimationController::default_enabled();
         assert!(controller.is_enabled());
-        
+
         controller.set_mode(AnimationMode::Static);
         assert_eq!(controller.mode(), AnimationMode::Static);
         assert!(!controller.is_enabled());
         assert_eq!(controller.spinner_frame(), 0);
-        
+
         controller.set_mode(AnimationMode::Animated);
         assert!(controller.is_enabled());
     }
@@ -379,11 +379,7 @@ mod tests {
         let valid_chars = ["|", "/", "-", "\\"];
         for _ in 0..100 {
             let ch = controller.spinner_char();
-            assert!(
-                valid_chars.contains(&ch),
-                "invalid spinner char: {}",
-                ch
-            );
+            assert!(valid_chars.contains(&ch), "invalid spinner char: {}", ch);
         }
     }
 

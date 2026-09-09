@@ -628,10 +628,7 @@ impl AgentLoopCoordinator {
                     cp.create_checkpoint(&entity, trigger)
                         .await
                         .unwrap_or_else(|err| {
-                            tracing::warn!(
-                                "Failed to create agent terminal checkpoint: {}",
-                                err
-                            );
+                            tracing::warn!("Failed to create agent terminal checkpoint: {}", err);
                         });
                 }
                 if let Some(ref metrics) = self.metrics {

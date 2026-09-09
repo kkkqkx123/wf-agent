@@ -134,6 +134,9 @@ impl Snapshot {
 
         let now = chrono::Utc::now().timestamp_millis();
         let content = match &parent.content {
+            Some(SnapshotContent::FileContent(bytes)) if std::str::from_utf8(bytes).is_err() => {
+                parent.content.clone()
+            }
             Some(SnapshotContent::FileContent(_)) | None => None,
             other => other.clone(),
         };
@@ -229,6 +232,9 @@ impl Snapshot {
 
         let now = chrono::Utc::now().timestamp_millis();
         let content = match &parents[0].content {
+            Some(SnapshotContent::FileContent(bytes)) if std::str::from_utf8(bytes).is_err() => {
+                parents[0].content.clone()
+            }
             Some(SnapshotContent::FileContent(_)) | None => None,
             other => other.clone(),
         };

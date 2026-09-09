@@ -157,13 +157,19 @@ impl Screens {
     pub fn draw(&self, frame: &mut Frame, area: Rect, data: &ScreenData, theme: &Theme) {
         match self.current_kind() {
             ScreenKind::Dashboard => screen_draw::draw_dashboard(frame, area, data, theme),
-            ScreenKind::Workflow => screen_draw::draw_workflow(frame, area, data, self.selected, theme),
-            ScreenKind::Executions => screen_draw::draw_executions(frame, area, data, self.selected, theme),
+            ScreenKind::Workflow => {
+                screen_draw::draw_workflow(frame, area, data, self.selected, theme)
+            }
+            ScreenKind::Executions => {
+                screen_draw::draw_executions(frame, area, data, self.selected, theme)
+            }
             // The Interactive screen is rendered by `InteractiveController::draw`
             // directly from `tui.rs` (it owns streaming state), so it is never
             // reached here — kept as an explicit no-op for exhaustiveness.
             ScreenKind::Interactive => {}
-            ScreenKind::Checkpoints => screen_draw::draw_checkpoints(frame, area, data, self.selected, theme),
+            ScreenKind::Checkpoints => {
+                screen_draw::draw_checkpoints(frame, area, data, self.selected, theme)
+            }
             ScreenKind::Search => screen_draw::draw_search(frame, area, data, theme),
             ScreenKind::Settings => screen_draw::draw_settings(frame, area, data, theme),
             ScreenKind::Help => screen_draw::draw_help(frame, area, theme),

@@ -10,9 +10,9 @@
 
 use std::sync::Arc;
 
-use wf_api::AgentStreamEvent;
 use wf_api::infra::subscription::EventSubscriptionOptions;
 use wf_api::infra::subscription::{spawn_event_subscription, EventSubscription};
+use wf_api::AgentStreamEvent;
 use wf_core::event::EventBus;
 use wf_types::execution::events::ExecutionEvent;
 
@@ -59,7 +59,11 @@ pub enum UnifiedEvent {
     /// A sub-agent (triggered child agent) started.
     SubAgentStarted { id: String, name: String },
     /// A sub-agent finished.
-    SubAgentEnded { id: String, name: String, success: bool },
+    SubAgentEnded {
+        id: String,
+        name: String,
+        success: bool,
+    },
     /// Execution lifecycle event (checkpoint bus adapter).
     Execution(ExecutionEvent),
 }
@@ -136,9 +140,7 @@ impl From<AgentStreamEvent> for UnifiedEvent {
                 completion_tokens,
                 cost,
             },
-            AgentStreamEvent::SubAgentStarted { id, name } => {
-                Self::SubAgentStarted { id, name }
-            }
+            AgentStreamEvent::SubAgentStarted { id, name } => Self::SubAgentStarted { id, name },
             AgentStreamEvent::SubAgentEnded { id, name, success } => {
                 Self::SubAgentEnded { id, name, success }
             }

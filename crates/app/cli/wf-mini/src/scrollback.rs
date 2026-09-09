@@ -75,7 +75,11 @@ fn wrap_end(text: &str, start: usize, width: usize) -> usize {
     for (i, ch) in slice.char_indices() {
         let w = unicode_width::UnicodeWidthChar::width(ch).unwrap_or(1);
         if cols + w > width {
-            return if last_break > start { last_break } else { start + i };
+            return if last_break > start {
+                last_break
+            } else {
+                start + i
+            };
         }
         cols += w;
         let byte_idx = start + i + ch.len_utf8();
@@ -163,11 +167,7 @@ impl Scrollback {
     /// Compute the visible line range for a viewport of `height` rows and
     /// `width` columns. Returns `(visible_lines, scroll_info)` where each
     /// visible line is a `(role, text)` pair (already soft-wrapped).
-    pub fn visible(
-        &self,
-        height: usize,
-        width: usize,
-    ) -> Vec<(Role, String)> {
+    pub fn visible(&self, height: usize, width: usize) -> Vec<(Role, String)> {
         // First, expand all lines into wrapped display lines.
         let mut display: Vec<(Role, &str)> = Vec::new();
         for line in &self.lines {

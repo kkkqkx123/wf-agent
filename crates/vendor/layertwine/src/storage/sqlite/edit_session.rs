@@ -47,9 +47,8 @@ impl EditSessionStore for SqliteStorage {
 
     fn get_session(&self, id: &EditSessionId) -> StorageResult<EditSession> {
         let conn = self.conn.lock();
-        let mut stmt = conn.prepare(
-            "SELECT id, label, created_at FROM edit_sessions WHERE id = ?1",
-        )?;
+        let mut stmt =
+            conn.prepare("SELECT id, label, created_at FROM edit_sessions WHERE id = ?1")?;
         let mut session = stmt.query_row(params![id.as_bytes().to_vec()], row_to_session)?;
         session.delta_ids = self.get_session_deltas_inner(&conn, id)?;
         Ok(session)
@@ -57,9 +56,8 @@ impl EditSessionStore for SqliteStorage {
 
     fn list_sessions(&self) -> StorageResult<Vec<EditSession>> {
         let conn = self.conn.lock();
-        let mut stmt = conn.prepare(
-            "SELECT id, label, created_at FROM edit_sessions ORDER BY created_at DESC",
-        )?;
+        let mut stmt = conn
+            .prepare("SELECT id, label, created_at FROM edit_sessions ORDER BY created_at DESC")?;
         let sessions = stmt.query_map([], row_to_session)?;
         let mut result = Vec::new();
         for s in sessions {
@@ -110,9 +108,8 @@ impl SqliteStorage {
         session_id: &EditSessionId,
     ) -> StorageResult<Vec<DeltaId>> {
         use crate::core::types::ContentId;
-        let mut stmt = conn.prepare(
-            "SELECT delta_id FROM delta_sessions WHERE session_id = ?1 ORDER BY seq",
-        )?;
+        let mut stmt =
+            conn.prepare("SELECT delta_id FROM delta_sessions WHERE session_id = ?1 ORDER BY seq")?;
         let delta_ids = stmt
             .query_map(params![session_id.as_bytes().to_vec()], |row| {
                 let bytes: Vec<u8> = row.get(0)?;

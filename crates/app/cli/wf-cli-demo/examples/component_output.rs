@@ -17,8 +17,8 @@ use std::fs;
 use std::path::PathBuf;
 
 use wf_tui::ansi::{plain_text, AnsiParser};
-use wf_tui::transcript::{lines_to_string, HistoryLine, LineState, Role};
 use wf_tui::select::{Group, GroupItem, SelectList};
+use wf_tui::transcript::{lines_to_string, HistoryLine, LineState, Role};
 
 /// The crate's `outputs/` directory (rooted at the manifest dir, not CWD).
 fn outputs_dir() -> PathBuf {

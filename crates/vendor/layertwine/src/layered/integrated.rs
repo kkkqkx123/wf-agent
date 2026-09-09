@@ -6,7 +6,7 @@
 
 use crate::core::delta::Delta;
 use crate::core::partition::Partition;
-use crate::core::snapshot::Snapshot;
+use crate::core::snapshot::{Snapshot, SnapshotContent};
 use crate::core::types::{AgentInstanceId, PartitionId, PartitionType, SnapshotId, SourceType};
 use crate::engine::diff::diff_to_line_diff;
 use crate::error::{LayertwineError, Result};
@@ -132,6 +132,30 @@ where
     let integrated_snapshot = storage
         .get_snapshot(&integrated_partition.current_snapshot)
         .map_err(LayertwineError::Storage)?;
+
+    if let Some(SnapshotContent::FileContent(bytes)) = &approval_snapshot.content {
+        if std::str::from_utf8(bytes).is_err() {
+            let snapshot = Snapshot::new_with_content(
+                approval_snapshot.file.clone(),
+                SnapshotContent::FileContent(bytes.clone()),
+                approval_snapshot.source.clone(),
+                PartitionType::Integrated(feature_name.to_string()).name(),
+                vec![integrated_snapshot.id, approval_snapshot.id],
+                vec![],
+            );
+            storage
+                .store_snapshot(&snapshot, bytes)
+                .map_err(LayertwineError::Storage)?;
+            storage
+                .update_pointer(&integrated_pid, &snapshot.id)
+                .map_err(LayertwineError::Storage)?;
+            crate::layered::approval::reject_approval(storage, agent_id)?;
+            return Ok(MergeResult {
+                snapshot_id: snapshot.id,
+                conflicts: vec![],
+            });
+        }
+    }
 
     // Reconstruct texts for three-way merge. A deleted side (None) is
     // treated as empty content: merge inputs only need text.

@@ -724,14 +724,13 @@ pub struct FileTimeline {
 /// rename/move追溯. The timeline walks backwards through file_moves to find
 /// the original path, then collects all snapshots that touched any path in
 /// the rename chain, and returns them in chronological order.
-pub fn file_timeline(
-    storage: &SqliteStorage,
-    path: &str,
-) -> Result<FileTimeline, CheckpointError> {
+pub fn file_timeline(storage: &SqliteStorage, path: &str) -> Result<FileTimeline, CheckpointError> {
     use layertwine::storage::repository::FileMoveStore;
 
     // Trace the rename chain to find the original path
-    let rename_chain = storage.trace_rename_chain(path).map_err(map_layertwine_error)?;
+    let rename_chain = storage
+        .trace_rename_chain(path)
+        .map_err(map_layertwine_error)?;
 
     // Collect all paths in the rename chain (including the current path)
     let mut all_paths: Vec<String> = Vec::new();
@@ -745,7 +744,8 @@ pub fn file_timeline(
     }
 
     // Build a map of path -> moved_from for quick lookup
-    let mut moved_from_map: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    let mut moved_from_map: std::collections::HashMap<String, String> =
+        std::collections::HashMap::new();
     for m in &rename_chain {
         moved_from_map.insert(m.to_path.clone(), m.from_path.clone());
     }

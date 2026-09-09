@@ -258,7 +258,11 @@ impl Theme {
 
     /// Get the style for a color role, using ANSI colors if RGB is not supported.
     /// This provides fallback for terminals with limited color support.
-    pub fn style_for_role_with_fallback(&self, role: ColorRole, color_domain: ColorDomain) -> ratatui::style::Style {
+    pub fn style_for_role_with_fallback(
+        &self,
+        role: ColorRole,
+        color_domain: ColorDomain,
+    ) -> ratatui::style::Style {
         if color_domain.supports_rgb() {
             self.style_for_role(role)
         } else {

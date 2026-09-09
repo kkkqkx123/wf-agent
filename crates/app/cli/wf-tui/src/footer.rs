@@ -34,8 +34,8 @@ use crate::panels::{
 use crate::question_overlay::QuestionView;
 use crate::reducer::Phase;
 use crate::status_line::FooterState;
-use crate::transcript::Role;
 use crate::theme::Theme;
+use crate::transcript::Role;
 
 /// Fixed footer frame rows: top decoration + status line + bottom
 /// decoration. The main area is added on top of this.
@@ -450,7 +450,13 @@ pub(crate) fn fill_area(area: Rect, buf: &mut Buffer, ch: char, style: Style) {
 
 /// Render a column of lines into `area` (one row per line, clipped to the
 /// area height). Spans without an explicit foreground take `role`'s style.
-pub(crate) fn render_rows(area: Rect, buf: &mut Buffer, lines: &[Line<'static>], theme: &Theme, role: Role) {
+pub(crate) fn render_rows(
+    area: Rect,
+    buf: &mut Buffer,
+    lines: &[Line<'static>],
+    theme: &Theme,
+    role: Role,
+) {
     let fallback = theme_style(theme, role);
     for (i, line) in lines.iter().enumerate() {
         if i as u16 >= area.height {
@@ -580,10 +586,7 @@ impl StatusIndicatorWidget {
     /// Render the indicator into a single line.
     pub fn render_line(&self) -> Line<'static> {
         let indicator = self.indicator_char();
-        let mut spans = vec![Span::styled(
-            format!("{} ", indicator),
-            self.style,
-        )];
+        let mut spans = vec![Span::styled(format!("{} ", indicator), self.style)];
 
         if let Some(msg) = &self.message {
             spans.push(Span::styled(msg.clone(), self.style));

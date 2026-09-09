@@ -19,7 +19,7 @@ use wf_tui::screens::{
     CheckpointRow, DashboardData, ExecRow, ProfileRow, ScreenData, ScreenKind, Screens, SearchData,
     SearchRow, SettingsData, WorkflowRow,
 };
-use wf_tui::theme::{Theme, probe_theme};
+use wf_tui::theme::{probe_theme, Theme};
 
 const DASHBOARD_ENTRIES: &[ScreenKind] = &[
     ScreenKind::Workflow,

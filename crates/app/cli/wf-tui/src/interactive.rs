@@ -30,9 +30,9 @@ use crate::footer::{Footer, FooterView};
 use crate::keymap::{CKey, Key};
 use crate::question_overlay::{QuestionOutcome, QuestionView};
 use crate::reducer::{Phase, SessionReducer};
-use crate::transcript::{HistoryLine, LineState, Role};
 use crate::terminal::{DoublePressTracker, PressOutcome, SIGINT_DOUBLE_PRESS_WINDOW};
 use crate::theme::Theme;
+use crate::transcript::{HistoryLine, LineState, Role};
 use crate::turn::{stream_agent_turn, TurnKind, TurnParams};
 
 /// Events from the domain side into the interactive event loop.
@@ -1055,7 +1055,9 @@ mod tests {
         let interrupted = ExecutionStreamEvent::Interrupted {
             reason: "user".into(),
         };
-        assert!(InteractiveController::should_render_terminal(false, &failed));
+        assert!(InteractiveController::should_render_terminal(
+            false, &failed
+        ));
         assert!(InteractiveController::should_render_terminal(
             false,
             &interrupted
@@ -1073,7 +1075,9 @@ mod tests {
         let interrupted = ExecutionStreamEvent::Interrupted {
             reason: "shutdown".into(),
         };
-        assert!(!InteractiveController::should_render_terminal(true, &failed));
+        assert!(!InteractiveController::should_render_terminal(
+            true, &failed
+        ));
         assert!(!InteractiveController::should_render_terminal(
             true,
             &interrupted

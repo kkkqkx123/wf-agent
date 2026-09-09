@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use std::path::Path;
 
+use layertwine::storage::repository::MetadataStore;
+
 use crate::error::CheckpointError;
 use crate::file::{
     FileCheckpointManager, FileCheckpointOptions, FileState, WorkspaceRestoreResult,
@@ -66,6 +68,10 @@ impl FileCheckpointManager {
         let mut written = Vec::with_capacity(states.len());
         for (path, content, _) in states {
             if deleted.contains(&path) {
+                let target = resolve_restore_target(base_dir, &path)?;
+                if target.exists() {
+                    std::fs::remove_file(&target)?;
+                }
                 continue;
             }
             let target = resolve_restore_target(base_dir, &path)?;
@@ -176,14 +182,24 @@ impl FileCheckpointManager {
         }
 
         // Recreate empty directories recorded at snapshot time.
-        if let Some(empty_dirs) = self.empty_dirs.get(checkpoint_id) {
-            for empty_dir in empty_dirs.iter() {
-                let dir = base_dir.join(empty_dir);
-                match std::fs::create_dir_all(&dir) {
-                    Ok(()) => {}
-                    Err(err) => {
-                        handle_restore_failure(opts.failure_behavior, empty_dir, &err)?;
-                    }
+        let persisted_empty_dirs = self
+            .storage_ref()?
+            .load_metadata(&format!("wf-checkpoint:empty-dirs:{checkpoint_id}"))
+            .map_err(crate::file_util::map_layertwine_error)?
+            .map(|raw| serde_json::from_str::<Vec<String>>(&raw))
+            .transpose()?;
+        let empty_dirs = self
+            .empty_dirs
+            .get(checkpoint_id)
+            .map(|dirs| dirs.clone())
+            .or(persisted_empty_dirs)
+            .unwrap_or_default();
+        for empty_dir in &empty_dirs {
+            let dir = base_dir.join(empty_dir);
+            match std::fs::create_dir_all(&dir) {
+                Ok(()) => {}
+                Err(err) => {
+                    handle_restore_failure(opts.failure_behavior, empty_dir, &err)?;
                 }
             }
         }

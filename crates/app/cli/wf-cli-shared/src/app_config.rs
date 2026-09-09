@@ -245,9 +245,7 @@ pub fn config_file_path() -> Option<PathBuf> {
     let base = std::env::var_os("XDG_CONFIG_HOME")
         .map(PathBuf::from)
         .filter(|p| p.is_absolute())
-        .or_else(|| {
-            std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config"))
-        })?;
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".config")))?;
     Some(base.join("wf-cli").join("config.toml"))
 }
 

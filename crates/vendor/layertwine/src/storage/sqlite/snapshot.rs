@@ -124,7 +124,7 @@ impl SnapshotStore for SqliteStorage {
     fn get_snapshot(&self, id: &SnapshotId) -> StorageResult<Snapshot> {
         let conn = self.conn.lock();
         let mut stmt = conn.prepare(
-            "SELECT id, file_path, file_hash, deltas, parents, partition_type, created_at, has_conflicts, source, content_type, content, compression FROM snapshots WHERE id = ?1"
+            "SELECT id, file_path, file_hash, deltas, parents, partition_type, created_at, has_conflicts, source, content_type, content, compression, content_hash FROM snapshots WHERE id = ?1"
         )?;
 
         let result = stmt.query_row(params![&id.0.to_vec()], row_to_snapshot)?;
@@ -134,7 +134,7 @@ impl SnapshotStore for SqliteStorage {
     fn find_snapshots_by_file(&self, file_path: &str) -> StorageResult<Vec<Snapshot>> {
         let conn = self.conn.lock();
         let mut stmt = conn.prepare(
-            "SELECT id, file_path, file_hash, deltas, parents, partition_type, created_at, has_conflicts, source, content_type, content, compression
+            "SELECT id, file_path, file_hash, deltas, parents, partition_type, created_at, has_conflicts, source, content_type, content, compression, content_hash
              FROM snapshots WHERE file_path = ?1 ORDER BY created_at DESC",
         )?;
 
@@ -153,7 +153,7 @@ impl SnapshotStore for SqliteStorage {
     ) -> StorageResult<Vec<Snapshot>> {
         let conn = self.conn.lock();
         let mut stmt = conn.prepare(
-            "SELECT id, file_path, file_hash, deltas, parents, partition_type, created_at, has_conflicts, source, content_type, content, compression
+            "SELECT id, file_path, file_hash, deltas, parents, partition_type, created_at, has_conflicts, source, content_type, content, compression, content_hash
              FROM snapshots WHERE partition_type = ?1 ORDER BY created_at DESC",
         )?;
 
@@ -181,17 +181,19 @@ impl SnapshotStore for SqliteStorage {
         let conn = self.conn.lock();
         let sql = match time_range {
             Some(_) => {
-                "SELECT id, file_path, file_hash, deltas, parents, partition_type, created_at, has_conflicts, source, content_type, content, compression
+                "SELECT id, file_path, file_hash, deltas, parents, partition_type, created_at, has_conflicts, source, content_type, content, compression, content_hash
                  FROM snapshots WHERE file_path = ?1 AND created_at >= ?2 AND created_at <= ?3 ORDER BY created_at DESC"
             }
             None => {
-                "SELECT id, file_path, file_hash, deltas, parents, partition_type, created_at, has_conflicts, source, content_type, content, compression
+                "SELECT id, file_path, file_hash, deltas, parents, partition_type, created_at, has_conflicts, source, content_type, content, compression, content_hash
                  FROM snapshots WHERE file_path = ?1 ORDER BY created_at DESC"
             }
         };
         let mut stmt = conn.prepare(sql)?;
         let snapshots = match time_range {
-            Some((start, end)) => stmt.query_map(params![file_path, start, end], row_to_snapshot)?,
+            Some((start, end)) => {
+                stmt.query_map(params![file_path, start, end], row_to_snapshot)?
+            }
             None => stmt.query_map(params![file_path], row_to_snapshot)?,
         };
         let mut result = Vec::new();

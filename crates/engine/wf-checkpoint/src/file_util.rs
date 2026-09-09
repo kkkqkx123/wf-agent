@@ -43,6 +43,52 @@ pub(crate) fn normalize_workspace_key(root: &Path) -> String {
     }
 }
 
+/// Validate and normalize a workspace-relative file path.
+pub(crate) fn validate_workspace_relative_path(path: &str) -> Result<String, CheckpointError> {
+    if path.trim().is_empty() {
+        return Err(CheckpointError::Validation {
+            reason: "file path must not be empty".to_string(),
+        });
+    }
+    let candidate = Path::new(path);
+    if candidate.is_absolute() || candidate.has_root() {
+        return Err(CheckpointError::Validation {
+            reason: format!("file path must be workspace-relative: '{path}'"),
+        });
+    }
+    let mut depth = 0usize;
+    let mut normalized = PathBuf::new();
+    for component in candidate.components() {
+        match component {
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir if depth == 0 => {
+                return Err(CheckpointError::Validation {
+                    reason: format!("file path escapes workspace: '{path}'"),
+                });
+            }
+            std::path::Component::ParentDir => {
+                normalized.pop();
+                depth -= 1;
+            }
+            std::path::Component::Normal(part) => {
+                normalized.push(part);
+                depth += 1;
+            }
+            _ => {
+                return Err(CheckpointError::Validation {
+                    reason: format!("invalid workspace file path: '{path}'"),
+                });
+            }
+        }
+    }
+    if depth == 0 {
+        return Err(CheckpointError::Validation {
+            reason: format!("file path must name a file: '{path}'"),
+        });
+    }
+    Ok(normalized.to_string_lossy().replace('\\', "/"))
+}
+
 /// Map a layertwine error into the unified `CheckpointError`.
 pub(crate) fn map_layertwine_error<E: Into<layertwine::LayertwineError>>(e: E) -> CheckpointError {
     match e.into() {
@@ -216,18 +262,19 @@ pub(crate) fn resolve_restore_target(
     base_dir: &Path,
     path: &str,
 ) -> Result<PathBuf, CheckpointError> {
-    let candidate = PathBuf::from(path);
-    if candidate.is_absolute() {
-        return Ok(candidate);
+    let relative = validate_workspace_relative_path(path)?;
+    let joined = base_dir.join(relative);
+    let base = base_dir.canonicalize().map_err(CheckpointError::Io)?;
+    let mut existing = joined.as_path();
+    while !existing.exists() {
+        existing = existing
+            .parent()
+            .ok_or_else(|| CheckpointError::Validation {
+                reason: format!("cannot resolve restore path '{path}'"),
+            })?;
     }
-    let joined = base_dir.join(&candidate);
-    let normalized = joined
-        .canonicalize()
-        .unwrap_or_else(|_| normalize_lexically(&joined));
-    let base = base_dir
-        .canonicalize()
-        .unwrap_or_else(|_| normalize_lexically(base_dir));
-    if !normalized.starts_with(&base) {
+    let canonical_parent = existing.canonicalize().map_err(CheckpointError::Io)?;
+    if !canonical_parent.starts_with(&base) {
         return Err(CheckpointError::Validation {
             reason: format!(
                 "file checkpoint path '{}' escapes base directory '{}'",
@@ -240,20 +287,6 @@ pub(crate) fn resolve_restore_target(
 }
 
 /// Lexical normalization without touching the filesystem.
-pub(crate) fn normalize_lexically(path: &Path) -> PathBuf {
-    let mut out = PathBuf::new();
-    for component in path.components() {
-        match component {
-            std::path::Component::CurDir => {}
-            std::path::Component::ParentDir => {
-                out.pop();
-            }
-            other => out.push(other.as_os_str()),
-        }
-    }
-    out
-}
-
 /// Fallback root actor for a bare execution id (agent kind).
 pub(crate) fn root_actor(execution_id: wf_types::Id) -> crate::actor_id::ActorId {
     crate::actor_id::ActorId::new(crate::actor_id::ActorKind::Agent, &[execution_id])

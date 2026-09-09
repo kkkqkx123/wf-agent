@@ -128,11 +128,8 @@ fn manual_changes_skip_agent_writes_and_record_human_edits() {
     std::fs::write(root.join("a.txt"), b"agent-v1").unwrap();
     std::thread::sleep(Duration::from_millis(120));
 
-    let self_write = FileChangeRecord {
-        path: root.join("a.txt"),
-        kind: FileChangeKind::Add,
-        timestamp: wf_common::now(),
-    };
+    let self_write =
+        FileChangeRecord::new(root.join("a.txt"), FileChangeKind::Add, wf_common::now());
     let applied = manager
         .process_manual_changes(&[self_write])
         .expect("no error on skipped self-write");
@@ -145,11 +142,8 @@ fn manual_changes_skip_agent_writes_and_record_human_edits() {
 
     // Human edits b.txt: recorded into the manual partition.
     std::fs::write(root.join("b.txt"), b"human-edit").unwrap();
-    let human = FileChangeRecord {
-        path: root.join("b.txt"),
-        kind: FileChangeKind::Change,
-        timestamp: wf_common::now(),
-    };
+    let human =
+        FileChangeRecord::new(root.join("b.txt"), FileChangeKind::Change, wf_common::now());
     let applied = manager
         .process_manual_changes(&[human])
         .expect("human edit applied");
@@ -162,11 +156,8 @@ fn manual_changes_skip_agent_writes_and_record_human_edits() {
 
     // Unlink: manual delete semantics (empty content in the manual partition).
     std::fs::remove_file(root.join("b.txt")).unwrap();
-    let unlink = FileChangeRecord {
-        path: root.join("b.txt"),
-        kind: FileChangeKind::Unlink,
-        timestamp: wf_common::now(),
-    };
+    let unlink =
+        FileChangeRecord::new(root.join("b.txt"), FileChangeKind::Unlink, wf_common::now());
     let applied = manager
         .process_manual_changes(&[unlink])
         .expect("unlink applied");

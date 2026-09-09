@@ -122,7 +122,20 @@ where
     /// 1. Get the head checkpoint for the target branch
     /// 2. Reset the staged partition to the first snapshot in the checkpoint
     /// 3. Clear other layer states (approval, agent_edit) if needed
+    ///
+    /// Legacy single-workspace entry point; workspace-scoped callers should
+    /// use `switch_branch_for_workspace`.
     pub fn switch_branch(&self, branch_name: &str) -> Result<CheckpointId> {
+        self.switch_branch_for_workspace(branch_name, None)
+    }
+
+    /// Workspace-aware branch switch: staged/manual partitions resolve to
+    /// the workspace-scoped ids for `workspace_key` (`None` = legacy fixed).
+    pub fn switch_branch_for_workspace(
+        &self,
+        branch_name: &str,
+        workspace_key: Option<&str>,
+    ) -> Result<CheckpointId> {
         let branch = self
             .storage
             .get_branch(branch_name)
@@ -142,7 +155,14 @@ where
         // Truncating reset: the base snapshot becomes staged's sole baseline
         // (single history entry), so switching branches does not pollute the
         // staged history with the previous branch's accumulated state.
-        let staged_pid = crate::layered::staged::staged_partition_id();
+        let staged_pid = match workspace_key {
+            Some(key) => crate::layered::staged::staged_partition_id_for(key),
+            None => crate::layered::staged::staged_partition_id(),
+        };
+        let staged_name = match workspace_key {
+            Some(key) => format!("staged/{key}"),
+            None => "staged".to_string(),
+        };
         match self.storage.get_partition(&staged_pid) {
             Ok(_) => {
                 self.storage
@@ -151,7 +171,7 @@ where
             }
             Err(_) => {
                 let partition =
-                    Partition::new("staged".to_string(), PartitionType::Staged, base_snapshot);
+                    Partition::new(staged_name, PartitionType::Staged, base_snapshot);
                 self.storage
                     .create_partition(&partition)
                     .map_err(LayertwineError::Storage)?;
@@ -160,7 +180,16 @@ where
 
         // Reset manual partition to the branch's base snapshot so that edits
         // from the previous branch do not leak into the new branch.
-        let manual_pid = crate::layered::manual::manual_partition_id();
+        let (manual_pid, manual_name) = match workspace_key {
+            Some(key) => (
+                crate::layered::manual::manual_partition_id_for(key),
+                format!("manual_edit/{key}"),
+            ),
+            None => (
+                crate::layered::manual::manual_partition_id(),
+                "manual_edit".to_string(),
+            ),
+        };
         match self.storage.get_partition(&manual_pid) {
             Ok(_) => {
                 self.storage
@@ -169,7 +198,7 @@ where
             }
             Err(_) => {
                 let partition =
-                    Partition::new("manual".to_string(), PartitionType::Manual, base_snapshot);
+                    Partition::new(manual_name, PartitionType::Manual, base_snapshot);
                 self.storage
                     .create_partition(&partition)
                     .map_err(LayertwineError::Storage)?;

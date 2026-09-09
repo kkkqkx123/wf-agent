@@ -275,6 +275,7 @@ async fn run_http(config: &CommonConfig, addr: SocketAddr) -> Result<(), Layertw
 
     let service = Arc::new(crate::api::service::ApiService::open(ServiceConfig {
         db_path: config.db_path.clone(),
+        workspace_key: None,
     })?);
 
     eprintln!("Starting HTTP server on {}", addr);
@@ -289,6 +290,7 @@ async fn run_grpc(config: &CommonConfig, addr: SocketAddr) -> Result<(), Layertw
 
     let service = Arc::new(crate::api::service::ApiService::open(ServiceConfig {
         db_path: config.db_path.clone(),
+        workspace_key: None,
     })?);
 
     eprintln!("Starting gRPC server on {}", addr);

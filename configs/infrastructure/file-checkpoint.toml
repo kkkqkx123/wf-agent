@@ -9,7 +9,7 @@
 
 enabled = false                         # Enable workspace file snapshotting
 workspace_root = ""                     # Override workspace root (default: process.cwd())
-max_delta_chain_length = 20             # Max delta chain before forcing a full backup
+full_snapshot_threshold = 0.5           # Byte-change ratio above which edits store full content
 
 # Custom ignore patterns (appended to .gitignore and hardcoded ignores)
 custom_ignore_patterns = [

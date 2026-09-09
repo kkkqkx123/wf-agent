@@ -77,6 +77,26 @@ pub fn apply_agent_edit_with_session<S>(
 where
     S: SnapshotStore + DeltaStore + FileNodeStore + PartitionStore,
 {
+    apply_agent_edit_full(storage, agent_id, file_path, new_content, session_id, crate::engine::diff::DEFAULT_FULL_SNAPSHOT_THRESHOLD)
+}
+
+/// Agent edit with explicit full-snapshot threshold and optional session.
+///
+/// `threshold` is the byte-change ratio above which the edit is stored as a
+/// full-content snapshot instead of a line-level delta (see
+/// `should_use_full_snapshot_content`). Use
+/// `DEFAULT_FULL_SNAPSHOT_THRESHOLD` for the default behavior.
+pub fn apply_agent_edit_full<S>(
+    storage: &S,
+    agent_id: &AgentInstanceId,
+    file_path: &str,
+    new_content: &str,
+    session_id: Option<EditSessionId>,
+    threshold: f64,
+) -> Result<SnapshotId>
+where
+    S: SnapshotStore + DeltaStore + FileNodeStore + PartitionStore,
+{
     let pid = agent_partition_id(agent_id);
     let partition = storage.get_partition(&pid).map_err(|_| {
         LayertwineError::NotFound(format!(
@@ -119,7 +139,7 @@ where
     }
 
     // Check if this edit should bypass the delta chain and store full content.
-    if should_use_full_snapshot_content(old_content.as_bytes(), new_content.as_bytes(), 0.5) {
+    if should_use_full_snapshot_content(old_content.as_bytes(), new_content.as_bytes(), threshold) {
         let file_node = FileNode::new(PathBuf::from(file_path), new_content.as_bytes());
         let snapshot = Snapshot::new_with_content(
             file_node.clone(),
@@ -276,9 +296,73 @@ where
     Ok(new_snapshot.id)
 }
 ///
+/// Path of the seed snapshot; excluded from per-path merges.
+const SEED_PATH: &str = ".wf-checkpoint-seed";
+
+/// Resolve the file path a snapshot applies to.
+fn snapshot_path<S>(storage: &S, snapshot: &Snapshot) -> Result<String>
+where
+    S: DeltaStore,
+{
+    if let Some(delta_id) = snapshot.deltas.last() {
+        let delta = storage
+            .get_delta(delta_id)
+            .map_err(LayertwineError::Storage)?;
+        Ok(delta.file.path_str().to_string())
+    } else {
+        Ok(snapshot.file.path_str().to_string())
+    }
+}
+
+/// Latest snapshot per file path in a partition history (last occurrence wins).
+fn latest_per_path<S>(
+    storage: &S,
+    history: &[crate::core::types::SnapshotId],
+) -> Result<std::collections::BTreeMap<String, Snapshot>>
+where
+    S: SnapshotStore + DeltaStore,
+{
+    let mut map = std::collections::BTreeMap::new();
+    for snapshot_id in history {
+        let snapshot = storage
+            .get_snapshot(snapshot_id)
+            .map_err(LayertwineError::Storage)?;
+        let path = snapshot_path(storage, &snapshot)?;
+        if path == SEED_PATH {
+            continue;
+        }
+        map.insert(path, snapshot);
+    }
+    Ok(map)
+}
+
+/// Raw bytes of a snapshot when available without lossy text conversion.
+/// Returns `None` for delta-chain snapshots (caller falls back to text
+/// reconstruction) and `Some(vec![])` for the deletion marker.
+fn snapshot_raw_bytes(snapshot: &Snapshot) -> Option<Vec<u8>> {
+    match &snapshot.content {
+        Some(SnapshotContent::FileContent(bytes)) => Some(bytes.clone()),
+        Some(SnapshotContent::Deleted) => Some(Vec::new()),
+        _ => None,
+    }
+}
+
+/// Whether a snapshot carries non-UTF8 file bytes (binary payload).
+fn snapshot_is_binary(snapshot: &Snapshot) -> bool {
+    match &snapshot.content {
+        Some(SnapshotContent::FileContent(bytes)) => std::str::from_utf8(bytes).is_err(),
+        _ => false,
+    }
+}
+
 /// Corresponds to `move_agent_to_approval` in the architecture documentation.
-/// - Take the current snapshot of the agent_raw partition and the approval agent partition
-/// - Merge to generate a new snapshot to push into the approval agent partition
+///
+/// Advances the approval partition per file path instead of merging only the
+/// agent partition's current snapshot: every path in the agent partition's
+/// latest-per-path set is three-way merged (base = approval baseline, ours =
+/// approval head for that path, theirs = agent head for that path) and
+/// appended sequentially. Binary payloads and deletions bypass the text
+/// merge and are carried over verbatim with an explicit marker.
 pub fn move_agent_to_approval<S>(storage: &S, agent_id: &AgentInstanceId) -> Result<SnapshotId>
 where
     S: SnapshotStore + DeltaStore + FileNodeStore + PartitionStore,
@@ -296,73 +380,202 @@ where
         ))
     })?;
 
-    // If both point to the same snapshot, no merge needed
-    if agent_partition.current_snapshot == approval_partition.current_snapshot {
-        return Ok(approval_partition.current_snapshot);
+    if approval_partition.history.is_empty() {
+        return Err(LayertwineError::StateMachine(
+            "approval partition has empty history".into(),
+        ));
     }
 
-    let agent_snapshot = storage
-        .get_snapshot(&agent_partition.current_snapshot)
-        .map_err(LayertwineError::Storage)?;
-    let approval_snapshot = storage
-        .get_snapshot(&approval_partition.current_snapshot)
-        .map_err(LayertwineError::Storage)?;
-
-    // Find the merge base: first snapshot in approval history (common ancestor)
-    let baseline_id = approval_partition.history.first().ok_or_else(|| {
-        LayertwineError::StateMachine("approval partition has empty history".into())
-    })?;
-    let baseline_snapshot = storage
-        .get_snapshot(baseline_id)
-        .map_err(LayertwineError::Storage)?;
-
-    // Reconstruct texts for three-way merge. A deleted side (None) is
-    // treated as empty content: merge inputs only need text.
-    let baseline_text = crate::layered::transition::reconstruct_text(storage, &baseline_snapshot)?
-        .unwrap_or_default();
-    let approval_text = crate::layered::transition::reconstruct_text(storage, &approval_snapshot)?
-        .unwrap_or_default();
-    let agent_text =
-        crate::layered::transition::reconstruct_text(storage, &agent_snapshot)?.unwrap_or_default();
-
-    // Three-way merge: base (common ancestor), ours (approval), theirs (agent)
-    let (merged_text, conflicts) =
-        crate::engine::merge::merge_texts(&baseline_text, &approval_text, &agent_text);
-    let has_conflicts = !conflicts.is_empty();
-
-    let merge_diff = diff_to_line_diff(&approval_text, &merged_text);
-    if merge_diff.is_empty() {
+    let agent_latest = latest_per_path(storage, &agent_partition.history)?;
+    if agent_latest.is_empty() {
         return Ok(approval_partition.current_snapshot);
     }
+    let mut approval_latest = latest_per_path(storage, &approval_partition.history)?;
 
-    let agent_deltas = storage
-        .get_deltas(&agent_snapshot.deltas)
-        .map_err(LayertwineError::Storage)?;
-    let merge_file = agent_deltas
-        .last()
-        .map(|d| d.file.clone())
-        .unwrap_or_else(|| agent_snapshot.file.clone());
-    let merge_delta = Delta::new(merge_file, merge_diff, SourceType::Agent(agent_id.clone()));
-    storage
-        .store_delta(&merge_delta)
-        .map_err(LayertwineError::Storage)?;
+    // Merge baseline: the approval partition's first history entry (common
+    // ancestor). Per-path base is its text when it applies to the same path,
+    // otherwise empty (path created after seeding).
+    let (baseline_path, baseline_text) = match approval_partition.history.first() {
+        Some(baseline_id) => {
+            let baseline_snapshot = storage
+                .get_snapshot(baseline_id)
+                .map_err(LayertwineError::Storage)?;
+            let base_path = snapshot_path(storage, &baseline_snapshot).unwrap_or_default();
+            let base_text =
+                crate::layered::transition::reconstruct_text(storage, &baseline_snapshot)?
+                    .unwrap_or_default();
+            (base_path, base_text)
+        }
+        None => (String::new(), String::new()),
+    };
 
-    // Create a merge snapshot with conflict tracking
-    let new_snapshot = Snapshot::merge(
-        vec![&approval_snapshot, &agent_snapshot],
-        merge_delta.id,
-        PartitionType::Approval(agent_id.clone()).name(),
-        has_conflicts,
-    )?;
-    storage
-        .store_snapshot(&new_snapshot, b"")
-        .map_err(LayertwineError::Storage)?;
+    let mut head_id = approval_partition.current_snapshot;
+    for (path, agent_snapshot) in &agent_latest {
+        let approval_snapshot_opt = approval_latest.get(path);
 
-    storage
-        .update_pointer(&approval_pid, &new_snapshot.id)
-        .map_err(LayertwineError::Storage)?;
+        let agent_deleted = agent_snapshot.is_deleted();
+        let agent_binary = snapshot_is_binary(agent_snapshot);
+        let approval_binary = approval_snapshot_opt
+            .map(snapshot_is_binary)
+            .unwrap_or(false);
+        let approval_deleted = approval_snapshot_opt
+            .map(|s| s.is_deleted())
+            .unwrap_or(false);
 
-    Ok(new_snapshot.id)
+        // Idempotency across partitions: approval snapshots are merge copies
+        // with different IDs than agent snapshots even for identical content,
+        // so compare state (deletion marker / bytes / text) instead of IDs.
+        // A redundant move (e.g. the second call inside `approve_changes`)
+        // must be a no-op.
+        if agent_deleted && approval_deleted {
+            continue;
+        }
+        if !agent_deleted
+            && !approval_deleted
+            && !agent_binary
+            && !approval_binary
+            && approval_snapshot_opt.is_some()
+        {
+            let approval_text = crate::layered::transition::reconstruct_text(
+                storage,
+                approval_snapshot_opt.expect("checked some"),
+            )?
+            .unwrap_or_default();
+            let agent_text =
+                crate::layered::transition::reconstruct_text(storage, agent_snapshot)?
+                    .unwrap_or_default();
+            if approval_text == agent_text {
+                continue;
+            }
+        }
+        if (agent_binary || approval_binary)
+            && !agent_deleted
+            && !approval_deleted
+            && approval_snapshot_opt.is_some()
+        {
+            let approval_bytes = snapshot_raw_bytes(
+                approval_snapshot_opt.expect("checked some"),
+            )
+            .unwrap_or_default();
+            let agent_bytes = snapshot_raw_bytes(agent_snapshot).unwrap_or_default();
+            if approval_bytes == agent_bytes {
+                continue;
+            }
+        }
+
+        // Binary payloads and deletions bypass the text merge: carry the
+        // agent state over verbatim so arbitrary byte sequences survive.
+        if agent_deleted || agent_binary || approval_binary {
+            let file_node = agent_snapshot.file.clone();
+            let content = if agent_deleted {
+                SnapshotContent::Deleted
+            } else {
+                SnapshotContent::FileContent(
+                    snapshot_raw_bytes(agent_snapshot).unwrap_or_default(),
+                )
+            };
+            let head_snapshot = storage
+                .get_snapshot(&head_id)
+                .map_err(LayertwineError::Storage)?;
+            let new_snapshot = Snapshot::merge(
+                vec![&head_snapshot, agent_snapshot],
+                agent_snapshot.deltas.last().copied().unwrap_or_else(|| {
+                    let file = file_node.clone();
+                    let delta = Delta::new(
+                        file,
+                        crate::core::types::LineDiff::new(vec![]),
+                        SourceType::Agent(agent_id.clone()),
+                    );
+                    let id = delta.id;
+                    let _ = storage.store_delta(&delta);
+                    id
+                }),
+                PartitionType::Approval(agent_id.clone()).name(),
+                false,
+            )?;
+            let mut new_snapshot = new_snapshot;
+            new_snapshot.content = Some(content);
+            new_snapshot.id = new_snapshot.compute_id();
+            let bytes = snapshot_raw_bytes(&new_snapshot).unwrap_or_default();
+            storage
+                .store_file_node(&file_node, &bytes)
+                .map_err(LayertwineError::Storage)?;
+            storage
+                .store_snapshot(&new_snapshot, &bytes)
+                .map_err(LayertwineError::Storage)?;
+            storage
+                .update_pointer(&approval_pid, &new_snapshot.id)
+                .map_err(LayertwineError::Storage)?;
+            head_id = new_snapshot.id;
+            approval_latest.insert(path.clone(), new_snapshot);
+            continue;
+        }
+
+        let head_snapshot = storage
+            .get_snapshot(&head_id)
+            .map_err(LayertwineError::Storage)?;
+        let approval_text = match approval_snapshot_opt {
+            Some(snap) => {
+                crate::layered::transition::reconstruct_text(storage, snap)?.unwrap_or_default()
+            }
+            None => String::new(),
+        };
+        let agent_text =
+            crate::layered::transition::reconstruct_text(storage, agent_snapshot)?
+                .unwrap_or_default();
+
+        // Per-path three-way base: the approval baseline text when it
+        // applies to this path, otherwise empty (path created after seeding).
+        let base_text = if baseline_path == *path {
+            baseline_text.clone()
+        } else {
+            String::new()
+        };
+        let (merged_text, conflicts) =
+            crate::engine::merge::merge_texts(&base_text, &approval_text, &agent_text);
+        let has_conflicts = !conflicts.is_empty();
+
+        // The partition history is a single linear transform chain shared by
+        // all paths: the new delta must transform the actual head text into
+        // the merged text, not the per-path approval text.
+        let head_text =
+            crate::layered::transition::reconstruct_text(storage, &head_snapshot)?
+                .unwrap_or_default();
+        let merge_diff = diff_to_line_diff(&head_text, &merged_text);
+        if merge_diff.is_empty() {
+            continue;
+        }
+
+        // The merge delta must carry the current path: `agent_snapshot.file`
+        // is the parent's file (stale for delta-chain snapshots), so build
+        // the node explicitly from the loop key.
+        let merge_file = FileNode::new(std::path::PathBuf::from(path), head_text.as_bytes());
+        let merge_delta = Delta::new(merge_file, merge_diff, SourceType::Agent(agent_id.clone()));
+        storage
+            .store_delta(&merge_delta)
+            .map_err(LayertwineError::Storage)?;
+
+        let new_snapshot = Snapshot::merge(
+            vec![&head_snapshot, agent_snapshot],
+            merge_delta.id,
+            PartitionType::Approval(agent_id.clone()).name(),
+            has_conflicts,
+        )?;
+        storage
+            .store_snapshot(&new_snapshot, b"")
+            .map_err(LayertwineError::Storage)?;
+
+        storage
+            .update_pointer(&approval_pid, &new_snapshot.id)
+            .map_err(LayertwineError::Storage)?;
+        head_id = new_snapshot.id;
+        let stored = storage
+            .get_snapshot(&head_id)
+            .map_err(LayertwineError::Storage)?;
+        approval_latest.insert(path.clone(), stored);
+    }
+
+    Ok(head_id)
 }
 
 /// Abandon Agent modifications (switch pointer to parent Snapshot only)

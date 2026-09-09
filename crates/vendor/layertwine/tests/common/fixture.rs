@@ -52,6 +52,7 @@ impl TestEnvironment {
         // Create API service
         let api = ApiService::open(ServiceConfig {
             db_path: db_path.to_string_lossy().to_string(),
+            workspace_key: None,
         })
         .expect("Failed to create API service");
 

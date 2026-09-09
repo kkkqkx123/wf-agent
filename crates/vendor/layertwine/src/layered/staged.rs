@@ -295,11 +295,25 @@ where
 /// Checks if staged is ready to commit by:
 /// 1. Checking for unresolved conflicts in the staged snapshot
 /// 2. Checking for other problems
+///
+/// Legacy single-workspace entry point; workspace-scoped callers should use
+/// `validate_staged_for_commit_for`.
 pub fn validate_staged_for_commit<S>(storage: &S) -> Result<ValidationResult>
 where
     S: SnapshotStore + PartitionStore + DeltaStore + FileNodeStore,
 {
-    let staged_pid = staged_partition_id();
+    validate_staged_for_commit_for(storage, None)
+}
+
+/// Workspace-aware staged validation.
+pub fn validate_staged_for_commit_for<S>(
+    storage: &S,
+    workspace_key: Option<&str>,
+) -> Result<ValidationResult>
+where
+    S: SnapshotStore + PartitionStore + DeltaStore + FileNodeStore,
+{
+    let staged_pid = staged_pid(workspace_key);
     let staged = storage
         .get_partition(&staged_pid)
         .map_err(|_| LayertwineError::NotFound("staged partition not found".into()))?;
@@ -333,6 +347,9 @@ where
 /// 5. Return the new CheckpointId
 ///
 /// Note: DAG is built dynamically from Checkpoint relationships and is not persisted.
+///
+/// Legacy single-workspace entry point; workspace-scoped callers should use
+/// `commit_staged_to_checkpoint_for`.
 pub fn commit_staged_to_checkpoint<S>(
     storage: &S,
     branch_name: &str,
@@ -342,7 +359,21 @@ pub fn commit_staged_to_checkpoint<S>(
 where
     S: SnapshotStore + PartitionStore + CheckpointPersist,
 {
-    commit_staged_to_checkpoint_inner(storage, branch_name, message, author, false)
+    commit_staged_to_checkpoint_inner(storage, branch_name, message, author, false, None)
+}
+
+/// Workspace-aware staged commit.
+pub fn commit_staged_to_checkpoint_for<S>(
+    storage: &S,
+    branch_name: &str,
+    message: &str,
+    author: &str,
+    workspace_key: Option<&str>,
+) -> Result<CheckpointId>
+where
+    S: SnapshotStore + PartitionStore + CheckpointPersist,
+{
+    commit_staged_to_checkpoint_inner(storage, branch_name, message, author, false, workspace_key)
 }
 
 /// Submit a mid-task checkpoint.
@@ -366,7 +397,21 @@ pub fn commit_mid_task_checkpoint<S>(
 where
     S: SnapshotStore + PartitionStore + CheckpointPersist,
 {
-    commit_staged_to_checkpoint_inner(storage, branch_name, message, author, true)
+    commit_staged_to_checkpoint_inner(storage, branch_name, message, author, true, None)
+}
+
+/// Workspace-aware mid-task checkpoint commit.
+pub fn commit_mid_task_checkpoint_for<S>(
+    storage: &S,
+    branch_name: &str,
+    message: &str,
+    author: &str,
+    workspace_key: Option<&str>,
+) -> Result<CheckpointId>
+where
+    S: SnapshotStore + PartitionStore + CheckpointPersist,
+{
+    commit_staged_to_checkpoint_inner(storage, branch_name, message, author, true, workspace_key)
 }
 
 fn commit_staged_to_checkpoint_inner<S>(
@@ -375,12 +420,13 @@ fn commit_staged_to_checkpoint_inner<S>(
     message: &str,
     author: &str,
     is_mid_task: bool,
+    workspace_key: Option<&str>,
 ) -> Result<CheckpointId>
 where
     S: SnapshotStore + PartitionStore + CheckpointPersist,
 {
     // 1. Get staged partition
-    let staged_pid = staged_partition_id();
+    let staged_pid = staged_pid(workspace_key);
     let staged_partition = storage
         .get_partition(&staged_pid)
         .map_err(|_| LayertwineError::NotFound("staged partition not found".into()))?;
@@ -423,8 +469,20 @@ where
 }
 
 /// Empty staged partition (reset to initial state)
+///
+/// Legacy single-workspace entry point; workspace-scoped callers should use
+/// `reset_staged_for`.
 pub fn reset_staged<S: PartitionStore>(storage: &S, base_snapshot_id: SnapshotId) -> Result<()> {
-    let pid = staged_partition_id();
+    reset_staged_for(storage, base_snapshot_id, None)
+}
+
+/// Workspace-aware staged reset.
+pub fn reset_staged_for<S: PartitionStore>(
+    storage: &S,
+    base_snapshot_id: SnapshotId,
+    workspace_key: Option<&str>,
+) -> Result<()> {
+    let pid = staged_pid(workspace_key);
     storage
         .update_pointer(&pid, &base_snapshot_id)
         .map_err(LayertwineError::Storage)

@@ -24,9 +24,7 @@ pub use cli::{
 };
 pub use mcp::McpExecutor;
 #[cfg(feature = "remote-layertwine")]
-pub use remote::{
-    register_layertwine_tools, LayertwineDeployMode, LayertwineExecutor, LayertwineExecutorConfig,
-};
+pub use remote::{LayertwineDeployMode, LayertwineExecutor, LayertwineExecutorConfig};
 pub use remote::{
     ReconnectPolicy, RemoteConnectionConfig, RemoteErrorInfo, RemoteExecutionResult,
     RemoteExecutor, RemoteExecutorStatus,

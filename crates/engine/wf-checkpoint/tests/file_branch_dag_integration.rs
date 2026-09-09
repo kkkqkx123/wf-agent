@@ -138,11 +138,12 @@ async fn child_branch_isolation_merge_and_dag_closed_loop() {
     );
 
     // 7. The sibling child merges into the same feature. Parallel
-    // contributors textually conflict (single-file three-way from the shared
-    // baseline); the merge commit still records every participant, and the
-    // approval-layer resolution flow clears the conflict for a clean re-merge.
+    // contributors on the same path textually conflict (per-path three-way
+    // from the shared baseline); the merge commit still records every
+    // participant, and the approval-layer resolution flow clears the conflict
+    // for a clean re-merge. (Different paths join cleanly without conflict.)
     let child2_cp = manager
-        .create_checkpoint("child2", &[entry("b.txt", b"sibling edit")])
+        .create_checkpoint("child2", &[entry("a.txt", b"sibling edit")])
         .unwrap();
     let attempt = manager.merge_entity_changes("child2", "main").unwrap();
     assert!(
@@ -161,7 +162,7 @@ async fn child_branch_isolation_merge_and_dag_closed_loop() {
         .resolve_conflicts(
             "child2",
             "main",
-            &[("b.txt".to_string(), b"sibling edit".to_vec())],
+            &[("a.txt".to_string(), b"sibling edit".to_vec())],
         )
         .unwrap();
     assert_eq!(remaining, 0, "resolution must clear all conflicts");
@@ -233,7 +234,7 @@ async fn child_branch_isolation_merge_and_dag_closed_loop() {
     assert!(
         child2_changes
             .iter()
-            .any(|c| c.file == "b.txt" && c.hash == sha256_hex(b"sibling edit")),
+            .any(|c| c.file == "a.txt" && c.hash == sha256_hex(b"sibling edit")),
         "child2 edit must be traceable: {child2_changes:?}"
     );
     // Path filter narrows the view to matching files only.

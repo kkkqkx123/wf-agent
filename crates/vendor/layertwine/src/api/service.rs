@@ -27,12 +27,16 @@ use super::types::*;
 #[derive(Debug, Clone)]
 pub struct ServiceConfig {
     pub db_path: String,
+    /// Workspace key selecting the workspace-scoped manual/staged
+    /// partitions (`None` = legacy single-workspace fixed ids).
+    pub workspace_key: Option<String>,
 }
 
 impl Default for ServiceConfig {
     fn default() -> Self {
         ServiceConfig {
             db_path: ".layertwine/layertwine.db".into(),
+            workspace_key: None,
         }
     }
 }
@@ -109,6 +113,7 @@ pub struct ApiService {
     state_machine: StateMachine<SqliteStorage>,
     checkpoint_repo: Arc<std::sync::RwLock<CheckpointRepo>>,
     db_path: String,
+    workspace_key: Option<String>,
     maintenance_cfg: crate::config::MaintenanceConfig,
     backup_repo: Arc<BackupRepo>,
 }
@@ -142,9 +147,20 @@ impl ApiService {
             state_machine,
             checkpoint_repo: Arc::new(std::sync::RwLock::new(checkpoint_repo)),
             db_path: config.db_path,
+            workspace_key: config.workspace_key,
             maintenance_cfg,
             backup_repo,
         })
+    }
+
+    /// Workspace key selecting workspace-scoped partitions, if configured.
+    pub fn workspace_key(&self) -> Option<&str> {
+        self.workspace_key.as_deref()
+    }
+
+    /// Staged partition id for the configured workspace.
+    fn staged_pid(&self) -> crate::core::types::PartitionId {
+        crate::layered::staged::staged_pid(self.workspace_key.as_deref())
     }
 
     /// Reconstruct text from a snapshot by its ID
@@ -199,7 +215,7 @@ impl ApiService {
 
     /// Show staged changes vs last committed checkpoint
     fn show_staged(&self) -> ApiResult<ShowResponse> {
-        let staged_pid = crate::layered::staged::staged_partition_id();
+        let staged_pid = self.staged_pid();
         let staged_partition = self
             .storage
             .get_partition(&staged_pid)
@@ -369,16 +385,17 @@ impl ApiService {
                 .store_snapshot(&initial_snapshot, b"")
                 .map_err(|e| map_error(LayertwineError::Storage(e)))?;
 
+            let workspace_key = self.workspace_key();
             let manual_partition = crate::layered::manual::ensure_manual_partition(
                 storage.as_ref(),
                 initial_snapshot.id,
-                None,
+                workspace_key,
             )
             .map_err(map_error)?;
             let staged_partition = crate::layered::staged::ensure_staged_partition(
                 storage.as_ref(),
                 initial_snapshot.id,
-                None,
+                workspace_key,
             )
             .map_err(map_error)?;
 
@@ -426,16 +443,17 @@ impl ApiService {
                 "edit content is required (provide via -c/--content or pipe via stdin)",
             )
         })?;
+        let workspace_key = self.workspace_key();
         let snapshot_id = crate::layered::manual::apply_manual_edit(
             self.storage.as_ref(),
             &req.file,
             content,
-            None,
+            workspace_key,
         )
         .map_err(map_error)?;
 
         let staged_snapshot_id =
-            crate::layered::manual::merge_manual_to_staged(self.storage.as_ref(), None)
+            crate::layered::manual::merge_manual_to_staged(self.storage.as_ref(), workspace_key)
                 .map_err(map_error)
                 .ok();
 
@@ -453,7 +471,7 @@ impl ApiService {
             )
         })?;
 
-        let staged_pid = crate::layered::staged::staged_partition_id();
+        let staged_pid = self.staged_pid();
         let initial_snapshot = match self.storage.get_partition(&staged_pid) {
             Ok(p) => p.current_snapshot,
             Err(_) => {
@@ -504,7 +522,7 @@ impl ApiService {
     pub fn agent_submit(&self, req: AgentSubmitRequest) -> ApiResult<SubmitResponse> {
         let agent_instance = AgentInstanceId(req.agent_id.clone());
 
-        let staged_pid = crate::layered::staged::staged_partition_id();
+        let staged_pid = self.staged_pid();
         let base_snapshot = self
             .storage
             .get_partition(&staged_pid)
@@ -565,10 +583,11 @@ impl ApiService {
         let staged_snapshot_id = if names.is_empty() {
             approve_resp.integrated_snapshot_id.clone()
         } else {
+            let workspace_key = self.workspace_key();
             let result = crate::layered::staged::merge_features_to_staged(
                 self.storage.as_ref(),
                 &names,
-                None,
+                workspace_key,
             )
             .map_err(map_error)?;
             snapshot_id_to_hex(&result.snapshot_id)
@@ -584,7 +603,7 @@ impl ApiService {
         let author = req.author.as_deref().unwrap_or("user");
 
         // Get staged partition
-        let staged_pid = crate::layered::staged::staged_partition_id();
+        let staged_pid = self.staged_pid();
         let staged_partition = self
             .storage
             .get_partition(&staged_pid)
@@ -679,9 +698,10 @@ impl ApiService {
             .map_err(map_error)?;
 
         // Reset staged partition to the branch's base snapshot
+        // (workspace-scoped when a workspace key is configured).
         let cp_id2 = self
             .state_machine
-            .switch_branch(&req.name)
+            .switch_branch_for_workspace(&req.name, self.workspace_key())
             .map_err(map_error)?;
 
         drop(checkpoint_repo);
@@ -734,7 +754,7 @@ impl ApiService {
         let snapshot_ids = source_checkpoint.baseline_snapshots.clone();
 
         // Update current staged partition with source snapshots
-        let staged_pid = crate::layered::staged::staged_partition_id();
+        let staged_pid = self.staged_pid();
         for snapshot_id in &snapshot_ids {
             self.storage
                 .update_pointer(&staged_pid, snapshot_id)
@@ -993,7 +1013,7 @@ impl ApiService {
         let snapshot_ids = checkpoint_repo.rollback_to(&cp_id).map_err(map_error)?;
 
         // Update staged partition to point to the first baseline snapshot from the rollback target
-        let staged_pid = crate::layered::staged::staged_partition_id();
+        let staged_pid = self.staged_pid();
         if let Some(first_snap) = snapshot_ids.first() {
             self.storage
                 .update_pointer(&staged_pid, first_snap)
@@ -1057,7 +1077,7 @@ impl ApiService {
                 if !source.starts_with("file://") {
                     continue;
                 }
-                let staged_pid = crate::layered::staged::staged_partition_id();
+                let staged_pid = self.staged_pid();
                 let _ = self
                     .storage
                     .update_pointer(&staged_pid, snap_id)
@@ -1340,7 +1360,7 @@ impl ApiService {
 
         let staged_snapshot_id = if names.is_empty() {
             // No integrated partitions — staged is already up to date
-            let staged_pid = crate::layered::staged::staged_partition_id();
+            let staged_pid = self.staged_pid();
             let staged = self
                 .storage
                 .get_partition(&staged_pid)

@@ -110,6 +110,30 @@ pub fn apply_manual_edit_with_session<S>(
 where
     S: SnapshotStore + DeltaStore + FileNodeStore + PartitionStore,
 {
+    apply_manual_edit_full(
+        storage,
+        file_path,
+        new_content,
+        workspace_key,
+        session_id,
+        crate::engine::diff::DEFAULT_FULL_SNAPSHOT_THRESHOLD,
+    )
+}
+
+/// Manual edit with explicit full-snapshot threshold and optional session.
+///
+/// See `apply_agent_edit_full` for the `threshold` semantics.
+pub fn apply_manual_edit_full<S>(
+    storage: &S,
+    file_path: &str,
+    new_content: &str,
+    workspace_key: Option<&str>,
+    session_id: Option<EditSessionId>,
+    threshold: f64,
+) -> Result<SnapshotId>
+where
+    S: SnapshotStore + DeltaStore + FileNodeStore + PartitionStore,
+{
     // Get the current snapshot of the manual_edit partition
     let pid = manual_pid(workspace_key);
     let partition = storage.get_partition(&pid).map_err(|_| {
@@ -152,7 +176,7 @@ where
     // Check if this edit should bypass the delta chain and store full content.
     // The heuristic uses byte-length difference to avoid the cost of computing
     // a diff that would be nearly as large as the file itself.
-    if should_use_full_snapshot_content(old_content.as_bytes(), new_content.as_bytes(), 0.5) {
+    if should_use_full_snapshot_content(old_content.as_bytes(), new_content.as_bytes(), threshold) {
         let file_node = FileNode::new(PathBuf::from(file_path), new_content.as_bytes());
         let snapshot = Snapshot::new_with_content(
             file_node.clone(),

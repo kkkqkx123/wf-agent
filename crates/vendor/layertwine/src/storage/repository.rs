@@ -94,6 +94,41 @@ pub trait EditSessionStore {
     fn get_delta_session(&self, delta_id: &DeltaId) -> StorageResult<Option<EditSession>>;
     /// Delete an edit session and its associations
     fn delete_session(&self, id: &EditSessionId) -> StorageResult<()>;
+    /// Append a single delta to an existing session (assigns the next `seq`).
+    fn append_delta_to_session(
+        &self,
+        session_id: &EditSessionId,
+        delta_id: &DeltaId,
+    ) -> StorageResult<()> {
+        let _ = (session_id, delta_id);
+        Ok(())
+    }
+    /// Associate a snapshot with a session (covers full-content snapshots
+    /// that carry no delta). Assigns the next `seq` within the session.
+    fn associate_snapshot_with_session(
+        &self,
+        session_id: &EditSessionId,
+        snapshot_id: &SnapshotId,
+    ) -> StorageResult<()> {
+        let _ = (session_id, snapshot_id);
+        Ok(())
+    }
+    /// Get all snapshot IDs belonging to a session, in creation order.
+    fn get_session_snapshots(
+        &self,
+        session_id: &EditSessionId,
+    ) -> StorageResult<Vec<SnapshotId>> {
+        let _ = session_id;
+        Ok(Vec::new())
+    }
+    /// Get the session that a snapshot belongs to (if any).
+    fn get_snapshot_session(
+        &self,
+        snapshot_id: &SnapshotId,
+    ) -> StorageResult<Option<EditSession>> {
+        let _ = snapshot_id;
+        Ok(None)
+    }
 }
 
 /// Partition storage trait

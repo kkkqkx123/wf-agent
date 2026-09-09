@@ -1,5 +1,5 @@
 use crate::core::edit_session::EditSession;
-use crate::core::types::{DeltaId, EditSessionId};
+use crate::core::types::{DeltaId, EditSessionId, SnapshotId};
 use crate::storage::repository::EditSessionStore;
 use crate::storage::sqlite::connection::SqliteStorage;
 use crate::StorageResult;
@@ -14,6 +14,7 @@ fn row_to_session(row: &Row) -> Result<EditSession, rusqlite::Error> {
     Ok(EditSession {
         id,
         delta_ids: Vec::new(),
+        snapshot_ids: Vec::new(),
         label,
         created_at,
     })
@@ -42,6 +43,17 @@ impl EditSessionStore for SqliteStorage {
                 ],
             )?;
         }
+        for (seq, snapshot_id) in session.snapshot_ids.iter().enumerate() {
+            conn.execute(
+                "INSERT OR IGNORE INTO snapshot_sessions (snapshot_id, session_id, seq)
+                 VALUES (?1, ?2, ?3)",
+                params![
+                    &snapshot_id.0.to_vec(),
+                    session.id.as_bytes().to_vec(),
+                    seq as i64,
+                ],
+            )?;
+        }
         Ok(())
     }
 
@@ -51,6 +63,7 @@ impl EditSessionStore for SqliteStorage {
             conn.prepare("SELECT id, label, created_at FROM edit_sessions WHERE id = ?1")?;
         let mut session = stmt.query_row(params![id.as_bytes().to_vec()], row_to_session)?;
         session.delta_ids = self.get_session_deltas_inner(&conn, id)?;
+        session.snapshot_ids = self.get_session_snapshots_inner(&conn, id)?;
         Ok(session)
     }
 
@@ -63,6 +76,7 @@ impl EditSessionStore for SqliteStorage {
         for s in sessions {
             let mut session = s?;
             session.delta_ids = self.get_session_deltas_inner(&conn, &session.id)?;
+            session.snapshot_ids = self.get_session_snapshots_inner(&conn, &session.id)?;
             result.push(session);
         }
         Ok(result)
@@ -94,10 +108,85 @@ impl EditSessionStore for SqliteStorage {
             params![id.as_bytes().to_vec()],
         )?;
         conn.execute(
+            "DELETE FROM snapshot_sessions WHERE session_id = ?1",
+            params![id.as_bytes().to_vec()],
+        )?;
+        conn.execute(
             "DELETE FROM edit_sessions WHERE id = ?1",
             params![id.as_bytes().to_vec()],
         )?;
         Ok(())
+    }
+
+    fn append_delta_to_session(
+        &self,
+        session_id: &EditSessionId,
+        delta_id: &DeltaId,
+    ) -> StorageResult<()> {
+        let conn = self.conn.lock();
+        let next_seq: i64 = conn.query_row(
+            "SELECT COALESCE(MAX(seq), -1) + 1 FROM delta_sessions WHERE session_id = ?1",
+            params![session_id.as_bytes().to_vec()],
+            |row| row.get(0),
+        )?;
+        conn.execute(
+            "INSERT OR IGNORE INTO delta_sessions (delta_id, session_id, seq)
+             VALUES (?1, ?2, ?3)",
+            params![
+                &delta_id.0.to_vec(),
+                session_id.as_bytes().to_vec(),
+                next_seq,
+            ],
+        )?;
+        Ok(())
+    }
+
+    fn associate_snapshot_with_session(
+        &self,
+        session_id: &EditSessionId,
+        snapshot_id: &SnapshotId,
+    ) -> StorageResult<()> {
+        let conn = self.conn.lock();
+        let next_seq: i64 = conn.query_row(
+            "SELECT COALESCE(MAX(seq), -1) + 1 FROM snapshot_sessions WHERE session_id = ?1",
+            params![session_id.as_bytes().to_vec()],
+            |row| row.get(0),
+        )?;
+        conn.execute(
+            "INSERT OR IGNORE INTO snapshot_sessions (snapshot_id, session_id, seq)
+             VALUES (?1, ?2, ?3)",
+            params![
+                &snapshot_id.0.to_vec(),
+                session_id.as_bytes().to_vec(),
+                next_seq,
+            ],
+        )?;
+        Ok(())
+    }
+
+    fn get_session_snapshots(
+        &self,
+        session_id: &EditSessionId,
+    ) -> StorageResult<Vec<SnapshotId>> {
+        let conn = self.conn.lock();
+        self.get_session_snapshots_inner(&conn, session_id)
+    }
+
+    fn get_snapshot_session(
+        &self,
+        snapshot_id: &SnapshotId,
+    ) -> StorageResult<Option<EditSession>> {
+        let conn = self.conn.lock();
+        let mut stmt = conn.prepare(
+            "SELECT es.id, es.label, es.created_at
+             FROM edit_sessions es
+             JOIN snapshot_sessions ss ON es.id = ss.session_id
+             WHERE ss.snapshot_id = ?1",
+        )?;
+        let result = stmt
+            .query_row(params![&snapshot_id.0.to_vec()], row_to_session)
+            .optional()?;
+        Ok(result)
     }
 }
 
@@ -119,6 +208,26 @@ impl SqliteStorage {
             })?
             .collect::<Result<Vec<_>, _>>()?;
         Ok(delta_ids)
+    }
+
+    fn get_session_snapshots_inner(
+        &self,
+        conn: &rusqlite::Connection,
+        session_id: &EditSessionId,
+    ) -> StorageResult<Vec<SnapshotId>> {
+        use crate::core::types::ContentId;
+        let mut stmt = conn.prepare(
+            "SELECT snapshot_id FROM snapshot_sessions WHERE session_id = ?1 ORDER BY seq",
+        )?;
+        let snapshot_ids = stmt
+            .query_map(params![session_id.as_bytes().to_vec()], |row| {
+                let bytes: Vec<u8> = row.get(0)?;
+                let mut arr = [0u8; 32];
+                arr.copy_from_slice(&bytes);
+                Ok(ContentId(arr))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(snapshot_ids)
     }
 }
 

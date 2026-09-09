@@ -16,6 +16,9 @@ pub enum FileChangeKind {
     Add,
     Change,
     Unlink,
+    /// File renamed/moved. The record's `path` is the new absolute path;
+    /// `FileChangeRecord.from` carries the old absolute path.
+    Rename,
 }
 
 /// A single file change record with an absolute path.
@@ -24,6 +27,29 @@ pub struct FileChangeRecord {
     pub path: PathBuf,
     pub kind: FileChangeKind,
     pub timestamp: i64,
+    /// Rename source (old absolute path). `Some` only when
+    /// `kind == FileChangeKind::Rename`.
+    pub from: Option<PathBuf>,
+}
+
+impl FileChangeRecord {
+    pub fn new(path: PathBuf, kind: FileChangeKind, timestamp: i64) -> Self {
+        Self {
+            path,
+            kind,
+            timestamp,
+            from: None,
+        }
+    }
+
+    pub fn renamed(from: PathBuf, to: PathBuf, timestamp: i64) -> Self {
+        Self {
+            path: to,
+            kind: FileChangeKind::Rename,
+            timestamp,
+            from: Some(from),
+        }
+    }
 }
 
 fn now_millis() -> i64 {
@@ -206,11 +232,19 @@ impl FileWatcher {
         let mut state = self.state.lock().expect("watcher state poisoned");
         state.changed.insert(
             absolute.clone(),
-            FileChangeRecord {
-                path: absolute,
-                kind,
-                timestamp: now_millis(),
-            },
+            FileChangeRecord::new(absolute, kind, now_millis()),
+        );
+    }
+
+    /// Manually record a rename (for external events): `from` is the old
+    /// absolute or workspace-relative path, `to` the new one.
+    pub fn notify_file_rename(&self, from: impl AsRef<Path>, to: impl AsRef<Path>) {
+        let from_abs = self.resolve_absolute(from.as_ref());
+        let to_abs = self.resolve_absolute(to.as_ref());
+        let mut state = self.state.lock().expect("watcher state poisoned");
+        state.changed.insert(
+            to_abs.clone(),
+            FileChangeRecord::renamed(from_abs, to_abs, now_millis()),
         );
     }
 
@@ -269,13 +303,37 @@ fn filter_event(
     scanner: &WorkspaceScanner,
     event: &Event,
 ) -> Option<Vec<FileChangeRecord>> {
+    let timestamp = now_millis();
+    // Rename/move: `notify` reports `ModifyKind::Name` with [from, to].
+    // Emit a single Rename record so callers can record the move linkage
+    // instead of an uncorrelated delete + add pair.
+    if matches!(
+        event.kind,
+        EventKind::Modify(notify::event::ModifyKind::Name(_))
+    ) && event.paths.len() == 2
+    {
+        let from = event.paths[0].clone();
+        let to = event.paths[1].clone();
+        if to == *root {
+            return None;
+        }
+        let ignored = |p: &Path| {
+            p.strip_prefix(root).map(|relative| {
+                scanner.is_ignored(&relative.to_string_lossy().replace('\\', "/"))
+            })
+            .unwrap_or(false)
+        };
+        if ignored(&from) || ignored(&to) {
+            return None;
+        }
+        return Some(vec![FileChangeRecord::renamed(from, to, timestamp)]);
+    }
     let kind = match event.kind {
         EventKind::Create(_) => FileChangeKind::Add,
         EventKind::Modify(_) => FileChangeKind::Change,
         EventKind::Remove(_) => FileChangeKind::Unlink,
         _ => return None,
     };
-    let timestamp = now_millis();
     let mut records = Vec::new();
     for path in &event.paths {
         if path == root {
@@ -286,11 +344,7 @@ fn filter_event(
                 continue;
             }
         }
-        records.push(FileChangeRecord {
-            path: path.clone(),
-            kind,
-            timestamp,
-        });
+        records.push(FileChangeRecord::new(path.clone(), kind, timestamp));
     }
     if records.is_empty() {
         None

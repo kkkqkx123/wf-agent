@@ -223,16 +223,33 @@ impl FileCheckpointManager {
 
         if !conflicts.is_empty() && conflict_behavior == ConflictBehavior::Marker {
             if let Some(root) = workspace_root {
-                let merged_text =
-                    layertwine::layered::transition::reconstruct_text(storage, &merged_snapshot)
-                        .map_err(map_layertwine_error)?
-                        .unwrap_or_default();
-                let marked = inject_conflict_markers(&merged_text, &merged.conflicts);
                 let target = resolve_restore_target(root, &file)?;
                 if let Some(parent) = target.parent() {
                     std::fs::create_dir_all(parent)?;
                 }
-                std::fs::write(&target, marked)?;
+                // Binary payloads never receive text conflict markers: write
+                // the raw bytes verbatim so the file is not corrupted.
+                let is_binary = match &merged_snapshot.content {
+                    Some(layertwine::core::snapshot::SnapshotContent::FileContent(bytes)) => {
+                        std::str::from_utf8(bytes).is_err()
+                    }
+                    _ => false,
+                };
+                if is_binary {
+                    let bytes = merged_snapshot
+                        .content
+                        .as_ref()
+                        .map(|c| c.to_bytes())
+                        .unwrap_or_default();
+                    std::fs::write(&target, bytes)?;
+                } else {
+                    let merged_text =
+                        layertwine::layered::transition::reconstruct_text(storage, &merged_snapshot)
+                            .map_err(map_layertwine_error)?
+                            .unwrap_or_default();
+                    let marked = inject_conflict_markers(&merged_text, &merged.conflicts);
+                    std::fs::write(&target, marked)?;
+                }
             }
             if let Some(ref bus) = self.event_bus {
                 bus.publish(CheckpointEventBus::merge_conflicted(

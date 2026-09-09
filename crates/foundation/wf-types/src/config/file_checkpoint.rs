@@ -66,13 +66,11 @@ pub struct FileCheckpointGcRetention {
     pub keep_recent_heads: usize,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct FileCheckpointConfig {
     #[serde(default)]
     pub enabled: bool,
     pub workspace_root: Option<String>,
-    #[serde(default = "default_max_delta_chain")]
-    pub max_delta_chain_length: u32,
     pub custom_ignore_patterns: Option<Vec<String>>,
     pub storage: Option<FileCheckpointStorageConfig>,
     #[serde(default)]
@@ -85,6 +83,12 @@ pub struct FileCheckpointConfig {
     /// `marker` is the default.
     #[serde(default)]
     pub conflict_behavior: ConflictBehavior,
+    /// Byte-change ratio above which a text edit is stored as a full-content
+    /// snapshot instead of a line-level delta. `None` selects the
+    /// layertwine default (0.5). Values outside `[0.0, 1.0]` are rejected
+    /// by config validation.
+    #[serde(default)]
+    pub full_snapshot_threshold: Option<f64>,
     /// Whether the manual watcher is enabled (`true` when both
     /// `FileCheckpointConfig.enabled` and `workspace_root` are set).
     #[serde(default)]
@@ -97,26 +101,4 @@ pub struct FileCheckpointConfig {
     /// set).
     #[serde(default)]
     pub gc_retention: Option<FileCheckpointGcRetention>,
-}
-
-fn default_max_delta_chain() -> u32 {
-    20
-}
-
-impl Default for FileCheckpointConfig {
-    fn default() -> Self {
-        Self {
-            enabled: false,
-            workspace_root: None,
-            max_delta_chain_length: default_max_delta_chain(),
-            custom_ignore_patterns: None,
-            storage: None,
-            failure_behavior: FailureBehavior::default(),
-            approval_policy: ApprovalPolicy::default(),
-            conflict_behavior: ConflictBehavior::default(),
-            manual_watch: false,
-            gc_interval_secs: None,
-            gc_retention: None,
-        }
-    }
 }

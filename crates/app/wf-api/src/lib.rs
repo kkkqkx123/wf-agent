@@ -306,8 +306,7 @@ pub use wf_checkpoint::error::CheckpointError;
 pub use wf_checkpoint::event::{CheckpointEvent, CheckpointEventBus};
 pub use wf_checkpoint::file::{
     FileCheckpoint, FileCheckpointManager, FileCheckpointMetadata, FileCheckpointOptions,
-    FileContentEntry, FileContentStore, FileState, LayertwineFileContentStore,
-    WorkspaceRestoreResult,
+    FileContentEntry, FileState, WorkspaceRestoreResult,
 };
 pub use wf_checkpoint::file_merge::MergeCommitResult;
 pub use wf_checkpoint::file_util::sha256_hex;

@@ -28,6 +28,7 @@ pub fn run_with_cli(cli: Cli) -> i32 {
         Commands::Init { git_ref } => {
             let service = match ApiService::open(ServiceConfig {
                 db_path: cli.db_path.clone(),
+                workspace_key: None,
             }) {
                 Ok(s) => Arc::new(s),
                 Err(e) => {
@@ -574,6 +575,7 @@ pub fn run_with_cli(cli: Cli) -> i32 {
 fn open_service(cli: &Cli) -> std::result::Result<Arc<ApiService>, i32> {
     match ApiService::open(ServiceConfig {
         db_path: cli.db_path.clone(),
+        workspace_key: None,
     }) {
         Ok(s) => Ok(Arc::new(s)),
         Err(e) => {

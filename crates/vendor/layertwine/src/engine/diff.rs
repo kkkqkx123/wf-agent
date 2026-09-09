@@ -15,6 +15,11 @@ use std::sync::Mutex;
 /// Maximum number of entries in the unified diff cache to prevent memory leaks
 const DIFF_CACHE_MAX_ENTRIES: usize = 100;
 
+/// Default byte-change ratio above which an edit is stored as a full-content
+/// snapshot instead of a line-level delta. Mirrors the
+/// `file_checkpoint.full_snapshot_threshold` config default.
+pub const DEFAULT_FULL_SNAPSHOT_THRESHOLD: f64 = 0.5;
+
 lazy_static! {
     static ref DIFF_CACHE: Mutex<HashMap<u64, String>> = Mutex::new(HashMap::new());
 }

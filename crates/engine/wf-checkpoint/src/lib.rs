@@ -19,6 +19,7 @@ pub mod file_approval;
 pub mod file_checkpoint;
 pub mod file_merge;
 pub mod file_restore;
+pub mod file_session;
 pub mod file_util;
 pub mod file_workspace;
 pub mod layertwine;
@@ -47,8 +48,7 @@ pub use error_handling::{CheckpointErrorHandler, ErrorHandlingOutcome};
 pub use event::{CheckpointEvent, CheckpointEventBus};
 pub use file::{
     FileCheckpoint, FileCheckpointManager, FileCheckpointMetadata, FileCheckpointOptions,
-    FileContentEntry, FileContentStore, FileState, LayertwineFileContentStore,
-    WorkspaceRestoreResult,
+    FileContentEntry, FileState, WorkspaceRestoreResult,
 };
 pub use file_merge::MergeCommitResult;
 pub use file_util::sha256_hex;

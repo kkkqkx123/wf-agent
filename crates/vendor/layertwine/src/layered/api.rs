@@ -32,8 +32,22 @@ pub fn develop_single_feature<S>(
 where
     S: DeltaStore + FileNodeStore + PartitionStore + CheckpointPersist,
 {
+    develop_single_feature_for_workspace(storage, feature_name, agent_id, edit_fn, None)
+}
+
+/// Workspace-aware single-feature development scenario.
+pub fn develop_single_feature_for_workspace<S>(
+    storage: &S,
+    feature_name: &str,
+    agent_id: &AgentInstanceId,
+    edit_fn: impl FnOnce(&str) -> Result<String>,
+    workspace_key: Option<&str>,
+) -> Result<SnapshotId>
+where
+    S: DeltaStore + FileNodeStore + PartitionStore + CheckpointPersist,
+{
     // 1. Get current baseline
-    let baseline = get_current_baseline(storage)?;
+    let baseline = get_current_baseline_for_workspace(storage, workspace_key)?;
 
     // 2. Create feature branch
     integrated::create_feature_branch(storage, feature_name, baseline.id)?;
@@ -57,8 +71,11 @@ where
     }
 
     // 6. Merge feature directly to staged (no unified intermediary)
-    let staged_result =
-        staged::merge_features_to_staged(storage, &[feature_name.to_string()], None)?;
+    let staged_result = staged::merge_features_to_staged(
+        storage,
+        &[feature_name.to_string()],
+        workspace_key,
+    )?;
     if staged_result.has_conflicts() {
         return Err(crate::error::LayertwineError::General(format!(
             "Merge conflicts detected: {}",
@@ -68,7 +85,7 @@ where
 
     // 7. Return staged snapshot (checkpoint commit would be the next step)
     let staged_partition = storage
-        .get_partition(&staged::staged_partition_id())
+        .get_partition(&staged::staged_pid(workspace_key))
         .map_err(|_| {
             crate::error::LayertwineError::NotFound("staged partition not found".into())
         })?;
@@ -86,14 +103,27 @@ pub fn develop_feature_with_collaboration<S>(
 where
     S: DeltaStore + FileNodeStore + PartitionStore + CheckpointPersist,
 {
+    develop_feature_with_collaboration_for_workspace(storage, feature_name, agents, None)
+}
+
+/// Workspace-aware collaborative feature development scenario.
+pub fn develop_feature_with_collaboration_for_workspace<S>(
+    storage: &S,
+    feature_name: &str,
+    agents: Vec<(AgentInstanceId, impl FnOnce(&str) -> Result<String>)>,
+    workspace_key: Option<&str>,
+) -> Result<SnapshotId>
+where
+    S: DeltaStore + FileNodeStore + PartitionStore + CheckpointPersist,
+{
     if agents.is_empty() {
         return Err(crate::error::LayertwineError::General(
-            "至少需要一个agent".to_string(),
+            "at least one agent is required".to_string(),
         ));
     }
 
     // 1. Get current baseline
-    let baseline = get_current_baseline(storage)?;
+    let baseline = get_current_baseline_for_workspace(storage, workspace_key)?;
 
     // 2. Create feature branch
     integrated::create_feature_branch(storage, feature_name, baseline.id)?;
@@ -118,8 +148,11 @@ where
     }
 
     // 4. Merge feature directly to staged (no unified intermediary)
-    let staged_result =
-        staged::merge_features_to_staged(storage, &[feature_name.to_string()], None)?;
+    let staged_result = staged::merge_features_to_staged(
+        storage,
+        &[feature_name.to_string()],
+        workspace_key,
+    )?;
     if staged_result.has_conflicts() {
         return Err(crate::error::LayertwineError::General(format!(
             "Merge conflicts detected: {}",
@@ -129,7 +162,7 @@ where
 
     // 5. Return staged snapshot
     let staged_partition = storage
-        .get_partition(&staged::staged_partition_id())
+        .get_partition(&staged::staged_pid(workspace_key))
         .map_err(|_| {
             crate::error::LayertwineError::NotFound("staged partition not found".into())
         })?;
@@ -143,14 +176,27 @@ pub fn merge_multiple_features<S>(storage: &S, feature_names: &[String]) -> Resu
 where
     S: DeltaStore + FileNodeStore + PartitionStore + CheckpointPersist,
 {
+    merge_multiple_features_for_workspace(storage, feature_names, None)
+}
+
+/// Workspace-aware multi-feature merge.
+pub fn merge_multiple_features_for_workspace<S>(
+    storage: &S,
+    feature_names: &[String],
+    workspace_key: Option<&str>,
+) -> Result<SnapshotId>
+where
+    S: DeltaStore + FileNodeStore + PartitionStore + CheckpointPersist,
+{
     if feature_names.is_empty() {
         return Err(crate::error::LayertwineError::General(
-            "至少需要一个feature".to_string(),
+            "at least one feature is required".to_string(),
         ));
     }
 
     // 1. Merge features directly to staged
-    let staged_result = staged::merge_features_to_staged(storage, feature_names, None)?;
+    let staged_result =
+        staged::merge_features_to_staged(storage, feature_names, workspace_key)?;
     if staged_result.has_conflicts() {
         return Err(crate::error::LayertwineError::General(format!(
             "Merge conflicts detected: {}",
@@ -160,21 +206,23 @@ where
 
     // 2. Return staged snapshot
     let staged_partition = storage
-        .get_partition(&staged::staged_partition_id())
+        .get_partition(&staged::staged_pid(workspace_key))
         .map_err(|_| {
             crate::error::LayertwineError::NotFound("staged partition not found".into())
         })?;
     Ok(staged_partition.current_snapshot)
 }
 
-/// Get the current baseline snapshot
-/// This is the snapshot that should be used as the base for new features
-fn get_current_baseline<S>(storage: &S) -> Result<crate::core::snapshot::Snapshot>
+/// Workspace-aware baseline lookup.
+fn get_current_baseline_for_workspace<S>(
+    storage: &S,
+    workspace_key: Option<&str>,
+) -> Result<crate::core::snapshot::Snapshot>
 where
     S: SnapshotStore + PartitionStore,
 {
     let staged = storage
-        .get_partition(&staged::staged_partition_id())
+        .get_partition(&staged::staged_pid(workspace_key))
         .map_err(|_| {
             LayertwineError::NotFound("No baseline found. Please initialize staged first.".into())
         })?;

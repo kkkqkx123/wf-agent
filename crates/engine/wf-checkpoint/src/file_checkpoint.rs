@@ -28,12 +28,16 @@ impl FileCheckpointManager {
         let actor = self.actor_id_for(entity_id);
         let agent_id = actor.to_agent_instance_id();
         self.ensure_agent_partition(&actor)?;
+        // One operation creates one EditSession: every entry of this
+        // checkpoint is grouped so the whole multi-file operation can be
+        // listed and rolled back atomically.
+        let session_id = self.begin_session(Some("file checkpoint".to_string()))?;
         for entry in entries {
             let path = crate::file_util::validate_workspace_relative_path(&entry.path)?;
             if entry.deleted {
-                self.apply_agent_delete(&actor, &path)?;
+                self.apply_agent_delete_in_session(&actor, &path, &session_id)?;
             } else {
-                self.apply_agent_edit(&actor, &path, &entry.content)?;
+                self.apply_agent_edit_in_session(&actor, &path, &entry.content, &session_id)?;
             }
         }
         let partition = storage

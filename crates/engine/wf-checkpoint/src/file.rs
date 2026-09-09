@@ -3,8 +3,6 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use dashmap::DashMap;
-use layertwine::core::file_node::FileNode;
-use layertwine::core::snapshot::{Snapshot, SnapshotContent};
 use layertwine::layered::StateMachine;
 use layertwine::storage::repository::{MetadataStore, PartitionStore, SnapshotStore};
 use layertwine::storage::sqlite::SqliteStorage;
@@ -133,96 +131,6 @@ impl FileContentEntry {
     }
 }
 
-/// Content-level storage for file rollback: bytes are stored
-/// content-addressed (path + content hash), so unchanged content is never
-/// duplicated across checkpoints and old bytes remain retrievable until
-/// explicitly removed.
-pub trait FileContentStore: Send + Sync {
-    /// Persist one file's content. Returns the content hash (SHA-256 hex)
-    /// which callers record in the checkpoint's [`FileState`].
-    fn save_content(&self, path: &str, content: &[u8]) -> Result<String, CheckpointError>;
-
-    /// Load a file's content by its recorded hash. `None` when no such
-    /// content was stored (or it was removed).
-    fn load_content(&self, path: &str, hash: &str) -> Result<Option<Vec<u8>>, CheckpointError>;
-
-    /// Drop stored content for a path/hash pair. Content stores are
-    /// immutable by design, so the default implementation is a no-op;
-    /// explicit garbage collection removes unreferenced bytes.
-    fn remove_content(&self, path: &str, hash: &str) -> Result<(), CheckpointError> {
-        let _ = (path, hash);
-        Ok(())
-    }
-}
-
-/// Layertwine-backed [`FileContentStore`]: a thin wrapper over
-/// `SnapshotContent::FileContent` snapshots stored in layertwine's Sqlite
-/// storage (content-addressed, INSERT-ONLY). No `wf-file-content:` metadata
-/// index is maintained — lookups scan the content-addressed snapshots by
-/// path and match the recorded SHA-256 hash against the stored bytes.
-pub struct LayertwineFileContentStore {
-    storage: Arc<SqliteStorage>,
-}
-
-impl LayertwineFileContentStore {
-    pub fn new_in_memory() -> Result<Self, CheckpointError> {
-        let storage = Arc::new(SqliteStorage::new_full_in_memory().map_err(map_layertwine_error)?);
-        Ok(Self { storage })
-    }
-
-    pub fn new(path: &Path) -> Result<Self, CheckpointError> {
-        let storage = Arc::new(SqliteStorage::new_full(path).map_err(map_layertwine_error)?);
-        Ok(Self { storage })
-    }
-
-    /// Share the underlying Sqlite connection (for test diagnostics).
-    pub fn share(&self) -> Self {
-        Self {
-            storage: self.storage.clone(),
-        }
-    }
-}
-
-impl FileContentStore for LayertwineFileContentStore {
-    fn save_content(&self, path: &str, content: &[u8]) -> Result<String, CheckpointError> {
-        let hash = sha256_hex(content);
-        let file_node = FileNode::new(PathBuf::from(path), content);
-        let snapshot = Snapshot::new_with_content(
-            file_node,
-            SnapshotContent::FileContent(content.to_vec()),
-            format!("file://{}", path),
-            "file".to_string(),
-            vec![],
-            vec![],
-        );
-        self.storage
-            .store_snapshot(&snapshot, content)
-            .map_err(map_layertwine_error)?;
-        Ok(hash)
-    }
-
-    fn load_content(&self, path: &str, hash: &str) -> Result<Option<Vec<u8>>, CheckpointError> {
-        let snapshots = self
-            .storage
-            .find_snapshots_by_file(path)
-            .map_err(map_layertwine_error)?;
-        for snapshot in snapshots {
-            if let Some(content) = snapshot.content {
-                let bytes = content.to_bytes();
-                if sha256_hex(&bytes) == hash {
-                    return Ok(Some(bytes));
-                }
-            }
-        }
-        Ok(None)
-    }
-
-    fn remove_content(&self, _path: &str, _hash: &str) -> Result<(), CheckpointError> {
-        // INSERT-ONLY storage: physical removal is a separate GC concern.
-        Ok(())
-    }
-}
-
 /// Options controlling checkpoint decisions and per-file error tolerance.
 #[derive(Debug, Clone)]
 pub struct FileCheckpointOptions {
@@ -230,6 +138,10 @@ pub struct FileCheckpointOptions {
     pub failure_behavior: FailureBehavior,
     /// Additional ignore patterns applied while scanning the workspace.
     pub custom_ignore_patterns: Vec<String>,
+    /// Byte-change ratio above which a text edit is stored as a full-content
+    /// snapshot instead of a line-level delta. Defaults to the layertwine
+    /// default (0.5); mirrors `FileCheckpointConfig.full_snapshot_threshold`.
+    pub full_snapshot_threshold: f64,
 }
 
 impl Default for FileCheckpointOptions {
@@ -237,6 +149,7 @@ impl Default for FileCheckpointOptions {
         Self {
             failure_behavior: FailureBehavior::Warn,
             custom_ignore_patterns: Vec::new(),
+            full_snapshot_threshold: layertwine::engine::diff::DEFAULT_FULL_SNAPSHOT_THRESHOLD,
         }
     }
 }
@@ -294,6 +207,10 @@ pub struct FileCheckpointManager {
     /// Three-way merge conflict strategy applied by `approve_changes` /
     /// `merge_entity_changes` (marker / fail / approval).
     pub(crate) conflict_behavior: ConflictBehavior,
+    /// Byte-change ratio above which a text edit is stored as a full-content
+    /// snapshot (from `FileCheckpointConfig.full_snapshot_threshold`,
+    /// default 0.5). Threaded into layertwine agent/manual edits.
+    pub(crate) full_snapshot_threshold: f64,
     /// Physical GC auto-run interval in seconds; `None` = never run
     /// automatically (from `FileCheckpointConfig.gc_interval_secs`).
     pub(crate) gc_interval_secs: Option<u64>,
@@ -325,6 +242,7 @@ impl Clone for FileCheckpointManager {
             scan_config: self.scan_config.clone(),
             approval_policy: self.approval_policy,
             conflict_behavior: self.conflict_behavior,
+            full_snapshot_threshold: self.full_snapshot_threshold,
             gc_interval_secs: self.gc_interval_secs,
             gc_retention: self.gc_retention,
             actor_index: self.actor_index.clone(),
@@ -350,6 +268,8 @@ impl FileCheckpointManager {
             scan_config: ScanConfig::default(),
             approval_policy: ApprovalPolicy::default(),
             conflict_behavior: ConflictBehavior::default(),
+            full_snapshot_threshold:
+                layertwine::engine::diff::DEFAULT_FULL_SNAPSHOT_THRESHOLD,
             gc_interval_secs: None,
             gc_retention: None,
             actor_index: Arc::new(DashMap::new()),
@@ -374,6 +294,8 @@ impl FileCheckpointManager {
             scan_config: ScanConfig::default(),
             approval_policy: ApprovalPolicy::default(),
             conflict_behavior: ConflictBehavior::default(),
+            full_snapshot_threshold:
+                layertwine::engine::diff::DEFAULT_FULL_SNAPSHOT_THRESHOLD,
             gc_interval_secs: None,
             gc_retention: None,
             actor_index: Arc::new(DashMap::new()),
@@ -425,6 +347,9 @@ impl FileCheckpointManager {
         };
         manager.approval_policy = config.approval_policy;
         manager.conflict_behavior = config.conflict_behavior;
+        manager.full_snapshot_threshold = config
+            .full_snapshot_threshold
+            .unwrap_or(layertwine::engine::diff::DEFAULT_FULL_SNAPSHOT_THRESHOLD);
         manager.gc_interval_secs = config.gc_interval_secs;
         manager.gc_retention = config
             .gc_retention
@@ -484,10 +409,17 @@ impl FileCheckpointManager {
             scan_config: ScanConfig::default(),
             approval_policy: ApprovalPolicy::default(),
             conflict_behavior: ConflictBehavior::default(),
+            full_snapshot_threshold:
+                layertwine::engine::diff::DEFAULT_FULL_SNAPSHOT_THRESHOLD,
             gc_interval_secs: None,
             gc_retention: None,
             actor_index: Arc::new(DashMap::new()),
         })
+    }
+
+    /// Configured full-snapshot threshold threaded into layertwine edits.
+    pub fn full_snapshot_threshold(&self) -> f64 {
+        self.full_snapshot_threshold
     }
 
     pub fn state_machine(&self) -> Option<&StateMachine<SqliteStorage>> {
@@ -528,10 +460,10 @@ impl FileCheckpointManager {
             .and_then(|storage| {
                 let pid =
                     layertwine::layered::agent::agent_partition_id(&actor.to_agent_instance_id());
-                storage.get_partition(&pid).ok().and_then(|partition| {
+                storage.get_partition(&pid).ok().map(|partition| {
                     crate::file_util::partition_latest_snapshot_ids(storage, &partition)
                         .ok()
-                        .and_then(|ids| {
+                        .map(|ids| {
                             let mut paths = HashSet::new();
                             for id in ids {
                                 if let Ok(snapshot) = storage.get_snapshot(&id) {
@@ -544,8 +476,9 @@ impl FileCheckpointManager {
                                     }
                                 }
                             }
-                            Some(paths)
+                            paths
                         })
+                        .unwrap_or_default()
                 })
             })
             .unwrap_or_default();
@@ -614,6 +547,38 @@ impl FileCheckpointManager {
             match change.kind {
                 FileChangeKind::Unlink => {
                     entries.push(FileContentEntry::deleted(relative));
+                }
+                FileChangeKind::Rename => {
+                    // Record the move linkage when both sides are known;
+                    // the new path content is checkpointed below.
+                    if let Some(from_abs) = change.from.as_ref() {
+                        if let Ok(from_rel) = from_abs.strip_prefix(base_dir) {
+                            let from_rel = from_rel.to_string_lossy().replace('\\', "/");
+                            if let (Ok(from_valid), Ok(to_valid)) = (
+                                crate::file_util::validate_workspace_relative_path(&from_rel),
+                                crate::file_util::validate_workspace_relative_path(&relative),
+                            ) {
+                                let _ = self.track_file_move(&from_valid, &to_valid, entity_id);
+                            }
+                            entries.push(FileContentEntry::deleted(from_rel));
+                        }
+                    }
+                    match std::fs::read(base_dir.join(&relative)) {
+                        Ok(content) => {
+                            entries.push(FileContentEntry::new(relative, content));
+                        }
+                        Err(err) => match opts.failure_behavior {
+                            FailureBehavior::Error => {
+                                return Err(CheckpointError::Io(std::io::Error::other(format!(
+                                    "failed to read changed file '{relative}': {err}"
+                                ))));
+                            }
+                            FailureBehavior::Warn => {
+                                tracing::warn!("failed to read changed file '{relative}': {err}");
+                            }
+                            FailureBehavior::Ignore => {}
+                        },
+                    }
                 }
                 FileChangeKind::Add | FileChangeKind::Change => {
                     match std::fs::read(base_dir.join(&relative)) {
@@ -922,23 +887,6 @@ mod tests {
     }
 
     #[test]
-    fn content_store_deduplicates_by_hash() {
-        let store = LayertwineFileContentStore::new_in_memory().unwrap();
-        let h1 = store.save_content("a.txt", b"same bytes").unwrap();
-        let h2 = store.save_content("a.txt", b"same bytes").unwrap();
-        assert_eq!(h1, h2);
-        assert_eq!(
-            store.load_content("a.txt", &h1).unwrap().unwrap(),
-            b"same bytes"
-        );
-        assert!(store.load_content("missing.txt", &h1).unwrap().is_none());
-        assert!(store
-            .load_content("a.txt", &"ff".repeat(32))
-            .unwrap()
-            .is_none());
-    }
-
-    #[test]
     fn create_incremental_checkpoint_from_watcher_changes() {
         let manager = manager();
         let opts = FileCheckpointOptions::default();
@@ -952,16 +900,8 @@ mod tests {
         std::fs::write(dir.path().join("a.txt"), b"v2").unwrap();
         std::fs::write(dir.path().join("b.txt"), b"new file").unwrap();
         let changes = vec![
-            FileChangeRecord {
-                path: dir.path().join("a.txt"),
-                kind: FileChangeKind::Change,
-                timestamp: 1,
-            },
-            FileChangeRecord {
-                path: dir.path().join("b.txt"),
-                kind: FileChangeKind::Add,
-                timestamp: 2,
-            },
+            FileChangeRecord::new(dir.path().join("a.txt"), FileChangeKind::Change, 1),
+            FileChangeRecord::new(dir.path().join("b.txt"), FileChangeKind::Add, 2),
         ];
         let cp2 = manager
             .create_incremental_checkpoint("exec-1", dir.path(), &changes, &opts)

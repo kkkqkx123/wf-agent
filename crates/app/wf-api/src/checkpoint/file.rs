@@ -160,21 +160,21 @@ mod tests {
     #[test]
     fn filter_changes_by_kind_works() {
         let changes = vec![
-            FileChangeRecord {
-                path: std::path::PathBuf::from("a.txt"),
-                kind: FileChangeKind::Change,
-                timestamp: 1000,
-            },
-            FileChangeRecord {
-                path: std::path::PathBuf::from("b.txt"),
-                kind: FileChangeKind::Add,
-                timestamp: 2000,
-            },
-            FileChangeRecord {
-                path: std::path::PathBuf::from("c.txt"),
-                kind: FileChangeKind::Change,
-                timestamp: 3000,
-            },
+            FileChangeRecord::new(
+                std::path::PathBuf::from("a.txt"),
+                FileChangeKind::Change,
+                1000,
+            ),
+            FileChangeRecord::new(
+                std::path::PathBuf::from("b.txt"),
+                FileChangeKind::Add,
+                2000,
+            ),
+            FileChangeRecord::new(
+                std::path::PathBuf::from("c.txt"),
+                FileChangeKind::Change,
+                3000,
+            ),
         ];
         let modified = filter_changes_by_kind(&changes, FileChangeKind::Change);
         assert_eq!(modified.len(), 2);

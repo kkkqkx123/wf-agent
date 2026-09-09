@@ -107,6 +107,9 @@ pub fn migrate_between_partitions<S: PartitionStore>(
 /// Implementation of positive flow
 ///
 /// Automatically schedules operation functions to each layer based on the ForwardTransition type.
+///
+/// This is the legacy single-workspace entry point (workspace key `None`);
+/// workspace-scoped callers should use `execute_forward_for_workspace`.
 pub fn execute_forward<S>(
     storage: &S,
     transition: ForwardTransition,
@@ -115,10 +118,24 @@ pub fn execute_forward<S>(
 where
     S: SnapshotStore + DeltaStore + FileNodeStore + PartitionStore,
 {
+    execute_forward_for_workspace(storage, transition, params, None)
+}
+
+/// Workspace-aware forward flow: staged/manual steps resolve the
+/// workspace-scoped partition for `workspace_key` (`None` = legacy fixed id).
+pub fn execute_forward_for_workspace<S>(
+    storage: &S,
+    transition: ForwardTransition,
+    params: &[&str],
+    workspace_key: Option<&str>,
+) -> Result<SnapshotId>
+where
+    S: SnapshotStore + DeltaStore + FileNodeStore + PartitionStore,
+{
     match transition {
         ForwardTransition::ManualToStaged => {
             check_forward_valid(&LayerType::ManualEdit, &LayerType::Staged)?;
-            crate::layered::manual::merge_manual_to_staged(storage, None)
+            crate::layered::manual::merge_manual_to_staged(storage, workspace_key)
         }
         ForwardTransition::AgentToApproval => {
             check_forward_valid(&LayerType::AgentEdit, &LayerType::Approval)?;
@@ -156,7 +173,7 @@ where
                 )
             })?;
             let names: Vec<String> = names_str.split(',').map(|s| s.trim().to_string()).collect();
-            crate::layered::staged::merge_features_to_staged(storage, &names, None)
+            crate::layered::staged::merge_features_to_staged(storage, &names, workspace_key)
                 .map(|r| r.snapshot_id)
         }
     }
@@ -253,12 +270,15 @@ pub fn redo_partition<S: PartitionStore>(
     Ok(restored)
 }
 
-/// Roll back all deltas in an edit session within a partition.
+/// Roll back all records in an edit session within a partition.
 ///
-/// Finds the snapshot produced by the first delta in the session and
-/// switches the partition pointer to it, effectively undoing the entire
-/// logical operation. The session's deltas and snapshots remain in the
-/// immutable store — only the partition pointer moves.
+/// Finds the snapshot before the first session record (delta or full-content
+/// snapshot) and switches the partition pointer to it, effectively undoing
+/// the entire logical operation. The session's deltas and snapshots remain
+/// in the immutable store — only the partition pointer moves.
+///
+/// Full-content snapshots carry no delta, so they are detected through the
+/// session manifest (`snapshot_sessions`) as well as the delta chain.
 ///
 /// Returns the snapshot ID that the partition was rolled back to.
 pub fn rollback_session<S>(
@@ -273,9 +293,9 @@ where
         .get_session(session_id)
         .map_err(|_| LayertwineError::NotFound(format!("session {} not found", session_id)))?;
 
-    if session.delta_ids.is_empty() {
+    if session.delta_ids.is_empty() && session.snapshot_ids.is_empty() {
         return Err(LayertwineError::StateMachine(
-            "session has no deltas to roll back".into(),
+            "session has no deltas or snapshots to roll back".into(),
         ));
     }
 
@@ -283,11 +303,16 @@ where
         .get_partition(partition_id)
         .map_err(|_| LayertwineError::NotFound("partition not found".into()))?;
 
-    // Find the snapshot before the first delta in the session.
-    // Walk the partition history backwards to find a snapshot whose
-    // delta chain does NOT contain the session's first delta.
-    let _first_delta_id = &session.delta_ids[0];
+    // Walk the partition history backwards to find a snapshot that belongs
+    // to neither the session's delta set nor its snapshot set: that is the
+    // state before the session started.
+    use std::collections::HashSet;
+    let session_snapshots: HashSet<SnapshotId> =
+        session.snapshot_ids.iter().copied().collect();
     for snap_id in partition.history.iter().rev() {
+        if session_snapshots.contains(snap_id) {
+            continue;
+        }
         let snap = storage
             .get_snapshot(snap_id)
             .map_err(LayertwineError::Storage)?;
@@ -315,11 +340,26 @@ where
 /// Fallback staged to the specified layer
 ///
 /// Finds the target layer source from the parents of the staged current snapshot.
+///
+/// This is the legacy single-workspace entry point; workspace-scoped callers
+/// should use `rollback_staged_to_layer_for_workspace`.
 pub fn rollback_staged_to_layer<S>(storage: &S, target_layer: LayerType) -> Result<SnapshotId>
 where
     S: SnapshotStore + PartitionStore,
 {
-    let staged_pid = crate::layered::staged::staged_partition_id();
+    rollback_staged_to_layer_for_workspace(storage, target_layer, None)
+}
+
+/// Workspace-aware staged rollback.
+pub fn rollback_staged_to_layer_for_workspace<S>(
+    storage: &S,
+    target_layer: LayerType,
+    workspace_key: Option<&str>,
+) -> Result<SnapshotId>
+where
+    S: SnapshotStore + PartitionStore,
+{
+    let staged_pid = crate::layered::staged::staged_pid(workspace_key);
     let staged_partition = storage
         .get_partition(&staged_pid)
         .map_err(|_| LayertwineError::NotFound("staged partition not found".into()))?;
@@ -359,6 +399,9 @@ where
 ///
 /// Executes the rollback operation based on the `RollbackTransition` type.
 /// This is the reverse counterpart to `execute_forward`.
+///
+/// Legacy single-workspace entry point; workspace-scoped callers should use
+/// `execute_rollback_for_workspace`.
 pub fn execute_rollback<S>(
     storage: &S,
     transition: RollbackTransition,
@@ -367,18 +410,31 @@ pub fn execute_rollback<S>(
 where
     S: SnapshotStore + PartitionStore + DeltaStore + FileNodeStore + 'static,
 {
+    execute_rollback_for_workspace(storage, transition, _params, None)
+}
+
+/// Workspace-aware rollback dispatch.
+pub fn execute_rollback_for_workspace<S>(
+    storage: &S,
+    transition: RollbackTransition,
+    _params: &[&str],
+    workspace_key: Option<&str>,
+) -> Result<SnapshotId>
+where
+    S: SnapshotStore + PartitionStore + DeltaStore + FileNodeStore + 'static,
+{
     match transition {
         RollbackTransition::StagedToManual => {
             check_rollback_valid(&LayerType::Staged, &LayerType::ManualEdit)?;
-            rollback_staged_to_layer(storage, LayerType::ManualEdit)
+            rollback_staged_to_layer_for_workspace(storage, LayerType::ManualEdit, workspace_key)
         }
         RollbackTransition::StagedToApproval => {
             check_rollback_valid(&LayerType::Staged, &LayerType::Approval)?;
-            rollback_staged_to_layer(storage, LayerType::Approval)
+            rollback_staged_to_layer_for_workspace(storage, LayerType::Approval, workspace_key)
         }
         RollbackTransition::StagedToAgentRaw => {
             check_rollback_valid(&LayerType::Staged, &LayerType::AgentEdit)?;
-            rollback_staged_to_layer(storage, LayerType::AgentEdit)
+            rollback_staged_to_layer_for_workspace(storage, LayerType::AgentEdit, workspace_key)
         }
         RollbackTransition::ApprovalToAgentRaw => {
             check_rollback_valid(&LayerType::Approval, &LayerType::AgentEdit)?;

@@ -351,6 +351,50 @@ impl CheckpointRepo {
     }
 }
 
+/// Reject absolute paths, empty paths, and paths that escape the workspace
+/// via `..` components. Restore must never write outside the working tree.
+fn validate_restore_path(path: &str) -> Result<()> {
+    if path.trim().is_empty() {
+        return Err(LayertwineError::General(
+            "restore path must not be empty".to_string(),
+        ));
+    }
+    let candidate = std::path::Path::new(path);
+    if candidate.is_absolute() || candidate.has_root() {
+        return Err(LayertwineError::General(format!(
+            "restore path must be workspace-relative: '{path}'"
+        )));
+    }
+    let mut depth = 0usize;
+    for component in candidate.components() {
+        match component {
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir if depth == 0 => {
+                return Err(LayertwineError::General(format!(
+                    "restore path escapes workspace: '{path}'"
+                )));
+            }
+            std::path::Component::ParentDir => {
+                depth -= 1;
+            }
+            std::path::Component::Normal(_) => {
+                depth += 1;
+            }
+            _ => {
+                return Err(LayertwineError::General(format!(
+                    "invalid restore path: '{path}'"
+                )));
+            }
+        }
+    }
+    if depth == 0 {
+        return Err(LayertwineError::General(format!(
+            "restore path must name a file: '{path}'"
+        )));
+    }
+    Ok(())
+}
+
 /// Result of applying a restore operation (writing snapshot content to disk)
 pub struct RestoreApplyResult {
     /// Checkpoint that was restored
@@ -388,6 +432,7 @@ impl CheckpointRepo {
 
             // Only write file:// snapshots to disk
             if let Some(file_path) = source.strip_prefix("file://") {
+                validate_restore_path(file_path)?;
                 let bytes = content.to_bytes();
                 // Ensure parent directory exists
                 if let Some(parent) = std::path::Path::new(file_path).parent() {

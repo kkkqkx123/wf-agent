@@ -174,8 +174,9 @@ impl FileCheckpointManager {
         let storage = self.storage_ref()?;
         let agent_id = actor.to_agent_instance_id();
         self.ensure_agent_partition(actor)?;
+        let threshold = self.full_snapshot_threshold;
         let snapshot_id = if let Ok(text) = std::str::from_utf8(content) {
-            agent::apply_agent_edit(storage, &agent_id, &path, text)
+            agent::apply_agent_edit_full(storage, &agent_id, &path, text, None, threshold)
                 .map_err(map_layertwine_error)?
         } else {
             let file_node = FileNode::new(PathBuf::from(&path), content);
@@ -201,6 +202,12 @@ impl FileCheckpointManager {
                 .map_err(map_layertwine_error)?;
             snapshot.id
         };
+        // A fresh edit invalidates the redo branch: clear the persisted redo
+        // stack so undo → edit → redo cannot resurrect stale states.
+        {
+            let pid = agent::agent_partition_id(&agent_id);
+            let _ = storage.update_redo_stack(&pid, &[]);
+        }
         // Clear any earlier deletion marker for this path (the file exists
         // again); register the write for the manual watcher. The registry is
         // keyed by both the (workspace-relative) edit path and the absolute
@@ -252,6 +259,10 @@ impl FileCheckpointManager {
         self.ensure_agent_partition(actor)?;
         let snapshot_id =
             agent::apply_agent_delete(storage, &agent_id, &path).map_err(map_layertwine_error)?;
+        {
+            let pid = agent::agent_partition_id(&agent_id);
+            let _ = storage.update_redo_stack(&pid, &[]);
+        }
         self.deleted_files
             .entry(actor.as_str().to_string())
             .or_default()
@@ -301,9 +312,17 @@ impl FileCheckpointManager {
             layertwine::layered::manual::ensure_manual_partition(storage, seed, ws.as_deref())
                 .map_err(map_layertwine_error)?;
         }
+        let threshold = self.full_snapshot_threshold;
         let snapshot_id = if let Ok(text) = std::str::from_utf8(content) {
-            layertwine::layered::manual::apply_manual_edit(storage, &path, text, ws.as_deref())
-                .map_err(map_layertwine_error)?
+            layertwine::layered::manual::apply_manual_edit_full(
+                storage,
+                &path,
+                text,
+                ws.as_deref(),
+                None,
+                threshold,
+            )
+            .map_err(map_layertwine_error)?
         } else {
             let file_node = FileNode::new(PathBuf::from(&path), content);
             let snapshot = Snapshot::new_with_content(
@@ -327,6 +346,9 @@ impl FileCheckpointManager {
                 .map_err(map_layertwine_error)?;
             snapshot.id
         };
+        {
+            let _ = storage.update_redo_stack(&manual_pid, &[]);
+        }
         if let Some(ref bus) = self.event_bus {
             let write_hash = sha256_hex(content);
             bus.publish(CheckpointEventBus::file_changed_with_summary(
@@ -368,6 +390,9 @@ impl FileCheckpointManager {
         let snapshot_id =
             layertwine::layered::manual::apply_manual_delete(storage, &path, ws.as_deref())
                 .map_err(map_layertwine_error)?;
+        {
+            let _ = storage.update_redo_stack(&manual_pid, &[]);
+        }
         if let Some(ref bus) = self.event_bus {
             let write_hash = sha256_hex(b"");
             bus.publish(CheckpointEventBus::file_changed_with_summary(
@@ -501,15 +526,30 @@ impl FileCheckpointManager {
         use layertwine::core::file_move::FileMove;
         use layertwine::storage::repository::FileMoveStore;
 
+        let from = crate::file_util::validate_workspace_relative_path(from_path)?;
+        let to = crate::file_util::validate_workspace_relative_path(to_path)?;
         let storage = self.storage_ref()?;
-        let file_move = FileMove::new(
-            from_path.to_string(),
-            to_path.to_string(),
-            source.to_string(),
-        );
+        let file_move = FileMove::new(from, to, source.to_string());
         storage
             .store_file_move(&file_move)
             .map_err(crate::file_util::map_layertwine_error)
+    }
+
+    /// Explicit rename entry point: validate both sides, record the move
+    /// linkage, delete the old path and write the new path content for an
+    /// actor. Returns the new snapshot id (hex) for the created path.
+    pub fn rename_file(
+        &self,
+        actor: &ActorId,
+        from_path: &str,
+        to_path: &str,
+        content: &[u8],
+    ) -> Result<String, crate::error::CheckpointError> {
+        let from = crate::file_util::validate_workspace_relative_path(from_path)?;
+        let to = crate::file_util::validate_workspace_relative_path(to_path)?;
+        self.track_file_move(&from, &to, actor.as_str())?;
+        let _ = self.apply_agent_delete(actor, &from);
+        self.apply_agent_edit(actor, &to, content)
     }
 }
 

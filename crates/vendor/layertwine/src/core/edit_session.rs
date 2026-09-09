@@ -16,6 +16,11 @@ pub struct EditSession {
     pub id: EditSessionId,
     /// Deltas produced during this session, in creation order.
     pub delta_ids: Vec<DeltaId>,
+    /// Snapshots produced during this session, in creation order. Covers
+    /// full-content snapshots that carry no delta, so a session rollback can
+    /// find every record it produced.
+    #[serde(default)]
+    pub snapshot_ids: Vec<crate::core::types::SnapshotId>,
     /// Human-readable label (e.g. "format file", "refactor module").
     #[serde(default)]
     pub label: Option<String>,
@@ -29,6 +34,7 @@ impl EditSession {
         EditSession {
             id: uuid::Uuid::now_v7(),
             delta_ids: Vec::new(),
+            snapshot_ids: Vec::new(),
             label,
             created_at: chrono::Utc::now().timestamp_millis(),
         }
@@ -39,14 +45,24 @@ impl EditSession {
         self.delta_ids.push(delta_id);
     }
 
-    /// Whether the session contains any deltas.
+    /// Append a snapshot to this session.
+    pub fn add_snapshot(&mut self, snapshot_id: crate::core::types::SnapshotId) {
+        self.snapshot_ids.push(snapshot_id);
+    }
+
+    /// Whether the session contains any deltas or snapshots.
     pub fn is_empty(&self) -> bool {
-        self.delta_ids.is_empty()
+        self.delta_ids.is_empty() && self.snapshot_ids.is_empty()
     }
 
     /// Number of deltas in this session.
     pub fn len(&self) -> usize {
         self.delta_ids.len()
+    }
+
+    /// Number of snapshots in this session.
+    pub fn snapshot_len(&self) -> usize {
+        self.snapshot_ids.len()
     }
 }
 

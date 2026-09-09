@@ -4,6 +4,12 @@
 //! and — behind the `remote-layertwine` feature — a [`LayertwineExecutor`]
 //! implementing it over the Layertwine gRPC service (embedded or remote
 //! deployment).
+//!
+//! Product boundary: the Layertwine gRPC service is a standalone service
+//! interface (own binary / `ApiService`). It is intentionally NOT
+//! auto-registered as runtime tools: there is no config-driven registration
+//! path, and tool parameters carry no workspace/context scoping. Use the
+//! executor directly as a gRPC client when a standalone deployment is needed.
 
 use serde_json::Value;
 
@@ -112,8 +118,6 @@ pub mod layertwine_impl {
 
     use super::*;
     use crate::error::ToolError;
-    use crate::executor::trait_def::ToolExecutionContext;
-    use crate::registry::ToolRegistry;
     use layertwine::api::rpc::client::{ClientError, LayertwineGrpcClient};
     use layertwine::api::rpc::layertwine_proto::{
         AgentSubmitRequest, ApproveRequest, BackupRequest, BranchCreateRequest,
@@ -122,7 +126,7 @@ pub mod layertwine_impl {
     };
     use std::process::Stdio;
     use std::sync::atomic::{AtomicBool, Ordering};
-    use std::sync::{Arc, Mutex};
+    use std::sync::Mutex;
     use std::time::{Duration, Instant};
 
     /// Deployment mode for the Layertwine service.
@@ -848,100 +852,10 @@ pub mod layertwine_impl {
         }
     }
 
-    /// Register Layertwine operations as stateless tools (one tool per
-    /// operation) dispatching to the shared executor.
-    pub fn register_layertwine_tools(
-        registry: &ToolRegistry,
-        executor: Arc<LayertwineExecutor>,
-    ) -> crate::error::ToolResult<()> {
-        let operations: &[(&str, &str)] = &[
-            (
-                "layertwine_init",
-                "Initialize a Layertwine repository. Parameters: db_path, git_repo, git_ref.",
-            ),
-            (
-                "layertwine_edit",
-                "Record a file edit. Parameters: file, content.",
-            ),
-            ("layertwine_status", "Show repository partition status."),
-            (
-                "layertwine_commit",
-                "Create a checkpoint. Parameters: message, author.",
-            ),
-            (
-                "layertwine_log",
-                "Query checkpoint history. Parameters: count.",
-            ),
-            ("layertwine_branch_list", "List branches."),
-            (
-                "layertwine_branch_create",
-                "Create a branch. Parameters: name.",
-            ),
-            (
-                "layertwine_branch_switch",
-                "Switch to a branch. Parameters: name.",
-            ),
-            (
-                "layertwine_approve",
-                "Approve an agent's changes. Parameters: agent_id.",
-            ),
-            (
-                "layertwine_backup",
-                "Backup a snapshot. Parameters: snapshot_id, label.",
-            ),
-            (
-                "layertwine_checkpoint_restore",
-                "Restore a checkpoint. Parameters: checkpoint_id, source_filter.",
-            ),
-            (
-                "layertwine_checkpoint_diff",
-                "Diff two checkpoints. Parameters: from_id, to_id.",
-            ),
-        ];
-
-        for (tool_id, description) in operations {
-            let executor = executor.clone();
-            let tool_id = tool_id.to_string();
-            let tool = wf_types::tool::Tool {
-                id: tool_id.clone(),
-                name: tool_id.clone(),
-                description: description.to_string(),
-                tool_type: wf_types::tool::ToolType::Stateless,
-                parameters: None,
-                metadata: Some(wf_types::tool::ToolMetadata {
-                    category: Some("integration".into()),
-                    tags: Some(vec!["layertwine".into(), "remote".into()]),
-                    documentation_url: None,
-                    custom_fields: None,
-                    risk_level: Some(wf_types::tool::ToolRiskLevel::Write),
-                    auto_approvable: None,
-                    create_checkpoint: None,
-                    exposure: None,
-                }),
-                config: Some(serde_json::json!({ "executor": "layertwine" })),
-                enabled: Some(true),
-                strict: None,
-                default_timeout_ms: None,
-            };
-            registry.register_tool(tool);
-
-            let method = tool_id.trim_start_matches("layertwine_").to_string();
-            let handler: crate::executor::stateless::StatelessAsyncHandler =
-                Arc::new(move |params: Value, _ctx: ToolExecutionContext| {
-                    let executor = executor.clone();
-                    let method = method.clone();
-                    Box::pin(async move { executor.call(&method, &params).await })
-                });
-            registry.register_stateless_async_handler(&tool_id, handler);
-        }
-        Ok(())
-    }
 }
 
 #[cfg(feature = "remote-layertwine")]
-pub use layertwine_impl::{
-    register_layertwine_tools, LayertwineDeployMode, LayertwineExecutor, LayertwineExecutorConfig,
-};
+pub use layertwine_impl::{LayertwineDeployMode, LayertwineExecutor, LayertwineExecutorConfig};
 
 #[cfg(all(test, feature = "remote-layertwine"))]
 mod tests {

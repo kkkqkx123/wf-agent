@@ -149,44 +149,72 @@ fn snapshot_last_delta(
 }
 
 /// The byte content of a snapshot (verbatim content for binary, otherwise
-/// line-diff reconstruction).
+/// line-diff reconstruction). Single implementation lives in `file_util`;
+/// this wrapper keeps provenance call sites local.
 fn snapshot_content_bytes(
     storage: &SqliteStorage,
     snapshot: &Snapshot,
 ) -> Result<Vec<u8>, CheckpointError> {
-    if let Some(content) = &snapshot.content {
-        return Ok(content.to_bytes());
-    }
-    // A deleted snapshot has no content; treat it as empty bytes (the
-    // deletion marker is consulted by the workspace/restore callers).
-    Ok(
-        layertwine::layered::transition::reconstruct_text(storage, snapshot)
-            .map_err(map_layertwine_error)?
-            .unwrap_or_default()
-            .into_bytes(),
-    )
+    crate::file_util::snapshot_content_bytes(storage, snapshot)
+}
+
+/// Batch-resolve the file path of many snapshots with two SQL queries
+/// (one snapshot batch + one delta batch) instead of N+1 round trips.
+/// Snapshots without a resolvable path are skipped.
+fn batch_snapshot_paths(
+    storage: &SqliteStorage,
+    snapshots: &HashMap<SnapshotId, Snapshot>,
+) -> HashMap<SnapshotId, String> {
+    use layertwine::storage::repository::DeltaStore;
+    let delta_ids: Vec<layertwine::core::types::DeltaId> = snapshots
+        .values()
+        .filter_map(|s| s.deltas.last().copied())
+        .collect();
+    let delta_map: HashMap<layertwine::core::types::DeltaId, Delta> = storage
+        .get_deltas(&delta_ids)
+        .map(|deltas| deltas.into_iter().map(|d| (d.id, d)).collect())
+        .unwrap_or_default();
+    snapshots
+        .iter()
+        .map(|(id, snapshot)| {
+            let path = snapshot
+                .deltas
+                .last()
+                .and_then(|delta_id| delta_map.get(delta_id))
+                .map(|d| d.file.path_str().to_string())
+                .unwrap_or_else(|| snapshot.file.path_str().to_string());
+            (*id, path)
+        })
+        .collect()
 }
 
 /// Resolve the last snapshot per file path from a partition history, in
 /// history order (last occurrence wins). Seed snapshots are excluded.
+/// Snapshots are loaded with a single batched SQL query.
 fn latest_snapshots_per_path(
     storage: &SqliteStorage,
     partition: &Partition,
 ) -> Result<Vec<(String, Snapshot)>, CheckpointError> {
+    let snap_map = storage
+        .get_snapshots_map(&partition.history)
+        .map_err(map_layertwine_error)?;
+    let path_map = batch_snapshot_paths(storage, &snap_map);
     let mut order: Vec<String> = Vec::new();
     let mut last_per_path: HashMap<String, Snapshot> = HashMap::new();
     for snapshot_id in &partition.history {
-        let snapshot = storage
-            .get_snapshot(snapshot_id)
-            .map_err(map_layertwine_error)?;
-        let path = snapshot_file_path(storage, &snapshot)?;
-        if path == SEED_PATH {
+        let Some(snapshot) = snap_map.get(snapshot_id) else {
+            continue;
+        };
+        let Some(path) = path_map.get(snapshot_id) else {
+            continue;
+        };
+        if *path == SEED_PATH {
             continue;
         }
-        if !last_per_path.contains_key(&path) {
+        if !last_per_path.contains_key(path) {
             order.push(path.clone());
         }
-        last_per_path.insert(path, snapshot);
+        last_per_path.insert(path.clone(), snapshot.clone());
     }
     Ok(order
         .into_iter()
@@ -194,10 +222,18 @@ fn latest_snapshots_per_path(
         .collect())
 }
 
-/// All partitions ordered by name (stable for tests).
+/// All partitions ordered by name (stable for tests). Snapshot timestamps
+/// are loaded with a single batched SQL query across all partitions.
 pub fn list_partitions(storage: &SqliteStorage) -> Result<Vec<PartitionView>, CheckpointError> {
     let mut partitions = storage.list_partitions().map_err(map_layertwine_error)?;
     partitions.sort_by(|a, b| a.name.cmp(&b.name));
+    let all_ids: Vec<SnapshotId> = partitions
+        .iter()
+        .flat_map(|p| p.history.iter().copied())
+        .collect();
+    let snap_map = storage
+        .get_snapshots_map(&all_ids)
+        .map_err(map_layertwine_error)?;
     let mut views = Vec::with_capacity(partitions.len());
     for partition in partitions {
         let (kind, actor) = match &partition.partition_type {
@@ -210,7 +246,7 @@ pub fn list_partitions(storage: &SqliteStorage) -> Result<Vec<PartitionView>, Ch
         let mut created_at = 0;
         let mut updated_at = 0;
         for snapshot_id in &partition.history {
-            if let Ok(snapshot) = storage.get_snapshot(snapshot_id) {
+            if let Some(snapshot) = snap_map.get(snapshot_id) {
                 if created_at == 0 {
                     created_at = snapshot.created_at;
                 }
@@ -243,13 +279,22 @@ pub fn list_changes_by_actor(
     time_range: Option<(i64, i64)>,
 ) -> Result<Vec<DeltaSummary>, CheckpointError> {
     let partition = actor_partition(storage, actor)?;
+    // Single batched snapshot load; path/time filters apply before any
+    // per-snapshot content reconstruction, and single-sided ranges are
+    // normalized by the caller (HTTP layer maps missing ends to MIN/MAX).
+    let snap_map = storage
+        .get_snapshots_map(&partition.history)
+        .map_err(map_layertwine_error)?;
+    let path_map = batch_snapshot_paths(storage, &snap_map);
     let mut changes = Vec::new();
     for snapshot_id in &partition.history {
-        let snapshot = storage
-            .get_snapshot(snapshot_id)
-            .map_err(map_layertwine_error)?;
-        let path = snapshot_file_path(storage, &snapshot)?;
-        if path == SEED_PATH || !path_matches(&path, path_filter) {
+        let Some(snapshot) = snap_map.get(snapshot_id) else {
+            continue;
+        };
+        let Some(path) = path_map.get(snapshot_id) else {
+            continue;
+        };
+        if *path == SEED_PATH || !path_matches(path, path_filter) {
             continue;
         }
         if let Some((start, end)) = time_range {
@@ -257,15 +302,15 @@ pub fn list_changes_by_actor(
                 continue;
             }
         }
-        let last_delta = snapshot_last_delta(storage, &snapshot)?;
+        let last_delta = snapshot_last_delta(storage, snapshot)?;
         let source = last_delta
             .as_ref()
             .map(|d| source_label(&d.source))
             .unwrap_or_else(|| "agent".to_string());
         let message = last_delta.and_then(|d| d.message.clone());
-        let content = snapshot_content_bytes(storage, &snapshot)?;
+        let content = snapshot_content_bytes(storage, snapshot)?;
         changes.push(DeltaSummary {
-            file: path,
+            file: path.clone(),
             source,
             timestamp: snapshot.created_at,
             snapshot_id: snapshot.id.to_hex(),
@@ -284,14 +329,26 @@ pub fn list_changes_by_path(
     time_range: Option<(i64, i64)>,
 ) -> Result<Vec<DeltaSummary>, CheckpointError> {
     let partitions = storage.list_partitions().map_err(map_layertwine_error)?;
+    // One batched snapshot load across all partitions; path/time filters
+    // apply before content reconstruction.
+    let all_ids: Vec<SnapshotId> = partitions
+        .iter()
+        .flat_map(|p| p.history.iter().copied())
+        .collect();
+    let snap_map = storage
+        .get_snapshots_map(&all_ids)
+        .map_err(map_layertwine_error)?;
+    let path_map = batch_snapshot_paths(storage, &snap_map);
     let mut changes = Vec::new();
-    for partition in partitions {
+    for partition in &partitions {
         for snapshot_id in &partition.history {
-            let snapshot = storage
-                .get_snapshot(snapshot_id)
-                .map_err(map_layertwine_error)?;
-            let snapshot_path = snapshot_file_path(storage, &snapshot)?;
-            if snapshot_path == SEED_PATH || snapshot_path != path {
+            let Some(snapshot) = snap_map.get(snapshot_id) else {
+                continue;
+            };
+            let Some(snapshot_path) = path_map.get(snapshot_id) else {
+                continue;
+            };
+            if *snapshot_path == SEED_PATH || *snapshot_path != path {
                 continue;
             }
             if let Some((start, end)) = time_range {
@@ -299,15 +356,15 @@ pub fn list_changes_by_path(
                     continue;
                 }
             }
-            let last_delta = snapshot_last_delta(storage, &snapshot)?;
+            let last_delta = snapshot_last_delta(storage, snapshot)?;
             let source = last_delta
                 .as_ref()
                 .map(|d| source_label(&d.source))
                 .unwrap_or_else(|| "agent".to_string());
             let message = last_delta.and_then(|d| d.message.clone());
-            let content = snapshot_content_bytes(storage, &snapshot)?;
+            let content = snapshot_content_bytes(storage, snapshot)?;
             changes.push(DeltaSummary {
-                file: snapshot_path,
+                file: snapshot_path.clone(),
                 source,
                 timestamp: snapshot.created_at,
                 snapshot_id: snapshot.id.to_hex(),
@@ -721,7 +778,7 @@ pub struct FileTimeline {
 }
 
 /// Build the complete version timeline for a file path, including
-/// rename/move追溯. The timeline walks backwards through file_moves to find
+/// rename/move tracing. The timeline walks backwards through file_moves to find
 /// the original path, then collects all snapshots that touched any path in
 /// the rename chain, and returns them in chronological order.
 pub fn file_timeline(storage: &SqliteStorage, path: &str) -> Result<FileTimeline, CheckpointError> {
@@ -751,25 +808,36 @@ pub fn file_timeline(storage: &SqliteStorage, path: &str) -> Result<FileTimeline
     }
 
     // Collect all snapshots touching any of these paths across all partitions
+    // (single batched snapshot load).
     let partitions = storage.list_partitions().map_err(map_layertwine_error)?;
+    let all_ids: Vec<SnapshotId> = partitions
+        .iter()
+        .flat_map(|p| p.history.iter().copied())
+        .collect();
+    let snap_map = storage
+        .get_snapshots_map(&all_ids)
+        .map_err(map_layertwine_error)?;
+    let path_map = batch_snapshot_paths(storage, &snap_map);
     let mut entries: Vec<FileTimelineEntry> = Vec::new();
 
     for partition in &partitions {
         for snapshot_id in &partition.history {
-            let snapshot = storage
-                .get_snapshot(snapshot_id)
-                .map_err(map_layertwine_error)?;
-            let snapshot_path = snapshot_file_path(storage, &snapshot)?;
-            if snapshot_path == SEED_PATH || !all_paths.contains(&snapshot_path) {
+            let Some(snapshot) = snap_map.get(snapshot_id) else {
+                continue;
+            };
+            let Some(snapshot_path) = path_map.get(snapshot_id) else {
+                continue;
+            };
+            if *snapshot_path == SEED_PATH || !all_paths.contains(snapshot_path) {
                 continue;
             }
-            let source = snapshot_last_delta(storage, &snapshot)?
+            let source = snapshot_last_delta(storage, snapshot)?
                 .map(|d| source_label(&d.source))
                 .unwrap_or_else(|| "agent".to_string());
-            let content = snapshot_content_bytes(storage, &snapshot)?;
-            let moved_from = moved_from_map.get(&snapshot_path).cloned();
+            let content = snapshot_content_bytes(storage, snapshot)?;
+            let moved_from = moved_from_map.get(snapshot_path).cloned();
             entries.push(FileTimelineEntry {
-                path: snapshot_path,
+                path: snapshot_path.clone(),
                 snapshot_id: snapshot.id.to_hex(),
                 content_hash: sha256_hex(&content),
                 timestamp: snapshot.created_at,

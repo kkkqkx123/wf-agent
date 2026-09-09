@@ -83,6 +83,35 @@ impl FileCheckpointManager {
                     self.apply_manual_delete(&relative)?;
                     applied += 1;
                 }
+                FileChangeKind::Rename => {
+                    if self.recent_agent_writes.is_recent_write(&record.path) {
+                        continue;
+                    }
+                    // Record the move linkage for timeline queries, then
+                    // apply it as delete-old + edit-new in the manual partition.
+                    if let Some(from_abs) = record.from.as_ref() {
+                        if let Ok(from_rel) = from_abs.strip_prefix(base) {
+                            let from_rel = from_rel.to_string_lossy().replace('\\', "/");
+                            if let (Ok(from_valid), Ok(to_valid)) = (
+                                crate::file_util::validate_workspace_relative_path(&from_rel),
+                                crate::file_util::validate_workspace_relative_path(&relative),
+                            ) {
+                                let _ = self.track_file_move(&from_valid, &to_valid, "manual");
+                                let _ = self.apply_manual_delete(&from_valid);
+                                applied += 1;
+                            }
+                        }
+                    }
+                    let Ok(content) = std::fs::read(&record.path) else {
+                        continue;
+                    };
+                    let hash = sha256_hex(&content);
+                    if self.recent_agent_writes.is_agent_write(&record.path, &hash) {
+                        continue;
+                    }
+                    self.apply_manual_edit(&relative, &content)?;
+                    applied += 1;
+                }
                 FileChangeKind::Add | FileChangeKind::Change => {
                     if self.recent_agent_writes.is_recent_write(&record.path) {
                         continue;

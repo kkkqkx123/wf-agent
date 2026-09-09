@@ -38,7 +38,8 @@ CREATE TABLE IF NOT EXISTS snapshots (
     content_type    TEXT DEFAULT 'file',
     content         BLOB,
     compression     TEXT DEFAULT 'none',
-    content_hash    BLOB
+    content_hash    BLOB,
+    message         TEXT
 );
 
 -- Partition Table
@@ -91,6 +92,19 @@ CREATE TABLE IF NOT EXISTS delta_sessions (
 );
 
 CREATE INDEX IF NOT EXISTS idx_delta_sessions_session ON delta_sessions(session_id);
+
+-- Snapshot-Session association table (covers full-content snapshots that
+-- carry no delta, so a session rollback can find every snapshot it produced)
+CREATE TABLE IF NOT EXISTS snapshot_sessions (
+    snapshot_id     BLOB NOT NULL,
+    session_id      BLOB NOT NULL,
+    seq             INTEGER NOT NULL,
+    PRIMARY KEY (snapshot_id, session_id),
+    FOREIGN KEY (snapshot_id) REFERENCES snapshots(id),
+    FOREIGN KEY (session_id) REFERENCES edit_sessions(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_snapshot_sessions_session ON snapshot_sessions(session_id);
 
 -- File Move/Rename Tracking Table
 CREATE TABLE IF NOT EXISTS file_moves (
@@ -186,6 +200,27 @@ CREATE TABLE IF NOT EXISTS backup_metadata (
 CREATE INDEX IF NOT EXISTS idx_backup_meta_key ON backup_metadata(key, value);
 ";
 
+/// Idempotent light migrations for databases created before a schema
+/// addition. Each statement is best-effort: "duplicate column / already
+/// exists" errors are ignored so old files converge to the latest schema.
+fn apply_light_migrations(conn: &rusqlite::Connection) -> Result<(), crate::StorageError> {
+    // Snapshot message column (added after the initial schema).
+    let _ = conn.execute("ALTER TABLE snapshots ADD COLUMN message TEXT", []);
+    // Snapshot-session association for full-content snapshots.
+    let _ = conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS snapshot_sessions (
+            snapshot_id     BLOB NOT NULL,
+            session_id      BLOB NOT NULL,
+            seq             INTEGER NOT NULL,
+            PRIMARY KEY (snapshot_id, session_id),
+            FOREIGN KEY (snapshot_id) REFERENCES snapshots(id),
+            FOREIGN KEY (session_id) REFERENCES edit_sessions(id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_snapshot_sessions_session ON snapshot_sessions(session_id);",
+    );
+    Ok(())
+}
+
 /// Initialize the database and apply all migrations
 pub fn initialize_database(conn: &rusqlite::Connection) -> Result<(), crate::StorageError> {
     conn.execute_batch(PRAGMA_JOURNAL_MODE_WAL)?;
@@ -198,6 +233,7 @@ pub fn initialize_database(conn: &rusqlite::Connection) -> Result<(), crate::Sto
     // Checkpoint every 1000 pages (default) — explicit for clarity
     conn.execute_batch("PRAGMA wal_autocheckpoint = 1000;")?;
     conn.execute_batch(MIGRATION_SQL)?;
+    apply_light_migrations(conn)?;
     Ok(())
 }
 

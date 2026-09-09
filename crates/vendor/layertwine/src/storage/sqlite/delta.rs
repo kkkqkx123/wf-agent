@@ -87,8 +87,8 @@ impl DeltaStore for SqliteStorage {
         };
         let content_hash_bytes = delta.content_hash.map(|h| h.0.to_vec());
 
-        conn.execute(
-            "INSERT OR IGNORE INTO deltas (id, file_path, file_hash, diff, source, source_data, timestamp, created_at, content_hash, message)
+        let result = conn.execute(
+            "INSERT INTO deltas (id, file_path, file_hash, diff, source, source_data, timestamp, created_at, content_hash, message)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             params![
                 &delta.id.0.to_vec(),
@@ -102,8 +102,42 @@ impl DeltaStore for SqliteStorage {
                 content_hash_bytes,
                 delta.message,
             ],
-        )?;
-        Ok(())
+        );
+        match result {
+            Ok(_) => Ok(()),
+            Err(rusqlite::Error::SqliteFailure(err, _))
+                if err.code == rusqlite::ErrorCode::ConstraintViolation =>
+            {
+                // Record-ID collision: identical payload (idempotent retry)
+                // is fine; a different payload under the same ID is an
+                // explicit error with context instead of a silent drop.
+                let mut stmt = conn.prepare(
+                    "SELECT d.id, d.file_path, d.file_hash, d.diff, d.source, d.source_data, d.timestamp, d.content_hash, d.message, ds.session_id, ds.seq
+                     FROM deltas d LEFT JOIN delta_sessions ds ON d.id = ds.delta_id WHERE d.id = ?1 LIMIT 1",
+                )?;
+                match stmt.query_row(params![&delta.id.0.to_vec()], row_to_delta) {
+                    Ok(existing) => {
+                        if existing.diff == delta.diff
+                            && existing.file.path_str() == delta.file.path_str()
+                        {
+                            Ok(())
+                        } else {
+                            Err(crate::StorageError::Serialization(format!(
+                                "delta id collision: {} already exists with different content (file '{}' vs '{}')",
+                                delta.id.to_hex(),
+                                existing.file.path_str(),
+                                delta.file.path_str(),
+                            )))
+                        }
+                    }
+                    Err(_) => Err(crate::StorageError::Serialization(format!(
+                        "delta id collision: {} already exists",
+                        delta.id.to_hex()
+                    ))),
+                }
+            }
+            Err(e) => Err(e.into()),
+        }
     }
 
     fn get_delta(&self, id: &DeltaId) -> StorageResult<Delta> {

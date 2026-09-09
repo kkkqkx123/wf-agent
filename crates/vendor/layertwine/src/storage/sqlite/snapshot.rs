@@ -63,6 +63,10 @@ fn row_to_snapshot(row: &Row) -> Result<Snapshot, rusqlite::Error> {
         }
     });
 
+    // `message` was added after the initial schema; old databases may lack
+    // the column (row index out of range) — treat as absent.
+    let message: Option<String> = row.get(13).ok().flatten();
+
     Ok(Snapshot {
         id,
         file: FileNode {
@@ -78,54 +82,166 @@ fn row_to_snapshot(row: &Row) -> Result<Snapshot, rusqlite::Error> {
         source,
         compression,
         content_hash,
+        message,
     })
+}
+
+fn snapshot_select_columns() -> &'static str {
+    "id, file_path, file_hash, deltas, parents, partition_type, created_at, has_conflicts, source, content_type, content, compression, content_hash, message"
+}
+
+/// Whether a storage error indicates the legacy schema without the
+/// `snapshots.message` column (pre-upgrade database file).
+fn is_missing_message_column(e: &crate::StorageError) -> bool {
+    match e {
+        crate::StorageError::Database(rusqlite::Error::SqliteFailure(err, msg)) => {
+            use rusqlite::ErrorCode;
+            // `no such column: message` surfaces as UnknownFailure; match the
+            // message text instead of the extended code for robustness.
+            err.code == ErrorCode::Unknown
+                && msg.as_deref().unwrap_or_default().contains("message")
+        }
+        crate::StorageError::Database(e) => e.to_string().contains("message"),
+        _ => false,
+    }
+}
+
+fn insert_snapshot_row(
+    conn: &rusqlite::Connection,
+    snapshot: &Snapshot,
+) -> StorageResult<()> {
+    let deltas_json = serde_json::to_vec(&snapshot.deltas)?;
+    let parents_json = serde_json::to_vec(&snapshot.parents)?;
+
+    let (content_type, content_blob) = match &snapshot.content {
+        Some(sc) => (sc.content_type().to_string(), Some(sc.to_bytes())),
+        None => ("file".to_string(), None),
+    };
+
+    let compression_str = match snapshot.compression {
+        SnapshotCompression::None => "none",
+        SnapshotCompression::Zstd => "zstd",
+    };
+
+    let content_hash_bytes = snapshot.content_hash.map(|h| h.0.to_vec());
+
+    let result = conn.execute(
+        "INSERT INTO snapshots (id, file_path, file_hash, deltas, parents, partition_type, created_at, has_conflicts, source, content_type, content, compression, content_hash, message)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+        params![
+            &snapshot.id.0.to_vec(),
+            snapshot.file.path_str(),
+            &snapshot.file.base_hash.to_vec(),
+            deltas_json,
+            parents_json,
+            snapshot.partition_type,
+            snapshot.created_at,
+            snapshot.has_conflicts as i32,
+            snapshot.source,
+            content_type,
+            content_blob,
+            compression_str,
+            content_hash_bytes,
+            snapshot.message,
+        ],
+    );
+    match result {
+        Ok(_) => Ok(()),
+        Err(rusqlite::Error::SqliteFailure(err, _))
+            if err.code == rusqlite::ErrorCode::ConstraintViolation =>
+        {
+            // Record-ID collision: the same ID already exists. An identical
+            // record (idempotent retry) is fine; a different record under the
+            // same ID is an explicit error with context instead of a silent
+            // `INSERT OR IGNORE` drop.
+            let mut stmt = conn.prepare(&format!(
+                "SELECT {} FROM snapshots WHERE id = ?1",
+                snapshot_select_columns()
+            ))?;
+            match stmt.query_row(params![&snapshot.id.0.to_vec()], row_to_snapshot) {
+                Ok(existing) => {
+                    if existing.file.path_str() == snapshot.file.path_str()
+                        && existing.deltas == snapshot.deltas
+                        && existing.content == snapshot.content
+                    {
+                        Ok(())
+                    } else {
+                        Err(crate::StorageError::Serialization(format!(
+                            "snapshot id collision: {} already exists with different content (path '{}' vs '{}')",
+                            snapshot.id.to_hex(),
+                            existing.file.path_str(),
+                            snapshot.file.path_str(),
+                        )))
+                    }
+                }
+                Err(_) => Err(crate::StorageError::Serialization(format!(
+                    "snapshot id collision: {} already exists",
+                    snapshot.id.to_hex()
+                ))),
+            }
+        }
+        Err(e) => Err(e.into()),
+    }
 }
 
 impl SnapshotStore for SqliteStorage {
     fn store_snapshot(&self, snapshot: &Snapshot, _content: &[u8]) -> StorageResult<()> {
         let conn = self.conn.lock();
-        let deltas_json = serde_json::to_vec(&snapshot.deltas)?;
-        let parents_json = serde_json::to_vec(&snapshot.parents)?;
-
-        let (content_type, content_blob) = match &snapshot.content {
-            Some(sc) => (sc.content_type().to_string(), Some(sc.to_bytes())),
-            None => ("file".to_string(), None),
-        };
-
-        let compression_str = match snapshot.compression {
-            SnapshotCompression::None => "none",
-            SnapshotCompression::Zstd => "zstd",
-        };
-
-        let content_hash_bytes = snapshot.content_hash.map(|h| h.0.to_vec());
-
-        conn.execute(
-            "INSERT OR IGNORE INTO snapshots (id, file_path, file_hash, deltas, parents, partition_type, created_at, has_conflicts, source, content_type, content, compression, content_hash)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
-            params![
-                &snapshot.id.0.to_vec(),
-                snapshot.file.path_str(),
-                &snapshot.file.base_hash.to_vec(),
-                deltas_json,
-                parents_json,
-                snapshot.partition_type,
-                snapshot.created_at,
-                snapshot.has_conflicts as i32,
-                snapshot.source,
-                content_type,
-                content_blob,
-                compression_str,
-                content_hash_bytes,
-            ],
-        )?;
-        Ok(())
+        match insert_snapshot_row(&conn, snapshot) {
+            Ok(()) => Ok(()),
+            // Old databases without the `message` column: retry without it.
+            Err(e) if is_missing_message_column(&e) => {
+                let existing = conn.query_row(
+                    "SELECT COUNT(*) FROM pragma_table_info('snapshots') WHERE name = 'message'",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )?;
+                if existing == 0 {
+                    let deltas_json = serde_json::to_vec(&snapshot.deltas)?;
+                    let parents_json = serde_json::to_vec(&snapshot.parents)?;
+                    let (content_type, content_blob) = match &snapshot.content {
+                        Some(sc) => (sc.content_type().to_string(), Some(sc.to_bytes())),
+                        None => ("file".to_string(), None),
+                    };
+                    let compression_str = match snapshot.compression {
+                        SnapshotCompression::None => "none",
+                        SnapshotCompression::Zstd => "zstd",
+                    };
+                    let content_hash_bytes = snapshot.content_hash.map(|h| h.0.to_vec());
+                    conn.execute(
+                        "INSERT OR IGNORE INTO snapshots (id, file_path, file_hash, deltas, parents, partition_type, created_at, has_conflicts, source, content_type, content, compression, content_hash)
+                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+                        params![
+                            &snapshot.id.0.to_vec(),
+                            snapshot.file.path_str(),
+                            &snapshot.file.base_hash.to_vec(),
+                            deltas_json,
+                            parents_json,
+                            snapshot.partition_type,
+                            snapshot.created_at,
+                            snapshot.has_conflicts as i32,
+                            snapshot.source,
+                            content_type,
+                            content_blob,
+                            compression_str,
+                            content_hash_bytes,
+                        ],
+                    )?;
+                    Ok(())
+                } else {
+                    insert_snapshot_row(&conn, snapshot)
+                }
+            }
+            Err(e) => Err(e),
+        }
     }
 
     fn get_snapshot(&self, id: &SnapshotId) -> StorageResult<Snapshot> {
         let conn = self.conn.lock();
-        let mut stmt = conn.prepare(
-            "SELECT id, file_path, file_hash, deltas, parents, partition_type, created_at, has_conflicts, source, content_type, content, compression, content_hash FROM snapshots WHERE id = ?1"
-        )?;
+        let mut stmt = conn.prepare(&format!(
+            "SELECT {} FROM snapshots WHERE id = ?1",
+            snapshot_select_columns()
+        ))?;
 
         let result = stmt.query_row(params![&id.0.to_vec()], row_to_snapshot)?;
         Ok(result)
@@ -133,10 +249,10 @@ impl SnapshotStore for SqliteStorage {
 
     fn find_snapshots_by_file(&self, file_path: &str) -> StorageResult<Vec<Snapshot>> {
         let conn = self.conn.lock();
-        let mut stmt = conn.prepare(
-            "SELECT id, file_path, file_hash, deltas, parents, partition_type, created_at, has_conflicts, source, content_type, content, compression, content_hash
-             FROM snapshots WHERE file_path = ?1 ORDER BY created_at DESC",
-        )?;
+        let mut stmt = conn.prepare(&format!(
+            "SELECT {} FROM snapshots WHERE file_path = ?1 ORDER BY created_at DESC",
+            snapshot_select_columns()
+        ))?;
 
         let snapshots = stmt.query_map(params![file_path], row_to_snapshot)?;
 
@@ -152,10 +268,10 @@ impl SnapshotStore for SqliteStorage {
         partition_type: &crate::core::types::PartitionType,
     ) -> StorageResult<Vec<Snapshot>> {
         let conn = self.conn.lock();
-        let mut stmt = conn.prepare(
-            "SELECT id, file_path, file_hash, deltas, parents, partition_type, created_at, has_conflicts, source, content_type, content, compression, content_hash
-             FROM snapshots WHERE partition_type = ?1 ORDER BY created_at DESC",
-        )?;
+        let mut stmt = conn.prepare(&format!(
+            "SELECT {} FROM snapshots WHERE partition_type = ?1 ORDER BY created_at DESC",
+            snapshot_select_columns()
+        ))?;
 
         let snapshots = stmt.query_map(params![partition_type.name()], row_to_snapshot)?;
 
@@ -181,15 +297,19 @@ impl SnapshotStore for SqliteStorage {
         let conn = self.conn.lock();
         let sql = match time_range {
             Some(_) => {
-                "SELECT id, file_path, file_hash, deltas, parents, partition_type, created_at, has_conflicts, source, content_type, content, compression, content_hash
-                 FROM snapshots WHERE file_path = ?1 AND created_at >= ?2 AND created_at <= ?3 ORDER BY created_at DESC"
+                format!(
+                    "SELECT {} FROM snapshots WHERE file_path = ?1 AND created_at >= ?2 AND created_at <= ?3 ORDER BY created_at DESC",
+                    snapshot_select_columns()
+                )
             }
             None => {
-                "SELECT id, file_path, file_hash, deltas, parents, partition_type, created_at, has_conflicts, source, content_type, content, compression, content_hash
-                 FROM snapshots WHERE file_path = ?1 ORDER BY created_at DESC"
+                format!(
+                    "SELECT {} FROM snapshots WHERE file_path = ?1 ORDER BY created_at DESC",
+                    snapshot_select_columns()
+                )
             }
         };
-        let mut stmt = conn.prepare(sql)?;
+        let mut stmt = conn.prepare(sql.as_str())?;
         let snapshots = match time_range {
             Some((start, end)) => {
                 stmt.query_map(params![file_path, start, end], row_to_snapshot)?
@@ -205,49 +325,53 @@ impl SnapshotStore for SqliteStorage {
 
     fn store_snapshots_batch(&self, snapshots: &[(&Snapshot, &[u8])]) -> StorageResult<()> {
         self.with_atomic(|storage| {
-            let conn = storage.conn.lock();
-            let mut stmt = conn.prepare_cached(
-                "INSERT OR IGNORE INTO snapshots (id, file_path, file_hash, deltas, parents, partition_type, created_at, has_conflicts, source, content_type, content, compression, content_hash)
-                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
-            )?;
-
-            for (snapshot, _content) in snapshots {
-                let deltas_json = serde_json::to_vec(&snapshot.deltas)?;
-                let parents_json = serde_json::to_vec(&snapshot.parents)?;
-
-                let (content_type, content_blob) = match &snapshot.content {
-                    Some(sc) => (
-                        sc.content_type().to_string(),
-                        Some(sc.to_bytes()),
-                    ),
-                    None => ("file".to_string(), None),
-                };
-
-                let compression_str = match snapshot.compression {
-                    SnapshotCompression::None => "none",
-                    SnapshotCompression::Zstd => "zstd",
-                };
-
-                let content_hash_bytes = snapshot.content_hash.map(|h| h.0.to_vec());
-
-                stmt.execute(params![
-                    &snapshot.id.0.to_vec(),
-                    snapshot.file.path_str(),
-                    &snapshot.file.base_hash.to_vec(),
-                    deltas_json,
-                    parents_json,
-                    snapshot.partition_type,
-                    snapshot.created_at,
-                    snapshot.has_conflicts as i32,
-                    snapshot.source,
-                    content_type,
-                    content_blob,
-                    compression_str,
-                    content_hash_bytes,
-                ])?;
+            for (snapshot, content) in snapshots {
+                let conn = storage.conn.lock();
+                insert_snapshot_row(&conn, snapshot)?;
+                let _ = content;
             }
 
             Ok(())
         })
     }
 }
+
+impl SqliteStorage {
+    /// Batch-load snapshots by id with a single SQL query.
+    ///
+    /// Returns the found snapshots keyed by id; missing ids are skipped.
+    /// Callers iterate their own ordered id list against the map so history
+    /// order is preserved without N+1 round trips.
+    pub fn get_snapshots_map(
+        &self,
+        ids: &[SnapshotId],
+    ) -> StorageResult<std::collections::HashMap<SnapshotId, Snapshot>> {
+        let mut map = std::collections::HashMap::with_capacity(ids.len());
+        if ids.is_empty() {
+            return Ok(map);
+        }
+        let conn = self.conn.lock();
+        // Chunk the IN list to stay under SQLite's variable limit.
+        for chunk in ids.chunks(400) {
+            let placeholders: Vec<String> =
+                (0..chunk.len()).map(|_| "?".to_string()).collect();
+            let sql = format!(
+                "SELECT {} FROM snapshots WHERE id IN ({})",
+                snapshot_select_columns(),
+                placeholders.join(", ")
+            );
+            let mut stmt = conn.prepare(&sql)?;
+            let blob_params: Vec<Vec<u8>> =
+                chunk.iter().map(|id| id.0.to_vec()).collect();
+            let param_refs: Vec<&[u8]> = blob_params.iter().map(|v| v.as_slice()).collect();
+            let rows = stmt.query_map(rusqlite::params_from_iter(&param_refs), row_to_snapshot)?;
+            for snapshot in rows {
+                let snapshot = snapshot?;
+                map.insert(snapshot.id, snapshot);
+            }
+        }
+        Ok(map)
+    }
+}
+
+

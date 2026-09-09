@@ -97,6 +97,10 @@ pub struct Snapshot {
     /// without depending on the delta chain (which embeds timestamps).
     #[serde(default)]
     pub content_hash: Option<ContentId>,
+    /// Optional human-readable description of the snapshot intent. Persisted
+    /// in the `snapshots.message` column so it survives process restarts.
+    #[serde(default)]
+    pub message: Option<String>,
 }
 
 /// Snapshot compression method
@@ -122,6 +126,7 @@ impl Snapshot {
             source: String::new(),
             compression: SnapshotCompression::None,
             content_hash: None,
+            message: None,
         };
         let mut s = snapshot;
         s.id = s.compute_id();
@@ -152,6 +157,7 @@ impl Snapshot {
             source: parent.source.clone(),
             compression: parent.compression,
             content_hash: compute_snapshot_content_hash(&None),
+            message: None,
         };
         let mut s = snapshot;
         s.id = s.compute_id();
@@ -167,6 +173,21 @@ impl Snapshot {
         parents: Vec<SnapshotId>,
         deltas: Vec<DeltaId>,
     ) -> Self {
+        Self::new_with_content_and_message(
+            file, content, source, partition_type, parents, deltas, None,
+        )
+    }
+
+    /// Create a new snapshot with full metadata support and an optional message.
+    pub fn new_with_content_and_message(
+        file: FileNode,
+        content: SnapshotContent,
+        source: String,
+        partition_type: String,
+        parents: Vec<SnapshotId>,
+        deltas: Vec<DeltaId>,
+        message: Option<String>,
+    ) -> Self {
         let now = chrono::Utc::now().timestamp_millis();
         let content_hash = compute_snapshot_content_hash(&Some(content.clone()));
         let snapshot = Snapshot {
@@ -181,6 +202,7 @@ impl Snapshot {
             source,
             compression: SnapshotCompression::None,
             content_hash,
+            message,
         };
         let mut s = snapshot;
         s.id = s.compute_id();
@@ -250,6 +272,7 @@ impl Snapshot {
             source: parents[0].source.clone(),
             compression: parents[0].compression,
             content_hash: None,
+            message: None,
         };
         let mut s = snapshot;
         s.id = s.compute_id();
@@ -259,13 +282,18 @@ impl Snapshot {
     pub fn compute_id(&self) -> SnapshotId {
         let mut hasher = blake3::Hasher::new();
 
-        // Content-addressable identity: only content-deterministic factors are
-        // hashed — file identity plus the reconstruction inputs (base content
-        // hash + delta chain) or the explicit content payload. Lineage and
-        // contextual metadata (parents, partition_type, source, conflict flag)
-        // do not participate. Delta ids embed timestamp + seq, so identical
-        // content reached through different edit records yields different
-        // snapshot ids.
+        // Content-addressed identity: file identity plus the reconstruction
+        // inputs (base content hash + delta chain) or the explicit content
+        // payload. Lineage and contextual metadata (parents, partition_type,
+        // source, conflict flag) do not participate. Delta ids embed
+        // timestamp + seq, so identical content reached through different
+        // edit records already yields different snapshot ids.
+        //
+        // Exception: full-content snapshots that carry no delta (same path +
+        // same bytes recorded at different times) would otherwise collide and
+        // be dropped by INSERT deduplication, losing a history record. Only
+        // in that case the creation timestamp joins the hash so repeated
+        // full snapshots remain distinct records.
         let path = self.file.path_str();
         hasher.update(path.as_bytes());
         hasher.update(&self.file.base_hash);
@@ -284,6 +312,9 @@ impl Snapshot {
                 let content_hash = blake3::hash(&content_bytes);
                 hasher.update(content_hash.as_bytes().as_ref());
             }
+        }
+        if self.deltas.is_empty() {
+            hasher.update(&self.created_at.to_le_bytes());
         }
 
         ContentId(*hasher.finalize().as_bytes())
@@ -341,6 +372,7 @@ pub struct SnapshotBuilder {
     source: String,
     compression: SnapshotCompression,
     content_hash: Option<ContentId>,
+    message: Option<String>,
 }
 
 impl SnapshotBuilder {
@@ -355,6 +387,7 @@ impl SnapshotBuilder {
             source: String::new(),
             compression: SnapshotCompression::None,
             content_hash: None,
+            message: None,
         }
     }
 
@@ -403,6 +436,11 @@ impl SnapshotBuilder {
         self
     }
 
+    pub fn message(mut self, message: Option<String>) -> Self {
+        self.message = message;
+        self
+    }
+
     pub fn build(self) -> Result<Snapshot> {
         let file = self.file.ok_or_else(|| {
             LayertwineError::Checkpoint("file is required for snapshot".to_string())
@@ -423,6 +461,7 @@ impl SnapshotBuilder {
             source: self.source,
             compression: self.compression,
             content_hash,
+            message: self.message,
         };
         let mut s = snapshot;
         s.id = s.compute_id();

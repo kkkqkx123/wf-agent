@@ -206,9 +206,17 @@ impl GitCheckpointAdapter for LayertwineGitAdapter {
         match parent_id {
             Some(parent) => self.load_id_list(&Self::parent_key(parent)),
             None => {
-                // No global enumeration over metadata keys; per-parent lists
-                // are the canonical listing entry point.
-                Ok(Vec::new())
+                // Global enumeration over the checkpoint index
+                // (`wf-checkpoint:{id}` metadata keys). Per-parent lists
+                // remain the canonical filtered entry point.
+                let entries = self
+                    .storage
+                    .list_metadata_by_prefix(CP_KEY_PREFIX)
+                    .map_err(map_layertwine_error)?;
+                Ok(entries
+                    .into_iter()
+                    .filter_map(|(key, _)| key.strip_prefix(CP_KEY_PREFIX).map(str::to_string))
+                    .collect())
             }
         }
     }

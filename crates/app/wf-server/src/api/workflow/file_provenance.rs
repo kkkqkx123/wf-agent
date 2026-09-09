@@ -37,6 +37,21 @@ pub(crate) fn routes() -> Router<ApiState> {
             get(handle_diff_against_staged),
         )
         .route("/file-checkpoint/gc", post(handle_run_gc))
+        .route(
+            "/file-checkpoint/timeline/{id}",
+            get(handle_file_timeline),
+        )
+        .route(
+            "/file-checkpoint/sessions",
+            get(handle_list_sessions).post(handle_begin_session),
+        )
+        .route(
+            "/file-checkpoint/sessions/{id}/rollback/{actor}",
+            post(handle_rollback_session),
+        )
+        .route("/file-checkpoint/undo/{id}", post(handle_undo_edit))
+        .route("/file-checkpoint/redo/{id}", post(handle_redo_edit))
+        .route("/file-checkpoint/rename", post(handle_rename_file))
 }
 
 /// Actor / path query parameters: optional `path` substring filter and
@@ -134,6 +149,101 @@ async fn handle_diff_against_staged(
 ) -> impl IntoResponse {
     match wf_api::checkpoint::provenance::diff_against_staged(&state.ctx, &path.id) {
         Ok(diffs) => ok(diffs).into_response(),
+        Err(err) => error_response(err),
+    }
+}
+
+async fn handle_file_timeline(
+    State(state): State<ApiState>,
+    Path(path): Path<IdPath>,
+) -> impl IntoResponse {
+    // The route captures the file path as `id`; slashes arrive percent-encoded.
+    match wf_api::checkpoint::provenance::file_timeline(&state.ctx, &path.id) {
+        Ok(timeline) => ok(timeline).into_response(),
+        Err(err) => error_response(err),
+    }
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct BeginSessionRequest {
+    #[serde(default)]
+    label: Option<String>,
+}
+
+async fn handle_begin_session(
+    State(state): State<ApiState>,
+    axum::Json(body): axum::Json<BeginSessionRequest>,
+) -> impl IntoResponse {
+    match wf_api::checkpoint::provenance::begin_session(&state.ctx, body.label) {
+        Ok(id) => ok(id).into_response(),
+        Err(err) => error_response(err),
+    }
+}
+
+async fn handle_list_sessions(State(state): State<ApiState>) -> impl IntoResponse {
+    match wf_api::checkpoint::provenance::list_sessions(&state.ctx) {
+        Ok(sessions) => ok(sessions).into_response(),
+        Err(err) => error_response(err),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct SessionRollbackPath {
+    id: String,
+    actor: String,
+}
+
+async fn handle_rollback_session(
+    State(state): State<ApiState>,
+    Path(path): Path<SessionRollbackPath>,
+) -> impl IntoResponse {
+    match wf_api::checkpoint::provenance::rollback_session(&state.ctx, &path.actor, &path.id) {
+        Ok(snapshot) => ok(snapshot).into_response(),
+        Err(err) => error_response(err),
+    }
+}
+
+async fn handle_undo_edit(
+    State(state): State<ApiState>,
+    Path(path): Path<IdPath>,
+) -> impl IntoResponse {
+    match wf_api::checkpoint::provenance::undo_edit(&state.ctx, &path.id) {
+        Ok(snapshot) => ok(snapshot).into_response(),
+        Err(err) => error_response(err),
+    }
+}
+
+async fn handle_redo_edit(
+    State(state): State<ApiState>,
+    Path(path): Path<IdPath>,
+) -> impl IntoResponse {
+    match wf_api::checkpoint::provenance::redo_edit(&state.ctx, &path.id) {
+        Ok(snapshot) => ok(snapshot).into_response(),
+        Err(err) => error_response(err),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct RenameFileRequest {
+    actor: String,
+    from_path: String,
+    to_path: String,
+    #[serde(default)]
+    content: String,
+}
+
+async fn handle_rename_file(
+    State(state): State<ApiState>,
+    axum::Json(body): axum::Json<RenameFileRequest>,
+) -> impl IntoResponse {
+    match wf_api::checkpoint::provenance::rename_file(
+        &state.ctx,
+        &body.actor,
+        &body.from_path,
+        &body.to_path,
+        body.content.as_bytes(),
+    ) {
+        Ok(snapshot) => ok(snapshot).into_response(),
         Err(err) => error_response(err),
     }
 }

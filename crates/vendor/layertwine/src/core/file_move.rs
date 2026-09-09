@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 /// Records a file rename or move operation. When a file is moved from
 /// `from_path` to `to_path`, the system creates a `FileMove` record that
 /// links the old path's history to the new path's history, enabling
-/// chain-of-custody追溯 across renames.
+/// chain-of-custody tracing across renames.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FileMove {
     /// Source path (before the move).

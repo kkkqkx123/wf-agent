@@ -58,6 +58,7 @@ fn test_store_and_get_snapshot() -> StorageResult<()> {
         source: String::new(),
         compression: SnapshotCompression::None,
         content_hash: None,
+        message: None,
     };
 
     storage.store_snapshot(&snapshot, b"hello world")?;
@@ -92,6 +93,7 @@ fn test_snapshot_exists() -> StorageResult<()> {
         source: String::new(),
         compression: SnapshotCompression::None,
         content_hash: None,
+        message: None,
     };
 
     assert!(!storage.snapshot_exists(&snapshot_id)?);
@@ -122,6 +124,7 @@ fn test_find_snapshots_by_file() -> StorageResult<()> {
         source: String::new(),
         compression: SnapshotCompression::None,
         content_hash: None,
+        message: None,
     };
 
     let snapshot2 = Snapshot {
@@ -139,6 +142,7 @@ fn test_find_snapshots_by_file() -> StorageResult<()> {
         source: String::new(),
         compression: SnapshotCompression::None,
         content_hash: None,
+        message: None,
     };
 
     storage.store_snapshot(&snapshot1, b"version1")?;
@@ -172,6 +176,7 @@ fn test_find_snapshots_by_partition() -> StorageResult<()> {
         source: String::new(),
         compression: SnapshotCompression::None,
         content_hash: None,
+        message: None,
     };
 
     let snapshot2 = Snapshot {
@@ -189,6 +194,7 @@ fn test_find_snapshots_by_partition() -> StorageResult<()> {
         source: String::new(),
         compression: SnapshotCompression::None,
         content_hash: None,
+        message: None,
     };
 
     storage.store_snapshot(&snapshot1, b"version1")?;
@@ -224,6 +230,7 @@ fn test_store_snapshots_batch_atomic() -> StorageResult<()> {
         source: String::new(),
         compression: SnapshotCompression::None,
         content_hash: None,
+        message: None,
     };
 
     let snapshot2 = Snapshot {
@@ -241,6 +248,7 @@ fn test_store_snapshots_batch_atomic() -> StorageResult<()> {
         source: String::new(),
         compression: SnapshotCompression::None,
         content_hash: None,
+        message: None,
     };
 
     let snapshot3 = Snapshot {
@@ -258,6 +266,7 @@ fn test_store_snapshots_batch_atomic() -> StorageResult<()> {
         source: String::new(),
         compression: SnapshotCompression::None,
         content_hash: None,
+        message: None,
     };
 
     // Store snapshots in a batch with atomic guarantee
@@ -316,6 +325,7 @@ fn test_snapshot_with_deltas_and_parents() -> StorageResult<()> {
         source: String::new(),
         compression: SnapshotCompression::None,
         content_hash: None,
+        message: None,
     };
 
     storage.store_snapshot(&snapshot, b"content")?;
@@ -795,6 +805,7 @@ fn test_atomic_ops_success() -> StorageResult<()> {
             source: String::new(),
             compression: SnapshotCompression::None,
             content_hash: None,
+            message: None,
         };
 
         storage.store_snapshot(&snapshot, b"content")?;
@@ -830,6 +841,7 @@ fn test_atomic_ops_rollback_on_error() -> StorageResult<()> {
             source: String::new(),
             compression: SnapshotCompression::None,
             content_hash: None,
+            message: None,
         };
 
         storage.store_snapshot(&snapshot, b"content")?;
@@ -1210,6 +1222,7 @@ fn test_clone_storage() -> StorageResult<()> {
         source: String::new(),
         compression: SnapshotCompression::None,
         content_hash: None,
+        message: None,
     };
 
     storage.store_snapshot(&snapshot, b"content")?;
@@ -1242,6 +1255,7 @@ fn test_share_storage() -> StorageResult<()> {
         source: String::new(),
         compression: SnapshotCompression::None,
         content_hash: None,
+        message: None,
     };
 
     storage.store_snapshot(&snapshot, b"content")?;

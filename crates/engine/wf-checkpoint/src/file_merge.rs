@@ -123,11 +123,16 @@ impl FileCheckpointManager {
         }
 
         let snapshot_ids = vec![merge_result.snapshot_id];
+        let ws = self.workspace_key();
+        let staged_author = match ws.as_deref() {
+            Some(key) => format!("staged:{key}"),
+            None => "staged".to_string(),
+        };
         let checkpoint = Checkpoint::new(
             snapshot_ids,
             parents,
             CheckpointMetadata::new(
-                "staged",
+                &staged_author,
                 &format!("merge {} features into staged", feature_names.len()),
             ),
         );
@@ -203,15 +208,22 @@ impl FileCheckpointManager {
     }
 
     /// Find the latest checkpoint id for the staged partition by scanning
-    /// stored checkpoints whose author is "staged".
+    /// stored checkpoints whose author matches the workspace-scoped staged
+    /// author (`staged:{workspace_key}` when a workspace root is configured,
+    /// otherwise legacy `staged`). Scoped workspaces never read each other's
+    /// staged checkpoints.
     pub(crate) fn latest_staged_checkpoint_id(
         &self,
         storage: &SqliteStorage,
     ) -> Result<Option<String>, CheckpointError> {
+        let expected = match self.workspace_key() {
+            Some(key) => format!("staged:{key}"),
+            None => "staged".to_string(),
+        };
         let checkpoints = storage.list_checkpoints().map_err(map_layertwine_error)?;
         let latest = checkpoints
             .iter()
-            .filter(|c| c.metadata.author == "staged")
+            .filter(|c| c.metadata.author == expected)
             .max_by_key(|c| c.created_at);
         Ok(latest.map(|c| c.id.to_hex()))
     }

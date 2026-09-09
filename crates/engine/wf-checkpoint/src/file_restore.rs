@@ -10,7 +10,7 @@ use crate::file::{
 use crate::file_util::{
     checkpoint_deleted_paths as checkpoint_deleted_paths_fn,
     checkpoint_states as checkpoint_states_fn, handle_restore_failure, resolve_restore_target,
-    sha256_hex, write_file_with_dirs,
+    sha256_hex, validate_workspace_relative_path, write_file_with_dirs,
 };
 use crate::scan::{is_hardcoded_ignored, ScanConfig, WorkspaceScanner};
 
@@ -195,7 +195,24 @@ impl FileCheckpointManager {
             .or(persisted_empty_dirs)
             .unwrap_or_default();
         for empty_dir in &empty_dirs {
-            let dir = base_dir.join(empty_dir);
+            let relative = validate_workspace_relative_path(empty_dir)?;
+            let dir = base_dir.join(&relative);
+            let base = base_dir.canonicalize().map_err(CheckpointError::Io)?;
+            let mut existing = dir.as_path();
+            while !existing.exists() {
+                existing = existing.parent().ok_or_else(|| CheckpointError::Validation {
+                    reason: format!("cannot resolve restore path '{empty_dir}'"),
+                })?;
+            }
+            let canonical_parent = existing.canonicalize().map_err(CheckpointError::Io)?;
+            if !canonical_parent.starts_with(&base) {
+                return Err(CheckpointError::Validation {
+                    reason: format!(
+                        "file checkpoint path '{empty_dir}' escapes base directory '{}'",
+                        base_dir.display()
+                    ),
+                });
+            }
             match std::fs::create_dir_all(&dir) {
                 Ok(()) => {}
                 Err(err) => {

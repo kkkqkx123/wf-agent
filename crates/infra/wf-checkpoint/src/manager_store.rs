@@ -13,7 +13,7 @@ pub use wf_types::config::file_checkpoint::ApprovalPolicy;
 use wf_types::config::file_checkpoint::ConflictBehavior;
 
 use crate::error::CheckpointError;
-use crate::file_util::map_layertwine_error;
+use crate::file::util::map_layertwine_error;
 use crate::layertwine::LayertwineGitAdapter;
 use crate::scan::ScanConfig;
 

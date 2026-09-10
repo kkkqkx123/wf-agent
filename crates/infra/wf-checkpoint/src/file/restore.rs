@@ -7,7 +7,7 @@ use crate::error::CheckpointError;
 use crate::file::{
     FileCheckpointManager, FileCheckpointOptions, FileState, WorkspaceRestoreResult,
 };
-use crate::file_util::{
+use crate::file::util::{
     checkpoint_deleted_paths as checkpoint_deleted_paths_fn,
     checkpoint_states as checkpoint_states_fn, handle_restore_failure, resolve_restore_target,
     sha256_hex, validate_workspace_relative_path, write_file_with_dirs,
@@ -185,8 +185,8 @@ impl FileCheckpointManager {
         // single source of truth; no in-memory mirror).
         let empty_dirs = self
             .storage_ref()?
-            .load_metadata(&crate::metadata_keys::empty_dirs_key(checkpoint_id))
-            .map_err(crate::file_util::map_layertwine_error)?
+            .load_metadata(&crate::metadata::keys::empty_dirs_key(checkpoint_id))
+            .map_err(crate::file::util::map_layertwine_error)?
             .map(|raw| serde_json::from_str::<Vec<String>>(&raw))
             .transpose()?
             .unwrap_or_default();

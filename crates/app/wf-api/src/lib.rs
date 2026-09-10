@@ -296,10 +296,10 @@ pub use wf_workflow::variable::{
 };
 
 // -- wf-checkpoint --
-pub use wf_checkpoint::actor_id::{ActorId, ActorIdError, ActorKind};
+pub use wf_checkpoint::actor::id::{ActorId, ActorIdError, ActorKind};
 pub use wf_checkpoint::approval::{ConflictView, MergeOutcome, PendingApproval};
 pub use wf_checkpoint::cache::CheckpointCache;
-pub use wf_checkpoint::diff::{
+pub use wf_checkpoint::common::{
     diff_stats_for_text, inline_word_diff, unified_diff_text, DiffStats,
 };
 pub use wf_checkpoint::error::CheckpointError;
@@ -308,9 +308,9 @@ pub use wf_checkpoint::file::{
     FileCheckpoint, FileCheckpointManager, FileCheckpointMetadata, FileCheckpointOptions,
     FileContentEntry, FileState, WorkspaceRestoreResult,
 };
-pub use wf_checkpoint::file_merge::MergeCommitResult;
-pub use wf_checkpoint::file_util::sha256_hex;
-pub use wf_checkpoint::metadata_builder::{build_checkpoint_state, CheckpointMetadataBuilder};
+pub use wf_checkpoint::file::merge::MergeCommitResult;
+pub use wf_checkpoint::file::util::sha256_hex;
+pub use wf_checkpoint::metadata::builder::{build_checkpoint_state, CheckpointMetadataBuilder};
 pub use wf_checkpoint::provenance::{
     DeltaSummary, FileDiffKind, FileDiffView, PartitionView, WorkspaceFile,
 };

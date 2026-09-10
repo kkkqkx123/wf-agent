@@ -1,8 +1,5 @@
 //! Unified effect data models bridging tool-layer operations and
-//! checkpoint storage. These types carry the exact semantic of the old
-//! `PreciseFileChange`, `ScopeOutcome`, and `SessionBoundary` from
-//! `wf-tools::observe`, renamed and relocated to `wf-checkpoint` so the
-//! tool layer no longer owns the business-neutral event vocabulary.
+//! checkpoint storage.
 
 use std::path::{Path, PathBuf};
 
@@ -90,7 +87,7 @@ pub enum ToolEffectPayload {
     SessionFinished,
 }
 
-/// A single ordered effect recorded by a [`crate::session::CheckpointSession`].
+/// A single ordered effect recorded by a checkpoint session.
 /// The tool layer emits one effect per `record_file_mutation` /
 /// `begin_scope` / `end_scope` / `begin_session` / `session_command_finished` /
 /// `end_session` call; checkpoint consumes them in natural call order.

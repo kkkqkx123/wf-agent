@@ -4,7 +4,7 @@ use wf_types::config::file_checkpoint::FailureBehavior;
 
 use crate::error::CheckpointError;
 use crate::file::FileCheckpointManager;
-use crate::file_util::sha256_hex;
+use crate::file::util::sha256_hex;
 use crate::scan::{ScanConfig, WorkspaceScanner};
 use crate::script_capture::WorkspaceChangeCollector;
 use crate::watcher::{FileChangeKind, FileChangeRecord};
@@ -32,7 +32,7 @@ impl FileCheckpointManager {
     pub fn workspace_key(&self) -> Option<String> {
         self.workspace_root
             .as_deref()
-            .map(crate::file_util::normalize_workspace_key)
+            .map(crate::file::util::normalize_workspace_key)
     }
 
     /// The workspace scan rules (ignore patterns + per-file failure
@@ -158,8 +158,8 @@ impl FileCheckpointManager {
                         if let Ok(from_rel) = from_abs.strip_prefix(&base_norm) {
                             let from_rel = from_rel.to_string_lossy().replace('\\', "/");
                             if let (Ok(from_valid), Ok(to_valid)) = (
-                                crate::file_util::validate_workspace_relative_path(&from_rel),
-                                crate::file_util::validate_workspace_relative_path(&relative),
+                                crate::file::util::validate_workspace_relative_path(&from_rel),
+                                crate::file::util::validate_workspace_relative_path(&relative),
                             ) {
                                 // Only record the move linkage when the old
                                 // side is actually gone; otherwise this was a

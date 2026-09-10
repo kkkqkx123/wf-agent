@@ -12,8 +12,8 @@ use std::sync::Arc;
 use crate::ActorId;
 use crate::FileCheckpointManager;
 
-use super::capture::ScopeCapture;
-use super::effect::{FileMutation, ScopeOutcome, SessionBoundary};
+use super::scope::ScopeCapture;
+use wf_types::effect::{FileMutation, ScopeOutcome, SessionBoundary};
 
 /// Direct replacement for the old observer trait `notify_*` family. The
 /// methods below are the tool-layer surface: each maps to one internal
@@ -113,10 +113,10 @@ impl CheckpointSession {
             return crate::PreciseApplyStats::default();
         };
         let kind = match &mutation.operation {
-            super::effect::FileOperation::Created => crate::PreciseFileEventKind::Created,
-            super::effect::FileOperation::Modified => crate::PreciseFileEventKind::Modified,
-            super::effect::FileOperation::Deleted => crate::PreciseFileEventKind::Deleted,
-            super::effect::FileOperation::Renamed { from } => {
+            wf_types::effect::FileOperation::Created => crate::PreciseFileEventKind::Created,
+            wf_types::effect::FileOperation::Modified => crate::PreciseFileEventKind::Modified,
+            wf_types::effect::FileOperation::Deleted => crate::PreciseFileEventKind::Deleted,
+            wf_types::effect::FileOperation::Renamed { from } => {
                 crate::PreciseFileEventKind::Renamed { from: from.clone() }
             }
         };
@@ -236,7 +236,7 @@ impl CheckpointSession {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::effect::FileOperation;
+    use wf_types::effect::FileOperation;
     use std::path::PathBuf;
 
     #[test]

@@ -14,7 +14,7 @@ use layertwine::storage::repository::CheckpointPersist;
 use layertwine::storage::sqlite::SqliteStorage;
 
 use crate::error::CheckpointError;
-use crate::file_util::map_layertwine_error;
+use crate::file::util::map_layertwine_error;
 
 /// Feature branch pointers (bare names, no `/`).
 pub struct FeatureBranchStore {

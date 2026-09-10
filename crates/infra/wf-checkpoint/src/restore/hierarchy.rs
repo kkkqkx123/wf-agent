@@ -1,5 +1,5 @@
 use crate::error::CheckpointError;
-use crate::metrics::CheckpointMetricsCollector;
+use crate::metrics_collector::CheckpointMetricsCollector;
 use dashmap::DashMap;
 use std::collections::VecDeque;
 use std::sync::Arc;

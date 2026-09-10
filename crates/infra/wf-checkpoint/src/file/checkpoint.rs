@@ -7,7 +7,7 @@ use layertwine::storage::sqlite::SqliteStorage;
 use crate::branch::execution_branch_name;
 use crate::error::CheckpointError;
 use crate::file::{FileCheckpoint, FileCheckpointManager, FileContentEntry};
-use crate::file_util::{
+use crate::file::util::{
     map_layertwine_error, map_layertwine_error_with, partition_latest_snapshot_ids,
     projection as projection_fn,
 };
@@ -34,7 +34,7 @@ impl FileCheckpointManager {
         // listed and rolled back atomically.
         let session_id = self.begin_session(Some("file checkpoint".to_string()))?;
         for entry in entries {
-            let path = crate::file_util::validate_workspace_relative_path(&entry.path)?;
+            let path = crate::file::util::validate_workspace_relative_path(&entry.path)?;
             if entry.deleted {
                 self.apply_agent_delete_in_session(&actor, &path, &session_id)?;
             } else {
@@ -149,7 +149,7 @@ impl FileCheckpointManager {
         storage: &SqliteStorage,
         checkpoint: &Checkpoint,
     ) -> Result<FileCheckpoint, CheckpointError> {
-        use crate::file_util::checkpoint_deleted_paths as checkpoint_deleted_paths_fn;
+        use crate::file::util::checkpoint_deleted_paths as checkpoint_deleted_paths_fn;
         let deleted = checkpoint_deleted_paths_fn(storage, checkpoint)?;
         projection_fn(storage, checkpoint, &deleted)
     }
@@ -157,7 +157,7 @@ impl FileCheckpointManager {
     pub(crate) fn latest_checkpoint_id(
         &self,
         storage: &SqliteStorage,
-        actor: &crate::actor_id::ActorId,
+        actor: &crate::actor::id::ActorId,
     ) -> Result<Option<String>, CheckpointError> {
         let actor_str = actor.as_str().to_string();
         if let Some(id) = self.store.latest_checkpoints.get(&actor_str) {

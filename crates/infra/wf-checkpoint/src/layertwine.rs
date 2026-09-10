@@ -7,7 +7,7 @@ use layertwine::storage::sqlite::SqliteStorage;
 
 use crate::branch::BranchStorageAdapter;
 use crate::error::CheckpointError;
-use crate::file_util::map_layertwine_error;
+use crate::file::util::map_layertwine_error;
 use wf_common::gate::ConcurrencyGate;
 
 pub trait GitCheckpointAdapter: Send + Sync {

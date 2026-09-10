@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use serde::Serialize;
 
-use wf_checkpoint::actor_id::{ActorId, ActorKind};
+use wf_checkpoint::actor::id::{ActorId, ActorKind};
 use wf_checkpoint::script_capture::WorkspaceChangeCollector;
 use wf_script::{ScriptDefinition, ScriptEngine, ScriptEngineOptions, ScriptExecutionOptions};
 use wf_storage::adapter::base::BaseStorageAdapter;

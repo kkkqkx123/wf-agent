@@ -156,7 +156,7 @@ pub(crate) fn checkpoint_states(
             continue;
         };
         let path = snapshot_file_path(storage, snapshot)?;
-        if path == SEED_PATH || crate::metadata_keys::is_blob_path(&path) {
+        if path == SEED_PATH || crate::metadata::keys::is_blob_path(&path) {
             continue;
         }
         let bytes = snapshot_content_bytes(storage, snapshot)?;
@@ -249,7 +249,7 @@ pub(crate) fn partition_latest_snapshot_ids(
             let path = path_of(snapshot);
             if last_per_path.get(&path) == Some(snapshot_id)
                 && path != SEED_PATH
-                && !crate::metadata_keys::is_blob_path(&path)
+                && !crate::metadata::keys::is_blob_path(&path)
                 && seen.insert(path)
             {
                 ids.push(*snapshot_id);
@@ -332,11 +332,11 @@ pub(crate) fn resolve_restore_target(
 
 /// Lexical normalization without touching the filesystem.
 /// Fallback root actor for a bare execution id (agent kind).
-pub(crate) fn root_actor(execution_id: wf_types::Id) -> crate::actor_id::ActorId {
-    crate::actor_id::ActorId::new(crate::actor_id::ActorKind::Agent, &[execution_id])
+pub(crate) fn root_actor(execution_id: wf_types::Id) -> crate::actor::id::ActorId {
+    crate::actor::id::ActorId::new(crate::actor::id::ActorKind::Agent, &[execution_id])
         .unwrap_or_else(|_| {
-            crate::actor_id::ActorId::new(
-                crate::actor_id::ActorKind::Agent,
+            crate::actor::id::ActorId::new(
+                crate::actor::id::ActorKind::Agent,
                 &[wf_types::Id::from("unknown")],
             )
             .unwrap()

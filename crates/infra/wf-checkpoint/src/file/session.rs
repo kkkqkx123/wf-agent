@@ -2,10 +2,10 @@ use layertwine::core::edit_session::EditSession;
 use layertwine::core::types::EditSessionId;
 use layertwine::storage::repository::{EditSessionStore, PartitionStore, SnapshotStore};
 
-use crate::actor_id::ActorId;
+use crate::actor::id::ActorId;
 use crate::error::CheckpointError;
 use crate::file::FileCheckpointManager;
-use crate::file_util::map_layertwine_error;
+use crate::file::util::map_layertwine_error;
 
 impl FileCheckpointManager {
     // ── edit sessions (operation batches) ─────────────────────────────
@@ -39,7 +39,7 @@ impl FileCheckpointManager {
         content: &[u8],
         session_id: &EditSessionId,
     ) -> Result<String, CheckpointError> {
-        let validated = crate::file_util::validate_workspace_relative_path(path)?;
+        let validated = crate::file::util::validate_workspace_relative_path(path)?;
         let storage = self.storage_ref()?;
         let agent_id = actor.to_agent_instance_id();
         self.ensure_agent_partition(actor)?;

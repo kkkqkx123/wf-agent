@@ -7,7 +7,7 @@ use layertwine::storage::sqlite::SqliteStorage;
 use crate::error::CheckpointError;
 use crate::event::CheckpointEventBus;
 use crate::file::FileCheckpointManager;
-use crate::file_util::{map_layertwine_error, seed_initial_snapshot};
+use crate::file::util::{map_layertwine_error, seed_initial_snapshot};
 
 /// Result of a merge commit: the layertwine merge outcome plus the
 /// multi-parent checkpoint id created to record the merge in the DAG.

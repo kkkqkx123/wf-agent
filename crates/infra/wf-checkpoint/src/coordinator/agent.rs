@@ -1,4 +1,4 @@
-use crate::content::SizeBudget;
+use crate::common::content::SizeBudget;
 use crate::coordinator::base::restored_status;
 use crate::coordinator::CheckpointCoordinator;
 use crate::delta::AgentDiffCalculator;
@@ -9,7 +9,7 @@ use crate::delta::GenericDeltaRestorer;
 use crate::error::CheckpointError;
 use crate::event::CheckpointEventBus;
 use crate::file::FileCheckpointManager;
-use crate::metadata_builder::{
+use crate::metadata::builder::{
     build_checkpoint_metadata, trigger_description, trigger_tag, CHAIN_POSITION_FIELD,
 };
 use crate::restore::hierarchy::{HierarchyRestorer, RestoreSummary, StorageChildResolver};
@@ -23,8 +23,8 @@ use crate::state::AgentCheckpointStateManager;
 use crate::state::CheckpointStateManager;
 use crate::strategy::CheckpointStrategy;
 use crate::strategy::StandardStrategy;
-use crate::version::VersionManager;
-use crate::version::MIN_COMPATIBLE_VERSION;
+use crate::version_manager::VersionManager;
+use crate::version_manager::MIN_COMPATIBLE_VERSION;
 use layertwine::layered::MergeResult;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -154,7 +154,7 @@ impl AgentCheckpointCoordinator {
 
     fn apply_content_policy(&self, state: &mut AgentStateSnapshot) {
         if let Some(strategy) = &self.strategy {
-            let filter = crate::content::ContentFilter::new();
+            let filter = crate::common::content::ContentFilter::new();
             let config = strategy.content_config();
             if !filter.should_include_state(config) {
                 state.conversation_snapshot = None;
@@ -914,9 +914,9 @@ pub struct AgentLoopEntity {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::content::SizeBudget;
+    use crate::common::content::SizeBudget;
     use crate::event::CheckpointEvent;
-    use crate::metadata_builder::{CREATED_AT_FIELD, FORMAT_VERSION_FIELD};
+    use crate::metadata::builder::{CREATED_AT_FIELD, FORMAT_VERSION_FIELD};
     use wf_storage::backend::StorageBackend;
     use wf_types::checkpoint::CheckpointTiming;
 

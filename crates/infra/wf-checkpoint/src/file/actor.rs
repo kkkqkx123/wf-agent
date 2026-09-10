@@ -6,12 +6,12 @@ use layertwine::core::snapshot::{Snapshot, SnapshotContent};
 use layertwine::layered::agent;
 use layertwine::storage::repository::{PartitionStore, SnapshotStore};
 
-use crate::actor_id::{ActorId, ActorKind};
+use crate::actor::id::{ActorId, ActorKind};
 use crate::branch::{execution_branch_name, manager::BranchStorageAdapter};
 use crate::error::CheckpointError;
 use crate::event::CheckpointEventBus;
 use crate::file::FileCheckpointManager;
-use crate::file_util::{map_layertwine_error, seed_initial_snapshot, sha256_hex};
+use crate::file::util::{map_layertwine_error, seed_initial_snapshot, sha256_hex};
 pub use crate::precise::{PreciseApplyStats, PreciseFileEvent, PreciseFileEventKind};
 use crate::provenance::DeltaSummary;
 use crate::recent_agent_writes::RecentAgentWrites;
@@ -68,7 +68,7 @@ impl FileCheckpointManager {
         }
         let actor = match ActorId::parse(entity_id) {
             Ok(actor) => actor,
-            Err(_) => crate::file_util::root_actor(wf_types::Id::from(entity_id.to_string())),
+            Err(_) => crate::file::util::root_actor(wf_types::Id::from(entity_id.to_string())),
         };
         self.actor_index
             .insert(entity_id.to_string(), actor.clone());
@@ -95,10 +95,10 @@ impl FileCheckpointManager {
             Some(parent) if parent != entity_id => match self.actor_index.get(parent) {
                 Some(parent_actor) => parent_actor
                     .child(&child_id)
-                    .unwrap_or_else(|_| crate::file_util::root_actor(child_id.clone())),
-                None => crate::file_util::root_actor(child_id.clone()),
+                    .unwrap_or_else(|_| crate::file::util::root_actor(child_id.clone())),
+                None => crate::file::util::root_actor(child_id.clone()),
             },
-            _ => crate::file_util::root_actor(child_id.clone()),
+            _ => crate::file::util::root_actor(child_id.clone()),
         };
         self.actor_index
             .insert(entity_id.to_string(), actor.clone());
@@ -192,7 +192,7 @@ impl FileCheckpointManager {
         content: &[u8],
         expected_hash: Option<&str>,
     ) -> Result<String, CheckpointError> {
-        let path = crate::file_util::validate_workspace_relative_path(path)?;
+        let path = crate::file::util::validate_workspace_relative_path(path)?;
         let storage = self.storage_ref()?;
         let agent_id = actor.to_agent_instance_id();
         self.ensure_agent_partition(actor)?;
@@ -279,7 +279,7 @@ impl FileCheckpointManager {
         actor: &ActorId,
         path: &str,
     ) -> Result<String, CheckpointError> {
-        let path = crate::file_util::validate_workspace_relative_path(path)?;
+        let path = crate::file::util::validate_workspace_relative_path(path)?;
         let storage = self.storage_ref()?;
         let agent_id = actor.to_agent_instance_id();
         self.ensure_agent_partition(actor)?;
@@ -323,7 +323,7 @@ impl FileCheckpointManager {
     /// `apply_manual_edit`; binary content is snapshotted verbatim via
     /// `SnapshotContent::FileContent`. Returns the new snapshot id (hex).
     pub fn apply_manual_edit(&self, path: &str, content: &[u8]) -> Result<String, CheckpointError> {
-        let path = crate::file_util::validate_workspace_relative_path(path)?;
+        let path = crate::file::util::validate_workspace_relative_path(path)?;
         let storage = self.storage_ref()?;
         let ws = self.workspace_key();
         let manual_pid = match ws.as_deref() {
@@ -398,7 +398,7 @@ impl FileCheckpointManager {
     /// partition (explicit deletion semantics via
     /// `SnapshotContent::Deleted`). Returns the new snapshot id (hex).
     pub fn apply_manual_delete(&self, path: &str) -> Result<String, CheckpointError> {
-        let path = crate::file_util::validate_workspace_relative_path(path)?;
+        let path = crate::file::util::validate_workspace_relative_path(path)?;
         let storage = self.storage_ref()?;
         let ws = self.workspace_key();
         let manual_pid = match ws.as_deref() {
@@ -491,13 +491,13 @@ impl FileCheckpointManager {
         use layertwine::core::file_move::FileMove;
         use layertwine::storage::repository::FileMoveStore;
 
-        let from = crate::file_util::validate_workspace_relative_path(from_path)?;
-        let to = crate::file_util::validate_workspace_relative_path(to_path)?;
+        let from = crate::file::util::validate_workspace_relative_path(from_path)?;
+        let to = crate::file::util::validate_workspace_relative_path(to_path)?;
         let storage = self.storage_ref()?;
         let file_move = FileMove::new(from, to, source.to_string());
         storage
             .store_file_move(&file_move)
-            .map_err(crate::file_util::map_layertwine_error)
+            .map_err(crate::file::util::map_layertwine_error)
     }
 
     /// Explicit rename entry point: validate both sides, record the move
@@ -510,8 +510,8 @@ impl FileCheckpointManager {
         to_path: &str,
         content: &[u8],
     ) -> Result<String, crate::error::CheckpointError> {
-        let from = crate::file_util::validate_workspace_relative_path(from_path)?;
-        let to = crate::file_util::validate_workspace_relative_path(to_path)?;
+        let from = crate::file::util::validate_workspace_relative_path(from_path)?;
+        let to = crate::file::util::validate_workspace_relative_path(to_path)?;
         self.track_file_move(&from, &to, actor.as_str())?;
         let _ = self.apply_agent_delete(actor, &from);
         self.apply_agent_edit(actor, &to, content)

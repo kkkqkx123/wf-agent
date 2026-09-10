@@ -1,7 +1,7 @@
-use crate::cleanup::{CleanupExecutor, CleanupResult, CleanupStrategy};
+use crate::cleanup_policy::{CleanupExecutor, CleanupResult, CleanupStrategy};
 use crate::delta::{CheckpointLoader, DiffCalculator};
 use crate::error::CheckpointError;
-use crate::metrics::CheckpointMetricsCollector;
+use crate::metrics_collector::CheckpointMetricsCollector;
 use crate::serializer::{CheckpointCodec, CheckpointSerializer};
 use crate::state::CheckpointStateManager;
 use serde::Serialize;

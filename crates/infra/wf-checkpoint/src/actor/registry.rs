@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use dashmap::DashMap;
 
-use crate::actor_id::ActorId;
+use crate::actor::id::ActorId;
 
 /// Thread-safe entity id -> resolved actor cache.
 #[derive(Debug, Clone, Default)]
@@ -44,7 +44,7 @@ impl ActorRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::actor_id::{ActorId, ActorKind};
+    use crate::actor::id::{ActorId, ActorKind};
 
     #[test]
     fn registry_roundtrip() {

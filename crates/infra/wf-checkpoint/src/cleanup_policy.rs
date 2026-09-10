@@ -5,7 +5,7 @@ use wf_types::checkpoint::CheckpointCleanupMetrics;
 use wf_types::storage::CheckpointStorageMetadata;
 
 use crate::checkpoint_graph::CheckpointDependencyGraph;
-use crate::metrics::CheckpointMetricsCollector;
+use crate::metrics_collector::CheckpointMetricsCollector;
 
 const DAY_MS: i64 = 86_400_000;
 

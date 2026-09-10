@@ -21,12 +21,12 @@ use layertwine::engine::merge::merge_texts;
 use layertwine::storage::repository::{DeltaStore, PartitionStore, SnapshotStore};
 use layertwine::storage::sqlite::SqliteStorage;
 
-use crate::actor_id::ActorId;
+use crate::actor::id::ActorId;
 use crate::approval::{to_conflict_views, ConflictView};
-use crate::diff::{diff_stats_for_text, unified_diff_text};
+use crate::common::diff::{diff_stats_for_text, unified_diff_text};
 use crate::error::CheckpointError;
 use crate::file::FileContentEntry;
-use crate::file_util::{map_layertwine_error, sha256_hex};
+use crate::file::util::{map_layertwine_error, sha256_hex};
 
 /// Seed path of the synthetic initial snapshot; excluded from provenance.
 const SEED_PATH: &str = ".wf-checkpoint-seed";
@@ -155,7 +155,7 @@ fn snapshot_content_bytes(
     storage: &SqliteStorage,
     snapshot: &Snapshot,
 ) -> Result<Vec<u8>, CheckpointError> {
-    crate::file_util::snapshot_content_bytes(storage, snapshot)
+    crate::file::util::snapshot_content_bytes(storage, snapshot)
 }
 
 /// Batch-load the chain-head delta of many snapshots with a single SQL
@@ -832,7 +832,7 @@ fn actor_partition(storage: &SqliteStorage, actor: &str) -> Result<Partition, Ch
     let actor = match ActorId::parse(actor) {
         Ok(parsed) => parsed,
         Err(_) => ActorId::new(
-            crate::actor_id::ActorKind::Agent,
+            crate::actor::id::ActorKind::Agent,
             &[wf_types::Id::from(actor.to_string())],
         )
         .map_err(|e| CheckpointError::Validation {
@@ -1006,7 +1006,7 @@ pub fn file_timeline(storage: &SqliteStorage, path: &str) -> Result<FileTimeline
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::actor_id::{ActorId, ActorKind};
+    use crate::actor::id::{ActorId, ActorKind};
     use crate::file::FileCheckpointManager;
     use wf_types::Id;
 
@@ -1194,7 +1194,7 @@ mod tests {
     #[test]
     fn no_map_storage_remnants() {
         // Layertwine failures flow exclusively through
-        // `crate::file_util::map_layertwine_error`; the historical duplicate
+        // `crate::file::util::map_layertwine_error`; the historical duplicate
         // helpers must stay deleted. Needles are assembled from fragments so
         // this test's own source cannot match them.
         let provenance_needle = ["fn map_", "storage"].concat();

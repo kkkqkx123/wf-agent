@@ -14,7 +14,7 @@
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use wf_checkpoint::actor_id::{ActorId, ActorKind};
+use wf_checkpoint::actor::id::{ActorId, ActorKind};
 use wf_checkpoint::file::FileCheckpointManager;
 use wf_checkpoint::provenance::{get_actor_workspace, list_changes_by_path};
 use wf_checkpoint::scan::ScanConfig;

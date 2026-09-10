@@ -9,7 +9,7 @@ use std::path::PathBuf;
 
 use wf_types::config::file_checkpoint::FailureBehavior;
 
-use crate::actor_id::ActorId;
+use crate::actor::id::ActorId;
 use crate::error::CheckpointError;
 use crate::file::FileCheckpointManager;
 use crate::script_capture::{CollectedChange, CollectedChangeKind};
@@ -144,7 +144,7 @@ impl FileCheckpointManager {
                 continue;
             };
             let relative = relative.to_string_lossy().replace('\\', "/");
-            let validated = match crate::file_util::validate_workspace_relative_path(&relative) {
+            let validated = match crate::file::util::validate_workspace_relative_path(&relative) {
                 Ok(v) => v,
                 Err(err) => match behavior {
                     FailureBehavior::Error => return Err(err),
@@ -193,7 +193,7 @@ impl FileCheckpointManager {
                     let (from_valid, from_in_scope) = match from_norm.strip_prefix(&root_norm) {
                         Ok(rel) => {
                             let rel = rel.to_string_lossy().replace('\\', "/");
-                            match crate::file_util::validate_workspace_relative_path(&rel) {
+                            match crate::file::util::validate_workspace_relative_path(&rel) {
                                 Ok(v) => (Some(v), true),
                                 Err(_) => (None, true),
                             }

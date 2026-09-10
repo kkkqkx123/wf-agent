@@ -1,4 +1,4 @@
-use crate::metadata_builder::trigger_description;
+use crate::metadata::builder::trigger_description;
 use wf_types::checkpoint::base::{
     CheckpointRetentionConfig, CheckpointTiming, CompressionStrategy, UnifiedCheckpointPolicy,
 };

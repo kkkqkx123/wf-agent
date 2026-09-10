@@ -1,4 +1,4 @@
-use crate::cleanup::CleanupStrategy;
+use crate::cleanup_policy::CleanupStrategy;
 use crate::error::CheckpointError;
 use wf_types::storage::CheckpointStorageMetadata;
 

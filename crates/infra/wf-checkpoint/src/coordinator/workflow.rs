@@ -1,4 +1,4 @@
-use crate::content::SizeBudget;
+use crate::common::content::SizeBudget;
 use crate::coordinator::base::restored_status;
 use crate::coordinator::CheckpointCoordinator;
 use crate::delta::CheckpointLoader;
@@ -9,7 +9,7 @@ use crate::delta::WorkflowDiffCalculator;
 use crate::error::CheckpointError;
 use crate::event::CheckpointEventBus;
 use crate::file::FileCheckpointManager;
-use crate::metadata_builder::{
+use crate::metadata::builder::{
     build_checkpoint_metadata, trigger_description, trigger_tag, CHAIN_POSITION_FIELD,
 };
 use crate::restore::fork_join::{ForkJoinStateInference, JoinStateInference};
@@ -24,8 +24,8 @@ use crate::state::WorkflowCheckpoint;
 use crate::state::WorkflowCheckpointStateManager;
 use crate::strategy::CheckpointStrategy;
 use crate::strategy::StandardStrategy;
-use crate::version::VersionManager;
-use crate::version::MIN_COMPATIBLE_VERSION;
+use crate::version_manager::VersionManager;
+use crate::version_manager::MIN_COMPATIBLE_VERSION;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use wf_common::gate::ConcurrencyGate;
@@ -190,7 +190,7 @@ impl WorkflowCheckpointCoordinator {
 
     fn apply_content_policy(&self, state: &mut WorkflowExecutionStateSnapshot) {
         if let Some(strategy) = &self.strategy {
-            let filter = crate::content::ContentFilter::new();
+            let filter = crate::common::content::ContentFilter::new();
             let config = strategy.content_config();
             if !filter.should_include_state(config) {
                 state.input = None;
@@ -1177,10 +1177,10 @@ pub struct WorkflowExecutionEntity {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::content::SizeBudget;
+    use crate::common::content::SizeBudget;
     use crate::event::CheckpointEvent;
-    use crate::metadata_builder::{CREATED_AT_FIELD, FORMAT_VERSION_FIELD};
-    use crate::version::VersionManager;
+    use crate::metadata::builder::{CREATED_AT_FIELD, FORMAT_VERSION_FIELD};
+    use crate::version_manager::VersionManager;
     use std::sync::Arc;
     use wf_storage::backend::StorageBackend;
     use wf_types::checkpoint::CheckpointTiming;

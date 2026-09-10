@@ -44,18 +44,44 @@ pub fn resolve_shell_scope(workspace_root: &Path, scope_dir: &Path) -> Option<Pa
     }
 }
 
-/// Per-execution state for scoped shell sampling (foreground runs).
+/// Manager-owned registry for scoped shell sampling state.
+///
+/// Previously each `ScopeCapture` carried its own maps, so background
+/// session state died with the handle that created it and concurrent
+/// sessions from cloned managers diverged. The registry is now owned by
+/// `FileCheckpointManager` (shared `Arc`) and every `ScopeCapture` borrows
+/// it, so any session handle routes to the same per-execution state.
+/// Entries are keyed by `execution_id|scope` / `session_id` and removed on
+/// scope/session end; handles dropped mid-scope leak one entry until the
+/// matching end call (or `evict_execution`).
+#[derive(Debug, Default)]
+pub struct SessionScopeRegistry {
+    /// `execution_id|scope` -> before hashes for foreground scoped runs.
+    scoped_before: DashMap<String, HashMap<PathBuf, String>>,
+    /// session_id -> before hashes for background sessions.
+    session_before: DashMap<String, HashMap<PathBuf, String>>,
+    /// session_id -> resolved scope dir.
+    session_scope: DashMap<String, PathBuf>,
+}
+
+impl SessionScopeRegistry {
+    /// Drop all state for executions/sessions with the given id prefix
+    /// (cleanup for handles dropped mid-scope).
+    pub fn evict_execution(&self, execution_or_session_id: &str) {
+        self.scoped_before
+            .retain(|k, _| !k.starts_with(execution_or_session_id));
+        self.session_before.remove(execution_or_session_id);
+        self.session_scope.remove(execution_or_session_id);
+    }
+}
+
+/// Per-execution view over the shared sampling registry.
 #[derive(Clone)]
 pub struct ScopeCapture {
     manager: FileCheckpointManager,
     actor: ActorId,
     entity_id: String,
-    /// `execution_id|scope` -> before hashes for foreground scoped runs.
-    scoped_before: Arc<DashMap<String, HashMap<PathBuf, String>>>,
-    /// session_id -> before hashes for background sessions.
-    session_before: Arc<DashMap<String, HashMap<PathBuf, String>>>,
-    /// session_id -> resolved scope dir.
-    session_scope: Arc<DashMap<String, PathBuf>>,
+    scopes: Arc<SessionScopeRegistry>,
 }
 
 impl ScopeCapture {
@@ -64,14 +90,22 @@ impl ScopeCapture {
         actor: ActorId,
         entity_id: &str,
     ) -> Result<Self, crate::error::CheckpointError> {
-        Ok(Self {
+        let scopes = manager.session_scopes();
+        Ok(Self::with_shared(manager, actor, entity_id, scopes))
+    }
+
+    pub fn with_shared(
+        manager: FileCheckpointManager,
+        actor: ActorId,
+        entity_id: &str,
+        scopes: Arc<SessionScopeRegistry>,
+    ) -> Self {
+        Self {
             manager,
             actor,
             entity_id: entity_id.to_string(),
-            scoped_before: Arc::new(DashMap::new()),
-            session_before: Arc::new(DashMap::new()),
-            session_scope: Arc::new(DashMap::new()),
-        })
+            scopes,
+        }
     }
 
     pub fn actor(&self) -> &ActorId {
@@ -97,9 +131,12 @@ impl ScopeCapture {
                     .recent_agent_writes()
                     .acquire_inflight(path.clone());
             }
-            self.scoped_before.insert(key(execution_id, &scope), before);
+            self.scopes
+                .scoped_before
+                .insert(key(execution_id, &scope), before);
         } else {
-            self.scoped_before
+            self.scopes
+                .scoped_before
                 .insert(key(execution_id, &scope), HashMap::new());
         }
         Some(scope)
@@ -112,7 +149,11 @@ impl ScopeCapture {
             return None;
         }
         let scoped_key = key(execution_id, &scope);
-        let before = self.scoped_before.remove(&scoped_key).map(|(_, v)| v)?;
+        let before = self
+            .scopes
+            .scoped_before
+            .remove(&scoped_key)
+            .map(|(_, v)| v)?;
         self.apply_scoped_diff(&scope, &before, execution_id);
         for path in before.keys() {
             if self.manager.recent_agent_writes().is_inflight(path) {
@@ -134,7 +175,7 @@ impl ScopeCapture {
         let root = self.manager.workspace_root()?;
         let scope = resolve_shell_scope(root, scope_dir)?;
         if let Some(before) = self.capture_scope(&scope) {
-            if self.session_before.contains_key(session_id) {
+            if self.scopes.session_before.contains_key(session_id) {
                 return Some(scope);
             }
             for path in before.keys() {
@@ -142,8 +183,11 @@ impl ScopeCapture {
                     .recent_agent_writes()
                     .acquire_inflight(path.clone());
             }
-            self.session_before.insert(session_id.to_string(), before);
-            self.session_scope
+            self.scopes
+                .session_before
+                .insert(session_id.to_string(), before);
+            self.scopes
+                .session_scope
                 .insert(session_id.to_string(), scope.clone());
         }
         Some(scope)
@@ -151,8 +195,11 @@ impl ScopeCapture {
 
     pub fn session_command_finished(&self, session_id: &str, execution_id: &str) {
         let (Some(before), Some(scope)) = (
-            self.session_before.get(session_id).map(|e| e.clone()),
-            self.session_scope.get(session_id).map(|e| e.clone()),
+            self.scopes
+                .session_before
+                .get(session_id)
+                .map(|e| e.clone()),
+            self.scopes.session_scope.get(session_id).map(|e| e.clone()),
         ) else {
             return;
         };
@@ -165,13 +212,19 @@ impl ScopeCapture {
                         .acquire_inflight(path.clone());
                 }
             }
-            self.session_before.insert(session_id.to_string(), next);
+            self.scopes
+                .session_before
+                .insert(session_id.to_string(), next);
         }
     }
 
     pub fn end_session(&self, session_id: &str, execution_id: &str) {
-        let before = self.session_before.remove(session_id).map(|(_, v)| v);
-        let scope = self.session_scope.remove(session_id).map(|(_, v)| v);
+        let before = self
+            .scopes
+            .session_before
+            .remove(session_id)
+            .map(|(_, v)| v);
+        let scope = self.scopes.session_scope.remove(session_id).map(|(_, v)| v);
         if let (Some(before), Some(scope)) = (before, scope) {
             self.apply_scoped_diff(&scope, &before, execution_id);
             for path in before.keys() {
@@ -186,6 +239,36 @@ impl ScopeCapture {
                 }
             }
         }
+    }
+
+    // ---- async offload wrappers ----
+    // Filesystem scans and SQLite writes block the async runtime. Async
+    // tool handlers must use these variants so blocking work runs on the
+    // blocking pool instead of stalling the reactor.
+
+    pub async fn begin_scope_async(
+        &self,
+        execution_id: String,
+        scope_dir: PathBuf,
+    ) -> Option<PathBuf> {
+        let this = self.clone();
+        tokio::task::spawn_blocking(move || this.begin_scope(&execution_id, &scope_dir))
+            .await
+            .ok()
+            .flatten()
+    }
+
+    pub async fn end_scope_async(
+        &self,
+        execution_id: String,
+        scope_dir: PathBuf,
+        terminated: bool,
+    ) -> Option<()> {
+        let this = self.clone();
+        tokio::task::spawn_blocking(move || this.end_scope(&execution_id, &scope_dir, terminated))
+            .await
+            .ok()
+            .flatten()
     }
 
     // ---- internals ----

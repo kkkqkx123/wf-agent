@@ -5,7 +5,6 @@ use layertwine::core::file_node::FileNode;
 use layertwine::core::snapshot::{Snapshot, SnapshotContent};
 use layertwine::layered::agent;
 use layertwine::storage::repository::{PartitionStore, SnapshotStore};
-use wf_types::config::file_checkpoint::FailureBehavior;
 
 use crate::actor_id::{ActorId, ActorKind};
 use crate::branch::{execution_branch_name, manager::BranchStorageAdapter};
@@ -13,43 +12,15 @@ use crate::error::CheckpointError;
 use crate::event::CheckpointEventBus;
 use crate::file::FileCheckpointManager;
 use crate::file_util::{map_layertwine_error, seed_initial_snapshot, sha256_hex};
+pub use crate::precise::{PreciseApplyStats, PreciseFileEvent, PreciseFileEventKind};
 use crate::provenance::DeltaSummary;
 use crate::recent_agent_writes::RecentAgentWrites;
-use crate::script_capture::{CollectedChange, CollectedChangeKind};
 
 use std::collections::HashSet;
 
-/// Kind of a precise single-file tool event (mirrors the tool-layer
-/// observer without depending on it).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum PreciseFileEventKind {
-    Created,
-    Modified,
-    Deleted,
-    Renamed { from: PathBuf },
-}
-
-/// One precise file event with an absolute path (new path for renames).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PreciseFileEvent {
-    pub path: PathBuf,
-    pub kind: PreciseFileEventKind,
-}
-
-impl PreciseFileEvent {
-    pub fn new(path: PathBuf, kind: PreciseFileEventKind) -> Self {
-        Self { path, kind }
-    }
-}
-
-/// Structured result of [`FileCheckpointManager::apply_precise_file_events`].
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct PreciseApplyStats {
-    pub applied: usize,
-    pub failed: Vec<String>,
-    pub out_of_scope: Vec<String>,
-}
-
+/// Actor-partition facade for `FileCheckpointManager`.
+// Partition lifecycle and edit primitives live here; precise event types
+// are defined in `crate::precise` and re-exported above for compatibility.
 impl FileCheckpointManager {
     /// Resolve the actor partition for a child execution: full `ActorId`
     /// strings parse as-is; otherwise a child actor is derived from the
@@ -208,6 +179,19 @@ impl FileCheckpointManager {
         path: &str,
         content: &[u8],
     ) -> Result<String, CheckpointError> {
+        self.apply_agent_edit_with_hash(actor, path, content, None)
+    }
+
+    /// Hash-aware edit entry: when the caller already hashed `content`
+    /// (e.g. the tool layer read the file to report the mutation), the hash
+    /// is reused for the write registry instead of hashing twice.
+    pub fn apply_agent_edit_with_hash(
+        &self,
+        actor: &ActorId,
+        path: &str,
+        content: &[u8],
+        expected_hash: Option<&str>,
+    ) -> Result<String, CheckpointError> {
         let path = crate::file_util::validate_workspace_relative_path(path)?;
         let storage = self.storage_ref()?;
         let agent_id = actor.to_agent_instance_id();
@@ -255,7 +239,9 @@ impl FileCheckpointManager {
                 deleted.remove(&path);
             }
         }
-        let write_hash = sha256_hex(content);
+        let write_hash = expected_hash
+            .map(str::to_string)
+            .unwrap_or_else(|| sha256_hex(content));
         self.recent_agent_writes
             .register(PathBuf::from(&path), write_hash.clone());
         if let Some(root) = &self.workspace_root {
@@ -452,176 +438,6 @@ impl FileCheckpointManager {
         Ok(snapshot_id.to_hex())
     }
 
-    /// Apply a set of collected workspace changes (script capture) as agent
-    /// edits on the actor partition. Add/Modify changes read the file
-    /// content from disk; Delete changes record the explicit deletion
-    /// (marker + projection). Per-file failures follow `behavior`.
-    /// Returns the number of successfully applied changes.
-    pub fn apply_workspace_changes(
-        &self,
-        actor: &ActorId,
-        base_dir: &std::path::Path,
-        changes: &[CollectedChange],
-        behavior: FailureBehavior,
-    ) -> Result<usize, CheckpointError> {
-        let mut applied = 0;
-        for change in changes {
-            let Ok(relative) = change.path.strip_prefix(base_dir) else {
-                continue;
-            };
-            let relative = relative.to_string_lossy().replace('\\', "/");
-            match change.kind {
-                CollectedChangeKind::Delete => match self.apply_agent_delete(actor, &relative) {
-                    Ok(_) => applied += 1,
-                    Err(err) => match behavior {
-                        FailureBehavior::Error => return Err(err),
-                        FailureBehavior::Warn => {
-                            tracing::warn!("failed to apply delete of '{relative}': {err}")
-                        }
-                        FailureBehavior::Ignore => {}
-                    },
-                },
-                CollectedChangeKind::Add | CollectedChangeKind::Modify => {
-                    let content = match std::fs::read(&change.path) {
-                        Ok(content) => content,
-                        Err(err) => match behavior {
-                            FailureBehavior::Error => {
-                                return Err(CheckpointError::Io(std::io::Error::other(format!(
-                                    "failed to read changed file '{relative}': {err}"
-                                ))));
-                            }
-                            FailureBehavior::Warn => {
-                                tracing::warn!("failed to read changed file '{relative}': {err}");
-                                continue;
-                            }
-                            FailureBehavior::Ignore => continue,
-                        },
-                    };
-                    match self.apply_agent_edit(actor, &relative, &content) {
-                        Ok(_) => applied += 1,
-                        Err(err) => match behavior {
-                            FailureBehavior::Error => return Err(err),
-                            FailureBehavior::Warn => {
-                                tracing::warn!("failed to apply edit of '{relative}': {err}")
-                            }
-                            FailureBehavior::Ignore => {}
-                        },
-                    }
-                }
-            }
-        }
-        Ok(applied)
-    }
-
-    /// Batch entry for precise tool events (the file-tool main path).
-    /// Validates every path against `workspace_root` first, then records
-    /// add/modify via agent edit, delete via agent delete, and rename via
-    /// move linkage plus both sides. Each successful write registers the
-    /// recent-agent entry; failed items never register success. Returns the
-    /// applied count plus explicit failed and out-of-scope items so callers
-    /// log them with execution context instead of silently skipping.
-    pub fn apply_precise_file_events(
-        &self,
-        actor: &ActorId,
-        workspace_root: &std::path::Path,
-        events: &[PreciseFileEvent],
-        behavior: FailureBehavior,
-    ) -> Result<PreciseApplyStats, CheckpointError> {
-        let root_norm = crate::watcher::normalize_absolute_path(workspace_root);
-        let mut stats = PreciseApplyStats::default();
-        for event in events {
-            let abs_norm = crate::watcher::normalize_absolute_path(&event.path);
-            let Ok(relative) = abs_norm.strip_prefix(&root_norm) else {
-                stats.out_of_scope.push(abs_norm.display().to_string());
-                continue;
-            };
-            let relative = relative.to_string_lossy().replace('\\', "/");
-            let validated = match crate::file_util::validate_workspace_relative_path(&relative) {
-                Ok(v) => v,
-                Err(err) => match behavior {
-                    FailureBehavior::Error => return Err(err),
-                    FailureBehavior::Warn => {
-                        tracing::warn!(
-                            path = %abs_norm.display(),
-                            error = %err,
-                            "precise event path validation failed"
-                        );
-                        stats.failed.push(abs_norm.display().to_string());
-                        continue;
-                    }
-                    FailureBehavior::Ignore => {
-                        stats.failed.push(abs_norm.display().to_string());
-                        continue;
-                    }
-                },
-            };
-            let result: Result<(), CheckpointError> = match &event.kind {
-                PreciseFileEventKind::Created | PreciseFileEventKind::Modified => {
-                    match std::fs::read(&abs_norm) {
-                        Ok(content) => self
-                            .apply_agent_edit(actor, &validated, &content)
-                            .map(|_| ()),
-                        Err(err) => Err(CheckpointError::Io(std::io::Error::other(format!(
-                            "failed to read precise event file '{}': {err}",
-                            abs_norm.display()
-                        )))),
-                    }
-                }
-                PreciseFileEventKind::Deleted => {
-                    self.apply_agent_delete(actor, &validated).map(|_| ())
-                }
-                PreciseFileEventKind::Renamed { from } => {
-                    let from_norm = crate::watcher::normalize_absolute_path(from);
-                    let (from_valid, from_in_scope) = match from_norm.strip_prefix(&root_norm) {
-                        Ok(rel) => {
-                            let rel = rel.to_string_lossy().replace('\\', "/");
-                            match crate::file_util::validate_workspace_relative_path(&rel) {
-                                Ok(v) => (Some(v), true),
-                                Err(_) => (None, true),
-                            }
-                        }
-                        Err(_) => (None, false),
-                    };
-                    if !from_in_scope {
-                        stats.out_of_scope.push(from_norm.display().to_string());
-                    }
-                    match std::fs::read(&abs_norm) {
-                        Ok(content) => {
-                            if let Some(from_valid) = from_valid {
-                                self.track_file_move(&from_valid, &validated, actor.as_str())?;
-                                let _ = self.apply_agent_delete(actor, &from_valid);
-                            }
-                            self.apply_agent_edit(actor, &validated, &content)
-                                .map(|_| ())
-                        }
-                        Err(err) => Err(CheckpointError::Io(std::io::Error::other(format!(
-                            "failed to read renamed file '{}': {err}",
-                            abs_norm.display()
-                        )))),
-                    }
-                }
-            };
-            match result {
-                Ok(()) => stats.applied += 1,
-                Err(err) => match behavior {
-                    FailureBehavior::Error => return Err(err),
-                    FailureBehavior::Warn => {
-                        tracing::warn!(
-                            path = %abs_norm.display(),
-                            error = %err,
-                            "precise event apply failed"
-                        );
-                        stats.failed.push(abs_norm.display().to_string());
-                    }
-                    FailureBehavior::Ignore => {
-                        stats.failed.push(abs_norm.display().to_string());
-                    }
-                },
-            }
-        }
-        Ok(stats)
-    }
-
     /// Discard an execution's file changes: revert the actor partition
     /// pointer to its parent (best-effort), delete the actor partition
     /// entirely (partition + history rows), and drop the in-memory
@@ -768,9 +584,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn child_branch_base_points_at_parent_checkpoint() {
-        use layertwine::storage::repository::MetadataStore;
-
+    async fn child_branch_starts_headless_after_fork() {
         let manager = FileCheckpointManager::new_in_memory().unwrap();
         let parent_cp = manager
             .create_checkpoint("parent-1", &[entry("a.txt", b"base")])
@@ -781,16 +595,37 @@ mod tests {
             .await
             .unwrap();
 
-        // The branch registry records the fork base as `{base}|{created_at}`.
+        // The forked branch exists natively but stays headless until its own
+        // first checkpoint; the parent base remains readable as the fork
+        // point without a KV registry entry.
         let branch = execution_branch_name("execution", "child-1");
-        let value = manager
-            .store
-            .branch_adapter
-            .storage()
-            .load_metadata(&format!("wf-checkpoint-branch:{branch}"))
-            .unwrap()
-            .expect("branch registry entry must exist");
-        let base = value.split('|').next().unwrap();
-        assert_eq!(base, parent_cp.id);
+        assert!(
+            manager
+                .store
+                .branch_adapter
+                .branch_exists(&branch)
+                .await
+                .unwrap(),
+            "forked branch must exist"
+        );
+        assert_eq!(
+            manager
+                .store
+                .branch_adapter
+                .get_branch_head(&branch)
+                .unwrap(),
+            None,
+            "forked branch stays headless until its own checkpoint"
+        );
+        let parent_actor = manager.actor_id_for("parent-1");
+        let storage = manager.storage().unwrap();
+        assert_eq!(
+            manager
+                .latest_checkpoint_id(storage, &parent_actor)
+                .unwrap()
+                .as_deref(),
+            Some(parent_cp.id.as_str()),
+            "parent base stays readable as the fork point"
+        );
     }
 }

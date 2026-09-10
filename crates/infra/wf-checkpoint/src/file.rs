@@ -195,6 +195,10 @@ pub struct FileCheckpointManager {
     /// the index gets `parent.child(execution_id)`, so nested executions
     /// live in their own hierarchical partition.
     pub(crate) actor_index: ActorRegistry,
+    /// Shared scoped-shell sampling state (foreground scopes + background
+    /// sessions). Owned here so every `CheckpointSession` clone routes to
+    /// the same registry instead of isolated per-handle maps.
+    pub(crate) session_scopes: Arc<crate::capture::SessionScopeRegistry>,
 }
 
 impl Clone for FileCheckpointManager {
@@ -207,6 +211,7 @@ impl Clone for FileCheckpointManager {
             event_bus: self.event_bus.clone(),
             workspace_root: self.workspace_root.clone(),
             actor_index: self.actor_index.clone(),
+            session_scopes: self.session_scopes.clone(),
         }
     }
 }
@@ -221,6 +226,7 @@ impl FileCheckpointManager {
             event_bus: None,
             workspace_root: None,
             actor_index: ActorRegistry::new(),
+            session_scopes: Arc::new(crate::capture::SessionScopeRegistry::default()),
         }
     }
 
@@ -235,6 +241,7 @@ impl FileCheckpointManager {
             event_bus: None,
             workspace_root: None,
             actor_index: ActorRegistry::new(),
+            session_scopes: Arc::new(crate::capture::SessionScopeRegistry::default()),
         }
     }
 
@@ -341,7 +348,14 @@ impl FileCheckpointManager {
             event_bus: None,
             workspace_root: None,
             actor_index: ActorRegistry::new(),
+            session_scopes: Arc::new(crate::capture::SessionScopeRegistry::default()),
         })
+    }
+
+    /// Shared scoped-shell sampling registry (foreground scopes +
+    /// background sessions). Cloned sessions observe the same state.
+    pub fn session_scopes(&self) -> Arc<crate::capture::SessionScopeRegistry> {
+        self.session_scopes.clone()
     }
 
     /// Configured full-snapshot threshold threaded into layertwine edits.

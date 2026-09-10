@@ -29,6 +29,10 @@ pub struct FileMutation {
     pub effect_id: Option<String>,
     /// Optional content hash of the new file state when known.
     pub new_hash: Option<String>,
+    /// Optional in-memory content captured by the tool right after the write.
+    /// When present, checkpoint prefers it over re-reading disk, closing the
+    /// TOCTOU window and saving one read per precise event.
+    pub new_content: Option<Vec<u8>>,
 }
 
 impl FileMutation {
@@ -39,11 +43,18 @@ impl FileMutation {
             execution_id: String::new(),
             effect_id: None,
             new_hash: None,
+            new_content: None,
         }
     }
 
     pub fn with_execution(mut self, execution_id: impl Into<String>) -> Self {
         self.execution_id = execution_id.into();
+        self
+    }
+
+    pub fn with_content(mut self, content: Vec<u8>, hash: String) -> Self {
+        self.new_hash = Some(hash);
+        self.new_content = Some(content);
         self
     }
 }

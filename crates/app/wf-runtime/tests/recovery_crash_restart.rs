@@ -6,8 +6,6 @@
 //! instance (restart) which rescans incomplete executions and drives the
 //! crashed one back to completion through the checkpoint + resume path.
 
-#![cfg(feature = "checkpoint")]
-
 use std::sync::Arc;
 
 use wf_api::ApiContext;

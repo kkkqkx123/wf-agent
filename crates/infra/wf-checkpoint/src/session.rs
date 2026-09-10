@@ -94,11 +94,23 @@ impl CheckpointSession {
     // ---- direct tool-layer API (replaces notify_*) ----
 
     /// Replace `notify_precise`. Writes a precise file event into the actor
-    /// partition. Out-of-workspace mutations are silently dropped (the same
-    /// behavior as the old observer).
-    pub fn record_file_mutation(&self, execution_id: &str, mutation: FileMutation) {
+    /// partition. Returns per-item stats so the tool layer can log
+    /// out-of-scope and failed items with execution context instead of
+    /// dropping them silently. Out-of-workspace mutations are skipped but
+    /// reported in `stats.out_of_scope`.
+    pub fn record_file_mutation(
+        &self,
+        execution_id: &str,
+        mutation: FileMutation,
+    ) -> crate::PreciseApplyStats {
         let Some(root) = self.workspace_root.clone() else {
-            return;
+            tracing::debug!(
+                entity = %self.entity_id,
+                execution = %execution_id,
+                path = %mutation.path.display(),
+                "record_file_mutation skipped: no workspace root"
+            );
+            return crate::PreciseApplyStats::default();
         };
         let kind = match &mutation.operation {
             super::effect::FileOperation::Created => crate::PreciseFileEventKind::Created,
@@ -108,14 +120,29 @@ impl CheckpointSession {
                 crate::PreciseFileEventKind::Renamed { from: from.clone() }
             }
         };
-        let event = crate::PreciseFileEvent::new(mutation.path.clone(), kind);
+        let mut event = crate::PreciseFileEvent::new(mutation.path.clone(), kind);
+        if let (Some(bytes), Some(hash)) = (mutation.new_content, mutation.new_hash) {
+            event = event.with_content(bytes, hash);
+        }
         match self.manager.apply_precise_file_events(
             &self.actor,
             &root,
             std::slice::from_ref(&event),
             self.manager.failure_behavior(),
         ) {
-            Ok(_) => {}
+            Ok(stats) => {
+                if !stats.out_of_scope.is_empty() || !stats.failed.is_empty() {
+                    tracing::warn!(
+                        entity = %self.entity_id,
+                        execution = %execution_id,
+                        path = %mutation.path.display(),
+                        out_of_scope = ?stats.out_of_scope,
+                        failed = ?stats.failed,
+                        "record_file_mutation partially applied"
+                    );
+                }
+                stats
+            }
             Err(err) => {
                 tracing::warn!(
                     entity = %self.entity_id,
@@ -124,6 +151,7 @@ impl CheckpointSession {
                     error = %err,
                     "record_file_mutation apply failed"
                 );
+                crate::PreciseApplyStats::default()
             }
         }
     }
@@ -134,11 +162,14 @@ impl CheckpointSession {
         self.capture.begin_scope(execution_id, scope_dir)
     }
 
-    /// Replace `notify_scope_end`.
-    pub fn end_scope(&self, scope_dir: &std::path::Path, outcome: ScopeOutcome) {
+    /// Replace `notify_scope_end`. Returns true when the scope diff was
+    /// applied, false when sampling was incomplete (unterminated process)
+    /// or the scope fell outside the workspace.
+    pub fn end_scope(&self, scope_dir: &std::path::Path, outcome: ScopeOutcome) -> bool {
         if outcome.terminated {
             self.capture
-                .end_scope(&outcome.execution_id, scope_dir, true);
+                .end_scope(&outcome.execution_id, scope_dir, true)
+                .is_some()
         } else {
             tracing::warn!(
                 entity = %self.entity_id,
@@ -147,6 +178,38 @@ impl CheckpointSession {
                 detail = ?outcome.detail,
                 "shell process may still be alive; sampling marked incomplete, not complete"
             );
+            false
+        }
+    }
+
+    /// Async scope begin for async tool handlers: blocking scan runs on the
+    /// blocking pool.
+    pub async fn begin_scope_async(
+        &self,
+        execution_id: String,
+        scope_dir: PathBuf,
+    ) -> Option<PathBuf> {
+        self.capture
+            .begin_scope_async(execution_id, scope_dir)
+            .await
+    }
+
+    /// Async scope end for async tool handlers. Returns true when applied.
+    pub async fn end_scope_async(&self, scope_dir: PathBuf, outcome: ScopeOutcome) -> bool {
+        if outcome.terminated {
+            self.capture
+                .end_scope_async(outcome.execution_id.clone(), scope_dir, true)
+                .await
+                .is_some()
+        } else {
+            tracing::warn!(
+                entity = %self.entity_id,
+                execution = %outcome.execution_id,
+                scope = %scope_dir.display(),
+                detail = ?outcome.detail,
+                "shell process may still be alive; sampling marked incomplete, not complete"
+            );
+            false
         }
     }
 

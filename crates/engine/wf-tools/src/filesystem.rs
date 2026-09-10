@@ -837,15 +837,24 @@ fn notify_precise(ctx: &ToolExecutionContext, path: &Path, op: wf_checkpoint::Fi
     if let Some(cp) = ctx.checkpoint_session.as_ref() {
         let mut mutation = wf_checkpoint::FileMutation::new(path.to_path_buf(), op)
             .with_execution(ctx.execution_id.clone());
-        // Best-effort content hash so checkpoint can skip re-reading disk.
-        // Deleted files have no content; read failures leave `new_hash` empty
-        // and checkpoint falls back to reading itself.
+        // Single disk read: capture bytes once and forward them so checkpoint
+        // does not re-read the same file. Deleted files have no content.
         if !matches!(mutation.operation, wf_checkpoint::FileOperation::Deleted) {
             if let Ok(bytes) = std::fs::read(path) {
-                mutation.new_hash = Some(wf_checkpoint::sha256_hex(&bytes));
+                let hash = wf_checkpoint::sha256_hex(&bytes);
+                mutation = mutation.with_content(bytes, hash);
             }
         }
-        cp.record_file_mutation(&ctx.execution_id, mutation);
+        let stats = cp.record_file_mutation(&ctx.execution_id, mutation);
+        if !stats.out_of_scope.is_empty() || !stats.failed.is_empty() {
+            tracing::warn!(
+                execution = %ctx.execution_id,
+                path = %path.display(),
+                out_of_scope = ?stats.out_of_scope,
+                failed = ?stats.failed,
+                "precise checkpoint apply incomplete"
+            );
+        }
     }
 }
 

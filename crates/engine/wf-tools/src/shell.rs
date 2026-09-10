@@ -96,7 +96,10 @@ pub fn execute_command_handler(config: ShellToolConfig) -> StatelessAsyncHandler
             let execution_id = ctx.execution_id.to_string();
             if let Some(scope) = scope_dir.as_ref() {
                 if let Some(session) = ctx.checkpoint_session.as_ref() {
-                    session.begin_scope(&execution_id, scope);
+                    // Blocking scan offloaded to the blocking pool.
+                    session
+                        .begin_scope_async(execution_id.clone(), scope.clone())
+                        .await;
                 }
             }
 
@@ -120,15 +123,17 @@ pub fn execute_command_handler(config: ShellToolConfig) -> StatelessAsyncHandler
                     // so already-written files are still captured.
                     if let Some(scope) = scope_dir.as_ref() {
                         if let Some(_sess) = ctx.checkpoint_session.as_ref() {
-                            _sess.end_scope(
-                                scope,
-                                wf_checkpoint::ScopeOutcome {
-                                    execution_id: execution_id.clone(),
-                                    success: false,
-                                    terminated: true,
-                                    detail: Some(err.to_string()),
-                                },
-                            );
+                            _sess
+                                .end_scope_async(
+                                    scope.clone(),
+                                    wf_checkpoint::ScopeOutcome {
+                                        execution_id: execution_id.clone(),
+                                        success: false,
+                                        terminated: true,
+                                        detail: Some(err.to_string()),
+                                    },
+                                )
+                                .await;
                         }
                     }
                     return Err(err.into());
@@ -165,15 +170,17 @@ pub fn execute_command_handler(config: ShellToolConfig) -> StatelessAsyncHandler
             // commands: already-written files are still captured.
             if let Some(scope) = scope_dir.as_ref() {
                 if let Some(_sess) = ctx.checkpoint_session.as_ref() {
-                    _sess.end_scope(
-                        scope,
-                        wf_checkpoint::ScopeOutcome {
-                            execution_id: execution_id.clone(),
-                            success,
-                            terminated: true,
-                            detail: Some(format!("exit {:?}", output.status.code())),
-                        },
-                    );
+                    _sess
+                        .end_scope_async(
+                            scope.clone(),
+                            wf_checkpoint::ScopeOutcome {
+                                execution_id: execution_id.clone(),
+                                success,
+                                terminated: true,
+                                detail: Some(format!("exit {:?}", output.status.code())),
+                            },
+                        )
+                        .await;
                 }
             }
 

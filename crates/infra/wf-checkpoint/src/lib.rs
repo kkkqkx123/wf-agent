@@ -30,6 +30,7 @@ pub mod manager_store;
 pub mod metadata_builder;
 pub mod metadata_keys;
 pub mod metrics;
+pub mod precise;
 pub mod provenance;
 pub mod recent_agent_writes;
 pub mod restore;

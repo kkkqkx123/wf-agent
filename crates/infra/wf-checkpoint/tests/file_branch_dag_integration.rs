@@ -12,7 +12,7 @@ use std::time::Duration;
 
 use layertwine::checkpoint::types::{Checkpoint, CheckpointMetadata};
 use layertwine::core::types::CheckpointId;
-use layertwine::storage::repository::{CheckpointPersist, MetadataStore};
+use layertwine::storage::repository::CheckpointPersist;
 use wf_checkpoint::branch::execution_branch_name;
 use wf_checkpoint::file::{FileCheckpointManager, FileContentEntry};
 use wf_checkpoint::sha256_hex;
@@ -98,12 +98,8 @@ async fn child_branch_isolation_merge_and_dag_closed_loop() {
     let storage = manager.storage().unwrap().clone();
     let registered = |entity: &str| {
         storage
-            .load_metadata(&format!(
-                "wf-checkpoint-branch:{}",
-                execution_branch_name("execution", entity)
-            ))
-            .unwrap()
-            .is_some()
+            .get_branch(&execution_branch_name("execution", entity))
+            .is_ok()
     };
     assert!(registered("child"), "child branch must be registered");
     assert!(registered("child2"), "child2 branch must be registered");

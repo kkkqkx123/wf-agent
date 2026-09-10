@@ -253,6 +253,37 @@ pub trait MetadataStore {
     fn delete_metadata(&self, key: &str) -> StorageResult<bool>;
 }
 
+/// Opaque graph checkpoint blob (execution state, not file content).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GraphBlob {
+    pub id: String,
+    pub data: Vec<u8>,
+    pub parent_id: Option<String>,
+    pub branch_id: Option<String>,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+/// Independent blob storage for graph/workflow checkpoints.
+///
+/// Replaces the legacy pattern of stuffing opaque blobs into the file-history
+/// `snapshots` table as `.checkpoints/{id}.json` plus comma-joined metadata
+/// id lists. Indexed `parent_id` / `branch_id` columns make filtered listing
+/// O(index) instead of O(all keys).
+pub trait GraphBlobStore: Send + Sync {
+    fn store_graph_blob(
+        &self,
+        id: &str,
+        data: &[u8],
+        parent_id: Option<&str>,
+        branch_id: Option<&str>,
+    ) -> StorageResult<()>;
+    fn load_graph_blob(&self, id: &str) -> StorageResult<Option<GraphBlob>>;
+    fn delete_graph_blob(&self, id: &str) -> StorageResult<bool>;
+    fn list_graph_blob_ids(&self, parent_id: Option<&str>) -> StorageResult<Vec<String>>;
+    fn list_graph_blob_ids_by_branch(&self, branch_id: &str) -> StorageResult<Vec<String>>;
+}
+
 /// Combined storage trait (full storage interface)
 pub trait Repository:
     SnapshotStore + DeltaStore + PartitionStore + FileNodeStore + CheckpointPersist + AtomicOps

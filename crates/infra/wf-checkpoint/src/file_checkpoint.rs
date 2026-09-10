@@ -8,7 +8,8 @@ use crate::branch::execution_branch_name;
 use crate::error::CheckpointError;
 use crate::file::{FileCheckpoint, FileCheckpointManager, FileContentEntry};
 use crate::file_util::{
-    map_layertwine_error, partition_latest_snapshot_ids, projection as projection_fn,
+    map_layertwine_error, map_layertwine_error_with, partition_latest_snapshot_ids,
+    projection as projection_fn,
 };
 
 impl FileCheckpointManager {
@@ -42,7 +43,7 @@ impl FileCheckpointManager {
         }
         let partition = storage
             .get_partition(&agent::agent_partition_id(&agent_id))
-            .map_err(map_layertwine_error)?;
+            .map_err(|e| map_layertwine_error_with("create_checkpoint.get_partition", e))?;
         let baseline_snapshots = partition_latest_snapshot_ids(storage, &partition)?;
         let parents = self
             .latest_checkpoint_id(storage, &actor)?
@@ -56,12 +57,14 @@ impl FileCheckpointManager {
         );
         storage
             .store_checkpoint(&checkpoint)
-            .map_err(map_layertwine_error)?;
-        self.latest_checkpoints
+            .map_err(|e| map_layertwine_error_with("create_checkpoint.store_checkpoint", e))?;
+        self.store
+            .latest_checkpoints
             .insert(actor.as_str().to_string(), checkpoint.id.to_hex());
         let branch_name = execution_branch_name("execution", entity_id);
-        if self.branch_adapter.branch_exists_now(&branch_name)? {
-            self.branch_adapter
+        if self.store.branch_adapter.branch_exists_now(&branch_name)? {
+            self.store
+                .branch_adapter
                 .set_branch_head(&branch_name, &checkpoint.id.to_hex())?;
         }
         self.project(storage, &checkpoint)
@@ -107,11 +110,13 @@ impl FileCheckpointManager {
         storage
             .store_checkpoint(&checkpoint)
             .map_err(map_layertwine_error)?;
-        self.latest_checkpoints
+        self.store
+            .latest_checkpoints
             .insert(actor.as_str().to_string(), checkpoint.id.to_hex());
         let branch_name = execution_branch_name("execution", entity_id);
-        if self.branch_adapter.branch_exists_now(&branch_name)? {
-            self.branch_adapter
+        if self.store.branch_adapter.branch_exists_now(&branch_name)? {
+            self.store
+                .branch_adapter
                 .set_branch_head(&branch_name, &checkpoint.id.to_hex())?;
         }
         Ok(Some(self.project(storage, &checkpoint)?))
@@ -155,7 +160,7 @@ impl FileCheckpointManager {
         actor: &crate::actor_id::ActorId,
     ) -> Result<Option<String>, CheckpointError> {
         let actor_str = actor.as_str().to_string();
-        if let Some(id) = self.latest_checkpoints.get(&actor_str) {
+        if let Some(id) = self.store.latest_checkpoints.get(&actor_str) {
             return Ok(Some(id.clone()));
         }
         // Cross-process fallback: scan stored checkpoints by author.
@@ -189,7 +194,11 @@ mod tests {
 
         let branch = execution_branch_name("execution", "child-1");
         assert_eq!(
-            manager.branch_adapter.get_branch_head(&branch).unwrap(),
+            manager
+                .store
+                .branch_adapter
+                .get_branch_head(&branch)
+                .unwrap(),
             None,
             "head must be unset before the first checkpoint"
         );
@@ -199,6 +208,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             manager
+                .store
                 .branch_adapter
                 .get_branch_head(&branch)
                 .unwrap()
@@ -213,6 +223,7 @@ mod tests {
         assert_ne!(cp1.id, cp2.id);
         assert_eq!(
             manager
+                .store
                 .branch_adapter
                 .get_branch_head(&branch)
                 .unwrap()
@@ -242,14 +253,22 @@ mod tests {
             .unwrap();
 
         let branch = execution_branch_name("execution", "child-1");
-        let head_before = manager.branch_adapter.get_branch_head(&branch).unwrap();
+        let head_before = manager
+            .store
+            .branch_adapter
+            .get_branch_head(&branch)
+            .unwrap();
 
         let deferred = manager
             .create_latest_file_checkpoint("child-1")
             .unwrap()
             .expect("partition history exists");
 
-        let head_after = manager.branch_adapter.get_branch_head(&branch).unwrap();
+        let head_after = manager
+            .store
+            .branch_adapter
+            .get_branch_head(&branch)
+            .unwrap();
         assert_eq!(head_after.as_deref(), Some(deferred.id.as_str()));
         assert_ne!(head_after, head_before);
     }

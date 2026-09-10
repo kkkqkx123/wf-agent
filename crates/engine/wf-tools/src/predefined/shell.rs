@@ -7,6 +7,7 @@
 //! engine lives in `wf_shell::engine`.
 
 pub mod backend_shell;
+pub mod checkpoint_handle;
 pub mod execute_command;
 pub mod execute_in_session;
 pub mod get_or_create_shell;

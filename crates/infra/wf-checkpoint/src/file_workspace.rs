@@ -38,13 +38,13 @@ impl FileCheckpointManager {
     /// The workspace scan rules (ignore patterns + per-file failure
     /// behavior) derived from the file-checkpoint config.
     pub fn scan_config(&self) -> &ScanConfig {
-        &self.scan_config
+        &self.policy.scan_config
     }
 
     /// Per-file failure behavior of workspace operations (scan/capture/
     /// restore), from `FileCheckpointConfig.failure_behavior`.
     pub fn failure_behavior(&self) -> FailureBehavior {
-        self.scan_config.failure_behavior
+        self.policy.scan_config.failure_behavior
     }
 
     /// Build a scoped change collector over the workspace root for the
@@ -53,7 +53,7 @@ impl FileCheckpointManager {
     /// (no capture happens).
     pub fn collector_for(&self, allowed_write: &[String]) -> Option<WorkspaceChangeCollector> {
         let base = self.workspace_root.as_ref()?;
-        let scanner = WorkspaceScanner::new(self.scan_config.clone());
+        let scanner = WorkspaceScanner::new(self.policy.scan_config.clone());
         let collector = WorkspaceChangeCollector::new(base, allowed_write, scanner);
         if collector.has_scope() {
             Some(collector)

@@ -190,8 +190,14 @@ impl CheckpointPersist for SqliteStorage {
                 created_at,
                 updated_at,
             })
-        })?;
-        Ok(result)
+        });
+        match result {
+            Ok(branch) => Ok(branch),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Err(crate::StorageError::NotFound(
+                format!("branch {name} not found"),
+            )),
+            Err(e) => Err(crate::StorageError::Database(e)),
+        }
     }
 
     fn update_branch_head(&self, name: &str, head: &CheckpointId) -> StorageResult<()> {

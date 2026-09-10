@@ -4,6 +4,7 @@ mod delta;
 mod edit_session;
 mod file_move;
 mod file_node;
+mod graph_blob;
 mod meta;
 mod partition;
 mod snapshot;

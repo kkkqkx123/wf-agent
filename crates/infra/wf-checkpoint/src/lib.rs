@@ -1,4 +1,5 @@
 pub mod actor_id;
+pub mod actor_registry;
 pub mod approval;
 pub mod branch;
 pub mod cache;
@@ -25,7 +26,9 @@ pub mod file_session;
 pub mod file_util;
 pub mod file_workspace;
 pub mod layertwine;
+pub mod manager_store;
 pub mod metadata_builder;
+pub mod metadata_keys;
 pub mod metrics;
 pub mod provenance;
 pub mod recent_agent_writes;

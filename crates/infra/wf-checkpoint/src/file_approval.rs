@@ -515,12 +515,12 @@ impl FileCheckpointManager {
 
     /// The configured layered approval policy.
     pub fn approval_policy(&self) -> crate::file::ApprovalPolicy {
-        self.approval_policy
+        self.policy.approval_policy
     }
 
     /// The configured merge conflict behavior.
     pub fn conflict_behavior(&self) -> ConflictBehavior {
-        self.conflict_behavior
+        self.policy.conflict_behavior
     }
 
     /// Default feature name merged into under `ApprovalPolicy::auto` (a
@@ -547,7 +547,7 @@ impl FileCheckpointManager {
         &self,
         entity_id: &str,
     ) -> Result<Option<layertwine::layered::MergeResult>, CheckpointError> {
-        match self.approval_policy {
+        match self.policy.approval_policy {
             crate::file::ApprovalPolicy::None => Ok(None),
             crate::file::ApprovalPolicy::Auto => {
                 let feature = Self::default_feature_name(entity_id);
@@ -572,7 +572,7 @@ impl FileCheckpointManager {
             entity_id,
             feature_name,
             None,
-            self.conflict_behavior,
+            self.policy.conflict_behavior,
             self.workspace_root.as_deref(),
         )
     }
@@ -590,7 +590,7 @@ impl FileCheckpointManager {
             entity_id,
             feature_name,
             Some(paths),
-            self.conflict_behavior,
+            self.policy.conflict_behavior,
             self.workspace_root.as_deref(),
         )
     }

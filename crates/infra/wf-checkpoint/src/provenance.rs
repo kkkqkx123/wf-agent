@@ -757,6 +757,66 @@ pub fn diff_against_staged(
     Ok(diff_workspaces(&actor_files, &staged_files))
 }
 
+/// Read-only provenance service borrowing the store.
+///
+/// Splits query ownership out of `FileCheckpointManager`: orchestration code
+/// builds a reader from the manager's storage + workspace key, while the
+/// manager's own query methods delegate here to keep one implementation.
+pub struct ProvenanceReader<'a> {
+    storage: &'a SqliteStorage,
+    workspace_key: Option<String>,
+}
+
+impl<'a> ProvenanceReader<'a> {
+    pub fn new(storage: &'a SqliteStorage, workspace_key: Option<String>) -> Self {
+        Self {
+            storage,
+            workspace_key,
+        }
+    }
+
+    pub fn list_partitions(&self) -> Result<Vec<PartitionView>, CheckpointError> {
+        list_partitions(self.storage)
+    }
+
+    pub fn list_changes_by_actor(
+        &self,
+        actor: &str,
+        path_filter: Option<&str>,
+        time_range: Option<(i64, i64)>,
+    ) -> Result<Vec<DeltaSummary>, CheckpointError> {
+        list_changes_by_actor(self.storage, actor, path_filter, time_range)
+    }
+
+    pub fn list_changes_by_path(
+        &self,
+        path: &str,
+        time_range: Option<(i64, i64)>,
+    ) -> Result<Vec<DeltaSummary>, CheckpointError> {
+        list_changes_by_path(self.storage, path, time_range)
+    }
+
+    pub fn get_actor_workspace(&self, actor: &str) -> Result<Vec<WorkspaceFile>, CheckpointError> {
+        get_actor_workspace(self.storage, actor)
+    }
+
+    pub fn diff_actors(
+        &self,
+        actor_a: &str,
+        actor_b: &str,
+    ) -> Result<Vec<FileDiffView>, CheckpointError> {
+        diff_actors(self.storage, actor_a, actor_b)
+    }
+
+    pub fn diff_against_staged(&self, actor: &str) -> Result<Vec<FileDiffView>, CheckpointError> {
+        diff_against_staged(self.storage, actor, self.workspace_key.as_deref())
+    }
+
+    pub fn list_conflicts(&self) -> Result<Vec<ConflictFile>, CheckpointError> {
+        list_conflicts(self.storage, self.workspace_key.as_deref())
+    }
+}
+
 /// Convert a workspace file set into content entries (used by restore
 /// callers / API projections).
 pub fn workspace_entries(files: &[WorkspaceFile]) -> Vec<FileContentEntry> {

@@ -7,14 +7,14 @@ use layertwine::layered::StateMachine;
 use layertwine::storage::repository::{MetadataStore, PartitionStore, SnapshotStore};
 use layertwine::storage::sqlite::SqliteStorage;
 pub use wf_types::config::file_checkpoint::ApprovalPolicy;
-use wf_types::config::file_checkpoint::{ConflictBehavior, FailureBehavior};
+use wf_types::config::file_checkpoint::FailureBehavior;
 
-use crate::actor_id::ActorId;
+use crate::actor_registry::ActorRegistry;
 use crate::diff::unified_diff_text;
 use crate::error::CheckpointError;
 use crate::event::CheckpointEventBus;
 use crate::file_util::{map_layertwine_error, sha256_hex};
-use crate::layertwine::LayertwineGitAdapter;
+use crate::manager_store::{ManagerPolicy, ManagerStore};
 use crate::provenance::{DeltaSummary, FileDiffView, PartitionView, WorkspaceFile};
 use crate::recent_agent_writes::RecentAgentWrites;
 use crate::scan::{ScanConfig, WorkspaceScanner};
@@ -172,15 +172,8 @@ pub struct WorkspaceRestoreResult {
 /// through `transition::reconstruct_text`. `FileCheckpoint` / `FileState`
 /// are projections over the layertwine model.
 pub struct FileCheckpointManager {
-    pub(crate) storage: Option<Arc<SqliteStorage>>,
-    pub(crate) state_machine: Option<StateMachine<SqliteStorage>>,
-    pub(crate) branch_adapter: Arc<LayertwineGitAdapter>,
-    /// Actor id -> latest checkpoint id (projection index; cheap in-memory
-    /// mirror, the DB remains authoritative).
-    pub(crate) latest_checkpoints: Arc<DashMap<String, String>>,
-    /// Checkpoint id -> empty directories recorded at snapshot time
-    /// (projection-only, not stored in layertwine).
-    pub(crate) empty_dirs: Arc<DashMap<String, Vec<String>>>,
+    pub(crate) store: ManagerStore,
+    pub(crate) policy: ManagerPolicy,
     /// Path -> content hash registry of recent agent writes (manual watcher
     /// uses it to distinguish agent self-writes from human edits).
     pub(crate) recent_agent_writes: Arc<RecentAgentWrites>,
@@ -197,53 +190,22 @@ pub struct FileCheckpointManager {
     /// Scoped captures (script diff, manual watcher) restrict their scope to
     /// this root; `None` disables them.
     pub(crate) workspace_root: Option<PathBuf>,
-    /// Workspace scan rules (ignore patterns + per-file failure behavior).
-    pub(crate) scan_config: ScanConfig,
-    /// Layered approval policy applied when an execution ends
-    /// (`on_agent_complete`); flows the actor partition through the approval
-    /// layer before merging into a feature.
-    pub(crate) approval_policy: ApprovalPolicy,
-    /// Three-way merge conflict strategy applied by `approve_changes` /
-    /// `merge_entity_changes` (marker / fail / approval).
-    pub(crate) conflict_behavior: ConflictBehavior,
-    /// Byte-change ratio above which a text edit is stored as a full-content
-    /// snapshot (from `FileCheckpointConfig.full_snapshot_threshold`,
-    /// default 0.5). Threaded into layertwine agent/manual edits.
-    pub(crate) full_snapshot_threshold: f64,
-    /// Physical GC auto-run interval in seconds; `None` = never run
-    /// automatically (from `FileCheckpointConfig.gc_interval_secs`).
-    pub(crate) gc_interval_secs: Option<u64>,
-    /// GC retention policy (from `FileCheckpointConfig.gc_retention`);
-    /// `None` = default (only the built-in protected set).
-    pub(crate) gc_retention: Option<layertwine::git_sync::GcRetention>,
     /// Entity id -> resolved `ActorId` (sub-execution isolation). Built at
     /// first actor resolution: a child execution whose parent is known in
     /// the index gets `parent.child(execution_id)`, so nested executions
     /// live in their own hierarchical partition.
-    pub(crate) actor_index: Arc<DashMap<String, ActorId>>,
+    pub(crate) actor_index: ActorRegistry,
 }
 
 impl Clone for FileCheckpointManager {
     fn clone(&self) -> Self {
         Self {
-            storage: self.storage.clone(),
-            state_machine: self
-                .storage
-                .as_ref()
-                .map(|storage| StateMachine::new(storage.clone())),
-            branch_adapter: Arc::clone(&self.branch_adapter),
-            latest_checkpoints: self.latest_checkpoints.clone(),
-            empty_dirs: self.empty_dirs.clone(),
+            store: self.store.clone(),
+            policy: self.policy.clone(),
             recent_agent_writes: self.recent_agent_writes.clone(),
             deleted_files: self.deleted_files.clone(),
             event_bus: self.event_bus.clone(),
             workspace_root: self.workspace_root.clone(),
-            scan_config: self.scan_config.clone(),
-            approval_policy: self.approval_policy,
-            conflict_behavior: self.conflict_behavior,
-            full_snapshot_threshold: self.full_snapshot_threshold,
-            gc_interval_secs: self.gc_interval_secs,
-            gc_retention: self.gc_retention,
             actor_index: self.actor_index.clone(),
         }
     }
@@ -251,51 +213,28 @@ impl Clone for FileCheckpointManager {
 
 impl FileCheckpointManager {
     pub fn new() -> Self {
-        let branch_adapter = Arc::new(
-            LayertwineGitAdapter::new_in_memory().expect("in-memory adapter should not fail"),
-        );
         Self {
-            storage: None,
-            state_machine: None,
-            branch_adapter,
-            latest_checkpoints: Arc::new(DashMap::new()),
-            empty_dirs: Arc::new(DashMap::new()),
+            store: ManagerStore::without_storage(),
+            policy: ManagerPolicy::default(),
             recent_agent_writes: Arc::new(RecentAgentWrites::new()),
             deleted_files: Arc::new(DashMap::new()),
             event_bus: None,
             workspace_root: None,
-            scan_config: ScanConfig::default(),
-            approval_policy: ApprovalPolicy::default(),
-            conflict_behavior: ConflictBehavior::default(),
-            full_snapshot_threshold: layertwine::engine::diff::DEFAULT_FULL_SNAPSHOT_THRESHOLD,
-            gc_interval_secs: None,
-            gc_retention: None,
-            actor_index: Arc::new(DashMap::new()),
+            actor_index: ActorRegistry::new(),
         }
     }
 
     /// Attach a layertwine Sqlite backend; this is the production entry
     /// point (the storage is shared with the surrounding runtime).
     pub fn with_sqlite(storage: Arc<SqliteStorage>) -> Self {
-        let state_machine = StateMachine::new(storage.clone());
-        let branch_adapter = Arc::new(LayertwineGitAdapter::from_shared(storage.clone()));
         Self {
-            storage: Some(storage),
-            state_machine: Some(state_machine),
-            branch_adapter,
-            latest_checkpoints: Arc::new(DashMap::new()),
-            empty_dirs: Arc::new(DashMap::new()),
+            store: ManagerStore::with_sqlite(storage),
+            policy: ManagerPolicy::default(),
             recent_agent_writes: Arc::new(RecentAgentWrites::new()),
             deleted_files: Arc::new(DashMap::new()),
             event_bus: None,
             workspace_root: None,
-            scan_config: ScanConfig::default(),
-            approval_policy: ApprovalPolicy::default(),
-            conflict_behavior: ConflictBehavior::default(),
-            full_snapshot_threshold: layertwine::engine::diff::DEFAULT_FULL_SNAPSHOT_THRESHOLD,
-            gc_interval_secs: None,
-            gc_retention: None,
-            actor_index: Arc::new(DashMap::new()),
+            actor_index: ActorRegistry::new(),
         }
     }
 
@@ -338,21 +277,22 @@ impl FileCheckpointManager {
             None => Self::new_in_memory()?,
         };
         manager.workspace_root = config.workspace_root.as_ref().map(PathBuf::from);
-        manager.scan_config = ScanConfig {
+        manager.policy.scan_config = ScanConfig {
             custom_ignore_patterns: config.custom_ignore_patterns.clone().unwrap_or_default(),
             failure_behavior: config.failure_behavior,
         };
-        manager.approval_policy = config.approval_policy;
-        manager.conflict_behavior = config.conflict_behavior;
-        manager.full_snapshot_threshold = config
+        manager.policy.approval_policy = config.approval_policy;
+        manager.policy.conflict_behavior = config.conflict_behavior;
+        manager.policy.full_snapshot_threshold = config
             .full_snapshot_threshold
             .unwrap_or(layertwine::engine::diff::DEFAULT_FULL_SNAPSHOT_THRESHOLD);
-        manager.gc_interval_secs = config.gc_interval_secs;
-        manager.gc_retention = config
-            .gc_retention
-            .map(|r| layertwine::git_sync::GcRetention {
-                keep_recent_heads: r.keep_recent_heads,
-            });
+        manager.policy.gc_interval_secs = config.gc_interval_secs;
+        manager.policy.gc_retention =
+            config
+                .gc_retention
+                .map(|r| layertwine::git_sync::GcRetention {
+                    keep_recent_heads: r.keep_recent_heads,
+                });
         manager.check_workspace_root_binding(config)?;
         Ok(manager)
     }
@@ -367,7 +307,6 @@ impl FileCheckpointManager {
         &self,
         config: &wf_types::config::file_checkpoint::FileCheckpointConfig,
     ) -> Result<(), CheckpointError> {
-        const WS_ROOT_KEY: &str = "wf-checkpoint:workspace-root";
         let (Some(storage_cfg), Some(root)) = (&config.storage, &config.workspace_root) else {
             return Ok(());
         };
@@ -376,7 +315,10 @@ impl FileCheckpointManager {
         }
         let normalized = crate::file_util::normalize_workspace_key(Path::new(root));
         let storage = self.storage_ref()?;
-        match storage.load_metadata(WS_ROOT_KEY).map_err(map_layertwine_error)? {
+        match storage
+            .load_metadata(crate::metadata_keys::WORKSPACE_ROOT_KEY)
+            .map_err(map_layertwine_error)?
+        {
             Some(existing) if existing != normalized => Err(CheckpointError::Validation {
                 reason: format!(
                     "db_path is bound to workspace root '{existing}', cannot open with '{normalized}'"
@@ -384,52 +326,46 @@ impl FileCheckpointManager {
             }),
             Some(_) => Ok(()),
             None => storage
-                .store_metadata(WS_ROOT_KEY, &normalized)
+                .store_metadata(crate::metadata_keys::WORKSPACE_ROOT_KEY, &normalized)
                 .map_err(map_layertwine_error),
         }
     }
 
     /// In-memory backend for tests and tooling.
     pub fn new_in_memory() -> Result<Self, CheckpointError> {
-        let storage = Arc::new(SqliteStorage::new_full_in_memory().map_err(map_layertwine_error)?);
-        let branch_adapter = Arc::new(LayertwineGitAdapter::from_shared(storage.clone()));
         Ok(Self {
-            storage: Some(storage),
-            state_machine: None,
-            branch_adapter,
-            latest_checkpoints: Arc::new(DashMap::new()),
-            empty_dirs: Arc::new(DashMap::new()),
+            store: ManagerStore::new_in_memory_backend()?,
+            policy: ManagerPolicy::default(),
             recent_agent_writes: Arc::new(RecentAgentWrites::new()),
             deleted_files: Arc::new(DashMap::new()),
             event_bus: None,
             workspace_root: None,
-            scan_config: ScanConfig::default(),
-            approval_policy: ApprovalPolicy::default(),
-            conflict_behavior: ConflictBehavior::default(),
-            full_snapshot_threshold: layertwine::engine::diff::DEFAULT_FULL_SNAPSHOT_THRESHOLD,
-            gc_interval_secs: None,
-            gc_retention: None,
-            actor_index: Arc::new(DashMap::new()),
+            actor_index: ActorRegistry::new(),
         })
     }
 
     /// Configured full-snapshot threshold threaded into layertwine edits.
     pub fn full_snapshot_threshold(&self) -> f64 {
-        self.full_snapshot_threshold
+        self.policy.full_snapshot_threshold
     }
 
-    pub fn state_machine(&self) -> Option<&StateMachine<SqliteStorage>> {
-        self.state_machine.as_ref()
+    /// Build a layered state machine over the attached storage on demand.
+    /// Previous `Option<StateMachine>` field was dead weight (most paths use
+    /// `storage_ref()` directly and constructors disagreed on `Some`/`None`);
+    /// constructing on demand removes the Clone inconsistency.
+    pub fn state_machine(&self) -> Option<StateMachine<SqliteStorage>> {
+        self.store
+            .storage
+            .as_ref()
+            .map(|storage| StateMachine::new(storage.clone()))
     }
 
     pub fn storage(&self) -> Option<&Arc<SqliteStorage>> {
-        self.storage.as_ref()
+        self.store.storage.as_ref()
     }
 
     pub(crate) fn storage_ref(&self) -> Result<&SqliteStorage, CheckpointError> {
-        self.storage.as_deref().ok_or_else(|| {
-            CheckpointError::Coordinator("no file checkpoint storage configured".to_string())
-        })
+        self.store.storage_ref()
     }
 
     // ── workspace checkpointing ─────────────────────────────────────
@@ -451,6 +387,7 @@ impl FileCheckpointManager {
         let mut entries = Vec::with_capacity(scan.files.len());
         let actor = self.actor_id_for(entity_id);
         let existing_paths = self
+            .store
             .storage
             .as_ref()
             .and_then(|storage| {
@@ -509,11 +446,11 @@ impl FileCheckpointManager {
         }
         let mut checkpoint = self.create_checkpoint_with_content(entity_id, &entries)?;
         checkpoint.empty_dirs = Some(scan.empty_dirs.clone());
-        self.empty_dirs
-            .insert(checkpoint.id.clone(), scan.empty_dirs.clone());
+        // Single source of truth: persisted metadata only. The previous
+        // in-memory DashMap mirror is removed to avoid dual-write divergence.
         self.storage_ref()?
             .store_metadata(
-                &format!("wf-checkpoint:empty-dirs:{}", checkpoint.id),
+                &crate::metadata_keys::empty_dirs_key(&checkpoint.id),
                 &serde_json::to_string(&scan.empty_dirs)?,
             )
             .map_err(map_layertwine_error)?;
@@ -534,12 +471,19 @@ impl FileCheckpointManager {
         unified_diff_text(previous_content, current_content, context_lines, None, None)
     }
 
-    // ── provenance queries ──────────────────────────────────────────
+    // ── provenance queries (delegated to ProvenanceReader) ──────────
+
+    fn reader(&self) -> Result<crate::provenance::ProvenanceReader<'_>, CheckpointError> {
+        Ok(crate::provenance::ProvenanceReader::new(
+            self.storage_ref()?,
+            self.workspace_key(),
+        ))
+    }
 
     /// All partitions of the file-checkpoint store (actor partitions,
     /// approval, integrated features, staged).
     pub fn list_partitions(&self) -> Result<Vec<PartitionView>, CheckpointError> {
-        crate::provenance::list_partitions(self.storage_ref()?)
+        self.reader()?.list_partitions()
     }
 
     /// Changes recorded in an actor partition, in chronological order.
@@ -549,12 +493,8 @@ impl FileCheckpointManager {
         path_filter: Option<&str>,
         time_range: Option<(i64, i64)>,
     ) -> Result<Vec<DeltaSummary>, CheckpointError> {
-        crate::provenance::list_changes_by_actor(
-            self.storage_ref()?,
-            actor,
-            path_filter,
-            time_range,
-        )
+        self.reader()?
+            .list_changes_by_actor(actor, path_filter, time_range)
     }
 
     /// Changes touching a path across every partition. `time_range`
@@ -564,12 +504,12 @@ impl FileCheckpointManager {
         path: &str,
         time_range: Option<(i64, i64)>,
     ) -> Result<Vec<DeltaSummary>, CheckpointError> {
-        crate::provenance::list_changes_by_path(self.storage_ref()?, path, time_range)
+        self.reader()?.list_changes_by_path(path, time_range)
     }
 
     /// Reconstructed file set of an actor partition (current state).
     pub fn get_actor_workspace(&self, actor: &str) -> Result<Vec<WorkspaceFile>, CheckpointError> {
-        crate::provenance::get_actor_workspace(self.storage_ref()?, actor)
+        self.reader()?.get_actor_workspace(actor)
     }
 
     /// Per-file diff between two actor workspaces.
@@ -578,23 +518,19 @@ impl FileCheckpointManager {
         actor_a: &str,
         actor_b: &str,
     ) -> Result<Vec<FileDiffView>, CheckpointError> {
-        crate::provenance::diff_actors(self.storage_ref()?, actor_a, actor_b)
+        self.reader()?.diff_actors(actor_a, actor_b)
     }
 
     /// Per-file diff between an actor workspace and the staged partition.
     pub fn diff_against_staged(&self, actor: &str) -> Result<Vec<FileDiffView>, CheckpointError> {
-        crate::provenance::diff_against_staged(
-            self.storage_ref()?,
-            actor,
-            self.workspace_key().as_deref(),
-        )
+        self.reader()?.diff_against_staged(actor)
     }
 
     /// Files with unresolved merge conflicts across the staged and feature
     /// partitions, with re-derived conflict regions (see
     /// [`crate::provenance::list_conflicts`]).
     pub fn list_conflicts(&self) -> Result<Vec<crate::provenance::ConflictFile>, CheckpointError> {
-        crate::provenance::list_conflicts(self.storage_ref()?, self.workspace_key().as_deref())
+        self.reader()?.list_conflicts()
     }
 }
 
@@ -607,7 +543,8 @@ impl Default for FileCheckpointManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use layertwine::storage::repository::{CheckpointPersist, PartitionStore};
+    use layertwine::storage::repository::PartitionStore;
+    use wf_types::config::file_checkpoint::ConflictBehavior;
 
     fn manager() -> FileCheckpointManager {
         FileCheckpointManager::new_in_memory().unwrap()
@@ -1111,28 +1048,21 @@ mod tests {
 
         let storage = manager.storage().unwrap();
         // Create branch head pointers so the join has something to clean up.
+        let features = crate::branch::FeatureBranchStore::new(storage.clone());
         let head = storage
             .get_partition(&layertwine::layered::integrated::integrated_partition_id(
                 "branch-1",
             ))
             .unwrap()
             .current_snapshot;
-        storage
-            .store_branch(&layertwine::checkpoint::branch::Branch::new(
-                "branch-1", head,
-            ))
-            .unwrap();
+        features.create("branch-1", head).unwrap();
         let head2 = storage
             .get_partition(&layertwine::layered::integrated::integrated_partition_id(
                 "branch-2",
             ))
             .unwrap()
             .current_snapshot;
-        storage
-            .store_branch(&layertwine::checkpoint::branch::Branch::new(
-                "branch-2", head2,
-            ))
-            .unwrap();
+        features.create("branch-2", head2).unwrap();
 
         // Join: merge both features into staged, then delete the pointers.
         let joined = manager
@@ -1151,11 +1081,9 @@ mod tests {
         assert_eq!(map["b.txt"].content, b"branch-b");
 
         // Branch head pointers are removed; the DAG data stays intact.
-        let branches = storage.list_branches().unwrap();
+        let branches = features.list().unwrap();
         assert!(
-            !branches
-                .iter()
-                .any(|b| b.name == "branch-1" || b.name == "branch-2"),
+            !branches.iter().any(|b| b == "branch-1" || b == "branch-2"),
             "join must delete the branch head pointers"
         );
     }

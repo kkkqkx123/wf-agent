@@ -2,15 +2,13 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 
-use layertwine::core::file_node::FileNode;
-use layertwine::core::snapshot::{Snapshot, SnapshotContent};
-use layertwine::core::types::SnapshotId;
-use layertwine::storage::repository::{MetadataStore, SnapshotStore};
+use layertwine::storage::repository::{GraphBlobStore, MetadataStore};
 use layertwine::storage::sqlite::SqliteStorage;
 
 use crate::branch::BranchStorageAdapter;
 use crate::error::CheckpointError;
 use crate::file_util::map_layertwine_error;
+use crate::metadata_keys;
 use wf_common::gate::ConcurrencyGate;
 
 pub trait GitCheckpointAdapter: Send + Sync {
@@ -42,16 +40,11 @@ pub trait GitCheckpointAdapter: Send + Sync {
     ) -> impl std::future::Future<Output = Result<(), CheckpointError>> + Send;
 }
 
-const CP_KEY_PREFIX: &str = "wf-checkpoint:";
-const CP_PARENT_PREFIX: &str = "wf-checkpoint-parent:";
-const BRANCH_KEY_PREFIX: &str = "wf-checkpoint-branch:";
-const BRANCH_CPS_PREFIX: &str = "wf-checkpoint-branch-cps:";
-
-/// Real layertwine backend adapter: persists checkpoint blobs as structured
-/// snapshots inside layertwine's Sqlite storage (via its `SnapshotStore` /
-/// `MetadataStore` repository traits). An O(1) metadata index maps the
-/// checkpoint id to the content-addressed snapshot id, and per-parent index
-/// lists support `list_checkpoints(parent)`.
+/// Real layertwine backend adapter: persists opaque graph/workflow checkpoint
+/// blobs in the dedicated `graph_blobs` table (indexed `parent_id` /
+/// `branch_id` columns). Reads fall back to the legacy snapshot +
+/// metadata-index path so databases written before the migration keep working;
+/// new writes never touch the file-history snapshot tables.
 pub struct LayertwineGitAdapter {
     storage: SqliteStorage,
 }
@@ -77,19 +70,58 @@ impl LayertwineGitAdapter {
     }
 
     fn snapshot_key(checkpoint_id: &str) -> String {
-        format!("{CP_KEY_PREFIX}{}", checkpoint_id)
+        metadata_keys::checkpoint_key(checkpoint_id)
     }
 
     fn parent_key(parent_id: &str) -> String {
-        format!("{CP_PARENT_PREFIX}{}", parent_id)
+        metadata_keys::parent_key(parent_id)
     }
 
     fn branch_key(branch: &str) -> String {
-        format!("{BRANCH_KEY_PREFIX}{}", branch)
+        metadata_keys::branch_key(branch)
     }
 
     fn branch_cps_key(branch: &str) -> String {
-        format!("{BRANCH_CPS_PREFIX}{}", branch)
+        metadata_keys::branch_cps_key(branch)
+    }
+
+    /// Legacy read: resolve through the snapshot + metadata index written
+    /// before the `graph_blobs` migration. Returns `Ok(None)` when no legacy
+    /// pointer exists.
+    fn load_legacy_blob(&self, checkpoint_id: &str) -> Result<Option<Vec<u8>>, CheckpointError> {
+        use layertwine::core::types::SnapshotId;
+        use layertwine::storage::repository::SnapshotStore;
+
+        let snapshot_hex = match self
+            .storage
+            .load_metadata(&Self::snapshot_key(checkpoint_id))
+            .map_err(map_layertwine_error)?
+        {
+            Some(hex) if !hex.is_empty() => hex,
+            _ => return Ok(None),
+        };
+        let snapshot_id = SnapshotId::from_hex(&snapshot_hex).ok_or_else(|| {
+            CheckpointError::Serialization(format!(
+                "invalid stored snapshot id '{snapshot_hex}' for checkpoint {checkpoint_id}"
+            ))
+        })?;
+        let snapshot = self
+            .storage
+            .get_snapshot(&snapshot_id)
+            .map_err(map_layertwine_error)
+            .map_err(|e| match e {
+                CheckpointError::NotFound { .. } => CheckpointError::NotFound {
+                    id: checkpoint_id.to_string(),
+                },
+                other => other,
+            })?;
+        Ok(snapshot.content.map(|content| content.to_bytes()))
+    }
+
+    /// Legacy parent listing (comma-joined metadata lists). Merged with the
+    /// indexed `graph_blobs` query so old rows remain visible.
+    fn load_legacy_id_list(&self, key: &str) -> Result<Vec<String>, CheckpointError> {
+        self.load_id_list(key)
     }
 
     fn load_id_list(&self, key: &str) -> Result<Vec<String>, CheckpointError> {
@@ -110,8 +142,19 @@ impl LayertwineGitAdapter {
     }
 
     /// List checkpoint ids recorded on a branch (branch-scoped listing).
+    /// Merges the indexed `graph_blobs` query with legacy comma-joined lists.
     pub fn list_branch_checkpoints(&self, branch: &str) -> Result<Vec<String>, CheckpointError> {
-        self.load_id_list(&Self::branch_cps_key(branch))
+        let mut ids = self
+            .storage
+            .list_graph_blob_ids_by_branch(branch)
+            .map_err(map_layertwine_error)?;
+        for id in self.load_id_list(&Self::branch_cps_key(branch))? {
+            if !ids.contains(&id) {
+                ids.push(id);
+            }
+        }
+        ids.sort();
+        Ok(ids)
     }
 }
 
@@ -122,46 +165,12 @@ impl GitCheckpointAdapter for LayertwineGitAdapter {
         data: &[u8],
         metadata: &HashMap<String, String>,
     ) -> Result<(), CheckpointError> {
-        let file_node = FileNode::new(
-            Path::new(&format!(".checkpoints/{}.json", checkpoint_id)).to_path_buf(),
-            data,
-        );
-        let snapshot = Snapshot::new_with_content(
-            file_node,
-            SnapshotContent::Structured(data.to_vec()),
-            format!("graph://checkpoints/{}", checkpoint_id),
-            "checkpoint".to_string(),
-            vec![],
-            vec![],
-        );
-
+        // Dedicated blob table: no snapshot rows, no comma-joined lists.
+        let parent = metadata.get("parentId").map(String::as_str);
+        let branch = metadata.get("branchId").map(String::as_str);
         self.storage
-            .store_snapshot(&snapshot, data)
+            .store_graph_blob(checkpoint_id, data, parent, branch)
             .map_err(map_layertwine_error)?;
-
-        let snapshot_hex = snapshot.id.to_hex();
-        self.storage
-            .store_metadata(&Self::snapshot_key(checkpoint_id), &snapshot_hex)
-            .map_err(map_layertwine_error)?;
-
-        if let Some(parent) = metadata.get("parentId") {
-            let list_key = Self::parent_key(parent);
-            let mut ids = self.load_id_list(&list_key)?;
-            if !ids.iter().any(|id| id == checkpoint_id) {
-                ids.push(checkpoint_id.to_string());
-                self.store_id_list(&list_key, &ids)?;
-            }
-        }
-
-        if let Some(branch) = metadata.get("branchId") {
-            let list_key = Self::branch_cps_key(branch);
-            let mut ids = self.load_id_list(&list_key)?;
-            if !ids.iter().any(|id| id == checkpoint_id) {
-                ids.push(checkpoint_id.to_string());
-                self.store_id_list(&list_key, &ids)?;
-            }
-        }
-
         Ok(())
     }
 
@@ -169,82 +178,72 @@ impl GitCheckpointAdapter for LayertwineGitAdapter {
         &self,
         checkpoint_id: &str,
     ) -> Result<Option<Vec<u8>>, CheckpointError> {
-        let snapshot_hex = match self
+        if let Some(blob) = self
             .storage
-            .load_metadata(&Self::snapshot_key(checkpoint_id))
+            .load_graph_blob(checkpoint_id)
             .map_err(map_layertwine_error)?
         {
-            Some(hex) if !hex.is_empty() => hex,
-            _ => return Ok(None),
-        };
-
-        let snapshot_id = SnapshotId::from_hex(&snapshot_hex).ok_or_else(|| {
-            CheckpointError::Serialization(format!(
-                "invalid stored snapshot id '{}' for checkpoint {}",
-                snapshot_hex, checkpoint_id
-            ))
-        })?;
-
-        let snapshot = self
-            .storage
-            .get_snapshot(&snapshot_id)
-            .map_err(map_layertwine_error)
-            .map_err(|e| match e {
-                CheckpointError::NotFound { .. } => CheckpointError::NotFound {
-                    id: checkpoint_id.to_string(),
-                },
-                other => other,
-            })?;
-
-        Ok(snapshot.content.map(|content| content.to_bytes()))
+            return Ok(Some(blob.data));
+        }
+        // Fallback for databases written before the migration.
+        self.load_legacy_blob(checkpoint_id)
     }
 
     async fn list_checkpoints(
         &self,
         parent_id: Option<&str>,
     ) -> Result<Vec<String>, CheckpointError> {
-        match parent_id {
-            Some(parent) => self.load_id_list(&Self::parent_key(parent)),
+        let mut ids = self
+            .storage
+            .list_graph_blob_ids(parent_id)
+            .map_err(map_layertwine_error)?;
+        // Merge legacy rows so pre-migration checkpoints stay visible.
+        let legacy = match parent_id {
+            Some(parent) => self.load_legacy_id_list(&Self::parent_key(parent))?,
             None => {
-                // Global enumeration over the checkpoint index
-                // (`wf-checkpoint:{id}` metadata keys). Per-parent lists
-                // remain the canonical filtered entry point.
                 let entries = self
                     .storage
-                    .list_metadata_by_prefix(CP_KEY_PREFIX)
+                    .list_metadata_by_prefix(metadata_keys::CP_PREFIX)
                     .map_err(map_layertwine_error)?;
-                Ok(entries
+                entries
                     .into_iter()
-                    .filter_map(|(key, _)| key.strip_prefix(CP_KEY_PREFIX).map(str::to_string))
-                    .collect())
+                    .filter_map(|(key, _)| {
+                        key.strip_prefix(metadata_keys::CP_PREFIX)
+                            .map(str::to_string)
+                    })
+                    .collect()
+            }
+        };
+        for id in legacy {
+            if !ids.contains(&id) {
+                ids.push(id);
             }
         }
+        ids.sort();
+        Ok(ids)
     }
 
     async fn delete_checkpoint(&self, checkpoint_id: &str) -> Result<bool, CheckpointError> {
-        let key = Self::snapshot_key(checkpoint_id);
-        let exists = matches!(
-            self.storage.load_metadata(&key).map_err(map_layertwine_error)?,
-            Some(hex) if !hex.is_empty()
-        );
-        if !exists {
-            return Ok(false);
-        }
-
-        // Real pointer deletion: the metadata index row is removed. The
-        // content-addressed snapshot blob stays (INSERT-ONLY) and is
-        // reclaimed separately by physical GC.
-        self.storage
-            .delete_metadata(&key)
+        let removed_new = self
+            .storage
+            .delete_graph_blob(checkpoint_id)
             .map_err(map_layertwine_error)?;
-
-        Ok(true)
+        // Also clear the legacy pointer when present (snapshot blobs stay
+        // INSERT-ONLY and are reclaimed by physical GC).
+        let legacy_removed = self
+            .storage
+            .delete_metadata(&Self::snapshot_key(checkpoint_id))
+            .map_err(map_layertwine_error)?;
+        Ok(removed_new || legacy_removed)
     }
 
     async fn batch_save(
         &self,
         items: &[(String, Vec<u8>, HashMap<String, String>)],
     ) -> Result<(), CheckpointError> {
+        // Sequential loop preserves the legacy+new write contract per item;
+        // listing is indexed so batch throughput is dominated by inserts.
+        // A future SAVEPOINT-wrapped bulk insert can replace this loop.
         for (id, data, metadata) in items {
             self.save_checkpoint(id, data, metadata).await?;
         }
@@ -265,72 +264,136 @@ impl LayertwineGitAdapter {
         }
     }
 
-    /// Update the branch head pointer to point to the given checkpoint id.
+    /// Update the branch head pointer (execution namespace).
+    ///
+    /// Writes the KV head pointer and mirrors it into layertwine's native
+    /// `branches` table when the id parses as a content id, so both branch
+    /// models observe the same head. Native errors propagate (no silent skew).
     pub fn set_branch_head(
         &self,
         branch: &str,
         checkpoint_id: &str,
     ) -> Result<(), CheckpointError> {
-        let key = format!("wf-branch-head:{}", branch);
+        use layertwine::core::types::CheckpointId;
+        use layertwine::storage::repository::CheckpointPersist;
+
+        let key = metadata_keys::branch_head_key(branch);
         self.storage
             .store_metadata(&key, checkpoint_id)
-            .map_err(map_layertwine_error)
+            .map_err(map_layertwine_error)?;
+        if let Some(head) = CheckpointId::from_hex(checkpoint_id) {
+            match self.storage.get_branch(branch) {
+                Ok(_) => self.storage.update_branch_head(branch, &head),
+                Err(layertwine::StorageError::NotFound(_)) => self
+                    .storage
+                    .store_branch(&layertwine::checkpoint::branch::Branch::new(branch, head)),
+                Err(e) => Err(e),
+            }
+            .map_err(map_layertwine_error)?;
+        }
+        Ok(())
     }
 
-    /// Read the branch head pointer. Returns `None` when no head is set.
+    /// Read the branch head pointer. Prefers the native `branches` table,
+    /// falls back to the KV pointer for databases written before mirroring.
     pub fn get_branch_head(&self, branch: &str) -> Result<Option<String>, CheckpointError> {
-        let key = format!("wf-branch-head:{}", branch);
-        self.storage
-            .load_metadata(&key)
-            .map_err(map_layertwine_error)
+        use layertwine::storage::repository::CheckpointPersist;
+
+        match self.storage.get_branch(branch) {
+            Ok(native) => Ok(Some(native.head.to_hex())),
+            Err(layertwine::StorageError::NotFound(_)) => {
+                let key = metadata_keys::branch_head_key(branch);
+                self.storage
+                    .load_metadata(&key)
+                    .map_err(map_layertwine_error)
+            }
+            Err(e) => Err(map_layertwine_error(e)),
+        }
     }
 
     /// Synchronous branch-registry check (the non-async form of
-    /// [`BranchStorageAdapter::branch_exists`]): reads the registry entry
-    /// from the metadata store.
+    /// [`BranchStorageAdapter::branch_exists`]): registry entry or native
+    /// branch row counts as existing.
     pub fn branch_exists_now(&self, branch: &str) -> Result<bool, CheckpointError> {
+        use layertwine::storage::repository::CheckpointPersist;
+
         let value = self
             .storage
             .load_metadata(&Self::branch_key(branch))
             .map_err(map_layertwine_error)?;
-        Ok(value.is_some())
-    }
-}
-
-/// Production `BranchStorageAdapter` over the layertwine backend: branches
-/// are registered in the metadata store under `wf-checkpoint-branch:{name}`
-/// (value `{base}|{created_at}`), and each branch keeps its own checkpoint
-/// id list (`wf-checkpoint-branch-cps:{name}`) for branch-scoped isolation.
-/// Merging unions the source branch's checkpoint list into the target's.
-impl BranchStorageAdapter for LayertwineGitAdapter {
-    async fn create_branch(&self, name: &str, base: Option<&str>) -> Result<(), CheckpointError> {
-        let key = Self::branch_key(name);
-        match self
-            .storage
-            .load_metadata(&key)
-            .map_err(map_layertwine_error)
-            .map_err(|e| CheckpointError::Branch(e.to_string()))?
-        {
-            Some(_) => Err(CheckpointError::Branch(format!(
-                "branch '{}' already exists",
-                name
-            ))),
-            _ => {
-                let value = format!(
-                    "{}|{}",
-                    base.unwrap_or_default(),
-                    chrono::Utc::now().timestamp_millis()
-                );
-                self.storage
-                    .store_metadata(&key, &value)
-                    .map_err(map_layertwine_error)
-                    .map_err(|e| CheckpointError::Branch(e.to_string()))?;
-                Ok(())
-            }
+        if value.is_some() {
+            return Ok(true);
+        }
+        match self.storage.get_branch(branch) {
+            Ok(_) => Ok(true),
+            Err(layertwine::StorageError::NotFound(_)) => Ok(false),
+            Err(e) => Err(map_layertwine_error(e)),
         }
     }
 
+    /// Native head lookup shared by create-time base inheritance.
+    fn native_head_hex(&self, branch: &str) -> Option<String> {
+        use layertwine::storage::repository::CheckpointPersist;
+
+        self.storage
+            .get_branch(branch)
+            .ok()
+            .map(|b| b.head.to_hex())
+    }
+}
+
+/// Production `BranchStorageAdapter` over the layertwine backend: the base
+/// registry lives in the metadata store under `wf-checkpoint-branch:{name}`
+/// (value `{base}|{created_at}`), heads are mirrored into layertwine's native
+/// `branches` table (see `set_branch_head`), and each branch keeps its own
+/// checkpoint id list for branch-scoped isolation. Native + KV listings are
+/// unioned so either backing counts as existing.
+impl BranchStorageAdapter for LayertwineGitAdapter {
+    async fn create_branch(&self, name: &str, base: Option<&str>) -> Result<(), CheckpointError> {
+        use layertwine::core::types::CheckpointId;
+        use layertwine::storage::repository::CheckpointPersist;
+
+        if self
+            .branch_exists_now(name)
+            .map_err(|e| CheckpointError::Branch(e.to_string()))?
+        {
+            return Err(CheckpointError::Branch(format!(
+                "branch '{name}' already exists"
+            )));
+        }
+        let value = format!(
+            "{}|{}",
+            base.unwrap_or_default(),
+            chrono::Utc::now().timestamp_millis()
+        );
+        self.storage
+            .store_metadata(&Self::branch_key(name), &value)
+            .map_err(map_layertwine_error)
+            .map_err(|e| CheckpointError::Branch(e.to_string()))?;
+        // Inherit the base head into the native table when available so the
+        // new branch starts from the same pointer without waiting for the
+        // first checkpoint.
+        if let Some(base) = base {
+            if let Some(head_hex) = self.native_head_hex(base).or_else(|| {
+                self.storage
+                    .load_metadata(&metadata_keys::branch_head_key(base))
+                    .ok()
+                    .flatten()
+            }) {
+                if let Some(head) = CheckpointId::from_hex(&head_hex) {
+                    self.storage
+                        .store_branch(&layertwine::checkpoint::branch::Branch::new(name, head))
+                        .map_err(map_layertwine_error)
+                        .map_err(|e| CheckpointError::Branch(e.to_string()))?;
+                }
+            }
+        }
+        Ok(())
+    }
+
     async fn delete_branch(&self, name: &str) -> Result<(), CheckpointError> {
+        use layertwine::storage::repository::CheckpointPersist;
+
         self.storage
             .delete_metadata(&Self::branch_key(name))
             .map_err(map_layertwine_error)
@@ -339,49 +402,116 @@ impl BranchStorageAdapter for LayertwineGitAdapter {
             .delete_metadata(&Self::branch_cps_key(name))
             .map_err(map_layertwine_error)
             .map_err(|e| CheckpointError::Branch(e.to_string()))?;
-        Ok(())
+        self.storage
+            .delete_metadata(&metadata_keys::branch_head_key(name))
+            .map_err(map_layertwine_error)
+            .map_err(|e| CheckpointError::Branch(e.to_string()))?;
+        match self.storage.delete_branch(name) {
+            Ok(()) => Ok(()),
+            Err(layertwine::StorageError::NotFound(_)) => Ok(()),
+            Err(e) => {
+                Err(map_layertwine_error(e)).map_err(|e| CheckpointError::Branch(e.to_string()))
+            }
+        }
     }
 
     async fn list_branches(&self) -> Result<Vec<String>, CheckpointError> {
+        use layertwine::storage::repository::CheckpointPersist;
+
         let entries = self
             .storage
-            .list_metadata_by_prefix(BRANCH_KEY_PREFIX)
+            .list_metadata_by_prefix(metadata_keys::BRANCH_PREFIX)
             .map_err(map_layertwine_error)
             .map_err(|e| CheckpointError::Branch(e.to_string()))?;
-        Ok(entries
+        let mut names: Vec<String> = entries
             .into_iter()
             .filter_map(|(key, _)| {
-                key.strip_prefix(BRANCH_KEY_PREFIX)
+                key.strip_prefix(metadata_keys::BRANCH_PREFIX)
                     .map(|name| name.to_string())
             })
-            .collect())
+            .collect();
+        let native = self
+            .storage
+            .list_branches()
+            .map_err(map_layertwine_error)
+            .map_err(|e| CheckpointError::Branch(e.to_string()))?;
+        for branch in native {
+            if crate::branch::classify_branch(&branch.name) == crate::branch::BranchKind::Execution
+                && !names.contains(&branch.name)
+            {
+                names.push(branch.name);
+            }
+        }
+        names.sort();
+        Ok(names)
     }
 
     async fn branch_exists(&self, name: &str) -> Result<bool, CheckpointError> {
-        let value = self
-            .storage
-            .load_metadata(&Self::branch_key(name))
-            .map_err(map_layertwine_error)
-            .map_err(|e| CheckpointError::Branch(e.to_string()))?;
-        Ok(value.is_some())
+        self.branch_exists_now(name)
+            .map_err(|e| CheckpointError::Branch(e.to_string()))
     }
 
     async fn merge_branch(&self, source: &str, target: &str) -> Result<(), CheckpointError> {
-        // Storage-level merge: the target's checkpoint list becomes the
-        // union of both branches' lists (source history absorbed).
+        use layertwine::core::types::CheckpointId;
+        use layertwine::storage::repository::GraphBlobStore;
+
+        // Storage-level merge: re-point the source's blobs at the target
+        // (indexed columns, no comma-joined lists), then move the head.
         let source_ids = self
-            .list_branch_checkpoints(source)
+            .storage
+            .list_graph_blob_ids_by_branch(source)
+            .map_err(map_layertwine_error)
             .map_err(|e| CheckpointError::Branch(e.to_string()))?;
-        let mut target_ids = self
-            .list_branch_checkpoints(target)
-            .map_err(|e| CheckpointError::Branch(e.to_string()))?;
-        for id in source_ids {
-            if !target_ids.contains(&id) {
-                target_ids.push(id);
+        for id in &source_ids {
+            if let Some(mut blob) = self
+                .storage
+                .load_graph_blob(id)
+                .map_err(map_layertwine_error)
+                .map_err(|e| CheckpointError::Branch(e.to_string()))?
+            {
+                blob.branch_id = Some(target.to_string());
+                self.storage
+                    .store_graph_blob(
+                        &blob.id,
+                        &blob.data,
+                        blob.parent_id.as_deref(),
+                        blob.branch_id.as_deref(),
+                    )
+                    .map_err(map_layertwine_error)
+                    .map_err(|e| CheckpointError::Branch(e.to_string()))?;
             }
         }
-        self.store_id_list(&Self::branch_cps_key(target), &target_ids)
+        // Merge legacy branch-scoped lists for pre-migration rows.
+        let legacy_source = self
+            .load_id_list(&Self::branch_cps_key(source))
             .map_err(|e| CheckpointError::Branch(e.to_string()))?;
+        if !legacy_source.is_empty() {
+            let mut legacy_target = self
+                .load_id_list(&Self::branch_cps_key(target))
+                .map_err(|e| CheckpointError::Branch(e.to_string()))?;
+            for id in legacy_source {
+                if !legacy_target.contains(&id) {
+                    legacy_target.push(id);
+                }
+            }
+            self.store_id_list(&Self::branch_cps_key(target), &legacy_target)
+                .map_err(|e| CheckpointError::Branch(e.to_string()))?;
+        }
+        // Move the head pointer (native + KV stay in lockstep via helper).
+        if let Some(head) = self
+            .get_branch_head(source)
+            .map_err(|e| CheckpointError::Branch(e.to_string()))?
+        {
+            if CheckpointId::from_hex(&head).is_some() {
+                self.set_branch_head(target, &head)
+                    .map_err(|e| CheckpointError::Branch(e.to_string()))?;
+            } else {
+                self.storage
+                    .store_metadata(&metadata_keys::branch_head_key(target), &head)
+                    .map_err(map_layertwine_error)
+                    .map_err(|e| CheckpointError::Branch(e.to_string()))?;
+            }
+        }
         Ok(())
     }
 }

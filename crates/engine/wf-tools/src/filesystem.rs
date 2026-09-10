@@ -832,14 +832,19 @@ impl Clone for FsToolHandlers {
     }
 }
 
-/// Report a precise file change through the context observer. The path is
-/// normalized to an absolute lexical form; observers validate the workspace
-/// scope and return explicit out-of-scope results instead of silently
-/// dropping configuration errors.
 /// Report a precise file change through the CheckpointSession.
 fn notify_precise(ctx: &ToolExecutionContext, path: &Path, op: wf_checkpoint::FileOperation) {
     if let Some(cp) = ctx.checkpoint_session.as_ref() {
-        let mutation = wf_checkpoint::FileMutation::new(path.to_path_buf(), op);
+        let mut mutation = wf_checkpoint::FileMutation::new(path.to_path_buf(), op)
+            .with_execution(ctx.execution_id.clone());
+        // Best-effort content hash so checkpoint can skip re-reading disk.
+        // Deleted files have no content; read failures leave `new_hash` empty
+        // and checkpoint falls back to reading itself.
+        if !matches!(mutation.operation, wf_checkpoint::FileOperation::Deleted) {
+            if let Ok(bytes) = std::fs::read(path) {
+                mutation.new_hash = Some(wf_checkpoint::sha256_hex(&bytes));
+            }
+        }
         cp.record_file_mutation(&ctx.execution_id, mutation);
     }
 }

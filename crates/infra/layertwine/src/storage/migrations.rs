@@ -161,6 +161,26 @@ CREATE TABLE IF NOT EXISTS meta_kv (
 CREATE INDEX IF NOT EXISTS idx_checkpoints_created ON checkpoints(created_at DESC);
 ";
 
+/// Opaque graph/workflow checkpoint blobs (execution state, not file content).
+/// Separates the legacy `LayertwineGitAdapter` blob path from the file-history
+/// snapshot tables so blob writes never pollute `snapshots` / `file_nodes`.
+/// `parent_id` / `branch_id` are indexed query columns replacing the old
+/// comma-joined metadata id lists.
+pub const GRAPH_BLOB_MIGRATION_SQL: &str = "
+CREATE TABLE IF NOT EXISTS graph_blobs (
+    id              TEXT PRIMARY KEY,
+    data            BLOB NOT NULL,
+    parent_id       TEXT,
+    branch_id       TEXT,
+    created_at      INTEGER NOT NULL,
+    updated_at      INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_graph_blobs_parent ON graph_blobs(parent_id);
+CREATE INDEX IF NOT EXISTS idx_graph_blobs_branch ON graph_blobs(branch_id);
+CREATE INDEX IF NOT EXISTS idx_graph_blobs_updated ON graph_blobs(updated_at);
+";
+
 /// WAL journal mode pragma shared by the core database and standalone
 /// backup databases.
 pub const PRAGMA_JOURNAL_MODE_WAL: &str = "PRAGMA journal_mode=WAL;";
@@ -218,6 +238,8 @@ fn apply_light_migrations(conn: &rusqlite::Connection) -> Result<(), crate::Stor
         );
         CREATE INDEX IF NOT EXISTS idx_snapshot_sessions_session ON snapshot_sessions(session_id);",
     );
+    // Opaque graph blobs (new independent table; old DBs converge here).
+    let _ = conn.execute_batch(GRAPH_BLOB_MIGRATION_SQL);
     Ok(())
 }
 
@@ -241,5 +263,6 @@ pub fn initialize_database(conn: &rusqlite::Connection) -> Result<(), crate::Sto
 pub fn initialize_full(conn: &rusqlite::Connection) -> Result<(), crate::StorageError> {
     initialize_database(conn)?;
     conn.execute_batch(MIGRATION_CHECKPOINT_SQL)?;
+    conn.execute_batch(GRAPH_BLOB_MIGRATION_SQL)?;
     Ok(())
 }

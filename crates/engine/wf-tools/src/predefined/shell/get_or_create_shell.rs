@@ -11,6 +11,7 @@ use crate::predefined::schema::{ToolDefinition, ToolParameter};
 use crate::registry::ToolRegistry;
 use wf_shell::engine::{BackgroundShellStore, SessionCreateOptions};
 
+use super::checkpoint_handle::ShellCheckpointHandle;
 use super::session_observe::SharedSessionForwarder;
 
 pub static GET_OR_CREATE_SHELL: ToolDefinition = ToolDefinition {
@@ -41,8 +42,7 @@ pub static GET_OR_CREATE_SHELL: ToolDefinition = ToolDefinition {
 struct GetOrCreateShellInstance {
     store: Arc<BackgroundShellStore>,
     execution_id: String,
-    checkpoint_session: std::sync::Mutex<Option<wf_checkpoint::CheckpointSession>>,
-    forwarder: SharedSessionForwarder,
+    checkpoint: ShellCheckpointHandle,
 }
 
 impl StatefulInstance for GetOrCreateShellInstance {
@@ -51,13 +51,7 @@ impl StatefulInstance for GetOrCreateShellInstance {
         params: &Value,
         ctx: &crate::executor::trait_def::ToolExecutionContext,
     ) -> ToolResult<Value> {
-        if let Some(sess) = ctx.checkpoint_session.clone() {
-            *self.checkpoint_session.lock().unwrap() = Some(sess);
-        }
-
-        if let Some(sess) = ctx.checkpoint_session.clone() {
-            self.forwarder.set_session(self.execution_id.clone(), sess);
-        }
+        self.checkpoint.attach_ctx(ctx);
         self.execute(params)
     }
 
@@ -100,13 +94,8 @@ impl StatefulInstance for GetOrCreateShellInstance {
             ..Default::default()
         };
         let result = self.store.get_or_create(&options, task_id.as_deref())?;
-        if let Some(cp_session) = self.checkpoint_session.lock().unwrap().as_ref().cloned() {
-            cp_session.begin_session(wf_checkpoint::SessionBoundary {
-                execution_id: self.execution_id.clone(),
-                session_id: result.session_id.clone(),
-                scope_dir: result.cwd.clone(),
-            });
-        }
+        self.checkpoint
+            .begin_session(&result.session_id, result.cwd.clone());
         Ok(serde_json::json!({
             "session_id": result.session_id.clone(),
             "reused": result.reused,
@@ -118,18 +107,7 @@ impl StatefulInstance for GetOrCreateShellInstance {
     }
 
     fn destroy(&self) -> ToolResult<()> {
-        if let Some(cp_session) = self.checkpoint_session.lock().unwrap().as_ref().cloned() {
-            for (session_id, cwd) in self.store.sessions_for_task(&self.execution_id) {
-                cp_session.end_session(wf_checkpoint::SessionBoundary {
-                    execution_id: self.execution_id.clone(),
-                    session_id,
-                    scope_dir: cwd,
-                });
-            }
-        }
-        self.store
-            .release_sessions_for_task(&self.execution_id, false);
-        self.forwarder.remove_session(&self.execution_id);
+        self.checkpoint.end_all_and_release(&self.store);
         Ok(())
     }
 }
@@ -148,8 +126,7 @@ pub fn register(
             Box::new(GetOrCreateShellInstance {
                 store: store.clone(),
                 execution_id: execution_id.to_string(),
-                checkpoint_session: std::sync::Mutex::new(None),
-                forwarder: forwarder.clone(),
+                checkpoint: ShellCheckpointHandle::new(execution_id, &forwarder),
             })
         }),
     );

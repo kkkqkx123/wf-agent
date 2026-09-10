@@ -43,7 +43,7 @@ impl FileCheckpointManager {
         let storage = self.storage_ref()?;
         let agent_id = actor.to_agent_instance_id();
         self.ensure_agent_partition(actor)?;
-        let threshold = self.full_snapshot_threshold;
+        let threshold = self.policy.full_snapshot_threshold;
         let snapshot_hex = if let Ok(text) = std::str::from_utf8(content) {
             layertwine::layered::agent::apply_agent_edit_full(
                 storage,

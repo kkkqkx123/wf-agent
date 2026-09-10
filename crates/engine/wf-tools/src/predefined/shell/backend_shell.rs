@@ -11,6 +11,7 @@ use crate::predefined::schema::{ToolDefinition, ToolParameter};
 use crate::registry::ToolRegistry;
 use wf_shell::engine::{BackgroundShellStore, SpawnOptions};
 
+use super::checkpoint_handle::ShellCheckpointHandle;
 use super::session_observe::SharedSessionForwarder;
 
 pub static BACKEND_SHELL: ToolDefinition = ToolDefinition {
@@ -48,10 +49,7 @@ pub static BACKEND_SHELL: ToolDefinition = ToolDefinition {
 struct BackendShellInstance {
     store: Arc<BackgroundShellStore>,
     execution_id: String,
-    checkpoint_session: std::sync::Mutex<Option<wf_checkpoint::CheckpointSession>>,
-    /// Forwards store monitor-thread lifecycle events (e.g. natural process
-    /// exits without further tool calls) to this execution's observer.
-    forwarder: SharedSessionForwarder,
+    checkpoint: ShellCheckpointHandle,
 }
 
 impl StatefulInstance for BackendShellInstance {
@@ -60,13 +58,7 @@ impl StatefulInstance for BackendShellInstance {
         params: &Value,
         ctx: &crate::executor::trait_def::ToolExecutionContext,
     ) -> ToolResult<Value> {
-        if let Some(sess) = ctx.checkpoint_session.clone() {
-            *self.checkpoint_session.lock().unwrap() = Some(sess);
-        }
-
-        if let Some(sess) = ctx.checkpoint_session.clone() {
-            self.forwarder.set_session(self.execution_id.clone(), sess);
-        }
+        self.checkpoint.attach_ctx(ctx);
         self.execute(params)
     }
 
@@ -123,13 +115,7 @@ impl StatefulInstance for BackendShellInstance {
         })?;
         // Establish the scope baseline for the new session. The session may
         // still be running, so this is explicitly not a completion signal.
-        if let Some(cp_session) = self.checkpoint_session.lock().unwrap().as_ref().cloned() {
-            cp_session.begin_session(wf_checkpoint::SessionBoundary {
-                execution_id: self.execution_id.clone(),
-                session_id: session_id.clone(),
-                scope_dir: session.cwd(),
-            });
-        }
+        self.checkpoint.begin_session(&session_id, session.cwd());
         Ok(serde_json::json!({
             "session_id": session_id,
             "status": "started",
@@ -146,20 +132,7 @@ impl StatefulInstance for BackendShellInstance {
         // releasing them; running commands are left to finish (not
         // terminated), so the sampling is the release-time boundary, not a
         // claim of final completion for still-running commands.
-        if let Some(cp_session) = self.checkpoint_session.lock().unwrap().as_ref().cloned() {
-            for (session_id, cwd) in self.store.sessions_for_task(&self.execution_id) {
-                cp_session.end_session(wf_checkpoint::SessionBoundary {
-                    execution_id: self.execution_id.clone(),
-                    session_id,
-                    scope_dir: cwd,
-                });
-            }
-        }
-        // Release the sessions bound to this execution so they can be reused
-        // by cwd; running commands are left to finish (not terminated).
-        self.store
-            .release_sessions_for_task(&self.execution_id, false);
-        self.forwarder.remove_session(&self.execution_id);
+        self.checkpoint.end_all_and_release(&self.store);
         Ok(())
     }
 }
@@ -178,8 +151,7 @@ pub fn register(
             Box::new(BackendShellInstance {
                 store: store.clone(),
                 execution_id: execution_id.to_string(),
-                checkpoint_session: std::sync::Mutex::new(None),
-                forwarder: forwarder.clone(),
+                checkpoint: ShellCheckpointHandle::new(execution_id, &forwarder),
             })
         }),
     );

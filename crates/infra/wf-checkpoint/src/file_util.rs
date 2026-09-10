@@ -91,13 +91,24 @@ pub(crate) fn validate_workspace_relative_path(path: &str) -> Result<String, Che
 
 /// Map a layertwine error into the unified `CheckpointError`.
 pub(crate) fn map_layertwine_error<E: Into<layertwine::LayertwineError>>(e: E) -> CheckpointError {
+    map_layertwine_error_with("layertwine", e)
+}
+
+/// Map a layertwine error with the calling operation attached so internal
+/// errors keep their origin instead of collapsing to an opaque string.
+pub(crate) fn map_layertwine_error_with<E: Into<layertwine::LayertwineError>>(
+    operation: &str,
+    e: E,
+) -> CheckpointError {
     match e.into() {
         layertwine::LayertwineError::NotFound(id) => CheckpointError::NotFound { id },
         layertwine::LayertwineError::Storage(err) => match err {
             layertwine::StorageError::NotFound(id) => CheckpointError::NotFound { id },
-            other => CheckpointError::Internal(format!("layertwine: {other}")),
+            other => {
+                CheckpointError::Internal(format!("{operation} failed (layertwine): {other:?}"))
+            }
         },
-        other => CheckpointError::Internal(format!("layertwine: {other}")),
+        other => CheckpointError::Internal(format!("{operation} failed (layertwine): {other:?}")),
     }
 }
 
@@ -145,7 +156,7 @@ pub(crate) fn checkpoint_states(
             continue;
         };
         let path = snapshot_file_path(storage, snapshot)?;
-        if path == SEED_PATH {
+        if path == SEED_PATH || crate::metadata_keys::is_blob_path(&path) {
             continue;
         }
         let bytes = snapshot_content_bytes(storage, snapshot)?;
@@ -238,6 +249,7 @@ pub(crate) fn partition_latest_snapshot_ids(
             let path = path_of(snapshot);
             if last_per_path.get(&path) == Some(snapshot_id)
                 && path != SEED_PATH
+                && !crate::metadata_keys::is_blob_path(&path)
                 && seen.insert(path)
             {
                 ids.push(*snapshot_id);

@@ -11,6 +11,7 @@ use crate::predefined::schema::{ToolDefinition, ToolParameter};
 use crate::registry::ToolRegistry;
 use wf_shell::engine::BackgroundShellStore;
 
+use super::checkpoint_handle::ShellCheckpointHandle;
 use super::session_observe::SharedSessionForwarder;
 
 pub static RELEASE_SESSIONS_FOR_TASK: ToolDefinition = ToolDefinition {
@@ -36,9 +37,7 @@ pub static RELEASE_SESSIONS_FOR_TASK: ToolDefinition = ToolDefinition {
 /// release ends pending sampling for the released sessions.
 struct ReleaseSessionsForTaskInstance {
     store: Arc<BackgroundShellStore>,
-    execution_id: String,
-    checkpoint_session: std::sync::Mutex<Option<wf_checkpoint::CheckpointSession>>,
-    forwarder: SharedSessionForwarder,
+    checkpoint: ShellCheckpointHandle,
 }
 
 impl StatefulInstance for ReleaseSessionsForTaskInstance {
@@ -47,13 +46,7 @@ impl StatefulInstance for ReleaseSessionsForTaskInstance {
         params: &Value,
         ctx: &crate::executor::trait_def::ToolExecutionContext,
     ) -> ToolResult<Value> {
-        if let Some(sess) = ctx.checkpoint_session.clone() {
-            *self.checkpoint_session.lock().unwrap() = Some(sess);
-        }
-
-        if let Some(sess) = ctx.checkpoint_session.clone() {
-            self.forwarder.set_session(self.execution_id.clone(), sess);
-        }
+        self.checkpoint.attach_ctx(ctx);
         self.execute(params)
     }
 
@@ -72,14 +65,8 @@ impl StatefulInstance for ReleaseSessionsForTaskInstance {
         // Sample release-time boundaries before the sessions are released.
         let pending = self.store.sessions_for_task(task_id);
         let released = self.store.release_sessions_for_task(task_id, terminate);
-        if let Some(cp_session) = self.checkpoint_session.lock().unwrap().as_ref().cloned() {
-            for (session_id, cwd) in pending {
-                cp_session.end_session(wf_checkpoint::SessionBoundary {
-                    execution_id: self.execution_id.clone(),
-                    session_id,
-                    scope_dir: cwd,
-                });
-            }
+        for (session_id, cwd) in pending {
+            self.checkpoint.end_session(session_id, cwd);
         }
         Ok(serde_json::json!({
             "task_id": task_id,
@@ -89,7 +76,7 @@ impl StatefulInstance for ReleaseSessionsForTaskInstance {
     }
 
     fn destroy(&self) -> ToolResult<()> {
-        self.forwarder.remove_session(&self.execution_id);
+        self.checkpoint.remove_forwarder();
         Ok(())
     }
 }
@@ -107,9 +94,7 @@ pub fn register(
         Arc::new(move |execution_id| {
             Box::new(ReleaseSessionsForTaskInstance {
                 store: store.clone(),
-                execution_id: execution_id.to_string(),
-                checkpoint_session: std::sync::Mutex::new(None),
-                forwarder: forwarder.clone(),
+                checkpoint: ShellCheckpointHandle::new(execution_id, &forwarder),
             })
         }),
     );

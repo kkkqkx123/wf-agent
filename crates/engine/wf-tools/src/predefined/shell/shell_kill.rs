@@ -11,6 +11,7 @@ use crate::predefined::schema::{ToolDefinition, ToolParameter};
 use crate::registry::ToolRegistry;
 use wf_shell::engine::BackgroundShellStore;
 
+use super::checkpoint_handle::ShellCheckpointHandle;
 use super::session_observe::SharedSessionForwarder;
 
 pub static SHELL_KILL: ToolDefinition = ToolDefinition {
@@ -34,9 +35,7 @@ pub static SHELL_KILL: ToolDefinition = ToolDefinition {
 /// removed so the release-time boundary is sampled.
 struct ShellKillInstance {
     store: Arc<BackgroundShellStore>,
-    execution_id: String,
-    checkpoint_session: std::sync::Mutex<Option<wf_checkpoint::CheckpointSession>>,
-    forwarder: SharedSessionForwarder,
+    checkpoint: ShellCheckpointHandle,
 }
 
 impl StatefulInstance for ShellKillInstance {
@@ -45,13 +44,7 @@ impl StatefulInstance for ShellKillInstance {
         params: &Value,
         ctx: &crate::executor::trait_def::ToolExecutionContext,
     ) -> ToolResult<Value> {
-        if let Some(sess) = ctx.checkpoint_session.clone() {
-            *self.checkpoint_session.lock().unwrap() = Some(sess);
-        }
-
-        if let Some(sess) = ctx.checkpoint_session.clone() {
-            self.forwarder.set_session(self.execution_id.clone(), sess);
-        }
+        self.checkpoint.attach_ctx(ctx);
         self.execute(params)
     }
 
@@ -70,13 +63,8 @@ impl StatefulInstance for ShellKillInstance {
         let scope_dir = self.store.get(session_id).and_then(|s| s.cwd());
         let killed = self.store.kill_with(session_id, graceful)?;
         if killed {
-            if let Some(cp_session) = self.checkpoint_session.lock().unwrap().as_ref().cloned() {
-                cp_session.end_session(wf_checkpoint::SessionBoundary {
-                    execution_id: self.execution_id.clone(),
-                    session_id: session_id.to_string(),
-                    scope_dir,
-                });
-            }
+            self.checkpoint
+                .end_session(session_id.to_string(), scope_dir);
         }
         Ok(serde_json::json!({
             "session_id": session_id,
@@ -86,7 +74,7 @@ impl StatefulInstance for ShellKillInstance {
     }
 
     fn destroy(&self) -> ToolResult<()> {
-        self.forwarder.remove_session(&self.execution_id);
+        self.checkpoint.remove_forwarder();
         Ok(())
     }
 }
@@ -104,9 +92,7 @@ pub fn register(
         Arc::new(move |execution_id| {
             Box::new(ShellKillInstance {
                 store: store.clone(),
-                execution_id: execution_id.to_string(),
-                checkpoint_session: std::sync::Mutex::new(None),
-                forwarder: forwarder.clone(),
+                checkpoint: ShellCheckpointHandle::new(execution_id, &forwarder),
             })
         }),
     );

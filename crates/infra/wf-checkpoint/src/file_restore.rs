@@ -181,18 +181,14 @@ impl FileCheckpointManager {
             }
         }
 
-        // Recreate empty directories recorded at snapshot time.
-        let persisted_empty_dirs = self
+        // Recreate empty directories recorded at snapshot time (DB is the
+        // single source of truth; no in-memory mirror).
+        let empty_dirs = self
             .storage_ref()?
-            .load_metadata(&format!("wf-checkpoint:empty-dirs:{checkpoint_id}"))
+            .load_metadata(&crate::metadata_keys::empty_dirs_key(checkpoint_id))
             .map_err(crate::file_util::map_layertwine_error)?
             .map(|raw| serde_json::from_str::<Vec<String>>(&raw))
-            .transpose()?;
-        let empty_dirs = self
-            .empty_dirs
-            .get(checkpoint_id)
-            .map(|dirs| dirs.clone())
-            .or(persisted_empty_dirs)
+            .transpose()?
             .unwrap_or_default();
         for empty_dir in &empty_dirs {
             let relative = validate_workspace_relative_path(empty_dir)?;

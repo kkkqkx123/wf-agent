@@ -136,7 +136,7 @@ impl FileCheckpointManager {
 
     /// The resolved actor of an entity, if it was resolved earlier.
     pub fn resolved_actor(&self, entity_id: &str) -> Option<ActorId> {
-        self.actor_index.get(entity_id).map(|a| a.clone())
+        self.actor_index.get(entity_id)
     }
 
     /// Ensure the child execution's branch has been created. Called by
@@ -155,13 +155,19 @@ impl FileCheckpointManager {
             return Ok(());
         }
         let branch_name = execution_branch_name("execution", entity_id);
-        if self.branch_adapter.branch_exists(&branch_name).await? {
+        if self
+            .store
+            .branch_adapter
+            .branch_exists(&branch_name)
+            .await?
+        {
             return Ok(());
         }
         let parent_actor = self.actor_id_for(parent);
         let storage = self.storage_ref()?;
         let base = self.latest_checkpoint_id(storage, &parent_actor)?;
-        self.branch_adapter
+        self.store
+            .branch_adapter
             .create_branch(&branch_name, base.as_deref())
             .await?;
         Ok(())
@@ -171,7 +177,8 @@ impl FileCheckpointManager {
     /// any. The head is written by checkpoint creation and read by consumers
     /// that need the entity's latest commit without scanning partitions.
     pub fn branch_head(&self, entity_id: &str) -> Result<Option<String>, CheckpointError> {
-        self.branch_adapter
+        self.store
+            .branch_adapter
             .get_branch_head(&execution_branch_name("execution", entity_id))
     }
 
@@ -205,7 +212,7 @@ impl FileCheckpointManager {
         let storage = self.storage_ref()?;
         let agent_id = actor.to_agent_instance_id();
         self.ensure_agent_partition(actor)?;
-        let threshold = self.full_snapshot_threshold;
+        let threshold = self.policy.full_snapshot_threshold;
         let snapshot_id = if let Ok(text) = std::str::from_utf8(content) {
             agent::apply_agent_edit_full(storage, &agent_id, &path, text, None, threshold)
                 .map_err(map_layertwine_error)?
@@ -345,7 +352,7 @@ impl FileCheckpointManager {
             layertwine::layered::manual::ensure_manual_partition(storage, seed, ws.as_deref())
                 .map_err(map_layertwine_error)?;
         }
-        let threshold = self.full_snapshot_threshold;
+        let threshold = self.policy.full_snapshot_threshold;
         let snapshot_id = if let Ok(text) = std::str::from_utf8(content) {
             layertwine::layered::manual::apply_manual_edit_full(
                 storage,
@@ -636,7 +643,7 @@ impl FileCheckpointManager {
         storage
             .delete_partition(&pid)
             .map_err(map_layertwine_error)?;
-        self.latest_checkpoints.remove(actor.as_str());
+        self.store.latest_checkpoints.remove(actor.as_str());
         self.deleted_files.remove(actor.as_str());
         Ok(())
     }
@@ -713,7 +720,12 @@ mod tests {
 
         let branch = execution_branch_name("execution", "child-1");
         assert!(
-            !manager.branch_adapter.branch_exists(&branch).await.unwrap(),
+            !manager
+                .store
+                .branch_adapter
+                .branch_exists(&branch)
+                .await
+                .unwrap(),
             "branch must not exist before the child is prepared"
         );
 
@@ -721,14 +733,19 @@ mod tests {
             .ensure_child_branch("child-1", Some("parent-1"))
             .await
             .unwrap();
-        assert!(manager.branch_adapter.branch_exists(&branch).await.unwrap());
+        assert!(manager
+            .store
+            .branch_adapter
+            .branch_exists(&branch)
+            .await
+            .unwrap());
 
         // Idempotent: preparing the same child again keeps a single branch.
         manager
             .ensure_child_branch("child-1", Some("parent-1"))
             .await
             .unwrap();
-        let branches = manager.branch_adapter.list_branches().await.unwrap();
+        let branches = manager.store.branch_adapter.list_branches().await.unwrap();
         assert_eq!(branches, vec![branch]);
     }
 
@@ -743,7 +760,7 @@ mod tests {
             .await
             .unwrap();
 
-        let branches = manager.branch_adapter.list_branches().await.unwrap();
+        let branches = manager.store.branch_adapter.list_branches().await.unwrap();
         assert!(
             branches.is_empty(),
             "no branch may be created: {branches:?}"
@@ -767,6 +784,7 @@ mod tests {
         // The branch registry records the fork base as `{base}|{created_at}`.
         let branch = execution_branch_name("execution", "child-1");
         let value = manager
+            .store
             .branch_adapter
             .storage()
             .load_metadata(&format!("wf-checkpoint-branch:{branch}"))

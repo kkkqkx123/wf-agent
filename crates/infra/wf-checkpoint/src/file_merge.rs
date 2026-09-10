@@ -158,9 +158,12 @@ impl FileCheckpointManager {
         feature_names: &[&str],
     ) -> Result<MergeCommitResult, CheckpointError> {
         let merged = self.merge_features_to_staged(feature_names)?;
-        let storage = self.storage_ref()?;
+        let store =
+            crate::branch::FeatureBranchStore::new(self.storage().cloned().ok_or_else(|| {
+                CheckpointError::Coordinator("no file checkpoint storage configured".to_string())
+            })?);
         for name in feature_names {
-            storage.delete_branch(name).map_err(map_layertwine_error)?;
+            store.delete(name)?;
         }
         Ok(merged)
     }

@@ -39,7 +39,7 @@ pub static EXECUTE_IN_SESSION: ToolDefinition = ToolDefinition {
 struct ExecuteInSessionInstance {
     store: Arc<BackgroundShellStore>,
     execution_id: String,
-    observer: std::sync::Mutex<Option<crate::observe::ToolSideEffectObserverHandle>>,
+    checkpoint_session: std::sync::Mutex<Option<wf_checkpoint::CheckpointSession>>,
     forwarder: SharedSessionForwarder,
 }
 
@@ -49,9 +49,13 @@ impl StatefulInstance for ExecuteInSessionInstance {
         params: &Value,
         ctx: &crate::executor::trait_def::ToolExecutionContext,
     ) -> ToolResult<Value> {
-        *self.observer.lock().unwrap() = Some(ctx.observer.clone());
-        self.forwarder
-            .set_observer(self.execution_id.clone(), ctx.observer.clone());
+        if let Some(sess) = ctx.checkpoint_session.clone() {
+            *self.checkpoint_session.lock().unwrap() = Some(sess);
+        }
+            
+        if let Some(sess) = ctx.checkpoint_session.clone() {
+            self.forwarder.set_session(self.execution_id.clone(), sess);
+        }
         self.execute(params)
     }
 
@@ -80,9 +84,9 @@ impl StatefulInstance for ExecuteInSessionInstance {
         // The command boundary ends here (the store blocks until the
         // command exits or the timeout terminates it). Report completion
         // with the session cwd so the observer can sample this command.
-        if let Some(observer) = self.observer.lock().unwrap().clone() {
+        if let Some(cp_session) = self.checkpoint_session.lock().unwrap().as_ref().cloned() {
             let scope = scope_dir.or_else(|| self.store.get(session_id).and_then(|s| s.cwd()));
-            observer.notify_session_command_finished(crate::observe::SessionBoundary {
+            cp_session.session_command_finished(wf_checkpoint::SessionBoundary {
                 execution_id: self.execution_id.clone(),
                 session_id: session_id.to_string(),
                 scope_dir: scope,
@@ -92,9 +96,9 @@ impl StatefulInstance for ExecuteInSessionInstance {
     }
 
     fn destroy(&self) -> ToolResult<()> {
-        if let Some(observer) = self.observer.lock().unwrap().clone() {
+        if let Some(cp_session) = self.checkpoint_session.lock().unwrap().as_ref().cloned() {
             for (session_id, cwd) in self.store.sessions_for_task(&self.execution_id) {
-                observer.notify_session_finished(crate::observe::SessionBoundary {
+                cp_session.end_session(wf_checkpoint::SessionBoundary {
                     execution_id: self.execution_id.clone(),
                     session_id,
                     scope_dir: cwd,
@@ -103,7 +107,7 @@ impl StatefulInstance for ExecuteInSessionInstance {
         }
         self.store
             .release_sessions_for_task(&self.execution_id, false);
-        self.forwarder.remove_observer(&self.execution_id);
+        self.forwarder.remove_session(&self.execution_id);
         Ok(())
     }
 }
@@ -122,7 +126,7 @@ pub fn register(
             Box::new(ExecuteInSessionInstance {
                 store: store.clone(),
                 execution_id: execution_id.to_string(),
-                observer: std::sync::Mutex::new(None),
+                checkpoint_session: std::sync::Mutex::new(None),
                 forwarder: forwarder.clone(),
             })
         }),

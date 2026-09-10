@@ -141,12 +141,12 @@ impl AgentIterationCoordinator {
         handler: Option<Arc<dyn ToolApprovalHandler>>,
     ) -> Self {
         let registry = self.tool_coordinator.tool_registry().clone();
-        let file_observer = self.tool_coordinator.file_observer_config();
+        let file_observer = self.tool_coordinator.checkpoint_session_config();
         self.tool_coordinator = ToolExecutionCoordinator::new(registry)
             .with_event_bus(self.event_bus.clone())
             .with_metrics(self.metrics.clone())
             .with_approval(options, handler)
-            .with_file_observer(file_observer);
+            .with_checkpoint_session(file_observer);
         self
     }
 
@@ -161,13 +161,13 @@ impl AgentIterationCoordinator {
         // auto-approved downstream or loses file attribution.
         let registry = self.tool_coordinator.tool_registry().clone();
         let (approval_options, approval_handler) = self.tool_coordinator.approval_config();
-        let file_observer = self.tool_coordinator.file_observer_config();
+        let file_observer = self.tool_coordinator.checkpoint_session_config();
         self.tool_coordinator = ToolExecutionCoordinator::new(registry)
             .with_event_bus(self.event_bus.clone())
             .with_metrics(self.metrics.clone())
             .with_approval(approval_options, approval_handler)
             .with_visibility_store(store)
-            .with_file_observer(file_observer);
+            .with_checkpoint_session(file_observer);
         self
     }
 
@@ -231,11 +231,11 @@ impl AgentIterationCoordinator {
     /// tool execution coordinator. Independent from execution-state
     /// snapshots: file changes land in the actor partition, checkpoints
     /// snapshot the execution record.
-    pub fn with_file_observer(
+    pub fn with_checkpoint_session(
         mut self,
-        observer: Option<wf_tools::ToolSideEffectObserverHandle>,
+        session: Option<wf_checkpoint::CheckpointSession>,
     ) -> Self {
-        self.tool_coordinator = self.tool_coordinator.with_file_observer(observer);
+        self.tool_coordinator = self.tool_coordinator.with_checkpoint_session(session);
         self
     }
 

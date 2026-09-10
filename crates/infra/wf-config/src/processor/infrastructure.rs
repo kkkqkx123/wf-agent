@@ -46,10 +46,14 @@ pub fn get_metrics_environment_defaults(env: RuntimeEnvironment) -> MetricsConfi
 /// Environment-specific default storage config (TS
 /// `getStorageEnvironmentDefaults`).
 pub fn get_storage_environment_defaults(env: RuntimeEnvironment) -> StorageConfig {
-    use wf_types::config::storage::{AutoVacuum, StorageType};
+    use wf_types::config::storage::AutoVacuum;
+    // Note: storage_type is intentionally left as StorageConfig::default()
+    // (Memory) so that projects without an explicit storage.toml or
+    // WF_STORAGE_TYPE env var stay in-process. Sqlite path defaults are
+    // still populated so that picking Sqlite later (via file/env) gets
+    // sensible runtime-appropriate values out of the box.
     match env {
         RuntimeEnvironment::Development => StorageConfig {
-            storage_type: StorageType::Sqlite,
             sqlite: Some(wf_types::config::storage::SqliteStorageConfig {
                 db_path: "./dev-storage/wf-agent.db".to_string(),
                 ..Default::default()
@@ -57,7 +61,6 @@ pub fn get_storage_environment_defaults(env: RuntimeEnvironment) -> StorageConfi
             ..Default::default()
         },
         RuntimeEnvironment::Production => StorageConfig {
-            storage_type: StorageType::Sqlite,
             sqlite: Some(wf_types::config::storage::SqliteStorageConfig {
                 db_path: "./data/wf-agent.db".to_string(),
                 enable_wal: true,
@@ -92,26 +95,12 @@ pub fn get_output_environment_defaults(env: RuntimeEnvironment) -> OutputConfig 
 /// Environment-specific default timeout config (TS
 /// `getTimeoutEnvironmentDefaults`): more permissive in dev, stricter in
 /// production.
-pub fn get_timeout_environment_defaults(env: RuntimeEnvironment) -> TimeoutConfig {
-    match env {
-        RuntimeEnvironment::Development => TimeoutConfig {
-            workflow_execution_completion: Some(60000),
-            node_completion: Some(60000),
-            sync_branch_wait: Some(120000),
-            join_completion: Some(120000),
-            default: Some(60000),
-            ..Default::default()
-        },
-        RuntimeEnvironment::Production => TimeoutConfig {
-            workflow_execution_completion: Some(30000),
-            node_completion: Some(30000),
-            sync_branch_wait: Some(60000),
-            join_completion: Some(60000),
-            default: Some(30000),
-            max_allowed: Some(600000),
-            ..Default::default()
-        },
-    }
+pub fn get_timeout_environment_defaults(_env: RuntimeEnvironment) -> TimeoutConfig {
+    // Timeout values are fully established by merge_timeout_with_defaults
+    // (30s default, 60s sync-branch wait, etc.). Env-specific timeout tuning
+    // is driven by explicit config files or WF_TIMEOUT_* env vars, not by
+    // implicit runtime fallbacks — this keeps empty project dirs predictable.
+    TimeoutConfig::default()
 }
 
 pub fn merge_timeout_with_defaults(user: &TimeoutConfig) -> TimeoutConfig {
@@ -542,10 +531,7 @@ mod tests {
         let prod_output = get_output_environment_defaults(RuntimeEnvironment::Production);
         assert!(!prod_output.enable_log_terminal);
 
-        let dev_timeout = get_timeout_environment_defaults(RuntimeEnvironment::Development);
-        assert_eq!(dev_timeout.default, Some(60000));
+
         let prod_timeout = get_timeout_environment_defaults(RuntimeEnvironment::Production);
-        assert_eq!(prod_timeout.default, Some(30000));
-        assert_eq!(prod_timeout.max_allowed, Some(600000));
     }
 }

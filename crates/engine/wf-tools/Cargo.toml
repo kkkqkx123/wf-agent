@@ -9,6 +9,7 @@ wf-types = { path = "../../foundation/wf-types" }
 wf-common = { path = "../../foundation/wf-common" }
 wf-sandbox = { path = "../../infra/wf-sandbox" }
 wf-shell = { path = "../../infra/wf-shell" }
+wf-checkpoint = { path = "../../infra/wf-checkpoint" }
 
 async-trait.workspace = true
 tokio = { workspace = true, features = ["process", "io-util", "net"] }

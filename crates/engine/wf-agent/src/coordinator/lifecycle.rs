@@ -484,14 +484,12 @@ impl AgentLoopCoordinator {
         // contract through the tool context.
         if let Some(ref manager) = self.file_checkpoint_manager {
             let parent = entity.parent_execution_id().map(|id| id.to_string());
-            let observer = crate::checkpoint_observer::AgentCheckpointObserver::new(
+            let session = wf_checkpoint::CheckpointSession::new(
                 manager.clone(),
                 &entity.id().to_string(),
                 parent.as_deref(),
-            );
-            coordinator = coordinator.with_file_observer(Some(
-                wf_tools::ToolSideEffectObserverHandle::new(std::sync::Arc::new(observer)),
-            ));
+            ).expect("failed to build checkpoint session");
+            coordinator = coordinator.with_checkpoint_session(Some(session));
         }
         if let Some(ref bus) = self.event_bus {
             coordinator = coordinator.with_event_bus(bus.clone());

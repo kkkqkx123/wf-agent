@@ -40,20 +40,20 @@ pub async fn execute(
     options: Option<ToolExecutionOptions>,
     execution_id: &str,
 ) -> ApiResult<ToolExecutionResult> {
-    execute_with_observer(ctx, tool_id, parameters, options, execution_id, None).await
+    execute_with_checkpoint_session(ctx, tool_id, parameters, options, execution_id, None).await
 }
 
 /// Execute a registered tool with an optional file-content observer. Only
 /// callers with an explicit execution context and file-checkpoint manager
 /// should inject an observer; generic API calls without attribution must
 /// pass `None` rather than guessing an agent's ownership.
-pub async fn execute_with_observer(
+pub async fn execute_with_checkpoint_session(
     ctx: &ApiContext,
     tool_id: &str,
     parameters: &serde_json::Value,
     options: Option<ToolExecutionOptions>,
     execution_id: &str,
-    observer: Option<wf_tools::ToolSideEffectObserverHandle>,
+    checkpoint_session: Option<wf_checkpoint::CheckpointSession>,
 ) -> ApiResult<ToolExecutionResult> {
     let options = options.unwrap_or(ToolExecutionOptions {
         timeout: Some(30000),
@@ -63,8 +63,8 @@ pub async fn execute_with_observer(
     });
     let mut context =
         wf_tools::executor::trait_def::ToolExecutionContext::new(execution_id.to_string());
-    if let Some(observer) = observer {
-        context = context.with_observer(observer);
+    if let Some(sess) = checkpoint_session {
+        context = context.with_checkpoint_session(Some(sess));
     }
     ctx.tool_registry
         .execute_tool(tool_id, parameters, &options, &context)

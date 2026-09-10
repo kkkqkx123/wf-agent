@@ -7,8 +7,11 @@ pub mod cleanup;
 pub mod config_resolver;
 pub mod content;
 pub mod coordinator;
+pub mod capture;
 pub mod delta;
 pub mod diff;
+pub mod effect;
+pub mod session;
 pub mod error;
 pub mod error_handling;
 pub mod event;
@@ -41,7 +44,8 @@ pub use approval::{ConflictView, MergeOutcome, PendingApproval};
 pub use cache::CheckpointCache;
 pub use config_resolver::CheckpointConfigResolver;
 pub use diff::{
-    DiffEngine, DiffHunk, DiffOp, DiffOpKind, DiffResult, DiffStats, HunkLine, HunkLineKind,
+    compare_bytes, content_hash, DiffEngine, DiffHunk, DiffOp, DiffOpKind, DiffOptions,
+    DiffResult, DiffStats, FileDiff, HunkLine, HunkLineKind, is_binary,
 };
 pub use error::CheckpointError;
 pub use error_handling::{CheckpointErrorHandler, ErrorHandlingOutcome};
@@ -52,7 +56,9 @@ pub use file::{
 };
 pub use file_actor::{PreciseApplyStats, PreciseFileEvent, PreciseFileEventKind};
 pub use file_merge::MergeCommitResult;
+pub use effect::{FileMutation, FileOperation, normalize_effect_path, ScopeOutcome, SessionBoundary, ToolEffect, ToolEffectPayload};
 pub use file_util::sha256_hex;
+pub use session::CheckpointSession;
 pub use metadata_builder::{build_checkpoint_state, CheckpointMetadataBuilder};
 pub use provenance::{DeltaSummary, FileDiffKind, FileDiffView, PartitionView, WorkspaceFile};
 pub use scan::{ScanConfig, WorkspaceScan, WorkspaceScanner};

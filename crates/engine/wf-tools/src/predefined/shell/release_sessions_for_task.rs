@@ -37,7 +37,7 @@ pub static RELEASE_SESSIONS_FOR_TASK: ToolDefinition = ToolDefinition {
 struct ReleaseSessionsForTaskInstance {
     store: Arc<BackgroundShellStore>,
     execution_id: String,
-    observer: std::sync::Mutex<Option<crate::observe::ToolSideEffectObserverHandle>>,
+    checkpoint_session: std::sync::Mutex<Option<wf_checkpoint::CheckpointSession>>,
     forwarder: SharedSessionForwarder,
 }
 
@@ -47,9 +47,13 @@ impl StatefulInstance for ReleaseSessionsForTaskInstance {
         params: &Value,
         ctx: &crate::executor::trait_def::ToolExecutionContext,
     ) -> ToolResult<Value> {
-        *self.observer.lock().unwrap() = Some(ctx.observer.clone());
-        self.forwarder
-            .set_observer(self.execution_id.clone(), ctx.observer.clone());
+        if let Some(sess) = ctx.checkpoint_session.clone() {
+            *self.checkpoint_session.lock().unwrap() = Some(sess);
+        }
+            
+        if let Some(sess) = ctx.checkpoint_session.clone() {
+            self.forwarder.set_session(self.execution_id.clone(), sess);
+        }
         self.execute(params)
     }
 
@@ -68,9 +72,9 @@ impl StatefulInstance for ReleaseSessionsForTaskInstance {
         // Sample release-time boundaries before the sessions are released.
         let pending = self.store.sessions_for_task(task_id);
         let released = self.store.release_sessions_for_task(task_id, terminate);
-        if let Some(observer) = self.observer.lock().unwrap().clone() {
+        if let Some(cp_session) = self.checkpoint_session.lock().unwrap().as_ref().cloned() {
             for (session_id, cwd) in pending {
-                observer.notify_session_finished(crate::observe::SessionBoundary {
+                cp_session.end_session(wf_checkpoint::SessionBoundary {
                     execution_id: self.execution_id.clone(),
                     session_id,
                     scope_dir: cwd,
@@ -85,7 +89,7 @@ impl StatefulInstance for ReleaseSessionsForTaskInstance {
     }
 
     fn destroy(&self) -> ToolResult<()> {
-        self.forwarder.remove_observer(&self.execution_id);
+        self.forwarder.remove_session(&self.execution_id);
         Ok(())
     }
 }
@@ -104,7 +108,7 @@ pub fn register(
             Box::new(ReleaseSessionsForTaskInstance {
                 store: store.clone(),
                 execution_id: execution_id.to_string(),
-                observer: std::sync::Mutex::new(None),
+                checkpoint_session: std::sync::Mutex::new(None),
                 forwarder: forwarder.clone(),
             })
         }),

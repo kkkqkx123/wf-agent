@@ -32,7 +32,7 @@ fn resolve_scope_dir(
     } else {
         std::env::current_dir().ok()?.join(candidate)
     };
-    Some(crate::observe::normalize_observer_path(&absolute))
+    Some(wf_checkpoint::normalize_effect_path(&absolute))
 }
 
 /// Create the async handler for the execute_command tool.
@@ -95,7 +95,9 @@ pub fn execute_command_handler(config: ShellToolConfig) -> StatelessAsyncHandler
 
             let execution_id = ctx.execution_id.to_string();
             if let Some(scope) = scope_dir.as_ref() {
-                ctx.observer.notify_scope_begin(&execution_id, scope);
+                if let Some(session) = ctx.checkpoint_session.as_ref() {
+                    session.begin_scope(&execution_id, scope);
+                }
             }
 
             let start = Instant::now();
@@ -117,15 +119,17 @@ pub fn execute_command_handler(config: ShellToolConfig) -> StatelessAsyncHandler
                     // was started). Both end as terminated with success=false
                     // so already-written files are still captured.
                     if let Some(scope) = scope_dir.as_ref() {
-                        ctx.observer.notify_scope_end(
-                            scope,
-                            crate::observe::ScopeOutcome {
-                                execution_id: execution_id.clone(),
-                                success: false,
-                                terminated: true,
-                                detail: Some(err.to_string()),
-                            },
-                        );
+                        if let Some(_sess) = ctx.checkpoint_session.as_ref() {
+                            _sess.end_scope(
+                                scope,
+                                wf_checkpoint::ScopeOutcome {
+                                    execution_id: execution_id.clone(),
+                                    success: false,
+                                    terminated: true,
+                                    detail: Some(err.to_string()),
+                                },
+                            );
+                        }
                     }
                     return Err(err.into());
                 }
@@ -160,15 +164,17 @@ pub fn execute_command_handler(config: ShellToolConfig) -> StatelessAsyncHandler
             // Sampling ends after the process terminated, even for failed
             // commands: already-written files are still captured.
             if let Some(scope) = scope_dir.as_ref() {
-                ctx.observer.notify_scope_end(
-                    scope,
-                    crate::observe::ScopeOutcome {
-                        execution_id: execution_id.clone(),
-                        success,
-                        terminated: true,
-                        detail: Some(format!("exit {:?}", output.status.code())),
-                    },
-                );
+                if let Some(_sess) = ctx.checkpoint_session.as_ref() {
+                    _sess.end_scope(
+                        scope,
+                        wf_checkpoint::ScopeOutcome {
+                            execution_id: execution_id.clone(),
+                            success,
+                            terminated: true,
+                            detail: Some(format!("exit {:?}", output.status.code())),
+                        },
+                    );
+                }
             }
 
             Ok(serde_json::json!({
@@ -261,41 +267,14 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn scoped_shell_notifies_begin_and_end() {
-        use crate::observe::{ScopeOutcome, ToolSideEffectObserver, ToolSideEffectObserverHandle};
-        use std::path::{Path, PathBuf};
-        use std::sync::{Arc, Mutex};
-
-        struct Recording {
-            begins: Mutex<Vec<PathBuf>>,
-            ends: Mutex<Vec<(PathBuf, ScopeOutcome)>>,
-        }
-
-        impl ToolSideEffectObserver for Recording {
-            fn notify_scope_begin(&self, _execution_id: &str, scope_dir: &Path) {
-                self.begins.lock().unwrap().push(scope_dir.to_path_buf());
-            }
-
-            fn notify_scope_end(&self, scope_dir: &Path, outcome: ScopeOutcome) {
-                self.ends
-                    .lock()
-                    .unwrap()
-                    .push((scope_dir.to_path_buf(), outcome));
-            }
-        }
-
+    async fn scoped_shell_runs_without_session() {
         let dir = tempfile::tempdir().unwrap();
         let config = ShellToolConfig {
             workspace_dir: Some(dir.path().to_path_buf()),
             ..Default::default()
         };
         let handler = execute_command_handler(config);
-        let recorder = Arc::new(Recording {
-            begins: Mutex::new(Vec::new()),
-            ends: Mutex::new(Vec::new()),
-        });
-        let ctx = ToolExecutionContext::new("exec-shell".into())
-            .with_observer(ToolSideEffectObserverHandle::new(recorder.clone()));
+        let ctx = ToolExecutionContext::new("exec-shell".into());
         let result = handler(
             serde_json::json!({ "command": "echo hi", "cwd": dir.path().to_str().unwrap() }),
             ctx,
@@ -303,12 +282,6 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(result["details"]["success"], serde_json::Value::Bool(true));
-        assert_eq!(recorder.begins.lock().unwrap().len(), 1);
-        assert_eq!(recorder.ends.lock().unwrap().len(), 1);
-        let (scope, outcome) = &recorder.ends.lock().unwrap()[0];
-        assert_eq!(*scope, crate::observe::normalize_observer_path(dir.path()));
-        assert!(outcome.terminated);
-        assert!(outcome.success);
     }
 
     #[tokio::test]

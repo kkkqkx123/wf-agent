@@ -98,7 +98,7 @@ pub(crate) struct ToolRunCtx {
     /// File-content observation (agent actor partition). Injected separately
     /// from `checkpoint_handler` so callers cannot confuse execution-state
     /// snapshots with file-content checkpoints.
-    pub(crate) file_observer: Option<wf_tools::ToolSideEffectObserverHandle>,
+    pub(crate) checkpoint_session: Option<wf_checkpoint::CheckpointSession>,
 }
 
 pub struct ToolExecutionCoordinator {
@@ -125,7 +125,7 @@ pub struct ToolExecutionCoordinator {
     retry_budget: Option<Arc<RetryBudget>>,
     /// File-content observer (agent actor partition). Independent from the
     /// execution-state `checkpoint_handler` above.
-    file_observer: Option<wf_tools::ToolSideEffectObserverHandle>,
+    checkpoint_session: Option<wf_checkpoint::CheckpointSession>,
 }
 
 impl ToolExecutionCoordinator {
@@ -147,7 +147,7 @@ impl ToolExecutionCoordinator {
             failure_protection: None,
             general_invoker: Arc::new(std::sync::Mutex::new(None)),
             retry_budget: None,
-            file_observer: None,
+            checkpoint_session: None,
         }
     }
 
@@ -222,11 +222,11 @@ impl ToolExecutionCoordinator {
     /// Inject the file-content observer (agent actor partition). Kept as an
     /// independent capability so callers cannot mistake execution-state
     /// snapshots for file-content checkpoints.
-    pub fn with_file_observer(
+    pub fn with_checkpoint_session(
         mut self,
-        observer: Option<wf_tools::ToolSideEffectObserverHandle>,
+        session: Option<wf_checkpoint::CheckpointSession>,
     ) -> Self {
-        self.file_observer = observer;
+        self.checkpoint_session = session;
         self
     }
 
@@ -282,8 +282,8 @@ impl ToolExecutionCoordinator {
 
     /// Current file observer wiring; lets coordinator rebuilds preserve the
     /// file-content observation contract.
-    pub fn file_observer_config(&self) -> Option<wf_tools::ToolSideEffectObserverHandle> {
-        self.file_observer.clone()
+    pub fn checkpoint_session_config(&self) -> Option<wf_checkpoint::CheckpointSession> {
+        self.checkpoint_session.clone()
     }
 
     pub fn with_rejection_builder(mut self, builder: RejectionMessageBuilder) -> Self {
@@ -312,7 +312,7 @@ impl ToolExecutionCoordinator {
             visibility_store: self.visibility_store.clone(),
             general_invoker: wf_common::lock::lock_ok(self.general_invoker.lock()).clone(),
             retry_budget: self.retry_budget.clone(),
-            file_observer: self.file_observer.clone(),
+            checkpoint_session: self.checkpoint_session.clone(),
         }
     }
 
@@ -889,8 +889,8 @@ impl ToolExecutionCoordinator {
             if let Some(invoker) = &ctx.general_invoker {
                 tool_ctx = tool_ctx.with_general_invoker(invoker.clone());
             }
-            if let Some(observer) = &ctx.file_observer {
-                tool_ctx = tool_ctx.with_observer(observer.clone());
+            if let Some(cp_sess) = &ctx.checkpoint_session {
+                tool_ctx = tool_ctx.with_checkpoint_session(Some(cp_sess.clone()));
             }
             tool_ctx
         };
@@ -2057,7 +2057,7 @@ mod tests {
             visibility_store: None,
             general_invoker: None,
             retry_budget: None,
-            file_observer: None,
+            checkpoint_session: None,
         };
         GeneralToolContext::new(run_ctx, entity, None)
     }
@@ -2266,7 +2266,7 @@ mod tests {
             visibility_store: Some(Arc::new(BlockingVisibilityStore)),
             general_invoker: None,
             retry_budget: None,
-            file_observer: None,
+            checkpoint_session: None,
         };
         let ctx = GeneralToolContext::new(run_ctx, entity, None);
 

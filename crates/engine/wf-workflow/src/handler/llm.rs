@@ -530,14 +530,12 @@ async fn execute_tool_call(
             .with_node_id(ctx.node_id.clone());
     if let Some(manager) = file_checkpoint {
         let parent = ctx.parent_execution_id.as_ref().map(|id| id.to_string());
-        let observer = wf_agent::checkpoint_observer::AgentCheckpointObserver::new(
+        let session = wf_checkpoint::CheckpointSession::new(
             manager.clone(),
             &ctx.execution_id.to_string(),
             parent.as_deref(),
-        );
-        tool_ctx = tool_ctx.with_observer(wf_tools::ToolSideEffectObserverHandle::new(
-            std::sync::Arc::new(observer),
-        ));
+        ).expect("failed to build checkpoint session");
+        tool_ctx = tool_ctx.with_checkpoint_session(Some(session));
     }
     let options = wf_types::tool::ToolExecutionOptions {
         timeout: None,

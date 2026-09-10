@@ -386,3 +386,137 @@ mod tests {
         assert!(!result.has_changes);
     }
 }
+
+// --------------------------------------------------------------------------
+// Unified binary-aware diff API (added to the legacy DiffEngine file so the
+// whole crate continues to build under the same module name).
+
+/// Threshold for deciding whether a content slice should be treated as binary
+/// when heuristically sampled (presence of NUL byte).
+const PROBE_LEN: usize = 8192;
+
+/// Heuristic binary detection. Files containing a NUL byte in the first
+/// `PROBE_LEN` bytes are treated as binary; text diffs are skipped for them.
+pub fn is_binary(content: &[u8]) -> bool {
+    if content.is_empty() {
+        return false;
+    }
+    let limit = content.len().min(PROBE_LEN);
+    let mut probe = content.iter().take(limit);
+    probe.any(|b| *b == 0)
+}
+
+/// Compute a hex-encoded SHA-256 digest of `content`. Thin wrapper around
+/// [`crate::sha256_hex`] so callers inside the diff module don't re-import it.
+pub fn content_hash(content: &[u8]) -> String {
+    crate::sha256_hex(content)
+}
+
+/// Options that influence how `compare_bytes` produces its result.
+#[derive(Debug, Clone)]
+pub struct DiffOptions {
+    pub context_lines: usize,
+    pub trim_lines: bool,
+    pub ignore_blank_lines: bool,
+}
+
+impl Default for DiffOptions {
+    fn default() -> Self {
+        Self {
+            context_lines: 3,
+            trim_lines: false,
+            ignore_blank_lines: false,
+        }
+    }
+}
+
+/// Unified diff result that callers (tool layer, API, UI) all consume.
+///
+/// Binary files only populate hashes, sizes and the `binary` flag; `hunks`
+/// and `unified` remain empty. Text files always produce hunks/stats.
+#[derive(Debug, Clone)]
+pub struct FileDiff {
+    pub old_hash: String,
+    pub new_hash: String,
+    pub old_bytes: usize,
+    pub new_bytes: usize,
+    pub binary: bool,
+    pub hunks: Vec<DiffHunk>,
+    pub unified: String,
+    pub stats: DiffStats,
+}
+
+/// Compare two byte buffers, producing a [`FileDiff`]. Binary content is
+/// detected via [`is_binary`] and short-circuited: hashes and sizes are
+/// computed but no text diff is produced.
+pub fn compare_bytes(old: &[u8], new: &[u8], options: &DiffOptions) -> FileDiff {
+    let old_hash = content_hash(old);
+    let new_hash = content_hash(new);
+    let old_bytes = old.len();
+    let new_bytes = new.len();
+    let old_binary = is_binary(old);
+    let new_binary = is_binary(new);
+    let binary = old_binary || new_binary;
+
+    if binary {
+        return FileDiff {
+            old_hash: old_hash.clone(),
+            new_hash: new_hash.clone(),
+            old_bytes,
+            new_bytes,
+            binary: true,
+            hunks: Vec::new(),
+            unified: String::new(),
+            stats: DiffStats {
+                added_lines: 0,
+                removed_lines: 0,
+                changed_lines: 0,
+                similarity: if old_hash == new_hash { 1.0 } else { 0.0 },
+            },
+        };
+    }
+
+    let engine = DiffEngine {
+        context_lines: options.context_lines,
+        trim_lines: options.trim_lines,
+        ignore_blank_lines: options.ignore_blank_lines,
+    };
+
+    let (hunks, unified, stats) = if let (Ok(old_str), Ok(new_str)) =
+        (std::str::from_utf8(old), std::str::from_utf8(new))
+    {
+        (
+            engine.hunks(old_str, new_str),
+            engine.unified_diff(old_str, new_str, None, None),
+            engine.get_stats(old_str, new_str),
+        )
+    } else {
+        // Non-UTF8 falls back to binary path.
+        return FileDiff {
+            old_hash: old_hash.clone(),
+            new_hash: new_hash.clone(),
+            old_bytes,
+            new_bytes,
+            binary: true,
+            hunks: Vec::new(),
+            unified: String::new(),
+            stats: DiffStats {
+                added_lines: 0,
+                removed_lines: 0,
+                changed_lines: 0,
+                similarity: if old_hash == new_hash { 1.0 } else { 0.0 },
+            },
+        };
+    };
+
+    FileDiff {
+        old_hash: old_hash.clone(),
+        new_hash: new_hash.clone(),
+        old_bytes,
+        new_bytes,
+        binary: false,
+        hunks,
+        unified,
+        stats,
+    }
+}

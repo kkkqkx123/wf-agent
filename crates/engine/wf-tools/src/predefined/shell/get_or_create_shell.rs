@@ -41,7 +41,7 @@ pub static GET_OR_CREATE_SHELL: ToolDefinition = ToolDefinition {
 struct GetOrCreateShellInstance {
     store: Arc<BackgroundShellStore>,
     execution_id: String,
-    observer: std::sync::Mutex<Option<crate::observe::ToolSideEffectObserverHandle>>,
+    checkpoint_session: std::sync::Mutex<Option<wf_checkpoint::CheckpointSession>>,
     forwarder: SharedSessionForwarder,
 }
 
@@ -51,9 +51,13 @@ impl StatefulInstance for GetOrCreateShellInstance {
         params: &Value,
         ctx: &crate::executor::trait_def::ToolExecutionContext,
     ) -> ToolResult<Value> {
-        *self.observer.lock().unwrap() = Some(ctx.observer.clone());
-        self.forwarder
-            .set_observer(self.execution_id.clone(), ctx.observer.clone());
+        if let Some(sess) = ctx.checkpoint_session.clone() {
+            *self.checkpoint_session.lock().unwrap() = Some(sess);
+        }
+            
+        if let Some(sess) = ctx.checkpoint_session.clone() {
+            self.forwarder.set_session(self.execution_id.clone(), sess);
+        }
         self.execute(params)
     }
 
@@ -96,8 +100,8 @@ impl StatefulInstance for GetOrCreateShellInstance {
             ..Default::default()
         };
         let result = self.store.get_or_create(&options, task_id.as_deref())?;
-        if let Some(observer) = self.observer.lock().unwrap().clone() {
-            observer.notify_session_started(crate::observe::SessionBoundary {
+        if let Some(cp_session) = self.checkpoint_session.lock().unwrap().as_ref().cloned() {
+            cp_session.begin_session(wf_checkpoint::SessionBoundary {
                 execution_id: self.execution_id.clone(),
                 session_id: result.session_id.clone(),
                 scope_dir: result.cwd.clone(),
@@ -114,9 +118,9 @@ impl StatefulInstance for GetOrCreateShellInstance {
     }
 
     fn destroy(&self) -> ToolResult<()> {
-        if let Some(observer) = self.observer.lock().unwrap().clone() {
+        if let Some(cp_session) = self.checkpoint_session.lock().unwrap().as_ref().cloned() {
             for (session_id, cwd) in self.store.sessions_for_task(&self.execution_id) {
-                observer.notify_session_finished(crate::observe::SessionBoundary {
+                cp_session.end_session(wf_checkpoint::SessionBoundary {
                     execution_id: self.execution_id.clone(),
                     session_id,
                     scope_dir: cwd,
@@ -125,7 +129,7 @@ impl StatefulInstance for GetOrCreateShellInstance {
         }
         self.store
             .release_sessions_for_task(&self.execution_id, false);
-        self.forwarder.remove_observer(&self.execution_id);
+        self.forwarder.remove_session(&self.execution_id);
         Ok(())
     }
 }
@@ -144,7 +148,7 @@ pub fn register(
             Box::new(GetOrCreateShellInstance {
                 store: store.clone(),
                 execution_id: execution_id.to_string(),
-                observer: std::sync::Mutex::new(None),
+                checkpoint_session: std::sync::Mutex::new(None),
                 forwarder: forwarder.clone(),
             })
         }),

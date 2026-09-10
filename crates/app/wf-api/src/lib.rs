@@ -300,7 +300,7 @@ pub use wf_checkpoint::actor_id::{ActorId, ActorIdError, ActorKind};
 pub use wf_checkpoint::approval::{ConflictView, MergeOutcome, PendingApproval};
 pub use wf_checkpoint::cache::CheckpointCache;
 pub use wf_checkpoint::diff::{
-    DiffEngine, DiffHunk, DiffOp, DiffOpKind, DiffResult, DiffStats, HunkLine, HunkLineKind,
+    diff_stats_for_text, inline_word_diff, unified_diff_text, DiffStats,
 };
 pub use wf_checkpoint::error::CheckpointError;
 pub use wf_checkpoint::event::{CheckpointEvent, CheckpointEventBus};

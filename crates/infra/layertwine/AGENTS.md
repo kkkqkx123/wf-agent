@@ -7,7 +7,7 @@ Always use English in code, comments, logging, error info or other string litera
 
 ## Project
 
-`layertwine` is a lightweight file-edit history storage layer for multi-agent + human collaborative editing. Rust library crate (no binary yet).
+`layertwine` is a lightweight file-edit history storage layer for multi-agent + human collaborative editing. Infra-only Rust library crate: embedded in-process via `wf-checkpoint`, no binary, no network transports.
 
 ## Build
 
@@ -28,7 +28,6 @@ src/
 ├── backup/
 ├── checkpoint/
 ├── git_sync/
-├── cli/
 ├── lib.rs       # re-exports all modules + pub use error::{LayertwineError, StorageError, StorageResult}
 └── error.rs     # LayertwineError + StorageError (thiserror)
 ```
@@ -49,7 +48,7 @@ tests/
 └── ...
 ```
 
-**Unit tests:** `#[cfg(test)] mod tests` blocks inside `src/` (core, engine, storage, layered, checkpoint, backup, git_sync, api, cli).
+**Unit tests:** `#[cfg(test)] mod tests` blocks inside `src/` (core, engine, storage, layered, checkpoint, backup, git_sync, api).
 **Shared test helpers in src/:** `src/test_utils.rs` provides `setup_storage()`, `setup_storage_full()`, `create_initial_snapshot()` for `#[cfg(test)]` modules.
 
 ## Key patterns

@@ -71,15 +71,6 @@ fn map_error(e: LayertwineError) -> ApiError {
         LayertwineError::GitSync(s) => ApiError::git_sync(s),
         LayertwineError::Gc(s) => ApiError::gc(s),
         LayertwineError::NotFound(s) => ApiError::not_found(s),
-        LayertwineError::Cli {
-            context,
-            suggestion,
-        } => ApiError {
-            code: "CLI_ERROR".into(),
-            message: context,
-            suggestion,
-            details: None,
-        },
         LayertwineError::Serialization(s) => ApiError::internal(format!("serialization: {}", s)),
         LayertwineError::Snapshot(s) => ApiError::internal(format!("snapshot: {}", s)),
         LayertwineError::General(s) => ApiError::general(s),

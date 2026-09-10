@@ -23,7 +23,7 @@ use layertwine::storage::sqlite::SqliteStorage;
 
 use crate::actor_id::ActorId;
 use crate::approval::{to_conflict_views, ConflictView};
-use crate::diff::DiffEngine;
+use crate::diff::{diff_stats_for_text, unified_diff_text};
 use crate::error::CheckpointError;
 use crate::file::FileContentEntry;
 use crate::file_util::{map_layertwine_error, sha256_hex};
@@ -676,7 +676,6 @@ pub fn diff_workspaces(a: &[WorkspaceFile], b: &[WorkspaceFile]) -> Vec<FileDiff
         .collect();
     paths.sort_unstable();
 
-    let engine = DiffEngine::new().with_context_lines(3);
     let mut views = Vec::new();
     for path in paths {
         match (a_map.get(path), b_map.get(path)) {
@@ -706,7 +705,7 @@ pub fn diff_workspaces(a: &[WorkspaceFile], b: &[WorkspaceFile]) -> Vec<FileDiff
                     });
                     continue;
                 }
-                let (diff, additions, deletions) = text_diff(&engine, &af.content, &bf.content);
+                let (diff, additions, deletions) = text_diff(&af.content, &bf.content);
                 views.push(FileDiffView {
                     path: path.to_string(),
                     kind: FileDiffKind::Modified,
@@ -722,16 +721,12 @@ pub fn diff_workspaces(a: &[WorkspaceFile], b: &[WorkspaceFile]) -> Vec<FileDiff
 
 /// Build a unified diff when both contents are valid UTF-8 text, otherwise
 /// `(None, None, None)` (binary).
-fn text_diff(
-    engine: &DiffEngine,
-    before: &[u8],
-    after: &[u8],
-) -> (Option<String>, Option<usize>, Option<usize>) {
+fn text_diff(before: &[u8], after: &[u8]) -> (Option<String>, Option<usize>, Option<usize>) {
     let (Ok(before), Ok(after)) = (std::str::from_utf8(before), std::str::from_utf8(after)) else {
         return (None, None, None);
     };
-    let diff = engine.unified_diff(before, after, None, None);
-    let stats = engine.get_stats(before, after);
+    let diff = unified_diff_text(before, after, 3, None, None);
+    let stats = diff_stats_for_text(before, after);
     (
         Some(diff),
         Some(stats.added_lines),

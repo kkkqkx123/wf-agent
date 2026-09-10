@@ -4,22 +4,6 @@ version = "0.1.0"
 edition = "2021"
 autotests = false
 
-[features]
-default = []
-
-# API transport layers
-cli = ["dep:clap"]
-http = ["dep:axum", "dep:tower", "dep:tower-http", "dep:http", "dep:tokio"]
-grpc = ["dep:tonic", "dep:prost", "dep:tokio"]
-
-# Combined modes
-cli-http = ["cli", "http"]
-cli-grpc = ["cli", "grpc"]
-http-grpc = ["http", "grpc"]
-
-# All transports
-all = ["cli", "http", "grpc"]
-
 [dependencies]
 rusqlite = { version = "0.32", features = ["bundled"] }
 blake3 = { workspace = true }
@@ -39,24 +23,6 @@ smallvec = { workspace = true }
 
 # Config
 toml = { workspace = true }
-
-# CLI transport
-clap = { workspace = true, optional = true }
-
-# HTTP transport
-axum = { workspace = true, optional = true }
-tower = { workspace = true, optional = true }
-tower-http = { workspace = true, optional = true }
-http = { workspace = true, optional = true }
-tokio = { workspace = true, features = ["full"], optional = true }
-
-# gRPC transport
-tonic = { workspace = true, optional = true }
-prost = { workspace = true, optional = true }
-
-[[bin]]
-name = "layertwine"
-required-features = ["cli"]
 
 [dev-dependencies]
 tempfile = "3"
@@ -94,23 +60,12 @@ name = "git_sync_e2e"
 path = "tests/git_sync_e2e.rs"
 
 [[test]]
-name = "grpc_integration"
-path = "tests/grpc_integration.rs"
-
-[[test]]
-name = "http_integration"
-path = "tests/http_integration.rs"
-
-[[test]]
 name = "layered_integration"
 path = "tests/layered_integration.rs"
 
 [[test]]
 name = "storage_integration"
 path = "tests/storage_integration.rs"
-
-[build-dependencies]
-tonic-build = { workspace = true }
 
 [[bench]]
 name = "diff"

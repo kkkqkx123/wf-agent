@@ -40,13 +40,14 @@ wf-agent/
 │   │   ├── wf-sandbox/  # Script sandbox
 │   │   ├── wf-shell/    # Shell/terminal engine (PTY, sessions, detector)
 │   │   ├── wf-plugin/   # Plugin system (Lua/Native)
-│   │   └── wf-resource/ # Resource management
+│   │   ├── wf-resource/ # Resource management
+│   │   ├── wf-checkpoint/  # Checkpoint system (state + file history policy)
+│   │   └── layertwine/  # File-edit history storage engine (used only by wf-checkpoint)
 │   ├── engine/          # Execution engines
 │   │   ├── wf-tools/    # Tool registry, executors, MCP
 │   │   ├── wf-execution-shared/  # Shared execution infrastructure
 │   │   ├── wf-agent/    # Agent loop execution engine
-│   │   ├── wf-workflow/ # Workflow graph execution engine
-│   │   └── wf-checkpoint/  # Checkpoint system
+│   │   └── wf-workflow/ # Workflow graph execution engine
 │   ├── app/             # Application facade and entry points
 │   │   ├── wf-api/      # Application-facing API facade
 │   │   ├── wf-server/   # HTTP transport layer
@@ -57,8 +58,6 @@ wf-agent/
 │   │       ├── wf-mini/        # Lightweight crossterm TUI binary
 │   │       ├── wf-tui/         # Full ratatui TUI library + wf binary
 │   │       └── wf-cli-demo/    # Demo examples for all CLI forms
-│   └── vendor/          # Standalone subsystems
-│       └── layertwine/  # File-edit history storage engine
 ├── package.json
 ├── pnpm-workspace.yaml
 └── turbo.json
@@ -71,12 +70,12 @@ foundation:  wf-types  ←  wf-common  ←  wf-core
                    ↑           ↑
 infra:  wf-metrics  wf-storage  wf-config  wf-script
         wf-llm  wf-sandbox  wf-shell  wf-plugin  wf-resource
+        wf-checkpoint  ←  layertwine (storage engine, checkpoint-only consumer)
                    ↑
-engine:  wf-tools  wf-execution-shared  wf-agent  wf-workflow  wf-checkpoint
+engine:  wf-tools  wf-execution-shared  wf-agent  wf-workflow
                    ↑
 app:  wf-api  wf-server  wf-runtime
       └── cli/:  wf-cli-shared  ←  wf-headless / wf-mini / wf-tui  ←  wf-cli-demo
-vendor:  layertwine (used by wf-checkpoint, wf-tools)
 ```
 
 `app/cli/` groups every CLI frontend under one submodule so a future desktop

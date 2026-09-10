@@ -5,12 +5,10 @@
 | 层面 | 选型 | 说明 |
 |------|------|------|
 | 语言 | Rust 1.88 | 内置 `async fn in trait`，无需 `async-trait` crate |
-| 异步运行时 | `tokio` | 业界标准 async runtime |
 | 存储引擎 | `rusqlite` | SQLite 嵌入式数据库，单文件、零配置 |
 | 序列化 | `rkyv` + `serde_json` | 零拷贝反序列化、高性能（替代已停止维护的 `bincode`） |
 | 哈希 | `blake3` | 内容寻址哈希，极速 |
 | Diff 引擎 | `similar` | 纯 Rust 行级 diff/merge |
-| CLI 框架 | `clap` v4 | 命令行解析 |
 | 日志 | `tracing` | 结构化日志 + span 追踪 |
 | 错误处理 | `thiserror` + `anyhow` | 分层错误处理 |
 | 日期时间 | `chrono` | 时间戳管理 |
@@ -22,8 +20,7 @@
 layertwine/
 ├── Cargo.toml
 ├── src/
-│   ├── main.rs                    # CLI 入口
-│   ├── lib.rs                     # 库入口
+│   ├── lib.rs                     # 库入口（无独立二进制）
 │   │
 │   ├── core/                      # 核心数据类型
 │   │   ├── mod.rs
@@ -64,11 +61,6 @@ layertwine/
 │   │   ├── sqlite_storage.rs      # SQLite 存储实现
 │   │   ├── migrations.rs          # 数据库迁移
 │   │   └── repository.rs          # 仓库 trait 定义
-│   │
-│   ├── cli/                       # 命令行接口
-│   │   ├── mod.rs
-│   │   ├── commands.rs            # 子命令定义
-│   │   └── output.rs              # 格式化输出
 │   │
 │   └── error.rs                   # 全局错误类型
 ```

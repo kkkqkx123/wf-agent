@@ -531,7 +531,6 @@ mod tests {
         let prod_output = get_output_environment_defaults(RuntimeEnvironment::Production);
         assert!(!prod_output.enable_log_terminal);
 
-
         let prod_timeout = get_timeout_environment_defaults(RuntimeEnvironment::Production);
     }
 }

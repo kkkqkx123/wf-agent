@@ -22,6 +22,7 @@ use std::sync::Arc;
 use dashmap::DashMap;
 
 use crate::ActorId;
+use crate::CollectedChangeKind;
 use crate::FileCheckpointManager;
 use crate::WorkspaceChangeCollector;
 use crate::WorkspaceScanner;
@@ -92,10 +93,11 @@ impl ScopeCapture {
         let scope = resolve_shell_scope(root, scope_dir)?;
         if let Some(before) = self.capture_scope(&scope) {
             for path in before.keys() {
-                self.manager.recent_agent_writes().acquire_inflight(path.clone());
+                self.manager
+                    .recent_agent_writes()
+                    .acquire_inflight(path.clone());
             }
-            self.scoped_before
-                .insert(key(execution_id, &scope), before);
+            self.scoped_before.insert(key(execution_id, &scope), before);
         } else {
             self.scoped_before
                 .insert(key(execution_id, &scope), HashMap::new());
@@ -103,12 +105,7 @@ impl ScopeCapture {
         Some(scope)
     }
 
-    pub fn end_scope(
-        &self,
-        execution_id: &str,
-        scope_dir: &Path,
-        terminated: bool,
-    ) -> Option<()> {
+    pub fn end_scope(&self, execution_id: &str, scope_dir: &Path, terminated: bool) -> Option<()> {
         let root = self.manager.workspace_root()?;
         let scope = resolve_shell_scope(root, scope_dir)?;
         if !terminated {
@@ -141,10 +138,11 @@ impl ScopeCapture {
                 return Some(scope);
             }
             for path in before.keys() {
-                self.manager.recent_agent_writes().acquire_inflight(path.clone());
+                self.manager
+                    .recent_agent_writes()
+                    .acquire_inflight(path.clone());
             }
-            self.session_before
-                .insert(session_id.to_string(), before);
+            self.session_before.insert(session_id.to_string(), before);
             self.session_scope
                 .insert(session_id.to_string(), scope.clone());
         }
@@ -162,7 +160,9 @@ impl ScopeCapture {
         if let Some(next) = self.capture_scope(&scope) {
             for path in next.keys() {
                 if !before.contains_key(path) {
-                    self.manager.recent_agent_writes().acquire_inflight(path.clone());
+                    self.manager
+                        .recent_agent_writes()
+                        .acquire_inflight(path.clone());
                 }
             }
             self.session_before.insert(session_id.to_string(), next);
@@ -277,16 +277,27 @@ impl ScopeCapture {
         }
         for change in &changes {
             let path = &change.path;
-            match std::fs::read(path) {
-                Ok(content) => {
-                    let hash = crate::sha256_hex(&content);
-                    self.manager.recent_agent_writes().resolve_inflight(
-                        path.clone(),
-                        hash,
-                        false,
-                    );
-                }
-                Err(_) => {
+            match change.kind {
+                // Reuse the after-capture hash: the content was already
+                // hashed milliseconds ago, re-reading would hash identical
+                // bytes a second time with a TOCTOU window in between.
+                CollectedChangeKind::Add | CollectedChangeKind::Modify => match after.get(path) {
+                    Some(hash) => {
+                        self.manager.recent_agent_writes().resolve_inflight(
+                            path.clone(),
+                            hash.clone(),
+                            false,
+                        );
+                    }
+                    None => {
+                        self.manager.recent_agent_writes().resolve_inflight(
+                            path.clone(),
+                            String::new(),
+                            true,
+                        );
+                    }
+                },
+                CollectedChangeKind::Delete => {
                     self.manager.recent_agent_writes().resolve_inflight(
                         path.clone(),
                         String::new(),

@@ -9,7 +9,6 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-
 use crate::ActorId;
 use crate::FileCheckpointManager;
 
@@ -102,15 +101,9 @@ impl CheckpointSession {
             return;
         };
         let kind = match &mutation.operation {
-            super::effect::FileOperation::Created => {
-                crate::PreciseFileEventKind::Created
-            }
-            super::effect::FileOperation::Modified => {
-                crate::PreciseFileEventKind::Modified
-            }
-            super::effect::FileOperation::Deleted => {
-                crate::PreciseFileEventKind::Deleted
-            }
+            super::effect::FileOperation::Created => crate::PreciseFileEventKind::Created,
+            super::effect::FileOperation::Modified => crate::PreciseFileEventKind::Modified,
+            super::effect::FileOperation::Deleted => crate::PreciseFileEventKind::Deleted,
             super::effect::FileOperation::Renamed { from } => {
                 crate::PreciseFileEventKind::Renamed { from: from.clone() }
             }
@@ -144,7 +137,8 @@ impl CheckpointSession {
     /// Replace `notify_scope_end`.
     pub fn end_scope(&self, scope_dir: &std::path::Path, outcome: ScopeOutcome) {
         if outcome.terminated {
-            self.capture.end_scope(&outcome.execution_id, scope_dir, true);
+            self.capture
+                .end_scope(&outcome.execution_id, scope_dir, true);
         } else {
             tracing::warn!(
                 entity = %self.entity_id,
@@ -165,12 +159,14 @@ impl CheckpointSession {
 
     /// Replace `notify_session_command_finished`.
     pub fn session_command_finished(&self, boundary: SessionBoundary) {
-        self.capture.session_command_finished(&boundary.session_id, &boundary.execution_id);
+        self.capture
+            .session_command_finished(&boundary.session_id, &boundary.execution_id);
     }
 
     /// Replace `notify_session_finished`.
     pub fn end_session(&self, boundary: SessionBoundary) {
-        self.capture.end_session(&boundary.session_id, &boundary.execution_id);
+        self.capture
+            .end_session(&boundary.session_id, &boundary.execution_id);
     }
 }
 
@@ -209,6 +205,8 @@ mod tests {
         let mut manager = FileCheckpointManager::new_in_memory().unwrap();
         manager.set_workspace_root(Some(dir.path().to_path_buf()));
         let session = CheckpointSession::new(manager.clone(), "agent-1", None).unwrap();
-        assert!(session.begin_scope("exec-1", std::path::Path::new("/proc")).is_none());
+        assert!(session
+            .begin_scope("exec-1", std::path::Path::new("/proc"))
+            .is_none());
     }
 }

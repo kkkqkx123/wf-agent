@@ -1,4 +1,5 @@
 use wf_checkpoint::provenance::{DeltaSummary, FileDiffView, PartitionView, WorkspaceFile};
+use wf_checkpoint::{EditSession, GcRetention, GcStats};
 
 use crate::infra::context::ApiContext;
 use crate::ApiError;
@@ -102,9 +103,7 @@ pub fn begin_session(ctx: &ApiContext, label: Option<String>) -> ApiResult<Strin
 }
 
 /// List all persisted edit sessions (newest first).
-pub fn list_sessions(
-    ctx: &ApiContext,
-) -> ApiResult<Vec<layertwine::core::edit_session::EditSession>> {
+pub fn list_sessions(ctx: &ApiContext) -> ApiResult<Vec<EditSession>> {
     manager(ctx)?
         .list_sessions()
         .map_err(ApiError::execution_with_source)
@@ -137,11 +136,8 @@ pub fn redo_edit(ctx: &ApiContext, actor: &str) -> ApiResult<String> {
 /// Trigger a manual GC run on the file-checkpoint store. `keep_recent_heads`
 /// controls how many recent partition heads are kept protected beyond the
 /// built-in protected set (branch heads + ancestors + git anchors).
-pub fn run_gc(
-    ctx: &ApiContext,
-    keep_recent_heads: usize,
-) -> ApiResult<layertwine::git_sync::GcStats> {
-    let retention = layertwine::git_sync::GcRetention { keep_recent_heads };
+pub fn run_gc(ctx: &ApiContext, keep_recent_heads: usize) -> ApiResult<GcStats> {
+    let retention = GcRetention { keep_recent_heads };
     manager(ctx)?
         .run_gc(retention)
         .map_err(ApiError::execution_with_source)

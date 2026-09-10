@@ -31,7 +31,6 @@ wf-workflow = { path = "../../engine/wf-workflow" }
 wf-execution-shared = { path = "../../engine/wf-execution-shared" }
 wf-script = { path = "../../infra/wf-script" }
 wf-sandbox = { path = "../../infra/wf-sandbox" }
-layertwine = { path = "../../vendor/layertwine" }
 
 [dev-dependencies]
 wf-llm = { path = "../../infra/wf-llm", features = ["mock"] }

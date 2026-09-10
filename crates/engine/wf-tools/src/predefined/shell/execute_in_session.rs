@@ -52,7 +52,7 @@ impl StatefulInstance for ExecuteInSessionInstance {
         if let Some(sess) = ctx.checkpoint_session.clone() {
             *self.checkpoint_session.lock().unwrap() = Some(sess);
         }
-            
+
         if let Some(sess) = ctx.checkpoint_session.clone() {
             self.forwarder.set_session(self.execution_id.clone(), sess);
         }

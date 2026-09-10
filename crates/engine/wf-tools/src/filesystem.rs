@@ -844,7 +844,6 @@ fn notify_precise(ctx: &ToolExecutionContext, path: &Path, op: wf_checkpoint::Fi
     }
 }
 
-
 fn require_string<'a>(parameters: &'a Value, key: &str) -> ToolResult<&'a str> {
     parameters.get(key).and_then(|v| v.as_str()).ok_or_else(|| {
         ToolError::ValidationFailed(format!("Missing or invalid '{}' parameter", key))
@@ -1218,8 +1217,6 @@ mod tests {
         let _ = std::fs::remove_dir_all(&root);
     }
 
-
-
     #[test]
     fn precise_notifications_cover_write_edit_and_patch() {
         let root = tempfile::tempdir().unwrap();
@@ -1228,8 +1225,7 @@ mod tests {
             enable_ignore: false,
             ..Default::default()
         });
-        let ctx = ToolExecutionContext::new("exec-observe".into())
-            .with_checkpoint_session(None);
+        let ctx = ToolExecutionContext::new("exec-observe".into()).with_checkpoint_session(None);
 
         // write_file reports Created, second write reports Modified.
         let abs = root.path().join("a.txt");
@@ -1278,8 +1274,7 @@ mod tests {
             enable_ignore: false,
             ..Default::default()
         });
-        let ctx = ToolExecutionContext::new("exec-patch".into())
-            .with_checkpoint_session(None);
+        let ctx = ToolExecutionContext::new("exec-patch".into()).with_checkpoint_session(None);
 
         std::fs::write(root.path().join("ok.txt"), "base\n").unwrap();
         let patch = "*** Begin Patch\n*** Update File: ok.txt\n@@\n-base\n+changed\n*** Delete File: missing.txt\n*** End Patch";

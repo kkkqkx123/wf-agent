@@ -5,7 +5,8 @@
 //!
 //! 1. Hardcoded defaults (lowest)
 //! 2. `~/.config/layertwine.toml` — user-global override
-//! 3. `<binary-dir>/layertwine.toml` — per-installation override
+//! 3. `<host-exe-dir>/layertwine.toml` — per-installation override (directory
+//!    of the embedding host executable)
 //! 4. `<db-dir>/layertwine.toml` — per-repository override (highest)
 //!
 //! Each layer only needs to specify the fields it wants to override;
@@ -172,7 +173,7 @@ impl LayertwineConfig {
     /// Resolve the search paths in order (low → high priority).
     ///
     /// - `~/.config/layertwine.toml`
-    /// - `<binary-dir>/layertwine.toml`
+    /// - `<host-exe-dir>/layertwine.toml`
     /// - `<db-dir>/layertwine.toml`
     pub fn config_paths(db_dir: &Path) -> Vec<PathBuf> {
         let mut paths: Vec<PathBuf> = Vec::new();
@@ -182,7 +183,7 @@ impl LayertwineConfig {
             paths.push(home.join(".config").join("layertwine.toml"));
         }
 
-        // 2. Next to the binary
+        // 2. Next to the embedding host executable
         if let Ok(exe) = std::env::current_exe() {
             if let Some(exe_dir) = exe.parent() {
                 paths.push(exe_dir.join("layertwine.toml"));

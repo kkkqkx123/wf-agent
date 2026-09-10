@@ -135,6 +135,35 @@ pub fn diff_to_line_diff(old: &str, new: &str) -> LineDiff {
     }
 }
 
+/// Line counts derived from a single Myers diff pass: lines added,
+/// lines removed and lines unchanged. Equal lines are summed from
+/// `Equal` ops so callers never re-invoke the diff algorithm for stats.
+pub fn diff_stat_counts(old: &str, new: &str) -> (usize, usize, usize) {
+    if old == new {
+        return (0, 0, old.lines().count());
+    }
+    let line_diff = diff_to_line_diff(old, new);
+    let mut added = 0usize;
+    let mut removed = 0usize;
+    let mut equal = 0usize;
+    for hunk in &line_diff.hunks {
+        for op in &hunk.ops {
+            match op {
+                DiffOp::Equal { count } => equal += *count as usize,
+                DiffOp::Delete { count, .. } => removed += *count as usize,
+                DiffOp::Insert { lines, .. } => added += lines.len(),
+                DiffOp::Replace {
+                    old_count, lines, ..
+                } => {
+                    removed += *old_count as usize;
+                    added += lines.len();
+                }
+            }
+        }
+    }
+    (added, removed, equal)
+}
+
 /// Decide whether a text edit should be stored as a full-content snapshot
 /// rather than a line-level delta. The heuristic compares the byte-length
 /// change ratio against `threshold` (0.0 – 1.0).

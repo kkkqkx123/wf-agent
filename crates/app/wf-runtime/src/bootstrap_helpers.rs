@@ -95,7 +95,7 @@ pub fn init_gc_timer(
     let manager = manager?.clone();
     let retention = config
         .gc_retention
-        .map(|r| layertwine::git_sync::GcRetention {
+        .map(|r| wf_checkpoint::GcRetention {
             keep_recent_heads: r.keep_recent_heads,
         })
         .unwrap_or_default();

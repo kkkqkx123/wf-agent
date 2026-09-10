@@ -1,13 +1,13 @@
 //! Execution recovery: scan incomplete executions and drive them back to a
 //! consistent state through the checkpoint + resume path.
 
+pub mod api_executor;
 pub mod orchestrator;
 pub mod scanner;
-pub mod api_executor;
 
+pub use api_executor::ApiRecoveryExecutor;
 pub use orchestrator::RecoveryOrchestrator;
 pub use scanner::RecoveryScanner;
-pub use api_executor::ApiRecoveryExecutor;
 
 /// Outcome of one recovery attempt. `recovered` is `false` when the
 /// execution could not be restarted (no checkpoint available, recovery not

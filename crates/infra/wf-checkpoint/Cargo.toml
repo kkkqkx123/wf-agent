@@ -24,10 +24,9 @@ wf-types = { path = "../../foundation/wf-types" }
 wf-common = { path = "../../foundation/wf-common" }
 wf-storage = { path = "../../infra/wf-storage" }
 wf-core = { path = "../../foundation/wf-core" }
-layertwine = { path = "../../vendor/layertwine" }
+layertwine = { path = "../layertwine" }
 notify = { workspace = true }
 globset = { workspace = true }
-similar = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3"

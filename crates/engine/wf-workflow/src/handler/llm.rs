@@ -534,7 +534,8 @@ async fn execute_tool_call(
             manager.clone(),
             &ctx.execution_id.to_string(),
             parent.as_deref(),
-        ).expect("failed to build checkpoint session");
+        )
+        .expect("failed to build checkpoint session");
         tool_ctx = tool_ctx.with_checkpoint_session(Some(session));
     }
     let options = wf_types::tool::ToolExecutionOptions {

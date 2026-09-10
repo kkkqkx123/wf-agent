@@ -23,8 +23,6 @@ dashmap.workspace = true
 futures.workspace = true
 regex.workspace = true
 globset.workspace = true
-layertwine = { path = "../../vendor/layertwine", features = ["grpc"], optional = true }
-tonic = { workspace = true, optional = true }
 rusqlite = { workspace = true, optional = true }
 
 [features]
@@ -32,8 +30,6 @@ default = ["sqlite"]
 # SQLite-backed session-note storage (default dbPath `<workspace>/data/session-notes.db`).
 # Without this feature session notes fall back to an in-memory store.
 sqlite = ["dep:rusqlite"]
-# Layertwine gRPC remote executor (embedded + remote deployment modes).
-remote-layertwine = ["dep:layertwine", "dep:tonic"]
 lua = ["wf-sandbox/lua"]
 
 [dev-dependencies]

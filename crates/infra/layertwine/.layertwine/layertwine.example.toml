@@ -3,7 +3,7 @@
 # Copy this file to layertwine.toml in one of the following locations
 # (listed from lowest to highest priority):
 #   ~/.config/layertwine.toml          — user-global override
-#   <binary-dir>/layertwine.toml       — per-installation override
+#   <host-exe-dir>/layertwine.toml   — per-installation override
 #   <db-dir>/layertwine.toml           — per-repository override (highest)
 #
 # All fields are optional; missing fields fall back to defaults.

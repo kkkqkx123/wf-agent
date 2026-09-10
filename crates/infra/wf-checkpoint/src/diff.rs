@@ -1,395 +1,4 @@
-use similar::{ChangeTag, TextDiff};
-
-/// Kind of a single diff operation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DiffOpKind {
-    Equal,
-    Delete,
-    Insert,
-}
-
-/// One line-level diff operation with 1-based line numbers.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DiffOp {
-    pub kind: DiffOpKind,
-    pub value: String,
-    /// Line number in the old content (equal/delete).
-    pub old_line: Option<usize>,
-    /// Line number in the new content (equal/insert).
-    pub new_line: Option<usize>,
-}
-
-/// Diff result with metadata.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct DiffResult {
-    pub ops: Vec<DiffOp>,
-    pub equal_count: usize,
-    pub delete_count: usize,
-    pub insert_count: usize,
-    pub has_changes: bool,
-}
-
-/// Kind of a unified diff hunk line.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum HunkLineKind {
-    Context,
-    Delete,
-    Insert,
-}
-
-/// One line inside a unified diff hunk.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct HunkLine {
-    pub kind: HunkLineKind,
-    pub value: String,
-}
-
-/// A unified diff hunk with 1-based start positions and counts.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DiffHunk {
-    pub old_start: usize,
-    pub old_count: usize,
-    pub new_start: usize,
-    pub new_count: usize,
-    pub lines: Vec<HunkLine>,
-}
-
-/// Diff statistics.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct DiffStats {
-    pub added_lines: usize,
-    pub removed_lines: usize,
-    pub changed_lines: usize,
-    pub similarity: f64,
-}
-
-/// Text diff engine based on `similar::TextDiff` (the same engine used by
-/// layertwine), replacing the earlier simplified line-by-line comparison with
-/// a full Myers O(ND) implementation producing ops with line numbers, hunks
-/// and unified diff output.
-pub struct DiffEngine {
-    pub context_lines: usize,
-    pub trim_lines: bool,
-    pub ignore_blank_lines: bool,
-}
-
-impl Default for DiffEngine {
-    fn default() -> Self {
-        Self {
-            context_lines: 3,
-            trim_lines: false,
-            ignore_blank_lines: false,
-        }
-    }
-}
-
-impl DiffEngine {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn with_context_lines(mut self, context_lines: usize) -> Self {
-        self.context_lines = context_lines;
-        self
-    }
-
-    /// Preprocess content into lines: trim, drop blanks, drop the trailing
-    /// empty line, then re-join.
-    fn preprocess(&self, content: &str) -> String {
-        let mut lines: Vec<&str> = content.split('\n').collect();
-        if self.trim_lines {
-            lines = lines.into_iter().map(|l| l.trim()).collect();
-        }
-        if self.ignore_blank_lines {
-            lines.retain(|l| !l.is_empty());
-        }
-        if lines.last() == Some(&"") {
-            lines.pop();
-        }
-        lines.join("\n")
-    }
-
-    /// Compute the diff between two contents.
-    pub fn diff(&self, old_content: &str, new_content: &str) -> DiffResult {
-        let old = self.preprocess(old_content);
-        let new = self.preprocess(new_content);
-        if old == new {
-            let equal_count = old.lines().count();
-            return DiffResult {
-                ops: old
-                    .lines()
-                    .enumerate()
-                    .map(|(i, value)| DiffOp {
-                        kind: DiffOpKind::Equal,
-                        value: value.to_string(),
-                        old_line: Some(i + 1),
-                        new_line: Some(i + 1),
-                    })
-                    .collect(),
-                equal_count,
-                delete_count: 0,
-                insert_count: 0,
-                has_changes: false,
-            };
-        }
-
-        let diff = TextDiff::from_lines(old.as_str(), new.as_str());
-        let mut ops = Vec::new();
-        let mut equal_count = 0usize;
-        let mut delete_count = 0usize;
-        let mut insert_count = 0usize;
-
-        for change in diff.iter_all_changes() {
-            let (kind, is_delete, is_insert) = match change.tag() {
-                ChangeTag::Equal => (DiffOpKind::Equal, false, false),
-                ChangeTag::Delete => (DiffOpKind::Delete, true, false),
-                ChangeTag::Insert => (DiffOpKind::Insert, false, true),
-            };
-            if is_delete {
-                delete_count += 1;
-            } else if is_insert {
-                insert_count += 1;
-            } else {
-                equal_count += 1;
-            }
-            ops.push(DiffOp {
-                kind,
-                value: strip_newline(change.value()),
-                old_line: change.old_index().map(|i| i + 1),
-                new_line: change.new_index().map(|i| i + 1),
-            });
-        }
-
-        DiffResult {
-            ops,
-            equal_count,
-            delete_count,
-            insert_count,
-            has_changes: delete_count > 0 || insert_count > 0,
-        }
-    }
-
-    /// Group diff ops into hunks with context lines.
-    pub fn hunks(&self, old_content: &str, new_content: &str) -> Vec<DiffHunk> {
-        let old = self.preprocess(old_content);
-        let new = self.preprocess(new_content);
-        if old == new {
-            return Vec::new();
-        }
-        let diff = TextDiff::from_lines(old.as_str(), new.as_str());
-        diff.grouped_ops(self.context_lines)
-            .into_iter()
-            .map(|group| {
-                let first = group.first().expect("group has at least one op");
-                let last = group.last().expect("group has at least one op");
-                let old_start = first.old_range().start + 1;
-                let old_end = last.old_range().end;
-                let new_start = first.new_range().start + 1;
-                let new_end = last.new_range().end;
-                let lines = group
-                    .iter()
-                    .flat_map(|op| diff.iter_changes(op))
-                    .map(|change| {
-                        let kind = match change.tag() {
-                            ChangeTag::Equal => HunkLineKind::Context,
-                            ChangeTag::Delete => HunkLineKind::Delete,
-                            ChangeTag::Insert => HunkLineKind::Insert,
-                        };
-                        HunkLine {
-                            kind,
-                            value: strip_newline(change.value()),
-                        }
-                    })
-                    .collect();
-                DiffHunk {
-                    old_start,
-                    old_count: old_end - first.old_range().start,
-                    new_start,
-                    new_count: new_end - first.new_range().start,
-                    lines,
-                }
-            })
-            .collect()
-    }
-
-    /// Unified diff text with `---`/`+++` headers (when paths are given) and
-    /// `@@ -s,c +s,c @@` hunks. Returns an empty string when there are no
-    /// changes.
-    pub fn unified_diff(
-        &self,
-        old_content: &str,
-        new_content: &str,
-        old_path: Option<&str>,
-        new_path: Option<&str>,
-    ) -> String {
-        let hunks = self.hunks(old_content, new_content);
-        if hunks.is_empty() {
-            return String::new();
-        }
-        let mut out = String::new();
-        if let (Some(old_path), Some(new_path)) = (old_path, new_path) {
-            out.push_str(&format!("--- {old_path}\n+++ {new_path}\n"));
-        }
-        for hunk in hunks {
-            out.push_str(&format!(
-                "@@ -{},{} +{},{} @@\n",
-                hunk.old_start, hunk.old_count, hunk.new_start, hunk.new_count
-            ));
-            for line in hunk.lines {
-                match line.kind {
-                    HunkLineKind::Context => out.push_str(&format!(" {}\n", line.value)),
-                    HunkLineKind::Delete => out.push_str(&format!("-{}\n", line.value)),
-                    HunkLineKind::Insert => out.push_str(&format!("+{}\n", line.value)),
-                }
-            }
-        }
-        out
-    }
-
-    /// Diff statistics with similarity ratio.
-    pub fn get_stats(&self, old_content: &str, new_content: &str) -> DiffStats {
-        let result = self.diff(old_content, new_content);
-        let total = result.equal_count + result.delete_count + result.insert_count;
-        let similarity = if total > 0 {
-            result.equal_count as f64 / total as f64
-        } else {
-            1.0
-        };
-        DiffStats {
-            added_lines: result.insert_count,
-            removed_lines: result.delete_count,
-            changed_lines: result.delete_count + result.insert_count,
-            similarity,
-        }
-    }
-}
-
-/// Strip a trailing line terminator from a diff value.
-fn strip_newline(s: &str) -> String {
-    s.trim_end_matches(['\n', '\r']).to_string()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn diff_detects_added_deleted_and_unchanged() {
-        let engine = DiffEngine::new();
-        let result = engine.diff("a\nb\nc\n", "a\nx\nc\n");
-        assert!(result.has_changes);
-        assert_eq!(result.equal_count, 2);
-        assert_eq!(result.delete_count, 1);
-        assert_eq!(result.insert_count, 1);
-        assert_eq!(result.ops.len(), 4);
-    }
-
-    #[test]
-    fn diff_ops_carry_line_numbers() {
-        let engine = DiffEngine::new();
-        let result = engine.diff("a\nb\n", "a\nx\nb\n");
-        let insert = result
-            .ops
-            .iter()
-            .find(|op| op.kind == DiffOpKind::Insert)
-            .unwrap();
-        assert_eq!(insert.value, "x");
-        assert_eq!(insert.new_line, Some(2));
-        assert_eq!(insert.old_line, None);
-        let equal = result
-            .ops
-            .iter()
-            .find(|op| op.kind == DiffOpKind::Equal)
-            .unwrap();
-        assert_eq!(equal.old_line, Some(1));
-        assert_eq!(equal.new_line, Some(1));
-    }
-
-    #[test]
-    fn diff_identical_content_has_no_changes() {
-        let engine = DiffEngine::new();
-        let result = engine.diff("same\n", "same\n");
-        assert!(!result.has_changes);
-        assert_eq!(result.equal_count, 1);
-        assert_eq!(result.ops.len(), 1);
-        assert_eq!(result.ops[0].kind, DiffOpKind::Equal);
-    }
-
-    #[test]
-    fn diff_empty_old_content_is_all_insert() {
-        let engine = DiffEngine::new();
-        let result = engine.diff("", "a\nb\n");
-        assert!(result.has_changes);
-        assert_eq!(result.insert_count, 2);
-        assert!(result.ops.iter().all(|op| op.kind == DiffOpKind::Insert));
-    }
-
-    #[test]
-    fn unified_diff_produces_hunks_with_line_numbers() {
-        let engine = DiffEngine::new();
-        let diff = engine.unified_diff(
-            "l1\nl2\nl3\nl4\nl5\n",
-            "l1\nl2\nCHANGED\nl4\nl5\n",
-            Some("old.txt"),
-            Some("new.txt"),
-        );
-        assert!(diff.starts_with("--- old.txt\n+++ new.txt\n"));
-        assert!(diff.contains("@@ -1,5 +1,5 @@"), "got: {diff}");
-        assert!(diff.contains("-l3"));
-        assert!(diff.contains("+CHANGED"));
-        assert!(diff.contains(" l2"));
-        assert!(diff.contains(" l4"));
-    }
-
-    #[test]
-    fn unified_diff_is_empty_when_unchanged() {
-        let engine = DiffEngine::new();
-        assert!(engine
-            .unified_diff("x\n", "x\n", Some("a"), Some("b"))
-            .is_empty());
-    }
-
-    #[test]
-    fn unified_diff_splits_distant_hunks() {
-        let engine = DiffEngine::new();
-        let old: Vec<String> = (1..=30).map(|i| format!("line{i}")).collect();
-        let mut new = old.clone();
-        new[1] = "line2_edit".to_string();
-        new[28] = "line29_edit".to_string();
-        let diff = engine.unified_diff(&old.join("\n"), &new.join("\n"), None, None);
-        // Two separate hunks — changes at lines 2 and 29 with 3 context lines.
-        assert!(diff.contains("@@ -1,5 +1,5 @@"));
-        assert!(diff.contains("@@ -26,5 +26,5 @@"));
-        assert!(diff.contains("line2_edit"));
-        assert!(diff.contains("line29_edit"));
-        assert_eq!(diff.matches("@@ -").count(), 2, "got:\n{diff}");
-    }
-
-    #[test]
-    fn get_stats_reports_similarity() {
-        let engine = DiffEngine::new();
-        let stats = engine.get_stats("a\nb\nc\n", "a\nb\nd\n");
-        assert_eq!(stats.added_lines, 1);
-        assert_eq!(stats.removed_lines, 1);
-        assert_eq!(stats.changed_lines, 2);
-        assert!((stats.similarity - 0.5).abs() < 1e-9);
-    }
-
-    #[test]
-    fn trim_and_ignore_blank_lines_options() {
-        let engine = DiffEngine {
-            trim_lines: true,
-            ignore_blank_lines: true,
-            ..DiffEngine::default()
-        };
-        let result = engine.diff(" a \n\nb", "a\nb\n");
-        assert!(!result.has_changes);
-    }
-}
-
-// --------------------------------------------------------------------------
-// Unified binary-aware diff API (added to the legacy DiffEngine file so the
-// whole crate continues to build under the same module name).
+use layertwine::engine::diff as engine;
 
 /// Threshold for deciding whether a content slice should be treated as binary
 /// when heuristically sampled (presence of NUL byte).
@@ -412,111 +21,145 @@ pub fn content_hash(content: &[u8]) -> String {
     crate::sha256_hex(content)
 }
 
-/// Options that influence how `compare_bytes` produces its result.
-#[derive(Debug, Clone)]
-pub struct DiffOptions {
-    pub context_lines: usize,
-    pub trim_lines: bool,
-    pub ignore_blank_lines: bool,
+/// Line-level diff statistics for a pair of text contents.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct DiffStats {
+    pub added_lines: usize,
+    pub removed_lines: usize,
+    pub changed_lines: usize,
+    pub similarity: f64,
 }
 
-impl Default for DiffOptions {
-    fn default() -> Self {
-        Self {
-            context_lines: 3,
-            trim_lines: false,
-            ignore_blank_lines: false,
-        }
-    }
-}
-
-/// Unified diff result that callers (tool layer, API, UI) all consume.
+/// Unified diff text with `---`/`+++` headers (when paths are given) and
+/// `@@ -s,c +s,c @@` hunks. Returns an empty string when there are no
+/// changes.
 ///
-/// Binary files only populate hashes, sizes and the `binary` flag; `hunks`
-/// and `unified` remain empty. Text files always produce hunks/stats.
-#[derive(Debug, Clone)]
-pub struct FileDiff {
-    pub old_hash: String,
-    pub new_hash: String,
-    pub old_bytes: usize,
-    pub new_bytes: usize,
-    pub binary: bool,
-    pub hunks: Vec<DiffHunk>,
-    pub unified: String,
-    pub stats: DiffStats,
+/// The Myers diff itself runs exactly once inside
+/// `layertwine::engine::diff`; this wrapper only prepends optional path
+/// headers so display call sites share a single algorithm.
+pub fn unified_diff_text(
+    before: &str,
+    after: &str,
+    context_lines: usize,
+    old_path: Option<&str>,
+    new_path: Option<&str>,
+) -> String {
+    if before == after {
+        return String::new();
+    }
+    let body = engine::format_unified_diff(before, after, context_lines);
+    if body.is_empty() {
+        return String::new();
+    }
+    match (old_path, new_path) {
+        (Some(old_path), Some(new_path)) => {
+            format!("--- {old_path}\n+++ {new_path}\n{body}")
+        }
+        _ => body,
+    }
 }
 
-/// Compare two byte buffers, producing a [`FileDiff`]. Binary content is
-/// detected via [`is_binary`] and short-circuited: hashes and sizes are
-/// computed but no text diff is produced.
-pub fn compare_bytes(old: &[u8], new: &[u8], options: &DiffOptions) -> FileDiff {
-    let old_hash = content_hash(old);
-    let new_hash = content_hash(new);
-    let old_bytes = old.len();
-    let new_bytes = new.len();
-    let old_binary = is_binary(old);
-    let new_binary = is_binary(new);
-    let binary = old_binary || new_binary;
+/// Line statistics for a pair of text contents, derived from the same
+/// single layertwine diff pass as [`unified_diff_text`].
+pub fn diff_stats_for_text(before: &str, after: &str) -> DiffStats {
+    let (added, removed, equal) = engine::diff_stat_counts(before, after);
+    let total = added + removed + equal;
+    let similarity = if total > 0 {
+        equal as f64 / total as f64
+    } else {
+        1.0
+    };
+    DiffStats {
+        added_lines: added,
+        removed_lines: removed,
+        changed_lines: added + removed,
+        similarity,
+    }
+}
 
-    if binary {
-        return FileDiff {
-            old_hash: old_hash.clone(),
-            new_hash: new_hash.clone(),
-            old_bytes,
-            new_bytes,
-            binary: true,
-            hunks: Vec::new(),
-            unified: String::new(),
-            stats: DiffStats {
-                added_lines: 0,
-                removed_lines: 0,
-                changed_lines: 0,
-                similarity: if old_hash == new_hash { 1.0 } else { 0.0 },
-            },
-        };
+/// Word-level inline diff for a single replaced line pair, formatted with
+/// `[-old-]` / `{+new+}` markers for frontend row highlighting.
+///
+/// Delegates to `layertwine::engine::word_diff`; returns `None` when the
+/// lines are identical so callers render the plain line.
+pub fn inline_word_diff(old_line: &str, new_line: &str) -> Option<String> {
+    layertwine::engine::word_diff::diff_words(old_line, new_line).map(|d| d.format())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn identical_content_produces_empty_diff() {
+        assert!(unified_diff_text("x\n", "x\n", 3, None, None).is_empty());
+        let stats = diff_stats_for_text("x\n", "x\n");
+        assert_eq!(stats.added_lines, 0);
+        assert_eq!(stats.removed_lines, 0);
+        assert!((stats.similarity - 1.0).abs() < 1e-9);
     }
 
-    let engine = DiffEngine {
-        context_lines: options.context_lines,
-        trim_lines: options.trim_lines,
-        ignore_blank_lines: options.ignore_blank_lines,
-    };
+    #[test]
+    fn changed_content_produces_hunks_with_markers() {
+        let diff = unified_diff_text(
+            "l1\nl2\nl3\nl4\nl5\n",
+            "l1\nl2\nCHANGED\nl4\nl5\n",
+            3,
+            None,
+            None,
+        );
+        assert!(diff.contains("@@ -1,5 +1,5 @@"), "got: {diff}");
+        assert!(diff.contains("-l3"));
+        assert!(diff.contains("+CHANGED"));
+        assert!(diff.contains(" l2"));
+    }
 
-    let (hunks, unified, stats) = if let (Ok(old_str), Ok(new_str)) =
-        (std::str::from_utf8(old), std::str::from_utf8(new))
-    {
-        (
-            engine.hunks(old_str, new_str),
-            engine.unified_diff(old_str, new_str, None, None),
-            engine.get_stats(old_str, new_str),
-        )
-    } else {
-        // Non-UTF8 falls back to binary path.
-        return FileDiff {
-            old_hash: old_hash.clone(),
-            new_hash: new_hash.clone(),
-            old_bytes,
-            new_bytes,
-            binary: true,
-            hunks: Vec::new(),
-            unified: String::new(),
-            stats: DiffStats {
-                added_lines: 0,
-                removed_lines: 0,
-                changed_lines: 0,
-                similarity: if old_hash == new_hash { 1.0 } else { 0.0 },
-            },
-        };
-    };
+    #[test]
+    fn path_headers_only_when_both_paths_given() {
+        let with_paths = unified_diff_text("a\n", "b\n", 3, Some("old.txt"), Some("new.txt"));
+        assert!(with_paths.starts_with("--- old.txt\n+++ new.txt\n"));
+        let without_paths = unified_diff_text("a\n", "b\n", 3, None, None);
+        assert!(!without_paths.starts_with("---"));
+    }
 
-    FileDiff {
-        old_hash: old_hash.clone(),
-        new_hash: new_hash.clone(),
-        old_bytes,
-        new_bytes,
-        binary: false,
-        hunks,
-        unified,
-        stats,
+    #[test]
+    fn distant_changes_split_into_two_hunks() {
+        let old: Vec<String> = (1..=30).map(|i| format!("line{i}")).collect();
+        let mut new = old.clone();
+        new[1] = "line2_edit".to_string();
+        new[28] = "line29_edit".to_string();
+        let diff = unified_diff_text(&old.join("\n"), &new.join("\n"), 3, None, None);
+        assert_eq!(diff.matches("@@ -").count(), 2, "got:\n{diff}");
+    }
+
+    #[test]
+    fn stats_report_added_removed_and_similarity() {
+        let stats = diff_stats_for_text("a\nb\nc\n", "a\nb\nd\n");
+        assert_eq!(stats.added_lines, 1);
+        assert_eq!(stats.removed_lines, 1);
+        assert_eq!(stats.changed_lines, 2);
+        assert!((stats.similarity - 0.5).abs() < 1e-9);
+    }
+
+    #[test]
+    fn binary_detection_uses_nul_probe() {
+        assert!(is_binary(b"a\0b"));
+        assert!(!is_binary(b"plain text\n"));
+        assert!(!is_binary(b""));
+    }
+
+    #[test]
+    fn content_hash_is_stable_sha256_hex() {
+        assert_eq!(content_hash(b"hello"), content_hash(b"hello"));
+        assert_ne!(content_hash(b"hello"), content_hash(b"world"));
+        assert_eq!(content_hash(b"hello").len(), 64);
+    }
+
+    #[test]
+    fn inline_word_diff_marks_changed_words() {
+        assert_eq!(inline_word_diff("same", "same"), None);
+        let marked = inline_word_diff("hello world", "hello rust").unwrap();
+        assert!(marked.contains("[-world-]"), "got: {marked}");
+        assert!(marked.contains("{+rust+}"), "got: {marked}");
     }
 }

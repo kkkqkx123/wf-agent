@@ -64,7 +64,10 @@ impl ToolExecutionContext {
     }
 
     /// Inject the checkpoint session. `None` keeps plain tool behavior.
-    pub fn with_checkpoint_session(mut self, session: Option<wf_checkpoint::CheckpointSession>) -> Self {
+    pub fn with_checkpoint_session(
+        mut self,
+        session: Option<wf_checkpoint::CheckpointSession>,
+    ) -> Self {
         self.checkpoint_session = session;
         self
     }

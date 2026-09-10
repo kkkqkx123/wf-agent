@@ -6,7 +6,9 @@
 
 **Layertwine** — A lightweight file-edit history storage layer for multi-agent collaborative editing + human review workflows.
 
-[中文文档 (Chinese Documentation)](docs/user-guide/01-CLI 使用指南.md)
+Layertwine is an infra-only library crate: it is embedded in-process (via `wf-checkpoint`) and ships no CLI, HTTP/gRPC server, or standalone binary.
+
+[中文文档 (Chinese Documentation)](README_zh.md)
 
 ## Features
 
@@ -16,7 +18,7 @@
 - **Agent Collaboration**: Dedicated agent edit flow with human approval workflow
 - **Git Synchronization**: Bidirectional sync between Layertwine checkpoints and Git commits
 - **Snapshot Backup**: Physical isolation backup system for safety-critical restore points
-- **Multi-Transport APIs**: CLI, HTTP REST, and gRPC interfaces sharing the same core logic
+- **In-process API**: A single `ApiService` facade over the storage engine for same-process callers
 
 ## Why Layertwine?
 
@@ -29,38 +31,21 @@ Traditional version control (Git) cannot handle uncommitted changes from multipl
 
 ## Quick Start
 
-### Installation
+Add the crate as a dependency and open the in-process service:
 
-```bash
-# Build with CLI support (default)
-cargo install layertwine
+```rust
+use layertwine::api::{ApiService, CommitRequest, EditRequest, ServiceConfig};
 
-# Or use as a library
-cargo add layertwine
+let service = ApiService::open(ServiceConfig {
+    db_path: ".layertwine/layertwine.db".into(),
+    workspace_key: None,
+})?;
 ```
 
-### Initialize a Repository
-
-```bash
-# From current directory
-layertwine init
-
-# Or from an existing Git repository
-layertwine --git-repo /path/to/repo init --git-ref HEAD
-```
-
-### Edit and Commit
-
-```bash
-# Manual edit
-layertwine edit src/main.rs -c "fn main() { println!(\"Hello\"); }"
-
-# Submit checkpoint
-layertwine commit -m "Initial commit" -a "developer"
-
-# View history
-layertwine log
-```
+In the `wf-agent` workspace, production callers go through `wf-checkpoint`
+(`FileCheckpointManager`), which owns attribution, sampling, and merge
+policy on top of this engine. Use `ApiService` directly only for tests and
+tooling.
 
 ## Architecture Overview
 
@@ -98,82 +83,32 @@ layertwine log
 | **Checkpoint** | Named commit linking to one or more snapshots |
 | **Branch** | Movable pointer to checkpoint lineage |
 
-## Transport Layers
+## Embedding
 
-### CLI
+Layertwine runs in-process. The typical flow (executed by `wf-checkpoint`)
+is: open the service, apply layered edits, then persist checkpoints.
 
-```bash
-# All commands support --json output mode
-layertwine --help
-layertwine status
-layertwine branch list
-layertwine checkpoint rollback <ID>
+```rust
+let edit = service.edit(EditRequest {
+    file: "src/main.rs".into(),
+    content: Some("fn main() {}\n".into()),
+})?;
+let commit = service.commit(CommitRequest {
+    message: "initial commit".into(),
+    author: Some("dev-1".into()),
+})?;
 ```
 
-### HTTP API
+There are no network transports and no feature flags: the former CLI,
+HTTP, and gRPC layers were removed when Layertwine became an infra-only
+library crate.
 
-```bash
-# Start server
-LAYERTWINE_MODE=http cargo run --features http
+## Multi-Agent Workflow
 
-# Initialize
-curl -X POST http://127.0.0.1:8080/api/v1/init \
-  -H 'Content-Type: application/json' -d '{}'
-
-# Edit file
-curl -X POST http://127.0.0.1:8080/api/v1/edit \
-  -H 'Content-Type: application/json' \
-  -d '{"file":"src/main.rs","content":"fn main() {}"}'
-```
-
-### gRPC API
-
-```protobuf
-// Connect to localhost:50051
-rpc Edit(EditRequest) returns (EditResponse);
-rpc Commit(CommitRequest) returns (CommitResponse);
-rpc Log(LogRequest) returns (LogResponse);
-// ... and 22 more RPC methods
-```
-
-## Multi-Agent Workflow Example
-
-```bash
-# Agent A makes changes and submits for review
-layertwine agent agent-a edit src/auth.rs -c "pub fn login() {}"
-layertwine agent agent-a submit
-
-# Agent B makes changes and submits for review
-layertwine agent agent-b edit src/db.rs -c "pub fn connect() {}"
-layertwine agent agent-b submit
-
-# Review pending submissions
-layertwine approval list
-
-# Approve both agents
-layertwine approval approve agent-a
-layertwine approval approve agent-b
-
-# Merge approvals and commit
-layertwine approval merge-to-staged
-layertwine commit -m "Merge auth and db modules"
-```
-
-## Feature Flags
-
-| Feature | Description |
-|---------|-------------|
-| `cli` | Command-line interface (default) |
-| `http` | HTTP REST API via Axum |
-| `grpc` | gRPC API via Tonic |
-| `cli-http` | Combined CLI + HTTP |
-| `cli-grpc` | Combined CLI + gRPC |
-| `all` | All transport layers |
-
-```bash
-# Build with specific features
-cargo build --features http,grpc
-```
+Each agent edits in its own isolated partition and submits for review;
+a human approves, then approvals merge to staged and commit — the same
+lifecycle as before, now driven through `ApiService` (or `wf-checkpoint`)
+instead of shell commands.
 
 ## Data Model
 
@@ -205,15 +140,9 @@ let id = blake3::hash(serde_json::to_vec(&entity).unwrap());
 
 ## Git Integration
 
-```bash
-# Commit Layertwine checkpoints to local Git branch
-layertwine --git-repo /path/to/repo git-commit -m "Sync checkpoints"
-
-# Pull remote Git commits into Layertwine
-layertwine --git-repo /path/to/repo pull --remote origin --git-ref main
-```
-
-Note: Git sync is opt-in and does not interfere with active editing workflows.
+Git sync (checkpoint export/import) and GC are driven by the embedding
+crate through the storage engine. Git sync is opt-in and does not interfere
+with active editing workflows.
 
 ## Testing
 
@@ -239,15 +168,9 @@ cargo bench
 
 ## Error Handling
 
-Layertwine provides structured error types with exit codes:
-
-| Exit Code | Meaning |
-|-----------|---------|
-| 0 | Success |
-| 1 | General error (not found, internal, storage) |
-| 2 | Usage error (invalid params, missing arguments) |
-
-All errors include actionable suggestions for resolution.
+Layertwine provides structured error types (`LayertwineError`, `StorageError`)
+covering storage, engine, checkpoint, restore, integrity, git-sync, and GC
+failures. All errors carry actionable detail strings.
 
 ## Project Structure
 
@@ -255,16 +178,13 @@ All errors include actionable suggestions for resolution.
 src/
 ├── core/           # Immutable data types (FileNode, Delta, Snapshot)
 ├── storage/        # SQLite persistence (SqliteStorage, migrations)
-├── engine/         # Diff/merge/inverse operations
-├── state_machine/  # Layer transition logic
+├── engine/         # Diff/merge/word-diff operations
 ├── layered/        # Layer implementations (manual, agent, approval...)
 ├── checkpoint/     # Checkpoint repository (branch, dag, repo)
 ├── backup/         # Snapshot backup module
 ├── git_sync/       # Git synchronization & GC
-├── api/            # Shared API service & type definitions
-├── cli/            # CLI transport (clap-based)
+├── api/            # In-process service facade & type definitions
 ├── config/         # Configuration management
-├── runtime/        # Runtime utilities
 └── error.rs        # Error type definitions
 
 tests/
@@ -287,9 +207,6 @@ MIT License - see [LICENSE](LICENSE) for details
 
 ## Documentation
 
-- [CLI Guide](docs/user-guide/01-CLI 使用指南.md)
-- [HTTP API Guide](docs/user-guide/02-HTTP-API 使用指南.md)
-- [gRPC API Reference](docs/user-guide/03-gRPC-API 参考.md)
 - [Architecture Overview](docs/architecture/01-架构总览.md)
 
 ---

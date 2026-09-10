@@ -6,6 +6,8 @@
 
 **Layertwine** —— 专为多 Agent 协同编辑 + 人工审核工作流设计的轻量级文件编辑历史存储层。
 
+Layertwine 是纯 infra 库 crate：以进程内方式嵌入使用（经由 `wf-checkpoint`），不提供 CLI、HTTP/gRPC 服务与独立二进制。
+
 [English Documentation](README.md)
 
 ## 特性
@@ -16,7 +18,7 @@
 - **Agent 协作**：专用 Agent 编辑流程，包含人工审核工作流
 - **Git 同步**：Layertwine 检查点与 Git 提交之间的双向同步
 - **快照备份**：物理隔离的备份系统，用于关键恢复点
-- **多传输接口**：CLI、HTTP REST 和 gRPC 接口共享相同核心逻辑
+- **进程内接口**：存储引擎之上的单一 `ApiService` 门面，供同进程调用方使用
 
 ## 为什么选择 Layertwine？
 
@@ -29,38 +31,20 @@
 
 ## 快速入门
 
-### 安装
+将本 crate 作为依赖引入，打开进程内服务：
 
-```bash
-# 带 CLI 支持构建（默认）
-cargo install layertwine
+```rust
+use layertwine::api::{ApiService, CommitRequest, EditRequest, ServiceConfig};
 
-# 或作为库使用
-cargo add layertwine
+let service = ApiService::open(ServiceConfig {
+    db_path: ".layertwine/layertwine.db".into(),
+    workspace_key: None,
+})?;
 ```
 
-### 初始化仓库
-
-```bash
-# 从当前目录初始化
-layertwine init
-
-# 或从现有 Git 仓库初始化
-layertwine --git-repo /path/to/repo init --git-ref HEAD
-```
-
-### 编辑并提交
-
-```bash
-# 手动编辑
-layertwine edit src/main.rs -c "fn main() { println!(\"Hello\"); }"
-
-# 提交检查点
-layertwine commit -m "初始提交" -a "developer"
-
-# 查看历史
-layertwine log
-```
+在 `wf-agent` 工作区中，生产调用方经由 `wf-checkpoint`
+（`FileCheckpointManager`）使用本引擎，由其负责归因、采样与合并策略。
+直接使用 `ApiService` 仅面向测试与工具场景。
 
 ## 架构概览
 
@@ -98,83 +82,30 @@ layertwine log
 | **检查点** | 关联一个或多个快照的命名提交 |
 | **分支** | 指向检查点谱系的可移动指针 |
 
-## 传输层
+## 嵌入使用
 
-### CLI
+Layertwine 以进程内方式运行。典型流程（由 `wf-checkpoint` 执行）是：
+打开服务、应用分层编辑、持久化检查点。
 
-```bash
-# 所有命令支持 --json 输出模式
-layertwine --help
-layertwine status
-layertwine branch list
-layertwine checkpoint rollback <ID>
+```rust
+let edit = service.edit(EditRequest {
+    file: "src/main.rs".into(),
+    content: Some("fn main() {}\n".into()),
+})?;
+let commit = service.commit(CommitRequest {
+    message: "initial commit".into(),
+    author: Some("dev-1".into()),
+})?;
 ```
 
-### HTTP API
+没有网络传输层，也没有功能标志：当 Layertwine 收敛为纯 infra
+库 crate 时，原 CLI、HTTP 与 gRPC 层已被移除。
 
-```bash
-# 启动服务器
-LAYERTWINE_MODE=http cargo run --features http
+## 多 Agent 工作流
 
-# 初始化
-curl -X POST http://127.0.0.1:8080/api/v1/init \
-  -H 'Content-Type: application/json' -d '{}'
-
-# 编辑文件
-curl -X POST http://127.0.0.1:8080/api/v1/edit \
-  -H 'Content-Type: application/json' \
-  -d '{"file":"src/main.rs","content":"fn main() {}"}'
-```
-
-### gRPC API
-
-```protobuf
-// 连接到 localhost:50051
-rpc Edit(EditRequest) returns (EditResponse);
-rpc Commit(CommitRequest) returns (CommitResponse);
-rpc Log(LogRequest) returns (LogResponse);
-// ... 和 22 个其他 RPC 方法
-```
-
-## 多 Agent 工作流示例
-
-```bash
-# Agent A 做出更改并提交审核
-layertwine agent agent-a edit src/auth.rs -c "pub fn login() {}"
-layertwine agent agent-a submit
-
-# Agent B 做出更改并提交审核
-layertwine agent agent-b edit src/db.rs -c "pub fn connect() {}"
-layertwine agent agent-b submit
-
-# 查看待审核项
-layertwine approval list
-
-# 审批两个 Agent
-layertwine approval approve agent-a
-layertwine approval approve agent-b
-
-# 合并审批并提交
-layertwine approval merge-to-unified
-layertwine approval merge-to-staged
-layertwine commit -m "合并 auth 和 db 模块"
-```
-
-## 功能标志
-
-| 功能 | 描述 |
-|------|------|
-| `cli` | 命令行界面（默认） |
-| `http` | 通过 Axum 实现的 HTTP REST API |
-| `grpc` | 通过 Tonic 实现的 gRPC API |
-| `cli-http` | CLI + HTTP 组合 |
-| `cli-grpc` | CLI + gRPC 组合 |
-| `all` | 所有传输层 |
-
-```bash
-# 使用特定功能构建
-cargo build --features http,grpc
-```
+每个 Agent 在各自隔离分区中编辑并提交审核，人工审批后合并到
+staged 并提交——生命周期与之前相同，只是经由 `ApiService`
+（或 `wf-checkpoint`）驱动，而不再使用 shell 命令。
 
 ## 数据模型
 
@@ -206,15 +137,8 @@ let id = blake3::hash(serde_json::to_vec(&entity).unwrap());
 
 ## Git 集成
 
-```bash
-# 将 Layertwine 检查点提交到本地 Git 分支
-layertwine --git-repo /path/to/repo git-commit -m "同步检查点"
-
-# 从 Git 拉取提交到 Layertwine
-layertwine --git-repo /path/to/repo pull --remote origin --git-ref main
-```
-
-注意：Git 同步是可选的，不会干扰活动编辑工作流。
+Git 同步（检查点导出/导入）与 GC 由嵌入方经存储引擎驱动。
+Git 同步是可选的，不会干扰活动编辑工作流。
 
 ## 测试
 
@@ -240,15 +164,9 @@ cargo bench
 
 ## 错误处理
 
-Layertwine 提供结构化错误类型和退出码：
-
-| 退出码 | 含义 |
-|--------|------|
-| 0 | 成功 |
-| 1 | 一般错误（未找到、内部、存储） |
-| 2 | 使用错误（无效参数、缺少参数） |
-
-所有错误均包含可操作的解决建议。
+Layertwine 提供结构化错误类型（`LayertwineError`、`StorageError`），
+覆盖存储、引擎、检查点、恢复、完整性、Git 同步与 GC 失败。
+所有错误均携带可操作的详情信息。
 
 ## 项目结构
 
@@ -256,16 +174,13 @@ Layertwine 提供结构化错误类型和退出码：
 src/
 ├── core/           # 不可变数据类型（FileNode、Delta、Snapshot）
 ├── storage/        # SQLite 持久化（SqliteStorage、迁移）
-├── engine/         # Diff/merge/inverse 操作
-├── state_machine/  # 层转换逻辑
+├── engine/         # Diff/merge/词级 diff 操作
 ├── layered/        # 层实现（manual、agent、approval...）
 ├── checkpoint/     # 检查点仓库（branch、dag、repo）
 ├── backup/         # 快照备份模块
 ├── git_sync/       # Git 同步与 GC
-├── api/            # 共享 API 服务与类型定义
-├── cli/            # CLI 传输（基于 clap）
+├── api/            # 进程内服务门面与类型定义
 ├── config/         # 配置管理
-├── runtime/        # 运行时工具
 └── error.rs        # 错误类型定义
 
 tests/
@@ -288,9 +203,6 @@ MIT 许可证 - 详见 [LICENSE](LICENSE)
 
 ## 文档
 
-- [CLI 使用指南](docs/user-guide/01-CLI 使用指南.md)
-- [HTTP API 使用指南](docs/user-guide/02-HTTP-API 使用指南.md)
-- [gRPC API 参考](docs/user-guide/03-gRPC-API 参考.md)
 - [架构总览](docs/architecture/01-架构总览.md)
 
 ---

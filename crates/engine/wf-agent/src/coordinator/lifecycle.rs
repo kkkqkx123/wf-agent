@@ -488,7 +488,8 @@ impl AgentLoopCoordinator {
                 manager.clone(),
                 &entity.id().to_string(),
                 parent.as_deref(),
-            ).expect("failed to build checkpoint session");
+            )
+            .expect("failed to build checkpoint session");
             coordinator = coordinator.with_checkpoint_session(Some(session));
         }
         if let Some(ref bus) = self.event_bus {

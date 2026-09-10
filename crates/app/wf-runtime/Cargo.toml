@@ -31,7 +31,6 @@ wf-tools = { path = "../../engine/wf-tools" }
 wf-shell = { path = "../../infra/wf-shell" }
 wf-sandbox = { path = "../../infra/wf-sandbox" }
 wf-api = { path = "../wf-api" }
-layertwine = { path = "../../vendor/layertwine" }
 
 [dev-dependencies]
 wf-llm = { path = "../../infra/wf-llm", features = ["mock"] }

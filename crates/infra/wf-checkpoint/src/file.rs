@@ -10,7 +10,7 @@ pub use wf_types::config::file_checkpoint::ApprovalPolicy;
 use wf_types::config::file_checkpoint::{ConflictBehavior, FailureBehavior};
 
 use crate::actor_id::ActorId;
-use crate::diff::DiffEngine;
+use crate::diff::unified_diff_text;
 use crate::error::CheckpointError;
 use crate::event::CheckpointEventBus;
 use crate::file_util::{map_layertwine_error, sha256_hex};
@@ -18,7 +18,6 @@ use crate::layertwine::LayertwineGitAdapter;
 use crate::provenance::{DeltaSummary, FileDiffView, PartitionView, WorkspaceFile};
 use crate::recent_agent_writes::RecentAgentWrites;
 use crate::scan::{ScanConfig, WorkspaceScanner};
-use crate::watcher::{FileChangeKind, FileChangeRecord};
 
 fn is_false(v: &bool) -> bool {
     !*v
@@ -163,27 +162,6 @@ pub struct WorkspaceRestoreResult {
     pub deleted: usize,
     /// Files already matching the target state (skipped).
     pub skipped: usize,
-}
-
-/// Processing stats of [`FileCheckpointManager::drive_watcher_incremental`]
-/// and [`FileCheckpointManager::drive_watcher_batch`].
-/// "Final-state trackable" (this entry) is distinct from "intermediate-event
-/// audit" (which would need an event store): rapid add-then-delete inside
-/// one batch cancels out by snapshot semantics, which is expected.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct WatcherDriveStats {
-    /// Records taken from the watcher in this round.
-    pub attempted: usize,
-    /// Records covered by the created checkpoint.
-    pub applied: usize,
-    /// Checkpoint id created for the batch, if any.
-    pub checkpoint_id: Option<String>,
-    /// Per-file failures (path strings) when the driver degrades per file
-    /// instead of failing the whole batch.
-    pub failed: Vec<String>,
-    /// Records outside the workspace root: explicit "no capture range"
-    /// results, never silent skips.
-    pub out_of_scope: Vec<String>,
 }
 
 /// File checkpoint engine rebuilt on top of layertwine's layered state
@@ -542,170 +520,6 @@ impl FileCheckpointManager {
         Ok(checkpoint)
     }
 
-    /// Create a checkpoint from a set of watcher-recorded changes: only the
-    /// changed files are re-read (O(N) → O(K)), then applied as agent edits
-    /// on the actor partition. Unchanged files keep their recorded state.
-    /// Deletions are recorded as empty content. Prefer
-    /// [`Self::drive_watcher_incremental`] over manually sequencing take,
-    /// create and reset: the driver owns the success-confirm consumption
-    /// semantic (failed batches are requeued, never dropped).
-    pub fn create_incremental_checkpoint(
-        &self,
-        entity_id: &str,
-        base_dir: &Path,
-        changes: &[FileChangeRecord],
-        opts: &FileCheckpointOptions,
-    ) -> Result<FileCheckpoint, CheckpointError> {
-        let mut entries = Vec::new();
-        for change in changes {
-            let Ok(relative) = change.path.strip_prefix(base_dir) else {
-                continue;
-            };
-            let relative = crate::file_util::validate_workspace_relative_path(
-                &relative.to_string_lossy().replace('\\', "/"),
-            )?;
-            match change.kind {
-                FileChangeKind::Unlink => {
-                    entries.push(FileContentEntry::deleted(relative));
-                }
-                FileChangeKind::Rename => {
-                    // Record the move linkage when both sides are known;
-                    // the new path content is checkpointed below.
-                    if let Some(from_abs) = change.from.as_ref() {
-                        if let Ok(from_rel) = from_abs.strip_prefix(base_dir) {
-                            let from_rel = from_rel.to_string_lossy().replace('\\', "/");
-                            if let (Ok(from_valid), Ok(to_valid)) = (
-                                crate::file_util::validate_workspace_relative_path(&from_rel),
-                                crate::file_util::validate_workspace_relative_path(&relative),
-                            ) {
-                                let _ = self.track_file_move(&from_valid, &to_valid, entity_id);
-                            }
-                            entries.push(FileContentEntry::deleted(from_rel));
-                        }
-                    }
-                    match std::fs::read(base_dir.join(&relative)) {
-                        Ok(content) => {
-                            entries.push(FileContentEntry::new(relative, content));
-                        }
-                        Err(err) => match opts.failure_behavior {
-                            FailureBehavior::Error => {
-                                return Err(CheckpointError::Io(std::io::Error::other(format!(
-                                    "failed to read changed file '{relative}': {err}"
-                                ))));
-                            }
-                            FailureBehavior::Warn => {
-                                tracing::warn!("failed to read changed file '{relative}': {err}");
-                            }
-                            FailureBehavior::Ignore => {}
-                        },
-                    }
-                }
-                FileChangeKind::Add | FileChangeKind::Change => {
-                    match std::fs::read(base_dir.join(&relative)) {
-                        Ok(content) => {
-                            entries.push(FileContentEntry::new(relative, content));
-                        }
-                        Err(err) => match opts.failure_behavior {
-                            FailureBehavior::Error => {
-                                return Err(CheckpointError::Io(std::io::Error::other(format!(
-                                    "failed to read changed file '{relative}': {err}"
-                                ))));
-                            }
-                            FailureBehavior::Warn => {
-                                tracing::warn!("failed to read changed file '{relative}': {err}");
-                            }
-                            FailureBehavior::Ignore => {}
-                        },
-                    }
-                }
-            }
-        }
-        self.create_checkpoint_with_content(entity_id, &entries)
-    }
-
-    /// Watcher-driven incremental checkpoint scheduling entry.
-    ///
-    /// Semantics are "confirm-after-success", not "call clears":
-    ///
-    /// 1. atomically take the watcher batch (events arriving during
-    ///    processing stay buffered for the next round);
-    /// 2. validate the workspace root and event paths;
-    /// 3. re-read current file state per event and create the incremental
-    ///    checkpoint;
-    /// 4. on success the batch is consumed; on failure the batch is
-    ///    requeued for a later retry and the error is returned with stats.
-    ///
-    /// Callers must not sequence `get_changed_files` + `reset` themselves.
-    /// Callers that already own a taken batch (e.g. a pump that routes the
-    /// same batch to several consumers) use [`Self::drive_watcher_batch`]
-    /// instead so every consumer shares one take/requeue contract and no
-    /// two drivers compete on the same queue.
-    pub fn drive_watcher_incremental(
-        &self,
-        watcher: &crate::watcher::FileWatcher,
-        entity_id: &str,
-        base_dir: &Path,
-        opts: &FileCheckpointOptions,
-    ) -> Result<WatcherDriveStats, CheckpointError> {
-        let batch = watcher.take_batch();
-        if batch.is_empty() {
-            return Ok(WatcherDriveStats::default());
-        }
-        self.drive_watcher_batch(watcher, batch, entity_id, base_dir, opts)
-    }
-
-    /// Drive an already-taken watcher batch through incremental checkpoint
-    /// creation. Shares the [`Self::drive_watcher_incremental`] contract:
-    /// out-of-scope records are reported (never silently skipped), the
-    /// in-scope remainder is checkpointed, and on failure the unprocessed
-    /// in-scope records are requeued via `watcher` for a later retry.
-    pub fn drive_watcher_batch(
-        &self,
-        watcher: &crate::watcher::FileWatcher,
-        batch: Vec<FileChangeRecord>,
-        entity_id: &str,
-        base_dir: &Path,
-        opts: &FileCheckpointOptions,
-    ) -> Result<WatcherDriveStats, CheckpointError> {
-        let attempted = batch.len();
-        if attempted == 0 {
-            return Ok(WatcherDriveStats::default());
-        }
-        let base_norm = crate::watcher::normalize_absolute_path(base_dir);
-        let mut in_scope = Vec::with_capacity(batch.len());
-        let mut out_of_scope = Vec::new();
-        for record in batch {
-            let normalized = crate::watcher::normalize_absolute_path(&record.path);
-            if normalized.starts_with(&base_norm) {
-                in_scope.push(record);
-            } else {
-                out_of_scope.push(normalized.display().to_string());
-            }
-        }
-        if in_scope.is_empty() {
-            return Ok(WatcherDriveStats {
-                attempted,
-                applied: 0,
-                checkpoint_id: None,
-                failed: Vec::new(),
-                out_of_scope,
-            });
-        }
-        let in_scope_len = in_scope.len();
-        match self.create_incremental_checkpoint(entity_id, base_dir, &in_scope, opts) {
-            Ok(checkpoint) => Ok(WatcherDriveStats {
-                attempted,
-                applied: in_scope_len,
-                checkpoint_id: Some(checkpoint.id),
-                failed: Vec::new(),
-                out_of_scope,
-            }),
-            Err(err) => {
-                watcher.requeue_batch(in_scope);
-                Err(err)
-            }
-        }
-    }
     // ── utilities ───────────────────────────────────────────────────
 
     pub fn compute_file_hash(data: &[u8]) -> String {
@@ -717,9 +531,7 @@ impl FileCheckpointManager {
         current_content: &str,
         context_lines: usize,
     ) -> String {
-        DiffEngine::new()
-            .with_context_lines(context_lines)
-            .unified_diff(previous_content, current_content, None, None)
+        unified_diff_text(previous_content, current_content, context_lines, None, None)
     }
 
     // ── provenance queries ──────────────────────────────────────────
@@ -988,87 +800,6 @@ mod tests {
             .restore_checkpoint("exec-1", "ff".repeat(32).as_str())
             .unwrap_err();
         assert!(matches!(err, CheckpointError::NotFound { .. }));
-    }
-
-    #[test]
-    fn create_incremental_checkpoint_from_watcher_changes() {
-        let manager = manager();
-        let opts = FileCheckpointOptions::default();
-        let dir = tempfile::tempdir().unwrap();
-
-        std::fs::write(dir.path().join("a.txt"), b"v1").unwrap();
-        manager
-            .create_checkpoint("exec-1", &[entry("a.txt", b"v1")])
-            .unwrap();
-
-        std::fs::write(dir.path().join("a.txt"), b"v2").unwrap();
-        std::fs::write(dir.path().join("b.txt"), b"new file").unwrap();
-        let changes = vec![
-            FileChangeRecord::new(dir.path().join("a.txt"), FileChangeKind::Change, 1),
-            FileChangeRecord::new(dir.path().join("b.txt"), FileChangeKind::Add, 2),
-        ];
-        let cp2 = manager
-            .create_incremental_checkpoint("exec-1", dir.path(), &changes, &opts)
-            .unwrap();
-
-        let restored = manager.restore_checkpoint("exec-1", &cp2.id).unwrap();
-        let map = state_map(&restored);
-        assert_eq!(map.len(), 2);
-        assert_eq!(map["a.txt"].hash, sha256_hex(b"v2"));
-        assert_eq!(map["b.txt"].hash, sha256_hex(b"new file"));
-    }
-
-    #[test]
-    fn drive_watcher_batch_reports_out_of_scope_without_silence() {
-        let manager = manager();
-        let opts = FileCheckpointOptions::default();
-        let dir = tempfile::tempdir().unwrap();
-        let outside = tempfile::tempdir().unwrap();
-
-        std::fs::write(dir.path().join("in.txt"), b"v1").unwrap();
-        let watcher =
-            crate::watcher::FileWatcher::new(dir.path().to_path_buf(), ScanConfig::default(), 50);
-        let batch = vec![
-            FileChangeRecord::new(dir.path().join("in.txt"), FileChangeKind::Add, 1),
-            FileChangeRecord::new(outside.path().join("out.txt"), FileChangeKind::Add, 2),
-        ];
-        let stats = manager
-            .drive_watcher_batch(&watcher, batch, "exec-1", dir.path(), &opts)
-            .unwrap();
-        assert_eq!(stats.attempted, 2);
-        assert_eq!(stats.applied, 1);
-        assert_eq!(stats.out_of_scope.len(), 1);
-        assert!(stats.checkpoint_id.is_some());
-        // Nothing requeued on success.
-        assert_eq!(watcher.buffered_len(), 0);
-    }
-
-    #[test]
-    fn drive_watcher_batch_requeues_on_failure() {
-        let manager = manager();
-        let dir = tempfile::tempdir().unwrap();
-        let opts = FileCheckpointOptions {
-            failure_behavior: FailureBehavior::Error,
-            ..Default::default()
-        };
-
-        // The recorded file is gone at processing time: under Error behavior
-        // the batch fails and must be requeued, never dropped.
-        let batch = vec![FileChangeRecord::new(
-            dir.path().join("gone.txt"),
-            FileChangeKind::Add,
-            1,
-        )];
-        let watcher =
-            crate::watcher::FileWatcher::new(dir.path().to_path_buf(), ScanConfig::default(), 50);
-        let err = manager
-            .drive_watcher_batch(&watcher, batch, "exec-1", dir.path(), &opts)
-            .unwrap_err();
-        assert!(matches!(err, CheckpointError::Io(_)));
-        assert_eq!(watcher.buffered_len(), 1);
-        // A retry sees the same record again.
-        let retry = watcher.take_batch();
-        assert_eq!(retry.len(), 1);
     }
 
     #[test]

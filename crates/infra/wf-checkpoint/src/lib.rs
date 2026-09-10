@@ -2,16 +2,15 @@ pub mod actor_id;
 pub mod approval;
 pub mod branch;
 pub mod cache;
+pub mod capture;
 pub mod checkpoint_graph;
 pub mod cleanup;
 pub mod config_resolver;
 pub mod content;
 pub mod coordinator;
-pub mod capture;
 pub mod delta;
 pub mod diff;
 pub mod effect;
-pub mod session;
 pub mod error;
 pub mod error_handling;
 pub mod event;
@@ -34,36 +33,41 @@ pub mod restore;
 pub mod scan;
 pub mod script_capture;
 pub mod serializer;
+pub mod session;
 pub mod state;
 pub mod strategy;
 pub mod version;
 pub mod watcher;
 
+pub use ::layertwine::core::edit_session::EditSession;
+pub use ::layertwine::git_sync::{GcRetention, GcStats};
 pub use actor_id::{ActorId, ActorIdError, ActorKind};
 pub use approval::{ConflictView, MergeOutcome, PendingApproval};
 pub use cache::CheckpointCache;
 pub use config_resolver::CheckpointConfigResolver;
 pub use diff::{
-    compare_bytes, content_hash, DiffEngine, DiffHunk, DiffOp, DiffOpKind, DiffOptions,
-    DiffResult, DiffStats, FileDiff, HunkLine, HunkLineKind, is_binary,
+    content_hash, diff_stats_for_text, inline_word_diff, is_binary, unified_diff_text, DiffStats,
+};
+pub use effect::{
+    normalize_effect_path, FileMutation, FileOperation, ScopeOutcome, SessionBoundary, ToolEffect,
+    ToolEffectPayload,
 };
 pub use error::CheckpointError;
 pub use error_handling::{CheckpointErrorHandler, ErrorHandlingOutcome};
 pub use event::{CheckpointEvent, CheckpointEventBus};
 pub use file::{
     FileCheckpoint, FileCheckpointManager, FileCheckpointMetadata, FileCheckpointOptions,
-    FileContentEntry, FileState, WatcherDriveStats, WorkspaceRestoreResult,
+    FileContentEntry, FileState, WorkspaceRestoreResult,
 };
 pub use file_actor::{PreciseApplyStats, PreciseFileEvent, PreciseFileEventKind};
 pub use file_merge::MergeCommitResult;
-pub use effect::{FileMutation, FileOperation, normalize_effect_path, ScopeOutcome, SessionBoundary, ToolEffect, ToolEffectPayload};
 pub use file_util::sha256_hex;
-pub use session::CheckpointSession;
 pub use metadata_builder::{build_checkpoint_state, CheckpointMetadataBuilder};
 pub use provenance::{DeltaSummary, FileDiffKind, FileDiffView, PartitionView, WorkspaceFile};
 pub use scan::{ScanConfig, WorkspaceScan, WorkspaceScanner};
 pub use script_capture::{CollectedChange, CollectedChangeKind, WorkspaceChangeCollector};
 pub use serializer::{CheckpointCodec, CheckpointSerializer};
+pub use session::CheckpointSession;
 pub use watcher::{
     normalize_absolute_path, FileChangeKind, FileChangeRecord, FileWatcher, ManualChangeService,
 };

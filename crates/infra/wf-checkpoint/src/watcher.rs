@@ -502,12 +502,10 @@ async fn run_manual_change_pump(
             _ = tokio::time::sleep(poll) => {
                 // Atomic batch consumption: take owns the current batch;
                 // events arriving during processing stay buffered for the
-                // next round instead of being cleared. This pump shares the
-                // take/requeue contract with
-                // `FileCheckpointManager::drive_watcher_batch`: a taken batch
-                // has exactly one owner, so incremental drivers must take
-                // their own batches (or receive one explicitly) rather than
-                // competing with this pump on the same queue.
+                // next round instead of being cleared. This pump is the
+                // sole consumer of its watcher: a taken batch has exactly
+                // one owner, so no other driver may take from the same
+                // queue while the pump runs.
                 let batch = watcher.take_batch();
                 if batch.is_empty() {
                     continue;

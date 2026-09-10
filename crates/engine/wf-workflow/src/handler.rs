@@ -122,7 +122,9 @@ impl HandlerRegistry {
         self.register(Box::new(fork_join::JoinHandler));
         self.register(Box::new(sync::SyncHandler::new()));
         self.register(Box::new(subgraph::SubgraphHandler));
-        self.register(Box::new(llm::LlmHandler::new(gateway.clone())));
+        self.register(Box::new(
+            llm::LlmHandler::new(gateway.clone()).with_file_checkpoint_opt(file_checkpoint.clone()),
+        ));
         self.register(Box::new(context_processor::ContextProcessorHandler));
         self.register(Box::new(
             script::ScriptHandler::with_sandbox_opt(sandbox.clone())

@@ -135,6 +135,10 @@ pub struct BackgroundShellStore {
     session_idle_timeout_ms: Option<u64>,
     output_event_enabled: bool,
     event_sink: Option<Arc<EventDispatcher>>,
+    /// Generic session lifecycle sink (start / command complete /
+    /// terminate). Independent from `output_event_enabled` so background
+    /// process ends are observable even without per-line output events.
+    lifecycle_sink: Option<Arc<dyn crate::lifecycle::SessionLifecycleSink>>,
     /// Bounded wait of the monitor thread (default
     /// [`COMPLETION_POLL_INTERVAL_MS`]); injectable so tests can prove the
     /// EOF-triggered wakeup works even when the poll interval is huge.
@@ -166,8 +170,33 @@ impl BackgroundShellStore {
             session_idle_timeout_ms: None,
             output_event_enabled: false,
             event_sink: None,
+            lifecycle_sink: None,
             monitor_poll_interval_ms: COMPLETION_POLL_INTERVAL_MS,
         }
+    }
+
+    /// Register the generic session lifecycle sink. The sink is fanned out
+    /// to already-tracked sessions as well as sessions created afterwards,
+    /// so background process ends are observable even for sessions that
+    /// started before registration.
+    pub fn set_lifecycle_sink(&mut self, sink: Arc<dyn crate::lifecycle::SessionLifecycleSink>) {
+        self.lifecycle_sink = Some(sink.clone());
+        for entry in self.sessions.iter() {
+            *wf_common::lock::lock_ok(entry.value().lifecycle_sink.lock()) = Some(sink.clone());
+        }
+    }
+
+    /// Sessions currently bound to a task, with their resolved cwd. Used by
+    /// upper layers to close scope sampling on session release.
+    pub fn sessions_for_task(&self, task_id: &str) -> Vec<(String, Option<PathBuf>)> {
+        let mut out = Vec::new();
+        for entry in self.sessions.iter() {
+            let session = entry.value();
+            if wf_common::lock::lock_ok(session.task_id.lock()).as_deref() == Some(task_id) {
+                out.push((session.session_id.clone(), session.cwd.clone()));
+            }
+        }
+        out
     }
 
     /// Create a store from a [`crate::config::ShellToolConfig`].
@@ -191,6 +220,7 @@ impl BackgroundShellStore {
             .event_sink
             .as_ref()
             .map(|sink| EventDispatcher::new(sink.clone()));
+        store.lifecycle_sink = config.lifecycle_sink.clone();
         store
     }
 
@@ -444,16 +474,29 @@ impl BackgroundShellStore {
 
     /// Remove idle sessions that have been inactive for longer than
     /// `idle_timeout_ms`. Returns the number of sessions removed.
+    ///
+    /// Sessions that still hold a task binding are skipped: they belong to a
+    /// live execution whose teardown releases them. Sweeping a bound session
+    /// would silently drop its record without a termination event, orphaning
+    /// upper-layer scope samplers (file-checkpoint session baselines and
+    /// in-flight leases are settled on session finish, which would then
+    /// never arrive). Only unbound idle sessions — owned by no execution —
+    /// are removed. Removal stays silent (no termination event): an idle
+    /// session has no running command, so there is nothing left to sample.
     pub fn sweep_idle_sessions(&self, idle_timeout_ms: u64) -> usize {
         let now = wf_common::time::now();
         let mut to_remove = Vec::new();
         for entry in self.sessions.iter() {
             let session = entry.value();
-            if session.status() == SessionStatus::Idle {
-                let last = *wf_common::lock::lock_ok(session.last_active_at.lock());
-                if now - last >= idle_timeout_ms as i64 {
-                    to_remove.push(session.session_id.clone());
-                }
+            if session.status() != SessionStatus::Idle {
+                continue;
+            }
+            if wf_common::lock::lock_ok(session.task_id.lock()).is_some() {
+                continue;
+            }
+            let last = *wf_common::lock::lock_ok(session.last_active_at.lock());
+            if now - last >= idle_timeout_ms as i64 {
+                to_remove.push(session.session_id.clone());
             }
         }
         let mut removed = 0;
@@ -565,6 +608,7 @@ impl BackgroundShellStore {
             graceful_kill_timeout_ms: self.graceful_kill_timeout_ms,
             events_enabled: self.output_event_enabled,
             event_sink: self.event_sink.clone(),
+            lifecycle_sink: self.lifecycle_sink.clone(),
         });
         self.sessions.insert(session_id.clone(), session.clone());
         session.dispatch_created(false);

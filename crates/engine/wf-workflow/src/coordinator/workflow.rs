@@ -764,9 +764,9 @@ impl WorkflowCoordinator {
                 }
             }
 
-            // Trigger actions (Stop/Pause/Resume) write marker variables;
-            // translate them into entity interruption so the next iteration
-            // of the loop handles them through the standard path.
+            // Trigger actions (Stop/Pause/Resume/Skip) publish typed
+            // signals; translate them into entity interruption so the next
+            // iteration of the loop handles them through the standard path.
             self.process_trigger_effects(&entity).await;
         }
 

@@ -11,6 +11,8 @@ use crate::predefined::schema::{ToolDefinition, ToolParameter};
 use crate::registry::ToolRegistry;
 use wf_shell::engine::{BackgroundShellStore, SpawnOptions};
 
+use super::session_observe::SharedSessionForwarder;
+
 pub static BACKEND_SHELL: ToolDefinition = ToolDefinition {
     id: "backend_shell",
     tool_type: ToolType::Stateful,
@@ -37,12 +39,33 @@ pub static BACKEND_SHELL: ToolDefinition = ToolDefinition {
 
 /// Stateful instance for the backend_shell tool: spawns a session on the
 /// first call and returns its session_id. Releases the session on cleanup.
+///
+/// The return only confirms "session created": a still-running background
+/// command may keep writing afterwards, so file sampling distinguishes
+/// sampled content from possibly-continuing writes. Sampling boundaries are
+/// session creation, each `execute_in_session` completion, and session
+/// termination/release.
 struct BackendShellInstance {
     store: Arc<BackgroundShellStore>,
     execution_id: String,
+    observer: std::sync::Mutex<Option<crate::observe::ToolSideEffectObserverHandle>>,
+    /// Forwards store monitor-thread lifecycle events (e.g. natural process
+    /// exits without further tool calls) to this execution's observer.
+    forwarder: SharedSessionForwarder,
 }
 
 impl StatefulInstance for BackendShellInstance {
+    fn execute_with_context(
+        &self,
+        params: &Value,
+        ctx: &crate::executor::trait_def::ToolExecutionContext,
+    ) -> ToolResult<Value> {
+        *self.observer.lock().unwrap() = Some(ctx.observer.clone());
+        self.forwarder
+            .set_observer(self.execution_id.clone(), ctx.observer.clone());
+        self.execute(params)
+    }
+
     fn execute(&self, params: &Value) -> ToolResult<Value> {
         let command = params
             .get("command")
@@ -94,6 +117,15 @@ impl StatefulInstance for BackendShellInstance {
         let session = self.store.get(&session_id).ok_or_else(|| {
             ToolError::Internal(format!("Session '{}' not found after spawn", session_id))
         })?;
+        // Establish the scope baseline for the new session. The session may
+        // still be running, so this is explicitly not a completion signal.
+        if let Some(observer) = self.observer.lock().unwrap().clone() {
+            observer.notify_session_started(crate::observe::SessionBoundary {
+                execution_id: self.execution_id.clone(),
+                session_id: session_id.clone(),
+                scope_dir: session.cwd(),
+            });
+        }
         Ok(serde_json::json!({
             "session_id": session_id,
             "status": "started",
@@ -106,23 +138,44 @@ impl StatefulInstance for BackendShellInstance {
     }
 
     fn destroy(&self) -> ToolResult<()> {
+        // End sampling for sessions bound to this execution before
+        // releasing them; running commands are left to finish (not
+        // terminated), so the sampling is the release-time boundary, not a
+        // claim of final completion for still-running commands.
+        if let Some(observer) = self.observer.lock().unwrap().clone() {
+            for (session_id, cwd) in self.store.sessions_for_task(&self.execution_id) {
+                observer.notify_session_finished(crate::observe::SessionBoundary {
+                    execution_id: self.execution_id.clone(),
+                    session_id,
+                    scope_dir: cwd,
+                });
+            }
+        }
         // Release the sessions bound to this execution so they can be reused
         // by cwd; running commands are left to finish (not terminated).
         self.store
             .release_sessions_for_task(&self.execution_id, false);
+        self.forwarder.remove_observer(&self.execution_id);
         Ok(())
     }
 }
 
 /// Register the backend_shell stateful factory into the registry.
-pub fn register(registry: &ToolRegistry, store: &Arc<BackgroundShellStore>) -> ToolResult<()> {
+pub fn register(
+    registry: &ToolRegistry,
+    store: &Arc<BackgroundShellStore>,
+    forwarder: &SharedSessionForwarder,
+) -> ToolResult<()> {
     let store = store.clone();
+    let forwarder = forwarder.clone();
     registry.register_stateful_factory(
         "backend_shell",
         Arc::new(move |execution_id| {
             Box::new(BackendShellInstance {
                 store: store.clone(),
                 execution_id: execution_id.to_string(),
+                observer: std::sync::Mutex::new(None),
+                forwarder: forwarder.clone(),
             })
         }),
     );

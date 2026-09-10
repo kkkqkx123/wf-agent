@@ -37,6 +37,17 @@ impl CollectedChange {
 /// workspace are tracked, so scripts that write outside the workspace (e.g.
 /// `/tmp`) are not re-hashed and large workspaces are not fully rescanned.
 /// Ignore rules (hardcoded + custom) are applied on top.
+///
+/// Contract:
+/// - the collector only accepts an already resolved and validated
+///   workspace root plus scope prefixes; scope resolution itself is the
+///   caller's responsibility;
+/// - an empty scope is the explicit "no synchronous capture range" result,
+///   never a signal to scan the whole workspace;
+/// - symbolic links are skipped (documented, unchanged);
+/// - capture-time file read failures surface as path-qualified IO errors so
+///   the caller can apply its `FailureBehavior` with execution id, scope and
+///   stage in the log.
 pub struct WorkspaceChangeCollector {
     base_dir: PathBuf,
     scope: Vec<PathBuf>,
@@ -99,13 +110,32 @@ impl WorkspaceChangeCollector {
         if !dir.is_dir() {
             return Ok(());
         }
-        for entry in std::fs::read_dir(dir)? {
-            let entry = entry?;
+        // A single directory scan: a missing scope directory is "no files",
+        // not an error; per-file read failures below are path-qualified.
+        let entries = std::fs::read_dir(dir).map_err(|e| {
+            CheckpointError::Io(std::io::Error::other(format!(
+                "failed to scan scope '{}': {e}",
+                dir.display()
+            )))
+        })?;
+        for entry in entries {
+            let entry = entry.map_err(|e| {
+                CheckpointError::Io(std::io::Error::other(format!(
+                    "failed to read scope entry in '{}': {e}",
+                    dir.display()
+                )))
+            })?;
             let path = entry.path();
-            let file_type = entry.file_type()?;
+            let file_type = entry.file_type().map_err(|e| {
+                CheckpointError::Io(std::io::Error::other(format!(
+                    "failed to stat '{}': {e}",
+                    path.display()
+                )))
+            })?;
             if file_type.is_dir() {
                 self.collect_dir(&path, out)?;
             } else if file_type.is_file() && !file_type.is_symlink() {
+                // Symlinks are intentionally skipped (documented policy).
                 let relative = path
                     .strip_prefix(&self.base_dir)
                     .unwrap_or(&path)
@@ -114,7 +144,12 @@ impl WorkspaceChangeCollector {
                 if self.scanner.is_ignored(&relative) {
                     continue;
                 }
-                let content = std::fs::read(&path)?;
+                let content = std::fs::read(&path).map_err(|e| {
+                    CheckpointError::Io(std::io::Error::other(format!(
+                        "failed to read scoped file '{}': {e}",
+                        path.display()
+                    )))
+                })?;
                 out.insert(path, sha256_hex(&content));
             }
         }

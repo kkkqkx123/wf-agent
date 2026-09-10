@@ -3,6 +3,7 @@ pub mod approval;
 pub mod callback;
 pub mod capacity;
 pub mod checkpoint;
+pub mod checkpoint_observer;
 pub mod constants;
 pub mod conversation_compression;
 pub mod coordinator;

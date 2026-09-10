@@ -12,6 +12,17 @@ use wf_types::tool::ToolExecutionResult;
 
 pub trait StatefulInstance: Send + Sync {
     fn execute(&self, params: &Value) -> ToolResult<Value>;
+    /// Context-aware execution. The default delegates to [`Self::execute`]
+    /// so existing instances keep working; shell session tools override this
+    /// to emit side-effect observations with the same execution context that
+    /// sync/async handlers receive.
+    fn execute_with_context(
+        &self,
+        params: &Value,
+        _ctx: &ToolExecutionContext,
+    ) -> ToolResult<Value> {
+        self.execute(params)
+    }
     fn destroy(&self) -> ToolResult<()> {
         Ok(())
     }
@@ -167,11 +178,17 @@ impl ToolExecutor for StatefulExecutor {
             // Stateful handlers may block for a long time (e.g.
             // `execute_in_session` waits for a command to finish). Run them on
             // the tokio blocking pool so a tokio worker thread is never
-            // occupied for the duration of the call.
+            // occupied for the duration of the call. The execution context
+            // (including the side-effect observer) is cloned into the
+            // blocking task so session tools report observations.
             let params = parameters.clone();
-            let result = tokio::task::spawn_blocking(move || instance.execute(&params))
-                .await
-                .map_err(|e| ToolError::Internal(format!("Stateful tool task failed: {}", e)))??;
+            let ctx = context.clone();
+            let result =
+                tokio::task::spawn_blocking(move || instance.execute_with_context(&params, &ctx))
+                    .await
+                    .map_err(|e| {
+                        ToolError::Internal(format!("Stateful tool task failed: {}", e))
+                    })??;
             let execution_time = start.elapsed().as_millis() as i64;
             return Ok(BaseExecutor::build_result(
                 true,

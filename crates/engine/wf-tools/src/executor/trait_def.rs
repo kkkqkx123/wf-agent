@@ -20,6 +20,11 @@ pub struct ToolExecutionContext {
     /// builtin `general` handler can resolve its inner-tool invoker without
     /// consulting global per-execution state.
     pub general_invoker: Option<Arc<dyn GeneralToolInvoker>>,
+    /// Optional business-free side-effect observer (file-checkpoint adapter
+    /// injected by an upper layer). Clonable shared handle so sync, async
+    /// and stateful handlers use the same execution context. `None` keeps
+    /// plain tool behavior with no observation.
+    pub observer: crate::observe::ToolSideEffectObserverHandle,
 }
 
 impl std::fmt::Debug for ToolExecutionContext {
@@ -29,6 +34,7 @@ impl std::fmt::Debug for ToolExecutionContext {
             .field("node_id", &self.node_id)
             .field("metadata", &self.metadata)
             .field("general_invoker", &self.general_invoker.is_some())
+            .field("observer", &self.observer)
             .finish()
     }
 }
@@ -40,6 +46,7 @@ impl ToolExecutionContext {
             node_id: None,
             metadata: HashMap::new(),
             general_invoker: None,
+            observer: crate::observe::ToolSideEffectObserverHandle::none(),
         }
     }
 
@@ -55,6 +62,12 @@ impl ToolExecutionContext {
 
     pub fn with_general_invoker(mut self, invoker: Arc<dyn GeneralToolInvoker>) -> Self {
         self.general_invoker = Some(invoker);
+        self
+    }
+
+    /// Inject the side-effect observer. Unset keeps plain tool behavior.
+    pub fn with_observer(mut self, observer: crate::observe::ToolSideEffectObserverHandle) -> Self {
+        self.observer = observer;
         self
     }
 }

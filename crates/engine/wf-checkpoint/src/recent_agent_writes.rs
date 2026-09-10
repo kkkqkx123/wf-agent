@@ -10,6 +10,13 @@ use dashmap::DashMap;
 struct AgentWrite {
     hash: String,
     timestamp: i64,
+    /// Explicit deletion marker: the agent deleted this path (empty content
+    /// is not a reliable signal on its own).
+    deleted: bool,
+    /// In-flight scope lease: a scoped execution (shell diff) has started
+    /// and may still write to this path. Watcher events under lease must be
+    /// deferred, not permanently dropped.
+    inflight: bool,
 }
 
 fn now_millis() -> i64 {
@@ -60,41 +67,132 @@ impl RecentAgentWrites {
 
     /// Register an agent write. The timestamp is taken now; expired entries
     /// are pruned and the registry is trimmed to its capacity cap.
+    /// All keys are lexically normalized so watcher (absolute) and tool
+    /// (relative/absolute) spellings map to the same entry.
     pub fn register(&self, path: PathBuf, hash: String) {
+        self.register_inner(normalize_key(&path), hash, false, false);
+    }
+
+    /// Register an explicit agent deletion. Deletion attribution must use
+    /// this marker plus path identity, never the grace window alone.
+    pub fn register_delete(&self, path: PathBuf) {
+        self.register_inner(normalize_key(&path), String::new(), true, false);
+    }
+
+    /// Acquire an in-flight scope lease for a path that a scoped execution
+    /// may still write to. Watcher hits under lease should be deferred.
+    pub fn acquire_inflight(&self, path: PathBuf) {
+        let key = normalize_key(&path);
         let now = now_millis();
         self.prune(now);
-        if self.entries.len() >= self.capacity && !self.entries.contains_key(&path) {
+        if let Some(mut entry) = self.entries.get_mut(&key) {
+            entry.inflight = true;
+            entry.timestamp = now;
+        } else {
+            if self.entries.len() >= self.capacity {
+                if let Some(oldest) = self.oldest_key() {
+                    self.entries.remove(&oldest);
+                }
+            }
+            self.entries.insert(
+                key,
+                AgentWrite {
+                    hash: String::new(),
+                    timestamp: now,
+                    deleted: false,
+                    inflight: true,
+                },
+            );
+        }
+    }
+
+    /// Resolve an in-flight lease after the scoped execution sampled its
+    /// final content: records the final hash and clears the lease. Pass
+    /// `deleted=true` when the path no longer exists.
+    pub fn resolve_inflight(&self, path: PathBuf, hash: String, deleted: bool) {
+        let key = normalize_key(&path);
+        let now = now_millis();
+        self.prune(now);
+        if self.entries.len() >= self.capacity && !self.entries.contains_key(&key) {
             if let Some(oldest) = self.oldest_key() {
                 self.entries.remove(&oldest);
             }
         }
         self.entries.insert(
-            path,
+            key,
             AgentWrite {
                 hash,
                 timestamp: now,
+                deleted,
+                inflight: false,
+            },
+        );
+    }
+
+    /// Whether the path currently holds an in-flight scope lease.
+    pub fn is_inflight(&self, path: &Path) -> bool {
+        let key = normalize_key(path);
+        self.entries.get(&key).is_some_and(|entry| entry.inflight)
+    }
+
+    /// Whether the path was explicitly deleted by the agent (within the
+    /// eviction window). Used for delete attribution instead of the grace
+    /// window.
+    pub fn is_agent_delete(&self, path: &Path) -> bool {
+        let key = normalize_key(path);
+        let now = now_millis();
+        self.entries.get(&key).is_some_and(|entry| {
+            entry.deleted && now - entry.timestamp <= self.window.as_millis() as i64
+        })
+    }
+
+    fn register_inner(&self, key: PathBuf, hash: String, deleted: bool, inflight: bool) {
+        let now = now_millis();
+        self.prune(now);
+        if self.entries.len() >= self.capacity && !self.entries.contains_key(&key) {
+            if let Some(oldest) = self.oldest_key() {
+                self.entries.remove(&oldest);
+            }
+        }
+        self.entries.insert(
+            key,
+            AgentWrite {
+                hash,
+                timestamp: now,
+                deleted,
+                inflight,
             },
         );
     }
 
     /// Whether `path`'s current content hash matches a recent agent write
     /// (within the eviction window). This is the deterministic primary
-    /// criterion of the manual watcher.
+    /// criterion of the manual watcher. In-flight leases never count as a
+    /// hash match: their content is not final yet.
     pub fn is_agent_write(&self, path: &Path, hash: &str) -> bool {
+        let key = normalize_key(path);
         let now = now_millis();
-        self.entries.get(path).is_some_and(|entry| {
-            entry.hash == hash && now - entry.timestamp <= self.window.as_millis() as i64
+        self.entries.get(&key).is_some_and(|entry| {
+            !entry.inflight
+                && !entry.deleted
+                && entry.hash == hash
+                && now - entry.timestamp <= self.window.as_millis() as i64
         })
     }
 
     /// Whether `path` was written by the agent within the grace window.
-    /// Watcher events inside the window are skipped unconditionally, covering
-    /// the race between the disk write and the registry registration.
+    /// Covers only the race between the disk write and the hash
+    /// registration for add/modify events; must not be used for delete
+    /// attribution (use [`Self::is_agent_delete`]) and never matches a path
+    /// that only holds an in-flight lease.
     pub fn is_recent_write(&self, path: &Path) -> bool {
+        let key = normalize_key(path);
         let now = now_millis();
-        self.entries
-            .get(path)
-            .is_some_and(|entry| now - entry.timestamp <= self.grace.as_millis() as i64)
+        self.entries.get(&key).is_some_and(|entry| {
+            !entry.inflight
+                && !entry.deleted
+                && now - entry.timestamp <= self.grace.as_millis() as i64
+        })
     }
 
     /// Number of tracked entries.
@@ -141,6 +239,30 @@ impl Clone for RecentAgentWrites {
 /// Convenience alias: an `Arc`-shared registry.
 pub type SharedRecentAgentWrites = Arc<RecentAgentWrites>;
 
+/// Lexical normalization shared with the watcher: absolute paths are
+/// normalized without filesystem access; relative paths are kept as-is
+/// (callers register both spellings for agent edits).
+fn normalize_key(path: &Path) -> PathBuf {
+    if path.is_absolute() {
+        let mut out = PathBuf::new();
+        for component in path.components() {
+            match component {
+                std::path::Component::CurDir => {}
+                std::path::Component::ParentDir => {
+                    out.pop();
+                }
+                other => out.push(other.as_os_str()),
+            }
+        }
+        if out.as_os_str().is_empty() {
+            return PathBuf::from("/");
+        }
+        out
+    } else {
+        path.to_path_buf()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -180,6 +302,8 @@ mod tests {
             AgentWrite {
                 hash: "old".to_string(),
                 timestamp: now - 31_000,
+                deleted: false,
+                inflight: false,
             },
         );
         assert!(!registry.is_agent_write(Path::new("/ws/old.txt"), "old"));
@@ -220,6 +344,8 @@ mod tests {
             AgentWrite {
                 hash: "h".to_string(),
                 timestamp: now - 500,
+                deleted: false,
+                inflight: false,
             },
         );
         // 500ms is outside the 100ms grace window...

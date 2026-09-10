@@ -31,7 +31,8 @@ pub struct ToolParameterValidation {
 
 /// Execute a registered tool. `execution_id` is attached to the execution
 /// context so tool calls are attributable to a workflow / agent run (or a
-/// caller-provided id for ad-hoc invocations).
+/// caller-provided id for ad-hoc invocations). Without an observer the call
+/// keeps plain tool behavior and no file attribution is invented.
 pub async fn execute(
     ctx: &ApiContext,
     tool_id: &str,
@@ -39,14 +40,32 @@ pub async fn execute(
     options: Option<ToolExecutionOptions>,
     execution_id: &str,
 ) -> ApiResult<ToolExecutionResult> {
+    execute_with_observer(ctx, tool_id, parameters, options, execution_id, None).await
+}
+
+/// Execute a registered tool with an optional file-content observer. Only
+/// callers with an explicit execution context and file-checkpoint manager
+/// should inject an observer; generic API calls without attribution must
+/// pass `None` rather than guessing an agent's ownership.
+pub async fn execute_with_observer(
+    ctx: &ApiContext,
+    tool_id: &str,
+    parameters: &serde_json::Value,
+    options: Option<ToolExecutionOptions>,
+    execution_id: &str,
+    observer: Option<wf_tools::ToolSideEffectObserverHandle>,
+) -> ApiResult<ToolExecutionResult> {
     let options = options.unwrap_or(ToolExecutionOptions {
         timeout: Some(30000),
         retries: None,
         retry_delay: None,
         exponential_backoff: None,
     });
-    let context =
+    let mut context =
         wf_tools::executor::trait_def::ToolExecutionContext::new(execution_id.to_string());
+    if let Some(observer) = observer {
+        context = context.with_observer(observer);
+    }
     ctx.tool_registry
         .execute_tool(tool_id, parameters, &options, &context)
         .await

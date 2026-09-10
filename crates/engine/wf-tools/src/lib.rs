@@ -8,6 +8,7 @@ pub mod general;
 pub mod handlers;
 pub mod ignore;
 pub mod mcp;
+pub mod observe;
 pub mod patch;
 pub mod predefined;
 pub mod protect;
@@ -26,6 +27,10 @@ pub use filesystem::{FsToolConfig, FsToolHandlers};
 pub use general::{GeneralToolInvoker, GENERAL_TOOL_NAME};
 pub use handlers::{
     create_default_tool_registry, register_builtin_handlers, BuiltinHandlersConfig,
+};
+pub use observe::{
+    normalize_observer_path, PreciseFileChange, PreciseFileOp, ScopeOutcome, SessionBoundary,
+    ToolSideEffectObserver, ToolSideEffectObserverHandle,
 };
 pub use predefined::web::WebToolConfig;
 pub use shell::execute_command_handler;

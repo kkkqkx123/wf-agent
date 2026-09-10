@@ -19,6 +19,37 @@ use crate::script_capture::{CollectedChange, CollectedChangeKind};
 
 use std::collections::HashSet;
 
+/// Kind of a precise single-file tool event (mirrors the tool-layer
+/// observer without depending on it).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PreciseFileEventKind {
+    Created,
+    Modified,
+    Deleted,
+    Renamed { from: PathBuf },
+}
+
+/// One precise file event with an absolute path (new path for renames).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PreciseFileEvent {
+    pub path: PathBuf,
+    pub kind: PreciseFileEventKind,
+}
+
+impl PreciseFileEvent {
+    pub fn new(path: PathBuf, kind: PreciseFileEventKind) -> Self {
+        Self { path, kind }
+    }
+}
+
+/// Structured result of [`FileCheckpointManager::apply_precise_file_events`].
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct PreciseApplyStats {
+    pub applied: usize,
+    pub failed: Vec<String>,
+    pub out_of_scope: Vec<String>,
+}
+
 impl FileCheckpointManager {
     /// Resolve the actor partition for a child execution: full `ActorId`
     /// strings parse as-is; otherwise a child actor is derived from the
@@ -221,8 +252,10 @@ impl FileCheckpointManager {
         self.recent_agent_writes
             .register(PathBuf::from(&path), write_hash.clone());
         if let Some(root) = &self.workspace_root {
-            self.recent_agent_writes
-                .register(root.join(&path), write_hash.clone());
+            self.recent_agent_writes.register(
+                crate::watcher::normalize_absolute_path(&root.join(&path)),
+                write_hash.clone(),
+            );
         }
         if let Some(ref bus) = self.event_bus {
             bus.publish(CheckpointEventBus::file_changed_with_summary(
@@ -267,13 +300,13 @@ impl FileCheckpointManager {
             .entry(actor.as_str().to_string())
             .or_default()
             .insert(path.clone());
-        let write_hash = sha256_hex(b"");
         self.recent_agent_writes
-            .register(PathBuf::from(&path), write_hash.clone());
+            .register_delete(PathBuf::from(&path));
         if let Some(root) = &self.workspace_root {
             self.recent_agent_writes
-                .register(root.join(&path), write_hash.clone());
+                .register_delete(crate::watcher::normalize_absolute_path(&root.join(&path)));
         }
+        let write_hash = sha256_hex(b"");
         if let Some(ref bus) = self.event_bus {
             bus.publish(CheckpointEventBus::file_changed_with_summary(
                 snapshot_id.to_hex(),
@@ -471,6 +504,115 @@ impl FileCheckpointManager {
             }
         }
         Ok(applied)
+    }
+
+    /// Batch entry for precise tool events (the file-tool main path).
+    /// Validates every path against `workspace_root` first, then records
+    /// add/modify via agent edit, delete via agent delete, and rename via
+    /// move linkage plus both sides. Each successful write registers the
+    /// recent-agent entry; failed items never register success. Returns the
+    /// applied count plus explicit failed and out-of-scope items so callers
+    /// log them with execution context instead of silently skipping.
+    pub fn apply_precise_file_events(
+        &self,
+        actor: &ActorId,
+        workspace_root: &std::path::Path,
+        events: &[PreciseFileEvent],
+        behavior: FailureBehavior,
+    ) -> Result<PreciseApplyStats, CheckpointError> {
+        let root_norm = crate::watcher::normalize_absolute_path(workspace_root);
+        let mut stats = PreciseApplyStats::default();
+        for event in events {
+            let abs_norm = crate::watcher::normalize_absolute_path(&event.path);
+            let Ok(relative) = abs_norm.strip_prefix(&root_norm) else {
+                stats.out_of_scope.push(abs_norm.display().to_string());
+                continue;
+            };
+            let relative = relative.to_string_lossy().replace('\\', "/");
+            let validated = match crate::file_util::validate_workspace_relative_path(&relative) {
+                Ok(v) => v,
+                Err(err) => match behavior {
+                    FailureBehavior::Error => return Err(err),
+                    FailureBehavior::Warn => {
+                        tracing::warn!(
+                            path = %abs_norm.display(),
+                            error = %err,
+                            "precise event path validation failed"
+                        );
+                        stats.failed.push(abs_norm.display().to_string());
+                        continue;
+                    }
+                    FailureBehavior::Ignore => {
+                        stats.failed.push(abs_norm.display().to_string());
+                        continue;
+                    }
+                },
+            };
+            let result: Result<(), CheckpointError> = match &event.kind {
+                PreciseFileEventKind::Created | PreciseFileEventKind::Modified => {
+                    match std::fs::read(&abs_norm) {
+                        Ok(content) => self
+                            .apply_agent_edit(actor, &validated, &content)
+                            .map(|_| ()),
+                        Err(err) => Err(CheckpointError::Io(std::io::Error::other(format!(
+                            "failed to read precise event file '{}': {err}",
+                            abs_norm.display()
+                        )))),
+                    }
+                }
+                PreciseFileEventKind::Deleted => {
+                    self.apply_agent_delete(actor, &validated).map(|_| ())
+                }
+                PreciseFileEventKind::Renamed { from } => {
+                    let from_norm = crate::watcher::normalize_absolute_path(from);
+                    let (from_valid, from_in_scope) = match from_norm.strip_prefix(&root_norm) {
+                        Ok(rel) => {
+                            let rel = rel.to_string_lossy().replace('\\', "/");
+                            match crate::file_util::validate_workspace_relative_path(&rel) {
+                                Ok(v) => (Some(v), true),
+                                Err(_) => (None, true),
+                            }
+                        }
+                        Err(_) => (None, false),
+                    };
+                    if !from_in_scope {
+                        stats.out_of_scope.push(from_norm.display().to_string());
+                    }
+                    match std::fs::read(&abs_norm) {
+                        Ok(content) => {
+                            if let Some(from_valid) = from_valid {
+                                self.track_file_move(&from_valid, &validated, actor.as_str())?;
+                                let _ = self.apply_agent_delete(actor, &from_valid);
+                            }
+                            self.apply_agent_edit(actor, &validated, &content)
+                                .map(|_| ())
+                        }
+                        Err(err) => Err(CheckpointError::Io(std::io::Error::other(format!(
+                            "failed to read renamed file '{}': {err}",
+                            abs_norm.display()
+                        )))),
+                    }
+                }
+            };
+            match result {
+                Ok(()) => stats.applied += 1,
+                Err(err) => match behavior {
+                    FailureBehavior::Error => return Err(err),
+                    FailureBehavior::Warn => {
+                        tracing::warn!(
+                            path = %abs_norm.display(),
+                            error = %err,
+                            "precise event apply failed"
+                        );
+                        stats.failed.push(abs_norm.display().to_string());
+                    }
+                    FailureBehavior::Ignore => {
+                        stats.failed.push(abs_norm.display().to_string());
+                    }
+                },
+            }
+        }
+        Ok(stats)
     }
 
     /// Discard an execution's file changes: revert the actor partition

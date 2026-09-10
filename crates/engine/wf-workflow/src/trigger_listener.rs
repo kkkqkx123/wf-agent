@@ -674,9 +674,14 @@ mod tests {
     /// polls; publishing before that loses the event. Wait until the bus
     /// sees the expected number of receivers before publishing. Bounded: a
     /// wrong expectation must fail loudly instead of spinning forever.
+    ///
+    /// The listener subscribes typed channels when templates declare
+    /// parseable event types, so the total (general + typed) count is
+    /// observed: `receiver_count` only covers the general channel and
+    /// stays zero for typed-only subscriptions.
     async fn wait_for_listener(bus: &EventBus, expected_receivers: usize) {
         for _ in 0..200 {
-            if bus.receiver_count() >= expected_receivers {
+            if bus.total_receiver_count() >= expected_receivers {
                 return;
             }
             tokio::time::sleep(Duration::from_millis(10)).await;
@@ -684,7 +689,7 @@ mod tests {
         panic!(
             "expected {} receivers within 2s, got {}",
             expected_receivers,
-            bus.receiver_count()
+            bus.total_receiver_count()
         );
     }
 

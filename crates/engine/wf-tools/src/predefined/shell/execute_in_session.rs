@@ -11,6 +11,8 @@ use crate::predefined::schema::{ToolDefinition, ToolParameter};
 use crate::registry::ToolRegistry;
 use wf_shell::engine::BackgroundShellStore;
 
+use super::session_observe::SharedSessionForwarder;
+
 pub static EXECUTE_IN_SESSION: ToolDefinition = ToolDefinition {
     id: "execute_in_session",
     tool_type: ToolType::Stateful,
@@ -31,13 +33,28 @@ pub static EXECUTE_IN_SESSION: ToolDefinition = ToolDefinition {
     ]),
 };
 
-/// Stateful instance for the execute_in_session tool.
+/// Stateful instance for the execute_in_session tool. Each completed
+/// session command is a sampling boundary: the session cwd and command
+/// completion are reported so the upper layer can diff the scope.
 struct ExecuteInSessionInstance {
     store: Arc<BackgroundShellStore>,
     execution_id: String,
+    observer: std::sync::Mutex<Option<crate::observe::ToolSideEffectObserverHandle>>,
+    forwarder: SharedSessionForwarder,
 }
 
 impl StatefulInstance for ExecuteInSessionInstance {
+    fn execute_with_context(
+        &self,
+        params: &Value,
+        ctx: &crate::executor::trait_def::ToolExecutionContext,
+    ) -> ToolResult<Value> {
+        *self.observer.lock().unwrap() = Some(ctx.observer.clone());
+        self.forwarder
+            .set_observer(self.execution_id.clone(), ctx.observer.clone());
+        self.execute(params)
+    }
+
     fn execute(&self, params: &Value) -> ToolResult<Value> {
         let session_id = params
             .get("session_id")
@@ -55,27 +72,58 @@ impl StatefulInstance for ExecuteInSessionInstance {
             })?;
         let timeout = params.get("timeout").and_then(|v| v.as_u64());
 
-        self.store
+        let scope_dir = self.store.get(session_id).and_then(|s| s.cwd());
+        let result: crate::error::ToolResult<serde_json::Value> = self
+            .store
             .execute_in_session(session_id, command, timeout)
-            .map_err(Into::into)
+            .map_err(Into::into);
+        // The command boundary ends here (the store blocks until the
+        // command exits or the timeout terminates it). Report completion
+        // with the session cwd so the observer can sample this command.
+        if let Some(observer) = self.observer.lock().unwrap().clone() {
+            let scope = scope_dir.or_else(|| self.store.get(session_id).and_then(|s| s.cwd()));
+            observer.notify_session_command_finished(crate::observe::SessionBoundary {
+                execution_id: self.execution_id.clone(),
+                session_id: session_id.to_string(),
+                scope_dir: scope,
+            });
+        }
+        result
     }
 
     fn destroy(&self) -> ToolResult<()> {
+        if let Some(observer) = self.observer.lock().unwrap().clone() {
+            for (session_id, cwd) in self.store.sessions_for_task(&self.execution_id) {
+                observer.notify_session_finished(crate::observe::SessionBoundary {
+                    execution_id: self.execution_id.clone(),
+                    session_id,
+                    scope_dir: cwd,
+                });
+            }
+        }
         self.store
             .release_sessions_for_task(&self.execution_id, false);
+        self.forwarder.remove_observer(&self.execution_id);
         Ok(())
     }
 }
 
 /// Register the execute_in_session stateful factory into the registry.
-pub fn register(registry: &ToolRegistry, store: &Arc<BackgroundShellStore>) -> ToolResult<()> {
+pub fn register(
+    registry: &ToolRegistry,
+    store: &Arc<BackgroundShellStore>,
+    forwarder: &SharedSessionForwarder,
+) -> ToolResult<()> {
     let store = store.clone();
+    let forwarder = forwarder.clone();
     registry.register_stateful_factory(
         "execute_in_session",
         Arc::new(move |execution_id| {
             Box::new(ExecuteInSessionInstance {
                 store: store.clone(),
                 execution_id: execution_id.to_string(),
+                observer: std::sync::Mutex::new(None),
+                forwarder: forwarder.clone(),
             })
         }),
     );

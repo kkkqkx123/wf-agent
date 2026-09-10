@@ -11,6 +11,8 @@ use crate::predefined::schema::{ToolDefinition, ToolParameter};
 use crate::registry::ToolRegistry;
 use wf_shell::engine::BackgroundShellStore;
 
+use super::session_observe::SharedSessionForwarder;
+
 pub static RELEASE_SESSIONS_FOR_TASK: ToolDefinition = ToolDefinition {
     id: "release_sessions_for_task",
     tool_type: ToolType::Stateful,
@@ -30,12 +32,27 @@ pub static RELEASE_SESSIONS_FOR_TASK: ToolDefinition = ToolDefinition {
     ]),
 };
 
-/// Stateful instance for the release_sessions_for_task tool.
+/// Stateful instance for the release_sessions_for_task tool. Session
+/// release ends pending sampling for the released sessions.
 struct ReleaseSessionsForTaskInstance {
     store: Arc<BackgroundShellStore>,
+    execution_id: String,
+    observer: std::sync::Mutex<Option<crate::observe::ToolSideEffectObserverHandle>>,
+    forwarder: SharedSessionForwarder,
 }
 
 impl StatefulInstance for ReleaseSessionsForTaskInstance {
+    fn execute_with_context(
+        &self,
+        params: &Value,
+        ctx: &crate::executor::trait_def::ToolExecutionContext,
+    ) -> ToolResult<Value> {
+        *self.observer.lock().unwrap() = Some(ctx.observer.clone());
+        self.forwarder
+            .set_observer(self.execution_id.clone(), ctx.observer.clone());
+        self.execute(params)
+    }
+
     fn execute(&self, params: &Value) -> ToolResult<Value> {
         let task_id = params
             .get("task_id")
@@ -48,7 +65,18 @@ impl StatefulInstance for ReleaseSessionsForTaskInstance {
             .get("terminate")
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
+        // Sample release-time boundaries before the sessions are released.
+        let pending = self.store.sessions_for_task(task_id);
         let released = self.store.release_sessions_for_task(task_id, terminate);
+        if let Some(observer) = self.observer.lock().unwrap().clone() {
+            for (session_id, cwd) in pending {
+                observer.notify_session_finished(crate::observe::SessionBoundary {
+                    execution_id: self.execution_id.clone(),
+                    session_id,
+                    scope_dir: cwd,
+                });
+            }
+        }
         Ok(serde_json::json!({
             "task_id": task_id,
             "released": released,
@@ -57,18 +85,27 @@ impl StatefulInstance for ReleaseSessionsForTaskInstance {
     }
 
     fn destroy(&self) -> ToolResult<()> {
+        self.forwarder.remove_observer(&self.execution_id);
         Ok(())
     }
 }
 
 /// Register the release_sessions_for_task stateful factory into the registry.
-pub fn register(registry: &ToolRegistry, store: &Arc<BackgroundShellStore>) -> ToolResult<()> {
+pub fn register(
+    registry: &ToolRegistry,
+    store: &Arc<BackgroundShellStore>,
+    forwarder: &SharedSessionForwarder,
+) -> ToolResult<()> {
     let store = store.clone();
+    let forwarder = forwarder.clone();
     registry.register_stateful_factory(
         "release_sessions_for_task",
-        Arc::new(move |_execution_id| {
+        Arc::new(move |execution_id| {
             Box::new(ReleaseSessionsForTaskInstance {
                 store: store.clone(),
+                execution_id: execution_id.to_string(),
+                observer: std::sync::Mutex::new(None),
+                forwarder: forwarder.clone(),
             })
         }),
     );

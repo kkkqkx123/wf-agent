@@ -32,3 +32,4 @@ native = ["wf-plugin/native"]
 
 [dev-dependencies]
 wf-llm = { path = "../../infra/wf-llm", features = ["mock"] }
+tempfile = "3"

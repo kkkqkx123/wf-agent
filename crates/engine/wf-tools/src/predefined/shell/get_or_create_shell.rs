@@ -11,6 +11,8 @@ use crate::predefined::schema::{ToolDefinition, ToolParameter};
 use crate::registry::ToolRegistry;
 use wf_shell::engine::{BackgroundShellStore, SessionCreateOptions};
 
+use super::session_observe::SharedSessionForwarder;
+
 pub static GET_OR_CREATE_SHELL: ToolDefinition = ToolDefinition {
     id: "get_or_create_shell",
     tool_type: ToolType::Stateful,
@@ -34,13 +36,27 @@ pub static GET_OR_CREATE_SHELL: ToolDefinition = ToolDefinition {
     ]),
 };
 
-/// Stateful instance for the get_or_create_shell tool.
+/// Stateful instance for the get_or_create_shell tool. Session creation
+/// or reuse establishes the scope baseline (not a completion signal).
 struct GetOrCreateShellInstance {
     store: Arc<BackgroundShellStore>,
     execution_id: String,
+    observer: std::sync::Mutex<Option<crate::observe::ToolSideEffectObserverHandle>>,
+    forwarder: SharedSessionForwarder,
 }
 
 impl StatefulInstance for GetOrCreateShellInstance {
+    fn execute_with_context(
+        &self,
+        params: &Value,
+        ctx: &crate::executor::trait_def::ToolExecutionContext,
+    ) -> ToolResult<Value> {
+        *self.observer.lock().unwrap() = Some(ctx.observer.clone());
+        self.forwarder
+            .set_observer(self.execution_id.clone(), ctx.observer.clone());
+        self.execute(params)
+    }
+
     fn execute(&self, params: &Value) -> ToolResult<Value> {
         let cwd = params.get("cwd").and_then(|v| v.as_str());
         let task_id = params
@@ -80,6 +96,13 @@ impl StatefulInstance for GetOrCreateShellInstance {
             ..Default::default()
         };
         let result = self.store.get_or_create(&options, task_id.as_deref())?;
+        if let Some(observer) = self.observer.lock().unwrap().clone() {
+            observer.notify_session_started(crate::observe::SessionBoundary {
+                execution_id: self.execution_id.clone(),
+                session_id: result.session_id.clone(),
+                scope_dir: result.cwd.clone(),
+            });
+        }
         Ok(serde_json::json!({
             "session_id": result.session_id.clone(),
             "reused": result.reused,
@@ -91,21 +114,38 @@ impl StatefulInstance for GetOrCreateShellInstance {
     }
 
     fn destroy(&self) -> ToolResult<()> {
+        if let Some(observer) = self.observer.lock().unwrap().clone() {
+            for (session_id, cwd) in self.store.sessions_for_task(&self.execution_id) {
+                observer.notify_session_finished(crate::observe::SessionBoundary {
+                    execution_id: self.execution_id.clone(),
+                    session_id,
+                    scope_dir: cwd,
+                });
+            }
+        }
         self.store
             .release_sessions_for_task(&self.execution_id, false);
+        self.forwarder.remove_observer(&self.execution_id);
         Ok(())
     }
 }
 
 /// Register the get_or_create_shell stateful factory into the registry.
-pub fn register(registry: &ToolRegistry, store: &Arc<BackgroundShellStore>) -> ToolResult<()> {
+pub fn register(
+    registry: &ToolRegistry,
+    store: &Arc<BackgroundShellStore>,
+    forwarder: &SharedSessionForwarder,
+) -> ToolResult<()> {
     let store = store.clone();
+    let forwarder = forwarder.clone();
     registry.register_stateful_factory(
         "get_or_create_shell",
         Arc::new(move |execution_id| {
             Box::new(GetOrCreateShellInstance {
                 store: store.clone(),
                 execution_id: execution_id.to_string(),
+                observer: std::sync::Mutex::new(None),
+                forwarder: forwarder.clone(),
             })
         }),
     );

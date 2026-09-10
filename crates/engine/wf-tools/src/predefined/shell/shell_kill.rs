@@ -11,6 +11,8 @@ use crate::predefined::schema::{ToolDefinition, ToolParameter};
 use crate::registry::ToolRegistry;
 use wf_shell::engine::BackgroundShellStore;
 
+use super::session_observe::SharedSessionForwarder;
+
 pub static SHELL_KILL: ToolDefinition = ToolDefinition {
     id: "shell_kill",
     tool_type: ToolType::Stateful,
@@ -27,12 +29,28 @@ pub static SHELL_KILL: ToolDefinition = ToolDefinition {
     examples: Some(&["shell_kill(\"abc123\")", "shell_kill(\"abc123\", graceful=false)"]),
 };
 
-/// Stateful instance for the shell_kill tool.
+/// Stateful instance for the shell_kill tool. Killing ends any pending
+/// session sampling: the observer is notified before the session is
+/// removed so the release-time boundary is sampled.
 struct ShellKillInstance {
     store: Arc<BackgroundShellStore>,
+    execution_id: String,
+    observer: std::sync::Mutex<Option<crate::observe::ToolSideEffectObserverHandle>>,
+    forwarder: SharedSessionForwarder,
 }
 
 impl StatefulInstance for ShellKillInstance {
+    fn execute_with_context(
+        &self,
+        params: &Value,
+        ctx: &crate::executor::trait_def::ToolExecutionContext,
+    ) -> ToolResult<Value> {
+        *self.observer.lock().unwrap() = Some(ctx.observer.clone());
+        self.forwarder
+            .set_observer(self.execution_id.clone(), ctx.observer.clone());
+        self.execute(params)
+    }
+
     fn execute(&self, params: &Value) -> ToolResult<Value> {
         let session_id = params
             .get("session_id")
@@ -45,7 +63,17 @@ impl StatefulInstance for ShellKillInstance {
             .get("graceful")
             .and_then(|v| v.as_bool())
             .unwrap_or(true);
+        let scope_dir = self.store.get(session_id).and_then(|s| s.cwd());
         let killed = self.store.kill_with(session_id, graceful)?;
+        if killed {
+            if let Some(observer) = self.observer.lock().unwrap().clone() {
+                observer.notify_session_finished(crate::observe::SessionBoundary {
+                    execution_id: self.execution_id.clone(),
+                    session_id: session_id.to_string(),
+                    scope_dir,
+                });
+            }
+        }
         Ok(serde_json::json!({
             "session_id": session_id,
             "killed": killed,
@@ -54,18 +82,27 @@ impl StatefulInstance for ShellKillInstance {
     }
 
     fn destroy(&self) -> ToolResult<()> {
+        self.forwarder.remove_observer(&self.execution_id);
         Ok(())
     }
 }
 
 /// Register the shell_kill stateful factory into the registry.
-pub fn register(registry: &ToolRegistry, store: &Arc<BackgroundShellStore>) -> ToolResult<()> {
+pub fn register(
+    registry: &ToolRegistry,
+    store: &Arc<BackgroundShellStore>,
+    forwarder: &SharedSessionForwarder,
+) -> ToolResult<()> {
     let store = store.clone();
+    let forwarder = forwarder.clone();
     registry.register_stateful_factory(
         "shell_kill",
-        Arc::new(move |_execution_id| {
+        Arc::new(move |execution_id| {
             Box::new(ShellKillInstance {
                 store: store.clone(),
+                execution_id: execution_id.to_string(),
+                observer: std::sync::Mutex::new(None),
+                forwarder: forwarder.clone(),
             })
         }),
     );

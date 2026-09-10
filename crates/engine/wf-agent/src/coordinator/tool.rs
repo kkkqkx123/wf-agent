@@ -65,8 +65,11 @@ pub trait ToolVisibilityStore: Send + Sync {
     async fn is_tool_visible(&self, execution_id: &str, tool_name: &str) -> bool;
 }
 
-/// Optional checkpoint creation callback invoked around tool executions that
-/// opt in via `ToolMetadata::create_checkpoint`.
+/// Optional execution-state snapshot callback invoked around tool
+/// executions that opt in via `ToolMetadata::create_checkpoint`.
+/// Terminology: this snapshots the execution record (tool `create_checkpoint`
+/// timing) and is unrelated to file-content checkpoints; file changes use
+/// the file observer (`with_file_observer`), never this callback.
 #[async_trait]
 pub trait ToolCheckpointHandler: Send + Sync {
     async fn create_checkpoint(&self, execution_id: &str, reason: &str) -> AgentResult<()>;
@@ -84,11 +87,18 @@ pub(crate) struct ToolRunCtx {
     pub(crate) registry: Arc<ToolRegistry>,
     pub(crate) metrics: Option<Arc<MetricsRegistry>>,
     pub(crate) progress_tx: Option<tokio::sync::mpsc::Sender<ToolProgressEvent>>,
+    /// Execution-state snapshot callback (tool `create_checkpoint` timing).
+    /// This is unrelated to file-content checkpoints: it snapshots the
+    /// execution record, never file bytes. File changes use `file_observer`.
     pub(crate) checkpoint_handler: Option<Arc<dyn ToolCheckpointHandler>>,
     pub(crate) failure_protection: Option<Arc<ToolFailureProtectionState>>,
     pub(crate) visibility_store: Option<Arc<dyn ToolVisibilityStore>>,
     pub(crate) general_invoker: Option<Arc<dyn wf_tools::general::GeneralToolInvoker>>,
     pub(crate) retry_budget: Option<Arc<RetryBudget>>,
+    /// File-content observation (agent actor partition). Injected separately
+    /// from `checkpoint_handler` so callers cannot confuse execution-state
+    /// snapshots with file-content checkpoints.
+    pub(crate) file_observer: Option<wf_tools::ToolSideEffectObserverHandle>,
 }
 
 pub struct ToolExecutionCoordinator {
@@ -113,6 +123,9 @@ pub struct ToolExecutionCoordinator {
     /// its invoker from the context instead of global per-execution state.
     general_invoker: Arc<std::sync::Mutex<Option<Arc<dyn wf_tools::general::GeneralToolInvoker>>>>,
     retry_budget: Option<Arc<RetryBudget>>,
+    /// File-content observer (agent actor partition). Independent from the
+    /// execution-state `checkpoint_handler` above.
+    file_observer: Option<wf_tools::ToolSideEffectObserverHandle>,
 }
 
 impl ToolExecutionCoordinator {
@@ -134,6 +147,7 @@ impl ToolExecutionCoordinator {
             failure_protection: None,
             general_invoker: Arc::new(std::sync::Mutex::new(None)),
             retry_budget: None,
+            file_observer: None,
         }
     }
 
@@ -193,13 +207,26 @@ impl ToolExecutionCoordinator {
         self
     }
 
-    /// Enable checkpoint creation around tools whose metadata opts in via
-    /// `create_checkpoint`. Default: no checkpoints.
+    /// Enable execution-state snapshot creation around tools whose metadata
+    /// opts in via `create_checkpoint`. Default: no checkpoints. This is
+    /// unrelated to file-content checkpoints (see `with_file_observer`):
+    /// it snapshots the execution record, never file bytes.
     pub fn with_checkpoint_handler(
         mut self,
         handler: Option<Arc<dyn ToolCheckpointHandler>>,
     ) -> Self {
         self.checkpoint_handler = handler;
+        self
+    }
+
+    /// Inject the file-content observer (agent actor partition). Kept as an
+    /// independent capability so callers cannot mistake execution-state
+    /// snapshots for file-content checkpoints.
+    pub fn with_file_observer(
+        mut self,
+        observer: Option<wf_tools::ToolSideEffectObserverHandle>,
+    ) -> Self {
+        self.file_observer = observer;
         self
     }
 
@@ -253,6 +280,12 @@ impl ToolExecutionCoordinator {
         (self.approval_options.clone(), self.approval_handler.clone())
     }
 
+    /// Current file observer wiring; lets coordinator rebuilds preserve the
+    /// file-content observation contract.
+    pub fn file_observer_config(&self) -> Option<wf_tools::ToolSideEffectObserverHandle> {
+        self.file_observer.clone()
+    }
+
     pub fn with_rejection_builder(mut self, builder: RejectionMessageBuilder) -> Self {
         self.rejection_builder = builder;
         self
@@ -279,6 +312,7 @@ impl ToolExecutionCoordinator {
             visibility_store: self.visibility_store.clone(),
             general_invoker: wf_common::lock::lock_ok(self.general_invoker.lock()).clone(),
             retry_budget: self.retry_budget.clone(),
+            file_observer: self.file_observer.clone(),
         }
     }
 
@@ -854,6 +888,9 @@ impl ToolExecutionCoordinator {
                 wf_tools::executor::trait_def::ToolExecutionContext::new(entity_id.into());
             if let Some(invoker) = &ctx.general_invoker {
                 tool_ctx = tool_ctx.with_general_invoker(invoker.clone());
+            }
+            if let Some(observer) = &ctx.file_observer {
+                tool_ctx = tool_ctx.with_observer(observer.clone());
             }
             tool_ctx
         };
@@ -2020,6 +2057,7 @@ mod tests {
             visibility_store: None,
             general_invoker: None,
             retry_budget: None,
+            file_observer: None,
         };
         GeneralToolContext::new(run_ctx, entity, None)
     }
@@ -2228,6 +2266,7 @@ mod tests {
             visibility_store: Some(Arc::new(BlockingVisibilityStore)),
             general_invoker: None,
             retry_budget: None,
+            file_observer: None,
         };
         let ctx = GeneralToolContext::new(run_ctx, entity, None);
 

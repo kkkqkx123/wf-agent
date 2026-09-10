@@ -498,9 +498,14 @@ async fn call_llm(
 }
 
 /// Execute one tool call through the registry, returning a Tool message.
+/// File-tool and shell writes are attributed to the same workflow-level
+/// actor the script nodes use (`resolve_actor(execution, parent)`), via the
+/// handler's file-checkpoint observer. Calls without a manager keep plain
+/// tool behavior with no invented attribution.
 async fn execute_tool_call(
     ctx: &NodeExecutionContext,
     call: &wf_types::message::LlmToolCall,
+    file_checkpoint: Option<&wf_checkpoint::file::FileCheckpointManager>,
 ) -> Message {
     let tool_name = call.function.name.clone();
     let args: Value = serde_json::from_str(&call.function.arguments).unwrap_or(Value::Null);
@@ -520,9 +525,20 @@ async fn execute_tool_call(
         );
     }
 
-    let tool_ctx =
+    let mut tool_ctx =
         wf_tools::executor::trait_def::ToolExecutionContext::new(ctx.execution_id.clone())
             .with_node_id(ctx.node_id.clone());
+    if let Some(manager) = file_checkpoint {
+        let parent = ctx.parent_execution_id.as_ref().map(|id| id.to_string());
+        let observer = wf_agent::checkpoint_observer::AgentCheckpointObserver::new(
+            manager.clone(),
+            &ctx.execution_id.to_string(),
+            parent.as_deref(),
+        );
+        tool_ctx = tool_ctx.with_observer(wf_tools::ToolSideEffectObserverHandle::new(
+            std::sync::Arc::new(observer),
+        ));
+    }
     let options = wf_types::tool::ToolExecutionOptions {
         timeout: None,
         retries: None,
@@ -633,11 +649,31 @@ async fn execute_tool_call(
 
 pub struct LlmHandler {
     gateway: Arc<LlmGateway>,
+    file_checkpoint: Option<wf_checkpoint::file::FileCheckpointManager>,
 }
 
 impl LlmHandler {
     pub fn new(gateway: Arc<LlmGateway>) -> Self {
-        Self { gateway }
+        Self {
+            gateway,
+            file_checkpoint: None,
+        }
+    }
+
+    pub fn with_file_checkpoint(
+        mut self,
+        manager: wf_checkpoint::file::FileCheckpointManager,
+    ) -> Self {
+        self.file_checkpoint = Some(manager);
+        self
+    }
+
+    pub fn with_file_checkpoint_opt(
+        mut self,
+        manager: Option<wf_checkpoint::file::FileCheckpointManager>,
+    ) -> Self {
+        self.file_checkpoint = manager;
+        self
     }
 }
 
@@ -1086,7 +1122,7 @@ impl LlmHandler {
             let calls = response.tool_calls.unwrap_or_default();
             let mut any_result = false;
             for call in &calls {
-                let result_msg = execute_tool_call(ctx, call).await;
+                let result_msg = execute_tool_call(ctx, call, self.file_checkpoint.as_ref()).await;
                 let is_error = result_msg
                     .metadata
                     .as_ref()
@@ -1310,7 +1346,7 @@ mod tests {
                 arguments: "{}".to_string(),
             },
         };
-        let result = execute_tool_call(&ctx, &call).await;
+        let result = execute_tool_call(&ctx, &call, None).await;
         assert_eq!(result.role, MessageRole::Tool);
         assert_eq!(result.tool_call_id.as_deref(), Some("call-1"));
         let is_error = result
@@ -1384,7 +1420,7 @@ mod tests {
             },
         };
 
-        let ok = execute_tool_call(&ctx, &call).await;
+        let ok = execute_tool_call(&ctx, &call, None).await;
         let is_error = ok
             .metadata
             .as_ref()
@@ -1397,7 +1433,7 @@ mod tests {
             format!("{}{}", wf_agent::BLOCKED_VARIABLE_PREFIX, "echo_tool"),
             serde_json::json!(true),
         );
-        let blocked = execute_tool_call(&ctx, &call).await;
+        let blocked = execute_tool_call(&ctx, &call, None).await;
         assert!(
             matches!(&blocked.content, MessageContentValue::Text(t) if t.contains("not visible"))
         );

@@ -387,13 +387,19 @@ mod tests {
             reg.register_defaults(std::sync::Arc::new(wf_llm::LlmGateway::new()));
             reg.into_arc()
         };
+        // Production always injects a typed signal bus (see the wf-runtime
+        // bootstrap): pause/stop trigger actions publish through it, so the
+        // test harness must wire one too or the signals are dropped and the
+        // run completes instead of pausing or stopping.
+        let signal_bus = Arc::new(wf_core::internal_signal::InternalSignalBus::new());
         let exec_ctx = ExecutorContext::new(
             wf_common::generate_id(),
             wf_common::generate_id(),
             None,
             Arc::new(ToolRegistry::new()),
             options,
-        );
+        )
+        .with_signal_bus(signal_bus);
         let entity = WorkflowExecutionEntity::new(
             exec_ctx.execution_id.clone(),
             exec_ctx.workflow_id.clone(),

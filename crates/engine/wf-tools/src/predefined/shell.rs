@@ -11,6 +11,7 @@ pub mod execute_command;
 pub mod execute_in_session;
 pub mod get_or_create_shell;
 pub mod release_sessions_for_task;
+pub mod session_observe;
 pub mod shell_kill;
 pub mod shell_output;
 pub mod shell_resize;
@@ -49,18 +50,28 @@ pub const ALL: &[&ToolDefinition] = &[
 
 /// Register shell handlers: execute_command (stateless) plus the background
 /// shell stateful factories.
+///
+/// A [`session_observe::SessionLifecycleForwarder`] is installed as the
+/// store's lifecycle sink so background process exits that happen without
+/// any further tool call (store monitor thread) still close scope sampling
+/// for the owning execution. Tool-level notifications remain the primary
+/// path; the forwarder is the safety net for natural exits.
 pub fn register(registry: &ToolRegistry, config: &ShellToolConfig) -> ToolResult<()> {
     execute_command::register(registry, config)?;
 
-    let store = Arc::new(BackgroundShellStore::from_config(config));
-    backend_shell::register(registry, &store)?;
+    let forwarder: session_observe::SharedSessionForwarder =
+        Arc::new(session_observe::SessionLifecycleForwarder::new());
+    let mut store_config = config.clone();
+    store_config.lifecycle_sink = Some(forwarder.clone());
+    let store = Arc::new(BackgroundShellStore::from_config(&store_config));
+    backend_shell::register(registry, &store, &forwarder)?;
     shell_output::register(registry, &store)?;
-    shell_kill::register(registry, &store)?;
+    shell_kill::register(registry, &store, &forwarder)?;
     shell_send_input::register(registry, &store)?;
     shell_resize::register(registry, &store)?;
-    get_or_create_shell::register(registry, &store)?;
-    execute_in_session::register(registry, &store)?;
-    release_sessions_for_task::register(registry, &store)?;
+    get_or_create_shell::register(registry, &store, &forwarder)?;
+    execute_in_session::register(registry, &store, &forwarder)?;
+    release_sessions_for_task::register(registry, &store, &forwarder)?;
 
     Ok(())
 }

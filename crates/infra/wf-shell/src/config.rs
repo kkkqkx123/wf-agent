@@ -50,6 +50,11 @@ pub struct ShellToolConfig {
     /// Event sink receiving shell session lifecycle/output events; the
     /// default is `None` (no events are emitted).
     pub event_sink: Option<Arc<dyn ShellEventSink>>,
+    /// Generic session lifecycle sink (start / command complete /
+    /// terminate). Independent from `output_event_enabled` so background
+    /// process ends stay observable even without per-line output events.
+    /// Installed onto the store by `BackgroundShellStore::from_config`.
+    pub lifecycle_sink: Option<Arc<dyn crate::lifecycle::SessionLifecycleSink>>,
     /// Optional sandbox policy applied to every spawned command. When set,
     /// commands run through the shared `wf-sandbox` execution gateway:
     /// seccomp-bpf (AUDIT_ARCH validated) + rlimits + env clearing. The
@@ -78,6 +83,7 @@ impl Default for ShellToolConfig {
             session_idle_timeout_ms: None,
             output_event_enabled: false,
             event_sink: None,
+            lifecycle_sink: None,
             sandbox_policy: None,
         }
     }
@@ -102,6 +108,13 @@ impl std::fmt::Debug for ShellToolConfig {
             .field(
                 "event_sink",
                 &self.event_sink.as_ref().map(|_| "<shell event sink>"),
+            )
+            .field(
+                "lifecycle_sink",
+                &self
+                    .lifecycle_sink
+                    .as_ref()
+                    .map(|_| "<session lifecycle sink>"),
             )
             .finish()
     }

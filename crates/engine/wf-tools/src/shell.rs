@@ -15,12 +15,40 @@ use crate::error::ToolError;
 use crate::executor::stateless::StatelessAsyncHandler;
 use crate::executor::trait_def::ToolExecutionContext;
 
+/// Resolve the observer scope dir from the final cwd string: absolute
+/// paths are used as-is, relative paths resolve against the tool default
+/// workspace dir (or the process cwd when no default exists). Returns
+/// `None` when no cwd information exists at all.
+fn resolve_scope_dir(
+    cwd: Option<&str>,
+    default_dir: Option<&std::path::PathBuf>,
+) -> Option<std::path::PathBuf> {
+    let cwd = cwd.filter(|s| !s.trim().is_empty())?;
+    let candidate = std::path::Path::new(cwd);
+    let absolute = if candidate.is_absolute() {
+        candidate.to_path_buf()
+    } else if let Some(base) = default_dir {
+        base.join(candidate)
+    } else {
+        std::env::current_dir().ok()?.join(candidate)
+    };
+    Some(crate::observe::normalize_observer_path(&absolute))
+}
+
 /// Create the async handler for the execute_command tool.
+///
+/// The final working directory follows the `parameters.cwd` first,
+/// `ShellToolConfig.workspace_dir` default rule; it is passed to the
+/// side-effect observer so the upper layer can diff the exact scope. The
+/// scope end is emitted after the process has terminated, including for
+/// failed commands (already-written files are still captured). Shell
+/// startup failures end the scope as terminated with success=false; a
+/// timeout that cannot confirm termination must end as incomplete.
 pub fn execute_command_handler(config: ShellToolConfig) -> StatelessAsyncHandler {
     // Single policy instance shared across calls so the stateless path uses
     // the same decision logic as the engine-level spawn baseline.
     let policy = CommandPolicy::from_config(&config);
-    Arc::new(move |parameters: Value, _ctx: ToolExecutionContext| {
+    Arc::new(move |parameters: Value, ctx: ToolExecutionContext| {
         let config = config.clone();
         let policy = policy.clone();
         Box::pin(async move {
@@ -49,6 +77,8 @@ pub fn execute_command_handler(config: ShellToolConfig) -> StatelessAsyncHandler
                 .unwrap_or(DEFAULT_TIMEOUT_MS)
                 .clamp(1000, config.max_timeout_ms);
 
+            // Final cwd: explicit `parameters.cwd` wins, otherwise the tool
+            // default workspace dir. Preserved for the observer input.
             let cwd = parameters
                 .get("cwd")
                 .and_then(|v| v.as_str())
@@ -59,11 +89,17 @@ pub fn execute_command_handler(config: ShellToolConfig) -> StatelessAsyncHandler
                         .as_ref()
                         .map(|p| p.to_string_lossy().to_string())
                 });
+            let scope_dir = resolve_scope_dir(cwd.as_deref(), config.workspace_dir.as_ref());
 
             let input = parameters.get("input").and_then(|v| v.as_str());
 
+            let execution_id = ctx.execution_id.to_string();
+            if let Some(scope) = scope_dir.as_ref() {
+                ctx.observer.notify_scope_begin(&execution_id, scope);
+            }
+
             let start = Instant::now();
-            let output = run_command(
+            let output = match run_command(
                 &command,
                 cwd.as_deref(),
                 timeout_ms,
@@ -71,7 +107,29 @@ pub fn execute_command_handler(config: ShellToolConfig) -> StatelessAsyncHandler
                 input,
                 config.sandbox_policy.as_ref(),
             )
-            .await?;
+            .await
+            {
+                Ok(output) => output,
+                Err(err) => {
+                    // `run_command` enforces the timeout with process
+                    // termination, so the sampling boundary is the confirmed
+                    // process end; startup failures also terminate (nothing
+                    // was started). Both end as terminated with success=false
+                    // so already-written files are still captured.
+                    if let Some(scope) = scope_dir.as_ref() {
+                        ctx.observer.notify_scope_end(
+                            scope,
+                            crate::observe::ScopeOutcome {
+                                execution_id: execution_id.clone(),
+                                success: false,
+                                terminated: true,
+                                detail: Some(err.to_string()),
+                            },
+                        );
+                    }
+                    return Err(err.into());
+                }
+            };
 
             let mut content = String::from_utf8_lossy(&output.stdout).to_string();
             if !output.stderr.is_empty() {
@@ -88,7 +146,8 @@ pub fn execute_command_handler(config: ShellToolConfig) -> StatelessAsyncHandler
                 "exit_code": output.status.code(),
                 "duration_ms": start.elapsed().as_millis(),
             });
-            if !output.status.success() {
+            let success = output.status.success();
+            if !success {
                 result["success"] = Value::Bool(false);
                 result["error"] = Value::String(format!(
                     "Command failed with exit code {:?}",
@@ -96,6 +155,20 @@ pub fn execute_command_handler(config: ShellToolConfig) -> StatelessAsyncHandler
                 ));
             } else {
                 result["success"] = Value::Bool(true);
+            }
+
+            // Sampling ends after the process terminated, even for failed
+            // commands: already-written files are still captured.
+            if let Some(scope) = scope_dir.as_ref() {
+                ctx.observer.notify_scope_end(
+                    scope,
+                    crate::observe::ScopeOutcome {
+                        execution_id: execution_id.clone(),
+                        success,
+                        terminated: true,
+                        detail: Some(format!("exit {:?}", output.status.code())),
+                    },
+                );
             }
 
             Ok(serde_json::json!({
@@ -168,6 +241,74 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("rejected by shell policy"));
+    }
+
+    #[test]
+    fn scope_dir_resolution_rules() {
+        use std::path::PathBuf;
+        // Explicit absolute cwd wins.
+        assert_eq!(
+            resolve_scope_dir(Some("/ws/sub"), Some(&PathBuf::from("/ws"))),
+            Some(PathBuf::from("/ws/sub"))
+        );
+        // Relative cwd resolves against the tool default.
+        assert_eq!(
+            resolve_scope_dir(Some("sub"), Some(&PathBuf::from("/ws"))),
+            Some(PathBuf::from("/ws/sub"))
+        );
+        // No cwd at all means no scope.
+        assert_eq!(resolve_scope_dir(None, Some(&PathBuf::from("/ws"))), None);
+    }
+
+    #[tokio::test]
+    async fn scoped_shell_notifies_begin_and_end() {
+        use crate::observe::{ScopeOutcome, ToolSideEffectObserver, ToolSideEffectObserverHandle};
+        use std::path::{Path, PathBuf};
+        use std::sync::{Arc, Mutex};
+
+        struct Recording {
+            begins: Mutex<Vec<PathBuf>>,
+            ends: Mutex<Vec<(PathBuf, ScopeOutcome)>>,
+        }
+
+        impl ToolSideEffectObserver for Recording {
+            fn notify_scope_begin(&self, _execution_id: &str, scope_dir: &Path) {
+                self.begins.lock().unwrap().push(scope_dir.to_path_buf());
+            }
+
+            fn notify_scope_end(&self, scope_dir: &Path, outcome: ScopeOutcome) {
+                self.ends
+                    .lock()
+                    .unwrap()
+                    .push((scope_dir.to_path_buf(), outcome));
+            }
+        }
+
+        let dir = tempfile::tempdir().unwrap();
+        let config = ShellToolConfig {
+            workspace_dir: Some(dir.path().to_path_buf()),
+            ..Default::default()
+        };
+        let handler = execute_command_handler(config);
+        let recorder = Arc::new(Recording {
+            begins: Mutex::new(Vec::new()),
+            ends: Mutex::new(Vec::new()),
+        });
+        let ctx = ToolExecutionContext::new("exec-shell".into())
+            .with_observer(ToolSideEffectObserverHandle::new(recorder.clone()));
+        let result = handler(
+            serde_json::json!({ "command": "echo hi", "cwd": dir.path().to_str().unwrap() }),
+            ctx,
+        )
+        .await
+        .unwrap();
+        assert_eq!(result["details"]["success"], serde_json::Value::Bool(true));
+        assert_eq!(recorder.begins.lock().unwrap().len(), 1);
+        assert_eq!(recorder.ends.lock().unwrap().len(), 1);
+        let (scope, outcome) = &recorder.ends.lock().unwrap()[0];
+        assert_eq!(*scope, crate::observe::normalize_observer_path(dir.path()));
+        assert!(outcome.terminated);
+        assert!(outcome.success);
     }
 
     #[tokio::test]

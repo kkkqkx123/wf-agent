@@ -478,6 +478,21 @@ impl AgentLoopCoordinator {
         .with_general_description(config.general_description.clone())
         .with_discoverable_metadata_block(config.discoverable_metadata_block.clone())
         .with_hook_registry(self.hook_registry.clone());
+        // File-content observation: the agent actor partition receives
+        // precise file-tool events and scoped shell diffs. Blocking,
+        // streaming, retry and nested executions share this observer
+        // contract through the tool context.
+        if let Some(ref manager) = self.file_checkpoint_manager {
+            let parent = entity.parent_execution_id().map(|id| id.to_string());
+            let observer = crate::checkpoint_observer::AgentCheckpointObserver::new(
+                manager.clone(),
+                &entity.id().to_string(),
+                parent.as_deref(),
+            );
+            coordinator = coordinator.with_file_observer(Some(
+                wf_tools::ToolSideEffectObserverHandle::new(std::sync::Arc::new(observer)),
+            ));
+        }
         if let Some(ref bus) = self.event_bus {
             coordinator = coordinator.with_event_bus(bus.clone());
         }

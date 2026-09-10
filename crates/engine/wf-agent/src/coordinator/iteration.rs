@@ -141,10 +141,12 @@ impl AgentIterationCoordinator {
         handler: Option<Arc<dyn ToolApprovalHandler>>,
     ) -> Self {
         let registry = self.tool_coordinator.tool_registry().clone();
+        let file_observer = self.tool_coordinator.file_observer_config();
         self.tool_coordinator = ToolExecutionCoordinator::new(registry)
             .with_event_bus(self.event_bus.clone())
             .with_metrics(self.metrics.clone())
-            .with_approval(options, handler);
+            .with_approval(options, handler)
+            .with_file_observer(file_observer);
         self
     }
 
@@ -154,16 +156,18 @@ impl AgentIterationCoordinator {
         mut self,
         store: Option<Arc<dyn crate::coordinator::tool::ToolVisibilityStore>>,
     ) -> Self {
-        // Rebuilding the tool coordinator must preserve the approval
-        // wiring applied by `with_approval`, otherwise every tool call is
-        // auto-approved downstream.
+        // Rebuilding the tool coordinator must preserve the approval and
+        // file-observer wiring applied earlier, otherwise every tool call is
+        // auto-approved downstream or loses file attribution.
         let registry = self.tool_coordinator.tool_registry().clone();
         let (approval_options, approval_handler) = self.tool_coordinator.approval_config();
+        let file_observer = self.tool_coordinator.file_observer_config();
         self.tool_coordinator = ToolExecutionCoordinator::new(registry)
             .with_event_bus(self.event_bus.clone())
             .with_metrics(self.metrics.clone())
             .with_approval(approval_options, approval_handler)
-            .with_visibility_store(store);
+            .with_visibility_store(store)
+            .with_file_observer(file_observer);
         self
     }
 
@@ -220,6 +224,18 @@ impl AgentIterationCoordinator {
     /// built-in generation at request assembly time.
     pub fn with_discoverable_metadata_block(mut self, block: Option<String>) -> Self {
         self.discoverable_metadata_block = block;
+        self
+    }
+
+    /// Inject the file-content observer (agent actor partition) into the
+    /// tool execution coordinator. Independent from execution-state
+    /// snapshots: file changes land in the actor partition, checkpoints
+    /// snapshot the execution record.
+    pub fn with_file_observer(
+        mut self,
+        observer: Option<wf_tools::ToolSideEffectObserverHandle>,
+    ) -> Self {
+        self.tool_coordinator = self.tool_coordinator.with_file_observer(observer);
         self
     }
 

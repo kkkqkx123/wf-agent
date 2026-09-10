@@ -48,12 +48,16 @@ pub use error_handling::{CheckpointErrorHandler, ErrorHandlingOutcome};
 pub use event::{CheckpointEvent, CheckpointEventBus};
 pub use file::{
     FileCheckpoint, FileCheckpointManager, FileCheckpointMetadata, FileCheckpointOptions,
-    FileContentEntry, FileState, WorkspaceRestoreResult,
+    FileContentEntry, FileState, WatcherDriveStats, WorkspaceRestoreResult,
 };
+pub use file_actor::{PreciseApplyStats, PreciseFileEvent, PreciseFileEventKind};
 pub use file_merge::MergeCommitResult;
 pub use file_util::sha256_hex;
 pub use metadata_builder::{build_checkpoint_state, CheckpointMetadataBuilder};
 pub use provenance::{DeltaSummary, FileDiffKind, FileDiffView, PartitionView, WorkspaceFile};
 pub use scan::{ScanConfig, WorkspaceScan, WorkspaceScanner};
+pub use script_capture::{CollectedChange, CollectedChangeKind, WorkspaceChangeCollector};
 pub use serializer::{CheckpointCodec, CheckpointSerializer};
-pub use watcher::{FileChangeKind, FileChangeRecord, FileWatcher, ManualChangeService};
+pub use watcher::{
+    normalize_absolute_path, FileChangeKind, FileChangeRecord, FileWatcher, ManualChangeService,
+};

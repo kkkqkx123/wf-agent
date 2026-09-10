@@ -59,9 +59,30 @@ fn now_millis() -> i64 {
         .unwrap_or(0)
 }
 
+/// Lexically normalize an absolute path without touching the filesystem:
+/// resolve `.`, collapse `..` without escaping the root prefix, and strip
+/// redundant separators. All watcher keys and recent-agent registry keys use
+/// this form so the same file cannot be missed due to path spelling.
+pub fn normalize_absolute_path(path: &Path) -> PathBuf {
+    let mut out = PathBuf::new();
+    for component in path.components() {
+        match component {
+            std::path::Component::CurDir => {}
+            std::path::Component::ParentDir => {
+                out.pop();
+            }
+            other => out.push(other.as_os_str()),
+        }
+    }
+    if out.as_os_str().is_empty() {
+        return PathBuf::from("/");
+    }
+    out
+}
+
 #[derive(Default)]
 struct WatcherState {
-    /// Records flushed from `pending`, since the last `reset()`.
+    /// Records flushed from `pending`, awaiting batch consumption.
     changed: HashMap<PathBuf, FileChangeRecord>,
     /// Records received but not yet flushed (debounce window).
     pending: HashMap<PathBuf, FileChangeRecord>,
@@ -175,7 +196,10 @@ impl FileWatcher {
             .clear();
     }
 
-    /// All changed files since the last `reset()`, with absolute paths.
+    /// All changed files currently buffered, with absolute paths.
+    /// Prefer [`Self::take_batch`] for consumption: this snapshot does not
+    /// claim ownership, so a concurrent `reset` could drop events observed
+    /// here.
     pub fn get_changed_files(&self) -> Vec<FileChangeRecord> {
         self.state
             .lock()
@@ -186,7 +210,7 @@ impl FileWatcher {
             .collect()
     }
 
-    /// Changed file paths (absolute) since the last `reset()`.
+    /// Changed file paths (absolute) currently buffered.
     pub fn get_changed_paths(&self) -> Vec<PathBuf> {
         self.state
             .lock()
@@ -197,8 +221,8 @@ impl FileWatcher {
             .collect()
     }
 
-    /// Whether a file has changed since the last `reset()`. Relative paths
-    /// are resolved against the watched root.
+    /// Whether a file has changed since the last batch consumption. Relative
+    /// paths are resolved against the watched root.
     pub fn has_changed(&self, file_path: impl AsRef<Path>) -> bool {
         let absolute = self.resolve_absolute(file_path.as_ref());
         self.state
@@ -208,11 +232,51 @@ impl FileWatcher {
             .contains_key(&absolute)
     }
 
-    /// Clear tracked changes (call after a checkpoint is created).
+    /// Atomically take the current `changed` map as an in-flight batch.
+    /// Records arriving after the take (new `pending` flushes or direct
+    /// `notify_*` inserts) stay buffered for the next batch and are never
+    /// dropped by this call. The caller owns the batch: on success it is
+    /// consumed, on failure the unprocessed records must be returned via
+    /// [`Self::requeue_batch`].
+    pub fn take_batch(&self) -> Vec<FileChangeRecord> {
+        let mut state = self.state.lock().expect("watcher state poisoned");
+        let taken = std::mem::take(&mut state.changed);
+        let mut out: Vec<FileChangeRecord> = taken.into_values().collect();
+        out.sort_by(|a, b| a.path.cmp(&b.path));
+        out
+    }
+
+    /// Return unprocessed records to the front of the queue after a batch
+    /// failure. Records are merged by path; a record that already has a
+    /// newer buffered entry keeps the newer entry, otherwise the unprocessed
+    /// record is restored. The batch boundary is preserved by sorting on
+    /// path before reinsertion.
+    pub fn requeue_batch(&self, records: Vec<FileChangeRecord>) {
+        if records.is_empty() {
+            return;
+        }
+        let mut state = self.state.lock().expect("watcher state poisoned");
+        for record in records {
+            state.changed.entry(record.path.clone()).or_insert(record);
+        }
+    }
+
+    /// Number of buffered (not yet taken) change records.
+    pub fn buffered_len(&self) -> usize {
+        self.state
+            .lock()
+            .expect("watcher state poisoned")
+            .changed
+            .len()
+    }
+
+    /// Clear buffered `changed` records. Pending (debounce-window) events
+    /// are intentionally preserved: they have not been flushed yet and
+    /// clearing them would drop events. Prefer `take_batch` + success
+    /// confirm over manual `reset` in production pumps.
     pub fn reset(&self) {
         let mut state = self.state.lock().expect("watcher state poisoned");
         state.changed.clear();
-        state.pending.clear();
     }
 
     /// Whether the watcher has been started.
@@ -249,11 +313,12 @@ impl FileWatcher {
     }
 
     fn resolve_absolute(&self, path: &Path) -> PathBuf {
-        if path.is_absolute() {
+        let joined = if path.is_absolute() {
             path.to_path_buf()
         } else {
             self.root.join(path)
-        }
+        };
+        normalize_absolute_path(&joined)
     }
 }
 
@@ -312,8 +377,8 @@ fn filter_event(
         EventKind::Modify(notify::event::ModifyKind::Name(_))
     ) && event.paths.len() == 2
     {
-        let from = event.paths[0].clone();
-        let to = event.paths[1].clone();
+        let from = normalize_absolute_path(&event.paths[0]);
+        let to = normalize_absolute_path(&event.paths[1]);
         if to == *root {
             return None;
         }
@@ -335,15 +400,16 @@ fn filter_event(
     };
     let mut records = Vec::new();
     for path in &event.paths {
-        if path == root {
+        let normalized = normalize_absolute_path(path);
+        if normalized == *root {
             continue;
         }
-        if let Ok(relative) = path.strip_prefix(root) {
+        if let Ok(relative) = normalized.strip_prefix(root) {
             if scanner.is_ignored(&relative.to_string_lossy().replace('\\', "/")) {
                 continue;
             }
         }
-        records.push(FileChangeRecord::new(path.clone(), kind, timestamp));
+        records.push(FileChangeRecord::new(normalized, kind, timestamp));
     }
     if records.is_empty() {
         None
@@ -434,14 +500,22 @@ async fn run_manual_change_pump(
                 }
             }
             _ = tokio::time::sleep(poll) => {
-                let records = watcher.get_changed_files();
-                if records.is_empty() {
+                // Atomic batch consumption: take owns the current batch;
+                // events arriving during processing stay buffered for the
+                // next round instead of being cleared. This pump shares the
+                // take/requeue contract with
+                // `FileCheckpointManager::drive_watcher_batch`: a taken batch
+                // has exactly one owner, so incremental drivers must take
+                // their own batches (or receive one explicitly) rather than
+                // competing with this pump on the same queue.
+                let batch = watcher.take_batch();
+                if batch.is_empty() {
                     continue;
                 }
-                watcher.reset();
                 let manager = manager.clone();
+                let batch_for_retry = batch.clone();
                 let handled = tokio::task::spawn_blocking(move || {
-                    manager.process_manual_changes(&records)
+                    manager.process_manual_changes(&batch_for_retry)
                 })
                 .await;
                 match handled {
@@ -451,10 +525,15 @@ async fn run_manual_change_pump(
                         }
                     }
                     Ok(Err(err)) => {
-                        tracing::warn!(error = %err, "failed to process manual file changes");
+                        // Failed batches are requeued so no event is lost;
+                        // repeated content-hash application keeps retries
+                        // idempotent at the manager layer.
+                        tracing::warn!(error = %err, "failed to process manual file changes; requeueing batch");
+                        watcher.requeue_batch(batch);
                     }
                     Err(join_err) => {
-                        tracing::warn!(error = %join_err, "manual change pump task panicked");
+                        tracing::warn!(error = %join_err, "manual change pump task panicked; requeueing batch");
+                        watcher.requeue_batch(batch);
                     }
                 }
             }
@@ -557,6 +636,77 @@ mod tests {
         assert!(!watcher.has_changed("x.log"));
 
         watcher.stop().await;
+    }
+
+    #[tokio::test]
+    async fn take_batch_does_not_drop_late_arrivals() {
+        let dir = tempfile::tempdir().unwrap();
+        let watcher = test_watcher(dir.path());
+        watcher.notify_file_change("a.txt", FileChangeKind::Add);
+        let batch = watcher.take_batch();
+        assert_eq!(batch.len(), 1);
+        assert!(watcher.take_batch().is_empty());
+
+        // Events arriving after the take stay buffered for the next batch.
+        watcher.notify_file_change("b.txt", FileChangeKind::Add);
+        assert!(watcher.has_changed("b.txt"));
+        assert!(!watcher.has_changed("a.txt"));
+    }
+
+    #[tokio::test]
+    async fn failed_batch_can_be_requeued() {
+        let dir = tempfile::tempdir().unwrap();
+        let watcher = test_watcher(dir.path());
+        watcher.notify_file_change("a.txt", FileChangeKind::Add);
+        watcher.notify_file_change("b.txt", FileChangeKind::Add);
+        let batch = watcher.take_batch();
+        assert_eq!(batch.len(), 2);
+        assert!(watcher.take_batch().is_empty());
+
+        watcher.requeue_batch(batch);
+        let retaken = watcher.take_batch();
+        assert_eq!(retaken.len(), 2);
+
+        // Requeue never overwrites a newer buffered entry for the same path.
+        watcher.notify_file_change("a.txt", FileChangeKind::Change);
+        let _ = watcher.take_batch();
+        watcher.notify_file_change("a.txt", FileChangeKind::Add);
+        let newer = watcher.take_batch();
+        assert_eq!(newer.len(), 1);
+        assert_eq!(newer[0].kind, FileChangeKind::Add);
+        watcher.requeue_batch(vec![FileChangeRecord::new(
+            newer[0].path.clone(),
+            FileChangeKind::Change,
+            0,
+        )]);
+        // No buffered entry exists, so the requeued record is restored.
+        assert_eq!(watcher.take_batch().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn reset_preserves_pending_window() {
+        let dir = tempfile::tempdir().unwrap();
+        let watcher = test_watcher(dir.path());
+        watcher.notify_file_change("a.txt", FileChangeKind::Add);
+        watcher.reset();
+        assert!(watcher.take_batch().is_empty());
+        // Late arrivals after reset are still recorded.
+        watcher.notify_file_change("b.txt", FileChangeKind::Add);
+        assert!(watcher.has_changed("b.txt"));
+    }
+
+    #[tokio::test]
+    async fn paths_are_lexically_normalized() {
+        let dir = tempfile::tempdir().unwrap();
+        let watcher = test_watcher(dir.path());
+        watcher.notify_file_change("sub/../a.txt", FileChangeKind::Add);
+        let records = watcher.take_batch();
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].path, dir.path().join("a.txt"));
+        assert_eq!(
+            normalize_absolute_path(&dir.path().join("sub/../a.txt")),
+            dir.path().join("a.txt")
+        );
     }
 
     async fn wait_until(

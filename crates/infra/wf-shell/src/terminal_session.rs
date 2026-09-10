@@ -17,6 +17,7 @@ use crate::backend::SessionMode;
 use crate::drain::OutputDrain;
 use crate::error::ShellResult;
 use crate::event_sink::{EventDispatcher, ShellEvent};
+use crate::lifecycle::{SessionLifecycleEvent, SessionLifecycleSink};
 use crate::output_buffer::OutputBuffer;
 use crate::session::ShellSession;
 
@@ -64,6 +65,10 @@ pub struct TerminalSessionConfig {
     /// Master switch for pushing events to the sink.
     pub events_enabled: bool,
     pub event_sink: Option<Arc<EventDispatcher>>,
+    /// Generic lifecycle sink (session start / command complete / session
+    /// terminate). Independent from `events_enabled`: lifecycle boundaries
+    /// are observable even when per-line output events are disabled.
+    pub lifecycle_sink: Option<Arc<dyn SessionLifecycleSink>>,
 }
 
 /// Session record: one entry in the store that outlives individual commands.
@@ -101,6 +106,10 @@ pub struct TerminalSession {
     /// store's `output_event_enabled`).
     pub(crate) events_enabled: bool,
     pub(crate) event_sink: Option<Arc<EventDispatcher>>,
+    /// Generic lifecycle sink (see `TerminalSessionConfig::lifecycle_sink`).
+    /// Interior mutability so a store-level sink registered after session
+    /// creation still observes the session end.
+    pub(crate) lifecycle_sink: Mutex<Option<Arc<dyn SessionLifecycleSink>>>,
 }
 
 impl TerminalSession {
@@ -125,7 +134,25 @@ impl TerminalSession {
             graceful_kill_timeout_ms: config.graceful_kill_timeout_ms,
             events_enabled: config.events_enabled,
             event_sink: config.event_sink,
+            lifecycle_sink: Mutex::new(config.lifecycle_sink),
         })
+    }
+
+    fn lifecycle_event(&self, event: SessionLifecycleEvent) {
+        let sink = wf_common::lock::lock_ok(self.lifecycle_sink.lock()).clone();
+        if let Some(sink) = sink {
+            sink.on_lifecycle(&event);
+        }
+    }
+
+    /// Working directory the session commands inherit, when configured.
+    pub fn cwd(&self) -> Option<PathBuf> {
+        self.cwd.clone()
+    }
+
+    /// Task (execution) the session is currently bound to, if any.
+    pub fn task_id(&self) -> Option<String> {
+        wf_common::lock::lock_ok(self.task_id.lock()).clone()
     }
 
     /// Lazily transition `Busy` -> `Idle` once the current command has
@@ -259,6 +286,12 @@ impl TerminalSession {
                 });
             }
         }
+        self.lifecycle_event(SessionLifecycleEvent::started(
+            self.session_id.clone(),
+            wf_common::lock::lock_ok(self.task_id.lock()).clone(),
+            self.cwd.clone(),
+            reused,
+        ));
     }
 
     pub(crate) fn dispatch_command_started(&self, command: &str) {
@@ -287,6 +320,14 @@ impl TerminalSession {
                 });
             }
         }
+        self.lifecycle_event(SessionLifecycleEvent::command_completed(
+            self.session_id.clone(),
+            wf_common::lock::lock_ok(self.task_id.lock()).clone(),
+            self.cwd.clone(),
+            command.to_string(),
+            exit_code,
+            success,
+        ));
     }
 
     fn dispatch_session_terminated(&self) {
@@ -299,6 +340,11 @@ impl TerminalSession {
                 });
             }
         }
+        self.lifecycle_event(SessionLifecycleEvent::terminated(
+            self.session_id.clone(),
+            wf_common::lock::lock_ok(self.task_id.lock()).clone(),
+            self.cwd.clone(),
+        ));
     }
 
     /// Wait until every queued event has been delivered to the sink. Called by

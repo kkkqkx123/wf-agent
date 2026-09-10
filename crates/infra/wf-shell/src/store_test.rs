@@ -373,6 +373,20 @@ fn test_sweep_idle_sessions() {
         .lock()
         .unwrap()
         .clone_from(&(wf_common::time::now() - 60_000));
+    // A task-bound session belongs to a live execution: the sweep must keep
+    // it so its eventual session finish still settles upper-layer samplers.
+    assert_eq!(store.sweep_idle_sessions(30_000), 0);
+    assert!(store.get(&created.session_id).is_some());
+    // Once released (binding cleared) the idle session is reclaimed.
+    assert_eq!(store.release_sessions_for_task("t1", false), 1);
+    // Release refreshes last_active_at; backdate again for the sweep.
+    store
+        .get(&created.session_id)
+        .unwrap()
+        .last_active_at
+        .lock()
+        .unwrap()
+        .clone_from(&(wf_common::time::now() - 60_000));
     assert_eq!(store.sweep_idle_sessions(30_000), 1);
     assert!(store.get(&created.session_id).is_none());
 }

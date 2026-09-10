@@ -179,7 +179,10 @@ impl FsToolHandlers {
     }
 
     /// write_file: write content, creating parent directories as needed.
-    pub fn write_file(&self, parameters: &Value) -> ToolResult<Value> {
+    /// On success reports a precise change (created vs modified by prior
+    /// existence) through the context observer, immediately after the disk
+    /// write.
+    pub fn write_file(&self, parameters: &Value, ctx: &ToolExecutionContext) -> ToolResult<Value> {
         let path_str = require_string(parameters, "path")?;
         let content = require_string(parameters, "content")?;
         let path = self.resolve_path(path_str);
@@ -191,6 +194,7 @@ impl FsToolHandlers {
             )));
         }
 
+        let existed = path.exists();
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).map_err(|e| {
                 ToolError::ExecutionError(format!(
@@ -205,6 +209,13 @@ impl FsToolHandlers {
             ToolError::ExecutionError(format!("Failed to write '{}': {}", path.display(), e))
         })?;
 
+        let op = if existed {
+            crate::observe::PreciseFileOp::Modified
+        } else {
+            crate::observe::PreciseFileOp::Created
+        };
+        notify_precise(ctx, &path, op);
+
         Ok(Value::String(format!(
             "Successfully wrote to {}",
             path.display()
@@ -212,7 +223,8 @@ impl FsToolHandlers {
     }
 
     /// edit_file: exact string replacement of the first occurrence.
-    pub fn edit_file(&self, parameters: &Value) -> ToolResult<Value> {
+    /// On success reports a precise modification through the observer.
+    pub fn edit_file(&self, parameters: &Value, ctx: &ToolExecutionContext) -> ToolResult<Value> {
         let file_path = require_string(parameters, "path")?;
         let old_string = require_string(parameters, "old_string")?;
         let new_string = require_string(parameters, "new_string")?;
@@ -259,6 +271,8 @@ impl FsToolHandlers {
         std::fs::write(&path, new_content).map_err(|e| {
             ToolError::ExecutionError(format!("Failed to write '{}': {}", path.display(), e))
         })?;
+
+        notify_precise(ctx, &path, crate::observe::PreciseFileOp::Modified);
 
         Ok(Value::String(format!(
             "Edited {}: replaced 1 occurrence(s)",
@@ -472,8 +486,11 @@ impl FsToolHandlers {
     }
 
     /// apply_patch: apply a Codex-style patch (Add/Delete/Update File
-    /// operations) to the workspace.
-    pub fn apply_patch(&self, parameters: &Value) -> ToolResult<Value> {
+    /// operations) to the workspace. Each successful hunk reports its
+    /// precise change immediately; failed hunks never report success, and a
+    /// partially successful patch keeps the events of the hunks that did
+    /// succeed.
+    pub fn apply_patch(&self, parameters: &Value, ctx: &ToolExecutionContext) -> ToolResult<Value> {
         let patch = require_string(parameters, "patch")?;
         let hunks = crate::patch::parse_patch(patch)?;
 
@@ -489,6 +506,28 @@ impl FsToolHandlers {
             };
             if result["success"] == Value::Bool(true) {
                 succeeded += 1;
+                // Precise notification per successful hunk, including rename
+                // association (adapter expands it to delete + edit + move).
+                let operation = result["operation"].as_str().unwrap_or("");
+                match operation {
+                    "add" => notify_precise(ctx, &path, crate::observe::PreciseFileOp::Created),
+                    "delete" => notify_precise(ctx, &path, crate::observe::PreciseFileOp::Deleted),
+                    "update" => notify_precise(ctx, &path, crate::observe::PreciseFileOp::Modified),
+                    "rename" => {
+                        let new_path = result["new_path"]
+                            .as_str()
+                            .map(|s| self.resolve_path(s))
+                            .unwrap_or_else(|| path.clone());
+                        notify_precise(
+                            ctx,
+                            &new_path,
+                            crate::observe::PreciseFileOp::Renamed {
+                                from: crate::observe::normalize_observer_path(&path),
+                            },
+                        );
+                    }
+                    _ => {}
+                }
             }
             results.push(result);
         }
@@ -650,7 +689,8 @@ impl FsToolHandlers {
     }
 
     /// apply_diff: apply SEARCH/REPLACE blocks to modify a file.
-    pub fn apply_diff(&self, parameters: &Value) -> ToolResult<Value> {
+    /// On success reports a precise modification through the observer.
+    pub fn apply_diff(&self, parameters: &Value, ctx: &ToolExecutionContext) -> ToolResult<Value> {
         let path_str = require_string(parameters, "path")?;
         let diff = require_string(parameters, "diff")?;
         let path = self.resolve_path(path_str);
@@ -713,6 +753,8 @@ impl FsToolHandlers {
             ToolError::ExecutionError(format!("Failed to write '{}': {}", path.display(), e))
         })?;
 
+        notify_precise(ctx, &path, crate::observe::PreciseFileOp::Modified);
+
         let partial_hint = if failures.is_empty() {
             String::new()
         } else {
@@ -736,19 +778,21 @@ impl FsToolHandlers {
         }))
     }
 
-    /// Construct the handler closure for a given tool name.
+    /// Construct the handler closure for a given tool name. Write-capable
+    /// tools keep the execution context so precise change notifications
+    /// carry the current execution id; registration itself is unchanged.
     pub fn handler(
         &self,
         tool_name: &'static str,
     ) -> ToolResult<crate::executor::stateless::StatelessHandler> {
         let this = self.clone();
         let handler = Arc::new(
-            move |params: &Value, _ctx: &ToolExecutionContext| match tool_name {
+            move |params: &Value, ctx: &ToolExecutionContext| match tool_name {
                 "read_file" => this.read_file(params),
-                "write_file" => this.write_file(params),
-                "edit_file" => this.edit_file(params),
-                "apply_patch" => this.apply_patch(params),
-                "apply_diff" => this.apply_diff(params),
+                "write_file" => this.write_file(params, ctx),
+                "edit_file" => this.edit_file(params, ctx),
+                "apply_patch" => this.apply_patch(params, ctx),
+                "apply_diff" => this.apply_diff(params, ctx),
                 "list_files" => this.list_files(params),
                 "grep_search" => this.grep_search(params),
                 "glob_search" => this.glob_search(params),
@@ -786,6 +830,29 @@ impl Clone for FsToolHandlers {
             protect: self.protect.clone(),
         }
     }
+}
+
+/// Report a precise file change through the context observer. The path is
+/// normalized to an absolute lexical form; observers validate the workspace
+/// scope and return explicit out-of-scope results instead of silently
+/// dropping configuration errors.
+fn notify_precise(ctx: &ToolExecutionContext, path: &Path, op: crate::observe::PreciseFileOp) {
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        // Resolve relative paths against the current directory for a stable
+        // absolute key; observers still enforce the workspace boundary.
+        std::env::current_dir()
+            .map(|cwd| cwd.join(path))
+            .unwrap_or_else(|_| path.to_path_buf())
+    };
+    let normalized = crate::observe::normalize_observer_path(&absolute);
+    ctx.observer
+        .notify_precise(crate::observe::PreciseFileChange::new(
+            normalized,
+            op,
+            &ctx.execution_id.to_string(),
+        ));
 }
 
 fn require_string<'a>(parameters: &'a Value, key: &str) -> ToolResult<&'a str> {
@@ -978,6 +1045,10 @@ fn collect_glob_matches(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::observe::{
+        PreciseFileChange, PreciseFileOp, ToolSideEffectObserver, ToolSideEffectObserverHandle,
+    };
+    use std::sync::{Arc, Mutex};
 
     fn make_tree(root: &Path) {
         std::fs::create_dir_all(root.join("src/sub")).unwrap();
@@ -1025,20 +1096,27 @@ mod tests {
             ..Default::default()
         });
 
+        let ctx = ToolExecutionContext::new("test-fs".into());
         handlers
-            .write_file(&serde_json::json!({
-                "path": "nested/file.txt",
-                "content": "hello world\n"
-            }))
+            .write_file(
+                &serde_json::json!({
+                    "path": "nested/file.txt",
+                    "content": "hello world\n"
+                }),
+                &ctx,
+            )
             .unwrap();
         assert!(root.join("nested/file.txt").exists());
 
         let edit = handlers
-            .edit_file(&serde_json::json!({
-                "path": "nested/file.txt",
-                "old_string": "world",
-                "new_string": "rust"
-            }))
+            .edit_file(
+                &serde_json::json!({
+                    "path": "nested/file.txt",
+                    "old_string": "world",
+                    "new_string": "rust"
+                }),
+                &ctx,
+            )
             .unwrap();
         assert!(edit.as_str().unwrap().contains("replaced 1 occurrence"));
         assert_eq!(
@@ -1046,11 +1124,14 @@ mod tests {
             "hello rust\n"
         );
 
-        let not_found = handlers.edit_file(&serde_json::json!({
-            "path": "nested/file.txt",
-            "old_string": "missing",
-            "new_string": "x"
-        }));
+        let not_found = handlers.edit_file(
+            &serde_json::json!({
+                "path": "nested/file.txt",
+                "old_string": "missing",
+                "new_string": "x"
+            }),
+            &ctx,
+        );
         assert!(not_found.is_err());
 
         let _ = std::fs::remove_dir_all(&root);
@@ -1147,5 +1228,122 @@ mod tests {
             .contains("No matches found"));
 
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    struct RecordingObserver {
+        changes: Mutex<Vec<PreciseFileChange>>,
+    }
+
+    impl ToolSideEffectObserver for RecordingObserver {
+        fn notify_precise(&self, change: PreciseFileChange) {
+            self.changes.lock().unwrap().push(change);
+        }
+    }
+
+    #[test]
+    fn precise_notifications_cover_write_edit_and_patch() {
+        let root = tempfile::tempdir().unwrap();
+        let handlers = FsToolHandlers::new(FsToolConfig {
+            workspace_dir: Some(root.path().to_path_buf()),
+            enable_ignore: false,
+            ..Default::default()
+        });
+        let recorder = Arc::new(RecordingObserver {
+            changes: Mutex::new(Vec::new()),
+        });
+        let ctx = ToolExecutionContext::new("exec-observe".into())
+            .with_observer(ToolSideEffectObserverHandle::new(recorder.clone()));
+
+        // write_file reports Created, second write reports Modified.
+        let abs = root.path().join("a.txt");
+        handlers
+            .write_file(
+                &serde_json::json!({ "path": abs.to_str().unwrap(), "content": "v1" }),
+                &ctx,
+            )
+            .unwrap();
+        handlers
+            .write_file(
+                &serde_json::json!({ "path": abs.to_str().unwrap(), "content": "v2" }),
+                &ctx,
+            )
+            .unwrap();
+        // edit_file reports Modified.
+        handlers
+            .edit_file(
+                &serde_json::json!({
+                    "path": abs.to_str().unwrap(),
+                    "old_string": "v2",
+                    "new_string": "v3"
+                }),
+                &ctx,
+            )
+            .unwrap();
+        // apply_diff reports Modified.
+        std::fs::write(&abs, "line1\nline2\n").unwrap();
+        handlers
+            .apply_diff(
+                &serde_json::json!({
+                    "path": abs.to_str().unwrap(),
+                    "diff": "<<<<<<< SEARCH\nline1\n=======\nline1x\n>>>>>>> REPLACE"
+                }),
+                &ctx,
+            )
+            .unwrap();
+
+        let changes = recorder.changes.lock().unwrap();
+        assert!(changes.len() >= 4, "changes: {changes:?}");
+        assert!(changes.iter().all(|c| c.execution_id == "exec-observe"));
+        assert!(matches!(changes[0].op, PreciseFileOp::Created));
+        assert!(matches!(changes[1].op, PreciseFileOp::Modified));
+    }
+
+    #[test]
+    fn failed_patch_hunk_reports_no_success_event() {
+        let root = tempfile::tempdir().unwrap();
+        let handlers = FsToolHandlers::new(FsToolConfig {
+            workspace_dir: Some(root.path().to_path_buf()),
+            enable_ignore: false,
+            ..Default::default()
+        });
+        let recorder = Arc::new(RecordingObserver {
+            changes: Mutex::new(Vec::new()),
+        });
+        let ctx = ToolExecutionContext::new("exec-patch".into())
+            .with_observer(ToolSideEffectObserverHandle::new(recorder.clone()));
+
+        std::fs::write(root.path().join("ok.txt"), "base\n").unwrap();
+        let patch = "*** Begin Patch\n*** Update File: ok.txt\n@@\n-base\n+changed\n*** Delete File: missing.txt\n*** End Patch";
+        let result = handlers
+            .apply_patch(&serde_json::json!({ "patch": patch }), &ctx)
+            .unwrap();
+        assert_eq!(result["summary"]["succeeded"], serde_json::json!(1));
+        assert_eq!(result["summary"]["failed"], serde_json::json!(1));
+        let changes = recorder.changes.lock().unwrap();
+        assert_eq!(
+            changes.len(),
+            1,
+            "only the successful hunk reports: {changes:?}"
+        );
+        assert!(matches!(changes[0].op, PreciseFileOp::Modified));
+    }
+
+    #[test]
+    fn no_observer_keeps_plain_behavior() {
+        let root = tempfile::tempdir().unwrap();
+        let handlers = FsToolHandlers::new(FsToolConfig {
+            workspace_dir: Some(root.path().to_path_buf()),
+            enable_ignore: false,
+            ..Default::default()
+        });
+        let ctx = ToolExecutionContext::new("exec-plain".into());
+        let abs = root.path().join("plain.txt");
+        let out = handlers
+            .write_file(
+                &serde_json::json!({ "path": abs.to_str().unwrap(), "content": "x" }),
+                &ctx,
+            )
+            .unwrap();
+        assert!(out.as_str().unwrap().contains("Successfully wrote"));
     }
 }

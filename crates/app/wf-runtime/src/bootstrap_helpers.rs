@@ -26,7 +26,6 @@ pub fn storage_db_path(config: &StorageConfig) -> PathBuf {
         .unwrap_or_else(|| PathBuf::from(format!("./storage/{}.db", app_name)))
 }
 
-#[cfg(feature = "checkpoint")]
 pub fn init_file_checkpoint_manager(
     config: &FileCheckpointConfig,
     event_bus: Arc<wf_core::event::EventBus>,
@@ -51,7 +50,6 @@ pub fn init_file_checkpoint_manager(
     }
 }
 
-#[cfg(feature = "checkpoint")]
 pub fn init_manual_change_service(
     config: &FileCheckpointConfig,
     manager: Option<&wf_checkpoint::file::FileCheckpointManager>,
@@ -86,7 +84,6 @@ pub fn init_manual_change_service(
     }
 }
 
-#[cfg(feature = "checkpoint")]
 pub fn init_gc_timer(
     config: &FileCheckpointConfig,
     manager: Option<&wf_checkpoint::file::FileCheckpointManager>,

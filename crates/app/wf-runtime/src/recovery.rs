@@ -3,14 +3,10 @@
 
 pub mod orchestrator;
 pub mod scanner;
-
-#[cfg(feature = "checkpoint")]
 pub mod api_executor;
 
 pub use orchestrator::RecoveryOrchestrator;
 pub use scanner::RecoveryScanner;
-
-#[cfg(feature = "checkpoint")]
 pub use api_executor::ApiRecoveryExecutor;
 
 /// Outcome of one recovery attempt. `recovered` is `false` when the

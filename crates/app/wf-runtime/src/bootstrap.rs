@@ -41,7 +41,6 @@ pub use bootstrap_helpers::{
     init_event_persistence, init_llm_gateway, init_mcp, init_metrics_context,
     init_plugins_and_resources, init_tool_registry_with_mcp, resolve_infra_config, storage_db_path,
 };
-#[cfg(feature = "checkpoint")]
 pub use bootstrap_helpers::{
     init_file_checkpoint_manager, init_gc_timer, init_manual_change_service,
 };
@@ -99,7 +98,6 @@ pub struct Runtime {
     /// File checkpoint manager (layertwine-backed): execution file snapshots
     /// are created/restored through it and script handlers capture workspace
     /// changes when it is attached. `None` keeps file checkpointing disabled.
-    #[cfg(feature = "checkpoint")]
     file_checkpoint_manager: Option<wf_checkpoint::file::FileCheckpointManager>,
     /// Host default tool approval configuration, applied to the API context
     /// so executions launched through it route tool calls through the
@@ -108,17 +106,14 @@ pub struct Runtime {
     /// Manual change service: watches the workspace root and routes
     /// human/external file edits into the manual partition. Started when
     /// file checkpointing is enabled with a workspace root and `manual_watch`.
-    #[cfg(feature = "checkpoint")]
     manual_change_service: Option<wf_checkpoint::watcher::ManualChangeService>,
     /// Forwarder task from the file-checkpoint event bus onto the shared
     /// event bus (CheckpointFileChanged / CheckpointMergeConflicted with the
     /// `DeltaSummary` payload). Kept alive for the runtime lifetime.
-    #[cfg(feature = "checkpoint")]
     checkpoint_event_bridge_handle: Option<tokio::task::JoinHandle<()>>,
     /// Optional periodic GC timer that runs `FileCheckpointManager::run_gc`
     /// at the configured `gc_interval_secs` interval. `None` when periodic
     /// GC is disabled (explicit `run_gc` / API only).
-    #[cfg(feature = "checkpoint")]
     gc_timer_handle: Option<tokio::task::JoinHandle<()>>,
 }
 
@@ -509,23 +504,19 @@ impl Runtime {
         // configured. The manager is attached to the API context so workflow
         // / agent executions create and restore file snapshots through it and
         // script handlers capture workspace changes.
-        #[cfg(feature = "checkpoint")]
         let (file_checkpoint_manager, checkpoint_event_bridge_handle) =
             init_file_checkpoint_manager(&config.file_checkpoint, event_bus.clone())?;
-        #[cfg(feature = "checkpoint")]
         let manual_change_service =
             init_manual_change_service(&config.file_checkpoint, file_checkpoint_manager.as_ref())?;
         // Approval tool (policy `llm` / `manual`): an LLM node can call
         // `approve_changes` to resolve a pending agent approval in-workflow.
         // Registered only when a file checkpoint manager is attached.
-        #[cfg(feature = "checkpoint")]
         if let Some(manager) = &file_checkpoint_manager {
             crate::approval_tool::register_approval_tools(&tool_registry, manager.clone());
         }
 
         // Optional periodic GC timer: when `gc_interval_secs` is configured,
         // spawn a background task that runs `run_gc` at the specified interval.
-        #[cfg(feature = "checkpoint")]
         let gc_timer_handle =
             init_gc_timer(&config.file_checkpoint, file_checkpoint_manager.as_ref());
 
@@ -557,14 +548,10 @@ impl Runtime {
             event_persistence,
             checkpoint_store,
             api_ctx: std::sync::OnceLock::new(),
-            #[cfg(feature = "checkpoint")]
             file_checkpoint_manager,
             tool_approval: config.tool_approval.clone(),
-            #[cfg(feature = "checkpoint")]
             manual_change_service,
-            #[cfg(feature = "checkpoint")]
             checkpoint_event_bridge_handle,
-            #[cfg(feature = "checkpoint")]
             gc_timer_handle,
         })
     }
@@ -575,7 +562,6 @@ impl Runtime {
 
     /// The attached file checkpoint manager (layertwine-backed), when file
     /// checkpointing is enabled with a storage backend.
-    #[cfg(feature = "checkpoint")]
     pub fn file_checkpoint_manager(&self) -> Option<&wf_checkpoint::file::FileCheckpointManager> {
         self.file_checkpoint_manager.as_ref()
     }
@@ -651,7 +637,6 @@ impl Runtime {
             ctx = ctx.with_hook_registry(self.hook_registry.clone());
             // Attach the file checkpoint manager (file snapshots + script
             // change capture) when file checkpointing is enabled.
-            #[cfg(feature = "checkpoint")]
             if let Some(manager) = &self.file_checkpoint_manager {
                 ctx = ctx.with_file_checkpoint_manager(manager.clone());
             }
@@ -705,20 +690,17 @@ impl Runtime {
         }
 
         // Stop the manual file watcher before the storage layer closes.
-        #[cfg(feature = "checkpoint")]
         if let Some(mut service) = self.manual_change_service.take() {
             service.stop().await;
         }
 
         // Stop the checkpoint event bridge (it holds a broadcast receiver on
         // the checkpoint bus; aborting it is safe once the watcher stopped).
-        #[cfg(feature = "checkpoint")]
         if let Some(handle) = self.checkpoint_event_bridge_handle.take() {
             handle.abort();
         }
 
         // Stop the periodic GC timer before the storage layer closes.
-        #[cfg(feature = "checkpoint")]
         if let Some(handle) = self.gc_timer_handle.take() {
             handle.abort();
         }
@@ -755,9 +737,8 @@ impl Runtime {
     /// by a previous process: scans the execution store and restores the
     /// latest checkpoint of each one through the API resume path.
     ///
-    /// With the `checkpoint` feature disabled (or without a persistent
-    /// checkpoint store) executions are reported as skipped, never as
-    /// spuriously recovered.
+    /// Without a persistent checkpoint store executions are reported as
+    /// skipped, never as spuriously recovered.
     pub async fn recover_incomplete_executions(
         &self,
     ) -> RuntimeResult<super::recovery::RecoveryResult> {
@@ -770,16 +751,10 @@ impl Runtime {
         let scanner = RecoveryScanner::new(storage.workflow_execution.clone());
         let ctx = self.api_context();
 
-        #[cfg(feature = "checkpoint")]
-        {
-            return RecoveryOrchestrator::new(scanner)
-                .with_recovery_executor(Arc::new(super::recovery::ApiRecoveryExecutor))
-                .recover_all(ctx)
-                .await;
-        }
-
-        #[cfg(not(feature = "checkpoint"))]
-        RecoveryOrchestrator::new(scanner).recover_all(ctx).await
+        RecoveryOrchestrator::new(scanner)
+            .with_recovery_executor(Arc::new(super::recovery::ApiRecoveryExecutor))
+            .recover_all(ctx)
+            .await
     }
 
     pub fn mode(&self) -> &ModeInfo {

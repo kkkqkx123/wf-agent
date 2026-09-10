@@ -15,12 +15,12 @@ members = [
     "crates/infra/wf-shell",
     "crates/infra/wf-plugin",
     "crates/infra/wf-resource",
+    "crates/infra/wf-checkpoint",
     # engine
     "crates/engine/wf-tools",
     "crates/engine/wf-execution-shared",
     "crates/engine/wf-agent",
     "crates/engine/wf-workflow",
-    "crates/engine/wf-checkpoint",
     # app
     "crates/app/wf-api",
     "crates/app/wf-server",

@@ -9,7 +9,7 @@ wf-common = { path = "../../foundation/wf-common" }
 wf-core = { path = "../../foundation/wf-core" }
 wf-tools = { path = "../wf-tools" }
 wf-llm = { path = "../../infra/wf-llm" }
-wf-checkpoint = { path = "../wf-checkpoint" }
+wf-checkpoint = { path = "../../infra/wf-checkpoint" }
 wf-execution-shared = { path = "../wf-execution-shared" }
 wf-config = { path = "../../infra/wf-config" }
 wf-metrics = { path = "../../infra/wf-metrics" }

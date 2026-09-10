@@ -64,7 +64,7 @@ impl RecoveryExecutor for ApiRecoveryExecutor {
     }
 }
 
-#[cfg(all(test, feature = "checkpoint"))]
+#[cfg(test)]
 mod tests {
     use std::sync::Arc;
 

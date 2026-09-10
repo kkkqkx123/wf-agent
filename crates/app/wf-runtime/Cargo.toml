@@ -22,7 +22,7 @@ wf-metrics = { path = "../../infra/wf-metrics" }
 wf-resource = { path = "../../infra/wf-resource" }
 wf-config = { path = "../../infra/wf-config" }
 wf-llm = { path = "../../infra/wf-llm" }
-wf-checkpoint = { path = "../../engine/wf-checkpoint", optional = true }
+wf-checkpoint = { path = "../../infra/wf-checkpoint" }
 wf-plugin = { path = "../../infra/wf-plugin", optional = true }
 wf-agent = { path = "../../engine/wf-agent" }
 wf-workflow = { path = "../../engine/wf-workflow" }
@@ -38,10 +38,9 @@ wf-llm = { path = "../../infra/wf-llm", features = ["mock"] }
 tempfile = "3"
 
 [features]
-default = ["sqlite", "postgres", "checkpoint"]
+default = ["sqlite", "postgres"]
 sqlite = ["wf-storage/sqlite", "wf-api/sqlite"]
 postgres = ["wf-storage/postgres"]
-checkpoint = ["wf-checkpoint"]
 plugins = ["wf-plugin/lua"]
 lua = ["wf-sandbox/lua", "wf-plugin/lua"]
 native = ["wf-plugin/native"]

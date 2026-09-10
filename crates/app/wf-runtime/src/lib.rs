@@ -18,9 +18,7 @@ pub mod storage_manager;
 pub mod tool_storage;
 pub mod trigger_listener;
 
-#[cfg(feature = "checkpoint")]
 pub mod approval_tool;
-#[cfg(feature = "checkpoint")]
 pub mod checkpoint_event_bridge;
 
 pub mod wf_runtime;

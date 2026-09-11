@@ -1,6 +1,5 @@
 use crate::checkpoint::branch::Branch;
 use crate::checkpoint::dag::CheckpointDag;
-use crate::checkpoint::time_index::TimeIndex;
 use crate::checkpoint::types::{Checkpoint, CheckpointMetadata};
 use crate::core::snapshot::Snapshot;
 use crate::core::types::{CheckpointId, SnapshotId};
@@ -110,15 +109,13 @@ pub struct CheckpointRepo {
     /// Current branch index
     pub current_branch: usize,
     /// Checkpoint DAG (built dynamically from checkpoints)
-    pub checkpoint_dag: CheckpointDag,
+    pub(crate) checkpoint_dag: CheckpointDag,
     /// All checkpoints (ID → Checkpoint)
     pub(crate) checkpoints: HashMap<CheckpointId, Checkpoint>,
     /// All snapshots (ID → Snapshot) — in-memory cache
     pub(crate) snapshots: HashMap<SnapshotId, Snapshot>,
     /// Optional persistence backend — when set, mutations auto-persist
     pub(crate) storage: Option<Box<dyn CheckpointPersist>>,
-    /// Time index for fast time-based checkpoint queries
-    pub time_index: TimeIndex,
     /// Checkpoints deleted since last sync — cleaned from storage in sync_all()
     deleted_checkpoints: HashSet<CheckpointId>,
     /// Branches deleted since last sync — cleaned from storage in sync_all()
@@ -149,8 +146,6 @@ impl CheckpointRepo {
         dag.add_node(root_id);
 
         let mut checkpoints = HashMap::new();
-        let mut time_index = TimeIndex::new();
-        time_index.insert(&root);
         checkpoints.insert(root_id, root);
 
         CheckpointRepo {
@@ -160,7 +155,6 @@ impl CheckpointRepo {
             checkpoints,
             snapshots: HashMap::new(),
             storage: None,
-            time_index,
             deleted_checkpoints: HashSet::new(),
             deleted_branches: HashSet::new(),
             dirty_checkpoints: HashSet::new(),
@@ -203,10 +197,6 @@ impl CheckpointRepo {
         // Rebuild the DAG from checkpoint parent relationships.
         let checkpoint_dag = Self::build_dag_from_checkpoints(&checkpoints);
 
-        // Build time index from all checkpoints
-        let time_index =
-            TimeIndex::from_checkpoints(&checkpoints.values().cloned().collect::<Vec<_>>());
-
         // Load snapshots referenced by all checkpoints from storage
         let mut snapshots = HashMap::new();
         let mut seen_snap_ids = HashSet::new();
@@ -236,7 +226,6 @@ impl CheckpointRepo {
             checkpoints,
             snapshots,
             storage: Some(storage),
-            time_index,
             deleted_checkpoints: HashSet::new(),
             deleted_branches: HashSet::new(),
             dirty_checkpoints: HashSet::new(),
@@ -313,8 +302,6 @@ impl CheckpointRepo {
             self.checkpoints = checkpoints;
         }
         self.checkpoint_dag = Self::build_dag_from_checkpoints(&self.checkpoints);
-        self.time_index =
-            TimeIndex::from_checkpoints(&self.checkpoints.values().cloned().collect::<Vec<_>>());
         Ok(())
     }
 
@@ -415,7 +402,6 @@ impl CheckpointRepo {
         let cp_id = cp.id;
 
         // Use &cp before moving it into the map (avoids redundant HashMap lookup)
-        self.time_index.insert(&cp);
         self.checkpoint_dag.add_node(cp_id);
         self.checkpoint_dag.add_edge(current_head, cp_id);
         self.current_branch_mut().set_head(cp_id);
@@ -461,7 +447,6 @@ impl CheckpointRepo {
         let cp = Checkpoint::new(snapshot_ids, vec![current_head], metadata);
         let cp_id = cp.id;
 
-        self.time_index.insert(&cp);
         self.checkpoint_dag.add_node(cp_id);
         self.checkpoint_dag.add_edge(current_head, cp_id);
         self.current_branch_mut().set_head(cp_id);
@@ -614,7 +599,6 @@ impl CheckpointRepo {
         let cp_id = cp.id;
 
         // Use &cp before moving it into the map (avoids redundant HashMap lookup)
-        self.time_index.insert(&cp);
         self.checkpoint_dag.add_node(cp_id);
         self.checkpoint_dag.add_edge(current_head, cp_id);
         self.checkpoint_dag.add_edge(source_head, cp_id);
@@ -681,7 +665,7 @@ impl CheckpointRepo {
     }
 
     /// DAG references
-    pub fn dag(&self) -> &CheckpointDag {
+    pub(crate) fn dag(&self) -> &CheckpointDag {
         &self.checkpoint_dag
     }
 
@@ -692,17 +676,15 @@ impl CheckpointRepo {
     /// When no storage is attached, the deletion is tracked in `deleted_checkpoints`
     /// so that a subsequent [`sync_all`] (after [`attach_storage`]) can clean it up.
     pub fn remove_checkpoint(&mut self, id: &CheckpointId) -> Result<()> {
-        if let Some(cp) = self.checkpoints.remove(id) {
-            self.time_index.remove(&cp);
-            // Track deletion for deferred sync only when no immediate storage is available
-            if self.storage.is_none() {
-                self.deleted_checkpoints.insert(*id);
-            }
-        } else {
+        if self.checkpoints.remove(id).is_none() {
             return Err(LayertwineError::NotFound(format!(
                 "checkpoint {} not found",
                 id
             )));
+        }
+        // Track deletion for deferred sync only when no immediate storage is available
+        if self.storage.is_none() {
+            self.deleted_checkpoints.insert(*id);
         }
         self.checkpoint_dag.remove_node(id);
         if let Some(storage) = &self.storage {

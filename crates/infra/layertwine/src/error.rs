@@ -19,10 +19,6 @@ pub enum LayertwineError {
     #[error("Checkpoint error: {0}")]
     Checkpoint(String),
 
-    // Restore error.
-    #[error("Restore error: {0}")]
-    Restore(String),
-
     // Transaction error.
     #[error("Transaction error: {0}")]
     Transaction(String),
@@ -30,10 +26,6 @@ pub enum LayertwineError {
     // Integrity check error.
     #[error("Integrity check failed: {0}")]
     Integrity(String),
-
-    // Git synchronization error -
-    #[error("Git synchronization error: {0}")]
-    GitSync(String),
 
     // GC error.
     #[error("GC error: {0}")]
@@ -93,11 +85,5 @@ impl From<serde_json::Error> for LayertwineError {
 impl From<serde_json::Error> for StorageError {
     fn from(e: serde_json::Error) -> Self {
         StorageError::Serialization(e.to_string())
-    }
-}
-
-impl From<crate::api::types::ApiError> for LayertwineError {
-    fn from(e: crate::api::types::ApiError) -> Self {
-        LayertwineError::General(format!("[{}] {}", e.code, e.message))
     }
 }

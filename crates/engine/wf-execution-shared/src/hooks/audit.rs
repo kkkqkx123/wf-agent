@@ -46,7 +46,9 @@ pub fn evaluate_hook_condition(
 /// - `execution_id` / `agent_loop_id` come from the hook context;
 /// - `workflow_id` is picked up from the context data when the caller
 ///   injected it (workflow hooks do; agent hooks have no workflow);
-/// - metadata carries `hook_type` (the fired type), `event_category`
+/// - metadata carries `hook_type` as a single-element list holding the fired
+///   type (a trigger matches it with a plain string metadata condition; list
+///   containment is part of the matcher), `event_category`
 ///   (observable / request / mutated, see `wf_types::hook::hook_effect`),
 ///   `hook_count`, per-hook `weights` and `payloads` (template-resolved),
 ///   plus the fire summary: `handlers` (name / outcome / duration_ms /

@@ -7,6 +7,7 @@ pub mod event_bus;
 pub mod events;
 pub mod guard;
 pub mod manifest;
+pub mod package;
 pub mod plugin;
 pub mod registry;
 
@@ -30,7 +31,8 @@ pub use error::{PluginError, PluginResult};
 pub use event_bus::{PluginEventBus, PluginEventSubscription};
 pub use events::PluginEvent;
 pub use guard::PluginGuard;
-pub use manifest::{PluginManifest, PluginType};
+pub use manifest::{PluginManifest, PluginPermission, PluginType};
+pub use package::{InstalledPlugin, PackageState, PluginPackageManager};
 pub use plugin::Plugin;
 pub use registry::{
     ContributionRecord, DiscoveredPlugin, PluginInfo, PluginRegistry, PluginStatus,

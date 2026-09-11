@@ -4,7 +4,7 @@ use tokio::sync::broadcast;
 use wf_types::events::{BaseEvent, EventType};
 
 use crate::provenance::DeltaSummary;
-use layertwine::git_sync::gc::GcStats;
+use layertwine::checkpoint::gc::GcStats;
 
 const DEFAULT_CHANNEL_CAPACITY: usize = 256;
 
@@ -57,7 +57,7 @@ pub enum CheckpointEvent {
     },
     /// A garbage collection run completed. `data.operation` is `"gc"`,
     /// `data.description` a human summary, and `stats` the full `GcStats`
-    /// (removed checkpoints / snapshots / freed bytes / delta chain depth).
+    /// (removed checkpoints / snapshots).
     GcCompleted {
         base: BaseEvent,
         data: CheckpointData,

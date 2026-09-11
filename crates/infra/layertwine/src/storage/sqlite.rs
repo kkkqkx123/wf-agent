@@ -12,7 +12,7 @@ mod snapshot;
 #[cfg(test)]
 mod tests;
 
-pub use connection::SqliteStorage;
+pub use connection::{CompactOptions, CompactReport, SqliteStorage};
 
 impl<
         T: crate::storage::repository::SnapshotStore

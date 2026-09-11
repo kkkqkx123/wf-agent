@@ -2,9 +2,8 @@
 //!
 //! Define all allowed forward/reverse flow operations, and state machine irony checks.
 
-use crate::backup::backup_repo::BackupRepo;
 use crate::core::snapshot::{Snapshot, SnapshotContent};
-use crate::core::types::{BackupId, EditSessionId, LayerType, PartitionId, SnapshotId};
+use crate::core::types::{EditSessionId, LayerType, PartitionId, SnapshotId};
 use crate::engine::merge::apply_deltas;
 use crate::error::{LayertwineError, Result};
 use crate::storage::repository::{
@@ -448,20 +447,6 @@ where
             )
         }
     }
-}
-
-/// Merge backup snapshots into staged
-///
-/// Uses BackupRepo to restore a backup into the staged partition.
-pub fn merge_backup_to_staged<S>(
-    storage: &S,
-    backup_repo: &BackupRepo,
-    backup_id: &BackupId,
-) -> Result<SnapshotId>
-where
-    S: SnapshotStore + DeltaStore + FileNodeStore + PartitionStore,
-{
-    backup_repo.merge_to_staged(backup_id, storage)
 }
 
 // ===== Utility functions =====

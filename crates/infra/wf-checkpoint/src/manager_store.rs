@@ -76,7 +76,7 @@ pub(crate) struct ManagerPolicy {
     pub(crate) conflict_behavior: ConflictBehavior,
     pub(crate) full_snapshot_threshold: f64,
     pub(crate) gc_interval_secs: Option<u64>,
-    pub(crate) gc_retention: Option<layertwine::git_sync::GcRetention>,
+    pub(crate) gc_retention: Option<layertwine::checkpoint::GcRetention>,
 }
 
 impl Default for ManagerPolicy {

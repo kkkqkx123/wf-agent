@@ -43,11 +43,7 @@ impl<'a> AgentValidator<'a> {
         if let Some(config) = &definition.config {
             if let Some(hooks) = &config.hooks {
                 for hook in hooks {
-                    let hook_type_str = serde_json::to_string(&hook.hook_type)
-                        .unwrap_or_default()
-                        .trim_matches('"')
-                        .to_string();
-                    if let Some(e) = validate_hook_type(&hook_type_str) {
+                    if let Some(e) = validate_hook_type(hook.hook_type_name()) {
                         result.push_warning(e);
                     }
                 }

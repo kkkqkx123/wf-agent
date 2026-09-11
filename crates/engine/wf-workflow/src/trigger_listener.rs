@@ -97,6 +97,16 @@ struct TriggerMatch {
 /// order breaking ties. Idempotency (e.g. repeated compression requests for
 /// the same array version) is the responsibility of the
 /// [`TriggerActionRunner`].
+/// How many matched templates run for one event.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TriggerMatchPolicy {
+    /// Only the highest-priority match runs (default, backward compatible).
+    #[default]
+    BestOnly,
+    /// Every matched template runs in priority order.
+    All,
+}
+
 #[derive(Clone)]
 pub struct TriggerEventListener {
     bus: Arc<EventBus>,
@@ -104,8 +114,11 @@ pub struct TriggerEventListener {
     runner: Arc<dyn TriggerActionRunner>,
     /// `execution_id:trigger_name` pairs with a run in flight.
     in_flight: DashMap<String, ()>,
-    /// Per-template fire counts (only consulted when `max_triggers > 0`).
+    /// Per-execution fire counts keyed by `execution_id:template_name`
+    /// (only consulted when `max_triggers > 0`), so concurrent executions
+    /// never consume each other's budget.
     trigger_counts: Arc<std::sync::Mutex<HashMap<String, u32>>>,
+    match_policy: TriggerMatchPolicy,
     /// Event types with at least one registered template; the listener
     /// subscribes a typed channel per type. Empty when no template declares
     /// a parseable type (general-channel fallback).
@@ -158,6 +171,7 @@ impl TriggerEventListener {
             runner,
             in_flight: DashMap::new(),
             trigger_counts: Arc::new(std::sync::Mutex::new(HashMap::new())),
+            match_policy: TriggerMatchPolicy::BestOnly,
             interested_types,
             concurrency_gate: None,
             shutdown,
@@ -171,13 +185,21 @@ impl TriggerEventListener {
         self
     }
 
+    /// Select how many matched templates run per event. `BestOnly` keeps the
+    /// historical single-winner behavior; `All` runs every match in priority
+    /// order (callers keep idempotency responsibility).
+    pub fn with_match_policy(mut self, policy: TriggerMatchPolicy) -> Self {
+        self.match_policy = policy;
+        self
+    }
+
     /// Run the listener loop until shutdown is requested.
     ///
     /// Spawns a background dispatch loop that consumes matched templates from
     /// an internal channel. The main event loop stays responsive by offloading
     /// template matching to spawned tasks.
     pub async fn run(&self) {
-        let (match_tx, mut match_rx) = mpsc::unbounded_channel::<TriggerMatch>();
+        let (match_tx, mut match_rx) = mpsc::unbounded_channel::<Vec<TriggerMatch>>();
 
         // Background dispatch loop: consumes matched results and executes
         // actions. Runs in a separate task so the event loop is never blocked
@@ -192,7 +214,11 @@ impl TriggerEventListener {
                         break;
                     }
                     matched = match_rx.recv() => match matched {
-                        Some(matched) => listener.execute_action(matched).await,
+                        Some(batch) => {
+                            for one in batch {
+                                listener.execute_action(one).await;
+                            }
+                        }
                         None => break,
                     },
                 }
@@ -272,8 +298,9 @@ impl TriggerEventListener {
                         let tx = match_tx.clone();
                         let listener = self.clone();
                         tokio::spawn(async move {
-                            if let Some(matched) = listener.select_best_template(&event) {
-                                let _ = tx.send(matched);
+                            let batch = listener.select_templates(&event);
+                            if !batch.is_empty() {
+                                let _ = tx.send(batch);
                             }
                         });
                     }
@@ -294,9 +321,18 @@ impl TriggerEventListener {
     /// Selection criteria: priority (desc), then specificity
     /// (metadata-conditioned first), then registration order.
     fn select_best_template(&self, event: &BaseEvent) -> Option<TriggerMatch> {
-        let execution_id = event.execution_id.as_ref()?;
+        self.select_templates(event).into_iter().next()
+    }
 
-        let mut best: Option<(usize, TriggerTemplate)> = None;
+    /// Match an event against all registered templates and return every match
+    /// in run order. `BestOnly` returns at most one entry; `All` returns all
+    /// matches sorted by priority (desc), specificity, registration order.
+    fn select_templates(&self, event: &BaseEvent) -> Vec<TriggerMatch> {
+        let Some(execution_id) = event.execution_id.as_ref() else {
+            return Vec::new();
+        };
+
+        let mut matched: Vec<(usize, TriggerTemplate)> = Vec::new();
         for (index, template) in self.registry.templates().iter().enumerate() {
             if !template.enabled.unwrap_or(true) {
                 continue;
@@ -307,53 +343,67 @@ impl TriggerEventListener {
             if !self.matches(event, condition) {
                 continue;
             }
-            let priority = template.priority.unwrap_or(0);
-            let specific = condition_has_metadata(condition);
-            let replace = match &best {
-                None => true,
-                Some((_, current)) => {
-                    let current_priority = current.priority.unwrap_or(0);
-                    let current_specific = current
+            if template.action.is_none() {
+                continue;
+            }
+            matched.push((index, template.clone()));
+        }
+
+        matched.sort_by(|(ai, a), (bi, b)| {
+            let pa = a.priority.unwrap_or(0);
+            let pb = b.priority.unwrap_or(0);
+            pb.cmp(&pa)
+                .then_with(|| {
+                    let sa = a
                         .condition
                         .as_ref()
                         .map(condition_has_metadata)
                         .unwrap_or(false);
-                    priority > current_priority
-                        || (priority == current_priority && specific && !current_specific)
-                }
-            };
-            if replace {
-                best = Some((index, template.clone()));
-            }
+                    let sb = b
+                        .condition
+                        .as_ref()
+                        .map(condition_has_metadata)
+                        .unwrap_or(false);
+                    sb.cmp(&sa)
+                })
+                .then_with(|| ai.cmp(bi))
+        });
+        if matches!(self.match_policy, TriggerMatchPolicy::BestOnly) {
+            matched.truncate(1);
         }
-
-        let (_, template) = best?;
-        template.action.as_ref()?;
 
         // Debug-log only events that have templates configured for their type.
-        let type_configured = self.registry.templates().iter().any(|t| {
-            t.condition
-                .as_ref()
-                .is_some_and(|c| c.event_type == event.r#type.as_str())
-        });
-        if type_configured {
-            debug!(
-                "No trigger template matched event {} for execution {}",
-                event.r#type.as_str(),
-                execution_id
-            );
+        if matched.is_empty() {
+            let type_configured = self.registry.templates().iter().any(|t| {
+                t.condition
+                    .as_ref()
+                    .is_some_and(|c| c.event_type == event.r#type.as_str())
+            });
+            if type_configured {
+                debug!(
+                    "No trigger template matched event {} for execution {}",
+                    event.r#type.as_str(),
+                    execution_id
+                );
+            }
+            return Vec::new();
         }
 
-        let key = format!("{}:{}", execution_id, template.name);
-        Some(TriggerMatch {
-            template,
-            event: event.clone(),
-            key,
-        })
+        matched
+            .into_iter()
+            .map(|(_, template)| {
+                let key = format!("{}:{}", execution_id, template.name);
+                TriggerMatch {
+                    template,
+                    event: event.clone(),
+                    key,
+                }
+            })
+            .collect()
     }
 
     /// Execute a matched trigger action: check in-flight guard and
-    /// max_triggers budget, then spawn the action runner.
+    /// per-execution max_triggers budget, then spawn the action runner.
     async fn execute_action(&self, matched: TriggerMatch) {
         let TriggerMatch {
             template,
@@ -376,12 +426,13 @@ impl TriggerEventListener {
         }
         if let Some(max) = template.max_triggers {
             if max > 0 {
+                let budget_key = format!("{}:{}", execution_id, template.name);
                 let mut counts = wf_common::lock::lock_ok(self.trigger_counts.lock());
-                let count = counts.entry(template.name.clone()).or_insert(0);
+                let count = counts.entry(budget_key).or_insert(0);
                 if *count >= max {
                     debug!(
-                        "Trigger '{}' reached max_triggers ({}), skipping",
-                        template.name, max
+                        "Trigger '{}' reached max_triggers ({}) for execution {}, skipping",
+                        template.name, max, execution_id
                     );
                     self.in_flight.remove(&key);
                     return;
@@ -555,7 +606,14 @@ fn condition_has_metadata(condition: &TriggerCondition) -> bool {
 ///   value (JSON numbers);
 /// - `"^prefix"`: the event string value starts with `prefix`;
 /// - anything else: exact string equality.
+///
+/// Array actual values (notably the `HOOK_TRIGGERED` audit event's
+/// `hook_type` list) match when any element matches the expected value, so a
+/// trigger can subscribe to one hook type with a plain string condition.
 fn value_matches(actual: &serde_json::Value, expected: &serde_json::Value) -> bool {
+    if let Some(items) = actual.as_array() {
+        return items.iter().any(|item| value_matches(item, expected));
+    }
     let Some(s) = expected.as_str() else {
         return actual == expected;
     };
@@ -833,8 +891,9 @@ mod tests {
         start_listener(&bus, registry, runner);
         wait_for_listener(&bus, 1).await;
 
-        // Sequential (non-concurrent) events: the second execution must be
-        // dropped by the max_triggers=1 budget.
+        // Sequential (non-concurrent) events: the second event for the same
+        // execution must be dropped by the per-execution max_triggers=1
+        // budget.
         bus.publish(base_event(EventType::ContextCompressionRequested, "exec-5"))
             .unwrap();
         wait_until(|| calls.load(Ordering::SeqCst) == 1).await;
@@ -846,6 +905,63 @@ mod tests {
             calls.load(Ordering::SeqCst),
             1,
             "max_triggers must cap runs"
+        );
+    }
+
+    #[tokio::test]
+    async fn max_triggers_budget_is_per_execution() {
+        let bus = Arc::new(EventBus::new(64));
+        let registry: Arc<dyn TriggerTemplateRegistry> =
+            Arc::new(StaticRegistry(vec![event_template(
+                "t1",
+                "CONTEXT_COMPRESSION_REQUESTED",
+                1,
+            )]));
+        let calls = Arc::new(AtomicU32::new(0));
+        let runner: Arc<dyn TriggerActionRunner> = Arc::new(RecordingRunner {
+            calls: calls.clone(),
+            abort_on_event_type: None,
+        });
+        start_listener(&bus, registry, runner);
+        wait_for_listener(&bus, 1).await;
+
+        bus.publish(base_event(EventType::ContextCompressionRequested, "exec-a"))
+            .unwrap();
+        wait_until(|| calls.load(Ordering::SeqCst) == 1).await;
+        bus.publish(base_event(EventType::ContextCompressionRequested, "exec-b"))
+            .unwrap();
+        wait_until(|| calls.load(Ordering::SeqCst) == 2).await;
+
+        assert_eq!(
+            calls.load(Ordering::SeqCst),
+            2,
+            "independent executions must not share the budget"
+        );
+    }
+
+    #[test]
+    fn match_policy_best_only_keeps_single_winner() {
+        let templates = vec![
+            event_template("low", "CONTEXT_COMPRESSION_REQUESTED", 0),
+            event_template("high", "CONTEXT_COMPRESSION_REQUESTED", 0),
+        ];
+        let listener = TriggerEventListener::new(
+            Arc::new(EventBus::new(4)),
+            Arc::new(StaticRegistry(templates)),
+            Arc::new(RecordingRunner {
+                calls: Arc::new(AtomicU32::new(0)),
+                abort_on_event_type: None,
+            }),
+            CancellationToken::new(),
+        );
+        let event = base_event(EventType::ContextCompressionRequested, "e1");
+        assert_eq!(listener.select_templates(&event).len(), 1);
+        assert_eq!(
+            listener
+                .with_match_policy(TriggerMatchPolicy::All)
+                .select_templates(&event)
+                .len(),
+            2
         );
     }
 
@@ -979,5 +1095,55 @@ mod tests {
         };
         let event = base_event(EventType::NodeCustomEvent, "e1");
         assert!(!listener.matches(&event, &condition));
+    }
+
+    #[test]
+    fn hook_type_list_matches_plain_string_condition() {
+        let listener = TriggerEventListener::new(
+            Arc::new(EventBus::new(4)),
+            Arc::new(StaticRegistry(Vec::new())),
+            Arc::new(RecordingRunner {
+                calls: Arc::new(AtomicU32::new(0)),
+                abort_on_event_type: None,
+            }),
+            CancellationToken::new(),
+        );
+        let mut event = base_event(EventType::HookTriggered, "e1");
+        event.metadata = Some(std::collections::HashMap::from([(
+            "hook_type".to_string(),
+            serde_json::json!(["BEFORE_TOOL_CALL"]),
+        )]));
+        let condition = TriggerCondition {
+            event_type: "HOOK_TRIGGERED".to_string(),
+            event_name: None,
+            condition: None,
+            metadata: Some(std::collections::HashMap::from([(
+                "hook_type".to_string(),
+                serde_json::json!("BEFORE_TOOL_CALL"),
+            )])),
+            metadata_exists: None,
+            execution_prefix: None,
+        };
+        assert!(listener.matches(&event, &condition));
+        let other = TriggerCondition {
+            metadata: Some(std::collections::HashMap::from([(
+                "hook_type".to_string(),
+                serde_json::json!("AFTER_TOOL_CALL"),
+            )])),
+            ..condition
+        };
+        assert!(!listener.matches(&event, &other));
+    }
+
+    #[test]
+    fn array_actual_matches_prefix_convention_per_element() {
+        assert!(value_matches(
+            &serde_json::json!(["agent-a", "agent-b"]),
+            &serde_json::json!("^agent-")
+        ));
+        assert!(!value_matches(
+            &serde_json::json!(["other"]),
+            &serde_json::json!("^agent-")
+        ));
     }
 }

@@ -61,6 +61,10 @@ impl ConversationAnchor {
 ///     compares the event value numerically;
 ///   - prefix: `"^agent-"` — matches when the event string value starts
 ///     with the suffix after `^`;
+///   - array containment: when the event value is an array (notably the
+///     `HOOK_TRIGGERED` audit event's `hook_type` list), the pair matches
+///     when any element matches the expected value, so subscribing to one
+///     hook type uses a plain string condition;
 /// - `metadata_exists` lists keys that must be present regardless of value;
 /// - `condition` is an expression evaluated against the event fields
 ///   (`type`, `event_name`, `timestamp`, `workflow_id`, `execution_id`,

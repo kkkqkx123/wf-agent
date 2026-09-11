@@ -11,7 +11,8 @@ use crate::error::{PluginError, PluginResult};
 use crate::event_bus::{PluginEventBus, PluginEventSubscription};
 use crate::events::PluginEvent;
 use crate::guard::PluginGuard;
-use crate::manifest::{PluginManifest, PluginType};
+use crate::manifest::{PluginManifest, PluginPermission, PluginType};
+use crate::package::{InstalledPlugin, PluginPackageManager};
 use crate::plugin::Plugin;
 use crate::registry::{PluginInfo, PluginRegistry, PluginStatus};
 
@@ -23,6 +24,8 @@ pub struct PluginSystemConfig {
     pub override_policy: OverridePolicy,
     pub allow_list: Vec<String>,
     pub block_list: Vec<String>,
+    /// Plugins declaring any of these permissions are refused at load time.
+    pub required_permissions_blocklist: Vec<PluginPermission>,
     pub config: std::collections::HashMap<String, Value>,
 }
 
@@ -36,6 +39,7 @@ impl Default for PluginSystemConfig {
             override_policy: OverridePolicy::Forbid,
             allow_list: vec![],
             block_list: vec![],
+            required_permissions_blocklist: vec![],
             config: std::collections::HashMap::new(),
         }
     }
@@ -49,6 +53,7 @@ pub struct PluginEngine {
     options: PluginSystemConfig,
     event_bus: Option<wf_core::EventBus>,
     plugin_event_bus: PluginEventBus,
+    package_manager: Arc<PluginPackageManager>,
     sdk_version: String,
     initialized: bool,
 }
@@ -63,6 +68,7 @@ impl PluginEngine {
     ) -> Self {
         let guard = PluginGuard::new(options.guard_timeout_ms);
         contribution_manager.set_override_policy(options.override_policy);
+        let state_dir = options.paths.first().cloned().unwrap_or_default();
         Self {
             registry,
             guard,
@@ -71,6 +77,7 @@ impl PluginEngine {
             options,
             event_bus: None,
             plugin_event_bus: PluginEventBus::default(),
+            package_manager: Arc::new(PluginPackageManager::new(&state_dir)),
             sdk_version: sdk_version.to_owned(),
             initialized: false,
         }
@@ -83,6 +90,64 @@ impl PluginEngine {
 
     pub fn subscribe(&self) -> PluginEventSubscription {
         self.plugin_event_bus.subscribe()
+    }
+
+    /// Package manager backing install/uninstall/enable/disable state.
+    pub fn package_manager(&self) -> Arc<PluginPackageManager> {
+        self.package_manager.clone()
+    }
+
+    /// Register a plugin directory in the install registry (files are not
+    /// copied; the directory must already contain `plugin.toml`).
+    pub fn install_from_path(&self, source_path: &Path) -> PluginResult<InstalledPlugin> {
+        let manifest_path = source_path.join("plugin.toml");
+        let content = std::fs::read_to_string(&manifest_path).map_err(PluginError::Io)?;
+        let manifest: PluginManifest =
+            toml::from_str(&content).map_err(|e| PluginError::InvalidManifest(e.to_string()))?;
+        self.package_manager.install(&manifest, source_path)?;
+        tracing::info!("installed plugin '{}' from {:?}", manifest.id, source_path);
+        Ok(self
+            .package_manager
+            .installed()
+            .into_iter()
+            .find(|p| p.id == manifest.id)
+            .expect("just-installed entry present"))
+    }
+
+    /// Uninstall a plugin: deactivate + unload when loaded, then drop the
+    /// registry entry. Plugin files are left in place for the caller.
+    pub async fn uninstall(&mut self, plugin_id: &str) -> PluginResult<bool> {
+        if self.registry.has(plugin_id) {
+            self.unload(plugin_id).await?;
+        }
+        let removed = self.package_manager.uninstall(plugin_id)?;
+        tracing::info!("uninstalled plugin '{}' (removed: {})", plugin_id, removed);
+        Ok(removed)
+    }
+
+    /// Enable an installed plugin. Persisted; takes effect on next discover.
+    pub fn enable(&self, plugin_id: &str) -> PluginResult<bool> {
+        let changed = self.package_manager.set_enabled(plugin_id, true)?;
+        self.publish(PluginEvent::ConfigChanged {
+            plugin_id: plugin_id.to_owned(),
+            config: serde_json::json!({ "enabled": true }),
+        });
+        Ok(changed)
+    }
+
+    /// Disable an installed plugin. Persisted; a loaded/active plugin is
+    /// deactivated immediately.
+    pub async fn disable(&mut self, plugin_id: &str) -> PluginResult<bool> {
+        let changed = self.package_manager.set_enabled(plugin_id, false)?;
+        if self.registry.has(plugin_id) {
+            self.deactivate(plugin_id).await?;
+        }
+        self.publish(PluginEvent::ConfigChanged {
+            plugin_id: plugin_id.to_owned(),
+            config: serde_json::json!({ "enabled": false }),
+        });
+        tracing::info!("disabled plugin '{}'", plugin_id);
+        Ok(changed)
     }
 
     fn publish(&self, event: PluginEvent) {
@@ -103,6 +168,20 @@ impl PluginEngine {
         if let Some(errors) = validate_manifest(&manifest) {
             tracing::warn!("plugin '{}' manifest invalid: {:?}", plugin_id, errors);
             return Err(PluginError::InvalidManifest(errors.join(", ")));
+        }
+
+        let blocked = manifest
+            .permissions
+            .iter()
+            .any(|p| self.options.required_permissions_blocklist.contains(p));
+        if blocked {
+            return Err(PluginError::PermissionDenied {
+                plugin_id: plugin_id.clone(),
+                reason: format!(
+                    "plugin declares permissions blocked by host policy: {:?}",
+                    manifest.permissions
+                ),
+            });
         }
 
         if let Some(ref sdk_req) = manifest.sdk_version {
@@ -134,6 +213,13 @@ impl PluginEngine {
     pub async fn discover(&self) -> PluginResult<Vec<PluginInfo>> {
         let manifests = scan_plugin_manifests(&self.options.paths).await?;
         for manifest in manifests {
+            // Installed-but-disabled plugins stay unloaded; plugins absent
+            // from the install registry keep loading (registry is an
+            // enhancement, not a gate).
+            if !self.package_manager.is_enabled(&manifest.id) {
+                tracing::info!("plugin '{}' is disabled, skipping", manifest.id);
+                continue;
+            }
             let _ = self.load_plugin(manifest).await;
         }
         Ok(self.registry.all())
@@ -421,6 +507,12 @@ impl PluginEngine {
             .registry
             .instance(plugin_id)
             .ok_or_else(|| PluginError::NotFound(plugin_id.to_owned()))?;
+
+        let schema = self
+            .registry
+            .get(plugin_id)
+            .and_then(|info| info.manifest.config_schema);
+        wf_plugin_sdk::validate_config_for(plugin_id, &config, schema.as_ref())?;
 
         self.options
             .config
@@ -720,6 +812,9 @@ fn validate_manifest(manifest: &PluginManifest) -> Option<Vec<String>> {
     if manifest.entry_point.is_empty() {
         errors.push("entry_point is required".into());
     }
+    if manifest.sdk_version.is_some() && manifest.sdk_version.as_deref() == Some("") {
+        errors.push("sdk_version must not be empty when present".into());
+    }
     if errors.is_empty() {
         None
     } else {
@@ -840,6 +935,8 @@ mod tests {
             dependencies: Default::default(),
             optional_dependencies: Default::default(),
             contributions: Default::default(),
+            permissions: vec![],
+            config_schema: None,
             config: None,
             hooks: None,
         }

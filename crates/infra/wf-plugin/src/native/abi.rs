@@ -3,44 +3,13 @@ use std::os::raw::c_char;
 
 use crate::error::PluginResult;
 
-pub const WF_PLUGIN_ABI_VERSION: u32 = 1;
-
-#[repr(C)]
-pub struct PluginContextC {
-    pub abi_version: u32,
-    pub plugin_id: *const c_char,
-    pub config_json: *const c_char,
-}
-
-#[repr(C)]
-pub struct ContributionRegistrarC {
-    pub abi_version: u32,
-    pub context: *mut std::ffi::c_void,
-    pub register_node_type:
-        Option<extern "C" fn(ctx: *mut std::ffi::c_void, name: *const c_char) -> i32>,
-    pub register_tool_type:
-        Option<extern "C" fn(ctx: *mut std::ffi::c_void, name: *const c_char) -> i32>,
-    pub register_llm_provider:
-        Option<extern "C" fn(ctx: *mut std::ffi::c_void, name: *const c_char) -> i32>,
-    pub register_formatter:
-        Option<extern "C" fn(ctx: *mut std::ffi::c_void, name: *const c_char) -> i32>,
-    pub register_event_handler:
-        Option<extern "C" fn(ctx: *mut std::ffi::c_void, event_type: *const c_char) -> i32>,
-    pub register_middleware: Option<
-        extern "C" fn(ctx: *mut std::ffi::c_void, phase: *const c_char, priority: i32) -> i32,
-    >,
-}
-
-/// Host dispatch function: calls a registered handler by type and name.
-/// Returns 0 on success, non-zero on error.
-/// `output_len` is in/out: on input it holds buffer capacity, on output it holds bytes written.
-pub type DispatchFn = extern "C" fn(
-    handler_type: *const c_char,
-    handler_name: *const c_char,
-    input_json: *const c_char,
-    output_buf: *mut u8,
-    output_len: *mut usize,
-) -> i32;
+// ABI v1 constants and data structures moved to `wf-plugin-sdk`; re-exported
+// here so existing `wf_plugin::native::abi` paths stay valid. Host-side
+// loading logic (manifest retrieval, symbol resolution, version check)
+// remains in this module.
+pub use wf_plugin_sdk::native::{
+    ContributionRegistrarC, DispatchFn, PluginContextC, WF_PLUGIN_ABI_VERSION,
+};
 
 /// Safe two-phase manifest loading: query size first, then fill buffer.
 pub fn load_manifest(

@@ -181,44 +181,8 @@ CREATE INDEX IF NOT EXISTS idx_graph_blobs_branch ON graph_blobs(branch_id);
 CREATE INDEX IF NOT EXISTS idx_graph_blobs_updated ON graph_blobs(updated_at);
 ";
 
-/// WAL journal mode pragma shared by the core database and standalone
-/// backup databases.
+/// WAL journal mode pragma for the core database.
 pub const PRAGMA_JOURNAL_MODE_WAL: &str = "PRAGMA journal_mode=WAL;";
-
-/// Backup database schema: physically isolated snapshots with SQL-level
-/// metadata filtering. Shared so BackupRepo and any future backup tooling
-/// converge on a single table definition.
-pub const BACKUP_MIGRATION_SQL: &str = "
-CREATE TABLE IF NOT EXISTS backup_snapshots (
-    id              BLOB PRIMARY KEY,
-    source_snapshot BLOB NOT NULL,
-    file_path       TEXT NOT NULL,
-    file_hash       BLOB NOT NULL,
-    deltas          BLOB NOT NULL,
-    label           TEXT,
-    backed_at       INTEGER NOT NULL,
-    metadata        BLOB NOT NULL,
-    agent_id        TEXT,
-    source_type     TEXT,
-    file_content    BLOB NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_backup_label ON backup_snapshots(label);
-CREATE INDEX IF NOT EXISTS idx_backup_backed_at ON backup_snapshots(backed_at);
-CREATE INDEX IF NOT EXISTS idx_backup_agent_id ON backup_snapshots(agent_id);
-CREATE INDEX IF NOT EXISTS idx_backup_source_type ON backup_snapshots(source_type);
-
--- Separate key-value table for SQL-level metadata filtering.
--- Avoids deserializing the JSON blob and filtering in memory.
-CREATE TABLE IF NOT EXISTS backup_metadata (
-    backup_id BLOB NOT NULL,
-    key TEXT NOT NULL,
-    value TEXT NOT NULL,
-    PRIMARY KEY (backup_id, key)
-) WITHOUT ROWID;
-
-CREATE INDEX IF NOT EXISTS idx_backup_meta_key ON backup_metadata(key, value);
-";
 
 /// Idempotent light migrations for databases created before a schema
 /// addition. Each statement is best-effort: "duplicate column / already

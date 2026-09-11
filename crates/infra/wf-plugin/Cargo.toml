@@ -18,6 +18,7 @@ futures.workspace = true
 wf-types = { path = "../../foundation/wf-types" }
 wf-common = { path = "../../foundation/wf-common" }
 wf-core = { path = "../../foundation/wf-core" }
+wf-plugin-sdk = { path = "../../foundation/wf-plugin-sdk" }
 wf-sandbox = { path = "../wf-sandbox", optional = true }
 
 toml.workspace = true

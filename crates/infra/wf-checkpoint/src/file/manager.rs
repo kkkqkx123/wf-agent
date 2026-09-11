@@ -297,7 +297,7 @@ impl FileCheckpointManager {
         manager.policy.gc_retention =
             config
                 .gc_retention
-                .map(|r| layertwine::git_sync::GcRetention {
+                .map(|r| layertwine::checkpoint::GcRetention {
                     keep_recent_heads: r.keep_recent_heads,
                 });
         manager.check_workspace_root_binding(config)?;

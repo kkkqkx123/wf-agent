@@ -37,6 +37,12 @@ pub fn validate_base_hook_config(hook: &HookPointConfig, field_prefix: &str) -> 
     }
     if let Some(ref handler) = hook.handler {
         validate_not_empty(handler, &format!("{field_prefix}.handler"))?;
+        tracing::debug!(
+            "{}.handler '{}' and async trigger path off event '{}' are independent with no ordering guarantee",
+            field_prefix,
+            handler,
+            hook.event_name
+        );
     } else if is_known_hook_point(&hook.hook_type)
         && !matches!(
             hook_effect(&hook.hook_type),
@@ -71,6 +77,12 @@ pub fn validate_base_hook_static_config(
     }
     if let Some(ref handler) = hook.handler {
         validate_not_empty(handler, &format!("{field_prefix}.handler"))?;
+        tracing::debug!(
+            "{}.handler '{}' and async trigger path off event '{}' are independent with no ordering guarantee",
+            field_prefix,
+            handler,
+            hook.event_name
+        );
     } else if is_known_hook_point(&hook.hook_type)
         && !matches!(
             hook_effect(&hook.hook_type),
@@ -82,22 +94,19 @@ pub fn validate_base_hook_static_config(
     Ok(())
 }
 
-/// Validate an agent-level hook config by serializing the typed
-/// `AgentHookType` to string and checking it against the known hook types.
+/// Validate an agent-level hook config against the hook registry.
 ///
-/// Unknown hook types are allowed with a warning for forward compatibility.
-/// `event_name` is validated for non-emptiness; `weight` is validated
-/// for range. Request / mutated hooks without a handler warn; observability
-/// hooks skip that check.
+/// The wire name comes from `AgentHookType::as_str`, so every typed variant
+/// is known by construction; the registry check remains as a defense against
+/// future registry drift. `event_name` is validated for non-emptiness;
+/// `weight` is validated for range. Request / mutated hooks without a
+/// handler warn; observability hooks skip that check.
 pub fn validate_agent_hook_config(
     hook: &wf_types::agent::AgentHookConfig,
     field_prefix: &str,
 ) -> ConfigResult<()> {
-    let hook_type_str = serde_json::to_value(&hook.hook_type)
-        .ok()
-        .and_then(|v| v.as_str().map(ToString::to_string))
-        .unwrap_or_default();
-    if !hook_type_str.is_empty() && !is_known_hook_point(&hook_type_str) {
+    let hook_type_str = hook.hook_type_name();
+    if !is_known_hook_point(hook_type_str) {
         tracing::warn!(
             "{}.hook_type references unknown hook type '{}'; allowing registration but it will never fire",
             field_prefix,
@@ -110,14 +119,19 @@ pub fn validate_agent_hook_config(
     }
     if let Some(ref handler) = hook.handler {
         validate_not_empty(handler, &format!("{field_prefix}.handler"))?;
-    } else if !hook_type_str.is_empty()
-        && is_known_hook_point(&hook_type_str)
+        tracing::debug!(
+            "{}.handler '{}' and async trigger path off event '{}' are independent with no ordering guarantee",
+            field_prefix,
+            handler,
+            hook.event_name
+        );
+    } else if is_known_hook_point(hook_type_str)
         && !matches!(
-            hook_effect(&hook_type_str),
+            hook_effect(hook_type_str),
             wf_types::events::EventCategory::Observable
         )
     {
-        warn_missing_handler(field_prefix, &hook_type_str);
+        warn_missing_handler(field_prefix, hook_type_str);
     }
     Ok(())
 }

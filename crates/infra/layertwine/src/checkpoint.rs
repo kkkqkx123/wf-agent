@@ -8,15 +8,12 @@
 //! Checkpoint diff and integrity validation
 
 pub mod branch;
-pub mod dag;
+pub(crate) mod dag;
+pub mod gc;
 pub mod repo;
-pub mod restore;
-pub mod time_index;
 pub mod types;
 
 pub use branch::Branch;
-pub use dag::CheckpointDag;
+pub use gc::{collect_garbage, collect_protected_checkpoints, run_gc, GcRetention, GcStats};
 pub use repo::CheckpointRepo;
-pub use restore::{RestoreApplyResult, RestoreRequest, RestoreResponse};
-pub use time_index::TimeIndex;
 pub use types::{Checkpoint, CheckpointBuilder, CheckpointDiff, CheckpointMetadata};

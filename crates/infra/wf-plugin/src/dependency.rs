@@ -207,6 +207,8 @@ mod tests {
             dependencies,
             optional_dependencies: std::collections::HashMap::new(),
             contributions: vec![],
+            permissions: vec![],
+            config_schema: None,
             config: None,
             hooks: None,
         }

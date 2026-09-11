@@ -11,12 +11,16 @@ pub struct TriggerTemplate {
     pub action: Option<super::TriggerAction>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub enabled: Option<bool>,
+    /// Maximum firings counted per execution (`execution_id:template_name`).
+    /// Concurrent executions hold independent budgets; the in-flight guard
+    /// additionally prevents re-entrant runs of the same pair.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_triggers: Option<u32>,
     /// Template priority when multiple templates match one event: higher
-    /// wins; equal priority falls back to specificity then registration
-    /// order. Default 0 (the predefined fallback compression trigger is
-    /// registered with a negative priority).
+    /// runs first; equal priority falls back to specificity then registration
+    /// order. The listener runs only the best match by default and can be
+    /// switched to run every match in this order. Default 0 (the predefined
+    /// fallback compression trigger is registered with a negative priority).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub priority: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]

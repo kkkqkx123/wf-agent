@@ -1,7 +1,7 @@
 //! Shared test utilities for #[cfg(test)] modules in src/.
 //!
 //! Provides commonly used setup helpers to reduce duplication across
-//! test modules in `layered/`, `backup/`, and other crates.
+//! test modules in `layered/` and other crates.
 
 #![allow(dead_code)]
 

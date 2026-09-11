@@ -1,10 +1,46 @@
-use crate::config::CompactOptions;
-use crate::config::CompactReport;
 use crate::StorageResult;
 use parking_lot::ReentrantMutex;
 use rusqlite::Connection;
 use std::path::Path;
 use std::sync::Arc;
+
+/// Runtime options for a single `compact()` call.
+#[derive(Debug, Clone)]
+pub struct CompactOptions {
+    /// Freelist ratio threshold.
+    pub freelist_threshold: f64,
+    /// Max pages per incremental_vacuum call.
+    pub max_vacuum_pages: i64,
+    /// Use full VACUUM instead of incremental.
+    pub vacuum_full: bool,
+}
+
+impl Default for CompactOptions {
+    fn default() -> Self {
+        CompactOptions {
+            freelist_threshold: 0.10,
+            max_vacuum_pages: 1000,
+            vacuum_full: false,
+        }
+    }
+}
+
+/// Result of a compact operation.
+#[derive(Debug, Clone)]
+pub struct CompactReport {
+    /// Whether WAL checkpoint was performed.
+    pub wal_checkpointed: bool,
+    /// Free pages before compaction.
+    pub freelist_before: i64,
+    /// Total pages before compaction.
+    pub total_pages: i64,
+    /// Free pages after compaction.
+    pub freelist_after: i64,
+    /// Whether vacuum was actually executed.
+    pub vacuum_performed: bool,
+    /// Summary message.
+    pub message: String,
+}
 
 pub struct SqliteStorage {
     pub conn: Arc<ReentrantMutex<Connection>>,

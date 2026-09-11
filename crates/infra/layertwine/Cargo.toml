@@ -14,38 +14,16 @@ thiserror = { workspace = true }
 chrono = { workspace = true }
 uuid = { workspace = true, features = ["std", "v5"] }
 similar = { workspace = true }
-git2 = "0.21"
 parking_lot = { workspace = true }
 lazy_static = "1.5"
 rand = { workspace = true }
 zstd = { workspace = true }
 smallvec = { workspace = true }
 
-# Config
-toml = { workspace = true }
-
 [dev-dependencies]
 tempfile = "3"
 criterion = "0.5"
 lazy_static = "1.5"
-
-# Explicit test targets: `tests/common.rs` and `tests/e2e.rs` are shared
-# modules included by `e2e_tests`, not standalone test crates.
-[[test]]
-name = "backup_integration"
-path = "tests/backup_integration.rs"
-
-[[test]]
-name = "backup_physical_isolation"
-path = "tests/backup_physical_isolation.rs"
-
-[[test]]
-name = "checkpoint_integration"
-path = "tests/checkpoint_integration.rs"
-
-[[test]]
-name = "e2e_tests"
-path = "tests/e2e_tests.rs"
 
 [[test]]
 name = "engine_integration"
@@ -54,10 +32,6 @@ path = "tests/engine_integration.rs"
 [[test]]
 name = "engine_test"
 path = "tests/engine_test.rs"
-
-[[test]]
-name = "git_sync_e2e"
-path = "tests/git_sync_e2e.rs"
 
 [[test]]
 name = "layered_integration"
@@ -84,18 +58,9 @@ name = "serialization"
 harness = false
 
 [[bench]]
-name = "checkpoint"
-harness = false
-
-[[bench]]
-name = "backup"
-harness = false
-
-[[bench]]
 name = "engine_edge"
 harness = false
 
 [[bench]]
 name = "file_storage"
 harness = false
-

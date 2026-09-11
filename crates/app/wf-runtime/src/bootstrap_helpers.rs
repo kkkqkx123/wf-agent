@@ -111,7 +111,6 @@ pub fn init_gc_timer(
                     info!(
                         removed_checkpoints = stats.removed_checkpoints,
                         removed_snapshots = stats.removed_snapshots,
-                        freed_bytes = stats.freed_bytes,
                         "Periodic GC completed"
                     );
                 }

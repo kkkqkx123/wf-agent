@@ -61,6 +61,8 @@ impl ResourcePluginAdapter {
                 "tool".into(),
             ],
             config: Some(config.clone()),
+            permissions: vec![],
+            config_schema: None,
             hooks: None,
         };
         Self {

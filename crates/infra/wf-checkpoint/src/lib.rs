@@ -32,7 +32,7 @@ pub mod version_manager;
 pub mod watcher;
 
 pub use ::layertwine::core::edit_session::EditSession;
-pub use ::layertwine::git_sync::{GcRetention, GcStats};
+pub use ::layertwine::checkpoint::{GcRetention, GcStats};
 pub use actor::id::{ActorId, ActorIdError, ActorKind};
 pub use approval::{ConflictView, MergeOutcome, PendingApproval};
 pub use cache::CheckpointCache;

@@ -169,24 +169,24 @@ impl FileCheckpointManager {
     }
 
     /// Run physical garbage collection over the checkpoint repository
-    /// (mark-sweep: branch heads + ancestors + git anchors + the most
-    /// recent `retention.keep_recent_heads` partition heads are kept).
+    /// (mark-sweep: branch heads + ancestors + the most
+    /// recent `retention.keep_recent_heads` checkpoints are kept).
     ///
-    /// Thin wrapper over [`layertwine::git_sync::gc::run_gc`]: loads the
+    /// Thin wrapper over [`layertwine::checkpoint::gc::run_gc`]: loads the
     /// `CheckpointRepo` from the attached Sqlite storage, runs the sweep,
     /// and publishes a `GcCompleted` event with the statistics. Returns
-    /// the `GcStats` (removed checkpoints / snapshots / freed bytes).
+    /// the `GcStats` (removed checkpoints / snapshots).
     pub fn run_gc(
         &self,
-        retention: layertwine::git_sync::GcRetention,
-    ) -> Result<layertwine::git_sync::GcStats, CheckpointError> {
+        retention: layertwine::checkpoint::GcRetention,
+    ) -> Result<layertwine::checkpoint::GcStats, CheckpointError> {
         let storage = self.storage_ref()?;
         let persist: Box<dyn layertwine::storage::repository::CheckpointPersist> =
             Box::new(storage.share());
         let mut repo = layertwine::checkpoint::repo::CheckpointRepo::load(persist)
             .map_err(map_layertwine_error)?;
         let stats =
-            layertwine::git_sync::gc::run_gc(&mut repo, retention).map_err(map_layertwine_error)?;
+            layertwine::checkpoint::gc::run_gc(&mut repo, retention).map_err(map_layertwine_error)?;
         if let Some(ref bus) = self.event_bus {
             bus.publish(CheckpointEventBus::gc_completed(stats.clone()));
         }

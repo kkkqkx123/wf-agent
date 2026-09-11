@@ -170,6 +170,10 @@ impl AgentToolConfigBuilder<ToolBuilt> {
 }
 
 /// Consuming builder for [`AgentHookConfig`] with type-level phase tracking.
+///
+/// Synchronous handlers and asynchronous trigger rules are independent
+/// delivery paths with no ordering guarantee; prefer one path per hook
+/// unless the two effects are known to commute.
 #[derive(Debug)]
 pub struct AgentHookBuilder<S> {
     hook_type: AgentHookType,
@@ -180,6 +184,7 @@ pub struct AgentHookBuilder<S> {
     weight: Option<i32>,
     create_checkpoint: Option<bool>,
     checkpoint_description: Option<String>,
+    handler: Option<String>,
     _marker: PhantomData<S>,
 }
 
@@ -195,6 +200,7 @@ impl AgentHookBuilder<HookNoType> {
             weight: None,
             create_checkpoint: None,
             checkpoint_description: None,
+            handler: None,
             _marker: PhantomData,
         }
     }
@@ -210,6 +216,7 @@ impl AgentHookBuilder<HookNoType> {
             weight: self.weight,
             create_checkpoint: self.create_checkpoint,
             checkpoint_description: self.checkpoint_description,
+            handler: self.handler,
             _marker: PhantomData,
         }
     }
@@ -243,6 +250,31 @@ impl AgentHookBuilder<HookNoType> {
     pub fn after_llm_call(event_name: impl Into<String>) -> AgentHookBuilder<HookTyped> {
         Self::new(event_name).hook_type(AgentHookType::AfterLlmCall)
     }
+
+    /// Hook that fires once per run before the first iteration.
+    pub fn before_agent(event_name: impl Into<String>) -> AgentHookBuilder<HookTyped> {
+        Self::new(event_name).hook_type(AgentHookType::BeforeAgent)
+    }
+
+    /// Hook that fires once per run after the loop settles.
+    pub fn after_agent(event_name: impl Into<String>) -> AgentHookBuilder<HookTyped> {
+        Self::new(event_name).hook_type(AgentHookType::AfterAgent)
+    }
+
+    /// Hook that fires when a user prompt enters the loop.
+    pub fn before_user_prompt(event_name: impl Into<String>) -> AgentHookBuilder<HookTyped> {
+        Self::new(event_name).hook_type(AgentHookType::BeforeUserPrompt)
+    }
+
+    /// Hook that fires when a child agent is created on the parent.
+    pub fn subagent_start(event_name: impl Into<String>) -> AgentHookBuilder<HookTyped> {
+        Self::new(event_name).hook_type(AgentHookType::SubagentStart)
+    }
+
+    /// Hook that fires when a child agent execution settles.
+    pub fn subagent_stop(event_name: impl Into<String>) -> AgentHookBuilder<HookTyped> {
+        Self::new(event_name).hook_type(AgentHookType::SubagentStop)
+    }
 }
 
 impl AgentHookBuilder<HookTyped> {
@@ -257,7 +289,7 @@ impl AgentHookBuilder<HookTyped> {
             weight: self.weight,
             create_checkpoint: self.create_checkpoint,
             checkpoint_description: self.checkpoint_description,
-            handler: None,
+            handler: self.handler,
         }
     }
 }
@@ -296,6 +328,14 @@ impl<S> AgentHookBuilder<S> {
     /// Describe the checkpoint created by the hook.
     pub fn checkpoint_description(mut self, description: impl Into<String>) -> Self {
         self.checkpoint_description = Some(description.into());
+        self
+    }
+
+    /// Notify a runtime-registered handler synchronously at this hook point.
+    /// Independent from the asynchronous trigger path; the two have no
+    /// ordering guarantee.
+    pub fn handler(mut self, handler: impl Into<String>) -> Self {
+        self.handler = Some(handler.into());
         self
     }
 }
@@ -581,9 +621,7 @@ impl<S> AgentLoopConfigBuilder<S> {
     /// Add a hook built through [`AgentHookBuilder`].
     pub fn add_hook(mut self, hook: AgentHookConfig) -> Self {
         self.hooks.push(HookConfig {
-            hook_type: serde_json::to_string(&hook.hook_type)
-                .map(|t| t.trim_matches('"').to_string())
-                .unwrap_or_else(|_| format!("{:?}", hook.hook_type)),
+            hook_type: hook.hook_type_name().to_string(),
             condition: hook.condition,
             enabled: hook.enabled.unwrap_or(true),
             parallel: None,

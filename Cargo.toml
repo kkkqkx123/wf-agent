@@ -5,6 +5,7 @@ members = [
     "crates/foundation/wf-types",
     "crates/foundation/wf-common",
     "crates/foundation/wf-core",
+    "crates/foundation/wf-plugin-sdk",
     # infra
     "crates/infra/wf-metrics",
     "crates/infra/wf-config",

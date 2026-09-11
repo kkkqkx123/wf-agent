@@ -27,9 +27,7 @@ fn parse_agent_hooks(agent_config: Option<&wf_types::agent::AgentConfig>) -> Vec
             hooks
                 .iter()
                 .map(|h| HookConfig {
-                    hook_type: serde_json::to_string(&h.hook_type)
-                        .map(|t| t.trim_matches('"').to_string())
-                        .unwrap_or_else(|_| format!("{:?}", h.hook_type)),
+                    hook_type: h.hook_type_name().to_string(),
                     condition: h.condition.clone(),
                     enabled: h.enabled.unwrap_or(true),
                     parallel: None,

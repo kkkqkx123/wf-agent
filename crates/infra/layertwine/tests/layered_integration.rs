@@ -518,7 +518,7 @@ fn test_edit_after_forward() {
 }
 
 // ---------------------------------------------------------------------------
-// Test: State machine integration (StateMachine wrapper)
+// Test: State machine integration (StateMachine handle + atomic storage ops)
 // ---------------------------------------------------------------------------
 #[test]
 fn test_state_machine_integration() {
@@ -546,15 +546,14 @@ fn test_state_machine_integration() {
     // Apply manual edit
     layertwine::layered::manual::apply_manual_edit(s, "test.txt", "sm\nedited\n", None).unwrap();
 
-    // Execute forward via state machine
-    let sid = sm
-        .with_transaction(|s| execute_forward(s, ForwardTransition::ManualToStaged, &[]))
-        .unwrap();
+    // Execute forward directly against storage
+    let sid = execute_forward(s, ForwardTransition::ManualToStaged, &[]).unwrap();
 
-    // Verify via sm
+    // Verify via storage
     let staged_pid = layertwine::layered::staged::staged_partition_id();
-    let part = sm.get_partition(&staged_pid).unwrap();
+    let part = s.get_partition(&staged_pid).unwrap();
     assert_eq!(part.current_snapshot, sid);
+    let _ = sm.storage();
 
     // Verify the state machine can still enumerate partitions after the flow
     let partitions = s.list_partitions().unwrap();

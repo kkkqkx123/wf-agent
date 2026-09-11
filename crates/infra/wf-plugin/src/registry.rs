@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::error::{PluginError, PluginResult};
-use crate::manifest::PluginManifest;
+use crate::manifest::{PluginManifest, PluginPermission};
 use crate::plugin::Plugin;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -38,6 +38,7 @@ impl PluginRecord {
     fn info(&self) -> PluginInfo {
         PluginInfo {
             manifest: self.manifest.clone(),
+            permissions: self.manifest.permissions.clone(),
             status: self.status,
             error: self.error.clone(),
             activated_at: self.activated_at,
@@ -172,6 +173,9 @@ impl Default for PluginRegistry {
 #[derive(Debug, Clone)]
 pub struct PluginInfo {
     pub manifest: PluginManifest,
+    /// Snapshot of declared permissions for audit display (mirrors
+    /// `manifest.permissions`).
+    pub permissions: Vec<PluginPermission>,
     pub status: PluginStatus,
     pub error: Option<String>,
     pub activated_at: Option<i64>,

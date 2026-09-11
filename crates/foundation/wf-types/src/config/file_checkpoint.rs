@@ -56,12 +56,12 @@ pub enum ConflictBehavior {
 }
 
 /// GC retention policy for file-checkpoint physical garbage collection.
-/// Mirrors `layertwine::git_sync::gc::GcRetention` at the config layer.
+/// Mirrors `layertwine::checkpoint::gc::GcRetention` at the config layer.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct FileCheckpointGcRetention {
-    /// Keep the N most recently created partition head checkpoints
+    /// Keep the N most recently created checkpoints
     /// protected even when no branch points at them. `0` = only the
-    /// built-in protected set (branch heads + ancestors + git anchors).
+    /// built-in protected set (branch heads + ancestors).
     #[serde(default)]
     pub keep_recent_heads: usize,
 }

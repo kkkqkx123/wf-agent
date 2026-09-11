@@ -95,6 +95,12 @@ pub fn hook_requires_handler(hook_type: &str) -> bool {
     )
 }
 
+/// Delivery model: a hook has two independent paths with no ordering
+/// guarantee. The synchronous `handler` path is for fast local observation
+/// (millisecond budget, engine-awaited). The asynchronous path publishes an
+/// audit event that trigger templates may match later (delay-tolerant side
+/// effects, retries, cross-execution access). Prefer one path per hook
+/// unless both effects are known to commute.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct HookPointConfig {
     pub hook_type: String,
@@ -112,7 +118,8 @@ pub struct HookPointConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub checkpoint_description: Option<String>,
     /// Optional name of a runtime-registered hook handler; when set the
-    /// engine notifies it synchronously at this hook point.
+    /// engine notifies it synchronously at this hook point. Independent from
+    /// the asynchronous trigger path; the two have no ordering guarantee.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub handler: Option<String>,
 }
@@ -133,7 +140,8 @@ pub struct HookPointStaticConfig {
     pub create_checkpoint: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub checkpoint_description: Option<String>,
-    /// Optional name of a runtime-registered hook handler.
+    /// Optional name of a runtime-registered hook handler. Independent from
+    /// the asynchronous trigger path; the two have no ordering guarantee.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub handler: Option<String>,
 }

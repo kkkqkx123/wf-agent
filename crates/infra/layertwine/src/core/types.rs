@@ -61,7 +61,6 @@ impl fmt::Display for ContentId {
 pub type SnapshotId = ContentId;
 pub type DeltaId = ContentId;
 pub type CheckpointId = ContentId;
-pub type BackupId = ContentId;
 pub type PartitionId = uuid::Uuid;
 pub type EditSessionId = uuid::Uuid;
 

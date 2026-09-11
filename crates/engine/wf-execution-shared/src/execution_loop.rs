@@ -1,18 +1,14 @@
 //! Common execution loop primitives for agent and workflow coordinators.
 //!
-//! Both [`AgentExecutionCoordinator`] and [`WorkflowCoordinator`] implement
-//! similar iteration patterns: interruption gating (pause/resume/stop),
-//! checkpoint integration, and metrics recording. This module provides
-//! shared types and a lightweight trait to reduce duplication for these
-//! cross-cutting concerns without forcing a single loop structure on the
-//! two coordinators (which differ in iteration granularity — iterations
-//! vs. nodes).
-//!
-//! [`AgentExecutionCoordinator`]: wf_agent::coordinator::execution::AgentExecutionCoordinator
-//! [`WorkflowCoordinator`]: wf_workflow::coordinator::WorkflowCoordinator
+//! Both coordinators implement similar iteration patterns: interruption
+//! gating (pause/resume/stop), checkpoint integration, and metrics recording.
+//! This module provides shared types and a lightweight trait to reduce
+//! duplication for these cross-cutting concerns without forcing a single loop
+//! structure on the two coordinators (which differ in iteration granularity
+//! — iterations vs. nodes).
 
-use crate::interruption::state::InterruptionState;
-use crate::interruption::InterruptionSignal;
+use wf_core::interruption::InterruptionSignal;
+use wf_core::interruption::InterruptionState;
 
 /// Decision returned by interruption checks and iteration hooks.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -40,11 +36,8 @@ impl From<Option<InterruptionSignal>> for LoopDecision {
 
 /// Trait for entities that carry an interruption signal.
 ///
-/// Implemented by [`AgentLoopEntity`] and [`WorkflowExecutionEntity`] so
-/// that generic interruption helpers can be shared across coordinators.
-///
-/// [`AgentLoopEntity`]: wf_agent::entity::AgentLoopEntity
-/// [`WorkflowExecutionEntity`]: wf_workflow::entity::WorkflowExecutionEntity
+/// Implemented by the agent loop and workflow execution entities so that
+/// generic interruption helpers can be shared across coordinators.
 pub trait HasInterruption {
     /// Access the interruption signal.
     fn interruption(&self) -> &InterruptionState;
@@ -66,10 +59,7 @@ pub fn is_paused(entity: &impl HasInterruption) -> bool {
     )
 }
 
-/// Wait for a paused entity to resume, given an [`InterruptionState`] and
-/// a way to wait for the state change. This is a standalone helper because
-/// [`WorkflowExecutionEntity`] does not have a `wait_until_active` method;
-/// only [`AgentLoopEntity`] does.
+/// Wait for a paused entity to resume, given an [`InterruptionState`].
 pub async fn wait_for_resume(interruption: &InterruptionState) {
     if matches!(interruption.check(), Some(InterruptionSignal::Pause)) {
         let mut rx = interruption.subscribe();

@@ -447,7 +447,7 @@ impl AgentLoopEntity {
     }
 }
 
-impl wf_core::execution_loop::HasInterruption for AgentLoopEntity {
+impl wf_execution_shared::execution_loop::HasInterruption for AgentLoopEntity {
     fn interruption(&self) -> &InterruptionState {
         &self.interruption
     }

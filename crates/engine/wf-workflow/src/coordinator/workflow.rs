@@ -6,7 +6,6 @@ use wf_common::error_chain::ErrorRecord;
 use wf_common::now;
 use wf_core::condition::ConditionEvaluator;
 use wf_core::internal_signal::{InternalSignal, InternalSignalReceiver};
-use wf_core::interruption::check_execution_interruption;
 use wf_core::interruption::InterruptionSignal;
 use wf_core::EventBus;
 use wf_execution_shared::context::{
@@ -15,6 +14,7 @@ use wf_execution_shared::context::{
 use wf_execution_shared::execution_state::ExecutionStateManager;
 use wf_execution_shared::fork::ForkRegistry;
 use wf_execution_shared::hooks::types::BaseHookDefinition;
+use wf_execution_shared::interruption::check_execution_interruption;
 use wf_execution_shared::types::execution_entity::ExecutionEntity;
 use wf_execution_shared::types::state_manager::StateManager;
 use wf_metrics::collectors::node::NodeExecutionRecord as MetricsNodeExecutionRecord;
@@ -804,7 +804,7 @@ impl WorkflowCoordinator {
     ) -> WorkflowResult<()> {
         let interruption_check = check_execution_interruption(entity.interruption(), None);
         match interruption_check {
-            wf_core::types::interruption::ExecutionInterruptionCheckResult::Stopped { .. } => {
+            wf_execution_shared::types::interruption::ExecutionInterruptionCheckResult::Stopped { .. } => {
                 entity
                     .state
                     .write()
@@ -830,7 +830,7 @@ impl WorkflowCoordinator {
                     "Execution stopped by interruption".to_string(),
                 ));
             }
-            wf_core::types::interruption::ExecutionInterruptionCheckResult::Paused { .. } => {
+            wf_execution_shared::types::interruption::ExecutionInterruptionCheckResult::Paused { .. } => {
                 entity
                     .state
                     .write()

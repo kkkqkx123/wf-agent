@@ -259,7 +259,7 @@ impl ExecutionEntity for WorkflowExecutionEntity {
     }
 }
 
-impl wf_core::execution_loop::HasInterruption for WorkflowExecutionEntity {
+impl wf_execution_shared::execution_loop::HasInterruption for WorkflowExecutionEntity {
     fn interruption(&self) -> &InterruptionState {
         &self.interruption
     }

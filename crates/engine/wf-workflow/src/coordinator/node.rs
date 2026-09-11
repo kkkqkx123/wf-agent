@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 
 use wf_common::retry::RetryBudget;
-use wf_core::interruption::check_execution_interruption;
 use wf_core::EventBus;
 use wf_execution_shared::context::{NodeExecutionContext, NodeExecutionResult};
 use wf_execution_shared::hooks::types::BaseHookDefinition;
 use wf_execution_shared::hooks::{HookContext, HookRegistry};
+use wf_execution_shared::interruption::check_execution_interruption;
 use wf_types::events::{BaseEvent, EventType};
 
 use crate::entity::WorkflowExecutionEntity;
@@ -79,7 +79,7 @@ impl NodeCoordinator {
         let check = check_execution_interruption(entity.interruption(), None);
         if !matches!(
             check,
-            wf_core::types::interruption::ExecutionInterruptionCheckResult::Continue
+            wf_execution_shared::types::interruption::ExecutionInterruptionCheckResult::Continue
         ) {
             return Err(WorkflowError::CoordinatorError(format!(
                 "Execution interrupted before node {}: {:?}",

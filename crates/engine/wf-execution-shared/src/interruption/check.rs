@@ -1,5 +1,6 @@
-use super::state::{InterruptionSignal, InterruptionState};
-use crate::error::CoreResult;
+use wf_core::interruption::{InterruptionSignal, InterruptionState};
+
+use crate::error::ExecutionSharedResult;
 use crate::types::interruption::ExecutionInterruptionCheckResult;
 
 pub fn check_execution_interruption(
@@ -22,10 +23,10 @@ pub async fn iterate_with_interruption_handling<F, Fut, T>(
     state: &InterruptionState,
     iteration: u32,
     f: F,
-) -> CoreResult<Option<T>>
+) -> ExecutionSharedResult<Option<T>>
 where
     F: FnOnce(u32) -> Fut,
-    Fut: std::future::Future<Output = CoreResult<T>>,
+    Fut: std::future::Future<Output = ExecutionSharedResult<T>>,
 {
     if state.is_cancelled() {
         return Ok(None);
@@ -148,9 +149,11 @@ mod tests {
     #[tokio::test]
     async fn test_iterate_error_propagation() {
         let state = InterruptionState::new();
-        let result: CoreResult<Option<i32>> =
+        let result: ExecutionSharedResult<Option<i32>> =
             iterate_with_interruption_handling(&state, 0, |_| async move {
-                Err(crate::error::CoreError::Internal("fail".to_string()))
+                Err(crate::error::ExecutionSharedError::Internal(
+                    "fail".to_string(),
+                ))
             })
             .await;
         assert!(result.is_err());

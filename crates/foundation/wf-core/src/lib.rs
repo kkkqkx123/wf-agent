@@ -2,7 +2,6 @@ pub mod condition;
 pub mod error;
 pub mod event;
 pub mod event_bridge;
-pub mod execution_loop;
 pub mod failure_policy;
 pub mod hierarchy;
 pub mod internal_signal;
@@ -10,7 +9,6 @@ pub mod interruption;
 pub mod observable_registry;
 pub mod registry;
 pub mod state;
-pub mod types;
 
 pub use condition::{ConditionCache, ConditionCacheConfig, ConditionEvaluator};
 pub use error::CoreError;
@@ -28,10 +26,7 @@ pub use hierarchy::manager::{
     ExecutionHierarchyManager, ExecutionHierarchyMetadata, ParentExecutionContext, MAX_DEPTH,
 };
 pub use internal_signal::{InternalSignal, InternalSignalBus, InternalSignalReceiver};
-pub use interruption::{
-    check_execution_interruption, combine_cancellation_tokens, execute_with_interruption_handling,
-    iterate_with_interruption_handling, InterruptionSignal, InterruptionState,
-};
+pub use interruption::{InterruptionSignal, InterruptionState};
 pub use observable_registry::{ObservableRegistry, RegistryEventListener};
 pub use registry::{
     BatchRegistry, ConcurrentRegistry, Exportable, MutableRegistry, PersistableRegistry,

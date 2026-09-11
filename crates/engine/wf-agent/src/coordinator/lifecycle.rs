@@ -8,8 +8,8 @@ use wf_checkpoint::execution_events::ExecutionEventBus;
 use wf_core::event::EventBus;
 use wf_core::internal_signal::InternalSignalBus;
 use wf_execution_shared::execution_state::ExecutionStateManager;
-use wf_execution_shared::hooks::types::BaseHookDefinition;
-use wf_execution_shared::hooks::HookRegistry;
+use wf_execution_shared::hooks::types::HookDefinition;
+use wf_execution_shared::hooks::HookHandlerRegistry;
 use wf_execution_shared::types::execution_entity::{ExecutionEntity, ExecutionStatus};
 use wf_execution_shared::types::state_manager::StateManager;
 use wf_llm::messaging::conversation_session::ConversationSession;
@@ -34,7 +34,7 @@ use crate::coordinator::state_transitor::AgentLoopStateTransitor;
 use crate::coordinator::tool::ToolVisibilityStore;
 use crate::entity::AgentLoopEntity;
 use crate::error::{AgentError, AgentResult};
-use crate::hook::AgentHookHandler;
+use crate::hook::AgentHookEmitter;
 use crate::persistence::build_agent_execution;
 use crate::registry::AgentLoopRegistry;
 use crate::stream::{AgentEventSink, AgentEventStream, AgentStreamEvent};
@@ -111,7 +111,7 @@ pub struct AgentLoopCoordinator {
     parent_execution_id: Option<Id>,
     /// Shared hook receiver registry: hook points dispatch through it
     /// (synchronous notification). `None` degrades to audit-only behavior.
-    hook_registry: Option<Arc<HookRegistry>>,
+    hook_handler_registry: Option<Arc<HookHandlerRegistry>>,
     /// Optional file checkpoint manager: file snapshots of the agent loop are
     /// restored together with the execution checkpoint (best-effort).
     file_checkpoint_manager: Option<wf_checkpoint::file::FileCheckpointManager>,
@@ -154,7 +154,7 @@ impl AgentLoopCoordinator {
             state_manager: None,
             agent_loop_id: None,
             parent_execution_id: None,
-            hook_registry: None,
+            hook_handler_registry: None,
             file_checkpoint_manager: None,
             default_max_iterations: crate::constants::DEFAULT_MAX_ITERATIONS,
             max_iterations_cap: crate::constants::AGENT_MAX_ITERATIONS_CAP,
@@ -175,8 +175,8 @@ impl AgentLoopCoordinator {
 
     /// Inject the shared hook receiver registry: every hook point dispatches
     /// through it (synchronous receiver notification + audit event).
-    pub fn with_hook_registry(mut self, registry: Arc<HookRegistry>) -> Self {
-        self.hook_registry = Some(registry);
+    pub fn with_hook_handler_registry(mut self, registry: Arc<HookHandlerRegistry>) -> Self {
+        self.hook_handler_registry = Some(registry);
         self
     }
 
@@ -388,11 +388,11 @@ impl AgentLoopCoordinator {
         // event so observers see the input enter the loop.
         let mut prompt_hook_data = HashMap::new();
         prompt_hook_data.insert("prompt".to_string(), Value::String(prompt));
-        AgentHookHandler::emit_agent_hooks(
+        AgentHookEmitter::fire_agent_point(
             &entity,
             "BEFORE_USER_PROMPT",
             prompt_hook_data,
-            self.hook_registry.as_deref(),
+            self.hook_handler_registry.as_deref(),
             self.event_bus.as_deref(),
         )
         .await;
@@ -440,11 +440,11 @@ impl AgentLoopCoordinator {
                 config.max_iterations.unwrap_or(self.default_max_iterations),
             )),
         );
-        AgentHookHandler::emit_agent_hooks(
+        AgentHookEmitter::fire_agent_point(
             &entity,
             "BEFORE_AGENT",
             start_hook_data,
-            self.hook_registry.as_deref(),
+            self.hook_handler_registry.as_deref(),
             self.event_bus.as_deref(),
         )
         .await;
@@ -477,7 +477,7 @@ impl AgentLoopCoordinator {
         .with_token_tracking_enabled(config.enable_token_tracking.unwrap_or(true))
         .with_general_description(config.general_description.clone())
         .with_discoverable_metadata_block(config.discoverable_metadata_block.clone())
-        .with_hook_registry(self.hook_registry.clone());
+        .with_hook_handler_registry(self.hook_handler_registry.clone());
         // File-content observation: the agent actor partition receives
         // precise file-tool events and scoped shell diffs. Blocking,
         // streaming, retry and nested executions share this observer
@@ -576,11 +576,11 @@ impl AgentLoopCoordinator {
                     Value::Number(iterations.into()),
                 );
                 hook_data.insert("success".to_string(), Value::Bool(true));
-                AgentHookHandler::emit_agent_hooks(
+                AgentHookEmitter::fire_agent_point(
                     &entity,
                     "AFTER_AGENT",
                     hook_data,
-                    self.hook_registry.as_deref(),
+                    self.hook_handler_registry.as_deref(),
                     self.event_bus.as_deref(),
                 )
                 .await;
@@ -659,11 +659,11 @@ impl AgentLoopCoordinator {
                 let mut hook_data = HashMap::new();
                 hook_data.insert("success".to_string(), Value::Bool(false));
                 hook_data.insert("error".to_string(), Value::String(e.to_string()));
-                AgentHookHandler::emit_agent_hooks(
+                AgentHookEmitter::fire_agent_point(
                     &entity,
                     "AFTER_AGENT",
                     hook_data,
-                    self.hook_registry.as_deref(),
+                    self.hook_handler_registry.as_deref(),
                     self.event_bus.as_deref(),
                 )
                 .await;
@@ -702,17 +702,17 @@ impl AgentLoopCoordinator {
         config: &AgentLoopConfig,
         input: AgentLoopInput,
     ) -> AgentResult<AgentLoopEntity> {
-        let hooks: Vec<BaseHookDefinition> = config
+        let hooks: Vec<HookDefinition> = config
             .hooks
             .iter()
-            .map(|h| BaseHookDefinition {
+            .map(|h| HookDefinition {
                 id: wf_common::generate_id(),
                 hook_type: h.hook_type.clone(),
                 weight: 0,
                 condition: h.condition.clone(),
                 enabled: h.enabled,
                 payload: None,
-                receiver: h.receiver.clone(),
+                handler: h.handler.clone(),
             })
             .collect();
 

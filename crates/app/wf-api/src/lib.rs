@@ -186,8 +186,8 @@ pub use wf_execution_shared::execution_state::ExecutionStateManager;
 pub use wf_execution_shared::fork::{BranchRecord, BranchStatus, ForkRegistry};
 pub use wf_execution_shared::handler::{NodeHandler, NodeHandlerRegistry};
 pub use wf_execution_shared::hooks::{
-    dispatch, evaluate_hook_condition, filter_and_sort_hooks, publish_hook_audit_event,
-    HookContext, HookOutcome, HookReceiver, HookRegistry, ReceiverResult,
+    evaluate_hook_condition, filter_and_sort_hooks, fire, publish_hook_audit_event, HandlerResult,
+    HookContext, HookHandler, HookHandlerRegistry, HookOutcome,
 };
 pub use wf_execution_shared::types::execution_entity::{ExecutionEntity, ExecutionStatus};
 pub use wf_execution_shared::types::state_manager::StateManager;
@@ -304,12 +304,12 @@ pub use wf_checkpoint::common::{
 };
 pub use wf_checkpoint::error::CheckpointError;
 pub use wf_checkpoint::event::{CheckpointEvent, CheckpointEventBus};
+pub use wf_checkpoint::file::merge::MergeCommitResult;
+pub use wf_checkpoint::file::util::sha256_hex;
 pub use wf_checkpoint::file::{
     FileCheckpoint, FileCheckpointManager, FileCheckpointMetadata, FileCheckpointOptions,
     FileContentEntry, FileState, WorkspaceRestoreResult,
 };
-pub use wf_checkpoint::file::merge::MergeCommitResult;
-pub use wf_checkpoint::file::util::sha256_hex;
 pub use wf_checkpoint::metadata::builder::{build_checkpoint_state, CheckpointMetadataBuilder};
 pub use wf_checkpoint::provenance::{
     DeltaSummary, FileDiffKind, FileDiffView, PartitionView, WorkspaceFile,

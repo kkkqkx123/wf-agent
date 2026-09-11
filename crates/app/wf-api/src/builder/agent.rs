@@ -257,7 +257,7 @@ impl AgentHookBuilder<HookTyped> {
             weight: self.weight,
             create_checkpoint: self.create_checkpoint,
             checkpoint_description: self.checkpoint_description,
-            receiver: None,
+            handler: None,
         }
     }
 }
@@ -588,7 +588,7 @@ impl<S> AgentLoopConfigBuilder<S> {
             enabled: hook.enabled.unwrap_or(true),
             parallel: None,
             continue_on_error: None,
-            receiver: hook.receiver,
+            handler: hook.handler,
         });
         self
     }

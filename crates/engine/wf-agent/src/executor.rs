@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 
-use wf_execution_shared::hooks::HookRegistry;
+use wf_execution_shared::hooks::HookHandlerRegistry;
 use wf_execution_shared::types::execution_entity::{
     ExecutionEntity, ExecutionStatus as EntityExecutionStatus,
 };
@@ -35,7 +35,7 @@ pub struct AgentLoopExecutor {
     /// Typed signal bus: control signals (stop/pause/resume) targeting
     /// loops started here are delivered to their coordinators.
     signal_bus: Option<Arc<wf_core::internal_signal::InternalSignalBus>>,
-    hook_registry: Option<Arc<HookRegistry>>,
+    hook_handler_registry: Option<Arc<HookHandlerRegistry>>,
 }
 
 impl AgentLoopExecutor {
@@ -52,7 +52,7 @@ impl AgentLoopExecutor {
             max_sub_agent_depth: DEFAULT_MAX_SUB_AGENT_DEPTH,
             event_bus: None,
             signal_bus: None,
-            hook_registry: None,
+            hook_handler_registry: None,
         }
     }
 
@@ -120,8 +120,8 @@ impl AgentLoopExecutor {
 
     /// Inject the shared hook receiver registry; hook points and engine
     /// signals of loops started here dispatch through it.
-    pub fn with_hook_registry(mut self, registry: Arc<HookRegistry>) -> Self {
-        self.hook_registry = Some(registry);
+    pub fn with_hook_handler_registry(mut self, registry: Arc<HookHandlerRegistry>) -> Self {
+        self.hook_handler_registry = Some(registry);
         self
     }
 
@@ -165,8 +165,8 @@ impl AgentLoopExecutor {
         if let Some(bus) = &self.signal_bus {
             coordinator = coordinator.with_signal_bus(bus.clone());
         }
-        if let Some(registry) = &self.hook_registry {
-            coordinator = coordinator.with_hook_registry(registry.clone());
+        if let Some(registry) = &self.hook_handler_registry {
+            coordinator = coordinator.with_hook_handler_registry(registry.clone());
         }
         coordinator
     }
@@ -524,7 +524,7 @@ mod tests {
                 enabled: true,
                 parallel: None,
                 continue_on_error: None,
-                receiver: None,
+                handler: None,
             },
             wf_tools::callback::HookConfig {
                 hook_type: "AFTER_AGENT".to_string(),
@@ -532,7 +532,7 @@ mod tests {
                 enabled: true,
                 parallel: None,
                 continue_on_error: None,
-                receiver: None,
+                handler: None,
             },
         ];
 
@@ -589,23 +589,25 @@ mod tests {
 
     #[tokio::test]
     async fn test_after_agent_fires_on_failure_path_with_error_details() {
-        use wf_execution_shared::hooks::{HookContext, HookOutcome, HookReceiver, HookRegistry};
+        use wf_execution_shared::hooks::{
+            HookContext, HookHandler, HookHandlerRegistry, HookOutcome,
+        };
         use wf_llm::error::LlmError;
 
         // The LLM fails hard: the loop errors out and AFTER_AGENT must fire
         // on the failure path (success=false + error summary), not only on
         // the success path.
         let bus = Arc::new(wf_core::EventBus::new(32));
-        let hook_registry = Arc::new(HookRegistry::new());
+        let hook_handler_registry = Arc::new(HookHandlerRegistry::new());
         let captured = Arc::new(std::sync::Mutex::new(Vec::new()));
         struct FailureRecorder(FailureLog);
         #[async_trait::async_trait]
-        impl HookReceiver for FailureRecorder {
+        impl HookHandler for FailureRecorder {
             fn name(&self) -> &str {
                 "after_agent_failure_recorder"
             }
 
-            async fn on_hook(&self, ctx: &HookContext) -> HookOutcome {
+            async fn on_point(&self, ctx: &HookContext) -> HookOutcome {
                 self.0
                     .lock()
                     .unwrap()
@@ -613,7 +615,7 @@ mod tests {
                 HookOutcome::Continue
             }
         }
-        hook_registry.register(
+        hook_handler_registry.register(
             "AFTER_AGENT",
             Arc::new(FailureRecorder(captured.clone())),
             0,
@@ -630,7 +632,7 @@ mod tests {
         let tool_registry = Arc::new(wf_tools::create_default_tool_registry());
         let executor = AgentLoopExecutor::new(gateway, tool_registry)
             .with_event_bus(bus)
-            .with_hook_registry(hook_registry);
+            .with_hook_handler_registry(hook_handler_registry);
 
         let result = executor
             .execute(agent_config("agent-fail"), agent_input("run", None))

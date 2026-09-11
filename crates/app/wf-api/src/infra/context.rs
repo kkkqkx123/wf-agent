@@ -6,7 +6,7 @@ use wf_agent::registry::AgentLoopRegistry;
 use wf_core::registry::{ConcurrentRegistry, Registry};
 use wf_core::EventBus;
 use wf_execution_shared::execution_state::ExecutionStateManager;
-use wf_execution_shared::hooks::HookRegistry;
+use wf_execution_shared::hooks::HookHandlerRegistry;
 use wf_llm::LlmGateway;
 use wf_metrics::MetricsRegistry;
 use wf_resource::registry::ResourceRegistries;
@@ -85,9 +85,9 @@ pub struct ApiContext {
     /// Trigger runtime state of live workflow executions (which event-driven
     /// triggers fired). Captured into checkpoint `trigger_states` for audit.
     pub trigger_state_registry: Arc<wf_workflow::TriggerStateRegistry>,
-    /// Shared hook receiver registry: hook points and engine signals of
-    /// executions launched through this context dispatch through it.
-    pub hook_registry: Option<Arc<HookRegistry>>,
+    /// Shared hook handler registry: hook points and engine signals of
+    /// executions launched through this context fire through it.
+    pub hook_handler_registry: Option<Arc<HookHandlerRegistry>>,
     /// Optional file checkpoint manager (layertwine-backed): file snapshots
     /// of executions are created/restored through it, and the script handlers
     /// capture workspace changes when it is attached. `None` keeps file
@@ -137,7 +137,7 @@ impl ApiContext {
             persistence_bridge: std::sync::Mutex::new(None),
             handlers,
             trigger_state_registry: Arc::new(wf_workflow::TriggerStateRegistry::new()),
-            hook_registry: None,
+            hook_handler_registry: None,
             file_checkpoint_manager: None,
             tool_approval: None,
             stale_workflows: Arc::new(dashmap::DashSet::new()),
@@ -183,7 +183,7 @@ impl ApiContext {
             persistence_bridge: std::sync::Mutex::new(None),
             handlers,
             trigger_state_registry: Arc::new(wf_workflow::TriggerStateRegistry::new()),
-            hook_registry: None,
+            hook_handler_registry: None,
             file_checkpoint_manager: None,
             tool_approval: None,
             stale_workflows: Arc::new(dashmap::DashSet::new()),
@@ -203,10 +203,10 @@ impl ApiContext {
         self
     }
 
-    /// Inject the shared hook receiver registry (hook points + engine
+    /// Inject the shared hook handler registry (hook points + engine
     /// signals of executions launched through this context).
-    pub fn with_hook_registry(mut self, registry: Arc<HookRegistry>) -> Self {
-        self.hook_registry = Some(registry);
+    pub fn with_hook_handler_registry(mut self, registry: Arc<HookHandlerRegistry>) -> Self {
+        self.hook_handler_registry = Some(registry);
         self
     }
 

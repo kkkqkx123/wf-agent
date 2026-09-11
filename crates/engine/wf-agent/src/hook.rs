@@ -2,31 +2,31 @@ use std::collections::HashMap;
 
 use serde_json::Value;
 use wf_core::EventBus;
-use wf_execution_shared::hooks::{dispatch, BaseHookDefinition, HookContext, HookRegistry};
+use wf_execution_shared::hooks::{fire, HookContext, HookDefinition, HookHandlerRegistry};
 
 use crate::entity::AgentLoopEntity;
 
-/// Shared no-receiver fallback registry: without an injected registry the
-/// dispatch degrades to the audit-only behavior (event publication), so
+/// Shared no-handler fallback registry: without an injected registry the
+/// fire degrades to the audit-only behavior (event publication), so
 /// tests and minimal embeddings keep their observable events.
-fn registry_or_default(registry: Option<&HookRegistry>) -> &HookRegistry {
+fn registry_or_default(registry: Option<&HookHandlerRegistry>) -> &HookHandlerRegistry {
     registry.unwrap_or_else(|| {
-        static DEFAULT: std::sync::OnceLock<HookRegistry> = std::sync::OnceLock::new();
-        DEFAULT.get_or_init(HookRegistry::new)
+        static DEFAULT: std::sync::OnceLock<HookHandlerRegistry> = std::sync::OnceLock::new();
+        DEFAULT.get_or_init(HookHandlerRegistry::new)
     })
 }
 
-pub struct AgentHookHandler;
+pub struct AgentHookEmitter;
 
-impl AgentHookHandler {
-    /// Dispatch the hooks of `hook_type` configured on `entity`: evaluate,
-    /// notify registered receivers synchronously and publish the
+impl AgentHookEmitter {
+    /// Fire the hooks of `hook_type` configured on `entity`: evaluate,
+    /// notify registered handlers synchronously and publish the
     /// `HOOK_TRIGGERED` audit event.
-    pub async fn emit_agent_hooks(
+    pub async fn fire_agent_point(
         entity: &AgentLoopEntity,
         hook_type: &str,
         extra_data: HashMap<String, Value>,
-        registry: Option<&HookRegistry>,
+        registry: Option<&HookHandlerRegistry>,
         event_bus: Option<&EventBus>,
     ) {
         let mut data = HashMap::new();
@@ -46,7 +46,7 @@ impl AgentHookHandler {
         );
         data.extend(extra_data);
 
-        dispatch(
+        fire(
             registry_or_default(registry),
             entity.hooks(),
             hook_type,
@@ -60,17 +60,17 @@ impl AgentHookHandler {
         .await;
     }
 
-    /// Dispatch hooks against a caller-built context (e.g. the parallel
+    /// Fire hooks against a caller-built context (e.g. the parallel
     /// tool-call path, where the entity is not available inside the spawned
     /// task).
-    pub async fn emit_hooks(
-        hooks: &[BaseHookDefinition],
+    pub async fn fire_point(
+        hooks: &[HookDefinition],
         hook_type: &str,
         ctx: &HookContext,
-        registry: Option<&HookRegistry>,
+        registry: Option<&HookHandlerRegistry>,
         event_bus: Option<&EventBus>,
     ) {
-        dispatch(
+        fire(
             registry_or_default(registry),
             hooks,
             hook_type,

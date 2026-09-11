@@ -115,14 +115,14 @@ mod tests {
         registry.record_start(
             "exec-1",
             TriggerStateRecord::running(
-                "on_hook".to_string(),
+                "on_point".to_string(),
                 "event-1".to_string(),
                 "HOOK_TRIGGERED".to_string(),
                 1000,
             ),
         );
         let snapshot = registry.snapshot_for("exec-1").expect("record present");
-        assert_eq!(snapshot[0]["triggerName"], serde_json::json!("on_hook"));
+        assert_eq!(snapshot[0]["triggerName"], serde_json::json!("on_point"));
         assert_eq!(snapshot[0]["status"], serde_json::json!("running"));
 
         registry.record_end("exec-1", "event-1", "completed");

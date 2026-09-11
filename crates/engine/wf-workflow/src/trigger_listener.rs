@@ -237,10 +237,20 @@ impl TriggerEventListener {
                                 }
                             }
                             Err(EventError::Lagged(_)) => {
-                                warn!(
-                                    "TriggerEventListener lagged behind event type {}",
-                                    event_type.as_str()
-                                );
+                                match event_type.category() {
+                                    wf_types::events::EventCategory::Observable => {
+                                        debug!(
+                                            "TriggerEventListener lagged behind observable event type {}",
+                                            event_type.as_str()
+                                        );
+                                    }
+                                    _ => {
+                                        warn!(
+                                            "TriggerEventListener lagged behind request/mutated event type {}",
+                                            event_type.as_str()
+                                        );
+                                    }
+                                }
                                 continue;
                             }
                             Err(_) => break,

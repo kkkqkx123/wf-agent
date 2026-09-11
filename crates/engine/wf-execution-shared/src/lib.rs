@@ -21,8 +21,8 @@ pub use execution_state::ExecutionStateManager;
 pub use fork::{BranchRecord, BranchStatus, ForkRegistry};
 pub use handler::{NodeHandler, NodeHandlerRegistry};
 pub use hooks::{
-    dispatch, evaluate_hook_condition, filter_and_sort_hooks, publish_hook_audit_event,
-    HookContext, HookOutcome, HookReceiver, HookRegistry, ReceiverResult,
+    evaluate_hook_condition, filter_and_sort_hooks, fire, publish_hook_audit_event, HandlerResult,
+    HookContext, HookHandler, HookHandlerRegistry, HookOutcome,
 };
 pub use interruption::{
     check_execution_interruption, combine_cancellation_tokens, execute_with_interruption_handling,

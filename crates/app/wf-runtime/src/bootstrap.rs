@@ -11,7 +11,7 @@ use wf_workflow::trigger_listener::TriggerEventListener;
 use wf_core::event::EventBus;
 use wf_core::internal_signal::InternalSignalBus;
 use wf_core::registry::{MutableRegistry, Registry};
-use wf_execution_shared::hooks::HookRegistry;
+use wf_execution_shared::hooks::HookHandlerRegistry;
 use wf_llm::LlmGateway;
 use wf_resource::registry::ResourceRegistries;
 use wf_resource::resource_plugin::ResourcePluginRegistry;
@@ -24,7 +24,7 @@ use crate::metrics::MetricsContext;
 use crate::mode::{detect_all, ModeInfo};
 use crate::storage_manager::StorageManager;
 use crate::trigger_listener::{
-    register_compression_receiver, start_trigger_listener_with_parts, ExecutionContextRegistry,
+    register_compression_handler, start_trigger_listener_with_parts, ExecutionContextRegistry,
     ListenerDeps, TriggerExecutionRecorder, TriggerLedger, WorkflowRunner,
 };
 
@@ -74,10 +74,10 @@ pub struct Runtime {
     /// Trigger runtime state registry: the listener records fired triggers
     /// here and checkpoints capture them as the `trigger_states` audit trail.
     pub trigger_state_registry: Arc<wf_workflow::TriggerStateRegistry>,
-    /// Shared hook receiver registry: engine hook points and signals
-    /// (context compression) dispatch through it; the compression service is
+    /// Shared hook handler registry: engine hook points and signals
+    /// (context compression) fire through it; the compression service is
     /// registered on the `CONTEXT_COMPRESSION_REQUESTED` signal point.
-    pub hook_registry: Arc<HookRegistry>,
+    pub hook_handler_registry: Arc<HookHandlerRegistry>,
     /// Shared agent loop registry of the composite execution callback;
     /// injected into the API context so tool-dispatched executions appear in
     /// the server execution views.
@@ -131,7 +131,7 @@ impl Drop for ActiveShutdownScope {
 /// Assembled event-driven trigger subsystem produced by
 /// [`assemble_trigger_subsystem`]: the listener handle plus the shared
 /// write-back registries both the listener and the builtin compression
-/// receiver operate on.
+/// handler operate on.
 struct TriggerSubsystem {
     execution_contexts: Arc<ExecutionContextRegistry>,
     trigger_state_registry: Arc<wf_workflow::TriggerStateRegistry>,
@@ -140,7 +140,7 @@ struct TriggerSubsystem {
 
 /// Dependencies of the trigger subsystem assembly: the shared buses,
 /// registries and engine components the listener and the builtin compression
-/// receiver operate on. Bundled so the assembly signature stays readable.
+/// handler operate on. Bundled so the assembly signature stays readable.
 struct TriggerSubsystemDeps {
     registries: Arc<ResourceRegistries>,
     event_bus: Arc<EventBus>,
@@ -149,7 +149,7 @@ struct TriggerSubsystemDeps {
     tool_registry: Arc<wf_tools::registry::ToolRegistry>,
     sandbox_runtime: Arc<wf_sandbox::SandboxRuntime>,
     agent_executor: Arc<wf_agent::executor::AgentLoopExecutor>,
-    hook_registry: Arc<HookRegistry>,
+    hook_handler_registry: Arc<HookHandlerRegistry>,
     storage: Option<Arc<dyn TriggerExecutionRecorder>>,
     limits: wf_types::config::limits::LimitsConfig,
 }
@@ -158,7 +158,7 @@ struct TriggerSubsystemDeps {
 ///
 /// Wires the trigger listener (powers the nested-agent-execution action
 /// `HookTriggered` etc. and user trigger templates) and the builtin
-/// context-compression hook receiver together: both share the same
+/// context-compression hook handler together: both share the same
 /// sub-workflow runner, shutdown token, execution-context registry and
 /// trigger-state registry so engine compression signals and user triggers
 /// run over one consistent lifecycle. Trigger executions are recorded in
@@ -172,7 +172,7 @@ fn assemble_trigger_subsystem(deps: TriggerSubsystemDeps) -> TriggerSubsystem {
         tool_registry,
         sandbox_runtime,
         agent_executor,
-        hook_registry,
+        hook_handler_registry,
         storage,
         limits,
     } = deps;
@@ -203,16 +203,16 @@ fn assemble_trigger_subsystem(deps: TriggerSubsystemDeps) -> TriggerSubsystem {
         agent_executor: Some(agent_executor.clone()),
         storage: storage.clone(),
         trigger_state_registry: Some(trigger_state_registry.clone()),
-        hook_registry: Some(hook_registry.clone()),
+        hook_handler_registry: Some(hook_handler_registry.clone()),
         signal_bus: Some(signal_bus.clone()),
         shutdown: trigger_shutdown.clone(),
     });
-    // The builtin compression receiver shares the listener's shutdown token
-    // and sub-workflow runner: engine signals dispatch to it, the summary
+    // The builtin compression handler shares the listener's shutdown token
+    // and sub-workflow runner: engine signals fire to it, the summary
     // sub-workflow is spawned immediately and stopped at runtime shutdown
     // together with the listener.
-    let _compression = register_compression_receiver(
-        &hook_registry,
+    let _compression = register_compression_handler(
+        &hook_handler_registry,
         event_bus,
         subworkflow_runner,
         execution_contexts.clone(),
@@ -289,11 +289,11 @@ impl Runtime {
         // and coordinators share one instance.
         let signal_bus = Arc::new(InternalSignalBus::new());
 
-        // Shared hook receiver registry: hook points and engine signals
-        // (context compression) dispatch through it. The builtin compression
-        // receiver is registered once the execution write-back registry and
+        // Shared hook handler registry: hook points and engine signals
+        // (context compression) fire through it. The builtin compression
+        // handler is registered once the execution write-back registry and
         // the trigger shutdown token exist (below).
-        let hook_registry = Arc::new(HookRegistry::new());
+        let hook_handler_registry = Arc::new(HookHandlerRegistry::new());
 
         // Shared sandbox runtime: compile the global config (profiles +
         // routing rules) up front so configuration errors surface at
@@ -425,7 +425,7 @@ impl Runtime {
                         max as usize
                     }
                 })
-                .with_hook_registry(hook_registry.clone())
+                .with_hook_handler_registry(hook_handler_registry.clone())
                 .with_signal_bus(signal_bus.clone()),
         );
         let mut workflow_callback =
@@ -433,7 +433,7 @@ impl Runtime {
                 .with_gateway(llm_gateway.clone())
                 .with_event_bus(event_bus.clone())
                 .with_sandbox(sandbox_runtime.clone())
-                .with_hook_registry(hook_registry.clone())
+                .with_hook_handler_registry(hook_handler_registry.clone())
                 .with_signal_bus(signal_bus.clone());
         if let Some(metrics) = metrics.as_ref() {
             workflow_callback = workflow_callback.with_metrics(metrics.registry().clone());
@@ -477,8 +477,8 @@ impl Runtime {
         // Event-driven trigger subsystem: powers the nested-agent-execution
         // action (HookTriggered etc.) and user trigger templates. The context
         // compression chain is now served by the hook registry: the engine
-        // dispatches the CONTEXT_COMPRESSION_REQUESTED signal synchronously
-        // and the compression receiver (assembled below) takes over
+        // fires the CONTEXT_COMPRESSION_REQUESTED signal synchronously
+        // and the compression handler (assembled below) takes over
         // immediately.
         let trigger_subsystem = assemble_trigger_subsystem(TriggerSubsystemDeps {
             registries: registries.clone(),
@@ -488,7 +488,7 @@ impl Runtime {
             tool_registry: tool_registry.clone(),
             sandbox_runtime: sandbox_runtime.clone(),
             agent_executor: agent_executor.clone(),
-            hook_registry: hook_registry.clone(),
+            hook_handler_registry: hook_handler_registry.clone(),
             storage: storage_manager.shared_context().map(|ctx| {
                 Arc::new(ctx.trigger_execution.clone()) as Arc<dyn TriggerExecutionRecorder>
             }),
@@ -541,7 +541,7 @@ impl Runtime {
             trigger_listener_shutdown: Some(listener.shutdown),
             trigger_listener_handle: Some(listener.handle),
             trigger_state_registry,
-            hook_registry,
+            hook_handler_registry,
             agent_registry,
             #[cfg(feature = "plugins")]
             plugin_engine,
@@ -632,9 +632,9 @@ impl Runtime {
             // Share the trigger runtime state registry so API-created
             // checkpoints capture the trigger audit trail.
             ctx = ctx.with_trigger_state_registry(self.trigger_state_registry.clone());
-            // Share the hook receiver registry so API-executed agents and
-            // workflows dispatch through the same signal points.
-            ctx = ctx.with_hook_registry(self.hook_registry.clone());
+            // Share the hook handler registry so API-executed agents and
+            // workflows fire through the same signal points.
+            ctx = ctx.with_hook_handler_registry(self.hook_handler_registry.clone());
             // Attach the file checkpoint manager (file snapshots + script
             // change capture) when file checkpointing is enabled.
             if let Some(manager) = &self.file_checkpoint_manager {

@@ -11,7 +11,7 @@ use wf_checkpoint::state::WorkflowCheckpointStateManager;
 use wf_common::retry::{RetryBudget, RetryBudgetConfig, TimeBudgetMode};
 use wf_core::registry::MutableRegistry;
 use wf_execution_shared::context::ExecutorContext;
-use wf_execution_shared::hooks::types::BaseHookDefinition;
+use wf_execution_shared::hooks::types::HookDefinition;
 use wf_execution_shared::types::execution_entity::ExecutionStatus;
 use wf_storage::adapter::base::BaseStorageAdapter;
 use wf_tools::callback::WorkflowOutput;
@@ -270,8 +270,8 @@ pub async fn resume(
             .record_execution_start(entity.workflow_id());
         exec_ctx = exec_ctx.with_metrics(metrics.clone());
     }
-    if let Some(ref registry) = ctx.hook_registry {
-        exec_ctx = exec_ctx.with_hook_registry(registry.clone());
+    if let Some(ref registry) = ctx.hook_handler_registry {
+        exec_ctx = exec_ctx.with_hook_handler_registry(registry.clone());
     }
     attach_host_tool_approval(ctx, &mut exec_ctx, entity.id().as_str());
 
@@ -808,7 +808,7 @@ async fn run_workflow(
     ctx: &ApiContext,
     entity: Arc<WorkflowExecutionEntity>,
     graph: WorkflowGraphStructure,
-    hooks: Vec<BaseHookDefinition>,
+    hooks: Vec<HookDefinition>,
     options: WorkflowExecutionOptions,
 ) -> crate::infra::error::ApiResult<WorkflowOutput> {
     let checkpoints_enabled = options.enable_checkpoints.unwrap_or(true);
@@ -864,7 +864,7 @@ async fn run_workflow(
 async fn resolve_hooks(
     ctx: &ApiContext,
     workflow_id: &str,
-) -> crate::infra::error::ApiResult<Vec<BaseHookDefinition>> {
+) -> crate::infra::error::ApiResult<Vec<HookDefinition>> {
     let definition = ctx
         .storage
         .workflow

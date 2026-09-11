@@ -1,7 +1,7 @@
 pub mod bootstrap;
 pub mod error;
 pub mod execution_callback;
-pub mod hook_receiver;
+pub mod hook_handler;
 pub mod lifecycle;
 pub mod logger;
 pub mod metrics;
@@ -24,9 +24,7 @@ pub mod checkpoint_event_bridge;
 pub mod wf_runtime;
 
 pub use bootstrap::{ResourceConfig, Runtime, RuntimeConfig};
-pub use hook_receiver::{
-    register_hook_receiver, register_plugin_hook_receivers, HookReceiverError,
-};
+pub use hook_handler::{register_hook_handler, register_plugin_hook_handlers, HookHandlerError};
 pub use metrics::{MetricsContext, StorageMetricsSink};
 pub use persistence_layer::{PersistenceConfig, PersistenceLayer};
 pub use sdk_options::SdkOptions;

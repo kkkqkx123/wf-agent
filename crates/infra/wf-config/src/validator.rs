@@ -2,7 +2,7 @@ use std::sync::LazyLock;
 
 use crate::error::{ConfigError, ConfigResult};
 
-use wf_types::hook::is_known_hook_type;
+use wf_types::hook::is_known_hook_point;
 
 static EMAIL_REGEX: LazyLock<regex::Regex> =
     LazyLock::new(|| regex::Regex::new(r"^[^\s@]+@[^\s@]+\.[^\s@]+$").unwrap());
@@ -22,7 +22,7 @@ pub fn validate_required(value: &str, field_name: &str) -> ConfigResult<()> {
 /// `wf-config` and `wf-agent` validation; new hook types are admitted by
 /// extending it in one place.
 pub fn validate_hook_type(hook_type: &str, field_name: &str) -> ConfigResult<()> {
-    if is_known_hook_type(hook_type) {
+    if is_known_hook_point(hook_type) {
         Ok(())
     } else {
         Err(ConfigError::Validation(format!(

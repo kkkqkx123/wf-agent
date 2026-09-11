@@ -6,8 +6,8 @@ use serde_json::Value;
 use wf_core::internal_signal::InternalSignalBus;
 use wf_core::registry::{MutableRegistry, Registry};
 use wf_core::EventBus;
-use wf_execution_shared::hooks::types::BaseHookDefinition;
-use wf_execution_shared::hooks::HookRegistry;
+use wf_execution_shared::hooks::types::HookDefinition;
+use wf_execution_shared::hooks::HookHandlerRegistry;
 use wf_execution_shared::types::execution_entity::ExecutionEntity;
 use wf_metrics::MetricsRegistry;
 use wf_storage::backend::StorageBackend;
@@ -49,11 +49,11 @@ pub struct WorkflowExecutionCallback {
     store: Arc<StorageBackend>,
     metrics: Option<Arc<MetricsRegistry>>,
     /// Shared hook receiver registry; hook points dispatch through it.
-    hook_registry: Option<Arc<HookRegistry>>,
-    hooks: Vec<BaseHookDefinition>,
+    hook_handler_registry: Option<Arc<HookHandlerRegistry>>,
+    hooks: Vec<HookDefinition>,
     /// Per-workflow hooks, keyed by workflow id (from the workflow
     /// definition); overrides the shared `hooks` for that workflow.
-    workflow_hooks: std::sync::RwLock<HashMap<String, Vec<BaseHookDefinition>>>,
+    workflow_hooks: std::sync::RwLock<HashMap<String, Vec<HookDefinition>>>,
     /// Shared sandbox runtime (global profiles + routing rules); injected
     /// into the script handlers of executions launched here. `None` uses
     /// per-handler defaults.
@@ -73,7 +73,7 @@ impl WorkflowExecutionCallback {
             checkpoint_strategy: None,
             store: Arc::new(StorageBackend::new_memory()),
             metrics: None,
-            hook_registry: None,
+            hook_handler_registry: None,
             hooks: Vec::new(),
             workflow_hooks: std::sync::RwLock::new(HashMap::new()),
             sandbox: None,
@@ -130,12 +130,12 @@ impl WorkflowExecutionCallback {
     /// Inject the shared hook receiver registry into executions started
     /// through this callback (hook points + engine signals dispatch through
     /// it).
-    pub fn with_hook_registry(mut self, registry: Arc<HookRegistry>) -> Self {
-        self.hook_registry = Some(registry);
+    pub fn with_hook_handler_registry(mut self, registry: Arc<HookHandlerRegistry>) -> Self {
+        self.hook_handler_registry = Some(registry);
         self
     }
 
-    pub fn with_hooks(mut self, hooks: Vec<BaseHookDefinition>) -> Self {
+    pub fn with_hooks(mut self, hooks: Vec<HookDefinition>) -> Self {
         self.hooks = hooks;
         self
     }
@@ -151,7 +151,7 @@ impl WorkflowExecutionCallback {
         &self,
         workflow_id: Id,
         graph: WorkflowGraphStructure,
-        hooks: Vec<BaseHookDefinition>,
+        hooks: Vec<HookDefinition>,
     ) -> bool {
         let registered = self
             .graphs
@@ -234,8 +234,8 @@ impl WorkflowExecutionCallback {
         if let Some(ref metrics) = self.metrics {
             lifecycle = lifecycle.with_metrics(metrics.clone());
         }
-        if let Some(ref registry) = self.hook_registry {
-            lifecycle = lifecycle.with_hook_registry(registry.clone());
+        if let Some(ref registry) = self.hook_handler_registry {
+            lifecycle = lifecycle.with_hook_handler_registry(registry.clone());
         }
         if let Some(ref bus) = self.signal_bus {
             lifecycle = lifecycle.with_signal_bus(bus.clone());
@@ -669,14 +669,14 @@ mod tests {
         callback.register_workflow_with_hooks(
             workflow_id.clone(),
             linear_graph(),
-            vec![BaseHookDefinition {
+            vec![HookDefinition {
                 id: wf_types::Id::new(),
                 hook_type: "BEFORE_EXECUTE".to_string(),
                 weight: 1,
                 condition: None,
                 enabled: true,
                 payload: None,
-                receiver: None,
+                handler: None,
             }],
         );
 

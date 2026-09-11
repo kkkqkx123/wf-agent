@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use serde_json::Value;
 
-use wf_execution_shared::hooks::HookRegistry;
+use wf_execution_shared::hooks::HookHandlerRegistry;
 use wf_execution_shared::interruption::check_execution_interruption;
 use wf_execution_shared::types::execution_entity::ExecutionEntity;
 use wf_execution_shared::types::interruption::ExecutionInterruptionCheckResult;
@@ -23,7 +23,7 @@ use crate::approval::ToolApprovalHandler;
 use crate::coordinator::tool::ToolExecutionCoordinator;
 use crate::entity::AgentLoopEntity;
 use crate::error::{AgentError, AgentResult};
-use crate::hook::AgentHookHandler;
+use crate::hook::AgentHookEmitter;
 use crate::stream::{AgentEventSink, AgentStreamEvent};
 
 /// Publish the stream termination event (error vs abort) for the agent loop's
@@ -97,7 +97,7 @@ pub struct AgentIterationCoordinator {
     event_sink: Option<AgentEventSink>,
     event_bus: Option<Arc<wf_core::EventBus>>,
     /// Shared hook receiver registry; hook points dispatch through it.
-    hook_registry: Option<Arc<HookRegistry>>,
+    hook_handler_registry: Option<Arc<HookHandlerRegistry>>,
     token_warning_threshold: u32,
     /// Token usage tracking; disabled only by an explicit config switch.
     token_tracking_enabled: bool,
@@ -125,7 +125,7 @@ impl AgentIterationCoordinator {
             mode: IterationMode::Blocking,
             event_sink: None,
             event_bus: None,
-            hook_registry: None,
+            hook_handler_registry: None,
             token_warning_threshold: DEFAULT_TOKEN_WARNING_THRESHOLD,
             token_tracking_enabled: true,
             general_description: None,
@@ -187,14 +187,17 @@ impl AgentIterationCoordinator {
         self.tool_coordinator = self.tool_coordinator.with_event_bus(Some(event_bus));
         self.tool_coordinator = self
             .tool_coordinator
-            .with_hook_registry(self.hook_registry.clone());
+            .with_hook_handler_registry(self.hook_handler_registry.clone());
         self
     }
 
     /// Inject the shared hook receiver registry: every hook point dispatches
     /// through it (synchronous receiver notification + audit event).
-    pub fn with_hook_registry(mut self, registry: Option<Arc<HookRegistry>>) -> Self {
-        self.hook_registry = registry;
+    pub fn with_hook_handler_registry(
+        mut self,
+        registry: Option<Arc<HookHandlerRegistry>>,
+    ) -> Self {
+        self.hook_handler_registry = registry;
         self
     }
 
@@ -272,11 +275,11 @@ impl AgentIterationCoordinator {
     ) -> AgentResult<IterationResult> {
         let execution_id = entity.id().clone();
 
-        AgentHookHandler::emit_agent_hooks(
+        AgentHookEmitter::fire_agent_point(
             entity,
             "BEFORE_ITERATION",
             HashMap::new(),
-            self.hook_registry.as_deref(),
+            self.hook_handler_registry.as_deref(),
             self.event_bus.as_deref(),
         )
         .await;
@@ -303,11 +306,11 @@ impl AgentIterationCoordinator {
             return Ok(result);
         }
 
-        AgentHookHandler::emit_agent_hooks(
+        AgentHookEmitter::fire_agent_point(
             entity,
             "BEFORE_LLM_CALL",
             HashMap::new(),
-            self.hook_registry.as_deref(),
+            self.hook_handler_registry.as_deref(),
             self.event_bus.as_deref(),
         )
         .await;
@@ -530,11 +533,11 @@ impl AgentIterationCoordinator {
             "finish_reason".to_string(),
             Value::String(finish_reason.unwrap_or_default()),
         );
-        AgentHookHandler::emit_agent_hooks(
+        AgentHookEmitter::fire_agent_point(
             entity,
             "AFTER_LLM_CALL",
             hook_data,
-            self.hook_registry.as_deref(),
+            self.hook_handler_registry.as_deref(),
             self.event_bus.as_deref(),
         )
         .await;
@@ -674,11 +677,11 @@ impl AgentIterationCoordinator {
             }
         }
 
-        AgentHookHandler::emit_agent_hooks(
+        AgentHookEmitter::fire_agent_point(
             entity,
             "AFTER_ITERATION",
             HashMap::new(),
-            self.hook_registry.as_deref(),
+            self.hook_handler_registry.as_deref(),
             self.event_bus.as_deref(),
         )
         .await;
@@ -731,10 +734,10 @@ impl AgentIterationCoordinator {
         entity: &AgentLoopEntity,
         request: &wf_llm::ContextCompressionRequest<'_>,
     ) {
-        let Some(registry) = &self.hook_registry else {
+        let Some(registry) = &self.hook_handler_registry else {
             return;
         };
-        use wf_execution_shared::hooks::{dispatch, HookContext};
+        use wf_execution_shared::hooks::{fire, HookContext};
         let mut data = wf_llm::compression_request_hook_data(request);
         // Agent-owned target: the agent conversation consumes the completed
         // event itself (no registry write-back).
@@ -742,7 +745,7 @@ impl AgentIterationCoordinator {
             "agent_loop_id".to_string(),
             Value::String(entity.id().to_string()),
         );
-        dispatch(
+        fire(
             registry,
             &[],
             wf_llm::token_events::COMPRESSION_SIGNAL_HOOK_TYPE,

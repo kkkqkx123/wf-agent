@@ -13,7 +13,7 @@ use wf_types::Id;
 
 use wf_resource::registry::ResourceRegistries;
 
-use crate::hooks::HookRegistry;
+use crate::hooks::HookHandlerRegistry;
 
 pub struct ExecutorContext {
     pub execution_id: Id,
@@ -34,9 +34,9 @@ pub struct ExecutorContext {
     /// Global retry budget shared across the execution (fork branches,
     /// node retries). `None` = no budget constraint.
     pub retry_budget: Option<Arc<RetryBudget>>,
-    /// Shared hook receiver registry; hook points and engine signals of this
-    /// execution dispatch through it.
-    pub hook_registry: Option<Arc<HookRegistry>>,
+    /// Shared hook handler registry; hook points and engine signals of this
+    /// execution fire through it.
+    pub hook_handler_registry: Option<Arc<HookHandlerRegistry>>,
     /// Tool-level approval: external handler consulted before every tool call
     /// (pre-execution side-effect guard). `None` falls back to
     /// `tool_approval_options` (policy engine) and then to auto-approval.
@@ -77,7 +77,7 @@ impl ExecutorContext {
             metrics: None,
             token_tracker: Some(Arc::new(tokio::sync::Mutex::new(TokenUsageTracker::new(0)))),
             retry_budget: None,
-            hook_registry: None,
+            hook_handler_registry: None,
             tool_approval_handler: None,
             tool_approval_options: None,
             readonly_variables: None,
@@ -121,10 +121,10 @@ impl ExecutorContext {
         self
     }
 
-    /// Inject the shared hook receiver registry (dispatch target of hook
+    /// Inject the shared hook handler registry (fire target of hook
     /// points and engine signals during this execution).
-    pub fn with_hook_registry(mut self, registry: Arc<HookRegistry>) -> Self {
-        self.hook_registry = Some(registry);
+    pub fn with_hook_handler_registry(mut self, registry: Arc<HookHandlerRegistry>) -> Self {
+        self.hook_handler_registry = Some(registry);
         self
     }
 
@@ -225,8 +225,8 @@ pub struct NodeExecutionContext {
     pub cancellation: Option<tokio_util::sync::CancellationToken>,
     /// Global retry budget inherited from the parent execution.
     pub retry_budget: Option<Arc<RetryBudget>>,
-    /// Shared hook receiver registry inherited from the parent execution.
-    pub hook_registry: Option<Arc<HookRegistry>>,
+    /// Shared hook handler registry inherited from the parent execution.
+    pub hook_handler_registry: Option<Arc<HookHandlerRegistry>>,
     /// Tool-level approval handler inherited from the parent execution
     /// (pre-execution side-effect guard). `None` falls back to
     /// `tool_approval_options` (policy engine) and then to auto-approval.
@@ -278,7 +278,7 @@ impl NodeExecutionContext {
             token_tracker: None,
             cancellation: None,
             retry_budget: None,
-            hook_registry: None,
+            hook_handler_registry: None,
             tool_approval_handler: None,
             tool_approval_options: None,
             readonly_variables: None,
@@ -326,10 +326,10 @@ impl NodeExecutionContext {
         self
     }
 
-    /// Inject the shared hook receiver registry (dispatch target of hook
+    /// Inject the shared hook handler registry (fire target of hook
     /// points and engine signals during this node execution).
-    pub fn with_hook_registry(mut self, registry: Arc<HookRegistry>) -> Self {
-        self.hook_registry = Some(registry);
+    pub fn with_hook_handler_registry(mut self, registry: Arc<HookHandlerRegistry>) -> Self {
+        self.hook_handler_registry = Some(registry);
         self
     }
 

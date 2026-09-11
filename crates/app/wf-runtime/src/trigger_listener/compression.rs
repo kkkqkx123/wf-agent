@@ -1,8 +1,8 @@
-//! The engine's builtin `CONTEXT_COMPRESSION_REQUESTED` hook receiver.
+//! The engine's builtin `CONTEXT_COMPRESSION_REQUESTED` hook handler.
 //!
 //! [`CompressionService`] takes over the compression signal synchronously:
 //! version-idempotent skip, then spawn of the summary sub-workflow. The
-//! engine waits only for the takeover — dispatch returns as soon as the
+//! engine waits only for the takeover — fire returns as soon as the
 //! sub-workflow is spawned, never after the compression completes.
 
 use std::sync::Arc;
@@ -12,7 +12,7 @@ use dashmap::DashMap;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, warn};
 use wf_core::EventBus;
-use wf_execution_shared::hooks::{HookContext, HookOutcome, HookReceiver};
+use wf_execution_shared::hooks::{HookContext, HookHandler, HookOutcome};
 use wf_types::message::Message;
 use wf_types::Id;
 
@@ -23,7 +23,7 @@ use super::{
 };
 use wf_workflow::trigger_listener::SubworkflowRunner;
 
-pub const COMPRESSION_SERVICE_RECEIVER_NAME: &str = "context_compression";
+pub const COMPRESSION_SERVICE_HANDLER_NAME: &str = "context_compression";
 
 /// Parsed payload of one `CONTEXT_COMPRESSION_REQUESTED` hook signal.
 struct CompressionSignal {
@@ -40,7 +40,7 @@ struct CompressionSignal {
 }
 
 /// Parse the compression signal payload from a hook context; `None` when the
-/// payload is missing or invalid (logged skip, never a dispatch failure).
+/// payload is missing or invalid (logged skip, never a fire failure).
 fn parse_compression_signal(ctx: &HookContext) -> Option<CompressionSignal> {
     use wf_llm::token_events::{
         KEY_ARRAY_VERSION, KEY_FORCED, KEY_MESSAGES, KEY_MESSAGE_COUNT, KEY_TARGET_CONTEXT_ID,
@@ -65,13 +65,13 @@ fn parse_compression_signal(ctx: &HookContext) -> Option<CompressionSignal> {
     })
 }
 
-/// The engine's builtin hook receiver for the `CONTEXT_COMPRESSION_REQUESTED`
+/// The engine's builtin hook handler for the `CONTEXT_COMPRESSION_REQUESTED`
 /// signal (see `wf_llm::token_events::COMPRESSION_SIGNAL_HOOK_TYPE`).
 ///
 /// The engine detects a token-limit overrun (or a forced safety-net request)
-/// and dispatches the signal synchronously; this service takes over
+/// and fires the signal synchronously; this service takes over
 /// immediately: version-idempotent skip, then spawn of the summary
-/// sub-workflow. The engine waits only for the takeover — dispatch returns
+/// sub-workflow. The engine waits only for the takeover — fire returns
 /// as soon as the sub-workflow is spawned, never after the compression
 /// completes.
 ///
@@ -144,12 +144,12 @@ impl CompressionService {
 }
 
 #[async_trait]
-impl HookReceiver for CompressionService {
+impl HookHandler for CompressionService {
     fn name(&self) -> &str {
-        COMPRESSION_SERVICE_RECEIVER_NAME
+        COMPRESSION_SERVICE_HANDLER_NAME
     }
 
-    async fn on_hook(&self, ctx: &HookContext) -> HookOutcome {
+    async fn on_point(&self, ctx: &HookContext) -> HookOutcome {
         self.handle(ctx).await;
         HookOutcome::Continue
     }
@@ -160,7 +160,7 @@ impl CompressionService {
     /// summary sub-workflow and return immediately.
     async fn handle(&self, ctx: &HookContext) {
         let Some(signal) = parse_compression_signal(ctx) else {
-            debug!("Compression signal dispatch ignored: missing or invalid payload");
+            debug!("Compression signal fire ignored: missing or invalid payload");
             return;
         };
         let execution_id = ctx.execution_id.clone();
@@ -196,7 +196,7 @@ impl CompressionService {
             registry.record_start(
                 &execution_id.to_string(),
                 wf_workflow::TriggerStateRecord::running(
-                    COMPRESSION_SERVICE_RECEIVER_NAME.to_string(),
+                    COMPRESSION_SERVICE_HANDLER_NAME.to_string(),
                     event_id.clone(),
                     wf_llm::token_events::COMPRESSION_SIGNAL_HOOK_TYPE.to_string(),
                     wf_common::now(),
@@ -301,8 +301,8 @@ async fn record_compression_execution(
     };
     let metadata = wf_types::TriggerExecutionStorageMetadata {
         id: Id::new(),
-        trigger_name: COMPRESSION_SERVICE_RECEIVER_NAME.to_string(),
-        trigger_type: "hook_receiver".to_string(),
+        trigger_name: COMPRESSION_SERVICE_HANDLER_NAME.to_string(),
+        trigger_type: "hook_handler".to_string(),
         event: wf_llm::token_events::COMPRESSION_SIGNAL_HOOK_TYPE.to_string(),
         execution_id: Some(Id::from(execution_id.to_string())),
         workflow_id: None,

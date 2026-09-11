@@ -7,8 +7,8 @@ use serde_json::Value;
 use tokio_util::sync::CancellationToken;
 
 use wf_common::retry::RetryBudget;
-use wf_execution_shared::hooks::types::BaseHookContext;
-use wf_execution_shared::hooks::HookRegistry;
+use wf_execution_shared::hooks::HookContext;
+use wf_execution_shared::hooks::HookHandlerRegistry;
 use wf_execution_shared::types::execution_entity::ExecutionEntity;
 use wf_metrics::MetricsRegistry;
 use wf_tools::approval::{ApprovalDecision, ToolApprovalCoordinator};
@@ -24,7 +24,7 @@ use wf_types::tool::{CheckpointTiming, ToolExecutionOptions};
 use crate::approval::{RejectionMessageBuilder, ToolApprovalHandler, ToolApprovalRequest};
 use crate::entity::AgentLoopEntity;
 use crate::error::AgentResult;
-use crate::hook::AgentHookHandler;
+use crate::hook::AgentHookEmitter;
 use crate::state::ToolCallRecord;
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
@@ -105,7 +105,7 @@ pub struct ToolExecutionCoordinator {
     tool_registry: Arc<ToolRegistry>,
     event_bus: Option<Arc<wf_core::EventBus>>,
     /// Shared hook receiver registry; hook points dispatch through it.
-    hook_registry: Option<Arc<HookRegistry>>,
+    hook_handler_registry: Option<Arc<HookHandlerRegistry>>,
     mode: ToolExecutionMode,
     metrics: Option<Arc<MetricsRegistry>>,
     approval_options: Option<ToolApprovalOptions>,
@@ -133,7 +133,7 @@ impl ToolExecutionCoordinator {
         Self {
             tool_registry,
             event_bus: None,
-            hook_registry: None,
+            hook_handler_registry: None,
             mode: ToolExecutionMode::default(),
             metrics: None,
             approval_options: None,
@@ -159,8 +159,11 @@ impl ToolExecutionCoordinator {
 
     /// Inject the shared hook receiver registry; tool-call hooks dispatch
     /// through it (synchronous receiver notification + audit event).
-    pub fn with_hook_registry(mut self, registry: Option<Arc<HookRegistry>>) -> Self {
-        self.hook_registry = registry;
+    pub fn with_hook_handler_registry(
+        mut self,
+        registry: Option<Arc<HookHandlerRegistry>>,
+    ) -> Self {
+        self.hook_handler_registry = registry;
         self
     }
 
@@ -549,22 +552,22 @@ impl ToolExecutionCoordinator {
             let outcome = &outcomes[idx];
             match outcome {
                 ApprovalOutcome::Rejected { reason } => {
-                    AgentHookHandler::emit_agent_hooks(
+                    AgentHookEmitter::fire_agent_point(
                         entity,
                         "BEFORE_TOOL_CALL",
                         Self::build_hook_data(tc),
-                        self.hook_registry.as_deref(),
+                        self.hook_handler_registry.as_deref(),
                         self.event_bus.as_deref(),
                     )
                     .await;
                     let msg = self.build_rejection_message(tc, reason);
                     let mut hook_data = Self::build_hook_data(tc);
                     hook_data.insert("error".to_string(), Value::String(reason.clone()));
-                    AgentHookHandler::emit_agent_hooks(
+                    AgentHookEmitter::fire_agent_point(
                         entity,
                         "AFTER_TOOL_CALL",
                         hook_data,
-                        self.hook_registry.as_deref(),
+                        self.hook_handler_registry.as_deref(),
                         self.event_bus.as_deref(),
                     )
                     .await;
@@ -577,22 +580,22 @@ impl ToolExecutionCoordinator {
                         tc.function.arguments =
                             serde_json::to_string(edited).unwrap_or(tc.function.arguments);
                     }
-                    AgentHookHandler::emit_agent_hooks(
+                    AgentHookEmitter::fire_agent_point(
                         entity,
                         "BEFORE_TOOL_CALL",
                         Self::build_hook_data(&tc),
-                        self.hook_registry.as_deref(),
+                        self.hook_handler_registry.as_deref(),
                         self.event_bus.as_deref(),
                     )
                     .await;
 
                     let msg = self.execute_single_tool(entity, &tc).await?;
 
-                    AgentHookHandler::emit_agent_hooks(
+                    AgentHookEmitter::fire_agent_point(
                         entity,
                         "AFTER_TOOL_CALL",
                         Self::build_hook_data(&tc),
-                        self.hook_registry.as_deref(),
+                        self.hook_handler_registry.as_deref(),
                         self.event_bus.as_deref(),
                     )
                     .await;
@@ -629,7 +632,7 @@ impl ToolExecutionCoordinator {
                     }
                     let run_ctx = run_ctx.clone();
                     let event_bus = self.event_bus.clone();
-                    let hook_registry = self.hook_registry.clone();
+                    let hook_handler_registry = self.hook_handler_registry.clone();
                     let entity_state = entity.state.clone();
                     let entity_hooks = entity.hooks().to_vec();
                     let entity_id = entity.id().clone();
@@ -637,17 +640,17 @@ impl ToolExecutionCoordinator {
 
                     set.spawn(async move {
                         let hook_data = Self::build_hook_data(&tool_call);
-                        let hook_ctx = BaseHookContext {
+                        let before_ctx = HookContext {
                             execution_id: entity_id.clone(),
+                            hook_type: "BEFORE_TOOL_CALL".to_string(),
                             data: hook_data.clone(),
                         };
-                        let hook_ctx = wf_execution_shared::hooks::HookContext::from(&hook_ctx);
 
-                        AgentHookHandler::emit_hooks(
+                        AgentHookEmitter::fire_point(
                             &entity_hooks,
                             "BEFORE_TOOL_CALL",
-                            &hook_ctx,
-                            hook_registry.as_deref(),
+                            &before_ctx,
+                            hook_handler_registry.as_deref(),
                             event_bus.as_deref(),
                         )
                         .await;
@@ -664,11 +667,16 @@ impl ToolExecutionCoordinator {
                             ),
                         };
 
-                        AgentHookHandler::emit_hooks(
+                        let after_ctx = HookContext {
+                            execution_id: entity_id.clone(),
+                            hook_type: "AFTER_TOOL_CALL".to_string(),
+                            data: hook_data,
+                        };
+                        AgentHookEmitter::fire_point(
                             &entity_hooks,
                             "AFTER_TOOL_CALL",
-                            &hook_ctx,
-                            hook_registry.as_deref(),
+                            &after_ctx,
+                            hook_handler_registry.as_deref(),
                             event_bus.as_deref(),
                         )
                         .await;

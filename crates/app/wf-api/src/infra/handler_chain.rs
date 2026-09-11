@@ -179,7 +179,7 @@ impl NodeHandler for TemplateSubgraphHandler {
         if let Some(regs) = &ctx.resource_registries {
             exec_ctx = exec_ctx.with_resource_registries(regs.clone());
         }
-        exec_ctx.hook_registry = ctx.hook_registry.clone();
+        exec_ctx.hook_handler_registry = ctx.hook_handler_registry.clone();
 
         let mut coordinator =
             WorkflowCoordinator::new(exec_ctx, self.graph.clone(), self.handlers.clone())?;

@@ -1,6 +1,6 @@
 //! Hook audit event publication (record channel).
 //!
-//! Hook delivery is a synchronous dispatch ([`crate::hooks::dispatch`]); the
+//! Hook delivery is a synchronous fire ([`crate::hooks::fire`]); the
 //! `HOOK_TRIGGERED` event published here is the audit copy: persistence,
 //! external subscriptions and user trigger template matching consume it, but
 //! no functional delivery depends on it.
@@ -14,14 +14,11 @@ use wf_types::events::{BaseEvent, EventType};
 use wf_types::Id;
 
 use crate::error::{ExecutionSharedError, ExecutionSharedResult};
-use crate::hooks::dispatch::ReceiverResult;
-use crate::hooks::types::{BaseHookDefinition, HookContext};
+use crate::hooks::fire::HandlerResult;
+use crate::hooks::types::{HookContext, HookDefinition};
 
 /// Hooks of `hook_type` that are enabled, sorted by weight descending.
-pub fn filter_and_sort_hooks(
-    hooks: &[BaseHookDefinition],
-    hook_type: &str,
-) -> Vec<BaseHookDefinition> {
+pub fn filter_and_sort_hooks(hooks: &[HookDefinition], hook_type: &str) -> Vec<HookDefinition> {
     let mut filtered: Vec<_> = hooks
         .iter()
         .filter(|h| h.hook_type == hook_type && h.enabled)
@@ -43,35 +40,45 @@ pub fn evaluate_hook_condition(
     }
 }
 
-/// Publish the `HOOK_TRIGGERED` audit event for one dispatch.
+/// Publish the `HOOK_TRIGGERED` audit event for one fire.
 ///
 /// The event is routable and matchable by trigger templates:
 /// - `execution_id` / `agent_loop_id` come from the hook context;
 /// - `workflow_id` is picked up from the context data when the caller
 ///   injected it (workflow hooks do; agent hooks have no workflow);
-/// - metadata carries `hook_type` (the dispatched type), `hook_count`,
-///   per-hook `weights` and `payloads` (template-resolved), plus the
-///   dispatch summary: `receivers` (name / outcome / duration_ms / error per
-///   notified receiver) and the total `duration_ms`.
+/// - metadata carries `hook_type` (the fired type), `event_category`
+///   (observable / request / mutated, see `wf_types::hook::hook_effect`),
+///   `hook_count`, per-hook `weights` and `payloads` (template-resolved),
+///   plus the fire summary: `handlers` (name / outcome / duration_ms /
+///   error per notified handler) and the total `duration_ms`.
 ///
-/// Returns the number of events published (0 when nothing was dispatched or
-/// no bus is attached).
+/// Returns the number of events published (0 when nothing was fired or
+/// no bus is attached). Empty fires of observable hooks are silently
+/// skipped; empty fires of request / mutated hooks emit a warning so a
+/// missing handler does not go unnoticed.
 pub fn publish_hook_audit_event(
     event_bus: Option<&EventBus>,
     ctx: &HookContext,
     payloads: &[Value],
     weights: &[i32],
-    results: &[ReceiverResult],
+    results: &[HandlerResult],
     duration_ms: i64,
 ) -> usize {
     if payloads.is_empty() && results.is_empty() {
+        if wf_types::hook::hook_requires_handler(&ctx.hook_type) {
+            tracing::warn!(
+                hook_type = %ctx.hook_type,
+                execution_id = %ctx.execution_id,
+                "request/mutated hook fired with no matched definitions or handlers"
+            );
+        }
         return 0;
     }
     let Some(bus) = event_bus else {
         return 0;
     };
 
-    let receivers: Vec<Value> = results
+    let handlers: Vec<Value> = results
         .iter()
         .map(|r| {
             let mut entry = serde_json::Map::new();
@@ -100,11 +107,12 @@ pub fn publish_hook_audit_event(
 
     let metadata_value = serde_json::json!({
         "hook_type": [ctx.hook_type],
+        "event_category": wf_types::hook::hook_effect(&ctx.hook_type).as_str(),
         "hook_count": payloads.len(),
         "weights": weights,
         "payloads": payloads,
-        "receivers": receivers,
-        "receiver_errors": results.iter().filter_map(|r| r.error.as_ref().map(|e| {
+        "handlers": handlers,
+        "handler_errors": results.iter().filter_map(|r| r.error.as_ref().map(|e| {
             serde_json::json!({"name": r.name, "error": e})
         })).collect::<Vec<_>>(),
         "duration_ms": duration_ms,
@@ -144,15 +152,15 @@ mod tests {
     use crate::hooks::types::HookOutcome;
     use wf_types::Id;
 
-    fn make_hook(id: &str, hook_type: &str, weight: i32, enabled: bool) -> BaseHookDefinition {
-        BaseHookDefinition {
+    fn make_hook(id: &str, hook_type: &str, weight: i32, enabled: bool) -> HookDefinition {
+        HookDefinition {
             id: id.to_string(),
             hook_type: hook_type.to_string(),
             weight,
             condition: None,
             enabled,
             payload: None,
-            receiver: None,
+            handler: None,
         }
     }
 
@@ -243,7 +251,7 @@ mod tests {
 
         let mut sub = bus.subscribe();
 
-        let results = vec![ReceiverResult {
+        let results = vec![HandlerResult {
             name: "r1".to_string(),
             outcome: HookOutcome::Continue,
             duration_ms: 3,
@@ -261,15 +269,12 @@ mod tests {
         let metadata = event.metadata.as_ref().unwrap();
         assert_eq!(metadata["hook_type"], serde_json::json!(["test"]));
         assert_eq!(metadata["hook_count"], serde_json::json!(1));
-        assert_eq!(metadata["receivers"][0]["name"], serde_json::json!("r1"));
+        assert_eq!(metadata["handlers"][0]["name"], serde_json::json!("r1"));
         assert_eq!(
-            metadata["receivers"][0]["outcome"],
+            metadata["handlers"][0]["outcome"],
             serde_json::json!("continue")
         );
-        assert_eq!(
-            metadata["receivers"][0]["duration_ms"],
-            serde_json::json!(3)
-        );
+        assert_eq!(metadata["handlers"][0]["duration_ms"], serde_json::json!(3));
     }
 
     #[test]
@@ -288,35 +293,62 @@ mod tests {
     }
 
     #[test]
-    fn test_receiver_errors_aggregated_in_metadata() {
+    fn test_handler_errors_aggregated_in_metadata() {
         let bus = Arc::new(EventBus::new(16));
         let ctx = hook_ctx("exec-1", HashMap::new());
         let mut sub = bus.subscribe();
 
         let results = vec![
-            ReceiverResult {
-                name: "ok-receiver".to_string(),
+            HandlerResult {
+                name: "ok-handler".to_string(),
                 outcome: HookOutcome::Continue,
                 duration_ms: 1,
                 error: None,
             },
-            ReceiverResult {
-                name: "missing-receiver".to_string(),
+            HandlerResult {
+                name: "missing-handler".to_string(),
                 outcome: HookOutcome::Continue,
                 duration_ms: 0,
-                error: Some("receiver not registered".to_string()),
+                error: Some("handler not registered".to_string()),
             },
         ];
         publish_hook_audit_event(Some(&bus), &ctx, &[Value::Null], &[1], &results, 1);
 
         let event = sub.try_recv().unwrap();
         let metadata = event.metadata.as_ref().unwrap();
-        let errors = metadata["receiver_errors"].as_array().unwrap();
+        let errors = metadata["handler_errors"].as_array().unwrap();
         assert_eq!(errors.len(), 1);
-        assert_eq!(errors[0]["name"], serde_json::json!("missing-receiver"));
+        assert_eq!(errors[0]["name"], serde_json::json!("missing-handler"));
         assert_eq!(
             errors[0]["error"],
-            serde_json::json!("receiver not registered")
+            serde_json::json!("handler not registered")
+        );
+    }
+
+    #[test]
+    fn test_audit_event_carries_category() {
+        let bus = Arc::new(EventBus::new(16));
+        let ctx = hook_ctx("exec-1", HashMap::new());
+        let mut sub = bus.subscribe();
+
+        publish_hook_audit_event(Some(&bus), &ctx, &[Value::Null], &[1], &[], 1);
+
+        let event = sub.try_recv().unwrap();
+        let metadata = event.metadata.as_ref().unwrap();
+        assert_eq!(metadata["event_category"], serde_json::json!("observable"));
+    }
+
+    #[test]
+    fn test_empty_request_dispatch_still_returns_zero() {
+        let bus = Arc::new(EventBus::new(16));
+        let ctx = HookContext {
+            execution_id: Id::from("exec-1".to_string()),
+            hook_type: "CONTEXT_COMPRESSION_REQUESTED".to_string(),
+            data: HashMap::new(),
+        };
+        assert_eq!(
+            publish_hook_audit_event(Some(&bus), &ctx, &[], &[], &[], 0),
+            0
         );
     }
 }

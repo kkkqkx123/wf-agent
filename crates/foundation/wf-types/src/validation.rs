@@ -189,7 +189,7 @@ pub fn validate_profile_reference(
 
 /// Validate that a hook type is known (agent or workflow hook type).
 pub fn validate_hook_type(hook_type: &str) -> Option<ValidationError> {
-    if !crate::hook::is_known_hook_type(hook_type) {
+    if !crate::hook::is_known_hook_point(hook_type) {
         Some(ValidationError {
             field: "hook".to_string(),
             message: format!("Unknown hook type '{}'", hook_type),

@@ -13,7 +13,7 @@ use wf_agent::trigger::{
     AgentExecutorCallback, TriggeredAgentExecutionConfig, TriggeredAgentExecutionManager,
 };
 use wf_core::EventBus;
-use wf_execution_shared::hooks::HookRegistry;
+use wf_execution_shared::hooks::HookHandlerRegistry;
 use wf_tools::callback::{AgentLoopConfig, AgentLoopInput};
 use wf_types::events::BaseEvent;
 use wf_types::trigger::{
@@ -64,13 +64,13 @@ impl AgentTriggerRunner {
         }
     }
 
-    /// Wire the shared hook receiver registry and event bus so
-    /// `SUBAGENT_START` / `SUBAGENT_STOP` dispatch against the parent
+    /// Wire the shared hook handler registry and event bus so
+    /// `SUBAGENT_START` / `SUBAGENT_STOP` fire against the parent
     /// entity's hook configuration (audit copies land on the bus). The
     /// manager is always freshly built by `new`, so the rebuild is cheap.
     pub fn with_hook_context(
         mut self,
-        registry: Option<Arc<HookRegistry>>,
+        registry: Option<Arc<HookHandlerRegistry>>,
         bus: Arc<EventBus>,
     ) -> Self {
         let mut manager = match Arc::try_unwrap(self.manager) {
@@ -81,7 +81,7 @@ impl AgentTriggerRunner {
             }
         };
         if let Some(registry) = registry {
-            manager = manager.with_hook_registry(registry);
+            manager = manager.with_hook_handler_registry(registry);
         }
         manager = manager.with_event_bus(bus);
         self.manager = Arc::new(manager);

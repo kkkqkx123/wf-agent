@@ -25,7 +25,7 @@ pub enum OnFailure {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct NodeExecutionConfig {
-    pub hooks: Option<Vec<crate::hook::BaseHookConfig>>,
+    pub hooks: Option<Vec<crate::hook::HookPointConfig>>,
     pub checkpoint_before_execute: Option<bool>,
     pub checkpoint_after_execute: Option<bool>,
     pub output_id: Option<String>,

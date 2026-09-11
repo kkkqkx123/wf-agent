@@ -8,8 +8,8 @@ use wf_core::internal_signal::InternalSignalBus;
 use wf_core::EventBus;
 use wf_core::WorkflowStateMachine;
 use wf_execution_shared::context::ExecutorContext;
-use wf_execution_shared::hooks::types::BaseHookDefinition;
-use wf_execution_shared::hooks::HookRegistry;
+use wf_execution_shared::hooks::types::HookDefinition;
+use wf_execution_shared::hooks::HookHandlerRegistry;
 use wf_metrics::MetricsRegistry;
 use wf_storage::backend::StorageBackend;
 use wf_tools::callback::WorkflowOutput;
@@ -37,7 +37,7 @@ pub struct WorkflowExecutionParams {
     /// built-in texts).
     pub resource_registries: Option<Arc<ResourceRegistries>>,
     pub input: Option<Value>,
-    pub hooks: Vec<BaseHookDefinition>,
+    pub hooks: Vec<HookDefinition>,
 }
 
 pub struct WorkflowLifecycleCoordinator {
@@ -52,7 +52,7 @@ pub struct WorkflowLifecycleCoordinator {
     metrics: Option<Arc<MetricsRegistry>>,
     trigger_state_registry: Option<Arc<TriggerStateRegistry>>,
     /// Shared hook receiver registry; hook points dispatch through it.
-    hook_registry: Option<Arc<HookRegistry>>,
+    hook_handler_registry: Option<Arc<HookHandlerRegistry>>,
     /// Optional file checkpoint manager: file snapshots are created on
     /// checkpoint persistence and restored after workflow restore
     /// (best-effort).
@@ -74,7 +74,7 @@ impl WorkflowLifecycleCoordinator {
             checkpoint_execution_events: None,
             metrics: None,
             trigger_state_registry: None,
-            hook_registry: None,
+            hook_handler_registry: None,
             file_checkpoint_manager: None,
         }
     }
@@ -127,8 +127,8 @@ impl WorkflowLifecycleCoordinator {
 
     /// Inject the shared hook receiver registry: hook points and engine
     /// signals of executions started here dispatch through it.
-    pub fn with_hook_registry(mut self, registry: Arc<HookRegistry>) -> Self {
-        self.hook_registry = Some(registry);
+    pub fn with_hook_handler_registry(mut self, registry: Arc<HookHandlerRegistry>) -> Self {
+        self.hook_handler_registry = Some(registry);
         self
     }
 
@@ -205,8 +205,8 @@ impl WorkflowLifecycleCoordinator {
                 .record_execution_start(&workflow_id_metrics);
             ctx = ctx.with_metrics(metrics.clone());
         }
-        if let Some(ref registry) = self.hook_registry {
-            ctx = ctx.with_hook_registry(registry.clone());
+        if let Some(ref registry) = self.hook_handler_registry {
+            ctx = ctx.with_hook_handler_registry(registry.clone());
         }
 
         let mut coordinator = WorkflowCoordinator::new(ctx, graph, handlers)?
@@ -292,7 +292,7 @@ impl WorkflowLifecycleCoordinator {
         graph: WorkflowGraphStructure,
         handlers: Arc<HashMap<StaticNodeType, Box<dyn NodeHandler>>>,
         tool_registry: Arc<wf_tools::registry::ToolRegistry>,
-        hooks: Vec<BaseHookDefinition>,
+        hooks: Vec<HookDefinition>,
     ) -> WorkflowResult<WorkflowOutput> {
         use wf_checkpoint::coordinator::workflow::WorkflowCheckpointCoordinator;
         use wf_checkpoint::coordinator::CheckpointCoordinator;
@@ -379,8 +379,8 @@ impl WorkflowLifecycleCoordinator {
         if let Some(ref metrics) = self.metrics {
             ctx = ctx.with_metrics(metrics.clone());
         }
-        if let Some(ref registry) = self.hook_registry {
-            ctx = ctx.with_hook_registry(registry.clone());
+        if let Some(ref registry) = self.hook_handler_registry {
+            ctx = ctx.with_hook_handler_registry(registry.clone());
         }
 
         // A resumed execution continues checkpointing unless the options
@@ -675,28 +675,28 @@ mod tests {
     #[tokio::test]
     async fn test_workflow_hooks_publish_events_per_node() {
         use wf_core::EventBus;
-        use wf_execution_shared::hooks::types::BaseHookDefinition;
+        use wf_execution_shared::hooks::types::HookDefinition;
         use wf_types::events::EventType;
 
         let bus = Arc::new(EventBus::new(32));
         let hooks = vec![
-            BaseHookDefinition {
+            HookDefinition {
                 id: "h-before".to_string(),
                 hook_type: "BEFORE_EXECUTE".to_string(),
                 weight: 1,
                 condition: None,
                 enabled: true,
                 payload: None,
-                receiver: None,
+                handler: None,
             },
-            BaseHookDefinition {
+            HookDefinition {
                 id: "h-after".to_string(),
                 hook_type: "AFTER_EXECUTE".to_string(),
                 weight: 1,
                 condition: None,
                 enabled: true,
                 payload: None,
-                receiver: None,
+                handler: None,
             },
         ];
 
@@ -763,7 +763,7 @@ mod tests {
     async fn test_workflow_scope_and_error_hooks_fire() {
         use async_trait::async_trait;
         use wf_execution_shared::context::NodeExecutionContext;
-        use wf_execution_shared::hooks::types::BaseHookDefinition;
+        use wf_execution_shared::hooks::types::HookDefinition;
 
         // A handler that always fails, registered for a node type used in
         // the failing graph below (the ON_ERROR hook must fire for it).
@@ -783,7 +783,7 @@ mod tests {
         }
 
         let bus = Arc::new(wf_core::EventBus::new(32));
-        let hooks: Vec<BaseHookDefinition> = [
+        let hooks: Vec<HookDefinition> = [
             "WORKFLOW_BEFORE",
             "WORKFLOW_AFTER",
             "ON_ERROR",
@@ -791,14 +791,14 @@ mod tests {
             "AFTER_EXECUTE",
         ]
         .iter()
-        .map(|hook_type| BaseHookDefinition {
+        .map(|hook_type| HookDefinition {
             id: format!("h-{}", hook_type),
             hook_type: hook_type.to_string(),
             weight: 1,
             condition: None,
             enabled: true,
             payload: None,
-            receiver: None,
+            handler: None,
         })
         .collect();
 

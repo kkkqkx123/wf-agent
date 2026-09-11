@@ -1,5 +1,5 @@
 //! Runtime assembly for the event-driven trigger listener and the hook
-//! receiver registry.
+//! handler registry.
 //!
 //! Implements the wf-workflow listener traits over the runtime's own pieces:
 //!
@@ -11,9 +11,9 @@
 //!   parse the triggering event, run the summary workflow over its message
 //!   snapshot, write the compressed array back through the
 //!   [`ExecutionContextRegistry`] and publish the completed event;
-//! - [`CompressionService`]: the engine's builtin hook receiver for the
+//! - [`CompressionService`]: the engine's builtin hook handler for the
 //!   `CONTEXT_COMPRESSION_REQUESTED` signal. Registered into the shared
-//!   [`HookRegistry`] at runtime assembly; the engine dispatches the signal
+//!   [`HookHandlerRegistry`] at runtime assembly; the engine fires the signal
 //!   synchronously and the service takes over immediately (idempotency
 //!   check + spawn of the summary sub-workflow);
 //! - write-back registry: wf-workflow's [`ExecutionContextRegistry`], into
@@ -38,10 +38,10 @@ pub use workflow_runner::{
     template_to_graph, ResourceTriggerRegistry, SubworkflowActionRunner, WorkflowRunner,
 };
 
-/// The engine's builtin hook receiver for the `CONTEXT_COMPRESSION_REQUESTED`
+/// The engine's builtin hook handler for the `CONTEXT_COMPRESSION_REQUESTED`
 /// signal.
 pub use compression::CompressionService;
-pub use compression::COMPRESSION_SERVICE_RECEIVER_NAME;
+pub use compression::COMPRESSION_SERVICE_HANDLER_NAME;
 
 use std::sync::Arc;
 
@@ -53,7 +53,7 @@ use wf_agent::trigger::AgentExecutorCallback;
 use wf_common::gate::ConcurrencyGate;
 use wf_core::internal_signal::InternalSignalBus;
 use wf_core::EventBus;
-use wf_execution_shared::hooks::HookRegistry;
+use wf_execution_shared::hooks::HookHandlerRegistry;
 use wf_llm::LlmGateway;
 use wf_resource::registry::ResourceRegistries;
 use wf_storage::adapter::trigger_execution::TriggerExecutionStorageAdapter;
@@ -272,7 +272,7 @@ pub fn start_trigger_listener_with_skills(
         agent_executor: None,
         storage: None,
         trigger_state_registry: None,
-        hook_registry: None,
+        hook_handler_registry: None,
         signal_bus: None,
         shutdown: CancellationToken::new(),
     })
@@ -319,7 +319,7 @@ pub fn start_trigger_listener_with_registry(
         agent_executor,
         storage,
         trigger_state_registry,
-        hook_registry: None,
+        hook_handler_registry: None,
         signal_bus: None,
         shutdown: CancellationToken::new(),
     })
@@ -362,7 +362,7 @@ pub(crate) struct ListenerDeps {
     pub(crate) agent_executor: Option<Arc<wf_agent::executor::AgentLoopExecutor>>,
     pub(crate) storage: Option<Arc<dyn TriggerExecutionRecorder>>,
     pub(crate) trigger_state_registry: Option<Arc<wf_workflow::TriggerStateRegistry>>,
-    pub(crate) hook_registry: Option<Arc<HookRegistry>>,
+    pub(crate) hook_handler_registry: Option<Arc<HookHandlerRegistry>>,
     pub(crate) signal_bus: Option<Arc<InternalSignalBus>>,
     pub(crate) shutdown: CancellationToken,
 }
@@ -379,7 +379,7 @@ fn spawn_listener(deps: ListenerDeps) -> TriggerListenerHandle {
         agent_executor,
         storage,
         trigger_state_registry,
-        hook_registry,
+        hook_handler_registry,
         signal_bus,
         shutdown,
     } = deps;
@@ -404,7 +404,7 @@ fn spawn_listener(deps: ListenerDeps) -> TriggerListenerHandle {
             shutdown.clone(),
             storage.clone(),
         )
-        .with_hook_context(hook_registry.clone(), event_bus.clone());
+        .with_hook_context(hook_handler_registry.clone(), event_bus.clone());
         Arc::new(runner)
     });
     let action_runner: Arc<dyn TriggerActionRunner> = Arc::new(TriggerActionRouter::new(
@@ -489,15 +489,15 @@ pub struct TriggerLedger {
     pub trigger_state_registry: Option<Arc<wf_workflow::TriggerStateRegistry>>,
 }
 
-/// Build the builtin context-compression hook receiver and register it on
+/// Build the builtin context-compression hook handler and register it on
 /// the shared hook registry under the `CONTEXT_COMPRESSION_REQUESTED` signal
 /// point.
 ///
 /// Returns the registered service (kept alive by the registry; the returned
 /// handle is optional). The service shares the listener's shutdown token so
 /// in-flight summary sub-workflows are stopped at runtime shutdown.
-pub fn register_compression_receiver(
-    registry: &HookRegistry,
+pub fn register_compression_handler(
+    registry: &HookHandlerRegistry,
     event_bus: Arc<EventBus>,
     runner: Arc<dyn SubworkflowRunner>,
     contexts: Arc<ExecutionContextRegistry>,
@@ -517,14 +517,14 @@ pub fn register_compression_receiver(
         service = service.with_trigger_state_registry(registry);
     }
     let service = Arc::new(service);
-    // The builtin receiver runs first (weight above any user receiver): the
-    // takeover must be immediate once the engine dispatches.
+    // The builtin handler runs first (weight above any user handler): the
+    // takeover must be immediate once the engine fires.
     if !registry.register(
         wf_llm::token_events::COMPRESSION_SIGNAL_HOOK_TYPE,
         service.clone(),
         1000,
     ) {
-        warn!("Compression receiver registration skipped: name already registered");
+        warn!("Compression handler registration skipped: name already registered");
     }
     service
 }
@@ -917,7 +917,7 @@ mod tests {
     async fn context_compression_chain_end_to_end() {
         // 1. Components: bus + predefined resources. Only the summary
         // workflow template is registered here: the compression chain is
-        // served by the hook-registry dispatch (the preset trigger template
+        // served by the hook-handler fire (the preset trigger template
         // was removed from the trigger system).
         let bus = Arc::new(EventBus::new(256));
         let mut sub = bus.subscribe();
@@ -936,11 +936,11 @@ mod tests {
         summary_mock.default(LlmResponseSpec::text("compressed summary").with_usage(50, 30));
         gateway.register_mock("DEFAULT", summary_mock.clone());
 
-        // 3. Wire the hook registry with the builtin compression receiver:
-        // the LLM handler dispatches the compression signal synchronously
+        // 3. Wire the hook registry with the builtin compression handler:
+        // the LLM handler fires the compression signal synchronously
         // and the service spawns the summary sub-workflow immediately.
         let contexts = Arc::new(ExecutionContextRegistry::new());
-        let hook_registry = Arc::new(HookRegistry::new());
+        let hook_handler_registry = Arc::new(HookHandlerRegistry::new());
         let runner: Arc<dyn SubworkflowRunner> = Arc::new(WorkflowRunner::with_tool_registry(
             registries.clone(),
             bus.clone(),
@@ -949,8 +949,8 @@ mod tests {
             None,
             None,
         ));
-        register_compression_receiver(
-            &hook_registry,
+        register_compression_handler(
+            &hook_handler_registry,
             bus.clone(),
             runner,
             contexts.clone(),
@@ -1004,7 +1004,7 @@ mod tests {
         );
         let mut exec_ctx = exec_ctx;
         exec_ctx.variables = variables.clone();
-        exec_ctx = exec_ctx.with_hook_registry(hook_registry.clone());
+        exec_ctx = exec_ctx.with_hook_handler_registry(hook_handler_registry.clone());
         let entity = WorkflowExecutionEntity::new(
             exec_ctx.execution_id.clone(),
             exec_ctx.workflow_id.clone(),
@@ -1227,7 +1227,7 @@ mod tests {
         gateway.register_mock("DEFAULT", summary_mock.clone());
 
         let contexts = Arc::new(ExecutionContextRegistry::new());
-        let hook_registry = Arc::new(HookRegistry::new());
+        let hook_handler_registry = Arc::new(HookHandlerRegistry::new());
         let runner: Arc<dyn SubworkflowRunner> = Arc::new(WorkflowRunner::with_tool_registry(
             registries.clone(),
             bus.clone(),
@@ -1236,8 +1236,8 @@ mod tests {
             None,
             None,
         ));
-        register_compression_receiver(
-            &hook_registry,
+        register_compression_handler(
+            &hook_handler_registry,
             bus.clone(),
             runner,
             contexts.clone(),
@@ -1287,7 +1287,7 @@ mod tests {
         );
         let mut exec_ctx = exec_ctx;
         exec_ctx.variables = variables.clone();
-        exec_ctx = exec_ctx.with_hook_registry(hook_registry.clone());
+        exec_ctx = exec_ctx.with_hook_handler_registry(hook_handler_registry.clone());
         let entity = WorkflowExecutionEntity::new(
             exec_ctx.execution_id.clone(),
             exec_ctx.workflow_id.clone(),
@@ -1321,9 +1321,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn compression_dispatch_takes_over_immediately() {
+    async fn compression_fire_takes_over_immediately() {
         use std::sync::atomic::{AtomicBool, Ordering};
-        use wf_execution_shared::hooks::dispatch;
+        use wf_execution_shared::hooks::fire;
         use wf_llm::token_events::{
             KEY_ARRAY_VERSION, KEY_MESSAGES, KEY_MESSAGE_COUNT, KEY_TARGET_CONTEXT_ID,
             KEY_TOKENS_USED, KEY_TOKEN_LIMIT,
@@ -1334,7 +1334,7 @@ mod tests {
         wf_resource::predefined::workflow::register(&registries, &RegisterOptions::default());
 
         // The stub summary runner: records the takeover and then blocks far
-        // beyond the dispatch timeout — the engine must not wait for it.
+        // beyond the fire timeout — the engine must not wait for it.
         struct StuckRunner(Arc<AtomicBool>);
         #[async_trait]
         impl SubworkflowRunner for StuckRunner {
@@ -1346,10 +1346,10 @@ mod tests {
         }
 
         let contexts = Arc::new(ExecutionContextRegistry::new());
-        let hook_registry = Arc::new(HookRegistry::new());
+        let hook_handler_registry = Arc::new(HookHandlerRegistry::new());
         let started = Arc::new(AtomicBool::new(false));
-        register_compression_receiver(
-            &hook_registry,
+        register_compression_handler(
+            &hook_handler_registry,
             bus.clone(),
             Arc::new(StuckRunner(started.clone())),
             contexts.clone(),
@@ -1376,24 +1376,24 @@ mod tests {
             data,
         };
 
-        // Dispatch returns as soon as the summary sub-workflow is spawned,
+        // Fire returns as soon as the summary sub-workflow is spawned,
         // never after it completes (the stub blocks 10s).
         let elapsed = std::time::Instant::now();
-        dispatch(
-            &hook_registry,
+        fire(
+            &hook_handler_registry,
             &[],
             wf_llm::token_events::COMPRESSION_SIGNAL_HOOK_TYPE,
             &ctx,
             Some(&bus),
         )
         .await;
-        let dispatch_ms = elapsed.elapsed().as_millis();
+        let fire_ms = elapsed.elapsed().as_millis();
         assert!(
-            dispatch_ms < 2000,
-            "dispatch must return at takeover, not after compression (took {dispatch_ms}ms)"
+            fire_ms < 2000,
+            "fire must return at takeover, not after compression (took {fire_ms}ms)"
         );
         // The spawned summary task is observable as soon as the runtime
-        // schedules it: dispatch did not await it (it is still blocked in
+        // schedules it: fire did not await it (it is still blocked in
         // the stub for the rest of the test).
         wait_until(|| started.load(Ordering::SeqCst)).await;
     }

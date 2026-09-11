@@ -6,7 +6,7 @@ use serde_json::Value;
 use tracing::warn;
 
 use wf_core::EventBus;
-use wf_execution_shared::hooks::HookRegistry;
+use wf_execution_shared::hooks::HookHandlerRegistry;
 use wf_execution_shared::types::execution_entity::ExecutionEntity;
 use wf_tools::callback::{AgentLoopConfig, AgentLoopInput, AgentLoopOutput};
 use wf_types::hook::{SUBAGENT_START, SUBAGENT_STOP};
@@ -16,7 +16,7 @@ use wf_types::Id;
 
 use crate::entity::AgentLoopEntity;
 use crate::error::{AgentError, AgentResult};
-use crate::hook::AgentHookHandler;
+use crate::hook::AgentHookEmitter;
 
 /// Callback that runs a child agent loop (usually backed by
 /// AgentLoopExecutor).
@@ -84,7 +84,7 @@ pub struct TriggeredAgentExecutionManager {
     running_tasks: Arc<DashMap<String, ()>>,
     /// Hook receiver registry: `SUBAGENT_START` / `SUBAGENT_STOP` are
     /// dispatched against the parent entity's hook configuration.
-    hook_registry: Option<Arc<HookRegistry>>,
+    hook_handler_registry: Option<Arc<HookHandlerRegistry>>,
     /// Event bus for the `HOOK_TRIGGERED` audit copies (optional).
     event_bus: Option<Arc<EventBus>>,
 }
@@ -94,13 +94,13 @@ impl TriggeredAgentExecutionManager {
         Self {
             executor,
             running_tasks: Arc::new(DashMap::new()),
-            hook_registry: None,
+            hook_handler_registry: None,
             event_bus: None,
         }
     }
 
-    pub fn with_hook_registry(mut self, registry: Arc<HookRegistry>) -> Self {
-        self.hook_registry = Some(registry);
+    pub fn with_hook_handler_registry(mut self, registry: Arc<HookHandlerRegistry>) -> Self {
+        self.hook_handler_registry = Some(registry);
         self
     }
 
@@ -161,11 +161,11 @@ impl TriggeredAgentExecutionManager {
             "wait_for_completion".to_string(),
             Value::Bool(config.wait_for_completion),
         );
-        AgentHookHandler::emit_agent_hooks(
+        AgentHookEmitter::fire_agent_point(
             &parent,
             SUBAGENT_START,
             start_data,
-            self.hook_registry.as_deref(),
+            self.hook_handler_registry.as_deref(),
             self.event_bus.as_deref(),
         )
         .await;
@@ -210,11 +210,11 @@ impl TriggeredAgentExecutionManager {
                     stop_data.insert("error".to_string(), Value::String(e.to_string()));
                 }
             }
-            AgentHookHandler::emit_agent_hooks(
+            AgentHookEmitter::fire_agent_point(
                 &parent,
                 SUBAGENT_STOP,
                 stop_data,
-                self.hook_registry.as_deref(),
+                self.hook_handler_registry.as_deref(),
                 self.event_bus.as_deref(),
             )
             .await;
@@ -227,7 +227,7 @@ impl TriggeredAgentExecutionManager {
             let executor = self.executor.clone();
             let parent_token = parent.get_abort_signal();
             let running_tasks = self.running_tasks.clone();
-            let hook_registry = self.hook_registry.clone();
+            let hook_handler_registry = self.hook_handler_registry.clone();
             let event_bus = self.event_bus.clone();
             let result_variable = config.result_variable.clone();
             let writeback = config.writeback;
@@ -272,11 +272,11 @@ impl TriggeredAgentExecutionManager {
                 if let Some(result) = outcome.2 {
                     stop_data.insert("result".to_string(), result);
                 }
-                AgentHookHandler::emit_agent_hooks(
+                AgentHookEmitter::fire_agent_point(
                     &parent_clone,
                     SUBAGENT_STOP,
                     stop_data,
-                    hook_registry.as_deref(),
+                    hook_handler_registry.as_deref(),
                     event_bus.as_deref(),
                 )
                 .await;
@@ -662,12 +662,12 @@ mod tests {
     }
 
     #[async_trait::async_trait]
-    impl wf_execution_shared::hooks::HookReceiver for HookRecorder {
+    impl wf_execution_shared::hooks::HookHandler for HookRecorder {
         fn name(&self) -> &str {
             self.name
         }
 
-        async fn on_hook(
+        async fn on_point(
             &self,
             ctx: &wf_execution_shared::hooks::HookContext,
         ) -> wf_execution_shared::hooks::HookOutcome {
@@ -684,10 +684,10 @@ mod tests {
         log: &HookLog,
         contexts: &HookContextLog,
     ) -> (
-        Arc<wf_execution_shared::hooks::HookRegistry>,
+        Arc<wf_execution_shared::hooks::HookHandlerRegistry>,
         Vec<Arc<HookRecorder>>,
     ) {
-        let registry = Arc::new(wf_execution_shared::hooks::HookRegistry::new());
+        let registry = Arc::new(wf_execution_shared::hooks::HookHandlerRegistry::new());
         let start = Arc::new(HookRecorder {
             name: "rec_start",
             log: log.clone(),
@@ -725,7 +725,7 @@ mod tests {
             })
         });
         let manager = TriggeredAgentExecutionManager::new(executor)
-            .with_hook_registry(registry)
+            .with_hook_handler_registry(registry)
             .with_event_bus(bus);
         let parent = make_parent();
 
@@ -807,7 +807,7 @@ mod tests {
         let contexts = Arc::new(std::sync::Mutex::new(Vec::new()));
         let (registry, _recorders) = recorder_pair(&log, &contexts);
         let manager = TriggeredAgentExecutionManager::new(failing_executor())
-            .with_hook_registry(registry)
+            .with_hook_handler_registry(registry)
             .with_event_bus(bus);
         let parent = make_parent();
 
@@ -855,7 +855,7 @@ mod tests {
         let contexts = Arc::new(std::sync::Mutex::new(Vec::new()));
         let (registry, _recorders) = recorder_pair(&log, &contexts);
         let manager = TriggeredAgentExecutionManager::new(success_executor(Value::from("ok")))
-            .with_hook_registry(registry)
+            .with_hook_handler_registry(registry)
             .with_event_bus(bus);
         let parent = make_parent();
 

@@ -3,8 +3,8 @@ use std::collections::HashMap;
 use wf_common::retry::RetryBudget;
 use wf_core::EventBus;
 use wf_execution_shared::context::{NodeExecutionContext, NodeExecutionResult};
-use wf_execution_shared::hooks::types::BaseHookDefinition;
-use wf_execution_shared::hooks::{HookContext, HookRegistry};
+use wf_execution_shared::hooks::types::HookDefinition;
+use wf_execution_shared::hooks::{HookContext, HookHandlerRegistry};
 use wf_execution_shared::interruption::check_execution_interruption;
 use wf_types::events::{BaseEvent, EventType};
 
@@ -40,8 +40,8 @@ impl NodeCoordinator {
         handler: &dyn NodeHandler,
         ctx: &mut NodeExecutionContext,
         event_bus: Option<&EventBus>,
-        hooks: &[BaseHookDefinition],
-        hook_registry: Option<&HookRegistry>,
+        hooks: &[HookDefinition],
+        hook_handler_registry: Option<&HookHandlerRegistry>,
     ) -> WorkflowResult<NodeExecutionResult> {
         let node_id = ctx.node_id.clone();
         let node_name = ctx.node_name.clone().unwrap_or_default();
@@ -62,7 +62,7 @@ impl NodeCoordinator {
 
         Self::execute_hooks(
             hooks,
-            hook_registry,
+            hook_handler_registry,
             event_bus,
             entity,
             "BEFORE_EXECUTE",
@@ -99,7 +99,7 @@ impl NodeCoordinator {
 
                 Self::execute_hooks(
                     hooks,
-                    hook_registry,
+                    hook_handler_registry,
                     event_bus,
                     entity,
                     "AFTER_EXECUTE",
@@ -136,7 +136,7 @@ impl NodeCoordinator {
             Err(e) => {
                 Self::execute_hooks(
                     hooks,
-                    hook_registry,
+                    hook_handler_registry,
                     event_bus,
                     entity,
                     "ON_ERROR",
@@ -199,8 +199,8 @@ impl NodeCoordinator {
     }
 
     async fn execute_hooks(
-        hooks: &[BaseHookDefinition],
-        hook_registry: Option<&HookRegistry>,
+        hooks: &[HookDefinition],
+        hook_handler_registry: Option<&HookHandlerRegistry>,
         event_bus: Option<&EventBus>,
         entity: &WorkflowExecutionEntity,
         hook_type: &str,
@@ -249,7 +249,7 @@ impl NodeCoordinator {
             );
         }
 
-        crate::hook::WorkflowHookHandler::emit_hooks(
+        crate::hook::WorkflowHookEmitter::fire_point(
             hooks,
             hook_type,
             &HookContext {
@@ -257,7 +257,7 @@ impl NodeCoordinator {
                 hook_type: hook_type.to_string(),
                 data,
             },
-            hook_registry,
+            hook_handler_registry,
             event_bus,
         )
         .await;

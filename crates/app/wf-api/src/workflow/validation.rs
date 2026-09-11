@@ -3,7 +3,7 @@
 use std::collections::{HashMap, HashSet};
 
 use wf_core::registry::Registry;
-use wf_execution_shared::hooks::HookRegistry;
+use wf_execution_shared::hooks::HookHandlerRegistry;
 use wf_storage::adapter::base::BaseStorageAdapter;
 use wf_workflow::reference_closure::{validate_workflow_tool_lists, ReferenceContext};
 
@@ -19,7 +19,7 @@ use super::workflow_execution::definition_to_graph;
 ///
 /// Provides `validate()` (shape + graph, draft-friendly) and
 /// `validate_for_publish()` (full reference closure + tool lists + hook
-/// receiver checks).
+/// handler checks).
 pub struct WorkflowValidator<'a> {
     ctx: &'a ValidationContext,
 }
@@ -120,24 +120,24 @@ impl<'a> WorkflowValidator<'a> {
     }
 }
 
-/// Validate that all hook `receiver` names in the workflow definition are
-/// present in the hook registry. Unknown receivers become errors.
-fn validate_hook_receiver_references(
+/// Validate that all hook `handler` names in the workflow definition are
+/// present in the hook registry. Unknown handlers become errors.
+fn validate_hook_handler_references(
     workflow: &WorkflowDefinition,
-    hook_registry: &HookRegistry,
+    hook_handler_registry: &HookHandlerRegistry,
     report: &mut wf_workflow::ReferenceClosureReport,
 ) {
     let Some(hooks) = workflow.hooks.as_ref() else {
         return;
     };
     for hook in hooks {
-        if let Some(ref receiver) = hook.receiver {
-            if !receiver.is_empty() && !hook_registry.contains(receiver) {
+        if let Some(ref handler) = hook.handler {
+            if !handler.is_empty() && !hook_handler_registry.contains(handler) {
                 report.errors.push(wf_types::ValidationError::new(
-                    format!("hooks.{}.receiver", hook.event_name),
+                    format!("hooks.{}.handler", hook.event_name),
                     format!(
-                        "Hook '{}' references receiver '{}' which is not registered",
-                        hook.event_name, receiver
+                        "Hook '{}' references handler '{}' which is not registered",
+                        hook.event_name, handler
                     ),
                 ));
             }
@@ -331,31 +331,31 @@ pub async fn validate_workflow_for_publish(
                 )));
             }
 
-            let mut receiver_report = wf_workflow::ReferenceClosureReport::default();
-            if let Some(ref hook_registry) = ctx.hook_registry {
-                validate_hook_receiver_references(
+            let mut handler_report = wf_workflow::ReferenceClosureReport::default();
+            if let Some(ref hook_handler_registry) = ctx.hook_handler_registry {
+                validate_hook_handler_references(
                     workflow,
-                    hook_registry.as_ref(),
-                    &mut receiver_report,
+                    hook_handler_registry.as_ref(),
+                    &mut handler_report,
                 );
             }
-            if !receiver_report.errors.is_empty() {
-                let detail = receiver_report
+            if !handler_report.errors.is_empty() {
+                let detail = handler_report
                     .errors
                     .iter()
                     .map(|e| format!("{}: {}", e.field, e.message))
                     .collect::<Vec<_>>()
                     .join("; ");
                 return Err(ApiError::Validation(format!(
-                    "hook receiver validation failed ({} error(s)): {}",
-                    receiver_report.errors.len(),
+                    "hook handler validation failed ({} error(s)): {}",
+                    handler_report.errors.len(),
                     detail
                 )));
             }
 
             let mut warnings = warnings;
             warnings.extend(tool_report.warnings);
-            warnings.extend(receiver_report.warnings);
+            warnings.extend(handler_report.warnings);
             Ok(warnings)
         }
         Err(errors) => {

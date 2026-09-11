@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 
 use super::Edge;
 use super::WorkflowConfig;
-use crate::hook::BaseHookConfig;
+use crate::hook::HookPointConfig;
 use crate::node::BaseStaticNode;
 use crate::tool::AvailableTools;
 use crate::workflow_execution::VariableDefinition;
@@ -61,7 +61,7 @@ pub struct WorkflowDefinition {
     pub available_tools: Option<AvailableTools>,
     /// Workflow-level hooks (BEFORE_EXECUTE / AFTER_EXECUTE, per node).
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub hooks: Option<Vec<BaseHookConfig>>,
+    pub hooks: Option<Vec<HookPointConfig>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

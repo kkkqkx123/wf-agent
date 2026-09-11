@@ -75,7 +75,7 @@ pub use handler::{
     variable::VariableHandler,
     HandlerRegistry, NodeHandler, NodeHandlerResult,
 };
-pub use hook::WorkflowHookHandler;
+pub use hook::WorkflowHookEmitter;
 pub use interaction::{
     complete_interaction, interaction_registry, register_interaction, InteractionRegistry,
     InteractionWait,

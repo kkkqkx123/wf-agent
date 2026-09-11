@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use wf_core::internal_signal::InternalSignalBus;
 use wf_core::EventBus;
-use wf_execution_shared::hooks::types::BaseHookDefinition;
+use wf_execution_shared::hooks::types::HookDefinition;
 use wf_llm::LlmGateway;
 use wf_sandbox::SandboxRuntime;
 use wf_tools::callback::WorkflowOutput;
@@ -41,7 +41,7 @@ pub struct WorkflowRunRequest {
     pub options: WorkflowExecutionOptions,
     pub tool_registry: Arc<wf_tools::registry::ToolRegistry>,
     pub handlers: Option<Arc<HashMap<StaticNodeType, Box<dyn NodeHandler>>>>,
-    pub hooks: Vec<BaseHookDefinition>,
+    pub hooks: Vec<HookDefinition>,
     pub resource_registries: Option<Arc<wf_resource::registry::ResourceRegistries>>,
 }
 

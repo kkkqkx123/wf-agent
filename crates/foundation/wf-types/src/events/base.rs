@@ -304,6 +304,67 @@ impl std::str::FromStr for EventType {
     }
 }
 
+/// Effect category of an event: whether losing it is acceptable and whether
+/// it requires complete checking.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EventCategory {
+    /// Record-only visibility: loss is acceptable, sampling and dropping are
+    /// allowed, zero subscribers are legal.
+    Observable,
+    /// Requires downstream handling: loss is not acceptable, needs
+    /// idempotency and a registered handler.
+    Request,
+    /// State has already changed: needs write-back, audit and version checks.
+    Mutated,
+}
+
+impl EventCategory {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            EventCategory::Observable => "observable",
+            EventCategory::Request => "request",
+            EventCategory::Mutated => "mutated",
+        }
+    }
+}
+
+impl EventType {
+    /// Effect category of the event type.
+    ///
+    /// Unknown-adjacent generic types default to `Observable` so forward
+    /// compatibility keeps the loosest checking.
+    pub fn category(&self) -> EventCategory {
+        match self {
+            EventType::ContextCompressionRequested
+            | EventType::ToolApprovalRequested
+            | EventType::FollowupQuestionRequested
+            | EventType::TimeoutExpired
+            | EventType::ExecutionTimeoutExpired
+            | EventType::AsyncCompletionTriggered
+            | EventType::AsyncCompletionErrorTriggered => EventCategory::Request,
+            EventType::VariableChanged
+            | EventType::MessageAdded
+            | EventType::MessageContextUpdated
+            | EventType::ConversationWritebackCompleted
+            | EventType::ContextCompressionCompleted
+            | EventType::CheckpointCreated
+            | EventType::CheckpointRestored
+            | EventType::CheckpointDeleted
+            | EventType::CheckpointFileChanged
+            | EventType::CheckpointMergeConflicted
+            | EventType::TriggeredSubgraphStarted
+            | EventType::TriggeredSubgraphCompleted
+            | EventType::TriggeredSubgraphFailed
+            | EventType::ToolCallBlocked
+            | EventType::ToolCallApproved
+            | EventType::ToolCallDenied
+            | EventType::ToolCallEdited => EventCategory::Mutated,
+            _ => EventCategory::Observable,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct BaseEvent {
     pub id: super::super::Id,
@@ -341,4 +402,46 @@ pub struct ListenerOptions {
     pub execution_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub auto_cleanup: Option<bool>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn request_events_require_handling() {
+        assert_eq!(
+            EventType::ContextCompressionRequested.category(),
+            EventCategory::Request
+        );
+        assert_eq!(
+            EventType::ToolApprovalRequested.category(),
+            EventCategory::Request
+        );
+    }
+
+    #[test]
+    fn mutated_events_require_write_back() {
+        assert_eq!(
+            EventType::VariableChanged.category(),
+            EventCategory::Mutated
+        );
+        assert_eq!(
+            EventType::ContextCompressionCompleted.category(),
+            EventCategory::Mutated
+        );
+    }
+
+    #[test]
+    fn observability_events_skip_completeness_checks() {
+        assert_eq!(
+            EventType::HookTriggered.category(),
+            EventCategory::Observable
+        );
+        assert_eq!(
+            EventType::LlmStreamChunk.category(),
+            EventCategory::Observable
+        );
+        assert_eq!(EventType::Heartbeat.category(), EventCategory::Observable);
+    }
 }

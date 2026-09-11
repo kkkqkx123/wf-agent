@@ -199,8 +199,8 @@ fn coordinator(ctx: &ApiContext) -> AgentLoopCoordinator {
     if let Some(ref metrics) = ctx.metrics {
         coordinator = coordinator.with_metrics(metrics.clone());
     }
-    if let Some(ref registry) = ctx.hook_registry {
-        coordinator = coordinator.with_hook_registry(registry.clone());
+    if let Some(ref registry) = ctx.hook_handler_registry {
+        coordinator = coordinator.with_hook_handler_registry(registry.clone());
     }
     if let Some(manager) = ctx.file_checkpoint_manager() {
         coordinator = coordinator.with_file_checkpoint_manager(manager.clone());

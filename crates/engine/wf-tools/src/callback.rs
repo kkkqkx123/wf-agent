@@ -13,10 +13,10 @@ pub struct HookConfig {
     pub enabled: bool,
     pub parallel: Option<bool>,
     pub continue_on_error: Option<bool>,
-    /// Optional name of a runtime-registered hook receiver; the engine
+    /// Optional name of a runtime-registered hook handler; the engine
     /// notifies it synchronously at this hook point.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub receiver: Option<String>,
+    pub handler: Option<String>,
 }
 
 #[derive(Debug, Clone)]

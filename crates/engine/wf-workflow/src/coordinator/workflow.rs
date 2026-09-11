@@ -13,7 +13,7 @@ use wf_execution_shared::context::{
 };
 use wf_execution_shared::execution_state::ExecutionStateManager;
 use wf_execution_shared::fork::ForkRegistry;
-use wf_execution_shared::hooks::types::BaseHookDefinition;
+use wf_execution_shared::hooks::types::HookDefinition;
 use wf_execution_shared::interruption::check_execution_interruption;
 use wf_execution_shared::types::execution_entity::ExecutionEntity;
 use wf_execution_shared::types::state_manager::StateManager;
@@ -36,7 +36,7 @@ pub const DEFAULT_NODE_TIMEOUT_MS: u64 = 30_000;
 use crate::error_analysis::workflow_error_record;
 use crate::graph::GraphTraversal;
 use crate::handler::NodeHandler;
-use crate::hook::WorkflowHookHandler;
+use crate::hook::WorkflowHookEmitter;
 use crate::persistence::build_workflow_execution;
 use crate::state::{NodeExecutionRecord, WorkflowExecutionStateSnapshot};
 
@@ -246,7 +246,7 @@ pub struct WorkflowCoordinator {
     node_outputs: HashMap<String, Value>,
     node_errors: Vec<String>,
     start_time: i64,
-    hooks: Vec<BaseHookDefinition>,
+    hooks: Vec<HookDefinition>,
     /// Navigation counter for detecting non-loop dead cycles (e.g., cycles in
     /// DAG edges that don't pass through LOOP_START/LOOP_END). Reset when
     /// entering a loop scope; only counts nodes outside loop bodies.
@@ -401,7 +401,7 @@ impl WorkflowCoordinator {
         self
     }
 
-    pub fn with_hooks(mut self, hooks: Vec<BaseHookDefinition>) -> Self {
+    pub fn with_hooks(mut self, hooks: Vec<HookDefinition>) -> Self {
         self.hooks = hooks;
         self
     }
@@ -572,12 +572,12 @@ impl WorkflowCoordinator {
         let Some(entity) = self.entity.as_ref() else {
             return;
         };
-        WorkflowHookHandler::emit_workflow_hooks(
+        WorkflowHookEmitter::fire_workflow_point(
             entity,
             &self.hooks,
             hook_type,
             HashMap::new(),
-            self.ctx.hook_registry.as_deref(),
+            self.ctx.hook_handler_registry.as_deref(),
             self.ctx.event_bus.as_deref(),
         )
         .await;
@@ -1057,7 +1057,7 @@ impl WorkflowCoordinator {
             node_ctx,
             event_bus,
             &self.hooks,
-            self.ctx.hook_registry.as_deref(),
+            self.ctx.hook_handler_registry.as_deref(),
         );
 
         match timeout_dur {
@@ -1500,7 +1500,7 @@ impl WorkflowCoordinator {
         ctx.metrics = self.ctx.metrics.clone();
         ctx.token_tracker = self.ctx.token_tracker.clone();
         ctx.cancellation = self.entity.as_ref().map(|e| e.get_abort_signal());
-        ctx.hook_registry = self.ctx.hook_registry.clone();
+        ctx.hook_handler_registry = self.ctx.hook_handler_registry.clone();
         ctx.tool_approval_handler = self.ctx.tool_approval_handler.clone();
         ctx.tool_approval_options = self.ctx.tool_approval_options.clone();
         ctx.fork_registries = self.ctx.fork_registries.clone();

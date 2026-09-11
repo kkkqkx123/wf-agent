@@ -3,7 +3,7 @@ use std::sync::Arc;
 use wf_common::gate::GatePermit;
 use wf_core::interruption::{InterruptionSignal, InterruptionState};
 use wf_execution_shared::error::ExecutionSharedError;
-use wf_execution_shared::hooks::types::BaseHookDefinition;
+use wf_execution_shared::hooks::types::HookDefinition;
 use wf_execution_shared::types::execution_entity::{ExecutionEntity, ExecutionStatus};
 use wf_llm::messaging::conversation_session::ConversationSession;
 use wf_types::llm::ToolCallFormatConfig;
@@ -24,7 +24,7 @@ pub struct AgentLoopEntity {
     cancellation: tokio_util::sync::CancellationToken,
     parent_execution_id: Option<Id>,
     child_execution_ids: Arc<tokio::sync::RwLock<Vec<Id>>>,
-    hooks: Vec<BaseHookDefinition>,
+    hooks: Vec<HookDefinition>,
     model: String,
     tool_call_format: Option<ToolCallFormatConfig>,
     available_tool_names: Vec<String>,
@@ -96,7 +96,7 @@ impl AgentLoopEntity {
         self
     }
 
-    pub fn with_hooks(mut self, hooks: Vec<BaseHookDefinition>) -> Self {
+    pub fn with_hooks(mut self, hooks: Vec<HookDefinition>) -> Self {
         self.hooks = hooks;
         self
     }
@@ -214,7 +214,7 @@ impl AgentLoopEntity {
         }
     }
 
-    pub fn hooks(&self) -> &[BaseHookDefinition] {
+    pub fn hooks(&self) -> &[HookDefinition] {
         &self.hooks
     }
 

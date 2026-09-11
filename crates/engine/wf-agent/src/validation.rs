@@ -247,8 +247,8 @@ impl AgentLoopValidator {
 /// but won't cause runtime failures. This is intentional for agent
 /// definitions where users may define hooks for future hook types.
 fn validate_hook(hook: &HookConfig, issues: &mut Vec<ValidationIssue>) {
-    use wf_execution_shared::hooks::types::is_known_hook_type;
-    if !is_known_hook_type(&hook.hook_type) {
+    use wf_types::hook::is_known_hook_point;
+    if !is_known_hook_point(&hook.hook_type) {
         issues.push(ValidationIssue::warning(
             "hooks",
             format!("unknown hook type '{}' will never fire", hook.hook_type),
@@ -419,7 +419,7 @@ mod tests {
                 enabled: true,
                 parallel: None,
                 continue_on_error: None,
-                receiver: None,
+                handler: None,
             }],
             ..base_config()
         };

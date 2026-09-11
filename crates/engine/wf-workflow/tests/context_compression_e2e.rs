@@ -16,7 +16,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 
 use wf_core::EventBus;
-use wf_execution_shared::hooks::{HookContext, HookOutcome, HookReceiver, HookRegistry};
+use wf_execution_shared::hooks::{HookContext, HookHandler, HookHandlerRegistry, HookOutcome};
 use wf_llm::{LlmGateway, LlmResponseSpec, MockLlmClient, TokenUsageTracker};
 use wf_tools::registry::ToolRegistry;
 use wf_types::events::EventType;
@@ -173,7 +173,7 @@ impl SubworkflowRunner for SummaryRunner {
 /// semantics) and, once it finishes, writes the compressed array back
 /// through the [`ExecutionContextRegistry`] (workflow targets only) and
 /// publishes `CONTEXT_COMPRESSION_COMPLETED`.
-struct CompressionReceiver {
+struct CompressionHandler {
     runner: Arc<dyn SubworkflowRunner>,
     contexts: Arc<ExecutionContextRegistry>,
     bus: Arc<EventBus>,
@@ -181,12 +181,12 @@ struct CompressionReceiver {
 }
 
 #[async_trait::async_trait]
-impl HookReceiver for CompressionReceiver {
+impl HookHandler for CompressionHandler {
     fn name(&self) -> &str {
         "e2e_compression"
     }
 
-    async fn on_hook(&self, ctx: &HookContext) -> HookOutcome {
+    async fn on_point(&self, ctx: &HookContext) -> HookOutcome {
         use wf_llm::token_events::{KEY_ARRAY_VERSION, KEY_MESSAGES, KEY_TARGET_CONTEXT_ID};
 
         let Some(target_context_id) = ctx
@@ -353,10 +353,10 @@ async fn over_limit_named_array_flows_through_compression_chain() {
 
     // The engine's LLM handler dispatches the compression signal to the
     // hook registry; the receiver takes over immediately.
-    let hook_registry = Arc::new(HookRegistry::new());
-    hook_registry.register(
+    let hook_handlers = Arc::new(HookHandlerRegistry::new());
+    hook_handlers.register(
         wf_llm::token_events::COMPRESSION_SIGNAL_HOOK_TYPE,
-        Arc::new(CompressionReceiver {
+        Arc::new(CompressionHandler {
             runner,
             contexts: contexts.clone(),
             bus: bus.clone(),
@@ -379,7 +379,7 @@ async fn over_limit_named_array_flows_through_compression_chain() {
     )
     .with_node_config(llm_node_config(50, Some("chat")));
     ctx.event_bus = Some(bus.clone());
-    ctx.hook_registry = Some(hook_registry.clone());
+    ctx.hook_handler_registry = Some(hook_handlers.clone());
     ctx.token_tracker = Some(Arc::new(tokio::sync::Mutex::new(TokenUsageTracker::new(
         50,
     ))));

@@ -1,70 +1,70 @@
-//! Unified hook dispatch: evaluation → payload resolution → ordered
+//! Unified hook fire: evaluation → payload resolution → ordered
 //! notification → outcome aggregation → audit publication.
 //!
-//! The engine calls [`dispatch`] at a hook point and awaits it: the
+//! The engine calls [`fire`] at a hook point and awaits it: the
 //! notification barrier completes before the engine moves on. The pipeline
 //! itself carries no behavior — filtering (condition / enabled / weight),
 //! payload resolution and ordered notification only; behavior lives in
-//! registered [`HookReceiver`]s.
+//! registered [`HookHandler`]s.
 
 use serde_json::Value;
 use tracing::warn;
 use wf_core::EventBus;
 
-use crate::hooks::emit::{
+use crate::hooks::audit::{
     evaluate_hook_condition, filter_and_sort_hooks, publish_hook_audit_event,
 };
-use crate::hooks::registry::HookRegistry;
+use crate::hooks::registry::HookHandlerRegistry;
 use crate::hooks::template::resolve_payload_template;
-use crate::hooks::types::{BaseHookDefinition, HookContext, HookOutcome};
+use crate::hooks::types::{HookContext, HookDefinition, HookOutcome};
 
-/// Outcome of one receiver notification.
+/// Outcome of one handler notification.
 #[derive(Debug, Clone)]
-pub struct ReceiverResult {
+pub struct HandlerResult {
     pub name: String,
     pub outcome: HookOutcome,
     pub duration_ms: i64,
-    /// Timeout / unresolvable receiver description; `None` on success.
+    /// Timeout / unresolvable handler description; `None` on success.
     pub error: Option<String>,
 }
 
-/// Aggregate result of one dispatch: everything the audit trail needs
-/// (payloads, per-receiver results, duration) plus the aggregated outcome.
+/// Aggregate result of one fire: everything the audit trail needs
+/// (payloads, per-handler results, duration) plus the aggregated outcome.
 #[derive(Debug, Clone)]
-pub struct DispatchSummary {
+pub struct FireSummary {
     pub hook_type: String,
     pub payloads: Vec<Value>,
     pub weights: Vec<i32>,
-    pub receiver_results: Vec<ReceiverResult>,
+    pub handler_results: Vec<HandlerResult>,
     pub duration_ms: i64,
     pub outcome: HookOutcome,
 }
 
-/// Dispatch a hook point:
+/// Fire a hook point:
 ///
 /// 1. statically evaluate the hook definitions of `hook_type`
 ///    (condition / enabled / weight filtering) and resolve payload templates;
-/// 2. synchronously notify every receiver that passes evaluation — the
-///    `receiver`-named receivers of the static definitions first, then the
-///    receivers dynamically registered on the hook type (weight descending);
+/// 2. synchronously notify every handler that passes evaluation — the
+///    `handler`-named handlers of the static definitions first, then the
+///    handlers dynamically registered on the hook type (weight descending);
 /// 3. aggregate the outcomes (first `Intercept` wins);
 /// 4. publish the `HOOK_TRIGGERED` audit event carrying the payloads and the
-///    per-receiver results.
+///    per-handler results.
 ///
-/// The notification barrier is awaited by the caller: dispatch returns only
-/// after every receiver settled (each guarded by the registry timeout).
-pub async fn dispatch(
-    registry: &HookRegistry,
-    hooks: &[BaseHookDefinition],
+/// The notification barrier is awaited by the caller: fire returns only
+/// after every handler settled (each guarded by the registry timeout).
+pub async fn fire(
+    registry: &HookHandlerRegistry,
+    hooks: &[HookDefinition],
     hook_type: &str,
     ctx: &HookContext,
     event_bus: Option<&EventBus>,
-) -> DispatchSummary {
+) -> FireSummary {
     let started = wf_common::now();
 
     let mut payloads: Vec<Value> = Vec::new();
     let mut weights: Vec<i32> = Vec::new();
-    let mut matched: Vec<BaseHookDefinition> = Vec::new();
+    let mut matched: Vec<HookDefinition> = Vec::new();
     for hook in filter_and_sort_hooks(hooks, hook_type) {
         match evaluate_hook_condition(hook.condition.as_deref(), &ctx.data) {
             Ok(true) => {}
@@ -99,68 +99,68 @@ pub async fn dispatch(
         matched.push(hook);
     }
 
-    // Static definitions with an explicit receiver name are notified in
+    // Static definitions with an explicit handler name are notified in
     // weight order; unresolvable names are reported, never fatal.
-    let mut receiver_results: Vec<ReceiverResult> = Vec::new();
+    let mut handler_results: Vec<HandlerResult> = Vec::new();
     for def in &matched {
-        let Some(name) = def.receiver.as_deref() else {
+        let Some(name) = def.handler.as_deref() else {
             continue;
         };
         match registry.get(name) {
-            Some(receiver) => {
-                let registered = crate::hooks::registry::RegisteredReceiver {
+            Some(handler) => {
+                let registered = crate::hooks::registry::RegisteredHandler {
                     name: name.to_string(),
                     weight: def.weight,
-                    receiver,
+                    handler,
                 };
-                receiver_results.push(registry.notify(ctx, &registered).await);
+                handler_results.push(registry.notify(ctx, &registered).await);
             }
             None => {
                 warn!(
                     hook_id = %def.id,
-                    receiver = %name,
-                    "hook receiver '{}' is not registered, skipping",
+                    handler = %name,
+                    "hook handler '{}' is not registered, skipping",
                     name
                 );
-                receiver_results.push(ReceiverResult {
+                handler_results.push(HandlerResult {
                     name: name.to_string(),
                     outcome: HookOutcome::Continue,
                     duration_ms: 0,
-                    error: Some("receiver not registered".to_string()),
+                    error: Some("handler not registered".to_string()),
                 });
             }
         }
     }
 
-    // Dynamically registered receivers for the hook type, weight descending.
+    // Dynamically registered handlers for the hook type, weight descending.
     for registered in registry.for_type(hook_type) {
-        receiver_results.push(registry.notify(ctx, &registered).await);
+        handler_results.push(registry.notify(ctx, &registered).await);
     }
 
     let duration_ms = wf_common::now() - started;
-    let outcome = aggregate_outcome(&receiver_results);
+    let outcome = aggregate_outcome(&handler_results);
 
     publish_hook_audit_event(
         event_bus,
         ctx,
         &payloads,
         &weights,
-        &receiver_results,
+        &handler_results,
         duration_ms,
     );
 
-    DispatchSummary {
+    FireSummary {
         hook_type: hook_type.to_string(),
         payloads,
         weights,
-        receiver_results,
+        handler_results,
         duration_ms,
         outcome,
     }
 }
 
 /// First `Intercept` wins; otherwise `Continue`.
-fn aggregate_outcome(results: &[ReceiverResult]) -> HookOutcome {
+fn aggregate_outcome(results: &[HandlerResult]) -> HookOutcome {
     for result in results {
         if let HookOutcome::Intercept { reason } = &result.outcome {
             return HookOutcome::Intercept {
@@ -178,21 +178,21 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
-    use crate::hooks::receiver::HookReceiver;
+    use crate::hooks::handler::HookHandler;
     use wf_types::Id;
 
-    struct CounterReceiver {
+    struct CounterHandler {
         name: &'static str,
         calls: Arc<AtomicU32>,
         outcome: HookOutcome,
     }
 
     #[async_trait::async_trait]
-    impl HookReceiver for CounterReceiver {
+    impl HookHandler for CounterHandler {
         fn name(&self) -> &str {
             self.name
         }
-        async fn on_hook(&self, ctx: &HookContext) -> HookOutcome {
+        async fn on_point(&self, ctx: &HookContext) -> HookOutcome {
             assert!(!ctx.hook_type.is_empty(), "context carries the hook type");
             self.calls.fetch_add(1, Ordering::SeqCst);
             self.outcome.clone()
@@ -207,25 +207,25 @@ mod tests {
         }
     }
 
-    fn hook_def(hook_type: &str, weight: i32, receiver: Option<&str>) -> BaseHookDefinition {
-        BaseHookDefinition {
+    fn hook_def(hook_type: &str, weight: i32, handler: Option<&str>) -> HookDefinition {
+        HookDefinition {
             id: Id::new(),
             hook_type: hook_type.to_string(),
             weight,
             condition: None,
             enabled: true,
             payload: None,
-            receiver: receiver.map(String::from),
+            handler: handler.map(String::from),
         }
     }
 
     #[tokio::test]
-    async fn registered_receiver_is_notified_synchronously() {
-        let registry = HookRegistry::new();
+    async fn registered_handler_is_notified_synchronously() {
+        let registry = HookHandlerRegistry::new();
         let calls = Arc::new(AtomicU32::new(0));
         registry.register(
             "TEST",
-            Arc::new(CounterReceiver {
+            Arc::new(CounterHandler {
                 name: "r1",
                 calls: calls.clone(),
                 outcome: HookOutcome::Continue,
@@ -233,20 +233,20 @@ mod tests {
             1,
         );
 
-        let summary = dispatch(&registry, &[], "TEST", &ctx(), None).await;
+        let summary = fire(&registry, &[], "TEST", &ctx(), None).await;
         assert_eq!(calls.load(Ordering::SeqCst), 1);
-        assert_eq!(summary.receiver_results.len(), 1);
-        assert_eq!(summary.receiver_results[0].name, "r1");
+        assert_eq!(summary.handler_results.len(), 1);
+        assert_eq!(summary.handler_results[0].name, "r1");
         assert_eq!(summary.outcome, HookOutcome::Continue);
     }
 
     #[tokio::test]
-    async fn receiver_field_resolves_named_receiver() {
-        let registry = HookRegistry::new();
+    async fn handler_field_resolves_named_handler() {
+        let registry = HookHandlerRegistry::new();
         let calls = Arc::new(AtomicU32::new(0));
         registry.register(
             "OTHER",
-            Arc::new(CounterReceiver {
+            Arc::new(CounterHandler {
                 name: "named",
                 calls: calls.clone(),
                 outcome: HookOutcome::Continue,
@@ -255,30 +255,30 @@ mod tests {
         );
 
         let hooks = vec![hook_def("TEST", 1, Some("named"))];
-        let summary = dispatch(&registry, &hooks, "TEST", &ctx(), None).await;
+        let summary = fire(&registry, &hooks, "TEST", &ctx(), None).await;
         assert_eq!(calls.load(Ordering::SeqCst), 1);
-        assert_eq!(summary.receiver_results.len(), 1);
-        assert_eq!(summary.receiver_results[0].name, "named");
+        assert_eq!(summary.handler_results.len(), 1);
+        assert_eq!(summary.handler_results[0].name, "named");
     }
 
     #[tokio::test]
-    async fn unresolvable_receiver_is_reported_not_fatal() {
-        let registry = HookRegistry::new();
+    async fn unresolvable_handler_is_reported_not_fatal() {
+        let registry = HookHandlerRegistry::new();
         let hooks = vec![hook_def("TEST", 1, Some("missing"))];
-        let summary = dispatch(&registry, &hooks, "TEST", &ctx(), None).await;
-        assert_eq!(summary.receiver_results.len(), 1);
-        assert_eq!(summary.receiver_results[0].name, "missing");
-        assert!(summary.receiver_results[0].error.is_some());
+        let summary = fire(&registry, &hooks, "TEST", &ctx(), None).await;
+        assert_eq!(summary.handler_results.len(), 1);
+        assert_eq!(summary.handler_results[0].name, "missing");
+        assert!(summary.handler_results[0].error.is_some());
         assert_eq!(summary.outcome, HookOutcome::Continue);
     }
 
     #[tokio::test]
     async fn condition_filters_definition_before_notification() {
-        let registry = HookRegistry::new();
+        let registry = HookHandlerRegistry::new();
         let calls = Arc::new(AtomicU32::new(0));
         registry.register(
             "TEST",
-            Arc::new(CounterReceiver {
+            Arc::new(CounterHandler {
                 name: "r1",
                 calls: calls.clone(),
                 outcome: HookOutcome::Continue,
@@ -286,33 +286,33 @@ mod tests {
             1,
         );
 
-        // Dynamic receivers always run; the static definition is filtered.
-        let hooks = vec![BaseHookDefinition {
+        // Dynamic handlers always run; the static definition is filtered.
+        let hooks = vec![HookDefinition {
             id: Id::new(),
             hook_type: "TEST".to_string(),
             weight: 1,
             condition: Some("missing_flag".to_string()),
             enabled: true,
             payload: None,
-            receiver: Some("r1".to_string()),
+            handler: Some("r1".to_string()),
         }];
-        let summary = dispatch(&registry, &hooks, "TEST", &ctx(), None).await;
+        let summary = fire(&registry, &hooks, "TEST", &ctx(), None).await;
         assert_eq!(
-            summary.receiver_results.len(),
+            summary.handler_results.len(),
             1,
-            "only the dynamic receiver runs"
+            "only the dynamic handler runs"
         );
-        assert_eq!(summary.receiver_results[0].name, "r1");
+        assert_eq!(summary.handler_results[0].name, "r1");
     }
 
     #[tokio::test]
     async fn intercept_outcome_wins_aggregation() {
-        let registry = HookRegistry::new();
+        let registry = HookHandlerRegistry::new();
         let continue_calls = Arc::new(AtomicU32::new(0));
         let intercept_calls = Arc::new(AtomicU32::new(0));
         registry.register(
             "TEST",
-            Arc::new(CounterReceiver {
+            Arc::new(CounterHandler {
                 name: "continue-r",
                 calls: continue_calls.clone(),
                 outcome: HookOutcome::Continue,
@@ -321,7 +321,7 @@ mod tests {
         );
         registry.register(
             "TEST",
-            Arc::new(CounterReceiver {
+            Arc::new(CounterHandler {
                 name: "intercept-r",
                 calls: intercept_calls.clone(),
                 outcome: HookOutcome::Intercept {
@@ -331,7 +331,7 @@ mod tests {
             10,
         );
 
-        let summary = dispatch(&registry, &[], "TEST", &ctx(), None).await;
+        let summary = fire(&registry, &[], "TEST", &ctx(), None).await;
         assert_eq!(
             summary.outcome,
             HookOutcome::Intercept {
@@ -339,30 +339,31 @@ mod tests {
             }
         );
         // Notified in weight order.
-        assert_eq!(summary.receiver_results[0].name, "intercept-r");
-        assert_eq!(summary.receiver_results[1].name, "continue-r");
+        assert_eq!(summary.handler_results[0].name, "intercept-r");
+        assert_eq!(summary.handler_results[1].name, "continue-r");
     }
 
     #[tokio::test]
-    async fn timeout_receiver_does_not_block_engine() {
-        let registry = HookRegistry::new().with_timeout(std::time::Duration::from_millis(20));
+    async fn timeout_handler_does_not_block_engine() {
+        let registry =
+            HookHandlerRegistry::new().with_timeout(std::time::Duration::from_millis(20));
 
-        struct SlowReceiver;
+        struct SlowHandler;
         #[async_trait::async_trait]
-        impl HookReceiver for SlowReceiver {
+        impl HookHandler for SlowHandler {
             fn name(&self) -> &str {
                 "slow"
             }
-            async fn on_hook(&self, _ctx: &HookContext) -> HookOutcome {
+            async fn on_point(&self, _ctx: &HookContext) -> HookOutcome {
                 tokio::time::sleep(std::time::Duration::from_millis(500)).await;
                 HookOutcome::Continue
             }
         }
 
-        registry.register("TEST", Arc::new(SlowReceiver), 1);
-        let summary = dispatch(&registry, &[], "TEST", &ctx(), None).await;
-        assert_eq!(summary.receiver_results.len(), 1);
-        assert!(summary.receiver_results[0].error.is_some());
+        registry.register("TEST", Arc::new(SlowHandler), 1);
+        let summary = fire(&registry, &[], "TEST", &ctx(), None).await;
+        assert_eq!(summary.handler_results.len(), 1);
+        assert!(summary.handler_results[0].error.is_some());
         assert_eq!(summary.outcome, HookOutcome::Continue);
     }
 
@@ -371,11 +372,11 @@ mod tests {
         use wf_core::EventBus;
         use wf_types::events::EventType;
 
-        let registry = HookRegistry::new();
+        let registry = HookHandlerRegistry::new();
         let calls = Arc::new(AtomicU32::new(0));
         registry.register(
             "TEST",
-            Arc::new(CounterReceiver {
+            Arc::new(CounterHandler {
                 name: "r1",
                 calls: calls.clone(),
                 outcome: HookOutcome::Continue,
@@ -386,14 +387,14 @@ mod tests {
         let bus = Arc::new(EventBus::new(16));
         let mut sub = bus.subscribe();
 
-        let hooks = vec![BaseHookDefinition {
+        let hooks = vec![HookDefinition {
             id: Id::new(),
             hook_type: "TEST".to_string(),
             weight: 5,
             condition: None,
             enabled: true,
             payload: Some(serde_json::json!({"k": "{{name}}"})),
-            receiver: None,
+            handler: None,
         }];
         let mut data = HashMap::new();
         data.insert("name".to_string(), Value::String("world".to_string()));
@@ -403,7 +404,7 @@ mod tests {
             data,
         };
 
-        dispatch(&registry, &hooks, "TEST", &ctx, Some(&bus)).await;
+        fire(&registry, &hooks, "TEST", &ctx, Some(&bus)).await;
 
         let event = sub.try_recv().expect("audit event must be published");
         assert_eq!(event.r#type, EventType::HookTriggered);
@@ -413,27 +414,27 @@ mod tests {
         assert_eq!(metadata["hook_count"], serde_json::json!(1));
         assert_eq!(metadata["weights"], serde_json::json!([5]));
         assert_eq!(metadata["payloads"], serde_json::json!([{"k": "world"}]));
-        let receivers = metadata["receivers"].as_array().unwrap();
-        assert_eq!(receivers.len(), 1);
-        assert_eq!(receivers[0]["name"], serde_json::json!("r1"));
-        assert_eq!(receivers[0]["outcome"], serde_json::json!("continue"));
+        let handlers = metadata["handlers"].as_array().unwrap();
+        assert_eq!(handlers.len(), 1);
+        assert_eq!(handlers[0]["name"], serde_json::json!("r1"));
+        assert_eq!(handlers[0]["outcome"], serde_json::json!("continue"));
         assert!(metadata["duration_ms"].is_number());
         assert_eq!(
-            metadata["receiver_errors"].as_array().unwrap().len(),
+            metadata["handler_errors"].as_array().unwrap().len(),
             0,
-            "no receiver errors when all receivers resolve"
+            "no handler errors when all handlers resolve"
         );
     }
 
     #[tokio::test]
     async fn no_audit_event_without_hooks_or_receivers() {
-        let registry = HookRegistry::new();
+        let registry = HookHandlerRegistry::new();
         let bus = Arc::new(EventBus::new(16));
         let mut sub = bus.subscribe();
-        dispatch(&registry, &[], "UNCONFIGURED", &ctx(), Some(&bus)).await;
+        fire(&registry, &[], "UNCONFIGURED", &ctx(), Some(&bus)).await;
         assert!(
             sub.try_recv().is_err(),
-            "no event when nothing matched and no receiver registered"
+            "no event when nothing matched and no handler registered"
         );
     }
 }

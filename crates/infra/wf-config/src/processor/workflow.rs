@@ -336,7 +336,7 @@ mod tests {
     #[test]
     fn test_unknown_hook_type_allowed_with_warning() {
         let mut wf = make_workflow();
-        wf.hooks = Some(vec![wf_types::hook::BaseHookConfig {
+        wf.hooks = Some(vec![wf_types::hook::HookPointConfig {
             hook_type: "BEFORE_ECECUTE".to_string(),
             condition: None,
             event_name: "e".to_string(),
@@ -345,7 +345,7 @@ mod tests {
             weight: None,
             create_checkpoint: None,
             checkpoint_description: None,
-            receiver: None,
+            handler: None,
         }]);
         assert!(validate_workflow_definition(&wf).is_ok());
     }
@@ -353,7 +353,7 @@ mod tests {
     #[test]
     fn test_known_hook_type_accepted() {
         let mut wf = make_workflow();
-        wf.hooks = Some(vec![wf_types::hook::BaseHookConfig {
+        wf.hooks = Some(vec![wf_types::hook::HookPointConfig {
             hook_type: "WORKFLOW_BEFORE".to_string(),
             condition: None,
             event_name: "e".to_string(),
@@ -362,7 +362,7 @@ mod tests {
             weight: None,
             create_checkpoint: None,
             checkpoint_description: None,
-            receiver: None,
+            handler: None,
         }]);
         assert!(validate_workflow_definition(&wf).is_ok());
     }

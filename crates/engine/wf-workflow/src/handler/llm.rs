@@ -141,11 +141,11 @@ async fn dispatch_compression_signal(
     request: &wf_llm::ContextCompressionRequest<'_>,
 ) {
     use wf_execution_shared::hooks::HookContext;
-    let Some(registry) = &ctx.hook_registry else {
+    let Some(registry) = &ctx.hook_handler_registry else {
         return;
     };
     let data = wf_llm::compression_request_hook_data(request);
-    wf_execution_shared::hooks::dispatch(
+    wf_execution_shared::hooks::fire(
         registry,
         &[],
         wf_llm::token_events::COMPRESSION_SIGNAL_HOOK_TYPE,

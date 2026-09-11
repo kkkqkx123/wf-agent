@@ -8,7 +8,7 @@
 
 use std::marker::PhantomData;
 
-use wf_types::hook::BaseHookConfig;
+use wf_types::hook::HookPointConfig;
 use wf_types::node::BaseStaticNode;
 use wf_types::tool::AvailableTools;
 use wf_types::workflow::config::WorkflowConfig;
@@ -41,7 +41,7 @@ pub struct WorkflowBuilder<S> {
     variables: Vec<VariableDefinition>,
     metadata: Option<WorkflowMetadata>,
     available_tools: Option<AvailableTools>,
-    hooks: Option<Vec<BaseHookConfig>>,
+    hooks: Option<Vec<HookPointConfig>>,
     nodes: Vec<BaseStaticNode>,
     edges: Vec<Edge>,
     _marker: PhantomData<S>,
@@ -70,7 +70,7 @@ impl WorkflowBuilder<Empty> {
 
     /// Attach workflow-level hooks (BEFORE_EXECUTE / AFTER_EXECUTE per
     /// node).
-    pub fn hooks(mut self, hooks: Vec<BaseHookConfig>) -> Self {
+    pub fn hooks(mut self, hooks: Vec<HookPointConfig>) -> Self {
         self.hooks = Some(hooks);
         self
     }

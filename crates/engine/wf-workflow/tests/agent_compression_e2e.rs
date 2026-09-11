@@ -17,7 +17,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use wf_core::EventBus;
-use wf_execution_shared::hooks::{HookContext, HookOutcome, HookReceiver, HookRegistry};
+use wf_execution_shared::hooks::{HookContext, HookHandler, HookHandlerRegistry, HookOutcome};
 use wf_types::events::EventType;
 use wf_types::message::{Message, MessageContent, MessageContentValue, MessageRole};
 use wf_workflow::trigger_listener::SubworkflowRunner;
@@ -76,18 +76,18 @@ impl SubworkflowRunner for SummaryRunner {
 /// `CONTEXT_COMPRESSION_COMPLETED` with `agent_loop_id` set. Agent-owned
 /// targets never consult the write-back registry: the agent engine
 /// self-consumes the completed event.
-struct AgentCompressionReceiver {
+struct AgentCompressionHandler {
     runner: Arc<dyn SubworkflowRunner>,
     bus: Arc<EventBus>,
 }
 
 #[async_trait::async_trait]
-impl HookReceiver for AgentCompressionReceiver {
+impl HookHandler for AgentCompressionHandler {
     fn name(&self) -> &str {
         "e2e_agent_compression"
     }
 
-    async fn on_hook(&self, ctx: &HookContext) -> HookOutcome {
+    async fn on_point(&self, ctx: &HookContext) -> HookOutcome {
         use wf_llm::token_events::{KEY_ARRAY_VERSION, KEY_MESSAGES, KEY_TARGET_CONTEXT_ID};
 
         let Some(target_context_id) = ctx
@@ -236,10 +236,10 @@ async fn agent_conversation_compression_chain_closes_via_self_consumption() {
     // registry; the receiver takes over immediately and spawns the summary
     // sub-workflow. The registry has no entry for the agent (agent-owned
     // targets are consumed by the agent itself).
-    let hook_registry = Arc::new(HookRegistry::new());
-    hook_registry.register(
+    let hook_handlers = Arc::new(HookHandlerRegistry::new());
+    hook_handlers.register(
         wf_llm::token_events::COMPRESSION_SIGNAL_HOOK_TYPE,
-        Arc::new(AgentCompressionReceiver {
+        Arc::new(AgentCompressionHandler {
             runner: Arc::new(SummaryRunner),
             bus: bus.clone(),
         }),
@@ -250,8 +250,8 @@ async fn agent_conversation_compression_chain_closes_via_self_consumption() {
 
     // The agent emitted a compression request over its conversation.
     let snapshot = conversation.read().await.messages().to_vec();
-    wf_execution_shared::hooks::dispatch(
-        &hook_registry,
+    wf_execution_shared::hooks::fire(
+        &hook_handlers,
         &[],
         wf_llm::token_events::COMPRESSION_SIGNAL_HOOK_TYPE,
         &agent_compression_signal(&snapshot, version),
@@ -326,10 +326,10 @@ async fn agent_request_does_not_consult_the_registry() {
     let bus = Arc::new(EventBus::new(64));
     let mut sub = bus.subscribe();
 
-    let hook_registry = Arc::new(HookRegistry::new());
-    hook_registry.register(
+    let hook_handlers = Arc::new(HookHandlerRegistry::new());
+    hook_handlers.register(
         wf_llm::token_events::COMPRESSION_SIGNAL_HOOK_TYPE,
-        Arc::new(AgentCompressionReceiver {
+        Arc::new(AgentCompressionHandler {
             runner: Arc::new(SummaryRunner),
             bus: bus.clone(),
         }),
@@ -337,8 +337,8 @@ async fn agent_request_does_not_consult_the_registry() {
     );
 
     let messages = vec![text_message(MessageRole::User, "long conversation")];
-    wf_execution_shared::hooks::dispatch(
-        &hook_registry,
+    wf_execution_shared::hooks::fire(
+        &hook_handlers,
         &[],
         wf_llm::token_events::COMPRESSION_SIGNAL_HOOK_TYPE,
         &agent_compression_signal(&messages, 3),

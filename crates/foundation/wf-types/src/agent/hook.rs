@@ -27,7 +27,7 @@ pub struct AgentHookConfig {
     pub create_checkpoint: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub checkpoint_description: Option<String>,
-    /// Optional name of a runtime-registered hook receiver.
+    /// Optional name of a runtime-registered hook handler.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub receiver: Option<String>,
+    pub handler: Option<String>,
 }

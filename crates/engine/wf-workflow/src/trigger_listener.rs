@@ -25,7 +25,7 @@ use wf_common::gate::ConcurrencyGate;
 use wf_core::error::EventError;
 use wf_core::EventBus;
 use wf_types::events::{BaseEvent, EventType};
-use wf_types::trigger::{TriggerCondition, TriggerTemplate};
+use wf_types::trigger::{TriggerCondition, TriggerRuntimeLimits, TriggerTemplate};
 
 use crate::error::WorkflowResult;
 
@@ -119,6 +119,10 @@ pub struct TriggerEventListener {
     /// Optional concurrency gate bounding concurrent trigger-action
     /// execution. `None` keeps the previous unbounded behavior.
     concurrency_gate: Option<Arc<ConcurrencyGate>>,
+    /// Runtime limits (concurrency + dispatch circuit breaker). Default is
+    /// unbounded with no burst cap, preserving the previous behavior.
+    /// Over-limit winners are dropped with a warning, never queued.
+    runtime_limits: TriggerRuntimeLimits,
     shutdown: CancellationToken,
 }
 
@@ -166,6 +170,7 @@ impl TriggerEventListener {
             trigger_counts: Arc::new(std::sync::Mutex::new(HashMap::new())),
             interested_types,
             concurrency_gate: None,
+            runtime_limits: TriggerRuntimeLimits::default(),
             shutdown,
         }
     }
@@ -174,6 +179,20 @@ impl TriggerEventListener {
     /// `None` (default), actions spawn unbounded as before.
     pub fn with_concurrency_gate(mut self, gate: Arc<ConcurrencyGate>) -> Self {
         self.concurrency_gate = Some(gate);
+        self
+    }
+
+    /// Apply shared runtime limits. `max_concurrent_actions` installs a
+    /// concurrency gate when none was set explicitly; the dispatch burst
+    /// cap is enforced per event (warn-and-drop, never queued). Absent
+    /// values keep the previous unbounded behavior.
+    pub fn with_runtime_limits(mut self, limits: TriggerRuntimeLimits) -> Self {
+        if let Some(max) = limits.max_concurrent_actions {
+            if self.concurrency_gate.is_none() && max > 0 {
+                self.concurrency_gate = Some(Arc::new(ConcurrencyGate::new(max as usize)));
+            }
+        }
+        self.runtime_limits = limits;
         self
     }
 
@@ -394,7 +413,10 @@ impl TriggerEventListener {
                             std::collections::HashMap::new();
                         for (_, template) in &members {
                             let priority = template.priority.unwrap_or_default();
-                            by_priority.entry(priority).or_default().push(template.name.as_str());
+                            by_priority
+                                .entry(priority)
+                                .or_default()
+                                .push(template.name.as_str());
                         }
                         if let Some(duplicated) =
                             by_priority.iter().find(|(_, names)| names.len() > 1)
@@ -419,6 +441,19 @@ impl TriggerEventListener {
         }
 
         if winners.len() > 1 {
+            if self.runtime_limits.dispatch_burst_limit.is_some() {
+                let mut winners = winners;
+                let dropped = self.runtime_limits.apply_burst_cap(&mut winners);
+                let names: Vec<&str> = winners.iter().map(|(_, t)| t.name.as_str()).collect();
+                warn!(
+                    "Several trigger scopes [{}] matched {} for one event; dispatch burst cap dropped {} winner(s), executing [{}]",
+                    names.join(", "),
+                    event.r#type.as_str(),
+                    dropped,
+                    names.join(", "),
+                );
+                return self.finalize_winners(winners, event, execution_id);
+            }
             let names: Vec<&str> = winners.iter().map(|(_, t)| t.name.as_str()).collect();
             warn!(
                 "Several trigger scopes [{}] matched {} for one event; validation was bypassed, dropping every winner",
@@ -448,6 +483,39 @@ impl TriggerEventListener {
         winners
             .into_iter()
             .map(|(_, template)| {
+                if template.allow_multi_effect == Some(true) {
+                    warn!(
+                        "Trigger '{}' declares multi-effect execution with an explicit order, but the runtime still executes the single winner; ordered multi-execution is validated, not yet executed",
+                        template.name,
+                    );
+                }
+                let key = format!("{}:{}", execution_id, template.name);
+                TriggerMatch {
+                    template,
+                    event: event.clone(),
+                    key,
+                }
+            })
+            .collect()
+    }
+
+    /// Map burst-capped winners to dispatchable matches (shared with the
+    /// default path; multi-effect declarations stay single-execution).
+    fn finalize_winners(
+        &self,
+        winners: Vec<(usize, TriggerTemplate)>,
+        event: &BaseEvent,
+        execution_id: &str,
+    ) -> Vec<TriggerMatch> {
+        winners
+            .into_iter()
+            .map(|(_, template)| {
+                if template.allow_multi_effect == Some(true) {
+                    warn!(
+                        "Trigger '{}' declares multi-effect execution with an explicit order, but the runtime still executes the single winner; ordered multi-execution is validated, not yet executed",
+                        template.name,
+                    );
+                }
                 let key = format!("{}:{}", execution_id, template.name);
                 TriggerMatch {
                     template,
@@ -741,6 +809,8 @@ mod tests {
             max_triggers: Some(max_triggers),
             priority: None,
             dispatch_mode: None,
+            allow_multi_effect: None,
+            effect_order: None,
             metadata: None,
             created_at: 0,
             updated_at: 0,

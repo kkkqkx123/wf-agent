@@ -66,6 +66,13 @@ pub struct CustomTriggerDefinition {
     /// Absent means the default unique dispatch.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dispatch_mode: Option<wf_types::trigger::TriggerDispatchMode>,
+    /// Multi-effect opt-in (see `TriggerTemplate::allow_multi_effect`).
+    /// Default keeps single-winner single-execution.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub allow_multi_effect: Option<bool>,
+    /// Explicit effect order required when `allow_multi_effect` is true.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effect_order: Option<Vec<String>>,
     pub config: Option<Value>,
     pub metadata: Option<Value>,
 }

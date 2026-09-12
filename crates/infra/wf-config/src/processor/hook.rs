@@ -1,7 +1,9 @@
 use crate::error::ConfigResult;
 use crate::validator::{validate_min, validate_not_empty};
 
-use wf_types::hook::{hook_effect, is_known_hook_point, HookPointConfig, HookPointStaticConfig};
+use wf_types::hook::{
+    hook_effect, is_known_hook_point, CanonicalHookSpec, HookPointConfig, HookPointStaticConfig,
+};
 
 fn warn_missing_handler(field_prefix: &str, hook_type: &str) {
     tracing::warn!(
@@ -22,125 +24,86 @@ fn warn_deprecated_event_name(field_prefix: &str, event_name: &str) {
     }
 }
 
-/// Validate a `HookPointConfig` (workflow-level hook).
+/// Single validation entry for every hook config form.
 ///
-/// Checks:
-/// - `hook_type` is a known hook type (unknown types are allowed with a
-///   warning for forward compatibility; they simply never fire and are
-///   treated as observability points)
-/// - `event_name` is deprecated and ignored (empty or not, always passes)
-/// - `weight` is in a reasonable range (if present)
-/// - request / mutated hooks without a `handler` get an extra warning
-///   because they need a registered handler or trigger rule; observability
-///   hooks are usable on demand with zero subscribers and skip that check
-pub fn validate_base_hook_config(hook: &HookPointConfig, field_prefix: &str) -> ConfigResult<()> {
-    if !is_known_hook_point(&hook.hook_type) {
+/// All four forms (workflow, agent, static, tool-callback) converge to
+/// `CanonicalHookSpec` first; this function holds the only copy of the
+/// behavior: unknown types warn (forward compatible, never fire),
+/// deprecated `event_name` always passes with a warning, negative weights
+/// are rejected, empty handler names are rejected, a set handler warns
+/// about sync/async unordered paths, and request/mutated hooks without a
+/// handler warn about completeness (observability hooks skip that check).
+pub fn validate_canonical_hook(
+    spec: &CanonicalHookSpec,
+    event_name: &str,
+    field_prefix: &str,
+) -> ConfigResult<()> {
+    if !is_known_hook_point(&spec.hook_type) {
         tracing::warn!(
             "{}.hook_type references unknown hook type '{}'; allowing registration but it will never fire",
             field_prefix,
-            hook.hook_type
+            spec.hook_type
         );
     }
-    warn_deprecated_event_name(field_prefix, &hook.event_name);
-    if let Some(weight) = hook.weight {
-        validate_min(weight, 0, &format!("{field_prefix}.weight"))?;
-    }
-    if let Some(ref handler) = hook.handler {
+    warn_deprecated_event_name(field_prefix, event_name);
+    validate_min(spec.weight, 0, &format!("{field_prefix}.weight"))?;
+    if let Some(ref handler) = spec.handler {
         validate_not_empty(handler, &format!("{field_prefix}.handler"))?;
         tracing::warn!(
             "{}.handler '{}' runs synchronously while a matching trigger template off the HOOK_TRIGGERED audit event would run asynchronously with no ordering guarantee; configure both only when the two effects commute",
             field_prefix,
             handler
         );
-    } else if is_known_hook_point(&hook.hook_type)
+    } else if is_known_hook_point(&spec.hook_type)
         && !matches!(
-            hook_effect(&hook.hook_type),
+            hook_effect(&spec.hook_type),
             wf_types::events::EventCategory::Observable
         )
     {
-        warn_missing_handler(field_prefix, &hook.hook_type);
+        warn_missing_handler(field_prefix, &spec.hook_type);
     }
     Ok(())
+}
+
+/// Validate a `HookPointConfig` (workflow-level hook).
+///
+/// Thin adapter: converts to the authoritative spec and delegates to
+/// [`validate_canonical_hook`], which holds the only copy of the rules.
+pub fn validate_base_hook_config(hook: &HookPointConfig, field_prefix: &str) -> ConfigResult<()> {
+    validate_canonical_hook(
+        &CanonicalHookSpec::from_workflow(hook),
+        &hook.event_name,
+        field_prefix,
+    )
 }
 
 /// Validate a `HookPointStaticConfig` (static/serialized form of hook config).
 ///
-/// Same rules as `validate_base_hook_config` but operates on the static
-/// variant where `condition` is `Option<String>`. Observability hooks skip
-/// the handler completeness check; request / mutated hooks warn when no
-/// handler is declared.
+/// Thin adapter over [`validate_canonical_hook`].
 pub fn validate_base_hook_static_config(
     hook: &HookPointStaticConfig,
     field_prefix: &str,
 ) -> ConfigResult<()> {
-    if !is_known_hook_point(&hook.hook_type) {
-        tracing::warn!(
-            "{}.hook_type references unknown hook type '{}'; allowing registration but it will never fire",
-            field_prefix,
-            hook.hook_type
-        );
-    }
-    warn_deprecated_event_name(field_prefix, &hook.event_name);
-    if let Some(weight) = hook.weight {
-        validate_min(weight, 0, &format!("{field_prefix}.weight"))?;
-    }
-    if let Some(ref handler) = hook.handler {
-        validate_not_empty(handler, &format!("{field_prefix}.handler"))?;
-        tracing::warn!(
-            "{}.handler '{}' runs synchronously while a matching trigger template off the HOOK_TRIGGERED audit event would run asynchronously with no ordering guarantee; configure both only when the two effects commute",
-            field_prefix,
-            handler
-        );
-    } else if is_known_hook_point(&hook.hook_type)
-        && !matches!(
-            hook_effect(&hook.hook_type),
-            wf_types::events::EventCategory::Observable
-        )
-    {
-        warn_missing_handler(field_prefix, &hook.hook_type);
-    }
-    Ok(())
+    validate_canonical_hook(
+        &CanonicalHookSpec::from_static(hook),
+        &hook.event_name,
+        field_prefix,
+    )
 }
 
 /// Validate an agent-level hook config against the hook registry.
 ///
-/// The wire name comes from `AgentHookType::as_str`, so every typed variant
-/// is known by construction; the registry check remains as a defense against
-/// future registry drift. `event_name` is deprecated and ignored (empty or
-/// not, always passes); `weight` is validated for range. Request / mutated
-/// hooks without a handler warn; observability hooks skip that check.
+/// Thin adapter: the wire name comes from `AgentHookType::as_str`, converted
+/// to the authoritative spec and checked by [`validate_canonical_hook`].
 pub fn validate_agent_hook_config(
     hook: &wf_types::agent::AgentHookConfig,
     field_prefix: &str,
 ) -> ConfigResult<()> {
-    let hook_type_str = hook.hook_type_name();
-    if !is_known_hook_point(hook_type_str) {
-        tracing::warn!(
-            "{}.hook_type references unknown hook type '{}'; allowing registration but it will never fire",
-            field_prefix,
-            hook_type_str
-        );
-    }
-    warn_deprecated_event_name(field_prefix, &hook.event_name);
-    if let Some(weight) = hook.weight {
-        validate_min(weight, 0, &format!("{field_prefix}.weight"))?;
-    }
-    if let Some(ref handler) = hook.handler {
-        validate_not_empty(handler, &format!("{field_prefix}.handler"))?;
-        tracing::warn!(
-            "{}.handler '{}' runs synchronously while a matching trigger template off the HOOK_TRIGGERED audit event would run asynchronously with no ordering guarantee; configure both only when the two effects commute",
-            field_prefix,
-            handler
-        );
-    } else if is_known_hook_point(hook_type_str)
-        && !matches!(
-            hook_effect(hook_type_str),
-            wf_types::events::EventCategory::Observable
-        )
-    {
-        warn_missing_handler(field_prefix, hook_type_str);
-    }
-    Ok(())
+    validate_canonical_hook(
+        &CanonicalHookSpec::from_agent(hook),
+        &hook.event_name,
+        field_prefix,
+    )
 }
 
 #[cfg(test)]

@@ -223,15 +223,14 @@ impl TriggerCoordinator {
             // (wf-runtime `AgentTriggerRunner`): message nodes have no parent
             // `AgentLoopEntity` / conversation session / `AgentLoopRegistry`,
             // so no anchored input context or write-back target can be
-            // constructed for the child. Kept rejected with an explicit
-            // error (never silently degraded); the support matrix documents
-            // this as `❌ rejected with an explicit error`.
+            // constructed for the child. Kept rejected with the unified
+            // matrix error (never silently degraded); the support matrix on
+            // `TriggerAction` documents this as unsupported in message nodes.
             TriggerAction::ExecuteTriggeredAgentExecution { .. } => {
-                Err(WorkflowError::TriggerError(
-                    "ExecuteTriggeredAgentExecution is only supported by the event-driven trigger \
-                     listener; message nodes reject this action"
-                        .to_string(),
-                ))
+                let message = action
+                    .rejection_message(wf_types::trigger::TriggerExecutionContext::MessageNode)
+                    .expect("nested agent execution is unsupported in message nodes");
+                Err(WorkflowError::TriggerError(message))
             }
         };
 

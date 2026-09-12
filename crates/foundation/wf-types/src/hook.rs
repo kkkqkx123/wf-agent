@@ -96,14 +96,107 @@ pub fn hook_requires_handler(hook_type: &str) -> bool {
     )
 }
 
-/// Delivery model: a hook has two independent paths with no ordering
-/// guarantee. The synchronous `handler` path is for fast local observation
-/// (millisecond budget, engine-awaited). The asynchronous path publishes an
-/// audit event that trigger templates may match later (delay-tolerant side
-/// effects, retries, cross-execution access). Prefer one path per hook
-/// unless both effects are known to commute.
+/// Authoritative hook model: single source of truth for the hook
+/// vocabulary shared by the four config forms (workflow `HookPointConfig`,
+/// agent `AgentHookConfig`, static `HookPointStaticConfig`, tool-callback
+/// `wf-tools::HookConfig`).
+///
+/// Authoritative field set and value rules (frozen by the winner-mechanism
+/// phase; every form must map onto these without behavior change):
+/// - `hook_type`: canonical wire name (`is_known_hook_point` decides
+///   known vs forward-compatible unknown; unknown never fires).
+/// - `condition`: optional expression string evaluated against the hook
+///   context (`None` always matches).
+/// - `enabled`: concrete bool (absent means true in every config form).
+/// - `weight`: sort weight, higher fires first in the audit summary;
+///   negative values are rejected at load time.
+/// - `payload`: optional payload template surfaced on the `HOOK_TRIGGERED`
+///   audit event (workflow/agent `event_payload`, tool `payload`).
+/// - `handler`: optional synchronous handler name; independent from the
+///   asynchronous trigger path with no ordering guarantee.
+///   Per-form extras (`event_name` deprecation, tool `parallel` /
+///   `continue_on_error`) stay on their own types and never enter this model.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CanonicalHookSpec {
+    pub hook_type: String,
+    pub condition: Option<String>,
+    pub enabled: bool,
+    pub weight: i32,
+    pub payload: Option<serde_json::Value>,
+    pub handler: Option<String>,
+}
+
+impl CanonicalHookSpec {
+    /// Build from explicit parts (used by the tool-callback form, which
+    /// lives outside `wf-types` and keeps its own extras).
+    pub fn from_parts(
+        hook_type: String,
+        condition: Option<String>,
+        enabled: bool,
+        weight: i32,
+        payload: Option<serde_json::Value>,
+        handler: Option<String>,
+    ) -> Self {
+        Self {
+            hook_type,
+            condition,
+            enabled,
+            weight,
+            payload,
+            handler,
+        }
+    }
+
+    /// Workflow form: `condition` narrows from `Option<Value>` to
+    /// `Option<String>` (only a string expression is meaningful); defaults
+    /// are weight 0 and enabled true.
+    pub fn from_workflow(config: &HookPointConfig) -> Self {
+        Self {
+            hook_type: config.hook_type.clone(),
+            condition: config
+                .condition
+                .as_ref()
+                .and_then(|v| v.as_str())
+                .map(ToString::to_string),
+            enabled: config.enabled.unwrap_or(true),
+            weight: config.weight.unwrap_or(0),
+            payload: config.event_payload.clone(),
+            handler: config.handler.clone(),
+        }
+    }
+
+    /// Static serialization form: fields already match the model, only
+    /// defaults are applied.
+    pub fn from_static(config: &HookPointStaticConfig) -> Self {
+        Self {
+            hook_type: config.hook_type.clone(),
+            condition: config.condition.clone(),
+            enabled: config.enabled.unwrap_or(true),
+            weight: config.weight.unwrap_or(0),
+            payload: config.event_payload.clone(),
+            handler: config.handler.clone(),
+        }
+    }
+
+    /// Agent form: the wire name comes from `AgentHookType::as_str`.
+    pub fn from_agent(config: &crate::agent::AgentHookConfig) -> Self {
+        Self {
+            hook_type: config.hook_type_name().to_string(),
+            condition: config.condition.clone(),
+            enabled: config.enabled.unwrap_or(true),
+            weight: config.weight.unwrap_or(0),
+            payload: config.event_payload.clone(),
+            handler: config.handler.clone(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct HookPointConfig {
+    /// Delivery model: a hook has two independent paths with no ordering
+    /// guarantee (see `CanonicalHookSpec`). The synchronous `handler` path
+    /// is for fast local observation; the asynchronous path publishes an
+    /// audit event that trigger templates may match later.
     pub hook_type: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub condition: Option<serde_json::Value>,
@@ -185,5 +278,81 @@ mod tests {
     #[test]
     fn unknown_hooks_default_to_observable() {
         assert!(!hook_requires_handler("SOME_FUTURE_HOOK"));
+    }
+
+    #[test]
+    fn four_forms_converge_to_canonical_spec() {
+        let workflow = HookPointConfig {
+            hook_type: "AFTER_TOOL_CALL".to_string(),
+            condition: Some(serde_json::json!("flag")),
+            event_name: String::new(),
+            event_payload: Some(serde_json::json!({"k": 1})),
+            enabled: None,
+            weight: Some(7),
+            create_checkpoint: None,
+            checkpoint_description: None,
+            handler: Some("h".to_string()),
+        };
+        let static_form = HookPointStaticConfig {
+            hook_type: "AFTER_TOOL_CALL".to_string(),
+            condition: Some("flag".to_string()),
+            event_name: String::new(),
+            event_payload: Some(serde_json::json!({"k": 1})),
+            enabled: None,
+            weight: Some(7),
+            create_checkpoint: None,
+            checkpoint_description: None,
+            handler: Some("h".to_string()),
+        };
+        let agent = crate::agent::AgentHookConfig {
+            hook_type: crate::agent::hook::AgentHookType::AfterToolCall,
+            condition: Some("flag".to_string()),
+            event_name: String::new(),
+            event_payload: Some(serde_json::json!({"k": 1})),
+            enabled: None,
+            weight: Some(7),
+            create_checkpoint: None,
+            checkpoint_description: None,
+            handler: Some("h".to_string()),
+        };
+        let tool = CanonicalHookSpec::from_parts(
+            "AFTER_TOOL_CALL".to_string(),
+            Some("flag".to_string()),
+            true,
+            7,
+            Some(serde_json::json!({"k": 1})),
+            Some("h".to_string()),
+        );
+        let expected = CanonicalHookSpec {
+            hook_type: "AFTER_TOOL_CALL".to_string(),
+            condition: Some("flag".to_string()),
+            enabled: true,
+            weight: 7,
+            payload: Some(serde_json::json!({"k": 1})),
+            handler: Some("h".to_string()),
+        };
+        assert_eq!(CanonicalHookSpec::from_workflow(&workflow), expected);
+        assert_eq!(CanonicalHookSpec::from_static(&static_form), expected);
+        assert_eq!(CanonicalHookSpec::from_agent(&agent), expected);
+        assert_eq!(tool, expected);
+    }
+
+    #[test]
+    fn workflow_non_string_condition_narrows_to_none() {
+        let workflow = HookPointConfig {
+            hook_type: "AFTER_TOOL_CALL".to_string(),
+            condition: Some(serde_json::json!({"expr": "flag"})),
+            event_name: String::new(),
+            event_payload: None,
+            enabled: Some(false),
+            weight: None,
+            create_checkpoint: None,
+            checkpoint_description: None,
+            handler: None,
+        };
+        let spec = CanonicalHookSpec::from_workflow(&workflow);
+        assert_eq!(spec.condition, None);
+        assert!(!spec.enabled);
+        assert_eq!(spec.weight, 0);
     }
 }

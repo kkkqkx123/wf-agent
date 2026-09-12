@@ -101,6 +101,8 @@ pub struct TriggerTemplateBuilder {
     max_triggers: Option<u32>,
     priority: Option<i32>,
     dispatch_mode: Option<wf_types::trigger::TriggerDispatchMode>,
+    allow_multi_effect: Option<bool>,
+    effect_order: Option<Vec<String>>,
     metadata: Option<Metadata>,
     create_checkpoint: Option<bool>,
     checkpoint_description_template: Option<String>,
@@ -119,6 +121,8 @@ impl TriggerTemplateBuilder {
             max_triggers: None,
             priority: None,
             dispatch_mode: None,
+            allow_multi_effect: None,
+            effect_order: None,
             metadata: None,
             create_checkpoint: None,
             checkpoint_description_template: None,
@@ -172,6 +176,19 @@ impl TriggerTemplateBuilder {
         self
     }
 
+    /// Opt into ordered multi-effect execution for one event (requires an
+    /// explicit `effect_order`; default keeps single-winner single-execution).
+    pub fn allow_multi_effect(mut self, allow: bool) -> Self {
+        self.allow_multi_effect = Some(allow);
+        self
+    }
+
+    /// Explicit execution order for multi-effect mode.
+    pub fn effect_order(mut self, order: Vec<String>) -> Self {
+        self.effect_order = Some(order);
+        self
+    }
+
     /// Create a checkpoint when the trigger fires.
     pub fn create_checkpoint(mut self) -> Self {
         self.create_checkpoint = Some(true);
@@ -191,6 +208,8 @@ impl TriggerTemplateBuilder {
             max_triggers: self.max_triggers,
             priority: self.priority,
             dispatch_mode: self.dispatch_mode,
+            allow_multi_effect: self.allow_multi_effect,
+            effect_order: self.effect_order,
             metadata: self.metadata,
             created_at: now,
             updated_at: now,

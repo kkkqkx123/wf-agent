@@ -170,6 +170,8 @@ pub async fn save(ctx: &ApiContext, template: &TriggerTemplateStorageMetadata) -
         max_triggers: template.max_triggers,
         priority: template.priority,
         dispatch_mode: template.dispatch_mode,
+        allow_multi_effect: None,
+        effect_order: None,
         metadata: None,
         created_at: template.created_at,
         updated_at: template.updated_at,

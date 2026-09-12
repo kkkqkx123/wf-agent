@@ -60,6 +60,60 @@ pub enum TriggerSource {
     Webhook,
 }
 
+impl TriggerSource {
+    /// Whether this source has a running producer. Only `Event` does;
+    /// scheduler and gateway producers are future work.
+    pub fn is_implemented(&self) -> bool {
+        matches!(self, Self::Event)
+    }
+
+    /// Canonical name of the source.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Event => "event",
+            Self::Schedule => "schedule",
+            Self::Webhook => "webhook",
+        }
+    }
+
+    /// Translate a cron-style schedule expression into an event condition.
+    ///
+    /// Future scheduler producer contract: the scheduler owns time, this
+    /// function owns translation. The schedule signal is translated to the
+    /// existing `NODE_CUSTOM_EVENT` type with the schedule name as the
+    /// secondary discriminator, so it reuses the competition scope key
+    /// (`event_type` + `event_name`) and set validation without adding a
+    /// competition dimension. No scheduler exists yet; callers keep
+    /// rejecting schedule sources until one does.
+    pub fn translate_schedule_to_condition(schedule_name: &str) -> TriggerCondition {
+        TriggerCondition {
+            event_type: "NODE_CUSTOM_EVENT".to_string(),
+            event_name: Some(schedule_name.to_string()),
+            condition: None,
+            metadata: None,
+            metadata_exists: None,
+            execution_prefix: None,
+        }
+    }
+
+    /// Translate an external webhook path into an event condition.
+    ///
+    /// Future gateway producer contract: the gateway owns HTTP ingress, this
+    /// function owns translation. Like the scheduler path, the external
+    /// signal becomes a `NODE_CUSTOM_EVENT` with the webhook name as the
+    /// secondary discriminator, reusing scope keys and set validation.
+    pub fn translate_webhook_to_condition(webhook_name: &str) -> TriggerCondition {
+        TriggerCondition {
+            event_type: "NODE_CUSTOM_EVENT".to_string(),
+            event_name: Some(webhook_name.to_string()),
+            condition: None,
+            metadata: None,
+            metadata_exists: None,
+            execution_prefix: None,
+        }
+    }
+}
+
 /// Condition matching an event against a trigger template.
 ///
 /// Matching semantics (backward compatible):
@@ -323,6 +377,76 @@ pub enum TriggerAction {
     },
 }
 
+/// Execution context running a [`TriggerAction`]: the event-driven
+/// listener (async, anchored by the triggering event) or a message node
+/// (synchronous, in-workflow, without an event anchor).
+///
+/// Authoritative support matrix (mirrors the table on [`TriggerAction`]):
+/// every action runs in the event listener; every action except
+/// `ExecuteTriggeredAgentExecution` runs in message nodes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum TriggerExecutionContext {
+    EventListener,
+    MessageNode,
+}
+
+impl TriggerExecutionContext {
+    /// Canonical name used in matrix documentation and error messages.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::EventListener => "event-listener",
+            Self::MessageNode => "message-node",
+        }
+    }
+}
+
+impl TriggerAction {
+    /// Canonical snake_case name of the action variant.
+    pub fn action_name(&self) -> &'static str {
+        match self {
+            Self::StopWorkflowExecution {} => "stop_workflow_execution",
+            Self::PauseWorkflowExecution {} => "pause_workflow_execution",
+            Self::ResumeWorkflowExecution {} => "resume_workflow_execution",
+            Self::SkipNode { .. } => "skip_node",
+            Self::SetVariable { .. } => "set_variable",
+            Self::SendNotification { .. } => "send_notification",
+            Self::ExecuteTriggeredSubworkflow { .. } => "execute_triggered_subworkflow",
+            Self::ExecuteScript { .. } => "execute_script",
+            Self::ExecuteTriggeredAgentExecution { .. } => "execute_triggered_agent_execution",
+            Self::SetMessageContext { .. } => "set_message_context",
+            Self::AppendMessageContext { .. } => "append_message_context",
+        }
+    }
+
+    /// Whether this action is supported in the given execution context.
+    /// The event listener supports every action; message nodes support
+    /// every action except the nested-agent execution, which needs the
+    /// parent conversation anchor carried by the triggering event.
+    pub fn supported_in(&self, context: TriggerExecutionContext) -> bool {
+        match context {
+            TriggerExecutionContext::EventListener => true,
+            TriggerExecutionContext::MessageNode => {
+                !matches!(self, Self::ExecuteTriggeredAgentExecution { .. })
+            }
+        }
+    }
+
+    /// Unified rejection message for an unsupported context, naming the
+    /// action, the refusing context, and the alternative path. Returns
+    /// `None` when the action is supported in the context.
+    pub fn rejection_message(&self, context: TriggerExecutionContext) -> Option<String> {
+        if self.supported_in(context) {
+            return None;
+        }
+        Some(format!(
+            "{} is only supported by the event-driven trigger listener ({} context); message nodes ({}) reject this action because the child needs the parent conversation anchor carried by the triggering event. Prefer execute_triggered_subworkflow inside message nodes",
+            self.action_name(),
+            TriggerExecutionContext::EventListener.as_str(),
+            context.as_str(),
+        ))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -429,6 +553,113 @@ mod tests {
         assert!(!anchor.is_positional());
         assert_eq!(anchor.message_count, 0);
         assert_eq!(anchor.array_version, 0);
+    }
+
+    #[test]
+    fn external_sources_translate_to_event_scope_keys() {
+        assert!(TriggerSource::Event.is_implemented());
+        assert!(!TriggerSource::Schedule.is_implemented());
+        assert!(!TriggerSource::Webhook.is_implemented());
+
+        let schedule = TriggerSource::translate_schedule_to_condition("nightly");
+        assert_eq!(schedule.event_type, "NODE_CUSTOM_EVENT");
+        assert_eq!(schedule.event_name.as_deref(), Some("nightly"));
+
+        let webhook = TriggerSource::translate_webhook_to_condition("deploy-hook");
+        assert_eq!(webhook.event_type, "NODE_CUSTOM_EVENT");
+        assert_eq!(webhook.event_name.as_deref(), Some("deploy-hook"));
+
+        // Translated conditions reuse the competition scope key: same
+        // translated name competes, different names do not.
+        let key_of = |c: &TriggerCondition| crate::trigger::TriggerScopeKey {
+            event_type: c.event_type.clone(),
+            event_name: c.event_name.clone(),
+        };
+        assert_eq!(key_of(&schedule), key_of(&schedule));
+        assert_ne!(
+            key_of(&schedule),
+            key_of(&TriggerSource::translate_schedule_to_condition("hourly"))
+        );
+    }
+
+    #[test]
+    fn action_support_matrix_event_listener_supports_all() {
+        use TriggerExecutionContext::{EventListener, MessageNode};
+        let all = vec![
+            TriggerAction::StopWorkflowExecution {},
+            TriggerAction::PauseWorkflowExecution {},
+            TriggerAction::ResumeWorkflowExecution {},
+            TriggerAction::SkipNode { node_id: None },
+            TriggerAction::SetVariable {
+                variable_name: "x".to_string(),
+                value: serde_json::json!(1),
+            },
+            TriggerAction::SendNotification {
+                message: "hi".to_string(),
+            },
+            TriggerAction::ExecuteTriggeredSubworkflow {
+                triggered_workflow_id: "wf".to_string(),
+                wait_for_completion: None,
+                timeout: None,
+                input_mapping: None,
+                output_mapping: None,
+            },
+            TriggerAction::ExecuteScript {
+                script_name: "s".to_string(),
+                parameters: None,
+                timeout: None,
+                ignore_error: None,
+            },
+            TriggerAction::ExecuteTriggeredAgentExecution {
+                agent_id: "child".to_string(),
+                prompt: None,
+                model: None,
+                result_variable: None,
+                wait_for_completion: None,
+                timeout: None,
+                input_mode: None,
+                writeback: None,
+            },
+        ];
+        for action in &all {
+            assert!(
+                action.supported_in(EventListener),
+                "{} must run in the event listener",
+                action.action_name()
+            );
+            assert_eq!(action.rejection_message(EventListener), None);
+        }
+        for action in &all {
+            let nested = matches!(action, TriggerAction::ExecuteTriggeredAgentExecution { .. });
+            assert_eq!(
+                action.supported_in(MessageNode),
+                !nested,
+                "{} message-node support",
+                action.action_name()
+            );
+        }
+        let nested = TriggerAction::ExecuteTriggeredAgentExecution {
+            agent_id: "child".to_string(),
+            prompt: None,
+            model: None,
+            result_variable: None,
+            wait_for_completion: None,
+            timeout: None,
+            input_mode: None,
+            writeback: None,
+        };
+        let message = nested
+            .rejection_message(MessageNode)
+            .expect("nested agent rejected in message nodes");
+        assert!(
+            message.contains("execute_triggered_agent_execution"),
+            "{message}"
+        );
+        assert!(message.contains("message-node"), "{message}");
+        assert!(
+            message.contains("execute_triggered_subworkflow"),
+            "{message}"
+        );
     }
 
     #[test]

@@ -192,7 +192,10 @@ pub fn register_custom_triggers(
             },
             // Schedulers (cron) and webhook servers are not implemented:
             // rejected at load time instead of being registered and never
-            // firing.
+            // firing. When a producer exists it must translate the external
+            // signal through `TriggerSource::translate_schedule_to_condition`
+            // / `translate_webhook_to_condition`, which reuse the event
+            // competition scope keys without adding a competition dimension.
             CustomTriggerCondition::Schedule { .. } => {
                 total.merge(Summary::err(
                     &t.name,
@@ -220,6 +223,8 @@ pub fn register_custom_triggers(
             max_triggers: None,
             priority: t.priority,
             dispatch_mode: t.dispatch_mode,
+            allow_multi_effect: t.allow_multi_effect,
+            effect_order: t.effect_order.clone(),
             metadata: t.metadata.and_then(|m| match m {
                 serde_json::Value::Object(obj) => {
                     let map: HashMap<String, serde_json::Value> = obj.into_iter().collect();
@@ -448,6 +453,8 @@ mod tests {
             }),
             priority: None,
             dispatch_mode: None,
+            allow_multi_effect: None,
+            effect_order: None,
             config: None,
             metadata: None,
         }

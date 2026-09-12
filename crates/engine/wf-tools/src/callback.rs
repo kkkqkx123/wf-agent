@@ -27,6 +27,38 @@ pub struct HookConfig {
     pub handler: Option<String>,
 }
 
+impl HookConfig {
+    /// Convert to the authoritative hook spec (`wf-types::hook` is the
+    /// single source of truth for field semantics). Tool-only extras
+    /// (`parallel`, `continue_on_error`) stay on this type and never enter
+    /// the model; `payload` maps onto the canonical payload.
+    pub fn to_canonical(&self) -> wf_types::hook::CanonicalHookSpec {
+        wf_types::hook::CanonicalHookSpec::from_parts(
+            self.hook_type.clone(),
+            self.condition.clone(),
+            self.enabled,
+            self.weight,
+            self.payload.clone(),
+            self.handler.clone(),
+        )
+    }
+
+    /// Build a tool-callback hook from a canonical spec, keeping tool-only
+    /// extras at their defaults. Round-trips losslessly through
+    /// `to_canonical` for the shared fields.
+    pub fn from_canonical(spec: &wf_types::hook::CanonicalHookSpec) -> Self {
+        Self {
+            hook_type: spec.hook_type.clone(),
+            condition: spec.condition.clone(),
+            enabled: spec.enabled,
+            parallel: None,
+            continue_on_error: None,
+            weight: spec.weight,
+            payload: spec.payload.clone(),
+            handler: spec.handler.clone(),
+        }
+    }
+}
 #[derive(Debug, Clone)]
 pub struct AgentLoopConfig {
     pub agent_id: Id,

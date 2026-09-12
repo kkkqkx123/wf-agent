@@ -203,11 +203,31 @@ impl LlmClient for LlmClientImpl {
         request: &LlmRequest,
         cancel: Option<CancellationToken>,
     ) -> LlmResult<LlmResponseType> {
+        // Retry emission position: the `on_retry` callback below fires after
+        // the budget/policy check and before the backoff delay, with the same
+        // payload the async `LLM_RETRY_SCHEDULED` event carries (see
+        // `RetryAttemptDescriptor::event_metadata`). Sync observation bridges
+        // through hook handlers, gating through approval, post-processing
+        // through trigger templates subscribed to the retry event. The log
+        // line keeps attempts visible even with zero subscribers.
         let policy = self.retry_policy();
         let cancel_token = cancel.as_ref().map(|c| (c, LlmError::Cancelled));
-        wf_common::retry::execute_with_retry(
+        wf_common::retry::execute_with_retry_observed(
             Some(&policy),
             |r| matches!(r, Err(e) if e.is_retryable()),
+            |r| match r {
+                Err(e) => e.to_string(),
+                Ok(_) => String::new(),
+            },
+            Some(&|descriptor| {
+                tracing::info!(
+                    attempt = descriptor.attempt,
+                    max_retries = descriptor.max_retries,
+                    delay_ms = descriptor.delay_ms,
+                    reason = %descriptor.reason,
+                    "LLM request failed, scheduling retry"
+                );
+            }),
             cancel_token,
             || self.generate_inner(request, cancel.clone()),
         )
@@ -221,9 +241,22 @@ impl LlmClient for LlmClientImpl {
     ) -> LlmResult<Box<dyn MessageStream>> {
         let policy = self.retry_policy();
         let cancel_token = cancel.as_ref().map(|c| (c, LlmError::Cancelled));
-        wf_common::retry::execute_with_retry(
+        wf_common::retry::execute_with_retry_observed(
             Some(&policy),
             |r| matches!(r, Err(e) if e.is_retryable()),
+            |r| match r {
+                Err(e) => e.to_string(),
+                Ok(_) => String::new(),
+            },
+            Some(&|descriptor| {
+                tracing::info!(
+                    attempt = descriptor.attempt,
+                    max_retries = descriptor.max_retries,
+                    delay_ms = descriptor.delay_ms,
+                    reason = %descriptor.reason,
+                    "LLM stream request failed, scheduling retry"
+                );
+            }),
             cancel_token,
             || self.generate_stream_inner(request, cancel.clone()),
         )

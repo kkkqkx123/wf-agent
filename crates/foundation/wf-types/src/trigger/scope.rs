@@ -101,6 +101,58 @@ pub fn scope_groups(templates: &[TriggerTemplate]) -> Vec<Vec<usize>> {
     groups.into_values().collect()
 }
 
+/// One template's subscribable position: read-only view over the
+/// competition scope key plus the template's own dispatch attributes.
+/// Backs the subscription-listing query (by event type and secondary
+/// discriminator); it never affects matching or execution.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SubscriptionEntry {
+    pub template_name: String,
+    pub event_type: String,
+    pub event_name: Option<String>,
+    pub execution_prefix: Option<String>,
+    pub priority: Option<i32>,
+    pub dispatch_mode: Option<TriggerDispatchMode>,
+    pub enabled: Option<bool>,
+}
+
+/// Summarize every template carrying a condition as a subscription entry,
+/// in input order. Condition-less templates never match and are excluded.
+pub fn summarize_subscriptions(templates: &[TriggerTemplate]) -> Vec<SubscriptionEntry> {
+    templates
+        .iter()
+        .filter_map(|t| {
+            let condition = t.condition.as_ref()?;
+            Some(SubscriptionEntry {
+                template_name: t.name.clone(),
+                event_type: condition.event_type.clone(),
+                event_name: condition.event_name.clone(),
+                execution_prefix: condition.execution_prefix.clone(),
+                priority: t.priority,
+                dispatch_mode: t.dispatch_mode,
+                enabled: t.enabled,
+            })
+        })
+        .collect()
+}
+
+/// Query the subscription view by event type and optional secondary
+/// discriminator (`event_name`). `None` event name matches entries with any
+/// (or no) secondary name; pass `Some` to narrow to one discriminator.
+pub fn query_subscriptions(
+    templates: &[TriggerTemplate],
+    event_type: &str,
+    event_name: Option<&str>,
+) -> Vec<SubscriptionEntry> {
+    summarize_subscriptions(templates)
+        .into_iter()
+        .filter(|e| {
+            e.event_type == event_type
+                && event_name.is_none_or(|want| e.event_name.as_deref() == Some(want))
+        })
+        .collect()
+}
+
 /// Resolved dispatch mode of one scope plus the declarations behind it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ResolvedScopeMode {
@@ -265,6 +317,8 @@ mod tests {
             max_triggers: None,
             priority,
             dispatch_mode: mode,
+            allow_multi_effect: None,
+            effect_order: None,
             metadata: None,
             created_at: 0,
             updated_at: 0,
@@ -439,5 +493,52 @@ mod tests {
         assert!(violations
             .iter()
             .any(|v| matches!(v, ScopeViolation::ConflictingMode { .. })));
+    }
+
+    #[test]
+    fn subscription_view_queries_by_type_and_discriminator() {
+        let templates = [
+            template("a", "NODE_COMPLETED", None, None, None, None),
+            template("b", "NODE_CUSTOM_EVENT", Some("created"), None, None, None),
+            template("c", "NODE_CUSTOM_EVENT", Some("updated"), None, None, None),
+        ];
+        assert_eq!(summarize_subscriptions(&templates).len(), 3);
+        assert_eq!(
+            query_subscriptions(&templates, "NODE_COMPLETED", None).len(),
+            1
+        );
+        assert_eq!(
+            query_subscriptions(&templates, "NODE_CUSTOM_EVENT", None).len(),
+            2
+        );
+        let created = query_subscriptions(&templates, "NODE_CUSTOM_EVENT", Some("created"));
+        assert_eq!(created.len(), 1);
+        assert_eq!(created[0].template_name, "b");
+        assert!(query_subscriptions(&templates, "LLM_FAILED", None).is_empty());
+    }
+
+    #[test]
+    fn subscription_view_excludes_condition_less_templates() {
+        let mut templates = vec![template("a", "NODE_COMPLETED", None, None, None, None)];
+        templates.push(TriggerTemplate {
+            name: "bare".to_string(),
+            description: None,
+            condition: None,
+            action: None,
+            enabled: None,
+            max_triggers: None,
+            priority: None,
+            dispatch_mode: None,
+            allow_multi_effect: None,
+            effect_order: None,
+            metadata: None,
+            created_at: 0,
+            updated_at: 0,
+            create_checkpoint: None,
+            checkpoint_description_template: None,
+        });
+        let entries = summarize_subscriptions(&templates);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].template_name, "a");
     }
 }

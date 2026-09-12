@@ -49,12 +49,12 @@ pub struct HookContext {
 impl From<&wf_types::hook::HookPointConfig> for HookDefinition {
     /// Convert a serde-facing hook config into an executable hook definition.
     ///
-    /// `condition` moves from `Option<Value>` to `Option<String>` (the
-    /// condition expression is a string when set); defaults mirror the agent
-    /// conversion (weight 0, enabled). `event_name` is deprecated and
-    /// ignored: one fire aggregates many definitions into a single
-    /// `HOOK_TRIGGERED` audit event, so per-definition names cannot be
-    /// honored (a warn is emitted when one is set).
+    /// Thin adapter over the authoritative spec (`CanonicalHookSpec` holds
+    /// the field semantics): defaults mirror the agent conversion (weight 0,
+    /// enabled). `event_name` is deprecated and ignored: one fire aggregates
+    /// many definitions into a single `HOOK_TRIGGERED` audit event, so
+    /// per-definition names cannot be honored (a warn is emitted when one
+    /// is set).
     fn from(config: &wf_types::hook::HookPointConfig) -> Self {
         if !config.event_name.is_empty() {
             tracing::warn!(
@@ -63,18 +63,56 @@ impl From<&wf_types::hook::HookPointConfig> for HookDefinition {
                 "hook event_name is deprecated and ignored; subscribe via HOOK_TRIGGERED plus metadata.hook_type"
             );
         }
+        Self::from(&wf_types::hook::CanonicalHookSpec::from_workflow(config))
+    }
+}
+
+impl From<&wf_types::hook::CanonicalHookSpec> for HookDefinition {
+    /// Build an executable definition from the authoritative spec.
+    fn from(spec: &wf_types::hook::CanonicalHookSpec) -> Self {
         Self {
             id: Id::new(),
-            hook_type: config.hook_type.clone(),
-            weight: config.weight.unwrap_or(0),
-            condition: config
-                .condition
-                .as_ref()
-                .and_then(|v| v.as_str())
-                .map(ToString::to_string),
-            enabled: config.enabled.unwrap_or(true),
-            payload: config.event_payload.clone(),
-            handler: config.handler.clone(),
+            hook_type: spec.hook_type.clone(),
+            weight: spec.weight,
+            condition: spec.condition.clone(),
+            enabled: spec.enabled,
+            payload: spec.payload.clone(),
+            handler: spec.handler.clone(),
         }
+    }
+}
+
+impl From<&wf_types::hook::HookPointStaticConfig> for HookDefinition {
+    /// Static form: thin adapter via the authoritative spec.
+    fn from(config: &wf_types::hook::HookPointStaticConfig) -> Self {
+        if !config.event_name.is_empty() {
+            tracing::warn!(
+                hook_type = %config.hook_type,
+                event_name = %config.event_name,
+                "hook event_name is deprecated and ignored; subscribe via HOOK_TRIGGERED plus metadata.hook_type"
+            );
+        }
+        Self::from(&wf_types::hook::CanonicalHookSpec::from_static(config))
+    }
+}
+
+impl From<&wf_types::agent::AgentHookConfig> for HookDefinition {
+    /// Agent form: thin adapter via the authoritative spec.
+    fn from(config: &wf_types::agent::AgentHookConfig) -> Self {
+        if !config.event_name.is_empty() {
+            tracing::warn!(
+                hook_type = %config.hook_type_name(),
+                event_name = %config.event_name,
+                "hook event_name is deprecated and ignored; subscribe via HOOK_TRIGGERED plus metadata.hook_type"
+            );
+        }
+        Self::from(&wf_types::hook::CanonicalHookSpec::from_agent(config))
+    }
+}
+
+impl From<&wf_tools::callback::HookConfig> for HookDefinition {
+    /// Tool-callback form: thin adapter via the authoritative spec.
+    fn from(config: &wf_tools::callback::HookConfig) -> Self {
+        Self::from(&config.to_canonical())
     }
 }

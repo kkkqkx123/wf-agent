@@ -5,7 +5,33 @@ use crate::processor::substitute::substitute_in_struct;
 use crate::validator::{validate_min, validate_not_empty, validate_required};
 
 use wf_types::trigger::config::TriggerAction;
-use wf_types::trigger::template::TriggerTemplate;
+use wf_types::trigger::template::{TriggerRuntimeLimits, TriggerTemplate};
+
+/// Validate shared runtime limits (concurrency gate + circuit breaker).
+pub fn validate_trigger_runtime_limits(limits: &TriggerRuntimeLimits) -> ConfigResult<()> {
+    limits.validate().map_err(ConfigError::Validation)
+}
+
+/// Validate the multi-effect declaration of one template.
+///
+/// Default keeps single-winner single-execution: `allow_multi_effect` absent
+/// or false requires no `effect_order`. An explicit opt-in requires a
+/// non-empty explicit order; an order without the opt-in is rejected as a
+/// likely configuration mistake.
+pub fn validate_multi_effect(template: &TriggerTemplate) -> ConfigResult<()> {
+    match (template.allow_multi_effect, &template.effect_order) {
+        (Some(true), Some(order)) if !order.is_empty() => Ok(()),
+        (Some(true), _) => Err(ConfigError::Validation(format!(
+            "trigger '{}' opts into multi-effect execution but declares no explicit effect_order; list the effects in execution order",
+            template.name
+        ))),
+        (_, Some(order)) if !order.is_empty() => Err(ConfigError::Validation(format!(
+            "trigger '{}' declares effect_order without opting into multi-effect execution; set allow_multi_effect to run multiple effects",
+            template.name
+        ))),
+        _ => Ok(()),
+    }
+}
 
 pub fn validate_trigger_template(template: &TriggerTemplate) -> ConfigResult<()> {
     validate_required(&template.name, "name")?;
@@ -43,8 +69,13 @@ pub fn validate_trigger_template(template: &TriggerTemplate) -> ConfigResult<()>
         }
     }
     if let Some(action) = &template.action {
-        validate_trigger_action(action, "action")?;
+        validate_trigger_action_for_context(
+            action,
+            wf_types::trigger::TriggerExecutionContext::EventListener,
+            "action",
+        )?;
     }
+    validate_multi_effect(template)?;
     if template.enabled == Some(true) && template.action.is_none() {
         return Err(ConfigError::Validation(
             "enabled template must have an action".to_string(),
@@ -55,8 +86,8 @@ pub fn validate_trigger_template(template: &TriggerTemplate) -> ConfigResult<()>
 
 /// Validate a `TriggerAction` variant's required fields.
 ///
-/// Each variant has different mandatory fields; this function ensures they
-/// are present and well-formed.
+/// Shared field validation used by both execution contexts; context support
+/// itself is checked by [`validate_trigger_action_for_context`].
 pub fn validate_trigger_action(action: &TriggerAction, field_prefix: &str) -> ConfigResult<()> {
     match action {
         TriggerAction::SetVariable {
@@ -130,6 +161,27 @@ pub fn validate_trigger_action(action: &TriggerAction, field_prefix: &str) -> Co
         TriggerAction::StopWorkflowExecution {}
         | TriggerAction::PauseWorkflowExecution {}
         | TriggerAction::ResumeWorkflowExecution {} => {}
+    }
+    Ok(())
+}
+
+/// Validate a `TriggerAction` for one execution context.
+///
+/// Shared field validation runs first; then the authoritative support
+/// matrix (`TriggerAction::supported_in`) decides. The event-listener
+/// context (trigger templates) supports every action; the message-node
+/// context keeps rejecting the nested-agent action with the unified error
+/// naming the alternative path.
+pub fn validate_trigger_action_for_context(
+    action: &TriggerAction,
+    context: wf_types::trigger::TriggerExecutionContext,
+    field_prefix: &str,
+) -> ConfigResult<()> {
+    validate_trigger_action(action, field_prefix)?;
+    if let Some(message) = action.rejection_message(context) {
+        return Err(ConfigError::Validation(format!(
+            "{field_prefix}: {message}"
+        )));
     }
     Ok(())
 }
@@ -244,6 +296,8 @@ mod tests {
             max_triggers: None,
             priority: None,
             dispatch_mode: None,
+            allow_multi_effect: None,
+            effect_order: None,
             metadata: None,
             created_at: 0,
             updated_at: 0,
@@ -696,5 +750,155 @@ mod tests {
         let template = make_template();
         let exported = export_trigger_template(template.clone());
         assert_eq!(exported.name, template.name);
+    }
+
+    #[test]
+    fn test_multi_effect_defaults_to_single_execution() {
+        let template = make_template();
+        assert!(validate_multi_effect(&template).is_ok());
+        assert!(validate_trigger_template(&template).is_ok());
+    }
+
+    #[test]
+    fn test_multi_effect_opt_in_requires_explicit_order() {
+        let mut template = make_template();
+        template.allow_multi_effect = Some(true);
+        template.effect_order = None;
+        assert!(validate_multi_effect(&template).is_err());
+        assert!(validate_trigger_template(&template).is_err());
+
+        template.effect_order = Some(vec![]);
+        assert!(validate_multi_effect(&template).is_err());
+
+        template.effect_order = Some(vec!["audit".to_string(), "notify".to_string()]);
+        assert!(validate_multi_effect(&template).is_ok());
+        assert!(validate_trigger_template(&template).is_ok());
+    }
+
+    #[test]
+    fn test_effect_order_without_opt_in_rejected() {
+        let mut template = make_template();
+        template.effect_order = Some(vec!["audit".to_string()]);
+        assert!(validate_multi_effect(&template).is_err());
+    }
+
+    #[test]
+    fn test_runtime_limits_validation() {
+        let limits = TriggerRuntimeLimits::default();
+        assert!(validate_trigger_runtime_limits(&limits).is_ok());
+
+        let limits = TriggerRuntimeLimits {
+            max_concurrent_actions: Some(8),
+            dispatch_burst_limit: Some(1),
+        };
+        assert!(validate_trigger_runtime_limits(&limits).is_ok());
+
+        let limits = TriggerRuntimeLimits {
+            max_concurrent_actions: Some(0),
+            dispatch_burst_limit: None,
+        };
+        assert!(validate_trigger_runtime_limits(&limits).is_err());
+
+        let limits = TriggerRuntimeLimits {
+            max_concurrent_actions: None,
+            dispatch_burst_limit: Some(0),
+        };
+        assert!(validate_trigger_runtime_limits(&limits).is_err());
+    }
+
+    #[test]
+    fn test_action_context_matrix_listener_accepts_all() {
+        use wf_types::trigger::TriggerExecutionContext::EventListener;
+        let actions = vec![
+            TriggerAction::StopWorkflowExecution {},
+            TriggerAction::SetVariable {
+                variable_name: "x".to_string(),
+                value: serde_json::json!(1),
+            },
+            TriggerAction::ExecuteTriggeredAgentExecution {
+                agent_id: "child".to_string(),
+                prompt: None,
+                model: None,
+                result_variable: None,
+                wait_for_completion: None,
+                timeout: None,
+                input_mode: None,
+                writeback: None,
+            },
+        ];
+        for action in &actions {
+            assert!(
+                validate_trigger_action_for_context(action, EventListener, "action").is_ok(),
+                "{} must validate in the event listener",
+                action.action_name()
+            );
+        }
+    }
+
+    #[test]
+    fn test_action_context_matrix_message_node_rejects_nested_agent() {
+        use wf_types::trigger::TriggerExecutionContext::MessageNode;
+        let nested = TriggerAction::ExecuteTriggeredAgentExecution {
+            agent_id: "child".to_string(),
+            prompt: None,
+            model: None,
+            result_variable: None,
+            wait_for_completion: None,
+            timeout: None,
+            input_mode: None,
+            writeback: None,
+        };
+        let err = validate_trigger_action_for_context(&nested, MessageNode, "action")
+            .expect_err("nested agent must be rejected in message nodes");
+        let message = err.to_string();
+        assert!(
+            message.contains("execute_triggered_agent_execution"),
+            "{message}"
+        );
+        assert!(
+            message.contains("execute_triggered_subworkflow"),
+            "{message}"
+        );
+
+        let supported = TriggerAction::SetVariable {
+            variable_name: "x".to_string(),
+            value: serde_json::json!(1),
+        };
+        assert!(validate_trigger_action_for_context(&supported, MessageNode, "action").is_ok());
+    }
+
+    #[test]
+    fn test_burst_cap_truncates_winners() {
+        let limits = TriggerRuntimeLimits {
+            max_concurrent_actions: None,
+            dispatch_burst_limit: Some(1),
+        };
+        let mut winners = vec!["a", "b", "c"];
+        assert_eq!(limits.apply_burst_cap(&mut winners), 2);
+        assert_eq!(winners, vec!["a"]);
+
+        let limits = TriggerRuntimeLimits::default();
+        let mut winners = vec!["a", "b"];
+        assert_eq!(limits.apply_burst_cap(&mut winners), 0);
+        assert_eq!(winners.len(), 2);
+    }
+
+    #[test]
+    fn test_retry_event_subscription_accepted() {
+        use wf_types::trigger::TriggerCondition;
+        let mut template = make_template();
+        template.condition = Some(TriggerCondition {
+            event_type: "LLM_RETRY_SCHEDULED".to_string(),
+            event_name: None,
+            condition: None,
+            metadata: None,
+            metadata_exists: Some(vec!["attempt".to_string()]),
+            execution_prefix: None,
+        });
+        template.action = Some(TriggerAction::SendNotification {
+            message: "retry scheduled".to_string(),
+        });
+        assert!(validate_trigger_template(&template).is_ok());
+        assert!(validate_trigger_set(std::slice::from_ref(&template)).is_ok());
     }
 }

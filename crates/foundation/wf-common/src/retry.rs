@@ -6,4 +6,7 @@ pub use budget::{
     RetryBudgetEventHandler, RetryBudgetEventType, RetryBudgetState, TimeBudgetMode, UNLIMITED_MS,
     UNLIMITED_RETRIES,
 };
-pub use policy::{execute_with_retry, RetryPolicy};
+pub use policy::{
+    execute_with_retry, execute_with_retry_observed, RetryAttemptDescriptor, RetryPolicy,
+    RETRY_INTERCEPTION_ORDER,
+};

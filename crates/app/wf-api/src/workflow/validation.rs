@@ -273,6 +273,8 @@ pub async fn build_reference_context(ctx: &ApiContext) -> ValidationContext {
                             max_triggers: meta.max_triggers,
                             priority: meta.priority,
                             dispatch_mode: meta.dispatch_mode,
+                            allow_multi_effect: None,
+                            effect_order: None,
                             metadata: None,
                             created_at: meta.created_at,
                             updated_at: meta.updated_at,

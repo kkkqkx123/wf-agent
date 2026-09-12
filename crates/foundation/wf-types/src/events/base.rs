@@ -71,6 +71,13 @@ pub enum EventType {
     LlmResponded,
     /// A non-streaming LLM request failed.
     LlmFailed,
+    /// A failed LLM request was scheduled for retry (emission position: the
+    /// retry loop in `LlmClientImpl`, after the budget check and before the
+    /// delay). Metadata carries the retry payload (`attempt`, `max_retries`,
+    /// `delay_ms`, `reason`; see `RetryAttemptDescriptor::event_metadata`).
+    /// Observable: trigger templates subscribe for post-hoc side effects;
+    /// sync observation uses hook handlers and gating uses approval.
+    LlmRetryScheduled,
     SkillLoadStarted,
     SkillLoadCompleted,
     SkillLoadFailed,
@@ -216,6 +223,7 @@ impl EventType {
             EventType::LlmRequested => "LLM_REQUESTED",
             EventType::LlmResponded => "LLM_RESPONDED",
             EventType::LlmFailed => "LLM_FAILED",
+            EventType::LlmRetryScheduled => "LLM_RETRY_SCHEDULED",
             EventType::SkillLoadStarted => "SKILL_LOAD_STARTED",
             EventType::SkillLoadCompleted => "SKILL_LOAD_COMPLETED",
             EventType::SkillLoadFailed => "SKILL_LOAD_FAILED",
@@ -386,6 +394,40 @@ pub struct BaseEvent {
 
 pub type EventListener = Box<dyn Fn(&BaseEvent) + Send + Sync>;
 
+/// Read-only filter over stored audit events (e.g. `HOOK_TRIGGERED`).
+/// Both fields are optional; an unset field matches everything. Execution
+/// matching covers `execution_id` and `agent_loop_id` so loop-scoped audit
+/// copies are found by the same execution identity.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct AuditEventFilter {
+    pub execution_id: Option<String>,
+    pub event_type: Option<String>,
+}
+
+impl AuditEventFilter {
+    /// Whether `event` matches every set field.
+    pub fn matches(&self, event: &BaseEvent) -> bool {
+        if let Some(want) = &self.event_type {
+            if event.r#type.as_str() != want {
+                return false;
+            }
+        }
+        if let Some(want) = &self.execution_id {
+            let hit = event.execution_id.as_deref() == Some(want.as_str())
+                || event.agent_loop_id.as_deref() == Some(want.as_str());
+            if !hit {
+                return false;
+            }
+        }
+        true
+    }
+
+    /// Filter an audit event slice without copying the events.
+    pub fn filter<'a>(&self, events: &'a [BaseEvent]) -> Vec<&'a BaseEvent> {
+        events.iter().filter(|e| self.matches(e)).collect()
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct EventHandler {
     pub event_type: EventType,
@@ -442,5 +484,53 @@ mod tests {
             EventCategory::Observable
         );
         assert_eq!(EventType::Heartbeat.category(), EventCategory::Observable);
+    }
+
+    #[test]
+    fn retry_scheduled_event_is_observable_and_parseable() {
+        assert_eq!(EventType::LlmRetryScheduled.as_str(), "LLM_RETRY_SCHEDULED");
+        assert_eq!(
+            EventType::LlmRetryScheduled.category(),
+            EventCategory::Observable
+        );
+        let parsed: EventType = "LLM_RETRY_SCHEDULED".parse().expect("parse retry event");
+        assert_eq!(parsed, EventType::LlmRetryScheduled);
+    }
+
+    fn audit_event(event_type: EventType, execution_id: &str) -> BaseEvent {
+        BaseEvent {
+            id: crate::Id::from("evt-1".to_string()),
+            r#type: event_type,
+            timestamp: 0,
+            event_name: None,
+            workflow_id: None,
+            execution_id: Some(crate::Id::from(execution_id.to_string())),
+            agent_loop_id: Some(crate::Id::from(execution_id.to_string())),
+            metadata: None,
+        }
+    }
+
+    #[test]
+    fn audit_filter_matches_execution_and_type() {
+        let events = vec![
+            audit_event(EventType::HookTriggered, "exec-1"),
+            audit_event(EventType::LlmFailed, "exec-1"),
+            audit_event(EventType::HookTriggered, "exec-2"),
+        ];
+        let filter = AuditEventFilter {
+            execution_id: Some("exec-1".to_string()),
+            event_type: Some("HOOK_TRIGGERED".to_string()),
+        };
+        let matched = filter.filter(&events);
+        assert_eq!(matched.len(), 1);
+
+        let by_execution = AuditEventFilter {
+            execution_id: Some("exec-1".to_string()),
+            event_type: None,
+        };
+        assert_eq!(by_execution.filter(&events).len(), 2);
+
+        let empty = AuditEventFilter::default();
+        assert_eq!(empty.filter(&events).len(), 3);
     }
 }

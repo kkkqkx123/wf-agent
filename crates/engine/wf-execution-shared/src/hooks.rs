@@ -5,7 +5,9 @@ pub mod registry;
 pub mod template;
 pub mod types;
 
-pub use audit::{evaluate_hook_condition, filter_and_sort_hooks, publish_hook_audit_event};
+pub use audit::{
+    empty_fire_log_level, evaluate_hook_condition, filter_and_sort_hooks, publish_hook_audit_event,
+};
 pub use fire::{fire, FireSummary, HandlerResult};
 pub use handler::HookHandler;
 pub use registry::{HookHandlerRegistry, RegisteredHandler};

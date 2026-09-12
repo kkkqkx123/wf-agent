@@ -198,8 +198,7 @@ impl ResourcePluginRegistry {
                     .map(|t| t.as_ref().clone())
             })
             .collect();
-        let reports =
-            wf_config::processor::trigger::check_trigger_scopes(&existing, &candidates);
+        let reports = wf_config::processor::trigger::check_trigger_scopes(&existing, &candidates);
         let mut rejected: HashMap<String, String> = HashMap::new();
         for report in &reports {
             if report.incoming_names.is_empty() {
@@ -221,17 +220,9 @@ impl ResourcePluginRegistry {
                 continue;
             }
             total.merge(if skip_if_exists {
-                register_item_skip(
-                    &registries.trigger_templates,
-                    trigger.name.clone(),
-                    trigger,
-                )
+                register_item_skip(&registries.trigger_templates, trigger.name.clone(), trigger)
             } else {
-                register_item_strict(
-                    &registries.trigger_templates,
-                    trigger.name.clone(),
-                    trigger,
-                )
+                register_item_strict(&registries.trigger_templates, trigger.name.clone(), trigger)
             });
         }
         for prompt in &bundle.prompts {
@@ -385,6 +376,8 @@ mod tests {
             max_triggers: None,
             priority: None,
             dispatch_mode: None,
+            allow_multi_effect: None,
+            effect_order: None,
             metadata: None,
             created_at: 0,
             updated_at: 0,

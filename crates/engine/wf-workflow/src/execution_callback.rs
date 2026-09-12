@@ -708,4 +708,63 @@ mod tests {
         }
         assert_eq!(hook_count, 3, "one BEFORE_EXECUTE event per node");
     }
+
+    #[tokio::test]
+    async fn test_before_execute_veto_blocks_node() {
+        use std::sync::Arc;
+        use wf_execution_shared::hooks::{HookContext, HookHandler, HookOutcome};
+
+        struct GateHandler;
+        #[async_trait::async_trait]
+        impl HookHandler for GateHandler {
+            fn name(&self) -> &str {
+                "gate"
+            }
+            async fn on_point(&self, ctx: &HookContext) -> HookOutcome {
+                // Pre-execution check: deny script/variable nodes missing
+                // their expected input (here: any node without `greeting`).
+                if ctx.data.contains_key("node_id") {
+                    HookOutcome::Veto {
+                        reason: "precondition failed: input not staged".to_string(),
+                    }
+                } else {
+                    HookOutcome::Continue
+                }
+            }
+        }
+
+        let registry = Arc::new(HookHandlerRegistry::new());
+        assert!(registry.register("BEFORE_EXECUTE", Arc::new(GateHandler), 1));
+
+        let callback =
+            WorkflowExecutionCallback::default().with_hook_handler_registry(registry);
+        let workflow_id = wf_common::generate_id();
+        callback.register_workflow_with_hooks(
+            workflow_id.clone(),
+            linear_graph(),
+            vec![HookDefinition {
+                id: wf_types::Id::new(),
+                hook_type: "BEFORE_EXECUTE".to_string(),
+                weight: 1,
+                condition: None,
+                enabled: true,
+                payload: None,
+                handler: Some("gate".to_string()),
+            }],
+        );
+
+        let err = callback
+            .execute_workflow(
+                &workflow_id.to_string(),
+                WorkflowInput {
+                    variables: HashMap::from([("greeting".to_string(), serde_json::json!("hi"))]),
+                },
+            )
+            .await
+            .expect_err("vetoed node must fail the workflow");
+        assert!(
+            err.to_string().contains("hook veto at BEFORE_EXECUTE"),
+            "veto reason surfaces as the node failure reason: {err}"
+        );
+    }
 }

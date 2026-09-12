@@ -190,25 +190,36 @@ pub fn register_custom_triggers(
                 metadata_exists: None,
                 execution_prefix: None,
             },
-            // Schedulers (cron) and webhook servers are not implemented:
+            // Schedulers (cron) and webhook ingress are not implemented:
             // rejected at load time instead of being registered and never
-            // firing. When a producer exists it must translate the external
-            // signal through `TriggerSource::translate_schedule_to_condition`
-            // / `translate_webhook_to_condition`, which reuse the event
+            // firing. A future producer owns its side (the scheduler: cron
+            // parsing, ticking, misfire policy; the gateway: HTTP route,
+            // auth, execution routing) and publishes execution-scoped
+            // `NODE_CUSTOM_EVENT`s through
+            // `TriggerSource::translate_schedule_to_condition` /
+            // `translate_webhook_to_condition`, which reuse the event
             // competition scope keys without adding a competition dimension.
-            CustomTriggerCondition::Schedule { .. } => {
+            // Note the deeper gap: every trigger action targets the emitting
+            // execution, so execution-creating schedules ("nightly run W
+            // fresh") need a new action type first; execution-scoped timers
+            // and ingress are the shippable first step.
+            CustomTriggerCondition::Schedule { value } => {
                 total.merge(Summary::err(
                     &t.name,
-                    "schedule trigger source is reserved (TriggerSource::Schedule has no scheduler yet); use an event trigger instead"
-                        .to_string(),
+                    format!(
+                        "schedule trigger source is reserved (no scheduler yet; expression '{}' kept out of the registry); use an event trigger instead",
+                        value
+                    ),
                 ));
                 continue;
             }
-            CustomTriggerCondition::Webhook { .. } => {
+            CustomTriggerCondition::Webhook { value } => {
                 total.merge(Summary::err(
                     &t.name,
-                    "webhook trigger source is reserved (TriggerSource::Webhook has no gateway yet); use an event trigger instead"
-                        .to_string(),
+                    format!(
+                        "webhook trigger source is reserved (no ingress gateway yet; path '{}' kept out of the registry); use an event trigger instead",
+                        value
+                    ),
                 ));
                 continue;
             }
@@ -553,5 +564,19 @@ mod tests {
         assert!(summary.failed.iter().any(|f| f.id == "hook-trigger"));
         assert!(!regs.trigger_templates.has("cron-trigger"));
         assert!(!regs.trigger_templates.has("hook-trigger"));
+        // Rejections keep the declared value so operators can tell which
+        // expression/path was kept out of the registry.
+        let cron_err = summary
+            .failed
+            .iter()
+            .find(|f| f.id == "cron-trigger")
+            .expect("cron failure recorded");
+        assert!(cron_err.error.contains("* * * * *"));
+        let hook_err = summary
+            .failed
+            .iter()
+            .find(|f| f.id == "hook-trigger")
+            .expect("webhook failure recorded");
+        assert!(hook_err.error.contains("/hooks/x"));
     }
 }

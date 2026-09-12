@@ -15,12 +15,16 @@ use tracing::warn;
 use crate::hooks::handler::HookHandler;
 use crate::hooks::types::{HookContext, HookOutcome};
 
-/// A handler registered for a hook type, with its registration weight.
+/// A handler registered for a hook type, with its registration weight and
+/// an optional condition evaluated against the hook context data at fire
+/// time (same expression language and skip-on-error policy as static hook
+/// definitions: a failing condition skips the handler, never the engine).
 #[derive(Clone)]
 pub struct RegisteredHandler {
     pub name: String,
     pub weight: i32,
     pub handler: Arc<dyn HookHandler>,
+    pub condition: Option<String>,
 }
 
 /// Per-hook-type, weight-descending list of registered handlers.
@@ -57,8 +61,24 @@ impl HookHandlerRegistry {
 
     /// Register `handler` for `hook_type` with `weight`. Registration is
     /// deduplicated by the handler's stable name: a second registration with
-    /// the same name is ignored (returns `false`).
+    /// the same name is ignored (returns `false`). The handler carries no
+    /// condition and runs on every fire of the type.
     pub fn register(&self, hook_type: &str, handler: Arc<dyn HookHandler>, weight: i32) -> bool {
+        self.register_with_condition(hook_type, handler, weight, None)
+    }
+
+    /// Register `handler` for `hook_type` with `weight` and an optional
+    /// condition: at fire time the condition is evaluated against the hook
+    /// context data with the same evaluator and skip policy as static hook
+    /// definitions, so dynamic and static handlers share one evaluation
+    /// semantic per hook point.
+    pub fn register_with_condition(
+        &self,
+        hook_type: &str,
+        handler: Arc<dyn HookHandler>,
+        weight: i32,
+        condition: Option<String>,
+    ) -> bool {
         let name = handler.name().to_string();
         if self.named.contains_key(&name) {
             return false;
@@ -69,6 +89,7 @@ impl HookHandlerRegistry {
             name,
             weight,
             handler,
+            condition,
         });
         list.sort_by_key(|r| std::cmp::Reverse(r.weight));
         true

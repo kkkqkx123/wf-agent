@@ -253,6 +253,11 @@ pub async fn import_template(ctx: &ApiContext, json: &str) -> ApiResult<String> 
 /// `schedule` when no condition is attached, `event` when the condition
 /// carries an event type, `condition` for a pure expression condition.
 ///
+/// This is a storage-shape bucket for listing, not a source claim: the
+/// `schedule` bucket holds condition-less rows that never match in the
+/// event listener (there is no scheduler; see `TriggerSource`). Do not
+/// read it as "fires on a schedule".
+///
 /// Single canonical classification shared with the trigger template
 /// builder; the `event_type` key is accepted in both the serialized
 /// `TriggerCondition` form (`event_type`) and imported form (`eventType`).

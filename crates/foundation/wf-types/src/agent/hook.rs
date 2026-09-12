@@ -75,9 +75,12 @@ pub struct AgentHookConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub checkpoint_description: Option<String>,
     /// Optional name of a runtime-registered hook handler, notified
-    /// synchronously at this hook point. Independent from the asynchronous
-    /// trigger path matched off the published audit event; the two have no
-    /// ordering guarantee, so prefer one path unless both effects commute.
+    /// synchronously at this hook point before the `HOOK_TRIGGERED` audit
+    /// event is published. A trigger template matching that event always
+    /// starts after the handler while its completion is not awaited, so
+    /// prefer one path unless both effects commute. `BEFORE_*` points are
+    /// handler-only (trigger-closed): without a handler the definition only
+    /// writes a write-only audit event.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub handler: Option<String>,
 }

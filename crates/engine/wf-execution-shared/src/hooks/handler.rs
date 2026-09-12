@@ -21,7 +21,13 @@ pub trait HookHandler: Send + Sync {
     /// Stable handler name (registration dedup / unregister / resolution).
     fn name(&self) -> &str;
     /// Handle one hook notification. The returned outcome is aggregated by
-    /// the firer; handlers are observation-only and cannot stop execution
-    /// (blocking and permission decisions belong to approval).
+    /// the firer: `Continue` always proceeds; `Veto` denies the guarded
+    /// step, but only at gate points that opt into it (`BEFORE_EXECUTE` on
+    /// the workflow node path, `BEFORE_TOOL_CALL` on the agent tool path).
+    /// At every other point a veto is recorded on the audit event and
+    /// otherwise treated as `Continue`. Handlers complete before the
+    /// `HOOK_TRIGGERED` audit event is published, so a trigger template
+    /// matching that event always starts after them; the engine does not
+    /// wait for trigger completion.
     async fn on_point(&self, ctx: &HookContext) -> HookOutcome;
 }

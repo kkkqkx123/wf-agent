@@ -79,7 +79,14 @@ pub struct CustomTriggerDefinition {
 
 /// Trigger source declared by custom resources. Only `Event` is executed;
 /// `Schedule` and `Webhook` map to the reserved `TriggerSource` variants and
-/// are rejected at registration until a scheduler or gateway exists.
+/// are rejected at registration until a producer exists. A future producer
+/// owns its side (scheduler: cron parsing, ticking, misfire policy;
+/// gateway: HTTP route, auth, execution routing) and publishes
+/// execution-scoped `NODE_CUSTOM_EVENT`s via
+/// `TriggerSource::translate_schedule_to_condition` /
+/// `translate_webhook_to_condition`. Execution-creating schedules additionally
+/// need a new execution-creating trigger action first: every action today
+/// targets the emitting execution, and the listener drops events without one.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(tag = "type")]
 pub enum CustomTriggerCondition {

@@ -41,9 +41,11 @@ pub fn register_hook_handler(
 ///
 /// Observability hooks are usable on demand with zero subscribers and are
 /// skipped. Each remaining hook type in `hook_types` must have at least one
-/// dynamically registered handler; missing ones are returned so the caller
-/// can warn or fail assembly (e.g. the internal compression signal must be
-/// wired or compression silently degrades to audit only).
+/// dynamically registered sync handler; missing ones are returned so the
+/// caller can warn or fail assembly (e.g. the internal compression signal
+/// must be wired or compression silently degrades to audit only).
+/// Trigger rules never satisfy this check: they run asynchronously after
+/// the fire and cannot provide synchronous handling.
 pub fn missing_request_handlers(
     registry: &HookHandlerRegistry,
     hook_types: &[&str],

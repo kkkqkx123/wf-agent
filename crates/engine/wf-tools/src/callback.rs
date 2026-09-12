@@ -11,8 +11,6 @@ pub struct HookConfig {
     pub hook_type: String,
     pub condition: Option<String>,
     pub enabled: bool,
-    pub parallel: Option<bool>,
-    pub continue_on_error: Option<bool>,
     /// Sort weight, carried through to the executable hook definition
     /// (higher fires first in the audit summary).
     #[serde(default)]
@@ -29,9 +27,8 @@ pub struct HookConfig {
 
 impl HookConfig {
     /// Convert to the authoritative hook spec (`wf-types::hook` is the
-    /// single source of truth for field semantics). Tool-only extras
-    /// (`parallel`, `continue_on_error`) stay on this type and never enter
-    /// the model; `payload` maps onto the canonical payload.
+    /// single source of truth for field semantics). `payload` maps onto
+    /// the canonical payload.
     pub fn to_canonical(&self) -> wf_types::hook::CanonicalHookSpec {
         wf_types::hook::CanonicalHookSpec::from_parts(
             self.hook_type.clone(),
@@ -43,16 +40,13 @@ impl HookConfig {
         )
     }
 
-    /// Build a tool-callback hook from a canonical spec, keeping tool-only
-    /// extras at their defaults. Round-trips losslessly through
-    /// `to_canonical` for the shared fields.
+    /// Build a tool-callback hook from a canonical spec.
+    /// Round-trips losslessly through `to_canonical`.
     pub fn from_canonical(spec: &wf_types::hook::CanonicalHookSpec) -> Self {
         Self {
             hook_type: spec.hook_type.clone(),
             condition: spec.condition.clone(),
             enabled: spec.enabled,
-            parallel: None,
-            continue_on_error: None,
             weight: spec.weight,
             payload: spec.payload.clone(),
             handler: spec.handler.clone(),

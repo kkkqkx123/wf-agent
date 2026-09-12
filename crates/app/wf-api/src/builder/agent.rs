@@ -171,9 +171,11 @@ impl AgentToolConfigBuilder<ToolBuilt> {
 
 /// Consuming builder for [`AgentHookConfig`] with type-level phase tracking.
 ///
-/// Synchronous handlers and asynchronous trigger rules are independent
-/// delivery paths with no ordering guarantee; prefer one path per hook
-/// unless the two effects are known to commute.
+/// Synchronous handlers complete before the `HOOK_TRIGGERED` audit event is
+/// published, so a trigger template matching that event always starts after
+/// the handler while its completion is not awaited by the engine; prefer one
+/// path per hook unless the two effects are known to commute. `BEFORE_*`
+/// points are handler-only (trigger-closed).
 #[derive(Debug)]
 pub struct AgentHookBuilder<S> {
     hook_type: AgentHookType,
@@ -628,8 +630,6 @@ impl<S> AgentLoopConfigBuilder<S> {
             hook_type: hook.hook_type_name().to_string(),
             condition: hook.condition,
             enabled: hook.enabled.unwrap_or(true),
-            parallel: None,
-            continue_on_error: None,
             weight: hook.weight.unwrap_or(0),
             payload: hook.event_payload,
             handler: hook.handler,

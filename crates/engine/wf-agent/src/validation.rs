@@ -417,8 +417,6 @@ mod tests {
                 hook_type: "NOPE_HOOK".to_string(),
                 condition: None,
                 enabled: true,
-                parallel: None,
-                continue_on_error: None,
                 weight: 0,
                 payload: None,
                 handler: None,

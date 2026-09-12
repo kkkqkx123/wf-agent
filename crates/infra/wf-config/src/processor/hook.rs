@@ -6,11 +6,27 @@ use wf_types::hook::{
 };
 
 fn warn_missing_handler(field_prefix: &str, hook_type: &str) {
+    if hook_type == wf_types::hook::CONTEXT_COMPRESSION_SIGNAL {
+        tracing::warn!(
+            "{}.hook_type '{}' is the internal compression signal and requires a registered sync handler; trigger rules can never subscribe to it (rejected at load time, skipped at runtime)",
+            field_prefix,
+            hook_type,
+        );
+    } else {
+        tracing::warn!(
+            "{}.hook_type '{}' is a {} hook but sets no handler; a trigger rule matching the audit event only observes asynchronously after the fire, so configure a sync handler for in-step effects",
+            field_prefix,
+            hook_type,
+            hook_effect(hook_type).as_str()
+        );
+    }
+}
+
+fn warn_dead_before_hook(field_prefix: &str, hook_type: &str) {
     tracing::warn!(
-        "{}.hook_type '{}' is a {} hook but sets no handler; it requires a registered handler or trigger rule to take effect",
+        "{}.hook_type '{}' is a BEFORE_* point closed to triggers: without a sync handler the definition only writes a write-only audit event nobody may consume; set handler or remove the definition",
         field_prefix,
         hook_type,
-        hook_effect(hook_type).as_str()
     );
 }
 
@@ -50,7 +66,7 @@ pub fn validate_canonical_hook(
     if let Some(ref handler) = spec.handler {
         validate_not_empty(handler, &format!("{field_prefix}.handler"))?;
         tracing::warn!(
-            "{}.handler '{}' runs synchronously while a matching trigger template off the HOOK_TRIGGERED audit event would run asynchronously with no ordering guarantee; configure both only when the two effects commute",
+            "{}.handler '{}' completes before the HOOK_TRIGGERED audit event is published, so a matching trigger template starts after it but its completion is not awaited by the engine; where a domain event exists prefer subscribing the trigger to it, and configure both paths only when the two effects commute",
             field_prefix,
             handler
         );
@@ -61,6 +77,14 @@ pub fn validate_canonical_hook(
         )
     {
         warn_missing_handler(field_prefix, &spec.hook_type);
+    } else if is_known_hook_point(&spec.hook_type)
+        && !wf_types::hook::hook_allows_trigger(&spec.hook_type)
+    {
+        // BEFORE_* without a handler: the audit event it publishes is
+        // trigger-closed, so the definition has no consumer. Warn instead
+        // of rejecting: the fire itself is harmless and the handler can be
+        // registered later (e.g. by a plugin).
+        warn_dead_before_hook(field_prefix, &spec.hook_type);
     }
     Ok(())
 }

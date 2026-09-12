@@ -44,7 +44,7 @@
 
 | 文件 | 职责 |
 |---|---|
-| `types.rs` | `BaseHookDefinition`（含 `receiver` 字段）、`HookContext`（execution_id + hook_type + data）、`HookOutcome`（Continue / Intercept{reason}，Intercept 仅机制预留） |
+| `types.rs` | `HookDefinition`（含 `handler` 字段）、`HookContext`（execution_id + hook_type + data）、`HookOutcome`（仅 `Continue`：观察型语义，门禁归 approval） |
 | `receiver.rs` | `HookReceiver` trait（`name()` + `on_hook()`） |
 | `registry.rs` | `HookRegistry`：`register`（按名去重）/ `unregister` / `get`（按名解析）/ `for_type`（hook_type → 按 weight 降序）/ `contains` / `with_timeout` / `notify`（超时守卫） |
 | `dispatch.rs` | 统一入口：评估 → 解析 payload → 按序通知 → 汇总 → 审计发布；`DispatchSummary` / `ReceiverResult` |
@@ -57,8 +57,8 @@
 1. 静态评估：对目标 hook_type 的 BaseHookDefinition 集合做 condition / enabled / weight 过滤
 2. 解析 payload：模板解析失败记 warn，用 null 兜底
 3. 按序通知：先静态定义中显式 receiver 的（weight 序），后动态注册的（weight 降序）
-4. 汇总 HookOutcome：首个 Intercept 生效（引擎不消费，仅记录）
-5. 审计发布：payloads 或 receiver 结果非空时发布 HOOK_TRIGGERED（无 bus 则跳过）
+4. 汇总 HookOutcome：恒为 Continue（观察型语义，引擎不做分支）
+5. 审计发布：payloads 或 handler 结果非空时发布 HOOK_TRIGGERED（无 bus 则跳过）；处理器全部落定后才发布，匹配该事件的触发模板总是在处理器之后启动（引擎不等触发完成）
 ```
 
 ## 5. Hook 点位全景
@@ -127,7 +127,8 @@
 
 ## 9. 边界与不做事项
 
-- **控制语义不接线**：阻断工具调用、改写入参、注入上下文、权限决策、重试均不通过 hook 体系实现（approval 与 workflow 机制承担）；`HookOutcome::Intercept` 仅作机制预留。
+- **控制语义不接线**：阻断工具调用、改写入参、注入上下文、权限决策均不通过 hook 体系实现（approval 与 workflow 机制承担）；`HookOutcome` 恒为 `Continue`。重试走三系统顺序（预算 → 钩子观察 → 审批门禁 → 尝试 → `LLM_RETRY_SCHEDULED` 异步触发）。
+- **触发订阅护栏**：`BEFORE_*` 与内部压缩信号的触发订阅在加载期拒绝，监听器运行时同样跳过；`AFTER_*` 可订阅审计事件，但有对等领域事件时优先订阅领域事件。
 - **不引入压缩 hook 类型**：`PRE_COMPACT` / `POST_COMPACT` 不新增；压缩完全托管于压缩子 workflow。
 - **事件总线不删除**：审计/持久化/外部订阅/用户 trigger 规则通道保留；trigger 用户模板体系（`SubworkflowActionRunner`）保留不动。
 - **hook 不承载逻辑**：行为始终在注册的接收方。

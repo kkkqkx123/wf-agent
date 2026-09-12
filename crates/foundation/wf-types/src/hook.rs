@@ -74,8 +74,19 @@ pub fn is_known_hook_point(hook_type: &str) -> bool {
 
 /// Effect category of a hook point, mirroring `events::EventCategory`.
 ///
-/// Observability points are loss-tolerant and skip completeness checks;
-/// request and mutated points require a registered handler or trigger rule.
+/// - observable points are loss-tolerant and skip completeness checks;
+///
+///   `BEFORE_*` points are additionally trigger-closed (see
+///   [`hook_allows_trigger`]): without a sync handler their fire is a
+///   write-only audit event, so the config validator warns on handler-less
+///   `BEFORE_*` definitions even though the category is observable;
+/// - request points (the internal compression signal) need a sync handler;
+///   trigger rules can never satisfy them (subscribing is rejected);
+/// - mutated points (`ON_ERROR`, `WORKFLOW_BEFORE` / `WORKFLOW_AFTER`) need
+///   an observer: a sync handler for in-step effects, or a trigger rule for
+///   async post-processing. The config validator only sees hook configs, so
+///   it warns whenever the sync handler is absent.
+///
 /// Unknown hook types default to `Observable` for forward compatibility.
 pub fn hook_effect(hook_type: &str) -> crate::events::EventCategory {
     use crate::events::EventCategory;
@@ -86,14 +97,42 @@ pub fn hook_effect(hook_type: &str) -> crate::events::EventCategory {
     }
 }
 
-/// Whether a hook point requires a registered handler or trigger rule to be
-/// considered completely wired. Only request and mutated points do;
-/// observability points are usable on demand with zero subscribers.
+/// Whether a hook point requires a sync handler to be considered
+/// completely wired. Only request and mutated points do; observability
+/// points are usable on demand with zero subscribers.
+///
+/// This is a handler-only check: a trigger rule matching the
+/// `HOOK_TRIGGERED` audit event runs asynchronously after the fire and can
+/// never substitute for synchronous handling (and for the compression
+/// signal or `BEFORE_*` points such a rule is rejected outright, see
+/// [`hook_allows_trigger`]). Callers that only need async observation
+/// should consult trigger subscriptions instead.
 pub fn hook_requires_handler(hook_type: &str) -> bool {
     !matches!(
         hook_effect(hook_type),
         crate::events::EventCategory::Observable
     )
+}
+
+/// Whether a trigger template may legally subscribe to a hook point
+/// through the `HOOK_TRIGGERED` audit event.
+///
+/// Closed for the internal compression signal (owned synchronously by the
+/// builtin compression service; subscribing is rejected at load time and
+/// skipped by the listener at runtime) and for every `BEFORE_*` point
+/// (trigger actions always run asynchronously after the hook and cannot
+/// gate execution; use a sync handler or approval instead). Open for all
+/// other known points (typically the `AFTER_*` counterparts) and for
+/// forward-compatible unknown types (matched only when something fires
+/// them, which unknown types never do).
+pub fn hook_allows_trigger(hook_type: &str) -> bool {
+    if hook_type == CONTEXT_COMPRESSION_SIGNAL {
+        return false;
+    }
+    if INTERNAL_SIGNAL_TYPES.contains(&hook_type) {
+        return false;
+    }
+    !hook_type.starts_with("BEFORE_")
 }
 
 /// Authoritative hook model: single source of truth for the hook
@@ -112,8 +151,10 @@ pub fn hook_requires_handler(hook_type: &str) -> bool {
 ///   negative values are rejected at load time.
 /// - `payload`: optional payload template surfaced on the `HOOK_TRIGGERED`
 ///   audit event (workflow/agent `event_payload`, tool `payload`).
-/// - `handler`: optional synchronous handler name; independent from the
-///   asynchronous trigger path with no ordering guarantee.
+/// - `handler`: optional synchronous handler name; the handler completes
+///   before the `HOOK_TRIGGERED` audit event is published, so a trigger
+///   template matching that event always starts after the handler (trigger
+///   completion itself is not awaited by the engine).
 ///   Per-form extras (`event_name` deprecation, tool `parallel` /
 ///   `continue_on_error`) stay on their own types and never enter this model.
 #[derive(Debug, Clone, PartialEq)]
@@ -193,10 +234,12 @@ impl CanonicalHookSpec {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct HookPointConfig {
-    /// Delivery model: a hook has two independent paths with no ordering
-    /// guarantee (see `CanonicalHookSpec`). The synchronous `handler` path
-    /// is for fast local observation; the asynchronous path publishes an
-    /// audit event that trigger templates may match later.
+    /// Delivery model: the synchronous `handler` path runs first (engine
+    /// awaits it); the `HOOK_TRIGGERED` audit event is published after the
+    /// handler barrier, so a trigger template matching it always starts
+    /// after the handler while its completion is not awaited. The sync path
+    /// is for fast local observation; the async path is for delay-tolerant
+    /// side effects whose outcome must commute with the engine's next step.
     pub hook_type: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub condition: Option<serde_json::Value>,
@@ -218,8 +261,9 @@ pub struct HookPointConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub checkpoint_description: Option<String>,
     /// Optional name of a runtime-registered hook handler; when set the
-    /// engine notifies it synchronously at this hook point. Independent from
-    /// the asynchronous trigger path; the two have no ordering guarantee.
+    /// engine notifies it synchronously at this hook point, before the
+    /// `HOOK_TRIGGERED` audit event is published (a matching trigger
+    /// template starts after the handler; its completion is not awaited).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub handler: Option<String>,
 }
@@ -243,8 +287,10 @@ pub struct HookPointStaticConfig {
     pub create_checkpoint: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub checkpoint_description: Option<String>,
-    /// Optional name of a runtime-registered hook handler. Independent from
-    /// the asynchronous trigger path; the two have no ordering guarantee.
+    /// Optional name of a runtime-registered hook handler; when set the
+    /// engine notifies it synchronously at this hook point, before the
+    /// `HOOK_TRIGGERED` audit event is published (a matching trigger
+    /// template starts after the handler; its completion is not awaited).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub handler: Option<String>,
 }
@@ -278,6 +324,32 @@ mod tests {
     #[test]
     fn unknown_hooks_default_to_observable() {
         assert!(!hook_requires_handler("SOME_FUTURE_HOOK"));
+    }
+
+    #[test]
+    fn trigger_closed_points_are_before_and_compression() {
+        for hook in [
+            "BEFORE_ITERATION",
+            "BEFORE_TOOL_CALL",
+            "BEFORE_LLM_CALL",
+            "BEFORE_AGENT",
+            "BEFORE_EXECUTE",
+            "BEFORE_USER_PROMPT",
+            "CONTEXT_COMPRESSION_REQUESTED",
+        ] {
+            assert!(!hook_allows_trigger(hook), "{hook} must be trigger-closed");
+        }
+        for hook in [
+            "AFTER_ITERATION",
+            "AFTER_TOOL_CALL",
+            "AFTER_AGENT",
+            "AFTER_EXECUTE",
+            "ON_ERROR",
+            "WORKFLOW_BEFORE",
+            "SUBAGENT_START",
+        ] {
+            assert!(hook_allows_trigger(hook), "{hook} must stay trigger-open");
+        }
     }
 
     #[test]

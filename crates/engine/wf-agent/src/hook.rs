@@ -2,7 +2,9 @@ use std::collections::HashMap;
 
 use serde_json::Value;
 use wf_core::EventBus;
-use wf_execution_shared::hooks::{fire, HookContext, HookDefinition, HookHandlerRegistry};
+use wf_execution_shared::hooks::{
+    fire::FireSummary, fire, HookContext, HookDefinition, HookHandlerRegistry,
+};
 
 use crate::entity::AgentLoopEntity;
 
@@ -21,14 +23,15 @@ pub struct AgentHookEmitter;
 impl AgentHookEmitter {
     /// Fire the hooks of `hook_type` configured on `entity`: evaluate,
     /// notify registered handlers synchronously and publish the
-    /// `HOOK_TRIGGERED` audit event.
+    /// `HOOK_TRIGGERED` audit event. Returns the fire summary so gate
+    /// points can act on a veto.
     pub async fn fire_agent_point(
         entity: &AgentLoopEntity,
         hook_type: &str,
         extra_data: HashMap<String, Value>,
         registry: Option<&HookHandlerRegistry>,
         event_bus: Option<&EventBus>,
-    ) {
+    ) -> FireSummary {
         let mut data = HashMap::new();
         data.insert(
             "execution_id".to_string(),
@@ -57,19 +60,19 @@ impl AgentHookEmitter {
             },
             event_bus,
         )
-        .await;
+        .await
     }
 
     /// Fire hooks against a caller-built context (e.g. the parallel
     /// tool-call path, where the entity is not available inside the spawned
-    /// task).
+    /// task). Returns the fire summary so gate points can act on a veto.
     pub async fn fire_point(
         hooks: &[HookDefinition],
         hook_type: &str,
         ctx: &HookContext,
         registry: Option<&HookHandlerRegistry>,
         event_bus: Option<&EventBus>,
-    ) {
+    ) -> FireSummary {
         fire(
             registry_or_default(registry),
             hooks,
@@ -77,6 +80,6 @@ impl AgentHookEmitter {
             ctx,
             event_bus,
         )
-        .await;
+        .await
     }
 }

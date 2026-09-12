@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use wf_common::retry::RetryBudget;
 use wf_core::EventBus;
 use wf_execution_shared::context::{NodeExecutionContext, NodeExecutionResult};
+use wf_execution_shared::hooks::fire::FireSummary;
 use wf_execution_shared::hooks::types::HookDefinition;
 use wf_execution_shared::hooks::{HookContext, HookHandlerRegistry};
 use wf_execution_shared::interruption::check_execution_interruption;
@@ -60,7 +61,13 @@ impl NodeCoordinator {
         )
         .await;
 
-        Self::execute_hooks(
+        // BEFORE_EXECUTE is a gate point: a vetoed fire denies the node, so
+        // the handler never runs (pre-execution checks such as environment
+        // or input validation belong to hook handlers here, not to trigger
+        // templates, which always run asynchronously after the fire). The
+        // veto follows the node-failure path (ON_ERROR hook, NodeFailed
+        // event, no AFTER_EXECUTE) and is never retried.
+        let before = Self::execute_hooks(
             hooks,
             hook_handler_registry,
             event_bus,
@@ -75,6 +82,20 @@ impl NodeCoordinator {
             },
         )
         .await;
+        if let Some(reason) = before.vetoed_reason() {
+            return Self::fail_node(
+                hooks,
+                hook_handler_registry,
+                event_bus,
+                entity,
+                &node_id,
+                &node_name,
+                &node_type,
+                node_start,
+                format!("hook veto at BEFORE_EXECUTE: {reason}"),
+            )
+            .await;
+        }
 
         let check = check_execution_interruption(entity.interruption(), None);
         if !matches!(
@@ -134,42 +155,69 @@ impl NodeCoordinator {
                 })
             }
             Err(e) => {
-                Self::execute_hooks(
+                Self::fail_node(
                     hooks,
                     hook_handler_registry,
                     event_bus,
                     entity,
-                    "ON_ERROR",
-                    &NodeHookPayload {
-                        node_id: &node_id,
-                        node_name: &node_name,
-                        node_type: &node_type,
-                        duration_ms: Some(wf_common::now() - node_start),
-                        error: Some(&e.to_string()),
-                    },
-                )
-                .await;
-
-                Self::emit_event(
-                    event_bus,
-                    EventType::NodeFailed,
-                    entity,
                     &node_id,
-                    &serde_json::json!({
-                        "error": e.to_string(),
-                        "node_name": node_name,
-                        "node_type": node_type,
-                        "duration_ms": wf_common::now() - node_start,
-                    }),
+                    &node_name,
+                    &node_type,
+                    node_start,
+                    e.to_string(),
                 )
-                .await;
-
-                Err(WorkflowError::NodeExecutionFailed {
-                    node_id: node_id.clone(),
-                    reason: e.to_string(),
-                })
+                .await
             }
         }
+    }
+
+    /// Shared node-failure path for handler errors and BEFORE_EXECUTE
+    /// vetoes: fire ON_ERROR, emit NodeFailed, never AFTER_EXECUTE.
+    async fn fail_node(
+        hooks: &[HookDefinition],
+        hook_handler_registry: Option<&HookHandlerRegistry>,
+        event_bus: Option<&EventBus>,
+        entity: &WorkflowExecutionEntity,
+        node_id: &str,
+        node_name: &str,
+        node_type: &str,
+        node_start: i64,
+        reason: String,
+    ) -> WorkflowResult<NodeExecutionResult> {
+        Self::execute_hooks(
+            hooks,
+            hook_handler_registry,
+            event_bus,
+            entity,
+            "ON_ERROR",
+            &NodeHookPayload {
+                node_id,
+                node_name,
+                node_type,
+                duration_ms: Some(wf_common::now() - node_start),
+                error: Some(&reason),
+            },
+        )
+        .await;
+
+        Self::emit_event(
+            event_bus,
+            EventType::NodeFailed,
+            entity,
+            node_id,
+            &serde_json::json!({
+                "error": reason,
+                "node_name": node_name,
+                "node_type": node_type,
+                "duration_ms": wf_common::now() - node_start,
+            }),
+        )
+        .await;
+
+        Err(WorkflowError::NodeExecutionFailed {
+            node_id: node_id.to_string(),
+            reason,
+        })
     }
 
     pub async fn execute_with_retry(
@@ -205,7 +253,7 @@ impl NodeCoordinator {
         entity: &WorkflowExecutionEntity,
         hook_type: &str,
         payload: &NodeHookPayload<'_>,
-    ) {
+    ) -> FireSummary {
         let mut data = std::collections::HashMap::new();
         data.insert(
             "entity_id".to_string(),
@@ -260,7 +308,7 @@ impl NodeCoordinator {
             hook_handler_registry,
             event_bus,
         )
-        .await;
+        .await
     }
 
     async fn emit_event(

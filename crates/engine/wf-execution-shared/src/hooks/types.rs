@@ -4,7 +4,8 @@ use serde_json::Value;
 use wf_types::Id;
 
 pub use wf_types::hook::{
-    hook_effect, hook_requires_handler, is_known_hook_point, AGENT_HOOK_TYPES, WORKFLOW_HOOK_TYPES,
+    hook_allows_trigger, hook_effect, hook_requires_handler, is_known_hook_point, AGENT_HOOK_TYPES,
+    WORKFLOW_HOOK_TYPES,
 };
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -28,13 +29,36 @@ pub struct HookDefinition {
 /// Outcome of one hook fire: the engine stops and waits for every
 /// notified handler, aggregating their outcomes.
 ///
-/// Hook handlers are observation-only: blocking tool calls, rewriting inputs
-/// and permission decisions belong to the approval and workflow mechanisms.
-/// The outcome is always `Continue`; handlers must not expect to stop
-/// execution.
+/// Handlers are observation-only by default: blocking tool calls, rewriting
+/// inputs and permission decisions belong to the approval and workflow
+/// mechanisms. A handler may additionally return [`HookOutcome::Veto`] to
+/// deny the guarded step, but the veto only takes effect at gate points
+/// that opt into it (`BEFORE_EXECUTE` on the workflow node path,
+/// `BEFORE_TOOL_CALL` on the agent tool path); at every other point a veto
+/// is recorded in the audit event and otherwise treated as `Continue`.
 #[derive(Debug, Clone, PartialEq)]
 pub enum HookOutcome {
     Continue,
+    /// Deny the guarded step. `reason` is surfaced on the audit event and,
+    /// at gate points, becomes the failure reason (node error / tool
+    /// rejection). Timeouts and unresolvable handlers still resolve to
+    /// `Continue`: gates fail open, so gate handlers must be fast and local.
+    Veto { reason: String },
+}
+
+impl HookOutcome {
+    /// Whether this outcome denies the guarded step.
+    pub fn is_veto(&self) -> bool {
+        matches!(self, Self::Veto { .. })
+    }
+
+    /// Wire name used on the `HOOK_TRIGGERED` audit event.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Continue => "continue",
+            Self::Veto { .. } => "vetoed",
+        }
+    }
 }
 
 /// The context a handler observes at a hook point: the execution id, the

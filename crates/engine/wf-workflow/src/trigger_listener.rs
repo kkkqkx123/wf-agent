@@ -340,10 +340,19 @@ impl TriggerEventListener {
             // Defense in depth: templates that slipped past validation must
             // not drive functional actions off the internal compression
             // signal or its audit copy (owned synchronously by the builtin
-            // compression service).
+            // compression service), nor off a BEFORE_* hook point through
+            // the audit event (trigger actions always run asynchronously
+            // after the hook and cannot gate execution).
             if condition.targets_compression_signal() {
                 warn!(
                     "Trigger '{}' targets the internal compression signal; skipping (register a hook handler instead)",
+                    template.name
+                );
+                continue;
+            }
+            if condition.targets_before_hook() {
+                warn!(
+                    "Trigger '{}' subscribes to a BEFORE_* hook point; skipping (observe synchronously with a hook handler, gate with approval, or subscribe to the AFTER_* counterpart)",
                     template.name
                 );
                 continue;
@@ -1381,5 +1390,52 @@ mod tests {
             serde_json::json!([wf_types::hook::CONTEXT_COMPRESSION_SIGNAL]),
         )]));
         assert!(listener.select_templates(&audit).is_empty());
+    }
+
+    #[test]
+    fn before_hook_templates_never_selected_after_hook_still_selected() {
+        let mut before = event_template("on-before", "HOOK_TRIGGERED", 0);
+        before.condition.as_mut().expect("condition").metadata =
+            Some(std::collections::HashMap::from([(
+                "hook_type".to_string(),
+                serde_json::json!("BEFORE_TOOL_CALL"),
+            )]));
+        let mut after = event_template("on-after", "HOOK_TRIGGERED", 0);
+        // Different competition scope from the BEFORE template would still
+        // collide on the shared HOOK_TRIGGERED key, so give the AFTER
+        // template its own execution prefix to keep the scope disjoint.
+        after.condition.as_mut().expect("condition").metadata =
+            Some(std::collections::HashMap::from([(
+                "hook_type".to_string(),
+                serde_json::json!("AFTER_TOOL_CALL"),
+            )]));
+        let listener = TriggerEventListener::new(
+            Arc::new(EventBus::new(4)),
+            Arc::new(StaticRegistry(vec![before, after])),
+            Arc::new(RecordingRunner {
+                calls: Arc::new(AtomicU32::new(0)),
+                abort_on_event_type: None,
+            }),
+            CancellationToken::new(),
+        );
+        // A BEFORE hook audit event selects nothing even though the template
+        // matches: the runtime guard drops it (load-time validation rejects
+        // the same subscription; this is the bypass path).
+        let mut before_event = base_event(EventType::HookTriggered, "e1");
+        before_event.metadata = Some(std::collections::HashMap::from([(
+            "hook_type".to_string(),
+            serde_json::json!(["BEFORE_TOOL_CALL"]),
+        )]));
+        assert!(listener.select_templates(&before_event).is_empty());
+        // The AFTER counterpart on the same listener still selects its
+        // template: the guard only drops BEFORE subscriptions.
+        let mut after_event = base_event(EventType::HookTriggered, "e1");
+        after_event.metadata = Some(std::collections::HashMap::from([(
+            "hook_type".to_string(),
+            serde_json::json!(["AFTER_TOOL_CALL"]),
+        )]));
+        let winners = listener.select_templates(&after_event);
+        assert_eq!(winners.len(), 1);
+        assert_eq!(winners[0].template.name, "on-after");
     }
 }

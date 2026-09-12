@@ -2,7 +2,9 @@ use std::collections::HashMap;
 
 use serde_json::Value;
 use wf_core::EventBus;
-use wf_execution_shared::hooks::{fire, HookContext, HookDefinition, HookHandlerRegistry};
+use wf_execution_shared::hooks::{
+    fire::FireSummary, fire, HookContext, HookDefinition, HookHandlerRegistry,
+};
 
 use crate::entity::WorkflowExecutionEntity;
 
@@ -60,14 +62,15 @@ impl WorkflowHookEmitter {
     }
 
     /// Fire hooks against a caller-built context (e.g. the node
-    /// coordinator, which assembles its own payload).
+    /// coordinator, which assembles its own payload). Returns the fire
+    /// summary so gate points can act on a veto.
     pub async fn fire_point(
         hooks: &[HookDefinition],
         hook_type: &str,
         ctx: &HookContext,
         registry: Option<&HookHandlerRegistry>,
         event_bus: Option<&EventBus>,
-    ) {
+    ) -> FireSummary {
         fire(
             registry_or_default(registry),
             hooks,
@@ -75,6 +78,6 @@ impl WorkflowHookEmitter {
             ctx,
             event_bus,
         )
-        .await;
+        .await
     }
 }

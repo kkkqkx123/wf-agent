@@ -52,6 +52,16 @@ pub fn validate_trigger_template(template: &TriggerTemplate) -> ConfigResult<()>
                 template.name
             )));
         }
+        // Hook points are not event types: hook fires publish HOOK_TRIGGERED,
+        // never the hook name itself, so a condition naming one directly can
+        // never match. (The compression signal returns above with its own
+        // message; every other hook name lands here.)
+        if wf_types::hook::is_known_hook_point(&condition.event_type) {
+            return Err(ConfigError::Validation(format!(
+                "trigger '{}' uses hook point '{}' as event_type; hook points are not event types and no such event is ever published. Subscribe to HOOK_TRIGGERED plus metadata.hook_type instead, or to the equivalent domain event",
+                template.name, condition.event_type
+            )));
+        }
         // A NODE_CUSTOM_EVENT condition is matched by `event_name`: it is
         // required, otherwise the template can never match.
         if condition.event_type == "NODE_CUSTOM_EVENT" && condition.event_name.is_none() {
@@ -584,6 +594,42 @@ mod tests {
                 "hook_type".to_string(),
                 serde_json::json!("AFTER_TOOL_CALL"),
             )])),
+            metadata_exists: None,
+            execution_prefix: None,
+        });
+        template.action = Some(TriggerAction::StopWorkflowExecution {});
+        assert!(validate_trigger_template(&template).is_ok());
+    }
+
+    #[test]
+    fn test_hook_point_as_event_type_rejected() {
+        use wf_types::trigger::TriggerCondition;
+        // Hook fires publish HOOK_TRIGGERED, never the hook name: naming a
+        // hook point as event_type is a category error that could never match.
+        for hook_point in ["AFTER_TOOL_CALL", "BEFORE_TOOL_CALL", "ON_ERROR"] {
+            let mut template = make_template();
+            template.condition = Some(TriggerCondition {
+                event_type: hook_point.to_string(),
+                event_name: None,
+                condition: None,
+                metadata: None,
+                metadata_exists: None,
+                execution_prefix: None,
+            });
+            template.action = Some(TriggerAction::StopWorkflowExecution {});
+            let err = validate_trigger_template(&template)
+                .expect_err("hook point as event_type must be rejected");
+            let message = err.to_string();
+            assert!(message.contains("HOOK_TRIGGERED"), "{message}");
+            assert!(message.contains(hook_point), "{message}");
+        }
+        // The audit event itself stays subscribable.
+        let mut template = make_template();
+        template.condition = Some(TriggerCondition {
+            event_type: "HOOK_TRIGGERED".to_string(),
+            event_name: None,
+            condition: None,
+            metadata: None,
             metadata_exists: None,
             execution_prefix: None,
         });

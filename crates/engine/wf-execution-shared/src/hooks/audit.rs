@@ -1,9 +1,11 @@
 //! Hook audit event publication (record channel).
 //!
-//! Hook delivery is a synchronous fire ([`crate::hooks::fire`]); the
-//! `HOOK_TRIGGERED` event published here is the audit copy: persistence,
-//! external subscriptions and user trigger template matching consume it, but
-//! no functional delivery depends on it.
+//! Hook delivery is a synchronous fire ([`crate::hooks::fire`]): handlers
+//! settle first, then the `HOOK_TRIGGERED` event published here follows as
+//! the audit copy. Persistence, external subscriptions and user trigger
+//! template matching consume it, but no functional delivery depends on it:
+//! a matching trigger always starts after the handler barrier while its
+//! completion is not awaited by the engine.
 
 use std::collections::HashMap;
 
@@ -44,9 +46,12 @@ pub fn evaluate_hook_condition(
 ///
 /// Level rules (read-only, no execution effect):
 /// - observable hook, empty: DEBUG — zero subscribers are legal, the skip
-///   is routine and no audit event is published;
-/// - request / mutated hook, empty: WARN — a handler or trigger rule is
-///   required for the point to take effect, so the miss must stay visible;
+///   is routine and no audit event is published (except handler-less
+///   `BEFORE_*` definitions, which the config validator already flags as
+///   write-only audit);
+/// - request / mutated hook, empty: WARN — a sync handler is required for
+///   the point to take effect (async trigger rules never substitute for
+///   synchronous handling), so the miss must stay visible;
 /// - any non-empty fire: the `HOOK_TRIGGERED` audit event is published and
 ///   no empty-fire log applies (INFO-level visibility comes from the event
 ///   itself, not an extra log line).
@@ -109,7 +114,10 @@ pub fn publish_hook_audit_event(
         .map(|r| {
             let mut entry = serde_json::Map::new();
             entry.insert("name".to_string(), Value::String(r.name.clone()));
-            entry.insert("outcome".to_string(), Value::String("continue".to_string()));
+            entry.insert(
+                "outcome".to_string(),
+                Value::String(r.outcome.as_str().to_string()),
+            );
             entry.insert(
                 "duration_ms".to_string(),
                 Value::Number(serde_json::Number::from(r.duration_ms)),
@@ -117,10 +125,17 @@ pub fn publish_hook_audit_event(
             if let Some(error) = &r.error {
                 entry.insert("error".to_string(), Value::String(error.clone()));
             }
+            if let crate::hooks::types::HookOutcome::Veto { reason } = &r.outcome {
+                entry.insert(
+                    "veto_reason".to_string(),
+                    Value::String(reason.clone()),
+                );
+            }
             Value::Object(entry)
         })
         .collect();
 
+    let vetoed = results.iter().any(|r| r.outcome.is_veto());
     let metadata_value = serde_json::json!({
         "hook_type": [ctx.hook_type],
         "event_category": wf_types::hook::hook_effect(&ctx.hook_type).as_str(),
@@ -128,6 +143,7 @@ pub fn publish_hook_audit_event(
         "weights": weights,
         "payloads": payloads,
         "handlers": handlers,
+        "outcome": if vetoed { "vetoed" } else { "continue" },
         "handler_errors": results.iter().filter_map(|r| r.error.as_ref().map(|e| {
             serde_json::json!({"name": r.name, "error": e})
         })).collect::<Vec<_>>(),
@@ -294,8 +310,39 @@ mod tests {
     }
 
     #[test]
-    fn test_event_picks_up_workflow_id_from_context_data() {
+    fn test_veto_outcome_serialized_on_audit_event() {
         let bus = Arc::new(EventBus::new(16));
+        let ctx = hook_ctx("exec-1", HashMap::new());
+        let mut sub = bus.subscribe();
+
+        let results = vec![HandlerResult {
+            name: "gate".to_string(),
+            outcome: HookOutcome::Veto {
+                reason: "missing input file".to_string(),
+            },
+            duration_ms: 1,
+            error: None,
+        }];
+        assert_eq!(
+            publish_hook_audit_event(Some(&bus), &ctx, &[Value::Null], &[1], &results, 1),
+            1
+        );
+
+        let event = sub.try_recv().unwrap();
+        let metadata = event.metadata.as_ref().unwrap();
+        assert_eq!(metadata["outcome"], serde_json::json!("vetoed"));
+        assert_eq!(
+            metadata["handlers"][0]["outcome"],
+            serde_json::json!("vetoed")
+        );
+        assert_eq!(
+            metadata["handlers"][0]["veto_reason"],
+            serde_json::json!("missing input file")
+        );
+    }
+
+    #[test]
+    fn test_event_picks_up_workflow_id_from_context_data() {        let bus = Arc::new(EventBus::new(16));
         let mut data = HashMap::new();
         data.insert("workflow_id".to_string(), serde_json::json!("wf-1"));
         let ctx = hook_ctx("exec-1", data);

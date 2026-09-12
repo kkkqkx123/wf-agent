@@ -23,8 +23,10 @@
 //!   module), a checkpoint *timing* concept unrelated to events.
 pub mod config;
 pub mod execution;
+pub mod scope;
 pub mod template;
 
 pub use config::*;
 pub use execution::*;
+pub use scope::*;
 pub use template::*;

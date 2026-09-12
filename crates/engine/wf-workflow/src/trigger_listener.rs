@@ -92,21 +92,15 @@ struct TriggerMatch {
 /// and `max_triggers` budget are meaningful even for events that arrive
 /// back-to-back.
 ///
-/// When several templates match one event, exactly one action runs — the
-/// highest priority, most specific (metadata-conditioned) one, registration
-/// order breaking ties. Idempotency (e.g. repeated compression requests for
-/// the same array version) is the responsibility of the
-/// [`TriggerActionRunner`].
-/// How many matched templates run for one event.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum TriggerMatchPolicy {
-    /// Only the highest-priority match runs (default, backward compatible).
-    #[default]
-    BestOnly,
-    /// Every matched template runs in priority order.
-    All,
-}
-
+/// When several templates match one event, winners resolve per competition
+/// scope: a unique scope contributes its single subscriber, a best-win scope
+/// contributes its highest explicit priority. Scopes that fail validation
+/// (several unique subscribers, missing or duplicate best-win priorities,
+/// mixed dispatch modes) contribute no winner and are dropped loudly.
+/// At most one scope can match one event instance, so more than one scope
+/// winner for the same event also means validation was bypassed and is
+/// dropped loudly. Idempotency (e.g. repeated compression requests for the
+/// same array version) is the responsibility of the [`TriggerActionRunner`].
 #[derive(Clone)]
 pub struct TriggerEventListener {
     bus: Arc<EventBus>,
@@ -118,7 +112,6 @@ pub struct TriggerEventListener {
     /// (only consulted when `max_triggers > 0`), so concurrent executions
     /// never consume each other's budget.
     trigger_counts: Arc<std::sync::Mutex<HashMap<String, u32>>>,
-    match_policy: TriggerMatchPolicy,
     /// Event types with at least one registered template; the listener
     /// subscribes a typed channel per type. Empty when no template declares
     /// a parseable type (general-channel fallback).
@@ -171,7 +164,6 @@ impl TriggerEventListener {
             runner,
             in_flight: DashMap::new(),
             trigger_counts: Arc::new(std::sync::Mutex::new(HashMap::new())),
-            match_policy: TriggerMatchPolicy::BestOnly,
             interested_types,
             concurrency_gate: None,
             shutdown,
@@ -182,14 +174,6 @@ impl TriggerEventListener {
     /// `None` (default), actions spawn unbounded as before.
     pub fn with_concurrency_gate(mut self, gate: Arc<ConcurrencyGate>) -> Self {
         self.concurrency_gate = Some(gate);
-        self
-    }
-
-    /// Select how many matched templates run per event. `BestOnly` keeps the
-    /// historical single-winner behavior; `All` runs every match in priority
-    /// order (callers keep idempotency responsibility).
-    pub fn with_match_policy(mut self, policy: TriggerMatchPolicy) -> Self {
-        self.match_policy = policy;
         self
     }
 
@@ -315,9 +299,12 @@ impl TriggerEventListener {
         let _ = dispatch_handle.await;
     }
 
-    /// Match an event against all registered templates and return every match
-    /// in run order. `BestOnly` returns at most one entry; `All` returns all
-    /// matches sorted by priority (desc), specificity, registration order.
+    /// Match an event against all registered templates and return the single
+    /// winner. Matches resolve per competition scope: a valid unique scope
+    /// contributes its single subscriber, a valid best-win scope contributes
+    /// its highest explicit priority. Invalid scopes contribute nothing.
+    /// At most one scope winner is returned; several scope winners for one
+    /// event mean validation was bypassed and yield no winner.
     fn select_templates(&self, event: &BaseEvent) -> Vec<TriggerMatch> {
         let Some(execution_id) = event.execution_id.as_ref() else {
             return Vec::new();
@@ -351,31 +338,98 @@ impl TriggerEventListener {
             matched.push((index, template.clone()));
         }
 
-        matched.sort_by(|(ai, a), (bi, b)| {
-            let pa = a.priority.unwrap_or(0);
-            let pb = b.priority.unwrap_or(0);
-            pb.cmp(&pa)
-                .then_with(|| {
-                    let sa = a
-                        .condition
-                        .as_ref()
-                        .map(condition_has_metadata)
-                        .unwrap_or(false);
-                    let sb = b
-                        .condition
-                        .as_ref()
-                        .map(condition_has_metadata)
-                        .unwrap_or(false);
-                    sb.cmp(&sa)
-                })
-                .then_with(|| ai.cmp(bi))
-        });
-        if matches!(self.match_policy, TriggerMatchPolicy::BestOnly) {
-            matched.truncate(1);
+        let mut winners: Vec<(usize, TriggerTemplate)> = Vec::new();
+        if !matched.is_empty() {
+            let snapshots: Vec<TriggerTemplate> = matched.iter().map(|(_, t)| t.clone()).collect();
+            for group in wf_types::trigger::scope_groups(&snapshots) {
+                let members: Vec<(usize, TriggerTemplate)> =
+                    group.iter().map(|&i| matched[i].clone()).collect();
+                let refs: Vec<&TriggerTemplate> = members.iter().map(|(_, t)| t).collect();
+                match wf_types::trigger::resolve_scope_mode(&refs) {
+                    Err((unique, best_win)) => {
+                        let unique_names: Vec<&str> =
+                            unique.iter().map(|t| t.name.as_str()).collect();
+                        let best_win_names: Vec<&str> =
+                            best_win.iter().map(|t| t.name.as_str()).collect();
+                        warn!(
+                            "Trigger scope for event {} mixes unique declarations [{}] with best-win declarations [{}]; validation was bypassed, dropping the scope",
+                            event.r#type.as_str(),
+                            unique_names.join(", "),
+                            best_win_names.join(", "),
+                        );
+                    }
+                    Ok(wf_types::trigger::ResolvedScopeMode::Unique) => {
+                        if members.len() > 1 {
+                            let names: Vec<&str> =
+                                members.iter().map(|(_, t)| t.name.as_str()).collect();
+                            warn!(
+                                "Several trigger templates [{}] matched {} under unique dispatch; validation was bypassed, dropping the scope",
+                                names.join(", "),
+                                event.r#type.as_str(),
+                            );
+                        } else if let Some(winner) = members.into_iter().next() {
+                            winners.push(winner);
+                        }
+                    }
+                    Ok(wf_types::trigger::ResolvedScopeMode::BestWin) => {
+                        // Best-win scopes require an explicit distinct
+                        // priority per subscriber. Anything else means
+                        // validation was bypassed: drop the scope without
+                        // falling back to implicit ordering.
+                        let mut missing: Vec<&str> = Vec::new();
+                        for (_, template) in &members {
+                            if template.priority.is_none() {
+                                missing.push(template.name.as_str());
+                            }
+                        }
+                        if !missing.is_empty() {
+                            warn!(
+                                "Trigger templates [{}] matched {} under best-win dispatch without explicit priorities; validation was bypassed, dropping the scope",
+                                missing.join(", "),
+                                event.r#type.as_str(),
+                            );
+                            continue;
+                        }
+                        let mut by_priority: std::collections::HashMap<i32, Vec<&str>> =
+                            std::collections::HashMap::new();
+                        for (_, template) in &members {
+                            let priority = template.priority.unwrap_or_default();
+                            by_priority.entry(priority).or_default().push(template.name.as_str());
+                        }
+                        if let Some(duplicated) =
+                            by_priority.iter().find(|(_, names)| names.len() > 1)
+                        {
+                            warn!(
+                                "Trigger templates [{}] share priority {} on event {}; validation was bypassed, dropping the scope",
+                                duplicated.1.join(", "),
+                                duplicated.0,
+                                event.r#type.as_str(),
+                            );
+                            continue;
+                        }
+                        let winner = members
+                            .into_iter()
+                            .max_by_key(|(_, template)| template.priority.unwrap_or_default());
+                        if let Some(winner) = winner {
+                            winners.push(winner);
+                        }
+                    }
+                }
+            }
+        }
+
+        if winners.len() > 1 {
+            let names: Vec<&str> = winners.iter().map(|(_, t)| t.name.as_str()).collect();
+            warn!(
+                "Several trigger scopes [{}] matched {} for one event; validation was bypassed, dropping every winner",
+                names.join(", "),
+                event.r#type.as_str(),
+            );
+            return Vec::new();
         }
 
         // Debug-log only events that have templates configured for their type.
-        if matched.is_empty() {
+        if winners.is_empty() {
             let type_configured = self.registry.templates().iter().any(|t| {
                 t.condition
                     .as_ref()
@@ -391,7 +445,7 @@ impl TriggerEventListener {
             return Vec::new();
         }
 
-        matched
+        winners
             .into_iter()
             .map(|(_, template)| {
                 let key = format!("{}:{}", execution_id, template.name);
@@ -594,12 +648,6 @@ impl TriggerEventListener {
     }
 }
 
-/// Whether a condition carries metadata routing constraints (used to order
-/// equally-prioritized matches: the more specific template wins).
-fn condition_has_metadata(condition: &TriggerCondition) -> bool {
-    condition.metadata.is_some() || condition.metadata_exists.is_some()
-}
-
 /// Compare an actual metadata value against an expected one.
 ///
 /// Exact equality for non-string expected values. String expected values
@@ -692,6 +740,7 @@ mod tests {
             enabled: Some(true),
             max_triggers: Some(max_triggers),
             priority: None,
+            dispatch_mode: None,
             metadata: None,
             created_at: 0,
             updated_at: 0,
@@ -942,10 +991,79 @@ mod tests {
     }
 
     #[test]
-    fn match_policy_best_only_keeps_single_winner() {
+    fn best_win_highest_explicit_priority_wins() {
+        use wf_types::trigger::TriggerDispatchMode;
+        let mut low = event_template("low", "NODE_COMPLETED", 0);
+        low.priority = Some(1);
+        low.dispatch_mode = Some(TriggerDispatchMode::BestWin);
+        let mut high = event_template("high", "NODE_COMPLETED", 0);
+        high.priority = Some(5);
+        high.dispatch_mode = Some(TriggerDispatchMode::BestWin);
+        let templates = vec![low, high];
+        let listener = TriggerEventListener::new(
+            Arc::new(EventBus::new(4)),
+            Arc::new(StaticRegistry(templates)),
+            Arc::new(RecordingRunner {
+                calls: Arc::new(AtomicU32::new(0)),
+                abort_on_event_type: None,
+            }),
+            CancellationToken::new(),
+        );
+        let event = base_event(EventType::NodeCompleted, "e1");
+        let winners = listener.select_templates(&event);
+        assert_eq!(winners.len(), 1);
+        assert_eq!(winners[0].template.name, "high");
+    }
+
+    #[test]
+    fn best_win_without_explicit_priority_is_dropped() {
+        use wf_types::trigger::TriggerDispatchMode;
+        let mut low = event_template("low", "NODE_COMPLETED", 0);
+        low.priority = None;
+        low.dispatch_mode = Some(TriggerDispatchMode::BestWin);
+        let mut high = event_template("high", "NODE_COMPLETED", 0);
+        high.priority = Some(5);
+        high.dispatch_mode = Some(TriggerDispatchMode::BestWin);
+        let listener = TriggerEventListener::new(
+            Arc::new(EventBus::new(4)),
+            Arc::new(StaticRegistry(vec![low, high])),
+            Arc::new(RecordingRunner {
+                calls: Arc::new(AtomicU32::new(0)),
+                abort_on_event_type: None,
+            }),
+            CancellationToken::new(),
+        );
+        let event = base_event(EventType::NodeCompleted, "e1");
+        assert!(listener.select_templates(&event).is_empty());
+    }
+
+    #[test]
+    fn best_win_with_duplicate_priority_is_dropped() {
+        use wf_types::trigger::TriggerDispatchMode;
+        let mut low = event_template("low", "NODE_COMPLETED", 0);
+        low.priority = Some(5);
+        low.dispatch_mode = Some(TriggerDispatchMode::BestWin);
+        let mut high = event_template("high", "NODE_COMPLETED", 0);
+        high.priority = Some(5);
+        high.dispatch_mode = Some(TriggerDispatchMode::BestWin);
+        let listener = TriggerEventListener::new(
+            Arc::new(EventBus::new(4)),
+            Arc::new(StaticRegistry(vec![low, high])),
+            Arc::new(RecordingRunner {
+                calls: Arc::new(AtomicU32::new(0)),
+                abort_on_event_type: None,
+            }),
+            CancellationToken::new(),
+        );
+        let event = base_event(EventType::NodeCompleted, "e1");
+        assert!(listener.select_templates(&event).is_empty());
+    }
+
+    #[test]
+    fn unique_scope_with_several_matches_is_dropped() {
         let templates = vec![
-            event_template("low", "NODE_COMPLETED", 0),
-            event_template("high", "NODE_COMPLETED", 0),
+            event_template("a", "NODE_COMPLETED", 0),
+            event_template("b", "NODE_COMPLETED", 0),
         ];
         let listener = TriggerEventListener::new(
             Arc::new(EventBus::new(4)),
@@ -957,14 +1075,27 @@ mod tests {
             CancellationToken::new(),
         );
         let event = base_event(EventType::NodeCompleted, "e1");
-        assert_eq!(listener.select_templates(&event).len(), 1);
-        assert_eq!(
-            listener
-                .with_match_policy(TriggerMatchPolicy::All)
-                .select_templates(&event)
-                .len(),
-            2
+        assert!(listener.select_templates(&event).is_empty());
+    }
+
+    #[test]
+    fn disjoint_prefix_scopes_each_keep_a_winner() {
+        let mut a = event_template("a", "NODE_COMPLETED", 0);
+        a.condition.as_mut().expect("condition").execution_prefix = Some("exec-a-".to_string());
+        let mut b = event_template("b", "NODE_COMPLETED", 0);
+        b.condition.as_mut().expect("condition").execution_prefix = Some("exec-b-".to_string());
+        let listener = TriggerEventListener::new(
+            Arc::new(EventBus::new(4)),
+            Arc::new(StaticRegistry(vec![a, b])),
+            Arc::new(RecordingRunner {
+                calls: Arc::new(AtomicU32::new(0)),
+                abort_on_event_type: None,
+            }),
+            CancellationToken::new(),
         );
+        let winners = listener.select_templates(&base_event(EventType::NodeCompleted, "exec-a-1"));
+        assert_eq!(winners.len(), 1);
+        assert_eq!(winners[0].template.name, "a");
     }
 
     #[test]

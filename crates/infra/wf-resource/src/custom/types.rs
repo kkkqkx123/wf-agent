@@ -57,6 +57,15 @@ pub struct CustomTriggerDefinition {
     /// ("register-success-but-never-fires" is not allowed).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub action: Option<wf_types::trigger::TriggerAction>,
+    /// Priority within the event competition scope. Only meaningful under
+    /// the best-win dispatch mode, where every subscriber of one scope must
+    /// declare a distinct priority.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub priority: Option<i32>,
+    /// Dispatch mode for the event scope this trigger subscribes to.
+    /// Absent means the default unique dispatch.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dispatch_mode: Option<wf_types::trigger::TriggerDispatchMode>,
     pub config: Option<Value>,
     pub metadata: Option<Value>,
 }

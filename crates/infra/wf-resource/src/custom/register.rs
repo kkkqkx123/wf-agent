@@ -166,6 +166,9 @@ pub fn register_custom_triggers(
     let mut total = Summary::new();
     let ts = now_ts();
 
+    // Phase one: build every candidate and run the single-template
+    // validation, so malformed definitions fail individually first.
+    let mut candidates: Vec<TriggerTemplate> = Vec::new();
     for t in triggers {
         // No action = the template can match forever but never do anything:
         // rejected explicitly instead of registered as a silent no-op.
@@ -215,7 +218,8 @@ pub fn register_custom_triggers(
             action: t.action,
             enabled: Some(true),
             max_triggers: None,
-            priority: None,
+            priority: t.priority,
+            dispatch_mode: t.dispatch_mode,
             metadata: t.metadata.and_then(|m| match m {
                 serde_json::Value::Object(obj) => {
                     let map: HashMap<String, serde_json::Value> = obj.into_iter().collect();
@@ -233,11 +237,44 @@ pub fn register_custom_triggers(
             total.merge(Summary::err(&t.name, e.to_string()));
             continue;
         }
+        candidates.push(template);
+    }
 
+    // Phase two: check the competition scopes of the merged set (already
+    // registered templates plus this batch). Incoming members of a violated
+    // scope are rejected with the scope message; the rest registers.
+    // Violated scopes with no incoming member are pre-existing conflicts and
+    // only warn here.
+    let existing: Vec<TriggerTemplate> = registry
+        .list()
+        .iter()
+        .filter_map(|key| registry.get(key).map(|t| t.as_ref().clone()))
+        .collect();
+    let reports = wf_config::processor::trigger::check_trigger_scopes(&existing, &candidates);
+    let mut rejected: HashMap<String, String> = HashMap::new();
+    for report in reports {
+        if report.incoming_names.is_empty() {
+            tracing::warn!(
+                "pre-existing trigger scope violation without incoming subscriber: {}",
+                report.message,
+            );
+            continue;
+        }
+        for name in report.incoming_names {
+            rejected
+                .entry(name)
+                .or_insert_with(|| report.message.clone());
+        }
+    }
+    for template in candidates {
+        if let Some(message) = rejected.remove(&template.name) {
+            total.merge(Summary::err(&template.name, message));
+            continue;
+        }
         total.merge(if skip_if_exists {
-            register_item_skip(registry, t.name, template)
+            register_item_skip(registry, template.name.clone(), template)
         } else {
-            register_item_strict(registry, t.name, template)
+            register_item_strict(registry, template.name.clone(), template)
         });
     }
     total
@@ -409,6 +446,8 @@ mod tests {
                 variable_name: "x".to_string(),
                 value: serde_json::json!(1),
             }),
+            priority: None,
+            dispatch_mode: None,
             config: None,
             metadata: None,
         }
@@ -443,6 +482,46 @@ mod tests {
         let summary = register_custom_triggers(&regs.trigger_templates, vec![trigger], false);
         assert!(summary.failed.iter().any(|f| f.id == "noop-trigger"));
         assert!(!regs.trigger_templates.has("noop-trigger"));
+    }
+
+    #[test]
+    fn trigger_priority_and_dispatch_mode_pass_through() {
+        use wf_core::registry::Registry;
+        let regs = ResourceRegistries::new();
+        let mut trigger = event_trigger("ranked-trigger");
+        trigger.priority = Some(5);
+        trigger.dispatch_mode = Some(wf_types::trigger::TriggerDispatchMode::BestWin);
+        let summary = register_custom_triggers(&regs.trigger_templates, vec![trigger], false);
+        assert!(summary.failed.is_empty(), "{:?}", summary.failed);
+        let template = regs
+            .trigger_templates
+            .get("ranked-trigger")
+            .expect("trigger registered");
+        assert_eq!(template.priority, Some(5));
+        assert_eq!(
+            template.dispatch_mode,
+            Some(wf_types::trigger::TriggerDispatchMode::BestWin)
+        );
+    }
+
+    #[test]
+    fn second_subscriber_of_unique_scope_is_rejected() {
+        use wf_core::registry::Registry;
+        let regs = ResourceRegistries::new();
+        let summary = register_custom_triggers(
+            &regs.trigger_templates,
+            vec![event_trigger("first-trigger")],
+            false,
+        );
+        assert!(summary.failed.is_empty(), "{:?}", summary.failed);
+        let summary = register_custom_triggers(
+            &regs.trigger_templates,
+            vec![event_trigger("second-trigger")],
+            false,
+        );
+        assert!(summary.failed.iter().any(|f| f.id == "second-trigger"));
+        assert!(!regs.trigger_templates.has("second-trigger"));
+        assert!(regs.trigger_templates.has("first-trigger"));
     }
 
     #[test]

@@ -770,6 +770,29 @@ mod tests {
     }
 
     #[test]
+    fn add_hook_preserves_all_five_converted_fields() {
+        let hook = AgentHookBuilder::after_tool_call("tool-done")
+            .condition("flag")
+            .enabled(false)
+            .weight(3)
+            .event_payload(serde_json::json!({"k": "v"}))
+            .handler("audit-handler")
+            .build();
+        let config = AgentLoopConfigBuilder::new("a")
+            .model("mock")
+            .add_hook(hook)
+            .build();
+        assert_eq!(config.hooks.len(), 1);
+        let converted = &config.hooks[0];
+        assert_eq!(converted.hook_type, "AFTER_TOOL_CALL");
+        assert_eq!(converted.condition.as_deref(), Some("flag"));
+        assert!(!converted.enabled);
+        assert_eq!(converted.weight, 3);
+        assert_eq!(converted.payload, Some(serde_json::json!({"k": "v"})));
+        assert_eq!(converted.handler.as_deref(), Some("audit-handler"));
+    }
+
+    #[test]
     fn agent_definition_builder_validates_and_builds() {
         let definition = AgentDefinitionBuilder::new("agent-1")
             .name("Code Agent")

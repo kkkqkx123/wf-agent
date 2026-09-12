@@ -47,8 +47,8 @@ pub fn validate_base_hook_config(hook: &HookPointConfig, field_prefix: &str) -> 
     }
     if let Some(ref handler) = hook.handler {
         validate_not_empty(handler, &format!("{field_prefix}.handler"))?;
-        tracing::debug!(
-            "{}.handler '{}' and the async trigger path off the HOOK_TRIGGERED audit event are independent with no ordering guarantee",
+        tracing::warn!(
+            "{}.handler '{}' runs synchronously while a matching trigger template off the HOOK_TRIGGERED audit event would run asynchronously with no ordering guarantee; configure both only when the two effects commute",
             field_prefix,
             handler
         );
@@ -86,8 +86,8 @@ pub fn validate_base_hook_static_config(
     }
     if let Some(ref handler) = hook.handler {
         validate_not_empty(handler, &format!("{field_prefix}.handler"))?;
-        tracing::debug!(
-            "{}.handler '{}' and the async trigger path off the HOOK_TRIGGERED audit event are independent with no ordering guarantee",
+        tracing::warn!(
+            "{}.handler '{}' runs synchronously while a matching trigger template off the HOOK_TRIGGERED audit event would run asynchronously with no ordering guarantee; configure both only when the two effects commute",
             field_prefix,
             handler
         );
@@ -127,8 +127,8 @@ pub fn validate_agent_hook_config(
     }
     if let Some(ref handler) = hook.handler {
         validate_not_empty(handler, &format!("{field_prefix}.handler"))?;
-        tracing::debug!(
-            "{}.handler '{}' and the async trigger path off the HOOK_TRIGGERED audit event are independent with no ordering guarantee",
+        tracing::warn!(
+            "{}.handler '{}' runs synchronously while a matching trigger template off the HOOK_TRIGGERED audit event would run asynchronously with no ordering guarantee; configure both only when the two effects commute",
             field_prefix,
             handler
         );

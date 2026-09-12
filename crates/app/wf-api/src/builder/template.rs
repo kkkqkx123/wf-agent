@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use serde_json::Value;
 
-use wf_core::registry::MutableRegistry;
+use wf_core::registry::{MutableRegistry, Registry};
 use wf_storage::adapter::base::BaseStorageAdapter;
 use wf_types::trigger::{TriggerAction, TriggerCondition, TriggerTemplate};
 use wf_types::workflow::node_template::NodeTemplate;
@@ -100,6 +100,7 @@ pub struct TriggerTemplateBuilder {
     enabled: Option<bool>,
     max_triggers: Option<u32>,
     priority: Option<i32>,
+    dispatch_mode: Option<wf_types::trigger::TriggerDispatchMode>,
     metadata: Option<Metadata>,
     create_checkpoint: Option<bool>,
     checkpoint_description_template: Option<String>,
@@ -117,6 +118,7 @@ impl TriggerTemplateBuilder {
             enabled: None,
             max_triggers: None,
             priority: None,
+            dispatch_mode: None,
             metadata: None,
             create_checkpoint: None,
             checkpoint_description_template: None,
@@ -154,8 +156,19 @@ impl TriggerTemplateBuilder {
     }
 
     /// Set template priority (higher wins when multiple templates match).
+    ///
+    /// Priorities only take effect under the best-win dispatch mode, where
+    /// every subscriber of one scope must declare a distinct priority.
     pub fn priority(mut self, priority: i32) -> Self {
         self.priority = Some(priority);
+        self
+    }
+
+    /// Declare the dispatch mode for the event scope this template
+    /// subscribes to. Absent means the default unique dispatch; set best-win
+    /// to allow several subscribers with distinct explicit priorities.
+    pub fn dispatch_mode(mut self, mode: wf_types::trigger::TriggerDispatchMode) -> Self {
+        self.dispatch_mode = Some(mode);
         self
     }
 
@@ -177,6 +190,7 @@ impl TriggerTemplateBuilder {
             enabled: self.enabled,
             max_triggers: self.max_triggers,
             priority: self.priority,
+            dispatch_mode: self.dispatch_mode,
             metadata: self.metadata,
             created_at: now,
             updated_at: now,
@@ -203,8 +217,41 @@ impl TriggerTemplateBuilder {
 
     /// Build, validate and register the template (storage adapter + shared
     /// registry), so agent loops can reference it by name.
+    ///
+    /// Besides the single-template shape check, the competition scopes of
+    /// the merged registry set are checked: a second subscriber of a
+    /// unique-dispatch scope, or a best-win scope without distinct explicit
+    /// priorities, rejects the registration.
     pub async fn register(self, ctx: &ApiContext) -> crate::ApiResult<()> {
         let template = self.build()?;
+        let existing: Vec<TriggerTemplate> = ctx
+            .registries
+            .trigger_templates
+            .list()
+            .iter()
+            .filter_map(|key| {
+                ctx.registries
+                    .trigger_templates
+                    .get(key)
+                    .map(|t| t.as_ref().clone())
+            })
+            .collect();
+        let reports = wf_config::processor::trigger::check_trigger_scopes(
+            &existing,
+            std::slice::from_ref(&template),
+        );
+        for report in &reports {
+            if report.incoming_names.is_empty() {
+                tracing::warn!(
+                    "pre-existing trigger scope violation without incoming subscriber: {}",
+                    report.message,
+                );
+                continue;
+            }
+            if report.incoming_names.iter().any(|n| n == &template.name) {
+                return Err(crate::ApiError::Validation(report.message.clone()));
+            }
+        }
         let condition_value = template
             .condition
             .as_ref()
@@ -222,6 +269,7 @@ impl TriggerTemplateBuilder {
             enabled: template.enabled.unwrap_or(true),
             max_triggers: template.max_triggers,
             priority: template.priority,
+            dispatch_mode: template.dispatch_mode,
             condition: condition_value,
             action_config: template
                 .action

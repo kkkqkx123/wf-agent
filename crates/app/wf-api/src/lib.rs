@@ -285,8 +285,7 @@ pub use wf_workflow::registry::{
 };
 pub use wf_workflow::state::WorkflowExecutionState;
 pub use wf_workflow::trigger_listener::{
-    SubworkflowRunner, TriggerActionRunner, TriggerEventListener, TriggerMatchPolicy,
-    TriggerTemplateRegistry,
+    SubworkflowRunner, TriggerActionRunner, TriggerEventListener, TriggerTemplateRegistry,
 };
 pub use wf_workflow::trigger_states::{TriggerStateRecord, TriggerStateRegistry};
 pub use wf_workflow::validation::{format_validation_report, GraphValidator};

@@ -320,6 +320,7 @@ mod tests {
             enabled: true,
             max_triggers: None,
             priority: None,
+            dispatch_mode: None,
             condition: None,
             action_config: None,
             created_at: 1000,

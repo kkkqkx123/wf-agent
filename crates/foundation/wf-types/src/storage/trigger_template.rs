@@ -14,6 +14,10 @@ pub struct TriggerTemplateStorageMetadata {
     pub enabled: bool,
     pub max_triggers: Option<u32>,
     pub priority: Option<i32>,
+    /// Per-event dispatch mode declared for the scope this template
+    /// subscribes to. Absent means the default unique dispatch.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dispatch_mode: Option<crate::trigger::TriggerDispatchMode>,
     /// Serialized trigger condition (event name / condition expression).
     pub condition: Option<serde_json::Value>,
     /// Serialized trigger action config.

@@ -174,12 +174,64 @@ impl ResourcePluginRegistry {
             tool_registry.register_tool(tool.clone());
             total.merge(Summary::ok(&key));
         }
+        // Triggers register in two phases like custom resources: single
+        // validation first, then competition-scope validation of the merged
+        // set against the live registry. Incoming members of a violated
+        // scope fail with the scope message; the rest registers.
+        let mut candidates: Vec<TriggerTemplate> = Vec::new();
         for trigger in &bundle.triggers {
             let key = trigger.name.clone();
+            if let Err(e) = wf_config::processor::trigger::validate_trigger_template(trigger) {
+                total.merge(Summary::err(&key, e.to_string()));
+                continue;
+            }
+            candidates.push(trigger.clone());
+        }
+        let existing: Vec<TriggerTemplate> = registries
+            .trigger_templates
+            .list()
+            .iter()
+            .filter_map(|key| {
+                registries
+                    .trigger_templates
+                    .get(key)
+                    .map(|t| t.as_ref().clone())
+            })
+            .collect();
+        let reports =
+            wf_config::processor::trigger::check_trigger_scopes(&existing, &candidates);
+        let mut rejected: HashMap<String, String> = HashMap::new();
+        for report in &reports {
+            if report.incoming_names.is_empty() {
+                tracing::warn!(
+                    "pre-existing trigger scope violation without incoming subscriber: {}",
+                    report.message,
+                );
+                continue;
+            }
+            for name in &report.incoming_names {
+                rejected
+                    .entry(name.clone())
+                    .or_insert_with(|| report.message.clone());
+            }
+        }
+        for trigger in candidates {
+            if let Some(message) = rejected.remove(&trigger.name) {
+                total.merge(Summary::err(&trigger.name, message));
+                continue;
+            }
             total.merge(if skip_if_exists {
-                register_item_skip(&registries.trigger_templates, key, trigger.clone())
+                register_item_skip(
+                    &registries.trigger_templates,
+                    trigger.name.clone(),
+                    trigger,
+                )
             } else {
-                register_item_strict(&registries.trigger_templates, key, trigger.clone())
+                register_item_strict(
+                    &registries.trigger_templates,
+                    trigger.name.clone(),
+                    trigger,
+                )
             });
         }
         for prompt in &bundle.prompts {
@@ -316,12 +368,85 @@ mod tests {
         }
     }
 
+    fn trigger(name: &str) -> TriggerTemplate {
+        TriggerTemplate {
+            name: name.to_string(),
+            description: None,
+            condition: Some(wf_types::trigger::TriggerCondition {
+                event_type: "NODE_COMPLETED".to_string(),
+                event_name: None,
+                condition: None,
+                metadata: None,
+                metadata_exists: None,
+                execution_prefix: None,
+            }),
+            action: Some(wf_types::trigger::TriggerAction::StopWorkflowExecution {}),
+            enabled: Some(true),
+            max_triggers: None,
+            priority: None,
+            dispatch_mode: None,
+            metadata: None,
+            created_at: 0,
+            updated_at: 0,
+            create_checkpoint: None,
+            checkpoint_description_template: None,
+        }
+    }
+
+    struct ConflictingTriggerPlugin;
+
+    impl ResourcePlugin for ConflictingTriggerPlugin {
+        fn metadata(&self) -> ResourcePluginMetadata {
+            ResourcePluginMetadata {
+                id: "conflicting-trigger-plugin".into(),
+                name: "Conflicting Trigger Plugin".into(),
+                version: "1.0.0".into(),
+                description: "Two triggers in one unique scope".into(),
+                author: None,
+                tags: None,
+                category: None,
+                dependencies: None,
+                configurable: None,
+            }
+        }
+
+        fn assemble(&self, _config: &Value) -> Result<ResourceBundle, String> {
+            let mut bundle = ResourceBundle::new();
+            bundle.triggers = vec![trigger("plugin-a"), trigger("plugin-b")];
+            Ok(bundle)
+        }
+    }
+
     #[test]
     fn register_duplicate_rejected() {
         let registry = ResourcePluginRegistry::new();
         registry.register(Box::new(TestResourcePlugin)).unwrap();
         let err = registry.register(Box::new(TestResourcePlugin)).unwrap_err();
         assert!(err.contains("already"));
+    }
+
+    #[test]
+    fn conflicting_bundle_triggers_are_rejected() {
+        use wf_core::registry::Registry;
+        let registry = ResourcePluginRegistry::new();
+        registry
+            .register(Box::new(ConflictingTriggerPlugin))
+            .unwrap();
+        let regs = ResourceRegistries::new();
+        let tool_registry = ToolRegistry::new();
+        let summary = registry
+            .activate(
+                "conflicting-trigger-plugin",
+                &Value::Null,
+                &regs,
+                &tool_registry,
+                false,
+            )
+            .unwrap();
+        assert!(summary.failed.iter().any(|f| f.id == "plugin-a"));
+        assert!(summary.failed.iter().any(|f| f.id == "plugin-b"));
+        assert!(!regs.trigger_templates.has("plugin-a"));
+        assert!(!regs.trigger_templates.has("plugin-b"));
     }
 
     #[test]

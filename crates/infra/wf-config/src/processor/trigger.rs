@@ -21,10 +21,10 @@ pub fn validate_trigger_template(template: &TriggerTemplate) -> ConfigResult<()>
             )));
         }
         if condition.targets_before_hook() {
-            tracing::warn!(
-                "trigger '{}' subscribes to a BEFORE_* hook point; trigger actions run asynchronously after the hook and cannot block execution, use approval for front-gating",
+            return Err(ConfigError::Validation(format!(
+                "trigger '{}' subscribes to a BEFORE_* hook point; trigger actions always run asynchronously after the hook and cannot gate execution. Observe synchronously with a hook handler instead, gate tool calls with approval, or subscribe to the AFTER_* counterpart for post-hoc side effects",
                 template.name
-            );
+            )));
         }
         // A NODE_CUSTOM_EVENT condition is matched by `event_name`: it is
         // required, otherwise the template can never match.
@@ -134,6 +134,88 @@ pub fn validate_trigger_action(action: &TriggerAction, field_prefix: &str) -> Co
     Ok(())
 }
 
+/// Validate a whole set of trigger templates at load time.
+///
+/// Runs the single-template validation for every template, then checks the
+/// competition scopes shared by the set: the default unique dispatch rejects
+/// a second subscriber of one scope, while the explicit best-win dispatch
+/// requires every subscriber to declare a distinct priority. Returns the
+/// first violation found.
+pub fn validate_trigger_set(templates: &[TriggerTemplate]) -> ConfigResult<()> {
+    for template in templates {
+        validate_trigger_template(template)?;
+    }
+    if let Some(report) = check_trigger_scopes(&[], templates).into_iter().next() {
+        return Err(ConfigError::Validation(report.message));
+    }
+    Ok(())
+}
+
+/// One violated scope: every template in the scope plus the subset that
+/// belongs to the incoming batch, plus the message naming the scope, the
+/// templates involved, and the way out.
+pub struct TriggerScopeReport {
+    pub names: Vec<String>,
+    pub incoming_names: Vec<String>,
+    pub message: String,
+}
+
+/// Check the competition scopes of a merged template set and report one
+/// entry per violated scope.
+///
+/// `existing` holds the templates already registered, `incoming` the batch
+/// about to be added. Same-name incoming entries replace the existing entry
+/// of the same name before grouping. Every violated scope is reported;
+/// callers reject the incoming members of a violated scope and warn on
+/// violated scopes with no incoming member.
+pub fn check_trigger_scopes(
+    existing: &[TriggerTemplate],
+    incoming: &[TriggerTemplate],
+) -> Vec<TriggerScopeReport> {
+    use std::collections::HashSet;
+    use wf_types::trigger::{check_scope_group, scope_groups, violation_message, TriggerScopeKey};
+
+    let mut merged: Vec<TriggerTemplate> = Vec::new();
+    let replaced: HashSet<&str> = incoming.iter().map(|t| t.name.as_str()).collect();
+    merged.extend(
+        existing
+            .iter()
+            .filter(|t| !replaced.contains(t.name.as_str()))
+            .cloned(),
+    );
+    merged.extend(incoming.iter().cloned());
+
+    let incoming_names: HashSet<&str> = incoming.iter().map(|t| t.name.as_str()).collect();
+    let mut reports = Vec::new();
+    for group in scope_groups(&merged) {
+        let refs: Vec<&TriggerTemplate> = group.iter().map(|&i| &merged[i]).collect();
+        let Some(first) = refs.first() else {
+            continue;
+        };
+        let Some(condition) = first.condition.as_ref() else {
+            continue;
+        };
+        let key = TriggerScopeKey {
+            event_type: condition.event_type.clone(),
+            event_name: condition.event_name.clone(),
+        };
+        for violation in check_scope_group(&refs) {
+            let names: Vec<String> = refs.iter().map(|t| t.name.clone()).collect();
+            let involved: Vec<String> = refs
+                .iter()
+                .filter(|t| incoming_names.contains(t.name.as_str()))
+                .map(|t| t.name.clone())
+                .collect();
+            reports.push(TriggerScopeReport {
+                names,
+                incoming_names: involved,
+                message: violation_message(&key, &violation),
+            });
+        }
+    }
+    reports
+}
+
 pub fn transform_trigger_template(
     template: &TriggerTemplate,
     parameters: &HashMap<String, String>,
@@ -161,6 +243,7 @@ mod tests {
             enabled: None,
             max_triggers: None,
             priority: None,
+            dispatch_mode: None,
             metadata: None,
             created_at: 0,
             updated_at: 0,
@@ -415,7 +498,7 @@ mod tests {
     }
 
     #[test]
-    fn test_ordinary_hook_subscription_accepted() {
+    fn test_before_hook_subscription_rejected() {
         use wf_types::trigger::TriggerCondition;
         let mut template = make_template();
         template.condition = Some(TriggerCondition {
@@ -429,7 +512,173 @@ mod tests {
             metadata_exists: None,
             execution_prefix: None,
         });
+        let err = validate_trigger_template(&template).expect_err("before hook must be rejected");
+        let message = err.to_string();
+        assert!(message.contains("BEFORE_*"), "{message}");
+        assert!(message.contains("approval"), "{message}");
+    }
+
+    #[test]
+    fn test_after_hook_subscription_accepted() {
+        use wf_types::trigger::TriggerCondition;
+        let mut template = make_template();
+        template.condition = Some(TriggerCondition {
+            event_type: "HOOK_TRIGGERED".to_string(),
+            event_name: None,
+            condition: None,
+            metadata: Some(std::collections::HashMap::from([(
+                "hook_type".to_string(),
+                serde_json::json!("AFTER_TOOL_CALL"),
+            )])),
+            metadata_exists: None,
+            execution_prefix: None,
+        });
+        template.action = Some(TriggerAction::StopWorkflowExecution {});
         assert!(validate_trigger_template(&template).is_ok());
+    }
+
+    fn scoped_template(
+        name: &str,
+        event_type: &str,
+        prefix: Option<&str>,
+        priority: Option<i32>,
+        mode: Option<wf_types::trigger::TriggerDispatchMode>,
+    ) -> TriggerTemplate {
+        use wf_types::trigger::TriggerCondition;
+        let mut template = make_template();
+        template.name = name.to_string();
+        template.condition = Some(TriggerCondition {
+            event_type: event_type.to_string(),
+            event_name: None,
+            condition: None,
+            metadata: None,
+            metadata_exists: None,
+            execution_prefix: prefix.map(str::to_string),
+        });
+        template.action = Some(TriggerAction::StopWorkflowExecution {});
+        template.priority = priority;
+        template.dispatch_mode = mode;
+        template
+    }
+
+    #[test]
+    fn test_set_single_subscriber_passes() {
+        let templates = vec![scoped_template("a", "NODE_COMPLETED", None, None, None)];
+        assert!(validate_trigger_set(&templates).is_ok());
+    }
+
+    #[test]
+    fn test_set_unique_second_subscriber_rejected() {
+        let templates = vec![
+            scoped_template("a", "NODE_COMPLETED", None, None, None),
+            scoped_template("b", "NODE_COMPLETED", None, None, None),
+        ];
+        let err = validate_trigger_set(&templates).expect_err("unique scope must reject");
+        assert!(err.to_string().contains("unique"), "{}", err.to_string());
+    }
+
+    #[test]
+    fn test_set_best_win_requires_distinct_priorities() {
+        use wf_types::trigger::TriggerDispatchMode;
+        let missing = vec![
+            scoped_template(
+                "a",
+                "NODE_COMPLETED",
+                None,
+                None,
+                Some(TriggerDispatchMode::BestWin),
+            ),
+            scoped_template(
+                "b",
+                "NODE_COMPLETED",
+                None,
+                Some(1),
+                Some(TriggerDispatchMode::BestWin),
+            ),
+        ];
+        assert!(validate_trigger_set(&missing).is_err());
+
+        let duplicate = vec![
+            scoped_template(
+                "a",
+                "NODE_COMPLETED",
+                None,
+                Some(1),
+                Some(TriggerDispatchMode::BestWin),
+            ),
+            scoped_template(
+                "b",
+                "NODE_COMPLETED",
+                None,
+                Some(1),
+                Some(TriggerDispatchMode::BestWin),
+            ),
+        ];
+        assert!(validate_trigger_set(&duplicate).is_err());
+
+        let distinct = vec![
+            scoped_template(
+                "a",
+                "NODE_COMPLETED",
+                None,
+                Some(2),
+                Some(TriggerDispatchMode::BestWin),
+            ),
+            scoped_template(
+                "b",
+                "NODE_COMPLETED",
+                None,
+                Some(1),
+                Some(TriggerDispatchMode::BestWin),
+            ),
+        ];
+        assert!(validate_trigger_set(&distinct).is_ok());
+    }
+
+    #[test]
+    fn test_set_disjoint_prefixes_do_not_compete() {
+        let templates = vec![
+            scoped_template("a", "NODE_COMPLETED", Some("exec-a-"), None, None),
+            scoped_template("b", "NODE_COMPLETED", Some("exec-b-"), None, None),
+        ];
+        assert!(validate_trigger_set(&templates).is_ok());
+    }
+
+    #[test]
+    fn test_set_disabled_templates_are_excluded() {
+        let mut templates = vec![
+            scoped_template("a", "NODE_COMPLETED", None, None, None),
+            scoped_template("b", "NODE_COMPLETED", None, None, None),
+        ];
+        templates[1].enabled = Some(false);
+        assert!(validate_trigger_set(&templates).is_ok());
+    }
+
+    #[test]
+    fn test_check_scopes_reports_every_violation() {
+        let existing = vec![scoped_template("old", "NODE_COMPLETED", None, None, None)];
+        let incoming = vec![scoped_template("new", "NODE_COMPLETED", None, None, None)];
+        let reports = check_trigger_scopes(&existing, &incoming);
+        assert_eq!(reports.len(), 1);
+        assert_eq!(reports[0].incoming_names, vec!["new".to_string()]);
+        assert!(reports[0].names.contains(&"old".to_string()));
+        assert!(reports[0].names.contains(&"new".to_string()));
+        assert!(reports[0].message.contains("new"));
+
+        // A single existing subscriber alone is valid.
+        let reports = check_trigger_scopes(&existing, &[]);
+        assert!(reports.is_empty());
+
+        // A violated scope with no incoming member is still reported so
+        // callers can warn on the pre-existing conflict.
+        let conflicting = vec![
+            scoped_template("old", "NODE_COMPLETED", None, None, None),
+            scoped_template("older", "NODE_COMPLETED", None, None, None),
+        ];
+        let reports = check_trigger_scopes(&conflicting, &[]);
+        assert_eq!(reports.len(), 1);
+        assert!(reports[0].incoming_names.is_empty());
+        assert_eq!(reports[0].names.len(), 2);
     }
 
     #[test]

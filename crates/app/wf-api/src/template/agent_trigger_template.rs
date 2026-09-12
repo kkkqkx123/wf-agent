@@ -150,9 +150,12 @@ pub async fn search(
 }
 
 /// Register or overwrite a trigger template.
+///
+/// The competition scopes of the merged registry set are checked before
+/// anything is persisted: a scope violation rejects the save without
+/// touching storage or the registry.
 pub async fn save(ctx: &ApiContext, template: &TriggerTemplateStorageMetadata) -> ApiResult<()> {
-    ctx.storage.trigger_template.save(template).await?;
-    let trigger_template = TriggerTemplate {
+    let incoming = TriggerTemplate {
         name: template.name.clone(),
         description: template.description.clone(),
         condition: template
@@ -166,12 +169,48 @@ pub async fn save(ctx: &ApiContext, template: &TriggerTemplateStorageMetadata) -
         enabled: Some(template.enabled),
         max_triggers: template.max_triggers,
         priority: template.priority,
+        dispatch_mode: template.dispatch_mode,
         metadata: None,
         created_at: template.created_at,
         updated_at: template.updated_at,
         create_checkpoint: None,
         checkpoint_description_template: None,
     };
+    {
+        use wf_core::registry::Registry;
+        let existing: Vec<TriggerTemplate> = ctx
+            .registries
+            .trigger_templates
+            .list()
+            .iter()
+            .filter_map(|key| {
+                ctx.registries
+                    .trigger_templates
+                    .get(key)
+                    .map(|t| t.as_ref().clone())
+            })
+            .collect();
+        let reports = wf_config::processor::trigger::check_trigger_scopes(
+            &existing,
+            std::slice::from_ref(&incoming),
+        );
+        for report in &reports {
+            if report.incoming_names.is_empty() {
+                tracing::warn!(
+                    "pre-existing trigger scope violation without incoming subscriber: {}",
+                    report.message,
+                );
+                continue;
+            }
+            if report.incoming_names.iter().any(|n| n == &incoming.name) {
+                return Err(crate::infra::error::ApiError::Validation(
+                    report.message.clone(),
+                ));
+            }
+        }
+    }
+    ctx.storage.trigger_template.save(template).await?;
+    let trigger_template = incoming;
     ctx.registries
         .trigger_templates
         .register_or_replace(template.name.clone(), Arc::new(trigger_template));
@@ -277,6 +316,7 @@ mod tests {
             enabled: true,
             max_triggers: Some(10),
             priority: Some(1),
+            dispatch_mode: None,
             condition: None,
             action_config: None,
             created_at: 1000,

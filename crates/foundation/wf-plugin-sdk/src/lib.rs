@@ -13,15 +13,15 @@ pub mod manifest;
 pub mod native;
 pub mod plugin;
 
+pub use config::validate_config_for;
 pub use contributions::{
     PluginEventHandler, PluginExecutionContext, PluginLlmConfig, PluginLlmFormatter,
     PluginLlmRequest, PluginLlmResponse, PluginLlmUsage, PluginMessage, PluginMiddlewareHandler,
     PluginNodeHandler, PluginNodeResult, PluginToolContext, PluginToolExecutor, PluginToolResult,
 };
-pub use config::validate_config_for;
 pub use error::{PluginError, PluginResult};
 pub use manifest::{PluginManifest, PluginPermission, PluginType};
+pub use native::{ContributionRegistrarC, DispatchFn, PluginContextC, WF_PLUGIN_ABI_VERSION};
 #[doc(hidden)]
 pub use plugin::__private;
 pub use plugin::{NativeRegistrar, PluginState, WfNativePlugin};
-pub use native::{ContributionRegistrarC, DispatchFn, PluginContextC, WF_PLUGIN_ABI_VERSION};

@@ -14,9 +14,9 @@ use wf_types::config::file_checkpoint::ConflictBehavior;
 use crate::approval::{inject_conflict_markers, to_conflict_views, MergeOutcome, PendingApproval};
 use crate::error::CheckpointError;
 use crate::event::CheckpointEventBus;
-use crate::file::FileCheckpointManager;
 use crate::file::merge::MergeCommitResult;
 use crate::file::util::{map_layertwine_error, resolve_restore_target, sha256_hex};
+use crate::file::FileCheckpointManager;
 use crate::provenance::DeltaSummary;
 
 impl FileCheckpointManager {

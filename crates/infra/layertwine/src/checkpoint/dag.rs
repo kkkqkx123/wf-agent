@@ -101,6 +101,10 @@ impl CheckpointDag {
     }
 
     /// Check if the node exists
+    ///
+    /// Graph-query API surface: covered by unit tests below, no production
+    /// caller yet.
+    #[allow(dead_code)]
     pub fn has_node(&self, id: &CheckpointId) -> bool {
         self.nodes.contains_key(id)
     }
@@ -114,6 +118,10 @@ impl CheckpointDag {
     ///
     /// Iterate through the parents list in the Checkpoint entity.
     /// Note: This method requires the parent query function to be passed.
+    ///
+    /// Graph-query API surface: covered by unit tests below, no production
+    /// caller yet.
+    #[allow(dead_code)]
     pub fn ancestors<F>(&self, id: &CheckpointId, get_parents: F) -> Vec<CheckpointId>
     where
         F: Fn(&CheckpointId) -> Vec<CheckpointId>,
@@ -145,6 +153,10 @@ impl CheckpointDag {
     /// Uses generation numbers to short-circuit: if ancestor's generation
     /// is not strictly less than descendant's, it cannot be an ancestor.
     /// Otherwise, traverses BFS forward from the ancestor's children.
+    ///
+    /// Graph-query API surface: covered by unit tests below, no production
+    /// caller yet.
+    #[allow(dead_code)]
     pub fn is_ancestor(&self, ancestor: &CheckpointId, descendant: &CheckpointId) -> bool {
         if ancestor == descendant {
             return true;
@@ -186,6 +198,10 @@ impl CheckpointDag {
     /// Finding the common ancestor of two nodes
     ///
     /// Get all the ancestors of id1, then iterate backwards from id2 to find the first match.
+    ///
+    /// Graph-query API surface: covered by unit tests below, no production
+    /// caller yet.
+    #[allow(dead_code)]
     pub fn merge_base<F>(
         &self,
         id1: &CheckpointId,
@@ -251,11 +267,19 @@ impl CheckpointDag {
     }
 
     /// Number of nodes
+    ///
+    /// Graph-query API surface: covered by unit tests below, no production
+    /// caller yet.
+    #[allow(dead_code)]
     pub fn len(&self) -> usize {
         self.nodes.len()
     }
 
     /// Whether or not it is empty
+    ///
+    /// Graph-query API surface: covered by unit tests below, no production
+    /// caller yet.
+    #[allow(dead_code)]
     pub fn is_empty(&self) -> bool {
         self.nodes.is_empty()
     }

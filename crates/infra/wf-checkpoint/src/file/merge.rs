@@ -6,8 +6,8 @@ use layertwine::storage::sqlite::SqliteStorage;
 
 use crate::error::CheckpointError;
 use crate::event::CheckpointEventBus;
-use crate::file::FileCheckpointManager;
 use crate::file::util::{map_layertwine_error, seed_initial_snapshot};
+use crate::file::FileCheckpointManager;
 
 /// Result of a merge commit: the layertwine merge outcome plus the
 /// multi-parent checkpoint id created to record the merge in the DAG.
@@ -185,8 +185,8 @@ impl FileCheckpointManager {
             Box::new(storage.share());
         let mut repo = layertwine::checkpoint::repo::CheckpointRepo::load(persist)
             .map_err(map_layertwine_error)?;
-        let stats =
-            layertwine::checkpoint::gc::run_gc(&mut repo, retention).map_err(map_layertwine_error)?;
+        let stats = layertwine::checkpoint::gc::run_gc(&mut repo, retention)
+            .map_err(map_layertwine_error)?;
         if let Some(ref bus) = self.event_bus {
             bus.publish(CheckpointEventBus::gc_completed(stats.clone()));
         }

@@ -28,15 +28,16 @@ pub const AGENT_HOOK_TYPES: &[&str] = &[
 /// Internal engine signal points: named hook types that are not part of the
 /// user-facing hook config vocabulary. The engine dispatches them so builtin
 /// services (e.g. context compression) registered as handlers are notified
-/// synchronously; the audit event still leaves an event-bus copy for
-/// persistence and user trigger rules.
+/// synchronously; the audit event is a persistence and observability copy
+/// only and must not be used as a functional trigger source.
 pub const INTERNAL_SIGNAL_TYPES: &[&str] = &["CONTEXT_COMPRESSION_REQUESTED"];
 
 /// Hook type of the engine's internal context-compression signal: the engine
 /// dispatches it synchronously when a named message array exceeds its token
-/// limit (or a forced safety-net request fires); the
-/// `CONTEXT_COMPRESSION_REQUESTED` event remains the audit/persistence
-/// channel.
+/// limit (or a forced safety-net request fires) and the builtin compression
+/// service takes over immediately. The `CONTEXT_COMPRESSION_REQUESTED`
+/// event is the audit and persistence copy; user trigger templates should
+/// not subscribe to it for functional work.
 pub const CONTEXT_COMPRESSION_SIGNAL: &str = "CONTEXT_COMPRESSION_REQUESTED";
 
 /// Sub-agent lifecycle start: fired by the triggered-agent manager once the
@@ -106,6 +107,12 @@ pub struct HookPointConfig {
     pub hook_type: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub condition: Option<serde_json::Value>,
+    /// Deprecated: retained for config compatibility only. One fire
+    /// aggregates many definitions into a single `HOOK_TRIGGERED` audit
+    /// event, so a per-definition event name cannot be honored; the runtime
+    /// ignores it (warns once) and trigger templates must match
+    /// `HOOK_TRIGGERED` plus `metadata.hook_type` instead.
+    #[serde(default)]
     pub event_name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub event_payload: Option<serde_json::Value>,
@@ -129,6 +136,9 @@ pub struct HookPointStaticConfig {
     pub hook_type: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub condition: Option<String>,
+    /// Deprecated: retained for config compatibility only; ignored at
+    /// runtime (see `HookPointConfig.event_name`).
+    #[serde(default)]
     pub event_name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub event_payload: Option<serde_json::Value>,

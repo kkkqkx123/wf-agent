@@ -12,13 +12,23 @@ fn warn_missing_handler(field_prefix: &str, hook_type: &str) {
     );
 }
 
+fn warn_deprecated_event_name(field_prefix: &str, event_name: &str) {
+    if !event_name.is_empty() {
+        tracing::warn!(
+            "{}.event_name '{}' is deprecated and ignored at runtime; subscribe via HOOK_TRIGGERED plus metadata.hook_type",
+            field_prefix,
+            event_name
+        );
+    }
+}
+
 /// Validate a `HookPointConfig` (workflow-level hook).
 ///
 /// Checks:
 /// - `hook_type` is a known hook type (unknown types are allowed with a
 ///   warning for forward compatibility; they simply never fire and are
 ///   treated as observability points)
-/// - `event_name` is non-empty
+/// - `event_name` is deprecated and ignored (empty or not, always passes)
 /// - `weight` is in a reasonable range (if present)
 /// - request / mutated hooks without a `handler` get an extra warning
 ///   because they need a registered handler or trigger rule; observability
@@ -31,17 +41,16 @@ pub fn validate_base_hook_config(hook: &HookPointConfig, field_prefix: &str) -> 
             hook.hook_type
         );
     }
-    validate_not_empty(&hook.event_name, &format!("{field_prefix}.event_name"))?;
+    warn_deprecated_event_name(field_prefix, &hook.event_name);
     if let Some(weight) = hook.weight {
         validate_min(weight, 0, &format!("{field_prefix}.weight"))?;
     }
     if let Some(ref handler) = hook.handler {
         validate_not_empty(handler, &format!("{field_prefix}.handler"))?;
         tracing::debug!(
-            "{}.handler '{}' and async trigger path off event '{}' are independent with no ordering guarantee",
+            "{}.handler '{}' and the async trigger path off the HOOK_TRIGGERED audit event are independent with no ordering guarantee",
             field_prefix,
-            handler,
-            hook.event_name
+            handler
         );
     } else if is_known_hook_point(&hook.hook_type)
         && !matches!(
@@ -71,17 +80,16 @@ pub fn validate_base_hook_static_config(
             hook.hook_type
         );
     }
-    validate_not_empty(&hook.event_name, &format!("{field_prefix}.event_name"))?;
+    warn_deprecated_event_name(field_prefix, &hook.event_name);
     if let Some(weight) = hook.weight {
         validate_min(weight, 0, &format!("{field_prefix}.weight"))?;
     }
     if let Some(ref handler) = hook.handler {
         validate_not_empty(handler, &format!("{field_prefix}.handler"))?;
         tracing::debug!(
-            "{}.handler '{}' and async trigger path off event '{}' are independent with no ordering guarantee",
+            "{}.handler '{}' and the async trigger path off the HOOK_TRIGGERED audit event are independent with no ordering guarantee",
             field_prefix,
-            handler,
-            hook.event_name
+            handler
         );
     } else if is_known_hook_point(&hook.hook_type)
         && !matches!(
@@ -98,9 +106,9 @@ pub fn validate_base_hook_static_config(
 ///
 /// The wire name comes from `AgentHookType::as_str`, so every typed variant
 /// is known by construction; the registry check remains as a defense against
-/// future registry drift. `event_name` is validated for non-emptiness;
-/// `weight` is validated for range. Request / mutated hooks without a
-/// handler warn; observability hooks skip that check.
+/// future registry drift. `event_name` is deprecated and ignored (empty or
+/// not, always passes); `weight` is validated for range. Request / mutated
+/// hooks without a handler warn; observability hooks skip that check.
 pub fn validate_agent_hook_config(
     hook: &wf_types::agent::AgentHookConfig,
     field_prefix: &str,
@@ -113,17 +121,16 @@ pub fn validate_agent_hook_config(
             hook_type_str
         );
     }
-    validate_not_empty(&hook.event_name, &format!("{field_prefix}.event_name"))?;
+    warn_deprecated_event_name(field_prefix, &hook.event_name);
     if let Some(weight) = hook.weight {
         validate_min(weight, 0, &format!("{field_prefix}.weight"))?;
     }
     if let Some(ref handler) = hook.handler {
         validate_not_empty(handler, &format!("{field_prefix}.handler"))?;
         tracing::debug!(
-            "{}.handler '{}' and async trigger path off event '{}' are independent with no ordering guarantee",
+            "{}.handler '{}' and the async trigger path off the HOOK_TRIGGERED audit event are independent with no ordering guarantee",
             field_prefix,
-            handler,
-            hook.event_name
+            handler
         );
     } else if is_known_hook_point(hook_type_str)
         && !matches!(
@@ -181,10 +188,16 @@ mod tests {
     }
 
     #[test]
-    fn base_hook_empty_event_name_rejected() {
+    fn base_hook_empty_event_name_accepted_deprecated() {
         let mut hook = make_base_hook();
         hook.event_name = String::new();
-        assert!(validate_base_hook_config(&hook, "hooks[0]").is_err());
+        assert!(validate_base_hook_config(&hook, "hooks[0]").is_ok());
+    }
+
+    #[test]
+    fn base_hook_event_name_ignored_but_accepted() {
+        let hook = make_base_hook();
+        assert!(validate_base_hook_config(&hook, "hooks[0]").is_ok());
     }
 
     #[test]
@@ -207,10 +220,10 @@ mod tests {
     }
 
     #[test]
-    fn agent_hook_empty_event_name_rejected() {
+    fn agent_hook_empty_event_name_accepted_deprecated() {
         let mut hook = make_agent_hook();
         hook.event_name = String::new();
-        assert!(validate_agent_hook_config(&hook, "config.hooks[0]").is_err());
+        assert!(validate_agent_hook_config(&hook, "config.hooks[0]").is_ok());
     }
 
     #[test]
@@ -230,7 +243,7 @@ mod tests {
     }
 
     #[test]
-    fn base_hook_static_empty_event_name_rejected() {
+    fn base_hook_static_empty_event_name_accepted_deprecated() {
         let hook = HookPointStaticConfig {
             hook_type: "AFTER_TOOL_CALL".to_string(),
             condition: None,
@@ -242,7 +255,7 @@ mod tests {
             checkpoint_description: None,
             handler: None,
         };
-        assert!(validate_base_hook_static_config(&hook, "hooks[0]").is_err());
+        assert!(validate_base_hook_static_config(&hook, "hooks[0]").is_ok());
     }
 
     #[test]

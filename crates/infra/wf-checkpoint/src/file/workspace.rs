@@ -3,8 +3,8 @@ use std::path::{Path, PathBuf};
 use wf_types::config::file_checkpoint::FailureBehavior;
 
 use crate::error::CheckpointError;
-use crate::file::FileCheckpointManager;
 use crate::file::util::sha256_hex;
+use crate::file::FileCheckpointManager;
 use crate::scan::{ScanConfig, WorkspaceScanner};
 use crate::script_capture::WorkspaceChangeCollector;
 use crate::watcher::{FileChangeKind, FileChangeRecord};

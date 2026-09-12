@@ -32,6 +32,8 @@ fn parse_agent_hooks(agent_config: Option<&wf_types::agent::AgentConfig>) -> Vec
                     enabled: h.enabled.unwrap_or(true),
                     parallel: None,
                     continue_on_error: None,
+                    weight: h.weight.unwrap_or(0),
+                    payload: h.event_payload.clone(),
                     handler: h.handler.clone(),
                 })
                 .collect()

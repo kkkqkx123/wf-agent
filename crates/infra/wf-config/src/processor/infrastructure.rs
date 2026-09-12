@@ -532,5 +532,10 @@ mod tests {
         assert!(!prod_output.enable_log_terminal);
 
         let prod_timeout = get_timeout_environment_defaults(RuntimeEnvironment::Production);
+        assert_eq!(
+            prod_timeout,
+            TimeoutConfig::default(),
+            "production adds no implicit timeout fallback; tuning comes from config files or env vars"
+        );
     }
 }

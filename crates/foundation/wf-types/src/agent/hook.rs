@@ -60,6 +60,9 @@ pub struct AgentHookConfig {
     // hook_type_name() instead of re-serializing the enum.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub condition: Option<String>,
+    /// Deprecated: retained for config compatibility only; ignored at
+    /// runtime (see `crate::hook::HookPointConfig.event_name`).
+    #[serde(default)]
     pub event_name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub event_payload: Option<serde_json::Value>,

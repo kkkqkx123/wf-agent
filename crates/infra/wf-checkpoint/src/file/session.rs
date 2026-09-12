@@ -4,8 +4,8 @@ use layertwine::storage::repository::{EditSessionStore, PartitionStore, Snapshot
 
 use crate::actor::id::ActorId;
 use crate::error::CheckpointError;
-use crate::file::FileCheckpointManager;
 use crate::file::util::map_layertwine_error;
+use crate::file::FileCheckpointManager;
 
 impl FileCheckpointManager {
     // ── edit sessions (operation batches) ─────────────────────────────

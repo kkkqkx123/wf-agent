@@ -25,8 +25,8 @@ use crate::actor::id::ActorId;
 use crate::approval::{to_conflict_views, ConflictView};
 use crate::common::diff::{diff_stats_for_text, unified_diff_text};
 use crate::error::CheckpointError;
-use crate::file::FileContentEntry;
 use crate::file::util::{map_layertwine_error, sha256_hex};
+use crate::file::FileContentEntry;
 
 /// Seed path of the synthetic initial snapshot; excluded from provenance.
 const SEED_PATH: &str = ".wf-checkpoint-seed";

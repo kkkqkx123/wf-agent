@@ -3,7 +3,7 @@
 // valid. `ContributionType` and `PluginMiddlewareDef` stay host-side: they
 // describe registration/override semantics owned by the engine.
 pub use wf_plugin_sdk::contributions::{
-    NextFn, PluginEventHandler, PluginEventData, PluginExecutionContext, PluginLlmConfig,
+    NextFn, PluginEventData, PluginEventHandler, PluginExecutionContext, PluginLlmConfig,
     PluginLlmFormatter, PluginLlmRequest, PluginLlmResponse, PluginLlmUsage, PluginMessage,
     PluginMiddlewareHandler, PluginNodeHandler, PluginNodeResult, PluginToolContext,
     PluginToolExecutor, PluginToolResult,

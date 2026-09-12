@@ -236,8 +236,8 @@ impl CheckpointSession {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wf_types::effect::FileOperation;
     use std::path::PathBuf;
+    use wf_types::effect::FileOperation;
 
     #[test]
     fn session_builds_actor_partition() {

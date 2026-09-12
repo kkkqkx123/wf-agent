@@ -147,7 +147,10 @@ impl<P: WfNativePlugin> PluginState<P> {
         }
     }
 
-    fn set(&self, plugin: P) -> i32 {
+    /// Install the plugin instance. Called by the macro-generated `on_load`
+    /// export; `#[doc(hidden)]` because it is macro machinery, not author API.
+    #[doc(hidden)]
+    pub fn set(&self, plugin: P) -> i32 {
         let mut slot = self.instance.lock().expect("plugin state poisoned");
         if slot.is_some() {
             return 1;
@@ -156,7 +159,10 @@ impl<P: WfNativePlugin> PluginState<P> {
         0
     }
 
-    fn clear(&self) {
+    /// Drop the plugin instance. Called by the macro-generated
+    /// `on_load`/`on_unload` exports; `#[doc(hidden)]` as above.
+    #[doc(hidden)]
+    pub fn clear(&self) {
         *self.instance.lock().expect("plugin state poisoned") = None;
     }
 
@@ -218,9 +224,13 @@ pub mod __private {
     /// Per-cdylib singleton holding the plugin instance between `on_load`
     /// and `on_unload`. The host drives hooks sequentially, so a Mutex
     /// suffices. Re-exported at the crate root for `export_plugin!`.
-
     /// Generated `on_load`/`on_activate`/`on_config_change` body.
-    pub fn run_config_hook<P, F>(
+    ///
+    /// # Safety
+    /// `ctx` must be null or point to a valid `PluginContextC` whose string
+    /// fields are valid NUL-terminated C strings living at least for the
+    /// call. The host guarantees this for every ABI entry call.
+    pub unsafe fn run_config_hook<P, F>(
         state: &PluginState<P>,
         ctx: *const PluginContextC,
         f: F,
@@ -247,7 +257,14 @@ pub mod __private {
 
     /// Generated `wf_plugin_register_contributions` body: run the author's
     /// `register` and forward recorded names into the host registrar.
-    pub fn forward_registrations<P: WfNativePlugin>(host: *mut ContributionRegistrarC) -> i32 {
+    ///
+    /// # Safety
+    /// `host` must be null or point to a valid `ContributionRegistrarC`
+    /// whose callback pointers, when set, are callable with the given
+    /// context pointer. The host guarantees this for the ABI entry call.
+    pub unsafe fn forward_registrations<P: WfNativePlugin>(
+        host: *mut ContributionRegistrarC,
+    ) -> i32 {
         let registrar = NativeRegistrar::new();
         if catch_panic(|| {
             P::register(&registrar);
@@ -268,24 +285,12 @@ pub mod __private {
             let name_ptr = c_name.as_ptr();
             let ctx = host.context;
             let ok = match kind.as_str() {
-                "node-type" => host
-                    .register_node_type
-                    .map(|f| unsafe { f(ctx, name_ptr) }),
-                "tool-type" => host
-                    .register_tool_type
-                    .map(|f| unsafe { f(ctx, name_ptr) }),
-                "llm-provider" => host
-                    .register_llm_provider
-                    .map(|f| unsafe { f(ctx, name_ptr) }),
-                "formatter" => host
-                    .register_formatter
-                    .map(|f| unsafe { f(ctx, name_ptr) }),
-                "event-handler" => host
-                    .register_event_handler
-                    .map(|f| unsafe { f(ctx, name_ptr) }),
-                "middleware" => host
-                    .register_middleware
-                    .map(|f| unsafe { f(ctx, name_ptr, 0) }),
+                "node-type" => host.register_node_type.map(|f| f(ctx, name_ptr)),
+                "tool-type" => host.register_tool_type.map(|f| f(ctx, name_ptr)),
+                "llm-provider" => host.register_llm_provider.map(|f| f(ctx, name_ptr)),
+                "formatter" => host.register_formatter.map(|f| f(ctx, name_ptr)),
+                "event-handler" => host.register_event_handler.map(|f| f(ctx, name_ptr)),
+                "middleware" => host.register_middleware.map(|f| f(ctx, name_ptr, 0)),
                 _ => None,
             };
             if ok == Some(1) {
@@ -297,10 +302,12 @@ pub mod __private {
 
     /// Generated `wf_plugin_get_manifest` body: `out == null` means size
     /// query, otherwise copy up to `*len` bytes and report bytes written.
-    pub fn write_manifest_bytes<P: WfNativePlugin>(
-        out: *mut u8,
-        len: *mut usize,
-    ) -> i32 {
+    ///
+    /// # Safety
+    /// `out`/`len` must be null or point to valid writable memory: `len`
+    /// always, `out` for at least `*len` bytes when non-null. The host
+    /// guarantees this for the ABI entry call.
+    pub unsafe fn write_manifest_bytes<P: WfNativePlugin>(out: *mut u8, len: *mut usize) -> i32 {
         let bytes = match catch_panic(|| {
             toml::to_string_pretty(&P::manifest())
                 .map_err(|e| PluginError::NativeError(format!("manifest serialize: {}", e)))
@@ -325,7 +332,13 @@ pub mod __private {
 
     /// Generated `wf_plugin_dispatch_handler` body: parse host input, call
     /// the author's `dispatch`, serialize the result into the output buffer.
-    pub fn dispatch_into_buffer<P: WfNativePlugin>(
+    ///
+    /// # Safety
+    /// The input pointers must be null or point to valid NUL-terminated C
+    /// strings; `output_len` must be null or point to valid writable memory
+    /// and `output_buf` must be null or writable for at least `*output_len`
+    /// bytes. The host guarantees this for the ABI entry call.
+    pub unsafe fn dispatch_into_buffer<P: WfNativePlugin>(
         state: &PluginState<P>,
         handler_type: *const c_char,
         handler_name: *const c_char,
@@ -390,8 +403,7 @@ macro_rules! export_plugin {
             assert_impl::<$plugin>();
         };
 
-        static WF_PLUGIN_SDK_STATE: $crate::PluginState<$plugin> =
-            $crate::PluginState::new();
+        static WF_PLUGIN_SDK_STATE: $crate::PluginState<$plugin> = $crate::PluginState::new();
 
         #[no_mangle]
         pub extern "C" fn wf_plugin_abi_version() -> u32 {
@@ -400,13 +412,11 @@ macro_rules! export_plugin {
 
         #[no_mangle]
         pub extern "C" fn wf_plugin_get_manifest(out: *mut u8, len: *mut usize) -> i32 {
-            $crate::__private::write_manifest_bytes::<$plugin>(out, len)
+            unsafe { $crate::__private::write_manifest_bytes::<$plugin>(out, len) }
         }
 
         #[no_mangle]
-        pub extern "C" fn wf_plugin_on_load(
-            ctx: *const $crate::native::PluginContextC,
-        ) -> i32 {
+        pub extern "C" fn wf_plugin_on_load(ctx: *const $crate::native::PluginContextC) -> i32 {
             // Ensure a clean slot: clear any leftover state from a previous
             // load that failed before reaching on_unload.
             WF_PLUGIN_SDK_STATE.clear();
@@ -415,22 +425,20 @@ macro_rules! export_plugin {
                 0 => {}
                 _ => return 1,
             }
-            $crate::__private::run_config_hook(
-                &WF_PLUGIN_SDK_STATE,
-                ctx,
-                |p, config| p.on_load(&config),
-            )
+            unsafe {
+                $crate::__private::run_config_hook(&WF_PLUGIN_SDK_STATE, ctx, |p, config| {
+                    p.on_load(&config)
+                })
+            }
         }
 
         #[no_mangle]
-        pub extern "C" fn wf_plugin_on_activate(
-            ctx: *const $crate::native::PluginContextC,
-        ) -> i32 {
-            $crate::__private::run_config_hook(
-                &WF_PLUGIN_SDK_STATE,
-                ctx,
-                |p, config| p.on_activate(&config),
-            )
+        pub extern "C" fn wf_plugin_on_activate(ctx: *const $crate::native::PluginContextC) -> i32 {
+            unsafe {
+                $crate::__private::run_config_hook(&WF_PLUGIN_SDK_STATE, ctx, |p, config| {
+                    p.on_activate(&config)
+                })
+            }
         }
 
         #[no_mangle]
@@ -441,9 +449,7 @@ macro_rules! export_plugin {
         }
 
         #[no_mangle]
-        pub extern "C" fn wf_plugin_on_unload(
-            _ctx: *const $crate::native::PluginContextC,
-        ) -> i32 {
+        pub extern "C" fn wf_plugin_on_unload(_ctx: *const $crate::native::PluginContextC) -> i32 {
             let code = $crate::__private::run_plain_hook(&WF_PLUGIN_SDK_STATE, |p| p.on_unload());
             WF_PLUGIN_SDK_STATE.clear();
             code
@@ -453,18 +459,18 @@ macro_rules! export_plugin {
         pub extern "C" fn wf_plugin_on_config_change(
             ctx: *const $crate::native::PluginContextC,
         ) -> i32 {
-            $crate::__private::run_config_hook(
-                &WF_PLUGIN_SDK_STATE,
-                ctx,
-                |p, config| p.on_config_change(&config),
-            )
+            unsafe {
+                $crate::__private::run_config_hook(&WF_PLUGIN_SDK_STATE, ctx, |p, config| {
+                    p.on_config_change(&config)
+                })
+            }
         }
 
         #[no_mangle]
         pub extern "C" fn wf_plugin_register_contributions(
             host: *mut $crate::native::ContributionRegistrarC,
         ) -> i32 {
-            $crate::__private::forward_registrations::<$plugin>(host)
+            unsafe { $crate::__private::forward_registrations::<$plugin>(host) }
         }
 
         #[no_mangle]
@@ -475,14 +481,16 @@ macro_rules! export_plugin {
             output_buf: *mut u8,
             output_len: *mut usize,
         ) -> i32 {
-            $crate::__private::dispatch_into_buffer(
-                &WF_PLUGIN_SDK_STATE,
-                handler_type,
-                handler_name,
-                input_json,
-                output_buf,
-                output_len,
-            )
+            unsafe {
+                $crate::__private::dispatch_into_buffer(
+                    &WF_PLUGIN_SDK_STATE,
+                    handler_type,
+                    handler_name,
+                    input_json,
+                    output_buf,
+                    output_len,
+                )
+            }
         }
     };
 }
@@ -568,35 +576,36 @@ mod tests {
 
     #[test]
     fn abi_version_matches_contract() {
-        assert_eq!(unsafe { wf_plugin_abi_version() }, WF_PLUGIN_ABI_VERSION);
+        assert_eq!(wf_plugin_abi_version(), WF_PLUGIN_ABI_VERSION);
     }
 
     #[test]
     fn manifest_export_two_phase() {
         // Phase 1: size query with a null out buffer.
         let mut len: usize = 0;
-        let code = unsafe { wf_plugin_get_manifest(std::ptr::null_mut(), &mut len) };
+        let code = wf_plugin_get_manifest(std::ptr::null_mut(), &mut len);
         assert_eq!(code, 0);
         assert!(len > 0);
 
         // Phase 2: fill and parse back as TOML.
         let mut buf = vec![0u8; len];
         let mut written = buf.len();
-        let code = unsafe { wf_plugin_get_manifest(buf.as_mut_ptr(), &mut written) };
+        let code = wf_plugin_get_manifest(buf.as_mut_ptr(), &mut written);
         assert_eq!(code, 0);
         buf.truncate(written);
-        let manifest: PluginManifest =
-            toml::from_str(&String::from_utf8(buf).unwrap()).unwrap();
+        let manifest: PluginManifest = toml::from_str(&String::from_utf8(buf).unwrap()).unwrap();
         assert_eq!(manifest.id, "demo");
     }
 
     #[test]
     fn lifecycle_hooks_round_trip() {
         let _guard = lock();
-        let (_, _, ctx) = make_ctx(&json!({}));
-        assert_eq!(unsafe { wf_plugin_on_load(&ctx) }, 0);
-        assert_eq!(unsafe { wf_plugin_on_activate(&ctx) }, 0);
-        assert_eq!(unsafe { wf_plugin_on_deactivate(&ctx) }, 0);
+        // Bind the backing strings: `ctx` borrows them, discarding would
+        // leave dangling pointers (use-after-free).
+        let (_id, _cfg, ctx) = make_ctx(&json!({}));
+        assert_eq!(wf_plugin_on_load(&ctx), 0);
+        assert_eq!(wf_plugin_on_activate(&ctx), 0);
+        assert_eq!(wf_plugin_on_deactivate(&ctx), 0);
 
         // Dispatch works while loaded.
         let kind = CString::new("tool-type").unwrap();
@@ -604,33 +613,31 @@ mod tests {
         let input = CString::new(json!({"x": 1}).to_string()).unwrap();
         let mut buf = vec![0u8; 4096];
         let mut written = buf.len();
-        let code = unsafe {
-            wf_plugin_dispatch_handler(
-                kind.as_ptr(),
-                name.as_ptr(),
-                input.as_ptr(),
-                buf.as_mut_ptr(),
-                &mut written,
-            )
-        };
+        let code = wf_plugin_dispatch_handler(
+            kind.as_ptr(),
+            name.as_ptr(),
+            input.as_ptr(),
+            buf.as_mut_ptr(),
+            &mut written,
+        );
         assert_eq!(code, 0);
         buf.truncate(written);
         let out: serde_json::Value = serde_json::from_slice(&buf).unwrap();
         assert_eq!(out["name"], "demo_tool");
         assert_eq!(out["echo"]["x"], 1);
 
-        assert_eq!(unsafe { wf_plugin_on_unload(&ctx) }, 0);
+        assert_eq!(wf_plugin_on_unload(&ctx), 0);
     }
 
     #[test]
     fn failing_hook_reports_nonzero() {
         let _guard = lock();
-        let (_, _, ctx) = make_ctx(&json!({ "fail": true }));
-        assert_eq!(unsafe { wf_plugin_on_load(&ctx) }, 1);
+        let (_id, _cfg, ctx) = make_ctx(&json!({ "fail": true }));
+        assert_eq!(wf_plugin_on_load(&ctx), 1);
         // Reset state for other tests: on_load failed but the instance was
         // installed; unload clears it.
-        let (_, _, ok_ctx) = make_ctx(&json!({}));
-        unsafe { wf_plugin_on_unload(&ok_ctx) };
+        let (_ok_id, _ok_cfg, ok_ctx) = make_ctx(&json!({}));
+        wf_plugin_on_unload(&ok_ctx);
     }
 
     #[test]
@@ -640,21 +647,19 @@ mod tests {
         let name = CString::new("demo_tool").unwrap();
         let input = CString::new("null").unwrap();
         let mut written = 0usize;
-        let code = unsafe {
-            wf_plugin_dispatch_handler(
-                kind.as_ptr(),
-                name.as_ptr(),
-                input.as_ptr(),
-                std::ptr::null_mut(),
-                &mut written,
-            )
-        };
+        let code = wf_plugin_dispatch_handler(
+            kind.as_ptr(),
+            name.as_ptr(),
+            input.as_ptr(),
+            std::ptr::null_mut(),
+            &mut written,
+        );
         assert_eq!(code, 1);
     }
 
     #[test]
     fn registrar_records_contributions() {
-        let mut registrar = NativeRegistrar::new();
+        let registrar = NativeRegistrar::new();
         DemoPlugin::register(&registrar);
         let recorded = registrar.recorded();
         assert_eq!(
@@ -669,9 +674,9 @@ mod tests {
     #[test]
     fn forward_registrations_requires_host() {
         assert_eq!(
-            crate::plugin::__private::forward_registrations::<DemoPlugin>(
-                std::ptr::null_mut()
-            ),
+            unsafe {
+                crate::plugin::__private::forward_registrations::<DemoPlugin>(std::ptr::null_mut())
+            },
             1
         );
     }

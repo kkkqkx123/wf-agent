@@ -4,13 +4,13 @@ use std::path::Path;
 use layertwine::storage::repository::MetadataStore;
 
 use crate::error::CheckpointError;
-use crate::file::{
-    FileCheckpointManager, FileCheckpointOptions, FileState, WorkspaceRestoreResult,
-};
 use crate::file::util::{
     checkpoint_deleted_paths as checkpoint_deleted_paths_fn,
     checkpoint_states as checkpoint_states_fn, handle_restore_failure, resolve_restore_target,
     sha256_hex, validate_workspace_relative_path, write_file_with_dirs,
+};
+use crate::file::{
+    FileCheckpointManager, FileCheckpointOptions, FileState, WorkspaceRestoreResult,
 };
 use crate::scan::{is_hardcoded_ignored, ScanConfig, WorkspaceScanner};
 

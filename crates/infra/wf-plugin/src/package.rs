@@ -73,7 +73,11 @@ impl PluginPackageManager {
     }
 
     pub fn installed(&self) -> Vec<InstalledPlugin> {
-        self.state.lock().expect("package state poisoned").installed.clone()
+        self.state
+            .lock()
+            .expect("package state poisoned")
+            .installed
+            .clone()
     }
 
     /// Enabled is the default for plugins absent from the registry, so
@@ -138,7 +142,8 @@ fn persist(state_path: &Path, state: &PackageState) -> PluginResult<()> {
     if let Some(parent) = state_path.parent() {
         std::fs::create_dir_all(parent).map_err(PluginError::Io)?;
     }
-    let content = serde_json::to_string_pretty(state).map_err(|e| PluginError::Internal(e.to_string()))?;
+    let content =
+        serde_json::to_string_pretty(state).map_err(|e| PluginError::Internal(e.to_string()))?;
     let tmp = state_path.with_extension("json.tmp");
     std::fs::write(&tmp, content).map_err(PluginError::Io)?;
     std::fs::rename(&tmp, state_path).map_err(PluginError::Io)?;
@@ -153,8 +158,11 @@ mod tests {
     static DIR_SEQ: AtomicU64 = AtomicU64::new(0);
 
     fn temp_dir(tag: &str) -> PathBuf {
-        let dir = std::env::temp_dir()
-            .join(format!("wf-plugin-pkg-{}-{}", tag, DIR_SEQ.fetch_add(1, Ordering::SeqCst)));
+        let dir = std::env::temp_dir().join(format!(
+            "wf-plugin-pkg-{}-{}",
+            tag,
+            DIR_SEQ.fetch_add(1, Ordering::SeqCst)
+        ));
         std::fs::create_dir_all(&dir).expect("create temp dir");
         dir
     }
@@ -201,7 +209,9 @@ mod tests {
         assert!(mgr2.installed()[0].enabled);
 
         assert!(mgr2.uninstall("demo").expect("uninstall"));
-        assert!(!PluginPackageManager::new(&dir).uninstall("demo").expect("uninstall again"));
+        assert!(!PluginPackageManager::new(&dir)
+            .uninstall("demo")
+            .expect("uninstall again"));
         std::fs::remove_dir_all(&dir).ok();
     }
 
@@ -209,7 +219,8 @@ mod tests {
     fn double_install_is_rejected() {
         let dir = temp_dir("double");
         let mgr = PluginPackageManager::new(&dir);
-        mgr.install(&manifest("demo"), Path::new("./plugins/demo")).expect("install");
+        mgr.install(&manifest("demo"), Path::new("./plugins/demo"))
+            .expect("install");
         assert!(matches!(
             mgr.install(&manifest("demo"), Path::new("./plugins/demo")),
             Err(PluginError::AlreadyExists(_))
@@ -221,7 +232,8 @@ mod tests {
     fn enable_disable_updates_persisted_flag() {
         let dir = temp_dir("toggle");
         let mgr = PluginPackageManager::new(&dir);
-        mgr.install(&manifest("demo"), Path::new("./plugins/demo")).expect("install");
+        mgr.install(&manifest("demo"), Path::new("./plugins/demo"))
+            .expect("install");
 
         assert!(mgr.set_enabled("demo", false).expect("disable"));
         assert!(!mgr.is_enabled("demo"));

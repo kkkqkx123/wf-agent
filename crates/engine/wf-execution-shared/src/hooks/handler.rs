@@ -21,6 +21,7 @@ pub trait HookHandler: Send + Sync {
     /// Stable handler name (registration dedup / unregister / resolution).
     fn name(&self) -> &str;
     /// Handle one hook notification. The returned outcome is aggregated by
-    /// the firer; `Intercept` is reserved for future control semantics.
+    /// the firer; handlers are observation-only and cannot stop execution
+    /// (blocking and permission decisions belong to approval).
     async fn on_point(&self, ctx: &HookContext) -> HookOutcome;
 }

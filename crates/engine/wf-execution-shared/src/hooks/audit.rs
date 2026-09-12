@@ -73,6 +73,12 @@ pub fn publish_hook_audit_event(
                 execution_id = %ctx.execution_id,
                 "request/mutated hook fired with no matched definitions or handlers"
             );
+        } else {
+            tracing::debug!(
+                hook_type = %ctx.hook_type,
+                execution_id = %ctx.execution_id,
+                "observable hook fired with no matched definitions or handlers; no audit event published"
+            );
         }
         return 0;
     }
@@ -85,17 +91,7 @@ pub fn publish_hook_audit_event(
         .map(|r| {
             let mut entry = serde_json::Map::new();
             entry.insert("name".to_string(), Value::String(r.name.clone()));
-            entry.insert(
-                "outcome".to_string(),
-                match &r.outcome {
-                    crate::hooks::types::HookOutcome::Continue => {
-                        Value::String("continue".to_string())
-                    }
-                    crate::hooks::types::HookOutcome::Intercept { reason } => {
-                        serde_json::json!({"intercept": reason})
-                    }
-                },
-            );
+            entry.insert("outcome".to_string(), Value::String("continue".to_string()));
             entry.insert(
                 "duration_ms".to_string(),
                 Value::Number(serde_json::Number::from(r.duration_ms)),

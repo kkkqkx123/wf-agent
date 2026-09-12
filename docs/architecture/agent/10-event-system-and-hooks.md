@@ -1,185 +1,60 @@
-# Agent Event System and Hooks
+# Agent 事件系统与 Hook
 
-## 1. Event System
+本文描述 Rust 实现现状。单一事实源为 `wf-types` 的事件与钩子类型定义，触发管线在 `wf-execution-shared/hooks`，埋点分布于 `wf-agent` 与 `wf-workflow` 协调器。
 
-The agent event system builds on the shared event infrastructure with agent-specific event types.
+## 1. 事件系统
 
-### Agent Event Types
+所有执行事件经共享事件总线发布，触发器监听器、持久化、外部订阅均消费同一总线。
 
-| Event Category | Events |
-|---------------|--------|
-| **Agent Lifecycle** | `AGENT_STARTED`, `AGENT_COMPLETED`, `AGENT_FAILED`, `AGENT_PAUSED`, `AGENT_RESUMED`, `AGENT_CANCELLED` |
-| **Iteration** | `AGENT_ITERATION_STARTED`, `AGENT_ITERATION_COMPLETED` |
-| **LLM** | `AGENT_LLM_CALL_STARTED`, `AGENT_LLM_CALL_COMPLETED`, `MESSAGE_ADDED` |
-| **Tool** | `AGENT_TOOL_EXECUTION_STARTED`, `AGENT_TOOL_EXECUTION_COMPLETED` |
-| **Hook** | `AGENT_HOOK_TRIGGERED` |
-| **Checkpoint** | `CHECKPOINT_CREATED`, `CHECKPOINT_RESTORED` |
-| **Attempt Completion** | `ATTEMPT_COMPLETION_EVENT` |
+与钩子相关的核心事件只有一种：`HOOK_TRIGGERED`。它是某次钩子发射的审计副本，元数据携带发射摘要：钩子类型单元素数组、事件分类、命中数量、权重、模板解析后的载荷、逐处理器结果（名称、结果、耗时、错误）与总耗时。执行标识与 Agent 回路标识取自发射上下文，工作流标识在上下文含工作流信息时透传。
 
-### Event Builders
+其余生命周期事件（迭代起止、工具调用起止、节点起止等）由各协调器直接发布，触发器可直接订阅，无需经过钩子。
 
-Agent-specific event builders are in `shared/events/builders/agent-events.ts`:
+## 2. Hook 系统
 
-| Builder Function | Event Type |
-|-----------------|-----------|
-| `buildAgentStartedEvent()` | `AGENT_STARTED` |
-| `buildAgentCompletedEvent()` | `AGENT_COMPLETED` |
-| `buildAgentFailedEvent()` | `AGENT_FAILED` |
-| `buildAgentPausedEvent()` | `AGENT_PAUSED` |
-| `buildAgentResumedEvent()` | `AGENT_RESUMED` |
-| `buildAgentCancelledEvent()` | `AGENT_CANCELLED` |
-| `buildAgentIterationCompletedEvent()` | `AGENT_ITERATION_COMPLETED` |
-| `buildAgentToolExecutionStartedEvent()` | `AGENT_TOOL_EXECUTION_STARTED` |
-| `buildAgentToolExecutionCompletedEvent()` | `AGENT_TOOL_EXECUTION_COMPLETED` |
-| `buildMessageAddedEvent()` | `MESSAGE_ADDED` |
-| `buildAttemptCompletionEvent()` | `ATTEMPT_COMPLETION_EVENT` |
+钩子是同步边界点：引擎在固定埋点停下，按类型过滤静态定义并求值条件与载荷模板，按权重顺序同步通知处理器，引擎等待全部处理器落定后才继续，最后发布一条 `HOOK_TRIGGERED` 审计事件。
 
-### Event Emission Flow
+### 2.1 钩子词汇表
 
-Events are emitted via the shared `emit()` utility:
+| 类别 | 钩子类型 |
+|---|---|
+| Agent 回路 | `BEFORE_ITERATION`、`AFTER_ITERATION`、`BEFORE_LLM_CALL`、`AFTER_LLM_CALL`、`BEFORE_TOOL_CALL`、`AFTER_TOOL_CALL`、`BEFORE_AGENT`、`AFTER_AGENT`、`SUBAGENT_START`、`SUBAGENT_STOP`、`BEFORE_USER_PROMPT` |
+| 工作流 | `BEFORE_EXECUTE`（逐节点）、`AFTER_EXECUTE`（逐节点）、`ON_ERROR`、`WORKFLOW_BEFORE`、`WORKFLOW_AFTER` |
+| 内部信号 | `CONTEXT_COMPRESSION_REQUESTED`（压缩专用，见下） |
 
-```typescript
-import { emit } from "../../shared/events/emit-event.js";
+校验以注册表为唯一依据，未知类型允许注册但永不发射。
 
-// Example: emit agent started event
-const event = buildAgentStartedEvent({
-  agentLoopId: entity.id,
-  maxIterations: entity.config.maxIterations ?? -1,
-  initialMessageCount: messageCount,
-  executionId: entity.id,
-});
-await emit(eventManager, event);
-```
+### 2.2 影响分级
 
-## 2. Hook System
+| 分级 | 成员 | 含义 |
+|---|---|---|
+| 可观测 | 绝大多数钩子 | 零订阅可用；无命中定义且无处理器时不发布审计事件，仅记调试日志 |
+| 变更 | `ON_ERROR`、`WORKFLOW_BEFORE`、`WORKFLOW_AFTER` | 需要已注册处理器或触发规则，否则启动检查告警 |
+| 请求 | `CONTEXT_COMPRESSION_REQUESTED` | 必须有已注册处理器，否则压缩静默退化为空审计 |
 
-### Agent Hook Types
+### 2.3 双路径模型
 
-The agent loop supports the following hook lifecycle points:
+一次发射有两条相互独立、无序保证的路径：同步处理器通知（毫秒预算，引擎等待，超时熔断跳过）与异步触发器路径（监听器匹配审计事件后执行动作，可延迟可重试）。除非两边效果已知可交换，否则每个钩子只用一条路径。
 
-| Hook Type | Timing | Context |
-|-----------|--------|---------|
-| `BEFORE_ITERATION` | Before iteration starts | Agent loop entity, config |
-| `AFTER_ITERATION` | After iteration ends | Agent loop entity, iteration result |
-| `BEFORE_LLM_CALL` | Before LLM call | Messages, LLM profile |
-| `AFTER_LLM_CALL` | After LLM call | LLM result, token usage |
-| `BEFORE_TOOL_CALL` | Before tool call starts | Tool call details |
-| `AFTER_TOOL_CALL` | After tool call ends | Tool result, execution time |
+阻断调用、改写入参、权限决策不属于钩子能力：同步结果只有继续，真正的门禁由审批机制承担。`BEFORE_*` 钩子的触发器动作同样是事后异步执行，不能做前置拦截。
 
-### Hook Execution
+### 2.4 已废弃项
 
-The `executeAgentHook()` function handles hook execution:
+钩子配置中的事件名字段已废弃，仅为兼容保留解析，运行时忽略并告警。触发器订阅钩子一律使用事件类型 `HOOK_TRIGGERED` 加元数据 `hook_type` 纯字符串条件（审计事件中该字段为单元素数组，匹配器按数组包含处理）。
 
-```
-executeAgentHook(hookType, entity, context):
-  1. Find matching hooks for the hook type
-  2. For each matching hook:
-     a. Build evaluation context
-     b. Evaluate hook condition (if any)
-     c. If condition matches:
-        - Execute hook action (callback)
-        - Emit AGENT_HOOK_TRIGGERED event
-        - Return hook result
-  3. Return aggregated hook results
-```
+### 2.5 压缩信号
 
-### Hook Context
+上下文压缩走同步信号为主路径，内置压缩服务在发射时同步接管。审计事件仅为可观测副本，不得作为功能触发源：触发器校验拒绝订阅该信号（含经审计副本间接订阅），监听器对漏网模板同样跳过并告警。
 
-```typescript
-interface AgentHookExecutionContext {
-  entity: AgentLoopEntity;
-  hookType: HookType;
-  messages?: LLMMessage[];
-  llmResult?: LLMResult;
-  toolCalls?: ToolCallRecord[];
-  toolResults?: ToolExecutionResult[];
-  iteration?: number;
-  metadata?: Record<string, unknown>;
-}
-```
+## 3. 三系统选型
 
-### Hook Evaluation Context
+| 需求 | 使用 |
+|---|---|
+| 需阻塞当前步骤、毫秒级完成 | 同步钩子处理器 |
+| 工具调用前置审批与改写 | 审批机制 |
+| 可延迟、可重试、可跨执行访问的副作用 | 异步触发器 |
+| 压缩 | 内置同步压缩服务 |
 
-The `buildAgentHookEvaluationContext()` function builds the evaluation context for condition checking:
+## 4. 发射位置
 
-```
-AgentHookEvaluationContext:
-├── agentLoopId: ID
-├── currentIteration: number
-├── totalIterations: number
-├── status: AgentLoopStatus
-├── toolCallCount: number
-├── conversationLength: number
-├── lastMessage?: LLMMessage
-├── lastToolCall?: ToolCallRecord
-└── metadata: Record<string, unknown>
-```
-
-### Hook Configuration
-
-```typescript
-interface AgentHook {
-  type: HookType;
-  condition?: HookCondition;  // Optional condition expression
-  action: HookAction;         // Callback function
-  priority?: number;          // Execution order (lower = earlier)
-}
-```
-
-### Hook Event Emission
-
-Hook events are emitted via `emitAgentHookEvent()`:
-
-```
-emitAgentHookEvent(hookType, entity, context):
-  1. Build event payload
-  2. Emit AGENT_HOOK_TRIGGERED event
-  3. Include hook type, agent loop ID, iteration, metadata
-```
-
-## 3. Hook Execution Flow within Iteration
-
-```
-AgentIterationCoordinator.executeIteration():
-  1. executeAgentHook(BEFORE_ITERATION, entity, context)
-  2. Prepare messages
-  3. executeAgentHook(BEFORE_LLM_CALL, entity, context)
-  4. LLMExecutionCoordinator.execute()
-  5. executeAgentHook(AFTER_LLM_CALL, entity, context)
-  6. Process response:
-     if tool calls:
-       for each tool call:
-         a. executeAgentHook(BEFORE_TOOL_CALL, entity, context)
-         b. Execute tool
-         c. executeAgentHook(AFTER_TOOL_CALL, entity, context)
-  7. executeAgentHook(AFTER_ITERATION, entity, context)
-```
-
-## 4. Event-Driven Coordination
-
-The event system enables decoupled communication between components:
-
-```
-Component A → emit(event) → EventRegistry
-                              ├── Subscriber 1 (logging)
-                              ├── Subscriber 2 (metrics)
-                              └── Subscriber 3 (external notification)
-```
-
-### Execution Event Bus
-
-The `getExecutionEventBus()` provides a centralized event bus for execution-related events:
-
-```
-ExecutionEventBus
-├── emit(event) → void
-├── subscribe(type, handler) → unsubscribe function
-└── getHistory() → Event[]
-```
-
-### Event Usage
-
-- **Events are for state changes and coordination**, not for logging
-- Pure function with error handling
-- Each event type has a dedicated builder function
-- Events can be subscribed to via plugins for extensibility
+Agent 侧发射器按回路实体配置发射各回路钩子；工作流侧节点协调器在每节点前后与失败时发射节点钩子，工作流协调器在执行整体前后发射范围钩子。子代理启停钩子由子代理管理器在父实体配置上发射。

@@ -47,6 +47,19 @@ impl ConversationAnchor {
     }
 }
 
+/// Source feeding a trigger template.
+///
+/// Only `Event` is implemented: the listener matches `BaseEvent`s on the
+/// event bus. `Schedule` and `Webhook` are reserved placeholders for a cron
+/// scheduler and an external event gateway; custom resources using them are
+/// rejected at load time with an explicit message.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum TriggerSource {
+    Event,
+    Schedule,
+    Webhook,
+}
+
 /// Condition matching an event against a trigger template.
 ///
 /// Matching semantics (backward compatible):
@@ -88,6 +101,64 @@ pub struct TriggerCondition {
     /// Prefix match on the event `execution_id` / `agent_loop_id`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub execution_prefix: Option<String>,
+}
+
+impl TriggerCondition {
+    /// Whether this condition subscribes to the internal compression signal,
+    /// either directly (`event_type` is the signal) or through its audit
+    /// copy (`HOOK_TRIGGERED` with `metadata.hook_type` naming the signal).
+    /// The builtin compression service owns that path synchronously; the
+    /// event copy is audit-only and must not drive functional actions.
+    pub fn targets_compression_signal(&self) -> bool {
+        if self.event_type == crate::hook::CONTEXT_COMPRESSION_SIGNAL {
+            return true;
+        }
+        if self.event_type == crate::events::EventType::HookTriggered.as_str() {
+            if let Some(meta) = &self.metadata {
+                if let Some(value) = meta.get("hook_type") {
+                    let signal = crate::hook::CONTEXT_COMPRESSION_SIGNAL;
+                    match value {
+                        serde_json::Value::String(s) => {
+                            if s == signal {
+                                return true;
+                            }
+                        }
+                        serde_json::Value::Array(items)
+                            if items.iter().any(|item| item.as_str() == Some(signal)) =>
+                        {
+                            return true;
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+        false
+    }
+
+    /// Whether this condition subscribes to a `BEFORE_*` hook point through
+    /// the `HOOK_TRIGGERED` audit event. Trigger actions always run
+    /// asynchronously after the hook point and cannot block or gate the
+    /// execution; front-gating belongs to the approval mechanism.
+    pub fn targets_before_hook(&self) -> bool {
+        if self.event_type != crate::events::EventType::HookTriggered.as_str() {
+            return false;
+        }
+        let Some(meta) = &self.metadata else {
+            return false;
+        };
+        let Some(value) = meta.get("hook_type") else {
+            return false;
+        };
+        match value {
+            serde_json::Value::String(s) => s.starts_with("BEFORE_"),
+            serde_json::Value::Array(items) => items
+                .iter()
+                .filter_map(|item| item.as_str())
+                .any(|s| s.starts_with("BEFORE_")),
+            _ => false,
+        }
+    }
 }
 
 /// How the child agent's input snapshot is derived from the parent
@@ -200,7 +271,9 @@ pub enum TriggerAction {
     /// Event-driven nested agent execution.
     /// Supported only by the event-driven trigger listener
     /// (`AgentTriggerRunner` in wf-runtime); message nodes reject it with an
-    /// explicit error.
+    /// explicit error because the child needs the parent conversation anchor
+    /// carried by the triggering event. Prefer
+    /// `ExecuteTriggeredSubworkflow` inside message nodes.
     ExecuteTriggeredAgentExecution {
         agent_id: String,
         /// Prompt passed to the child agent loop.
@@ -294,6 +367,60 @@ mod tests {
             ConversationAnchor::from_event_metadata(&meta).is_none(),
             "message_count missing must yield no anchor"
         );
+    }
+
+    #[test]
+    fn compression_signal_subscription_detected() {
+        let direct = TriggerCondition {
+            event_type: crate::hook::CONTEXT_COMPRESSION_SIGNAL.to_string(),
+            event_name: None,
+            condition: None,
+            metadata: None,
+            metadata_exists: None,
+            execution_prefix: None,
+        };
+        assert!(direct.targets_compression_signal());
+
+        let audit_copy = TriggerCondition {
+            event_type: crate::events::EventType::HookTriggered.as_str().to_string(),
+            event_name: None,
+            condition: None,
+            metadata: Some(metadata(&[(
+                "hook_type",
+                serde_json::json!(crate::hook::CONTEXT_COMPRESSION_SIGNAL),
+            )])),
+            metadata_exists: None,
+            execution_prefix: None,
+        };
+        assert!(audit_copy.targets_compression_signal());
+
+        let ordinary = TriggerCondition {
+            event_type: crate::events::EventType::HookTriggered.as_str().to_string(),
+            event_name: None,
+            condition: None,
+            metadata: Some(metadata(&[(
+                "hook_type",
+                serde_json::json!("BEFORE_TOOL_CALL"),
+            )])),
+            metadata_exists: None,
+            execution_prefix: None,
+        };
+        assert!(!ordinary.targets_compression_signal());
+        assert!(ordinary.targets_before_hook());
+
+        let after = TriggerCondition {
+            event_type: crate::events::EventType::HookTriggered.as_str().to_string(),
+            event_name: None,
+            condition: None,
+            metadata: Some(metadata(&[(
+                "hook_type",
+                serde_json::json!(["AFTER_TOOL_CALL", "AFTER_AGENT"]),
+            )])),
+            metadata_exists: None,
+            execution_prefix: None,
+        };
+        assert!(!after.targets_compression_signal());
+        assert!(!after.targets_before_hook());
     }
 
     #[test]

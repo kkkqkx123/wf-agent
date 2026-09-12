@@ -75,8 +75,11 @@ pub fn collect_protected_checkpoints(
     let mut protected = HashSet::new();
 
     // All branch heads and their ancestors (traverse ALL parents, not just first)
-    let heads: Vec<CheckpointId> =
-        repo.list_branches().iter().map(|branch| branch.head).collect();
+    let heads: Vec<CheckpointId> = repo
+        .list_branches()
+        .iter()
+        .map(|branch| branch.head)
+        .collect();
     protect_with_ancestors(repo, &mut protected, heads);
 
     // Most recent checkpoints (and their ancestors), newest first

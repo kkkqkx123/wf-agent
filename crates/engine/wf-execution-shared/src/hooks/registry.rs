@@ -166,15 +166,6 @@ mod tests {
                 outcome: HookOutcome::Continue,
             }
         }
-        fn intercepting(name: &'static str, calls: Arc<std::sync::atomic::AtomicU32>) -> Self {
-            Self {
-                name,
-                calls,
-                outcome: HookOutcome::Intercept {
-                    reason: "blocked".to_string(),
-                },
-            }
-        }
     }
 
     #[async_trait::async_trait]
@@ -240,18 +231,13 @@ mod tests {
     async fn notify_calls_handler_and_reports_outcome() {
         let registry = HookHandlerRegistry::new();
         let calls = Arc::new(std::sync::atomic::AtomicU32::new(0));
-        let handler = Arc::new(RecordingHandler::intercepting("r1", calls.clone()));
+        let handler = Arc::new(RecordingHandler::new("r1", calls.clone()));
         registry.register("A", handler.clone(), 1);
 
         let registered = registry.for_type("A").remove(0);
         let result: HandlerResult = registry.notify(&ctx(), &registered).await;
         assert_eq!(result.name, "r1");
-        assert_eq!(
-            result.outcome,
-            HookOutcome::Intercept {
-                reason: "blocked".to_string()
-            }
-        );
+        assert_eq!(result.outcome, HookOutcome::Continue);
         assert!(result.error.is_none());
         assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 1);
     }

@@ -419,6 +419,8 @@ mod tests {
                 enabled: true,
                 parallel: None,
                 continue_on_error: None,
+                weight: 0,
+                payload: None,
                 handler: None,
             }],
             ..base_config()

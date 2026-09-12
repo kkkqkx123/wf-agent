@@ -190,6 +190,10 @@ pub struct AgentHookBuilder<S> {
 
 impl AgentHookBuilder<HookNoType> {
     /// Start building a hook. The event type is assigned through `hook_type`.
+    ///
+    /// The `event_name` argument is deprecated and ignored at runtime
+    /// (retained for compatibility); trigger templates must match
+    /// `HOOK_TRIGGERED` plus `metadata.hook_type` instead.
     pub fn new(event_name: impl Into<String>) -> Self {
         Self {
             hook_type: AgentHookType::AfterLlmCall,
@@ -626,6 +630,8 @@ impl<S> AgentLoopConfigBuilder<S> {
             enabled: hook.enabled.unwrap_or(true),
             parallel: None,
             continue_on_error: None,
+            weight: hook.weight.unwrap_or(0),
+            payload: hook.event_payload,
             handler: hook.handler,
         });
         self
@@ -745,6 +751,22 @@ mod tests {
         assert_eq!(hook.hook_type, AgentHookType::BeforeToolCall);
         assert_eq!(hook.event_name, "tool-audit");
         assert_eq!(hook.create_checkpoint, Some(true));
+    }
+
+    #[test]
+    fn add_hook_preserves_weight_and_payload() {
+        let hook = AgentHookBuilder::before_tool_call("tool-audit")
+            .weight(7)
+            .event_payload(serde_json::json!({"k": "v"}))
+            .build();
+        let config = AgentLoopConfigBuilder::new("a")
+            .model("mock")
+            .add_hook(hook)
+            .build();
+        assert_eq!(config.hooks.len(), 1);
+        assert_eq!(config.hooks[0].hook_type, "BEFORE_TOOL_CALL");
+        assert_eq!(config.hooks[0].weight, 7);
+        assert_eq!(config.hooks[0].payload, Some(serde_json::json!({"k": "v"})));
     }
 
     #[test]

@@ -6,11 +6,11 @@ use layertwine::storage::sqlite::SqliteStorage;
 
 use crate::branch::execution_branch_name;
 use crate::error::CheckpointError;
-use crate::file::{FileCheckpoint, FileCheckpointManager, FileContentEntry};
 use crate::file::util::{
     map_layertwine_error, map_layertwine_error_with, partition_latest_snapshot_ids,
     projection as projection_fn,
 };
+use crate::file::{FileCheckpoint, FileCheckpointManager, FileContentEntry};
 
 impl FileCheckpointManager {
     // ── checkpoint creation ─────────────────────────────────────────

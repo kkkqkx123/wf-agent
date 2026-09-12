@@ -9,8 +9,8 @@ use globset::{GlobBuilder, GlobSet, GlobSetBuilder};
 use wf_types::config::file_checkpoint::FailureBehavior;
 
 use crate::error::CheckpointError;
-use crate::file::FileState;
 use crate::file::util::sha256_hex;
+use crate::file::FileState;
 
 /// Hardcoded ignore names.
 /// Any directory (or file) with these names is excluded from scanning at any

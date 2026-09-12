@@ -47,9 +47,9 @@ pub struct FireSummary {
 /// 2. synchronously notify every handler that passes evaluation — the
 ///    `handler`-named handlers of the static definitions first, then the
 ///    handlers dynamically registered on the hook type (weight descending);
-/// 3. aggregate the outcomes (first `Intercept` wins);
-/// 4. publish the `HOOK_TRIGGERED` audit event carrying the payloads and the
-///    per-handler results.
+/// 3. publish the `HOOK_TRIGGERED` audit event carrying the payloads and the
+///    per-handler results (the aggregated outcome is always `Continue`:
+///    hook handlers are observation-only and never block execution).
 ///
 /// The notification barrier is awaited by the caller: fire returns only
 /// after every handler settled (each guarded by the registry timeout).
@@ -100,12 +100,21 @@ pub async fn fire(
     }
 
     // Static definitions with an explicit handler name are notified in
-    // weight order; unresolvable names are reported, never fatal.
+    // weight order; unresolvable names are reported, never fatal. The
+    // asynchronous trigger path off the audit event is independent: a
+    // matching trigger template may also fire, with no ordering guarantee
+    // relative to this synchronous notification.
     let mut handler_results: Vec<HandlerResult> = Vec::new();
     for def in &matched {
         let Some(name) = def.handler.as_deref() else {
             continue;
         };
+        tracing::debug!(
+            hook_id = %def.id,
+            handler = %name,
+            hook_type = %def.hook_type,
+            "hook handler and async trigger path are independent with no ordering guarantee"
+        );
         match registry.get(name) {
             Some(handler) => {
                 let registered = crate::hooks::registry::RegisteredHandler {
@@ -138,7 +147,7 @@ pub async fn fire(
     }
 
     let duration_ms = wf_common::now() - started;
-    let outcome = aggregate_outcome(&handler_results);
+    let outcome = HookOutcome::Continue;
 
     publish_hook_audit_event(
         event_bus,
@@ -157,18 +166,6 @@ pub async fn fire(
         duration_ms,
         outcome,
     }
-}
-
-/// First `Intercept` wins; otherwise `Continue`.
-fn aggregate_outcome(results: &[HandlerResult]) -> HookOutcome {
-    for result in results {
-        if let HookOutcome::Intercept { reason } = &result.outcome {
-            return HookOutcome::Intercept {
-                reason: reason.clone(),
-            };
-        }
-    }
-    HookOutcome::Continue
 }
 
 #[cfg(test)]
@@ -306,10 +303,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn intercept_outcome_wins_aggregation() {
+    async fn outcome_is_always_continue_and_weight_orders_notification() {
         let registry = HookHandlerRegistry::new();
         let continue_calls = Arc::new(AtomicU32::new(0));
-        let intercept_calls = Arc::new(AtomicU32::new(0));
+        let other_calls = Arc::new(AtomicU32::new(0));
         registry.register(
             "TEST",
             Arc::new(CounterHandler {
@@ -322,24 +319,17 @@ mod tests {
         registry.register(
             "TEST",
             Arc::new(CounterHandler {
-                name: "intercept-r",
-                calls: intercept_calls.clone(),
-                outcome: HookOutcome::Intercept {
-                    reason: "blocked".to_string(),
-                },
+                name: "other-r",
+                calls: other_calls.clone(),
+                outcome: HookOutcome::Continue,
             }),
             10,
         );
 
         let summary = fire(&registry, &[], "TEST", &ctx(), None).await;
-        assert_eq!(
-            summary.outcome,
-            HookOutcome::Intercept {
-                reason: "blocked".to_string()
-            }
-        );
+        assert_eq!(summary.outcome, HookOutcome::Continue);
         // Notified in weight order.
-        assert_eq!(summary.handler_results[0].name, "intercept-r");
+        assert_eq!(summary.handler_results[0].name, "other-r");
         assert_eq!(summary.handler_results[1].name, "continue-r");
     }
 

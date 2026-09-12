@@ -193,7 +193,7 @@ pub fn register_custom_triggers(
             CustomTriggerCondition::Schedule { .. } => {
                 total.merge(Summary::err(
                     &t.name,
-                    "schedule triggers are not implemented yet; use an event trigger instead"
+                    "schedule trigger source is reserved (TriggerSource::Schedule has no scheduler yet); use an event trigger instead"
                         .to_string(),
                 ));
                 continue;
@@ -201,7 +201,7 @@ pub fn register_custom_triggers(
             CustomTriggerCondition::Webhook { .. } => {
                 total.merge(Summary::err(
                     &t.name,
-                    "webhook triggers are not implemented yet; use an event trigger instead"
+                    "webhook trigger source is reserved (TriggerSource::Webhook has no gateway yet); use an event trigger instead"
                         .to_string(),
                 ));
                 continue;

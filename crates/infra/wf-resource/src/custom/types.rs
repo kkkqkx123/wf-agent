@@ -61,6 +61,9 @@ pub struct CustomTriggerDefinition {
     pub metadata: Option<Value>,
 }
 
+/// Trigger source declared by custom resources. Only `Event` is executed;
+/// `Schedule` and `Webhook` map to the reserved `TriggerSource` variants and
+/// are rejected at registration until a scheduler or gateway exists.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(tag = "type")]
 pub enum CustomTriggerCondition {

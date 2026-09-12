@@ -26,13 +26,15 @@ pub struct HookDefinition {
 }
 
 /// Outcome of one hook fire: the engine stops and waits for every
-/// notified handler, aggregating their outcomes. `Intercept` is a mechanism
-/// reserve (blocking tool calls, rewriting inputs, permission decisions are
-/// handled by approval/workflow mechanisms); no engine consumer wires it yet.
+/// notified handler, aggregating their outcomes.
+///
+/// Hook handlers are observation-only: blocking tool calls, rewriting inputs
+/// and permission decisions belong to the approval and workflow mechanisms.
+/// The outcome is always `Continue`; handlers must not expect to stop
+/// execution.
 #[derive(Debug, Clone, PartialEq)]
 pub enum HookOutcome {
     Continue,
-    Intercept { reason: String },
 }
 
 /// The context a handler observes at a hook point: the execution id, the
@@ -49,8 +51,18 @@ impl From<&wf_types::hook::HookPointConfig> for HookDefinition {
     ///
     /// `condition` moves from `Option<Value>` to `Option<String>` (the
     /// condition expression is a string when set); defaults mirror the agent
-    /// conversion (weight 0, enabled).
+    /// conversion (weight 0, enabled). `event_name` is deprecated and
+    /// ignored: one fire aggregates many definitions into a single
+    /// `HOOK_TRIGGERED` audit event, so per-definition names cannot be
+    /// honored (a warn is emitted when one is set).
     fn from(config: &wf_types::hook::HookPointConfig) -> Self {
+        if !config.event_name.is_empty() {
+            tracing::warn!(
+                hook_type = %config.hook_type,
+                event_name = %config.event_name,
+                "hook event_name is deprecated and ignored; subscribe via HOOK_TRIGGERED plus metadata.hook_type"
+            );
+        }
         Self {
             id: Id::new(),
             hook_type: config.hook_type.clone(),

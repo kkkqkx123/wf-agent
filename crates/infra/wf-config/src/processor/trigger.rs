@@ -13,6 +13,19 @@ pub fn validate_trigger_template(template: &TriggerTemplate) -> ConfigResult<()>
         validate_min(max_triggers, 1, "max_triggers")?;
     }
     if let Some(condition) = &template.condition {
+        if condition.targets_compression_signal() {
+            return Err(ConfigError::Validation(format!(
+                "trigger '{}' subscribes to the internal compression signal; register a hook handler for '{}' instead, the event copy is audit-only",
+                template.name,
+                wf_types::hook::CONTEXT_COMPRESSION_SIGNAL
+            )));
+        }
+        if condition.targets_before_hook() {
+            tracing::warn!(
+                "trigger '{}' subscribes to a BEFORE_* hook point; trigger actions run asynchronously after the hook and cannot block execution, use approval for front-gating",
+                template.name
+            );
+        }
         // A NODE_CUSTOM_EVENT condition is matched by `event_name`: it is
         // required, otherwise the template can never match.
         if condition.event_type == "NODE_CUSTOM_EVENT" && condition.event_name.is_none() {
@@ -371,6 +384,52 @@ mod tests {
             messages: vec![],
         };
         assert!(validate_trigger_action(&action, "action").is_err());
+    }
+
+    #[test]
+    fn test_compression_signal_subscription_rejected() {
+        use wf_types::trigger::TriggerCondition;
+        let mut template = make_template();
+        template.condition = Some(TriggerCondition {
+            event_type: wf_types::hook::CONTEXT_COMPRESSION_SIGNAL.to_string(),
+            event_name: None,
+            condition: None,
+            metadata: None,
+            metadata_exists: None,
+            execution_prefix: None,
+        });
+        assert!(validate_trigger_template(&template).is_err());
+
+        template.condition = Some(TriggerCondition {
+            event_type: "HOOK_TRIGGERED".to_string(),
+            event_name: None,
+            condition: None,
+            metadata: Some(std::collections::HashMap::from([(
+                "hook_type".to_string(),
+                serde_json::json!(wf_types::hook::CONTEXT_COMPRESSION_SIGNAL),
+            )])),
+            metadata_exists: None,
+            execution_prefix: None,
+        });
+        assert!(validate_trigger_template(&template).is_err());
+    }
+
+    #[test]
+    fn test_ordinary_hook_subscription_accepted() {
+        use wf_types::trigger::TriggerCondition;
+        let mut template = make_template();
+        template.condition = Some(TriggerCondition {
+            event_type: "HOOK_TRIGGERED".to_string(),
+            event_name: None,
+            condition: None,
+            metadata: Some(std::collections::HashMap::from([(
+                "hook_type".to_string(),
+                serde_json::json!("BEFORE_TOOL_CALL"),
+            )])),
+            metadata_exists: None,
+            execution_prefix: None,
+        });
+        assert!(validate_trigger_template(&template).is_ok());
     }
 
     #[test]

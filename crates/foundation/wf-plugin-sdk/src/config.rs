@@ -137,14 +137,18 @@ mod tests {
     fn missing_required_key_is_rejected() {
         let config = json!({"temperature": 0.7});
         let err = validate_config_for("p", &config, Some(&schema())).unwrap_err();
-        assert!(matches!(err, PluginError::ConfigInvalid { ref reason, .. } if reason.contains("model")));
+        assert!(
+            matches!(err, PluginError::ConfigInvalid { ref reason, .. } if reason.contains("model"))
+        );
     }
 
     #[test]
     fn wrong_type_is_rejected() {
         let config = json!({"model": "gpt", "retries": "many"});
         let err = validate_config_for("p", &config, Some(&schema())).unwrap_err();
-        assert!(matches!(err, PluginError::ConfigInvalid { ref plugin_id, .. } if plugin_id == "p"));
+        assert!(
+            matches!(err, PluginError::ConfigInvalid { ref plugin_id, .. } if plugin_id == "p")
+        );
     }
 
     #[test]

@@ -13,6 +13,14 @@ pub struct HookConfig {
     pub enabled: bool,
     pub parallel: Option<bool>,
     pub continue_on_error: Option<bool>,
+    /// Sort weight, carried through to the executable hook definition
+    /// (higher fires first in the audit summary).
+    #[serde(default)]
+    pub weight: i32,
+    /// Optional payload template, resolved against the hook context at
+    /// emission time and surfaced on the `HOOK_TRIGGERED` audit event.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub payload: Option<Value>,
     /// Optional name of a runtime-registered hook handler; the engine
     /// notifies it synchronously at this hook point.
     #[serde(default, skip_serializing_if = "Option::is_none")]

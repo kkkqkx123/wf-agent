@@ -1,182 +1,47 @@
-# Agent Trigger System
+# Agent 触发器系统
 
-## 1. Overview
+本文描述 Rust 实现现状。触发器是事件驱动的匹配执行机制，类型在 `wf-types/trigger`，监听核心在 `wf-workflow/trigger_listener`，动作执行器在 `wf-runtime/trigger_listener`。
 
-The agent trigger system provides a mechanism to execute agent loops automatically when specific conditions are met. Triggers follow a **match-action** pattern: when a trigger condition is matched, the corresponding action is executed.
+## 1. 模型
 
-## 2. Architecture
+触发器遵循匹配执行模式：监听器消费事件总线上的事件，对每条事件匹配全部启用的触发器模板，按优先级选取后异步执行动作，结果记入可持久化的执行台账。
 
-```
-AgentTrigger (interface)
-├── triggerId: ID
-├── type: TriggerType
-├── condition: TriggerCondition  // When to trigger
-├── action: TriggerAction        // What to execute
-└── config: TriggerConfig        // Behavior configuration
+模板由条件与动作组成，另有启用开关、按执行维度的触发次数上限、优先级、元数据与检查点选项。同一事件多模板命中时默认只执行最优者（优先级高者先行，同级按条件特异性再按注册顺序），并发门限兜底防止触发风暴。
 
-Trigger Types:
-├── EVENT: Trigger on specific events
-├── SCHEDULE: Trigger on schedule (cron)
-├── CONDITION: Trigger on state condition
-└── MESSAGE: Trigger on message pattern
-```
+## 2. 条件语义
 
-### Trigger Execution Flow
+条件字段包括事件类型、事件名、表达式、元数据相等组、元数据存在组与执行前缀，全部满足才算命中。
 
-```
-executeAgentTriggers(entity, context):
-  1. Get all triggers from entity config
-  2. For each trigger:
-     a. Evaluate trigger condition
-     b. If condition matches:
-        - Execute trigger action
-        - Emit TRIGGER_MATCHED event
-     c. If condition doesn't match:
-        - Skip (no action)
-  3. Return trigger execution results
-```
+* 事件类型必须等于事件的标准名。
+* 事件名仅 `NODE_CUSTOM_EVENT` 要求填写，其余按需作为二级区分。
+* 元数据按与语义匹配：数值比较、前缀、数组包含（钩子审计事件的钩子类型数组命中其一即算命中，因此订阅单个钩子类型用纯字符串条件即可）。
+* 表达式在事件字段加元数据合并后的上下文中求值，求值失败视为不命中。
+* 执行前缀匹配事件的执行标识或回路标识之一。
 
-## 3. Trigger Handler
+## 3. 与钩子的衔接
 
-The `executeAgentTriggers()` function in the trigger handlers module:
+订阅钩子使用事件类型 `HOOK_TRIGGERED` 加元数据钩子类型条件。动作永远在钩子点之后异步执行，不能阻断或门禁；订阅 `BEFORE_*` 钩子的模板在校验时收到明确告警，前置门禁请使用审批机制。
 
-```
-executeAgentTriggers(entity, iterationResult):
-  1. Check entity config for triggers
-  2. For each trigger:
-     a. Evaluate condition based on trigger type
-     b. If matched:
-        - Execute the action (e.g., start agent loop, send message)
-        - Track trigger state via TriggerStateManager
-        - Emit events
-  3. Return execution results
-```
+内部压缩信号不得作为功能触发源，直接订阅与经审计副本间接订阅均在校验时拒绝，监听器对漏网模板同样跳过并告警。
 
-### Trigger Handler Module Structure
+## 4. 动作集与支持矩阵
 
-```
-packages/sdk/agent/execution/handlers/trigger-handlers/
-├── index.ts              → Module exports
-└── trigger-handler.ts    → executeAgentTriggers() implementation
-```
+| 动作 | 事件监听器 | 消息节点（同步执行） |
+|---|---|---|
+| 停止、暂停、恢复执行 | 支持 | 支持 |
+| 跳过节点 | 支持 | 支持 |
+| 设置变量、发送通知 | 支持 | 支持 |
+| 执行被触发子工作流 | 支持 | 支持（同步或派生） |
+| 执行脚本 | 支持 | 支持 |
+| 设置、追加消息上下文 | 支持 | 支持 |
+| 执行被触发 Agent | 支持 | 拒绝（子执行需要触发事件携带的会话锚点，请改用子工作流） |
 
-## 4. Trigger State Management
+被触发 Agent 为异步注入语义：子回路基于父会话在触发锚点处的快照运行，结果经版本校验写回，父回路在下一次大模型请求时可见，父回路永不阻塞等待子回路。
 
-The `TriggerStateManager` (shared) tracks trigger runtime state:
+## 5. 触发源
 
-```
-TriggerStateManager
-├── getTriggerState(triggerId) → TriggerState
-├── setTriggerState(triggerId, state) → void
-├── isTriggerMatched(triggerId) → boolean
-├── recordTriggerMatch(triggerId) → void
-├── createSnapshot() → TriggerStateSnapshot
-└── restoreFromSnapshot(snapshot) → void
-```
+仅事件驱动已实现。定时与 Webhook 为类型占位，使用时在加载期给出明确未实现提示，不做静默丢弃。对外部事件网关与定时调度器的接入按需后续扩展，扩展点已保留。
 
-### Trigger State
+## 6. 配额与作用域
 
-```
-TriggerState
-├── lastMatched: timestamp?
-├── matchCount: number
-├── isActive: boolean
-├── cooldownUntil: timestamp?
-└── metadata: Record<string, unknown>
-```
-
-## 5. Trigger Configuration
-
-### Static Trigger Definition
-
-```typescript
-interface AgentTriggerStatic {
-  triggerId: ID;
-  type: TriggerType;
-  condition: TriggerCondition;
-  action: {
-    type: "RUN_AGENT" | "RUN_WORKFLOW" | "CALLBACK" | "EMIT_EVENT";
-    config: Record<string, unknown>;
-  };
-  config?: {
-    cooldown?: number;       // Min time between triggers (ms)
-    maxMatches?: number;     // Max trigger executions
-    enabled?: boolean;
-  };
-}
-```
-
-### Runtime Trigger
-
-```typescript
-interface AgentTrigger {
-  triggerId: ID;
-  type: TriggerType;
-  condition: TriggerCondition;
-  action: (context: TriggerContext) => Promise<void>;  // Callback
-  config?: TriggerConfig;
-}
-```
-
-### Trigger Builder
-
-The `AgentTriggerBuilder` provides a fluent API for building trigger configurations:
-
-```
-AgentTriggerBuilder
-├── triggerId(id) → this
-├── type(type) → this
-├── condition(condition) → this
-├── action(action) → this
-├── config(config) → this
-└── build() → AgentTrigger
-```
-
-## 6. Trigger Integration with Agent Loop
-
-### Trigger Execution Timing
-
-Triggers are executed after each iteration (in `AFTER_ITERATION` phase):
-
-```
-AgentIterationCoordinator.executeIteration():
-  ...
-  8. Execute AFTER_ITERATION hooks
-  9. executeAgentTriggers(entity, iterationResult)
-     ├── Check each trigger condition
-     ├── Execute matched trigger actions
-     └── Update trigger state
-```
-
-### Trigger Types
-
-| Type | Description | Condition Example |
-|------|-------------|------------------|
-| `EVENT` | Trigger on specific agent events | `AGENT_COMPLETED` |
-| `SCHEDULE` | Trigger on time-based schedule | Cron expression |
-| `CONDITION` | Trigger on state condition | `iteration > 5` |
-| `MESSAGE` | Trigger on message pattern | Message contains keyword |
-
-## 7. Trigger Events
-
-The trigger system emits events for trigger lifecycle:
-
-| Event | Description |
-|-------|-------------|
-| `TRIGGER_MATCHED` | Trigger condition was matched |
-| `TRIGGER_ACTION_EXECUTED` | Trigger action was executed |
-| `TRIGGER_ERROR` | Trigger execution failed |
-
-## 8. Trigger Cooldown and Rate Limiting
-
-The trigger system supports cooldown and rate limiting:
-
-```
-TriggerConfig:
-├── cooldown: number        // Cooldown period in ms
-├── maxMatches: number      // Max total matches
-├── maxMatchesPerMinute: number  // Rate limit
-└── enabled: boolean        // Enable/disable
-```
-
-When a trigger is in cooldown, the condition is evaluated but the action is skipped until the cooldown period expires.
+触发次数上限按执行标识与模板名组合计数，并发执行互不挤占；同对重入由在途守卫防止重复进入。压缩类内部在途子工作流随监听器关闭而中止，不做恢复。

@@ -315,15 +315,6 @@ impl TriggerEventListener {
         let _ = dispatch_handle.await;
     }
 
-    /// Match an event against all registered templates and return the single
-    /// best-matching pair, if any.
-    ///
-    /// Selection criteria: priority (desc), then specificity
-    /// (metadata-conditioned first), then registration order.
-    fn select_best_template(&self, event: &BaseEvent) -> Option<TriggerMatch> {
-        self.select_templates(event).into_iter().next()
-    }
-
     /// Match an event against all registered templates and return every match
     /// in run order. `BestOnly` returns at most one entry; `All` returns all
     /// matches sorted by priority (desc), specificity, registration order.
@@ -340,6 +331,17 @@ impl TriggerEventListener {
             let Some(condition) = &template.condition else {
                 continue;
             };
+            // Defense in depth: templates that slipped past validation must
+            // not drive functional actions off the internal compression
+            // signal or its audit copy (owned synchronously by the builtin
+            // compression service).
+            if condition.targets_compression_signal() {
+                warn!(
+                    "Trigger '{}' targets the internal compression signal; skipping (register a hook handler instead)",
+                    template.name
+                );
+                continue;
+            }
             if !self.matches(event, condition) {
                 continue;
             }
@@ -778,7 +780,7 @@ mod tests {
         let registry: Arc<dyn TriggerTemplateRegistry> =
             Arc::new(StaticRegistry(vec![event_template(
                 "t1",
-                "CONTEXT_COMPRESSION_REQUESTED",
+                "NODE_COMPLETED",
                 0,
             )]));
         let calls = Arc::new(AtomicU32::new(0));
@@ -789,7 +791,7 @@ mod tests {
         start_listener(&bus, registry, runner);
         wait_for_listener(&bus, 1).await;
 
-        bus.publish(base_event(EventType::ContextCompressionRequested, "exec-1"))
+        bus.publish(base_event(EventType::NodeCompleted, "exec-1"))
             .unwrap();
         wait_until(|| calls.load(Ordering::SeqCst) == 1).await;
         assert_eq!(calls.load(Ordering::SeqCst), 1);
@@ -801,7 +803,7 @@ mod tests {
         let registry: Arc<dyn TriggerTemplateRegistry> =
             Arc::new(StaticRegistry(vec![event_template(
                 "t1",
-                "CONTEXT_COMPRESSION_REQUESTED",
+                "NODE_COMPLETED",
                 0,
             )]));
         let calls = Arc::new(AtomicU32::new(0));
@@ -821,7 +823,7 @@ mod tests {
     #[tokio::test]
     async fn template_without_action_skips_runner() {
         let bus = Arc::new(EventBus::new(64));
-        let mut template = event_template("t1", "CONTEXT_COMPRESSION_REQUESTED", 0);
+        let mut template = event_template("t1", "NODE_COMPLETED", 0);
         template.action = None;
         let registry: Arc<dyn TriggerTemplateRegistry> = Arc::new(StaticRegistry(vec![template]));
         let calls = Arc::new(AtomicU32::new(0));
@@ -832,7 +834,7 @@ mod tests {
         start_listener(&bus, registry, runner);
         wait_for_listener(&bus, 1).await;
 
-        bus.publish(base_event(EventType::ContextCompressionRequested, "exec-3"))
+        bus.publish(base_event(EventType::NodeCompleted, "exec-3"))
             .unwrap();
         tokio::time::sleep(Duration::from_millis(50)).await;
         assert_eq!(calls.load(Ordering::SeqCst), 0, "no action -> no run");
@@ -844,7 +846,7 @@ mod tests {
         let registry: Arc<dyn TriggerTemplateRegistry> =
             Arc::new(StaticRegistry(vec![event_template(
                 "t1",
-                "CONTEXT_COMPRESSION_REQUESTED",
+                "NODE_COMPLETED",
                 0,
             )]));
         let calls = Arc::new(AtomicU32::new(0));
@@ -858,9 +860,9 @@ mod tests {
         // Two identical events for the same execution: the in-flight claim is
         // taken synchronously during dispatch, so the second must be skipped
         // even though the first finishes quickly.
-        bus.publish(base_event(EventType::ContextCompressionRequested, "exec-4"))
+        bus.publish(base_event(EventType::NodeCompleted, "exec-4"))
             .unwrap();
-        bus.publish(base_event(EventType::ContextCompressionRequested, "exec-4"))
+        bus.publish(base_event(EventType::NodeCompleted, "exec-4"))
             .unwrap();
 
         // Wait for the first run to finish, then give a would-be second run
@@ -880,7 +882,7 @@ mod tests {
         let registry: Arc<dyn TriggerTemplateRegistry> =
             Arc::new(StaticRegistry(vec![event_template(
                 "t1",
-                "CONTEXT_COMPRESSION_REQUESTED",
+                "NODE_COMPLETED",
                 1,
             )]));
         let calls = Arc::new(AtomicU32::new(0));
@@ -894,10 +896,10 @@ mod tests {
         // Sequential (non-concurrent) events: the second event for the same
         // execution must be dropped by the per-execution max_triggers=1
         // budget.
-        bus.publish(base_event(EventType::ContextCompressionRequested, "exec-5"))
+        bus.publish(base_event(EventType::NodeCompleted, "exec-5"))
             .unwrap();
         wait_until(|| calls.load(Ordering::SeqCst) == 1).await;
-        bus.publish(base_event(EventType::ContextCompressionRequested, "exec-5"))
+        bus.publish(base_event(EventType::NodeCompleted, "exec-5"))
             .unwrap();
         tokio::time::sleep(Duration::from_millis(200)).await;
 
@@ -914,7 +916,7 @@ mod tests {
         let registry: Arc<dyn TriggerTemplateRegistry> =
             Arc::new(StaticRegistry(vec![event_template(
                 "t1",
-                "CONTEXT_COMPRESSION_REQUESTED",
+                "NODE_COMPLETED",
                 1,
             )]));
         let calls = Arc::new(AtomicU32::new(0));
@@ -925,10 +927,10 @@ mod tests {
         start_listener(&bus, registry, runner);
         wait_for_listener(&bus, 1).await;
 
-        bus.publish(base_event(EventType::ContextCompressionRequested, "exec-a"))
+        bus.publish(base_event(EventType::NodeCompleted, "exec-a"))
             .unwrap();
         wait_until(|| calls.load(Ordering::SeqCst) == 1).await;
-        bus.publish(base_event(EventType::ContextCompressionRequested, "exec-b"))
+        bus.publish(base_event(EventType::NodeCompleted, "exec-b"))
             .unwrap();
         wait_until(|| calls.load(Ordering::SeqCst) == 2).await;
 
@@ -942,8 +944,8 @@ mod tests {
     #[test]
     fn match_policy_best_only_keeps_single_winner() {
         let templates = vec![
-            event_template("low", "CONTEXT_COMPRESSION_REQUESTED", 0),
-            event_template("high", "CONTEXT_COMPRESSION_REQUESTED", 0),
+            event_template("low", "NODE_COMPLETED", 0),
+            event_template("high", "NODE_COMPLETED", 0),
         ];
         let listener = TriggerEventListener::new(
             Arc::new(EventBus::new(4)),
@@ -954,7 +956,7 @@ mod tests {
             }),
             CancellationToken::new(),
         );
-        let event = base_event(EventType::ContextCompressionRequested, "e1");
+        let event = base_event(EventType::NodeCompleted, "e1");
         assert_eq!(listener.select_templates(&event).len(), 1);
         assert_eq!(
             listener
@@ -1145,5 +1147,38 @@ mod tests {
             &serde_json::json!(["other"]),
             &serde_json::json!("^agent-")
         ));
+    }
+
+    #[test]
+    fn compression_signal_templates_never_selected() {
+        let direct = event_template(
+            "on-compression",
+            wf_types::hook::CONTEXT_COMPRESSION_SIGNAL,
+            0,
+        );
+        let mut audit_copy = event_template("on-compression-audit", "HOOK_TRIGGERED", 0);
+        audit_copy.condition.as_mut().expect("condition").metadata =
+            Some(std::collections::HashMap::from([(
+                "hook_type".to_string(),
+                serde_json::json!(wf_types::hook::CONTEXT_COMPRESSION_SIGNAL),
+            )]));
+        let listener = TriggerEventListener::new(
+            Arc::new(EventBus::new(4)),
+            Arc::new(StaticRegistry(vec![direct, audit_copy])),
+            Arc::new(RecordingRunner {
+                calls: Arc::new(AtomicU32::new(0)),
+                abort_on_event_type: None,
+            }),
+            CancellationToken::new(),
+        );
+        assert!(listener
+            .select_templates(&base_event(EventType::ContextCompressionRequested, "e1"))
+            .is_empty());
+        let mut audit = base_event(EventType::HookTriggered, "e1");
+        audit.metadata = Some(std::collections::HashMap::from([(
+            "hook_type".to_string(),
+            serde_json::json!([wf_types::hook::CONTEXT_COMPRESSION_SIGNAL]),
+        )]));
+        assert!(listener.select_templates(&audit).is_empty());
     }
 }

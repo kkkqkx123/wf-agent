@@ -5,12 +5,6 @@
 # Processor: crate::processor::presets::transform_presets_config()
 # Schema:    wf_types::config::presets::PresetsConfig
 
-[context_compression]
-enabled = true
-threshold = 0.7
-max_tokens = 4096
-strategy = "sliding_window"
-
 [predefined_tools]
 enabled = true
 # tools = []                       # Optional: explicitly list tool names

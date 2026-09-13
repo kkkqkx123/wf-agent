@@ -281,6 +281,15 @@ pub struct InteractiveController {
     graceful: bool,
     /// Animation controller for UI animations.
     animation: AnimationController,
+    /// Full session memory seeding every turn: prior user/assistant texts,
+    /// oldest first. Never truncated here; the engine owns all budget and
+    /// compression decisions. Only completed turns are recorded.
+    history: Vec<wf_types::message::Message>,
+    /// Assistant text accumulated from the current turn's deltas; moved
+    /// into `history` on completion, dropped otherwise.
+    turn_text: String,
+    /// Prompt of the current turn; paired with `turn_text` on completion.
+    turn_prompt: String,
 }
 
 impl InteractiveController {
@@ -340,6 +349,9 @@ impl InteractiveController {
             scroll_at_top: false,
             graceful: false,
             animation: AnimationController::default_enabled(),
+            history: Vec::new(),
+            turn_text: String::new(),
+            turn_prompt: String::new(),
         }
     }
 
@@ -453,11 +465,14 @@ impl InteractiveController {
         });
     }
 
-    /// Start an agent turn with the given prompt.
+    /// Start an agent turn with the given prompt, seeded with the full
+    /// session history.
     pub fn start_turn(&mut self, prompt: String, agent: Option<String>, model: Option<String>) {
         self.footer.state.phase = Phase::Streaming;
         self.reducer = SessionReducer::new(self.execution_id.clone());
         self.scroll_cover = 0;
+        self.turn_text.clear();
+        self.turn_prompt = prompt.clone();
 
         let tx = self.tx.clone();
         let adapter = Arc::clone(&self.adapter);
@@ -465,7 +480,7 @@ impl InteractiveController {
             agent,
             model,
             approve_prefixes: Vec::new(),
-            conversation: Vec::new(),
+            conversation: self.history.clone(),
             kind: TurnKind::Agent { prompt },
         };
         let handler = Arc::new(TuiApprovalHandler::new(self.tx.clone()));
@@ -587,6 +602,7 @@ impl InteractiveController {
                     format!("✓ completed · {} iterations", iterations),
                     Role::Add,
                 ));
+                self.record_completed_turn();
                 self.finish_turn();
             }
             ExecutionStreamEvent::Failed { error } => {
@@ -596,6 +612,8 @@ impl InteractiveController {
                         Role::Error,
                     ));
                 }
+                self.turn_text.clear();
+                self.turn_prompt.clear();
                 self.finish_turn();
             }
             ExecutionStreamEvent::Interrupted { reason } => {
@@ -605,9 +623,12 @@ impl InteractiveController {
                         Role::Warning,
                     ));
                 }
+                self.turn_text.clear();
+                self.turn_prompt.clear();
                 self.finish_turn();
             }
             ExecutionStreamEvent::LlmDelta { content } => {
+                self.turn_text.push_str(content);
                 let _frame = self.stream.push(content);
                 let committed_to = self.stream.committed_upto();
                 if committed_to > self.scroll_cover {
@@ -703,6 +724,27 @@ impl InteractiveController {
         self.flush_stream_tail();
         self.abort_turn();
         self.footer.present(FooterView::Prompt);
+    }
+
+    /// Record a completed turn into the full session history. Interrupted
+    /// and failed turns never enter memory; a blank assistant reply still
+    /// records the question.
+    fn record_completed_turn(&mut self) {
+        let prompt = std::mem::take(&mut self.turn_prompt);
+        let answer = std::mem::take(&mut self.turn_text);
+        if prompt.trim().is_empty() {
+            return;
+        }
+        self.history.push(session_message(
+            wf_types::message::MessageRole::User,
+            &prompt,
+        ));
+        if !answer.trim().is_empty() {
+            self.history.push(session_message(
+                wf_types::message::MessageRole::Assistant,
+                &answer,
+            ));
+        }
     }
 
     /// Move pending rows into the persistent scrollback, trimming history
@@ -953,6 +995,24 @@ impl InteractiveController {
 
     fn now_ms(&self) -> u64 {
         Instant::now().duration_since(self.origin).as_millis() as u64
+    }
+}
+
+/// One session-memory message carrying plain text in the given role.
+fn session_message(
+    role: wf_types::message::MessageRole,
+    text: &str,
+) -> wf_types::message::Message {
+    wf_types::message::Message {
+        id: wf_common::generate_id(),
+        role,
+        content: wf_types::message::MessageContentValue::Text(text.to_string()),
+        timestamp: wf_common::now(),
+        tool_call_id: None,
+        tool_name: None,
+        tool_calls: None,
+        thinking: None,
+        metadata: None,
     }
 }
 

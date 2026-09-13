@@ -268,6 +268,8 @@ pub enum TriggerAgentWriteback {
 /// | `ExecuteScript` | ✅ | ✅ |
 /// | `SetMessageContext` | ✅ | ✅ |
 /// | `AppendMessageContext` | ✅ | ✅ |
+/// | `TruncateMessageContext` | ✅ | ✅ |
+/// | `FilterMessageContext` | ✅ | ✅ |
 /// | `ExecuteTriggeredAgentExecution` | ✅ (`AgentTriggerRunner`) | ❌ rejected with an explicit error |
 /// | `ExecuteWorkflow` (cold start) | ✅ (`CreationRunner`) | ❌ rejected with an explicit error |
 /// | `ExecuteAgent` (cold start) | ✅ (`AgentTriggerRunner`) | ❌ rejected with an explicit error |
@@ -383,6 +385,30 @@ pub enum TriggerAction {
         context_id: String,
         messages: Vec<crate::message::Message>,
     },
+    /// Truncate a named message context to `keep_count` messages. With
+    /// `from_end` set, the tail is kept (recent history for summary input);
+    /// otherwise the head is kept. Goes through the engine's message-context
+    /// API, so the token ledger stays consistent.
+    TruncateMessageContext {
+        context_id: String,
+        keep_count: u32,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        from_end: Option<bool>,
+    },
+    /// Filter a named message context by role and/or text content. `role`
+    /// selects the role to keep (with `exclude` set, that role is removed
+    /// instead); `custom_filter` additionally keeps only messages whose text
+    /// contains the substring. Same ledger-safe guarantees as
+    /// `SetMessageContext`.
+    FilterMessageContext {
+        context_id: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        role: Option<crate::message::MessageRole>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        exclude: Option<bool>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        custom_filter: Option<String>,
+    },
     /// Event-driven cold start of a fresh workflow run.
     ///
     /// Unlike `ExecuteTriggeredSubworkflow` (which compresses the emitting
@@ -466,6 +492,8 @@ impl TriggerAction {
             Self::ExecuteTriggeredAgentExecution { .. } => "execute_triggered_agent_execution",
             Self::SetMessageContext { .. } => "set_message_context",
             Self::AppendMessageContext { .. } => "append_message_context",
+            Self::TruncateMessageContext { .. } => "truncate_message_context",
+            Self::FilterMessageContext { .. } => "filter_message_context",
             Self::ExecuteWorkflow { .. } => "execute_workflow",
             Self::ExecuteAgent { .. } => "execute_agent",
         }

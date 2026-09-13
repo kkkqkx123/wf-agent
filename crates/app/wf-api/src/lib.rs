@@ -220,7 +220,6 @@ pub use wf_agent::capacity::AgentCapacityGate;
 pub use wf_agent::checkpoint::{AgentCheckpointStrategy, AgentCheckpointTiming};
 pub use wf_agent::conversation_compression::{
     apply_compression, apply_versioned_writeback, spawn_conversation_compression_consumer,
-    ConversationWritebackOp,
 };
 pub use wf_agent::entity::AgentLoopEntity;
 pub use wf_agent::error::{AgentError, AgentResult};

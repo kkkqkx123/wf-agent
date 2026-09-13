@@ -2,27 +2,16 @@
 //! every turn so the model remembers earlier rounds.
 //!
 //! Only completed turns enter the transcript; interrupted and failed turns
-//! are dropped by the caller. The transcript is capped: past the limit the
-//! oldest messages fall off and the caller prints one note per session.
+//! are dropped by the caller. The transcript keeps the full history: the
+//! engine owns all budget and compression decisions, so the CLI never
+//! truncates or filters what it sends as context.
 
 use wf_types::message::{Message, MessageContentValue, MessageRole};
-
-/// Maximum transcript messages sent as context (about twenty rounds).
-///
-/// Truncation is by message count, not token budget. Tool results never
-/// enter the transcript, so the realistic exposure is an oversized
-/// assistant reply; mini accepts that tradeoff for its fixed-size context
-/// window rather than rationing by tokens.
-pub const TRANSCRIPT_CAP: usize = 40;
-
-/// Maximum messages requested when restoring a session from storage.
-pub const RESTORE_LIMIT: usize = 40;
 
 /// Ordered user/assistant messages of this session, oldest first.
 #[derive(Debug, Default)]
 pub struct Transcript {
     messages: Vec<Message>,
-    truncation_noted: bool,
 }
 
 impl Transcript {
@@ -44,38 +33,26 @@ impl Transcript {
 
     /// Append one completed round. An empty assistant reply still records
     /// the question (only the blank answer is skipped). Returns the created
-    /// messages for storage plus whether the caller should print the
-    /// truncation note (true at most once per session).
-    pub fn push_pair(&mut self, user: &str, assistant: &str) -> (Vec<Message>, bool) {
+    /// messages for storage.
+    pub fn push_pair(&mut self, user: &str, assistant: &str) -> Vec<Message> {
         let mut created = Vec::with_capacity(2);
         created.push(user_message(user));
         if !assistant.trim().is_empty() {
             created.push(assistant_message(assistant));
         }
         self.messages.extend(created.iter().cloned());
-        let mut note = false;
-        if self.messages.len() > TRANSCRIPT_CAP {
-            let overflow = self.messages.len() - TRANSCRIPT_CAP;
-            self.messages.drain(..overflow);
-            if !self.truncation_noted {
-                self.truncation_noted = true;
-                note = true;
-            }
-        }
-        (created, note)
+        created
     }
 
-    /// Forget every round and allow the truncation note to print again.
+    /// Forget every round.
     pub fn clear(&mut self) {
         self.messages.clear();
-        self.truncation_noted = false;
     }
 
     /// Rebuild from stored messages: keep user/assistant text only, drop
-    /// blanks, retain the newest slice that fits the cap. Returns how many
-    /// messages were restored.
+    /// blanks, retain everything. Returns how many messages were restored.
     pub fn restore(&mut self, stored: Vec<Message>) -> usize {
-        let mut kept: Vec<Message> = stored
+        let kept: Vec<Message> = stored
             .into_iter()
             .filter(|message| {
                 matches!(
@@ -84,10 +61,6 @@ impl Transcript {
                 ) && matches!(&message.content, MessageContentValue::Text(text) if !text.trim().is_empty())
             })
             .collect();
-        if kept.len() > TRANSCRIPT_CAP {
-            let overflow = kept.len() - TRANSCRIPT_CAP;
-            kept.drain(..overflow);
-        }
         let restored = kept.len();
         self.messages = kept;
         restored
@@ -143,9 +116,8 @@ mod tests {
     #[test]
     fn push_pair_records_question_and_answer() {
         let mut transcript = Transcript::new();
-        let (created, note) = transcript.push_pair("q", "a");
+        let created = transcript.push_pair("q", "a");
         assert_eq!(created.len(), 2);
-        assert!(!note);
         assert_eq!(transcript.len(), 2);
         assert_eq!(transcript.messages()[0].role, MessageRole::User);
         assert_eq!(transcript.messages()[1].role, MessageRole::Assistant);
@@ -154,35 +126,28 @@ mod tests {
     #[test]
     fn push_pair_skips_blank_answer_but_keeps_question() {
         let mut transcript = Transcript::new();
-        let (created, _) = transcript.push_pair("q", "   ");
+        let created = transcript.push_pair("q", "   ");
         assert_eq!(created.len(), 1);
         assert_eq!(transcript.len(), 1);
     }
 
     #[test]
-    fn push_pair_truncates_oldest_and_notes_once() {
+    fn push_pair_keeps_full_history_without_cap() {
         let mut transcript = Transcript::new();
-        let mut notes = 0;
-        for index in 0..TRANSCRIPT_CAP + 4 {
-            let (_, note) = transcript.push_pair(&format!("q{index}"), &format!("a{index}"));
-            if note {
-                notes += 1;
-            }
+        for index in 0..100 {
+            transcript.push_pair(&format!("q{index}"), &format!("a{index}"));
         }
-        assert_eq!(transcript.len(), TRANSCRIPT_CAP);
-        assert_eq!(notes, 1);
+        assert_eq!(transcript.len(), 200);
     }
 
     #[test]
-    fn clear_empties_and_rearms_note() {
+    fn clear_empties() {
         let mut transcript = Transcript::new();
-        for index in 0..TRANSCRIPT_CAP + 2 {
+        for index in 0..10 {
             transcript.push_pair(&format!("q{index}"), &format!("a{index}"));
         }
         transcript.clear();
         assert!(transcript.is_empty());
-        let (_, note) = transcript.push_pair("q", "a");
-        assert!(!note);
     }
 
     #[test]
@@ -200,15 +165,15 @@ mod tests {
     }
 
     #[test]
-    fn restore_caps_to_newest_slice() {
+    fn restore_keeps_everything_without_cap() {
         let mut transcript = Transcript::new();
-        let stored: Vec<Message> = (0..TRANSCRIPT_CAP + 10)
+        let stored: Vec<Message> = (0..100)
             .map(|index| stored(MessageRole::User, &format!("q{index:03}")))
             .collect();
         let restored = transcript.restore(stored);
-        assert_eq!(restored, TRANSCRIPT_CAP);
-        match &transcript.messages()[TRANSCRIPT_CAP - 1].content {
-            MessageContentValue::Text(text) => assert!(text.ends_with("049")),
+        assert_eq!(restored, 100);
+        match &transcript.messages()[99].content {
+            MessageContentValue::Text(text) => assert!(text.ends_with("099")),
             other => panic!("expected text, got {other:?}"),
         }
     }

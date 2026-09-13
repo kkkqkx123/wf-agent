@@ -109,7 +109,8 @@ pub enum PanelState {
     Mention(MentionPanel),
 }
 
-/// The mini footer component. Pure data: rendering and height math only.
+/// The TUI footer prompt view component (inline form, unrelated to the
+/// `wf-mini` binary). Pure data: rendering and height math only.
 #[derive(Debug, Clone)]
 pub struct Footer {
     pub view: FooterView,

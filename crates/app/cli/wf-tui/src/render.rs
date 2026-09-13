@@ -1,7 +1,7 @@
 //! Headless summary renderer: `ExecutionStreamEvent` → plain text.
 //!
 //! [`HeadlessRenderer`] composes [`SessionReducer`] (footer state + the
-//! reducer product used by the mini scrollback) and [`MarkdownStream`]
+//! reducer product used by the TUI inline scrollback) and [`MarkdownStream`]
 //! (streaming markdown) into a headless summary renderer that turns the
 //! execution event stream into [`HeadlessDelta`]:
 //!
@@ -14,7 +14,7 @@
 //!
 //! The same events are fed to the reducer, so [`HeadlessRenderer::footer`]
 //! reflects the live session state and the same-source test can assert that
-//! the headless stdout text matches what the mini scrollback (`HistoryLine`)
+//! the headless stdout text matches what the TUI inline scrollback (`HistoryLine`)
 //! renders from the same reducer commits — the pipeline is the
 //! single source of truth for every form.
 //!
@@ -346,7 +346,7 @@ mod tests {
 
     /// Same-source test: the same synthetic event sequence drives both
     /// HeadlessRenderer and SessionReducer -> MiniCommit -> HistoryLine,
-    /// asserting text consistency - headless output and mini scrollback
+    /// asserting text consistency - headless output and TUI inline scrollback
     /// share the same reducer output.
     #[test]
     fn headless_stdout_matches_mini_scrollback_from_same_reducer() {
@@ -372,7 +372,7 @@ mod tests {
         }
         stdout.push_str(&renderer.finish().stdout);
 
-        // ② Same reducer → MiniCommit → HistoryLine (the mini scrollback
+        // ② Same reducer → MiniCommit → HistoryLine (the TUI inline scrollback
         //    source text renders from these commits).
         let (commits, _footer) = fold(&events, "exec-same");
         let mut scrollback = String::new();

@@ -18,7 +18,7 @@ use wf_cli_shared::turn::{stream_agent_turn, TurnKind, TurnParams};
 use crate::approval::NativeApprovalHandler;
 use crate::input::{self, History, LineReader, SlashCommand};
 use crate::output::{self, AppendWriter};
-use crate::transcript::{Transcript, RESTORE_LIMIT};
+use crate::transcript::Transcript;
 
 const PROMPT: &str = "> ";
 
@@ -122,7 +122,7 @@ impl NativeSession {
     /// Run the prompt loop until EOF or a quit command.
     pub async fn run(mut self) -> CliResult<()> {
         output::diag_line(
-            "native mini — type a prompt, /help for commands, Ctrl-D to quit; remembers the last ~20 rounds",
+            "native mini — type a prompt, /help for commands, Ctrl-D to quit; remembers the full history",
         );
         output::diag_line(&format!(
             "session {}; resume later with --session {} --storage sqlite:<path>",
@@ -200,7 +200,7 @@ impl NativeSession {
                 output::diag_line("history: /history list recent prompts, /rerun [n] re-ask prompt n (default: last)");
                 output::diag_line("keys: Ctrl-C cancels the running turn, Ctrl-C twice at the prompt quits, Ctrl-D quits");
                 output::diag_line(
-                    "notes: the last ~20 rounds stay in memory; prompt history is plain text on disk (see --history-file/--no-history); workflows run via `wf run --workflow` and the management subcommands",
+                    "notes: the full history stays in memory; prompt history is plain text on disk (see --history-file/--no-history); workflows run via `wf run --workflow` and the management subcommands",
                 );
                 CommandAction::Continue
             }
@@ -292,7 +292,7 @@ impl NativeSession {
             DomainHandle::Embedded(adapter) => wf_api::agent::agent_message::conversation_history(
                 adapter.api_context(),
                 id,
-                Some(RESTORE_LIMIT),
+                None,
             )
             .await
             .unwrap_or_default(),
@@ -355,14 +355,7 @@ impl NativeSession {
         if !finished.outcome.completed {
             return;
         }
-        let (created, note) = self
-            .transcript
-            .push_pair(question, &finished.outcome.assistant_text);
-        if note {
-            output::diag_line(
-                "memory limit reached; oldest rounds dropped from context (keeping the last ~20)",
-            );
-        }
+        let created = self.transcript.push_pair(question, &finished.outcome.assistant_text);
         self.persist_turn(&finished.execution_id, &created).await;
     }
 

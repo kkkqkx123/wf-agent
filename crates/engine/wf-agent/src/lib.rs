@@ -35,7 +35,6 @@ pub use checkpoint::{AgentCheckpointStrategy, AgentCheckpointTiming};
 pub use constants::{AGENT_MAX_ITERATIONS_CAP, DEFAULT_MAX_ITERATIONS};
 pub use conversation_compression::{
     apply_compression, apply_versioned_writeback, spawn_conversation_compression_consumer,
-    ConversationWritebackOp,
 };
 pub use coordinator::tool::{GeneralToolContext, ToolVisibilityStore};
 pub use error::{AgentError, AgentResult};

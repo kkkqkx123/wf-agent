@@ -2,7 +2,8 @@
 //!
 //! Defines the unified event shape and the conversions from the agent
 //! streaming events; the shared `EventBus` subscription helper lets the
-//! interactive forms (mini / TUI) consume lifecycle events as a `Stream`.
+//! interactive forms (inline / full-screen, both inside this crate) consume
+//! lifecycle events as a `Stream`.
 //! Full
 //! execution lifecycle events (`ExecutionEvent`) travel on the checkpoint
 //! `ExecutionEventBus`; the `Execution` variant keeps the door open for that

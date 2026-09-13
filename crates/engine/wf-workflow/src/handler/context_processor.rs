@@ -112,6 +112,39 @@ impl ContextProcessorHandler {
     ) -> WorkflowResult<NodeExecutionResult> {
         let config = ctx.node_config.as_ref().cloned().unwrap_or(Value::Null);
 
+        // Message-context operations run first when configured: read the
+        // source array, apply the stateless operation, and write the result
+        // back through the register path (ledger version advances, stale
+        // compression results are invalidated like any other replacement).
+        if let Some(operation_value) = config.get("operation_config") {
+            let operation: wf_types::message::MessageOperationConfig =
+                serde_json::from_value(operation_value.clone()).map_err(|e| {
+                    WorkflowError::OperationError(format!(
+                        "Invalid operation_config for message context: {e}"
+                    ))
+                })?;
+            let source = config
+                .get("source_context")
+                .and_then(|v| v.as_str())
+                .unwrap_or(crate::message_context::DEFAULT_CONTEXT_ID);
+            let target = config
+                .get("target_context")
+                .and_then(|v| v.as_str())
+                .unwrap_or(source);
+            let messages = crate::message_context::get_context(&ctx.variables, source);
+            let (result, stats) =
+                wf_llm::messaging::message_ops::apply(&messages, &operation);
+            crate::message_context::register_context(&ctx.variables, target, result);
+            let mut output = ctx.input.clone();
+            if let Value::Object(map) = &mut output {
+                map.insert(
+                    "message_count".to_string(),
+                    Value::Number(serde_json::Number::from(stats.total_after as u64)),
+                );
+            }
+            return Ok(NodeExecutionResult::simple(output));
+        }
+
         let Some(operation_value) = config.get("variable_operation") else {
             return Ok(NodeExecutionResult::simple(ctx.input.clone()));
         };

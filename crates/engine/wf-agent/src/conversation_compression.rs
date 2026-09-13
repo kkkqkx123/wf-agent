@@ -22,32 +22,11 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::debug;
 use wf_core::EventBus;
+use wf_execution_shared::context_store::{check_anchor, WritebackOp};
 use wf_llm::messaging::conversation_session::{ConversationSession, CONVERSATION_CONTEXT_ID};
-use wf_llm::{
-    ContextCompressionCompletedMeta, ConversationWritebackCompletedMeta,
-    WRITEBACK_OPERATION_APPEND, WRITEBACK_OPERATION_REPLACE,
-};
+use wf_llm::{ContextCompressionCompletedMeta, ConversationWritebackCompletedMeta};
 use wf_types::events::EventType;
 use wf_types::message::Message;
-
-/// Write-back operation applied to the conversation array.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ConversationWritebackOp {
-    /// Replace the whole array (compression / summarization semantics).
-    Replace,
-    /// Append messages to the array (continuation semantics).
-    Append,
-}
-
-impl ConversationWritebackOp {
-    fn from_operation_name(operation: &str) -> Option<Self> {
-        match operation {
-            WRITEBACK_OPERATION_REPLACE => Some(Self::Replace),
-            WRITEBACK_OPERATION_APPEND => Some(Self::Append),
-            _ => None,
-        }
-    }
-}
 
 /// Spawn a task applying versioned write-backs (compression results and
 /// nested-agent conversation write-backs) to the live conversation of one
@@ -83,7 +62,7 @@ pub fn spawn_conversation_compression_consumer(
                     if meta.target_context_id != CONVERSATION_CONTEXT_ID {
                         continue;
                     }
-                    let Some(op) = ConversationWritebackOp::from_operation_name(&meta.operation)
+                    let Some(op) = WritebackOp::from_operation_name(&meta.operation)
                     else {
                         debug!(
                             "Conversation write-back ignored: unknown operation '{}'",
@@ -105,7 +84,8 @@ pub fn spawn_conversation_compression_consumer(
 /// produced from; newer messages win otherwise.
 ///
 /// Compression is the `Replace` special case of the versioned write-back
-/// channel (shared with nested-agent conversation write-backs).
+/// channel (shared with nested-agent conversation write-backs). Operation
+/// semantics come from the shared context store.
 pub async fn apply_compression(
     conversation: &Arc<RwLock<ConversationSession>>,
     meta: ContextCompressionCompletedMeta,
@@ -113,7 +93,7 @@ pub async fn apply_compression(
     apply_versioned_writeback(
         conversation,
         meta.array_version,
-        ConversationWritebackOp::Replace,
+        WritebackOp::Replace,
         meta.messages,
     )
     .await;
@@ -128,11 +108,11 @@ pub async fn apply_compression(
 pub async fn apply_versioned_writeback(
     conversation: &Arc<RwLock<ConversationSession>>,
     anchor_version: u64,
-    operation: ConversationWritebackOp,
+    operation: WritebackOp,
     messages: Vec<Message>,
 ) {
     let mut session = conversation.write().await;
-    if session.conversation_version() != anchor_version {
+    if !check_anchor(session.conversation_version(), anchor_version) {
         debug!(
             "Stale conversation write-back at version {} (current {}), discarding",
             anchor_version,
@@ -141,8 +121,8 @@ pub async fn apply_versioned_writeback(
         return;
     }
     match operation {
-        ConversationWritebackOp::Replace => session.replace_messages(messages),
-        ConversationWritebackOp::Append => {
+        WritebackOp::Replace => session.replace_messages(messages),
+        WritebackOp::Append => {
             for message in messages {
                 session.add_message(message);
             }

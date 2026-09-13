@@ -1,6 +1,7 @@
 //! Single-line prompt composer.
 //!
-//! [`Composer`] is the mini footer's text entry: a one-line buffer with a
+//! [`Composer`] is the TUI footer prompt view's text entry (inline form,
+//! unrelated to the `wf-mini` binary): a one-line buffer with a
 //! grapheme-aware cursor, horizontal scrolling so the cursor stays visible,
 //! a bounded history (100 entries) with a stash slot for in-progress edits
 //! (↑ stashes the draft, ↓ past the newest entry restores it), a placeholder

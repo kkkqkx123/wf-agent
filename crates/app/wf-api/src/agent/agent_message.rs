@@ -87,7 +87,8 @@ pub async fn stats(ctx: &ApiContext, agent_loop_id: &str) -> ApiResult<AgentLoop
 }
 
 /// Normalized conversation history of an agent loop: messages sorted by
-/// timestamp, replayed through the shared message API for the caller.
+/// timestamp, oldest first. When `max_messages` is given, the newest slice
+/// is kept so callers seeding a new turn resume from recent history.
 pub async fn conversation_history(
     ctx: &ApiContext,
     agent_loop_id: &str,
@@ -100,8 +101,9 @@ pub async fn conversation_history(
         .await?;
     messages.sort_by_key(|r| r.message.timestamp);
     if let Some(max) = max_messages {
-        if max > 0 {
-            messages.truncate(max);
+        if max > 0 && messages.len() > max {
+            let overflow = messages.len() - max;
+            messages.drain(..overflow);
         }
     }
     Ok(messages.into_iter().map(|r| r.message).collect())

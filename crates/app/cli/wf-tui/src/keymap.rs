@@ -111,7 +111,7 @@ pub enum KeymapContext {
     Chat,
     Input,
     Modal,
-    /// Single-line prompt composer (mini footer).
+    /// Single-line prompt composer (TUI footer prompt view, inline form).
     Composer,
     /// Selection panels: model / skill / queued prompts.
     Panel,

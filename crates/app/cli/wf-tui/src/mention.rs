@@ -1,4 +1,4 @@
-//! Mention parsing for the mini composer: `@` file / skill / workflow mentions.
+//! Mention parsing for the TUI footer composer (inline form): `@` file / skill / workflow mentions.
 //!
 //! The composer highlights mentions as intervals `Vec<(Range<usize>, MentionKind)>`
 //! where the range is byte offsets into the buffer. The streaming view never

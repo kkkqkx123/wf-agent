@@ -303,12 +303,6 @@ fn test_assemble_new_domain_overrides() {
 
     let overrides = ConfigOverrides {
         presets: Some(PresetsConfig {
-            context_compression: Some(wf_types::config::presets::ContextCompressionPresetConfig {
-                enabled: Some(true),
-                threshold: Some(0.9),
-                max_tokens: Some(2048),
-                strategy: Some("sliding_window".to_string()),
-            }),
             predefined_tools: None,
             predefined_prompts: None,
         }),
@@ -337,9 +331,6 @@ fn test_assemble_new_domain_overrides() {
     };
 
     let config = ConfigOrchestrator::assemble(&dir, Some(overrides)).unwrap();
-    let presets = config.presets.context_compression.unwrap();
-    assert_eq!(presets.enabled, Some(true));
-    assert_eq!(presets.max_tokens, Some(2048));
     assert!(config.tools.read_file.is_some());
     assert_eq!(config.tools.read_file.as_ref().unwrap().max_file_size, 1000);
     assert!(config.file_checkpoint.enabled);
@@ -368,10 +359,6 @@ fn test_full_bundle_assembly_from_repo_configs() {
     assert_eq!(config.timeout.default, Some(30000));
     assert!(config.sandbox.is_some(), "repo sandbox.toml must load");
     assert_eq!(config.output.dir, "./outputs");
-    assert!(
-        config.presets.context_compression.is_some(),
-        "repo presets.toml must load"
-    );
     assert!(
         config.tools.read_file.is_some(),
         "repo tools.toml [read_file] must load"

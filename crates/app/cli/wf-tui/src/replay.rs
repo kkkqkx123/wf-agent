@@ -135,7 +135,7 @@ pub struct ReplayPage {
 /// `before_timestamp = None` returns the most recent `limit` records (the
 /// tail the user sees first). Each older page is fetched by passing the
 /// previous page's [`ReplayPage::next_before`] as the cursor. The full
-/// loader [`replay_scrollack`] stays available for mini mode and tests.
+/// loader [`replay_scrollack`] stays available for the TUI inline mode and tests.
 pub async fn replay_scrollack_page(
     ctx: &ApiContext,
     session_id: &str,

@@ -219,6 +219,34 @@ impl TriggerCoordinator {
                 context_id,
                 messages,
             } => Self::handle_append_message_context(context_id, messages.clone(), ctx).await,
+            TriggerAction::TruncateMessageContext {
+                context_id,
+                keep_count,
+                from_end,
+            } => {
+                Self::handle_truncate_message_context(
+                    context_id,
+                    *keep_count,
+                    *from_end,
+                    ctx,
+                )
+                .await
+            }
+            TriggerAction::FilterMessageContext {
+                context_id,
+                role,
+                exclude,
+                custom_filter,
+            } => {
+                Self::handle_filter_message_context(
+                    context_id,
+                    role.clone(),
+                    exclude.unwrap_or(false),
+                    custom_filter.clone(),
+                    ctx,
+                )
+                .await
+            }
             // Nested agent executions are an event-driven trigger feature
             // (wf-runtime `AgentTriggerRunner`): message nodes have no parent
             // `AgentLoopEntity` / conversation session / `AgentLoopRegistry`,
@@ -421,6 +449,85 @@ impl TriggerCoordinator {
         Ok(serde_json::json!({
             "context_id": context_id,
             "appended": messages.len(),
+        }))
+    }
+
+    /// Truncate a named message context through the shared stateless
+    /// operation: the result is written back via `register_context`, so the
+    /// token ledger version advances and stale compression results are
+    /// invalidated like any other replacement.
+    async fn handle_truncate_message_context(
+        context_id: &str,
+        keep_count: u32,
+        from_end: Option<bool>,
+        ctx: &TriggerContext,
+    ) -> WorkflowResult<Value> {
+        let messages = crate::message_context::get_context(&ctx.variables, context_id);
+        let operation = wf_types::message::MessageOperationConfig::Truncate(
+            wf_types::message::TruncateMessageOperation {
+                keep_count,
+                from_end,
+            },
+        );
+        let (result, stats) = wf_llm::messaging::message_ops::apply(&messages, &operation);
+        crate::message_context::register_context(&ctx.variables, context_id, result);
+        Self::emit_with_metadata(
+            ctx,
+            EventType::MessageContextUpdated,
+            &format!("message_context_truncated:{}", context_id),
+            &[
+                ("context_id", Value::String(context_id.to_string())),
+                (
+                    "message_count",
+                    Value::Number(serde_json::Number::from(stats.total_after as u64)),
+                ),
+            ],
+        )
+        .await;
+        Ok(serde_json::json!({
+            "context_id": context_id,
+            "removed": stats.removed,
+            "message_count": stats.total_after,
+        }))
+    }
+
+    /// Filter a named message context by role and/or text content through
+    /// the shared stateless operation, with the same ledger-safe write-back
+    /// as truncation.
+    async fn handle_filter_message_context(
+        context_id: &str,
+        role: Option<wf_types::message::MessageRole>,
+        exclude: bool,
+        custom_filter: Option<String>,
+        ctx: &TriggerContext,
+    ) -> WorkflowResult<Value> {
+        let messages = crate::message_context::get_context(&ctx.variables, context_id);
+        let operation = wf_types::message::MessageOperationConfig::Filter(
+            wf_types::message::FilterMessageOperation {
+                role,
+                exclude: Some(exclude),
+                custom_filter,
+            },
+        );
+        let (result, stats) = wf_llm::messaging::message_ops::apply(&messages, &operation);
+        crate::message_context::register_context(&ctx.variables, context_id, result);
+        Self::emit_with_metadata(
+            ctx,
+            EventType::MessageContextUpdated,
+            &format!("message_context_filtered:{}", context_id),
+            &[
+                ("context_id", Value::String(context_id.to_string())),
+                (
+                    "message_count",
+                    Value::Number(serde_json::Number::from(stats.total_after as u64)),
+                ),
+            ],
+        )
+        .await;
+        Ok(serde_json::json!({
+            "context_id": context_id,
+            "removed": stats.removed,
+            "message_count": stats.total_after,
         }))
     }
 

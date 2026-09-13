@@ -29,7 +29,7 @@ use wf_api::infra::stream::ExecutionStreamEvent;
 /// Grouping key for a commit: `execution_id + iteration + tool_call_id`.
 ///
 /// Tool events carry the tool call id; everything else uses `None`.
-/// (mini) uses the same key to group commits into scrollback blocks.
+/// (the TUI inline form) uses the same key to group commits into scrollback blocks.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommitGroup {
     pub execution_id: String,
@@ -43,7 +43,7 @@ pub struct CommitGroup {
 /// `AssistantText` groups all `LlmDelta` chunks of an iteration (frame
 /// batched); tool lifecycle pairs produce `ToolStart`/`ToolEnd`; iteration
 /// boundaries and terminal events map one-to-one. `User` is reserved for
-/// callers that inject the user message explicitly (mini form) — it is never
+/// callers that inject the user message explicitly (TUI inline form) — it is never
 /// derived from events.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MiniCommit {
@@ -85,7 +85,7 @@ pub enum Phase {
     Streaming,
 }
 
-/// Pure footer state consumed by the mini footer. Maintained
+/// Pure footer state consumed by the TUI footer prompt view (inline form). Maintained
 /// incrementally by the reduction pass.
 #[derive(Debug, Clone, PartialEq)]
 pub struct FooterState {

@@ -43,7 +43,7 @@ static SUSPEND_PENDING: AtomicBool = AtomicBool::new(false);
 
 /// SIGTSTP handler: record the suspension request. The actual terminal
 /// restore / `SIGSTOP` sequence runs in the event loop (not here) so it can
-/// use normal Rust calls. Mirrors the mini-mode implementation.
+/// use normal Rust calls.
 extern "C" fn sigtstp_handler(_sig: libc::c_int) {
     SUSPEND_PENDING.store(true, Ordering::SeqCst);
 }
@@ -324,8 +324,7 @@ impl TuiApp {
     /// When a SIGTSTP (Ctrl-Z) arrived since the last tick, run the suspend /
     /// resume cycle: restore the terminal so the shell below renders normally,
     /// stop the process with the default disposition, then re-apply the TUI
-    /// modes, re-query geometry and force a full redraw. Mirrors the mini-mode
-    /// implementation.
+    /// modes, re-query geometry and force a full redraw.
     fn check_suspend(
         &mut self,
         guard: &mut TerminalGuard<CrosstermControl<io::Stdout>>,

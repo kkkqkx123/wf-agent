@@ -30,7 +30,7 @@ pub enum CommandId {
     Queued,
     /// `/editor` — edit the composer draft in `$EDITOR`.
     Editor,
-    /// `/quit` — leave the mini session.
+    /// `/quit` — leave the TUI inline session.
     Quit,
     /// `/help` — show the keymap and command help.
     Help,
@@ -107,12 +107,12 @@ impl CommandPalette {
             CommandEntry {
                 id: CommandId::Quit,
                 label: "/quit",
-                description: "exit the mini session",
+                description: "exit the TUI inline session",
             },
             CommandEntry {
                 id: CommandId::Help,
                 label: "/help",
-                description: "show the mini keymap and command help",
+                description: "show the inline keymap and command help",
             },
             CommandEntry {
                 id: CommandId::Workflows,

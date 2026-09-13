@@ -490,27 +490,39 @@ impl AgentIterationCoordinator {
                     }
                     let estimated = conversation.estimated_conversation_tokens();
                     let version = conversation.conversation_version();
-                    if estimated > token_limit && conversation.should_emit_compression(version) {
+                    if wf_execution_shared::context_store::over_budget(estimated, token_limit)
+                        && conversation.should_emit_compression(version)
+                    {
                         let message_count = conversation.messages().len();
                         let messages = conversation.messages().to_vec();
-                        let request = wf_llm::ContextCompressionRequest {
-                            target_context_id: wf_llm::CONVERSATION_CONTEXT_ID,
-                            tokens_used: estimated,
-                            token_limit,
-                            message_count,
-                            array_version: version,
-                            forced: false,
-                            messages: &messages,
-                        };
+                        let request =
+                            wf_execution_shared::context_store::compression_request(
+                                wf_llm::CONVERSATION_CONTEXT_ID,
+                                estimated,
+                                token_limit,
+                                message_count,
+                                version,
+                                false,
+                                &messages,
+                            );
                         // The event-bus copy stays the audit / persistence /
                         // user-rule channel; delivery is the synchronous hook
                         // dispatch (the compression service takes over here).
-                        let _ = bus.publish(wf_llm::build_context_compression_requested_event(
-                            &execution_id,
+                        let _ = bus.publish(
+                            wf_execution_shared::context_store::compression_event(
+                                &execution_id,
+                                Some(entity.id()),
+                                &request,
+                            ),
+                        );
+                        wf_execution_shared::context_store::dispatch_compression_signal(
+                            self.hook_handler_registry.as_deref(),
+                            self.event_bus.as_deref(),
+                            entity.id(),
                             Some(entity.id()),
                             &request,
-                        ));
-                        self.dispatch_compression(entity, &request).await;
+                        )
+                        .await;
                         conversation.mark_compression_emitted(version);
                     }
                 }
@@ -706,57 +718,31 @@ impl AgentIterationCoordinator {
         let token_limit = conversation.token_limit();
         let tokens_used = u64::from(wf_llm::estimate_request_tokens(request));
         let messages = request.messages.clone();
-        let compression_request = wf_llm::ContextCompressionRequest {
-            target_context_id: wf_llm::CONVERSATION_CONTEXT_ID,
+        let compression_request = wf_execution_shared::context_store::compression_request(
+            wf_llm::CONVERSATION_CONTEXT_ID,
             tokens_used,
             token_limit,
-            message_count: request.messages.len(),
-            array_version: version,
-            forced: true,
-            messages: &messages,
-        };
-        let _ = bus.publish(wf_llm::build_context_compression_requested_event(
-            &entity.id().clone(),
+            request.messages.len(),
+            version,
+            true,
+            &messages,
+        );
+        let _ = bus.publish(
+            wf_execution_shared::context_store::compression_event(
+                &entity.id().to_string(),
+                Some(entity.id()),
+                &compression_request,
+            ),
+        );
+        wf_execution_shared::context_store::dispatch_compression_signal(
+            self.hook_handler_registry.as_deref(),
+            self.event_bus.as_deref(),
+            entity.id(),
             Some(entity.id()),
             &compression_request,
-        ));
-        self.dispatch_compression(entity, &compression_request)
-            .await;
-        conversation.mark_compression_emitted(version);
-    }
-
-    /// Dispatch the `CONTEXT_COMPRESSION_REQUESTED` engine signal: registered
-    /// receivers (the compression service) are notified synchronously so the
-    /// summary sub-workflow takes over immediately; the event-bus audit copy
-    /// is published by the caller.
-    async fn dispatch_compression(
-        &self,
-        entity: &AgentLoopEntity,
-        request: &wf_llm::ContextCompressionRequest<'_>,
-    ) {
-        let Some(registry) = &self.hook_handler_registry else {
-            return;
-        };
-        use wf_execution_shared::hooks::{fire, HookContext};
-        let mut data = wf_llm::compression_request_hook_data(request);
-        // Agent-owned target: the agent conversation consumes the completed
-        // event itself (no registry write-back).
-        data.insert(
-            "agent_loop_id".to_string(),
-            Value::String(entity.id().to_string()),
-        );
-        fire(
-            registry,
-            &[],
-            wf_llm::token_events::COMPRESSION_SIGNAL_HOOK_TYPE,
-            &HookContext {
-                execution_id: entity.id().clone(),
-                hook_type: wf_llm::token_events::COMPRESSION_SIGNAL_HOOK_TYPE.to_string(),
-                data,
-            },
-            self.event_bus.as_deref(),
         )
         .await;
+        conversation.mark_compression_emitted(version);
     }
 
     /// Publish the LLM_REQUESTED event before the gateway call.

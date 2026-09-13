@@ -28,24 +28,16 @@ pub use formatters::{
     LlmFormatter, OpenaiChatFormatter, OpenaiResponseFormatter,
 };
 pub use gateway::LlmGateway;
-pub use message_helper::{
-    count_total_chars, extract_text_content, merge_consecutive_messages, truncate_message,
-};
+pub use message_helper::extract_text_content;
 pub use message_stream::MessageStream;
 pub use messaging::conversation_session::{
     ConversationSession, ConversationState, CONVERSATION_CONTEXT_ID,
 };
-pub use messaging::cross_boundary_converter::{BoundaryType, CrossBoundaryConverter};
-pub use messaging::dynamic_injection::DynamicInjection;
 pub use messaging::history_converter::{
     convert_assistant_message, convert_to_text_mode, convert_tool_result_message,
-    render_tool_calls, render_tool_result, HistoryConverter, HistoryFormat,
+    render_tool_calls, render_tool_result,
 };
-pub use messaging::message_array_manager::MessageArrayManager;
-pub use messaging::message_context_registry::{MessageContextRegistry, NamedMessageContext};
-pub use messaging::visible_range_calculator::{
-    VisibilityScope, VisibleRange, VisibleRangeCalculator,
-};
+pub use messaging::message_ops::{apply as apply_message_operation, extract_by_role};
 #[cfg(feature = "mock")]
 pub use mock::{LlmResponseSpec, MockLlmClient, MockMessageStream};
 pub use partial_json_parser::{parse_partial_json, recover_partial_json, PartialParseResult};

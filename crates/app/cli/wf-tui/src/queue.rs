@@ -1,10 +1,11 @@
-//! Prompt queue for the mini session: one turn runs at a time, submits
+//! Prompt queue for the TUI inline session (unrelated to the `wf-mini`
+//! binary): one turn runs at a time, submits
 //! while a turn is active are queued and drained in order (the opencode
 //! `runPromptQueue` serial semantics).
 //!
 //! The queue is pure data: push / pop / remove / edit are the whole
 //! surface, the queued panel renders from [`PromptQueue::items`] and the
-//! mini event loop owns the drain policy (`pop` after a turn terminal
+//! inline event loop owns the drain policy (`pop` after a turn terminal
 //! event).
 
 /// One queued prompt (monotonic id + sanitized text).

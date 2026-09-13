@@ -139,7 +139,7 @@ impl MarkdownStream {
 
     /// Source bytes in `[from, to)` of the cumulative buffer (`to` clamped
     /// to the end). Consumers that track their own settlement frontier
-    /// (mini's scrollback cover) use this to flush the exact remaining
+    /// (the TUI inline scrollback cover) use this to flush the exact remaining
     /// span at a finalize boundary.
     pub fn range_text(&self, from: usize, to: usize) -> &str {
         let len = self.buffer.len();
@@ -158,7 +158,7 @@ impl MarkdownStream {
 
     /// Close the stream. Only bytes never delivered in any earlier frame are
     /// returned — previously streamed bytes belong to the consumer's
-    /// streaming view, which the consumer settles itself (mini flushes its
+    /// streaming view, which the consumer settles itself (the inline form flushes its
     /// scrollback span via [`Self::range_text`] before finishing). Never
     /// re-emits, never drops.
     pub fn finish(&mut self) -> MarkdownFrame {

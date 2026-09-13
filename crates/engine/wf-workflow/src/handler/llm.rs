@@ -108,18 +108,18 @@ async fn publish_forced_compression(ctx: &NodeExecutionContext, request: &LlmReq
     let tokens_used = u64::from(wf_llm::estimate_request_tokens(request));
     let message_count = request.messages.len();
     let array_version = message_context::array_version(&ctx.variables, &target);
-    let compression_request = wf_llm::ContextCompressionRequest {
-        target_context_id: &target,
+    let compression_request = wf_execution_shared::context_store::compression_request(
+        &target,
         tokens_used,
-        token_limit: u64::MAX,
+        u64::MAX,
         message_count,
         array_version,
-        forced: true,
-        messages: &request.messages,
-    };
+        true,
+        &request.messages,
+    );
     bus.publish_logged(
-        wf_llm::build_context_compression_requested_event(
-            &ctx.execution_id,
+        wf_execution_shared::context_store::compression_event(
+            &ctx.execution_id.to_string(),
             None,
             &compression_request,
         ),
@@ -132,29 +132,21 @@ async fn publish_forced_compression(ctx: &NodeExecutionContext, request: &LlmReq
     dispatch_compression_signal(ctx, &compression_request).await;
 }
 
-/// Dispatch the `CONTEXT_COMPRESSION_REQUESTED` engine signal: registered
-/// receivers (the compression service) are notified synchronously so the
-/// summary sub-workflow takes over immediately. Workflow targets have no
-/// `agent_loop_id`: the write-back goes through the execution registry.
+/// Dispatch the `CONTEXT_COMPRESSION_REQUESTED` engine signal through the
+/// shared context store: registered receivers (the compression service)
+/// are notified synchronously so the summary sub-workflow takes over
+/// immediately. Workflow targets have no `agent_loop_id`: the write-back
+/// goes through the execution registry.
 async fn dispatch_compression_signal(
     ctx: &NodeExecutionContext,
     request: &wf_llm::ContextCompressionRequest<'_>,
 ) {
-    use wf_execution_shared::hooks::HookContext;
-    let Some(registry) = &ctx.hook_handler_registry else {
-        return;
-    };
-    let data = wf_llm::compression_request_hook_data(request);
-    wf_execution_shared::hooks::fire(
-        registry,
-        &[],
-        wf_llm::token_events::COMPRESSION_SIGNAL_HOOK_TYPE,
-        &HookContext {
-            execution_id: ctx.execution_id.clone(),
-            hook_type: wf_llm::token_events::COMPRESSION_SIGNAL_HOOK_TYPE.to_string(),
-            data,
-        },
+    wf_execution_shared::context_store::dispatch_compression_signal(
+        ctx.hook_handler_registry.as_deref(),
         ctx.event_bus.as_deref(),
+        &ctx.execution_id,
+        None,
+        request,
     )
     .await;
 }
@@ -295,20 +287,23 @@ async fn emit_token_usage_events(ctx: &NodeExecutionContext, warning_threshold: 
         let estimated = message_context::ledger_estimated_tokens(&ctx.variables, &context_id)
             + injected_estimate;
         let version = message_context::array_version(&ctx.variables, &context_id);
-        if estimated > token_limit
-            && message_context::should_emit_compression(&ctx.variables, &context_id, version)
+        if wf_execution_shared::context_store::over_budget(
+            estimated,
+            token_limit,
+        ) && message_context::should_emit_compression(&ctx.variables, &context_id, version)
         {
-            let compression_request = wf_llm::ContextCompressionRequest {
-                target_context_id: &context_id,
-                tokens_used: estimated,
-                token_limit,
-                message_count: context_messages.len(),
-                array_version: version,
-                forced: false,
-                messages: &context_messages,
-            };
-            let mut event = wf_llm::build_context_compression_requested_event(
-                &ctx.execution_id,
+            let compression_request =
+                wf_execution_shared::context_store::compression_request(
+                    &context_id,
+                    estimated,
+                    token_limit,
+                    context_messages.len(),
+                    version,
+                    false,
+                    &context_messages,
+                );
+            let mut event = wf_execution_shared::context_store::compression_event(
+                &ctx.execution_id.to_string(),
                 None,
                 &compression_request,
             );

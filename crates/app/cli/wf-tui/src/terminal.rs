@@ -1,4 +1,5 @@
-//! Terminal interaction facilities shared by the mini and full TUI forms.
+//! Terminal interaction facilities shared by the TUI inline and full-screen
+//! forms (both inside this crate, unrelated to the `wf-mini` binary).
 //!
 //! This module re-exports from focused sub-modules:
 //! - Guard RAII state machine (`TerminalGuard`, `TerminalModes`, etc.)
@@ -46,7 +47,7 @@ impl TerminalModes {
         cursor_hidden: false,
     };
 
-    /// Typical mini session: inline viewport, no alt screen.
+    /// Typical TUI inline session: inline viewport, no alt screen.
     pub const MINI: Self = Self {
         raw: true,
         alt_screen: false,

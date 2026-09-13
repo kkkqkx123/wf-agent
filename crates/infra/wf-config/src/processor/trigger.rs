@@ -224,6 +224,22 @@ pub fn validate_trigger_action(action: &TriggerAction, field_prefix: &str) -> Co
                 )));
             }
         }
+        TriggerAction::TruncateMessageContext { context_id, .. } => {
+            validate_not_empty(context_id, &format!("{field_prefix}.context_id"))?;
+        }
+        TriggerAction::FilterMessageContext {
+            context_id,
+            role,
+            custom_filter,
+            ..
+        } => {
+            validate_not_empty(context_id, &format!("{field_prefix}.context_id"))?;
+            if role.is_none() && custom_filter.as_ref().is_none_or(|s| s.is_empty()) {
+                return Err(ConfigError::Validation(format!(
+                    "{field_prefix} needs at least one of role or custom_filter"
+                )));
+            }
+        }
         // These variants have no required fields to validate.
         TriggerAction::StopWorkflowExecution {}
         | TriggerAction::PauseWorkflowExecution {}

@@ -465,6 +465,7 @@ impl InteractiveController {
             agent,
             model,
             approve_prefixes: Vec::new(),
+            conversation: Vec::new(),
             kind: TurnKind::Agent { prompt },
         };
         let handler = Arc::new(TuiApprovalHandler::new(self.tx.clone()));

@@ -4,6 +4,7 @@ mod approval;
 mod input;
 mod output;
 mod session;
+mod transcript;
 
 use clap::Parser;
 

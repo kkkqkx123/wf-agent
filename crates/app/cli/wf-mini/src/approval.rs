@@ -1,31 +1,41 @@
 //! Blocking approval for the native session: policy-allowed tools pass
-//! silently, everything else prompts on stderr and reads one line.
+//! silently, everything else prompts on stderr and takes one line from the
+//! shared stdin reader.
 
 use std::io::{self, Write};
+use std::sync::Arc;
 use std::time::Duration;
 
 use wf_api::{ToolApprovalHandler, ToolApprovalRequest, ToolApprovalResult};
 
 use wf_cli_shared::approval_policy::{ApprovalDecision, ApprovalPolicy};
 
+use crate::input::LineReader;
 use crate::output::diag_line;
 
 /// Seconds before an unanswered approval prompt is denied.
 const APPROVAL_TIMEOUT_SECS: u64 = 120;
 
-/// Approval handler for the native session. stdin is free while a turn
-/// streams (the main loop only pumps events), so a blocking line read here
-/// cannot race the prompt reader.
+/// Approval handler for the native session. Answers come from the shared
+/// stdin reader (the only stdin reader in the process), so a timed-out or
+/// interrupted prompt leaves its late lines in the channel where the
+/// session drains them instead of misreading them as the next prompt.
 pub struct NativeApprovalHandler {
     policy: ApprovalPolicy,
     auto_approve: bool,
+    lines: Arc<tokio::sync::Mutex<LineReader>>,
 }
 
 impl NativeApprovalHandler {
-    pub fn new(approve_prefixes: Vec<String>, auto_approve: bool) -> Self {
+    pub fn new(
+        approve_prefixes: Vec<String>,
+        auto_approve: bool,
+        lines: Arc<tokio::sync::Mutex<LineReader>>,
+    ) -> Self {
         Self {
             policy: ApprovalPolicy::new(approve_prefixes),
             auto_approve,
+            lines,
         }
     }
 }
@@ -64,7 +74,7 @@ impl NativeApprovalHandler {
         let answer = tokio::select! {
             biased;
             _ = tokio::signal::ctrl_c() => return denied("approval interrupted"),
-            result = read_answer_line() => result,
+            result = self.read_answer_line() => result,
         };
         let answer = match answer {
             Ok(Some(line)) => line,
@@ -79,23 +89,17 @@ impl NativeApprovalHandler {
             denied("denied by user")
         }
     }
-}
 
-async fn read_answer_line() -> Result<Option<String>, tokio::time::error::Elapsed> {
-    tokio::time::timeout(Duration::from_secs(APPROVAL_TIMEOUT_SECS), async {
-        let mut line = String::new();
-        match tokio::io::AsyncBufReadExt::read_line(
-            &mut tokio::io::BufReader::new(tokio::io::stdin()),
-            &mut line,
-        )
+    /// Take the first channel line as the answer. The timeout wraps the
+    /// channel wait (not a raw stdin read), so cancelling it leaves nothing
+    /// behind in the terminal: any late line stays queued for the session
+    /// drain.
+    async fn read_answer_line(&self) -> Result<Option<String>, tokio::time::error::Elapsed> {
+        tokio::time::timeout(Duration::from_secs(APPROVAL_TIMEOUT_SECS), async {
+            self.lines.lock().await.next_line().await
+        })
         .await
-        {
-            Ok(0) => None,
-            Ok(_) => Some(line),
-            Err(_) => None,
-        }
-    })
-    .await
+    }
 }
 
 /// Accept common affirmative answers; everything else denies.
@@ -150,7 +154,7 @@ mod tests {
 
     #[tokio::test]
     async fn auto_approve_allows_sensitive_tool_without_prompt() {
-        let handler = NativeApprovalHandler::new(Vec::new(), true);
+        let handler = NativeApprovalHandler::new(Vec::new(), true, test_lines());
         let result = handler
             .request_approval(&approval_request("write_file"))
             .await;
@@ -159,10 +163,48 @@ mod tests {
 
     #[tokio::test]
     async fn manual_mode_allows_low_risk_tool_without_prompt() {
-        let handler = NativeApprovalHandler::new(Vec::new(), false);
+        let handler = NativeApprovalHandler::new(Vec::new(), false, test_lines());
         let result = handler
             .request_approval(&approval_request("read_file"))
             .await;
         assert!(result.approved);
+    }
+
+    #[tokio::test]
+    async fn approval_consumes_one_shared_line() {
+        let (lines, tx) = test_channel();
+        tx.send("yes\n".to_string()).unwrap();
+        let handler = NativeApprovalHandler::new(Vec::new(), false, lines);
+        let result = handler
+            .request_approval(&approval_request("write_file"))
+            .await;
+        assert!(result.approved);
+    }
+
+    #[tokio::test]
+    async fn closed_input_denies_approval() {
+        let (lines, tx) = test_channel();
+        drop(tx);
+        let handler = NativeApprovalHandler::new(Vec::new(), false, lines);
+        let result = handler
+            .request_approval(&approval_request("write_file"))
+            .await;
+        assert!(!result.approved);
+    }
+
+    fn test_lines() -> Arc<tokio::sync::Mutex<LineReader>> {
+        let (lines, _) = test_channel();
+        lines
+    }
+
+    fn test_channel() -> (
+        Arc<tokio::sync::Mutex<LineReader>>,
+        tokio::sync::mpsc::UnboundedSender<String>,
+    ) {
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        (
+            Arc::new(tokio::sync::Mutex::new(LineReader::from_receiver(rx))),
+            tx,
+        )
     }
 }

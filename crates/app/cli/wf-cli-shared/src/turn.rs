@@ -27,6 +27,10 @@ pub struct TurnParams {
     pub agent: Option<String>,
     pub model: Option<String>,
     pub approve_prefixes: Vec<String>,
+    /// Prior conversation seeding the run. Headless and fullscreen forms
+    /// leave this empty (single-shot turns); the mini session fills it from
+    /// its transcript.
+    pub conversation: Vec<wf_types::message::Message>,
     pub kind: TurnKind,
 }
 
@@ -58,7 +62,7 @@ pub fn build_agent_loop_params(
         input: AgentLoopInput {
             message: sanitized,
             context: std::collections::HashMap::new(),
-            conversation: Vec::new(),
+            conversation: params.conversation.clone(),
         },
     }
 }
@@ -133,6 +137,7 @@ mod tests {
             agent: None,
             model: None,
             approve_prefixes: vec![],
+            conversation: Vec::new(),
             kind: TurnKind::Agent {
                 prompt: "hi".to_string(),
             },
@@ -140,6 +145,34 @@ mod tests {
         let run = build_agent_loop_params(&params, None);
         assert_eq!(run.config.model, crate::config::DEFAULT_MODEL);
         assert_eq!(run.input.message, "hi");
+        assert!(run.input.conversation.is_empty());
+    }
+
+    #[test]
+    fn build_agent_loop_params_carries_conversation() {
+        let history = vec![wf_types::message::Message {
+            id: wf_types::Id::from("m1".to_string()),
+            role: wf_types::message::MessageRole::User,
+            content: wf_types::message::MessageContentValue::Text("earlier".to_string()),
+            timestamp: 1,
+            tool_call_id: None,
+            tool_name: None,
+            tool_calls: None,
+            thinking: None,
+            metadata: None,
+        }];
+        let params = TurnParams {
+            agent: None,
+            model: None,
+            approve_prefixes: vec![],
+            conversation: history,
+            kind: TurnKind::Agent {
+                prompt: "follow-up".to_string(),
+            },
+        };
+        let run = build_agent_loop_params(&params, None);
+        assert_eq!(run.input.conversation.len(), 1);
+        assert_eq!(run.input.message, "follow-up");
     }
 
     #[test]
@@ -148,6 +181,7 @@ mod tests {
             agent: Some("ag".into()),
             model: Some("m".into()),
             approve_prefixes: vec![],
+            conversation: Vec::new(),
             kind: TurnKind::Agent {
                 prompt: "\x1b[31mhi\x1b[0m".to_string(),
             },

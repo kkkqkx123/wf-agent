@@ -341,6 +341,30 @@ impl RemoteClient {
             .await
     }
 
+    /// Read-only resume helper: fetch the stored conversation of one agent
+    /// loop. Unknown loops and shape mismatches read as empty, never as an
+    /// error, so the caller can fall back to a fresh session.
+    pub async fn get_conversation(&self, agent_loop_id: &str) -> Vec<wf_types::message::Message> {
+        let value: Result<serde_json::Value, RemoteError> = self
+            .get_json(&format!("/api/v1/agent-loops/{agent_loop_id}/conversation"))
+            .await;
+        value
+            .ok()
+            .and_then(|v| serde_json::from_value(v).ok())
+            .unwrap_or_default()
+    }
+
+    /// Read-only resume helper: list loop summaries for `--resume` latest
+    /// lookup. Returns the raw summaries array; the caller picks the entry
+    /// with the newest start time.
+    pub async fn list_loop_summaries(&self) -> Vec<serde_json::Value> {
+        let value: Result<serde_json::Value, RemoteError> =
+            self.get_json("/api/v1/agent-loops/summaries").await;
+        value
+            .ok()
+            .and_then(|v| serde_json::from_value(v).ok())
+            .unwrap_or_default()
+    }
     pub async fn health(&self) -> Result<serde_json::Value, RemoteError> {
         let resp = self
             .builder(reqwest::Method::GET, "/health")
@@ -513,12 +537,15 @@ impl RemoteClient {
             crate::turn::TurnKind::Workflow { .. } => String::new(),
         };
         let sanitized = crate::sanitize::sanitize_user_text(&prompt);
+        let conversation =
+            serde_json::to_value(&params.conversation).unwrap_or(serde_json::Value::Null);
         let body = serde_json::json!({
             "agent_id": params.agent.clone().unwrap_or_else(|| crate::config::DEFAULT_AGENT.to_string()),
             "model": params.model.clone().unwrap_or_else(|| crate::config::DEFAULT_MODEL.to_string()),
             "message": sanitized,
             "max_iterations": 50,
             "context": {},
+            "conversation": conversation,
         });
         let resp = self
             .builder(reqwest::Method::POST, "/api/v1/agent-loops/cli/stream")

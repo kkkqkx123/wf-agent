@@ -395,6 +395,7 @@ impl RunOptions {
             agent: self.agent_id.clone(),
             model: self.model.clone(),
             approve_prefixes: self.approve_prefixes.clone(),
+            conversation: Vec::new(),
             kind,
         }
     }

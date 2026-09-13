@@ -57,6 +57,13 @@ pub struct Cli {
     /// Tool approval mode: `auto`, `llm`, `manual`.
     #[arg(long, global = true)]
     pub approval: Option<String>,
+    /// Mini prompt history file path. Overrides the default state-dir file
+    /// and `WF_MINI_HISTORY_FILE`. Mini only; ignored by other forms.
+    #[arg(long, global = true)]
+    pub history_file: Option<std::path::PathBuf>,
+    /// Disable mini prompt history persistence. Mini only.
+    #[arg(long, global = true)]
+    pub no_history: bool,
     /// Remote server URL (e.g. http://localhost:3000). Overrides WF_REMOTE env.
     #[arg(long, global = true)]
     pub remote: Option<String>,
@@ -112,6 +119,9 @@ impl Cli {
         }
         if let Some(approval) = &self.approval {
             Self::validate_approval(approval)?;
+        }
+        if self.history_file.is_some() && self.no_history {
+            return Err("--history-file and --no-history are mutually exclusive".to_string());
         }
         if let Some(timeout) = self.timeout {
             if timeout == 0 {
@@ -1652,6 +1662,19 @@ mod tests {
     fn rejects_session_and_resume_together() {
         let cli = parse(&["--tui", "--session", "abc", "--resume"]).unwrap();
         assert!(cli.validate().is_err());
+    }
+
+    #[test]
+    fn history_file_and_no_history_are_exclusive() {
+        let cli = parse(&["--history-file", "/tmp/h", "--no-history"]).unwrap();
+        let err = cli.validate().unwrap_err();
+        assert!(err.contains("mutually exclusive"), "{err}");
+
+        let cli = parse(&["--history-file", "/tmp/h"]).unwrap();
+        assert!(cli.validate().is_ok());
+
+        let cli = parse(&["--no-history"]).unwrap();
+        assert!(cli.validate().is_ok());
     }
 
     #[test]

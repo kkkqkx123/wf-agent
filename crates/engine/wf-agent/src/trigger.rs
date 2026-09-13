@@ -5,6 +5,15 @@ use dashmap::DashMap;
 use serde_json::Value;
 use tracing::warn;
 
+///
+/// Engine ownership note: the event-driven `TriggerEventListener` lives in
+/// `wf-workflow` and is assembled in `wf-runtime`; this module is only the
+/// agent-side target (child execution + version-checked write-back). The
+/// runtime `AgentTriggerRunner` resolves the parent loop, slices the parent
+/// conversation via `snapshot_conversation_for_child` and delegates here.
+use crate::entity::AgentLoopEntity;
+use crate::error::{AgentError, AgentResult};
+use crate::hook::AgentHookEmitter;
 use wf_core::EventBus;
 use wf_execution_shared::hooks::HookHandlerRegistry;
 use wf_execution_shared::types::execution_entity::ExecutionEntity;
@@ -13,10 +22,6 @@ use wf_types::hook::{SUBAGENT_START, SUBAGENT_STOP};
 use wf_types::message::{Message, MessageContentValue, MessageRole};
 use wf_types::trigger::{ConversationAnchor, TriggerAgentInputMode, TriggerAgentWriteback};
 use wf_types::Id;
-
-use crate::entity::AgentLoopEntity;
-use crate::error::{AgentError, AgentResult};
-use crate::hook::AgentHookEmitter;
 
 /// Callback that runs a child agent loop (usually backed by
 /// AgentLoopExecutor).
@@ -60,6 +65,32 @@ pub struct TriggeredTaskSubmission {
     pub task_id: String,
     pub status: String,
     pub submit_time: i64,
+}
+
+/// Slice the parent conversation for one triggered child.
+///
+/// - `PrefixToAnchor` with a positional anchor feeds the prefix up to
+///   `anchor.message_count`;
+/// - every other combination (missing/non-positional anchor, `FullSnapshot`)
+///   feeds the full conversation so the child never runs on an empty
+///   snapshot by accident. Callers needing observability must log the
+///   fallback themselves (the runner knows template/event ids, this helper
+///   does not).
+pub fn snapshot_conversation_for_child(
+    messages: &[Message],
+    input_mode: TriggerAgentInputMode,
+    anchor: Option<ConversationAnchor>,
+) -> Vec<Message> {
+    match (input_mode, anchor) {
+        (TriggerAgentInputMode::PrefixToAnchor, Some(anchor)) if anchor.is_positional() => messages
+            .iter()
+            .take(anchor.message_count)
+            .cloned()
+            .collect(),
+        (TriggerAgentInputMode::PrefixToAnchor, _) | (TriggerAgentInputMode::FullSnapshot, _) => {
+            messages.to_vec()
+        }
+    }
 }
 
 /// How and how long to run a child, plus where its result is written back.

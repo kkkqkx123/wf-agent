@@ -52,6 +52,21 @@ impl TriggerActionRouter {
 #[async_trait]
 impl TriggerActionRunner for TriggerActionRouter {
     async fn run(&self, template: &TriggerTemplate, event: &BaseEvent) -> WorkflowResult<()> {
+        // Defense in depth: the matcher already drops execution-less events
+        // for non-creation actions, but templates can be registered around
+        // validation. Fail loudly instead of letting the context runner
+        // silently skip on the missing execution id.
+        if event.execution_id.is_none()
+            && !template
+                .action
+                .as_ref()
+                .is_some_and(|action| action.is_execution_creating())
+        {
+            return Err(wf_workflow::error::WorkflowError::TriggerError(format!(
+                "Trigger '{}' matched an execution-less event without an execution-creating action; skipping",
+                template.name
+            )));
+        }
         match &template.action {
             Some(TriggerAction::ExecuteTriggeredSubworkflow { .. }) => {
                 self.compression.run(template, event).await

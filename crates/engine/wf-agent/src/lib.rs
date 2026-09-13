@@ -50,7 +50,8 @@ pub use registry::AgentLoopRegistry;
 pub use stream::{AgentEventStream, AgentStreamEvent};
 pub use timeout::{AgentTimeoutManager, TimeoutHandle};
 pub use trigger::{
-    TriggeredAgentExecutionConfig, TriggeredAgentExecutionManager, TriggeredTaskSubmission,
+    snapshot_conversation_for_child, TriggeredAgentExecutionConfig, TriggeredAgentExecutionManager,
+    TriggeredTaskSubmission,
 };
 pub use validation::AgentLoopValidator;
 pub use visibility::{

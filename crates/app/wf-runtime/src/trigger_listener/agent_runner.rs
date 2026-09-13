@@ -122,17 +122,8 @@ impl TriggerActionRunner for AgentTriggerRunner {
         // Cold-start agent: no parent loop, no conversation anchor, no
         // write-back. Always fire-and-forget; the spawned task logs failures
         // and only the submission is recorded in the ledger.
-        if let Some(TriggerAction::ExecuteAgent {
-            agent_id,
-            prompt,
-            model,
-            input,
-            timeout,
-        }) = &template.action
-        {
-            return self
-                .run_cold(template, event, agent_id, prompt, model, input, *timeout)
-                .await;
+        if let Some(TriggerAction::ExecuteAgent { .. }) = &template.action {
+            return self.run_cold(template, event).await;
         }
         let Some(TriggerAction::ExecuteTriggeredAgentExecution {
             agent_id,
@@ -170,7 +161,6 @@ impl TriggerActionRunner for AgentTriggerRunner {
             discoverable_metadata_block: None,
         };
         let start = wf_common::now();
-        let child_execution_id = Id::new();
         let action_type = "execute_triggered_agent_execution";
 
         // Turn anchor: the parent conversation position/version captured at
@@ -186,26 +176,40 @@ impl TriggerActionRunner for AgentTriggerRunner {
         // (and, per the write-back mode, in the parent conversation).
         let parent = self.resolve_parent(event);
 
+        // Degraded configurations are loud: a conversation write-back
+        // without an anchor always falls back to variable-only inside the
+        // manager, and a prefix input without a positional anchor falls
+        // back to the full snapshot. Both are logged here where the
+        // template and event ids are known.
+        if parent.is_some()
+            && anchor.is_none()
+            && writeback != wf_types::trigger::TriggerAgentWriteback::Variable
+        {
+            warn!(
+                "Trigger '{}' requests conversation write-back for event {} without a conversation anchor; falling back to variable-only write-back",
+                template.name, event.id
+            );
+        }
+
         let (success, error) = match parent {
             Some(parent) => {
-                // Child input: the parent conversation snapshot up to the
-                // anchor (PrefixToAnchor; full snapshot when the anchor is
-                // missing) or the full conversation (FullSnapshot).
+                // Child input via the shared helper so the engine and the
+                // runtime never diverge on prefix/full-snapshot semantics.
                 let conversation = {
                     let conv = parent.conversation().read().await;
-                    match (input_mode, anchor) {
-                        (TriggerAgentInputMode::PrefixToAnchor, Some(anchor))
-                            if anchor.is_positional() =>
-                        {
-                            conv.messages()
-                                .iter()
-                                .take(anchor.message_count)
-                                .cloned()
-                                .collect()
-                        }
-                        (TriggerAgentInputMode::PrefixToAnchor, _)
-                        | (TriggerAgentInputMode::FullSnapshot, _) => conv.messages().to_vec(),
+                    if input_mode == TriggerAgentInputMode::PrefixToAnchor
+                        && !anchor.is_some_and(|anchor| anchor.is_positional())
+                    {
+                        debug!(
+                            "Trigger '{}' uses prefix input for event {} without a positional anchor; feeding the full snapshot",
+                            template.name, event.id
+                        );
                     }
+                    wf_agent::trigger::snapshot_conversation_for_child(
+                        conv.messages(),
+                        input_mode,
+                        anchor,
+                    )
                 };
                 let child_input = AgentLoopInput {
                     message: prompt.clone().unwrap_or_else(|| template.name.clone()),
@@ -234,10 +238,15 @@ impl TriggerActionRunner for AgentTriggerRunner {
             }
             None => {
                 // No parent execution: fire-and-forget without a write-back
-                // target, aborted at listener shutdown.
-                debug!(
-                    "Trigger '{}' matched but no parent agent loop for event {:?}, running fire-and-forget",
-                    template.name, event.id
+                // target, aborted at listener shutdown. Loud (warn) because
+                // it usually means the trigger condition points at an
+                // unknown agent loop id.
+                warn!(
+                    "Trigger '{}' matched but no parent agent loop for event {} (agent_loop_id={:?}, execution_id={:?}); running fire-and-forget without write-back",
+                    template.name,
+                    event.id,
+                    event.agent_loop_id,
+                    event.execution_id
                 );
                 let child_input = AgentLoopInput {
                     message: prompt.clone().unwrap_or_else(|| template.name.clone()),
@@ -264,6 +273,12 @@ impl TriggerActionRunner for AgentTriggerRunner {
             }
         };
 
+        // Ledger linkage: the durable record must point at the emitting
+        // execution (via the `child_execution_id.or(event.execution_id)`
+        // fallback in `record_trigger_execution`). The real child execution
+        // id is generated inside `TriggeredAgentExecutionManager` and is not
+        // returned here, so report `None` instead of a fabricated id that
+        // would break the parent linkage.
         record_trigger_execution(
             &self.storage,
             template,
@@ -273,7 +288,7 @@ impl TriggerActionRunner for AgentTriggerRunner {
                 success,
                 error: error.clone(),
                 execution_time_ms: wf_common::now() - start,
-                child_execution_id: Some(child_execution_id),
+                child_execution_id: None,
             },
         )
         .await;
@@ -287,19 +302,21 @@ impl TriggerActionRunner for AgentTriggerRunner {
 
 impl AgentTriggerRunner {
     /// Cold-start a fresh agent loop with no parent (`ExecuteAgent`).
-    async fn run_cold(
-        &self,
-        template: &TriggerTemplate,
-        event: &BaseEvent,
-        agent_id: &str,
-        prompt: &Option<String>,
-        model: &Option<String>,
-        input: &Option<HashMap<String, serde_json::Value>>,
-        timeout: Option<u64>,
-    ) -> WorkflowResult<()> {
+    async fn run_cold(&self, template: &TriggerTemplate, event: &BaseEvent) -> WorkflowResult<()> {
+        let Some(TriggerAction::ExecuteAgent {
+            agent_id,
+            prompt,
+            model,
+            input,
+            timeout,
+        }) = &template.action
+        else {
+            return Ok(());
+        };
+        let timeout = *timeout;
         let start = wf_common::now();
         let child_config = AgentLoopConfig {
-            agent_id: Id::from(agent_id.to_string()),
+            agent_id: Id::from(agent_id.clone()),
             model: model.clone().unwrap_or_else(|| "DEFAULT".to_string()),
             max_iterations: None,
             max_execution_time: None,

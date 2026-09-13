@@ -1,4 +1,10 @@
-//! Event-driven trigger subsystem.
+//! Event-driven trigger subsystem (engine-owned listener core).
+//!
+//! The listener loop lives here because both workflow and agent events flow
+//! through the same `EventBus`, but the concrete action runners live in
+//! `wf-runtime` (`TriggerActionRouter`: sub-workflow / agent / creation /
+//! in-context). `wf-agent` owns only the child-execution target
+//! (`TriggeredAgentExecutionManager`); it never runs this listener directly.
 //!
 //! Grouped here: the listener orchestration loop and the stages it wires
 //! together, the ports through which the machinery reaches runtime services,

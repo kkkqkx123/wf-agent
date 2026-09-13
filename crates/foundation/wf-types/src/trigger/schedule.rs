@@ -42,11 +42,12 @@ pub enum ScheduleMisfirePolicy {
 }
 
 /// Where a schedule tick is routed.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum ScheduleTarget {
     /// The tick names a live execution resolved at fire time through the
     /// runtime timer-binding table (`schedule_name -> execution_id`).
+    #[default]
     ExecutionScoped,
     /// The tick cold-starts a fresh run; exactly one of `workflow_id` /
     /// `agent_id` must be set.
@@ -102,12 +103,6 @@ pub struct ScheduleSpec {
 
 fn default_enabled() -> bool {
     true
-}
-
-impl Default for ScheduleTarget {
-    fn default() -> Self {
-        Self::ExecutionScoped
-    }
 }
 
 impl ScheduleSpec {
@@ -293,13 +288,12 @@ impl CronSchedule {
         // Standard cron day semantics: when both dom and dow are restricted,
         // either matching fires; otherwise the restricted one (or the
         // unrestricted wildcard) decides.
-        let day_hit = match (self.dom_restricted, self.dow_restricted) {
+        match (self.dom_restricted, self.dow_restricted) {
             (true, true) => self.days[day] || self.weekdays[weekday],
             (true, false) => self.days[day],
             (false, true) => self.weekdays[weekday],
             (false, false) => true,
-        };
-        day_hit
+        }
     }
 
     /// First fire time strictly after `after` (interpreted in `tz_name`).

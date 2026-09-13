@@ -195,17 +195,18 @@ fn publish_tick(
         ("cron".to_string(), serde_json::json!(entry.spec.cron)),
         (FIRE_ID_METADATA_KEY.to_string(), serde_json::json!(fire_id)),
     ]);
-    if let ScheduleTarget::Create { input, .. } = &entry.spec.target {
-        if let Some(input) = input {
-            metadata.insert(TRIGGER_INPUT_METADATA_KEY.to_string(), input.clone());
-        }
+    if let ScheduleTarget::Create {
+        input: Some(input), ..
+    } = &entry.spec.target
+    {
+        metadata.insert(TRIGGER_INPUT_METADATA_KEY.to_string(), input.clone());
     }
     let event = BaseEvent {
         id: wf_common::generate_id(),
         r#type: EventType::NodeCustomEvent,
         timestamp: wf_common::now(),
         workflow_id: None,
-        execution_id: execution_id.map(wf_types::Id::from),
+        execution_id,
         agent_loop_id: None,
         event_name: Some(entry.name.clone()),
         metadata: Some(metadata),

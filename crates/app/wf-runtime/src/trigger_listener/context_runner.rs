@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, warn};
+use tracing::warn;
 use wf_core::internal_signal::InternalSignalBus;
 use wf_core::EventBus;
 use wf_types::events::BaseEvent;
@@ -109,8 +109,8 @@ impl TriggerActionRunner for ContextTriggerRunner {
             return Ok(());
         };
         let Some(variables) = self.contexts.variables_for(&execution_id) else {
-            debug!(
-                "Trigger '{}' matched but execution {} has no live context; skipping",
+            warn!(
+                "Trigger '{}' matched but execution {} has no live context; skipping (agent sessions are not registered here, use the agent runner for agent-facing actions)",
                 template.name, execution_id
             );
             return Ok(());

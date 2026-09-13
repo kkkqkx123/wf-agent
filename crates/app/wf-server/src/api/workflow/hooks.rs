@@ -148,7 +148,7 @@ async fn handle_webhook_fire(
         r#type: wf_types::events::EventType::NodeCustomEvent,
         timestamp: wf_common::now(),
         workflow_id: None,
-        execution_id: execution_id.clone().map(wf_types::Id::from),
+        execution_id: execution_id.clone(),
         agent_loop_id: None,
         event_name: Some(name.clone()),
         metadata: Some(metadata),

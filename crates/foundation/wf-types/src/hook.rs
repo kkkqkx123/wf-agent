@@ -157,10 +157,10 @@ pub fn hook_allows_trigger(hook_type: &str) -> bool {
 /// - `condition`: optional expression string evaluated against the hook
 ///   context (`None` always matches).
 /// - `enabled`: concrete bool (absent means true in every config form).
-/// - `weight`: sort weight within one notification population (higher
+/// - `priority`: sort priority within one notification population (higher
 ///   notifies first in its population). Static `handler`-named definitions
 ///   are always notified before dynamically registered type handlers, each
-///   population sorted by weight descending; weight never crosses the two
+///   population sorted by priority descending; priority never crosses the two
 ///   populations and never decides whether a handler runs (every passing
 ///   handler runs). Its only semantic-grade effect is the notification
 ///   order, hence the audit summary order and the veto-reason join order.
@@ -178,7 +178,7 @@ pub struct CanonicalHookSpec {
     pub hook_type: String,
     pub condition: Option<String>,
     pub enabled: bool,
-    pub weight: i32,
+    pub priority: i32,
     pub payload: Option<serde_json::Value>,
     pub handler: Option<String>,
 }
@@ -190,7 +190,7 @@ impl CanonicalHookSpec {
         hook_type: String,
         condition: Option<String>,
         enabled: bool,
-        weight: i32,
+        priority: i32,
         payload: Option<serde_json::Value>,
         handler: Option<String>,
     ) -> Self {
@@ -198,7 +198,7 @@ impl CanonicalHookSpec {
             hook_type,
             condition,
             enabled,
-            weight,
+            priority,
             payload,
             handler,
         }
@@ -206,7 +206,7 @@ impl CanonicalHookSpec {
 
     /// Workflow form: `condition` narrows from `Option<Value>` to
     /// `Option<String>` (only a string expression is meaningful); defaults
-    /// are weight 0 and enabled true.
+    /// are priority 0 and enabled true.
     pub fn from_workflow(config: &HookPointConfig) -> Self {
         Self {
             hook_type: config.hook_type.clone(),
@@ -216,7 +216,7 @@ impl CanonicalHookSpec {
                 .and_then(|v| v.as_str())
                 .map(ToString::to_string),
             enabled: config.enabled.unwrap_or(true),
-            weight: config.weight.unwrap_or(0),
+            priority: config.priority.unwrap_or(0),
             payload: config.event_payload.clone(),
             handler: config.handler.clone(),
         }
@@ -229,7 +229,7 @@ impl CanonicalHookSpec {
             hook_type: config.hook_type.clone(),
             condition: config.condition.clone(),
             enabled: config.enabled.unwrap_or(true),
-            weight: config.weight.unwrap_or(0),
+            priority: config.priority.unwrap_or(0),
             payload: config.event_payload.clone(),
             handler: config.handler.clone(),
         }
@@ -241,7 +241,7 @@ impl CanonicalHookSpec {
             hook_type: config.hook_type_name().to_string(),
             condition: config.condition.clone(),
             enabled: config.enabled.unwrap_or(true),
-            weight: config.weight.unwrap_or(0),
+            priority: config.priority.unwrap_or(0),
             payload: config.event_payload.clone(),
             handler: config.handler.clone(),
         }
@@ -271,7 +271,7 @@ pub struct HookPointConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub enabled: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub weight: Option<i32>,
+    pub priority: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub create_checkpoint: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -298,7 +298,7 @@ pub struct HookPointStaticConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub enabled: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub weight: Option<i32>,
+    pub priority: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub create_checkpoint: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -376,7 +376,7 @@ mod tests {
             event_name: String::new(),
             event_payload: Some(serde_json::json!({"k": 1})),
             enabled: None,
-            weight: Some(7),
+            priority: Some(7),
             create_checkpoint: None,
             checkpoint_description: None,
             handler: Some("h".to_string()),
@@ -387,7 +387,7 @@ mod tests {
             event_name: String::new(),
             event_payload: Some(serde_json::json!({"k": 1})),
             enabled: None,
-            weight: Some(7),
+            priority: Some(7),
             create_checkpoint: None,
             checkpoint_description: None,
             handler: Some("h".to_string()),
@@ -398,7 +398,7 @@ mod tests {
             event_name: String::new(),
             event_payload: Some(serde_json::json!({"k": 1})),
             enabled: None,
-            weight: Some(7),
+            priority: Some(7),
             create_checkpoint: None,
             checkpoint_description: None,
             handler: Some("h".to_string()),
@@ -415,7 +415,7 @@ mod tests {
             hook_type: "AFTER_TOOL_CALL".to_string(),
             condition: Some("flag".to_string()),
             enabled: true,
-            weight: 7,
+            priority: 7,
             payload: Some(serde_json::json!({"k": 1})),
             handler: Some("h".to_string()),
         };
@@ -433,7 +433,7 @@ mod tests {
             event_name: String::new(),
             event_payload: None,
             enabled: Some(false),
-            weight: None,
+            priority: None,
             create_checkpoint: None,
             checkpoint_description: None,
             handler: None,
@@ -441,6 +441,6 @@ mod tests {
         let spec = CanonicalHookSpec::from_workflow(&workflow);
         assert_eq!(spec.condition, None);
         assert!(!spec.enabled);
-        assert_eq!(spec.weight, 0);
+        assert_eq!(spec.priority, 0);
     }
 }

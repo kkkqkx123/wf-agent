@@ -672,7 +672,7 @@ mod tests {
             vec![HookDefinition {
                 id: wf_types::Id::new(),
                 hook_type: "BEFORE_EXECUTE".to_string(),
-                weight: 1,
+                priority: 1,
                 condition: None,
                 enabled: true,
                 payload: None,
@@ -744,7 +744,7 @@ mod tests {
             vec![HookDefinition {
                 id: wf_types::Id::new(),
                 hook_type: "BEFORE_EXECUTE".to_string(),
-                weight: 1,
+                priority: 1,
                 condition: None,
                 enabled: true,
                 payload: None,

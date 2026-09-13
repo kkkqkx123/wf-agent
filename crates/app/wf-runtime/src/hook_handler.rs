@@ -25,13 +25,13 @@ pub fn register_hook_handler(
     registry: &HookHandlerRegistry,
     hook_type: &str,
     handler: Arc<dyn HookHandler>,
-    weight: i32,
+    priority: i32,
 ) -> Result<(), HookHandlerError> {
     if !hook::is_known_hook_point(hook_type) {
         return Err(HookHandlerError::UnknownHookType(hook_type.to_string()));
     }
     let name = handler.name().to_string();
-    if !registry.register(hook_type, handler, weight) {
+    if !registry.register(hook_type, handler, priority) {
         return Err(HookHandlerError::AlreadyRegistered(name));
     }
     Ok(())
@@ -69,12 +69,12 @@ pub fn register_plugin_hook_handlers(
     registry: &HookHandlerRegistry,
     mapping: &HashMap<String, String>,
     handlers: impl Iterator<Item = (String, Arc<dyn HookHandler>)>,
-    weight: i32,
+    priority: i32,
 ) -> Vec<(String, Result<(), HookHandlerError>)> {
     let mut results = Vec::new();
     for (plugin_name, handler) in handlers {
         let result = match mapping.get(&plugin_name) {
-            Some(hook_type) => register_hook_handler(registry, hook_type, handler, weight),
+            Some(hook_type) => register_hook_handler(registry, hook_type, handler, priority),
             None => Err(HookHandlerError::UnknownHookType(plugin_name.clone())),
         };
         results.push((plugin_name, result));

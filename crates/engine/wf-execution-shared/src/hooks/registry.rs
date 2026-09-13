@@ -1,7 +1,7 @@
 //! Process-wide hook handler registry.
 //!
 //! Handlers register under a stable name, optionally bound to a hook type
-//! (dynamic registration) and weighted. Fire ([`fire`]) resolves
+//! (dynamic registration) and prioritized. Fire ([`fire`]) resolves
 //! static `HookDefinition.handler` names through this registry and
 //! notifies type-bound handlers; every notification is guarded by a timeout
 //! so a slow handler never blocks the engine.
@@ -15,24 +15,24 @@ use tracing::warn;
 use crate::hooks::handler::HookHandler;
 use crate::hooks::types::{HookContext, HookOutcome};
 
-/// A handler registered for a hook type, with its registration weight and
+/// A handler registered for a hook type, with its registration priority and
 /// an optional condition evaluated against the hook context data at fire
 /// time (same expression language and skip-on-error policy as static hook
 /// definitions: a failing condition skips the handler, never the engine).
 #[derive(Clone)]
 pub struct RegisteredHandler {
     pub name: String,
-    pub weight: i32,
+    pub priority: i32,
     pub handler: Arc<dyn HookHandler>,
     pub condition: Option<String>,
 }
 
-/// Per-hook-type, weight-descending list of registered handlers.
+/// Per-hook-type, priority-descending list of registered handlers.
 #[derive(Clone)]
 pub struct HookHandlerRegistry {
     /// name -> handler (dedup / unregister / `handler` field resolution).
     named: Arc<DashMap<String, Arc<dyn HookHandler>>>,
-    /// hook_type -> handlers sorted by weight descending.
+    /// hook_type -> handlers sorted by priority descending.
     per_type: Arc<DashMap<String, Vec<RegisteredHandler>>>,
     /// Per-handler notification timeout; a timeout skips the handler.
     timeout: Duration,
@@ -59,15 +59,15 @@ impl HookHandlerRegistry {
         self
     }
 
-    /// Register `handler` for `hook_type` with `weight`. Registration is
+    /// Register `handler` for `hook_type` with `priority`. Registration is
     /// deduplicated by the handler's stable name: a second registration with
     /// the same name is ignored (returns `false`). The handler carries no
     /// condition and runs on every fire of the type.
-    pub fn register(&self, hook_type: &str, handler: Arc<dyn HookHandler>, weight: i32) -> bool {
-        self.register_with_condition(hook_type, handler, weight, None)
+    pub fn register(&self, hook_type: &str, handler: Arc<dyn HookHandler>, priority: i32) -> bool {
+        self.register_with_condition(hook_type, handler, priority, None)
     }
 
-    /// Register `handler` for `hook_type` with `weight` and an optional
+    /// Register `handler` for `hook_type` with `priority` and an optional
     /// condition: at fire time the condition is evaluated against the hook
     /// context data with the same evaluator and skip policy as static hook
     /// definitions, so dynamic and static handlers share one evaluation
@@ -76,7 +76,7 @@ impl HookHandlerRegistry {
         &self,
         hook_type: &str,
         handler: Arc<dyn HookHandler>,
-        weight: i32,
+        priority: i32,
         condition: Option<String>,
     ) -> bool {
         let name = handler.name().to_string();
@@ -87,11 +87,11 @@ impl HookHandlerRegistry {
         let mut list = self.per_type.entry(hook_type.to_string()).or_default();
         list.push(RegisteredHandler {
             name,
-            weight,
+            priority,
             handler,
             condition,
         });
-        list.sort_by_key(|r| std::cmp::Reverse(r.weight));
+        list.sort_by_key(|r| std::cmp::Reverse(r.priority));
         true
     }
 
@@ -113,7 +113,7 @@ impl HookHandlerRegistry {
         self.named.get(name).map(|r| r.clone())
     }
 
-    /// Handlers dynamically registered for `hook_type` (weight descending).
+    /// Handlers dynamically registered for `hook_type` (priority descending).
     pub fn for_type(&self, hook_type: &str) -> Vec<RegisteredHandler> {
         self.per_type
             .get(hook_type)
@@ -241,7 +241,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn register_sorts_by_weight_descending() {
+    async fn register_sorts_by_priority_descending() {
         let registry = HookHandlerRegistry::new();
         let calls = Arc::new(std::sync::atomic::AtomicU32::new(0));
         registry.register(
@@ -324,7 +324,7 @@ mod tests {
             HookDefinition {
                 id: "1".to_string(),
                 hook_type: "A".to_string(),
-                weight: 0,
+                priority: 0,
                 condition: None,
                 enabled: true,
                 payload: None,
@@ -333,7 +333,7 @@ mod tests {
             HookDefinition {
                 id: "2".to_string(),
                 hook_type: "A".to_string(),
-                weight: 0,
+                priority: 0,
                 condition: None,
                 enabled: true,
                 payload: None,
@@ -342,7 +342,7 @@ mod tests {
             HookDefinition {
                 id: "3".to_string(),
                 hook_type: "A".to_string(),
-                weight: 0,
+                priority: 0,
                 condition: None,
                 enabled: true,
                 payload: None,

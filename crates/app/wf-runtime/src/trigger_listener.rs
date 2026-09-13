@@ -557,7 +557,7 @@ pub fn register_compression_handler(
         service = service.with_trigger_state_registry(registry);
     }
     let service = Arc::new(service);
-    // The builtin handler runs first (weight above any user handler): the
+    // The builtin handler runs first (priority above any user handler): the
     // takeover must be immediate once the engine fires.
     if !registry.register(
         wf_llm::token_events::COMPRESSION_SIGNAL_HOOK_TYPE,

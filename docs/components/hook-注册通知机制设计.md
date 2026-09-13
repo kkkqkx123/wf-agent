@@ -28,7 +28,12 @@
 
 ## 2. 两级结构：静态定义（评估）与动态接收方（行为）
 
-- **静态**：`BaseHookDefinition`（来自配置）——纯数据，评估是同步纯函数（condition / enabled / weight 过滤，payload 模板解析）。
+> **排序方向约定（全项目统一）**：数值型 `priority` 一律"大者先"——hook 通知、
+> plugin middleware、TUI event handler 均按 priority 降序执行；trigger best-win 的
+> `priority` 是仲裁胜负值（大者胜，只执行一个）；配置分层的覆盖顺序改称 `precedence`，
+> 不与数值排序字段混用。
+>
+- **静态**：`BaseHookDefinition`（来自配置）——纯数据，评估是同步纯函数（condition / enabled / priority 过滤，payload 模板解析）。
 - **动态**：`HookReceiver`（运行时注册）——`Send + Sync` 的异步 trait，`on_hook(&HookContext) -> HookOutcome`，携带稳定名字（注册去重 / 注销）。
 - **解耦规则**：`BaseHookDefinition` 增加可选 `receiver` 字段（名字解析到注册表）；**未配置时默认落到「审计接收方」**（发事件 + 记日志，即旧行为）。这样：
   - 用户 hook 配置保持声明式，不引入逻辑；
@@ -46,7 +51,7 @@
 |---|---|
 | `types.rs` | `HookDefinition`（含 `handler` 字段）、`HookContext`（execution_id + hook_type + data）、`HookOutcome`（`Continue` 观察 / `Veto{reason}` 门禁：仅 `BEFORE_EXECUTE` / `BEFORE_TOOL_CALL` 两门禁点接线，其余点 Veto 只记录） |
 | `receiver.rs` | `HookReceiver` trait（`name()` + `on_hook()`） |
-| `registry.rs` | `HookRegistry`：`register`（按名去重）/ `unregister` / `get`（按名解析）/ `for_type`（hook_type → 按 weight 降序）/ `contains` / `with_timeout` / `notify`（超时守卫） |
+| `registry.rs` | `HookRegistry`：`register`（按名去重）/ `unregister` / `get`（按名解析）/ `for_type`（hook_type → 按 priority 降序）/ `contains` / `with_timeout` / `notify`（超时守卫） |
 | `dispatch.rs` | 统一入口：评估 → 解析 payload → 按序通知 → 汇总 → 审计发布；`DispatchSummary` / `ReceiverResult` |
 | `emit.rs` | 降级为审计发布通道：`filter_and_sort_hooks` / `evaluate_hook_condition` / `publish_hook_audit_event`（旧 `emit_hook_events` 已删除） |
 | `template.rs` | payload 模板解析（`{{path}}` 取值） |
@@ -54,9 +59,9 @@
 ### 4.1 dispatch 流程（同步屏障）
 
 ```
-1. 静态评估：对目标 hook_type 的 BaseHookDefinition 集合做 condition / enabled / weight 过滤
+1. 静态评估：对目标 hook_type 的 BaseHookDefinition 集合做 condition / enabled / priority 过滤
 2. 解析 payload：模板解析失败记 warn，用 null 兜底
-3. 按序通知：先静态定义中显式 handler 的（weight 序），后动态注册的（weight 降序）；动态注册项携带可选 condition，与静态定义用同一求值器/同一 skip-on-error 策略（条件失败跳过该处理器，不跳过引擎）
+3. 按序通知：先静态定义中显式 handler 的（priority 序），后动态注册的（priority 降序）；动态注册项携带可选 condition，与静态定义用同一求值器/同一 skip-on-error 策略（条件失败跳过该处理器，不跳过引擎）
 4. 汇总 HookOutcome：任一被通知处理器返回 Veto 即聚合为 Veto（reason 按通知序拼接），否则 Continue；仅门禁点（BEFORE_EXECUTE / BEFORE_TOOL_CALL）据此分支，其余点忽略
 5. 审计发布：payloads 或 handler 结果非空时发布 HOOK_TRIGGERED（无 bus 则跳过），逐处理器 outcome 与顶层 outcome 如实记录（continue / vetoed）；处理器全部落定后才发布，匹配该事件的触发模板总是在处理器之后启动（引擎不等触发完成）
 ```
@@ -112,9 +117,9 @@
 
 ## 7. 接收方注册 API（Stage 4，`crates/wf-runtime/src/hook_receiver.rs`）
 
-- `register_hook_receiver(registry, hook_type, receiver, weight)`：校验 hook 类型（`is_known_hook_type`）→ 注册；未知类型 / 名字重复返回 `HookReceiverError`。
-- `register_plugin_hook_receivers(registry, mapping, receivers, weight)`：按插件 manifest `hooks` 映射（插件 hook 名 → 引擎 hook 类型）批量注册，逐条返回结果——部分无效不阻塞整体。
-- 运行时组装：`register_compression_receiver`（`trigger_listener.rs`）以 weight 1000 注册内置压缩接收方（优先接管）。
+- `register_hook_receiver(registry, hook_type, receiver, priority)`：校验 hook 类型（`is_known_hook_type`）→ 注册；未知类型 / 名字重复返回 `HookReceiverError`。
+- `register_plugin_hook_receivers(registry, mapping, receivers, priority)`：按插件 manifest `hooks` 映射（插件 hook 名 → 引擎 hook 类型）批量注册，逐条返回结果——部分无效不阻塞整体。
+- 运行时组装：`register_compression_receiver`（`trigger_listener.rs`）以 priority 1000 注册内置压缩接收方（优先接管）。
 
 ## 8. 接线与运行时组装
 

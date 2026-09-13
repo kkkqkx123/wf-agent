@@ -12,7 +12,7 @@ pub use wf_types::hook::{
 pub struct HookDefinition {
     pub id: Id,
     pub hook_type: String,
-    pub weight: i32,
+    pub priority: i32,
     pub condition: Option<String>,
     pub enabled: bool,
     /// Optional payload template, resolved against the hook context at
@@ -76,7 +76,7 @@ impl From<&wf_types::hook::HookPointConfig> for HookDefinition {
     /// Convert a serde-facing hook config into an executable hook definition.
     ///
     /// Thin adapter over the authoritative spec (`CanonicalHookSpec` holds
-    /// the field semantics): defaults mirror the agent conversion (weight 0,
+    /// the field semantics): defaults mirror the agent conversion (priority 0,
     /// enabled). `event_name` is deprecated and ignored: one fire aggregates
     /// many definitions into a single `HOOK_TRIGGERED` audit event, so
     /// per-definition names cannot be honored (a warn is emitted when one
@@ -99,7 +99,7 @@ impl From<&wf_types::hook::CanonicalHookSpec> for HookDefinition {
         Self {
             id: Id::new(),
             hook_type: spec.hook_type.clone(),
-            weight: spec.weight,
+            priority: spec.priority,
             condition: spec.condition.clone(),
             enabled: spec.enabled,
             payload: spec.payload.clone(),
@@ -139,7 +139,7 @@ impl From<&wf_types::agent::AgentHookConfig> for HookDefinition {
 impl From<&wf_tools::callback::HookConfig> for HookDefinition {
     /// Tool-callback form: thin adapter via the authoritative spec. The input
     /// source is model output, so the authoritative load-time rules are
-    /// re-applied here as structured warnings (weight floor, unknown-type
+    /// re-applied here as structured warnings (priority floor, unknown-type
     /// audit vacuum, empty handler name): invalid values are clamped to the
     /// validated shape instead of entering the fire pipeline unchecked.
     fn from(config: &wf_tools::callback::HookConfig) -> Self {
@@ -151,12 +151,12 @@ impl From<&wf_tools::callback::HookConfig> for HookDefinition {
                 "tool-callback hook references unknown hook type; allowing registration but it will never fire"
             );
         }
-        if spec.weight < 0 {
+        if spec.priority < 0 {
             tracing::warn!(
                 hook_type = %spec.hook_type,
-                weight = spec.weight,
+                priority = spec.priority,
                 source = "tool-callback",
-                "tool-callback hook weight below 0 clamped to 0"
+                "tool-callback hook priority below 0 clamped to 0"
             );
         }
         if spec.handler.as_deref().is_some_and(|h| h.trim().is_empty()) {
@@ -167,8 +167,8 @@ impl From<&wf_tools::callback::HookConfig> for HookDefinition {
             );
         }
         let mut def = Self::from(&spec);
-        if def.weight < 0 {
-            def.weight = 0;
+        if def.priority < 0 {
+            def.priority = 0;
         }
         if def.handler.as_deref().is_some_and(|h| h.trim().is_empty()) {
             def.handler = None;

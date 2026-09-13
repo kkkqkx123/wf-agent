@@ -11,10 +11,10 @@ pub struct HookConfig {
     pub hook_type: String,
     pub condition: Option<String>,
     pub enabled: bool,
-    /// Sort weight, carried through to the executable hook definition
+    /// Sort priority, carried through to the executable hook definition
     /// (higher fires first in the audit summary).
     #[serde(default)]
-    pub weight: i32,
+    pub priority: i32,
     /// Optional payload template, resolved against the hook context at
     /// emission time and surfaced on the `HOOK_TRIGGERED` audit event.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -34,7 +34,7 @@ impl HookConfig {
             self.hook_type.clone(),
             self.condition.clone(),
             self.enabled,
-            self.weight,
+            self.priority,
             self.payload.clone(),
             self.handler.clone(),
         )
@@ -47,7 +47,7 @@ impl HookConfig {
             hook_type: spec.hook_type.clone(),
             condition: spec.condition.clone(),
             enabled: spec.enabled,
-            weight: spec.weight,
+            priority: spec.priority,
             payload: spec.payload.clone(),
             handler: spec.handler.clone(),
         }

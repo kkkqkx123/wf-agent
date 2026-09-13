@@ -2,7 +2,7 @@
 //!
 //! Settings are merged from the global settings directory and project-level
 //! `.wf/mcp.json` / `.agent/mcp.json` files, with project files taking
-//! priority over the global file.
+//! precedence over the global file.
 
 use std::path::{Path, PathBuf};
 
@@ -24,12 +24,12 @@ pub fn get_project_mcp_path(project_root: &Path) -> PathBuf {
     project_root.join(PROJECT_MCP_FILE)
 }
 
-/// Project-specific file: `{project_root}/.wf/mcp.json` (highest priority).
+/// Project-specific file: `{project_root}/.wf/mcp.json` (highest precedence).
 pub fn get_project_wf_mcp_path(project_root: &Path) -> PathBuf {
     project_root.join(PROJECT_WF_MCP_FILE)
 }
 
-/// Project settings files in priority order (highest first).
+/// Project settings files in precedence order (highest first).
 pub fn get_project_mcp_paths(project_root: &Path) -> Vec<PathBuf> {
     vec![
         get_project_wf_mcp_path(project_root),
@@ -49,7 +49,7 @@ pub fn load_mcp_settings(file_path: &Path) -> ConfigResult<McpSettings> {
 }
 
 /// Load and merge MCP settings from the global directory and all project
-/// files. Priority chain (highest first): `.wf/mcp.json` > `.agent/mcp.json`
+/// files. Precedence chain (highest first): `.wf/mcp.json` > `.agent/mcp.json`
 /// > global `mcp-settings.json`. Missing files are skipped.
 pub fn load_and_merge_mcp_settings(
     settings_dir: &Path,
@@ -64,8 +64,8 @@ pub fn load_and_merge_mcp_settings(
             Err(_) => std::collections::HashMap::new(),
         };
 
-    // Apply project layers in ascending priority order so that higher
-    // priority files (.wf/mcp.json) override lower ones (.agent/mcp.json).
+    // Apply project layers in ascending precedence order so that higher
+    // precedence files (.wf/mcp.json) override lower ones (.agent/mcp.json).
     for path in project_paths.iter().rev() {
         if let Ok(settings) = load_mcp_settings(path) {
             for (name, config) in settings.mcp_servers {
@@ -178,7 +178,7 @@ pub fn load_and_merge_mcp_settings_with_preset(
         }
     }
 
-    // Project layers in ascending priority order so that higher priority
+    // Project layers in ascending precedence order so that higher precedence
     // files (.wf/mcp.json) override lower ones (.agent/mcp.json).
     for path in project_paths.iter().rev() {
         if let Ok(settings) = load_mcp_settings(path) {
@@ -206,7 +206,7 @@ mod tests {
     }
 
     #[test]
-    fn test_global_and_project_merge_priority() {
+    fn test_global_and_project_merge_precedence() {
         let root = std::env::temp_dir().join(format!("wf-mcp-loader-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         let project = root.join("proj");
@@ -311,7 +311,7 @@ mod tests {
     }
 
     #[test]
-    fn test_mcp_preset_priority_chain() {
+    fn test_mcp_preset_precedence_chain() {
         let root = std::env::temp_dir().join(format!("wf-mcp-preset-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         let project = root.join("proj");

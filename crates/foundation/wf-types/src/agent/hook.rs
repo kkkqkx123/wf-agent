@@ -69,7 +69,7 @@ pub struct AgentHookConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub enabled: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub weight: Option<i32>,
+    pub priority: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub create_checkpoint: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]

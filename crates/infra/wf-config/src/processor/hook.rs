@@ -62,7 +62,7 @@ pub fn validate_canonical_hook(
         );
     }
     warn_deprecated_event_name(field_prefix, event_name);
-    validate_min(spec.weight, 0, &format!("{field_prefix}.weight"))?;
+    validate_min(spec.priority, 0, &format!("{field_prefix}.priority"))?;
     if let Some(condition) = spec.condition.as_deref() {
         if let Err(e) = wf_core::condition::ConditionEvaluator::validate_syntax(condition) {
             return Err(crate::error::ConfigError::Validation(format!(
@@ -148,7 +148,7 @@ mod tests {
             event_name: "node-start".to_string(),
             event_payload: None,
             enabled: Some(true),
-            weight: None,
+            priority: None,
             create_checkpoint: None,
             checkpoint_description: None,
             handler: None,
@@ -162,7 +162,7 @@ mod tests {
             event_name: "iter-start".to_string(),
             event_payload: None,
             enabled: Some(true),
-            weight: None,
+            priority: None,
             create_checkpoint: None,
             checkpoint_description: None,
             handler: None,
@@ -197,14 +197,14 @@ mod tests {
     #[test]
     fn base_hook_negative_weight_rejected() {
         let mut hook = make_base_hook();
-        hook.weight = Some(-1);
+        hook.priority = Some(-1);
         assert!(validate_base_hook_config(&hook, "hooks[0]").is_err());
     }
 
     #[test]
     fn base_hook_zero_weight_accepted() {
         let mut hook = make_base_hook();
-        hook.weight = Some(0);
+        hook.priority = Some(0);
         assert!(validate_base_hook_config(&hook, "hooks[0]").is_ok());
     }
 
@@ -228,7 +228,7 @@ mod tests {
             event_name: "tool-done".to_string(),
             event_payload: None,
             enabled: Some(true),
-            weight: Some(10),
+            priority: Some(10),
             create_checkpoint: None,
             checkpoint_description: None,
             handler: None,
@@ -244,7 +244,7 @@ mod tests {
             event_name: String::new(),
             event_payload: None,
             enabled: Some(true),
-            weight: None,
+            priority: None,
             create_checkpoint: None,
             checkpoint_description: None,
             handler: None,
@@ -288,7 +288,7 @@ mod tests {
             event_name: "tool-done".to_string(),
             event_payload: None,
             enabled: Some(true),
-            weight: None,
+            priority: None,
             create_checkpoint: None,
             checkpoint_description: None,
             handler: Some(String::new()),

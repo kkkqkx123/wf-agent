@@ -683,7 +683,7 @@ mod tests {
             HookDefinition {
                 id: "h-before".to_string(),
                 hook_type: "BEFORE_EXECUTE".to_string(),
-                weight: 1,
+                priority: 1,
                 condition: None,
                 enabled: true,
                 payload: None,
@@ -692,7 +692,7 @@ mod tests {
             HookDefinition {
                 id: "h-after".to_string(),
                 hook_type: "AFTER_EXECUTE".to_string(),
-                weight: 1,
+                priority: 1,
                 condition: None,
                 enabled: true,
                 payload: None,
@@ -794,7 +794,7 @@ mod tests {
         .map(|hook_type| HookDefinition {
             id: format!("h-{}", hook_type),
             hook_type: hook_type.to_string(),
-            weight: 1,
+            priority: 1,
             condition: None,
             enabled: true,
             payload: None,

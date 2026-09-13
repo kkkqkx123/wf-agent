@@ -19,14 +19,14 @@ use crate::error::{ExecutionSharedError, ExecutionSharedResult};
 use crate::hooks::fire::HandlerResult;
 use crate::hooks::types::{HookContext, HookDefinition};
 
-/// Hooks of `hook_type` that are enabled, sorted by weight descending.
+/// Hooks of `hook_type` that are enabled, sorted by priority descending.
 pub fn filter_and_sort_hooks(hooks: &[HookDefinition], hook_type: &str) -> Vec<HookDefinition> {
     let mut filtered: Vec<_> = hooks
         .iter()
         .filter(|h| h.hook_type == hook_type && h.enabled)
         .cloned()
         .collect();
-    filtered.sort_by_key(|h| std::cmp::Reverse(h.weight));
+    filtered.sort_by_key(|h| std::cmp::Reverse(h.priority));
     filtered
 }
 
@@ -73,7 +73,7 @@ pub fn empty_fire_log_level(hook_type: &str) -> tracing::Level {
 ///   type (a trigger matches it with a plain string metadata condition; list
 ///   containment is part of the matcher), `event_category`
 ///   (observable / request / mutated, see `wf_types::hook::hook_effect`),
-///   `hook_count`, per-hook `weights` and `payloads` (template-resolved),
+///   `hook_count`, per-hook `priorities` and `payloads` (template-resolved),
 ///   plus the fire summary: `handlers` (name / outcome / duration_ms /
 ///   error per notified handler) and the total `duration_ms`.
 ///
@@ -85,7 +85,7 @@ pub fn publish_hook_audit_event(
     event_bus: Option<&EventBus>,
     ctx: &HookContext,
     payloads: &[Value],
-    weights: &[i32],
+    priorities: &[i32],
     results: &[HandlerResult],
     duration_ms: i64,
 ) -> usize {
@@ -146,7 +146,7 @@ pub fn publish_hook_audit_event(
         "hook_type": [ctx.hook_type],
         "event_category": wf_types::hook::hook_effect(&ctx.hook_type).as_str(),
         "hook_count": payloads.len(),
-        "weights": weights,
+        "priorities": priorities,
         "payloads": payloads,
         "handlers": handlers,
         "outcome": outcome,
@@ -191,11 +191,11 @@ mod tests {
     use crate::hooks::types::HookOutcome;
     use wf_types::Id;
 
-    fn make_hook(id: &str, hook_type: &str, weight: i32, enabled: bool) -> HookDefinition {
+    fn make_hook(id: &str, hook_type: &str, priority: i32, enabled: bool) -> HookDefinition {
         HookDefinition {
             id: id.to_string(),
             hook_type: hook_type.to_string(),
-            weight,
+            priority,
             condition: None,
             enabled,
             payload: None,
@@ -228,7 +228,7 @@ mod tests {
     }
 
     #[test]
-    fn test_sort_by_weight_desc() {
+    fn test_sort_by_priority_desc() {
         let hooks = vec![
             make_hook("1", "before_iteration", 1, true),
             make_hook("2", "before_iteration", 100, true),

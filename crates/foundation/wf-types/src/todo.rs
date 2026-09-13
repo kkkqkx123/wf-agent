@@ -9,9 +9,12 @@ pub enum TodoStatus {
     Cancelled,
 }
 
+/// Severity label for a todo item. Named `importance`, not `priority`:
+/// it neither orders execution (ordering convention) nor arbitrates a
+/// winner (trigger priority) — it only grades importance.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
-pub enum TodoPriority {
+pub enum TodoImportance {
     High,
     Medium,
     Low,
@@ -23,7 +26,7 @@ pub struct TodoItem {
     pub content: String,
     pub status: TodoStatus,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub priority: Option<TodoPriority>,
+    pub priority: Option<TodoImportance>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub created_at: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]

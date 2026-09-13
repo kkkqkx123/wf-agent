@@ -35,7 +35,7 @@ pub trait EventHandler: Send + Sync {
     /// Handle an event, optionally mutating state.
     fn handle(&self, event: &EventType, state: &mut AppState) -> EventResult;
 
-    /// Handler priority (lower = higher priority). Default: 0.
+    /// Handler priority (higher runs first). Default: 0.
     fn priority(&self) -> i32 {
         0
     }
@@ -79,7 +79,7 @@ impl EventDispatcher {
     /// Register an event handler (sorted by priority after insertion).
     pub fn register_handler(&mut self, handler: Box<dyn EventHandler>) {
         self.handlers.push(handler);
-        self.handlers.sort_by_key(|h| h.priority());
+        self.handlers.sort_by_key(|h| std::cmp::Reverse(h.priority()));
     }
 
     /// Register middleware.
@@ -197,16 +197,16 @@ mod tests {
     fn handler_priority_determines_order() {
         let mut dispatcher = EventDispatcher::new();
         dispatcher.register_handler(Box::new(TestHandler {
-            priority: 10,
+            priority: 1,
             result: EventResult::Consumed,
         }));
         dispatcher.register_handler(Box::new(TestHandler {
-            priority: 1,
+            priority: 10,
             result: EventResult::Ignored,
         }));
         let mut state = AppState::new();
-        // Priority 1 handler runs first and returns Ignored,
-        // so priority 10 handler runs next and returns Consumed.
+        // Priority 10 handler runs first and returns Ignored,
+        // so priority 1 handler runs next and returns Consumed.
         assert_eq!(
             dispatcher.dispatch(&test_key(), &mut state),
             EventResult::Consumed

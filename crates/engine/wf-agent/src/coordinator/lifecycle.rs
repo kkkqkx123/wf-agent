@@ -708,7 +708,7 @@ impl AgentLoopCoordinator {
             .map(|h| HookDefinition {
                 id: wf_common::generate_id(),
                 hook_type: h.hook_type.clone(),
-                weight: h.weight,
+                priority: h.priority,
                 condition: h.condition.clone(),
                 enabled: h.enabled,
                 payload: h.payload.clone(),

@@ -3,7 +3,7 @@
 //!
 //! The engine calls [`fire`] at a hook point and awaits it: the
 //! notification barrier completes before the engine moves on. The pipeline
-//! itself carries no behavior — filtering (condition / enabled / weight),
+//! itself carries no behavior — filtering (condition / enabled / priority),
 //! payload resolution and ordered notification only; behavior lives in
 //! registered [`HookHandler`]s.
 
@@ -38,7 +38,7 @@ pub struct HandlerResult {
 pub struct FireSummary {
     pub hook_type: String,
     pub payloads: Vec<Value>,
-    pub weights: Vec<i32>,
+    pub priorities: Vec<i32>,
     pub handler_results: Vec<HandlerResult>,
     pub duration_ms: i64,
     pub outcome: HookOutcome,
@@ -58,12 +58,12 @@ impl FireSummary {
 /// Fire a hook point:
 ///
 /// 1. statically evaluate the hook definitions of `hook_type`
-///    (condition / enabled / weight filtering) and resolve payload templates;
+///    (condition / enabled / priority filtering) and resolve payload templates;
 /// 2. synchronously notify every handler that passes evaluation — the
 ///    `handler`-named handlers of the static definitions first, then the
-///    handlers dynamically registered on the hook type. Weight orders only
-///    within each population (descending); a zero-weight static definition
-///    still notifies before a high-weight dynamic handler. Weight never
+///    handlers dynamically registered on the hook type. Priority orders only
+///    within each population (descending); a zero-priority static definition
+///    still notifies before a high-priority dynamic handler. Priority never
 ///    decides whether a handler runs and never crosses populations; its
 ///    only semantic-grade effect is the notification order (hence the audit
 ///    summary order and the veto-reason join order).
@@ -92,7 +92,7 @@ pub async fn fire(
     let started = wf_common::now();
 
     let mut payloads: Vec<Value> = Vec::new();
-    let mut weights: Vec<i32> = Vec::new();
+    let mut priorities: Vec<i32> = Vec::new();
     let mut matched: Vec<HookDefinition> = Vec::new();
     for hook in filter_and_sort_hooks(hooks, hook_type) {
         match evaluate_hook_condition(hook.condition.as_deref(), &ctx.data) {
@@ -124,12 +124,12 @@ pub async fn fire(
             None => Value::Null,
         };
         payloads.push(payload);
-        weights.push(hook.weight);
+        priorities.push(hook.priority);
         matched.push(hook);
     }
 
     // Static definitions with an explicit handler name are notified in
-    // weight order; unresolvable names are reported, never fatal. Handlers
+    // priority order; unresolvable names are reported, never fatal. Handlers
     // complete before the audit event below is published, so the
     // asynchronous trigger path off that event always starts after the
     // synchronous notification (trigger completion itself is not awaited).
@@ -148,7 +148,7 @@ pub async fn fire(
             Some(handler) => {
                 let registered = crate::hooks::registry::RegisteredHandler {
                     name: name.to_string(),
-                    weight: def.weight,
+                    priority: def.priority,
                     handler,
                     condition: None,
                 };
@@ -171,7 +171,7 @@ pub async fn fire(
         }
     }
 
-    // Dynamically registered handlers for the hook type, weight descending.
+    // Dynamically registered handlers for the hook type, priority descending.
     // Same evaluation semantic as static definitions: the optional
     // registration condition is checked against the same context data, and
     // a failing condition skips the handler, never the engine.
@@ -212,7 +212,7 @@ pub async fn fire(
         event_bus,
         ctx,
         &payloads,
-        &weights,
+        &priorities,
         &handler_results,
         duration_ms,
     );
@@ -220,7 +220,7 @@ pub async fn fire(
     FireSummary {
         hook_type: hook_type.to_string(),
         payloads,
-        weights,
+        priorities,
         handler_results,
         duration_ms,
         outcome,
@@ -263,11 +263,11 @@ mod tests {
         }
     }
 
-    fn hook_def(hook_type: &str, weight: i32, handler: Option<&str>) -> HookDefinition {
+    fn hook_def(hook_type: &str, priority: i32, handler: Option<&str>) -> HookDefinition {
         HookDefinition {
             id: Id::new(),
             hook_type: hook_type.to_string(),
-            weight,
+            priority,
             condition: None,
             enabled: true,
             payload: None,
@@ -346,7 +346,7 @@ mod tests {
         let hooks = vec![HookDefinition {
             id: Id::new(),
             hook_type: "TEST".to_string(),
-            weight: 1,
+            priority: 1,
             condition: Some("missing_flag".to_string()),
             enabled: true,
             payload: None,
@@ -362,7 +362,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn outcome_is_continue_without_veto_and_weight_orders_notification() {
+    async fn outcome_is_continue_without_veto_and_priority_orders_notification() {
         let registry = HookHandlerRegistry::new();
         let continue_calls = Arc::new(AtomicU32::new(0));
         let other_calls = Arc::new(AtomicU32::new(0));
@@ -387,7 +387,7 @@ mod tests {
 
         let summary = fire(&registry, &[], "TEST", &ctx(), None).await;
         assert_eq!(summary.outcome, HookOutcome::Continue);
-        // Notified in weight order.
+        // Notified in priority order.
         assert_eq!(summary.handler_results[0].name, "other-r");
         assert_eq!(summary.handler_results[1].name, "continue-r");
     }
@@ -501,7 +501,7 @@ mod tests {
         let hooks = vec![HookDefinition {
             id: Id::new(),
             hook_type: "TEST".to_string(),
-            weight: 5,
+            priority: 5,
             condition: None,
             enabled: true,
             payload: Some(serde_json::json!({"k": "{{name}}"})),
@@ -523,7 +523,7 @@ mod tests {
         let metadata = event.metadata.as_ref().unwrap();
         assert_eq!(metadata["hook_type"], serde_json::json!(["TEST"]));
         assert_eq!(metadata["hook_count"], serde_json::json!(1));
-        assert_eq!(metadata["weights"], serde_json::json!([5]));
+        assert_eq!(metadata["priorities"], serde_json::json!([5]));
         assert_eq!(metadata["payloads"], serde_json::json!([{"k": "world"}]));
         let handlers = metadata["handlers"].as_array().unwrap();
         assert_eq!(handlers.len(), 1);

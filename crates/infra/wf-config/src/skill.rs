@@ -2,7 +2,7 @@
 //!
 //! Settings are merged from the global settings directory and project-level
 //! `.wf/skills.json` / `.agent/skills.json` files, with project files taking
-//! priority over the global file. Collection mode (via the shared preset
+//! precedence over the global file. Collection mode (via the shared preset
 //! loader) resolves skill collections from `configs/skills/`.
 
 use std::collections::HashSet;
@@ -34,12 +34,12 @@ pub fn get_project_skill_path(project_root: &Path) -> PathBuf {
     project_root.join(PROJECT_SKILL_FILE)
 }
 
-/// Project-specific file: `{project_root}/.wf/skills.json` (highest priority).
+/// Project-specific file: `{project_root}/.wf/skills.json` (highest precedence).
 pub fn get_project_wf_skill_path(project_root: &Path) -> PathBuf {
     project_root.join(PROJECT_WF_SKILL_FILE)
 }
 
-/// Project settings files in priority order (highest first).
+/// Project settings files in precedence order (highest first).
 pub fn get_project_skill_paths(project_root: &Path) -> Vec<PathBuf> {
     vec![
         get_project_wf_skill_path(project_root),
@@ -148,7 +148,7 @@ pub fn merge_skill_configs(
 }
 
 /// Load and merge skill settings from the global directory and all project
-/// files. Priority chain (highest first): `.wf/skills.json` > `.agent/skills.json`
+/// files. Precedence chain (highest first): `.wf/skills.json` > `.agent/skills.json`
 /// > global `skill-settings.json`. Missing files are skipped.
 pub fn load_and_merge_skill_config(
     settings_dir: &Path,
@@ -334,7 +334,7 @@ mod tests {
     }
 
     #[test]
-    fn test_merge_priority_and_dedup() {
+    fn test_merge_precedence_and_dedup() {
         let global = SkillConfig {
             paths: vec!["g1".into(), "g2".into(), "shared".into()],
             auto_scan: Some(false),

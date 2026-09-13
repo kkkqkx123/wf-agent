@@ -16,8 +16,11 @@ pub enum CheckpointConfigSource {
 }
 
 impl CheckpointConfigSource {
-    /// Lower value = higher priority in layered resolution.
-    pub fn priority(&self) -> u8 {
+    /// Layered-resolution precedence: lower value is applied first and is
+    /// overridden by later layers (runtime overrides workflow, etc.).
+    /// Named `precedence`, not `priority`, so the override-order rank is not
+    /// confused with the numeric `priority` ordering fields.
+    pub fn precedence(&self) -> u8 {
         match self {
             Self::Runtime => 0,
             Self::Workflow => 1,
@@ -67,13 +70,13 @@ pub struct CheckpointConfigResolver;
 
 impl CheckpointConfigResolver {
     /// Resolve a list of layers with first-wins semantics: the highest
-    /// priority layer (runtime > workflow > node > agent > global > default)
+    /// precedence layer (runtime > workflow > node > agent > global > default)
     /// that defines a field wins for that field. `enabled` must be explicit
     /// to take effect; otherwise the default (`false`) is used (first layer
     /// with explicit `enabled`, else default).
     pub fn resolve(layers: &[CheckpointConfigLayer]) -> ResolvedCheckpointConfig {
         let mut ordered: Vec<&CheckpointConfigLayer> = layers.iter().collect();
-        ordered.sort_by_key(|l| l.source.priority());
+        ordered.sort_by_key(|l| l.source.precedence());
 
         let mut policy = UnifiedCheckpointPolicy {
             enabled: false,
@@ -294,7 +297,7 @@ mod tests {
     }
 
     #[test]
-    fn resolve_first_wins_highest_priority() {
+    fn resolve_first_wins_highest_precedence() {
         let layers = vec![
             CheckpointConfigLayer::global(policy(false, vec![CheckpointTiming::OnError])),
             CheckpointConfigLayer::node(policy(true, vec![CheckpointTiming::BeforeExecute])),

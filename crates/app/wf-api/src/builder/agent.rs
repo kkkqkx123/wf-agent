@@ -183,7 +183,7 @@ pub struct AgentHookBuilder<S> {
     event_name: String,
     event_payload: Option<serde_json::Value>,
     enabled: Option<bool>,
-    weight: Option<i32>,
+    priority: Option<i32>,
     create_checkpoint: Option<bool>,
     checkpoint_description: Option<String>,
     handler: Option<String>,
@@ -203,7 +203,7 @@ impl AgentHookBuilder<HookNoType> {
             event_name: event_name.into(),
             event_payload: None,
             enabled: None,
-            weight: None,
+            priority: None,
             create_checkpoint: None,
             checkpoint_description: None,
             handler: None,
@@ -219,7 +219,7 @@ impl AgentHookBuilder<HookNoType> {
             event_name: self.event_name,
             event_payload: self.event_payload,
             enabled: self.enabled,
-            weight: self.weight,
+            priority: self.priority,
             create_checkpoint: self.create_checkpoint,
             checkpoint_description: self.checkpoint_description,
             handler: self.handler,
@@ -292,7 +292,7 @@ impl AgentHookBuilder<HookTyped> {
             event_name: self.event_name,
             event_payload: self.event_payload,
             enabled: self.enabled,
-            weight: self.weight,
+            priority: self.priority,
             create_checkpoint: self.create_checkpoint,
             checkpoint_description: self.checkpoint_description,
             handler: self.handler,
@@ -319,9 +319,9 @@ impl<S> AgentHookBuilder<S> {
         self
     }
 
-    /// Set the hook execution weight (ordering among same-type hooks).
-    pub fn weight(mut self, weight: i32) -> Self {
-        self.weight = Some(weight);
+    /// Set the hook execution priority (ordering among same-type hooks).
+    pub fn priority(mut self, priority: i32) -> Self {
+        self.priority = Some(priority);
         self
     }
 
@@ -630,7 +630,7 @@ impl<S> AgentLoopConfigBuilder<S> {
             hook_type: hook.hook_type_name().to_string(),
             condition: hook.condition,
             enabled: hook.enabled.unwrap_or(true),
-            weight: hook.weight.unwrap_or(0),
+            priority: hook.priority.unwrap_or(0),
             payload: hook.event_payload,
             handler: hook.handler,
         });
@@ -754,9 +754,9 @@ mod tests {
     }
 
     #[test]
-    fn add_hook_preserves_weight_and_payload() {
+    fn add_hook_preserves_priority_and_payload() {
         let hook = AgentHookBuilder::before_tool_call("tool-audit")
-            .weight(7)
+            .priority(7)
             .event_payload(serde_json::json!({"k": "v"}))
             .build();
         let config = AgentLoopConfigBuilder::new("a")
@@ -765,7 +765,7 @@ mod tests {
             .build();
         assert_eq!(config.hooks.len(), 1);
         assert_eq!(config.hooks[0].hook_type, "BEFORE_TOOL_CALL");
-        assert_eq!(config.hooks[0].weight, 7);
+        assert_eq!(config.hooks[0].priority, 7);
         assert_eq!(config.hooks[0].payload, Some(serde_json::json!({"k": "v"})));
     }
 
@@ -774,7 +774,7 @@ mod tests {
         let hook = AgentHookBuilder::after_tool_call("tool-done")
             .condition("flag")
             .enabled(false)
-            .weight(3)
+            .priority(3)
             .event_payload(serde_json::json!({"k": "v"}))
             .handler("audit-handler")
             .build();
@@ -787,7 +787,7 @@ mod tests {
         assert_eq!(converted.hook_type, "AFTER_TOOL_CALL");
         assert_eq!(converted.condition.as_deref(), Some("flag"));
         assert!(!converted.enabled);
-        assert_eq!(converted.weight, 3);
+        assert_eq!(converted.priority, 3);
         assert_eq!(converted.payload, Some(serde_json::json!({"k": "v"})));
         assert_eq!(converted.handler.as_deref(), Some("audit-handler"));
     }

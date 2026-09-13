@@ -130,7 +130,8 @@ impl ContributionManager {
         phase: &MiddlewarePhase,
     ) -> Vec<(i32, Arc<dyn PluginMiddlewareHandler>)> {
         let mut handlers = self.middleware_registry.get(phase.as_str());
-        handlers.sort_by_key(|(p, _)| *p);
+        // Higher priority runs first (project-wide ordering convention).
+        handlers.sort_by_key(|(p, _)| std::cmp::Reverse(*p));
         handlers
     }
 

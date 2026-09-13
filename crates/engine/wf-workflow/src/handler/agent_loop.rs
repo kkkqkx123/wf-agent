@@ -30,7 +30,7 @@ fn parse_agent_hooks(agent_config: Option<&wf_types::agent::AgentConfig>) -> Vec
                     hook_type: h.hook_type_name().to_string(),
                     condition: h.condition.clone(),
                     enabled: h.enabled.unwrap_or(true),
-                    weight: h.weight.unwrap_or(0),
+                    priority: h.priority.unwrap_or(0),
                     payload: h.event_payload.clone(),
                     handler: h.handler.clone(),
                 })

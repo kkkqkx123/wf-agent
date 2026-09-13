@@ -245,7 +245,7 @@ impl AgentLoopValidator {
 /// Validates hook configuration. Mirrors the authoritative
 /// `wf-config::processor::hook::validate_canonical_hook` rules without taking
 /// a dependency on wf-config: unknown hook types warn (never fire), negative
-/// weights and empty handler names are errors, and malformed condition
+/// priorities and empty handler names are errors, and malformed condition
 /// expressions are errors. Tool-callback hooks arrive via model output, so a
 /// structured warning is emitted for the whole hook form at the call site.
 fn validate_hook(hook: &HookConfig, issues: &mut Vec<ValidationIssue>) {
@@ -256,12 +256,12 @@ fn validate_hook(hook: &HookConfig, issues: &mut Vec<ValidationIssue>) {
             format!("unknown hook type '{}' will never fire", hook.hook_type),
         ));
     }
-    if hook.weight < 0 {
+    if hook.priority < 0 {
         issues.push(ValidationIssue::error(
-            "hooks.weight",
+            "hooks.priority",
             format!(
-                "hook '{}' weight {} must be >= 0",
-                hook.hook_type, hook.weight
+                "hook '{}' priority {} must be >= 0",
+                hook.hook_type, hook.priority
             ),
         ));
     }
@@ -444,7 +444,7 @@ mod tests {
                 hook_type: "NOPE_HOOK".to_string(),
                 condition: None,
                 enabled: true,
-                weight: 0,
+                priority: 0,
                 payload: None,
                 handler: None,
             }],

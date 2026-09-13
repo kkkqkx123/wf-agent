@@ -1,6 +1,6 @@
 //! Shared recursive layered merge for TOML configuration.
 //!
-//! Provides a generic mechanism to load multiple TOML files in priority order
+//! Provides a generic mechanism to load multiple TOML files in precedence order
 //! (low → high) and recursively merge them. Sub-table fields are merged at
 //! field level so partial overrides work at any depth.
 
@@ -29,7 +29,7 @@ pub fn merge_toml_values(base: &mut toml::Value, overlay: toml::Value) {
     }
 }
 
-/// Load and merge TOML files from `paths` in order (lowest priority first),
+/// Load and merge TOML files from `paths` in order (lowest precedence first),
 /// then deserialize the merged result into `T`.
 ///
 /// Missing files are silently skipped. Returns an error if no files exist

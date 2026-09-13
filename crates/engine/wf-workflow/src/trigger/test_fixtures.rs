@@ -4,7 +4,8 @@ use wf_types::events::{BaseEvent, EventType};
 use wf_types::trigger::{TriggerCondition, TriggerTemplate};
 
 /// Sub-workflow trigger template for `event_type` with a per-execution
-/// `max_triggers` budget (`0` = unbounded).
+/// `max_triggers` budget (`0` = absent = unbounded; zero is rejected at load
+/// time and means no capacity at runtime, so fixtures never emit it).
 pub(crate) fn event_template(name: &str, event_type: &str, max_triggers: u32) -> TriggerTemplate {
     TriggerTemplate {
         name: name.to_string(),
@@ -25,7 +26,11 @@ pub(crate) fn event_template(name: &str, event_type: &str, max_triggers: u32) ->
             .expect("sub-workflow action fixture"),
         ),
         enabled: Some(true),
-        max_triggers: Some(max_triggers),
+        max_triggers: if max_triggers == 0 {
+            None
+        } else {
+            Some(max_triggers)
+        },
         priority: None,
         dispatch_mode: None,
         allow_multi_effect: None,

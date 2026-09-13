@@ -133,6 +133,15 @@ pub fn publish_hook_audit_event(
         .collect();
 
     let vetoed = results.iter().any(|r| r.outcome.is_veto());
+    let gate = wf_types::hook::is_gate_hook(&ctx.hook_type);
+    let blocked = vetoed && gate;
+    let outcome = if blocked {
+        "vetoed"
+    } else if vetoed {
+        "vetoed_observed"
+    } else {
+        "continue"
+    };
     let metadata_value = serde_json::json!({
         "hook_type": [ctx.hook_type],
         "event_category": wf_types::hook::hook_effect(&ctx.hook_type).as_str(),
@@ -140,7 +149,8 @@ pub fn publish_hook_audit_event(
         "weights": weights,
         "payloads": payloads,
         "handlers": handlers,
-        "outcome": if vetoed { "vetoed" } else { "continue" },
+        "outcome": outcome,
+        "blocked": blocked,
         "handler_errors": results.iter().filter_map(|r| r.error.as_ref().map(|e| {
             serde_json::json!({"name": r.name, "error": e})
         })).collect::<Vec<_>>(),
@@ -309,7 +319,11 @@ mod tests {
     #[test]
     fn test_veto_outcome_serialized_on_audit_event() {
         let bus = Arc::new(EventBus::new(16));
-        let ctx = hook_ctx("exec-1", HashMap::new());
+        let gate_ctx = HookContext {
+            execution_id: Id::from("exec-1".to_string()),
+            hook_type: "BEFORE_EXECUTE".to_string(),
+            data: HashMap::new(),
+        };
         let mut sub = bus.subscribe();
 
         let results = vec![HandlerResult {
@@ -321,13 +335,14 @@ mod tests {
             error: None,
         }];
         assert_eq!(
-            publish_hook_audit_event(Some(&bus), &ctx, &[Value::Null], &[1], &results, 1),
+            publish_hook_audit_event(Some(&bus), &gate_ctx, &[Value::Null], &[1], &results, 1),
             1
         );
 
         let event = sub.try_recv().unwrap();
         let metadata = event.metadata.as_ref().unwrap();
         assert_eq!(metadata["outcome"], serde_json::json!("vetoed"));
+        assert_eq!(metadata["blocked"], serde_json::json!(true));
         assert_eq!(
             metadata["handlers"][0]["outcome"],
             serde_json::json!("vetoed")
@@ -336,6 +351,14 @@ mod tests {
             metadata["handlers"][0]["veto_reason"],
             serde_json::json!("missing input file")
         );
+
+        // Non-gate veto is observed, never blocking.
+        let observed_ctx = hook_ctx("exec-1", HashMap::new());
+        publish_hook_audit_event(Some(&bus), &observed_ctx, &[Value::Null], &[1], &results, 1);
+        let event = sub.try_recv().unwrap();
+        let metadata = event.metadata.as_ref().unwrap();
+        assert_eq!(metadata["outcome"], serde_json::json!("vetoed_observed"));
+        assert_eq!(metadata["blocked"], serde_json::json!(false));
     }
 
     #[test]

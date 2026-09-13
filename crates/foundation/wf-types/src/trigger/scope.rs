@@ -2,23 +2,44 @@
 //!
 //! Templates that can match the same event instance compete for one winner.
 //! A scope groups templates by event type plus the secondary name
-//! discriminator, further split by execution-prefix overlap: prefixes that
-//! never match the same execution id belong to different scopes and never
-//! compete. Metadata and expression conditions are deliberately excluded
-//! from the key. Proving two such conditions disjoint is undecidable in
-//! general, so grouping stays conservative and orthogonal subscriptions
-//! resolve through an explicit BestWin declaration with distinct
-//! priorities instead of relying on inferred disjointness.
+//! discriminator, further split by execution-prefix overlap and — for the
+//! `HOOK_TRIGGERED` audit event only — by the exact `metadata.hook_type`
+//! string. The hook-type dimension is safe because the audit event carries
+//! exactly one hook type per fire and a plain-string condition on it is an
+//! equality check: two templates naming different hook types can never match
+//! the same audit event and never compete. All other metadata and expression
+//! conditions stay excluded from the key: proving two such conditions
+//! disjoint is undecidable in general, so grouping stays conservative there
+//! and orthogonal subscriptions resolve through an explicit BestWin
+//! declaration with distinct priorities instead of relying on inferred
+//! disjointness.
 
 use std::collections::HashMap;
 
 use super::template::{TriggerDispatchMode, TriggerTemplate};
 
 /// Competition scope key: templates sharing it may match the same event.
+/// `hook_type` is populated only for `HOOK_TRIGGERED` conditions carrying
+/// an exact plain-string `metadata.hook_type` (array / prefixed / numeric
+/// conventions stay unkeyed and conservative); every other event type leaves
+/// it `None`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct TriggerScopeKey {
     pub event_type: String,
     pub event_name: Option<String>,
+    pub hook_type: Option<String>,
+}
+
+/// Exact hook-type dimension of a condition, if keyable: `HOOK_TRIGGERED`
+/// with a plain-string `metadata.hook_type` naming one hook point.
+pub fn hook_type_dimension(condition: &super::TriggerCondition) -> Option<String> {
+    if condition.event_type != crate::events::EventType::HookTriggered.as_str() {
+        return None;
+    }
+    match condition.metadata.as_ref()?.get("hook_type")? {
+        serde_json::Value::String(s) => Some(s.clone()),
+        _ => None,
+    }
 }
 
 /// Whether two execution-prefix filters can match the same execution id.
@@ -44,6 +65,11 @@ pub fn competes(template: &TriggerTemplate) -> bool {
 /// into the input slice. Templates sharing event type and secondary name
 /// are merged transitively on prefix overlap, so a global template and a
 /// prefixed one always land in one scope while disjoint prefixes split.
+/// For the `HOOK_TRIGGERED` audit event the exact `metadata.hook_type`
+/// string further splits scopes, except that an unkeyable condition (no
+/// hook metadata, array value, prefix convention) overlaps every hook
+/// dimension conservatively: it competes with all hook-specific scopes of
+/// the same event.
 pub fn scope_groups(templates: &[TriggerTemplate]) -> Vec<Vec<usize>> {
     let competing: Vec<usize> = templates
         .iter()
@@ -61,6 +87,15 @@ pub fn scope_groups(templates: &[TriggerTemplate]) -> Vec<Vec<usize>> {
         parent.insert(x, resolved);
         resolved
     }
+    /// Whether two hook-type dimensions can match the same audit event:
+    /// equal exact values overlap; an unkeyable (`None`) dimension overlaps
+    /// everything conservatively.
+    fn hook_dimensions_overlap(a: Option<&str>, b: Option<&str>) -> bool {
+        match (a, b) {
+            (Some(x), Some(y)) => x == y,
+            _ => true,
+        }
+    }
     let key_of = |t: &TriggerTemplate| {
         let condition = t
             .condition
@@ -69,11 +104,17 @@ pub fn scope_groups(templates: &[TriggerTemplate]) -> Vec<Vec<usize>> {
         TriggerScopeKey {
             event_type: condition.event_type.clone(),
             event_name: condition.event_name.clone(),
+            hook_type: hook_type_dimension(condition),
         }
     };
     for (a_pos, &a) in competing.iter().enumerate() {
         for &b in &competing[a_pos + 1..] {
-            if key_of(&templates[a]) != key_of(&templates[b]) {
+            let ka = key_of(&templates[a]);
+            let kb = key_of(&templates[b]);
+            if ka.event_type != kb.event_type || ka.event_name != kb.event_name {
+                continue;
+            }
+            if !hook_dimensions_overlap(ka.hook_type.as_deref(), kb.hook_type.as_deref()) {
                 continue;
             }
             let pa = templates[a]
@@ -256,10 +297,13 @@ pub fn check_scope_group(group: &[&TriggerTemplate]) -> Vec<ScopeViolation> {
 /// Render a violation as a configuration error message naming the scope,
 /// the templates involved, and the way out.
 pub fn violation_message(key: &TriggerScopeKey, violation: &ScopeViolation) -> String {
-    let scope = match &key.event_name {
+    let mut scope = match &key.event_name {
         Some(name) => format!("event '{}' name '{}'", key.event_type, name),
         None => format!("event '{}'", key.event_type),
     };
+    if let Some(hook) = &key.hook_type {
+        scope = format!("{scope} hook '{hook}'");
+    }
     match violation {
         ScopeViolation::UniqueMultiSubscriber { names } => format!(
             "multiple trigger templates [{}] subscribe to {} which defaults to unique dispatch; merge them into one template or declare best_win dispatch with distinct priorities",
@@ -365,6 +409,36 @@ mod tests {
             template("b", "NODE_CUSTOM_EVENT", Some("updated"), None, None, None),
         ];
         assert_eq!(scope_groups(&templates).len(), 2);
+    }
+
+    #[test]
+    fn hook_type_dimension_splits_audit_scopes() {
+        use std::collections::HashMap;
+        fn hooked(name: &str, hook: &str) -> TriggerTemplate {
+            let mut t = template(name, "HOOK_TRIGGERED", None, None, None, None);
+            t.condition.as_mut().expect("condition").metadata = Some(HashMap::from([(
+                "hook_type".to_string(),
+                serde_json::json!(hook),
+            )]));
+            t
+        }
+        let templates = [hooked("a", "AFTER_TOOL_CALL"), hooked("b", "AFTER_AGENT")];
+        assert_eq!(scope_groups(&templates).len(), 2);
+        let same = [
+            hooked("a", "AFTER_TOOL_CALL"),
+            hooked("c", "AFTER_TOOL_CALL"),
+        ];
+        assert_eq!(scope_groups(&same).len(), 1);
+        // Non-string (array) hook conditions stay conservative: one scope.
+        let mut array = hooked("d", "AFTER_TOOL_CALL");
+        array.condition.as_mut().expect("condition").metadata = Some(HashMap::from([(
+            "hook_type".to_string(),
+            serde_json::json!(["AFTER_TOOL_CALL", "AFTER_AGENT"]),
+        )]));
+        assert_eq!(
+            scope_groups(&[hooked("a", "AFTER_TOOL_CALL"), array]).len(),
+            1
+        );
     }
 
     #[test]

@@ -20,9 +20,11 @@ use wf_types::trigger::{self, ResolvedScopeMode, TriggerRuntimeLimits, TriggerTe
 /// (several unique subscribers, missing or duplicate best-win priorities,
 /// mixed dispatch modes) contribute no winner and are dropped loudly. At most
 /// one scope can match one event instance, so more than one scope winner for
-/// the same event means validation was bypassed: without a configured burst
-/// cap every winner is dropped loudly, with one the cap keeps as many winners
-/// as it allows and reports the rest.
+/// the same event means validation was bypassed: the multi-scope policy
+/// decides (`DropAll` drops every winner loudly; `KeepFirst` keeps the
+/// deterministically-first winner and drops the rest loudly). The dispatch
+/// burst cap, when set, applies after deterministic sorting and reports the
+/// rest.
 pub(crate) fn arbitrate(
     candidates: &[TriggerTemplate],
     event: &BaseEvent,
@@ -66,6 +68,7 @@ pub(crate) fn arbitrate(
     if winners.len() <= 1 {
         return winners;
     }
+    trigger::sort_winners_deterministically(&mut winners);
     let matched_scopes: Vec<String> = winners
         .iter()
         .map(|t| t.name.as_str().to_string())
@@ -82,8 +85,24 @@ pub(crate) fn arbitrate(
         );
         return winners;
     }
+    match limits.multi_scope_policy() {
+        trigger::MultiScopePolicy::KeepFirst => {
+            let kept = winners[0].name.clone();
+            let dropped: Vec<&str> = winners[1..].iter().map(|t| t.name.as_str()).collect();
+            warn!(
+                "Several trigger scopes [{}] matched {} for one event; multi-scope policy keep_first keeps [{}], dropping [{}]",
+                matched_scopes.join(", "),
+                event.r#type.as_str(),
+                kept,
+                dropped.join(", "),
+            );
+            winners.truncate(1);
+            return winners;
+        }
+        trigger::MultiScopePolicy::DropAll => {}
+    }
     warn!(
-        "Several trigger scopes [{}] matched {} for one event; validation was bypassed, dropping every winner",
+        "Several trigger scopes [{}] matched {} for one event; multi-scope policy drop_all drops every winner",
         matched_scopes.join(", "),
         event.r#type.as_str(),
     );
@@ -213,7 +232,7 @@ mod tests {
     }
 
     #[test]
-    fn disjoint_scopes_with_burst_cap_keep_one_winner() {
+    fn disjoint_scopes_with_burst_cap_keep_deterministic_winner() {
         let candidates = vec![global_event(), named_event("on_done")];
         let event = BaseEvent {
             event_name: Some("on_done".to_string()),
@@ -224,10 +243,23 @@ mod tests {
             ..TriggerRuntimeLimits::default()
         };
         let winners = arbitrate(&candidates, &event, &limits);
-        // Scope iteration order is not part of the contract, so only the
-        // surviving count is asserted.
-        assert_eq!(winners.len(), 1);
-        assert!(["global", "named"].contains(&winners[0].name.as_str()));
+        assert_eq!(names(&winners), vec!["global"]);
+    }
+
+    #[test]
+    fn disjoint_scopes_with_keep_first_policy_keep_deterministic_winner() {
+        use wf_types::trigger::MultiScopePolicy;
+        let candidates = vec![named_event("on_done"), global_event()];
+        let event = BaseEvent {
+            event_name: Some("on_done".to_string()),
+            ..base_event(EventType::NodeCompleted, "e1")
+        };
+        let limits = TriggerRuntimeLimits {
+            multi_scope_policy: Some(MultiScopePolicy::KeepFirst),
+            ..TriggerRuntimeLimits::default()
+        };
+        let winners = arbitrate(&candidates, &event, &limits);
+        assert_eq!(names(&winners), vec!["global"]);
     }
 
     #[test]

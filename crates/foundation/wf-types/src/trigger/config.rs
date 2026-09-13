@@ -650,6 +650,7 @@ mod tests {
         let key_of = |c: &TriggerCondition| crate::trigger::TriggerScopeKey {
             event_type: c.event_type.clone(),
             event_name: c.event_name.clone(),
+            hook_type: crate::trigger::hook_type_dimension(c),
         };
         assert_eq!(key_of(&schedule), key_of(&schedule));
         assert_ne!(

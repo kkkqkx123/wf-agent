@@ -114,6 +114,14 @@ pub fn hook_requires_handler(hook_type: &str) -> bool {
     )
 }
 
+/// Whether a veto at this hook point can block execution. Only the two
+/// wired gate points qualify (`BEFORE_EXECUTE` on the workflow node path,
+/// `BEFORE_TOOL_CALL` on the agent tool path); at every other point a veto
+/// is recorded on the audit event but the engine proceeds as `Continue`.
+pub fn is_gate_hook(hook_type: &str) -> bool {
+    matches!(hook_type, "BEFORE_EXECUTE" | "BEFORE_TOOL_CALL")
+}
+
 /// Whether a trigger template may legally subscribe to a hook point
 /// through the `HOOK_TRIGGERED` audit event.
 ///
@@ -149,8 +157,14 @@ pub fn hook_allows_trigger(hook_type: &str) -> bool {
 /// - `condition`: optional expression string evaluated against the hook
 ///   context (`None` always matches).
 /// - `enabled`: concrete bool (absent means true in every config form).
-/// - `weight`: sort weight, higher fires first in the audit summary;
-///   negative values are rejected at load time.
+/// - `weight`: sort weight within one notification population (higher
+///   notifies first in its population). Static `handler`-named definitions
+///   are always notified before dynamically registered type handlers, each
+///   population sorted by weight descending; weight never crosses the two
+///   populations and never decides whether a handler runs (every passing
+///   handler runs). Its only semantic-grade effect is the notification
+///   order, hence the audit summary order and the veto-reason join order.
+///   Negative values are rejected at load time.
 /// - `payload`: optional payload template surfaced on the `HOOK_TRIGGERED`
 ///   audit event (workflow/agent `event_payload`, tool `payload`).
 /// - `handler`: optional synchronous handler name; the handler completes

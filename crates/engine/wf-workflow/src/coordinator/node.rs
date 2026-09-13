@@ -118,6 +118,7 @@ impl NodeCoordinator {
                 entity,
                 &node,
                 &format!("hook veto at BEFORE_EXECUTE: {reason}"),
+                Some("hook_veto"),
             )
             .await;
         }
@@ -181,6 +182,7 @@ impl NodeCoordinator {
                     entity,
                     &node,
                     &e.to_string(),
+                    None,
                 )
                 .await
             }
@@ -189,6 +191,10 @@ impl NodeCoordinator {
 
     /// Shared node-failure path for handler errors and BEFORE_EXECUTE
     /// vetoes: fire ON_ERROR, emit NodeFailed, never AFTER_EXECUTE.
+    /// `rejection_source` marks veto-driven failures (`Some("hook_veto")`)
+    /// so subscribers can distinguish them from handler errors (`None`);
+    /// it travels on the ON_ERROR hook payload (`rejection_source`) and on
+    /// the NodeFailed event metadata.
     async fn fail_node(
         hooks: &[HookDefinition],
         hook_handler_registry: Option<&HookHandlerRegistry>,
@@ -196,19 +202,21 @@ impl NodeCoordinator {
         entity: &WorkflowExecutionEntity,
         node: &NodeRef<'_>,
         reason: &str,
+        rejection_source: Option<&str>,
     ) -> WorkflowResult<NodeExecutionResult> {
         let duration_ms = wf_common::now() - node.start;
-        Self::execute_hooks(
+        Self::execute_hooks_with_rejection(
             hooks,
             hook_handler_registry,
             event_bus,
             entity,
             "ON_ERROR",
             &node.payload(Some(duration_ms), Some(reason)),
+            rejection_source,
         )
         .await;
 
-        Self::emit_event(
+        Self::emit_event_with_rejection(
             event_bus,
             EventType::NodeFailed,
             entity,
@@ -219,6 +227,7 @@ impl NodeCoordinator {
                 "node_type": node.r#type,
                 "duration_ms": duration_ms,
             }),
+            rejection_source,
         )
         .await;
 
@@ -262,6 +271,27 @@ impl NodeCoordinator {
         hook_type: &str,
         payload: &NodeHookPayload<'_>,
     ) -> FireSummary {
+        Self::execute_hooks_with_rejection(
+            hooks,
+            hook_handler_registry,
+            event_bus,
+            entity,
+            hook_type,
+            payload,
+            None,
+        )
+        .await
+    }
+
+    async fn execute_hooks_with_rejection(
+        hooks: &[HookDefinition],
+        hook_handler_registry: Option<&HookHandlerRegistry>,
+        event_bus: Option<&EventBus>,
+        entity: &WorkflowExecutionEntity,
+        hook_type: &str,
+        payload: &NodeHookPayload<'_>,
+        rejection_source: Option<&str>,
+    ) -> FireSummary {
         let mut data = std::collections::HashMap::new();
         data.insert(
             "entity_id".to_string(),
@@ -304,6 +334,12 @@ impl NodeCoordinator {
                 serde_json::Value::String(err.to_string()),
             );
         }
+        if let Some(source) = rejection_source {
+            data.insert(
+                "rejection_source".to_string(),
+                serde_json::Value::String(source.to_string()),
+            );
+        }
 
         crate::hook::WorkflowHookEmitter::fire_point(
             hooks,
@@ -326,6 +362,17 @@ impl NodeCoordinator {
         node_id: &str,
         data: &serde_json::Value,
     ) {
+        Self::emit_event_with_rejection(event_bus, event_type, entity, node_id, data, None).await
+    }
+
+    async fn emit_event_with_rejection(
+        event_bus: Option<&EventBus>,
+        event_type: EventType,
+        entity: &WorkflowExecutionEntity,
+        node_id: &str,
+        data: &serde_json::Value,
+        rejection_source: Option<&str>,
+    ) {
         let Some(bus) = event_bus else {
             tracing::debug!(
                 execution_id = %entity.id(),
@@ -343,6 +390,12 @@ impl NodeCoordinator {
             "node_id".to_string(),
             serde_json::Value::String(node_id.to_string()),
         );
+        if let Some(source) = rejection_source {
+            metadata.insert(
+                "rejection_source".to_string(),
+                serde_json::Value::String(source.to_string()),
+            );
+        }
 
         let event_type_label = format!("{:?}", event_type);
         let event = BaseEvent {

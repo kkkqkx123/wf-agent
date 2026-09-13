@@ -19,10 +19,26 @@ pub enum TriggerDispatchMode {
     BestWin,
 }
 
+/// Policy for the multi-scope collision: more than one competition scope
+/// winning for the same event instance means validation was bypassed (or two
+/// legitimately disjoint scopes both matched). `DropAll` (default) drops
+/// every winner loudly; `KeepFirst` executes the deterministically-first
+/// winner (sorted by event type, event name, template name) and drops the
+/// rest loudly. The default preserves existing deployments; switch to
+/// `KeepFirst` only when cross-scope fan-out is explicitly desired and the
+/// surviving effects commute.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum MultiScopePolicy {
+    #[default]
+    DropAll,
+    KeepFirst,
+}
+
 /// Runtime limits for trigger dispatch (concurrency gate + circuit
 /// breaker). All fields are optional; absent means the historical default
-/// (unbounded concurrency, single-winner dispatch, no burst cap), so
-/// existing deployments see no behavior change.
+/// (unbounded concurrency, single-winner dispatch, no burst cap,
+/// multi-scope drop-all), so existing deployments see no behavior change.
 ///
 /// Tuning notes:
 /// - `max_concurrent_actions`: bound on concurrently executing trigger
@@ -41,6 +57,10 @@ pub struct TriggerRuntimeLimits {
     pub max_concurrent_actions: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dispatch_burst_limit: Option<u32>,
+    /// Multi-scope collision policy when winners from different competition
+    /// scopes match one event. Absent means `DropAll`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub multi_scope_policy: Option<MultiScopePolicy>,
 }
 
 impl TriggerRuntimeLimits {
@@ -57,7 +77,9 @@ impl TriggerRuntimeLimits {
     }
 
     /// Apply the burst cap to a winner list, returning the dropped count.
-    /// Pure helper so the listener and tests share the semantics.
+    /// Pure helper so the listener and tests share the semantics. Callers
+    /// must sort winners deterministically first (see
+    /// [`sort_winners_deterministically`]); this helper never reorders.
     pub fn apply_burst_cap<T>(&self, winners: &mut Vec<T>) -> usize {
         let Some(cap) = self.dispatch_burst_limit else {
             return 0;
@@ -70,6 +92,51 @@ impl TriggerRuntimeLimits {
         }
         0
     }
+
+    /// Multi-scope collision policy in effect (default `DropAll`).
+    pub fn multi_scope_policy(&self) -> MultiScopePolicy {
+        self.multi_scope_policy.unwrap_or_default()
+    }
+}
+
+/// Sort trigger winners into contract order before any truncation or
+/// keep-first selection: by event type, then event name, then hook-type
+/// dimension, then template name. Scope-group iteration order is hash-based
+/// and never part of the contract, so every truncation path must sort first.
+pub fn sort_winners_deterministically(winners: &mut [TriggerTemplate]) {
+    winners.sort_by(|a, b| {
+        let ka = (
+            a.condition
+                .as_ref()
+                .map(|c| c.event_type.as_str())
+                .unwrap_or_default(),
+            a.condition
+                .as_ref()
+                .and_then(|c| c.event_name.as_deref())
+                .unwrap_or_default(),
+            a.condition
+                .as_ref()
+                .and_then(super::scope::hook_type_dimension)
+                .unwrap_or_default(),
+            a.name.as_str(),
+        );
+        let kb = (
+            b.condition
+                .as_ref()
+                .map(|c| c.event_type.as_str())
+                .unwrap_or_default(),
+            b.condition
+                .as_ref()
+                .and_then(|c| c.event_name.as_deref())
+                .unwrap_or_default(),
+            b.condition
+                .as_ref()
+                .and_then(super::scope::hook_type_dimension)
+                .unwrap_or_default(),
+            b.name.as_str(),
+        );
+        ka.cmp(&kb)
+    });
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -85,7 +152,9 @@ pub struct TriggerTemplate {
     pub enabled: Option<bool>,
     /// Maximum firings counted per execution (`execution_id:template_name`).
     /// Concurrent executions hold independent budgets; the in-flight guard
-    /// additionally prevents re-entrant runs of the same pair.
+    /// additionally prevents re-entrant runs of the same pair. Absent means
+    /// unlimited; zero is rejected at load time and means no capacity at
+    /// runtime (never granted).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_triggers: Option<u32>,
     /// Template priority within its competition scope. Under the default
@@ -101,20 +170,14 @@ pub struct TriggerTemplate {
     /// while mixing explicit Unique with BestWin is a load-time error.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dispatch_mode: Option<TriggerDispatchMode>,
-    /// Multi-effect opt-in for one event. Default (absent/false) keeps the
-    /// single-winner single-execution behavior. Setting it to true declares
-    /// that this template wants ordered multi-effect execution, which
-    /// additionally requires `effect_order`; the runtime still executes the
-    /// single winner until the ordered multi-effect design lands, so the
-    /// declaration is validated now and executed later. Any future
-    /// multi-execution must be explicit here plus an explicit order.
+    /// Multi-effect opt-in for one event. Not implemented: the runtime
+    /// executes the single winner, so load-time validation rejects `true`
+    /// (fail fast instead of validating a semantic the runtime ignores).
+    /// Default (absent/false) keeps single-winner single-execution.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub allow_multi_effect: Option<bool>,
-    /// Explicit execution order for multi-effect mode: non-empty list of
-    /// effect names in execution order. Required when `allow_multi_effect`
-    /// is true, forbidden otherwise. Exchangeability of the listed effects
-    /// is a deployment obligation (state-changing effects that race must
-    /// not share an event).
+    /// Explicit execution order for multi-effect mode. Rejected together
+    /// with the opt-in until ordered multi-execution lands.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub effect_order: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]

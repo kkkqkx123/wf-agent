@@ -137,8 +137,42 @@ impl From<&wf_types::agent::AgentHookConfig> for HookDefinition {
 }
 
 impl From<&wf_tools::callback::HookConfig> for HookDefinition {
-    /// Tool-callback form: thin adapter via the authoritative spec.
+    /// Tool-callback form: thin adapter via the authoritative spec. The input
+    /// source is model output, so the authoritative load-time rules are
+    /// re-applied here as structured warnings (weight floor, unknown-type
+    /// audit vacuum, empty handler name): invalid values are clamped to the
+    /// validated shape instead of entering the fire pipeline unchecked.
     fn from(config: &wf_tools::callback::HookConfig) -> Self {
-        Self::from(&config.to_canonical())
+        let spec = config.to_canonical();
+        if !is_known_hook_point(&spec.hook_type) {
+            tracing::warn!(
+                hook_type = %spec.hook_type,
+                source = "tool-callback",
+                "tool-callback hook references unknown hook type; allowing registration but it will never fire"
+            );
+        }
+        if spec.weight < 0 {
+            tracing::warn!(
+                hook_type = %spec.hook_type,
+                weight = spec.weight,
+                source = "tool-callback",
+                "tool-callback hook weight below 0 clamped to 0"
+            );
+        }
+        if spec.handler.as_deref().is_some_and(|h| h.trim().is_empty()) {
+            tracing::warn!(
+                hook_type = %spec.hook_type,
+                source = "tool-callback",
+                "tool-callback hook handler is empty and will be ignored"
+            );
+        }
+        let mut def = Self::from(&spec);
+        if def.weight < 0 {
+            def.weight = 0;
+        }
+        if def.handler.as_deref().is_some_and(|h| h.trim().is_empty()) {
+            def.handler = None;
+        }
+        def
     }
 }

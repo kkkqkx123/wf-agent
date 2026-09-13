@@ -44,7 +44,8 @@ impl TriggerGovernor {
     /// Claim `key` for a run and charge its budget. The re-entrancy claim is
     /// taken first so a duplicate arriving while the budget is being checked
     /// is reported as already running; a budget rejection gives the claim
-    /// back.
+    /// back. Zero budget means no capacity (use absent for unlimited, see
+    /// `TriggerTemplate::max_triggers` validation); it never grants.
     pub(crate) fn request(&self, key: &str, max_triggers: Option<u32>) -> FirePermit {
         // Atomic claim: a present entry means a run for this pair is in flight.
         if self.in_flight.insert(key.to_string(), ()).is_some() {
@@ -54,7 +55,8 @@ impl TriggerGovernor {
             return FirePermit::Granted;
         };
         if max == 0 {
-            return FirePermit::Granted;
+            self.in_flight.remove(key);
+            return FirePermit::BudgetExhausted;
         }
         let mut counts = lock_ok(self.trigger_counts.lock());
         let count = counts.entry(key.to_string()).or_insert(0);
@@ -133,12 +135,16 @@ mod tests {
     }
 
     #[test]
-    fn zero_max_triggers_means_unbounded() {
+    fn zero_max_triggers_means_no_capacity() {
         let governor = TriggerGovernor::new();
-        for _ in 0..3 {
-            assert_eq!(outcome(&governor.request("exec:t", Some(0))), "granted");
-            governor.release("exec:t");
-        }
+        assert_eq!(
+            outcome(&governor.request("exec:t", Some(0))),
+            "budget_exhausted"
+        );
+        assert!(
+            !governor.is_in_flight("exec:t"),
+            "a zero-budget rejection must not leave a claim behind"
+        );
         assert_eq!(governor.fire_count("exec:t"), 0);
     }
 

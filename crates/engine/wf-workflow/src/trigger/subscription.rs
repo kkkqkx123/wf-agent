@@ -21,7 +21,10 @@ use wf_types::trigger::TriggerTemplate;
 /// Event types that at least one registered template can match, deduplicated
 /// in registration order. A template whose `event_type` does not parse into a
 /// known [`EventType`] forces the general-channel fallback (empty result) so
-/// misconfigured templates keep their previous delivery behavior.
+/// a template registered around load-time validation (which rejects unknown
+/// types) keeps its previous delivery behavior instead of silently missing.
+/// There is no wildcard subscription: an empty result always means a bypassed
+/// validation, never an explicit opt-in.
 pub(crate) fn subscribed_types(templates: &[TriggerTemplate]) -> Vec<EventType> {
     let mut seen = HashSet::new();
     let mut types = Vec::new();

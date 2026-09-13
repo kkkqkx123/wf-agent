@@ -26,6 +26,50 @@ impl<'a> TriggerValidator<'a> {
             result.extend_errors(self.validate_action_references(action));
         }
 
+        // 3. Competition scope against the already-known set: the incoming
+        // template must not collide with an existing subscriber unless the
+        // scope is an explicit best-win with distinct priorities.
+        let reports = wf_config::processor::trigger::check_trigger_scopes(
+            &self.ctx.trigger_templates,
+            std::slice::from_ref(template),
+        );
+        for report in reports {
+            if report.incoming_names.iter().any(|n| n == &template.name) {
+                result.push_error(ValidationError::new("competition", report.message));
+            }
+        }
+
+        result
+    }
+
+    /// Validate a whole incoming set against the context set through the
+    /// unified registration entry (single shape + merged scopes). Production
+    /// registration paths should prefer this over looping [`Self::validate`].
+    pub fn validate_set(
+        &self,
+        incoming: &[wf_types::trigger::TriggerTemplate],
+    ) -> ValidationResult {
+        let mut result = ValidationResult::default();
+        let (validated, reports) = wf_config::processor::trigger::validate_trigger_registration(
+            &self.ctx.trigger_templates,
+            incoming,
+        );
+        if let Err(e) = validated {
+            result.push_error(ValidationError::new("template", e.to_string()));
+            return result;
+        }
+        for report in reports {
+            if report.incoming_names.is_empty() {
+                result.push_warning(ValidationError::new("competition", report.message));
+            } else {
+                result.push_error(ValidationError::new("competition", report.message));
+            }
+        }
+        for template in incoming {
+            if let Some(action) = &template.action {
+                result.extend_errors(self.validate_action_references(action));
+            }
+        }
         result
     }
 
@@ -73,6 +117,34 @@ impl<'a> TriggerValidator<'a> {
                 //         format!("Agent '{}' not registered", agent_id),
                 //     ));
                 // }
+                if let Some(profile) = model {
+                    if let Some(e) = validate_profile_reference(profile, self.ctx) {
+                        errors.push(e);
+                    }
+                }
+            }
+            TriggerAction::ExecuteWorkflow { workflow_id, .. } => {
+                if workflow_id.trim().is_empty() {
+                    errors.push(ValidationError::new(
+                        "workflow_id",
+                        "Workflow id must not be empty for ExecuteWorkflow",
+                    ));
+                } else if !self.ctx.workflow_ids.contains(workflow_id) {
+                    errors.push(ValidationError::new(
+                        "workflow_id",
+                        format!("Workflow '{}' not registered", workflow_id),
+                    ));
+                }
+            }
+            TriggerAction::ExecuteAgent {
+                agent_id, model, ..
+            } => {
+                if agent_id.trim().is_empty() {
+                    errors.push(ValidationError::new(
+                        "agent_id",
+                        "Agent id must not be empty for ExecuteAgent",
+                    ));
+                }
                 if let Some(profile) = model {
                     if let Some(e) = validate_profile_reference(profile, self.ctx) {
                         errors.push(e);

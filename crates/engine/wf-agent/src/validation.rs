@@ -242,10 +242,12 @@ impl AgentLoopValidator {
     }
 }
 
-/// Validates hook configuration. Unknown hook types produce warnings
-/// (not errors) because they represent hooks that will never fire
-/// but won't cause runtime failures. This is intentional for agent
-/// definitions where users may define hooks for future hook types.
+/// Validates hook configuration. Mirrors the authoritative
+/// `wf-config::processor::hook::validate_canonical_hook` rules without taking
+/// a dependency on wf-config: unknown hook types warn (never fire), negative
+/// weights and empty handler names are errors, and malformed condition
+/// expressions are errors. Tool-callback hooks arrive via model output, so a
+/// structured warning is emitted for the whole hook form at the call site.
 fn validate_hook(hook: &HookConfig, issues: &mut Vec<ValidationIssue>) {
     use wf_types::hook::is_known_hook_point;
     if !is_known_hook_point(&hook.hook_type) {
@@ -253,6 +255,31 @@ fn validate_hook(hook: &HookConfig, issues: &mut Vec<ValidationIssue>) {
             "hooks",
             format!("unknown hook type '{}' will never fire", hook.hook_type),
         ));
+    }
+    if hook.weight < 0 {
+        issues.push(ValidationIssue::error(
+            "hooks.weight",
+            format!(
+                "hook '{}' weight {} must be >= 0",
+                hook.hook_type, hook.weight
+            ),
+        ));
+    }
+    if let Some(handler) = &hook.handler {
+        if handler.trim().is_empty() {
+            issues.push(ValidationIssue::error(
+                "hooks.handler",
+                format!("hook '{}' handler must not be empty", hook.hook_type),
+            ));
+        }
+    }
+    if let Some(condition) = &hook.condition {
+        if let Err(e) = wf_core::condition::ConditionEvaluator::validate_syntax(condition) {
+            issues.push(ValidationIssue::error(
+                "hooks.condition",
+                format!("hook '{}' condition syntax error: {}", hook.hook_type, e),
+            ));
+        }
     }
 }
 

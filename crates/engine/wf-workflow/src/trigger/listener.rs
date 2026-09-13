@@ -201,11 +201,13 @@ impl TriggerEventListener {
     }
 
     /// Turn one winner into its dispatch match, flagging declarations the
-    /// runtime does not execute yet.
+    /// runtime does not execute yet (bypass path: load-time validation
+    /// rejects the multi-effect opt-in, so reaching here means validation
+    /// was bypassed).
     fn dispatchable(&self, template: TriggerTemplate, event: &BaseEvent) -> TriggerMatch {
         if template.allow_multi_effect == Some(true) {
             warn!(
-                "Trigger '{}' declares multi-effect execution with an explicit order, but the runtime still executes the single winner; ordered multi-execution is validated, not yet executed",
+                "Trigger '{}' declares multi-effect execution, which is not implemented; executing the single winner (validation was bypassed)",
                 template.name,
             );
         }

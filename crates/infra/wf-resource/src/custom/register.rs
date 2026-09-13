@@ -387,7 +387,12 @@ pub fn register_custom_triggers(
         candidates_without_path_conflict.push(template);
     }
     let candidates = candidates_without_path_conflict;
-    let reports = wf_config::processor::trigger::check_trigger_scopes(&existing, &candidates);
+    // Unified registration entry: single-template shape (already applied
+    // per candidate above, re-checked idempotently) plus the merged-set
+    // scope check.
+    let (validated, reports) =
+        wf_config::processor::trigger::validate_trigger_registration(&existing, &candidates);
+    let candidates = validated.unwrap_or_default();
     let mut rejected: HashMap<String, String> = HashMap::new();
     for report in reports {
         if report.incoming_names.is_empty() {

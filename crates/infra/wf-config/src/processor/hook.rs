@@ -63,6 +63,13 @@ pub fn validate_canonical_hook(
     }
     warn_deprecated_event_name(field_prefix, event_name);
     validate_min(spec.weight, 0, &format!("{field_prefix}.weight"))?;
+    if let Some(condition) = spec.condition.as_deref() {
+        if let Err(e) = wf_core::condition::ConditionEvaluator::validate_syntax(condition) {
+            return Err(crate::error::ConfigError::Validation(format!(
+                "{field_prefix}.condition syntax error: {e}"
+            )));
+        }
+    }
     if let Some(ref handler) = spec.handler {
         validate_not_empty(handler, &format!("{field_prefix}.handler"))?;
         tracing::warn!(

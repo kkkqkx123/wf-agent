@@ -61,7 +61,12 @@ impl FireSummary {
 ///    (condition / enabled / weight filtering) and resolve payload templates;
 /// 2. synchronously notify every handler that passes evaluation — the
 ///    `handler`-named handlers of the static definitions first, then the
-///    handlers dynamically registered on the hook type (weight descending).
+///    handlers dynamically registered on the hook type. Weight orders only
+///    within each population (descending); a zero-weight static definition
+///    still notifies before a high-weight dynamic handler. Weight never
+///    decides whether a handler runs and never crosses populations; its
+///    only semantic-grade effect is the notification order (hence the audit
+///    summary order and the veto-reason join order).
 ///    Both populations share one evaluation semantic: the same condition
 ///    language over the same context data, and a failing condition skips
 ///    the handler, never the engine;

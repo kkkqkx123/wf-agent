@@ -126,6 +126,29 @@ impl HookHandlerRegistry {
         self.named.contains_key(name)
     }
 
+    /// Names from `hook_defs` handler fields that are not registered.
+    /// Assembly-time precheck: warn on the returned names (a plugin may
+    /// register the handler later, so this stays a warning, never a
+    /// rejection); the fire path still skips unresolvable handlers loudly
+    /// per fire.
+    pub fn missing_handlers(
+        &self,
+        hook_defs: &[crate::hooks::types::HookDefinition],
+    ) -> Vec<String> {
+        let mut missing = Vec::new();
+        for def in hook_defs {
+            if let Some(name) = def.handler.as_deref() {
+                if !name.trim().is_empty()
+                    && !self.contains(name)
+                    && !missing.contains(&name.to_string())
+                {
+                    missing.push(name.to_string());
+                }
+            }
+        }
+        missing
+    }
+
     /// Per-handler notification timeout.
     pub fn timeout(&self) -> Duration {
         self.timeout
@@ -285,5 +308,50 @@ mod tests {
         assert_eq!(result.name, "slow");
         assert_eq!(result.outcome, HookOutcome::Continue);
         assert!(result.error.is_some());
+    }
+
+    #[test]
+    fn missing_handlers_reports_unregistered_names_once() {
+        use crate::hooks::types::HookDefinition;
+        let registry = HookHandlerRegistry::new();
+        let calls = Arc::new(std::sync::atomic::AtomicU32::new(0));
+        registry.register(
+            "A",
+            Arc::new(RecordingHandler::new("ready", calls.clone())),
+            1,
+        );
+        let defs = vec![
+            HookDefinition {
+                id: "1".to_string(),
+                hook_type: "A".to_string(),
+                weight: 0,
+                condition: None,
+                enabled: true,
+                payload: None,
+                handler: Some("ready".to_string()),
+            },
+            HookDefinition {
+                id: "2".to_string(),
+                hook_type: "A".to_string(),
+                weight: 0,
+                condition: None,
+                enabled: true,
+                payload: None,
+                handler: Some("typo-handler".to_string()),
+            },
+            HookDefinition {
+                id: "3".to_string(),
+                hook_type: "A".to_string(),
+                weight: 0,
+                condition: None,
+                enabled: true,
+                payload: None,
+                handler: Some("typo-handler".to_string()),
+            },
+        ];
+        assert_eq!(
+            registry.missing_handlers(&defs),
+            vec!["typo-handler".to_string()]
+        );
     }
 }

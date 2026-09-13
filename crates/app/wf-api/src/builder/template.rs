@@ -237,10 +237,12 @@ impl TriggerTemplateBuilder {
     /// Build, validate and register the template (storage adapter + shared
     /// registry), so agent loops can reference it by name.
     ///
-    /// Besides the single-template shape check, the competition scopes of
-    /// the merged registry set are checked: a second subscriber of a
-    /// unique-dispatch scope, or a best-win scope without distinct explicit
-    /// priorities, rejects the registration.
+    /// Uses the unified registration entry
+    /// (`wf_config::processor::trigger::validate_trigger_registration`):
+    /// single-template shape plus the competition scopes of the merged
+    /// registry set. A second subscriber of a unique-dispatch scope, or a
+    /// best-win scope without distinct explicit priorities, rejects the
+    /// registration.
     pub async fn register(self, ctx: &ApiContext) -> crate::ApiResult<()> {
         let template = self.build()?;
         let existing: Vec<TriggerTemplate> = ctx
@@ -255,10 +257,11 @@ impl TriggerTemplateBuilder {
                     .map(|t| t.as_ref().clone())
             })
             .collect();
-        let reports = wf_config::processor::trigger::check_trigger_scopes(
+        let (validated, reports) = wf_config::processor::trigger::validate_trigger_registration(
             &existing,
             std::slice::from_ref(&template),
         );
+        validated.map_err(crate::ApiError::from)?;
         for report in &reports {
             if report.incoming_names.is_empty() {
                 tracing::warn!(

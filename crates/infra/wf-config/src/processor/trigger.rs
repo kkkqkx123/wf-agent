@@ -14,19 +14,19 @@ pub fn validate_trigger_runtime_limits(limits: &TriggerRuntimeLimits) -> ConfigR
 
 /// Validate the multi-effect declaration of one template.
 ///
-/// Default keeps single-winner single-execution: `allow_multi_effect` absent
-/// or false requires no `effect_order`. An explicit opt-in requires a
-/// non-empty explicit order; an order without the opt-in is rejected as a
-/// likely configuration mistake.
+/// Ordered multi-effect execution is not implemented: the runtime executes
+/// the single winner. To avoid false confidence (validated now, ignored at
+/// runtime), the opt-in is rejected until the ordered design lands; the
+/// default (absent/false) keeps single-winner single-execution. An order
+/// without the opt-in is likewise rejected as a likely mistake.
 pub fn validate_multi_effect(template: &TriggerTemplate) -> ConfigResult<()> {
     match (template.allow_multi_effect, &template.effect_order) {
-        (Some(true), Some(order)) if !order.is_empty() => Ok(()),
         (Some(true), _) => Err(ConfigError::Validation(format!(
-            "trigger '{}' opts into multi-effect execution but declares no explicit effect_order; list the effects in execution order",
+            "trigger '{}' opts into multi-effect execution, which is not implemented: the runtime executes the single winner. Remove allow_multi_effect until ordered multi-execution lands",
             template.name
         ))),
         (_, Some(order)) if !order.is_empty() => Err(ConfigError::Validation(format!(
-            "trigger '{}' declares effect_order without opting into multi-effect execution; set allow_multi_effect to run multiple effects",
+            "trigger '{}' declares effect_order without an implemented multi-effect mode; remove effect_order",
             template.name
         ))),
         _ => Ok(()),
@@ -38,12 +38,52 @@ pub fn validate_trigger_template(template: &TriggerTemplate) -> ConfigResult<()>
     if let Some(max_triggers) = template.max_triggers {
         validate_min(max_triggers, 1, "max_triggers")?;
     }
+    if template.condition.is_none() {
+        tracing::warn!(
+            "trigger '{}' declares no condition and never matches; add a condition or disable it",
+            template.name,
+        );
+    }
+    if template.action.is_none() && template.enabled != Some(false) {
+        tracing::warn!(
+            "trigger '{}' declares no action and never executes; add an action or disable it",
+            template.name,
+        );
+    }
     if let Some(condition) = &template.condition {
+        if condition.event_type.trim().is_empty() {
+            if condition.condition.is_some() {
+                return Err(ConfigError::Validation(
+                    "condition expression requires a concrete event_type".to_string(),
+                ));
+            }
+        }
         if condition.targets_compression_signal() {
             return Err(ConfigError::Validation(format!(
                 "trigger '{}' subscribes to the internal compression signal; register a hook handler for '{}' instead, the event copy is audit-only",
                 template.name,
                 wf_types::hook::CONTEXT_COMPRESSION_SIGNAL
+            )));
+        }
+        // Hook points are not event types: hook fires publish HOOK_TRIGGERED,
+        // never the hook name itself, so a condition naming one directly can
+        // never match. (Checked before the unknown-type rejection so the
+        // category error keeps its own guidance.)
+        if wf_types::hook::is_known_hook_point(&condition.event_type) {
+            return Err(ConfigError::Validation(format!(
+                "trigger '{}' uses hook point '{}' as event_type; hook points are not event types and no such event is ever published. Subscribe to HOOK_TRIGGERED plus metadata.hook_type instead, or to the equivalent domain event",
+                template.name, condition.event_type
+            )));
+        }
+        if !condition.event_type.trim().is_empty()
+            && condition
+                .event_type
+                .parse::<wf_types::events::EventType>()
+                .is_err()
+        {
+            return Err(ConfigError::Validation(format!(
+                "trigger '{}' uses unknown event_type '{}'; fix the spelling or remove the template (unlimited matching: leave the template disabled instead of using an unknown type)",
+                template.name, condition.event_type
             )));
         }
         if condition.targets_before_hook() {
@@ -52,29 +92,19 @@ pub fn validate_trigger_template(template: &TriggerTemplate) -> ConfigResult<()>
                 template.name
             )));
         }
-        // Hook points are not event types: hook fires publish HOOK_TRIGGERED,
-        // never the hook name itself, so a condition naming one directly can
-        // never match. (The compression signal returns above with its own
-        // message; every other hook name lands here.)
-        if wf_types::hook::is_known_hook_point(&condition.event_type) {
-            return Err(ConfigError::Validation(format!(
-                "trigger '{}' uses hook point '{}' as event_type; hook points are not event types and no such event is ever published. Subscribe to HOOK_TRIGGERED plus metadata.hook_type instead, or to the equivalent domain event",
-                template.name, condition.event_type
-            )));
+        if let Some(expression) = condition.condition.as_deref() {
+            if let Err(e) = wf_core::condition::ConditionEvaluator::validate_syntax(expression) {
+                return Err(ConfigError::Validation(format!(
+                    "trigger '{}' condition syntax error: {}",
+                    template.name, e
+                )));
+            }
         }
         // A NODE_CUSTOM_EVENT condition is matched by `event_name`: it is
         // required, otherwise the template can never match.
         if condition.event_type == "NODE_CUSTOM_EVENT" && condition.event_name.is_none() {
             return Err(ConfigError::Validation(
                 "event_name is required when event_type is NODE_CUSTOM_EVENT".to_string(),
-            ));
-        }
-        // A condition expression is only meaningful together with a concrete
-        // event type; standalone expressions against every event are
-        // rejected as a likely configuration mistake.
-        if condition.condition.is_some() && condition.event_type.is_empty() {
-            return Err(ConfigError::Validation(
-                "condition expression requires a concrete event_type".to_string(),
             ));
         }
     }
@@ -86,6 +116,17 @@ pub fn validate_trigger_template(template: &TriggerTemplate) -> ConfigResult<()>
         )?;
     }
     validate_multi_effect(template)?;
+    if template.priority.is_some()
+        && template
+            .dispatch_mode
+            .unwrap_or(wf_types::trigger::TriggerDispatchMode::Unique)
+            != wf_types::trigger::TriggerDispatchMode::BestWin
+    {
+        tracing::warn!(
+            "trigger '{}' sets priority without best_win dispatch; the priority is ignored unless the scope switches to best_win with distinct priorities",
+            template.name,
+        );
+    }
     if template.enabled == Some(true) && template.action.is_none() {
         return Err(ConfigError::Validation(
             "enabled template must have an action".to_string(),
@@ -231,6 +272,36 @@ pub fn validate_trigger_set(templates: &[TriggerTemplate]) -> ConfigResult<()> {
     Ok(())
 }
 
+/// Unified production entry for registering `incoming` against `existing`.
+///
+/// Single source for the two-step shape (every incoming template must pass
+/// [`validate_trigger_template`], then the merged set must pass
+/// [`check_trigger_scopes`]). Returns the validated incoming templates plus
+/// one report per violated scope; callers reject the incoming members of a
+/// violated scope and warn on scopes with no incoming member. Test-only
+/// callers keep using the fine-grained functions directly.
+pub fn validate_trigger_registration(
+    existing: &[TriggerTemplate],
+    incoming: &[TriggerTemplate],
+) -> (ConfigResult<Vec<TriggerTemplate>>, Vec<TriggerScopeReport>) {
+    let mut valid = Vec::new();
+    let mut first_error: Option<ConfigError> = None;
+    for template in incoming {
+        if let Err(e) = validate_trigger_template(template) {
+            if first_error.is_none() {
+                first_error = Some(e);
+            }
+            continue;
+        }
+        valid.push(template.clone());
+    }
+    if let Some(e) = first_error {
+        return (Err(e), Vec::new());
+    }
+    let reports = check_trigger_scopes(existing, &valid);
+    (Ok(valid), reports)
+}
+
 /// One violated scope: every template in the scope plus the subset that
 /// belongs to the incoming batch, plus the message naming the scope, the
 /// templates involved, and the way out.
@@ -275,9 +346,27 @@ pub fn check_trigger_scopes(
         let Some(condition) = first.condition.as_ref() else {
             continue;
         };
-        let key = TriggerScopeKey {
-            event_type: condition.event_type.clone(),
-            event_name: condition.event_name.clone(),
+        let key = {
+            let mut hook: Option<String> = None;
+            let mut first_hook = true;
+            for r in &refs {
+                let h = r
+                    .condition
+                    .as_ref()
+                    .and_then(wf_types::trigger::hook_type_dimension);
+                if first_hook {
+                    hook = h;
+                    first_hook = false;
+                } else if hook != h {
+                    hook = None;
+                    break;
+                }
+            }
+            TriggerScopeKey {
+                event_type: condition.event_type.clone(),
+                event_name: condition.event_name.clone(),
+                hook_type: hook,
+            }
         };
         for violation in check_scope_group(&refs) {
             let names: Vec<String> = refs.iter().map(|t| t.name.clone()).collect();
@@ -824,7 +913,7 @@ mod tests {
     }
 
     #[test]
-    fn test_multi_effect_opt_in_requires_explicit_order() {
+    fn test_multi_effect_opt_in_rejected_until_implemented() {
         let mut template = make_template();
         template.allow_multi_effect = Some(true);
         template.effect_order = None;
@@ -835,8 +924,11 @@ mod tests {
         assert!(validate_multi_effect(&template).is_err());
 
         template.effect_order = Some(vec!["audit".to_string(), "notify".to_string()]);
-        assert!(validate_multi_effect(&template).is_ok());
-        assert!(validate_trigger_template(&template).is_ok());
+        assert!(
+            validate_multi_effect(&template).is_err(),
+            "opt-in stays rejected even with an order until the runtime implements it"
+        );
+        assert!(validate_trigger_template(&template).is_err());
     }
 
     #[test]
@@ -854,18 +946,21 @@ mod tests {
         let limits = TriggerRuntimeLimits {
             max_concurrent_actions: Some(8),
             dispatch_burst_limit: Some(1),
+            ..TriggerRuntimeLimits::default()
         };
         assert!(validate_trigger_runtime_limits(&limits).is_ok());
 
         let limits = TriggerRuntimeLimits {
             max_concurrent_actions: Some(0),
             dispatch_burst_limit: None,
+            ..TriggerRuntimeLimits::default()
         };
         assert!(validate_trigger_runtime_limits(&limits).is_err());
 
         let limits = TriggerRuntimeLimits {
             max_concurrent_actions: None,
             dispatch_burst_limit: Some(0),
+            ..TriggerRuntimeLimits::default()
         };
         assert!(validate_trigger_runtime_limits(&limits).is_err());
     }
@@ -983,6 +1078,7 @@ mod tests {
         let limits = TriggerRuntimeLimits {
             max_concurrent_actions: None,
             dispatch_burst_limit: Some(1),
+            ..TriggerRuntimeLimits::default()
         };
         let mut winners = vec!["a", "b", "c"];
         assert_eq!(limits.apply_burst_cap(&mut winners), 2);

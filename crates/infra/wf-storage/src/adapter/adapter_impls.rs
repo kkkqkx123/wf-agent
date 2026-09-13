@@ -582,6 +582,29 @@ impl<S: Store> MessageStorageAdapter for MessageStorage<S> {
     async fn get_stats(&self) -> Result<HashMap<String, u64>, StorageError> {
         self.count_by_field("role").await
     }
+
+    async fn latest_session_anchor(&self) -> Result<Option<String>, StorageError> {
+        // Metadata-only scan (no payload blobs): keep only messages scoped to
+        // a session anchor, then reduce to the anchor with the newest
+        // timestamp. Doing the reduction here keeps the "find the resumable
+        // session" policy out of every CLI frontend.
+        let all = self
+            .entity_store
+            .list(None)
+            .await?
+            .into_iter()
+            .filter_map(|record| {
+                let anchor = record.agent_loop_id.clone()?;
+                Some((record.message.timestamp, anchor))
+            });
+        let mut latest: Option<(i64, String)> = None;
+        for (timestamp, anchor) in all {
+            if latest.as_ref().is_none_or(|(ts, _)| timestamp > *ts) {
+                latest = Some((timestamp, anchor));
+            }
+        }
+        Ok(latest.map(|(_, anchor)| anchor))
+    }
 }
 
 // ─── VariableStorageAdapter ───

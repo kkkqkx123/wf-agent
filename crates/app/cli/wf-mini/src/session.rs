@@ -62,6 +62,11 @@ pub struct NativeSession {
     lines: Arc<tokio::sync::Mutex<LineReader>>,
     transcript: Transcript,
     anchor: String,
+    /// Turn-cancel flag: the approval handler sets it when Ctrl-C is
+    /// pressed during a prompt; the pump loop watches it and treats the
+    /// turn as interrupted.
+    cancel_tx: tokio::sync::watch::Sender<bool>,
+    cancel_rx: tokio::sync::watch::Receiver<bool>,
 }
 
 /// What a slash command asks the loop to do.
@@ -109,6 +114,8 @@ impl NativeSession {
             lines: Arc::new(tokio::sync::Mutex::new(LineReader::for_stdin())),
             transcript,
             anchor,
+            cancel_tx: tokio::sync::watch::channel(false).0,
+            cancel_rx: tokio::sync::watch::channel(false).1,
         })
     }
 
@@ -294,32 +301,18 @@ impl NativeSession {
     }
 
     /// Most recently active stored session and its messages. Embedded mode
-    /// groups stored messages by session anchor (mini persists every turn
-    /// under its anchor); remote mode picks the newest loop summary.
-    /// Returns `None` when nothing resumable exists.
+    /// asks the storage layer for the session anchor with the newest stored
+    /// message (mini persists every turn under its anchor); remote mode picks
+    /// the newest loop summary. Returns `None` when nothing resumable exists.
     async fn load_latest(
         domain: &DomainHandle,
     ) -> Option<(String, Vec<wf_types::message::Message>)> {
         match domain {
             DomainHandle::Embedded(adapter) => {
-                let options = wf_storage::adapter::message::MessageListOptions {
-                    limit: Some(2000),
-                    ..Default::default()
-                };
-                let records = wf_api::entity::message::list(adapter.api_context(), &options)
+                let anchor = wf_api::entity::message::latest_session_anchor(adapter.api_context())
                     .await
-                    .unwrap_or_default();
-                let mut latest: Option<(i64, String)> = None;
-                for record in &records {
-                    let Some(anchor) = record.agent_loop_id.clone() else {
-                        continue;
-                    };
-                    let timestamp = record.message.timestamp;
-                    if latest.as_ref().is_none_or(|(ts, _)| timestamp > *ts) {
-                        latest = Some((timestamp, anchor));
-                    }
-                }
-                let (_, anchor) = latest?;
+                    .ok()
+                    .flatten()?;
                 let stored = Self::load_history(domain, &anchor).await;
                 if stored.is_empty() {
                     return None;
@@ -411,10 +404,13 @@ impl NativeSession {
                     Vec::new(),
                     self.auto_approve,
                     Arc::clone(&self.lines),
+                    self.cancel_tx.clone(),
                 ));
                 match stream_agent_turn(adapter.api_context(), &params, Some(handler)).await {
                     Ok((execution_id, stream)) => {
-                        let outcome = self.pump_embedded(&execution_id, stream).await;
+                        // The embedded stream yields plain events; normalize
+                        // to the shared pump's Result shape.
+                        let outcome = self.pump_stream(&execution_id, stream.map(Ok)).await;
                         Some(FinishedTurn {
                             execution_id,
                             outcome,
@@ -433,7 +429,12 @@ impl NativeSession {
                 let correlation_id = wf_common::generate_id();
                 match remote.client().stream_agent_execution(params).await {
                     Ok(stream) => {
-                        let outcome = self.pump_remote(&correlation_id, stream).await;
+                        // Wrap transport errors as `Some(..)`; the shared
+                        // pump uses `Err(None)` only for premature end.
+                        let normalized = stream.map(|item| item.map_err(Some));
+                        let outcome = self
+                            .pump_stream(&format!("remote:{correlation_id}"), normalized)
+                            .await;
                         Some(FinishedTurn {
                             execution_id: format!("remote:{correlation_id}"),
                             outcome,
@@ -448,50 +449,31 @@ impl NativeSession {
         }
     }
 
-    async fn pump_embedded(
-        &self,
-        execution_id: &str,
-        mut stream: wf_api::infra::stream::ExecutionEventStream,
-    ) -> TurnOutcome {
+    /// One pump loop shared by both domains. `Stream::Item` is normalized to
+    /// `Result<event, Option<error>>`: `Err(None)` is a stream that ended
+    /// without a terminal event, `Err(Some(..))` a transport failure. Both
+    /// interrupt handling and terminal-event detection are written exactly
+    /// once here.
+    async fn pump_stream<S>(&self, execution_id: &str, mut stream: S) -> TurnOutcome
+    where
+        S: futures::Stream<Item = Result<ExecutionStreamEvent, Option<wf_cli_shared::remote::RemoteError>>>
+            + Unpin,
+    {
         let started = Instant::now();
         let mut renderer = TurnRenderer::<RealSink>::new();
+        // The cancel receiver needs `&mut` for poll; keep a local clone so
+        // the pump can hold `&self` like every other session method.
+        let mut cancel = self.cancel_rx.clone();
         let outcome = loop {
             tokio::select! {
                 biased;
                 _ = tokio::signal::ctrl_c() => {
                     break TurnOutcome::interrupted(renderer.assistant_text());
                 }
-                event = stream.next() => {
-                    let Some(event) = event else {
-                        output::diag_line("agent stream ended without a terminal event");
-                        break TurnOutcome::uncompleted(renderer.assistant_text());
-                    };
-                    if let Some(completed) = renderer.on_event(&event) {
-                        let text = renderer.assistant_text();
-                        break TurnOutcome::finished(completed, text);
+                changed = cancel.changed() => {
+                    if changed.is_err() || !*cancel.borrow_and_update() {
+                        continue;
                     }
-                }
-            }
-        };
-        drop(stream);
-        renderer.finish();
-        self.finish_turn(execution_id, started, outcome.interrupted);
-        outcome
-    }
-
-    async fn pump_remote(
-        &self,
-        correlation_id: &str,
-        mut stream: impl futures::Stream<Item = Result<ExecutionStreamEvent, wf_cli_shared::remote::RemoteError>>
-            + Unpin,
-    ) -> TurnOutcome {
-        let started = Instant::now();
-        let mut renderer = TurnRenderer::<RealSink>::new();
-        let mut failed = false;
-        let outcome = loop {
-            tokio::select! {
-                biased;
-                _ = tokio::signal::ctrl_c() => {
                     break TurnOutcome::interrupted(renderer.assistant_text());
                 }
                 event = stream.next() => match event {
@@ -501,28 +483,23 @@ impl NativeSession {
                             break TurnOutcome::finished(completed, text);
                         }
                     }
-                    Some(Err(err)) => {
-                        output::diag_line(&format!("remote stream error: {err}"));
-                        failed = true;
+                    Some(Err(Some(err))) => {
+                        output::diag_line(&format!("stream error: {err}"));
+                        break TurnOutcome::uncompleted(renderer.assistant_text());
+                    }
+                    Some(Err(None)) => {
+                        output::diag_line("stream ended without a terminal event");
                         break TurnOutcome::uncompleted(renderer.assistant_text());
                     }
                     None => {
-                        output::diag_line("remote stream ended without a terminal event");
-                        failed = true;
+                        output::diag_line("stream ended without a terminal event");
                         break TurnOutcome::uncompleted(renderer.assistant_text());
                     }
                 },
             }
         };
         renderer.finish();
-        if failed {
-            return outcome;
-        }
-        self.finish_turn(
-            &format!("remote:{correlation_id}"),
-            started,
-            outcome.interrupted,
-        );
+        self.finish_turn(execution_id, started, outcome.interrupted);
         outcome
     }
 

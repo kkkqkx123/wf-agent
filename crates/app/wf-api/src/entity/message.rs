@@ -235,6 +235,17 @@ pub async fn by_agent_loop(
         .map_err(Into::into)
 }
 
+/// Anchor (`agent_loop_id`) of the session with the most recently stored
+/// message, for `--resume` session discovery. `None` when nothing resumable
+/// exists.
+pub async fn latest_session_anchor(ctx: &ApiContext) -> ApiResult<Option<String>> {
+    ctx.storage
+        .message
+        .latest_session_anchor()
+        .await
+        .map_err(Into::into)
+}
+
 /// Keyword search over the message text content.
 pub async fn search(
     ctx: &ApiContext,

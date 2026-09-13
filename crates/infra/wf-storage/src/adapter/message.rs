@@ -65,4 +65,12 @@ pub trait MessageStorageAdapter:
     fn get_stats<'a>(
         &'a self,
     ) -> impl Future<Output = Result<HashMap<String, u64>, StorageError>> + Send + 'a;
+
+    /// Anchor (`agent_loop_id`) of the session with the most recently stored
+    /// message. Answers "which conversation should `--resume` pick" without
+    /// loading message payloads: the scan runs over stored message metadata
+    /// only. `None` when no stored message carries a session anchor.
+    fn latest_session_anchor<'a>(
+        &'a self,
+    ) -> impl Future<Output = Result<Option<String>, StorageError>> + Send + 'a;
 }

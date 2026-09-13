@@ -1,4 +1,4 @@
-//! Selection panels for the mini footer prompt view: the `/` command
+//! Selection panels for the inline footer prompt view: the `/` command
 //! palette plus the model / skill / queued-prompt panels.
 //!
 //! Every panel wraps a [`SelectList`] (grouped scrolling list) and stays
@@ -7,9 +7,9 @@
 //! produces ratatui lines for a
 //! caller-provided width / window height.
 //!
-//! The mini event loop owns the interaction policy: it routes keymap
-//! actions (`MovePrev`/`MoveNext`/`Select`/`Delete`/`Edit`/`Clear`) into the
-//! panel and interprets the selected item's `data`.
+//! The wf-tui footer event loop owns the interaction policy: it routes
+//! keymap actions (`MovePrev`/`MoveNext`/`Select`/`Delete`/`Edit`/`Clear`)
+//! into the panel and interprets the selected item's `data`.
 
 use crate::keymap::KeyAction;
 use crate::queue::QueuedPrompt;

@@ -1,5 +1,11 @@
-//! Event reduction kernel shared by every CLI form (mini footer, full TUI
-//! and the headless summary renderer).
+//! Event reduction kernel shared by the wf-tui view layouts (the inline
+//! "mini" footer prompt view, the full-screen TUI and the headless summary
+//! renderer).
+//!
+//! The "mini footer" here is one of wf-tui's own rendering layouts — the
+//! compact, non-alt-screen footer prompt. It is unrelated to the `wf-mini`
+//! binary, which keeps its own line-rendering kernel and does not consume
+//! this crate.
 //!
 //! `Vec<ExecutionStreamEvent>` → `MiniCommit[] + FooterState` as pure
 //! functions. The input is the client↔kernel stream protocol defined in

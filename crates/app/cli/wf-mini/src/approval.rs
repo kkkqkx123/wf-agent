@@ -24,6 +24,11 @@ pub struct NativeApprovalHandler {
     policy: ApprovalPolicy,
     auto_approve: bool,
     lines: Arc<tokio::sync::Mutex<LineReader>>,
+    /// Turn-cancel flag shared with the session pump. The handler sets it
+    /// when the user presses Ctrl-C during a prompt; the pump treats the
+    /// flag as an interrupt so the whole turn stops instead of re-prompting
+    /// for the next sensitive tool.
+    cancel: tokio::sync::watch::Sender<bool>,
 }
 
 impl NativeApprovalHandler {
@@ -31,11 +36,13 @@ impl NativeApprovalHandler {
         approve_prefixes: Vec<String>,
         auto_approve: bool,
         lines: Arc<tokio::sync::Mutex<LineReader>>,
+        cancel: tokio::sync::watch::Sender<bool>,
     ) -> Self {
         Self {
             policy: ApprovalPolicy::new(approve_prefixes),
             auto_approve,
             lines,
+            cancel,
         }
     }
 }
@@ -73,7 +80,13 @@ impl NativeApprovalHandler {
         }
         let answer = tokio::select! {
             biased;
-            _ = tokio::signal::ctrl_c() => return denied("approval interrupted"),
+            _ = tokio::signal::ctrl_c() => {
+                // Ctrl-C during a prompt means "cancel the whole turn", not
+                // just this tool: raise the shared flag so the pump loop
+                // treats the turn as interrupted.
+                let _ = self.cancel.send(true);
+                return denied("approval interrupted");
+            }
             result = self.read_answer_line() => result,
         };
         let answer = match answer {
@@ -154,7 +167,7 @@ mod tests {
 
     #[tokio::test]
     async fn auto_approve_allows_sensitive_tool_without_prompt() {
-        let handler = NativeApprovalHandler::new(Vec::new(), true, test_lines());
+        let handler = NativeApprovalHandler::new(Vec::new(), true, test_lines(), test_cancel());
         let result = handler
             .request_approval(&approval_request("write_file"))
             .await;
@@ -163,7 +176,7 @@ mod tests {
 
     #[tokio::test]
     async fn manual_mode_allows_low_risk_tool_without_prompt() {
-        let handler = NativeApprovalHandler::new(Vec::new(), false, test_lines());
+        let handler = NativeApprovalHandler::new(Vec::new(), false, test_lines(), test_cancel());
         let result = handler
             .request_approval(&approval_request("read_file"))
             .await;
@@ -174,7 +187,7 @@ mod tests {
     async fn approval_consumes_one_shared_line() {
         let (lines, tx) = test_channel();
         tx.send("yes\n".to_string()).unwrap();
-        let handler = NativeApprovalHandler::new(Vec::new(), false, lines);
+        let handler = NativeApprovalHandler::new(Vec::new(), false, lines, test_cancel());
         let result = handler
             .request_approval(&approval_request("write_file"))
             .await;
@@ -185,16 +198,31 @@ mod tests {
     async fn closed_input_denies_approval() {
         let (lines, tx) = test_channel();
         drop(tx);
-        let handler = NativeApprovalHandler::new(Vec::new(), false, lines);
+        let handler = NativeApprovalHandler::new(Vec::new(), false, lines, test_cancel());
         let result = handler
             .request_approval(&approval_request("write_file"))
             .await;
         assert!(!result.approved);
     }
 
+    #[tokio::test]
+    async fn cancel_flag_channel_is_wired_into_handler() {
+        // The Ctrl-C branch itself cannot fire a real SIGINT in unit tests;
+        // verify the handler exposes a working cancel sender that a pump
+        // receiver can observe.
+        let (cancel, mut cancel_rx) = tokio::sync::watch::channel(false);
+        let handler = NativeApprovalHandler::new(Vec::new(), false, test_lines(), cancel);
+        handler.cancel.send(true).expect("receiver alive");
+        assert!(*cancel_rx.borrow_and_update());
+    }
+
     fn test_lines() -> Arc<tokio::sync::Mutex<LineReader>> {
         let (lines, _) = test_channel();
         lines
+    }
+
+    fn test_cancel() -> tokio::sync::watch::Sender<bool> {
+        tokio::sync::watch::channel(false).0
     }
 
     fn test_channel() -> (

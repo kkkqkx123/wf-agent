@@ -8,6 +8,11 @@
 use wf_types::message::{Message, MessageContentValue, MessageRole};
 
 /// Maximum transcript messages sent as context (about twenty rounds).
+///
+/// Truncation is by message count, not token budget. Tool results never
+/// enter the transcript, so the realistic exposure is an oversized
+/// assistant reply; mini accepts that tradeoff for its fixed-size context
+/// window rather than rationing by tokens.
 pub const TRANSCRIPT_CAP: usize = 40;
 
 /// Maximum messages requested when restoring a session from storage.

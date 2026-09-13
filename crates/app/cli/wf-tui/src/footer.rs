@@ -6,8 +6,8 @@
 //! bottom decoration row. [`Footer::apply_height`] derives the required
 //! viewport height from the active [`FooterView`] × [`FooterRoute`] pair
 //! (base 3 + main area; composer 1, panel 16, permission 12, question 14 —
-//! aligned with the opencode `applyHeight` constants); the mini event loop
-//! rebuilds the viewport only when the height actually changes.
+//! aligned with the opencode `applyHeight` constants); the wf-tui footer
+//! event loop rebuilds the viewport only when the height actually changes.
 //!
 //! The status line is width responsive (breakpoints 80 / 120): the right
 //! summary block only appears at ≥120 columns. A notice replaces the

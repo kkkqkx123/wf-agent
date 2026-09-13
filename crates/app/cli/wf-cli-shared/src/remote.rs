@@ -625,9 +625,10 @@ impl From<RemoteError> for crate::error::CliError {
             RemoteError::Remote { code, message } => {
                 crate::error::CliError::Business(format!("remote {code}: {message}"))
             }
-            RemoteError::Http(m) => {
-                crate::error::CliError::Configuration(format!("remote http: {m}"))
-            }
+            // Transport failures (connection refused, timeout, ...) are
+            // operational, not configuration: exit 1 instead of 3 so
+            // scripts can distinguish "server down" from "bad flags".
+            RemoteError::Http(m) => crate::error::CliError::Business(format!("remote http: {m}")),
             RemoteError::Invalid(m) => {
                 crate::error::CliError::Configuration(format!("remote invalid: {m}"))
             }

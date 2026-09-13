@@ -2,17 +2,14 @@
 name = "wf-mini"
 version.workspace = true
 edition.workspace = true
-description = "wf-agent lightweight TUI: crossterm-based interactive agent without ratatui"
+description = "wf-agent lightweight native-terminal interactive agent (line discipline, append-only output)"
 
 [dependencies]
 clap.workspace = true
-crossterm.workspace = true
-tokio.workspace = true
+tokio = { workspace = true, features = ["io-std", "io-util"] }
 async-trait.workspace = true
 futures.workspace = true
 serde_json.workspace = true
-unicode-width.workspace = true
-unicode-segmentation.workspace = true
 wf-common = { path = "../../../foundation/wf-common" }
 wf-types = { path = "../../../foundation/wf-types" }
 wf-api = { path = "../../wf-api" }

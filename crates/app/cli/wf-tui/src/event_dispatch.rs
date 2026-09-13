@@ -79,7 +79,8 @@ impl EventDispatcher {
     /// Register an event handler (sorted by priority after insertion).
     pub fn register_handler(&mut self, handler: Box<dyn EventHandler>) {
         self.handlers.push(handler);
-        self.handlers.sort_by_key(|h| std::cmp::Reverse(h.priority()));
+        self.handlers
+            .sort_by_key(|h| std::cmp::Reverse(h.priority()));
     }
 
     /// Register middleware.

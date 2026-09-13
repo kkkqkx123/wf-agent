@@ -192,34 +192,33 @@ impl Cli {
 
 /// Whether the CLI invocation is a headless subcommand that should bypass
 /// any TUI mode entirely.
+///
+/// Single source of truth for headless detection: every `Command` variant
+/// is headless by definition (a subcommand never enters an interactive
+/// form). `Command::is_headless` carries the per-variant answer so the
+/// free function cannot drift from the enum.
 pub fn is_headless_command(cli: &Cli) -> bool {
-    matches!(
-        cli.command,
-        Some(Command::Run { .. })
-            | Some(Command::Workflow { .. })
-            | Some(Command::Execution { .. })
-            | Some(Command::LlmProfile { .. })
-            | Some(Command::Skill { .. })
-            | Some(Command::Search { .. })
-            | Some(Command::Query { .. })
-            | Some(Command::Checkpoint { .. })
-            | Some(Command::Audit { .. })
-            | Some(Command::Event { .. })
-            | Some(Command::Variable { .. })
-            | Some(Command::Message { .. })
-            | Some(Command::Tool { .. })
-            | Some(Command::Script { .. })
-            | Some(Command::Trigger { .. })
-            | Some(Command::Template { .. })
-            | Some(Command::Approval { .. })
-            | Some(Command::Task { .. })
-            | Some(Command::Metrics { .. })
-            | Some(Command::Analysis { .. })
-            | Some(Command::Health)
-            | Some(Command::Diagnostics)
-            | Some(Command::DebugMode)
-            | Some(Command::DebugTerminal { .. })
-    )
+    cli.command.as_ref().is_some_and(|c| c.is_headless())
+}
+
+impl Command {
+    /// All current subcommands run headless (no interactive form).
+    /// Keep this as the single per-variant source; `is_headless_command`
+    /// delegates here so new variants cannot be forgotten in one place.
+    pub fn is_headless(&self) -> bool {
+        true
+    }
+
+    /// Management / diagnostic surface vs the single-session `run` form.
+    /// `Run`, `DebugMode` and `DebugTerminal` are session/diagnostic
+    /// forms; everything else is a management subcommand dispatched
+    /// before mode resolution.
+    pub fn is_management_command(&self) -> bool {
+        !matches!(
+            self,
+            Command::Run { .. } | Command::DebugMode | Command::DebugTerminal { .. }
+        )
+    }
 }
 
 /// Subcommands (headless, non-interactive management surface).

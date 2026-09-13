@@ -33,6 +33,17 @@ use crate::output::OutputSink;
 /// Shared CLI entry point: resolve the interactive form and dispatch
 /// subcommands. For headless-only binaries, use [`run_headless_only`].
 pub async fn run(cli: Cli) -> CliResult<()> {
+    // Diagnostics first: single source for headless debug forms so
+    // `wf-headless debug-terminal` fails with a clear message instead of
+    // falling through to a headless agent session with an empty prompt.
+    if matches!(cli.command, Some(Command::DebugMode)) {
+        return debug_mode(&cli).await;
+    }
+    if matches!(cli.command, Some(Command::DebugTerminal { .. })) {
+        return Err(CliError::Arguments(
+            "debug-terminal requires the full TUI build; use the `wf` binary".to_string(),
+        ));
+    }
     match &cli.command {
         Some(Command::Workflow { sub }) => {
             return cmd::workflow::run(&cli, sub).await;
@@ -143,9 +154,9 @@ pub async fn run(cli: Cli) -> CliResult<()> {
 /// Headless-only entry point: routes subcommands and headless sessions.
 /// Returns error if TUI mode is requested.
 pub async fn run_headless_only(cli: Cli) -> CliResult<()> {
-    if matches!(cli.command, Some(Command::DebugMode)) {
-        return debug_mode(&cli).await;
-    }
+    // `run()` already handles `DebugMode` / `DebugTerminal`; keep this as
+    // a thin alias so headless detection (`is_headless_command`) and
+    // dispatch cannot drift apart.
     run(cli).await
 }
 

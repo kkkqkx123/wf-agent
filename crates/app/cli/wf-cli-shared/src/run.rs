@@ -20,20 +20,20 @@ use std::time::Instant;
 use futures::StreamExt;
 use serde_json::Value;
 
-use wf_api::agent::agent_execution::{self, RunAgentLoopParams};
+use wf_api::agent::agent_execution;
 use wf_api::entity::user_interaction::{
     register_handler, AgentUserInteractionEventRecord, UserInteractionHandler,
 };
-use wf_api::{AgentLoopInput, ToolApprovalHandler, ToolApprovalRequest, ToolApprovalResult};
-use wf_types::Id;
+use wf_api::{ToolApprovalHandler, ToolApprovalRequest, ToolApprovalResult};
 
 #[cfg(test)]
 use crate::approval_policy::{default_low_risk_tools, default_sensitive_tools};
 use crate::approval_policy::{ApprovalDecision, ApprovalPolicy};
-use crate::config::{build_agent_loop_config, DEFAULT_MODEL};
+use crate::config::DEFAULT_MODEL;
 use crate::domain::DomainAdapter;
 use crate::error::{CliError, CliResult};
 use crate::output::{OutputEnvelope, OutputFormat, OutputMessage, OutputSink};
+use crate::turn::{TurnKind, TurnParams};
 use wf_api::infra::stream::ExecutionStreamEvent;
 
 // ── diagnostics channel (stderr) ─────────────────────────────────────
@@ -376,6 +376,30 @@ pub struct RunOptions {
     pub workflow_input: Option<String>,
 }
 
+impl RunOptions {
+    /// Single conversion into the shared [`TurnParams`] abstraction so the
+    /// headless driver and the interactive forms assemble agent config in
+    /// exactly one place (`turn::build_agent_loop_params`).
+    pub fn as_turn_params(&self) -> TurnParams {
+        let kind = match self.workflow.clone() {
+            Some(workflow_id) => {
+                let input = crate::turn::parse_workflow_input(self.workflow_input.as_deref())
+                    .unwrap_or(None);
+                TurnKind::Workflow { workflow_id, input }
+            }
+            None => TurnKind::Agent {
+                prompt: self.prompt.clone(),
+            },
+        };
+        TurnParams {
+            agent: self.agent_id.clone(),
+            model: self.model.clone(),
+            approve_prefixes: self.approve_prefixes.clone(),
+            kind,
+        }
+    }
+}
+
 /// Outcome of a completed headless session.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RunOutcome {
@@ -394,10 +418,170 @@ pub struct RunIo {
 }
 
 enum Terminal {
-    Completed { iterations: u32 },
-    Failed { error: String },
-    Interrupted { reason: String },
+    Completed {
+        iterations: u32,
+        result: Option<Value>,
+    },
+    Failed {
+        error: String,
+    },
+    Interrupted {
+        reason: String,
+    },
     Sigint,
+}
+
+/// Whether a workflow/agent result counts as visible business output.
+fn had_output_for_result(result: &Value) -> bool {
+    !result.is_null()
+        && result
+            .as_str()
+            .map(|s| !s.trim().is_empty())
+            .unwrap_or(true)
+}
+
+/// Render a workflow result in text mode; structured formats already carry
+/// the value inside the closing summary envelope.
+fn render_value_text(sink: &mut dyn OutputSink, result: &Value) -> CliResult<()> {
+    let text = match result {
+        serde_json::Value::String(s) => s.clone(),
+        other => serde_json::to_string_pretty(other).unwrap_or_else(|_| other.to_string()),
+    };
+    if !text.is_empty() {
+        sink.write_chunk(&text)?;
+        if !text.ends_with('\n') {
+            sink.write_chunk("\n")?;
+        }
+    }
+    Ok(())
+}
+
+/// Drive an embedded event stream to its terminal event, feeding every
+/// progress event through the shared [`SessionRenderer`].
+/// Returns the terminal state plus the `Completed` payload when present.
+async fn drive_embedded_stream<S>(
+    mut stream: S,
+    renderer: &mut SessionRenderer<'_>,
+    diag: &Arc<Mutex<DiagWriter>>,
+) -> CliResult<Terminal>
+where
+    S: futures::Stream<Item = ExecutionStreamEvent> + Unpin,
+{
+    loop {
+        tokio::select! {
+            event = stream.next() => match event {
+                Some(ExecutionStreamEvent::Completed { iterations: n, result }) => {
+                    break Ok(Terminal::Completed { iterations: n, result: Some(result) });
+                }
+                Some(ExecutionStreamEvent::Failed { error }) => {
+                    break Ok(Terminal::Failed { error });
+                }
+                Some(ExecutionStreamEvent::Interrupted { reason }) => {
+                    break Ok(Terminal::Interrupted { reason });
+                }
+                Some(event) => {
+                    renderer.on_event(&event, diag)?;
+                }
+                None => break Ok(Terminal::Failed {
+                    error: "agent stream ended without a terminal event".to_string(),
+                }),
+            },
+            _ = tokio::signal::ctrl_c() => break Ok(Terminal::Sigint),
+        }
+    }
+}
+
+/// Drive a remote (SSE) event stream to its terminal event. `RemoteError`
+/// maps onto [`CliError`] so callers share the same terminal handling as
+/// the embedded path.
+async fn drive_remote_stream<S>(
+    mut stream: S,
+    renderer: &mut SessionRenderer<'_>,
+    diag: &Arc<Mutex<DiagWriter>>,
+) -> CliResult<Terminal>
+where
+    S: futures::Stream<Item = Result<ExecutionStreamEvent, crate::remote::RemoteError>> + Unpin,
+{
+    loop {
+        tokio::select! {
+            event = stream.next() => match event {
+                Some(Ok(ExecutionStreamEvent::Completed { iterations: n, result })) => {
+                    break Ok(Terminal::Completed { iterations: n, result: Some(result) });
+                }
+                Some(Ok(ExecutionStreamEvent::Failed { error })) => {
+                    break Ok(Terminal::Failed { error });
+                }
+                Some(Ok(ExecutionStreamEvent::Interrupted { reason })) => {
+                    break Ok(Terminal::Interrupted { reason });
+                }
+                Some(Ok(event)) => {
+                    renderer.on_event(&event, diag)?;
+                }
+                Some(Err(err)) => {
+                    break Err(CliError::from(err));
+                }
+                None => break Ok(Terminal::Failed {
+                    error: "remote stream ended without a terminal event".to_string(),
+                }),
+            },
+            _ = tokio::signal::ctrl_c() => break Ok(Terminal::Sigint),
+        }
+    }
+}
+
+/// Shared terminal handling for streamed workflow runs (embedded and
+/// remote): render the `Completed` payload, write the closing summary and
+/// map failures/interrupts onto [`CliError`].
+#[allow(clippy::too_many_arguments)]
+fn finish_workflow_stream_terminal(
+    terminal: Terminal,
+    io: &mut RunIo,
+    opts: &RunOptions,
+    execution_id: &str,
+    started: Instant,
+    had_output: bool,
+) -> CliResult<RunOutcome> {
+    match terminal {
+        Terminal::Completed { iterations, result } => {
+            let result = result.unwrap_or(serde_json::Value::Null);
+            let had_output = had_output || had_output_for_result(&result);
+            if !io.format.is_silent() && io.format == OutputFormat::Text {
+                render_value_text(io.sink.as_mut(), &result)?;
+            }
+            io.sink.flush()?;
+            let duration_ms = started.elapsed().as_millis() as u64;
+            write_summary(SummaryParams {
+                sink: io.sink.as_mut(),
+                format: io.format,
+                execution_id,
+                iterations,
+                duration_ms,
+                had_output,
+                opts,
+                result: Some(&result),
+            })?;
+            io.sink.flush()?;
+            Ok(RunOutcome {
+                execution_id: execution_id.to_string(),
+                iterations,
+                duration_ms,
+                had_output,
+            })
+        }
+        Terminal::Failed { error } => {
+            write_failure_envelope(io.sink.as_mut(), io.format, execution_id, &error);
+            let _ = io.sink.flush();
+            Err(CliError::Business(error))
+        }
+        Terminal::Interrupted { reason } => Err(CliError::Interrupted(reason)),
+        Terminal::Sigint => {
+            let mut diag = wf_common::lock::lock_ok(io.diag.lock());
+            let _ = diag.warn("^C interrupted");
+            Err(CliError::Interrupted(
+                "SIGINT during headless session".into(),
+            ))
+        }
+    }
 }
 
 /// Drive one headless agent session to its terminal event.
@@ -410,65 +594,67 @@ pub async fn run_session(
     opts: RunOptions,
     mut io: RunIo,
 ) -> CliResult<RunOutcome> {
-    // Workflow foreground execution path (engine-neutral stream protocol is
-    // reused for rendering; here we use the blocking `execute` path which
-    // works with `&ApiContext` directly).
+    // Workflow foreground path: stream engine events through the same
+    // renderer as agent turns so tool/output progress is visible live.
+    // Falls back to blocking `execute` only if the stream cannot start.
     if let Some(workflow_id) = opts.workflow.clone() {
         let input = crate::turn::parse_workflow_input(opts.workflow_input.as_deref())
             .map_err(CliError::Arguments)?;
         let started = Instant::now();
-        let ctx = adapter.api_context();
-        let params = wf_api::workflow::workflow_execution::ExecuteWorkflowParams {
-            workflow_id: workflow_id.clone(),
-            input,
-            options: None,
-        };
-        // Echo workflow identity through the sink when not silent.
         if !io.format.is_silent() {
             io.sink.write_message(&OutputMessage::new(
                 "user",
                 format!("workflow:{workflow_id}"),
             ))?;
         }
+        let ctx = adapter.api_context();
+        // Prefer streaming so tool/output progress renders live through the
+        // shared renderer; fall back to blocking `execute` if needed.
+        let stream_attempt = crate::turn::stream_workflow_turn(
+            adapter.api_context_arc(),
+            &workflow_id,
+            input.clone(),
+        )
+        .await;
+        if let Ok((stream_id, mut stream)) = stream_attempt {
+            let execution_id = stream_id.to_string();
+            let mut renderer = SessionRenderer::new(io.sink.as_mut(), io.format);
+            let terminal = drive_embedded_stream(&mut stream, &mut renderer, &io.diag).await?;
+            drop(stream);
+            renderer.finish()?;
+            let had_output = renderer.had_output;
+            drop(renderer);
+            io.sink.flush()?;
+            return finish_workflow_stream_terminal(
+                terminal,
+                &mut io,
+                &opts,
+                &execution_id,
+                started,
+                had_output,
+            );
+        }
+        let params = wf_api::workflow::workflow_execution::ExecuteWorkflowParams {
+            workflow_id: workflow_id.clone(),
+            input,
+            options: None,
+        };
         let output = wf_api::workflow::workflow_execution::execute(ctx, params)
             .await
             .map_err(CliError::from)?;
         let execution_id = output.execution_id.to_string();
         let result = output.result.clone();
-        let had_output = !result.is_null()
-            && result
-                .as_str()
-                .map(|s| !s.trim().is_empty())
-                .unwrap_or(true);
-        // Render the workflow result.
-        if !io.format.is_silent() {
-            match io.format {
-                OutputFormat::Text => {
-                    let text = match &result {
-                        serde_json::Value::String(s) => s.clone(),
-                        other => serde_json::to_string_pretty(other)
-                            .unwrap_or_else(|_| other.to_string()),
-                    };
-                    if !text.is_empty() {
-                        io.sink.write_chunk(&text)?;
-                        if !text.ends_with('\n') {
-                            io.sink.write_chunk("\n")?;
-                        }
-                    }
-                }
-                _ => {
-                    // Structured formats already have envelopes via summary.
-                }
-            }
+        let had_output = had_output_for_result(&result);
+        if !io.format.is_silent() && io.format == OutputFormat::Text {
+            render_value_text(io.sink.as_mut(), &result)?;
         }
         io.sink.flush()?;
         let duration_ms = started.elapsed().as_millis() as u64;
-        let iterations = 1u32;
         write_summary(SummaryParams {
             sink: io.sink.as_mut(),
             format: io.format,
             execution_id: &execution_id,
-            iterations,
+            iterations: 1u32,
             duration_ms,
             had_output,
             opts: &opts,
@@ -477,7 +663,7 @@ pub async fn run_session(
         io.sink.flush()?;
         return Ok(RunOutcome {
             execution_id,
-            iterations,
+            iterations: 1,
             duration_ms,
             had_output,
         });
@@ -505,21 +691,17 @@ pub async fn run_session(
     .await;
 
     // Headless approval degradation rides on the handler; the engine
-    // routes every tool call through it (ask-everything fallback).
-    let sanitized_prompt = crate::sanitize::sanitize_user_text(&opts.prompt);
-    let params = RunAgentLoopParams {
-        agent_loop_id: Some(Id::from(execution_id.clone())),
-        approval_handler: Some(Arc::new(HeadlessApprovalHandler::new(
+    // routes every tool call through it. Config assembly lives in
+    // `turn::build_agent_loop_params` (single source with mini/TUI).
+    let turn_params = opts.as_turn_params();
+    let mut params = crate::turn::build_agent_loop_params(
+        &turn_params,
+        Some(Arc::new(HeadlessApprovalHandler::new(
             ApprovalPolicy::new(opts.approve_prefixes.clone()),
             io.diag.clone(),
         ))),
-        config: build_agent_loop_config(opts.agent_id.clone(), opts.model.clone()),
-        input: AgentLoopInput {
-            message: sanitized_prompt,
-            context: HashMap::new(),
-            conversation: Vec::new(),
-        },
-    };
+    );
+    params.agent_loop_id = Some(wf_types::Id::from(execution_id.clone()));
 
     // Echo the user message through the sink (text line / JSON record).
     if !io.format.is_silent() {
@@ -532,26 +714,7 @@ pub async fn run_session(
         .map_err(CliError::from)?;
 
     let mut renderer = SessionRenderer::new(io.sink.as_mut(), io.format);
-    let terminal = loop {
-        tokio::select! {
-            event = stream.next() => match event {
-                Some(ExecutionStreamEvent::Completed { iterations: n, .. }) => {
-                    break Terminal::Completed { iterations: n };
-                }
-                Some(ExecutionStreamEvent::Failed { error }) => break Terminal::Failed { error },
-                Some(ExecutionStreamEvent::Interrupted { reason }) => {
-                    break Terminal::Interrupted { reason }
-                }
-                Some(event) => {
-                    renderer.on_event(&event, &io.diag)?;
-                }
-                None => break Terminal::Failed {
-                    error: "agent stream ended without a terminal event".to_string(),
-                },
-            },
-            _ = tokio::signal::ctrl_c() => break Terminal::Sigint,
-        }
-    };
+    let terminal = drive_embedded_stream(&mut stream, &mut renderer, &io.diag).await?;
     // Dropping the stream aborts the agent driver task chain.
     drop(stream);
 
@@ -562,7 +725,7 @@ pub async fn run_session(
     io.sink.flush()?;
 
     match terminal {
-        Terminal::Completed { iterations } => {
+        Terminal::Completed { iterations, .. } => {
             if followup_requested.load(Ordering::SeqCst) {
                 return Err(CliError::Business(
                     "follow-up question requested in headless mode; \
@@ -717,8 +880,9 @@ fn format_duration(duration_ms: u64) -> String {
 }
 
 /// Remote execution path: drive the session through the HTTP server instead of
-/// an embedded runtime. Mirrors `run_session` but uses `RemoteClient` for the
-/// engine calls and keeps the same sink/diag/summary contract.
+/// an embedded runtime. Prefers SSE streaming (same renderer/summary
+/// contract as embedded) and falls back to the blocking POST endpoints when
+/// the server does not support streaming.
 pub async fn run_session_remote(
     client: &crate::remote::RemoteClient,
     opts: RunOptions,
@@ -735,6 +899,27 @@ pub async fn run_session_remote(
                 format!("workflow:{workflow_id}"),
             ))?;
         }
+        // Prefer SSE streaming for live progress.
+        if let Ok(stream) = client
+            .stream_workflow_execution(&workflow_id, input.clone())
+            .await
+        {
+            let execution_id = wf_common::generate_id();
+            let mut renderer = SessionRenderer::new(io.sink.as_mut(), io.format);
+            let terminal = drive_remote_stream(stream, &mut renderer, &io.diag).await?;
+            renderer.finish()?;
+            let had_output = renderer.had_output;
+            drop(renderer);
+            io.sink.flush()?;
+            return finish_workflow_stream_terminal(
+                terminal,
+                &mut io,
+                &opts,
+                &execution_id,
+                started,
+                had_output,
+            );
+        }
         let body = serde_json::json!({ "input": input });
         let resp: serde_json::Value = client
             .post_json(&format!("/api/v1/workflows/{}/execute", workflow_id), &body)
@@ -746,26 +931,9 @@ pub async fn run_session_remote(
             .unwrap_or("remote-exec")
             .to_string();
         let result = resp.get("result").cloned().unwrap_or(resp.clone());
-        let had_output = !result.is_null()
-            && result
-                .as_str()
-                .map(|s| !s.trim().is_empty())
-                .unwrap_or(true);
-        if !io.format.is_silent() {
-            if let OutputFormat::Text = io.format {
-                let text = match &result {
-                    serde_json::Value::String(s) => s.clone(),
-                    other => {
-                        serde_json::to_string_pretty(other).unwrap_or_else(|_| other.to_string())
-                    }
-                };
-                if !text.is_empty() {
-                    io.sink.write_chunk(&text)?;
-                    if !text.ends_with('\n') {
-                        io.sink.write_chunk("\n")?;
-                    }
-                }
-            }
+        let had_output = had_output_for_result(&result);
+        if !io.format.is_silent() && io.format == OutputFormat::Text {
+            render_value_text(io.sink.as_mut(), &result)?;
         }
         io.sink.flush()?;
         let duration_ms = started.elapsed().as_millis() as u64;
@@ -797,6 +965,25 @@ pub async fn run_session_remote(
         io.sink
             .write_message(&OutputMessage::new("user", &opts.prompt))?;
     }
+    // Prefer SSE streaming so remote runs render deltas live like embedded.
+    let turn_params = opts.as_turn_params();
+    if let Ok(stream) = client.stream_agent_execution(turn_params).await {
+        let execution_id = wf_common::generate_id();
+        let mut renderer = SessionRenderer::new(io.sink.as_mut(), io.format);
+        let terminal = drive_remote_stream(stream, &mut renderer, &io.diag).await?;
+        renderer.finish()?;
+        let had_output = renderer.had_output;
+        drop(renderer);
+        io.sink.flush()?;
+        return finish_remote_agent_terminal(
+            terminal,
+            &mut io,
+            &opts,
+            &execution_id,
+            started,
+            had_output,
+        );
+    }
     let sanitized = crate::sanitize::sanitize_user_text(&opts.prompt);
     let body = serde_json::json!({
         "agent_id": opts.agent_id.clone().unwrap_or_else(|| crate::config::DEFAULT_AGENT.to_string()),
@@ -820,24 +1007,9 @@ pub async fn run_session_remote(
         .cloned()
         .unwrap_or(serde_json::Value::Null);
     let iterations = resp.get("iterations").and_then(|v| v.as_u64()).unwrap_or(1) as u32;
-    let had_output = !result.is_null()
-        && result
-            .as_str()
-            .map(|s| !s.trim().is_empty())
-            .unwrap_or(true);
-    if !io.format.is_silent() {
-        if let OutputFormat::Text = io.format {
-            let text = match &result {
-                serde_json::Value::String(s) => s.clone(),
-                other => serde_json::to_string_pretty(other).unwrap_or_else(|_| other.to_string()),
-            };
-            if !text.is_empty() {
-                io.sink.write_chunk(&text)?;
-                if !text.ends_with('\n') {
-                    io.sink.write_chunk("\n")?;
-                }
-            }
-        }
+    let had_output = had_output_for_result(&result);
+    if !io.format.is_silent() && io.format == OutputFormat::Text {
+        render_value_text(io.sink.as_mut(), &result)?;
     }
     io.sink.flush()?;
     let duration_ms = started.elapsed().as_millis() as u64;
@@ -858,6 +1030,70 @@ pub async fn run_session_remote(
         duration_ms,
         had_output,
     })
+}
+
+/// Shared terminal handling for streamed remote agent runs: the `Completed`
+/// payload is rendered as text (structured formats keep it in the summary),
+/// then the standard summary/failure mapping applies.
+fn finish_remote_agent_terminal(
+    terminal: Terminal,
+    io: &mut RunIo,
+    opts: &RunOptions,
+    execution_id: &str,
+    started: std::time::Instant,
+    had_output: bool,
+) -> CliResult<RunOutcome> {
+    match terminal {
+        Terminal::Completed { iterations, result } => {
+            let result = result.unwrap_or(serde_json::Value::Null);
+            // SSE `Completed` carries the final value; mirror the blocking
+            // path by rendering it in text mode before the summary line.
+            // `LlmDelta` events already streamed string answers, so skip
+            // re-rendering plain strings when deltas produced output.
+            let streamed = had_output;
+            let text_had_output = had_output_for_result(&result);
+            let had_output = streamed || text_had_output;
+            if !io.format.is_silent()
+                && io.format == OutputFormat::Text
+                && text_had_output
+                && (!streamed || !result.is_string())
+            {
+                render_value_text(io.sink.as_mut(), &result)?;
+            }
+            io.sink.flush()?;
+            let duration_ms = started.elapsed().as_millis() as u64;
+            write_summary(SummaryParams {
+                sink: io.sink.as_mut(),
+                format: io.format,
+                execution_id,
+                iterations,
+                duration_ms,
+                had_output,
+                opts,
+                result: Some(&result),
+            })?;
+            io.sink.flush()?;
+            Ok(RunOutcome {
+                execution_id: execution_id.to_string(),
+                iterations,
+                duration_ms,
+                had_output,
+            })
+        }
+        Terminal::Failed { error } => {
+            write_failure_envelope(io.sink.as_mut(), io.format, execution_id, &error);
+            let _ = io.sink.flush();
+            Err(CliError::Business(error))
+        }
+        Terminal::Interrupted { reason } => Err(CliError::Interrupted(reason)),
+        Terminal::Sigint => {
+            let mut diag = wf_common::lock::lock_ok(io.diag.lock());
+            let _ = diag.warn("^C interrupted");
+            Err(CliError::Interrupted(
+                "SIGINT during headless session".into(),
+            ))
+        }
+    }
 }
 
 // ── tests ────────────────────────────────────────────────────────────

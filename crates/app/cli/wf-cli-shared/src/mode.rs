@@ -4,7 +4,7 @@
 //!   --tui  >  subcommand (headless run)  >  --no-tui
 //!   >  stdout not a TTY (headless run)  >  TTY default (full TUI).
 
-use std::io::IsTerminal;
+use std::io::{IsTerminal, Read as _};
 
 use crate::args::{Cli, Command};
 use crate::error::{CliError, CliResult};
@@ -122,7 +122,9 @@ impl ModeResolver {
 
     /// Read the full stdin content as the prompt when stdin is not a TTY and
     /// no positional prompt was given. Empty stdin yields no prompt (the run
-    /// layer decides how to handle a missing prompt).
+    /// layer decides how to handle a missing prompt). Bounded to
+    /// [`MAX_STDIN_PROMPT_BYTES`] to avoid unbounded memory reads from
+    /// pipes.
     fn read_stdin_prompt(cli: &Cli, is_stdin_tty: bool) -> CliResult<Option<String>> {
         let already_has_prompt = matches!(
             cli.command,
@@ -134,13 +136,20 @@ impl ModeResolver {
         if already_has_prompt || is_stdin_tty {
             return Ok(None);
         }
+        let mut limited = std::io::stdin().take(MAX_STDIN_PROMPT_BYTES + 1);
         let mut input = String::new();
-        std::io::Read::read_to_string(&mut std::io::stdin(), &mut input).map_err(|err| {
+        std::io::Read::read_to_string(&mut limited, &mut input).map_err(|err| {
             CliError::Io(std::io::Error::new(
                 err.kind(),
                 format!("failed to read prompt from stdin: {err}"),
             ))
         })?;
+        if input.len() as u64 > MAX_STDIN_PROMPT_BYTES {
+            return Err(CliError::Arguments(format!(
+                "stdin prompt exceeds {} bytes; pass a positional prompt or shorten stdin",
+                MAX_STDIN_PROMPT_BYTES
+            )));
+        }
         let trimmed = input.trim();
         if trimmed.is_empty() {
             Ok(None)
@@ -149,6 +158,10 @@ impl ModeResolver {
         }
     }
 }
+
+/// Maximum piped-stdin prompt size (1 MiB). Prevents unbounded reads while
+/// still covering realistic `echo ... | wf run` usage.
+pub const MAX_STDIN_PROMPT_BYTES: u64 = 1_000_000;
 
 /// TTY status of the real process streams.
 pub fn real_tty_status() -> (bool, bool) {

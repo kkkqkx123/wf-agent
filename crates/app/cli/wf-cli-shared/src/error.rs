@@ -93,7 +93,10 @@ impl From<CommonError> for CliError {
 
 impl From<serde_json::Error> for CliError {
     fn from(err: serde_json::Error) -> Self {
-        Self::Configuration(format!("serialization error: {err}"))
+        // Generic JSON (de)serialization (output rendering, envelope
+        // building) is operational, not user configuration: file-parse
+        // call sites already map to `Arguments` explicitly.
+        Self::Business(format!("serialization error: {err}"))
     }
 }
 

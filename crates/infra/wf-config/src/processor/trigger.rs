@@ -51,12 +51,10 @@ pub fn validate_trigger_template(template: &TriggerTemplate) -> ConfigResult<()>
         );
     }
     if let Some(condition) = &template.condition {
-        if condition.event_type.trim().is_empty() {
-            if condition.condition.is_some() {
-                return Err(ConfigError::Validation(
-                    "condition expression requires a concrete event_type".to_string(),
-                ));
-            }
+        if condition.event_type.trim().is_empty() && condition.condition.is_some() {
+            return Err(ConfigError::Validation(
+                "condition expression requires a concrete event_type".to_string(),
+            ));
         }
         if condition.targets_compression_signal() {
             return Err(ConfigError::Validation(format!(

@@ -71,32 +71,15 @@ pub async fn run(cli: Cli) -> CliResult<()> {
     if matches!(cli.command, Some(Command::DebugTerminal { .. })) {
         return debug_terminal(&cli).await;
     }
-    // Delegate subcommands and headless to shared library.
-    match &cli.command {
-        Some(Command::Workflow { .. })
-        | Some(Command::Execution { .. })
-        | Some(Command::LlmProfile { .. })
-        | Some(Command::Skill { .. })
-        | Some(Command::Search { .. })
-        | Some(Command::Query { .. })
-        | Some(Command::Checkpoint { .. })
-        | Some(Command::Audit { .. })
-        | Some(Command::Event { .. })
-        | Some(Command::Variable { .. })
-        | Some(Command::Message { .. })
-        | Some(Command::Tool { .. })
-        | Some(Command::Script { .. })
-        | Some(Command::Trigger { .. })
-        | Some(Command::Template { .. })
-        | Some(Command::Approval { .. })
-        | Some(Command::Task { .. })
-        | Some(Command::Metrics { .. })
-        | Some(Command::Analysis { .. })
-        | Some(Command::Health)
-        | Some(Command::Diagnostics) => {
-            return wf_cli_shared::run(cli).await;
-        }
-        _ => {}
+    // Delegate management subcommands and headless to shared library.
+    // `is_management_command` is the single source so new subcommands
+    // cannot be forgotten here while added in `wf-cli-shared`.
+    if cli
+        .command
+        .as_ref()
+        .is_some_and(|c| c.is_management_command())
+    {
+        return wf_cli_shared::run(cli).await;
     }
 
     let (stdin_tty, stdout_tty) = mode::real_tty_status();

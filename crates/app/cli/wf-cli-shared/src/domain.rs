@@ -149,6 +149,12 @@ impl DomainAdapter {
         self.runtime.api_context()
     }
 
+    /// Owned API context for streaming APIs that require `Arc<ApiContext>`
+    /// (workflow `stream` takes ownership to spawn a detached driver).
+    pub fn api_context_arc(&self) -> Arc<ApiContext> {
+        self.runtime.api_context_arc()
+    }
+
     /// Shared lifecycle event bus.
     pub fn event_bus(&self) -> &Arc<EventBus> {
         &self.runtime.event_bus

@@ -16,7 +16,7 @@ use wf_types::events::{BaseEvent, EventType};
 use wf_types::execution::ExecutionEvent;
 
 use crate::entity::WorkflowExecutionEntity;
-use crate::trigger_states::TriggerStateRegistry;
+use crate::trigger::states::TriggerStateRegistry;
 
 use super::strategy::{NodeCheckpointStrategy, WorkflowCheckpointTiming};
 

@@ -49,10 +49,12 @@ impl ConversationAnchor {
 
 /// Source feeding a trigger template.
 ///
-/// Only `Event` is implemented: the listener matches `BaseEvent`s on the
-/// event bus. `Schedule` and `Webhook` are reserved placeholders for a cron
-/// scheduler and an external event gateway; custom resources using them are
-/// rejected at load time with an explicit message.
+/// `Event` matches `BaseEvent`s on the event bus directly. `Schedule` is fed
+/// by the runtime scheduler (cron ticking, misfire policy) and `Webhook` by
+/// the server ingress gateway (HTTP route, auth, execution routing); both
+/// producers publish `NODE_CUSTOM_EVENT`s through the translate functions
+/// below, reusing the event competition scope keys without adding a
+/// competition dimension.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TriggerSource {
     Event,
@@ -61,10 +63,10 @@ pub enum TriggerSource {
 }
 
 impl TriggerSource {
-    /// Whether this source has a running producer. Only `Event` does;
-    /// scheduler and gateway producers are future work.
+    /// Whether this source has a running producer. All three do: the event
+    /// bus, the runtime scheduler and the webhook ingress gateway.
     pub fn is_implemented(&self) -> bool {
-        matches!(self, Self::Event)
+        true
     }
 
     /// Canonical name of the source.
@@ -78,13 +80,12 @@ impl TriggerSource {
 
     /// Translate a cron-style schedule expression into an event condition.
     ///
-    /// Future scheduler producer contract: the scheduler owns time, this
-    /// function owns translation. The schedule signal is translated to the
-    /// existing `NODE_CUSTOM_EVENT` type with the schedule name as the
-    /// secondary discriminator, so it reuses the competition scope key
-    /// (`event_type` + `event_name`) and set validation without adding a
-    /// competition dimension. No scheduler exists yet; callers keep
-    /// rejecting schedule sources until one does.
+    /// Scheduler producer contract: the scheduler owns time, this function
+    /// owns translation. The schedule signal is translated to the existing
+    /// `NODE_CUSTOM_EVENT` type with the schedule name as the secondary
+    /// discriminator, so it reuses the competition scope key (`event_type` +
+    /// `event_name`) and set validation without adding a competition
+    /// dimension.
     pub fn translate_schedule_to_condition(schedule_name: &str) -> TriggerCondition {
         TriggerCondition {
             event_type: "NODE_CUSTOM_EVENT".to_string(),
@@ -98,7 +99,7 @@ impl TriggerSource {
 
     /// Translate an external webhook path into an event condition.
     ///
-    /// Future gateway producer contract: the gateway owns HTTP ingress, this
+    /// Gateway producer contract: the gateway owns HTTP ingress, this
     /// function owns translation. Like the scheduler path, the external
     /// signal becomes a `NODE_CUSTOM_EVENT` with the webhook name as the
     /// secondary discriminator, reusing scope keys and set validation.
@@ -268,6 +269,8 @@ pub enum TriggerAgentWriteback {
 /// | `SetMessageContext` | ✅ | ✅ |
 /// | `AppendMessageContext` | ✅ | ✅ |
 /// | `ExecuteTriggeredAgentExecution` | ✅ (`AgentTriggerRunner`) | ❌ rejected with an explicit error |
+/// | `ExecuteWorkflow` (cold start) | ✅ (`CreationRunner`) | ❌ rejected with an explicit error |
+/// | `ExecuteAgent` (cold start) | ✅ (`AgentTriggerRunner`) | ❌ rejected with an explicit error |
 ///
 /// ## `ExecuteTriggeredAgentExecution` semantics
 ///
@@ -284,7 +287,12 @@ pub enum TriggerAgentWriteback {
 ///
 /// Event-driven actions target the execution that emitted the matched event
 /// (resolved via the execution-context registry); message-node actions run
-/// against the running workflow's variables.
+/// against the running workflow's variables. The cold-start actions
+/// (`ExecuteWorkflow` / `ExecuteAgent`) need no emitting execution at all:
+/// they run a fresh workflow / agent and are only meaningful on the event
+/// listener, which is also the only context that can receive an event without
+/// an `execution_id` (scheduler ticks and webhook ingress for creation
+/// targets).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "action_type", rename_all = "snake_case")]
 pub enum TriggerAction {
@@ -375,6 +383,47 @@ pub enum TriggerAction {
         context_id: String,
         messages: Vec<crate::message::Message>,
     },
+    /// Event-driven cold start of a fresh workflow run.
+    ///
+    /// Unlike `ExecuteTriggeredSubworkflow` (which compresses the emitting
+    /// execution's message array and writes the result back into it), this
+    /// action needs no emitting execution: the scheduler / webhook gateway
+    /// publishes an event without `execution_id` and the listener runs the
+    /// named workflow with the given input. Supported only by the
+    /// event-driven trigger listener (`CreationRunner` in wf-runtime);
+    /// message nodes reject it with an explicit error.
+    ExecuteWorkflow {
+        workflow_id: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        input: Option<serde_json::Value>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        timeout: Option<u64>,
+    },
+    /// Event-driven cold start of a fresh agent loop.
+    ///
+    /// Unlike `ExecuteTriggeredAgentExecution` (which snapshots the parent
+    /// conversation at the trigger anchor and writes the child result back),
+    /// this action starts an agent with no parent: it always runs
+    /// fire-and-forget and only records the child run in the trigger ledger.
+    /// Supported only by the event-driven trigger listener
+    /// (`AgentTriggerRunner` in wf-runtime); message nodes reject it with an
+    /// explicit error.
+    ExecuteAgent {
+        agent_id: String,
+        /// Prompt starting the child agent loop.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        prompt: Option<String>,
+        /// Model profile id the child loop runs against (defaults to the
+        /// gateway DEFAULT profile).
+        #[serde(skip_serializing_if = "Option::is_none")]
+        model: Option<String>,
+        /// Initial context variables of the child loop.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        input: Option<crate::Metadata>,
+        /// Max child execution time in ms.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        timeout: Option<u64>,
+    },
 }
 
 /// Execution context running a [`TriggerAction`]: the event-driven
@@ -382,8 +431,10 @@ pub enum TriggerAction {
 /// (synchronous, in-workflow, without an event anchor).
 ///
 /// Authoritative support matrix (mirrors the table on [`TriggerAction`]):
-/// every action runs in the event listener; every action except
-/// `ExecuteTriggeredAgentExecution` runs in message nodes.
+/// every action runs in the event listener; every action except the
+/// nested-agent execution and the two cold-start actions runs in message
+/// nodes (those three need the triggering event: the parent conversation
+/// anchor or no emitting execution at all).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TriggerExecutionContext {
     EventListener,
@@ -415,19 +466,36 @@ impl TriggerAction {
             Self::ExecuteTriggeredAgentExecution { .. } => "execute_triggered_agent_execution",
             Self::SetMessageContext { .. } => "set_message_context",
             Self::AppendMessageContext { .. } => "append_message_context",
+            Self::ExecuteWorkflow { .. } => "execute_workflow",
+            Self::ExecuteAgent { .. } => "execute_agent",
         }
+    }
+
+    /// Whether this action can run without an emitting execution (scheduler
+    /// creation ticks and creation-target webhook ingress publish events with
+    /// no `execution_id`). Only the cold-start actions qualify; every other
+    /// action resolves the emitting execution's live context.
+    pub fn is_execution_creating(&self) -> bool {
+        matches!(
+            self,
+            Self::ExecuteWorkflow { .. } | Self::ExecuteAgent { .. }
+        )
     }
 
     /// Whether this action is supported in the given execution context.
     /// The event listener supports every action; message nodes support
-    /// every action except the nested-agent execution, which needs the
-    /// parent conversation anchor carried by the triggering event.
+    /// every action except the nested-agent execution and the cold-start
+    /// actions, which need the triggering event (the parent conversation
+    /// anchor, or the absence of an emitting execution).
     pub fn supported_in(&self, context: TriggerExecutionContext) -> bool {
         match context {
             TriggerExecutionContext::EventListener => true,
-            TriggerExecutionContext::MessageNode => {
-                !matches!(self, Self::ExecuteTriggeredAgentExecution { .. })
-            }
+            TriggerExecutionContext::MessageNode => !matches!(
+                self,
+                Self::ExecuteTriggeredAgentExecution { .. }
+                    | Self::ExecuteWorkflow { .. }
+                    | Self::ExecuteAgent { .. }
+            ),
         }
     }
 
@@ -437,6 +505,14 @@ impl TriggerAction {
     pub fn rejection_message(&self, context: TriggerExecutionContext) -> Option<String> {
         if self.supported_in(context) {
             return None;
+        }
+        if self.is_execution_creating() {
+            return Some(format!(
+                "{} is only supported by the event-driven trigger listener ({} context); message nodes ({}) always run inside an execution and cannot cold-start a fresh run. Trigger the run from a schedule or webhook creation target instead",
+                self.action_name(),
+                TriggerExecutionContext::EventListener.as_str(),
+                context.as_str(),
+            ));
         }
         Some(format!(
             "{} is only supported by the event-driven trigger listener ({} context); message nodes ({}) reject this action because the child needs the parent conversation anchor carried by the triggering event. Prefer execute_triggered_subworkflow inside message nodes",
@@ -558,8 +634,8 @@ mod tests {
     #[test]
     fn external_sources_translate_to_event_scope_keys() {
         assert!(TriggerSource::Event.is_implemented());
-        assert!(!TriggerSource::Schedule.is_implemented());
-        assert!(!TriggerSource::Webhook.is_implemented());
+        assert!(TriggerSource::Schedule.is_implemented());
+        assert!(TriggerSource::Webhook.is_implemented());
 
         let schedule = TriggerSource::translate_schedule_to_condition("nightly");
         assert_eq!(schedule.event_type, "NODE_CUSTOM_EVENT");
@@ -620,6 +696,18 @@ mod tests {
                 input_mode: None,
                 writeback: None,
             },
+            TriggerAction::ExecuteWorkflow {
+                workflow_id: "wf".to_string(),
+                input: None,
+                timeout: None,
+            },
+            TriggerAction::ExecuteAgent {
+                agent_id: "child".to_string(),
+                prompt: None,
+                model: None,
+                input: None,
+                timeout: None,
+            },
         ];
         for action in &all {
             assert!(
@@ -630,10 +718,15 @@ mod tests {
             assert_eq!(action.rejection_message(EventListener), None);
         }
         for action in &all {
-            let nested = matches!(action, TriggerAction::ExecuteTriggeredAgentExecution { .. });
+            let event_anchored = matches!(
+                action,
+                TriggerAction::ExecuteTriggeredAgentExecution { .. }
+                    | TriggerAction::ExecuteWorkflow { .. }
+                    | TriggerAction::ExecuteAgent { .. }
+            );
             assert_eq!(
                 action.supported_in(MessageNode),
-                !nested,
+                !event_anchored,
                 "{} message-node support",
                 action.action_name()
             );
@@ -660,6 +753,42 @@ mod tests {
             message.contains("execute_triggered_subworkflow"),
             "{message}"
         );
+    }
+
+    #[test]
+    fn cold_start_actions_need_no_emitting_execution() {
+        let workflow = TriggerAction::ExecuteWorkflow {
+            workflow_id: "w".to_string(),
+            input: None,
+            timeout: None,
+        };
+        let agent = TriggerAction::ExecuteAgent {
+            agent_id: "a".to_string(),
+            prompt: None,
+            model: None,
+            input: None,
+            timeout: None,
+        };
+        assert!(workflow.is_execution_creating());
+        assert!(agent.is_execution_creating());
+        assert_eq!(workflow.action_name(), "execute_workflow");
+        assert_eq!(agent.action_name(), "execute_agent");
+        assert!(!TriggerAction::SetVariable {
+            variable_name: "x".to_string(),
+            value: serde_json::json!(1),
+        }
+        .is_execution_creating());
+        for action in [&workflow, &agent] {
+            assert!(action.supported_in(TriggerExecutionContext::EventListener));
+            assert!(!action.supported_in(TriggerExecutionContext::MessageNode));
+            let message = action
+                .rejection_message(TriggerExecutionContext::MessageNode)
+                .expect("cold-start rejected in message nodes");
+            assert!(
+                message.contains("event-driven trigger listener"),
+                "{message}"
+            );
+        }
     }
 
     #[test]

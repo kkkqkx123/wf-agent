@@ -27,12 +27,19 @@
 mod agent_runner;
 mod compression;
 mod context_runner;
+mod creation_runner;
 mod router;
+mod scheduler;
 mod workflow_runner;
 
 pub use agent_runner::AgentTriggerRunner;
 pub use context_runner::{ContextTriggerRunner, ContextTriggerRunnerConfig};
+pub use creation_runner::CreationRunner;
 pub use router::TriggerActionRouter;
+pub use scheduler::{
+    MemoryScheduleStateStore, ScheduleStateStore, SchedulerDeps, TimerBindingRegistry,
+    TRIGGER_INPUT_METADATA_KEY,
+};
 pub use wf_workflow::execution_context::ExecutionContextRegistry;
 pub use workflow_runner::{
     template_to_graph, ResourceTriggerRegistry, SubworkflowActionRunner, WorkflowRunner,
@@ -62,9 +69,8 @@ use wf_types::message::{Message, MessageContent, MessageContentValue};
 use wf_types::trigger::TriggerTemplate;
 use wf_types::Id;
 use wf_workflow::error::{WorkflowError, WorkflowResult};
-use wf_workflow::trigger_listener::{
-    SubworkflowRunner, TriggerActionRunner, TriggerEventListener, TriggerTemplateRegistry,
-};
+use wf_workflow::trigger::TriggerEventListener;
+use wf_workflow::trigger::{SubworkflowRunner, TriggerActionRunner, TriggerTemplateRegistry};
 
 /// Default timeout applied to a triggered sub-workflow when the action does
 /// not configure one. Shared by the sub-workflow action runner
@@ -233,6 +239,9 @@ pub struct TriggerListenerHandle {
     pub listener: Arc<TriggerEventListener>,
     pub shutdown: CancellationToken,
     pub handle: tokio::task::JoinHandle<()>,
+    /// Runtime mount table of execution-scoped timers, shared with the
+    /// scheduler background task spawned alongside the listener.
+    pub timer_bindings: Arc<TimerBindingRegistry>,
 }
 
 /// Wire the listener traits together and spawn the listener loop.
@@ -274,6 +283,8 @@ pub fn start_trigger_listener_with_skills(
         trigger_state_registry: None,
         hook_handler_registry: None,
         signal_bus: None,
+        timer_bindings: None,
+        schedule_state_store: None,
         shutdown: CancellationToken::new(),
     })
 }
@@ -321,6 +332,8 @@ pub fn start_trigger_listener_with_registry(
         trigger_state_registry,
         hook_handler_registry: None,
         signal_bus: None,
+        timer_bindings: None,
+        schedule_state_store: None,
         shutdown: CancellationToken::new(),
     })
 }
@@ -364,6 +377,12 @@ pub(crate) struct ListenerDeps {
     pub(crate) trigger_state_registry: Option<Arc<wf_workflow::TriggerStateRegistry>>,
     pub(crate) hook_handler_registry: Option<Arc<HookHandlerRegistry>>,
     pub(crate) signal_bus: Option<Arc<InternalSignalBus>>,
+    /// Runtime mount table of execution-scoped timers; a fresh table is
+    /// created when absent. The handle is shared with the caller through the
+    /// returned `TriggerListenerHandle` so executions can bind/unbind.
+    pub(crate) timer_bindings: Option<Arc<TimerBindingRegistry>>,
+    /// Durable schedule cursors; process-local memory when absent.
+    pub(crate) schedule_state_store: Option<Arc<dyn ScheduleStateStore>>,
     pub(crate) shutdown: CancellationToken,
 }
 
@@ -381,13 +400,15 @@ fn spawn_listener(deps: ListenerDeps) -> TriggerListenerHandle {
         trigger_state_registry,
         hook_handler_registry,
         signal_bus,
+        timer_bindings,
+        schedule_state_store,
         shutdown,
     } = deps;
     let registry: Arc<dyn TriggerTemplateRegistry> =
-        Arc::new(ResourceTriggerRegistry::new(registries));
+        Arc::new(ResourceTriggerRegistry::new(registries.clone()));
     let compression = SubworkflowActionRunner::with_storage(
         event_bus.clone(),
-        runner,
+        runner.clone(),
         contexts.clone(),
         shutdown.clone(),
         storage.clone(),
@@ -407,9 +428,15 @@ fn spawn_listener(deps: ListenerDeps) -> TriggerListenerHandle {
         .with_hook_context(hook_handler_registry.clone(), event_bus.clone());
         Arc::new(runner)
     });
+    let creation = Arc::new(CreationRunner::new(
+        runner.clone(),
+        shutdown.clone(),
+        storage.clone(),
+    ));
     let action_runner: Arc<dyn TriggerActionRunner> = Arc::new(TriggerActionRouter::new(
         compression,
         agent,
+        creation,
         context_runner(
             &event_bus,
             &contexts,
@@ -421,7 +448,7 @@ fn spawn_listener(deps: ListenerDeps) -> TriggerListenerHandle {
         ),
     ));
     let listener = Arc::new(
-        TriggerEventListener::new(event_bus, registry, action_runner, shutdown.clone())
+        TriggerEventListener::new(event_bus.clone(), registry, action_runner, shutdown.clone())
             .with_concurrency_gate(Arc::new(ConcurrencyGate::new(
                 DEFAULT_TRIGGER_ACTION_CONCURRENCY,
             ))),
@@ -430,10 +457,23 @@ fn spawn_listener(deps: ListenerDeps) -> TriggerListenerHandle {
         let listener = listener.clone();
         async move { listener.run().await }
     });
+    // The scheduler shares the listener shutdown token and dies with it; no
+    // separate handle is needed (stop_trigger_listener cancels the token).
+    let timer_bindings = timer_bindings.unwrap_or_else(|| Arc::new(TimerBindingRegistry::new()));
+    let schedule_state_store: Arc<dyn ScheduleStateStore> =
+        schedule_state_store.unwrap_or_else(|| Arc::new(MemoryScheduleStateStore::new()));
+    let _scheduler = scheduler::spawn_scheduler(SchedulerDeps {
+        event_bus: event_bus.clone(),
+        registries,
+        bindings: timer_bindings.clone(),
+        state_store: schedule_state_store,
+        shutdown: shutdown.clone(),
+    });
     TriggerListenerHandle {
         listener,
         shutdown,
         handle,
+        timer_bindings,
     }
 }
 

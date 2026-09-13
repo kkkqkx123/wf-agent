@@ -44,7 +44,7 @@
 
 | 文件 | 职责 |
 |---|---|
-| `types.rs` | `HookDefinition`（含 `handler` 字段）、`HookContext`（execution_id + hook_type + data）、`HookOutcome`（仅 `Continue`：观察型语义，门禁归 approval） |
+| `types.rs` | `HookDefinition`（含 `handler` 字段）、`HookContext`（execution_id + hook_type + data）、`HookOutcome`（`Continue` 观察 / `Veto{reason}` 门禁：仅 `BEFORE_EXECUTE` / `BEFORE_TOOL_CALL` 两门禁点接线，其余点 Veto 只记录） |
 | `receiver.rs` | `HookReceiver` trait（`name()` + `on_hook()`） |
 | `registry.rs` | `HookRegistry`：`register`（按名去重）/ `unregister` / `get`（按名解析）/ `for_type`（hook_type → 按 weight 降序）/ `contains` / `with_timeout` / `notify`（超时守卫） |
 | `dispatch.rs` | 统一入口：评估 → 解析 payload → 按序通知 → 汇总 → 审计发布；`DispatchSummary` / `ReceiverResult` |
@@ -56,9 +56,9 @@
 ```
 1. 静态评估：对目标 hook_type 的 BaseHookDefinition 集合做 condition / enabled / weight 过滤
 2. 解析 payload：模板解析失败记 warn，用 null 兜底
-3. 按序通知：先静态定义中显式 receiver 的（weight 序），后动态注册的（weight 降序）
-4. 汇总 HookOutcome：恒为 Continue（观察型语义，引擎不做分支）
-5. 审计发布：payloads 或 handler 结果非空时发布 HOOK_TRIGGERED（无 bus 则跳过）；处理器全部落定后才发布，匹配该事件的触发模板总是在处理器之后启动（引擎不等触发完成）
+3. 按序通知：先静态定义中显式 handler 的（weight 序），后动态注册的（weight 降序）；动态注册项携带可选 condition，与静态定义用同一求值器/同一 skip-on-error 策略（条件失败跳过该处理器，不跳过引擎）
+4. 汇总 HookOutcome：任一被通知处理器返回 Veto 即聚合为 Veto（reason 按通知序拼接），否则 Continue；仅门禁点（BEFORE_EXECUTE / BEFORE_TOOL_CALL）据此分支，其余点忽略
+5. 审计发布：payloads 或 handler 结果非空时发布 HOOK_TRIGGERED（无 bus 则跳过），逐处理器 outcome 与顶层 outcome 如实记录（continue / vetoed）；处理器全部落定后才发布，匹配该事件的触发模板总是在处理器之后启动（引擎不等触发完成）
 ```
 
 ## 5. Hook 点位全景
@@ -127,7 +127,7 @@
 
 ## 9. 边界与不做事项
 
-- **控制语义不接线**：阻断工具调用、改写入参、注入上下文、权限决策均不通过 hook 体系实现（approval 与 workflow 机制承担）；`HookOutcome` 恒为 `Continue`。重试走三系统顺序（预算 → 钩子观察 → 审批门禁 → 尝试 → `LLM_RETRY_SCHEDULED` 异步触发）。
+- **控制语义仅门禁点接线**：`HookOutcome::Veto` 只在 `BEFORE_EXECUTE`（拒绝节点，走 fail_node：ON_ERROR + NodeFailed，不重试）与 `BEFORE_TOOL_CALL`（等同审批拒绝：产出拒绝消息 + 携带错误的 AFTER 发射，工具不执行）两个门禁点生效，其余 `BEFORE_*` 点的 Veto 仅在审计事件记录、按 `Continue` 处理。改写入参、权限的人工决策仍归 approval，不通过 hook 体系实现。门禁 fail-open：处理器超时/未注册一律按 `Continue`，故门禁处理器必须快且本地。触发体系（异步）永不做门禁。重试走三系统顺序（预算 → 钩子观察 → 审批门禁 → 尝试 → `LLM_RETRY_SCHEDULED` 异步触发）。
 - **触发订阅护栏**：`BEFORE_*` 与内部压缩信号的触发订阅在加载期拒绝，监听器运行时同样跳过；`AFTER_*` 可订阅审计事件，但有对等领域事件时优先订阅领域事件。
 - **不引入压缩 hook 类型**：`PRE_COMPACT` / `POST_COMPACT` 不新增；压缩完全托管于压缩子 workflow。
 - **事件总线不删除**：审计/持久化/外部订阅/用户 trigger 规则通道保留；trigger 用户模板体系（`SubworkflowActionRunner`）保留不动。

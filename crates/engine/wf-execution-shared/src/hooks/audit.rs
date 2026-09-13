@@ -126,10 +126,7 @@ pub fn publish_hook_audit_event(
                 entry.insert("error".to_string(), Value::String(error.clone()));
             }
             if let crate::hooks::types::HookOutcome::Veto { reason } = &r.outcome {
-                entry.insert(
-                    "veto_reason".to_string(),
-                    Value::String(reason.clone()),
-                );
+                entry.insert("veto_reason".to_string(), Value::String(reason.clone()));
             }
             Value::Object(entry)
         })
@@ -342,7 +339,8 @@ mod tests {
     }
 
     #[test]
-    fn test_event_picks_up_workflow_id_from_context_data() {        let bus = Arc::new(EventBus::new(16));
+    fn test_event_picks_up_workflow_id_from_context_data() {
+        let bus = Arc::new(EventBus::new(16));
         let mut data = HashMap::new();
         data.insert("workflow_id".to_string(), serde_json::json!("wf-1"));
         let ctx = hook_ctx("exec-1", data);

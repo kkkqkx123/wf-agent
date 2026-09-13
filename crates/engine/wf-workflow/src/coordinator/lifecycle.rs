@@ -21,7 +21,7 @@ use crate::coordinator::WorkflowCoordinator;
 use crate::entity::WorkflowExecutionEntity;
 use crate::error::{WorkflowError, WorkflowResult};
 use crate::handler::NodeHandler;
-use crate::trigger_states::TriggerStateRegistry;
+use crate::trigger::states::TriggerStateRegistry;
 
 use wf_resource::registry::ResourceRegistries;
 

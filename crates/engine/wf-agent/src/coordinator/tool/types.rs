@@ -5,9 +5,9 @@ use serde_json::Value;
 
 use wf_common::retry::RetryBudget;
 use wf_metrics::MetricsRegistry;
-use wf_types::message::Message;
 use wf_tools::failure_protection::ToolFailureProtectionState;
 use wf_tools::registry::ToolRegistry;
+use wf_types::message::Message;
 
 use crate::error::AgentResult;
 

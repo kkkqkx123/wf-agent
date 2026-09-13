@@ -5,6 +5,7 @@ use tokio_util::sync::CancellationToken;
 
 use wf_execution_shared::hooks::HookContext;
 use wf_execution_shared::hooks::HookHandlerRegistry;
+use wf_execution_shared::types::execution_entity::ExecutionEntity;
 use wf_metrics::MetricsRegistry;
 use wf_tools::registry::ToolRegistry;
 use wf_types::message::{LlmToolCall, Message, MessageContentValue, MessageRole};
@@ -47,7 +48,7 @@ pub struct ToolExecutionCoordinator {
     cancellation: Option<CancellationToken>,
     cancel_on_failure: bool,
     visibility_store: Option<Arc<dyn ToolVisibilityStore>>,
-    checkpoint_handler: Option<Arc<dyn super::tool_types::ToolCheckpointHandler>>,
+    checkpoint_handler: Option<Arc<dyn types::ToolCheckpointHandler>>,
     failure_protection: Option<Arc<wf_tools::failure_protection::ToolFailureProtectionState>>,
     /// Per-run `general` tool invoker. Injected once when the run starts
     /// (set after the coordinator is assembled); carried into every
@@ -147,7 +148,7 @@ impl ToolExecutionCoordinator {
     /// it snapshots the execution record, never file bytes.
     pub fn with_checkpoint_handler(
         mut self,
-        handler: Option<Arc<dyn super::tool_types::ToolCheckpointHandler>>,
+        handler: Option<Arc<dyn types::ToolCheckpointHandler>>,
     ) -> Self {
         self.checkpoint_handler = handler;
         self
@@ -287,8 +288,7 @@ impl ToolExecutionCoordinator {
     fn apply_edited_parameters(tc: &LlmToolCall, edited_parameters: &Option<Value>) -> LlmToolCall {
         let mut tc = tc.clone();
         if let Some(edited) = edited_parameters {
-            tc.function.arguments =
-                serde_json::to_string(edited).unwrap_or(tc.function.arguments);
+            tc.function.arguments = serde_json::to_string(edited).unwrap_or(tc.function.arguments);
         }
         tc
     }
@@ -439,10 +439,7 @@ impl ToolExecutionCoordinator {
                         if let Some(reason) = before.vetoed_reason() {
                             let reason = format!("hook veto at BEFORE_TOOL_CALL: {reason}");
                             let mut hook_data = hook_data;
-                            hook_data.insert(
-                                "error".to_string(),
-                                Value::String(reason.clone()),
-                            );
+                            hook_data.insert("error".to_string(), Value::String(reason.clone()));
                             let after_ctx = HookContext {
                                 execution_id: entity_id.clone(),
                                 hook_type: "AFTER_TOOL_CALL".to_string(),
@@ -562,9 +559,7 @@ impl ToolExecutionCoordinator {
         let ctx = self.run_ctx();
         Ok(run_tool(&ctx, tc, entity.id(), &entity.state)
             .await
-            .unwrap_or_else(|reason| {
-                error_message(&reason, Some(&tc.id), Some(&tc.function.name))
-            }))
+            .unwrap_or_else(|reason| error_message(&reason, Some(&tc.id), Some(&tc.function.name))))
     }
 
     /// Combine the entity abort signal with an optional external cancellation
@@ -588,4 +583,3 @@ impl ToolExecutionCoordinator {
         }
     }
 }
-

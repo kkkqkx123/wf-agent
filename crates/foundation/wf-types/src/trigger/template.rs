@@ -33,6 +33,7 @@ pub enum TriggerDispatchMode {
 ///   event. At most this many winners run per event; extras are dropped
 ///   with a warning (never silently queued). Keep at 1 unless
 ///   cross-scope fan-out is explicitly desired.
+///
 /// Over-limit behavior is always warn-and-drop, never silent queueing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct TriggerRuntimeLimits {

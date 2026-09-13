@@ -43,7 +43,9 @@ pub enum HookOutcome {
     /// at gate points, becomes the failure reason (node error / tool
     /// rejection). Timeouts and unresolvable handlers still resolve to
     /// `Continue`: gates fail open, so gate handlers must be fast and local.
-    Veto { reason: String },
+    Veto {
+        reason: String,
+    },
 }
 
 impl HookOutcome {

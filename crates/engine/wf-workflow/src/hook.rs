@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use serde_json::Value;
 use wf_core::EventBus;
 use wf_execution_shared::hooks::{
-    fire::FireSummary, fire, HookContext, HookDefinition, HookHandlerRegistry,
+    fire, fire::FireSummary, HookContext, HookDefinition, HookHandlerRegistry,
 };
 
 use crate::entity::WorkflowExecutionEntity;

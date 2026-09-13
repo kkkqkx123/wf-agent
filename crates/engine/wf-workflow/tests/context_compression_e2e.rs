@@ -28,7 +28,7 @@ use wf_types::workflow_execution::{
 };
 use wf_workflow::execution_context::{ContextWriter, ExecutionContextRegistry, WriteBackError};
 use wf_workflow::message_context;
-use wf_workflow::trigger_listener::SubworkflowRunner;
+use wf_workflow::trigger::SubworkflowRunner;
 use wf_workflow::{get_context, WorkflowExecutor, WorkflowResult, WorkflowRunRequest};
 use wf_workflow::{HandlerRegistry, LlmHandler, NodeHandler};
 

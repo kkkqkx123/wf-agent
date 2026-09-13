@@ -284,10 +284,9 @@ pub use wf_workflow::registry::{
     WorkflowGraphRegistry,
 };
 pub use wf_workflow::state::WorkflowExecutionState;
-pub use wf_workflow::trigger_listener::{
-    SubworkflowRunner, TriggerActionRunner, TriggerEventListener, TriggerTemplateRegistry,
-};
-pub use wf_workflow::trigger_states::{TriggerStateRecord, TriggerStateRegistry};
+pub use wf_workflow::trigger::TriggerEventListener;
+pub use wf_workflow::trigger::{SubworkflowRunner, TriggerActionRunner, TriggerTemplateRegistry};
+pub use wf_workflow::trigger::{TriggerStateRecord, TriggerStateRegistry};
 pub use wf_workflow::validation::{format_validation_report, GraphValidator};
 pub use wf_workflow::variable::{
     convert_variable_type, create_variable_store,

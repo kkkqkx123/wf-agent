@@ -23,9 +23,7 @@ use wf_types::workflow_execution::{
 };
 use wf_workflow::error::{WorkflowError, WorkflowResult};
 use wf_workflow::handler::NodeHandler;
-use wf_workflow::trigger_listener::{
-    SubworkflowRunner, TriggerActionRunner, TriggerTemplateRegistry,
-};
+use wf_workflow::trigger::{SubworkflowRunner, TriggerActionRunner, TriggerTemplateRegistry};
 use wf_workflow::{WorkflowCoordinator, WorkflowExecutionEntity};
 
 use super::{

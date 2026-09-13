@@ -6,7 +6,7 @@ use wf_types::node::StaticNodeType;
 
 use crate::error::WorkflowResult;
 use crate::handler::NodeHandler;
-use crate::trigger_internal;
+use crate::trigger::internal;
 
 pub struct StartHandler;
 
@@ -30,16 +30,13 @@ impl StartHandler {
         ctx: &mut NodeExecutionContext,
     ) -> WorkflowResult<NodeExecutionResult> {
         let already_executed = ctx
-            .get_variable(&trigger_internal::completed_marker(&ctx.node_id))
+            .get_variable(&internal::completed_marker(&ctx.node_id))
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
         if already_executed {
             return Ok(NodeExecutionResult::simple(ctx.input.clone()));
         }
-        ctx.set_internal_variable(
-            trigger_internal::completed_marker(&ctx.node_id),
-            Value::from(true),
-        );
+        ctx.set_internal_variable(internal::completed_marker(&ctx.node_id), Value::from(true));
         Ok(NodeExecutionResult::simple(ctx.input.clone()))
     }
 }
@@ -66,16 +63,13 @@ impl EndHandler {
         ctx: &mut NodeExecutionContext,
     ) -> WorkflowResult<NodeExecutionResult> {
         let already_executed = ctx
-            .get_variable(&trigger_internal::completed_marker(&ctx.node_id))
+            .get_variable(&internal::completed_marker(&ctx.node_id))
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
         if already_executed {
             return Ok(NodeExecutionResult::simple(ctx.input.clone()));
         }
-        ctx.set_internal_variable(
-            trigger_internal::completed_marker(&ctx.node_id),
-            Value::from(true),
-        );
+        ctx.set_internal_variable(internal::completed_marker(&ctx.node_id), Value::from(true));
         Ok(NodeExecutionResult::simple(ctx.input.clone()))
     }
 }

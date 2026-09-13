@@ -16,7 +16,7 @@ use wf_types::trigger::TriggerTemplate;
 use wf_types::Id;
 use wf_workflow::error::{WorkflowError, WorkflowResult};
 use wf_workflow::handler::NodeHandler;
-use wf_workflow::trigger_listener::TriggerActionRunner;
+use wf_workflow::trigger::TriggerActionRunner;
 use wf_workflow::{TriggerContext, TriggerCoordinator};
 
 use super::ExecutionContextRegistry;

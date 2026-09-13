@@ -9,7 +9,7 @@ use crate::error::{WorkflowError, WorkflowResult};
 use crate::handler::trigger::{TriggerContext, TriggerCoordinator};
 use crate::handler::NodeHandler;
 use crate::message_context;
-use crate::trigger_internal;
+use crate::trigger::internal;
 
 /// Parse a TriggerAction from a node config value.
 ///
@@ -231,16 +231,13 @@ impl StartFromMessageHandler {
         ctx: &mut NodeExecutionContext,
     ) -> WorkflowResult<NodeExecutionResult> {
         let already_executed = ctx
-            .get_variable(&trigger_internal::completed_marker(&ctx.node_id))
+            .get_variable(&internal::completed_marker(&ctx.node_id))
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
         if already_executed {
             return Ok(NodeExecutionResult::simple(ctx.input.clone()));
         }
-        ctx.set_internal_variable(
-            trigger_internal::completed_marker(&ctx.node_id),
-            Value::from(true),
-        );
+        ctx.set_internal_variable(internal::completed_marker(&ctx.node_id), Value::from(true));
 
         map_message_inputs(ctx)?;
 
@@ -280,16 +277,13 @@ impl ContinueFromMessageHandler {
         ctx: &mut NodeExecutionContext,
     ) -> WorkflowResult<NodeExecutionResult> {
         let already_executed = ctx
-            .get_variable(&trigger_internal::completed_marker(&ctx.node_id))
+            .get_variable(&internal::completed_marker(&ctx.node_id))
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
         if already_executed {
             return Ok(NodeExecutionResult::simple(ctx.input.clone()));
         }
-        ctx.set_internal_variable(
-            trigger_internal::completed_marker(&ctx.node_id),
-            Value::from(true),
-        );
+        ctx.set_internal_variable(internal::completed_marker(&ctx.node_id), Value::from(true));
 
         export_variable_outputs(ctx)?;
         let message_output = export_message_outputs(ctx);

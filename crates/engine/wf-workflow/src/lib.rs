@@ -23,9 +23,7 @@ pub mod protocol_consistency;
 pub mod reference_closure;
 pub mod registry;
 pub mod state;
-pub mod trigger_internal;
-pub mod trigger_listener;
-pub mod trigger_states;
+pub mod trigger;
 pub mod types;
 pub mod validation;
 pub mod variable;
@@ -98,10 +96,10 @@ pub use state::{
     NodeExecutionRecord, WorkflowExecutionState, WorkflowExecutionStateSnapshot,
     WorkflowInterruptionStatistics,
 };
-pub use trigger_listener::{
-    SubworkflowRunner, TriggerActionRunner, TriggerEventListener, TriggerTemplateRegistry,
+pub use trigger::{
+    SubworkflowRunner, TriggerActionRunner, TriggerEventListener, TriggerStateRecord,
+    TriggerStateRegistry, TriggerTemplateRegistry,
 };
-pub use trigger_states::{TriggerStateRecord, TriggerStateRegistry};
 pub use types::WorkflowExecutionParams as WorkflowExecutionParamsType;
 pub use validation::{format_validation_report, GraphValidator};
 pub use variable::{

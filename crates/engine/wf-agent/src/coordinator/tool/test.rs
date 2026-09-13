@@ -1,5 +1,5 @@
 //! Unit tests for the tool-execution coordinator split across
-//! `tool.rs`, `tool_runner.rs`, `tool_approval.rs` and `tool_general.rs`.
+//! `tool.rs`, `tool/runner.rs`, `tool/approval.rs` and `tool/general.rs`.
 
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
@@ -12,12 +12,12 @@ use wf_types::message::{Message, MessageContentValue};
 use wf_types::tool::{CheckpointTiming, Tool, ToolRiskLevel};
 use wf_types::Id;
 
-use super::super::ToolExecutionCoordinator;
 use super::approval::ToolApprovalGate;
 use super::general::GeneralToolContext;
 use super::types::{
     ToolCheckpointHandler, ToolExecutionMode, ToolProgressStatus, ToolRunCtx, ToolVisibilityStore,
 };
+use super::ToolExecutionCoordinator;
 use crate::approval::{ToolApprovalHandler, ToolApprovalRequest, ToolApprovalResult};
 use crate::entity::AgentLoopEntity;
 use crate::error::AgentResult;
@@ -27,8 +27,7 @@ fn mock_tool_registry(executed: &Arc<AtomicU32>) -> Arc<ToolRegistry> {
     let handler: wf_tools::executor::stateless::StatelessHandler = {
         let executed = executed.clone();
         Arc::new(
-            move |_params: &Value,
-                  _ctx: &wf_tools::executor::trait_def::ToolExecutionContext| {
+            move |_params: &Value, _ctx: &wf_tools::executor::trait_def::ToolExecutionContext| {
                 executed.fetch_add(1, Ordering::SeqCst);
                 Ok(Value::from("tool-result-ok"))
             },
@@ -168,8 +167,8 @@ async fn test_before_tool_call_veto_denies_like_rejection() {
     let registry = mock_tool_registry(&executed);
     let hook_registry = Arc::new(HookHandlerRegistry::new());
     assert!(hook_registry.register("BEFORE_TOOL_CALL", Arc::new(VetoHandler), 1));
-    let coordinator = ToolExecutionCoordinator::new(registry)
-        .with_hook_handler_registry(Some(hook_registry));
+    let coordinator =
+        ToolExecutionCoordinator::new(registry).with_hook_handler_registry(Some(hook_registry));
     let entity = make_entity();
 
     let messages = coordinator
@@ -182,7 +181,10 @@ async fn test_before_tool_call_veto_denies_like_rejection() {
     assert_eq!(executed.load(Ordering::SeqCst), 0);
     assert_eq!(messages.len(), 1);
     let content = text_of(&messages[0]);
-    assert!(content.contains("hook veto at BEFORE_TOOL_CALL"), "{content}");
+    assert!(
+        content.contains("hook veto at BEFORE_TOOL_CALL"),
+        "{content}"
+    );
     assert!(content.contains("unverified checksum"), "{content}");
     assert!(content.contains("mock_write"), "{content}");
 }
@@ -337,7 +339,9 @@ async fn test_parallel_approval_no_crosstalk() {
     assert_eq!(handler_executed.load(Ordering::SeqCst), 2);
     // Both approved and executed exactly once.
     assert_eq!(executed.load(Ordering::SeqCst), 2);
-    assert!(messages.iter().all(|m| text_of(m).contains("tool-result-ok")));
+    assert!(messages
+        .iter()
+        .all(|m| text_of(m).contains("tool-result-ok")));
 }
 
 // ---- orchestration enhancements ----
@@ -484,8 +488,8 @@ async fn test_failure_protection_blocks_after_consecutive_failures() {
             },
         ),
     );
-    let coordinator = ToolExecutionCoordinator::new(registry)
-        .with_failure_protection(Some(protection.clone()));
+    let coordinator =
+        ToolExecutionCoordinator::new(registry).with_failure_protection(Some(protection.clone()));
     let entity = make_entity();
 
     // First two executions are allowed and record failures.
@@ -702,10 +706,7 @@ fn general_entity(registry: &ToolRegistry) -> Arc<AgentLoopEntity> {
     entity
 }
 
-fn general_ctx(
-    registry: Arc<ToolRegistry>,
-    entity: Arc<AgentLoopEntity>,
-) -> GeneralToolContext {
+fn general_ctx(registry: Arc<ToolRegistry>, entity: Arc<AgentLoopEntity>) -> GeneralToolContext {
     let run_ctx = ToolRunCtx {
         registry,
         metrics: None,
@@ -727,9 +728,7 @@ async fn test_general_invoke_returns_inner_tool_native_result() {
     let ctx = general_ctx(registry, entity);
 
     let result = ctx
-        .invoke_request(
-            "{\"tool\": \"web_search\", \"parameters\": {\"query\": \"rust 异步\"}}",
-        )
+        .invoke_request("{\"tool\": \"web_search\", \"parameters\": {\"query\": \"rust 异步\"}}")
         .await
         .expect("general invoke must succeed");
     assert_eq!(
@@ -794,7 +793,9 @@ async fn test_general_rejects_hidden_and_non_whitelisted_tools() {
         .invoke_request("{\"tool\": \"write_file\", \"parameters\": {\"path\": \"a\"}}")
         .await
         .unwrap_err();
-    assert!(outside.to_string().contains("not in the available tool set"));
+    assert!(outside
+        .to_string()
+        .contains("not in the available tool set"));
 }
 
 #[tokio::test]

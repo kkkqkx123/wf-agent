@@ -19,7 +19,7 @@ use crate::error::{WorkflowError, WorkflowResult};
 use crate::handler::NodeHandler;
 use crate::handler::{variable_mapping, HandlerRegistry};
 use crate::registry::{lookup_graph, lookup_script, ScriptRegistry};
-use crate::trigger_internal;
+use crate::trigger::internal;
 use crate::WorkflowExecutionEntity;
 use wf_execution_shared::context::ExecutorContext;
 use wf_tools::registry::ToolRegistry;
@@ -232,6 +232,15 @@ impl TriggerCoordinator {
                     .expect("nested agent execution is unsupported in message nodes");
                 Err(WorkflowError::TriggerError(message))
             }
+            // Cold-start actions need the triggering event (or rather its
+            // absence): message nodes always run inside an execution and
+            // cannot start a fresh run. Same unified-matrix rejection.
+            TriggerAction::ExecuteWorkflow { .. } | TriggerAction::ExecuteAgent { .. } => {
+                let message = action
+                    .rejection_message(wf_types::trigger::TriggerExecutionContext::MessageNode)
+                    .expect("cold-start actions are unsupported in message nodes");
+                Err(WorkflowError::TriggerError(message))
+            }
         };
 
         let (result_val, error_val) = match result {
@@ -252,7 +261,7 @@ impl TriggerCoordinator {
     async fn handle_stop_workflow(ctx: &TriggerContext) -> WorkflowResult<Value> {
         // Publish a typed stop signal; the coordinator loop consumes it.
         if let Some(bus) = &ctx.signal_bus {
-            trigger_internal::publish_stop_signal(
+            internal::publish_stop_signal(
                 bus,
                 ctx.execution_id.clone(),
                 ctx.execution_id.clone(),
@@ -271,7 +280,7 @@ impl TriggerCoordinator {
     async fn handle_pause_workflow(ctx: &TriggerContext) -> WorkflowResult<Value> {
         // Publish a typed pause signal; the coordinator loop consumes it.
         if let Some(bus) = &ctx.signal_bus {
-            trigger_internal::publish_pause_signal(
+            internal::publish_pause_signal(
                 bus,
                 ctx.execution_id.clone(),
                 ctx.execution_id.clone(),
@@ -290,7 +299,7 @@ impl TriggerCoordinator {
     async fn handle_resume_workflow(ctx: &TriggerContext) -> WorkflowResult<Value> {
         // Publish a typed resume signal; the coordinator loop consumes it.
         if let Some(bus) = &ctx.signal_bus {
-            trigger_internal::publish_resume_signal(
+            internal::publish_resume_signal(
                 bus,
                 ctx.execution_id.clone(),
                 ctx.execution_id.clone(),
@@ -309,7 +318,7 @@ impl TriggerCoordinator {
         // Publish a typed skip signal; the coordinator loop records the
         // node for skipping at dispatch time.
         if let Some(bus) = &ctx.signal_bus {
-            trigger_internal::publish_skip_signal(
+            internal::publish_skip_signal(
                 bus,
                 ctx.execution_id.clone(),
                 ctx.execution_id.clone(),
@@ -600,12 +609,10 @@ impl TriggerCoordinator {
                     &output,
                     &ctx.variables,
                 );
-                ctx.variables.insert(
-                    trigger_internal::SUBWORKFLOW_RESULT.to_string(),
-                    output.clone(),
-                );
+                ctx.variables
+                    .insert(internal::SUBWORKFLOW_RESULT.to_string(), output.clone());
                 if let Some(bus) = &ctx.signal_bus {
-                    trigger_internal::publish_subworkflow_result(
+                    internal::publish_subworkflow_result(
                         bus,
                         ctx.execution_id.clone(),
                         ctx.execution_id.clone(),
@@ -748,7 +755,7 @@ impl TriggerCoordinator {
                     "execution_time": execution_result.execution_time,
                 });
                 ctx.variables
-                    .insert(trigger_internal::SCRIPT_RESULT.to_string(), result.clone());
+                    .insert(internal::SCRIPT_RESULT.to_string(), result.clone());
                 Self::emit(
                     ctx,
                     EventType::ScriptCompleted,
@@ -781,9 +788,9 @@ impl TriggerCoordinator {
             .unwrap_or(output);
 
         ctx.variables
-            .insert(trigger_internal::SCRIPT_RESULT.to_string(), parsed.clone());
+            .insert(internal::SCRIPT_RESULT.to_string(), parsed.clone());
         if let Some(bus) = &ctx.signal_bus {
-            trigger_internal::publish_script_result(
+            internal::publish_script_result(
                 bus,
                 ctx.execution_id.clone(),
                 ctx.execution_id.clone(),
@@ -995,7 +1002,7 @@ mod tests {
         );
         let stored = ctx
             .variables
-            .get(trigger_internal::SCRIPT_RESULT)
+            .get(internal::SCRIPT_RESULT)
             .expect("result should be stored")
             .value()
             .clone();
@@ -1155,7 +1162,7 @@ mod tests {
         assert_eq!(value["submitted"], serde_json::json!(true));
         let stored = ctx
             .variables
-            .get(trigger_internal::SUBWORKFLOW_RESULT)
+            .get(internal::SUBWORKFLOW_RESULT)
             .expect("result should be stored")
             .value()
             .clone();

@@ -37,11 +37,12 @@ pub(crate) fn api_router_with_config(
 ) -> Router {
     use api::agent::{agents, analysis as agent_analysis, llm};
     use api::resource::{entities, health, openapi, templates};
-    use api::workflow::{analysis, approvals, audit, events, executions, query, workflows};
+    use api::workflow::{analysis, approvals, audit, events, executions, hooks, query, workflows};
 
     let domain: Router<ApiState> = Router::new()
         .merge(workflows::routes())
         .merge(executions::routes())
+        .merge(hooks::routes())
         .merge(approvals::routes())
         .merge(crate::api::workflow::file_approvals::routes())
         .merge(crate::api::workflow::file_provenance::routes())

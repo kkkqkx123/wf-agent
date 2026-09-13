@@ -48,7 +48,7 @@ pub fn validate_trigger_template(template: &TriggerTemplate) -> ConfigResult<()>
         }
         if condition.targets_before_hook() {
             return Err(ConfigError::Validation(format!(
-                "trigger '{}' subscribes to a BEFORE_* hook point; trigger actions always run asynchronously after the hook and cannot gate execution. Observe synchronously with a hook handler instead, gate tool calls with approval, or subscribe to the AFTER_* counterpart for post-hoc side effects",
+                "trigger '{}' subscribes to a BEFORE_* hook point; trigger actions always run asynchronously after the hook and cannot gate execution. To gate the guarded step, return a Veto from a synchronous hook handler at that point (BEFORE_EXECUTE denies the node, BEFORE_TOOL_CALL rejects the call); for post-hoc side effects subscribe to the AFTER_* counterpart or its domain event",
                 template.name
             )));
         }
@@ -133,6 +133,24 @@ pub fn validate_trigger_action(action: &TriggerAction, field_prefix: &str) -> Co
             }
         }
         TriggerAction::ExecuteTriggeredAgentExecution {
+            agent_id, timeout, ..
+        } => {
+            validate_not_empty(agent_id, &format!("{field_prefix}.agent_id"))?;
+            if let Some(t) = timeout {
+                validate_min(*t, 1, &format!("{field_prefix}.timeout"))?;
+            }
+        }
+        TriggerAction::ExecuteWorkflow {
+            workflow_id,
+            timeout,
+            ..
+        } => {
+            validate_not_empty(workflow_id, &format!("{field_prefix}.workflow_id"))?;
+            if let Some(t) = timeout {
+                validate_min(*t, 1, &format!("{field_prefix}.timeout"))?;
+            }
+        }
+        TriggerAction::ExecuteAgent {
             agent_id, timeout, ..
         } => {
             validate_not_empty(agent_id, &format!("{field_prefix}.agent_id"))?;
@@ -579,7 +597,7 @@ mod tests {
         let err = validate_trigger_template(&template).expect_err("before hook must be rejected");
         let message = err.to_string();
         assert!(message.contains("BEFORE_*"), "{message}");
-        assert!(message.contains("approval"), "{message}");
+        assert!(message.contains("Veto"), "{message}");
     }
 
     #[test]
@@ -871,6 +889,18 @@ mod tests {
                 input_mode: None,
                 writeback: None,
             },
+            TriggerAction::ExecuteWorkflow {
+                workflow_id: "wf".to_string(),
+                input: None,
+                timeout: None,
+            },
+            TriggerAction::ExecuteAgent {
+                agent_id: "child".to_string(),
+                prompt: None,
+                model: None,
+                input: None,
+                timeout: None,
+            },
         ];
         for action in &actions {
             assert!(
@@ -911,6 +941,41 @@ mod tests {
             value: serde_json::json!(1),
         };
         assert!(validate_trigger_action_for_context(&supported, MessageNode, "action").is_ok());
+
+        for cold in [
+            TriggerAction::ExecuteWorkflow {
+                workflow_id: "wf".to_string(),
+                input: None,
+                timeout: None,
+            },
+            TriggerAction::ExecuteAgent {
+                agent_id: "child".to_string(),
+                prompt: None,
+                model: None,
+                input: None,
+                timeout: None,
+            },
+        ] {
+            let err = validate_trigger_action_for_context(&cold, MessageNode, "action")
+                .expect_err("cold-start actions must be rejected in message nodes");
+            let message = err.to_string();
+            assert!(message.contains(cold.action_name()), "{message}");
+            assert!(
+                message.contains("event-driven trigger listener"),
+                "{message}"
+            );
+        }
+
+        let err = validate_trigger_action(
+            &TriggerAction::ExecuteWorkflow {
+                workflow_id: String::new(),
+                input: None,
+                timeout: None,
+            },
+            "action",
+        )
+        .expect_err("empty workflow_id must be rejected");
+        assert!(err.to_string().contains("workflow_id"));
     }
 
     #[test]

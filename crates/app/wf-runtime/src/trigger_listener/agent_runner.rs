@@ -21,7 +21,7 @@ use wf_types::trigger::{
 };
 use wf_types::Id;
 use wf_workflow::error::{WorkflowError, WorkflowResult};
-use wf_workflow::trigger_listener::TriggerActionRunner;
+use wf_workflow::trigger::TriggerActionRunner;
 
 use super::{record_trigger_execution, TriggerExecutionRecorder, TriggerOutcome};
 
@@ -119,6 +119,21 @@ impl AgentTriggerRunner {
 #[async_trait]
 impl TriggerActionRunner for AgentTriggerRunner {
     async fn run(&self, template: &TriggerTemplate, event: &BaseEvent) -> WorkflowResult<()> {
+        // Cold-start agent: no parent loop, no conversation anchor, no
+        // write-back. Always fire-and-forget; the spawned task logs failures
+        // and only the submission is recorded in the ledger.
+        if let Some(TriggerAction::ExecuteAgent {
+            agent_id,
+            prompt,
+            model,
+            input,
+            timeout,
+        }) = &template.action
+        {
+            return self
+                .run_cold(template, event, agent_id, prompt, model, input, *timeout)
+                .await;
+        }
         let Some(TriggerAction::ExecuteTriggeredAgentExecution {
             agent_id,
             prompt,
@@ -199,9 +214,9 @@ impl TriggerActionRunner for AgentTriggerRunner {
                 };
                 let config = TriggeredAgentExecutionConfig {
                     parent,
-                    result_variable: result_variable
-                        .clone()
-                        .unwrap_or_else(|| wf_workflow::trigger_internal::AGENT_RESULT.to_string()),
+                    result_variable: result_variable.clone().unwrap_or_else(|| {
+                        wf_workflow::trigger::internal::AGENT_RESULT.to_string()
+                    }),
                     wait_for_completion: wait_for_completion.unwrap_or(true),
                     timeout_ms: *timeout,
                     anchor,
@@ -267,5 +282,90 @@ impl TriggerActionRunner for AgentTriggerRunner {
         } else {
             Err(WorkflowError::TriggerError(error.unwrap_or_default()))
         }
+    }
+}
+
+impl AgentTriggerRunner {
+    /// Cold-start a fresh agent loop with no parent (`ExecuteAgent`).
+    async fn run_cold(
+        &self,
+        template: &TriggerTemplate,
+        event: &BaseEvent,
+        agent_id: &str,
+        prompt: &Option<String>,
+        model: &Option<String>,
+        input: &Option<HashMap<String, serde_json::Value>>,
+        timeout: Option<u64>,
+    ) -> WorkflowResult<()> {
+        let start = wf_common::now();
+        let child_config = AgentLoopConfig {
+            agent_id: Id::from(agent_id.to_string()),
+            model: model.clone().unwrap_or_else(|| "DEFAULT".to_string()),
+            max_iterations: None,
+            max_execution_time: None,
+            hooks: Vec::new(),
+            available_tool_names: Vec::new(),
+            initial_tool_names: Vec::new(),
+            discoverable_tool_names: Vec::new(),
+            enable_general_tool: None,
+            activated_tool_names: Vec::new(),
+            hidden_tool_names: Vec::new(),
+            tool_call_format: None,
+            token_limit: None,
+            token_warning_threshold: None,
+            enable_token_tracking: None,
+            general_description: None,
+            discoverable_metadata_block: None,
+        };
+        let child_input = AgentLoopInput {
+            message: prompt.clone().unwrap_or_else(|| template.name.clone()),
+            context: input.clone().unwrap_or_default(),
+            conversation: Vec::new(),
+        };
+        let executor = self.executor.clone();
+        let shutdown = self.shutdown.clone();
+        let agent_id = agent_id.to_string();
+        tokio::spawn(async move {
+            let run = executor(child_config, child_input);
+            match timeout {
+                Some(ms) => {
+                    let outcome = tokio::select! {
+                        output = tokio::time::timeout(std::time::Duration::from_millis(ms), run) => output,
+                        _ = shutdown.cancelled() => return,
+                    };
+                    match outcome {
+                        Ok(Ok(_)) => {}
+                        Ok(Err(e)) => warn!("Cold-started agent '{}' failed: {}", agent_id, e),
+                        Err(_) => {
+                            warn!("Cold-started agent '{}' timed out after {}ms", agent_id, ms)
+                        }
+                    }
+                }
+                None => {
+                    tokio::select! {
+                        output = run => {
+                            if let Err(e) = output {
+                                warn!("Cold-started agent '{}' failed: {}", agent_id, e);
+                            }
+                        }
+                        _ = shutdown.cancelled() => {}
+                    }
+                }
+            }
+        });
+        record_trigger_execution(
+            &self.storage,
+            template,
+            event,
+            TriggerOutcome {
+                action_type: "execute_agent",
+                success: true,
+                error: None,
+                execution_time_ms: wf_common::now() - start,
+                child_execution_id: None,
+            },
+        )
+        .await;
+        Ok(())
     }
 }

@@ -9,6 +9,7 @@ pub mod executions;
 pub mod file_approvals;
 pub mod file_provenance;
 pub mod graphs;
+pub mod hooks;
 pub mod messages;
 pub mod query;
 pub mod tasks;

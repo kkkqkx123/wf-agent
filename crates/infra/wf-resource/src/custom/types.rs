@@ -77,25 +77,44 @@ pub struct CustomTriggerDefinition {
     pub metadata: Option<Value>,
 }
 
-/// Trigger source declared by custom resources. Only `Event` is executed;
-/// `Schedule` and `Webhook` map to the reserved `TriggerSource` variants and
-/// are rejected at registration until a producer exists. A future producer
-/// owns its side (scheduler: cron parsing, ticking, misfire policy;
-/// gateway: HTTP route, auth, execution routing) and publishes
-/// execution-scoped `NODE_CUSTOM_EVENT`s via
-/// `TriggerSource::translate_schedule_to_condition` /
-/// `translate_webhook_to_condition`. Execution-creating schedules additionally
-/// need a new execution-creating trigger action first: every action today
-/// targets the emitting execution, and the listener drops events without one.
+/// Trigger source declared by custom resources. `Event` matches bus events
+/// directly; `Schedule` is fed by the runtime scheduler (cron ticking,
+/// misfire policy, execution routing) and `Webhook` by the server ingress
+/// gateway (HTTP route, auth, execution routing). Both producers publish
+/// `NODE_CUSTOM_EVENT`s via `TriggerSource::translate_schedule_to_condition`
+/// / `translate_webhook_to_condition`. The validated producer spec travels in
+/// `TriggerTemplate.metadata` (`schedule_spec` / `webhook_spec`).
 #[derive(Debug, Clone, Deserialize)]
 #[serde(tag = "type")]
 pub enum CustomTriggerCondition {
     #[serde(rename = "event")]
     Event { value: String },
     #[serde(rename = "schedule")]
-    Schedule { value: String },
+    Schedule {
+        cron: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        tz: Option<String>,
+        #[serde(default)]
+        target: wf_types::trigger::ScheduleTarget,
+        #[serde(default)]
+        misfire: wf_types::trigger::ScheduleMisfirePolicy,
+        #[serde(default = "default_schedule_enabled")]
+        enabled: bool,
+    },
     #[serde(rename = "webhook")]
-    Webhook { value: String },
+    Webhook {
+        path: String,
+        #[serde(default)]
+        auth: wf_types::trigger::WebhookAuth,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        input_mapping: Option<Vec<String>>,
+        #[serde(default)]
+        target: wf_types::trigger::ScheduleTarget,
+    },
+}
+
+fn default_schedule_enabled() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Deserialize)]

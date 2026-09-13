@@ -4,8 +4,8 @@ use std::time::Duration;
 use serde_json::Value;
 
 use wf_types::message::{LlmToolCall, Message, MessageContentValue, MessageRole};
-use wf_types::tool::{CheckpointTiming, ToolExecutionOptions};
 use wf_types::tool::ToolRiskLevel;
+use wf_types::tool::{CheckpointTiming, ToolExecutionOptions};
 
 use crate::state::ToolCallRecord;
 
@@ -225,11 +225,9 @@ pub(crate) async fn run_tool(
                     parameter_size,
                     0,
                 );
-                metrics.tool().record_tool_call_error(
-                    &tool_name,
-                    entity_id,
-                    "execution_failed",
-                );
+                metrics
+                    .tool()
+                    .record_tool_call_error(&tool_name, entity_id, "execution_failed");
                 tracing::warn!(tool = %tool_name, "tool call reported failure");
             }
             Ok(Err(e)) => {
@@ -241,11 +239,9 @@ pub(crate) async fn run_tool(
                     parameter_size,
                     0,
                 );
-                metrics.tool().record_tool_call_error(
-                    &tool_name,
-                    entity_id,
-                    "execution_failed",
-                );
+                metrics
+                    .tool()
+                    .record_tool_call_error(&tool_name, entity_id, "execution_failed");
                 tracing::warn!(tool = %tool_name, error = %e, "tool call failed");
             }
             Err(_) => {
@@ -282,12 +278,7 @@ pub(crate) async fn run_tool(
                         .create_checkpoint(entity_id, &format!("after tool '{}'", tool_name))
                         .await
                     {
-                        emit_progress(
-                            &ctx.progress_tx,
-                            &tc.id,
-                            ToolProgressStatus::Failed,
-                            None,
-                        );
+                        emit_progress(&ctx.progress_tx, &tc.id, ToolProgressStatus::Failed, None);
                         return Err(format!(
                             "Checkpoint failed after tool '{}': {}",
                             tool_name, e

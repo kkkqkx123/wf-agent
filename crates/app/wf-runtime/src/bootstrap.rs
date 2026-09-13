@@ -6,7 +6,7 @@ mod bootstrap_helpers;
 use std::sync::Arc;
 
 use tracing::{info, warn};
-use wf_workflow::trigger_listener::TriggerEventListener;
+use wf_workflow::trigger::TriggerEventListener;
 
 use wf_core::event::EventBus;
 use wf_core::internal_signal::InternalSignalBus;
@@ -74,6 +74,10 @@ pub struct Runtime {
     /// Trigger runtime state registry: the listener records fired triggers
     /// here and checkpoints capture them as the `trigger_states` audit trail.
     pub trigger_state_registry: Arc<wf_workflow::TriggerStateRegistry>,
+    /// Runtime mount table of execution-scoped schedule timers: whoever owns
+    /// a timed execution binds its schedule name here so scheduler ticks name
+    /// the live execution. Shared with the scheduler background task.
+    pub timer_bindings: Arc<crate::trigger_listener::TimerBindingRegistry>,
     /// Shared hook handler registry: engine hook points and signals
     /// (context compression) fire through it; the compression service is
     /// registered on the `CONTEXT_COMPRESSION_REQUESTED` signal point.
@@ -135,6 +139,7 @@ impl Drop for ActiveShutdownScope {
 struct TriggerSubsystem {
     execution_contexts: Arc<ExecutionContextRegistry>,
     trigger_state_registry: Arc<wf_workflow::TriggerStateRegistry>,
+    timer_bindings: Arc<crate::trigger_listener::TimerBindingRegistry>,
     listener: crate::trigger_listener::TriggerListenerHandle,
 }
 
@@ -179,7 +184,7 @@ fn assemble_trigger_subsystem(deps: TriggerSubsystemDeps) -> TriggerSubsystem {
     let execution_contexts = Arc::new(ExecutionContextRegistry::new());
     let trigger_state_registry = Arc::new(wf_workflow::TriggerStateRegistry::new());
     let trigger_shutdown = tokio_util::sync::CancellationToken::new();
-    let subworkflow_runner: std::sync::Arc<dyn wf_workflow::trigger_listener::SubworkflowRunner> =
+    let subworkflow_runner: std::sync::Arc<dyn wf_workflow::trigger::SubworkflowRunner> =
         std::sync::Arc::new(
             WorkflowRunner::with_tool_registry(
                 registries.clone(),
@@ -205,6 +210,8 @@ fn assemble_trigger_subsystem(deps: TriggerSubsystemDeps) -> TriggerSubsystem {
         trigger_state_registry: Some(trigger_state_registry.clone()),
         hook_handler_registry: Some(hook_handler_registry.clone()),
         signal_bus: Some(signal_bus.clone()),
+        timer_bindings: None,
+        schedule_state_store: None,
         shutdown: trigger_shutdown.clone(),
     });
     // The builtin compression handler shares the listener's shutdown token
@@ -226,6 +233,7 @@ fn assemble_trigger_subsystem(deps: TriggerSubsystemDeps) -> TriggerSubsystem {
     TriggerSubsystem {
         execution_contexts,
         trigger_state_registry,
+        timer_bindings: listener.timer_bindings.clone(),
         listener,
     }
 }
@@ -496,6 +504,7 @@ impl Runtime {
         });
         let execution_contexts = trigger_subsystem.execution_contexts;
         let trigger_state_registry = trigger_subsystem.trigger_state_registry;
+        let timer_bindings = trigger_subsystem.timer_bindings;
         let listener = trigger_subsystem.listener;
 
         // File checkpoint wiring: build the layertwine-backed file checkpoint
@@ -541,6 +550,7 @@ impl Runtime {
             trigger_listener_shutdown: Some(listener.shutdown),
             trigger_listener_handle: Some(listener.handle),
             trigger_state_registry,
+            timer_bindings,
             hook_handler_registry,
             agent_registry,
             #[cfg(feature = "plugins")]

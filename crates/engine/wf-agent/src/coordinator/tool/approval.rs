@@ -79,23 +79,20 @@ impl ToolApprovalGate {
 
         // When a handler is registered it controls the policy; without
         // explicit options fall back to ask-everything for the handler.
-        let options = self
-            .options
-            .clone()
-            .unwrap_or_else(|| ToolApprovalOptions {
-                auto_approval_enabled: Some(self.handler.is_none()),
-                security_preset: None,
-                risk_threshold: None,
-                auto_approve_patterns: None,
-                categories: None,
-                workspace_boundary: None,
-                file_permissions: Some(FilePermissionSettings::default_rules()),
-                command: None,
-                mcp: None,
-                network: None,
-                interaction: None,
-                allow_write_protected: None,
-            });
+        let options = self.options.clone().unwrap_or_else(|| ToolApprovalOptions {
+            auto_approval_enabled: Some(self.handler.is_none()),
+            security_preset: None,
+            risk_threshold: None,
+            auto_approve_patterns: None,
+            categories: None,
+            workspace_boundary: None,
+            file_permissions: Some(FilePermissionSettings::default_rules()),
+            command: None,
+            mcp: None,
+            network: None,
+            interaction: None,
+            allow_write_protected: None,
+        });
 
         let coordinator = ToolApprovalCoordinator::new(options);
         let decisions = coordinator.evaluate(&requests);

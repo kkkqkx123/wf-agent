@@ -15,6 +15,7 @@ futures.workspace = true
 clap.workspace = true
 wf-metrics = { path = "../../infra/wf-metrics" }
 wf-api = { path = "../wf-api" }
+wf-core = { path = "../../foundation/wf-core" }
 wf-types = { path = "../../foundation/wf-types" }
 wf-storage = { path = "../../infra/wf-storage" }
 wf-tools = { path = "../../engine/wf-tools" }

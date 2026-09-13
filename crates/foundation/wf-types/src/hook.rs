@@ -121,10 +121,12 @@ pub fn hook_requires_handler(hook_type: &str) -> bool {
 /// builtin compression service; subscribing is rejected at load time and
 /// skipped by the listener at runtime) and for every `BEFORE_*` point
 /// (trigger actions always run asynchronously after the hook and cannot
-/// gate execution; use a sync handler or approval instead). Open for all
-/// other known points (typically the `AFTER_*` counterparts) and for
-/// forward-compatible unknown types (matched only when something fires
-/// them, which unknown types never do).
+/// gate execution; the synchronous gate is a hook handler returning
+/// `HookOutcome::Veto` at `BEFORE_EXECUTE` / `BEFORE_TOOL_CALL`, see
+/// `wf-execution-shared::hooks`). Open for all other known points
+/// (typically the `AFTER_*` counterparts) and for forward-compatible
+/// unknown types (matched only when something fires them, which unknown
+/// types never do).
 pub fn hook_allows_trigger(hook_type: &str) -> bool {
     if hook_type == CONTEXT_COMPRESSION_SIGNAL {
         return false;

@@ -24,6 +24,34 @@ struct NodeHookPayload<'a> {
     error: Option<&'a str>,
 }
 
+/// Stable node identity resolved once at execution start and shared by the
+/// hook payloads, the failure path and the lifecycle events.
+struct NodeRef<'a> {
+    id: &'a str,
+    name: &'a str,
+    r#type: &'a str,
+    start: i64,
+}
+
+impl<'a> NodeRef<'a> {
+    fn payload<'b>(
+        &'b self,
+        duration_ms: Option<i64>,
+        error: Option<&'b str>,
+    ) -> NodeHookPayload<'b>
+    where
+        'a: 'b,
+    {
+        NodeHookPayload {
+            node_id: self.id,
+            node_name: self.name,
+            node_type: self.r#type,
+            duration_ms,
+            error,
+        }
+    }
+}
+
 impl Default for NodeCoordinator {
     fn default() -> Self {
         Self::new()
@@ -48,6 +76,12 @@ impl NodeCoordinator {
         let node_name = ctx.node_name.clone().unwrap_or_default();
         let node_type = format!("{:?}", ctx.node_type);
         let node_start = wf_common::now();
+        let node = NodeRef {
+            id: &node_id,
+            name: &node_name,
+            r#type: &node_type,
+            start: node_start,
+        };
 
         Self::emit_event(
             event_bus,
@@ -73,13 +107,7 @@ impl NodeCoordinator {
             event_bus,
             entity,
             "BEFORE_EXECUTE",
-            &NodeHookPayload {
-                node_id: &node_id,
-                node_name: &node_name,
-                node_type: &node_type,
-                duration_ms: None,
-                error: None,
-            },
+            &node.payload(None, None),
         )
         .await;
         if let Some(reason) = before.vetoed_reason() {
@@ -88,11 +116,8 @@ impl NodeCoordinator {
                 hook_handler_registry,
                 event_bus,
                 entity,
-                &node_id,
-                &node_name,
-                &node_type,
-                node_start,
-                format!("hook veto at BEFORE_EXECUTE: {reason}"),
+                &node,
+                &format!("hook veto at BEFORE_EXECUTE: {reason}"),
             )
             .await;
         }
@@ -124,13 +149,7 @@ impl NodeCoordinator {
                     event_bus,
                     entity,
                     "AFTER_EXECUTE",
-                    &NodeHookPayload {
-                        node_id: &node_id,
-                        node_name: &node_name,
-                        node_type: &node_type,
-                        duration_ms: Some(wf_common::now() - node_start),
-                        error: None,
-                    },
+                    &node.payload(Some(wf_common::now() - node_start), None),
                 )
                 .await;
 
@@ -160,11 +179,8 @@ impl NodeCoordinator {
                     hook_handler_registry,
                     event_bus,
                     entity,
-                    &node_id,
-                    &node_name,
-                    &node_type,
-                    node_start,
-                    e.to_string(),
+                    &node,
+                    &e.to_string(),
                 )
                 .await
             }
@@ -178,25 +194,17 @@ impl NodeCoordinator {
         hook_handler_registry: Option<&HookHandlerRegistry>,
         event_bus: Option<&EventBus>,
         entity: &WorkflowExecutionEntity,
-        node_id: &str,
-        node_name: &str,
-        node_type: &str,
-        node_start: i64,
-        reason: String,
+        node: &NodeRef<'_>,
+        reason: &str,
     ) -> WorkflowResult<NodeExecutionResult> {
+        let duration_ms = wf_common::now() - node.start;
         Self::execute_hooks(
             hooks,
             hook_handler_registry,
             event_bus,
             entity,
             "ON_ERROR",
-            &NodeHookPayload {
-                node_id,
-                node_name,
-                node_type,
-                duration_ms: Some(wf_common::now() - node_start),
-                error: Some(&reason),
-            },
+            &node.payload(Some(duration_ms), Some(reason)),
         )
         .await;
 
@@ -204,19 +212,19 @@ impl NodeCoordinator {
             event_bus,
             EventType::NodeFailed,
             entity,
-            node_id,
+            node.id,
             &serde_json::json!({
                 "error": reason,
-                "node_name": node_name,
-                "node_type": node_type,
-                "duration_ms": wf_common::now() - node_start,
+                "node_name": node.name,
+                "node_type": node.r#type,
+                "duration_ms": duration_ms,
             }),
         )
         .await;
 
         Err(WorkflowError::NodeExecutionFailed {
-            node_id: node_id.to_string(),
-            reason,
+            node_id: node.id.to_string(),
+            reason: reason.to_string(),
         })
     }
 

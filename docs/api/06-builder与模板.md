@@ -103,4 +103,4 @@
 ## 5. 已知不一致（后续跟进）
 
 - **Trigger 模板双持久化缺口**：`TriggerTemplateBuilder::register()`（builder/template.rs）同时写存储 + 注册 wf-resource 内存注册表（监听器唯一数据源）；而 `agent_trigger_template::save()`（`POST /templates/trigger`）只写存储、**不注册内存注册表**——经 HTTP 保存的 trigger 模板不会进入 `TriggerEventListener`，无法被执行。对齐方案待定（builder 入口已满足运行时需求，HTTP 面以持久化/导出为主）。
-- **触发机制与存储记录的脱节**：真实触发由全局 `TriggerTemplate` 注册表 + EventBus 监听器驱动（纯通用事件匹配，见 wf-workflow/trigger_listener.rs）；`TriggerStorageMetadata`（`/triggers`、`/agent-triggers`）无运行时消费者，仅为外部工具的 CRUD 面。已删除的 TS per-loop 语义遗留：`AgentConfig.triggers`、`AgentTriggerBuilder`、`WorkflowDefinition.triggers` 与 `WorkflowBuilder::add_trigger`（含 `TriggerDefinition` 类型及 `wf-types/trigger/schema.rs` 全部 schema 类型，零消费者）。
+- **触发机制与存储记录的脱节**：真实触发由全局 `TriggerTemplate` 注册表 + EventBus 监听器驱动（纯通用事件匹配，见 wf-workflow/trigger/listener.rs）；`TriggerStorageMetadata`（`/triggers`、`/agent-triggers`）无运行时消费者，仅为外部工具的 CRUD 面。已删除的 TS per-loop 语义遗留：`AgentConfig.triggers`、`AgentTriggerBuilder`、`WorkflowDefinition.triggers` 与 `WorkflowBuilder::add_trigger`（含 `TriggerDefinition` 类型及 `wf-types/trigger/schema.rs` 全部 schema 类型，零消费者）。

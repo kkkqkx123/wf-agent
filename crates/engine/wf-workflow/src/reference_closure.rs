@@ -569,6 +569,21 @@ fn validate_trigger_action_references(
         wf_types::trigger::TriggerAction::ExecuteTriggeredAgentExecution {
             model: None, ..
         } => {}
+        wf_types::trigger::TriggerAction::ExecuteAgent {
+            model: Some(profile),
+            ..
+        } => {
+            if !ctx.profile_ids.contains(profile) {
+                report.errors.push(error(
+                    format!("trigger.{}.action.model", template.name),
+                    format!(
+                        "Trigger '{}' references profile '{}' which is not registered",
+                        template.name, profile
+                    ),
+                ));
+            }
+        }
+        wf_types::trigger::TriggerAction::ExecuteAgent { model: None, .. } => {}
         _ => {}
     }
 }

@@ -23,6 +23,43 @@ fn now_ts() -> i64 {
         .unwrap_or(0)
 }
 
+/// The producer target and the trigger action must agree: a creation target
+/// publishes events without an `execution_id`, which only execution-creating
+/// actions can run; an execution-scoped target binds a live execution, where
+/// a cold-start action has nothing to anchor to.
+fn check_target_action_match(
+    trigger_name: &str,
+    target: &wf_types::trigger::ScheduleTarget,
+    action: Option<&wf_types::trigger::TriggerAction>,
+) -> Result<(), String> {
+    let Some(action) = action else {
+        return Ok(());
+    };
+    match (target.is_creating(), action.is_execution_creating()) {
+        (true, false) => Err(format!(
+            "trigger '{}' targets creation but its action '{}' needs an emitting execution; use an execution-creating action (execute_workflow / execute_agent)",
+            trigger_name,
+            action.action_name()
+        )),
+        (false, true) => Err(format!(
+            "trigger '{}' targets a live execution but its action '{}' cold-starts a fresh run; use a creation target or an execution-scoped action",
+            trigger_name,
+            action.action_name()
+        )),
+        _ => Ok(()),
+    }
+}
+
+/// Webhook path declared by a registered template, if any.
+fn template_webhook_path(template: &TriggerTemplate) -> Option<&str> {
+    template
+        .metadata
+        .as_ref()?
+        .get(wf_types::trigger::WEBHOOK_SPEC_METADATA_KEY)?
+        .get("path")?
+        .as_str()
+}
+
 fn validate_tool(tool: &CustomToolDefinition) -> Result<(), String> {
     wf_config::validator::validate_required(&tool.id, "tool.id").map_err(|e| e.to_string())?;
     wf_config::validator::validate_required(&tool.description, "tool.description")
@@ -179,50 +216,114 @@ pub fn register_custom_triggers(
             ));
             continue;
         }
-        let condition = match &t.condition {
+        let (condition, producer_spec, producer_enabled) = match &t.condition {
             // Custom event triggers match `NODE_CUSTOM_EVENT` events by their
             // concrete `event_name`.
-            CustomTriggerCondition::Event { value } => TriggerCondition {
-                event_type: "NODE_CUSTOM_EVENT".into(),
-                event_name: Some(value.clone()),
-                condition: None,
-                metadata: None,
-                metadata_exists: None,
-                execution_prefix: None,
-            },
-            // Schedulers (cron) and webhook ingress are not implemented:
-            // rejected at load time instead of being registered and never
-            // firing. A future producer owns its side (the scheduler: cron
-            // parsing, ticking, misfire policy; the gateway: HTTP route,
-            // auth, execution routing) and publishes execution-scoped
-            // `NODE_CUSTOM_EVENT`s through
-            // `TriggerSource::translate_schedule_to_condition` /
-            // `translate_webhook_to_condition`, which reuse the event
-            // competition scope keys without adding a competition dimension.
-            // Note the deeper gap: every trigger action targets the emitting
-            // execution, so execution-creating schedules ("nightly run W
-            // fresh") need a new action type first; execution-scoped timers
-            // and ingress are the shippable first step.
-            CustomTriggerCondition::Schedule { value } => {
-                total.merge(Summary::err(
-                    &t.name,
-                    format!(
-                        "schedule trigger source is reserved (no scheduler yet; expression '{}' kept out of the registry); use an event trigger instead",
-                        value
-                    ),
-                ));
-                continue;
+            CustomTriggerCondition::Event { value } => (
+                TriggerCondition {
+                    event_type: "NODE_CUSTOM_EVENT".into(),
+                    event_name: Some(value.clone()),
+                    condition: None,
+                    metadata: None,
+                    metadata_exists: None,
+                    execution_prefix: None,
+                },
+                None,
+                None,
+            ),
+            // Schedules are fed by the runtime scheduler: validate the cron
+            // expression, timezone and target here; the condition reuses the
+            // event competition scope keys through
+            // `translate_schedule_to_condition`, and the validated spec
+            // travels in the template metadata for the scheduler to read.
+            CustomTriggerCondition::Schedule {
+                cron,
+                tz,
+                target,
+                misfire,
+                enabled,
+            } => {
+                let spec = wf_types::trigger::ScheduleSpec {
+                    cron: cron.clone(),
+                    tz: tz.clone(),
+                    target: target.clone(),
+                    misfire: *misfire,
+                    enabled: *enabled,
+                };
+                if let Err(e) = spec.validate(&t.name) {
+                    total.merge(Summary::err(&t.name, e));
+                    continue;
+                }
+                if let Err(e) = check_target_action_match(&t.name, target, t.action.as_ref()) {
+                    total.merge(Summary::err(&t.name, e));
+                    continue;
+                }
+                let condition =
+                    wf_types::trigger::TriggerSource::translate_schedule_to_condition(&t.name);
+                let spec_json = serde_json::to_value(&spec).unwrap_or(serde_json::Value::Null);
+                (
+                    condition,
+                    Some((
+                        wf_types::trigger::SCHEDULE_SPEC_METADATA_KEY.to_string(),
+                        spec_json,
+                    )),
+                    Some(*enabled),
+                )
             }
-            CustomTriggerCondition::Webhook { value } => {
-                total.merge(Summary::err(
-                    &t.name,
-                    format!(
-                        "webhook trigger source is reserved (no ingress gateway yet; path '{}' kept out of the registry); use an event trigger instead",
-                        value
-                    ),
-                ));
-                continue;
+            // Webhooks are fed by the server ingress gateway: validate path
+            // shape, auth completeness and target; path uniqueness is checked
+            // against already-registered templates below.
+            CustomTriggerCondition::Webhook {
+                path,
+                auth,
+                input_mapping,
+                target,
+            } => {
+                let spec = wf_types::trigger::WebhookSpec {
+                    path: path.clone(),
+                    auth: auth.clone(),
+                    input_mapping: input_mapping.clone(),
+                    target: target.clone(),
+                };
+                if let Err(e) = spec.validate(&t.name) {
+                    total.merge(Summary::err(&t.name, e));
+                    continue;
+                }
+                if let Err(e) = check_target_action_match(&t.name, target, t.action.as_ref()) {
+                    total.merge(Summary::err(&t.name, e));
+                    continue;
+                }
+                let condition =
+                    wf_types::trigger::TriggerSource::translate_webhook_to_condition(&t.name);
+                let spec_json = serde_json::to_value(&spec).unwrap_or(serde_json::Value::Null);
+                (
+                    condition,
+                    Some((
+                        wf_types::trigger::WEBHOOK_SPEC_METADATA_KEY.to_string(),
+                        spec_json,
+                    )),
+                    None,
+                )
             }
+        };
+
+        let mut metadata: HashMap<String, serde_json::Value> = t
+            .metadata
+            .and_then(|m| match m {
+                serde_json::Value::Object(obj) => {
+                    let map: HashMap<String, serde_json::Value> = obj.into_iter().collect();
+                    Some(map)
+                }
+                _ => None,
+            })
+            .unwrap_or_default();
+        if let Some((key, value)) = producer_spec {
+            metadata.insert(key, value);
+        }
+        let metadata = if metadata.is_empty() {
+            None
+        } else {
+            Some(metadata)
         };
 
         let template = TriggerTemplate {
@@ -230,19 +331,13 @@ pub fn register_custom_triggers(
             description: Some(t.description.clone()),
             condition: Some(condition),
             action: t.action,
-            enabled: Some(true),
+            enabled: Some(producer_enabled.unwrap_or(true)),
             max_triggers: None,
             priority: t.priority,
             dispatch_mode: t.dispatch_mode,
             allow_multi_effect: t.allow_multi_effect,
             effect_order: t.effect_order.clone(),
-            metadata: t.metadata.and_then(|m| match m {
-                serde_json::Value::Object(obj) => {
-                    let map: HashMap<String, serde_json::Value> = obj.into_iter().collect();
-                    Some(map)
-                }
-                _ => None,
-            }),
+            metadata,
             created_at: ts,
             updated_at: ts,
             create_checkpoint: None,
@@ -266,6 +361,32 @@ pub fn register_custom_triggers(
         .iter()
         .filter_map(|key| registry.get(key).map(|t| t.as_ref().clone()))
         .collect();
+    // Webhook paths are globally unique: a second template claiming an
+    // already-mounted path would shadow ingress routing.
+    let mut webhook_paths: HashMap<String, String> = HashMap::new();
+    for template in &existing {
+        if let Some(path) = template_webhook_path(template) {
+            webhook_paths.insert(path.to_string(), template.name.clone());
+        }
+    }
+    let mut candidates_without_path_conflict: Vec<TriggerTemplate> = Vec::new();
+    for template in candidates {
+        if let Some(path) = template_webhook_path(&template) {
+            if let Some(owner) = webhook_paths.get(path) {
+                total.merge(Summary::err(
+                    &template.name,
+                    format!(
+                        "webhook path '{}' is already claimed by trigger '{}'; paths must be globally unique",
+                        path, owner
+                    ),
+                ));
+                continue;
+            }
+            webhook_paths.insert(path.to_string(), template.name.clone());
+        }
+        candidates_without_path_conflict.push(template);
+    }
+    let candidates = candidates_without_path_conflict;
     let reports = wf_config::processor::trigger::check_trigger_scopes(&existing, &candidates);
     let mut rejected: HashMap<String, String> = HashMap::new();
     for report in reports {
@@ -543,40 +664,165 @@ mod tests {
     }
 
     #[test]
-    fn schedule_and_webhook_triggers_are_rejected() {
+    fn schedule_and_webhook_triggers_register_with_specs() {
         use wf_core::registry::Registry;
         let regs = ResourceRegistries::new();
         let schedule = CustomTriggerDefinition {
             condition: CustomTriggerCondition::Schedule {
-                value: "* * * * *".to_string(),
+                cron: "0 2 * * *".to_string(),
+                tz: Some("UTC".to_string()),
+                target: wf_types::trigger::ScheduleTarget::Create {
+                    workflow_id: Some("nightly_flow".to_string()),
+                    agent_id: None,
+                    input: None,
+                },
+                misfire: wf_types::trigger::ScheduleMisfirePolicy::FireOnce,
+                enabled: true,
             },
+            action: Some(wf_types::trigger::TriggerAction::ExecuteWorkflow {
+                workflow_id: "nightly_flow".to_string(),
+                input: None,
+                timeout: None,
+            }),
             ..event_trigger("cron-trigger")
         };
         let webhook = CustomTriggerDefinition {
             condition: CustomTriggerCondition::Webhook {
-                value: "/hooks/x".to_string(),
+                path: "/hooks/x".to_string(),
+                auth: wf_types::trigger::WebhookAuth::None,
+                input_mapping: None,
+                target: wf_types::trigger::ScheduleTarget::Create {
+                    workflow_id: None,
+                    agent_id: Some("child".to_string()),
+                    input: None,
+                },
             },
+            action: Some(wf_types::trigger::TriggerAction::ExecuteAgent {
+                agent_id: "child".to_string(),
+                prompt: None,
+                model: None,
+                input: None,
+                timeout: None,
+            }),
             ..event_trigger("hook-trigger")
         };
         let summary =
             register_custom_triggers(&regs.trigger_templates, vec![schedule, webhook], false);
-        assert!(summary.failed.iter().any(|f| f.id == "cron-trigger"));
-        assert!(summary.failed.iter().any(|f| f.id == "hook-trigger"));
-        assert!(!regs.trigger_templates.has("cron-trigger"));
-        assert!(!regs.trigger_templates.has("hook-trigger"));
-        // Rejections keep the declared value so operators can tell which
-        // expression/path was kept out of the registry.
-        let cron_err = summary
-            .failed
-            .iter()
-            .find(|f| f.id == "cron-trigger")
-            .expect("cron failure recorded");
-        assert!(cron_err.error.contains("* * * * *"));
-        let hook_err = summary
-            .failed
-            .iter()
-            .find(|f| f.id == "hook-trigger")
-            .expect("webhook failure recorded");
-        assert!(hook_err.error.contains("/hooks/x"));
+        assert!(summary.failed.is_empty(), "{:?}", summary.failed);
+        let cron_template = regs
+            .trigger_templates
+            .get("cron-trigger")
+            .expect("schedule registered");
+        let condition = cron_template.condition.as_ref().unwrap();
+        assert_eq!(condition.event_type, "NODE_CUSTOM_EVENT");
+        assert_eq!(condition.event_name.as_deref(), Some("cron-trigger"));
+        let spec = cron_template
+            .metadata
+            .as_ref()
+            .and_then(|m| m.get(wf_types::trigger::SCHEDULE_SPEC_METADATA_KEY))
+            .expect("schedule spec stored");
+        assert_eq!(spec["cron"], serde_json::json!("0 2 * * *"));
+        let hook_template = regs
+            .trigger_templates
+            .get("hook-trigger")
+            .expect("webhook registered");
+        let hook_spec = hook_template
+            .metadata
+            .as_ref()
+            .and_then(|m| m.get(wf_types::trigger::WEBHOOK_SPEC_METADATA_KEY))
+            .expect("webhook spec stored");
+        assert_eq!(hook_spec["path"], serde_json::json!("/hooks/x"));
+    }
+
+    #[test]
+    fn invalid_schedule_and_webhook_are_rejected() {
+        use wf_core::registry::Registry;
+        let regs = ResourceRegistries::new();
+        let bad_cron = CustomTriggerDefinition {
+            condition: CustomTriggerCondition::Schedule {
+                cron: "not a cron".to_string(),
+                tz: None,
+                target: wf_types::trigger::ScheduleTarget::ExecutionScoped,
+                misfire: wf_types::trigger::ScheduleMisfirePolicy::Skip,
+                enabled: true,
+            },
+            ..event_trigger("bad-cron")
+        };
+        let bad_tz = CustomTriggerDefinition {
+            condition: CustomTriggerCondition::Schedule {
+                cron: "0 2 * * *".to_string(),
+                tz: Some("Asia/Shanghai".to_string()),
+                target: wf_types::trigger::ScheduleTarget::ExecutionScoped,
+                misfire: wf_types::trigger::ScheduleMisfirePolicy::Skip,
+                enabled: true,
+            },
+            ..event_trigger("bad-tz")
+        };
+        let bad_path = CustomTriggerDefinition {
+            condition: CustomTriggerCondition::Webhook {
+                path: "hooks/x".to_string(),
+                auth: wf_types::trigger::WebhookAuth::None,
+                input_mapping: None,
+                target: wf_types::trigger::ScheduleTarget::ExecutionScoped,
+            },
+            ..event_trigger("bad-path")
+        };
+        // Creation target with an execution-scoped action never fires.
+        let mismatched = CustomTriggerDefinition {
+            condition: CustomTriggerCondition::Schedule {
+                cron: "0 2 * * *".to_string(),
+                tz: None,
+                target: wf_types::trigger::ScheduleTarget::Create {
+                    workflow_id: Some("w".to_string()),
+                    agent_id: None,
+                    input: None,
+                },
+                misfire: wf_types::trigger::ScheduleMisfirePolicy::Skip,
+                enabled: true,
+            },
+            ..event_trigger("mismatched")
+        };
+        let summary = register_custom_triggers(
+            &regs.trigger_templates,
+            vec![bad_cron, bad_tz, bad_path, mismatched],
+            false,
+        );
+        for id in ["bad-cron", "bad-tz", "bad-path", "mismatched"] {
+            assert!(
+                summary.failed.iter().any(|f| f.id == id),
+                "{:?}",
+                summary.failed
+            );
+            assert!(!regs.trigger_templates.has(id));
+        }
+    }
+
+    #[test]
+    fn duplicate_webhook_path_is_rejected() {
+        use wf_core::registry::Registry;
+        let regs = ResourceRegistries::new();
+        let first = CustomTriggerDefinition {
+            condition: CustomTriggerCondition::Webhook {
+                path: "/hooks/shared".to_string(),
+                auth: wf_types::trigger::WebhookAuth::None,
+                input_mapping: None,
+                target: wf_types::trigger::ScheduleTarget::ExecutionScoped,
+            },
+            ..event_trigger("first-hook")
+        };
+        let summary = register_custom_triggers(&regs.trigger_templates, vec![first], false);
+        assert!(summary.failed.is_empty(), "{:?}", summary.failed);
+        let second = CustomTriggerDefinition {
+            condition: CustomTriggerCondition::Webhook {
+                path: "/hooks/shared".to_string(),
+                auth: wf_types::trigger::WebhookAuth::None,
+                input_mapping: None,
+                target: wf_types::trigger::ScheduleTarget::ExecutionScoped,
+            },
+            ..event_trigger("second-hook")
+        };
+        let summary = register_custom_triggers(&regs.trigger_templates, vec![second], false);
+        assert!(summary.failed.iter().any(|f| f.id == "second-hook"));
+        assert!(!regs.trigger_templates.has("second-hook"));
     }
 }

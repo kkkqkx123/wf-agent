@@ -21,7 +21,7 @@ use super::{
     handle_subworkflow_output, ExecutionContextRegistry, TriggerExecutionRecorder,
     DEFAULT_TRIGGER_TIMEOUT_MS,
 };
-use wf_workflow::trigger_listener::SubworkflowRunner;
+use wf_workflow::trigger::SubworkflowRunner;
 
 pub const COMPRESSION_SERVICE_HANDLER_NAME: &str = "context_compression";
 

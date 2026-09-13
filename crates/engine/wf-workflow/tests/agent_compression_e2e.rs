@@ -20,7 +20,7 @@ use wf_core::EventBus;
 use wf_execution_shared::hooks::{HookContext, HookHandler, HookHandlerRegistry, HookOutcome};
 use wf_types::events::EventType;
 use wf_types::message::{Message, MessageContent, MessageContentValue, MessageRole};
-use wf_workflow::trigger_listener::SubworkflowRunner;
+use wf_workflow::trigger::SubworkflowRunner;
 use wf_workflow::WorkflowResult;
 
 fn text_message(role: MessageRole, text: &str) -> Message {

@@ -79,8 +79,9 @@ pub struct AgentHookConfig {
     /// event is published. A trigger template matching that event always
     /// starts after the handler while its completion is not awaited, so
     /// prefer one path unless both effects commute. `BEFORE_*` points are
-    /// handler-only (trigger-closed): without a handler the definition only
-    /// writes a write-only audit event.
+    /// handler-only (trigger-closed): the handler observes and, at the gate
+    /// points, may return `Veto` to deny the guarded step; without a handler
+    /// the definition only writes a write-only audit event.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub handler: Option<String>,
 }

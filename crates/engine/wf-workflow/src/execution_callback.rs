@@ -736,8 +736,7 @@ mod tests {
         let registry = Arc::new(HookHandlerRegistry::new());
         assert!(registry.register("BEFORE_EXECUTE", Arc::new(GateHandler), 1));
 
-        let callback =
-            WorkflowExecutionCallback::default().with_hook_handler_registry(registry);
+        let callback = WorkflowExecutionCallback::default().with_hook_handler_registry(registry);
         let workflow_id = wf_common::generate_id();
         callback.register_workflow_with_hooks(
             workflow_id.clone(),

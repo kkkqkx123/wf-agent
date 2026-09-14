@@ -464,8 +464,11 @@ impl AgentIterationCoordinator {
 
             // Emit token usage events (decision track only): a single-shot
             // warning at the threshold crossing, then limit exceeded once per
-            // 50% tier band, then compression requested when the conversation
-            // array's ledger estimate exceeds the limit.
+            // 50% tier band, then compression requested when the projected
+            // view (the actual LLM input) exceeds the limit. The view
+            // estimate shrinks after compression even though the history
+            // keeps growing, so history-based estimates would re-trigger
+            // compression immediately.
             if let Some(ref bus) = self.event_bus {
                 let tokens_used = conversation.estimated_total();
                 let token_limit = conversation.token_limit();
@@ -488,13 +491,16 @@ impl AgentIterationCoordinator {
                             token_limit,
                         ));
                     }
-                    let estimated = conversation.estimated_conversation_tokens();
+                    let estimated = conversation.estimated_view_tokens();
                     let version = conversation.conversation_version();
                     if wf_execution_shared::context_store::over_budget(estimated, token_limit)
                         && conversation.should_emit_compression(version)
                     {
-                        let message_count = conversation.messages().len();
-                        let messages = conversation.messages().to_vec();
+                        // The summary workflow needs the full history for
+                        // recall; the count/estimate describe the view
+                        // (the request size being controlled).
+                        let message_count = conversation.view_messages().len();
+                        let messages = conversation.history().to_vec();
                         let request =
                             wf_execution_shared::context_store::compression_request(
                                 wf_llm::CONVERSATION_CONTEXT_ID,

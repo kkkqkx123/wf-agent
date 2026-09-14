@@ -312,12 +312,11 @@ impl AgentLoopCoordinator {
             .await
     }
 
-    /// Restore an agent loop from a checkpoint and re-drive it to completion.
-    /// The entity is rebuilt from the current config (tools/model/
-    /// hooks) and its runtime state is reconstructed from the checkpoint
-    /// snapshot: iteration progress, conversation, pending/completed tool-call
-    /// idempotency table. Replayed tool calls with a cached result are served
-    /// without re-executing the tool.
+    /// Branch resume from a checkpoint. A fresh execution id is always
+    /// allocated and linked to the source execution as its parent; the source
+    /// chain is never mutated or truncated. Restoring into the same execution
+    /// id (in-place continuation) is rejected. Use read-only preview APIs for
+    /// replay without execution.
     pub async fn resume_from_checkpoint(
         &self,
         checkpoint_id: &str,
@@ -326,17 +325,35 @@ impl AgentLoopCoordinator {
     ) -> AgentResult<AgentLoopOutput> {
         let prompt = input.message.clone();
         let restore = self.restore_checkpoint(checkpoint_id).await?;
-        let entity = Arc::new(self.build_entity(&config, input).await?);
+        if let Some(ref forced_id) = self.agent_loop_id {
+            if forced_id.as_str() == restore.agent_loop_id.as_str() {
+                return Err(AgentError::ExecutionError(
+                    "branch resume requires a fresh execution id; reusing the source execution id is rejected".to_string(),
+                ));
+            }
+        }
+        let mut branch_input = input;
+        branch_input.context.insert(
+            "parent_execution_id".to_string(),
+            Value::String(restore.agent_loop_id.to_string()),
+        );
+        branch_input.context.insert(
+            "branch_source_checkpoint".to_string(),
+            Value::String(restore.source_checkpoint_id.clone()),
+        );
+        let entity = Arc::new(self.build_entity(&config, branch_input).await?);
         {
             let mut state = entity.state.write().await;
             state.restore_from_snapshot(restore.state).await?;
         }
-        // The restored conversation is authoritative for the resumed run.
+        // Full conversation restoration: history, sequences, view, ledger
+        // and tracker come back together so the branch continues exactly
+        // where the source stood.
         entity
             .conversation()
             .write()
             .await
-            .replace_messages(restore.conversation);
+            .restore_state(restore.conversation);
         self.run_loop(&config, entity, prompt, IterationMode::Blocking, None)
             .await
     }
@@ -693,6 +710,9 @@ impl AgentLoopCoordinator {
         }
         if let Some(ref bus) = self.checkpoint_execution_events {
             cp = cp.with_execution_event_bus(bus.clone());
+        }
+        if let Some(ref strategy) = self.checkpoint_strategy {
+            cp = cp.with_strategy(strategy.clone());
         }
         cp
     }

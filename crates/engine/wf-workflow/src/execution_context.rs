@@ -55,8 +55,10 @@ impl std::fmt::Display for WriteBackError {
 /// workflow execution.
 #[async_trait]
 pub trait ContextWriter: Send + Sync {
-    /// Replace the message array of `context_id`, only when the array is
-    /// still at `expected_version` (newer messages win otherwise).
+    /// Archive the previous active messages of `context_id` and switch the
+    /// active view to `messages`, only when the array is still at
+    /// `expected_version` (newer messages win otherwise). History is never
+    /// deleted; undo via `restore_full_history`.
     async fn write_context(
         &self,
         context_id: &str,

@@ -21,17 +21,32 @@ use crate::state::{AgentLoopStateSnapshot, IterationRecord, ToolDiscoveryState};
 
 /// Runtime reconstruction of a checkpointed agent loop, produced by
 /// [`AgentCheckpointIntegration::restore_entity`] and consumed by
-/// `AgentLoopCoordinator::resume_from_checkpoint`.
+/// branch resume. The conversation state is authoritative: history, sequence
+/// coordinates, read projection, estimation ledger and cost tracker come
+/// back together so the branch continues exactly where the source stood.
 pub struct RestoredAgentLoop {
     pub agent_loop_id: Id,
     pub state: AgentLoopStateSnapshot,
-    pub conversation: Vec<Message>,
+    pub conversation: wf_llm::messaging::conversation_session::ConversationState,
+    /// Checkpoint id this restoration was built from, recorded as branch
+    /// lineage on the new execution.
+    pub source_checkpoint_id: String,
+}
+
+/// How a restored checkpoint may be used. Only branch continuation and
+/// read-only replay exist: restoring into the same execution id or
+/// truncating the source chain in place is rejected.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RestoreMode {
+    Branch,
+    Replay,
 }
 
 pub struct AgentCheckpointIntegration {
     inner: AgentCheckpointCoordinator,
     store: Arc<StorageBackend>,
     execution_events: Option<ExecutionEventBus>,
+    strategy: crate::checkpoint::strategy::AgentCheckpointStrategy,
 }
 
 impl AgentCheckpointIntegration {
@@ -42,6 +57,7 @@ impl AgentCheckpointIntegration {
             inner: coordinator,
             store,
             execution_events: None,
+            strategy: crate::checkpoint::strategy::AgentCheckpointStrategy::every_iteration(),
         }
     }
 
@@ -65,6 +81,56 @@ impl AgentCheckpointIntegration {
     ) -> Self {
         self.inner = self.inner.with_file_checkpoint_manager(manager);
         self
+    }
+
+    pub fn with_strategy(
+        mut self,
+        strategy: crate::checkpoint::strategy::AgentCheckpointStrategy,
+    ) -> Self {
+        self.strategy = strategy;
+        self
+    }
+
+    fn should_checkpoint(
+        &self,
+        trigger: &CheckpointTiming,
+        iteration: u32,
+    ) -> bool {
+        use crate::checkpoint::strategy::AgentCheckpointTiming;
+        let timing = match trigger {
+            CheckpointTiming::BeforeExecute => AgentCheckpointTiming::BeforeIteration,
+            CheckpointTiming::AfterExecute => AgentCheckpointTiming::AfterIteration,
+            CheckpointTiming::OnError => AgentCheckpointTiming::OnIterationError,
+            CheckpointTiming::Manual => AgentCheckpointTiming::OnAgentStart,
+            CheckpointTiming::OnComplete => AgentCheckpointTiming::OnAgentEnd,
+            CheckpointTiming::OnPause => AgentCheckpointTiming::OnAgentPause,
+            CheckpointTiming::OnCancel => AgentCheckpointTiming::OnAgentCancel,
+            CheckpointTiming::OnTimeout => AgentCheckpointTiming::OnAgentTimeout,
+            CheckpointTiming::ToolBefore => AgentCheckpointTiming::BeforeTool,
+            CheckpointTiming::ToolAfter => AgentCheckpointTiming::AfterTool,
+            CheckpointTiming::BeforeRetry => AgentCheckpointTiming::BeforeCompression,
+            CheckpointTiming::AfterRetrySuccess => {
+                AgentCheckpointTiming::AfterCompression
+            }
+            _ => return true,
+        };
+        self.strategy.should_checkpoint(&timing, iteration)
+    }
+
+    /// Strategy-gated checkpoint creation. Iteration and tool boundary
+    /// checkpoints go through here so cadence configuration applies instead
+    /// of being bypassed by direct persistence.
+    pub async fn create_checkpoint_gated(
+        &self,
+        entity: &AgentLoopEntity,
+        trigger: CheckpointTiming,
+    ) -> Result<bool, CheckpointError> {
+        let iteration = entity.state.read().await.current_iteration();
+        if !self.should_checkpoint(&trigger, iteration) {
+            return Ok(false);
+        }
+        self.create_checkpoint(entity, trigger).await?;
+        Ok(true)
     }
 
     pub fn store(&self) -> &Arc<StorageBackend> {
@@ -134,12 +200,12 @@ impl AgentCheckpointIntegration {
         }
     }
 
-    /// Restore a checkpointed agent loop into a re-driveable runtime state:
-    /// the snapshot (state + conversation) is lifted from storage and
-    /// translated into the runtime `AgentLoopStateSnapshot`, including the
-    /// tool-call replay idempotency table. Returns the agent loop id, the
-    /// runtime state and the authoritative conversation; the caller rebuilds
-    /// the entity from current config and overlays these.
+    /// Restore a checkpointed agent loop into a branch-ready runtime state.
+    /// The full conversation state (history, sequences, view, ledger,
+    /// tracker) is rebuilt from the snapshot; legacy snapshots without
+    /// sequences or tracking state are backfilled deterministically. The
+    /// caller must start a new execution id (branch); reusing the source
+    /// execution id is rejected at the coordinator layer.
     pub async fn restore_entity(
         &self,
         checkpoint_id: &str,
@@ -149,12 +215,82 @@ impl AgentCheckpointIntegration {
         Ok(RestoredAgentLoop {
             agent_loop_id: snapshot.agent_loop_id.clone(),
             state: Self::runtime_state_from_snapshot(&snapshot),
-            conversation: snapshot
-                .conversation_snapshot
-                .clone()
-                .or_else(|| snapshot.messages.clone())
-                .unwrap_or_default(),
+            conversation: Self::conversation_state_from_snapshot(&snapshot),
+            source_checkpoint_id: checkpoint_id.to_string(),
         })
+    }
+
+    /// Read-only prefix of the conversation through a sequence coordinate,
+    /// for replay and timeline queries. Never mutates stored state.
+    pub async fn preview_through_seq(
+        &self,
+        checkpoint_id: &str,
+        target_seq: u64,
+    ) -> Result<Vec<Message>, CheckpointError> {
+        let restored = self.restore_entity(checkpoint_id).await?;
+        let messages = restored.conversation.messages;
+        let seqs = restored.conversation.seqs;
+        let Some(pos) = seqs.iter().position(|s| *s == target_seq) else {
+            return Err(CheckpointError::NotFound {
+                id: format!("{checkpoint_id}:seq:{target_seq}"),
+            });
+        };
+        Ok(messages[..=pos].to_vec())
+    }
+
+    /// Timeline of checkpoints for one execution, ordered by sequence end.
+    /// Callers use the sequence intervals to pick a branch point.
+    pub async fn timeline(
+        &self,
+        entity_id: &str,
+    ) -> Result<Vec<crate::checkpoint::TimelineEntry>, CheckpointError> {
+        let rows = self.inner.timeline(entity_id).await?;
+        Ok(rows
+            .into_iter()
+            .map(
+                |(checkpoint_id, seq_start, seq_end, trigger, timestamp)| {
+                    crate::checkpoint::TimelineEntry {
+                        checkpoint_id,
+                        seq_start,
+                        seq_end,
+                        trigger,
+                        timestamp,
+                    }
+                },
+            )
+            .collect())
+    }
+
+    fn conversation_state_from_snapshot(
+        snapshot: &AgentStateSnapshot,
+    ) -> wf_llm::messaging::conversation_session::ConversationState {
+        use wf_llm::messaging::conversation_session::ConversationState;
+        let messages = snapshot
+            .conversation_snapshot
+            .clone()
+            .or_else(|| snapshot.messages.clone())
+            .unwrap_or_default();
+        let len = messages.len() as u64;
+        let start = snapshot.message_seq_start.unwrap_or(0);
+        let seqs: Vec<u64> = (start..start.saturating_add(len)).collect();
+        let next_seq = snapshot.message_next_seq.unwrap_or(start.saturating_add(len));
+        let ledger = snapshot.conversation_ledger.clone().unwrap_or_default();
+        let tracker = snapshot
+            .conversation_tracker
+            .clone()
+            .and_then(|v| serde_json::from_value(v).ok());
+        ConversationState {
+            messages,
+            seqs,
+            next_seq,
+            token_usage: 0,
+            tracker,
+            ledger,
+            active_view: snapshot
+                .conversation_view
+                .clone()
+                .unwrap_or(wf_types::message::MessageView::Full),
+        }
     }
 
     /// Translate a persisted `AgentStateSnapshot` into the runtime state
@@ -258,14 +394,28 @@ impl AgentCheckpointIntegration {
 
     async fn build_snapshot(&self, entity: &AgentLoopEntity) -> AgentStateSnapshot {
         let state = entity.state.read().await;
-        let messages = {
-            let conversation = entity.conversation().read().await;
-            let msgs = conversation.messages();
-            if msgs.is_empty() {
-                None
-            } else {
-                Some(msgs.to_vec())
-            }
+        let session = entity.conversation().read().await.snapshot_state();
+        let (messages, conversation_view, seq_start, seq_end, next_seq, ledger, tracker) = {
+            let msgs = session.messages.clone();
+            let view = session.active_view.clone();
+            let seqs = session.seqs.clone();
+            (
+                if msgs.is_empty() {
+                    None
+                } else {
+                    Some(msgs)
+                },
+                if view.is_full() { None } else { Some(view) },
+                seqs.first().copied(),
+                seqs.last().copied(),
+                Some(session.next_seq),
+                if session.ledger.is_empty() {
+                    None
+                } else {
+                    Some(session.ledger.clone())
+                },
+                session.tracker.clone().and_then(|t| serde_json::to_value(t).ok()),
+            )
         };
 
         let vars: Option<std::collections::HashMap<String, VariableSnapshot>> = {
@@ -310,6 +460,12 @@ impl AgentCheckpointIntegration {
             current_iteration: state.current_iteration(),
             tool_call_count: state.tool_call_count(),
             conversation_snapshot: messages,
+            conversation_view,
+            message_seq_start: seq_start,
+            message_seq_end: seq_end,
+            message_next_seq: next_seq,
+            conversation_ledger: ledger,
+            conversation_tracker: tracker,
             tool_call_history: None,
             is_streaming: Some(state.is_streaming()),
             variable_snapshots: vars,

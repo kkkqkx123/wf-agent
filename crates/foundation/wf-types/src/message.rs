@@ -128,6 +128,7 @@ pub mod message_array;
 pub mod message_context;
 pub mod message_mark_map;
 pub mod message_operations;
+pub mod message_view;
 pub mod named_message_context;
 
 pub use batch_management_operation::*;
@@ -136,4 +137,5 @@ pub use message_array::*;
 pub use message_context::*;
 pub use message_mark_map::*;
 pub use message_operations::*;
+pub use message_view::*;
 pub use named_message_context::*;

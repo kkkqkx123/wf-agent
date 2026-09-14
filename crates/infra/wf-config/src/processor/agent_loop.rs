@@ -84,9 +84,6 @@ fn validate_agent_checkpoint_config(
         validate_min(interval, 1, "config.checkpoint.interval_iterations")?;
     }
     if let Some(ref content) = config.content {
-        if let Some(limit) = content.message_limit {
-            validate_min(limit, 1, "config.checkpoint.content.message_limit")?;
-        }
         if let Some(limit) = content.tool_call_limit {
             validate_min(limit, 1, "config.checkpoint.content.tool_call_limit")?;
         }
@@ -466,7 +463,6 @@ mod tests {
                 content: Some(wf_types::checkpoint::agent::AgentCheckpointContentConfig {
                     include_state: None,
                     include_messages: None,
-                    message_limit: Some(0),
                     include_tool_calls: None,
                     tool_call_limit: Some(0),
                 }),
@@ -474,7 +470,7 @@ mod tests {
             ..make_config()
         });
         let err = validate_agent_definition(&def).unwrap_err();
-        assert!(err.to_string().contains("message_limit"));
+        assert!(err.to_string().contains("tool_call_limit"));
     }
 
     #[test]
@@ -489,7 +485,6 @@ mod tests {
                 content: Some(wf_types::checkpoint::agent::AgentCheckpointContentConfig {
                     include_state: None,
                     include_messages: None,
-                    message_limit: Some(10),
                     include_tool_calls: None,
                     tool_call_limit: Some(5),
                 }),

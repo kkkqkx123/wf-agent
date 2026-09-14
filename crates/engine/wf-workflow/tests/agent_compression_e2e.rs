@@ -24,8 +24,10 @@ use wf_workflow::trigger::SubworkflowRunner;
 use wf_workflow::WorkflowResult;
 
 fn text_message(role: MessageRole, text: &str) -> Message {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT_ID: AtomicU64 = AtomicU64::new(1);
     Message {
-        id: wf_types::Id::new(),
+        id: NEXT_ID.fetch_add(1, Ordering::Relaxed).to_string(),
         role,
         content: MessageContentValue::Text(text.to_string()),
         timestamp: wf_common::now(),
@@ -260,18 +262,39 @@ async fn agent_conversation_compression_chain_closes_via_self_consumption() {
     .await;
 
     // The conversation starts with a single long message, so wait for the
-    // actual replacement (content change) rather than just the length.
+    // compression view to narrow to the summary while the history keeps
+    // both messages.
     wait_until(|| {
         conversation.try_read().ok().is_some_and(|session| {
-            session.messages().len() == 1
-                && message_text(&session.messages()[0].content) == Some("compressed summary")
+            session.history().len() == 2
+                && session.view_messages().len() == 1
+                && message_text(&session.view_messages()[0].content) == Some("compressed summary")
         })
     })
     .await;
-    assert_eq!(
-        message_text(&conversation.try_read().unwrap().messages()[0].content),
-        Some("compressed summary")
-    );
+    {
+        let session = conversation.try_read().unwrap();
+        assert_eq!(session.history().len(), 2);
+        assert_eq!(
+            message_text(&session.history()[1].content),
+            Some("compressed summary")
+        );
+        assert_eq!(session.view_messages().len(), 1);
+        assert_eq!(
+            message_text(&session.view_messages()[0].content),
+            Some("compressed summary")
+        );
+        // Undoing compression restores full visibility at zero cost.
+        drop(session);
+    }
+    {
+        let mut session = conversation.try_write().unwrap();
+        session.restore_full_view();
+        assert_eq!(
+            session.view_messages().len(),
+            session.history().len()
+        );
+    }
 
     consumer.abort();
 }

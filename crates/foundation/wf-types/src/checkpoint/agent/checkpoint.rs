@@ -10,6 +10,11 @@ use crate::Metadata;
 pub struct AgentCheckpointDelta {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub added_messages: Option<Vec<Message>>,
+    /// Sequence coordinate of the first message in `added_messages` when the
+    /// delta carries a suffix rather than a full replacement. Absent means a
+    /// legacy full-replacement delta.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub added_message_base_seq: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub added_iterations: Option<Vec<u32>>,
     #[serde(skip_serializing_if = "Option::is_none")]

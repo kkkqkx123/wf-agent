@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 use crate::execution::ExecutionHierarchy;
-use crate::message::Message;
+use crate::message::{Message, MessageView};
 use crate::Id;
 use crate::Timestamp;
 
@@ -19,6 +19,27 @@ pub struct AgentStateSnapshot {
     pub tool_call_count: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub conversation_snapshot: Option<Vec<Message>>,
+    /// Read projection over the conversation history at capture time.
+    /// Absent (old checkpoints) means the full history.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub conversation_view: Option<MessageView>,
+    /// Stable message sequence range covered by `conversation_snapshot`.
+    /// Absent for checkpoints written before sequencing; restore backfills
+    /// coordinates from zero in that case.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message_seq_start: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message_seq_end: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message_next_seq: Option<u64>,
+    /// Decision-track estimation ledger at capture time. Restoring it keeps
+    /// compression emission guards consistent across a resume.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub conversation_ledger: Option<crate::llm::TokenLedger>,
+    /// Cost-track token tracker state (opaque JSON, owned by `wf-llm`).
+    /// Stored opaquely here to avoid a foundation-to-infra dependency.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub conversation_tracker: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_call_history: Option<Vec<serde_json::Value>>,
     #[serde(skip_serializing_if = "Option::is_none")]

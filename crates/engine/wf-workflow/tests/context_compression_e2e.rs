@@ -33,8 +33,10 @@ use wf_workflow::{get_context, WorkflowExecutor, WorkflowResult, WorkflowRunRequ
 use wf_workflow::{HandlerRegistry, LlmHandler, NodeHandler};
 
 fn text_message(role: MessageRole, text: &str) -> Message {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT_ID: AtomicU64 = AtomicU64::new(1);
     Message {
-        id: wf_types::Id::new(),
+        id: NEXT_ID.fetch_add(1, Ordering::Relaxed).to_string(),
         role,
         content: MessageContentValue::Text(text.to_string()),
         timestamp: wf_common::now(),
@@ -442,6 +444,24 @@ async fn over_limit_named_array_flows_through_compression_chain() {
     assert_eq!(
         replaced[0].content,
         MessageContentValue::Text("compressed summary".to_string())
+    );
+
+    // History is append-only: the 30 superseded messages stay archived and
+    // the full history merges both sides.
+    assert_eq!(
+        message_context::archived_history(&ctx.variables, "chat").len(),
+        chat_messages.len()
+    );
+    assert_eq!(
+        message_context::get_context_history(&ctx.variables, "chat").len(),
+        chat_messages.len() + 1
+    );
+
+    // Undoing compression restores full visibility at zero cost.
+    message_context::restore_full_history(&ctx.variables, "chat");
+    assert_eq!(
+        get_context(&ctx.variables, "chat").len(),
+        chat_messages.len() + 1
     );
 
     let completed = {

@@ -37,7 +37,11 @@ pub use messaging::history_converter::{
     convert_assistant_message, convert_to_text_mode, convert_tool_result_message,
     render_tool_calls, render_tool_result,
 };
-pub use messaging::message_ops::{apply as apply_message_operation, extract_by_role};
+pub use messaging::boundary::{
+    convert_for_boundary, inject_context, BoundaryDirection,
+};
+pub use messaging::history_text::{inject_variables, summarize_counts, to_plain_text};
+pub use messaging::message_ops::{apply as apply_message_operation, extract_by_role, is_agent_safe};
 #[cfg(feature = "mock")]
 pub use mock::{LlmResponseSpec, MockLlmClient, MockMessageStream};
 pub use partial_json_parser::{parse_partial_json, recover_partial_json, PartialParseResult};

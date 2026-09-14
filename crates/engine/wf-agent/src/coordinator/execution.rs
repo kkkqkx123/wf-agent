@@ -162,10 +162,11 @@ impl AgentExecutionCoordinator {
             match iteration_result {
                 Some(result) => {
                     if let Some(ref cp) = self.checkpoint {
-                        cp.create_checkpoint(entity, CheckpointTiming::AfterExecute)
+                        cp.create_checkpoint_gated(entity, CheckpointTiming::AfterExecute)
                             .await
                             .unwrap_or_else(|e| {
                                 tracing::warn!("Failed to create iteration checkpoint: {}", e);
+                                false
                             });
                     }
 
@@ -294,19 +295,20 @@ impl AgentExecutionCoordinator {
             match self.iteration_coordinator.execute_iteration(entity).await {
                 Ok(result) => return Ok(Some(result)),
                 Err(e) => {
-                    if let Some(ref cp) = self.checkpoint {
-                        cp.create_checkpoint(entity, CheckpointTiming::OnError)
-                            .await
-                            .unwrap_or_else(|ce| {
-                                tracing::warn!("Failed to create error checkpoint: {}", ce);
-                            });
-                    }
-
-                    // Persist the structured analysis into the entity state so
-                    // it lands in the snapshot and can be queried post-hoc.
+                    // Record the structured analysis first so the error
+                    // checkpoint taken below contains this failure.
                     let analysis = analyze_error(&e);
                     let record = analysis.to_error_record(entity.id(), None);
                     entity.state.write().await.record_error(record);
+
+                    if let Some(ref cp) = self.checkpoint {
+                        cp.create_checkpoint_gated(entity, CheckpointTiming::OnError)
+                            .await
+                            .unwrap_or_else(|ce| {
+                                tracing::warn!("Failed to create error checkpoint: {}", ce);
+                                false
+                            });
+                    }
 
                     if failure_policy.should_retry(analysis.kind, attempt) {
                         let delay = failure_policy.next_delay(attempt);

@@ -129,6 +129,7 @@ mod tests {
             variable_state: wf_types::checkpoint::CheckpointVariableState {
                 variables: std::collections::HashMap::new(),
             },
+            message_contexts: None,
             input: None,
             output: None,
             messages: None,
@@ -145,10 +146,6 @@ mod tests {
             execution_config: None,
             fork_join_aggregation_state: None,
             hook_execution_context: None,
-            message_base_checkpoint_id: None,
-            message_total_count: None,
-            truncated: None,
-            truncation_stats: None,
         }
     }
 

@@ -95,6 +95,48 @@ impl CheckpointDependencyGraph {
         }
         protected
     }
+
+    /// Bases that must be kept because a surviving checkpoint depends on them
+    /// directly or through the previous-id chain. This is the base-priority
+    /// rule complementing `compute_protected`: it runs on the finalized
+    /// removal set (after dependency and chain-group protection already
+    /// narrowed the candidates), so a checkpoint kept by those rules also
+    /// keeps its base here. `removing` is the finalized removal set (already
+    /// excluding protected/surviving checkpoints); the returned set are
+    /// candidate bases that must be removed from `removing`. This is
+    /// intentionally conservative (any candidate ancestor of a survivor is
+    /// kept); it does not implement generation-atomic retirement where a
+    /// whole chain generation retires only together.
+    pub fn bases_with_surviving_dependents(
+        &self,
+        removing: &HashSet<String>,
+    ) -> HashSet<String> {
+        let mut previous_map: HashMap<String, String> = HashMap::new();
+        for (prev, refs) in &self.referenced_by {
+            for reference in refs {
+                previous_map.insert(reference.clone(), prev.clone());
+            }
+        }
+
+        let mut protected = HashSet::new();
+        for id in self.chain_root_map.keys() {
+            if removing.contains(id) {
+                continue;
+            }
+            let mut cursor = previous_map.get(id).cloned();
+            let mut guard = HashSet::new();
+            while let Some(prev) = cursor {
+                if !guard.insert(prev.clone()) {
+                    break;
+                }
+                if removing.contains(&prev) {
+                    protected.insert(prev.clone());
+                }
+                cursor = previous_map.get(&prev).cloned();
+            }
+        }
+        protected
+    }
 }
 
 #[cfg(test)]
@@ -221,5 +263,39 @@ mod tests {
             .collect();
         let protected = graph.chain_group_protected(&candidates);
         assert!(!protected.contains("delta-1"), "root is also a candidate");
+    }
+
+    #[test]
+    fn base_with_surviving_dependent_is_kept() {
+        let checkpoints = vec![
+            make_checkpoint("full-1", CheckpointType::Full, None, 1000),
+            make_checkpoint("delta-1", CheckpointType::Delta, Some("full-1"), 2000),
+            make_checkpoint("full-2", CheckpointType::Full, None, 3000),
+        ];
+        let graph = CheckpointDependencyGraph::build(&checkpoints);
+        // full-1 and delta-1 are candidates; delta-1 is somehow kept (e.g. the
+        // latest), so full-1 must also be kept.
+        let removing: HashSet<String> =
+            ["full-1".to_string(), "delta-1".to_string()].into_iter().collect();
+        // Simulate delta-1 surviving: remove it from the removal set.
+        let mut removing = removing;
+        removing.remove("delta-1");
+        let bases = graph.bases_with_surviving_dependents(&removing);
+        assert!(bases.contains("full-1"), "full-1 is the base of a survivor");
+    }
+
+    #[test]
+    fn base_without_surviving_dependent_may_retire() {
+        let checkpoints = vec![
+            make_checkpoint("full-1", CheckpointType::Full, None, 1000),
+            make_checkpoint("delta-1", CheckpointType::Delta, Some("full-1"), 2000),
+            make_checkpoint("full-2", CheckpointType::Full, None, 3000),
+        ];
+        let graph = CheckpointDependencyGraph::build(&checkpoints);
+        // Whole chain retires together: nothing survives that depends on it.
+        let removing: HashSet<String> =
+            ["full-1".to_string(), "delta-1".to_string()].into_iter().collect();
+        let bases = graph.bases_with_surviving_dependents(&removing);
+        assert!(!bases.contains("full-1"));
     }
 }

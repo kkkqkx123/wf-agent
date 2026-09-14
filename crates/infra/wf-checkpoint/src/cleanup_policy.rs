@@ -168,6 +168,14 @@ impl CleanupExecutor {
             let chain_protected = graph.chain_group_protected(&candidate_set);
             to_remove.retain(|id| !protected.contains(id) && !chain_protected.contains(id));
 
+            // Base-priority rule: a base checkpoint may only retire together
+            // with the whole generation that depends on it. If any delta that
+            // transitively references a candidate base survives (is not itself
+            // scheduled for removal), the base is protected — a surviving
+            // delta must never lose its base.
+            let bases_to_keep = graph.bases_with_surviving_dependents(&to_remove);
+            to_remove.retain(|id| !bases_to_keep.contains(id));
+
             let latest_id = checkpoints
                 .iter()
                 .max_by_key(|c| c.timestamp)

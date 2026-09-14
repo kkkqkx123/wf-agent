@@ -1,4 +1,3 @@
-use crate::common::content::SizeBudget;
 use crate::coordinator::base::restored_status;
 use crate::coordinator::CheckpointCoordinator;
 use crate::delta::CheckpointLoader;
@@ -38,7 +37,6 @@ use wf_types::checkpoint::CheckpointType;
 use wf_types::checkpoint::DeltaStorageConfig;
 use wf_types::checkpoint::UnifiedCheckpointPolicy;
 use wf_types::execution::ExecutionStatus;
-use wf_types::message::Message;
 use wf_types::storage::CheckpointStorageMetadata;
 
 /// Upper bound on the deferred persistence queue; when reached the oldest
@@ -56,7 +54,6 @@ pub struct WorkflowCheckpointCoordinator {
     cadence: HashMap<CheckpointTiming, u32>,
     cadence_attempts: dashmap::DashMap<String, u32>,
     error_handler: crate::error_handling::CheckpointErrorHandler,
-    size_budget: Option<SizeBudget>,
     restore_registry: Option<RestoreStrategyRegistry>,
     execution_registry: Option<Arc<dyn ExecutionRegistry>>,
     file_checkpoint_manager: Option<FileCheckpointManager>,
@@ -80,7 +77,6 @@ impl WorkflowCheckpointCoordinator {
             cadence: HashMap::new(),
             cadence_attempts: dashmap::DashMap::new(),
             error_handler: crate::error_handling::CheckpointErrorHandler::default(),
-            size_budget: None,
             restore_registry: None,
             execution_registry: None,
             file_checkpoint_manager: None,
@@ -154,11 +150,6 @@ impl WorkflowCheckpointCoordinator {
         self
     }
 
-    pub fn with_size_budget(mut self, budget: SizeBudget) -> Self {
-        self.size_budget = Some(budget);
-        self
-    }
-
     /// Register restore strategies used for child execution recovery in the
     /// post-restore phase.
     pub fn with_restore_registry(mut self, registry: RestoreStrategyRegistry) -> Self {
@@ -212,24 +203,6 @@ impl WorkflowCheckpointCoordinator {
                 state.messages = None;
             }
         }
-        if let Some(budget) = &self.size_budget {
-            // Progressive size-budget truncation; any dropped content is
-            // recorded on the snapshot (`truncated` + `truncation_stats`)
-            // so restore can warn about the degraded state.
-            budget.truncate_snapshot(state);
-        }
-    }
-
-    /// When a size budget is configured and the snapshot still exceeds it
-    /// after truncation, degrade the storage type to FULL: a compact delta
-    /// chain cannot help when the snapshot itself is the payload.
-    fn snapshot_over_budget(&self, state: &WorkflowExecutionStateSnapshot) -> bool {
-        match &self.size_budget {
-            Some(budget) => serde_json::to_vec(state)
-                .map(|bytes| !budget.is_within_budget(bytes.len()))
-                .unwrap_or(false),
-            None => false,
-        }
     }
 
     /// Load the checkpoint blob and bring it to the current format version.
@@ -272,114 +245,6 @@ impl WorkflowCheckpointCoordinator {
             })?;
         let migrated = self.version_manager.migrate_data(&raw, version).await?;
         CheckpointSerializer::auto_deserialize(&migrated)
-    }
-
-    /// Rebuild the truncated message history by walking the checkpoint chain
-    /// from the base checkpoint up to the target's predecessor, merging
-    /// messages in order. The target checkpoint itself is skipped: its
-    /// snapshot carries no messages (that is why the rebuild runs), so its
-    /// own delta's message ops are diff artifacts of the omitted field, not
-    /// real history. Only runs when `messages` is absent and
-    /// `message_base_checkpoint_id` is set (i.e. the snapshot was created
-    /// with the message chain link).
-    async fn rebuild_message_chain(
-        &self,
-        checkpoint_id: &str,
-        state: &mut WorkflowExecutionStateSnapshot,
-    ) -> Result<(), CheckpointError> {
-        if let Some(messages) = &state.messages {
-            if !messages.is_empty() {
-                return Ok(());
-            }
-        }
-        let Some(base_id) = state.message_base_checkpoint_id.clone() else {
-            return Ok(());
-        };
-
-        // Start the walk from the target's predecessor (see doc comment).
-        let target_meta = self
-            .state_manager
-            .load_metadata(checkpoint_id)
-            .await?
-            .ok_or_else(|| CheckpointError::NotFound {
-                id: checkpoint_id.to_string(),
-            })?;
-
-        let mut chain_ids: Vec<String> = Vec::new();
-        let mut cursor = target_meta.previous_checkpoint_id;
-        let mut visited = HashSet::new();
-        while let Some(id) = cursor {
-            if !visited.insert(id.clone()) {
-                return Err(CheckpointError::Corrupted {
-                    id: id.clone(),
-                    reason: "circular reference in message chain".to_string(),
-                });
-            }
-            chain_ids.push(id.clone());
-            if id == base_id {
-                break;
-            }
-            let meta = self
-                .state_manager
-                .load_metadata(&id)
-                .await?
-                .ok_or_else(|| CheckpointError::NotFound { id: id.clone() })?;
-            cursor = meta.previous_checkpoint_id;
-        }
-        chain_ids.reverse();
-
-        let mut messages: Vec<Message> = Vec::new();
-        for id in chain_ids {
-            let checkpoint = self
-                .state_manager
-                .load(&id)
-                .await?
-                .ok_or_else(|| CheckpointError::NotFound { id: id.clone() })?;
-            match checkpoint.r#type {
-                Some(CheckpointType::Full) => {
-                    if let Some(snapshot) = checkpoint.snapshot {
-                        if let Some(snap_messages) = snapshot.messages {
-                            messages = snap_messages;
-                        }
-                    }
-                }
-                Some(CheckpointType::Delta) => {
-                    if let Some(delta) = checkpoint.delta {
-                        if let Some(added) = delta.added_messages {
-                            messages.extend(added);
-                        }
-                        if let Some(modified) = delta.modified_messages {
-                            for message in modified {
-                                if let Some(idx) = messages.iter().position(|m| m.id == message.id)
-                                {
-                                    messages[idx] = message;
-                                }
-                            }
-                        }
-                        if let Some(deleted) = delta.deleted_message_indices {
-                            let mut indices: Vec<usize> =
-                                deleted.iter().map(|idx| *idx as usize).collect();
-                            indices.sort_unstable_by(|a, b| b.cmp(a));
-                            for idx in indices {
-                                if idx < messages.len() {
-                                    messages.remove(idx);
-                                }
-                            }
-                        }
-                    }
-                }
-                None => {}
-            }
-        }
-
-        if let Some(total) = state.message_total_count {
-            let total = total as usize;
-            if messages.len() > total {
-                messages = messages.split_off(messages.len() - total);
-            }
-        }
-        state.messages = Some(messages);
-        Ok(())
     }
 
     /// Post-restore phase: restore child executions through the hierarchy
@@ -685,18 +550,15 @@ impl CheckpointCoordinator for WorkflowCheckpointCoordinator {
         ctx: CheckpointContext,
         mut state: Self::State,
     ) -> Result<Self::Checkpoint, CheckpointError> {
-        // Content policy (ContentFilter + SizeBudget) applied before any
-        // storage type decision is made.
+        // Content policy (ContentFilter) applied before any storage type
+        // decision is made.
         self.apply_content_policy(&mut state);
 
         let previous = self.state_manager.get_latest(&ctx.entity_id).await?;
 
-        let mut checkpoint_type = self
+        let checkpoint_type = self
             .determine_type(&ctx.entity_id, &self.delta_config)
             .await?;
-        if checkpoint_type == CheckpointType::Delta && self.snapshot_over_budget(&state) {
-            checkpoint_type = CheckpointType::Full;
-        }
 
         // Metadata: trigger description/tag, caller custom fields (e.g.
         // node/tool ids), plus the injected formatVersion/createdAt/
@@ -911,22 +773,6 @@ impl CheckpointCoordinator for WorkflowCheckpointCoordinator {
                 reason: "checkpoint has no type".to_string(),
             }),
         }?;
-
-        // rebuild truncated message history through the message chain.
-        self.rebuild_message_chain(checkpoint_id, &mut entity.snapshot)
-            .await?;
-
-        // a snapshot truncated by the size budget resumes degraded —
-        // surface the drop statistics so consumers know the state is lossy.
-        if entity.snapshot.truncated == Some(true) {
-            tracing::warn!(
-                target: "wf_checkpoint",
-                execution_id = %entity.snapshot.execution_id,
-                checkpoint_id,
-                truncation = ?entity.snapshot.truncation_stats,
-                "Restored snapshot was truncated by the checkpoint size budget; state may be incomplete"
-            );
-        }
 
         // register the restored entity into the execution registry,
         // restore child executions, then validate hierarchy integrity and
@@ -1177,7 +1023,6 @@ pub struct WorkflowExecutionEntity {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::common::content::SizeBudget;
     use crate::event::CheckpointEvent;
     use crate::metadata::builder::{CREATED_AT_FIELD, FORMAT_VERSION_FIELD};
     use crate::version_manager::VersionManager;
@@ -1194,6 +1039,7 @@ mod tests {
             variable_state: wf_types::checkpoint::CheckpointVariableState {
                 variables: std::collections::HashMap::new(),
             },
+            message_contexts: None,
             input: None,
             output: None,
             messages: None,
@@ -1210,10 +1056,6 @@ mod tests {
             execution_config: None,
             fork_join_aggregation_state: None,
             hook_execution_context: None,
-            message_base_checkpoint_id: None,
-            message_total_count: None,
-            truncated: None,
-            truncation_stats: None,
         }
     }
 
@@ -1543,73 +1385,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn size_budget_truncates_messages_in_build() {
-        use wf_types::message::{Message, MessageContentValue, MessageRole};
-
-        let make_message = |id: &str| Message {
-            id: id.to_string(),
-            role: MessageRole::User,
-            content: MessageContentValue::Text(format!("msg {}", id)),
-            timestamp: 0,
-            tool_call_id: None,
-            tool_name: None,
-            tool_calls: None,
-            thinking: None,
-            metadata: None,
-        };
-
-        let mut snapshot = make_snapshot();
-        snapshot.messages = Some(vec![
-            make_message("m1"),
-            make_message("m2"),
-            make_message("m3"),
-        ]);
-
-        let budget = SizeBudget::new(10 * 1024 * 1024, 2);
-        let coord = make_coordinator().with_size_budget(budget);
-
-        let ctx = coord
-            .prepare("exec-1", CheckpointTiming::AfterExecute)
-            .await
-            .unwrap();
-        let cp = coord.build(ctx, snapshot).await.unwrap();
-        let restored = cp.snapshot.unwrap();
-        assert_eq!(restored.messages.as_ref().map(|m| m.len()), Some(2));
-        assert_eq!(
-            restored.messages.unwrap()[0].id,
-            "m2",
-            "keeps the tail of the message history"
-        );
-    }
-
-    #[tokio::test]
-    async fn oversize_snapshot_degrades_delta_to_full() {
-        let coord = make_coordinator();
-        build_and_persist(&coord, "running", "node-1").await;
-
-        let budget = SizeBudget::new(64, 100);
-        let coord = make_coordinator().with_size_budget(budget);
-
-        let mut snapshot = make_snapshot();
-        snapshot.node_results = Some(HashMap::from([(
-            "big".to_string(),
-            serde_json::json!({"payload": "x".repeat(4096)}),
-        )]));
-
-        let ctx = coord
-            .prepare("exec-1", CheckpointTiming::AfterExecute)
-            .await
-            .unwrap();
-        let cp = coord.build(ctx, snapshot).await.unwrap();
-        assert_eq!(
-            cp.r#type,
-            Some(CheckpointType::Full),
-            "oversize snapshot degrades to FULL"
-        );
-        assert!(cp.snapshot.is_some());
-    }
-
-    #[tokio::test]
     async fn restore_migrates_old_format_version() {
         let coord = make_coordinator();
         let ctx = coord
@@ -1654,133 +1429,6 @@ mod tests {
             coord.restore(&cp.id).await.unwrap_err(),
             CheckpointError::VersionIncompatible { .. }
         ));
-    }
-
-    fn make_message(id: &str, text: &str) -> Message {
-        use wf_types::message::MessageContentValue;
-        use wf_types::message::MessageRole;
-        Message {
-            id: id.to_string(),
-            role: MessageRole::User,
-            content: MessageContentValue::Text(text.to_string()),
-            timestamp: 0,
-            tool_call_id: None,
-            tool_name: None,
-            tool_calls: None,
-            thinking: None,
-            metadata: None,
-        }
-    }
-
-    #[tokio::test]
-    async fn restore_rebuilds_message_chain() {
-        let coord = make_coordinator();
-
-        // FULL checkpoint with a message base + truncated messages link.
-        let mut base = make_snapshot();
-        base.messages = Some(vec![make_message("m1", "hello")]);
-        base.message_total_count = Some(1);
-        let ctx = coord
-            .prepare("exec-1", CheckpointTiming::BeforeExecute)
-            .await
-            .unwrap();
-        let cp1 = coord.build(ctx, base).await.unwrap();
-        coord.persist(&cp1, "exec-1").await.unwrap();
-
-        // DELTA checkpoint whose snapshot has no messages but links back to
-        // the base via the message chain.
-        let mut delta_state = make_snapshot();
-        delta_state.status = "completed".to_string();
-        delta_state.messages = None;
-        delta_state.message_base_checkpoint_id = Some(cp1.id.clone());
-        delta_state.message_total_count = Some(2);
-        let ctx = coord
-            .prepare("exec-1", CheckpointTiming::AfterExecute)
-            .await
-            .unwrap();
-        let cp2 = coord.build(ctx, delta_state).await.unwrap();
-        coord.persist(&cp2, "exec-1").await.unwrap();
-
-        let entity = coord.restore(&cp2.id).await.unwrap();
-        assert_eq!(entity.status, "completed");
-        assert_eq!(
-            entity.snapshot.messages.as_ref().map(|m| m.len()),
-            Some(1),
-            "rebuilds messages from the base checkpoint"
-        );
-        assert_eq!(entity.snapshot.messages.unwrap()[0].id, "m1");
-    }
-
-    #[tokio::test]
-    async fn restore_rebuilds_message_chain_with_modified_and_deleted() {
-        let coord = make_coordinator();
-
-        // FULL checkpoint holding the original messages.
-        let mut base = make_snapshot();
-        base.messages = Some(vec![
-            make_message("m1", "original-1"),
-            make_message("m2", "original-2"),
-            make_message("m3", "original-3"),
-        ]);
-        base.message_total_count = Some(3);
-        let ctx = coord
-            .prepare("exec-1", CheckpointTiming::BeforeExecute)
-            .await
-            .unwrap();
-        let cp1 = coord.build(ctx, base).await.unwrap();
-        coord.persist(&cp1, "exec-1").await.unwrap();
-        assert_eq!(cp1.r#type, Some(CheckpointType::Full));
-
-        // DELTA checkpoint that modifies m2 and deletes m1 (the diff against
-        // the base produces the modified/deleted ops).
-        let mut edited_state = make_snapshot();
-        edited_state.status = "running".to_string();
-        edited_state.messages = Some(vec![
-            make_message("m2", "edited-2"),
-            make_message("m3", "original-3"),
-        ]);
-        edited_state.message_total_count = Some(2);
-        let ctx = coord
-            .prepare("exec-1", CheckpointTiming::AfterExecute)
-            .await
-            .unwrap();
-        let cp2 = coord.build(ctx, edited_state).await.unwrap();
-        coord.persist(&cp2, "exec-1").await.unwrap();
-        assert_eq!(cp2.r#type, Some(CheckpointType::Delta));
-        assert_eq!(
-            cp2.delta
-                .as_ref()
-                .and_then(|d| d.deleted_message_indices.as_ref()),
-            Some(&vec![0]),
-            "delta records the deletion of m1"
-        );
-
-        // Terminal checkpoint whose snapshot omits messages but links back to
-        // the base through the message chain.
-        let mut delta_state = make_snapshot();
-        delta_state.status = "completed".to_string();
-        delta_state.messages = None;
-        delta_state.message_base_checkpoint_id = Some(cp1.id.clone());
-        delta_state.message_total_count = Some(2);
-        let ctx = coord
-            .prepare("exec-1", CheckpointTiming::AfterExecute)
-            .await
-            .unwrap();
-        let cp3 = coord.build(ctx, delta_state).await.unwrap();
-        coord.persist(&cp3, "exec-1").await.unwrap();
-
-        let entity = coord.restore(&cp3.id).await.unwrap();
-        let messages = entity.snapshot.messages.expect("chain rebuilt");
-        assert_eq!(
-            messages.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(),
-            vec!["m2", "m3"],
-            "deleted m1 replayed from the intermediate delta"
-        );
-        assert_eq!(
-            messages[0].content,
-            wf_types::message::MessageContentValue::Text("edited-2".to_string()),
-            "modified message replaces in place"
-        );
     }
 
     #[tokio::test]

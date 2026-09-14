@@ -224,9 +224,6 @@ pub fn validate_trigger_action(action: &TriggerAction, field_prefix: &str) -> Co
                 )));
             }
         }
-        TriggerAction::TruncateMessageContext { context_id, .. } => {
-            validate_not_empty(context_id, &format!("{field_prefix}.context_id"))?;
-        }
         TriggerAction::FilterMessageContext {
             context_id,
             role,

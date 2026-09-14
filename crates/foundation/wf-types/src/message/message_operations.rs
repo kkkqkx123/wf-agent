@@ -8,8 +8,6 @@ pub enum MessageOperationType {
     Append,
     Insert,
     Replace,
-    Truncate,
-    Clear,
     Filter,
     Rollback,
     BatchManagement,
@@ -21,8 +19,6 @@ pub enum MessageOperationConfig {
     Append(AppendMessageOperation),
     Insert(InsertMessageOperation),
     Replace(ReplaceMessageOperation),
-    Truncate(TruncateMessageOperation),
-    Clear(ClearMessageOperation),
     Filter(FilterMessageOperation),
     Rollback(RollbackMessageOperation),
     BatchManagement(BatchManagementOperation),
@@ -45,19 +41,6 @@ pub struct InsertMessageOperation {
 pub struct ReplaceMessageOperation {
     pub index: u32,
     pub message: super::Message,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct TruncateMessageOperation {
-    pub keep_count: u32,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub from_end: Option<bool>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct ClearMessageOperation {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub batch_index: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

@@ -1,4 +1,3 @@
-use crate::common::content::SizeBudget;
 use crate::coordinator::base::restored_status;
 use crate::coordinator::CheckpointCoordinator;
 use crate::delta::AgentDiffCalculator;
@@ -40,6 +39,16 @@ use wf_types::checkpoint::UnifiedCheckpointPolicy;
 use wf_types::execution::ExecutionStatus;
 use wf_types::storage::CheckpointStorageMetadata;
 
+/// One timeline anchor: checkpoint id, sequence bounds, trigger label,
+/// wall-clock timestamp.
+pub type TimelineRow = (
+    String,
+    Option<u64>,
+    Option<u64>,
+    Option<String>,
+    Option<i64>,
+);
+
 pub struct AgentCheckpointCoordinator {
     state_manager: AgentCheckpointStateManager,
     diff_calculator: Arc<dyn DiffCalculator<AgentStateSnapshot, AgentCheckpointDelta>>,
@@ -49,7 +58,6 @@ pub struct AgentCheckpointCoordinator {
     strategy: Option<StandardStrategy>,
     cadence: HashMap<CheckpointTiming, u32>,
     error_handler: crate::error_handling::CheckpointErrorHandler,
-    size_budget: Option<SizeBudget>,
     restore_registry: Option<RestoreStrategyRegistry>,
     execution_registry: Option<Arc<dyn ExecutionRegistry>>,
     file_checkpoint_manager: Option<FileCheckpointManager>,
@@ -66,7 +74,6 @@ impl AgentCheckpointCoordinator {
             strategy: None,
             cadence: HashMap::new(),
             error_handler: crate::error_handling::CheckpointErrorHandler::default(),
-            size_budget: None,
             restore_registry: None,
             execution_registry: None,
             file_checkpoint_manager: None,
@@ -118,11 +125,6 @@ impl AgentCheckpointCoordinator {
         self
     }
 
-    pub fn with_size_budget(mut self, budget: SizeBudget) -> Self {
-        self.size_budget = Some(budget);
-        self
-    }
-
     /// Register restore strategies used for child execution recovery in the
     /// post-restore phase.
     pub fn with_restore_registry(mut self, registry: RestoreStrategyRegistry) -> Self {
@@ -156,9 +158,11 @@ impl AgentCheckpointCoordinator {
         if let Some(strategy) = &self.strategy {
             let filter = crate::common::content::ContentFilter::new();
             let config = strategy.content_config();
+            // Conversation history is never silently dropped: even when the
+            // content policy excludes state or history, the message log stays
+            // so a restore never yields an empty dialogue. Only auxiliary
+            // fields are filtered.
             if !filter.should_include_state(config) {
-                state.conversation_snapshot = None;
-                state.messages = None;
                 state.tool_call_history = None;
                 state.variable_snapshots = None;
                 state.error = None;
@@ -172,30 +176,50 @@ impl AgentCheckpointCoordinator {
                 state.trigger_state = None;
             }
             if !filter.should_include_history(config) {
-                state.conversation_snapshot = None;
-                state.messages = None;
                 state.iteration_history = None;
-            }
-        }
-        if let Some(budget) = &self.size_budget {
-            if let Some(messages) = &state.messages {
-                state.messages = budget.truncate_messages(Some(messages.clone()));
-            }
-            if let Some(snapshot) = &state.conversation_snapshot {
-                state.conversation_snapshot = budget.truncate_messages(Some(snapshot.clone()));
             }
         }
     }
 
-    /// When a size budget is configured and the snapshot still exceeds it
-    /// after truncation, degrade the storage type to FULL.
-    fn snapshot_over_budget(&self, state: &AgentStateSnapshot) -> bool {
-        match &self.size_budget {
-            Some(budget) => serde_json::to_vec(state)
-                .map(|bytes| !budget.is_within_budget(bytes.len()))
-                .unwrap_or(false),
-            None => false,
+    /// Timeline anchors for one execution, ordered by sequence end.
+    /// Sequence bounds come from checkpoint metadata so no blob is loaded.
+    pub async fn timeline(
+        &self,
+        entity_id: &str,
+    ) -> Result<Vec<TimelineRow>, CheckpointError> {
+        let metas = self.state_manager.list_by_entity(entity_id).await?;
+        let mut entries: Vec<TimelineRow> = Vec::new();
+        for meta in metas {
+            let full = self.state_manager.load(&meta.id).await?;
+            let Some(cp) = full else { continue };
+            let (start, end) = match cp.r#type {
+                Some(CheckpointType::Full) => (
+                    cp.snapshot
+                        .as_ref()
+                        .and_then(|s| s.message_seq_start),
+                    cp.snapshot.as_ref().and_then(|s| s.message_seq_end),
+                ),
+                _ => (
+                    cp.metadata
+                        .as_ref()
+                        .and_then(|m| m.get("msgSeqStart"))
+                        .and_then(|v| v.as_u64()),
+                    cp.metadata
+                        .as_ref()
+                        .and_then(|m| m.get("msgSeqEnd"))
+                        .and_then(|v| v.as_u64()),
+                ),
+            };
+            let trigger = cp
+                .metadata
+                .as_ref()
+                .and_then(|m| m.get("description"))
+                .and_then(|v| v.as_str())
+                .map(String::from);
+            entries.push((cp.id, start, end, trigger, cp.timestamp));
         }
+        entries.sort_by_key(|e| (e.2.unwrap_or(u64::MAX), e.4.unwrap_or(i64::MAX)));
+        Ok(entries)
     }
 
     /// Load the checkpoint blob and bring it to the current format version.
@@ -484,18 +508,15 @@ impl CheckpointCoordinator for AgentCheckpointCoordinator {
         ctx: CheckpointContext,
         mut state: Self::State,
     ) -> Result<Self::Checkpoint, CheckpointError> {
-        // Content policy (ContentFilter + SizeBudget) applied before any
-        // storage type decision is made.
+        // Content policy (ContentFilter) applied before any storage type
+        // decision is made.
         self.apply_content_policy(&mut state);
 
         let previous = self.state_manager.get_latest(&ctx.entity_id).await?;
 
-        let mut checkpoint_type = self
+        let checkpoint_type = self
             .determine_type(&ctx.entity_id, &self.delta_config)
             .await?;
-        if checkpoint_type == CheckpointType::Delta && self.snapshot_over_budget(&state) {
-            checkpoint_type = CheckpointType::Full;
-        }
 
         // Metadata: trigger description/tag, caller custom fields (e.g.
         // node/tool ids), plus the injected formatVersion/createdAt/
@@ -514,6 +535,15 @@ impl CheckpointCoordinator for AgentCheckpointCoordinator {
             CHAIN_POSITION_FIELD.to_string(),
             serde_json::json!(chain_position),
         );
+        if let Some(start) = state.message_seq_start {
+            custom_fields.insert("msgSeqStart".to_string(), serde_json::json!(start));
+        }
+        if let Some(end) = state.message_seq_end {
+            custom_fields.insert("msgSeqEnd".to_string(), serde_json::json!(end));
+        }
+        if let Some(next) = state.message_next_seq {
+            custom_fields.insert("msgNextSeq".to_string(), serde_json::json!(next));
+        }
         let metadata = build_checkpoint_metadata(
             ctx.trigger.as_ref().map(trigger_description),
             ctx.trigger.as_ref().map(trigger_tag).into_iter().collect(),
@@ -914,7 +944,6 @@ pub struct AgentLoopEntity {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::common::content::SizeBudget;
     use crate::event::CheckpointEvent;
     use crate::metadata::builder::{CREATED_AT_FIELD, FORMAT_VERSION_FIELD};
     use wf_storage::backend::StorageBackend;
@@ -927,6 +956,12 @@ mod tests {
             current_iteration: 1,
             tool_call_count: 0,
             conversation_snapshot: None,
+            conversation_view: None,
+            message_seq_start: None,
+            message_seq_end: None,
+            message_next_seq: None,
+            conversation_ledger: None,
+            conversation_tracker: None,
             tool_call_history: None,
             is_streaming: None,
             variable_snapshots: None,
@@ -1171,44 +1206,6 @@ mod tests {
             .await
             .unwrap();
         assert!(result.is_none());
-    }
-
-    #[tokio::test]
-    async fn size_budget_truncates_conversation() {
-        use wf_types::message::{Message, MessageContentValue, MessageRole};
-
-        let make_message = |id: &str| Message {
-            id: id.to_string(),
-            role: MessageRole::User,
-            content: MessageContentValue::Text(format!("msg {}", id)),
-            timestamp: 0,
-            tool_call_id: None,
-            tool_name: None,
-            tool_calls: None,
-            thinking: None,
-            metadata: None,
-        };
-
-        let mut snapshot = make_snapshot();
-        snapshot.conversation_snapshot = Some(vec![
-            make_message("m1"),
-            make_message("m2"),
-            make_message("m3"),
-        ]);
-
-        let budget = SizeBudget::new(1024 * 1024, 2);
-        let coord = make_coordinator().with_size_budget(budget);
-
-        let ctx = coord
-            .prepare("loop-1", CheckpointTiming::AfterExecute)
-            .await
-            .unwrap();
-        let cp = coord.build(ctx, snapshot).await.unwrap();
-        let restored = cp.snapshot.unwrap();
-        assert_eq!(
-            restored.conversation_snapshot.as_ref().map(|m| m.len()),
-            Some(2)
-        );
     }
 
     #[tokio::test]

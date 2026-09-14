@@ -270,7 +270,8 @@ pub use wf_workflow::loop_state::{
     mark_iteration_failed, update_loop, LoopState, MAX_ITERATIONS_CAP,
 };
 pub use wf_workflow::message_context::{
-    append_context, get_context, has_context, register_context, DEFAULT_CONTEXT_ID,
+    append_context, archived_history, get_context, get_context_history, has_context,
+    register_context, restore_full_history, DEFAULT_CONTEXT_ID,
 };
 pub use wf_workflow::node_validation;
 pub use wf_workflow::persistence::build_workflow_execution;

@@ -5,8 +5,7 @@ use crate::Timestamp;
 /// Default preview length for LLM request/response summaries.
 ///
 /// Oversized fields are truncated to this many characters; the caller sets
-/// the `truncated` marker so the audit consumer knows the preview is lossy
-/// (`truncation_stats`).
+/// the `truncated` marker so the audit consumer knows the preview is lossy.
 pub const LLM_SUMMARY_PREVIEW_MAX: usize = 512;
 
 /// Truncate a string to the summary preview limit, returning the trimmed

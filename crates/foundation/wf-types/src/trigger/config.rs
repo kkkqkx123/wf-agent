@@ -226,7 +226,7 @@ pub enum TriggerAgentInputMode {
     #[default]
     PrefixToAnchor,
     /// Feed the full parent conversation (for summarization-style children
-    /// paired with `ConversationReplace` write-back).
+    /// paired with append write-back).
     FullSnapshot,
 }
 
@@ -234,14 +234,10 @@ pub enum TriggerAgentInputMode {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum TriggerAgentWriteback {
-    /// Replace the parent conversation with the child result (compression /
-    /// summarization semantics; compression is the special case of this
-    /// mode). Version-checked: applied only while the parent conversation is
-    /// still at the anchor version, otherwise discarded (variable fall-back
-    /// keeps the data observable).
-    ConversationReplace,
     /// Append the child result as a message to the parent conversation
-    /// (continuation semantics). Version-checked like `ConversationReplace`.
+    /// (continuation semantics). Version-checked: applied only while the
+    /// parent conversation is still at the anchor version, otherwise
+    /// discarded (variable fall-back keeps the data observable).
     ConversationAppend,
     /// (default) Write `output.result` into the parent's variable snapshot
     /// (the pre-anchor behavior, kept for compatibility).
@@ -268,7 +264,6 @@ pub enum TriggerAgentWriteback {
 /// | `ExecuteScript` | ✅ | ✅ |
 /// | `SetMessageContext` | ✅ | ✅ |
 /// | `AppendMessageContext` | ✅ | ✅ |
-/// | `TruncateMessageContext` | ✅ | ✅ |
 /// | `FilterMessageContext` | ✅ | ✅ |
 /// | `ExecuteTriggeredAgentExecution` | ✅ (`AgentTriggerRunner`) | ❌ rejected with an explicit error |
 /// | `ExecuteWorkflow` (cold start) | ✅ (`CreationRunner`) | ❌ rejected with an explicit error |
@@ -369,12 +364,14 @@ pub enum TriggerAction {
         #[serde(skip_serializing_if = "Option::is_none")]
         writeback: Option<TriggerAgentWriteback>,
     },
-    /// Replace the full content of a named message context with the given
-    /// messages. The operation goes through the engine's message-context
-    /// API (token ledger included), so it never corrupts the per-context
-    /// estimation state (unlike writing `__msg_ctx__*` variables via
-    /// `SetVariable`). An empty `context_id` targets the default context
-    /// (`current`).
+    /// Replace the active view of a named message context with the given
+    /// messages. The superseded active messages are archived (append-only),
+    /// never deleted: the engine's message-context API keeps the full
+    /// history for checkpoints and the view switch is undoable via history
+    /// restore. The operation goes through the token ledger, so it never
+    /// corrupts the per-context estimation state (unlike writing
+    /// `__msg_ctx__*` variables via `SetVariable`). An empty `context_id`
+    /// targets the default context (`current`).
     SetMessageContext {
         context_id: String,
         messages: Vec<crate::message::Message>,
@@ -385,20 +382,13 @@ pub enum TriggerAction {
         context_id: String,
         messages: Vec<crate::message::Message>,
     },
-    /// Truncate a named message context to `keep_count` messages. With
-    /// `from_end` set, the tail is kept (recent history for summary input);
-    /// otherwise the head is kept. Goes through the engine's message-context
-    /// API, so the token ledger stays consistent.
-    TruncateMessageContext {
-        context_id: String,
-        keep_count: u32,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        from_end: Option<bool>,
-    },
     /// Filter a named message context by role and/or text content. `role`
     /// selects the role to keep (with `exclude` set, that role is removed
     /// instead); `custom_filter` additionally keeps only messages whose text
-    /// contains the substring. Same ledger-safe guarantees as
+    /// contains the substring. The filter reads the active view and writes
+    /// the result back as the new active view; filtered-out messages are
+    /// archived (append-only), never deleted, so the operation is undoable
+    /// via history restore. Same ledger-safe guarantees as
     /// `SetMessageContext`.
     FilterMessageContext {
         context_id: String,
@@ -492,7 +482,6 @@ impl TriggerAction {
             Self::ExecuteTriggeredAgentExecution { .. } => "execute_triggered_agent_execution",
             Self::SetMessageContext { .. } => "set_message_context",
             Self::AppendMessageContext { .. } => "append_message_context",
-            Self::TruncateMessageContext { .. } => "truncate_message_context",
             Self::FilterMessageContext { .. } => "filter_message_context",
             Self::ExecuteWorkflow { .. } => "execute_workflow",
             Self::ExecuteAgent { .. } => "execute_agent",
@@ -830,7 +819,7 @@ mod tests {
             wait_for_completion: Some(false),
             timeout: Some(1000),
             input_mode: Some(TriggerAgentInputMode::FullSnapshot),
-            writeback: Some(TriggerAgentWriteback::ConversationReplace),
+            writeback: Some(TriggerAgentWriteback::ConversationAppend),
         };
         let json = serde_json::to_value(&action).unwrap();
         assert_eq!(
@@ -838,7 +827,7 @@ mod tests {
             serde_json::json!("execute_triggered_agent_execution")
         );
         assert_eq!(json["input_mode"], serde_json::json!("full_snapshot"));
-        assert_eq!(json["writeback"], serde_json::json!("conversation_replace"));
+        assert_eq!(json["writeback"], serde_json::json!("conversation_append"));
 
         let back: TriggerAction = serde_json::from_value(json).unwrap();
         assert_eq!(back, action);

@@ -7,20 +7,22 @@ use wf_types::Id;
 use crate::hooks::{fire, HookContext, HookHandlerRegistry};
 
 /// Versioned write-back operation applied to a context array.
+///
+/// Only append is supported: history is append-only, so a write-back never
+/// discards or overwrites existing messages (compression switches the view
+/// instead of replacing the array).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WritebackOp {
-    /// Replace the whole array (compression / summarization semantics).
-    Replace,
     /// Append messages to the array (continuation semantics).
     Append,
 }
 
 impl WritebackOp {
     /// Resolve the wire operation name carried by write-back completed
-    /// events (`WRITEBACK_OPERATION_REPLACE` / `WRITEBACK_OPERATION_APPEND`).
+    /// events (`WRITEBACK_OPERATION_APPEND`). Unknown names are rejected so a
+    /// destructive replace can never silently resume.
     pub fn from_operation_name(operation: &str) -> Option<Self> {
         match operation {
-            wf_llm::WRITEBACK_OPERATION_REPLACE => Some(Self::Replace),
             wf_llm::WRITEBACK_OPERATION_APPEND => Some(Self::Append),
             _ => None,
         }
@@ -127,7 +129,6 @@ pub fn apply_to_vec(
         return false;
     }
     match operation {
-        WritebackOp::Replace => *current = messages,
         WritebackOp::Append => current.extend(messages),
     }
     true
@@ -162,28 +163,15 @@ mod tests {
     #[test]
     fn writeback_op_resolves_wire_names() {
         assert_eq!(
-            WritebackOp::from_operation_name(wf_llm::WRITEBACK_OPERATION_REPLACE),
-            Some(WritebackOp::Replace)
-        );
-        assert_eq!(
             WritebackOp::from_operation_name(wf_llm::WRITEBACK_OPERATION_APPEND),
             Some(WritebackOp::Append)
         );
         assert_eq!(WritebackOp::from_operation_name("bogus"), None);
-    }
-
-    #[test]
-    fn apply_to_vec_replaces_at_matching_anchor() {
-        let mut current = vec![msg(MessageRole::User, "old")];
-        assert!(apply_to_vec(
-            &mut current,
-            3,
-            3,
-            WritebackOp::Replace,
-            vec![msg(MessageRole::Assistant, "new")],
-        ));
-        assert_eq!(current.len(), 1);
-        assert_eq!(current[0].role, MessageRole::Assistant);
+        assert_eq!(
+            WritebackOp::from_operation_name(wf_llm::WRITEBACK_OPERATION_REPLACE),
+            None,
+            "destructive replace wire name is rejected"
+        );
     }
 
     #[test]

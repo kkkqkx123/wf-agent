@@ -219,19 +219,6 @@ impl TriggerCoordinator {
                 context_id,
                 messages,
             } => Self::handle_append_message_context(context_id, messages.clone(), ctx).await,
-            TriggerAction::TruncateMessageContext {
-                context_id,
-                keep_count,
-                from_end,
-            } => {
-                Self::handle_truncate_message_context(
-                    context_id,
-                    *keep_count,
-                    *from_end,
-                    ctx,
-                )
-                .await
-            }
             TriggerAction::FilterMessageContext {
                 context_id,
                 role,
@@ -391,9 +378,10 @@ impl TriggerCoordinator {
         Ok(serde_json::json!({"variable": var_name, "value": var_value}))
     }
 
-    /// Replace the full content of a named message context (ledger-safe:
-    /// goes through `message_context::register_context`, which marks the
-    /// token ledger dirty so the next read recomputes the estimate).
+    /// Switch the active view of a named message context (ledger-safe:
+    /// goes through `message_context::register_context`, which archives the
+    /// superseded active messages append-only and marks the token ledger
+    /// dirty so the next read recomputes the estimate).
     async fn handle_set_message_context(
         context_id: &str,
         messages: Vec<wf_types::message::Message>,
@@ -452,48 +440,11 @@ impl TriggerCoordinator {
         }))
     }
 
-    /// Truncate a named message context through the shared stateless
-    /// operation: the result is written back via `register_context`, so the
-    /// token ledger version advances and stale compression results are
-    /// invalidated like any other replacement.
-    async fn handle_truncate_message_context(
-        context_id: &str,
-        keep_count: u32,
-        from_end: Option<bool>,
-        ctx: &TriggerContext,
-    ) -> WorkflowResult<Value> {
-        let messages = crate::message_context::get_context(&ctx.variables, context_id);
-        let operation = wf_types::message::MessageOperationConfig::Truncate(
-            wf_types::message::TruncateMessageOperation {
-                keep_count,
-                from_end,
-            },
-        );
-        let (result, stats) = wf_llm::messaging::message_ops::apply(&messages, &operation);
-        crate::message_context::register_context(&ctx.variables, context_id, result);
-        Self::emit_with_metadata(
-            ctx,
-            EventType::MessageContextUpdated,
-            &format!("message_context_truncated:{}", context_id),
-            &[
-                ("context_id", Value::String(context_id.to_string())),
-                (
-                    "message_count",
-                    Value::Number(serde_json::Number::from(stats.total_after as u64)),
-                ),
-            ],
-        )
-        .await;
-        Ok(serde_json::json!({
-            "context_id": context_id,
-            "removed": stats.removed,
-            "message_count": stats.total_after,
-        }))
-    }
-
     /// Filter a named message context by role and/or text content through
-    /// the shared stateless operation, with the same ledger-safe write-back
-    /// as truncation.
+    /// the shared stateless operation, with the same ledger-safe write-back.
+    /// Filtered-out messages leave the active view but stay in the
+    /// append-only archive, so the operation is undoable via history
+    /// restore and never loses checkpointed history.
     async fn handle_filter_message_context(
         context_id: &str,
         role: Option<wf_types::message::MessageRole>,

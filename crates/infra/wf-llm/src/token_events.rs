@@ -476,8 +476,9 @@ pub struct ContextCompressionCompletedMeta {
 
 /// Typed metadata of a [`EventType::ConversationWritebackCompleted`] event.
 ///
-/// `operation` is `replace` or `append`; `messages` is the message array to
-/// apply. `array_version` is the anchor version the write-back was produced
+/// `operation` is always `append` (history is append-only; the `replace`
+/// wire name is rejected); `messages` is the message array to apply.
+/// `array_version` is the anchor version the write-back was produced
 /// from: the conversation consumer applies it only when the session is still
 /// at that version.
 #[derive(Debug, Clone, PartialEq)]

@@ -83,7 +83,8 @@ pub use loop_state::{
     mark_iteration_failed, update_loop, LoopState, MAX_ITERATIONS_CAP,
 };
 pub use message_context::{
-    append_context, get_context, has_context, register_context, DEFAULT_CONTEXT_ID,
+    append_context, archived_history, get_context, get_context_history, has_context,
+    register_context, restore_full_history, DEFAULT_CONTEXT_ID,
 };
 pub use persistence::build_workflow_execution;
 pub use reference_closure::{ReferenceClosureReport, ReferenceContext, MAX_REFERENCE_DEPTH};

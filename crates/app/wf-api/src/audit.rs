@@ -63,10 +63,6 @@ pub struct AuditSummary {
     pub llm_call_count: usize,
     pub node_execution_count: usize,
     pub checkpoint_count: usize,
-    /// Set when the only source was a checkpoint snapshot truncated by the
-    /// size budget (footprint philosophy).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub truncation_stats: Option<wf_types::checkpoint::workflow::SnapshotTruncationStats>,
 }
 
 /// One tool call execution in audit form.
@@ -171,7 +167,6 @@ struct AgentAuditData {
     started_at: Option<i64>,
     ended_at: Option<i64>,
     iterations: Vec<IterationAuditView>,
-    truncation_stats: Option<wf_types::checkpoint::workflow::SnapshotTruncationStats>,
 }
 
 struct WorkflowAuditData {
@@ -180,7 +175,6 @@ struct WorkflowAuditData {
     started_at: Option<i64>,
     ended_at: Option<i64>,
     node_executions: Vec<NodeExecutionAuditView>,
-    truncation_stats: Option<wf_types::checkpoint::workflow::SnapshotTruncationStats>,
 }
 
 /// Resolve the audit data of an agent loop execution.
@@ -205,7 +199,6 @@ async fn resolve_agent(ctx: &ApiContext, execution_id: &str) -> ApiResult<Option
             started_at: Some(snapshot.start_time),
             ended_at: snapshot.end_time,
             iterations,
-            truncation_stats: None,
         }));
     }
 
@@ -222,7 +215,6 @@ async fn resolve_agent(ctx: &ApiContext, execution_id: &str) -> ApiResult<Option
             started_at: Some(record.started_at),
             ended_at: record.completed_at,
             iterations,
-            truncation_stats: None,
         }));
     }
 
@@ -242,7 +234,6 @@ async fn resolve_agent(ctx: &ApiContext, execution_id: &str) -> ApiResult<Option
             started_at: snapshot.started_at,
             ended_at: snapshot.completed_at,
             iterations,
-            truncation_stats: None,
         }));
     }
 
@@ -273,7 +264,6 @@ async fn resolve_workflow(
             started_at: Some(snapshot.start_time),
             ended_at: snapshot.end_time,
             node_executions,
-            truncation_stats: None,
         }));
     }
 
@@ -290,7 +280,6 @@ async fn resolve_workflow(
             started_at: Some(record.started_at),
             ended_at: record.completed_at,
             node_executions,
-            truncation_stats: None,
         }));
     }
 
@@ -307,7 +296,6 @@ async fn resolve_workflow(
             started_at: None,
             ended_at: None,
             node_executions,
-            truncation_stats: snapshot.truncation_stats.clone(),
         }));
     }
 
@@ -579,7 +567,6 @@ pub async fn audit_summary(ctx: &ApiContext, execution_id: &str) -> ApiResult<Au
                 .sum(),
             node_execution_count: 0,
             checkpoint_count: checkpoints,
-            truncation_stats: data.truncation_stats,
         });
     }
     if let Some(data) = resolve_workflow(ctx, execution_id).await? {
@@ -595,7 +582,6 @@ pub async fn audit_summary(ctx: &ApiContext, execution_id: &str) -> ApiResult<Au
             llm_call_count: 0,
             node_execution_count: data.node_executions.len(),
             checkpoint_count: checkpoints,
-            truncation_stats: data.truncation_stats,
         });
     }
     Ok(AuditSummary {
@@ -610,7 +596,6 @@ pub async fn audit_summary(ctx: &ApiContext, execution_id: &str) -> ApiResult<Au
         llm_call_count: 0,
         node_execution_count: 0,
         checkpoint_count: 0,
-        truncation_stats: None,
     })
 }
 

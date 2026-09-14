@@ -42,14 +42,13 @@ impl
         let (added_variables, modified_variables) =
             Self::diff_variables(&previous.variable_state, &current.variable_state);
 
-        let added_node_results = if current.node_results != previous.node_results {
-            current
-                .node_results
-                .clone()
-                .map(|map| serde_json::Value::Object(map.into_iter().collect()))
-        } else {
-            None
-        };
+        let message_contexts = Self::diff_message_contexts(
+            current.message_contexts.as_ref(),
+            previous.message_contexts.as_ref(),
+        );
+
+        let (added_node_results, modified_node_results) =
+            Self::diff_node_results(previous.node_results.as_ref(), current.node_results.as_ref());
 
         let status_change = if current.status != previous.status {
             Some(wf_types::checkpoint::FieldChange {
@@ -77,7 +76,9 @@ impl
             deleted_message_indices,
             added_variables,
             modified_variables,
+            message_contexts,
             added_node_results,
+            modified_node_results,
             status_change,
             current_node_change,
             other_changes,
@@ -137,6 +138,32 @@ impl
 
         if let Some(ref node_results) = delta.added_node_results {
             result.node_results = serde_json::from_value(node_results.clone()).ok();
+        }
+
+        if let Some(ref modified) = delta.modified_node_results {
+            let mut map = result.node_results.take().unwrap_or_default();
+            for (node_id, value) in modified {
+                map.insert(node_id.clone(), value.clone());
+            }
+            result.node_results = Some(map);
+        }
+
+        if let Some(ref contexts) = delta.message_contexts {
+            let mut map = result.message_contexts.take().unwrap_or_default();
+            for (context_id, context_delta) in contexts {
+                let entry = map
+                    .entry(context_id.clone())
+                    .or_insert_with(|| wf_types::checkpoint::workflow::MessageContextSnapshot {
+                        messages: Vec::new(),
+                        version: 0,
+                    });
+                for message in &context_delta.added_messages {
+                    if !entry.messages.iter().any(|m| m.id == message.id) {
+                        entry.messages.push(message.clone());
+                    }
+                }
+            }
+            result.message_contexts = Some(map);
         }
 
         if let Some(ref vars) = delta.added_variables {
@@ -231,30 +258,6 @@ impl
                     .and_then(|v| (!v.is_null()).then(|| v.clone()))
                     .and_then(|v| serde_json::from_value(v).ok());
             }
-            if other.contains_key("message_base_checkpoint_id") {
-                result.message_base_checkpoint_id = other
-                    .get("message_base_checkpoint_id")
-                    .and_then(|v| (!v.is_null()).then(|| v.clone()))
-                    .and_then(|v| v.as_str().map(String::from));
-            }
-            if other.contains_key("message_total_count") {
-                result.message_total_count = other
-                    .get("message_total_count")
-                    .and_then(|v| (!v.is_null()).then(|| v.clone()))
-                    .and_then(|v| v.as_u64());
-            }
-            if other.contains_key("truncated") {
-                result.truncated = other
-                    .get("truncated")
-                    .and_then(|v| (!v.is_null()).then(|| v.clone()))
-                    .and_then(|v| v.as_bool());
-            }
-            if other.contains_key("truncation_stats") {
-                result.truncation_stats = other
-                    .get("truncation_stats")
-                    .and_then(|v| (!v.is_null()).then(|| v.clone()))
-                    .and_then(|v| serde_json::from_value(v).ok());
-            }
         }
 
         Ok(result)
@@ -339,6 +342,76 @@ impl WorkflowDiffCalculator {
             (!added.is_empty()).then_some(added),
             (!modified.is_empty()).then_some(modified),
         )
+    }
+
+    /// Diff named message contexts as an append-only, message-id-deduplicated
+    /// set: for each context present in `current`, emit only the messages
+    /// whose ids are not already in the `previous` context. Contexts are never
+    /// dropped or replaced, so applying the delta extends base history.
+    fn diff_message_contexts(
+        current: Option<&std::collections::HashMap<
+            String,
+            wf_types::checkpoint::workflow::MessageContextSnapshot,
+        >>,
+        previous: Option<&std::collections::HashMap<
+            String,
+            wf_types::checkpoint::workflow::MessageContextSnapshot,
+        >>,
+    ) -> Option<std::collections::HashMap<String, wf_types::checkpoint::workflow::MessageContextDelta>>
+    {
+        use std::collections::{HashMap, HashSet};
+        use wf_types::checkpoint::workflow::MessageContextDelta;
+
+        let current = current?;
+        let empty = HashMap::new();
+        let previous = previous.unwrap_or(&empty);
+        let mut out: HashMap<String, MessageContextDelta> = HashMap::new();
+
+        for (context_id, curr_ctx) in current {
+            let prev_ids: HashSet<&str> = previous
+                .get(context_id)
+                .map(|ctx| ctx.messages.iter().map(|m| m.id.as_str()).collect())
+                .unwrap_or_default();
+            let added: Vec<wf_types::message::Message> = curr_ctx
+                .messages
+                .iter()
+                .filter(|m| !prev_ids.contains(m.id.as_str()))
+                .cloned()
+                .collect();
+            if !added.is_empty() {
+                out.insert(context_id.clone(), MessageContextDelta { added_messages: added });
+            }
+        }
+
+        (!out.is_empty()).then_some(out)
+    }
+
+    /// Diff node results at the key level: when both sides carry a map, emit
+    /// only changed/added keys as `modified` (unchanged nodes are kept by the
+    /// base). A wholesale swap (or first appearance) is emitted as `added`.
+    fn diff_node_results(
+        previous: Option<&std::collections::HashMap<String, serde_json::Value>>,
+        current: Option<&std::collections::HashMap<String, serde_json::Value>>,
+    ) -> (
+        Option<serde_json::Value>,
+        Option<std::collections::HashMap<String, serde_json::Value>>,
+    ) {
+        match (previous, current) {
+            (Some(prev), Some(curr)) => {
+                let mut modified = std::collections::HashMap::new();
+                for (node_id, value) in curr {
+                    if prev.get(node_id) != Some(value) {
+                        modified.insert(node_id.clone(), value.clone());
+                    }
+                }
+                (None, (!modified.is_empty()).then_some(modified))
+            }
+            (None, Some(curr)) => (
+                Some(serde_json::Value::Object(curr.clone().into_iter().collect())),
+                None,
+            ),
+            _ => (None, None),
+        }
     }
 
     fn diff_other_changes(
@@ -451,35 +524,6 @@ impl WorkflowDiffCalculator {
                     .unwrap_or(serde_json::Value::Null),
             );
         }
-        if current.message_base_checkpoint_id != previous.message_base_checkpoint_id {
-            other.insert(
-                "message_base_checkpoint_id".to_string(),
-                current
-                    .message_base_checkpoint_id
-                    .clone()
-                    .map(serde_json::Value::String)
-                    .unwrap_or(serde_json::Value::Null),
-            );
-        }
-        if current.message_total_count != previous.message_total_count {
-            other.insert(
-                "message_total_count".to_string(),
-                serde_json::to_value(current.message_total_count)
-                    .unwrap_or(serde_json::Value::Null),
-            );
-        }
-        if current.truncated != previous.truncated {
-            other.insert(
-                "truncated".to_string(),
-                serde_json::to_value(current.truncated).unwrap_or(serde_json::Value::Null),
-            );
-        }
-        if current.truncation_stats != previous.truncation_stats {
-            other.insert(
-                "truncation_stats".to_string(),
-                serde_json::to_value(&current.truncation_stats).unwrap_or(serde_json::Value::Null),
-            );
-        }
 
         (!other.is_empty()).then_some(other)
     }
@@ -513,11 +557,8 @@ impl
     ) -> Result<wf_types::checkpoint::agent::AgentCheckpointDelta, CheckpointError> {
         use wf_types::checkpoint::agent::AgentCheckpointDelta;
 
-        let added_messages = if current.conversation_snapshot != previous.conversation_snapshot {
-            current.conversation_snapshot.clone()
-        } else {
-            None
-        };
+        let (added_messages, added_message_base_seq) =
+            Self::diff_messages_append_only(previous, current);
 
         let added_iterations = if current.current_iteration != previous.current_iteration {
             Some(vec![current.current_iteration])
@@ -536,6 +577,7 @@ impl
 
         Ok(AgentCheckpointDelta {
             added_messages,
+            added_message_base_seq,
             added_iterations,
             status_change,
             other_changes: Self::diff_other_changes(previous, current),
@@ -550,7 +592,19 @@ impl
         let mut result = base.clone();
 
         if let Some(ref messages) = delta.added_messages {
-            result.conversation_snapshot = Some(messages.clone());
+            match delta.added_message_base_seq {
+                Some(base_seq) => {
+                    let base_start = base.message_seq_start.unwrap_or(0);
+                    let keep = base_seq.saturating_sub(base_start) as usize;
+                    let mut merged = base.conversation_snapshot.clone().unwrap_or_default();
+                    merged.truncate(keep.min(merged.len()));
+                    merged.extend(messages.clone());
+                    result.conversation_snapshot = Some(merged);
+                }
+                None => {
+                    result.conversation_snapshot = Some(messages.clone());
+                }
+            }
         }
 
         if let Some(ref iters) = delta.added_iterations {
@@ -652,6 +706,42 @@ impl
             if other.contains_key("messages") {
                 result.messages = other
                     .get("messages")
+                    .and_then(|v| (!v.is_null()).then(|| v.clone()))
+                    .and_then(|v| serde_json::from_value(v).ok());
+            }
+            if other.contains_key("conversation_view") {
+                result.conversation_view = other
+                    .get("conversation_view")
+                    .and_then(|v| (!v.is_null()).then(|| v.clone()))
+                    .and_then(|v| serde_json::from_value(v).ok());
+            }
+            if other.contains_key("message_seq_start") {
+                result.message_seq_start = other
+                    .get("message_seq_start")
+                    .and_then(|v| (!v.is_null()).then(|| v.clone()))
+                    .and_then(|v| serde_json::from_value(v).ok());
+            }
+            if other.contains_key("message_seq_end") {
+                result.message_seq_end = other
+                    .get("message_seq_end")
+                    .and_then(|v| (!v.is_null()).then(|| v.clone()))
+                    .and_then(|v| serde_json::from_value(v).ok());
+            }
+            if other.contains_key("message_next_seq") {
+                result.message_next_seq = other
+                    .get("message_next_seq")
+                    .and_then(|v| (!v.is_null()).then(|| v.clone()))
+                    .and_then(|v| serde_json::from_value(v).ok());
+            }
+            if other.contains_key("conversation_ledger") {
+                result.conversation_ledger = other
+                    .get("conversation_ledger")
+                    .and_then(|v| (!v.is_null()).then(|| v.clone()))
+                    .and_then(|v| serde_json::from_value(v).ok());
+            }
+            if other.contains_key("conversation_tracker") {
+                result.conversation_tracker = other
+                    .get("conversation_tracker")
                     .and_then(|v| (!v.is_null()).then(|| v.clone()))
                     .and_then(|v| serde_json::from_value(v).ok());
             }
@@ -774,8 +864,80 @@ impl AgentDiffCalculator {
                 serde_json::to_value(&current.messages).unwrap_or(serde_json::Value::Null),
             );
         }
+        if current.conversation_view != previous.conversation_view {
+            other.insert(
+                "conversation_view".to_string(),
+                serde_json::to_value(&current.conversation_view)
+                    .unwrap_or(serde_json::Value::Null),
+            );
+        }
+        for key in [
+            "message_seq_start",
+            "message_seq_end",
+            "message_next_seq",
+            "conversation_ledger",
+            "conversation_tracker",
+        ] {
+            let prev_val = match key {
+                "message_seq_start" => serde_json::to_value(previous.message_seq_start),
+                "message_seq_end" => serde_json::to_value(previous.message_seq_end),
+                "message_next_seq" => serde_json::to_value(previous.message_next_seq),
+                "conversation_ledger" => serde_json::to_value(&previous.conversation_ledger),
+                "conversation_tracker" => serde_json::to_value(&previous.conversation_tracker),
+                _ => Ok(serde_json::Value::Null),
+            }
+            .unwrap_or(serde_json::Value::Null);
+            let curr_val = match key {
+                "message_seq_start" => serde_json::to_value(current.message_seq_start),
+                "message_seq_end" => serde_json::to_value(current.message_seq_end),
+                "message_next_seq" => serde_json::to_value(current.message_next_seq),
+                "conversation_ledger" => serde_json::to_value(&current.conversation_ledger),
+                "conversation_tracker" => serde_json::to_value(&current.conversation_tracker),
+                _ => Ok(serde_json::Value::Null),
+            }
+            .unwrap_or(serde_json::Value::Null);
+            if prev_val != curr_val {
+                other.insert(key.to_string(), curr_val);
+            }
+        }
 
         (!other.is_empty()).then_some(other)
+    }
+
+    /// Append-only message diff: when the current history extends the previous
+    /// one (common prefix by id), only the suffix is stored with its base
+    /// sequence. Otherwise a legacy full replacement is emitted.
+    fn diff_messages_append_only(
+        previous: &wf_types::checkpoint::agent::AgentStateSnapshot,
+        current: &wf_types::checkpoint::agent::AgentStateSnapshot,
+    ) -> (
+        Option<Vec<wf_types::message::Message>>,
+        Option<u64>,
+    ) {
+        let prev = previous.conversation_snapshot.clone().unwrap_or_default();
+        let curr = current.conversation_snapshot.clone().unwrap_or_default();
+        if prev == curr {
+            return (None, None);
+        }
+        let mut common = 0usize;
+        while common < prev.len()
+            && common < curr.len()
+            && prev[common].id == curr[common].id
+        {
+            common += 1;
+        }
+        if common > 0 || prev.is_empty() {
+            let base_seq = previous
+                .message_seq_start
+                .unwrap_or(0)
+                .saturating_add(common as u64);
+            let suffix = curr[common..].to_vec();
+            if suffix.is_empty() {
+                return (None, None);
+            }
+            return (Some(suffix), Some(base_seq));
+        }
+        (Some(curr), None)
     }
 }
 
@@ -808,6 +970,7 @@ mod tests {
             variable_state: wf_types::checkpoint::CheckpointVariableState {
                 variables: std::collections::HashMap::new(),
             },
+            message_contexts: None,
             input: None,
             output: None,
             messages: None,
@@ -824,10 +987,6 @@ mod tests {
             execution_config: None,
             fork_join_aggregation_state: None,
             hook_execution_context: None,
-            message_base_checkpoint_id: None,
-            message_total_count: None,
-            truncated: None,
-            truncation_stats: None,
         }
     }
 
@@ -864,7 +1023,9 @@ mod tests {
             deleted_message_indices: None,
             added_variables: None,
             modified_variables: None,
+            message_contexts: None,
             added_node_results: None,
+            modified_node_results: None,
             status_change: Some(wf_types::checkpoint::FieldChange {
                 from: Some("running".to_string()),
                 to: Some("completed".to_string()),
@@ -1065,6 +1226,7 @@ mod tests {
         let base = make_agent_snapshot(1);
         let delta = wf_types::checkpoint::agent::AgentCheckpointDelta {
             added_messages: None,
+            added_message_base_seq: None,
             added_iterations: Some(vec![2, 3]),
             status_change: Some(wf_types::checkpoint::FieldChange {
                 from: Some("running".to_string()),
@@ -1090,6 +1252,10 @@ mod tests {
             stream_message: Some("partial".to_string()),
             pending_tool_call_ids: Some(vec!["tc-1".to_string()]),
             messages: Some(vec![make_message("m1", "hi")]),
+            conversation_view: Some(wf_types::message::MessageView::Compressed {
+                summary: Box::new(make_message("s1", "summary")),
+                tail_begin: 1,
+            }),
             ..prev.clone()
         };
 
@@ -1102,6 +1268,7 @@ mod tests {
         assert_eq!(restored.stream_message, curr.stream_message);
         assert_eq!(restored.pending_tool_call_ids, curr.pending_tool_call_ids);
         assert_eq!(restored.messages, curr.messages);
+        assert_eq!(restored.conversation_view, curr.conversation_view);
     }
 
     fn make_agent_snapshot(iteration: u32) -> wf_types::checkpoint::agent::AgentStateSnapshot {
@@ -1111,6 +1278,12 @@ mod tests {
             current_iteration: iteration,
             tool_call_count: 0,
             conversation_snapshot: None,
+            conversation_view: None,
+            message_seq_start: None,
+            message_seq_end: None,
+            message_next_seq: None,
+            conversation_ledger: None,
+            conversation_tracker: None,
             tool_call_history: None,
             is_streaming: None,
             variable_snapshots: None,

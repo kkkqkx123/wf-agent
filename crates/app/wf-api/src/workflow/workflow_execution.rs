@@ -545,6 +545,64 @@ fn snapshot_node_records(
     )
 }
 
+/// Extract the named message contexts (active view + archived history) from a
+/// variable map into the first-class checkpoint domain, deduplicated by
+/// message id. Mirrors the engine's snapshot builder so the API-built
+/// snapshots stay consistent with the live ones.
+fn message_contexts_from_vars(
+    variables: &HashMap<String, serde_json::Value>,
+) -> Option<HashMap<String, wf_types::checkpoint::workflow::MessageContextSnapshot>> {
+    use wf_workflow::message_context::{
+        CONTEXT_HISTORY_PREFIX, CONTEXT_PREFIX, LEDGER_PREFIX,
+    };
+
+    let mut contexts: HashMap<String, wf_types::checkpoint::workflow::MessageContextSnapshot> =
+        HashMap::new();
+    for (key, value) in variables.iter() {
+        if let Some(context_id) = key.strip_prefix(CONTEXT_PREFIX) {
+            if let Ok(messages) =
+                serde_json::from_value::<Vec<wf_types::message::Message>>(value.clone())
+            {
+                let version = variables
+                    .get(LEDGER_PREFIX)
+                    .and_then(|v| serde_json::from_value::<wf_types::llm::TokenLedger>(v.clone()).ok())
+                    .map(|l| l.version(context_id))
+                    .unwrap_or(0);
+                contexts
+                    .entry(context_id.to_string())
+                    .or_insert_with(|| wf_types::checkpoint::workflow::MessageContextSnapshot {
+                        messages: Vec::new(),
+                        version,
+                    })
+                    .messages
+                    .extend(messages);
+            }
+        }
+    }
+    for (key, value) in variables.iter() {
+        if let Some(context_id) = key.strip_prefix(CONTEXT_HISTORY_PREFIX) {
+            if let Ok(messages) =
+                serde_json::from_value::<Vec<wf_types::message::Message>>(value.clone())
+            {
+                let entry = contexts
+                    .entry(context_id.to_string())
+                    .or_insert_with(|| wf_types::checkpoint::workflow::MessageContextSnapshot {
+                        messages: Vec::new(),
+                        version: 0,
+                    });
+                let known: std::collections::HashSet<String> =
+                    entry.messages.iter().map(|m| m.id.clone()).collect();
+                for message in messages {
+                    if !known.contains(&message.id) {
+                        entry.messages.push(message);
+                    }
+                }
+            }
+        }
+    }
+    (!contexts.is_empty()).then_some(contexts)
+}
+
 /// Build a resume snapshot from the entity's current completion state:
 /// node results seed the coordinator's outputs and completed set, the
 /// current node restarts execution from there.
@@ -563,6 +621,7 @@ async fn entity_resume_snapshot(
         }
     }
     let node_execution_records = snapshot_node_records(&state);
+    let message_contexts = message_contexts_from_vars(&variables);
     WorkflowExecutionStateSnapshot {
         execution_id: entity.id().to_string(),
         status: state.status().as_str().to_string(),
@@ -570,6 +629,7 @@ async fn entity_resume_snapshot(
         node_results: Some(node_results),
         node_execution_records,
         variable_state: CheckpointVariableState { variables },
+        message_contexts,
         input: None,
         output: None,
         messages: None,
@@ -584,10 +644,6 @@ async fn entity_resume_snapshot(
         execution_config: None,
         fork_join_aggregation_state: None,
         hook_execution_context: None,
-        message_base_checkpoint_id: None,
-        message_total_count: None,
-        truncated: None,
-        truncation_stats: None,
     }
 }
 
@@ -634,6 +690,7 @@ async fn build_checkpoint_snapshot(
     let trigger_states = ctx
         .trigger_state_registry
         .snapshot_for(entity.id().as_str());
+    let message_contexts = message_contexts_from_vars(&variables);
 
     WorkflowExecutionStateSnapshot {
         execution_id: entity.id().to_string(),
@@ -642,6 +699,7 @@ async fn build_checkpoint_snapshot(
         node_results: Some(node_results),
         node_execution_records,
         variable_state: CheckpointVariableState { variables },
+        message_contexts,
         input: options.input.clone(),
         output: None,
         messages: None,
@@ -659,10 +717,6 @@ async fn build_checkpoint_snapshot(
         })),
         fork_join_aggregation_state: None,
         hook_execution_context: None,
-        message_base_checkpoint_id: None,
-        message_total_count: None,
-        truncated: None,
-        truncation_stats: None,
     }
 }
 

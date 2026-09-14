@@ -1,17 +1,23 @@
 use wf_types::message::{
-    AppendMessageOperation, ClearMessageOperation, FilterMessageOperation, InsertMessageOperation,
-    Message, MessageContent, MessageContentValue, MessageOperationConfig, MessageOperationStats,
-    MessageRole, ReplaceMessageOperation, RollbackMessageOperation, TruncateMessageOperation,
+    AppendMessageOperation, FilterMessageOperation, InsertMessageOperation, Message,
+    MessageContent, MessageContentValue, MessageOperationConfig, MessageOperationStats, MessageRole,
+    ReplaceMessageOperation, RollbackMessageOperation,
 };
 
 /// Apply one message-array operation as a pure function: the input slice is
 /// never mutated, a new array plus stats is returned.
 ///
 /// Supported operations are the user-facing context operations (append, insert,
-/// replace, truncate, clear, filter) executed by the workflow context
-/// processor and trigger actions against a named message context. Snapshot
-/// operations (`Rollback`, `BatchManagement`) are owned by checkpoints, not
-/// by message arrays: they are no-ops here and return the input unchanged.
+/// replace, filter) executed by the workflow context processor and trigger
+/// actions against a named message context. Snapshot operations (`Rollback`,
+/// `BatchManagement`) are owned by checkpoints, not by message arrays: they are
+/// no-ops here and return the input unchanged.
+///
+/// Isolation rule: the agent conversation session never calls this helper.
+/// It only appends through `ConversationSession::add_message` and switches
+/// the `MessageView` for compression. `Insert` and `Replace` are reserved
+/// for workflow draft contexts; applying them to an agent history would
+/// break sequence stability and branch lineage.
 pub fn apply(
     messages: &[Message],
     operation: &MessageOperationConfig,
@@ -20,8 +26,6 @@ pub fn apply(
         MessageOperationConfig::Append(op) => apply_append(messages, op),
         MessageOperationConfig::Insert(op) => apply_insert(messages, op),
         MessageOperationConfig::Replace(op) => apply_replace(messages, op),
-        MessageOperationConfig::Truncate(op) => apply_truncate(messages, op),
-        MessageOperationConfig::Clear(op) => apply_clear(messages, op),
         MessageOperationConfig::Filter(op) => apply_filter(messages, op),
         MessageOperationConfig::Rollback(op) => apply_rollback(messages, op),
         MessageOperationConfig::BatchManagement(_) => {
@@ -126,45 +130,6 @@ fn apply_replace(
     )
 }
 
-fn apply_truncate(
-    messages: &[Message],
-    op: &TruncateMessageOperation,
-) -> (Vec<Message>, MessageOperationStats) {
-    let keep = op.keep_count as usize;
-    let out = if keep >= messages.len() {
-        messages.to_vec()
-    } else if op.from_end.unwrap_or(false) {
-        messages[messages.len() - keep..].to_vec()
-    } else {
-        messages[..keep].to_vec()
-    };
-    let removed = messages.len() as u32 - out.len() as u32;
-    (
-        out,
-        MessageOperationStats {
-            added: 0,
-            removed,
-            modified: 0,
-            total_after: messages.len() as u32 - removed,
-        },
-    )
-}
-
-fn apply_clear(
-    messages: &[Message],
-    _op: &ClearMessageOperation,
-) -> (Vec<Message>, MessageOperationStats) {
-    (
-        Vec::new(),
-        MessageOperationStats {
-            added: 0,
-            removed: messages.len() as u32,
-            modified: 0,
-            total_after: 0,
-        },
-    )
-}
-
 fn apply_filter(
     messages: &[Message],
     op: &FilterMessageOperation,
@@ -195,6 +160,17 @@ fn apply_rollback(
     _op: &RollbackMessageOperation,
 ) -> (Vec<Message>, MessageOperationStats) {
     (messages.to_vec(), unchanged_stats(messages.len()))
+}
+
+/// Whether an operation is safe for agent histories. Only `Append` (and
+/// read-only `Filter` projections built at request time) qualify; `Insert`
+/// and `Replace` would rewrite coordinates and are rejected on the agent
+/// path. Workflow draft contexts may still use them.
+pub fn is_agent_safe(operation: &MessageOperationConfig) -> bool {
+    matches!(
+        operation,
+        MessageOperationConfig::Append(_) | MessageOperationConfig::BatchManagement(_)
+    )
 }
 
 #[cfg(test)]
@@ -264,35 +240,6 @@ mod tests {
     }
 
     #[test]
-    fn truncate_keeps_head_or_tail() {
-        let base = vec![
-            msg(MessageRole::System, "sys"),
-            msg(MessageRole::User, "q1"),
-            msg(MessageRole::Assistant, "a1"),
-            msg(MessageRole::User, "q2"),
-        ];
-        let (head, _) = apply(
-            &base,
-            &config(MessageOperationConfig::Truncate(TruncateMessageOperation {
-                keep_count: 2,
-                from_end: None,
-            })),
-        );
-        assert_eq!(head.len(), 2);
-        assert_eq!(head[0].role, MessageRole::System);
-        let (tail, stats) = apply(
-            &base,
-            &config(MessageOperationConfig::Truncate(TruncateMessageOperation {
-                keep_count: 2,
-                from_end: Some(true),
-            })),
-        );
-        assert_eq!(tail.len(), 2);
-        assert_eq!(tail[0].role, MessageRole::Assistant);
-        assert_eq!(stats.removed, 2);
-    }
-
-    #[test]
     fn filter_by_role_and_exclude() {
         let base = vec![
             msg(MessageRole::System, "sys"),
@@ -331,19 +278,6 @@ mod tests {
             })),
         );
         assert_eq!(out.len(), 1);
-        assert_eq!(stats.removed, 1);
-    }
-
-    #[test]
-    fn clear_empties_and_reports_removed() {
-        let base = vec![msg(MessageRole::User, "q")];
-        let (out, stats) = apply(
-            &base,
-            &config(MessageOperationConfig::Clear(ClearMessageOperation {
-                batch_index: None,
-            })),
-        );
-        assert!(out.is_empty());
         assert_eq!(stats.removed, 1);
     }
 

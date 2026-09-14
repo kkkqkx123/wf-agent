@@ -48,6 +48,20 @@ pub struct NodeExecutionRecord {
     pub branch_id: Option<String>,
 }
 
+/// One named message context captured as a first-class checkpoint domain.
+///
+/// Named message contexts live in `variable_state` under the `__msg_ctx__`
+/// prefix; promoting them to their own domain lets the delta carry an
+/// append-only, message-id-deduplicated diff instead of a whole-variable
+/// replacement, so the per-context history is never overwritten. `version`
+/// mirrors the `__msg_ledger__` token ledger version.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct MessageContextSnapshot {
+    pub messages: Vec<super::super::super::message::Message>,
+    pub version: u64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct OperationState {
@@ -60,27 +74,6 @@ pub struct OperationState {
     pub progress: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub partial_result: Option<serde_json::Value>,
-}
-
-/// What a size-budget truncation dropped from a snapshot, so restore can
-/// warn about the degraded state instead of silently resuming with a lossy
-/// snapshot.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
-#[serde(rename_all = "camelCase")]
-pub struct SnapshotTruncationStats {
-    /// Number of conversation messages dropped (tail kept).
-    pub dropped_message_count: u64,
-    /// Number of node results dropped.
-    pub dropped_node_result_count: u64,
-    /// Number of variables dropped.
-    pub dropped_variable_count: u64,
-    /// Number of node execution records dropped.
-    #[serde(default)]
-    pub dropped_node_execution_record_count: u64,
-    /// Whether the conversation session state was dropped entirely.
-    pub dropped_conversation_state: bool,
-    /// Whether the error/interruption/event records were truncated.
-    pub truncated_record_count: u64,
 }
 
 /// Snapshot of workflow execution state used for checkpoint persistence.
@@ -97,6 +90,12 @@ pub struct WorkflowExecutionStateSnapshot {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub node_results: Option<HashMap<String, serde_json::Value>>,
     pub variable_state: super::super::CheckpointVariableState,
+    /// Named message contexts as a first-class domain (mirrors the
+    /// `__msg_ctx__` entries in `variable_state`). Append-only per context:
+    /// the delta carries added messages keyed by context id, never a whole
+    /// replacement, so context history is preserved across checkpoints.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message_contexts: Option<HashMap<String, MessageContextSnapshot>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub input: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -134,18 +133,4 @@ pub struct WorkflowExecutionStateSnapshot {
     /// Hook execution context for condition evaluation after restore.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hook_execution_context: Option<serde_json::Value>,
-    /// When set, `messages` may be truncated; full history can be rebuilt by
-    /// walking the checkpoint chain back to this checkpoint.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub message_base_checkpoint_id: Option<String>,
-    /// Total number of conversation messages across the message chain.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub message_total_count: Option<u64>,
-    /// Set when a size budget truncated this snapshot; restore should warn
-    /// about the degraded state.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub truncated: Option<bool>,
-    /// What the size-budget truncation dropped (present when `truncated`).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub truncation_stats: Option<SnapshotTruncationStats>,
 }

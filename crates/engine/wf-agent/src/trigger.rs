@@ -385,7 +385,7 @@ impl TriggeredAgentExecutionManager {
 /// - the parent variable snapshot always receives `output.result`
 ///   (data-loss fall-back: a discarded or skipped conversation write-back
 ///   never loses the result);
-/// - `ConversationReplace` / `ConversationAppend` additionally publish a
+/// - `ConversationAppend` additionally publishes a
 ///   `CONVERSATION_WRITEBACK_COMPLETED` event carrying the anchor version;
 ///   the parent session consumer applies it only while the conversation is
 ///   still at that version (stale results are discarded, mirroring the
@@ -424,7 +424,6 @@ async fn write_back_result(
         return;
     };
     let operation = match writeback {
-        TriggerAgentWriteback::ConversationReplace => wf_llm::WRITEBACK_OPERATION_REPLACE,
         TriggerAgentWriteback::ConversationAppend => wf_llm::WRITEBACK_OPERATION_APPEND,
         TriggerAgentWriteback::Variable => return,
     };

@@ -38,7 +38,10 @@ pub async fn build_agent_request(
     general_description: Option<&str>,
     discoverable_metadata_block: Option<&str>,
 ) -> AgentResult<LlmRequest> {
-    let mut messages = entity.conversation().read().await.messages().to_vec();
+    // The LLM sees the projected view (summary + tail when compressed),
+    // never the full append-only history: compression shrinks requests
+    // while checkpoints keep everything.
+    let mut messages = entity.conversation().read().await.view_messages();
     let activated_tools = {
         let state = entity.state.read().await;
         state.tool_discovery().activated_tools.clone()

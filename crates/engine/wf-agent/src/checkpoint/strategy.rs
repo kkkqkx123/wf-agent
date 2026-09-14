@@ -14,6 +14,10 @@ pub enum AgentCheckpointTiming {
     OnAgentPause,
     OnAgentCancel,
     OnAgentTimeout,
+    BeforeTool,
+    AfterTool,
+    BeforeCompression,
+    AfterCompression,
 }
 
 impl CheckpointTimingVariant for AgentCheckpointTiming {
@@ -27,6 +31,10 @@ impl CheckpointTimingVariant for AgentCheckpointTiming {
             AgentCheckpointTiming::OnAgentPause => CheckpointTiming::OnPause,
             AgentCheckpointTiming::OnAgentCancel => CheckpointTiming::OnCancel,
             AgentCheckpointTiming::OnAgentTimeout => CheckpointTiming::OnTimeout,
+            AgentCheckpointTiming::BeforeTool => CheckpointTiming::ToolBefore,
+            AgentCheckpointTiming::AfterTool => CheckpointTiming::ToolAfter,
+            AgentCheckpointTiming::BeforeCompression => CheckpointTiming::BeforeRetry,
+            AgentCheckpointTiming::AfterCompression => CheckpointTiming::AfterRetrySuccess,
         }
     }
 }
@@ -41,6 +49,10 @@ fn map_trigger(t: &CheckpointTiming) -> Option<AgentCheckpointTiming> {
         CheckpointTiming::OnPause => Some(AgentCheckpointTiming::OnAgentPause),
         CheckpointTiming::OnCancel => Some(AgentCheckpointTiming::OnAgentCancel),
         CheckpointTiming::OnTimeout => Some(AgentCheckpointTiming::OnAgentTimeout),
+        CheckpointTiming::ToolBefore => Some(AgentCheckpointTiming::BeforeTool),
+        CheckpointTiming::ToolAfter => Some(AgentCheckpointTiming::AfterTool),
+        CheckpointTiming::BeforeRetry => Some(AgentCheckpointTiming::BeforeCompression),
+        CheckpointTiming::AfterRetrySuccess => Some(AgentCheckpointTiming::AfterCompression),
         _ => None,
     }
 }

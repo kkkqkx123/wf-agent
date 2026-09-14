@@ -79,27 +79,31 @@ pub fn spawn_conversation_compression_consumer(
     })
 }
 
-/// Apply one compressed conversation snapshot: replace the session messages
-/// only when the session is still at the version the compression was
-/// produced from; newer messages win otherwise.
+/// Apply one compressed conversation snapshot: append the summarized
+/// messages to the session history and switch the read projection to the
+/// summary view, but only when the session is still at the version the
+/// compression was produced from; newer messages win otherwise.
 ///
-/// Compression is the `Replace` special case of the versioned write-back
-/// channel (shared with nested-agent conversation write-backs). Operation
-/// semantics come from the shared context store.
+/// Compression never replaces the conversation: the full history is kept
+/// and only the view narrows, so undoing compression is a zero-cost view
+/// switch back to the full history.
 pub async fn apply_compression(
     conversation: &Arc<RwLock<ConversationSession>>,
     meta: ContextCompressionCompletedMeta,
 ) {
-    apply_versioned_writeback(
-        conversation,
-        meta.array_version,
-        WritebackOp::Replace,
-        meta.messages,
-    )
-    .await;
+    let mut session = conversation.write().await;
+    if !check_anchor(session.conversation_version(), meta.array_version) {
+        debug!(
+            "Stale conversation write-back at version {} (current {}), discarding",
+            meta.array_version,
+            session.conversation_version()
+        );
+        return;
+    }
+    session.compress(meta.messages);
 }
 
-/// Apply a versioned conversation write-back (replace or append): mutate the
+/// Apply a versioned conversation write-back (append only): mutate the
 /// session only when it is still at `anchor_version`; newer messages win
 /// otherwise (stale results are discarded, mirroring the compression path).
 ///
@@ -121,7 +125,6 @@ pub async fn apply_versioned_writeback(
         return;
     }
     match operation {
-        WritebackOp::Replace => session.replace_messages(messages),
         WritebackOp::Append => {
             for message in messages {
                 session.add_message(message);
@@ -206,7 +209,7 @@ mod tests {
         .unwrap();
         drop(sub);
 
-        // The replacement bumps the version; wait until it does.
+        // The append bumps the version; wait until it does.
         for _ in 0..200 {
             if conversation.read().await.conversation_version() > version {
                 break;
@@ -214,8 +217,13 @@ mod tests {
             tokio::time::sleep(std::time::Duration::from_millis(10)).await;
         }
         let session = conversation.read().await;
-        assert_eq!(session.messages().len(), 1);
-        assert_eq!(session.messages()[0].role, MessageRole::Assistant);
+        // Compression appends the summary to the history and narrows the
+        // view: history keeps everything, the LLM projection shrinks.
+        assert_eq!(session.history().len(), 2);
+        assert_eq!(session.history()[0].role, MessageRole::User);
+        assert_eq!(session.history()[1].role, MessageRole::Assistant);
+        assert_eq!(session.view_messages().len(), 1);
+        assert_eq!(session.view_messages()[0].role, MessageRole::Assistant);
         handle.abort();
     }
 
@@ -333,47 +341,6 @@ mod tests {
             session.messages()[1].content,
             MessageContentValue::Text("child result".to_string())
         );
-        handle.abort();
-    }
-
-    #[tokio::test]
-    async fn replace_writeback_replaces_conversation_at_matching_version() {
-        let bus = Arc::new(EventBus::new(8));
-        let conversation = Arc::new(RwLock::new(ConversationSession::with_token_limit(100)));
-        conversation
-            .write()
-            .await
-            .add_message(text_message(MessageRole::User, "hello"));
-        let version = conversation.read().await.conversation_version();
-
-        let handle = spawn_conversation_compression_consumer(
-            bus.clone(),
-            "loop-1".to_string(),
-            conversation.clone(),
-        );
-        let sub = bus.subscribe();
-        while bus.receiver_count() < 2 {
-            tokio::task::yield_now().await;
-        }
-        bus.publish(writeback_event(
-            "loop-1",
-            version,
-            wf_llm::WRITEBACK_OPERATION_REPLACE,
-            &[text_message(MessageRole::Assistant, "summary")],
-        ))
-        .unwrap();
-        drop(sub);
-
-        // The replacement bumps the version; wait until the new array lands.
-        for _ in 0..200 {
-            if conversation.read().await.conversation_version() > version {
-                break;
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-        }
-        let session = conversation.read().await;
-        assert_eq!(session.messages().len(), 1);
-        assert_eq!(session.messages()[0].role, MessageRole::Assistant);
         handle.abort();
     }
 

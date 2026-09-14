@@ -1,7 +1,7 @@
 use crate::token_count::estimate_message_tokens;
 use crate::token_tracker::{RequestUsage, TokenTrackerState, TokenUsageTracker};
 use wf_types::llm::{MessageStreamUsage, TokenLedger, TokenUsageStats};
-use wf_types::message::Message;
+use wf_types::message::{Message, MessageView};
 
 /// Name of the default agent conversation message array.
 pub const CONVERSATION_CONTEXT_ID: &str = "conversation";
@@ -9,6 +9,15 @@ pub const CONVERSATION_CONTEXT_ID: &str = "conversation";
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct ConversationState {
     pub messages: Vec<Message>,
+    /// Monotonic message sequence numbers parallel to `messages`.
+    /// Entry `seqs[i]` is the stable coordinate of `messages[i]` within one
+    /// execution. Absent in checkpoints written before sequencing.
+    #[serde(default)]
+    pub seqs: Vec<u64>,
+    /// Next sequence number to assign. Restored from checkpoints so resumed
+    /// runs never reuse a coordinate.
+    #[serde(default)]
+    pub next_seq: u64,
     /// Cumulative token usage (kept in sync with the tracker for
     /// checkpointing compatibility).
     pub token_usage: u64,
@@ -20,6 +29,12 @@ pub struct ConversationState {
     /// written before the ledger was introduced.
     #[serde(default, skip_serializing_if = "TokenLedger::is_empty")]
     pub ledger: TokenLedger,
+    /// Read projection over the history. The history array is append-only;
+    /// compression appends a summary and switches this view instead of
+    /// replacing the array. Absent in checkpoints written before views
+    /// were introduced (defaults to showing the whole history).
+    #[serde(default, skip_serializing_if = "MessageView::is_full")]
+    pub active_view: MessageView,
 }
 
 pub struct ConversationSession {
@@ -44,9 +59,12 @@ impl ConversationSession {
         Self {
             state: ConversationState {
                 messages: Vec::new(),
+                seqs: Vec::new(),
+                next_seq: 0,
                 token_usage: 0,
                 tracker: None,
                 ledger: TokenLedger::default(),
+                active_view: MessageView::Full,
             },
             tracker: TokenUsageTracker::new(token_limit),
         }
@@ -58,20 +76,136 @@ impl ConversationSession {
         self.state
             .ledger
             .append(CONVERSATION_CONTEXT_ID, estimated, 1);
+        self.state.seqs.push(self.state.next_seq);
+        self.state.next_seq = self.state.next_seq.saturating_add(1);
         self.state.messages.push(message);
     }
 
-    /// Replace the whole conversation (compression write-back path).
-    pub fn replace_messages(&mut self, messages: Vec<Message>) {
+    /// Switch the read projection to a compressed view over the current
+    /// history: the summary batch is appended to the append-only history
+    /// and the view shows the summary plus a configurable tail. The
+    /// pre-existing history stays in place, so the projection is strictly
+    /// smaller while nothing is lost. Empty batches leave the view untouched.
+    pub fn compress(&mut self, summary_messages: Vec<Message>) {
+        self.compress_with_tail(summary_messages, 0);
+    }
+
+    /// Compression with tail retention: keep the last `tail_keep` pre-existing
+    /// messages visible alongside the summary. Multi-level summaries compose
+    /// naturally since the previous summary stays in history.
+    pub fn compress_with_tail(&mut self, summary_messages: Vec<Message>, tail_keep: usize) {
+        if summary_messages.is_empty() {
+            return;
+        }
+        let pre_len = self.state.messages.len();
+        let tail_begin = pre_len.saturating_sub(tail_keep);
+        let summary = Box::new(summary_messages[0].clone());
+        for message in summary_messages {
+            self.add_message(message);
+        }
+        self.state.active_view = MessageView::Compressed {
+            summary,
+            tail_begin,
+        };
+    }
+
+    /// Drop the compressed projection and show the whole history again.
+    /// History was never deleted, so undoing compression costs nothing.
+    pub fn restore_full_view(&mut self) {
+        self.state.active_view = MessageView::Full;
+    }
+
+    /// Restore an authoritative history with its view (checkpoint resume
+    /// path). The ledger entry is marked dirty so the next read recomputes
+    /// the estimate exactly once, mirroring a fresh replacement without
+    /// ever deleting checkpointed history. Sequence coordinates are rebuilt
+    /// from zero so legacy snapshots without them stay addressable.
+    pub fn restore_history(&mut self, messages: Vec<Message>, active_view: MessageView) {
+        let len = messages.len() as u64;
         self.state.messages = messages;
+        self.state.active_view = active_view;
+        self.state.seqs = (0..len).collect();
+        self.state.next_seq = len;
         // Ledger invalidation: the new content is not estimated here; the
         // next read recomputes lazily (dirty flag), and the version bump
         // invalidates stale emission guards.
         self.state.ledger.replace(CONVERSATION_CONTEXT_ID);
     }
 
+    /// Stable sequence range covered by the current history.
+    pub fn seq_range(&self) -> Option<(u64, u64)> {
+        let start = *self.state.seqs.first()?;
+        let end = *self.state.seqs.last()?;
+        Some((start, end))
+    }
+
+    /// Next sequence number to assign.
+    pub fn next_seq(&self) -> u64 {
+        self.state.next_seq
+    }
+
+    /// Sequence numbers parallel to `history()`.
+    pub fn message_seqs(&self) -> &[u64] {
+        &self.state.seqs
+    }
+
+    /// Read-only prefix slice up to and including `target_seq`.
+    /// Used for replay and for constructing a branch; never mutates self,
+    /// so in-place truncation is impossible through this API.
+    pub fn prefix_through_seq(&self, target_seq: u64) -> Option<Vec<Message>> {
+        let pos = self.state.seqs.iter().position(|s| *s == target_seq)?;
+        Some(self.state.messages[..=pos].to_vec())
+    }
+
+    /// Build a branch state from a sequence prefix. The returned state keeps
+    /// the original coordinates for the prefix and continues allocating fresh
+    /// coordinates after it. The live session is untouched.
+    pub fn branch_state_through_seq(
+        &self,
+        target_seq: u64,
+        view: MessageView,
+    ) -> Option<ConversationState> {
+        let pos = self.state.seqs.iter().position(|s| *s == target_seq)?;
+        let mut state = self.state.clone();
+        state.messages = state.messages[..=pos].to_vec();
+        state.seqs = state.seqs[..=pos].to_vec();
+        state.active_view = view;
+        state.ledger.replace(CONVERSATION_CONTEXT_ID);
+        Some(state)
+    }
+
+    /// Backfill coordinates for histories restored from legacy snapshots
+    /// that carry no sequence data.
+    pub fn backfill_seqs(&mut self) {
+        if self.state.seqs.len() == self.state.messages.len() {
+            return;
+        }
+        let len = self.state.messages.len() as u64;
+        self.state.seqs = (0..len).collect();
+        self.state.next_seq = len;
+    }
+
+    /// Full append-only history (checkpointing, auditing, resume output).
+    pub fn history(&self) -> &[Message] {
+        &self.state.messages
+    }
+
     pub fn messages(&self) -> &[Message] {
         &self.state.messages
+    }
+
+    /// Projected messages for LLM request assembly: the summary plus the
+    /// tail when compressed, the whole history otherwise. Sequence-aware
+    /// views (`Range`) resolve against the session coordinates.
+    pub fn view_messages(&self) -> Vec<Message> {
+        self.state
+            .active_view
+            .project_with_seqs(&self.state.messages, &self.state.seqs)
+    }
+
+    /// Current read projection (checkpointed alongside the history).
+    pub fn active_view(&self) -> &MessageView {
+        &self.state.active_view
     }
 
     /// Decision track: estimated token total of the conversation array,
@@ -85,6 +219,15 @@ impl ConversationSession {
                 .recompute(CONVERSATION_CONTEXT_ID, estimated, count);
         }
         self.state.ledger.estimated_tokens(CONVERSATION_CONTEXT_ID)
+    }
+
+    /// Decision track: estimated token total of the projected view (what
+    /// the next LLM request actually carries). Compression decisions read
+    /// this: after compression the view shrinks even though the history
+    /// keeps growing, so a history-based estimate would re-trigger
+    /// compression immediately.
+    pub fn estimated_view_tokens(&self) -> u64 {
+        crate::token_count::estimate_messages(&self.view_messages()) as u64
     }
 
     /// Current version of the conversation array (ledger).
@@ -216,14 +359,17 @@ impl ConversationSession {
     /// Reset messages and token tracking (session cleanup).
     pub fn reset(&mut self) {
         self.state.messages.clear();
+        self.state.seqs.clear();
+        self.state.next_seq = 0;
+        self.state.active_view = MessageView::Full;
         self.state.ledger = TokenLedger::default();
         self.tracker = TokenUsageTracker::new(self.tracker.token_limit());
         self.state.token_usage = 0;
         self.state.tracker = None;
     }
 
-    /// Snapshot the full session state (messages + tracker + ledger) for
-    /// checkpointing.
+    /// Snapshot the full session state (messages + view + tracker + ledger)
+    /// for checkpointing.
     pub fn snapshot_state(&self) -> ConversationState {
         let mut state = self.state.clone();
         state.token_usage = self.tracker.cumulative_usage().total_tokens as u64;
@@ -231,10 +377,18 @@ impl ConversationSession {
         state
     }
 
-    /// Restore the full session state (messages + tracker + ledger) from a
-    /// snapshot.
-    pub fn restore_state(&mut self, state: ConversationState) {
+    /// Restore the full session state (messages + seqs + view + tracker +
+    /// ledger) from a snapshot.
+    pub fn restore_state(&mut self, mut state: ConversationState) {
+        if state.seqs.len() != state.messages.len() {
+            let len = state.messages.len() as u64;
+            state.seqs = (0..len).collect();
+            state.next_seq = len;
+        }
         self.state.messages = state.messages;
+        self.state.seqs = state.seqs;
+        self.state.next_seq = state.next_seq;
+        self.state.active_view = state.active_view;
         self.state.ledger = state.ledger;
         if let Some(tracker_state) = state.tracker {
             self.tracker.restore(tracker_state);
@@ -242,6 +396,7 @@ impl ConversationSession {
             self.tracker = TokenUsageTracker::new(self.tracker.token_limit());
         }
         self.state.token_usage = self.tracker.cumulative_usage().total_tokens as u64;
+        self.state.tracker = Some(self.tracker.state());
     }
 }
 
@@ -294,7 +449,7 @@ mod tests {
     }
 
     #[test]
-    fn replace_messages_marks_dirty_and_recomputes_lazily() {
+    fn restore_history_marks_dirty_and_recomputes_lazily() {
         let mut session = ConversationSession::new();
         session.add_message(user("alpha"));
         session.add_message(user("beta"));
@@ -303,7 +458,7 @@ mod tests {
         let fresh = vec![user(
             "a much longer replacement message that costs more tokens",
         )];
-        session.replace_messages(fresh);
+        session.restore_history(fresh, MessageView::Full);
         assert!(session.state.ledger.is_dirty(CONVERSATION_CONTEXT_ID));
         assert_eq!(
             session
@@ -322,6 +477,53 @@ mod tests {
         );
         // A second read must not recompute again (estimate is stable).
         assert_eq!(session.estimated_conversation_tokens(), recomputed);
+    }
+
+    #[test]
+    fn compress_switches_view_while_history_stays_append_only() {
+        let mut session = ConversationSession::new();
+        session.add_message(user("alpha"));
+        session.add_message(user("beta"));
+        let version_before = session.conversation_version();
+
+        session.compress(vec![user("summary")]);
+
+        // History grew: nothing was deleted.
+        assert_eq!(session.history().len(), 3);
+        assert_eq!(session.messages().len(), 3);
+        assert!(session.conversation_version() > version_before);
+        // The LLM projection shrank to the summary.
+        let view = session.view_messages();
+        assert_eq!(view.len(), 1);
+        assert_ne!(session.view_messages().len(), session.history().len());
+        assert!(matches!(
+            session.active_view(),
+            MessageView::Compressed { .. }
+        ));
+    }
+
+    #[test]
+    fn undo_compression_restores_full_visibility_at_zero_cost() {
+        let mut session = ConversationSession::new();
+        session.add_message(user("alpha"));
+        session.compress(vec![user("summary")]);
+        assert_eq!(session.view_messages().len(), 1);
+
+        session.restore_full_view();
+
+        assert!(session.active_view().is_full());
+        assert_eq!(session.view_messages().len(), session.history().len());
+        assert_eq!(session.history().len(), 2);
+    }
+
+    #[test]
+    fn view_estimate_shrinks_after_compression() {
+        let mut session = ConversationSession::new();
+        session.add_message(user("a fairly long first message for tokens"));
+        session.add_message(user("a fairly long second message for tokens"));
+        let before = session.estimated_view_tokens();
+        session.compress(vec![user("short")]);
+        assert!(session.estimated_view_tokens() < before);
     }
 
     #[test]
@@ -356,6 +558,8 @@ mod tests {
         let mut restored = ConversationSession::new();
         restored.restore_state(snapshot);
         assert_eq!(restored.messages().len(), 1);
+        assert!(restored.active_view().is_full());
+        assert_eq!(restored.view_messages().len(), 1);
         assert_eq!(restored.estimated_total(), session.estimated_total());
         assert_eq!(
             restored.conversation_version(),
@@ -370,9 +574,12 @@ mod tests {
     fn restore_old_checkpoint_without_tracker_state() {
         let state = ConversationState {
             messages: vec![user("legacy")],
+            seqs: vec![0],
+            next_seq: 1,
             token_usage: 0,
             tracker: None,
             ledger: TokenLedger::default(),
+            active_view: MessageView::Full,
         };
         let mut session = ConversationSession::with_token_limit(500);
         session.restore_state(state);
@@ -546,5 +753,52 @@ mod tests {
         assert_eq!(restored.messages().len(), 3);
         assert_eq!(restored.estimated_total(), 30);
         assert_eq!(restored.token_usage(), 30);
+    }
+
+    #[test]
+    fn seq_coordinates_stay_stable_and_monotonic() {
+        let mut session = ConversationSession::new();
+        session.add_message(user("a"));
+        session.add_message(user("b"));
+        session.add_message(user("c"));
+        assert_eq!(session.history().len(), session.message_seqs().len());
+        assert_eq!(session.message_seqs(), &[0, 1, 2]);
+        assert_eq!(session.seq_range(), Some((0, 2)));
+        session.compress_with_tail(vec![user("summary")], 1);
+        assert_eq!(session.history().len(), session.message_seqs().len());
+        assert_eq!(session.message_seqs(), &[0, 1, 2, 3]);
+        assert_eq!(session.next_seq(), 4);
+    }
+
+    #[test]
+    fn branch_prefix_leaves_source_untouched() {
+        let mut session = ConversationSession::new();
+        session.add_message(user("a"));
+        session.add_message(user("b"));
+        session.add_message(user("c"));
+        let branch = session
+            .branch_state_through_seq(1, MessageView::Full)
+            .expect("seq present");
+        assert_eq!(branch.messages.len(), 2);
+        assert_eq!(branch.seqs, vec![0, 1]);
+        assert_eq!(session.history().len(), 3);
+        assert_eq!(session.message_seqs(), &[0, 1, 2]);
+        let prefix = session.prefix_through_seq(1).expect("seq present");
+        assert_eq!(prefix.len(), 2);
+    }
+
+    #[test]
+    fn range_view_resolves_against_session_coordinates() {
+        let mut session = ConversationSession::new();
+        session.add_message(user("a"));
+        session.add_message(user("b"));
+        session.add_message(user("c"));
+        session.state.active_view = MessageView::Range {
+            start_seq: 1,
+            end_seq: 2,
+        };
+        let view = session.view_messages();
+        assert_eq!(view.len(), 2);
+        assert_eq!(view[0], session.history()[1]);
     }
 }

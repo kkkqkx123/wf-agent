@@ -357,6 +357,72 @@ impl WorkflowCheckpointIntegration {
             .iter()
             .map(|e| (e.key().clone(), e.value().clone()))
             .collect();
+        // Named message contexts are promoted out of the variable map into a
+        // first-class snapshot domain so the delta can carry append-only,
+        // per-context message diffs instead of whole-variable replacement.
+        // The archived history is merged with the active view so the domain
+        // records the full, lossless context history.
+        let message_contexts: Option<
+            HashMap<String, wf_types::checkpoint::workflow::MessageContextSnapshot>,
+        > = {
+            let mut contexts: HashMap<
+                String,
+                wf_types::checkpoint::workflow::MessageContextSnapshot,
+            > = HashMap::new();
+            let prefix = crate::message_context::CONTEXT_PREFIX;
+            let history_prefix = crate::message_context::CONTEXT_HISTORY_PREFIX;
+            let ledger_key = crate::message_context::LEDGER_PREFIX;
+            // Active views first, then archived history (append-only).
+            for (key, value) in vars.iter() {
+                if let Some(context_id) = key.strip_prefix(prefix) {
+                    if let Ok(messages) = serde_json::from_value::<
+                        Vec<wf_types::message::Message>,
+                    >(value.clone())
+                    {
+                        let version = vars
+                            .get(ledger_key)
+                            .and_then(|v| {
+                                serde_json::from_value::<wf_types::llm::TokenLedger>(v.clone()).ok()
+                            })
+                            .map(|l| l.version(context_id))
+                            .unwrap_or(0);
+                        contexts
+                            .entry(context_id.to_string())
+                            .or_insert_with(|| {
+                                wf_types::checkpoint::workflow::MessageContextSnapshot {
+                                    messages: Vec::new(),
+                                    version,
+                                }
+                            })
+                            .messages
+                            .extend(messages);
+                    }
+                }
+            }
+            for (key, value) in vars.iter() {
+                if let Some(context_id) = key.strip_prefix(history_prefix) {
+                    if let Ok(messages) = serde_json::from_value::<
+                        Vec<wf_types::message::Message>,
+                    >(value.clone())
+                    {
+                        let entry = contexts.entry(context_id.to_string()).or_insert_with(|| {
+                            wf_types::checkpoint::workflow::MessageContextSnapshot {
+                                messages: Vec::new(),
+                                version: 0,
+                            }
+                        });
+                        let known: std::collections::HashSet<String> =
+                            entry.messages.iter().map(|m| m.id.clone()).collect();
+                        for message in messages {
+                            if !known.contains(&message.id) {
+                                entry.messages.push(message);
+                            }
+                        }
+                    }
+                }
+            }
+            (!contexts.is_empty()).then_some(contexts)
+        };
         let node_results: Option<HashMap<String, Value>> = {
             let map = entity
                 .node_results()
@@ -414,6 +480,7 @@ impl WorkflowCheckpointIntegration {
             current_node_id: state.current_node_id().map(String::from),
             node_results,
             variable_state: CheckpointVariableState { variables: vars },
+            message_contexts,
             input: None,
             output: None,
             messages: None,
@@ -441,10 +508,6 @@ impl WorkflowCheckpointIntegration {
             execution_config: None,
             fork_join_aggregation_state: None,
             hook_execution_context: None,
-            message_base_checkpoint_id: None,
-            message_total_count: None,
-            truncated: None,
-            truncation_stats: None,
         }
     }
 }

@@ -90,7 +90,6 @@ on_tool_call = false
 [config.checkpoint.content]
 include_state = true
 include_messages = true
-message_limit = 100
 include_tool_calls = true
 tool_call_limit = 50
 

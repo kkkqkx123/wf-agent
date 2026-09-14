@@ -73,11 +73,17 @@ hex = "0.4"
 similar = "3"
 clap = { version = "4", features = ["derive"] }
 sha2 = "0.11"
+ed25519-dalek = { version = "2", features = ["rand_core"] }
 rusqlite = { version = "0.32", features = ["bundled"] }
 
 # Pattern matching / glob
 regex = "1"
 globset = "0.4"
+
+# WASM plugin runtime (optional, enabled via wf-plugin/wasm)
+wasmtime = { version = "34", default-features = false, features = ["async", "runtime", "cranelift", "wat", "component-model"] }
+wasmtime-wasi = { version = "34" }
+wat = "1"
 
 # File watching
 notify = "8"

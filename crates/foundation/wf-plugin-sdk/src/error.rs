@@ -38,6 +38,8 @@ pub enum PluginError {
     LuaError(String),
     #[error("native error: {0}")]
     NativeError(String),
+    #[error("wasm error: {0}")]
+    WasmError(String),
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
     #[error("internal: {0}")]

@@ -10,12 +10,16 @@ pub mod manifest;
 pub mod package;
 pub mod plugin;
 pub mod registry;
+pub mod signing;
 
 #[cfg(feature = "lua")]
 pub mod lua;
 
 #[cfg(feature = "native")]
 pub mod native;
+
+#[cfg(feature = "wasm")]
+pub mod wasm;
 
 pub use context::PluginContext;
 pub use contributions::{

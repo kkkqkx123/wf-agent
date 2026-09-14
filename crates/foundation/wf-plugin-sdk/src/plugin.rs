@@ -536,6 +536,7 @@ mod tests {
                 config_schema: None,
                 config: None,
                 hooks: None,
+                wasm: None,
             }
         }
 

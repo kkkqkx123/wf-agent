@@ -26,3 +26,7 @@ pub trait Plugin: Send + Sync {
     }
     fn register_contributions(&self, _registrar: &mut dyn ContributionRegistrar) {}
 }
+
+/// Alias used by the `wasmtime::component::bindgen!` macro which generates
+/// its own `Plugin` type for the `wf:plugin/plugin` world.
+pub use Plugin as WasmPluginTrait;

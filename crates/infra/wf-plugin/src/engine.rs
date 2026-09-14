@@ -833,6 +833,9 @@ fn resolve_plugin_type(manifest: &PluginManifest) -> PluginResult<PluginType> {
     if entry.ends_with(".so") || entry.ends_with(".dylib") || entry.ends_with(".dll") {
         return Ok(PluginType::Native);
     }
+    if entry.ends_with(".wasm") {
+        return Ok(PluginType::Wasm);
+    }
     Err(PluginError::LoadFailed(format!(
         "cannot determine plugin type for '{}': set plugin_type in manifest or use .lua/.so/.dylib/.dll entry point",
         manifest.id
@@ -849,10 +852,17 @@ async fn load_plugin_module(manifest: PluginManifest) -> PluginResult<Arc<dyn Pl
         PluginType::Native => load_native_plugin(&manifest),
         #[cfg(not(feature = "native"))]
         PluginType::Native => Err(PluginError::LoadFailed("native feature not enabled".into())),
+        #[cfg(feature = "wasm")]
+        PluginType::Wasm => load_wasm_plugin(&manifest).await,
+        #[cfg(not(feature = "wasm"))]
+        PluginType::Wasm => Err(PluginError::LoadFailed("wasm feature not enabled".into())),
     }
 }
 
-#[cfg_attr(not(any(feature = "lua", feature = "native")), allow(unused_variables))]
+#[cfg_attr(
+    not(any(feature = "lua", feature = "native", feature = "wasm")),
+    allow(unused_variables)
+)]
 async fn load_plugin_module_with_base(
     manifest: &PluginManifest,
     base: &Path,
@@ -866,12 +876,21 @@ async fn load_plugin_module_with_base(
         PluginType::Native => crate::native::loader::load_native_plugin_with_base(manifest, base),
         #[cfg(not(feature = "native"))]
         PluginType::Native => Err(PluginError::LoadFailed("native feature not enabled".into())),
+        #[cfg(feature = "wasm")]
+        PluginType::Wasm => crate::wasm::loader::load_wasm_plugin_with_base(manifest, base).await,
+        #[cfg(not(feature = "wasm"))]
+        PluginType::Wasm => Err(PluginError::LoadFailed("wasm feature not enabled".into())),
     }
 }
 
 #[cfg(feature = "lua")]
 async fn load_lua_plugin(manifest: &PluginManifest) -> PluginResult<Arc<dyn Plugin>> {
     crate::lua::loader::load_lua_plugin(manifest).await
+}
+
+#[cfg(feature = "wasm")]
+async fn load_wasm_plugin(manifest: &PluginManifest) -> PluginResult<Arc<dyn Plugin>> {
+    crate::wasm::loader::load_wasm_plugin(manifest).await
 }
 
 #[cfg(feature = "native")]
@@ -939,6 +958,7 @@ mod tests {
             config_schema: None,
             config: None,
             hooks: None,
+            wasm: None,
         }
     }
 
@@ -1143,5 +1163,57 @@ mod tests {
             .contribution_manager()
             .get_tool_executor("")
             .is_none());
+    }
+
+    #[cfg(feature = "wasm")]
+    #[tokio::test]
+    async fn wasm_plugin_load_single_activate_deactivate() {
+        let dir = std::env::temp_dir().join("wf-wasm-test-engine");
+        let plugin_dir = dir.join("echo-wasm");
+        let _ = std::fs::create_dir_all(&plugin_dir);
+        let wat = crate::wasm::loader::wasm_test_echo_wat(r#"{"tool_types":["echo_tool"]}"#);
+        let bytes = wat::parse_str(&wat).expect("valid wat");
+        std::fs::write(plugin_dir.join("plugin.wasm"), &bytes).expect("write module");
+        std::fs::write(
+            plugin_dir.join("plugin.toml"),
+            "id = \"echo-wasm\"\nversion = \"1.0.0\"\nentry_point = \"plugin.wasm\"\n",
+        )
+        .expect("write manifest");
+
+        let engine = make_engine(true);
+        let info = engine
+            .load_single(&plugin_dir.join("plugin.toml"))
+            .await
+            .expect("load_single resolves .wasm entry point");
+        assert_eq!(info.status, PluginStatus::Loaded);
+
+        engine.activate("echo-wasm").await.expect("activate");
+        assert_eq!(
+            engine.registry.get("echo-wasm").unwrap().status,
+            PluginStatus::Active
+        );
+
+        let executor = engine
+            .contribution_manager()
+            .get_tool_executor("echo_tool")
+            .expect("wasm tool contribution visible");
+        let out = executor
+            .execute(crate::contributions::PluginToolContext {
+                args: serde_json::json!({}),
+            })
+            .await
+            .expect("wasm tool executes");
+        assert_eq!(out.result["echo"], true);
+
+        engine.deactivate("echo-wasm").await.expect("deactivate");
+        assert_eq!(
+            engine.registry.get("echo-wasm").unwrap().status,
+            PluginStatus::Deactivated
+        );
+        assert!(engine
+            .contribution_manager()
+            .get_tool_executor("echo_tool")
+            .is_none());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

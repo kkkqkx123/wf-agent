@@ -17,6 +17,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::{PluginError, PluginResult};
 use crate::manifest::PluginManifest;
+use crate::signing::{verify_file, Enforcement, SignatureStatus, TrustedKeys};
 
 pub const PACKAGE_STATE_FILE: &str = "installed-plugins.json";
 
@@ -41,6 +42,7 @@ pub struct PackageState {
 pub struct PluginPackageManager {
     state_path: PathBuf,
     state: Mutex<PackageState>,
+    trust: Mutex<TrustedKeys>,
 }
 
 impl PluginPackageManager {
@@ -65,6 +67,7 @@ impl PluginPackageManager {
         Self {
             state_path,
             state: Mutex::new(state),
+            trust: Mutex::new(TrustedKeys::default()),
         }
     }
 
@@ -136,6 +139,74 @@ impl PluginPackageManager {
         }
         Ok(changed)
     }
+
+    /// Configure signature trust. Defaults to empty keys plus `Permissive`,
+    /// which preserves pre-signature install behavior.
+    pub fn set_trust(&self, trust: TrustedKeys) {
+        *self.trust.lock().expect("trust poisoned") = trust;
+    }
+
+    /// Register a plugin directory after verifying its entry-point artifact
+    /// against the configured trust. `Permissive` warns and proceeds on
+    /// missing/invalid signatures; `Enforcing` rejects them.
+    pub fn install_verified(
+        &self,
+        manifest: &PluginManifest,
+        source_path: &Path,
+    ) -> PluginResult<()> {
+        let artifact = source_path.join(&manifest.entry_point);
+        let trust = self.trust.lock().expect("trust poisoned").clone();
+        match verify_file(&artifact, &trust) {
+            SignatureStatus::Valid { key } => {
+                tracing::info!("plugin '{}' signature valid (signer {})", manifest.id, key);
+            }
+            SignatureStatus::Unsigned => {
+                let msg = format!(
+                    "plugin '{}' has no signature for '{}'",
+                    manifest.id,
+                    artifact.display()
+                );
+                if trust.mode() == Enforcement::Enforcing {
+                    return Err(PluginError::LoadFailed(msg));
+                }
+                tracing::warn!("{msg}; installing without verification");
+            }
+            SignatureStatus::Invalid { reason } => {
+                let msg = format!(
+                    "plugin '{}' signature invalid for '{}': {reason}",
+                    manifest.id,
+                    artifact.display()
+                );
+                if trust.mode() == Enforcement::Enforcing {
+                    return Err(PluginError::LoadFailed(msg));
+                }
+                tracing::warn!("{msg}; installing without verification");
+            }
+        }
+        self.install(manifest, source_path)
+    }
+
+    /// Re-verify an installed plugin's current entry-point artifact (files
+    /// may change after installation). Returns `None` when the id is not
+    /// installed.
+    pub fn verify_installed(&self, plugin_id: &str) -> Option<SignatureStatus> {
+        let source = self
+            .state
+            .lock()
+            .expect("package state poisoned")
+            .installed
+            .iter()
+            .find(|p| p.id == plugin_id)
+            .map(|p| PathBuf::from(&p.source_path))?;
+        let manifest_path = source.join("plugin.toml");
+        let entry = std::fs::read_to_string(&manifest_path)
+            .ok()
+            .and_then(|content| toml::from_str::<PluginManifest>(&content).ok())
+            .map(|m| m.entry_point)
+            .unwrap_or_default();
+        let trust = self.trust.lock().expect("trust poisoned").clone();
+        Some(verify_file(&source.join(entry), &trust))
+    }
 }
 
 fn persist(state_path: &Path, state: &PackageState) -> PluginResult<()> {
@@ -153,6 +224,7 @@ fn persist(state_path: &Path, state: &PackageState) -> PluginResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::signing::Enforcement;
     use std::sync::atomic::{AtomicU64, Ordering};
 
     static DIR_SEQ: AtomicU64 = AtomicU64::new(0);
@@ -183,6 +255,7 @@ mod tests {
             config_schema: None,
             config: None,
             hooks: None,
+            wasm: None,
         }
     }
 
@@ -257,6 +330,111 @@ mod tests {
         std::fs::write(dir.join(PACKAGE_STATE_FILE), "{not json").expect("write corrupt file");
         let mgr = PluginPackageManager::new(&dir);
         assert!(mgr.installed().is_empty());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    fn signed_plugin_dir(tag: &str) -> (PathBuf, crate::signing::SigningKeypair) {
+        use crate::signing::{generate_keypair, sign_file};
+
+        let dir = temp_dir(tag);
+        let src = dir.join("src");
+        std::fs::create_dir_all(&src).expect("create src");
+        std::fs::write(src.join("main.lua"), "return {}").expect("write artifact");
+        let pair = generate_keypair();
+        sign_file(&src.join("main.lua"), &pair.signing).expect("sign");
+        (src, pair)
+    }
+
+    #[test]
+    fn install_verified_accepts_trusted_signature() {
+        use crate::signing::TrustedKeys;
+
+        let (src, pair) = signed_plugin_dir("sig-ok");
+        let dir = temp_dir("sig-ok-state");
+        let mgr = PluginPackageManager::new(&dir);
+        mgr.set_trust(TrustedKeys::new(
+            vec![pair.verifying.to_bytes()],
+            Enforcement::Enforcing,
+        ));
+        mgr.install_verified(&manifest("demo"), &src)
+            .expect("trusted install");
+        assert_eq!(mgr.installed().len(), 1);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn install_verified_enforcing_rejects_unsigned() {
+        use crate::signing::TrustedKeys;
+
+        let src = temp_dir("sig-unsigned");
+        std::fs::write(src.join("main.lua"), "return {}").expect("write artifact");
+        let dir = temp_dir("sig-unsigned-state");
+        let mgr = PluginPackageManager::new(&dir);
+        mgr.set_trust(TrustedKeys::new(vec![[1u8; 32]], Enforcement::Enforcing));
+        assert!(matches!(
+            mgr.install_verified(&manifest("demo"), &src),
+            Err(PluginError::LoadFailed(_))
+        ));
+        assert!(mgr.installed().is_empty());
+
+        // Permissive mode warns and proceeds.
+        mgr.set_trust(TrustedKeys::new(vec![[1u8; 32]], Enforcement::Permissive));
+        mgr.install_verified(&manifest("demo"), &src)
+            .expect("permissive install");
+        assert_eq!(mgr.installed().len(), 1);
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::remove_dir_all(&src).ok();
+    }
+
+    #[test]
+    fn install_verified_enforcing_rejects_tampered_artifact() {
+        use crate::signing::TrustedKeys;
+
+        let (src, pair) = signed_plugin_dir("sig-tamper");
+        std::fs::write(src.join("main.lua"), "tampered").expect("tamper");
+        let dir = temp_dir("sig-tamper-state");
+        let mgr = PluginPackageManager::new(&dir);
+        mgr.set_trust(TrustedKeys::new(
+            vec![pair.verifying.to_bytes()],
+            Enforcement::Enforcing,
+        ));
+        assert!(matches!(
+            mgr.install_verified(&manifest("demo"), &src),
+            Err(PluginError::LoadFailed(_))
+        ));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn verify_installed_detects_post_install_replacement() {
+        use crate::signing::{SignatureStatus, TrustedKeys};
+
+        let (src, pair) = signed_plugin_dir("sig-audit");
+        let dir = temp_dir("sig-audit-state");
+        let mgr = PluginPackageManager::new(&dir);
+        mgr.set_trust(TrustedKeys::new(
+            vec![pair.verifying.to_bytes()],
+            Enforcement::Enforcing,
+        ));
+        mgr.install_verified(&manifest("demo"), &src)
+            .expect("trusted install");
+        // verify_installed needs plugin.toml to locate the entry point.
+        std::fs::write(
+            src.join("plugin.toml"),
+            "id = \"demo\"\nversion = \"0.1.0\"\nentry_point = \"main.lua\"\n",
+        )
+        .expect("write manifest");
+        assert!(matches!(
+            mgr.verify_installed("demo"),
+            Some(SignatureStatus::Valid { .. })
+        ));
+
+        std::fs::write(src.join("main.lua"), "replaced").expect("replace");
+        assert!(matches!(
+            mgr.verify_installed("demo"),
+            Some(SignatureStatus::Invalid { .. })
+        ));
+        assert!(mgr.verify_installed("ghost").is_none());
         std::fs::remove_dir_all(&dir).ok();
     }
 }

@@ -64,6 +64,7 @@ impl ResourcePluginAdapter {
             permissions: vec![],
             config_schema: None,
             hooks: None,
+            wasm: None,
         };
         Self {
             manifest,

@@ -393,40 +393,117 @@ fn generate_tool_call_id() -> String {
 /// arrays, and objects. This eliminates the XML escaping and type inference
 /// limitations of the previous XML-based invoke protocol.
 pub fn parse_invoke_json_calls(json_text: &str) -> Vec<LlmToolCall> {
+    match parse_invoke_json_calls_detailed(json_text) {
+        Ok(items) => items.into_iter().filter_map(|r| r.ok()).collect(),
+        Err(_) => Vec::new(),
+    }
+}
+
+/// Per-item parse failure inside a `general` request body. `index` is the
+/// position inside the request array (`None` means the whole body failed to
+/// parse, e.g. empty text or invalid JSON). Callers that need audit-grade
+/// error positions (history conversion, per-call result aggregation) must
+/// use [`parse_invoke_json_calls_detailed`]; the plain
+/// [`parse_invoke_json_calls`] wrapper keeps the historical silent-drop
+/// behavior for compatibility.
+#[derive(Debug, Clone, PartialEq)]
+pub struct InvokeParseError {
+    pub index: Option<usize>,
+    pub reason: String,
+}
+
+impl std::fmt::Display for InvokeParseError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.index {
+            Some(idx) => write!(f, "invoke item {idx} is invalid: {}", self.reason),
+            None => write!(f, "invoke body is invalid: {}", self.reason),
+        }
+    }
+}
+
+/// Parse inner tool invocations with explicit per-item errors.
+///
+/// Returns `Err` when the whole body is unusable (empty text, invalid JSON,
+/// or a JSON shape that is neither object nor array); otherwise returns one
+/// entry per array element (or a single entry for the object form), where
+/// `Err` entries pinpoint the offending position instead of silently
+/// dropping it.
+pub fn parse_invoke_json_calls_detailed(
+    json_text: &str,
+) -> Result<Vec<Result<LlmToolCall, InvokeParseError>>, InvokeParseError> {
     let trimmed = json_text.trim();
     if trimmed.is_empty() {
-        return Vec::new();
+        return Err(InvokeParseError {
+            index: None,
+            reason: "empty request body".to_string(),
+        });
     }
 
     let value: serde_json::Value = match serde_json::from_str(trimmed) {
         Ok(v) => v,
-        Err(_) => return Vec::new(),
+        Err(e) => {
+            return Err(InvokeParseError {
+                index: None,
+                reason: format!("invalid JSON: {e}"),
+            });
+        }
     };
 
     match value {
-        serde_json::Value::Array(items) => items
-            .into_iter()
-            .filter_map(convert_invoke_object)
-            .collect(),
-        obj @ serde_json::Value::Object(_) => convert_invoke_object(obj).into_iter().collect(),
-        _ => Vec::new(),
+        serde_json::Value::Array(items) => {
+            if items.is_empty() {
+                return Err(InvokeParseError {
+                    index: None,
+                    reason: "empty invoke array".to_string(),
+                });
+            }
+            Ok(items
+                .into_iter()
+                .enumerate()
+                .map(|(index, item)| {
+                    convert_invoke_object(item).map_err(|reason| InvokeParseError {
+                        index: Some(index),
+                        reason,
+                    })
+                })
+                .collect())
+        }
+        obj @ serde_json::Value::Object(_) => Ok(vec![
+            convert_invoke_object(obj).map_err(|reason| InvokeParseError {
+                index: Some(0),
+                reason,
+            }),
+        ]),
+        _ => Err(InvokeParseError {
+            index: None,
+            reason: "expected a JSON object or an array of objects".to_string(),
+        }),
     }
 }
 
 /// Convert a single JSON invoke object into an LlmToolCall.
-/// Expects `{"tool": "...", "parameters": {...}}`. Returns None if invalid.
-fn convert_invoke_object(value: serde_json::Value) -> Option<LlmToolCall> {
-    let obj = value.as_object()?;
-    let tool_name = obj.get("tool")?.as_str()?;
+/// Expects `{"tool": "...", "parameters": {...}}`. Returns the reason when
+/// invalid.
+///
+/// The assigned id is a placeholder only: the `general` invoker overwrites it
+/// immediately with the stable `general_history::derive_inner_call_id`
+/// derivation (`"{outer}#{index}#{tool}"`) so checkpoint replay keys survive
+/// re-execution. Callers must not persist or correlate on this id.
+fn convert_invoke_object(value: serde_json::Value) -> Result<LlmToolCall, String> {
+    let obj = value.as_object().ok_or_else(|| "expected a JSON object".to_string())?;
+    let tool_name = obj
+        .get("tool")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| "missing required string field \"tool\"".to_string())?;
     if tool_name.is_empty() {
-        return None;
+        return Err("field \"tool\" must not be empty".to_string());
     }
     let parameters = match obj.get("parameters") {
         Some(serde_json::Value::Object(map)) => map.clone(),
-        Some(_) => return None,
+        Some(_) => return Err("field \"parameters\" must be a JSON object".to_string()),
         None => serde_json::Map::new(),
     };
-    Some(LlmToolCall {
+    Ok(LlmToolCall {
         id: generate_tool_call_id(),
         r#type: "function".to_string(),
         function: LlmFunctionCall {

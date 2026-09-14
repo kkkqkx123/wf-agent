@@ -33,6 +33,10 @@ pub struct AgentLoopEntity {
     enable_general_tool: Option<bool>,
     hidden_tool_names: Vec<String>,
     exposure_overrides: Vec<(String, wf_types::tool::ToolExposure)>,
+    /// Opt-in per-turn history projection (`build_agent_request` rewrites the
+    /// projected history to the current turn's exposure). Default `false`;
+    /// see `AgentLoopConfig::history_normalization` for the tradeoff.
+    history_normalization: bool,
     timeout_manager: AgentTimeoutManager,
     max_pause_duration: Option<u64>,
     pause_timeout_handle: std::sync::RwLock<Option<TimeoutHandle>>,
@@ -73,6 +77,7 @@ impl AgentLoopEntity {
             enable_general_tool: None,
             hidden_tool_names: Vec::new(),
             exposure_overrides: Vec::new(),
+            history_normalization: false,
             timeout_manager: AgentTimeoutManager::new(),
             max_pause_duration: None,
             pause_timeout_handle: std::sync::RwLock::new(None),
@@ -147,6 +152,12 @@ impl AgentLoopEntity {
         overrides: Vec<(String, wf_types::tool::ToolExposure)>,
     ) -> Self {
         self.exposure_overrides = overrides;
+        self
+    }
+
+    /// Opt into per-turn history projection for this run. Off by default.
+    pub fn with_history_normalization(mut self, enabled: bool) -> Self {
+        self.history_normalization = enabled;
         self
     }
 
@@ -248,6 +259,10 @@ impl AgentLoopEntity {
 
     pub fn exposure_overrides(&self) -> &[(String, wf_types::tool::ToolExposure)] {
         &self.exposure_overrides
+    }
+
+    pub fn history_normalization_enabled(&self) -> bool {
+        self.history_normalization
     }
 
     pub fn timeout_manager(&self) -> &AgentTimeoutManager {

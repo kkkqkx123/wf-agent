@@ -69,8 +69,9 @@ pub use token_events::{
 pub use token_tracker::{RequestUsage, TokenTrackerState, TokenUsageTracker};
 pub use tool_call_parser::{
     has_json_tool_calls, has_raw_json_tool_calls, has_xml_tool_calls, parse_from_text,
-    parse_invoke_json_calls, parse_json_tool_calls, parse_partial, parse_raw_json_tool_calls,
-    parse_xml_tool_calls, ParseFormat, ToolCallParseOptions,
+    parse_invoke_json_calls, parse_invoke_json_calls_detailed, parse_json_tool_calls,
+    parse_partial, parse_raw_json_tool_calls, parse_xml_tool_calls, InvokeParseError, ParseFormat,
+    ToolCallParseOptions,
 };
 pub use tool_format::{
     build_text_mode_system_content, extract_system_message, get_tool_call_parser_options,

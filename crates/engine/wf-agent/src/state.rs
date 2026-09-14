@@ -304,6 +304,18 @@ impl AgentLoopState {
         }
     }
 
+    /// Record a `general` proxy routing shell for audit only. The proxy is
+    /// transport, not work: its record stays visible in the iteration's
+    /// `tool_calls` trail, but neither the run nor the iteration counters
+    /// move, so metrics, billing and audit statistics count each logical
+    /// invocation once (under the inner tool name). Inner executions keep
+    /// the full counting path.
+    pub fn record_routing_call(&mut self, record: ToolCallRecord) {
+        if let Some(iteration) = self.iteration_history.last_mut() {
+            iteration.tool_calls.push(record);
+        }
+    }
+
     /// Record a completed (or failed) LLM call into the current iteration's
     /// audit trail. The per-iteration `seq` is assigned here so
     /// callers never have to track call counts.

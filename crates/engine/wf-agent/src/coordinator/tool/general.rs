@@ -97,17 +97,56 @@ impl GeneralToolContext {
         Ok(())
     }
 
-    /// Execute one inner invocation through the shared pipeline.
-    async fn invoke_inner(
+    /// Re-run the shared approval gate for one inner call so tools reached
+    /// through the discoverable path face the same approval strength as
+    /// direct calls. Returns the (possibly parameter-edited) call to
+    /// execute; approval denials are returned as errors so the proxy
+    /// surfaces them per inner call instead of executing.
+    async fn approve_inner(
         &self,
         call: &wf_types::message::LlmToolCall,
-    ) -> wf_tools::ToolResult<serde_json::Value> {
-        use wf_tools::error::ToolError;
+    ) -> Result<wf_types::message::LlmToolCall, String> {
+        use super::approval::ToolApprovalGate;
+        use super::types::ApprovalOutcome;
 
+        if self.ctx.approval_options.is_none() && self.ctx.approval_handler.is_none() {
+            return Ok(call.clone());
+        }
+        let gate = ToolApprovalGate::new(
+            self.ctx.approval_options.clone(),
+            self.ctx.approval_handler.clone(),
+        );
+        let outcomes = gate
+            .approve_tool_calls(&self.entity, std::slice::from_ref(call), &self.ctx.registry)
+            .await;
+        match outcomes.into_iter().next() {
+            Some(ApprovalOutcome::Execute { edited_parameters }) => {
+                let mut approved = call.clone();
+                if let Some(edited) = edited_parameters {
+                    approved.function.arguments =
+                        serde_json::to_string(&edited).unwrap_or(approved.function.arguments);
+                }
+                Ok(approved)
+            }
+            Some(ApprovalOutcome::Rejected { reason }) => Err(reason),
+            None => Err("internal: missing approval outcome".to_string()),
+        }
+    }
+
+    /// Execute one inner invocation through the shared pipeline and return
+    /// its result value. Per-call failures (exposure denial, approval
+    /// rejection, execution error) surface as `{"error": reason}` values so
+    /// a batch behaves like direct-call batches: every call yields exactly
+    /// one result and failures never swallow their siblings.
+    async fn invoke_inner(&self, call: &wf_types::message::LlmToolCall) -> serde_json::Value {
         let tool_name = call.function.name.clone();
-        self.check_inner_tool_allowed(&tool_name)
-            .await
-            .map_err(ToolError::ValidationFailed)?;
+        if let Err(reason) = self.check_inner_tool_allowed(&tool_name).await {
+            return serde_json::json!({"error": reason});
+        }
+        let call = match self.approve_inner(call).await {
+            Ok(approved) => approved,
+            Err(reason) => return serde_json::json!({"error": reason}),
+        };
 
         let started = wf_common::now();
         let is_first_discovery = {
@@ -117,13 +156,13 @@ impl GeneralToolContext {
                 .record_general_discovery(&tool_name)
         };
 
-        let msg = run_tool(&self.ctx, call, self.entity.id(), &self.entity.state)
-            .await
-            .map_err(ToolError::ExecutionError)?;
+        let outcome = run_tool(&self.ctx, &call, self.entity.id(), &self.entity.state).await;
         let duration_ms = (wf_common::now() - started) as f64;
+        // Success comes from the pipeline outcome itself, never from
+        // sniffing the payload text (a normal result may mention "error").
+        let success = outcome.is_ok();
 
         if let Some(ref metrics) = self.ctx.metrics {
-            let success = !matches!(&msg.content, wf_types::message::MessageContentValue::Text(t) if t.contains("\"error\""));
             metrics
                 .tool()
                 .record_general_invoke(&tool_name, success, duration_ms);
@@ -136,12 +175,10 @@ impl GeneralToolContext {
             self.emit_discovery_event(&tool_name, "general");
         }
 
-        let content = match &msg.content {
-            wf_types::message::MessageContentValue::Text(t) => t.clone(),
-            wf_types::message::MessageContentValue::Rich(_) => String::new(),
-        };
-        // Return the inner tool's native result shape when it was JSON.
-        Ok(serde_json::from_str(&content).unwrap_or(serde_json::Value::String(content)))
+        match outcome {
+            Ok(msg) => content_to_value(&msg.content),
+            Err(reason) => serde_json::json!({"error": reason}),
+        }
     }
 
     fn emit_discovery_event(&self, tool_name: &str, method: &str) {
@@ -174,17 +211,72 @@ impl GeneralToolContext {
     }
 }
 
+/// Convert a tool result message body into a JSON value: JSON payloads keep
+/// their native shape, plain text stays a string, and rich (multi-modal)
+/// blocks serialize to their JSON form instead of being dropped.
+fn content_to_value(content: &wf_types::message::MessageContentValue) -> serde_json::Value {
+    match content {
+        wf_types::message::MessageContentValue::Text(t) => {
+            serde_json::from_str(t).unwrap_or(serde_json::Value::String(t.clone()))
+        }
+        wf_types::message::MessageContentValue::Rich(blocks) => {
+            serde_json::to_value(blocks).unwrap_or(serde_json::Value::Null)
+        }
+    }
+}
+
+/// Fallback outer id when the pipeline did not stamp one (direct handler
+/// tests, DevTools one-shots): a deterministic hash of the request body, so
+/// replays of the same body still map to the same inner keys.
+fn fallback_outer_id(request: &str) -> String {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    let mut hasher = DefaultHasher::new();
+    request.hash(&mut hasher);
+    format!("general-{:016x}", hasher.finish())
+}
+
 #[async_trait::async_trait]
 impl wf_tools::general::GeneralToolInvoker for GeneralToolContext {
     async fn invoke_request(&self, request: &str) -> wf_tools::ToolResult<serde_json::Value> {
-        let calls = wf_llm::tool_call_parser::parse_invoke_json_calls(request);
-        if calls.is_empty() {
+        self.invoke_request_with_outer(&fallback_outer_id(request), request)
+            .await
+    }
+
+    async fn invoke_request_with_outer(
+        &self,
+        outer_call_id: &str,
+        request: &str,
+    ) -> wf_tools::ToolResult<serde_json::Value> {
+        // Explicit per-item errors: the whole body failing parses to the
+        // format hint; individual bad items become positioned error values
+        // while their siblings still execute.
+        let items = match wf_llm::tool_call_parser::parse_invoke_json_calls_detailed(request) {
+            Ok(items) => items,
+            Err(_) => return Err(wf_tools::general::build_format_error()),
+        };
+        if items.is_empty() {
             return Err(wf_tools::general::build_format_error());
         }
 
-        let mut results = Vec::with_capacity(calls.len());
-        for call in &calls {
-            results.push(self.invoke_inner(call).await?);
+        let mut results = Vec::with_capacity(items.len());
+        for (index, item) in items.into_iter().enumerate() {
+            match item {
+                Ok(mut call) => {
+                    // Stable inner keys (`outer#index#tool`): checkpoint
+                    // replay of this outer call hits the inner result cache
+                    // instead of re-executing side effects.
+                    call.id = wf_tools::general_history::derive_inner_call_id(
+                        outer_call_id,
+                        index,
+                        &call.function.name,
+                    );
+                    results.push(self.invoke_inner(&call).await);
+                }
+                Err(parse_error) => {
+                    results.push(serde_json::json!({"error": parse_error.to_string()}));
+                }
+            }
         }
         if results.len() == 1 {
             Ok(results.pop().expect("len checked above"))

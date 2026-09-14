@@ -56,6 +56,12 @@ pub(crate) async fn run_tool(
     let tool_id = find_tool_id_by_name(&ctx.registry, &tool_name);
     let timeout_ms = resolve_timeout(&ctx.registry, &tool_name);
     let parameter_size = json_size(&params);
+    // The `general` proxy shell is transport, not work: it keeps the shared
+    // execution path (visibility, failure protection, checkpoints, retry)
+    // but stays out of call counting and tool metrics, which attribute the
+    // logical invocation to the inner tool (see `record_routing_call` and
+    // the inner `record_general_invoke`).
+    let is_proxy = tool_name == wf_tools::general::GENERAL_TOOL_NAME;
 
     // Visibility gate.
     if let Some(ref store) = ctx.visibility_store {
@@ -68,8 +74,10 @@ pub(crate) async fn run_tool(
         }
     }
 
-    if let Some(ref metrics) = ctx.metrics {
-        metrics.tool().record_tool_call_start(&tool_name, entity_id);
+    if !is_proxy {
+        if let Some(ref metrics) = ctx.metrics {
+            metrics.tool().record_tool_call_start(&tool_name, entity_id);
+        }
     }
     emit_progress(&ctx.progress_tx, &tc.id, ToolProgressStatus::Started, None);
 
@@ -130,6 +138,12 @@ pub(crate) async fn run_tool(
     let tool_ctx = {
         let mut tool_ctx =
             wf_tools::executor::trait_def::ToolExecutionContext::new(entity_id.into());
+        // Stamp the current tool call id so the `general` handler can derive
+        // stable inner ids from its outer id (replay-safe idempotency keys).
+        tool_ctx = tool_ctx.with_metadata(
+            wf_tools::general::OUTER_TOOL_CALL_ID_METADATA,
+            Value::String(tc.id.clone()),
+        );
         if let Some(invoker) = &ctx.general_invoker {
             tool_ctx = tool_ctx.with_general_invoker(invoker.clone());
         }
@@ -191,72 +205,83 @@ pub(crate) async fn run_tool(
         _ => None,
     };
 
-    entity_state
-        .write()
-        .await
-        .record_tool_call_with_details(ToolCallRecord {
-            name: tool_name.clone(),
-            arguments: params.clone(),
-            result: call_result,
-            error: call_error,
-            tool_call_id: Some(tc.id.clone()),
-            duration_ms: duration_ms as i64,
-            success,
-        });
+    let record = ToolCallRecord {
+        name: tool_name.clone(),
+        arguments: params.clone(),
+        result: call_result,
+        error: call_error,
+        tool_call_id: Some(tc.id.clone()),
+        duration_ms: duration_ms as i64,
+        success,
+    };
+    if is_proxy {
+        entity_state.write().await.record_routing_call(record);
+    } else {
+        entity_state
+            .write()
+            .await
+            .record_tool_call_with_details(record);
+    }
 
-    if let Some(ref metrics) = ctx.metrics {
-        match &result {
-            Ok(Ok(tool_result)) if tool_result.success => {
-                metrics.tool().record_tool_call_complete(
-                    &tool_name,
-                    entity_id,
-                    true,
-                    duration_ms,
-                    parameter_size,
-                    json_size(tool_result.result.as_ref().unwrap_or(&Value::Null)),
-                );
-            }
-            Ok(Ok(_)) => {
-                metrics.tool().record_tool_call_complete(
-                    &tool_name,
-                    entity_id,
-                    false,
-                    duration_ms,
-                    parameter_size,
-                    0,
-                );
-                metrics
-                    .tool()
-                    .record_tool_call_error(&tool_name, entity_id, "execution_failed");
-                tracing::warn!(tool = %tool_name, "tool call reported failure");
-            }
-            Ok(Err(e)) => {
-                metrics.tool().record_tool_call_complete(
-                    &tool_name,
-                    entity_id,
-                    false,
-                    duration_ms,
-                    parameter_size,
-                    0,
-                );
-                metrics
-                    .tool()
-                    .record_tool_call_error(&tool_name, entity_id, "execution_failed");
-                tracing::warn!(tool = %tool_name, error = %e, "tool call failed");
-            }
-            Err(_) => {
-                metrics.tool().record_tool_call_complete(
-                    &tool_name,
-                    entity_id,
-                    false,
-                    duration_ms,
-                    parameter_size,
-                    0,
-                );
-                metrics
-                    .tool()
-                    .record_tool_call_error(&tool_name, entity_id, "timeout");
-                tracing::warn!(tool = %tool_name, "tool call timed out after {}ms", timeout_ms);
+    if !is_proxy {
+        if let Some(ref metrics) = ctx.metrics {
+            match &result {
+                Ok(Ok(tool_result)) if tool_result.success => {
+                    metrics.tool().record_tool_call_complete(
+                        &tool_name,
+                        entity_id,
+                        true,
+                        duration_ms,
+                        parameter_size,
+                        json_size(tool_result.result.as_ref().unwrap_or(&Value::Null)),
+                    );
+                }
+                Ok(Ok(_)) => {
+                    metrics.tool().record_tool_call_complete(
+                        &tool_name,
+                        entity_id,
+                        false,
+                        duration_ms,
+                        parameter_size,
+                        0,
+                    );
+                    metrics.tool().record_tool_call_error(
+                        &tool_name,
+                        entity_id,
+                        "execution_failed",
+                    );
+                    tracing::warn!(tool = %tool_name, "tool call reported failure");
+                }
+                Ok(Err(e)) => {
+                    metrics.tool().record_tool_call_complete(
+                        &tool_name,
+                        entity_id,
+                        false,
+                        duration_ms,
+                        parameter_size,
+                        0,
+                    );
+                    metrics.tool().record_tool_call_error(
+                        &tool_name,
+                        entity_id,
+                        "execution_failed",
+                    );
+                    tracing::warn!(tool = %tool_name, error = %e, "tool call failed");
+                }
+                Err(_) => {
+                    metrics.tool().record_tool_call_complete(
+                        &tool_name,
+                        entity_id,
+                        false,
+                        duration_ms,
+                        parameter_size,
+                        0,
+                    );
+                    metrics
+                        .tool()
+                        .record_tool_call_error(&tool_name, entity_id, "timeout");
+                    tracing::warn!(tool = %tool_name, "tool call timed out after {}ms", timeout_ms);
+                }
             }
         }
     }

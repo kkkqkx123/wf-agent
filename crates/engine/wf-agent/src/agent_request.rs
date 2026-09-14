@@ -57,6 +57,19 @@ pub async fn build_agent_request(
         activated_tools: &activated_tools,
         exposure_overrides: &entity.exposure_overrides().iter().cloned().collect(),
     });
+    // Opt-in turn-level projection (off by default): rewrite the projected
+    // history to this turn's exposure when bucket changes (TOOL_VISIBILITY /
+    // overrides) left stale call shapes behind. Rewriting churns the
+    // system+history prefix that KV-cache friendliness relies on, so the
+    // default keeps history verbatim and only the one-time loop-boundary
+    // normalization runs. Stored history is never mutated here: `messages`
+    // is a per-request clone of the projected view. Shape normalization
+    // always precedes wire-format conversion (Native <-> text): the gateway
+    // renders text-mode bodies from these native messages downstream, so id
+    // pairing is remapped here first and never reinterpreted later.
+    if entity.history_normalization_enabled() {
+        messages = wf_tools::general_history::normalize_history_for_exposure(&messages, &exposure);
+    }
     let mut router: ToolRouter = exposure.clone().into();
 
     // The routed tool list is a clone, so the general description override

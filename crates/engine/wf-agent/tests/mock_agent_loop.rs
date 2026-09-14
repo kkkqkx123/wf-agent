@@ -72,6 +72,7 @@ fn config(max_iterations: u32) -> AgentLoopConfig {
         enable_token_tracking: None,
         general_description: None,
         discoverable_metadata_block: None,
+        history_normalization: false,
         checkpoint_message_interval: None,
     }
 }
@@ -219,6 +220,7 @@ fn discovery_config_with_general(
         enable_token_tracking: None,
         general_description,
         discoverable_metadata_block: None,
+        history_normalization: false,
         checkpoint_message_interval: None,
     }
 }

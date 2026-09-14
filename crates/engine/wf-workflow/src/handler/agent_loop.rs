@@ -90,6 +90,50 @@ fn collect_initial_conversation(ctx: &NodeExecutionContext) -> Vec<Message> {
     conversation
 }
 
+/// Normalize an inbound conversation to this loop's target exposure.
+///
+/// Upstream loops archived history in their own bucket shapes (a direct call
+/// where this loop only discovers the tool, or a `general` wrap where this
+/// loop exposes it directly). Rewriting once at the boundary keeps the new
+/// schema and the replayed history consistent; stored archives stay verbatim
+/// and the runtime gates remain authoritative over what may execute.
+/// Without a tool registry there is nothing to resolve against, so the
+/// conversation passes through unchanged.
+///
+/// Exposure overrides are intentionally empty here, matching the coordinator's
+/// entity-build normalization and the per-turn resolution (no producer wires
+/// overrides yet, so all three read the same empty source and cannot drift).
+/// Thread a real overrides source through all three sites when one appears.
+/// The coordinator re-normalizes idempotently at entity build, which is what
+/// covers `call_agent` sub-agent inputs that never pass through this handler.
+#[allow(clippy::too_many_arguments)]
+fn normalize_conversation_for_target(
+    conversation: Vec<Message>,
+    registry: Option<&ToolRegistry>,
+    available: &[String],
+    initial: &[String],
+    discoverable: &[String],
+    hidden: &[String],
+    enable_general_tool: Option<bool>,
+    activated: &[String],
+) -> Vec<Message> {
+    let Some(registry) = registry else {
+        return conversation;
+    };
+    let activated_tools: std::collections::HashSet<String> = activated.iter().cloned().collect();
+    let resolution = wf_tools::resolve_tool_exposure(wf_tools::ExposureInput {
+        registry,
+        available_names: available,
+        initial_names: initial,
+        discoverable_names: discoverable,
+        hidden_names: hidden,
+        enable_general_tool,
+        activated_tools: &activated_tools,
+        exposure_overrides: &std::collections::HashMap::new(),
+    });
+    wf_tools::general_history::normalize_history_for_exposure(&conversation, &resolution)
+}
+
 /// Export the final conversation to the target contexts declared in
 /// `message_outputs`.
 fn export_conversation(ctx: &NodeExecutionContext, conversation: &[Message]) {
@@ -610,6 +654,22 @@ impl AgentLoopHandler {
                 config,
                 wf_types::llm::LlmExecutionConfig::default(),
             );
+        // Loop-boundary history normalization: upstream archives carry
+        // upstream bucket shapes; rewrite once to this loop's target
+        // exposure (including tools activated by prior TOOL_VISIBILITY
+        // nodes) so the new schema and the replayed history agree. The
+        // rewritten history is self-consistent (call/result ids remapped
+        // together), so no id-map sidecar is needed downstream.
+        let initial_conversation = normalize_conversation_for_target(
+            collect_initial_conversation(ctx),
+            ctx.tool_registry.as_deref(),
+            &tool_names,
+            &initial_tool_names,
+            &discoverable_tool_names,
+            &hidden_tool_names,
+            enable_general_tool,
+            &activated_tool_names,
+        );
         let loop_config = AgentLoopConfig {
             agent_id: ctx.node_id.clone(),
             model,
@@ -637,12 +697,16 @@ impl AgentLoopHandler {
                 .and_then(|c| c.message_interval),
             general_description,
             discoverable_metadata_block,
+            // Turn-level projection stays off here: the one-time boundary
+            // normalization below covers the loop-entry shapes, and per-turn
+            // rewrites would churn the KV-cache-friendly request prefix.
+            history_normalization: false,
         };
 
         let loop_input = AgentLoopInput {
             message,
             context: std::collections::HashMap::new(),
-            conversation: collect_initial_conversation(ctx),
+            conversation: initial_conversation,
         };
 
         if stream_enabled {

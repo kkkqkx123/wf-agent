@@ -24,6 +24,7 @@ pub fn build_agent_loop_config(agent_id: Option<String>, model: Option<String>) 
         enable_token_tracking: None,
         general_description: None,
         discoverable_metadata_block: None,
+        history_normalization: false,
         checkpoint_message_interval: None,
     }
 }

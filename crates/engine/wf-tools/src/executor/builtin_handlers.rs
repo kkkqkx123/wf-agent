@@ -141,6 +141,7 @@ impl BuiltinToolHandler for CallAgentHandler {
             enable_token_tracking: params.enable_token_tracking,
             general_description: None,
             discoverable_metadata_block: None,
+            history_normalization: false,
             checkpoint_message_interval: None,
             initial_tool_names: params.initial_tool_names,
             discoverable_tool_names: params.discoverable_tool_names,
@@ -159,6 +160,9 @@ impl BuiltinToolHandler for CallAgentHandler {
                 );
                 m
             },
+            // Passed through verbatim: the coordinator normalizes the inbound
+            // conversation to the sub-agent's target exposure once at entity
+            // build, so parent bucket shapes never leak into the child schema.
             conversation: params.conversation,
         };
 

@@ -105,6 +105,15 @@ pub struct AgentLoopConfig {
     /// (placeholder replacement or tail append). `None` falls back to the
     /// built-in metadata generation.
     pub discoverable_metadata_block: Option<String>,
+    /// Opt-in per-turn history projection: when `true`, each
+    /// `build_agent_request` rewrites the projected history to the current
+    /// turn's exposure (direct <-> `general` shapes) before assembling the
+    /// LLM request. Default `false`: rewriting the history prefix every turn
+    /// breaks the byte-stable system+history prefix the KV-cache design
+    /// relies on, so only the one-time loop-boundary normalization runs and
+    /// in-loop bucket changes stay visible to the model as-is. Enable only
+    /// when stale shapes demonstrably confuse the model.
+    pub history_normalization: bool,
 }
 
 #[derive(Debug, Clone)]

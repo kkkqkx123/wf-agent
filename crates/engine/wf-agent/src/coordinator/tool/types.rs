@@ -71,6 +71,13 @@ pub(crate) struct ToolRunCtx {
     pub(crate) registry: Arc<ToolRegistry>,
     pub(crate) metrics: Option<Arc<MetricsRegistry>>,
     pub(crate) progress_tx: Option<tokio::sync::mpsc::Sender<ToolProgressEvent>>,
+    /// Approval wiring snapshot for the `general` inner path: the proxy
+    /// re-runs the same approval gate per inner tool so high-risk tools
+    /// cannot bypass approval through the discoverable path. The snapshot
+    /// is taken when the execution context is built (approval must be
+    /// wired before the `general` invoker is installed).
+    pub(crate) approval_options: Option<wf_types::tool::approval::ToolApprovalOptions>,
+    pub(crate) approval_handler: Option<Arc<dyn crate::approval::ToolApprovalHandler>>,
     /// Execution-state snapshot callback (tool `create_checkpoint` timing).
     /// This is unrelated to file-content checkpoints: it snapshots the
     /// execution record, never file bytes. File changes use `file_observer`.

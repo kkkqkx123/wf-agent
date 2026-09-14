@@ -20,6 +20,11 @@ use crate::executor::trait_def::ToolExecutionContext;
 /// engine can reference it without magic strings).
 pub const GENERAL_TOOL_NAME: &str = "general";
 
+/// Metadata key carrying the outer `general` tool call id into the handler.
+/// The execution pipeline stamps it per invocation so inner ids can derive
+/// stably from the outer id (checkpoint replay keys survive re-execution).
+pub const OUTER_TOOL_CALL_ID_METADATA: &str = "tool_call_id";
+
 /// Runtime resolver for inner tool invocations, implemented by the agent
 /// engine (wf-agent) and injected per execution. The handler stays free of
 /// engine state; the invoker routes through the shared tool execution
@@ -32,6 +37,18 @@ pub trait GeneralToolInvoker: Send + Sync {
     /// Returns the inner tool's native result; parse failures return a
     /// format-error text the model can self-correct from.
     async fn invoke_request(&self, request: &str) -> ToolResult<Value>;
+
+    /// Same as [`Self::invoke_request`], with the outer proxy call id for
+    /// stable inner id derivation (`"{outer}#{index}#{tool}"`). The default
+    /// body keeps backward behavior for invokers that do not track it.
+    async fn invoke_request_with_outer(
+        &self,
+        outer_call_id: &str,
+        request: &str,
+    ) -> ToolResult<Value> {
+        let _ = outer_call_id;
+        self.invoke_request(request).await
+    }
 }
 
 /// Parameters of the `general` tool. The schema is deliberately minimal and
@@ -68,7 +85,7 @@ impl BuiltinToolHandler for GeneralHandler {
     async fn handle(
         &self,
         parameters: &Value,
-        _context: &ToolExecutionContext,
+        context: &ToolExecutionContext,
         resources: &BuiltinHandlerResources,
     ) -> ToolResult<Value> {
         let params: GeneralParams = serde_json::from_value(parameters.clone())
@@ -78,13 +95,40 @@ impl BuiltinToolHandler for GeneralHandler {
             return Err(build_format_error());
         }
 
+        // Missing-invoker is an environment wiring fault, deliberately an
+        // `ExecutionError` (never `ValidationFailed`) so callers can tell it
+        // apart from a model format error without sniffing text.
         let invoker = resources.general_invoker.as_ref().ok_or_else(|| {
             ToolError::ExecutionError(
-                "General tool invoker is not available in this execution".to_string(),
+                "[general-unavailable] General tool invoker is not available in this execution"
+                    .to_string(),
             )
         })?;
 
-        invoker.invoke_request(&params.request).await
+        // Thread the outer call id through when the pipeline stamped it, so
+        // inner ids derive stably (`general_history::derive_inner_call_id`).
+        let outer_id = context
+            .metadata
+            .get(OUTER_TOOL_CALL_ID_METADATA)
+            .and_then(|v| v.as_str())
+            .map(str::to_string);
+        match outer_id {
+            Some(id) => {
+                invoker
+                    .invoke_request_with_outer(&id, &params.request)
+                    .await
+            }
+            None => invoker.invoke_request(&params.request).await,
+        }
+    }
+}
+
+impl GeneralHandler {
+    /// Whether an error is the missing-invoker wiring fault (as opposed to
+    /// a model format error). Matches on the stable `[general-unavailable]`
+    /// marker, never on free-form text.
+    pub fn is_invoker_missing(error: &ToolError) -> bool {
+        matches!(error, ToolError::ExecutionError(msg) if msg.starts_with("[general-unavailable]"))
     }
 }
 
@@ -150,5 +194,61 @@ mod tests {
             .await
             .expect("invoker must be used");
         assert_eq!(result, serde_json::json!("echo:inner-body"));
+    }
+
+    #[test]
+    fn invoker_missing_is_distinguishable_from_format_error() {
+        let missing = ToolError::ExecutionError("[general-unavailable] nope".to_string());
+        assert!(GeneralHandler::is_invoker_missing(&missing));
+        assert!(!GeneralHandler::is_invoker_missing(&build_format_error()));
+    }
+
+    #[tokio::test]
+    async fn handler_threads_outer_call_id_to_invoker() {
+        use std::sync::Mutex;
+        struct RecordingInvoker {
+            seen_outer: Mutex<Vec<String>>,
+        }
+        #[async_trait]
+        impl GeneralToolInvoker for RecordingInvoker {
+            async fn invoke_request(&self, request: &str) -> ToolResult<Value> {
+                Ok(Value::String(format!("echo:{request}")))
+            }
+
+            async fn invoke_request_with_outer(
+                &self,
+                outer_call_id: &str,
+                request: &str,
+            ) -> ToolResult<Value> {
+                self.seen_outer
+                    .lock()
+                    .expect("lock")
+                    .push(outer_call_id.to_string());
+                self.invoke_request(request).await
+            }
+        }
+
+        let invoker = std::sync::Arc::new(RecordingInvoker {
+            seen_outer: Mutex::new(Vec::new()),
+        });
+        let handler = GeneralHandler;
+        let ctx = ToolExecutionContext::new("exec-1".into())
+            .with_metadata(OUTER_TOOL_CALL_ID_METADATA, serde_json::json!("outer-42"));
+        let resources = BuiltinHandlerResources {
+            general_invoker: Some(invoker.clone()),
+            ..Default::default()
+        };
+        handler
+            .handle(
+                &serde_json::json!({ "request": "{\"tool\": \"x\", \"parameters\": {}}" }),
+                &ctx,
+                &resources,
+            )
+            .await
+            .expect("invoker must be used");
+        assert_eq!(
+            invoker.seen_outer.lock().expect("lock").as_slice(),
+            ["outer-42"]
+        );
     }
 }

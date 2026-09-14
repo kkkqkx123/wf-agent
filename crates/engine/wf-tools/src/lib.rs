@@ -5,6 +5,7 @@ pub mod executor;
 pub mod failure_protection;
 pub mod filesystem;
 pub mod general;
+pub mod general_history;
 pub mod handlers;
 pub mod ignore;
 pub mod mcp;
@@ -39,6 +40,7 @@ pub use tool_description_generator::{
     ToolDescriptionGenerator, DISCOVERABLE_TOOLS_METADATA_PLACEHOLDER,
 };
 pub use tool_exposure::{
-    is_tool_callable, resolve_tool_exposure, ExposureInput, ExposureResolution,
+    check_direct_tool_callable, is_tool_callable, resolve_tool_exposure, ExposureInput,
+    ExposureResolution,
 };
 pub use tool_schema_formatter::ToolSchemaFormatter;

@@ -142,6 +142,50 @@ async fn test_rejecting_handler_blocks_tool_and_produces_message() {
     assert!(content.contains("mock_write"));
 }
 
+#[tokio::test]
+async fn test_direct_call_to_discoverable_tool_is_rejected() {
+    // A discoverable tool invoked directly (not through `general`) is
+    // rejected by the exposure gate before approval or execution.
+    let executed = Arc::new(AtomicU32::new(0));
+    let registry = mock_tool_registry(&executed);
+    let coordinator = ToolExecutionCoordinator::new(registry);
+    let entity = AgentLoopEntity::new(Id::from("agent-exposure-1".to_string()))
+        .with_available_tool_names(vec!["mock_write".to_string()])
+        .with_discoverable_tool_names(vec!["mock_write".to_string()]);
+
+    let messages = coordinator
+        .execute_tool_calls(&entity, &[make_tool_call("tc-1", "mock_write")])
+        .await
+        .expect("gate rejection must not fail the loop");
+
+    assert_eq!(executed.load(Ordering::SeqCst), 0);
+    assert_eq!(messages.len(), 1);
+    let content = text_of(&messages[0]);
+    assert!(
+        content.contains("general"),
+        "rejection must point at the general proxy: {content}"
+    );
+}
+
+#[tokio::test]
+async fn test_direct_call_to_hidden_tool_is_rejected() {
+    let executed = Arc::new(AtomicU32::new(0));
+    let registry = mock_tool_registry(&executed);
+    let coordinator = ToolExecutionCoordinator::new(registry);
+    let entity = AgentLoopEntity::new(Id::from("agent-exposure-2".to_string()))
+        .with_available_tool_names(vec!["mock_write".to_string()])
+        .with_hidden_tool_names(vec!["mock_write".to_string()]);
+
+    let messages = coordinator
+        .execute_tool_calls(&entity, &[make_tool_call("tc-1", "mock_write")])
+        .await
+        .expect("gate rejection must not fail the loop");
+
+    assert_eq!(executed.load(Ordering::SeqCst), 0);
+    assert_eq!(messages.len(), 1);
+    assert!(text_of(&messages[0]).contains("not callable"));
+}
+
 struct VetoHandler;
 
 #[async_trait::async_trait]
@@ -711,6 +755,8 @@ fn general_ctx(registry: Arc<ToolRegistry>, entity: Arc<AgentLoopEntity>) -> Gen
         registry,
         metrics: None,
         progress_tx: None,
+        approval_options: None,
+        approval_handler: None,
         checkpoint_handler: None,
         failure_protection: None,
         visibility_store: None,
@@ -743,13 +789,29 @@ async fn test_general_parse_error_returns_format_hint() {
     let entity = general_entity(&registry);
     let ctx = general_ctx(registry, entity);
 
-    for request in ["", "plain text", "{\"tool\": 123}"] {
+    // Whole-body failures carry the self-correcting format hint.
+    for request in ["", "plain text"] {
         let err = ctx.invoke_request(request).await.unwrap_err();
         assert!(
             err.to_string().contains("\"tool\""),
             "parse errors must carry the format hint: {err}"
         );
     }
+
+    // A bad item inside a parseable body becomes a positioned per-call
+    // error value instead of failing the batch: siblings still execute and
+    // the model gets the exact position to fix.
+    let mixed = ctx
+        .invoke_request(r#"[{"tool": "web_search", "parameters": {"query": "x"}}, {"tool": 123}]"#)
+        .await
+        .expect("batch with one bad item must still resolve");
+    let items = mixed.as_array().expect("batch resolves to an array");
+    assert_eq!(items.len(), 2);
+    assert!(items[0].get("echo").is_some(), "sibling executes: {mixed}");
+    assert!(
+        items[1].get("error").is_some(),
+        "bad item is a positioned error: {mixed}"
+    );
 }
 
 #[tokio::test]
@@ -783,19 +845,29 @@ async fn test_general_rejects_hidden_and_non_whitelisted_tools() {
     );
     let ctx = general_ctx(registry, entity);
 
+    // Denials surface as per-call error values (one result per call, like
+    // direct-call batches), never as batch failures.
     let hidden = ctx
         .invoke_request("{\"tool\": \"secret_admin\", \"parameters\": {\"x\": 1}}")
         .await
-        .unwrap_err();
-    assert!(hidden.to_string().contains("not callable"));
+        .expect("denial must resolve to an error value");
+    assert!(
+        hidden
+            .get("error")
+            .is_some_and(|e| e.as_str().is_some_and(|s| s.contains("not callable"))),
+        "hidden denial: {hidden}"
+    );
 
     let outside = ctx
         .invoke_request("{\"tool\": \"write_file\", \"parameters\": {\"path\": \"a\"}}")
         .await
-        .unwrap_err();
-    assert!(outside
-        .to_string()
-        .contains("not in the available tool set"));
+        .expect("denial must resolve to an error value");
+    assert!(
+        outside.get("error").is_some_and(|e| e
+            .as_str()
+            .is_some_and(|s| s.contains("not in the available tool set"))),
+        "outside-pool denial: {outside}"
+    );
 }
 
 #[tokio::test]
@@ -827,8 +899,13 @@ async fn test_general_rejects_gated_tool_until_activated() {
     let before = ctx
         .invoke_request("{\"tool\": \"write_file\", \"parameters\": {\"path\": \"a.txt\"}}")
         .await
-        .unwrap_err();
-    assert!(before.to_string().contains("not activated"));
+        .expect("gated denial must resolve to an error value");
+    assert!(
+        before
+            .get("error")
+            .is_some_and(|e| e.as_str().is_some_and(|s| s.contains("not activated"))),
+        "gated denial: {before}"
+    );
 
     // Formal activation (TOOL_VISIBILITY unblock) allows the call.
     entity
@@ -850,14 +927,77 @@ async fn test_general_rejects_self_invocation() {
     let entity = general_entity(&registry);
     let ctx = general_ctx(registry, entity);
 
-    let err = ctx
+    let denied = ctx
         .invoke_request("{\"tool\": \"general\", \"parameters\": {\"request\": \"{}\"}}")
         .await
-        .unwrap_err();
+        .expect("recursion guard must resolve to an error value");
     assert!(
-        err.to_string()
-            .contains("cannot be invoked through the general tool"),
-        "self invocation must be rejected: {err}"
+        denied.get("error").is_some_and(|e| e
+            .as_str()
+            .is_some_and(|s| s.contains("cannot be invoked through the general tool"))),
+        "self invocation must be rejected: {denied}"
+    );
+}
+
+#[tokio::test]
+async fn test_general_inner_call_faces_approval_like_direct() {
+    // The discoverable path must not bypass approval: a rejecting handler
+    // denies the inner tool before it executes, and the denial resolves to
+    // a per-call error value.
+    let executed = Arc::new(std::sync::atomic::AtomicU32::new(0));
+    let executed_in_handler = executed.clone();
+    let registry = Arc::new(ToolRegistry::new());
+    let handler: wf_tools::executor::stateless::StatelessHandler = Arc::new(
+        move |params: &Value, _ctx: &wf_tools::executor::trait_def::ToolExecutionContext| {
+            executed_in_handler.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Ok(serde_json::json!({ "echo": params }))
+        },
+    );
+    registry.register_tool(Tool {
+        id: "web_search".to_string(),
+        name: "web_search".to_string(),
+        description: "Search the web".to_string(),
+        tool_type: wf_types::tool::ToolType::Stateless,
+        parameters: None,
+        metadata: None,
+        config: None,
+        enabled: Some(true),
+        strict: None,
+        default_timeout_ms: Some(5000),
+    });
+    registry.register_stateless_handler("web_search", handler);
+    let entity = general_entity(&registry);
+    let run_ctx = ToolRunCtx {
+        registry,
+        metrics: None,
+        progress_tx: None,
+        approval_options: None,
+        approval_handler: Some(Arc::new(RejectingHandler {
+            reason: "inner denied".to_string(),
+        })),
+        checkpoint_handler: None,
+        failure_protection: None,
+        visibility_store: None,
+        general_invoker: None,
+        retry_budget: None,
+        checkpoint_session: None,
+    };
+    let ctx = GeneralToolContext::new(run_ctx, entity, None);
+
+    let denied = ctx
+        .invoke_request("{\"tool\": \"web_search\", \"parameters\": {\"query\": \"x\"}}")
+        .await
+        .expect("approval denial must resolve to an error value");
+    assert!(
+        denied
+            .get("error")
+            .is_some_and(|e| e.as_str().is_some_and(|s| s.contains("inner denied"))),
+        "inner approval denial: {denied}"
+    );
+    assert_eq!(
+        executed.load(std::sync::atomic::Ordering::SeqCst),
+        0,
+        "denied inner tool must never execute"
     );
 }
 
@@ -918,6 +1058,8 @@ async fn test_general_blocked_tool_rejected_by_pipeline() {
         registry,
         metrics: None,
         progress_tx: None,
+        approval_options: None,
+        approval_handler: None,
         checkpoint_handler: None,
         failure_protection: None,
         visibility_store: Some(Arc::new(BlockingVisibilityStore)),
@@ -927,11 +1069,16 @@ async fn test_general_blocked_tool_rejected_by_pipeline() {
     };
     let ctx = GeneralToolContext::new(run_ctx, entity, None);
 
-    let err = ctx
+    let denied = ctx
         .invoke_request("{\"tool\": \"web_search\", \"parameters\": {\"query\": \"x\"}}")
         .await
-        .unwrap_err();
-    assert!(err.to_string().contains("not visible"));
+        .expect("visibility denial must resolve to an error value");
+    assert!(
+        denied
+            .get("error")
+            .is_some_and(|e| e.as_str().is_some_and(|s| s.contains("not visible"))),
+        "visibility denial: {denied}"
+    );
 }
 
 #[tokio::test]

@@ -159,6 +159,7 @@ impl TriggerActionRunner for AgentTriggerRunner {
             enable_token_tracking: None,
             general_description: None,
             discoverable_metadata_block: None,
+            history_normalization: false,
             checkpoint_message_interval: None,
         };
         let start = wf_common::now();
@@ -334,6 +335,7 @@ impl AgentTriggerRunner {
             enable_token_tracking: None,
             general_description: None,
             discoverable_metadata_block: None,
+            history_normalization: false,
             checkpoint_message_interval: None,
         };
         let child_input = AgentLoopInput {

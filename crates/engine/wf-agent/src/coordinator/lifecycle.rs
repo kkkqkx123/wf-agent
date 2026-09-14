@@ -730,6 +730,41 @@ impl AgentLoopCoordinator {
         cp
     }
 
+    /// Normalize an inbound conversation to the target loop's exposure.
+    ///
+    /// Inbound histories carry the sender's bucket shapes (a direct call where
+    /// this loop only discovers the tool, or a `general` wrap where this loop
+    /// exposes it directly). Rewriting once at the boundary keeps the new schema
+    /// and the replayed history consistent. Stored archives stay verbatim and the
+    /// runtime gates remain authoritative over what may execute.
+    fn normalize_inbound_conversation(
+        registry: &ToolRegistry,
+        conversation: &[Message],
+        config: &AgentLoopConfig,
+    ) -> Vec<Message> {
+        if conversation.is_empty() {
+            return Vec::new();
+        }
+        let activated_tools: std::collections::HashSet<String> =
+            config.activated_tool_names.iter().cloned().collect();
+        // Exposure overrides are intentionally empty here, matching the per-turn
+        // resolution: the entity carries no overrides at build time (no producer
+        // wires `with_exposure_overrides` yet), so both read the same empty
+        // source and cannot drift. Thread a real overrides source through both
+        // sites when one appears.
+        let resolution = wf_tools::resolve_tool_exposure(wf_tools::ExposureInput {
+            registry,
+            available_names: &config.available_tool_names,
+            initial_names: &config.initial_tool_names,
+            discoverable_names: &config.discoverable_tool_names,
+            hidden_names: &config.hidden_tool_names,
+            enable_general_tool: config.enable_general_tool,
+            activated_tools: &activated_tools,
+            exposure_overrides: &std::collections::HashMap::new(),
+        });
+        wf_tools::general_history::normalize_history_for_exposure(conversation, &resolution)
+    }
+
     async fn build_entity(
         &self,
         config: &AgentLoopConfig,
@@ -810,6 +845,10 @@ impl AgentLoopCoordinator {
             entity = entity.with_hidden_tool_names(config.hidden_tool_names.clone());
         }
 
+        if config.history_normalization {
+            entity = entity.with_history_normalization(true);
+        }
+
         // Seed formally activated tools (TOOL_VISIBILITY unblock markers from
         // the workflow) into the run's discovery state.
         if !config.activated_tool_names.is_empty() {
@@ -836,7 +875,17 @@ impl AgentLoopCoordinator {
             entity.interruption().set_event_bus(bus.clone());
         }
 
-        for msg in &input.conversation {
+        // Loop-boundary history normalization: the inbound conversation
+        // carries the sender's bucket shapes, so rewrite it once to this
+        // loop's target exposure (config lists + activated tools) before it
+        // becomes the session history. This covers every entry path —
+        // workflow `AGENT_LOOP`, `call_agent` sub-agents, direct API use —
+        // since all of them build the entity here. The workflow handler may
+        // already have normalized; the conversion is idempotent under the
+        // same resolution, so a second pass is a no-op.
+        let inbound_conversation =
+            Self::normalize_inbound_conversation(&self.tool_registry, &input.conversation, config);
+        for msg in &inbound_conversation {
             entity.conversation().write().await.add_message(msg.clone());
         }
 

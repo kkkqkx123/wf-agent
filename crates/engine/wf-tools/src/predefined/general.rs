@@ -16,6 +16,11 @@ pub const ALL: &[&ToolDefinition] = &[&GENERAL];
 pub static GENERAL: ToolDefinition = ToolDefinition {
     id: "general",
     tool_type: ToolType::BuiltIn,
+    // Shell-only risk: `ReadOnly` describes the proxy transport, never the
+    // inner tool. Approval is re-evaluated per inner tool and name
+    // (wf-agent invoker), and metrics aggregate by inner tool name
+    // (`record_general_invoke`), so risk dashboards must group by the inner
+    // tool and treat the `general` shell as routing overhead.
     risk_level: ToolRiskLevel::ReadOnly,
     create_checkpoint: None,
     category: "utility",

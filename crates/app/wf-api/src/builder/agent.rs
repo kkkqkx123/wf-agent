@@ -527,6 +527,7 @@ pub struct AgentLoopConfigBuilder<S> {
     token_limit: Option<u64>,
     token_warning_threshold: Option<u32>,
     enable_token_tracking: Option<bool>,
+    history_normalization: bool,
     _marker: PhantomData<S>,
 }
 
@@ -548,6 +549,7 @@ impl AgentLoopConfigBuilder<LoopEmpty> {
             token_limit: None,
             token_warning_threshold: None,
             enable_token_tracking: None,
+            history_normalization: false,
             _marker: PhantomData,
         }
     }
@@ -570,6 +572,7 @@ impl AgentLoopConfigBuilder<LoopEmpty> {
             token_limit: self.token_limit,
             token_warning_threshold: self.token_warning_threshold,
             enable_token_tracking: self.enable_token_tracking,
+            history_normalization: self.history_normalization,
             _marker: PhantomData,
         }
     }
@@ -611,6 +614,15 @@ impl<S> AgentLoopConfigBuilder<S> {
     /// model (supplements runtime visibility blocking).
     pub fn add_hidden_tool(mut self, tool_name: impl Into<String>) -> Self {
         self.hidden_tool_names.push(tool_name.into());
+        self
+    }
+
+    /// Opt into per-turn history projection (default off): each request
+    /// rewrites the projected history to the current turn's exposure. Only
+    /// enable when stale call shapes demonstrably confuse the model; the
+    /// rewrite churns the KV-cache-friendly request prefix.
+    pub fn history_normalization(mut self, enabled: bool) -> Self {
+        self.history_normalization = enabled;
         self
     }
 
@@ -659,6 +671,7 @@ impl AgentLoopConfigBuilder<LoopConfigured> {
             enable_token_tracking: self.enable_token_tracking,
             general_description: None,
             discoverable_metadata_block: None,
+            history_normalization: self.history_normalization,
             checkpoint_message_interval: None,
         }
     }

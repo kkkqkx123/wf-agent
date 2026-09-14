@@ -84,6 +84,11 @@ globset = "0.4"
 wasmtime = { version = "34", default-features = false, features = ["async", "runtime", "cranelift", "wat", "component-model"] }
 wasmtime-wasi = { version = "34" }
 wat = "1"
+# Component-model test guests only: encode hand-written core modules into
+# components inside wf-plugin tests (never shipped in the host).
+wit-component = "0.244"
+wit-parser = "0.244"
+wasmparser = "0.244"
 
 # File watching
 notify = "8"

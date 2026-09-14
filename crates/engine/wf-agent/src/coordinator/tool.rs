@@ -237,10 +237,13 @@ impl ToolExecutionCoordinator {
     /// Snapshot the immutable execution context shared by sequential and
     /// parallel tool runs.
     fn run_ctx(&self) -> ToolRunCtx {
+        let (approval_options, approval_handler) = self.approval.config();
         ToolRunCtx {
             registry: self.tool_registry.clone(),
             metrics: self.metrics.clone(),
             progress_tx: self.progress_tx.clone(),
+            approval_options,
+            approval_handler,
             checkpoint_handler: self.checkpoint_handler.clone(),
             failure_protection: self.failure_protection.clone(),
             visibility_store: self.visibility_store.clone(),
@@ -248,6 +251,37 @@ impl ToolExecutionCoordinator {
             retry_budget: self.retry_budget.clone(),
             checkpoint_session: self.checkpoint_session.clone(),
         }
+    }
+
+    /// Resolve the current exposure for an entity through the same single
+    /// decision source the schema assembly consumes.
+    async fn current_exposure(&self, entity: &AgentLoopEntity) -> wf_tools::ExposureResolution {
+        let activated_tools = {
+            let state = entity.state.read().await;
+            state.tool_discovery().activated_tools.clone()
+        };
+        wf_tools::resolve_tool_exposure(wf_tools::ExposureInput {
+            registry: self.tool_registry.as_ref(),
+            available_names: entity.available_tool_names(),
+            initial_names: entity.initial_tool_names(),
+            discoverable_names: entity.discoverable_tool_names(),
+            hidden_names: entity.hidden_tool_names(),
+            enable_general_tool: entity.enable_general_tool(),
+            activated_tools: &activated_tools,
+            exposure_overrides: &entity.exposure_overrides().iter().cloned().collect(),
+        })
+    }
+
+    /// Direct-call exposure gate for one tool name. Returns the rejection
+    /// reason when a direct invocation is not allowed in the current
+    /// resolution (`None` means the direct call may proceed to approval).
+    async fn direct_gate_rejection(
+        &self,
+        entity: &AgentLoopEntity,
+        tool_name: &str,
+    ) -> Option<String> {
+        let resolution = self.current_exposure(entity).await;
+        wf_tools::check_direct_tool_callable(&resolution, tool_name).err()
     }
 
     /// The immutable execution context, exposed for the `general` tool
@@ -293,15 +327,18 @@ impl ToolExecutionCoordinator {
         tc
     }
 
-    /// Approval gate for the streaming tool path: approve one tool call
-    /// through the same batch pipeline as the sequential executor. Returns
-    /// the rejection message when the call is denied, `None` when it may
-    /// execute.
+    /// Approval gate for the streaming tool path: exposure gate first,
+    /// then approval through the same batch pipeline as the sequential
+    /// executor. Returns the rejection message when the call is denied,
+    /// `None` when it may execute.
     pub async fn approve_single_for_stream(
         &self,
         entity: &AgentLoopEntity,
         tc: &LlmToolCall,
     ) -> Option<Message> {
+        if let Some(reason) = self.direct_gate_rejection(entity, &tc.function.name).await {
+            return Some(self.build_rejection_message(tc, &reason));
+        }
         let outcomes = self
             .approval
             .approve_tool_calls(entity, std::slice::from_ref(tc), &self.tool_registry)
@@ -314,30 +351,59 @@ impl ToolExecutionCoordinator {
         }
     }
 
+    /// Direct-call exposure rejections for a batch, in order (`None` means
+    /// the direct call may proceed to approval).
+    async fn direct_gate_rejections(
+        &self,
+        entity: &AgentLoopEntity,
+        tool_calls: &[LlmToolCall],
+    ) -> Vec<Option<String>> {
+        let mut rejections = Vec::with_capacity(tool_calls.len());
+        for tc in tool_calls {
+            rejections.push(self.direct_gate_rejection(entity, &tc.function.name).await);
+        }
+        rejections
+    }
+
     async fn execute_sequential(
         &self,
         entity: &AgentLoopEntity,
         tool_calls: &[LlmToolCall],
     ) -> AgentResult<Vec<Message>> {
-        let outcomes = self
+        // Exposure gate first: hidden/gated/discoverable-direct calls are
+        // rejected without consuming approval interactions; the remaining
+        // calls go through the approval batch.
+        let gate_rejections = self.direct_gate_rejections(entity, tool_calls).await;
+        let allowed: Vec<LlmToolCall> = tool_calls
+            .iter()
+            .enumerate()
+            .filter(|(idx, _)| gate_rejections[*idx].is_none())
+            .map(|(_, tc)| tc.clone())
+            .collect();
+        let allowed_outcomes = self
             .approval
-            .approve_tool_calls(entity, tool_calls, &self.tool_registry)
+            .approve_tool_calls(entity, &allowed, &self.tool_registry)
             .await;
+        let mut allowed_iter = allowed_outcomes.into_iter();
         let mut messages = Vec::with_capacity(tool_calls.len());
 
         for (idx, tc) in tool_calls.iter().enumerate() {
-            let outcome = &outcomes[idx];
+            if let Some(reason) = &gate_rejections[idx] {
+                messages.push(self.build_rejection_message(tc, reason));
+                continue;
+            }
+            let outcome = allowed_iter.next().expect("allowed outcomes align");
             match outcome {
                 ApprovalOutcome::Rejected { reason } => {
                     // The call never executes, so it has no tool lifecycle:
                     // no BEFORE/AFTER hook fires (the parallel path never
                     // fired them here either). The denial is observable
                     // through the rejection message itself.
-                    messages.push(self.build_rejection_message(tc, reason));
+                    messages.push(self.build_rejection_message(tc, &reason));
                     continue;
                 }
                 ApprovalOutcome::Execute { edited_parameters } => {
-                    let tc = Self::apply_edited_parameters(tc, edited_parameters);
+                    let tc = Self::apply_edited_parameters(tc, &edited_parameters);
                     // BEFORE_TOOL_CALL is a gate point: a veto denies the
                     // call exactly like an approval rejection (same
                     // rejection message, same error-carrying AFTER fire).
@@ -390,17 +456,39 @@ impl ToolExecutionCoordinator {
         entity: &AgentLoopEntity,
         tool_calls: &[LlmToolCall],
     ) -> AgentResult<Vec<Message>> {
-        let outcomes = self
+        let gate_rejections = self.direct_gate_rejections(entity, tool_calls).await;
+        let allowed: Vec<LlmToolCall> = tool_calls
+            .iter()
+            .enumerate()
+            .filter(|(idx, _)| gate_rejections[*idx].is_none())
+            .map(|(_, tc)| tc.clone())
+            .collect();
+        let allowed_outcomes = self
             .approval
-            .approve_tool_calls(entity, tool_calls, &self.tool_registry)
+            .approve_tool_calls(entity, &allowed, &self.tool_registry)
             .await;
+        let mut allowed_iter = allowed_outcomes.into_iter();
+        // Align approval outcomes back to the original order; gated calls
+        // already carry their rejection reason.
+        let mut outcomes: Vec<Option<ApprovalOutcome>> = Vec::with_capacity(tool_calls.len());
+        for gate_rejection in gate_rejections.iter().take(tool_calls.len()) {
+            if gate_rejection.is_some() {
+                outcomes.push(None);
+            } else {
+                outcomes.push(Some(allowed_iter.next().expect("allowed outcomes align")));
+            }
+        }
         let mut messages: Vec<Option<Message>> = vec![None; tool_calls.len()];
         let run_ctx = self.run_ctx();
         let batch_cancellation = self.batch_cancellation(entity);
 
         let mut set = tokio::task::JoinSet::new();
         for (idx, tc) in tool_calls.iter().enumerate() {
-            match &outcomes[idx] {
+            if let Some(reason) = &gate_rejections[idx] {
+                messages[idx] = Some(self.build_rejection_message(tc, reason));
+                continue;
+            }
+            match outcomes[idx].as_ref().expect("allowed outcome present") {
                 ApprovalOutcome::Rejected { reason } => {
                     messages[idx] = Some(self.build_rejection_message(tc, reason));
                 }
@@ -537,13 +625,17 @@ impl ToolExecutionCoordinator {
         Ok(messages.into_iter().flatten().collect())
     }
 
-    /// Single-tool execution used by the streaming driver; execution errors
-    /// surface as tool error messages rather than failures.
+    /// Single-tool execution used by the streaming driver; exposure denials
+    /// and execution errors surface as tool error messages rather than
+    /// failures.
     pub async fn execute_single_tool_for_stream(
         &self,
         entity: &AgentLoopEntity,
         tc: &LlmToolCall,
     ) -> Message {
+        if let Some(reason) = self.direct_gate_rejection(entity, &tc.function.name).await {
+            return self.build_rejection_message(tc, &reason);
+        }
         self.execute_single_tool(entity, tc)
             .await
             .unwrap_or_else(|e| {

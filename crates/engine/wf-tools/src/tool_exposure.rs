@@ -187,6 +187,43 @@ pub fn is_tool_callable(resolution: &ExposureResolution, tool_name: &str) -> boo
         || resolution.discoverable.iter().any(|t| t.name == tool_name)
 }
 
+/// Runtime gate for the direct-call path (model-emitted or replayed direct
+/// invocations). Mirrors the bucket semantics the schema assembly uses:
+/// hidden tools are never executable, gated tools require formal activation,
+/// discoverable tools must go through the `general` proxy, and anything
+/// outside the available pool is rejected. Visible tools (including the
+/// `general` proxy itself) pass.
+///
+/// Inner `general` invocations must NOT use this gate: they are checked by
+/// the proxy-side gate (`general` invoker), which permits discoverable
+/// tools by design.
+pub fn check_direct_tool_callable(
+    resolution: &ExposureResolution,
+    tool_name: &str,
+) -> Result<(), String> {
+    if resolution.hidden.iter().any(|t| t.name == tool_name) {
+        return Err(format!(
+            "Tool '{tool_name}' is not callable in this execution"
+        ));
+    }
+    if resolution.gated.iter().any(|t| t.name == tool_name) {
+        return Err(format!(
+            "Tool '{tool_name}' is not activated yet; wait until it is explicitly enabled"
+        ));
+    }
+    if resolution.discoverable.iter().any(|t| t.name == tool_name) {
+        return Err(format!(
+            "Tool '{tool_name}' is discoverable and must be invoked through the general tool"
+        ));
+    }
+    if resolution.visible.iter().any(|t| t.name == tool_name) {
+        return Ok(());
+    }
+    Err(format!(
+        "Tool '{tool_name}' is not in the available tool set"
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -621,6 +658,48 @@ mod tests {
         assert!(!is_tool_callable(&resolution, "write_file"));
         assert!(!is_tool_callable(&resolution, "secret_admin"));
         assert!(!is_tool_callable(&resolution, "not_registered"));
+    }
+
+    #[test]
+    fn test_check_direct_tool_callable_buckets() {
+        let registry = registry_with(vec![
+            make_tool("a", "alpha", None),
+            make_tool("d", "web_search", None),
+            make_tool("g", "write_file", None),
+            make_tool("h", "secret_admin", Some(ToolExposure::Hidden)),
+            general_tool(),
+        ]);
+        let resolution = resolve_tool_exposure(input(
+            &registry,
+            &[
+                "alpha".to_string(),
+                "web_search".to_string(),
+                "write_file".to_string(),
+                "secret_admin".to_string(),
+            ],
+            &["alpha".to_string()],
+            &["web_search".to_string()],
+            &[],
+            &Default::default(),
+            &Default::default(),
+        ));
+        // visible: alpha, general; discoverable: web_search; gated:
+        // write_file; hidden: secret_admin.
+        assert!(check_direct_tool_callable(&resolution, "alpha").is_ok());
+        assert!(check_direct_tool_callable(&resolution, "general").is_ok());
+        assert_eq!(
+            check_direct_tool_callable(&resolution, "web_search").unwrap_err(),
+            "Tool 'web_search' is discoverable and must be invoked through the general tool"
+        );
+        assert!(check_direct_tool_callable(&resolution, "write_file")
+            .unwrap_err()
+            .contains("not activated"));
+        assert!(check_direct_tool_callable(&resolution, "secret_admin")
+            .unwrap_err()
+            .contains("not callable"));
+        assert!(check_direct_tool_callable(&resolution, "not_registered")
+            .unwrap_err()
+            .contains("not in the available tool set"));
     }
 
     #[test]

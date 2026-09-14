@@ -203,7 +203,7 @@ impl ToolDefinition {
 #[cfg(test)]
 mod tests {
     use crate::predefined::all_definitions;
-    use wf_types::tool::CheckpointTiming;
+    use wf_types::tool::ToolCheckpointTiming;
 
     /// Every predefined tool parameter uses a supported JSON type.
     #[test]

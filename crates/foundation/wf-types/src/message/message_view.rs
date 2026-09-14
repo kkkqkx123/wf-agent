@@ -20,7 +20,10 @@ pub enum MessageView {
     /// `tail_begin` is an index into the history at compression time;
     /// kept for stored checkpoints. New code preferring stable coordinates
     /// should use `Range` with sequence numbers.
-    Compressed { summary: Box<Message>, tail_begin: usize },
+    Compressed {
+        summary: Box<Message>,
+        tail_begin: usize,
+    },
     /// Show the last `last_n` messages. Pure read projection used for
     /// previews and request assembly; never mutates history.
     Tail { last_n: usize },
@@ -42,8 +45,12 @@ impl MessageView {
     pub fn project(&self, history: &[Message]) -> Vec<Message> {
         match self {
             Self::Full => history.to_vec(),
-            Self::Compressed { summary, tail_begin } => {
-                let mut projected = Vec::with_capacity(history.len().saturating_sub(*tail_begin) + 1);
+            Self::Compressed {
+                summary,
+                tail_begin,
+            } => {
+                let mut projected =
+                    Vec::with_capacity(history.len().saturating_sub(*tail_begin) + 1);
                 projected.push(summary.as_ref().clone());
                 for message in history.iter().skip(*tail_begin) {
                     if message.id != summary.id {
@@ -176,7 +183,10 @@ mod tests {
             start_seq: 11,
             end_seq: 12,
         };
-        assert_eq!(view.project_with_seqs(&history, &seqs), history[1..].to_vec());
+        assert_eq!(
+            view.project_with_seqs(&history, &seqs),
+            history[1..].to_vec()
+        );
         assert!(view.project(&history).is_empty());
         assert!(view.project_with_seqs(&history, &[1u64]).is_empty());
     }

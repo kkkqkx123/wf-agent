@@ -659,6 +659,7 @@ impl AgentLoopConfigBuilder<LoopConfigured> {
             enable_token_tracking: self.enable_token_tracking,
             general_description: None,
             discoverable_metadata_block: None,
+            checkpoint_message_interval: None,
         }
     }
 }

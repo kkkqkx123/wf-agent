@@ -375,9 +375,8 @@ impl WorkflowCheckpointIntegration {
             // Active views first, then archived history (append-only).
             for (key, value) in vars.iter() {
                 if let Some(context_id) = key.strip_prefix(prefix) {
-                    if let Ok(messages) = serde_json::from_value::<
-                        Vec<wf_types::message::Message>,
-                    >(value.clone())
+                    if let Ok(messages) =
+                        serde_json::from_value::<Vec<wf_types::message::Message>>(value.clone())
                     {
                         let version = vars
                             .get(ledger_key)
@@ -401,9 +400,8 @@ impl WorkflowCheckpointIntegration {
             }
             for (key, value) in vars.iter() {
                 if let Some(context_id) = key.strip_prefix(history_prefix) {
-                    if let Ok(messages) = serde_json::from_value::<
-                        Vec<wf_types::message::Message>,
-                    >(value.clone())
+                    if let Ok(messages) =
+                        serde_json::from_value::<Vec<wf_types::message::Message>>(value.clone())
                     {
                         let entry = contexts.entry(context_id.to_string()).or_insert_with(|| {
                             wf_types::checkpoint::workflow::MessageContextSnapshot {

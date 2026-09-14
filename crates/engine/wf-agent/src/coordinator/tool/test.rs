@@ -9,7 +9,7 @@ use serde_json::Value;
 
 use wf_tools::registry::ToolRegistry;
 use wf_types::message::{Message, MessageContentValue};
-use wf_types::tool::{CheckpointTiming, Tool, ToolRiskLevel};
+use wf_types::tool::{Tool, ToolCheckpointTiming, ToolRiskLevel};
 use wf_types::Id;
 
 use super::approval::ToolApprovalGate;
@@ -533,7 +533,7 @@ async fn test_checkpoint_before_and_after() {
     let executed = Arc::new(AtomicU32::new(0));
     let registry = mock_tool_registry(&executed);
     let mut tool = registry.get_tool("tool-1").unwrap();
-    tool.metadata.as_mut().unwrap().create_checkpoint = Some(CheckpointTiming::Both);
+    tool.metadata.as_mut().unwrap().create_checkpoint = Some(ToolCheckpointTiming::Both);
     registry.register_tool(tool);
 
     let before = Arc::new(AtomicU32::new(0));

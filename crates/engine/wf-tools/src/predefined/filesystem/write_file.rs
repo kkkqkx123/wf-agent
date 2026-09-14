@@ -8,7 +8,7 @@ pub static WRITE_FILE: ToolDefinition = ToolDefinition {
     id: "write_file",
     tool_type: ToolType::Stateless,
     risk_level: ToolRiskLevel::Write,
-    create_checkpoint: Some(wf_types::tool::CheckpointTiming::Before),
+    create_checkpoint: Some(wf_types::tool::ToolCheckpointTiming::Before),
     category: "filesystem",
     tags: &["write", "file"],
     description: "Write content to a file at the given path. Creates the file and any missing parent directories; overwrites existing content.",

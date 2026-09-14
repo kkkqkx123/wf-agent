@@ -91,11 +91,7 @@ impl AgentCheckpointIntegration {
         self
     }
 
-    fn should_checkpoint(
-        &self,
-        trigger: &CheckpointTiming,
-        iteration: u32,
-    ) -> bool {
+    fn should_checkpoint(&self, trigger: &CheckpointTiming, iteration: u32) -> bool {
         use crate::checkpoint::strategy::AgentCheckpointTiming;
         let timing = match trigger {
             CheckpointTiming::BeforeExecute => AgentCheckpointTiming::BeforeIteration,
@@ -108,10 +104,9 @@ impl AgentCheckpointIntegration {
             CheckpointTiming::OnTimeout => AgentCheckpointTiming::OnAgentTimeout,
             CheckpointTiming::ToolBefore => AgentCheckpointTiming::BeforeTool,
             CheckpointTiming::ToolAfter => AgentCheckpointTiming::AfterTool,
-            CheckpointTiming::BeforeRetry => AgentCheckpointTiming::BeforeCompression,
-            CheckpointTiming::AfterRetrySuccess => {
-                AgentCheckpointTiming::AfterCompression
-            }
+            CheckpointTiming::BeforeCompression => AgentCheckpointTiming::BeforeCompression,
+            CheckpointTiming::AfterCompression => AgentCheckpointTiming::AfterCompression,
+            CheckpointTiming::Interval => AgentCheckpointTiming::MessageInterval,
             _ => return true,
         };
         self.strategy.should_checkpoint(&timing, iteration)
@@ -189,7 +184,7 @@ impl AgentCheckpointIntegration {
             return;
         }
         if let Err(err) = self
-            .create_checkpoint(entity, CheckpointTiming::OnPause)
+            .create_checkpoint_gated(entity, CheckpointTiming::OnPause)
             .await
         {
             tracing::warn!(
@@ -247,17 +242,15 @@ impl AgentCheckpointIntegration {
         let rows = self.inner.timeline(entity_id).await?;
         Ok(rows
             .into_iter()
-            .map(
-                |(checkpoint_id, seq_start, seq_end, trigger, timestamp)| {
-                    crate::checkpoint::TimelineEntry {
-                        checkpoint_id,
-                        seq_start,
-                        seq_end,
-                        trigger,
-                        timestamp,
-                    }
-                },
-            )
+            .map(|(checkpoint_id, seq_start, seq_end, trigger, timestamp)| {
+                crate::checkpoint::TimelineEntry {
+                    checkpoint_id,
+                    seq_start,
+                    seq_end,
+                    trigger,
+                    timestamp,
+                }
+            })
             .collect())
     }
 
@@ -273,7 +266,9 @@ impl AgentCheckpointIntegration {
         let len = messages.len() as u64;
         let start = snapshot.message_seq_start.unwrap_or(0);
         let seqs: Vec<u64> = (start..start.saturating_add(len)).collect();
-        let next_seq = snapshot.message_next_seq.unwrap_or(start.saturating_add(len));
+        let next_seq = snapshot
+            .message_next_seq
+            .unwrap_or(start.saturating_add(len));
         let ledger = snapshot.conversation_ledger.clone().unwrap_or_default();
         let tracker = snapshot
             .conversation_tracker
@@ -400,11 +395,7 @@ impl AgentCheckpointIntegration {
             let view = session.active_view.clone();
             let seqs = session.seqs.clone();
             (
-                if msgs.is_empty() {
-                    None
-                } else {
-                    Some(msgs)
-                },
+                if msgs.is_empty() { None } else { Some(msgs) },
                 if view.is_full() { None } else { Some(view) },
                 seqs.first().copied(),
                 seqs.last().copied(),
@@ -414,7 +405,10 @@ impl AgentCheckpointIntegration {
                 } else {
                     Some(session.ledger.clone())
                 },
-                session.tracker.clone().and_then(|t| serde_json::to_value(t).ok()),
+                session
+                    .tracker
+                    .clone()
+                    .and_then(|t| serde_json::to_value(t).ok()),
             )
         };
 

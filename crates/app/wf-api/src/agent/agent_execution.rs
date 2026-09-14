@@ -399,6 +399,7 @@ mod tests {
                     enable_token_tracking: None,
                     general_description: None,
                     discoverable_metadata_block: None,
+                    checkpoint_message_interval: None,
                 },
                 AgentLoopInput {
                     message: "hi".to_string(),
@@ -478,6 +479,7 @@ mod tests {
                     enable_token_tracking: None,
                     general_description: None,
                     discoverable_metadata_block: None,
+                    checkpoint_message_interval: None,
                 },
                 AgentLoopInput {
                     message: "hi".to_string(),
@@ -544,6 +546,7 @@ mod tests {
                     enable_token_tracking: None,
                     general_description: None,
                     discoverable_metadata_block: None,
+                    checkpoint_message_interval: None,
                 },
                 AgentLoopInput {
                     message: "hi".to_string(),

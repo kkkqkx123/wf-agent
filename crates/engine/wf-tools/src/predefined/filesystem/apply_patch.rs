@@ -8,7 +8,7 @@ pub static APPLY_PATCH: ToolDefinition = ToolDefinition {
     id: "apply_patch",
     tool_type: ToolType::Stateless,
     risk_level: ToolRiskLevel::Write,
-    create_checkpoint: Some(wf_types::tool::CheckpointTiming::Both),
+    create_checkpoint: Some(wf_types::tool::ToolCheckpointTiming::Both),
     category: "filesystem",
     tags: &["patch", "diff"],
     description: "Apply a Codex-style patch to the filesystem. The patch is a sequence of Add File, Delete File and Update File operations delimited by '*** Begin Patch' and '*** End Patch'.",

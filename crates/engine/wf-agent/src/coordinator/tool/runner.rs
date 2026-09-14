@@ -5,7 +5,7 @@ use serde_json::Value;
 
 use wf_types::message::{LlmToolCall, Message, MessageContentValue, MessageRole};
 use wf_types::tool::ToolRiskLevel;
-use wf_types::tool::{CheckpointTiming, ToolExecutionOptions};
+use wf_types::tool::{ToolCheckpointTiming, ToolExecutionOptions};
 
 use crate::state::ToolCallRecord;
 
@@ -105,11 +105,11 @@ pub(crate) async fn run_tool(
         .and_then(|m| m.create_checkpoint);
     let before = matches!(
         checkpoint_timing,
-        Some(CheckpointTiming::Before) | Some(CheckpointTiming::Both)
+        Some(ToolCheckpointTiming::Before) | Some(ToolCheckpointTiming::Both)
     );
     let after = matches!(
         checkpoint_timing,
-        Some(CheckpointTiming::After) | Some(CheckpointTiming::Both)
+        Some(ToolCheckpointTiming::After) | Some(ToolCheckpointTiming::Both)
     );
     if before {
         if let Some(ref handler) = ctx.checkpoint_handler {

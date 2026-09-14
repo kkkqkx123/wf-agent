@@ -90,6 +90,10 @@ pub struct AgentLoopConfig {
     /// by an explicit `false`. When disabled,
     /// usage is not recorded and no token events are emitted.
     pub enable_token_tracking: Option<bool>,
+    /// Checkpoint every N appended conversation messages (`None` disables
+    /// the message-count backstop; tool boundaries already cover most
+    /// intra-iteration moments). Sourced from the agent checkpoint config.
+    pub checkpoint_message_interval: Option<u32>,
     /// Pre-rendered description for the `general` tool, rendered at loop
     /// assembly time from the `tool-visibility.general_description` resource
     /// template (so the text follows custom resource overrides and the tool

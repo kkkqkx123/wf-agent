@@ -999,10 +999,7 @@ impl InteractiveController {
 }
 
 /// One session-memory message carrying plain text in the given role.
-fn session_message(
-    role: wf_types::message::MessageRole,
-    text: &str,
-) -> wf_types::message::Message {
+fn session_message(role: wf_types::message::MessageRole, text: &str) -> wf_types::message::Message {
     wf_types::message::Message {
         id: wf_common::generate_id(),
         role,

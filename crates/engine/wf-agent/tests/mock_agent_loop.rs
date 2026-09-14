@@ -72,6 +72,7 @@ fn config(max_iterations: u32) -> AgentLoopConfig {
         enable_token_tracking: None,
         general_description: None,
         discoverable_metadata_block: None,
+        checkpoint_message_interval: None,
     }
 }
 
@@ -218,6 +219,7 @@ fn discovery_config_with_general(
         enable_token_tracking: None,
         general_description,
         discoverable_metadata_block: None,
+        checkpoint_message_interval: None,
     }
 }
 
@@ -633,7 +635,9 @@ async fn resume_from_checkpoint_replays_idempotent_tool_calls() {
         store.clone(),
     )
     .with_agent_loop_id(Id::from("restore-loop"))
-    .with_checkpoint_strategy(AgentCheckpointStrategy::every_iteration());
+    .with_checkpoint_strategy(AgentCheckpointStrategy::from_agent_config(
+        1, true, false, false, None,
+    ));
 
     let err = coordinator
         .execute(config(5), input("first run"))

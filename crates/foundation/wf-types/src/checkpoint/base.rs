@@ -165,6 +165,8 @@ pub enum CheckpointTiming {
     IterationFailed,
     ToolBefore,
     ToolAfter,
+    BeforeCompression,
+    AfterCompression,
     OnPause,
     OnCancel,
     OnTimeout,

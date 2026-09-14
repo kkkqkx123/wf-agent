@@ -552,9 +552,7 @@ fn snapshot_node_records(
 fn message_contexts_from_vars(
     variables: &HashMap<String, serde_json::Value>,
 ) -> Option<HashMap<String, wf_types::checkpoint::workflow::MessageContextSnapshot>> {
-    use wf_workflow::message_context::{
-        CONTEXT_HISTORY_PREFIX, CONTEXT_PREFIX, LEDGER_PREFIX,
-    };
+    use wf_workflow::message_context::{CONTEXT_HISTORY_PREFIX, CONTEXT_PREFIX, LEDGER_PREFIX};
 
     let mut contexts: HashMap<String, wf_types::checkpoint::workflow::MessageContextSnapshot> =
         HashMap::new();
@@ -565,7 +563,9 @@ fn message_contexts_from_vars(
             {
                 let version = variables
                     .get(LEDGER_PREFIX)
-                    .and_then(|v| serde_json::from_value::<wf_types::llm::TokenLedger>(v.clone()).ok())
+                    .and_then(|v| {
+                        serde_json::from_value::<wf_types::llm::TokenLedger>(v.clone()).ok()
+                    })
                     .map(|l| l.version(context_id))
                     .unwrap_or(0);
                 contexts
@@ -584,12 +584,12 @@ fn message_contexts_from_vars(
             if let Ok(messages) =
                 serde_json::from_value::<Vec<wf_types::message::Message>>(value.clone())
             {
-                let entry = contexts
-                    .entry(context_id.to_string())
-                    .or_insert_with(|| wf_types::checkpoint::workflow::MessageContextSnapshot {
+                let entry = contexts.entry(context_id.to_string()).or_insert_with(|| {
+                    wf_types::checkpoint::workflow::MessageContextSnapshot {
                         messages: Vec::new(),
                         version: 0,
-                    });
+                    }
+                });
                 let known: std::collections::HashSet<String> =
                     entry.messages.iter().map(|m| m.id.clone()).collect();
                 for message in messages {

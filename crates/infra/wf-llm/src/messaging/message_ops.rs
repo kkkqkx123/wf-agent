@@ -1,7 +1,7 @@
 use wf_types::message::{
     AppendMessageOperation, FilterMessageOperation, InsertMessageOperation, Message,
-    MessageContent, MessageContentValue, MessageOperationConfig, MessageOperationStats, MessageRole,
-    ReplaceMessageOperation, RollbackMessageOperation,
+    MessageContent, MessageContentValue, MessageOperationConfig, MessageOperationStats,
+    MessageRole, ReplaceMessageOperation, RollbackMessageOperation,
 };
 
 /// Apply one message-array operation as a pure function: the input slice is
@@ -268,7 +268,10 @@ mod tests {
 
     #[test]
     fn filter_by_custom_text() {
-        let base = vec![msg(MessageRole::User, "deploy x"), msg(MessageRole::User, "other")];
+        let base = vec![
+            msg(MessageRole::User, "deploy x"),
+            msg(MessageRole::User, "other"),
+        ];
         let (out, stats) = apply(
             &base,
             &config(MessageOperationConfig::Filter(FilterMessageOperation {
@@ -300,10 +303,7 @@ mod tests {
             msg(MessageRole::User, "q"),
             msg(MessageRole::Assistant, "a"),
         ];
-        assert_eq!(
-            extract_by_role(&base, MessageRole::User, false).len(),
-            1
-        );
+        assert_eq!(extract_by_role(&base, MessageRole::User, false).len(), 1);
         assert_eq!(extract_by_role(&base, MessageRole::User, true).len(), 1);
         assert_eq!(
             extract_by_role(&base, MessageRole::User, true)[0].role,

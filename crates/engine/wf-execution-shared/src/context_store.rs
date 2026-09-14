@@ -176,7 +176,10 @@ mod tests {
 
     #[test]
     fn apply_to_vec_discards_stale_results() {
-        let mut current = vec![msg(MessageRole::User, "old"), msg(MessageRole::User, "newer")];
+        let mut current = vec![
+            msg(MessageRole::User, "old"),
+            msg(MessageRole::User, "newer"),
+        ];
         assert!(!apply_to_vec(
             &mut current,
             4,

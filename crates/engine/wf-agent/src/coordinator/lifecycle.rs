@@ -284,19 +284,28 @@ impl AgentLoopCoordinator {
 
     /// Spawn the conversation compression consumer for the live session
     /// (self-consumption, compression chain closure): completed compression
-    /// events matching `agent_loop_id` are applied to the conversation with
-    /// a version check. Returns the task handle, aborted on every exit path
+    /// events matching the loop id are applied to the conversation with
+    /// a version check, then snapshotted through a post-compression
+    /// checkpoint. Returns the task handle, aborted on every exit path
     /// of the execution.
     fn spawn_compression_consumer(
         &self,
-        agent_loop_id: &str,
+        entity: &Arc<AgentLoopEntity>,
         conversation: Arc<RwLock<ConversationSession>>,
     ) -> Option<tokio::task::JoinHandle<()>> {
+        let agent_loop_id = entity.id().to_string();
         self.event_bus.as_ref().map(|bus| {
+            let checkpoint = self.build_checkpoint_integration().map(|integration| {
+                crate::conversation_compression::CompressionCheckpoint {
+                    entity: entity.clone(),
+                    integration,
+                }
+            });
             spawn_conversation_compression_consumer(
                 bus.clone(),
-                agent_loop_id.to_string(),
+                agent_loop_id,
                 conversation,
+                checkpoint,
             )
         })
     }
@@ -394,8 +403,6 @@ impl AgentLoopCoordinator {
                 }
             }
         }
-        let execution_id = entity.id().clone();
-
         // Phase-based persistence: a start record before the loop runs, then a
         // final record carrying the terminal status once it settles.
         self.persist_agent(&entity).await;
@@ -417,8 +424,7 @@ impl AgentLoopCoordinator {
         // The conversation applies compression results itself (it subscribes
         // to COMPLETED events on the bus); the consumer is aborted once the
         // loop finishes.
-        let consumer =
-            self.spawn_compression_consumer(&execution_id, entity.conversation().clone());
+        let consumer = self.spawn_compression_consumer(&entity, entity.conversation().clone());
         let outcome = self.execute_inner(config, entity.clone(), mode, sink).await;
         if let Some(handle) = consumer {
             handle.abort();
@@ -472,10 +478,11 @@ impl AgentLoopCoordinator {
         // loop, and the terminal status only settles after it returns.
         let outcome_checkpoint = self.build_checkpoint_integration();
         if let Some(ref cp) = checkpoint {
-            cp.create_checkpoint(&entity, CheckpointTiming::Manual)
+            cp.create_checkpoint_gated(&entity, CheckpointTiming::Manual)
                 .await
                 .unwrap_or_else(|e| {
                     tracing::warn!("Failed to create agent start checkpoint: {}", e);
+                    false
                 });
         }
 
@@ -494,7 +501,11 @@ impl AgentLoopCoordinator {
         .with_token_tracking_enabled(config.enable_token_tracking.unwrap_or(true))
         .with_general_description(config.general_description.clone())
         .with_discoverable_metadata_block(config.discoverable_metadata_block.clone())
-        .with_hook_handler_registry(self.hook_handler_registry.clone());
+        .with_hook_handler_registry(self.hook_handler_registry.clone())
+        // Intra-iteration boundary checkpoints (tool calls, compression
+        // signals, message-count backstop) share the run strategy.
+        .with_checkpoint(self.build_checkpoint_integration())
+        .with_message_interval(config.checkpoint_message_interval);
         // File-content observation: the agent actor partition receives
         // precise file-tool events and scoped shell diffs. Blocking,
         // streaming, retry and nested executions share this observer
@@ -569,13 +580,14 @@ impl AgentLoopCoordinator {
                     // the status settles, so this is the record that actually
                     // carries the completed state.
                     if let Some(ref cp) = outcome_checkpoint {
-                        cp.create_checkpoint(&entity, CheckpointTiming::OnComplete)
+                        cp.create_checkpoint_gated(&entity, CheckpointTiming::OnComplete)
                             .await
                             .unwrap_or_else(|e| {
                                 tracing::warn!(
                                     "Failed to create agent completion checkpoint: {}",
                                     e
                                 );
+                                false
                             });
                     }
                 }
@@ -656,10 +668,11 @@ impl AgentLoopCoordinator {
                         ExecutionStatus::Failed => CheckpointTiming::OnFailure,
                         _ => CheckpointTiming::OnError,
                     };
-                    cp.create_checkpoint(&entity, trigger)
+                    cp.create_checkpoint_gated(&entity, trigger)
                         .await
                         .unwrap_or_else(|err| {
                             tracing::warn!("Failed to create agent terminal checkpoint: {}", err);
+                            false
                         });
                 }
                 if let Some(ref metrics) = self.metrics {

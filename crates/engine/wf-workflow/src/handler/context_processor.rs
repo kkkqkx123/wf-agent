@@ -132,8 +132,7 @@ impl ContextProcessorHandler {
                 .and_then(|v| v.as_str())
                 .unwrap_or(source);
             let messages = crate::message_context::get_context(&ctx.variables, source);
-            let (result, stats) =
-                wf_llm::messaging::message_ops::apply(&messages, &operation);
+            let (result, stats) = wf_llm::messaging::message_ops::apply(&messages, &operation);
             crate::message_context::register_context(&ctx.variables, target, result);
             let mut output = ctx.input.clone();
             if let Value::Object(map) = &mut output {

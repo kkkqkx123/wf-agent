@@ -420,6 +420,7 @@ mod tests {
             enable_token_tracking: Some(false),
             general_description: None,
             discoverable_metadata_block: None,
+            checkpoint_message_interval: None,
         }
     }
 

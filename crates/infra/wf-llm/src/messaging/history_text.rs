@@ -104,7 +104,10 @@ mod tests {
             },
         }]);
         let history = vec![text_message(MessageRole::User, "hi"), assistant];
-        assert_eq!(summarize_counts(&history), "History: 2 messages, 1 tool calls");
+        assert_eq!(
+            summarize_counts(&history),
+            "History: 2 messages, 1 tool calls"
+        );
     }
 
     #[test]

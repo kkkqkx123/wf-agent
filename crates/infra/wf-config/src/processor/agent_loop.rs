@@ -83,6 +83,9 @@ fn validate_agent_checkpoint_config(
     if let Some(interval) = config.interval_iterations {
         validate_min(interval, 1, "config.checkpoint.interval_iterations")?;
     }
+    if let Some(interval) = config.message_interval {
+        validate_min(interval, 1, "config.checkpoint.message_interval")?;
+    }
     if let Some(ref content) = config.content {
         if let Some(limit) = content.tool_call_limit {
             validate_min(limit, 1, "config.checkpoint.content.tool_call_limit")?;
@@ -427,6 +430,8 @@ mod tests {
                 interval_iterations: Some(0),
                 on_error: None,
                 on_tool_call: None,
+                on_compression: None,
+                message_interval: None,
                 content: None,
             }),
             ..make_config()
@@ -444,6 +449,8 @@ mod tests {
                 interval_iterations: Some(5),
                 on_error: None,
                 on_tool_call: None,
+                on_compression: None,
+                message_interval: None,
                 content: None,
             }),
             ..make_config()
@@ -460,6 +467,8 @@ mod tests {
                 interval_iterations: None,
                 on_error: None,
                 on_tool_call: None,
+                on_compression: None,
+                message_interval: None,
                 content: Some(wf_types::checkpoint::agent::AgentCheckpointContentConfig {
                     include_state: None,
                     include_messages: None,
@@ -482,6 +491,8 @@ mod tests {
                 interval_iterations: None,
                 on_error: None,
                 on_tool_call: None,
+                on_compression: None,
+                message_interval: None,
                 content: Some(wf_types::checkpoint::agent::AgentCheckpointContentConfig {
                     include_state: None,
                     include_messages: None,

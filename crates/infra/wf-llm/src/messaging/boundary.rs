@@ -92,7 +92,8 @@ mod tests {
                 arguments: "{}".to_string(),
             },
         }]);
-        let converted = convert_for_boundary(&[assistant.clone()], BoundaryDirection::WorkflowToAgent);
+        let converted =
+            convert_for_boundary(&[assistant.clone()], BoundaryDirection::WorkflowToAgent);
         assert!(converted[0].tool_calls.is_none());
         assert!(assistant.tool_calls.is_some());
     }
@@ -104,8 +105,7 @@ mod tests {
             text_message(MessageRole::User, "hi"),
             text_message(MessageRole::Tool, "result"),
         ];
-        let converted =
-            convert_for_boundary(&history, BoundaryDirection::AgentToWorkflow);
+        let converted = convert_for_boundary(&history, BoundaryDirection::AgentToWorkflow);
         assert_eq!(converted.len(), 1);
         assert_eq!(converted[0].role, MessageRole::User);
         assert_eq!(history.len(), 3);

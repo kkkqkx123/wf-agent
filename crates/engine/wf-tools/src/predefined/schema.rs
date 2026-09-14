@@ -8,8 +8,8 @@
 use std::collections::BTreeMap;
 
 use wf_types::tool::{
-    CheckpointTiming, Tool, ToolMetadata, ToolParameterSchema, ToolPropertySchema, ToolRiskLevel,
-    ToolType,
+    Tool, ToolCheckpointTiming, ToolMetadata, ToolParameterSchema, ToolPropertySchema,
+    ToolRiskLevel, ToolType,
 };
 use wf_types::tool_description::{ToolDescriptionData, ToolParameterDescription};
 
@@ -116,7 +116,7 @@ pub struct ToolDefinition {
     /// Risk classification used by the approval engine.
     pub risk_level: ToolRiskLevel,
     /// When to create a checkpoint around execution of this tool.
-    pub create_checkpoint: Option<CheckpointTiming>,
+    pub create_checkpoint: Option<ToolCheckpointTiming>,
 }
 
 impl ToolDefinition {
@@ -254,7 +254,7 @@ mod tests {
                 .expect(id);
             assert_eq!(
                 def.create_checkpoint,
-                Some(CheckpointTiming::Before),
+                Some(ToolCheckpointTiming::Before),
                 "{} should checkpoint before execution",
                 id
             );
@@ -265,7 +265,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             apply_patch.create_checkpoint,
-            Some(CheckpointTiming::Both),
+            Some(ToolCheckpointTiming::Both),
             "apply_patch should checkpoint before and after execution"
         );
         let read_only = all_definitions()

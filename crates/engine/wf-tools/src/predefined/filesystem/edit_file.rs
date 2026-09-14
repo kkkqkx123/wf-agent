@@ -8,7 +8,7 @@ pub static EDIT_FILE: ToolDefinition = ToolDefinition {
     id: "edit_file",
     tool_type: ToolType::Stateless,
     risk_level: ToolRiskLevel::Write,
-    create_checkpoint: Some(wf_types::tool::CheckpointTiming::Before),
+    create_checkpoint: Some(wf_types::tool::ToolCheckpointTiming::Before),
     category: "filesystem",
     tags: &["edit", "file"],
     description: "Perform an exact string replacement in a file. Replaces the first occurrence of old_string with new_string.",

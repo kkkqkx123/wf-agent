@@ -141,6 +141,7 @@ impl BuiltinToolHandler for CallAgentHandler {
             enable_token_tracking: params.enable_token_tracking,
             general_description: None,
             discoverable_metadata_block: None,
+            checkpoint_message_interval: None,
             initial_tool_names: params.initial_tool_names,
             discoverable_tool_names: params.discoverable_tool_names,
             enable_general_tool: params.enable_general_tool,

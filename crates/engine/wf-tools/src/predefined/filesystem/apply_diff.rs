@@ -8,7 +8,7 @@ pub static APPLY_DIFF: ToolDefinition = ToolDefinition {
     id: "apply_diff",
     tool_type: ToolType::Stateless,
     risk_level: ToolRiskLevel::Write,
-    create_checkpoint: Some(wf_types::tool::CheckpointTiming::Before),
+    create_checkpoint: Some(wf_types::tool::ToolCheckpointTiming::Before),
     category: "filesystem",
     tags: &["diff", "search-replace"],
     description: "Apply SEARCH/REPLACE blocks to modify a file. Each block contains a SEARCH section and a REPLACE section delimited by '<<<<<<< SEARCH' and '>>>>>>> REPLACE'.",

@@ -287,21 +287,18 @@ async fn emit_token_usage_events(ctx: &NodeExecutionContext, warning_threshold: 
         let estimated = message_context::ledger_estimated_tokens(&ctx.variables, &context_id)
             + injected_estimate;
         let version = message_context::array_version(&ctx.variables, &context_id);
-        if wf_execution_shared::context_store::over_budget(
-            estimated,
-            token_limit,
-        ) && message_context::should_emit_compression(&ctx.variables, &context_id, version)
+        if wf_execution_shared::context_store::over_budget(estimated, token_limit)
+            && message_context::should_emit_compression(&ctx.variables, &context_id, version)
         {
-            let compression_request =
-                wf_execution_shared::context_store::compression_request(
-                    &context_id,
-                    estimated,
-                    token_limit,
-                    context_messages.len(),
-                    version,
-                    false,
-                    &context_messages,
-                );
+            let compression_request = wf_execution_shared::context_store::compression_request(
+                &context_id,
+                estimated,
+                token_limit,
+                context_messages.len(),
+                version,
+                false,
+                &context_messages,
+            );
             let mut event = wf_execution_shared::context_store::compression_event(
                 &ctx.execution_id.to_string(),
                 None,

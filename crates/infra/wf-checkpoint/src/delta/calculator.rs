@@ -47,8 +47,10 @@ impl
             previous.message_contexts.as_ref(),
         );
 
-        let (added_node_results, modified_node_results) =
-            Self::diff_node_results(previous.node_results.as_ref(), current.node_results.as_ref());
+        let (added_node_results, modified_node_results) = Self::diff_node_results(
+            previous.node_results.as_ref(),
+            current.node_results.as_ref(),
+        );
 
         let status_change = if current.status != previous.status {
             Some(wf_types::checkpoint::FieldChange {
@@ -151,12 +153,12 @@ impl
         if let Some(ref contexts) = delta.message_contexts {
             let mut map = result.message_contexts.take().unwrap_or_default();
             for (context_id, context_delta) in contexts {
-                let entry = map
-                    .entry(context_id.clone())
-                    .or_insert_with(|| wf_types::checkpoint::workflow::MessageContextSnapshot {
+                let entry = map.entry(context_id.clone()).or_insert_with(|| {
+                    wf_types::checkpoint::workflow::MessageContextSnapshot {
                         messages: Vec::new(),
                         version: 0,
-                    });
+                    }
+                });
                 for message in &context_delta.added_messages {
                     if !entry.messages.iter().any(|m| m.id == message.id) {
                         entry.messages.push(message.clone());
@@ -349,16 +351,21 @@ impl WorkflowDiffCalculator {
     /// whose ids are not already in the `previous` context. Contexts are never
     /// dropped or replaced, so applying the delta extends base history.
     fn diff_message_contexts(
-        current: Option<&std::collections::HashMap<
-            String,
-            wf_types::checkpoint::workflow::MessageContextSnapshot,
-        >>,
-        previous: Option<&std::collections::HashMap<
-            String,
-            wf_types::checkpoint::workflow::MessageContextSnapshot,
-        >>,
-    ) -> Option<std::collections::HashMap<String, wf_types::checkpoint::workflow::MessageContextDelta>>
-    {
+        current: Option<
+            &std::collections::HashMap<
+                String,
+                wf_types::checkpoint::workflow::MessageContextSnapshot,
+            >,
+        >,
+        previous: Option<
+            &std::collections::HashMap<
+                String,
+                wf_types::checkpoint::workflow::MessageContextSnapshot,
+            >,
+        >,
+    ) -> Option<
+        std::collections::HashMap<String, wf_types::checkpoint::workflow::MessageContextDelta>,
+    > {
         use std::collections::{HashMap, HashSet};
         use wf_types::checkpoint::workflow::MessageContextDelta;
 
@@ -379,7 +386,12 @@ impl WorkflowDiffCalculator {
                 .cloned()
                 .collect();
             if !added.is_empty() {
-                out.insert(context_id.clone(), MessageContextDelta { added_messages: added });
+                out.insert(
+                    context_id.clone(),
+                    MessageContextDelta {
+                        added_messages: added,
+                    },
+                );
             }
         }
 
@@ -407,7 +419,9 @@ impl WorkflowDiffCalculator {
                 (None, (!modified.is_empty()).then_some(modified))
             }
             (None, Some(curr)) => (
-                Some(serde_json::Value::Object(curr.clone().into_iter().collect())),
+                Some(serde_json::Value::Object(
+                    curr.clone().into_iter().collect(),
+                )),
                 None,
             ),
             _ => (None, None),
@@ -867,8 +881,7 @@ impl AgentDiffCalculator {
         if current.conversation_view != previous.conversation_view {
             other.insert(
                 "conversation_view".to_string(),
-                serde_json::to_value(&current.conversation_view)
-                    .unwrap_or(serde_json::Value::Null),
+                serde_json::to_value(&current.conversation_view).unwrap_or(serde_json::Value::Null),
             );
         }
         for key in [
@@ -910,20 +923,14 @@ impl AgentDiffCalculator {
     fn diff_messages_append_only(
         previous: &wf_types::checkpoint::agent::AgentStateSnapshot,
         current: &wf_types::checkpoint::agent::AgentStateSnapshot,
-    ) -> (
-        Option<Vec<wf_types::message::Message>>,
-        Option<u64>,
-    ) {
+    ) -> (Option<Vec<wf_types::message::Message>>, Option<u64>) {
         let prev = previous.conversation_snapshot.clone().unwrap_or_default();
         let curr = current.conversation_snapshot.clone().unwrap_or_default();
         if prev == curr {
             return (None, None);
         }
         let mut common = 0usize;
-        while common < prev.len()
-            && common < curr.len()
-            && prev[common].id == curr[common].id
-        {
+        while common < prev.len() && common < curr.len() && prev[common].id == curr[common].id {
             common += 1;
         }
         if common > 0 || prev.is_empty() {

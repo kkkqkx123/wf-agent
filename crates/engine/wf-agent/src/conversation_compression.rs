@@ -25,8 +25,21 @@ use wf_core::EventBus;
 use wf_execution_shared::context_store::{check_anchor, WritebackOp};
 use wf_llm::messaging::conversation_session::{ConversationSession, CONVERSATION_CONTEXT_ID};
 use wf_llm::{ContextCompressionCompletedMeta, ConversationWritebackCompletedMeta};
+use wf_types::checkpoint::CheckpointTiming;
 use wf_types::events::EventType;
 use wf_types::message::Message;
+
+use crate::checkpoint::AgentCheckpointIntegration;
+use crate::entity::AgentLoopEntity;
+
+/// Post-compression checkpoint context for the consumer task: the live
+/// entity snapshotted after a summary write-back lands, through the same
+/// strategy gate as every other boundary checkpoint. `None` disables the
+/// post-compression checkpoint while keeping write-back application.
+pub struct CompressionCheckpoint {
+    pub entity: Arc<AgentLoopEntity>,
+    pub integration: AgentCheckpointIntegration,
+}
 
 /// Spawn a task applying versioned write-backs (compression results and
 /// nested-agent conversation write-backs) to the live conversation of one
@@ -36,6 +49,7 @@ pub fn spawn_conversation_compression_consumer(
     bus: Arc<EventBus>,
     agent_loop_id: String,
     conversation: Arc<RwLock<ConversationSession>>,
+    checkpoint: Option<CompressionCheckpoint>,
 ) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         let mut subscription = bus.subscribe();
@@ -52,7 +66,26 @@ pub fn spawn_conversation_compression_consumer(
                     if meta.target_context_id != CONVERSATION_CONTEXT_ID {
                         continue;
                     }
-                    apply_compression(&conversation, meta).await;
+                    if !apply_compression(&conversation, meta).await {
+                        continue;
+                    }
+                    // Snapshot the compressed view; best-effort so a
+                    // checkpoint failure never breaks the consumer loop.
+                    if let Some(ref ctx) = checkpoint {
+                        if let Err(e) = ctx
+                            .integration
+                            .create_checkpoint_gated(
+                                &ctx.entity,
+                                CheckpointTiming::AfterCompression,
+                            )
+                            .await
+                        {
+                            debug!(
+                                "Post-compression checkpoint failed for {}: {}",
+                                agent_loop_id, e
+                            );
+                        }
+                    }
                 }
                 EventType::ConversationWritebackCompleted => {
                     let meta = match ConversationWritebackCompletedMeta::try_from(&event) {
@@ -62,8 +95,7 @@ pub fn spawn_conversation_compression_consumer(
                     if meta.target_context_id != CONVERSATION_CONTEXT_ID {
                         continue;
                     }
-                    let Some(op) = WritebackOp::from_operation_name(&meta.operation)
-                    else {
+                    let Some(op) = WritebackOp::from_operation_name(&meta.operation) else {
                         debug!(
                             "Conversation write-back ignored: unknown operation '{}'",
                             meta.operation
@@ -87,10 +119,13 @@ pub fn spawn_conversation_compression_consumer(
 /// Compression never replaces the conversation: the full history is kept
 /// and only the view narrows, so undoing compression is a zero-cost view
 /// switch back to the full history.
+///
+/// Returns whether the summary was applied (`false` when the session moved
+/// on and the stale result was discarded).
 pub async fn apply_compression(
     conversation: &Arc<RwLock<ConversationSession>>,
     meta: ContextCompressionCompletedMeta,
-) {
+) -> bool {
     let mut session = conversation.write().await;
     if !check_anchor(session.conversation_version(), meta.array_version) {
         debug!(
@@ -98,9 +133,10 @@ pub async fn apply_compression(
             meta.array_version,
             session.conversation_version()
         );
-        return;
+        return false;
     }
     session.compress(meta.messages);
+    true
 }
 
 /// Apply a versioned conversation write-back (append only): mutate the
@@ -195,6 +231,7 @@ mod tests {
             bus.clone(),
             "loop-1".to_string(),
             conversation.clone(),
+            None,
         );
         let sub = bus.subscribe();
         // Wait for the consumer subscription to be live.
@@ -241,6 +278,7 @@ mod tests {
             bus.clone(),
             "loop-1".to_string(),
             conversation.clone(),
+            None,
         );
         let sub = bus.subscribe();
         while bus.receiver_count() < 2 {
@@ -279,6 +317,7 @@ mod tests {
             bus.clone(),
             "loop-1".to_string(),
             conversation.clone(),
+            None,
         );
         let sub = bus.subscribe();
         while bus.receiver_count() < 2 {
@@ -313,6 +352,7 @@ mod tests {
             bus.clone(),
             "loop-1".to_string(),
             conversation.clone(),
+            None,
         );
         let sub = bus.subscribe();
         while bus.receiver_count() < 2 {
@@ -358,6 +398,7 @@ mod tests {
             bus.clone(),
             "loop-1".to_string(),
             conversation.clone(),
+            None,
         );
         let sub = bus.subscribe();
         while bus.receiver_count() < 2 {

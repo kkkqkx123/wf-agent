@@ -31,7 +31,7 @@ pub struct ToolMetadata {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub auto_approvable: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub create_checkpoint: Option<super::CheckpointTiming>,
+    pub create_checkpoint: Option<super::ToolCheckpointTiming>,
     /// How the tool is surfaced to the model during per-turn assembly.
     /// `None` means [`super::ToolExposure::Direct`].
     #[serde(skip_serializing_if = "Option::is_none")]

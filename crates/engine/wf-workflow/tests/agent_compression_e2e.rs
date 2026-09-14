@@ -232,6 +232,7 @@ async fn agent_conversation_compression_chain_closes_via_self_consumption() {
         bus.clone(),
         "agent-1".to_string(),
         conversation.clone(),
+        None,
     );
 
     // The agent engine dispatches the compression signal through the hook
@@ -290,10 +291,7 @@ async fn agent_conversation_compression_chain_closes_via_self_consumption() {
     {
         let mut session = conversation.try_write().unwrap();
         session.restore_full_view();
-        assert_eq!(
-            session.view_messages().len(),
-            session.history().len()
-        );
+        assert_eq!(session.view_messages().len(), session.history().len());
     }
 
     consumer.abort();
@@ -316,6 +314,7 @@ async fn agent_consumer_discards_stale_compression_result() {
         bus.clone(),
         "agent-1".to_string(),
         conversation.clone(),
+        None,
     );
     wait_for_listener(&bus, 1).await;
 

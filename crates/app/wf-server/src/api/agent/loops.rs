@@ -250,6 +250,7 @@ fn params_from_body(body: RunAgentLoopBody) -> wf_api::agent::agent_execution::R
         enable_token_tracking: body.enable_token_tracking,
         general_description: None,
         discoverable_metadata_block: None,
+        checkpoint_message_interval: None,
     };
     let input = AgentLoopInput {
         message: body.message,

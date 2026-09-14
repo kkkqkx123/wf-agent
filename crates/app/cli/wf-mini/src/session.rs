@@ -289,13 +289,11 @@ impl NativeSession {
     /// Stored messages of one session, oldest first. Empty on any failure.
     async fn load_history(domain: &DomainHandle, id: &str) -> Vec<wf_types::message::Message> {
         match domain {
-            DomainHandle::Embedded(adapter) => wf_api::agent::agent_message::conversation_history(
-                adapter.api_context(),
-                id,
-                None,
-            )
-            .await
-            .unwrap_or_default(),
+            DomainHandle::Embedded(adapter) => {
+                wf_api::agent::agent_message::conversation_history(adapter.api_context(), id, None)
+                    .await
+                    .unwrap_or_default()
+            }
             DomainHandle::Remote(remote) => remote.client().get_conversation(id).await,
         }
     }
@@ -355,7 +353,9 @@ impl NativeSession {
         if !finished.outcome.completed {
             return;
         }
-        let created = self.transcript.push_pair(question, &finished.outcome.assistant_text);
+        let created = self
+            .transcript
+            .push_pair(question, &finished.outcome.assistant_text);
         self.persist_turn(&finished.execution_id, &created).await;
     }
 
@@ -449,8 +449,9 @@ impl NativeSession {
     /// once here.
     async fn pump_stream<S>(&self, execution_id: &str, mut stream: S) -> TurnOutcome
     where
-        S: futures::Stream<Item = Result<ExecutionStreamEvent, Option<wf_cli_shared::remote::RemoteError>>>
-            + Unpin,
+        S: futures::Stream<
+                Item = Result<ExecutionStreamEvent, Option<wf_cli_shared::remote::RemoteError>>,
+            > + Unpin,
     {
         let started = Instant::now();
         let mut renderer = TurnRenderer::<RealSink>::new();

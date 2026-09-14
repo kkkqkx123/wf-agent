@@ -24,5 +24,12 @@ pub struct AgentCheckpointConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub on_tool_call: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub on_compression: Option<bool>,
+    /// Checkpoint every N appended conversation messages. `None` or 0
+    /// disables message-level checkpoints (tool boundaries already cover
+    /// most intra-iteration moments); enabled only by explicit opt-in.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message_interval: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub content: Option<AgentCheckpointContentConfig>,
 }

@@ -591,9 +591,14 @@ impl AgentLoopHandler {
         }
         if let Some(checkpoint) = agent_config.and_then(|c| c.checkpoint.as_ref()) {
             if checkpoint.enabled {
-                let interval = checkpoint.interval_iterations.unwrap_or(1);
                 coordinator = coordinator.with_checkpoint_strategy(
-                    AgentCheckpointStrategy::every_n_iterations(interval),
+                    AgentCheckpointStrategy::from_agent_config(
+                        checkpoint.interval_iterations.unwrap_or(1),
+                        checkpoint.on_error.unwrap_or(true),
+                        checkpoint.on_tool_call.unwrap_or(true),
+                        checkpoint.on_compression.unwrap_or(true),
+                        checkpoint.message_interval,
+                    ),
                 );
             }
         }
@@ -627,6 +632,9 @@ impl AgentLoopHandler {
             enable_token_tracking: agent_config
                 .and_then(|c| c.enable_token_tracking)
                 .or(exec_config.enable_token_tracking),
+            checkpoint_message_interval: agent_config
+                .and_then(|c| c.checkpoint.as_ref())
+                .and_then(|c| c.message_interval),
             general_description,
             discoverable_metadata_block,
         };

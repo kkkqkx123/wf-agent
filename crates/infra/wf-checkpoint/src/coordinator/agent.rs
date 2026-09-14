@@ -183,10 +183,7 @@ impl AgentCheckpointCoordinator {
 
     /// Timeline anchors for one execution, ordered by sequence end.
     /// Sequence bounds come from checkpoint metadata so no blob is loaded.
-    pub async fn timeline(
-        &self,
-        entity_id: &str,
-    ) -> Result<Vec<TimelineRow>, CheckpointError> {
+    pub async fn timeline(&self, entity_id: &str) -> Result<Vec<TimelineRow>, CheckpointError> {
         let metas = self.state_manager.list_by_entity(entity_id).await?;
         let mut entries: Vec<TimelineRow> = Vec::new();
         for meta in metas {
@@ -194,9 +191,7 @@ impl AgentCheckpointCoordinator {
             let Some(cp) = full else { continue };
             let (start, end) = match cp.r#type {
                 Some(CheckpointType::Full) => (
-                    cp.snapshot
-                        .as_ref()
-                        .and_then(|s| s.message_seq_start),
+                    cp.snapshot.as_ref().and_then(|s| s.message_seq_start),
                     cp.snapshot.as_ref().and_then(|s| s.message_seq_end),
                 ),
                 _ => (

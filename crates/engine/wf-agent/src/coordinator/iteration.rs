@@ -108,6 +108,17 @@ pub struct AgentIterationCoordinator {
     /// template override); `None` falls back to built-in generation at
     /// request assembly time.
     discoverable_metadata_block: Option<String>,
+    /// Strategy-gated checkpoint handle for intra-iteration boundaries
+    /// (tool calls, compression signals, message-count backstop). `None`
+    /// disables boundary checkpoints; the iteration-end checkpoint stays
+    /// with the execution coordinator.
+    checkpoint: Option<crate::checkpoint::AgentCheckpointIntegration>,
+    /// Message-count backstop: checkpoint every N appended messages.
+    /// `None` disables (tool boundaries already cover most cases).
+    message_interval: Option<u32>,
+    /// Session message count at the last message-level checkpoint, so a
+    /// batch of appends crossing several multiples fires exactly once.
+    message_checkpoint_watermark: std::sync::Mutex<u64>,
 }
 
 impl AgentIterationCoordinator {
@@ -130,6 +141,9 @@ impl AgentIterationCoordinator {
             token_tracking_enabled: true,
             general_description: None,
             discoverable_metadata_block: None,
+            checkpoint: None,
+            message_interval: None,
+            message_checkpoint_watermark: std::sync::Mutex::new(0),
         }
     }
 
@@ -228,6 +242,70 @@ impl AgentIterationCoordinator {
     pub fn with_discoverable_metadata_block(mut self, block: Option<String>) -> Self {
         self.discoverable_metadata_block = block;
         self
+    }
+
+    /// Attach the strategy-gated checkpoint handle used for intra-iteration
+    /// boundaries (tool calls, compression signals, message backstop).
+    pub fn with_checkpoint(
+        mut self,
+        checkpoint: Option<crate::checkpoint::AgentCheckpointIntegration>,
+    ) -> Self {
+        self.checkpoint = checkpoint;
+        self
+    }
+
+    /// Checkpoint every N appended conversation messages (`None` disables).
+    pub fn with_message_interval(mut self, interval: Option<u32>) -> Self {
+        self.message_interval = interval.filter(|n| *n > 0);
+        self
+    }
+
+    /// Strategy-gated boundary checkpoint; failures only warn so a
+    /// checkpoint error never breaks the iteration it snapshots.
+    async fn boundary_checkpoint(
+        &self,
+        entity: &AgentLoopEntity,
+        trigger: wf_types::checkpoint::CheckpointTiming,
+    ) {
+        let Some(ref cp) = self.checkpoint else {
+            return;
+        };
+        if let Err(e) = cp.create_checkpoint_gated(entity, trigger.clone()).await {
+            tracing::warn!(
+                error = %e,
+                entity_id = %entity.id(),
+                trigger = ?trigger,
+                "failed to create boundary checkpoint"
+            );
+        }
+    }
+
+    /// Message-count backstop: after a batch of appends, checkpoint once
+    /// when at least `message_interval` new messages arrived since the last
+    /// message-level checkpoint.
+    async fn maybe_message_checkpoint(&self, entity: &AgentLoopEntity) {
+        let Some(interval) = self.message_interval else {
+            return;
+        };
+        if self.checkpoint.is_none() {
+            return;
+        }
+        let len = entity.conversation().read().await.messages().len() as u64;
+        let fire = match self.message_checkpoint_watermark.lock() {
+            Ok(mut watermark) => {
+                if len.saturating_sub(*watermark) >= interval as u64 {
+                    *watermark = len;
+                    true
+                } else {
+                    false
+                }
+            }
+            Err(_) => false,
+        };
+        if fire {
+            self.boundary_checkpoint(entity, wf_types::checkpoint::CheckpointTiming::Interval)
+                .await;
+        }
     }
 
     /// Inject the file-content observer (agent actor partition) into the
@@ -501,26 +579,34 @@ impl AgentIterationCoordinator {
                         // (the request size being controlled).
                         let message_count = conversation.view_messages().len();
                         let messages = conversation.history().to_vec();
-                        let request =
-                            wf_execution_shared::context_store::compression_request(
-                                wf_llm::CONVERSATION_CONTEXT_ID,
-                                estimated,
-                                token_limit,
-                                message_count,
-                                version,
-                                false,
-                                &messages,
-                            );
+                        let request = wf_execution_shared::context_store::compression_request(
+                            wf_llm::CONVERSATION_CONTEXT_ID,
+                            estimated,
+                            token_limit,
+                            message_count,
+                            version,
+                            false,
+                            &messages,
+                        );
+                        // Release the session lock: the pre-compression
+                        // checkpoint below reads the session back.
+                        drop(conversation);
+                        // Snapshot the pre-compression state; the compressed
+                        // view lands in a post-compression checkpoint when the
+                        // summary workflow writes back.
+                        self.boundary_checkpoint(
+                            entity,
+                            wf_types::checkpoint::CheckpointTiming::BeforeCompression,
+                        )
+                        .await;
                         // The event-bus copy stays the audit / persistence /
                         // user-rule channel; delivery is the synchronous hook
                         // dispatch (the compression service takes over here).
-                        let _ = bus.publish(
-                            wf_execution_shared::context_store::compression_event(
-                                &execution_id,
-                                Some(entity.id()),
-                                &request,
-                            ),
-                        );
+                        let _ = bus.publish(wf_execution_shared::context_store::compression_event(
+                            &execution_id,
+                            Some(entity.id()),
+                            &request,
+                        ));
                         wf_execution_shared::context_store::dispatch_compression_signal(
                             self.hook_handler_registry.as_deref(),
                             self.event_bus.as_deref(),
@@ -529,7 +615,11 @@ impl AgentIterationCoordinator {
                             &request,
                         )
                         .await;
-                        conversation.mark_compression_emitted(version);
+                        entity
+                            .conversation()
+                            .write()
+                            .await
+                            .mark_compression_emitted(version);
                     }
                 }
             }
@@ -570,6 +660,13 @@ impl AgentIterationCoordinator {
             .write()
             .await
             .add_message(assistant_msg.clone());
+        if has_tool_calls {
+            // The assistant message carries the finalized tool-call
+            // arguments: snapshot the pre-tool moment.
+            self.boundary_checkpoint(entity, wf_types::checkpoint::CheckpointTiming::ToolBefore)
+                .await;
+        }
+        self.maybe_message_checkpoint(entity).await;
 
         if !has_tool_calls {
             let content = text_of(&assistant_msg.content);
@@ -610,6 +707,11 @@ impl AgentIterationCoordinator {
         for msg in &tool_messages {
             entity.conversation().write().await.add_message(msg.clone());
         }
+        // Tool results (success or failure) are in the session: snapshot
+        // the post-tool moment, then run the message-count backstop.
+        self.boundary_checkpoint(entity, wf_types::checkpoint::CheckpointTiming::ToolAfter)
+            .await;
+        self.maybe_message_checkpoint(entity).await;
 
         let content = text_of(&assistant_msg.content);
         let should_continue = completion_data.is_none();
@@ -719,7 +821,7 @@ impl AgentIterationCoordinator {
         let Some(ref bus) = self.event_bus else {
             return;
         };
-        let mut conversation = entity.conversation().write().await;
+        let conversation = entity.conversation().write().await;
         let version = conversation.conversation_version();
         let token_limit = conversation.token_limit();
         let tokens_used = u64::from(wf_llm::estimate_request_tokens(request));
@@ -733,13 +835,21 @@ impl AgentIterationCoordinator {
             true,
             &messages,
         );
-        let _ = bus.publish(
-            wf_execution_shared::context_store::compression_event(
-                &entity.id().to_string(),
-                Some(entity.id()),
-                &compression_request,
-            ),
-        );
+        // Release the session lock: the pre-compression checkpoint below
+        // reads the session back.
+        drop(conversation);
+        // Snapshot the pre-compression state before the safety-net summary
+        // workflow runs; the compressed view is checkpointed on write-back.
+        self.boundary_checkpoint(
+            entity,
+            wf_types::checkpoint::CheckpointTiming::BeforeCompression,
+        )
+        .await;
+        let _ = bus.publish(wf_execution_shared::context_store::compression_event(
+            &entity.id().to_string(),
+            Some(entity.id()),
+            &compression_request,
+        ));
         wf_execution_shared::context_store::dispatch_compression_signal(
             self.hook_handler_registry.as_deref(),
             self.event_bus.as_deref(),
@@ -748,7 +858,11 @@ impl AgentIterationCoordinator {
             &compression_request,
         )
         .await;
-        conversation.mark_compression_emitted(version);
+        entity
+            .conversation()
+            .write()
+            .await
+            .mark_compression_emitted(version);
     }
 
     /// Publish the LLM_REQUESTED event before the gateway call.

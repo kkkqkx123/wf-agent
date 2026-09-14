@@ -157,8 +157,7 @@ pub fn register_context(
 /// active view only (what LLM nodes assemble).
 pub fn get_context_history(variables: &DashMap<String, Value>, context_id: &str) -> Vec<Message> {
     let mut full = archived_history(variables, context_id);
-    let known: std::collections::HashSet<String> =
-        full.iter().map(|m| m.id.clone()).collect();
+    let known: std::collections::HashSet<String> = full.iter().map(|m| m.id.clone()).collect();
     for message in get_context(variables, context_id) {
         if !known.contains(&message.id) {
             full.push(message);
@@ -239,8 +238,8 @@ pub fn mark_compression_emitted(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Arc;
     use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::Arc;
     use wf_types::message::{MessageContentValue, MessageRole};
 
     static NEXT_ID: AtomicU64 = AtomicU64::new(1);
@@ -287,7 +286,11 @@ mod tests {
         append_context(&vars, "chat", vec![msg(MessageRole::User, "first")]);
         register_context(&vars, "chat", vec![msg(MessageRole::Assistant, "summary")]);
         append_context(&vars, "chat", vec![msg(MessageRole::User, "second")]);
-        register_context(&vars, "chat", vec![msg(MessageRole::Assistant, "summary-2")]);
+        register_context(
+            &vars,
+            "chat",
+            vec![msg(MessageRole::Assistant, "summary-2")],
+        );
 
         // Active view holds only the latest registration.
         assert_eq!(get_context(&vars, "chat").len(), 1);

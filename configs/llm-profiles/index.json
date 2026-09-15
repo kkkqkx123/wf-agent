@@ -4,7 +4,6 @@
   "paths": [
     "./openai/*.toml",
     "./anthropic/*.toml",
-    "./gemini-native/*.toml",
-    "./gemini-openai/*.toml"
+    "./gemini-native/*.toml"
   ]
 }

@@ -43,7 +43,7 @@ pub fn goal_review_reviewer() -> AgentTemplate {
                 system_prompt_template_variables: None,
                 initial_messages: None,
                 stream: None,
-                tool_call_format: None,
+                tool_call_protocol: None,
                 hooks: None,
                 dynamic_context: None,
                 checkpoint: None,

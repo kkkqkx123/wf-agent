@@ -86,7 +86,7 @@ pub async fn build_agent_execution(entity: &AgentLoopEntity) -> AgentExecution {
             discoverable_tool_names: Some(entity.discoverable_tool_names().to_vec()),
             hidden_tool_names: Some(entity.hidden_tool_names().to_vec()),
             stream: None,
-            tool_call_format: entity.tool_call_format().cloned(),
+            tool_call_protocol: entity.tool_call_protocol().cloned(),
             on_failure: None,
             fallback_output: None,
             hooks: None,

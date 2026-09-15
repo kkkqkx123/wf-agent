@@ -850,7 +850,8 @@ mod tests {
         let profiles = vec![wf_types::llm::LlmProfile {
             id: "openai".to_string(),
             name: "OpenAI".to_string(),
-            provider: wf_types::llm::LlmProvider::OpenaiChat,
+            format: wf_types::llm::LlmFormat::OpenaiChat,
+            provider_id: None,
             model: "gpt-4o".to_string(),
             api_key: None,
             base_url: None,
@@ -861,7 +862,7 @@ mod tests {
             retry_delay: None,
             headers: None,
             metadata: None,
-            tool_call_format: None,
+            tool_call_protocol: None,
             auth_type: None,
             custom_headers: None,
             custom_body: None,
@@ -870,7 +871,14 @@ mod tests {
             stream_options: None,
             context_window_size: None,
         }];
-        let gateway = init_llm_gateway(&LlmConfig { profiles }, None).unwrap();
+        let gateway = init_llm_gateway(
+            &LlmConfig {
+                profiles,
+                provider_definitions: Vec::new(),
+            },
+            None,
+        )
+        .unwrap();
         assert!(gateway.has_profile("openai"));
 
         let err = match init_llm_gateway(
@@ -878,7 +886,8 @@ mod tests {
                 profiles: vec![wf_types::llm::LlmProfile {
                     id: String::new(),
                     name: "broken".to_string(),
-                    provider: wf_types::llm::LlmProvider::OpenaiChat,
+                    format: wf_types::llm::LlmFormat::OpenaiChat,
+                    provider_id: None,
                     model: String::new(),
                     api_key: None,
                     base_url: None,
@@ -889,7 +898,7 @@ mod tests {
                     retry_delay: None,
                     headers: None,
                     metadata: None,
-                    tool_call_format: None,
+                    tool_call_protocol: None,
                     auth_type: None,
                     custom_headers: None,
                     custom_body: None,
@@ -898,6 +907,7 @@ mod tests {
                     stream_options: None,
                     context_window_size: None,
                 }],
+                provider_definitions: Vec::new(),
             },
             None,
         ) {

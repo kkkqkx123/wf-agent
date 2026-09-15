@@ -43,7 +43,10 @@ pub async fn build_validation_context(ctx: &ApiContext) -> ValidationContext {
     let mut profile_ids = std::collections::HashSet::new();
     let mut profile_formats = std::collections::HashMap::new();
     for profile in ctx.llm_gateway.profile_registry().list() {
-        let format = profile.tool_call_format.as_ref().map(|c| c.format.clone());
+        let format = profile
+            .tool_call_protocol
+            .as_ref()
+            .map(|c| c.format.clone());
         profile_ids.insert(profile.id.clone());
         if let Some(format) = format {
             profile_formats.insert(profile.id, format);

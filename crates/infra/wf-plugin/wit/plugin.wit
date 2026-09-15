@@ -1,11 +1,13 @@
-// Wasm plugin world (DRAFT, not implemented).
+// Wasm plugin world for the component-model host (`wasm/component.rs`).
 //
-// Long-term direction for the `Wasm` plugin type: replace the core-module
-// `wf_*` export contract (`wf-plugin-sdk/src/wasm.rs`) with a typed
-// component-model world. Host support is planned for a later phase; guests
-// must target the core-module contract until then.
+// Status: implemented. Component binaries (detected by magic header in the
+// loader) run through `wasmtime::component::bindgen!` bindings against this
+// world with a WASI p2 context. The core-module `wf_*` export contract
+// (`wf-plugin-sdk/src/wasm.rs`) remains supported: guests may target either
+// contract, and both paths expose the same `Plugin` trait surface upstairs.
 //
-// This file is reference only: no build consumes it yet.
+// Versioning: still `@0.1.0-draft`. Guest and host must agree on the
+// interface names below; incompatible world changes require a version bump.
 
 package wf:plugin@0.1.0-draft;
 
@@ -47,9 +49,23 @@ interface contributions {
         handler-name: string,
         input-json: string,
     ) -> result<string, string>;
+
+    /// Middleware answers with either a JSON boolean (legacy: continue or
+    /// stop, context unchanged) or an envelope object
+    /// `{"proceed": bool, "context": <replacement>}` (both keys optional,
+    /// defaulting to `true` and the incoming context). The host threads
+    /// the returned context through the rest of the chain.
+}
+
+interface host-log {
+    /// Structured guest-to-host log. Levels: 0 trace, 1 debug, 2 info,
+    /// 3 warn, 4 and above error. Best-effort: over-long messages are
+    /// truncated and the call never fails the guest.
+    log: func(level: u32, message: string);
 }
 
 world plugin {
+    import host-log;
     export lifecycle;
     export contributions;
 }

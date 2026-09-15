@@ -81,20 +81,20 @@ pub(crate) fn validate_agent_loop_node(
                                     ),
                                 ));
                             }
-                            if let Some(format) = parsed.tool_call_format.as_deref() {
+                            if let Some(format) = parsed.tool_call_protocol.as_deref() {
                                 if !format.trim().is_empty()
-                                    && <wf_types::llm::ToolCallFormat as std::str::FromStr>::from_str(
+                                    && <wf_types::llm::ToolCallProtocol as std::str::FromStr>::from_str(
                                         format,
                                     )
                                     .is_err()
                                 {
                                     errors.push(NodeConfigIssue::new(
                                         format!(
-                                            "nodes.{}.config.inline_definition.config.tool_call_format",
+                                            "nodes.{}.config.inline_definition.config.tool_call_protocol",
                                             node_id
                                         ),
                                         format!(
-                                            "AGENT_LOOP node '{}' has unknown tool_call_format '{}'; expected one of native, xml, json_wrapped, json_raw",
+                                            "AGENT_LOOP node '{}' has unknown tool_call_protocol '{}'; expected one of native, xml, json_wrapped, json_raw",
                                             node_id, format
                                         ),
                                     ));

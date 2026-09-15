@@ -145,7 +145,7 @@ impl LlmFormatter for OpenaiChatFormatter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wf_types::llm::{LlmStreamOptions, ToolCallFormat};
+    use wf_types::llm::{LlmStreamOptions, ToolCallProtocol};
     use wf_types::message::{Message, MessageContentValue, MessageRole};
 
     fn text_msg(role: MessageRole, text: &str) -> Message {
@@ -166,7 +166,8 @@ mod tests {
         LlmProfile {
             id: "p1".to_string(),
             name: "test".to_string(),
-            provider: wf_types::llm::LlmProvider::OpenaiChat,
+            format: wf_types::llm::LlmFormat::OpenaiChat,
+            provider_id: None,
             model: "gpt-4o".to_string(),
             api_key: Some("sk-test".to_string()),
             base_url: None,
@@ -177,7 +178,7 @@ mod tests {
             retry_delay: None,
             headers: None,
             metadata: None,
-            tool_call_format: None,
+            tool_call_protocol: None,
             auth_type: None,
             custom_headers: None,
             custom_body: None,
@@ -188,7 +189,7 @@ mod tests {
         }
     }
 
-    fn request_with_format(format: ToolCallFormat) -> LlmRequest {
+    fn request_with_format(format: ToolCallProtocol) -> LlmRequest {
         LlmRequest {
             profile_id: "p1".to_string(),
             messages: vec![
@@ -210,8 +211,8 @@ mod tests {
                 "enabled": true
             }))
             .unwrap()]),
-            tool_call_format: Some(format),
-            locked_tool_call_format: None,
+            tool_call_protocol: Some(format),
+            locked_tool_call_protocol: None,
             violation_policy: None,
             execution_id: None,
             stream: None,
@@ -224,7 +225,7 @@ mod tests {
     fn text_mode_injects_templates_and_skips_native_tools() {
         let formatter = OpenaiChatFormatter::new();
         let body = formatter
-            .build_body(&request_with_format(ToolCallFormat::Xml), &profile())
+            .build_body(&request_with_format(ToolCallProtocol::Xml), &profile())
             .unwrap();
 
         assert!(body.get("tools").is_none(), "text mode must not send tools");
@@ -244,7 +245,7 @@ mod tests {
     fn native_mode_sends_tools_and_keeps_original_system() {
         let formatter = OpenaiChatFormatter::new();
         let body = formatter
-            .build_body(&request_with_format(ToolCallFormat::Native), &profile())
+            .build_body(&request_with_format(ToolCallProtocol::Native), &profile())
             .unwrap();
 
         assert!(body.get("tools").is_some());
@@ -258,7 +259,7 @@ mod tests {
         let body = r#"{"id":"1","model":"gpt-4o","choices":[{"message":{"role":"assistant","content":"<tool_use>\n  <tool_name>get_weather</tool_name>\n  <parameters>\n    <city>Beijing</city>\n  </parameters>\n</tool_use>"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}"#;
 
         let result = formatter
-            .parse_response(body, &request_with_format(ToolCallFormat::Xml))
+            .parse_response(body, &request_with_format(ToolCallProtocol::Xml))
             .unwrap();
         let calls = result.tool_calls.unwrap();
         assert_eq!(calls.len(), 1);
@@ -272,7 +273,7 @@ mod tests {
         p.stream_options = Some(LlmStreamOptions {
             include_usage: Some(false),
         });
-        let mut req = request_with_format(ToolCallFormat::Native);
+        let mut req = request_with_format(ToolCallProtocol::Native);
         req.stream = Some(true);
         let formatter = OpenaiChatFormatter::new();
         let body = formatter.build_body(&req, &p).unwrap();
@@ -288,14 +289,14 @@ mod tests {
         p.custom_body = Some(serde_json::json!({"custom_field": {"nested": 1}}));
         let formatter = OpenaiChatFormatter::new();
         let body = formatter
-            .build_body(&request_with_format(ToolCallFormat::Native), &p)
+            .build_body(&request_with_format(ToolCallProtocol::Native), &p)
             .unwrap();
         assert_eq!(body["custom_field"]["nested"], serde_json::json!(1));
     }
 
     #[test]
     fn text_mode_converts_tool_call_history_to_blocks() {
-        let mut req = request_with_format(ToolCallFormat::Xml);
+        let mut req = request_with_format(ToolCallProtocol::Xml);
         let mut assistant = text_msg(MessageRole::Assistant, "checking weather");
         assistant.tool_calls = Some(vec![wf_types::message::LlmToolCall {
             id: "call_1".to_string(),

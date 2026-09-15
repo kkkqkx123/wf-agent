@@ -4,7 +4,9 @@ use std::sync::Arc;
 use tracing::{info, warn};
 
 use wf_config::orchestrator::{default_infra_file_mapping, ConfigOrchestratorBuilder};
-use wf_config::processor::llm_profile::{transform_llm_profile, validate_llm_profile};
+use wf_config::processor::llm_profile::{
+    transform_llm_profile, validate_llm_profile, validate_provider_definition,
+};
 use wf_llm::LlmGateway;
 use wf_types::config::file_checkpoint::FileCheckpointConfig;
 use wf_types::config::storage::{StorageConfig, StorageType};
@@ -297,6 +299,20 @@ pub fn init_llm_gateway(
     metrics: Option<&wf_metrics::MetricsRegistry>,
 ) -> RuntimeResult<Arc<LlmGateway>> {
     let mut gateway = LlmGateway::new();
+
+    for definition in &config.provider_definitions {
+        validate_provider_definition(definition).map_err(|e| {
+            crate::error::RuntimeError::Config(format!("Invalid LLM provider: {}", e))
+        })?;
+        gateway
+            .register_provider_definition(definition.clone())
+            .map_err(|e| {
+                crate::error::RuntimeError::Config(format!(
+                    "Failed to register LLM provider: {}",
+                    e
+                ))
+            })?;
+    }
 
     for profile in &config.profiles {
         validate_llm_profile(profile).map_err(|e| {

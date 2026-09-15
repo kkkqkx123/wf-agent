@@ -1,0 +1,20 @@
+# LLM Provider: Gemini through its OpenAI-compatible endpoint
+#
+# Schema: wf_types::llm::provider_definition::LlmProviderDefinition
+# Replaces the former dedicated GEMINI_OPENAI format: the wire protocol is
+# plain OPENAI_CHAT, only the connection defaults differ.
+
+id = "gemini-openai"
+name = "Gemini (OpenAI-compatible)"
+description = "Gemini API through the OpenAI-compatible endpoint"
+base_url = "https://generativelanguage.googleapis.com/v1beta/openai"
+auth_type = "x-goog-api-key"
+format = "OPENAI_CHAT"
+
+[model_discovery]
+kind = "models_endpoint"
+path = "models"
+json_path = "data[*].id"
+
+[metadata]
+tags = ["gemini", "openai-compatible"]

@@ -127,7 +127,7 @@ async fn handle_count_tokens(
 struct ListProfilesQuery {
     id: Option<String>,
     name: Option<String>,
-    provider: Option<String>,
+    format: Option<String>,
     model: Option<String>,
 }
 
@@ -138,8 +138,8 @@ async fn handle_list_profiles(
     let filter = wf_api::LlmProfileFilter {
         id: query.id,
         name: query.name,
-        provider: query
-            .provider
+        format: query
+            .format
             .as_deref()
             .and_then(|p| serde_json::from_value(serde_json::json!(p)).ok()),
         model: query.model,

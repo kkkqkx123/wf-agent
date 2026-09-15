@@ -455,7 +455,7 @@ mod tests {
             "max_execution_time",
             "hooks",
             "available_tool_names",
-            "tool_call_format",
+            "tool_call_protocol",
             "token_limit",
             "token_warning_threshold",
             "enable_token_tracking",

@@ -59,7 +59,7 @@ max_iterations = 50
 stream = true
 
 # Tool call serialization format.
-tool_call_format = "json_wrapped"
+tool_call_protocol = "json_wrapped"
 
 # Initial messages to seed the conversation history.
 # [[config.initial_messages]]

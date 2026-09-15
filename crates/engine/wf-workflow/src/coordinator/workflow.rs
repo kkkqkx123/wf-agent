@@ -391,18 +391,11 @@ impl WorkflowCoordinator {
 
     /// Resolve the handler for a node type: builtin map first, then the
     /// plugin-contributed fallback map (builtin → plugin resolution chain).
-    fn resolve_node_handler(
-        &self,
-        node_type: &StaticNodeType,
-    ) -> Option<&dyn NodeHandler> {
+    fn resolve_node_handler(&self, node_type: &StaticNodeType) -> Option<&dyn NodeHandler> {
         self.handlers
             .get(node_type)
             .map(|h| h.as_ref())
-            .or_else(|| {
-                self.plugin_handlers
-                    .get(node_type)
-                    .map(|h| h.as_ref())
-            })
+            .or_else(|| self.plugin_handlers.get(node_type).map(|h| h.as_ref()))
     }
 
     pub fn with_entity(mut self, entity: WorkflowExecutionEntity) -> Self {
@@ -1064,11 +1057,11 @@ impl WorkflowCoordinator {
         let node_id = attempt.node_id;
         let node_type = attempt.node_type;
 
-        let handler = self.resolve_node_handler(node_type).ok_or_else(|| {
-            WorkflowError::HandlerNotFound {
-                node_type: node.node_type.clone(),
-            }
-        })?;
+        let handler =
+            self.resolve_node_handler(node_type)
+                .ok_or_else(|| WorkflowError::HandlerNotFound {
+                    node_type: node.node_type.clone(),
+                })?;
 
         let coordinator = NodeCoordinator::new();
         // Node-level `timeout_seconds` wins, then the global options default,
@@ -1255,11 +1248,11 @@ impl WorkflowCoordinator {
         let node_metrics = outcome.metrics;
         let node_duration_ms = outcome.duration_ms;
 
-        let handler = self.resolve_node_handler(node_type).ok_or_else(|| {
-            WorkflowError::HandlerNotFound {
-                node_type: node_type_str.to_string(),
-            }
-        })?;
+        let handler =
+            self.resolve_node_handler(node_type)
+                .ok_or_else(|| WorkflowError::HandlerNotFound {
+                    node_type: node_type_str.to_string(),
+                })?;
 
         match retry_config.on_failure.as_str() {
             "retry" | "continue" | "fallback" => {

@@ -93,7 +93,7 @@ pub async fn build_agent_request(
         let block = match discoverable_metadata_block {
             Some(block) => block.to_string(),
             None => {
-                let options = wf_tools::discoverable_metadata_options(entity.tool_call_format());
+                let options = wf_tools::discoverable_metadata_options(entity.tool_call_protocol());
                 wf_tools::generate_discoverable_tools_metadata_with_options(
                     &exposure.discoverable,
                     &options,
@@ -119,10 +119,10 @@ pub async fn build_agent_request(
         parameters: None,
         generation: None,
         tools,
-        tool_call_format: entity
-            .tool_call_format()
+        tool_call_protocol: entity
+            .tool_call_protocol()
             .map(|config| config.format.clone()),
-        locked_tool_call_format: entity.tool_call_format().cloned(),
+        locked_tool_call_protocol: entity.tool_call_protocol().cloned(),
         violation_policy: None,
         execution_id: Some(entity.id().to_string()),
         stream: Some(stream),

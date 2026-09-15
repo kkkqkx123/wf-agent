@@ -96,7 +96,7 @@ pub async fn run(cli: &Cli, sub: &LlmProfileSub) -> CliResult<()> {
                             let k_lower = k.to_lowercase();
                             if !t.name.to_lowercase().contains(&k_lower)
                                 && !t.description.to_lowercase().contains(&k_lower)
-                                && !format!("{:?}", t.profile.provider)
+                                && !format!("{:?}", t.profile.format)
                                     .to_lowercase()
                                     .contains(&k_lower)
                             {

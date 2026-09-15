@@ -1,51 +1,51 @@
 use crate::error::LlmResult;
 use wf_types::llm::{
-    LlmProfile, LlmRequest, LlmResult as LlmResponseType, MessageStreamEvent, ToolCallFormat,
+    LlmProfile, LlmRequest, LlmResult as LlmResponseType, MessageStreamEvent, ToolCallProtocol,
 };
 use wf_types::message::{Message, MessageContent, MessageContentValue, MessageRole};
 
-/// Whether the request runs in text-based tool mode (non-native tool format).
+/// Whether the request runs in text-based tool mode (non-native tool protocol).
 pub fn is_text_mode(request: &LlmRequest) -> bool {
     matches!(
-        request.tool_call_format,
-        Some(ref f) if *f != ToolCallFormat::Native
+        request.tool_call_protocol,
+        Some(ref f) if *f != ToolCallProtocol::Native
     )
 }
 
-/// Effective tool call format: the locked format wins, otherwise the request
-/// format, otherwise native.
-pub fn effective_tool_call_format(request: &LlmRequest) -> ToolCallFormat {
+/// Effective tool call protocol: the locked protocol wins, otherwise the
+/// request protocol, otherwise native.
+pub fn effective_tool_call_protocol(request: &LlmRequest) -> ToolCallProtocol {
     request
-        .locked_tool_call_format
+        .locked_tool_call_protocol
         .as_ref()
         .map(|c| c.format.clone())
-        .or_else(|| request.tool_call_format.clone())
-        .unwrap_or(ToolCallFormat::Native)
+        .or_else(|| request.tool_call_protocol.clone())
+        .unwrap_or(ToolCallProtocol::Native)
 }
 
-/// Convert message history to the text-based tool format when the request runs
-/// in text mode (native tool calls / results become XML or JSON blocks in the
-/// message content). Messages are returned unchanged in native mode.
+/// Convert message history to the text-based tool protocol when the request
+/// runs in text mode (native tool calls / results become XML or JSON blocks
+/// in the message content). Messages are returned unchanged in native mode.
 pub fn convert_history_for_text_mode(messages: &[Message], request: &LlmRequest) -> Vec<Message> {
     if !is_text_mode(request) {
         return messages.to_vec();
     }
-    let format = effective_tool_call_format(request);
+    let protocol = effective_tool_call_protocol(request);
     let markers = request
-        .locked_tool_call_format
+        .locked_tool_call_protocol
         .as_ref()
         .and_then(|c| c.markers.clone());
-    crate::messaging::history_converter::convert_to_text_mode(messages, &format, markers.as_ref())
+    crate::messaging::history_converter::convert_to_text_mode(messages, &protocol, markers.as_ref())
 }
 
 /// Build the system prompt content for text-based tool mode: existing system
 /// message + tool usage instructions + tool declarations.
 pub fn text_mode_system_content(request: &LlmRequest) -> String {
     use crate::tool_format::{build_text_mode_system_content, extract_system_message};
-    let format = effective_tool_call_format(request);
+    let protocol = effective_tool_call_protocol(request);
     let (system, _) = extract_system_message(&request.messages);
     let tools = request.tools.as_deref().unwrap_or(&[]);
-    build_text_mode_system_content(system.as_deref().unwrap_or(""), tools, format, false)
+    build_text_mode_system_content(system.as_deref().unwrap_or(""), tools, protocol, false)
 }
 
 /// Parse tool calls from text content in text-based tool mode.
@@ -55,15 +55,15 @@ pub fn parse_text_tool_calls(
 ) -> Vec<wf_types::message::LlmToolCall> {
     use crate::tool_call_parser::parse_from_text;
     use crate::tool_format::get_tool_call_parser_options;
-    let format = effective_tool_call_format(request);
-    if format == ToolCallFormat::Native {
+    let protocol = effective_tool_call_protocol(request);
+    if protocol == ToolCallProtocol::Native {
         return Vec::new();
     }
     let markers = request
-        .locked_tool_call_format
+        .locked_tool_call_protocol
         .as_ref()
         .and_then(|c| c.markers.clone());
-    let options = get_tool_call_parser_options(format, markers.as_ref());
+    let options = get_tool_call_parser_options(protocol, markers.as_ref());
     parse_from_text(content, &options)
 }
 
@@ -413,9 +413,9 @@ pub fn convert_openai_tools(tools: &[wf_types::tool::Tool]) -> LlmResult<Vec<ser
 /// Apply authentication, custom headers and query parameters to the request.
 ///
 /// Auth type resolution: `profile.auth_type` wins when set ("native" /
-/// "bearer" / "x-api-key"), otherwise `default_auth` is used. "native" maps
-/// to the provider-specific header (x-api-key for Anthropic, x-goog-api-key
-/// for Gemini, Bearer for OpenAI).
+/// "bearer" / "x-api-key" / "x-goog-api-key"), otherwise `default_auth` is
+/// used. "native" maps to the format-specific header (x-api-key for Anthropic,
+/// x-goog-api-key for Gemini native, Bearer otherwise).
 pub fn apply_auth_and_headers(
     req_builder: reqwest::RequestBuilder,
     profile: &LlmProfile,
@@ -426,12 +426,11 @@ pub fn apply_auth_and_headers(
     if let Some(api_key) = &profile.api_key {
         let auth_type = profile.auth_type.as_deref().unwrap_or(default_auth);
         match auth_type {
-            "native" => match profile.provider {
-                wf_types::llm::LlmProvider::Anthropic => {
+            "native" => match profile.format {
+                wf_types::llm::LlmFormat::Anthropic => {
                     builder = builder.header("x-api-key", api_key);
                 }
-                wf_types::llm::LlmProvider::GeminiNative
-                | wf_types::llm::LlmProvider::GeminiOpenai => {
+                wf_types::llm::LlmFormat::GeminiNative => {
                     builder = builder.header("x-goog-api-key", api_key);
                 }
                 _ => {
@@ -440,6 +439,9 @@ pub fn apply_auth_and_headers(
             },
             "x-api-key" => {
                 builder = builder.header("x-api-key", api_key);
+            }
+            "x-goog-api-key" => {
+                builder = builder.header("x-goog-api-key", api_key);
             }
             _ => {
                 builder = builder.header("Authorization", format!("Bearer {}", api_key));
@@ -532,13 +534,14 @@ mod tests {
 #[cfg(test)]
 mod enhancement_tests {
     use super::*;
-    use wf_types::llm::LlmProvider;
+    use wf_types::llm::LlmFormat;
 
     fn profile_with(auth_type: Option<&str>) -> LlmProfile {
         LlmProfile {
             id: "p1".to_string(),
             name: "test".to_string(),
-            provider: LlmProvider::Anthropic,
+            format: LlmFormat::Anthropic,
+            provider_id: None,
             model: "claude-3-5-sonnet".to_string(),
             api_key: Some("sk-test".to_string()),
             base_url: None,
@@ -549,7 +552,7 @@ mod enhancement_tests {
             retry_delay: None,
             headers: None,
             metadata: None,
-            tool_call_format: None,
+            tool_call_protocol: None,
             auth_type: auth_type.map(String::from),
             custom_headers: Some(
                 [("x-custom".to_string(), serde_json::json!("v1"))]

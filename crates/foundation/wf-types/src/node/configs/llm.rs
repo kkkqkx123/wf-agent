@@ -14,7 +14,7 @@ pub struct LlmNodeConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_tool_calls_per_request: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub tool_call_format: Option<String>,
+    pub tool_call_protocol: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

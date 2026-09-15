@@ -425,7 +425,7 @@ impl AgentIterationCoordinator {
         }
 
         if let Some(ref metrics) = self.metrics {
-            if let Some(format) = entity.tool_call_format() {
+            if let Some(format) = entity.tool_call_protocol() {
                 metrics
                     .agent_loop()
                     .record_protocol_locked(&format.format.to_string());

@@ -130,8 +130,7 @@ fn parse_request_items(
     if trimmed.is_empty() {
         return Err("empty request body".to_string());
     }
-    let value: Value =
-        serde_json::from_str(trimmed).map_err(|e| format!("invalid JSON: {e}"))?;
+    let value: Value = serde_json::from_str(trimmed).map_err(|e| format!("invalid JSON: {e}"))?;
     match value {
         Value::Array(items) => {
             if items.is_empty() {
@@ -146,7 +145,7 @@ fn parse_request_items(
                 .collect())
         }
         Value::Object(_) => Ok(vec![
-            parse_inner_object(value).map_err(|reason| InnerParseError { index: 0, reason }),
+            parse_inner_object(value).map_err(|reason| InnerParseError { index: 0, reason })
         ]),
         _ => Err("expected a JSON object or an array of objects".to_string()),
     }
@@ -286,16 +285,13 @@ pub fn wrap_for_discoverable(
         if group.len() == 1 {
             let inner = group[0];
             let body = single_request_body(&inner.function.name, &inner.function.arguments);
-            out.push(make_general_call(
-                derive_wrapped_call_id(&inner.id),
-                &body,
-            ));
+            out.push(make_general_call(derive_wrapped_call_id(&inner.id), &body));
         } else {
             let bodies: Vec<Value> = group
                 .iter()
                 .map(|inner| {
-                    let params: Value = serde_json::from_str(&inner.function.arguments)
-                        .unwrap_or(Value::Null);
+                    let params: Value =
+                        serde_json::from_str(&inner.function.arguments).unwrap_or(Value::Null);
                     serde_json::json!({ "tool": inner.function.name, "parameters": params })
                 })
                 .collect();
@@ -402,45 +398,46 @@ pub fn normalize_history_for_exposure(
         let mut expansions = Vec::new();
         let mut wraps = Vec::new();
         let mut pending: Vec<&LlmToolCall> = Vec::new();
-        let flush_pending = |pending: &mut Vec<&LlmToolCall>,
-                                 out: &mut Vec<LlmToolCall>,
-                                 wraps: &mut Vec<(String, Vec<(String, String)>)>| {
-            if pending.is_empty() {
-                return;
-            }
-            if pending.len() == 1 {
-                let inner = pending[0];
-                let body = single_request_body(&inner.function.name, &inner.function.arguments);
-                let wrapped_id = derive_wrapped_call_id(&inner.id);
-                wraps.push((
-                    wrapped_id.clone(),
-                    vec![(inner.id.clone(), inner.function.name.clone())],
-                ));
-                out.push(make_general_call(wrapped_id, &body));
-            } else {
-                let bodies: Vec<Value> = pending
-                    .iter()
-                    .map(|inner| {
-                        let params: Value = serde_json::from_str(&inner.function.arguments)
-                            .unwrap_or(Value::Null);
-                        serde_json::json!({ "tool": inner.function.name, "parameters": params })
-                    })
-                    .collect();
-                let wrapped_id = derive_wrapped_call_id(&pending[0].id);
-                wraps.push((
-                    wrapped_id.clone(),
-                    pending
+        let flush_pending =
+            |pending: &mut Vec<&LlmToolCall>,
+             out: &mut Vec<LlmToolCall>,
+             wraps: &mut Vec<(String, Vec<(String, String)>)>| {
+                if pending.is_empty() {
+                    return;
+                }
+                if pending.len() == 1 {
+                    let inner = pending[0];
+                    let body = single_request_body(&inner.function.name, &inner.function.arguments);
+                    let wrapped_id = derive_wrapped_call_id(&inner.id);
+                    wraps.push((
+                        wrapped_id.clone(),
+                        vec![(inner.id.clone(), inner.function.name.clone())],
+                    ));
+                    out.push(make_general_call(wrapped_id, &body));
+                } else {
+                    let bodies: Vec<Value> = pending
                         .iter()
-                        .map(|inner| (inner.id.clone(), inner.function.name.clone()))
-                        .collect(),
-                ));
-                out.push(make_general_call(
-                    wrapped_id,
-                    &Value::Array(bodies).to_string(),
-                ));
-            }
-            pending.clear();
-        };
+                        .map(|inner| {
+                            let params: Value = serde_json::from_str(&inner.function.arguments)
+                                .unwrap_or(Value::Null);
+                            serde_json::json!({ "tool": inner.function.name, "parameters": params })
+                        })
+                        .collect();
+                    let wrapped_id = derive_wrapped_call_id(&pending[0].id);
+                    wraps.push((
+                        wrapped_id.clone(),
+                        pending
+                            .iter()
+                            .map(|inner| (inner.id.clone(), inner.function.name.clone()))
+                            .collect(),
+                    ));
+                    out.push(make_general_call(
+                        wrapped_id,
+                        &Value::Array(bodies).to_string(),
+                    ));
+                }
+                pending.clear();
+            };
         for call in calls {
             if is_general_call(call) {
                 flush_pending(&mut pending, &mut out, &mut wraps);
@@ -508,8 +505,7 @@ pub fn normalize_history_for_exposure(
                 for (proxy_id, members) in &rewrite.wraps {
                     let total = members.len();
                     for (pos, (old_id, _)) in members.iter().enumerate() {
-                        wrap_member_to_proxy
-                            .insert(old_id.clone(), (proxy_id.clone(), pos, total));
+                        wrap_member_to_proxy.insert(old_id.clone(), (proxy_id.clone(), pos, total));
                     }
                     wrap_member_count.insert(proxy_id.clone(), total);
                 }
@@ -578,8 +574,7 @@ pub fn normalize_history_for_exposure(
                                 .as_ref()
                                 .map(|m| message_text(&m.content))
                                 .unwrap_or_default();
-                            serde_json::from_str::<Value>(&raw)
-                                .unwrap_or(Value::String(raw))
+                            serde_json::from_str::<Value>(&raw).unwrap_or(Value::String(raw))
                         })
                         .collect();
                     // Emit the merged proxy result at the position of the
@@ -715,7 +710,9 @@ mod tests {
         ];
         let expanded = expand_general_calls(&calls);
         assert_eq!(expanded.len(), 2);
-        assert!(expanded.iter().all(|c| c.function.name == GENERAL_TOOL_NAME));
+        assert!(expanded
+            .iter()
+            .all(|c| c.function.name == GENERAL_TOOL_NAME));
     }
 
     #[test]
@@ -732,7 +729,8 @@ mod tests {
 
     #[test]
     fn wrap_groups_consecutive_discoverable() {
-        let discoverable: HashSet<String> = ["a".to_string(), "b".to_string()].into_iter().collect();
+        let discoverable: HashSet<String> =
+            ["a".to_string(), "b".to_string()].into_iter().collect();
         let calls = vec![direct("1", "a"), direct("2", "b"), direct("3", "read")];
         let wrapped = wrap_for_discoverable(&calls, &discoverable);
         assert_eq!(wrapped.len(), 2);

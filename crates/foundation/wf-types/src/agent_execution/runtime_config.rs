@@ -3,7 +3,7 @@ use std::collections::HashMap;
 
 use crate::agent_execution::hooks::AgentHook;
 use crate::execution::FailureAction;
-use crate::llm::tool_call_format::ToolCallFormatConfig;
+use crate::llm::tool_call_protocol::ToolCallProtocolConfig;
 use crate::message::Message;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -45,7 +45,7 @@ pub struct AgentRuntimeConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stream: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub tool_call_format: Option<ToolCallFormatConfig>,
+    pub tool_call_protocol: Option<ToolCallProtocolConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub on_failure: Option<FailureAction>,
     #[serde(skip_serializing_if = "Option::is_none")]

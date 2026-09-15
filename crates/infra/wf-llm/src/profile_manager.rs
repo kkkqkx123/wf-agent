@@ -95,7 +95,7 @@ impl ProfileManager {
     }
 }
 
-/// Validate a profile's required fields and provider-specific generation
+/// Validate a profile's required fields and format-specific generation
 /// constraints (`api_key` is optional because it may be injected per
 /// request).
 pub fn validate_profile(profile: &LlmProfile) -> LlmResult<()> {
@@ -117,21 +117,21 @@ pub fn validate_profile(profile: &LlmProfile) -> LlmResult<()> {
         )));
     }
     if let Some(ref gen) = profile.generation {
-        validate_generation_params(gen, &profile.provider, &profile.id)?;
+        validate_generation_params(gen, &profile.format, &profile.id)?;
     }
     Ok(())
 }
 
-/// Validate provider-specific generation parameter constraints at profile
+/// Validate format-specific generation parameter constraints at profile
 /// registration time. Constraints that depend on per-request values (e.g.
 /// `budget_tokens < max_tokens`) are deferred to runtime validation.
 fn validate_generation_params(
     gen: &wf_types::llm::generation::LlmGenerationParams,
-    provider: &wf_types::llm::LlmProvider,
+    format: &wf_types::llm::LlmFormat,
     profile_id: &str,
 ) -> LlmResult<()> {
     if let Some(ref thinking) = gen.thinking {
-        if matches!(provider, wf_types::llm::LlmProvider::GeminiNative)
+        if matches!(format, wf_types::llm::LlmFormat::GeminiNative)
             && thinking.level.is_some()
             && thinking.budget_tokens.is_some()
         {
@@ -140,7 +140,7 @@ fn validate_generation_params(
                 profile_id
             )));
         }
-        if matches!(provider, wf_types::llm::LlmProvider::Anthropic) {
+        if matches!(format, wf_types::llm::LlmFormat::Anthropic) {
             if let Some(budget) = thinking.budget_tokens {
                 if budget < 1024 {
                     return Err(LlmError::ConfigError(format!(
@@ -163,13 +163,14 @@ impl Default for ProfileManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wf_types::llm::LlmProvider;
+    use wf_types::llm::LlmFormat;
 
     fn valid_profile() -> LlmProfile {
         LlmProfile {
             id: "p1".to_string(),
             name: "test".to_string(),
-            provider: LlmProvider::OpenaiChat,
+            format: LlmFormat::OpenaiChat,
+            provider_id: None,
             model: "gpt-4o".to_string(),
             api_key: None,
             base_url: None,
@@ -180,7 +181,7 @@ mod tests {
             retry_delay: None,
             headers: None,
             metadata: None,
-            tool_call_format: None,
+            tool_call_protocol: None,
             auth_type: None,
             custom_headers: None,
             custom_body: None,
@@ -260,7 +261,7 @@ mod tests {
         use wf_types::llm::generation::{LlmGenerationParams, LlmThinkingConfig, ThinkingLevel};
 
         let mut profile = valid_profile();
-        profile.provider = LlmProvider::GeminiNative;
+        profile.format = LlmFormat::GeminiNative;
         profile.generation = Some(LlmGenerationParams {
             thinking: Some(LlmThinkingConfig {
                 level: Some(ThinkingLevel::High),
@@ -277,7 +278,7 @@ mod tests {
         use wf_types::llm::generation::{LlmGenerationParams, LlmThinkingConfig, ThinkingLevel};
 
         let mut profile = valid_profile();
-        profile.provider = LlmProvider::GeminiNative;
+        profile.format = LlmFormat::GeminiNative;
         profile.generation = Some(LlmGenerationParams {
             thinking: Some(LlmThinkingConfig {
                 level: Some(ThinkingLevel::High),
@@ -294,7 +295,7 @@ mod tests {
         use wf_types::llm::generation::{LlmGenerationParams, LlmThinkingConfig};
 
         let mut profile = valid_profile();
-        profile.provider = LlmProvider::Anthropic;
+        profile.format = LlmFormat::Anthropic;
         profile.generation = Some(LlmGenerationParams {
             thinking: Some(LlmThinkingConfig {
                 level: None,
@@ -311,7 +312,7 @@ mod tests {
         use wf_types::llm::generation::{LlmGenerationParams, LlmThinkingConfig};
 
         let mut profile = valid_profile();
-        profile.provider = LlmProvider::Anthropic;
+        profile.format = LlmFormat::Anthropic;
         profile.generation = Some(LlmGenerationParams {
             thinking: Some(LlmThinkingConfig {
                 level: None,

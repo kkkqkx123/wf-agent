@@ -83,7 +83,6 @@ impl WasmStats {
     pub fn record_pool_hit(&self) {
         self.pool_hits.fetch_add(1, Ordering::Relaxed);
     }
-
     /// Record one fresh session build (pool empty, disabled, or guest
     /// without heap-reset support).
     pub fn record_pool_miss(&self) {
@@ -93,6 +92,14 @@ impl WasmStats {
     /// Record one session discarded instead of returned to the pool.
     pub fn record_pool_drop(&self) {
         self.pool_drops.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Add fuel consumption measured outside [`WasmStats::record`].
+    /// Used by the component-model path, where the fuel delta is read
+    /// from the store after the timeout guard has already recorded the
+    /// call outcome.
+    pub fn record_fuel_used(&self, used: u64) {
+        self.fuel_consumed.fetch_add(used, Ordering::Relaxed);
     }
 }
 
@@ -130,5 +137,15 @@ mod tests {
                 pool_drops: 1,
             }
         );
+    }
+
+    #[test]
+    fn fuel_supplement_accumulates_without_new_calls() {
+        let stats = WasmStats::default();
+        stats.record_fuel_used(7);
+        stats.record_fuel_used(8);
+        let snap = stats.snapshot();
+        assert_eq!(snap.calls, 0);
+        assert_eq!(snap.fuel_consumed, 15);
     }
 }

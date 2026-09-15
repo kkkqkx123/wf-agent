@@ -30,7 +30,7 @@ pub struct ContributionManager {
     node_type_registry: Registry<String, Arc<dyn PluginNodeHandler>>,
     tool_type_registry: Registry<String, Arc<dyn PluginToolExecutor>>,
     /// Single backing registry for both LLM contribution kinds; the role
-    /// tag keeps provider registrations (backing `LlmProvider::Custom`
+    /// tag keeps provider registrations (backing `LlmFormat::Custom`
     /// resolution) distinct from named message formatters.
     llm_registry: Registry<String, (FormatterRole, Arc<dyn PluginLlmFormatter>)>,
     event_handler_registry: MultiRegistry<String, Arc<dyn PluginEventHandler>>,
@@ -115,17 +115,13 @@ impl ContributionManager {
     pub fn get_llm_formatter(&self, name: &str) -> Option<Arc<dyn PluginLlmFormatter>> {
         self.llm_registry
             .get(name)
-            .and_then(|(role, formatter)| {
-                (role == FormatterRole::Provider).then_some(formatter)
-            })
+            .and_then(|(role, formatter)| (role == FormatterRole::Provider).then_some(formatter))
     }
 
     pub fn get_formatter(&self, name: &str) -> Option<Arc<dyn PluginLlmFormatter>> {
         self.llm_registry
             .get(name)
-            .and_then(|(role, formatter)| {
-                (role == FormatterRole::Formatter).then_some(formatter)
-            })
+            .and_then(|(role, formatter)| (role == FormatterRole::Formatter).then_some(formatter))
     }
 
     pub fn get_event_handlers(&self, event_type: &str) -> Vec<Arc<dyn PluginEventHandler>> {
@@ -258,7 +254,7 @@ impl ContributionManager {
         }
         for (key, owner) in self.all_llm_providers() {
             if owner == plugin_id {
-                records.push((ContributionType::LlmProvider.as_str().into(), key));
+                records.push((ContributionType::LlmFormat.as_str().into(), key));
             }
         }
         for (key, owner) in self.all_formatters() {
@@ -321,26 +317,31 @@ impl ContributionManager {
         records
     }
 
+    /// Run middleware handlers for `phase` as an onion chain threaded on
+    /// one context value. Higher priority runs outermost; each handler
+    /// receives the context as rewritten by its outer neighbors. The
+    /// returned value is the final context: handlers that skip `next`
+    /// short-circuit the chain with whatever they return, and handlers
+    /// may rewrite the value coming back from `next` (response rewrite).
     pub async fn run_middleware(
         &self,
         phase: &MiddlewarePhase,
         context: Value,
-    ) -> PluginResult<()> {
+    ) -> PluginResult<Value> {
         let handlers = self.get_middleware(phase);
 
-        let mut next: NextFn = Box::new(|| Box::pin(async { Ok(()) }));
+        let mut next: NextFn = Box::new(|ctx| Box::pin(async move { Ok(ctx) }));
 
         for (_, handler) in handlers.into_iter().rev() {
             let prev = next;
-            let ctx = context.clone();
-            next = Box::new(move || {
+            next = Box::new(move |ctx| {
                 let h = handler;
                 let p = prev;
                 Box::pin(async move { h.handle(ctx, p).await })
             });
         }
 
-        next().await
+        next(context).await
     }
 
     fn check_conflict(
@@ -422,12 +423,11 @@ impl ContributionRegistrar for RegistrarGuard<'_> {
         formatter: Arc<dyn PluginLlmFormatter>,
     ) -> PluginResult<()> {
         let plugin_id = wf_common::lock::read_ok(self.manager.current_plugin_id.read()).clone();
-        self.validate(&plugin_id, ContributionType::LlmProvider, name)?;
-        self.manager.check_conflict(
-            ContributionType::LlmProvider.as_str(),
-            name,
-            || self.manager.llm_registry.get_owner(name),
-        )?;
+        self.validate(&plugin_id, ContributionType::LlmFormat, name)?;
+        self.manager
+            .check_conflict(ContributionType::LlmFormat.as_str(), name, || {
+                self.manager.llm_registry.get_owner(name)
+            })?;
         self.manager.llm_registry.register(
             name.into(),
             plugin_id,
@@ -443,11 +443,10 @@ impl ContributionRegistrar for RegistrarGuard<'_> {
     ) -> PluginResult<()> {
         let plugin_id = wf_common::lock::read_ok(self.manager.current_plugin_id.read()).clone();
         self.validate(&plugin_id, ContributionType::Formatter, name)?;
-        self.manager.check_conflict(
-            ContributionType::Formatter.as_str(),
-            name,
-            || self.manager.llm_registry.get_owner(name),
-        )?;
+        self.manager
+            .check_conflict(ContributionType::Formatter.as_str(), name, || {
+                self.manager.llm_registry.get_owner(name)
+            })?;
         self.manager.llm_registry.register(
             name.into(),
             plugin_id,
@@ -487,11 +486,10 @@ impl ContributionRegistrar for RegistrarGuard<'_> {
     fn register_workflow(&mut self, id: &str, wf: WorkflowTemplate) -> PluginResult<()> {
         let plugin_id = wf_common::lock::read_ok(self.manager.current_plugin_id.read()).clone();
         self.validate(&plugin_id, ContributionType::Workflow, id)?;
-        self.manager.check_conflict(
-            ContributionType::Workflow.as_str(),
-            id,
-            || self.manager.workflow_registry.get_owner(id),
-        )?;
+        self.manager
+            .check_conflict(ContributionType::Workflow.as_str(), id, || {
+                self.manager.workflow_registry.get_owner(id)
+            })?;
         self.manager
             .workflow_registry
             .register(id.into(), plugin_id, Arc::new(wf));
@@ -501,11 +499,10 @@ impl ContributionRegistrar for RegistrarGuard<'_> {
     fn register_prompt(&mut self, id: &str, template: Template) -> PluginResult<()> {
         let plugin_id = wf_common::lock::read_ok(self.manager.current_plugin_id.read()).clone();
         self.validate(&plugin_id, ContributionType::Prompt, id)?;
-        self.manager.check_conflict(
-            ContributionType::Prompt.as_str(),
-            id,
-            || self.manager.prompt_registry.get_owner(id),
-        )?;
+        self.manager
+            .check_conflict(ContributionType::Prompt.as_str(), id, || {
+                self.manager.prompt_registry.get_owner(id)
+            })?;
         self.manager
             .prompt_registry
             .register(id.into(), plugin_id, Arc::new(template));
@@ -515,11 +512,10 @@ impl ContributionRegistrar for RegistrarGuard<'_> {
     fn register_fragment(&mut self, id: &str, fragment: SystemPromptFragment) -> PluginResult<()> {
         let plugin_id = wf_common::lock::read_ok(self.manager.current_plugin_id.read()).clone();
         self.validate(&plugin_id, ContributionType::Fragment, id)?;
-        self.manager.check_conflict(
-            ContributionType::Fragment.as_str(),
-            id,
-            || self.manager.fragment_registry.get_owner(id),
-        )?;
+        self.manager
+            .check_conflict(ContributionType::Fragment.as_str(), id, || {
+                self.manager.fragment_registry.get_owner(id)
+            })?;
         self.manager
             .fragment_registry
             .register(id.into(), plugin_id, Arc::new(fragment));
@@ -529,11 +525,10 @@ impl ContributionRegistrar for RegistrarGuard<'_> {
     fn register_agent_template(&mut self, id: &str, agent: AgentTemplate) -> PluginResult<()> {
         let plugin_id = wf_common::lock::read_ok(self.manager.current_plugin_id.read()).clone();
         self.validate(&plugin_id, ContributionType::AgentTemplate, id)?;
-        self.manager.check_conflict(
-            ContributionType::AgentTemplate.as_str(),
-            id,
-            || self.manager.agent_template_registry.get_owner(id),
-        )?;
+        self.manager
+            .check_conflict(ContributionType::AgentTemplate.as_str(), id, || {
+                self.manager.agent_template_registry.get_owner(id)
+            })?;
         self.manager
             .agent_template_registry
             .register(id.into(), plugin_id, Arc::new(agent));
@@ -543,11 +538,10 @@ impl ContributionRegistrar for RegistrarGuard<'_> {
     fn register_node_template(&mut self, id: &str, node: NodeTemplate) -> PluginResult<()> {
         let plugin_id = wf_common::lock::read_ok(self.manager.current_plugin_id.read()).clone();
         self.validate(&plugin_id, ContributionType::NodeTemplate, id)?;
-        self.manager.check_conflict(
-            ContributionType::NodeTemplate.as_str(),
-            id,
-            || self.manager.node_template_registry.get_owner(id),
-        )?;
+        self.manager
+            .check_conflict(ContributionType::NodeTemplate.as_str(), id, || {
+                self.manager.node_template_registry.get_owner(id)
+            })?;
         self.manager
             .node_template_registry
             .register(id.into(), plugin_id, Arc::new(node));
@@ -557,11 +551,10 @@ impl ContributionRegistrar for RegistrarGuard<'_> {
     fn register_trigger(&mut self, id: &str, trigger: TriggerTemplate) -> PluginResult<()> {
         let plugin_id = wf_common::lock::read_ok(self.manager.current_plugin_id.read()).clone();
         self.validate(&plugin_id, ContributionType::Trigger, id)?;
-        self.manager.check_conflict(
-            ContributionType::Trigger.as_str(),
-            id,
-            || self.manager.trigger_registry.get_owner(id),
-        )?;
+        self.manager
+            .check_conflict(ContributionType::Trigger.as_str(), id, || {
+                self.manager.trigger_registry.get_owner(id)
+            })?;
         self.manager
             .trigger_registry
             .register(id.into(), plugin_id, Arc::new(trigger));
@@ -575,11 +568,10 @@ impl ContributionRegistrar for RegistrarGuard<'_> {
     ) -> PluginResult<()> {
         let plugin_id = wf_common::lock::read_ok(self.manager.current_plugin_id.read()).clone();
         self.validate(&plugin_id, ContributionType::ToolDescription, id)?;
-        self.manager.check_conflict(
-            ContributionType::ToolDescription.as_str(),
-            id,
-            || self.manager.tool_description_registry.get_owner(id),
-        )?;
+        self.manager
+            .check_conflict(ContributionType::ToolDescription.as_str(), id, || {
+                self.manager.tool_description_registry.get_owner(id)
+            })?;
         self.manager.tool_description_registry.register(
             id.into(),
             plugin_id,
@@ -591,11 +583,10 @@ impl ContributionRegistrar for RegistrarGuard<'_> {
     fn register_tool(&mut self, id: &str, tool: ToolDef) -> PluginResult<()> {
         let plugin_id = wf_common::lock::read_ok(self.manager.current_plugin_id.read()).clone();
         self.validate(&plugin_id, ContributionType::Tool, id)?;
-        self.manager.check_conflict(
-            ContributionType::Tool.as_str(),
-            id,
-            || self.manager.tool_registry.get_owner(id),
-        )?;
+        self.manager
+            .check_conflict(ContributionType::Tool.as_str(), id, || {
+                self.manager.tool_registry.get_owner(id)
+            })?;
         self.manager
             .tool_registry
             .register(id.into(), plugin_id, Arc::new(tool));
@@ -639,9 +630,41 @@ mod tests {
 
     #[async_trait::async_trait]
     impl PluginMiddlewareHandler for NoopMiddlewareHandler {
-        async fn handle(&self, _context: Value, _next: NextFn) -> PluginResult<()> {
-            Ok(())
+        async fn handle(&self, context: Value, next: NextFn) -> PluginResult<Value> {
+            next(context).await
         }
+    }
+
+    /// Records the context it receives, then passes a rewrite downstream.
+    struct RewriteMiddlewareHandler {
+        seen: Arc<std::sync::Mutex<Vec<Value>>>,
+        replacement: Value,
+        call_next: bool,
+    }
+
+    #[async_trait::async_trait]
+    impl PluginMiddlewareHandler for RewriteMiddlewareHandler {
+        async fn handle(&self, context: Value, next: NextFn) -> PluginResult<Value> {
+            self.seen.lock().expect("seen lock poisoned").push(context);
+            if self.call_next {
+                next(self.replacement.clone()).await
+            } else {
+                Ok(self.replacement.clone())
+            }
+        }
+    }
+
+    fn register_for_run(
+        manager: &ContributionManager,
+        phase: &MiddlewarePhase,
+        priority: i32,
+        handler: Arc<dyn PluginMiddlewareHandler>,
+    ) {
+        manager.start_registration("mw-test");
+        manager
+            .as_registrar()
+            .register_middleware(phase.clone(), priority, handler)
+            .expect("middleware registers");
     }
 
     #[test]
@@ -669,6 +692,86 @@ mod tests {
         assert!(manager
             .get_middleware(&MiddlewarePhase::Other("custom-phase".into()))
             .is_empty());
+    }
+
+    #[tokio::test]
+    async fn middleware_rewrite_threads_through_chain() {
+        use serde_json::json;
+
+        let manager = ContributionManager::new();
+        let phase = MiddlewarePhase::from("rewrite-phase");
+        let outer_seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let inner_seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+        register_for_run(
+            &manager,
+            &phase,
+            10,
+            Arc::new(RewriteMiddlewareHandler {
+                seen: outer_seen.clone(),
+                replacement: json!({"stage": "outer"}),
+                call_next: true,
+            }),
+        );
+        register_for_run(
+            &manager,
+            &phase,
+            5,
+            Arc::new(RewriteMiddlewareHandler {
+                seen: inner_seen.clone(),
+                replacement: json!({"stage": "inner"}),
+                call_next: true,
+            }),
+        );
+
+        let out = manager
+            .run_middleware(&phase, json!({"stage": "start"}))
+            .await
+            .expect("chain runs");
+        assert_eq!(out, json!({"stage": "inner"}));
+        assert_eq!(
+            *outer_seen.lock().expect("lock"),
+            vec![json!({"stage": "start"})]
+        );
+        assert_eq!(
+            *inner_seen.lock().expect("lock"),
+            vec![json!({"stage": "outer"})]
+        );
+    }
+
+    #[tokio::test]
+    async fn middleware_short_circuit_skips_downstream() {
+        use serde_json::json;
+
+        let manager = ContributionManager::new();
+        let phase = MiddlewarePhase::from("short-phase");
+        let inner_seen = Arc::new(std::sync::Mutex::new(Vec::new()));
+        register_for_run(
+            &manager,
+            &phase,
+            10,
+            Arc::new(RewriteMiddlewareHandler {
+                seen: Arc::new(std::sync::Mutex::new(Vec::new())),
+                replacement: json!({"stopped": true}),
+                call_next: false,
+            }),
+        );
+        register_for_run(
+            &manager,
+            &phase,
+            5,
+            Arc::new(RewriteMiddlewareHandler {
+                seen: inner_seen.clone(),
+                replacement: json!({"never": true}),
+                call_next: true,
+            }),
+        );
+
+        let out = manager
+            .run_middleware(&phase, json!({"stage": "start"}))
+            .await
+            .expect("chain runs");
+        assert_eq!(out, json!({"stopped": true}));
+        assert!(inner_seen.lock().expect("lock").is_empty());
     }
 
     #[test]

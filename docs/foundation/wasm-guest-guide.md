@@ -8,11 +8,19 @@
 
 ## 一、总体模型
 
-Wasm 插件是一个标准的 Core Module（非 Component），以 JSON 为唯一的
-数据编码，与宿主通过线性内存传递字符串：
+Wasm 插件有两条加载路径，宿主按二进制头部自动分流，上层行为一致：
+
+- **Core Module**（默认）：标准的 Core Module（非 Component），以 JSON 为唯一的
+  数据编码，与宿主通过线性内存传递字符串（本指南第二、三节描述的即此路径）。
+- **Component Model**：用 WIT（`crates/infra/wf-plugin/wit/plugin.wit`，
+  `wf:plugin/plugin` 世界）编译出的 Component，走强类型绑定 + WASI p2 上下文，
+  但 `register`/`dispatch` 的载荷仍为 JSON 字符串，与 Core 路径语义相同。
+  生命周期钩子行为有一处差异：`on-deactivate`/`on-unload` 无输入参数，
+  且 guest 必须实现完整 world（缺失导出会直接加载失败，不像 Core 路径那样视为成功）。
 
 - 宿主负责：编译模块、按权限组装 WASI 上下文、每次调用创建独立
-  `Store`（调用间无共享内存）、fuel/epoch/内存上限、超时中断。
+  `Store`（调用间无共享内存）、fuel/epoch/内存上限、超时中断、
+  guest `stdout`/`stderr` 接入宿主日志。
 - 插件负责：导出 `memory` 与 `alloc`，实现 `wf_*` 导出函数，
   用 JSON 描述贡献并处理分发调用。
 
@@ -28,7 +36,9 @@ Wasm 插件是一个标准的 Core Module（非 Component），以 JSON 为唯�
 | `memory` | linear memory | 是 | 宿主读写 JSON 的通道 |
 | `alloc` | `(size: i32) -> i32` | 有输入调用时必需 | bump 分配器即可 |
 | `dealloc` | `(ptr: i32, len: i32)` | 否 | 缺省时泄漏以单次调用为界 |
-| `wf_on_load` 等 5 个钩子 | `(ptr: i32, len: i32) -> i32` | 否 | 缺省视同成功；返回非 0 即失败 |
+| `wf_abi_version` | `() -> u32` | 否 | 缺省视为 v1；返回非 1 则加载失败 |
+| `wf_last_error` | `() -> i64` | 否 | 与 `wf_register` 同一打包 `(ptr, len)`；钩子返回非 0 时宿主读取并拼入错误 |
+| `wf_on_load` 等 5 个钩子 | `(ptr: i32, len: i32) -> i32` | 否 | 缺省视同成功；返回非 0 即失败，错误含 code 与 `wf_last_error` 明细 |
 | `wf_register` | `() -> i64` | 有贡献时必需 | 返回打包的 `(ptr, len)`，指向贡献声明 JSON |
 | `wf_dispatch` | 6×i32 → i64 | 有贡献时必需 | 见下 |
 
@@ -89,7 +99,8 @@ call_timeout_ms = 10000 # 缺省跟随引擎 guard 超时
 max_module_bytes = 33554432  # 缺省 32MiB
 allowed_dirs = ["./data"]    # 需同时声明 filesystem 权限
 allowed_env_prefixes = ["MYAPP_"]  # 需同时声明 environment 权限
-allow_network = false   # 本阶段恒为拒绝，仅做策略记录
+allow_network = false   # 缺省 false；置 true 会在加载期直接失败（本阶段无 socket 授权）
+store_pool_size = 0     # 缺省 0（关闭）；>0 且 guest 导出 wf_heap_reset 时启用 Core 路径实例池
 ```
 
 权限声明沿用 `permissions` 数组。注意：授权列表没有对应权限时
@@ -103,7 +114,8 @@ allow_network = false   # 本阶段恒为拒绝，仅做策略记录
 | 现象 | 含义 | 排查 |
 |---|---|---|
 | `does not export 'memory'/'alloc'` | 导出缺失 | 检查 `crate-type` 与 `#[no_mangle]`，确认链接后符号存在（`wasm-tools print` 或 `wasm2js` 查看） |
-| `hook 'wf_on_load' returned N` | 钩子返回非 0 | N 为 guest 返回码；WASI 调用返回的 errno 也会原样透出 |
+| `hook 'wf_on_load' failed with code 7: bad config` | 钩子返回非 0 | code 为 guest 返回码；冒号后为 `wf_last_error` 明细（无该导出时仅 code） |
+| `uses incompatible abi version 99, host expects 1` | `wf_abi_version` 与宿主不一致 | 升级 guest/宿主使版本一致；删除该导出则按 v1 处理 |
 | `Timeout` | epoch 中断触发 | guest 陷入长循环；检查 `call_timeout_ms` 与 fuel 预算 |
 | `exhausted its fuel budget` | fuel 耗尽 | 提高 `fuel_limit`，或检查意外循环 |
 | `oversized message` | guest 返回的 `(ptr, len)` 越界 | 检查打包顺序（低 32 位指针，高 32 位长度）与分配器 |
@@ -120,6 +132,15 @@ allow_network = false   # 本阶段恒为拒绝，仅做策略记录
 
 - 中间件语义为简化版：guest 返回 JSON 布尔值决定是否继续，
   不支持 guest 回调宿主的 `next` 链之外的双向调用。
-- 网络能力恒关闭；`stdout/stderr` 默认接入黑洞（写入成功但无处可去）。
-- 每次调用新建 `Store` + 实例化，超高频场景有优化空间（实例池在路线图中）。
-- 组件模型与 WIT 绑定尚未实现，`wit/plugin.wit` 仅为草案。
+- 网络能力恒关闭；`allow_network = true` 会在加载期直接失败（需移除或置 false）；
+  `shell` 权限对 wasm 恒为拒绝。
+- guest `stdout` 输出接入宿主日志（`tracing::info`），`stderr` 接入警告日志
+  （`tracing::warn`）；单流捕获上限 64KiB，超出会 trap，
+  每次调用最多转发 4KiB / 20 行，超出部分截断并计数。
+- 会话复用：Core 路径支持实例池（manifest 设 `store_pool_size > 0`
+  且 guest 导出 `wf_heap_reset` 才启用，缺省关闭）；Component 路径暂无池化
+  （设计决策：缺少堆复位契约，盲目复用会累积 canonical-ABI 堆；
+  `InstancePre` 预解析已复用，fuel 统计已与 Core 对齐），
+  每次调用新建 Store + 实例化。
+- 编译缓存为进程内有界缓存（按模块字节 blake3 去重，最多保留 32 个产物），
+  宿主重启后失效。

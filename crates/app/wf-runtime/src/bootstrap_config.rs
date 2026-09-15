@@ -8,6 +8,7 @@ use wf_types::config::storage::StorageConfig;
 use wf_types::config::timeout::TimeoutConfig;
 use wf_types::config::tool_approval::ToolApprovalConfig;
 use wf_types::llm::LlmProfile;
+use wf_types::llm::LlmProviderDefinition;
 use wf_types::skill::SkillConfig;
 
 use crate::logger::LogConfig;
@@ -32,6 +33,7 @@ pub struct McpRuntimeConfig {
 #[derive(Debug, Clone, Default)]
 pub struct LlmConfig {
     pub profiles: Vec<LlmProfile>,
+    pub provider_definitions: Vec<LlmProviderDefinition>,
 }
 
 /// File-layer infrastructure config sources resolved through the

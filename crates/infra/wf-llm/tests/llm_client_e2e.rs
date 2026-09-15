@@ -8,7 +8,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use common::{MockRequest, MockResponse, MockServer};
-use wf_types::llm::{LlmProfile, LlmProvider, LlmRequest, MessageStreamEvent};
+use wf_types::llm::{LlmFormat, LlmProfile, LlmRequest, MessageStreamEvent};
 use wf_types::message::{Message, MessageContentValue, MessageRole};
 
 use wf_llm::client::{LlmClient, LlmClientImpl};
@@ -35,7 +35,8 @@ fn profile(base_url: String, id: &str) -> LlmProfile {
     LlmProfile {
         id: id.to_string(),
         name: id.to_string(),
-        provider: LlmProvider::OpenaiChat,
+        format: LlmFormat::OpenaiChat,
+        provider_id: None,
         model: "gpt-4o".to_string(),
         api_key: Some("sk-test".to_string()),
         base_url: Some(base_url.to_string()),
@@ -46,7 +47,7 @@ fn profile(base_url: String, id: &str) -> LlmProfile {
         retry_delay: None,
         headers: None,
         metadata: None,
-        tool_call_format: None,
+        tool_call_protocol: None,
         auth_type: None,
         custom_headers: None,
         custom_body: None,
@@ -74,8 +75,8 @@ fn request(text: &str) -> LlmRequest {
         parameters: None,
         generation: None,
         tools: None,
-        tool_call_format: None,
-        locked_tool_call_format: None,
+        tool_call_protocol: None,
+        locked_tool_call_protocol: None,
         violation_policy: None,
         execution_id: None,
         stream: None,
@@ -85,7 +86,7 @@ fn request(text: &str) -> LlmRequest {
 }
 
 fn client_for(server: &MockServer, profile_id: &str) -> LlmClientImpl {
-    let formatter = create_formatter(&LlmProvider::OpenaiChat).expect("formatter");
+    let formatter = create_formatter(&LlmFormat::OpenaiChat).expect("formatter");
     LlmClientImpl::new(
         reqwest::Client::new(),
         formatter,
@@ -137,7 +138,7 @@ async fn generate_retries_on_5xx_then_succeeds() {
     let mut p = profile(server.url("/v1"), "p1");
     p.max_retries = Some(3);
     p.retry_delay = Some(10);
-    let formatter = create_formatter(&LlmProvider::OpenaiChat).expect("formatter");
+    let formatter = create_formatter(&LlmFormat::OpenaiChat).expect("formatter");
     let client = LlmClientImpl::new(reqwest::Client::new(), formatter, p);
 
     let result = client
@@ -158,7 +159,7 @@ async fn generate_gives_up_after_retries_exhausted() {
     let mut p = profile(server.url("/v1"), "p1");
     p.max_retries = Some(2);
     p.retry_delay = Some(10);
-    let formatter = create_formatter(&LlmProvider::OpenaiChat).expect("formatter");
+    let formatter = create_formatter(&LlmFormat::OpenaiChat).expect("formatter");
     let client = LlmClientImpl::new(reqwest::Client::new(), formatter, p);
 
     let err = client
@@ -179,7 +180,7 @@ async fn generate_surfaces_auth_error_without_retry() {
     let mut p = profile(server.url("/v1"), "p1");
     p.max_retries = Some(3);
     p.retry_delay = Some(10);
-    let formatter = create_formatter(&LlmProvider::OpenaiChat).expect("formatter");
+    let formatter = create_formatter(&LlmFormat::OpenaiChat).expect("formatter");
     let client = LlmClientImpl::new(reqwest::Client::new(), formatter, p);
 
     let err = client
@@ -225,7 +226,7 @@ async fn generate_times_out_when_server_is_slow() {
     let mut p = profile(server.url("/v1"), "p1");
     p.timeout = Some(1); // 1 second
     p.max_retries = Some(0); // timeout errors are retryable; disable retries
-    let formatter = create_formatter(&LlmProvider::OpenaiChat).expect("formatter");
+    let formatter = create_formatter(&LlmFormat::OpenaiChat).expect("formatter");
     let client = LlmClientImpl::new(reqwest::Client::new(), formatter, p);
 
     let start = std::time::Instant::now();
@@ -284,7 +285,7 @@ async fn generate_stream_propagates_http_errors() {
 
     let mut p = profile(server.url("/v1"), "p1");
     p.max_retries = Some(0);
-    let formatter = create_formatter(&LlmProvider::OpenaiChat).expect("formatter");
+    let formatter = create_formatter(&LlmFormat::OpenaiChat).expect("formatter");
     let client = LlmClientImpl::new(reqwest::Client::new(), formatter, p);
 
     let err = match client.generate_stream(&request("hi"), None).await {

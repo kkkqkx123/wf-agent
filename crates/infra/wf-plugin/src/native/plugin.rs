@@ -455,15 +455,18 @@ impl PluginEventHandler for NativeEventHandler {
 
 #[async_trait]
 impl PluginMiddlewareHandler for NativeMiddlewareHandler {
-    async fn handle(&self, context: Value, next: NextFn) -> PluginResult<()> {
+    async fn handle(&self, context: Value, next: NextFn) -> PluginResult<Value> {
         let ctx_json = serde_json::to_string(&context)
             .map_err(|e| PluginError::NativeError(format!("serialize context: {}", e)))?;
         let output = dispatch_call(self.dispatch, "mw", &self.phase, &ctx_json)?;
-        // Middleware can signal whether to proceed via the response
-        let result: Value = serde_json::from_slice(&output).unwrap_or(Value::Null);
-        if result.as_bool().unwrap_or(true) {
-            next().await?;
+        // Middleware answers with a boolean (legacy) or a `{proceed,
+        // context}` envelope; the rewritten context threads downstream.
+        let response: Value = serde_json::from_slice(&output).unwrap_or(Value::Null);
+        let outcome = parse_middleware_outcome(&response, &context);
+        if outcome.proceed {
+            next(outcome.context).await
+        } else {
+            Ok(outcome.context)
         }
-        Ok(())
     }
 }

@@ -321,7 +321,8 @@ mod tests {
         let profile = wf_types::llm::LlmProfile {
             id: "default".into(),
             name: "default".into(),
-            provider: wf_types::llm::LlmProvider::OpenaiChat,
+            format: wf_types::llm::LlmFormat::OpenaiChat,
+            provider_id: None,
             model: "mock-model".into(),
             api_key: None,
             base_url: None,
@@ -332,7 +333,7 @@ mod tests {
             retry_delay: None,
             headers: None,
             metadata: None,
-            tool_call_format: None,
+            tool_call_protocol: None,
             auth_type: None,
             custom_headers: None,
             custom_body: None,

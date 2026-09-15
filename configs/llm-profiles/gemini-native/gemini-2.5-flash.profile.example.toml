@@ -1,21 +1,21 @@
 # LLM Profile: Gemini 2.5 Flash (Native)
 #
 # Schema:  wf_types::llm::profile::LlmProfile
-# Provider: LlmProvider::GEMINI_NATIVE
+# Format: LlmFormat::GEMINI_NATIVE
 #
 # Gemini native API uses query parameters (api_key=...) for authentication.
 
 id = "gemini-2.5-flash"
 name = "Gemini 2.5 Flash"
-provider = "GEMINI_NATIVE"
+format = "GEMINI_NATIVE"
 model = "gemini-2.5-flash"
-apiKey = "${GEMINI_API_KEY}"
-authType = "bearer"
-contextWindowSize = 1048576
+api_key = "${GEMINI_API_KEY}"
+auth_type = "bearer"
+context_window_size = 1048576
 
 timeout = 30000
-maxRetries = 2
-retryDelay = 1000
+max_retries = 2
+retry_delay = 1000
 
 [generation]
 temperature = 0.5
@@ -25,7 +25,7 @@ top_p = 0.95
 # [generation.thinking]
 # level = "low"
 
-[queryParams]
+[query_params]
 key = "${GEMINI_API_KEY}"
 
 [metadata]

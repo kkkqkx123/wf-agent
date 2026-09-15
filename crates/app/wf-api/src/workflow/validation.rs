@@ -175,7 +175,10 @@ pub async fn build_reference_context(ctx: &ApiContext) -> ValidationContext {
     let mut val_ctx = ValidationContext::empty();
 
     for profile in ctx.llm_gateway.profile_registry().list() {
-        let format = profile.tool_call_format.as_ref().map(|c| c.format.clone());
+        let format = profile
+            .tool_call_protocol
+            .as_ref()
+            .map(|c| c.format.clone());
         val_ctx.profile_ids.insert(profile.id.clone());
         if let Some(format) = format {
             val_ctx.profile_formats.insert(profile.id, format);

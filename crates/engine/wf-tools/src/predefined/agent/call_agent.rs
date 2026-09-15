@@ -80,7 +80,7 @@ pub static CALL_AGENT: ToolDefinition = ToolDefinition {
             constraints: None,
         },
         ToolParameter {
-            name: "tool_call_format",
+            name: "tool_call_protocol",
             r#type: "string",
             required: false,
             description: "Protocol lock for tool calls (e.g. XML wrapping)",

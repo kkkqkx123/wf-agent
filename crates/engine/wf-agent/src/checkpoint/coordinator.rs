@@ -368,7 +368,7 @@ impl AgentCheckpointIntegration {
                 .as_deref()
                 .map(|v| v.to_vec())
                 .unwrap_or_default(),
-            locked_tool_call_format: None,
+            locked_tool_call_protocol: None,
             timeout_count: 0,
         }
     }

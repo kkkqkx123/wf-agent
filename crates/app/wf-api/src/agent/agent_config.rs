@@ -18,7 +18,7 @@ pub fn build_agent_loop_config(agent_id: Option<String>, model: Option<String>) 
         enable_general_tool: None,
         activated_tool_names: Vec::new(),
         hidden_tool_names: Vec::new(),
-        tool_call_format: None,
+        tool_call_protocol: None,
         token_limit: None,
         token_warning_threshold: None,
         enable_token_tracking: None,

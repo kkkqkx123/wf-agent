@@ -8,7 +8,7 @@ use crate::validator::{validate_min, validate_required};
 
 use wf_types::agent::definition::AgentDefinition;
 use wf_types::agent_execution::runtime_config::AgentRuntimeConfig;
-use wf_types::llm::ToolCallFormat;
+use wf_types::llm::ToolCallProtocol;
 
 pub fn validate_agent_definition(definition: &AgentDefinition) -> ConfigResult<()> {
     validate_required(&definition.id, "id")?;
@@ -16,9 +16,9 @@ pub fn validate_agent_definition(definition: &AgentDefinition) -> ConfigResult<(
     if let Some(format) = definition
         .config
         .as_ref()
-        .and_then(|c| c.tool_call_format.as_ref())
+        .and_then(|c| c.tool_call_protocol.as_ref())
     {
-        ToolCallFormat::from_str(format).map_err(ConfigError::Validation)?;
+        ToolCallProtocol::from_str(format).map_err(ConfigError::Validation)?;
     }
     if let Some(hooks) = definition.config.as_ref().and_then(|c| c.hooks.as_ref()) {
         for (idx, hook) in hooks.iter().enumerate() {
@@ -150,7 +150,7 @@ pub fn transform_to_agent_loop_config(definition: &AgentDefinition) -> AgentRunt
         hidden_tool_names: config
             .and_then(|c| c.available_tools.as_ref().and_then(|t| t.hidden.clone())),
         stream: config.and_then(|c| c.stream),
-        tool_call_format: None,
+        tool_call_protocol: None,
         on_failure: None,
         fallback_output: None,
         hooks: config.and_then(|c| c.hooks.clone()),
@@ -218,7 +218,7 @@ mod tests {
     }
 
     #[test]
-    fn test_invalid_tool_call_format_rejected() {
+    fn test_invalid_tool_call_protocol_rejected() {
         let mut def = make_definition();
         def.config = Some(wf_types::agent::config::AgentConfig {
             profile_id: None,
@@ -236,7 +236,7 @@ mod tests {
             initial_messages: None,
             available_tools: None,
             stream: None,
-            tool_call_format: Some("yaml".to_string()),
+            tool_call_protocol: Some("yaml".to_string()),
             hooks: None,
             dynamic_context: None,
             checkpoint: None,
@@ -246,7 +246,7 @@ mod tests {
     }
 
     #[test]
-    fn test_valid_tool_call_format_accepted() {
+    fn test_valid_tool_call_protocol_accepted() {
         let mut def = make_definition();
         def.config = Some(wf_types::agent::config::AgentConfig {
             profile_id: None,
@@ -264,7 +264,7 @@ mod tests {
             initial_messages: None,
             available_tools: None,
             stream: None,
-            tool_call_format: Some("json_wrapped".to_string()),
+            tool_call_protocol: Some("json_wrapped".to_string()),
             hooks: None,
             dynamic_context: None,
             checkpoint: None,
@@ -292,7 +292,7 @@ mod tests {
             initial_messages: None,
             available_tools: None,
             stream: Some(true),
-            tool_call_format: None,
+            tool_call_protocol: None,
             hooks: None,
             dynamic_context: None,
             checkpoint: None,
@@ -332,7 +332,7 @@ mod tests {
             initial_messages: None,
             available_tools: None,
             stream: None,
-            tool_call_format: None,
+            tool_call_protocol: None,
             hooks: None,
             dynamic_context: None,
             checkpoint: None,
@@ -565,7 +565,7 @@ mod tests {
             initial_messages: None,
             available_tools: None,
             stream: None,
-            tool_call_format: None,
+            tool_call_protocol: None,
             hooks: None,
             dynamic_context: None,
             checkpoint: None,

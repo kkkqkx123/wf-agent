@@ -725,13 +725,13 @@ mod tests {
                 "inline_definition": {
                     "id": "a1",
                     "name": "agent",
-                    "config": {"profile_id": "mock", "tool_call_format": "yaml"},
+                    "config": {"profile_id": "mock", "tool_call_protocol": "yaml"},
                 },
             })),
         );
         assert!(errors
             .iter()
-            .any(|e| e.message.contains("tool_call_format")));
+            .any(|e| e.message.contains("tool_call_protocol")));
 
         let errors = validate_node_config(
             "AGENT_LOOP",

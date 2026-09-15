@@ -85,13 +85,14 @@ pub fn build_bearer_header(api_key: &Option<String>) -> Option<(String, String)>
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wf_types::llm::{LlmProfile, LlmProvider};
+    use wf_types::llm::{LlmFormat, LlmProfile};
 
     fn profile_with_params(params: Option<serde_json::Value>) -> LlmProfile {
         LlmProfile {
             id: "p1".to_string(),
             name: "test".to_string(),
-            provider: LlmProvider::OpenaiChat,
+            format: LlmFormat::OpenaiChat,
+            provider_id: None,
             model: "gpt-4o".to_string(),
             api_key: None,
             base_url: None,
@@ -102,7 +103,7 @@ mod tests {
             retry_delay: None,
             headers: None,
             metadata: None,
-            tool_call_format: None,
+            tool_call_protocol: None,
             auth_type: None,
             custom_headers: None,
             custom_body: None,

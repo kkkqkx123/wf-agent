@@ -80,7 +80,7 @@ pub struct AgentLoopConfig {
     /// (supplements runtime visibility blocking).
     pub hidden_tool_names: Vec<String>,
     /// Protocol lock for tool calls (e.g. XML wrapping).
-    pub tool_call_format: Option<wf_types::llm::tool_call_format::ToolCallFormatConfig>,
+    pub tool_call_protocol: Option<wf_types::llm::tool_call_protocol::ToolCallProtocolConfig>,
     /// Cumulative token limit for the agent conversation; 0 disables
     /// limit checks and warning events.
     pub token_limit: Option<u64>,

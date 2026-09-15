@@ -5,11 +5,19 @@ use crate::processor::substitute::substitute_in_struct;
 use crate::validator::validate_not_empty;
 
 use wf_types::llm::profile::LlmProfile;
+use wf_types::llm::provider_definition::LlmProviderDefinition;
 
 pub fn validate_llm_profile(profile: &LlmProfile) -> ConfigResult<()> {
     validate_not_empty(&profile.id, "id")?;
     validate_not_empty(&profile.name, "name")?;
     validate_not_empty(&profile.model, "model")?;
+    Ok(())
+}
+
+/// Validate a provider definition's required fields at load time.
+pub fn validate_provider_definition(definition: &LlmProviderDefinition) -> ConfigResult<()> {
+    validate_not_empty(&definition.id, "id")?;
+    validate_not_empty(&definition.format, "format")?;
     Ok(())
 }
 
@@ -34,7 +42,8 @@ mod tests {
         LlmProfile {
             id: "test-id".to_string(),
             name: "test".to_string(),
-            provider: wf_types::llm::LlmProvider::OpenaiChat,
+            format: wf_types::llm::LlmFormat::OpenaiChat,
+            provider_id: None,
             model: "gpt-4".to_string(),
             api_key: None,
             base_url: None,
@@ -45,7 +54,7 @@ mod tests {
             retry_delay: None,
             headers: None,
             metadata: None,
-            tool_call_format: None,
+            tool_call_protocol: None,
             auth_type: None,
             custom_headers: None,
             custom_body: None,

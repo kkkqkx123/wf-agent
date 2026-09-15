@@ -347,10 +347,14 @@ struct WfPluginMiddlewareRunner(Arc<ContributionManager>);
 #[async_trait]
 impl PluginMiddlewareBridge for WfPluginMiddlewareRunner {
     async fn handle(&self, phase: &MiddlewarePhase, context: &Value) -> wf_api::ApiResult<()> {
-        self.0
+        // The chain may rewrite the context, but this bridge has no upstream
+        // to hand the rewritten value to, so the final value is discarded.
+        let _ = self
+            .0
             .run_middleware(phase, context.clone())
             .await
-            .map_err(wf_api::ApiError::execution_with_source)
+            .map_err(wf_api::ApiError::execution_with_source)?;
+        Ok(())
     }
 }
 

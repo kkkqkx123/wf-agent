@@ -4,7 +4,7 @@ use std::sync::Arc;
 use tokio::fs;
 
 use super::plugin::{fetch_declaration, WasmPlugin, WasmPluginInner};
-use super::policy::{resolve_grants, resolve_limits};
+use super::policy::{resolve_grants, resolve_limits, validate_network_policy};
 use super::pool::{self, SessionPool};
 use super::stats::WasmStats;
 use crate::error::{PluginError, PluginResult};
@@ -51,6 +51,7 @@ async fn load_wasm_plugin_at(
     }
 
     let limits = resolve_limits(manifest, DEFAULT_WASM_CALL_TIMEOUT_MS)?;
+    validate_network_policy(manifest)?;
     let bytes = fs::read(&module_path)
         .await
         .map_err(|e| PluginError::LoadFailed(format!("cannot read {module_path:?}: {e}")))?;
@@ -335,6 +336,24 @@ mod tests {
         assert_eq!(limits.max_module_bytes, 4);
     }
 
+    #[tokio::test]
+    async fn network_request_fails_load_before_read() {
+        let dir = std::env::temp_dir().join("wf-wasm-test-netdeny");
+        let _ = std::fs::create_dir_all(&dir);
+        let mut m = manifest("netdeny", "plugin.wasm");
+        m.permissions = vec![crate::manifest::PluginPermission::Network];
+        m.wasm = Some(WasmConfig {
+            allow_network: Some(true),
+            ..Default::default()
+        });
+        let err = match load_wasm_plugin_with_base(&m, &dir).await {
+            Ok(_) => panic!("network request must fail"),
+            Err(e) => e,
+        };
+        assert!(err.to_string().contains("allow_network"), "got: {err}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     fn write_module(dir: &std::path::Path, wat: &str) {
         let bytes = wat::parse_str(wat).expect("valid wat");
         std::fs::write(dir.join("plugin.wasm"), &bytes).expect("write module");
@@ -365,7 +384,9 @@ mod tests {
         let manager = crate::contributions::ContributionManager::new();
         {
             let mut registrar = manager.as_registrar();
-            plugin.register_contributions(&mut registrar).expect("contributions register");
+            plugin
+                .register_contributions(&mut registrar)
+                .expect("contributions register");
         }
         let executor = manager
             .get_tool_executor("echo_tool")

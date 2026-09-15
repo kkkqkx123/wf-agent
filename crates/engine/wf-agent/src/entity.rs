@@ -6,7 +6,7 @@ use wf_execution_shared::error::ExecutionSharedError;
 use wf_execution_shared::hooks::types::HookDefinition;
 use wf_execution_shared::types::execution_entity::{ExecutionEntity, ExecutionStatus};
 use wf_llm::messaging::conversation_session::ConversationSession;
-use wf_types::llm::ToolCallFormatConfig;
+use wf_types::llm::ToolCallProtocolConfig;
 use wf_types::Id;
 
 use crate::coordinator::state_transitor::AgentLoopStateTransitor;
@@ -26,7 +26,7 @@ pub struct AgentLoopEntity {
     child_execution_ids: Arc<tokio::sync::RwLock<Vec<Id>>>,
     hooks: Vec<HookDefinition>,
     model: String,
-    tool_call_format: Option<ToolCallFormatConfig>,
+    tool_call_protocol: Option<ToolCallProtocolConfig>,
     available_tool_names: Vec<String>,
     initial_tool_names: Vec<String>,
     discoverable_tool_names: Vec<String>,
@@ -70,7 +70,7 @@ impl AgentLoopEntity {
             child_execution_ids: Arc::new(tokio::sync::RwLock::new(Vec::new())),
             hooks: Vec::new(),
             model: String::new(),
-            tool_call_format: None,
+            tool_call_protocol: None,
             available_tool_names: Vec::new(),
             initial_tool_names: Vec::new(),
             discoverable_tool_names: Vec::new(),
@@ -111,8 +111,8 @@ impl AgentLoopEntity {
         self
     }
 
-    pub fn with_tool_call_format(mut self, format: ToolCallFormatConfig) -> Self {
-        self.tool_call_format = Some(format);
+    pub fn with_tool_call_protocol(mut self, format: ToolCallProtocolConfig) -> Self {
+        self.tool_call_protocol = Some(format);
         self
     }
 
@@ -233,8 +233,8 @@ impl AgentLoopEntity {
         &self.model
     }
 
-    pub fn tool_call_format(&self) -> Option<&ToolCallFormatConfig> {
-        self.tool_call_format.as_ref()
+    pub fn tool_call_protocol(&self) -> Option<&ToolCallProtocolConfig> {
+        self.tool_call_protocol.as_ref()
     }
 
     pub fn available_tool_names(&self) -> &[String] {

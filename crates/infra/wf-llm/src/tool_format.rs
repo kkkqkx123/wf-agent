@@ -1,4 +1,4 @@
-use wf_types::llm::{ToolCallFormat, ToolCallMarkers};
+use wf_types::llm::{ToolCallMarkers, ToolCallProtocol};
 use wf_types::message::Message;
 use wf_types::tool::Tool;
 
@@ -82,24 +82,24 @@ const TOOL_RAW_COMPACT_TEMPLATE: &str =
     "{name}: {description}\nParameters (JSON Schema):\n{parameters}";
 
 /// Get the appropriate template set for a tool call format.
-pub fn get_tool_format_templates(format: ToolCallFormat, compact: bool) -> ToolFormatTemplateSet {
+pub fn get_tool_format_templates(format: ToolCallProtocol, compact: bool) -> ToolFormatTemplateSet {
     match format {
-        ToolCallFormat::Native => ToolFormatTemplateSet {
+        ToolCallProtocol::Native => ToolFormatTemplateSet {
             list_template: TOOLS_RAW_LIST_TEMPLATE,
             single_template: TOOL_RAW_FORMAT_TEMPLATE,
             parameter_template: TOOL_RAW_PARAMETER_LINE_TEMPLATE,
         },
-        ToolCallFormat::Xml => ToolFormatTemplateSet {
+        ToolCallProtocol::Xml => ToolFormatTemplateSet {
             list_template: TOOLS_XML_LIST_TEMPLATE,
             single_template: TOOL_XML_FORMAT_TEMPLATE,
             parameter_template: TOOL_XML_PARAMETER_LINE_TEMPLATE,
         },
-        ToolCallFormat::JsonWrapped => ToolFormatTemplateSet {
+        ToolCallProtocol::JsonWrapped => ToolFormatTemplateSet {
             list_template: TOOLS_JSON_LIST_TEMPLATE,
             single_template: TOOL_JSON_FORMAT_TEMPLATE,
             parameter_template: TOOL_JSON_PARAMETER_LINE_TEMPLATE,
         },
-        ToolCallFormat::JsonRaw => {
+        ToolCallProtocol::JsonRaw => {
             if compact {
                 ToolFormatTemplateSet {
                     list_template: TOOLS_RAW_COMPACT_LIST_TEMPLATE,
@@ -119,24 +119,24 @@ pub fn get_tool_format_templates(format: ToolCallFormat, compact: bool) -> ToolF
 
 /// Get tool call parser options for a specific format.
 pub fn get_tool_call_parser_options(
-    format: ToolCallFormat,
+    format: ToolCallProtocol,
     custom_markers: Option<&ToolCallMarkers>,
 ) -> ToolCallParseOptions {
     match format {
-        ToolCallFormat::Native => ToolCallParseOptions {
+        ToolCallProtocol::Native => ToolCallParseOptions {
             preferred_formats: vec![ParseFormat::Raw],
             ..Default::default()
         },
-        ToolCallFormat::Xml => ToolCallParseOptions {
+        ToolCallProtocol::Xml => ToolCallParseOptions {
             preferred_formats: vec![ParseFormat::Xml],
             ..Default::default()
         },
-        ToolCallFormat::JsonWrapped => ToolCallParseOptions {
+        ToolCallProtocol::JsonWrapped => ToolCallParseOptions {
             preferred_formats: vec![ParseFormat::Json],
             markers: custom_markers.cloned(),
             ..Default::default()
         },
-        ToolCallFormat::JsonRaw => ToolCallParseOptions {
+        ToolCallProtocol::JsonRaw => ToolCallParseOptions {
             preferred_formats: vec![ParseFormat::Raw],
             ..Default::default()
         },
@@ -144,24 +144,24 @@ pub fn get_tool_call_parser_options(
 }
 
 /// Check if a format requires tool descriptions in the prompt.
-pub fn requires_prompt_tool_descriptions(format: ToolCallFormat) -> bool {
-    !matches!(format, ToolCallFormat::Native)
+pub fn requires_prompt_tool_descriptions(format: ToolCallProtocol) -> bool {
+    !matches!(format, ToolCallProtocol::Native)
 }
 
 /// Check if the given format is text-based (non-native).
-pub fn is_text_based_tool_mode(format: Option<ToolCallFormat>) -> bool {
+pub fn is_text_based_tool_mode(format: Option<ToolCallProtocol>) -> bool {
     matches!(
         format,
-        Some(ToolCallFormat::Xml)
-            | Some(ToolCallFormat::JsonWrapped)
-            | Some(ToolCallFormat::JsonRaw)
+        Some(ToolCallProtocol::Xml)
+            | Some(ToolCallProtocol::JsonWrapped)
+            | Some(ToolCallProtocol::JsonRaw)
     )
 }
 
 /// Get tool usage instructions for a text format.
-pub fn get_tool_usage_instructions(format: ToolCallFormat) -> &'static str {
+pub fn get_tool_usage_instructions(format: ToolCallProtocol) -> &'static str {
     match format {
-        ToolCallFormat::Xml => {
+        ToolCallProtocol::Xml => {
             r#"## Tool Usage Instructions
 
 When you need to use a tool, format your response as follows:
@@ -176,7 +176,7 @@ When you need to use a tool, format your response as follows:
 
 You can use multiple tools in one response by including multiple <tool_use> blocks."#
         }
-        ToolCallFormat::JsonWrapped => {
+        ToolCallProtocol::JsonWrapped => {
             r#"## Tool Usage Instructions
 
 When you need to use a tool, format your response as follows:
@@ -198,7 +198,7 @@ You can use multiple tools in one response by including multiple blocks."#
 }
 
 /// Render a single tool declaration.
-pub fn render_tool_declaration(tool: &Tool, format: ToolCallFormat, compact: bool) -> String {
+pub fn render_tool_declaration(tool: &Tool, format: ToolCallProtocol, compact: bool) -> String {
     let templates = get_tool_format_templates(format.clone(), compact);
 
     let parameters = render_parameters(tool, format.clone(), templates.parameter_template, compact);
@@ -213,7 +213,7 @@ pub fn render_tool_declaration(tool: &Tool, format: ToolCallFormat, compact: boo
 /// Render tool parameters.
 fn render_parameters(
     tool: &Tool,
-    _format: ToolCallFormat,
+    _format: ToolCallProtocol,
     parameter_template: &str,
     compact: bool,
 ) -> String {
@@ -255,7 +255,7 @@ fn render_parameters(
 /// Build the full tool list description to inject into system prompt.
 pub fn render_tool_list_description(
     tools: &[Tool],
-    format: ToolCallFormat,
+    format: ToolCallProtocol,
     compact: bool,
 ) -> String {
     let templates = get_tool_format_templates(format.clone(), compact);
@@ -273,7 +273,7 @@ pub fn render_tool_list_description(
 pub fn build_text_mode_system_content(
     existing_system: &str,
     tools: &[Tool],
-    format: ToolCallFormat,
+    format: ToolCallProtocol,
     compact: bool,
 ) -> String {
     let instructions = get_tool_usage_instructions(format.clone());
@@ -355,10 +355,10 @@ mod tests {
     #[test]
     fn template_sets_per_format() {
         for (format, expected_list) in [
-            (ToolCallFormat::Native, "Available Tools:"),
-            (ToolCallFormat::Xml, "## Available Tools"),
-            (ToolCallFormat::JsonWrapped, "## Available Tools"),
-            (ToolCallFormat::JsonRaw, "Available Tools:"),
+            (ToolCallProtocol::Native, "Available Tools:"),
+            (ToolCallProtocol::Xml, "## Available Tools"),
+            (ToolCallProtocol::JsonWrapped, "## Available Tools"),
+            (ToolCallProtocol::JsonRaw, "Available Tools:"),
         ] {
             let templates = get_tool_format_templates(format.clone(), false);
             assert!(
@@ -366,11 +366,11 @@ mod tests {
                 "format {format:?}"
             );
         }
-        let compact = get_tool_format_templates(ToolCallFormat::JsonRaw, true);
+        let compact = get_tool_format_templates(ToolCallProtocol::JsonRaw, true);
         assert!(compact.list_template.starts_with("Available tools:"));
         assert!(compact.single_template.starts_with("{name}:"));
         // Compact only affects JsonRaw; the others keep the full templates.
-        assert!(get_tool_format_templates(ToolCallFormat::Xml, true)
+        assert!(get_tool_format_templates(ToolCallProtocol::Xml, true)
             .list_template
             .contains("## Available Tools"));
     }
@@ -381,24 +381,24 @@ mod tests {
             start: Some("<<<START>>>".to_string()),
             end: Some("<<<END>>>".to_string()),
         };
-        let opts = get_tool_call_parser_options(ToolCallFormat::JsonWrapped, Some(&markers));
+        let opts = get_tool_call_parser_options(ToolCallProtocol::JsonWrapped, Some(&markers));
         assert!(matches!(opts.preferred_formats[0], ParseFormat::Json));
         assert_eq!(opts.markers.unwrap().start.as_deref(), Some("<<<START>>>"));
         assert!(matches!(
-            get_tool_call_parser_options(ToolCallFormat::Native, None).preferred_formats[0],
+            get_tool_call_parser_options(ToolCallProtocol::Native, None).preferred_formats[0],
             ParseFormat::Raw
         ));
         assert!(matches!(
-            get_tool_call_parser_options(ToolCallFormat::Xml, None).preferred_formats[0],
+            get_tool_call_parser_options(ToolCallProtocol::Xml, None).preferred_formats[0],
             ParseFormat::Xml
         ));
         assert!(matches!(
-            get_tool_call_parser_options(ToolCallFormat::JsonRaw, None).preferred_formats[0],
+            get_tool_call_parser_options(ToolCallProtocol::JsonRaw, None).preferred_formats[0],
             ParseFormat::Raw
         ));
         // Native format keeps default (no custom markers).
         assert!(
-            get_tool_call_parser_options(ToolCallFormat::Native, Some(&markers))
+            get_tool_call_parser_options(ToolCallProtocol::Native, Some(&markers))
                 .markers
                 .is_none()
         );
@@ -406,19 +406,19 @@ mod tests {
 
     #[test]
     fn format_classification_helpers() {
-        assert!(requires_prompt_tool_descriptions(ToolCallFormat::Xml));
+        assert!(requires_prompt_tool_descriptions(ToolCallProtocol::Xml));
         assert!(requires_prompt_tool_descriptions(
-            ToolCallFormat::JsonWrapped
+            ToolCallProtocol::JsonWrapped
         ));
-        assert!(requires_prompt_tool_descriptions(ToolCallFormat::JsonRaw));
-        assert!(!requires_prompt_tool_descriptions(ToolCallFormat::Native));
+        assert!(requires_prompt_tool_descriptions(ToolCallProtocol::JsonRaw));
+        assert!(!requires_prompt_tool_descriptions(ToolCallProtocol::Native));
 
         assert!(!is_text_based_tool_mode(None));
-        assert!(!is_text_based_tool_mode(Some(ToolCallFormat::Native)));
+        assert!(!is_text_based_tool_mode(Some(ToolCallProtocol::Native)));
         for f in [
-            ToolCallFormat::Xml,
-            ToolCallFormat::JsonWrapped,
-            ToolCallFormat::JsonRaw,
+            ToolCallProtocol::Xml,
+            ToolCallProtocol::JsonWrapped,
+            ToolCallProtocol::JsonRaw,
         ] {
             assert!(is_text_based_tool_mode(Some(f)));
         }
@@ -426,18 +426,18 @@ mod tests {
 
     #[test]
     fn usage_instructions_only_for_text_formats() {
-        assert!(get_tool_usage_instructions(ToolCallFormat::Xml).contains("<tool_use>"));
-        assert!(get_tool_usage_instructions(ToolCallFormat::JsonWrapped).contains("TOOL_CALL"));
-        assert_eq!(get_tool_usage_instructions(ToolCallFormat::Native), "");
-        assert_eq!(get_tool_usage_instructions(ToolCallFormat::JsonRaw), "");
+        assert!(get_tool_usage_instructions(ToolCallProtocol::Xml).contains("<tool_use>"));
+        assert!(get_tool_usage_instructions(ToolCallProtocol::JsonWrapped).contains("TOOL_CALL"));
+        assert_eq!(get_tool_usage_instructions(ToolCallProtocol::Native), "");
+        assert_eq!(get_tool_usage_instructions(ToolCallProtocol::JsonRaw), "");
     }
 
     #[test]
     fn xml_list_template_matches_usage_instructions() {
-        let list = get_tool_format_templates(ToolCallFormat::Xml, false)
+        let list = get_tool_format_templates(ToolCallProtocol::Xml, false)
             .list_template
             .to_string();
-        let instructions = get_tool_usage_instructions(ToolCallFormat::Xml);
+        let instructions = get_tool_usage_instructions(ToolCallProtocol::Xml);
 
         for text in [list, instructions.to_string()] {
             assert!(
@@ -462,13 +462,13 @@ mod tests {
     #[test]
     fn renders_declaration_and_list() {
         let t = tool("search", "Search the web");
-        let decl = render_tool_declaration(&t, ToolCallFormat::Xml, false);
+        let decl = render_tool_declaration(&t, ToolCallProtocol::Xml, false);
         assert!(decl.contains("<tool name=\"search\">"));
         assert!(decl.contains("Search the web"));
         assert!(decl.contains("query (string) [required]: search query"));
         assert!(decl.contains("limit (integer): max results"));
 
-        let list = render_tool_list_description(&[t], ToolCallFormat::Xml, false);
+        let list = render_tool_list_description(&[t], ToolCallProtocol::Xml, false);
         assert!(list.contains("## Available Tools"));
         assert!(list.contains("<tool name=\"search\">"));
     }
@@ -476,16 +476,16 @@ mod tests {
     #[test]
     fn renders_compact_json_raw_with_json_schema() {
         let t = tool("search", "Search the web");
-        let decl = render_tool_declaration(&t, ToolCallFormat::JsonRaw, true);
+        let decl = render_tool_declaration(&t, ToolCallProtocol::JsonRaw, true);
         assert!(decl.contains("search: Search the web"));
-        let list = render_tool_list_description(&[t], ToolCallFormat::JsonRaw, true);
+        let list = render_tool_list_description(&[t], ToolCallProtocol::JsonRaw, true);
         assert!(list.contains("Available tools:"));
     }
 
     #[test]
     fn compact_json_schema_includes_additional_properties_constraint() {
         let t = tool("search", "Search the web");
-        let decl = render_tool_declaration(&t, ToolCallFormat::JsonRaw, true);
+        let decl = render_tool_declaration(&t, ToolCallProtocol::JsonRaw, true);
         assert!(
             decl.contains("additionalProperties"),
             "compact mode dumps the full schema which must carry additionalProperties"
@@ -506,7 +506,7 @@ mod tests {
             strict: None,
             default_timeout_ms: None,
         };
-        let decl = render_tool_declaration(&t, ToolCallFormat::Xml, false);
+        let decl = render_tool_declaration(&t, ToolCallProtocol::Xml, false);
         assert!(decl.contains("<tool name=\"noop\">"));
         assert!(!decl.contains("[required]"));
     }
@@ -515,7 +515,7 @@ mod tests {
     fn build_text_mode_system_content_composes_parts() {
         let tools = vec![tool("search", "Search the web")];
         let content =
-            build_text_mode_system_content("You are helpful", &tools, ToolCallFormat::Xml, false);
+            build_text_mode_system_content("You are helpful", &tools, ToolCallProtocol::Xml, false);
         assert!(content.contains("You are helpful"));
         assert!(content.contains("## Tool Usage Instructions"));
         assert!(content.contains("<tool name=\"search\">"));
@@ -525,12 +525,12 @@ mod tests {
         );
 
         // Empty system message: no leading empty part.
-        let no_system = build_text_mode_system_content("", &tools, ToolCallFormat::Xml, false);
+        let no_system = build_text_mode_system_content("", &tools, ToolCallProtocol::Xml, false);
         assert!(!no_system.contains("You are helpful"));
 
         // Native format: no usage instructions; the tools section header is
         // still appended even for an empty tool list.
-        let native = build_text_mode_system_content("hello", &[], ToolCallFormat::Native, false);
+        let native = build_text_mode_system_content("hello", &[], ToolCallProtocol::Native, false);
         assert!(native.contains("hello"));
         assert!(native.contains("Available Tools:"));
         assert!(!native.contains("## Tool Usage Instructions"));

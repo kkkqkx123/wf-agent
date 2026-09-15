@@ -28,10 +28,10 @@ pub enum LlmError {
     #[error("Profile not found: {0}")]
     ProfileNotFound(String),
 
-    #[error("Unsupported provider: {0:?}")]
-    UnsupportedProvider(wf_types::llm::LlmProvider),
+    #[error("Unsupported format: {0:?}")]
+    UnsupportedFormat(wf_types::llm::LlmFormat),
 
-    #[error("Formatter not registered for provider: {0}")]
+    #[error("Formatter not registered for format: {0}")]
     FormatterNotFound(String),
 
     #[error("Request timed out after {0}ms")]
@@ -63,7 +63,7 @@ impl LlmError {
             | LlmError::SerializationError(_)
             | LlmError::ConfigError(_)
             | LlmError::ProfileNotFound(_)
-            | LlmError::UnsupportedProvider(_)
+            | LlmError::UnsupportedFormat(_)
             | LlmError::FormatterNotFound(_)
             | LlmError::AuthError(_)
             | LlmError::ToolNotFound(_)
@@ -73,8 +73,8 @@ impl LlmError {
     }
 
     /// Classify an error as a context-length-exceeded rejection of the
-    /// *actual* request payload. Matches the provider error codes across the
-    /// supported providers (anthropic `context_length_exceeded`, openai
+    /// *actual* request payload. Matches the format error codes across the
+    /// supported formats (anthropic `context_length_exceeded`, openai
     /// `context_length_exceeded` / "maximum context length").
     pub fn is_context_length_exceeded(&self) -> bool {
         fn matches(msg: &str) -> bool {
@@ -96,7 +96,7 @@ pub type LlmResult<T> = Result<T, LlmError>;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wf_types::llm::LlmProvider;
+    use wf_types::llm::LlmFormat;
 
     async fn http_err() -> reqwest::Error {
         // A real reqwest error from an impossible request (port 1, no HTTP).
@@ -143,7 +143,7 @@ mod tests {
             ),
             LlmError::ConfigError("bad".to_string()),
             LlmError::ProfileNotFound("p".to_string()),
-            LlmError::UnsupportedProvider(LlmProvider::Custom("x".to_string())),
+            LlmError::UnsupportedFormat(LlmFormat::Custom("x".to_string())),
             LlmError::FormatterNotFound("x".to_string()),
             LlmError::AuthError("denied".to_string()),
             LlmError::ToolNotFound("t".to_string()),

@@ -863,8 +863,8 @@ impl AgentLoopCoordinator {
             }
         }
 
-        if let Some(ref format) = config.tool_call_format {
-            entity = entity.with_tool_call_format(format.clone());
+        if let Some(ref format) = config.tool_call_protocol {
+            entity = entity.with_tool_call_protocol(format.clone());
         }
 
         if let Some(duration) = self.max_pause_duration {

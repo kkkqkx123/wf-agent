@@ -18,7 +18,7 @@ use wf_tools::callback::{AgentLoopConfig, AgentLoopInput, HookConfig};
 use wf_types::agent::{
     AgentConfig, AgentDefinition, AgentHookConfig, AgentHookType, AgentMetadata,
 };
-use wf_types::llm::tool_call_format::ToolCallFormatConfig;
+use wf_types::llm::tool_call_protocol::ToolCallProtocolConfig;
 use wf_types::tool::AvailableTools;
 
 use crate::agent::agent_execution::RunAgentLoopParams;
@@ -471,7 +471,7 @@ fn empty_agent_config() -> AgentConfig {
         initial_messages: None,
         available_tools: None,
         stream: None,
-        tool_call_format: None,
+        tool_call_protocol: None,
         hooks: None,
         dynamic_context: None,
         checkpoint: None,
@@ -523,7 +523,7 @@ pub struct AgentLoopConfigBuilder<S> {
     discoverable_tool_names: Vec<String>,
     enable_general_tool: Option<bool>,
     hidden_tool_names: Vec<String>,
-    tool_call_format: Option<wf_types::llm::tool_call_format::ToolCallFormatConfig>,
+    tool_call_protocol: Option<wf_types::llm::tool_call_protocol::ToolCallProtocolConfig>,
     token_limit: Option<u64>,
     token_warning_threshold: Option<u32>,
     enable_token_tracking: Option<bool>,
@@ -545,7 +545,7 @@ impl AgentLoopConfigBuilder<LoopEmpty> {
             discoverable_tool_names: Vec::new(),
             enable_general_tool: None,
             hidden_tool_names: Vec::new(),
-            tool_call_format: None,
+            tool_call_protocol: None,
             token_limit: None,
             token_warning_threshold: None,
             enable_token_tracking: None,
@@ -568,7 +568,7 @@ impl AgentLoopConfigBuilder<LoopEmpty> {
             discoverable_tool_names: self.discoverable_tool_names,
             enable_general_tool: self.enable_general_tool,
             hidden_tool_names: self.hidden_tool_names,
-            tool_call_format: self.tool_call_format,
+            tool_call_protocol: self.tool_call_protocol,
             token_limit: self.token_limit,
             token_warning_threshold: self.token_warning_threshold,
             enable_token_tracking: self.enable_token_tracking,
@@ -631,8 +631,8 @@ impl<S> AgentLoopConfigBuilder<S> {
     /// control the discoverable tool metadata verbosity injected into the
     /// prompt (Brief keeps the compact shape, Detailed attaches parameter
     /// descriptions).
-    pub fn tool_call_format(mut self, config: ToolCallFormatConfig) -> Self {
-        self.tool_call_format = Some(config);
+    pub fn tool_call_protocol(mut self, config: ToolCallProtocolConfig) -> Self {
+        self.tool_call_protocol = Some(config);
         self
     }
 
@@ -665,7 +665,7 @@ impl AgentLoopConfigBuilder<LoopConfigured> {
             enable_general_tool: self.enable_general_tool,
             activated_tool_names: Vec::new(),
             hidden_tool_names: self.hidden_tool_names,
-            tool_call_format: self.tool_call_format,
+            tool_call_protocol: self.tool_call_protocol,
             token_limit: self.token_limit,
             token_warning_threshold: self.token_warning_threshold,
             enable_token_tracking: self.enable_token_tracking,
@@ -886,11 +886,11 @@ mod tests {
     }
 
     #[test]
-    fn loop_config_builder_carries_tool_call_format_config() {
+    fn loop_config_builder_carries_tool_call_protocol_config() {
         let config = AgentLoopConfigBuilder::new("agent-1")
             .model("mock")
-            .tool_call_format(ToolCallFormatConfig {
-                format: wf_types::llm::ToolCallFormat::Xml,
+            .tool_call_protocol(ToolCallProtocolConfig {
+                format: wf_types::llm::ToolCallProtocol::Xml,
                 markers: None,
                 xml_tags: None,
                 include_description: Some(false),
@@ -900,8 +900,8 @@ mod tests {
                 additional_config: None,
             })
             .build();
-        let format = config.tool_call_format.expect("config must flow through");
-        assert_eq!(format.format, wf_types::llm::ToolCallFormat::Xml);
+        let format = config.tool_call_protocol.expect("config must flow through");
+        assert_eq!(format.format, wf_types::llm::ToolCallProtocol::Xml);
         assert_eq!(format.include_description, Some(false));
         assert_eq!(format.description_style.as_deref(), Some("detailed"));
     }

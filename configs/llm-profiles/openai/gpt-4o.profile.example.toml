@@ -1,36 +1,36 @@
 # LLM Profile: GPT-4o (OpenAI)
 #
 # Schema:  wf_types::llm::profile::LlmProfile
-# Provider: LlmProvider::OPENAI_CHAT
+# Format: LlmFormat::OPENAI_CHAT
 #
-# Provider enum values: OPENAI_CHAT | OPENAI_RESPONSE | ANTHROPIC | GEMINI_NATIVE | GEMINI_OPENAI | Custom(String)
+# Format values: OPENAI_CHAT | OPENAI_RESPONSE | ANTHROPIC | GEMINI_NATIVE | Custom(String)
 #
 # Generation params live under [generation] (typed, validated, mapped per
 # provider). The legacy [parameters] table still works as a passthrough for
-# provider-specific keys (e.g. logit_bias, logprobs).
+# format-specific keys (e.g. logit_bias, logprobs).
 
 id = "gpt-4o"
 name = "GPT-4o"
-provider = "OPENAI_CHAT"
+format = "OPENAI_CHAT"
 model = "gpt-4o"
-apiKey = "${OPENAI_API_KEY}"
-baseUrl = "https://api.openai.com/v1"
+api_key = "${OPENAI_API_KEY}"
+base_url = "https://api.openai.com/v1"
 
 # Authentication type for the HTTP client.
 # Options: "native" (provider-specific), "bearer", "basic", "header", "custom"
-authType = "native"
+auth_type = "native"
 
 # Format to use for tool call serialization.
 # Options: "json_wrapped" (default) | "json_unwrapped" | "json_schema" | "strict_json_schema" | "native"
-[toolCallFormat]
+[tool_call_protocol]
 format = "json_wrapped"
 
 # Model's maximum input context window (tokens).
-contextWindowSize = 128000
+context_window_size = 128000
 
 timeout = 30000
-maxRetries = 2
-retryDelay = 5000
+max_retries = 2
+retry_delay = 5000
 
 [generation]
 temperature = 0.5
@@ -40,8 +40,8 @@ max_tokens = 12800
 # tool_choice = { mode = "auto" }
 # parallel_tool_calls = true
 
-[streamOptions]
-includeUsage = true
+[stream_options]
+include_usage = true
 
 [metadata]
 tags = ["openai", "gpt-4o", "fast", "cheap"]

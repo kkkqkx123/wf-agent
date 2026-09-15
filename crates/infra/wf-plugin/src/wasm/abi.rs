@@ -1,9 +1,10 @@
 use serde_json::Value;
-use wasmtime::{Memory, Store};
+use wasmtime::{Engine, Memory, Store};
 
-use wf_plugin_sdk::wasm::{export, WasmContributionDecl, WasmHookInput};
+use wf_plugin_sdk::wasm::{export, WasmContributionDecl, WasmHookInput, WF_WASM_ABI_VERSION};
 
-use super::pool::WasmStoreState;
+use super::policy::WasmLimits;
+use super::pool::{outer_timeout_ms, PooledSession, WasmStoreState};
 use crate::error::{PluginError, PluginResult};
 
 pub use export::*;
@@ -79,11 +80,83 @@ pub fn decode_decl(bytes: &[u8]) -> PluginResult<WasmContributionDecl> {
 
 /// Map a guest hook status code to a host result.
 pub fn check_hook_status(export_name: &str, plugin_id: &str, code: u32) -> PluginResult<()> {
+    check_hook_status_with_detail(export_name, plugin_id, code, None)
+}
+
+/// Map a guest hook status code plus an optional guest-provided detail
+/// string (from the `wf_last_error` export) to a host result.
+pub fn check_hook_status_with_detail(
+    export_name: &str,
+    plugin_id: &str,
+    code: u32,
+    detail: Option<&str>,
+) -> PluginResult<()> {
     if code == 0 {
         Ok(())
     } else {
-        Err(PluginError::WasmError(format!(
-            "plugin '{plugin_id}' hook '{export_name}' returned {code}"
+        match detail {
+            Some(text) if !text.is_empty() => Err(PluginError::WasmError(format!(
+                "plugin '{plugin_id}' hook '{export_name}' failed with code {code}: {text}"
+            ))),
+            _ => Err(PluginError::WasmError(format!(
+                "plugin '{plugin_id}' hook '{export_name}' failed with code {code}"
+            ))),
+        }
+    }
+}
+
+/// Negotiate the core-module ABI version with one live session.
+///
+/// Guests may export `wf_abi_version() -> u32`; when absent version 1 is
+/// assumed for backward compatibility. A present but wrongly-typed export
+/// or a version other than the host's is a loud load failure so an
+/// upgraded guest never silently misbehaves.
+pub async fn negotiate_abi_version(
+    session: &mut PooledSession,
+    engine: &Engine,
+    plugin_id: &str,
+    limits: &WasmLimits,
+) -> PluginResult<()> {
+    if session
+        .instance
+        .get_func(&mut session.store, export::ABI_VERSION)
+        .is_none()
+    {
+        tracing::debug!(
+            "wasm plugin '{plugin_id}' has no '{}' export; assuming ABI version {WF_WASM_ABI_VERSION}",
+            export::ABI_VERSION
+        );
+        return Ok(());
+    }
+    let version_fn = session
+        .instance
+        .get_typed_func::<(), u32>(&mut session.store, export::ABI_VERSION)
+        .map_err(|e| {
+            PluginError::LoadFailed(format!(
+                "plugin '{plugin_id}' export '{}' has an unexpected signature: {e}",
+                export::ABI_VERSION
+            ))
+        })?;
+    super::pool::arm_epoch(engine, &mut session.store, limits.call_timeout_ms);
+    let call = version_fn.call_async(&mut session.store, ());
+    let version = match outer_timeout_ms(limits.call_timeout_ms) {
+        Some(ms) => tokio::time::timeout(std::time::Duration::from_millis(ms), call)
+            .await
+            .map_err(|_| PluginError::Timeout {
+                plugin_id: plugin_id.to_owned(),
+            })?
+            .map_err(|e| {
+                super::pool::wasm_err(&format!("plugin '{plugin_id}' abi version probe failed"), e)
+            })?,
+        None => call.await.map_err(|e| {
+            super::pool::wasm_err(&format!("plugin '{plugin_id}' abi version probe failed"), e)
+        })?,
+    };
+    if version == WF_WASM_ABI_VERSION {
+        Ok(())
+    } else {
+        Err(PluginError::LoadFailed(format!(
+            "plugin '{plugin_id}' uses incompatible abi version {version}, host expects {WF_WASM_ABI_VERSION}"
         )))
     }
 }
@@ -103,6 +176,22 @@ mod tests {
     fn hook_status_zero_is_success() {
         assert!(check_hook_status("wf_on_load", "p", 0).is_ok());
         assert!(check_hook_status("wf_on_load", "p", 1).is_err());
+    }
+
+    #[test]
+    fn hook_status_detail_carries_code_and_text() {
+        let err = check_hook_status_with_detail("wf_on_load", "p", 7, None).expect_err("fails");
+        let text = err.to_string();
+        assert!(text.contains("code 7"), "got: {text}");
+        assert!(!text.contains("bad config"));
+
+        let err = check_hook_status_with_detail("wf_on_load", "p", 7, Some("bad config"))
+            .expect_err("fails");
+        let text = err.to_string();
+        assert!(text.contains("code 7"), "got: {text}");
+        assert!(text.contains("bad config"), "got: {text}");
+
+        assert!(check_hook_status_with_detail("wf_on_load", "p", 0, Some("stale")).is_ok());
     }
 
     #[test]

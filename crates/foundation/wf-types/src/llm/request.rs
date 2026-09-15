@@ -42,9 +42,9 @@ pub struct LlmRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tools: Option<Vec<super::super::tool::Tool>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub tool_call_format: Option<super::ToolCallFormat>,
+    pub tool_call_protocol: Option<super::ToolCallProtocol>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub locked_tool_call_format: Option<super::tool_call_format::ToolCallFormatConfig>,
+    pub locked_tool_call_protocol: Option<super::tool_call_protocol::ToolCallProtocolConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub violation_policy: Option<ToolCallProtocolViolationPolicy>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -53,7 +53,7 @@ pub struct LlmRequest {
     pub stream: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dead_loop_detection: Option<DeadLoopDetectionConfig>,
-    /// Set by the gateway when a locked tool call format conflict was resolved
+    /// Set by the gateway when a locked tool call protocol conflict was resolved
     /// via the `auto_convert` policy; observed by formatters for observability.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub protocol_auto_converted: Option<bool>,

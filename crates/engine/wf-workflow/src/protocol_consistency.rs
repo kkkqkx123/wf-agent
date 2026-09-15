@@ -2,24 +2,24 @@ use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 
 use wf_llm::ProfileManager;
-use wf_types::llm::ToolCallFormat;
+use wf_types::llm::ToolCallProtocol;
 use wf_types::workflow_execution::WorkflowGraphStructure;
 use wf_types::ValidationError;
 
 /// Extract the explicit tool call format from a node config:
-/// - LLM nodes: top-level `tool_call_format` string
-/// - AGENT_LOOP nodes: `inline_definition.config.tool_call_format` string
+/// - LLM nodes: top-level `tool_call_protocol` string
+/// - AGENT_LOOP nodes: `inline_definition.config.tool_call_protocol` string
 ///
 /// Returns `None` when the node declares no explicit format (the profile /
 /// provider default then applies) or the value is not a canonical string.
-fn node_tool_call_format(node: &wf_types::workflow_execution::WorkflowNode) -> Option<String> {
+fn node_tool_call_protocol(node: &wf_types::workflow_execution::WorkflowNode) -> Option<String> {
     let inner = match node.node_type.as_str() {
-        "LLM" => node.inner.get("tool_call_format"),
+        "LLM" => node.inner.get("tool_call_protocol"),
         "AGENT_LOOP" => node
             .inner
             .get("inline_definition")
             .and_then(|v| v.get("config"))
-            .and_then(|v| v.get("tool_call_format")),
+            .and_then(|v| v.get("tool_call_protocol")),
         _ => return None,
     };
     inner
@@ -45,7 +45,7 @@ fn node_profile_id(node: &wf_types::workflow_execution::WorkflowNode) -> Option<
 
 /// Validate tool call protocol consistency across all LLM and AGENT_LOOP
 /// nodes in the graph:
-/// - explicit `tool_call_format` values must be recognized
+/// - explicit `tool_call_protocol` values must be recognized
 /// - all nodes that declare a format must agree on the same protocol
 pub fn validate_protocol_consistency(graph: &WorkflowGraphStructure) -> Vec<ValidationError> {
     validate_protocol_consistency_with(graph, None)
@@ -59,26 +59,26 @@ pub fn validate_protocol_consistency_with(
     profiles: Option<&ProfileManager>,
 ) -> Vec<ValidationError> {
     let mut errors = Vec::new();
-    let mut declared_formats: HashSet<ToolCallFormat> = HashSet::new();
+    let mut declared_formats: HashSet<ToolCallProtocol> = HashSet::new();
 
     for node in &graph.nodes {
-        let Some(format) = node_tool_call_format(node) else {
+        let Some(format) = node_tool_call_protocol(node) else {
             continue;
         };
 
-        match ToolCallFormat::from_str(&format) {
+        match ToolCallProtocol::from_str(&format) {
             Ok(parsed) => {
                 declared_formats.insert(parsed);
             }
             Err(_) => {
                 errors.push(ValidationError::new(
-                    format!("nodes.{}.config.tool_call_format", node.id),
+                    format!("nodes.{}.config.tool_call_protocol", node.id),
                     format!(
-                        "Node '{}' ({}) has unsupported tool_call_format '{}', expected one of {}",
+                        "Node '{}' ({}) has unsupported tool_call_protocol '{}', expected one of {}",
                         node.id,
                         node.node_type,
                         format,
-                        ToolCallFormat::ALL
+                        ToolCallProtocol::ALL
                             .iter()
                             .map(ToString::to_string)
                             .collect::<Vec<_>>()
@@ -152,7 +152,7 @@ fn validate_node_profile_compatibility(
             continue;
         };
         let Some(node_format) =
-            node_tool_call_format(node).and_then(|f| ToolCallFormat::from_str(&f).ok())
+            node_tool_call_protocol(node).and_then(|f| ToolCallProtocol::from_str(&f).ok())
         else {
             continue;
         };
@@ -161,7 +161,7 @@ fn validate_node_profile_compatibility(
             continue;
         };
         let Some(profile_format) = profile
-            .tool_call_format
+            .tool_call_protocol
             .as_ref()
             .map(|config| config.format.clone())
         else {
@@ -170,7 +170,7 @@ fn validate_node_profile_compatibility(
 
         if node_format != profile_format && !node_format.is_compatible_with(&profile_format) {
             errors.push(ValidationError::new(
-                format!("nodes.{}.config.tool_call_format", node.id),
+                format!("nodes.{}.config.tool_call_protocol", node.id),
                 format!(
                     "Node '{}' tool call format \"{}\" is incompatible with profile '{}' format \"{}\"",
                     node.id, node_format, profile_id, profile_format
@@ -207,7 +207,7 @@ mod tests {
                     "name": id,
                     "config": {
                         "profile_id": "mock",
-                        "tool_call_format": format,
+                        "tool_call_protocol": format,
                     }
                 }
             }),
@@ -229,7 +229,8 @@ mod tests {
         wf_types::llm::LlmProfile {
             id: id.to_string(),
             name: id.to_string(),
-            provider: wf_types::llm::LlmProvider::OpenaiChat,
+            format: wf_types::llm::LlmFormat::OpenaiChat,
+            provider_id: None,
             model: "mock-model".to_string(),
             api_key: None,
             base_url: None,
@@ -240,8 +241,8 @@ mod tests {
             retry_delay: None,
             headers: None,
             metadata: None,
-            tool_call_format: format
-                .map(|f| wf_types::llm::ToolCallFormatConfig::from_format_str(f).unwrap()),
+            tool_call_protocol: format
+                .map(|f| wf_types::llm::ToolCallProtocolConfig::from_protocol_str(f).unwrap()),
             auth_type: None,
             custom_headers: None,
             custom_body: None,
@@ -266,7 +267,7 @@ mod tests {
             node(
                 "l1",
                 "LLM",
-                serde_json::json!({"tool_call_format": "native"}),
+                serde_json::json!({"tool_call_protocol": "native"}),
             ),
             agent_loop_node("a1", "native"),
         ]);
@@ -274,15 +275,15 @@ mod tests {
     }
 
     #[test]
-    fn object_tool_call_format_is_not_canonical() {
+    fn object_tool_call_protocol_is_not_canonical() {
         let g = graph_with(vec![node(
             "l1",
             "LLM",
-            serde_json::json!({"toolCallFormat": {"format": "native"}}),
+            serde_json::json!({"toolCallProtocol": {"format": "native"}}),
         )]);
         assert!(
             validate_protocol_consistency(&g).is_empty(),
-            "non-canonical toolCallFormat object must be ignored"
+            "non-canonical toolCallProtocol object must be ignored"
         );
     }
 
@@ -291,11 +292,11 @@ mod tests {
         let g = graph_with(vec![node(
             "a1",
             "AGENT_LOOP",
-            serde_json::json!({"tool_call_format": "xml"}),
+            serde_json::json!({"tool_call_protocol": "xml"}),
         )]);
         assert!(
             validate_protocol_consistency(&g).is_empty(),
-            "AGENT_LOOP tool_call_format lives in inline_definition.config"
+            "AGENT_LOOP tool_call_protocol lives in inline_definition.config"
         );
     }
 
@@ -305,7 +306,7 @@ mod tests {
             node(
                 "l1",
                 "LLM",
-                serde_json::json!({"tool_call_format": "native"}),
+                serde_json::json!({"tool_call_protocol": "native"}),
             ),
             agent_loop_node("a1", "xml"),
         ]);
@@ -319,7 +320,7 @@ mod tests {
         let g = graph_with(vec![node(
             "l1",
             "LLM",
-            serde_json::json!({"tool_call_format": "yaml"}),
+            serde_json::json!({"tool_call_protocol": "yaml"}),
         )]);
         let errors = validate_protocol_consistency(&g);
         assert_eq!(errors.len(), 1);
@@ -391,7 +392,7 @@ mod tests {
         let g = graph_with(vec![node(
             "l1",
             "LLM",
-            serde_json::json!({"profile_id": "xml-profile", "tool_call_format": "native"}),
+            serde_json::json!({"profile_id": "xml-profile", "tool_call_protocol": "native"}),
         )]);
         let errors = validate_protocol_consistency_with(&g, Some(&reg));
         assert_eq!(errors.len(), 1);
@@ -401,7 +402,7 @@ mod tests {
         let g = graph_with(vec![node(
             "l1",
             "LLM",
-            serde_json::json!({"profile_id": "xml-profile", "tool_call_format": "xml"}),
+            serde_json::json!({"profile_id": "xml-profile", "tool_call_protocol": "xml"}),
         )]);
         assert!(validate_protocol_consistency_with(&g, Some(&reg)).is_empty());
     }
@@ -412,7 +413,7 @@ mod tests {
         let g = graph_with(vec![node(
             "l1",
             "LLM",
-            serde_json::json!({"profile_id": "json-profile", "tool_call_format": "json_raw"}),
+            serde_json::json!({"profile_id": "json-profile", "tool_call_protocol": "json_raw"}),
         )]);
         assert!(validate_protocol_consistency_with(&g, Some(&reg)).is_empty());
     }

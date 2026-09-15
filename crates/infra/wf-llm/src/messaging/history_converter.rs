@@ -1,4 +1,4 @@
-use wf_types::llm::{ToolCallFormat, ToolCallMarkers};
+use wf_types::llm::{ToolCallMarkers, ToolCallProtocol};
 use wf_types::message::{LlmToolCall, Message, MessageContent, MessageContentValue, MessageRole};
 
 /// Default XML tags used for text-mode tool call/result rendering.
@@ -18,13 +18,13 @@ const DEFAULT_JSON_END: &str = "<<<END_TOOL_CALL>>>";
 ///   content and the `tool_calls` field dropped
 /// - tool-result messages become user messages with the result rendered as text
 ///
-/// Returns messages unchanged for `ToolCallFormat::Native`.
+/// Returns messages unchanged for `ToolCallProtocol::Native`.
 pub fn convert_to_text_mode(
     messages: &[Message],
-    format: &ToolCallFormat,
+    format: &ToolCallProtocol,
     markers: Option<&ToolCallMarkers>,
 ) -> Vec<Message> {
-    if *format == ToolCallFormat::Native {
+    if *format == ToolCallProtocol::Native {
         return messages.to_vec();
     }
 
@@ -50,7 +50,7 @@ pub fn convert_to_text_mode(
 /// Convert an assistant message with tool calls into a text-only message.
 pub fn convert_assistant_message(
     message: &Message,
-    format: &ToolCallFormat,
+    format: &ToolCallProtocol,
     markers: Option<&ToolCallMarkers>,
 ) -> Message {
     let mut converted = message.clone();
@@ -70,7 +70,7 @@ pub fn convert_assistant_message(
 /// Convert a tool-result message into a text-mode user message.
 pub fn convert_tool_result_message(
     message: &Message,
-    format: &ToolCallFormat,
+    format: &ToolCallProtocol,
     markers: Option<&ToolCallMarkers>,
 ) -> Message {
     let mut converted = message.clone();
@@ -103,11 +103,11 @@ fn extract_text(message: &Message) -> String {
 /// Render tool calls into the text representation of the given format.
 pub fn render_tool_calls(
     calls: &[LlmToolCall],
-    format: &ToolCallFormat,
+    format: &ToolCallProtocol,
     markers: Option<&ToolCallMarkers>,
 ) -> String {
     match format {
-        ToolCallFormat::Xml => calls
+        ToolCallProtocol::Xml => calls
             .iter()
             .map(|tc| {
                 format!(
@@ -117,7 +117,7 @@ pub fn render_tool_calls(
             })
             .collect::<Vec<_>>()
             .join("\n"),
-        ToolCallFormat::JsonWrapped | ToolCallFormat::JsonRaw => {
+        ToolCallProtocol::JsonWrapped | ToolCallProtocol::JsonRaw => {
             let start = markers
                 .and_then(|m| m.start.as_deref())
                 .unwrap_or(DEFAULT_JSON_START);
@@ -140,7 +140,7 @@ pub fn render_tool_calls(
                 .collect::<Vec<_>>()
                 .join("\n")
         }
-        ToolCallFormat::Native => String::new(),
+        ToolCallProtocol::Native => String::new(),
     }
 }
 
@@ -148,14 +148,14 @@ pub fn render_tool_calls(
 pub fn render_tool_result(
     tool_call_id: &str,
     output: &str,
-    format: &ToolCallFormat,
+    format: &ToolCallProtocol,
     markers: Option<&ToolCallMarkers>,
 ) -> String {
     match format {
-        ToolCallFormat::Xml => format!(
+        ToolCallProtocol::Xml => format!(
             "<{XML_TOOL_RESULT}>\n<{XML_TOOL_CALL_ID}>{tool_call_id}</{XML_TOOL_CALL_ID}>\n<{XML_TOOL_OUTPUT}>{output}</{XML_TOOL_OUTPUT}>\n</{XML_TOOL_RESULT}>"
         ),
-        ToolCallFormat::JsonWrapped | ToolCallFormat::JsonRaw => {
+        ToolCallProtocol::JsonWrapped | ToolCallProtocol::JsonRaw => {
             let start = markers
                 .and_then(|m| m.start.as_deref())
                 .unwrap_or(DEFAULT_JSON_START);
@@ -170,7 +170,7 @@ pub fn render_tool_result(
                 })
             )
         }
-        ToolCallFormat::Native => output.to_string(),
+        ToolCallProtocol::Native => output.to_string(),
     }
 }
 
@@ -221,7 +221,7 @@ mod tests {
             make_assistant_with_calls(vec![make_tool_call("c1", "get_weather", "{}")]),
             make_tool_result("c1", "sunny"),
         ];
-        let converted = convert_to_text_mode(&messages, &ToolCallFormat::Native, None);
+        let converted = convert_to_text_mode(&messages, &ToolCallProtocol::Native, None);
         assert_eq!(converted.len(), 2);
         assert!(converted[0].tool_calls.is_some(), "native keeps tool_calls");
     }
@@ -236,7 +236,7 @@ mod tests {
             )]),
             make_tool_result("c1", "sunny"),
         ];
-        let converted = convert_to_text_mode(&messages, &ToolCallFormat::Xml, None);
+        let converted = convert_to_text_mode(&messages, &ToolCallProtocol::Xml, None);
 
         let assistant = &converted[0];
         assert!(assistant.tool_calls.is_none(), "tool_calls dropped");
@@ -269,7 +269,7 @@ mod tests {
             make_assistant_with_calls(vec![make_tool_call("c1", "get_weather", "{}")]),
             make_tool_result("c1", "sunny"),
         ];
-        let converted = convert_to_text_mode(&messages, &ToolCallFormat::JsonWrapped, None);
+        let converted = convert_to_text_mode(&messages, &ToolCallProtocol::JsonWrapped, None);
 
         let MessageContentValue::Text(text) = &converted[0].content else {
             panic!("expected text");
@@ -304,7 +304,7 @@ mod tests {
     #[test]
     fn assistant_without_calls_is_untouched() {
         let messages = vec![make_msg(MessageRole::Assistant, "plain answer")];
-        let converted = convert_to_text_mode(&messages, &ToolCallFormat::Xml, None);
+        let converted = convert_to_text_mode(&messages, &ToolCallProtocol::Xml, None);
         assert_eq!(converted[0].content, messages[0].content);
         assert!(converted[0].tool_calls.is_none());
     }

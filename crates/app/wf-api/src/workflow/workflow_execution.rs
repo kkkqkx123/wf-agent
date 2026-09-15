@@ -17,8 +17,8 @@ use wf_storage::adapter::base::BaseStorageAdapter;
 use wf_tools::callback::WorkflowOutput;
 use wf_types::checkpoint::workflow::WorkflowExecutionStateSnapshot;
 use wf_types::checkpoint::{CheckpointTiming, CheckpointVariableState};
-use wf_types::execution::{ChildExecutionReference, ExecutionHierarchy, ExecutionType};
 use wf_types::enums::MiddlewarePhase;
+use wf_types::execution::{ChildExecutionReference, ExecutionHierarchy, ExecutionType};
 use wf_types::workflow_execution::{
     WorkflowEdge, WorkflowExecutionOptions, WorkflowGraphStructure, WorkflowNode,
 };

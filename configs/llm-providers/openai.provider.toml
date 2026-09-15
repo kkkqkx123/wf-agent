@@ -1,0 +1,22 @@
+# LLM Provider: OpenAI
+#
+# Schema: wf_types::llm::provider_definition::LlmProviderDefinition
+# Profiles reference this definition through `provider_id = "openai"`.
+# Explicit profile fields (base_url, auth_type, custom_headers) win over
+# the defaults below.
+
+id = "openai"
+name = "OpenAI"
+description = "OpenAI API with the OpenAI Chat format"
+base_url = "https://api.openai.com/v1"
+auth_type = "bearer"
+format = "OPENAI_CHAT"
+api_version = "v1"
+
+[model_discovery]
+kind = "models_endpoint"
+path = "models"
+json_path = "data[*].id"
+
+[metadata]
+tags = ["openai"]

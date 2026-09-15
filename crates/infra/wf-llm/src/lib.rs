@@ -10,8 +10,11 @@ pub mod message_stream;
 pub mod messaging;
 #[cfg(feature = "mock")]
 pub mod mock;
+pub mod model_catalog;
 pub mod partial_json_parser;
+pub mod plugin_codec;
 pub mod profile_manager;
+pub mod provider_registry;
 pub mod registry;
 pub mod token_count;
 pub mod token_estimation;
@@ -24,8 +27,8 @@ pub use client::LlmClient;
 pub use dead_loop_detector::{DeadLoopDetectionResult, DeadLoopDetector, DeadLoopDetectorConfig};
 pub use error::{LlmError, LlmResult};
 pub use formatters::{
-    create_formatter, AnthropicFormatter, GeminiNativeFormatter, GeminiOpenaiFormatter,
-    LlmFormatter, OpenaiChatFormatter, OpenaiResponseFormatter,
+    create_formatter, AnthropicFormatter, GeminiNativeFormatter, LlmFormatter, OpenaiChatFormatter,
+    OpenaiResponseFormatter,
 };
 pub use gateway::LlmGateway;
 pub use message_helper::extract_text_content;
@@ -44,8 +47,11 @@ pub use messaging::message_ops::{
 };
 #[cfg(feature = "mock")]
 pub use mock::{LlmResponseSpec, MockLlmClient, MockMessageStream};
+pub use model_catalog::{ModelCatalog, DEFAULT_MODELS_JSON_PATH, DEFAULT_MODELS_PATH};
 pub use partial_json_parser::{parse_partial_json, recover_partial_json, PartialParseResult};
+pub use plugin_codec::PluginCodecAdapter;
 pub use profile_manager::ProfileManager;
+pub use provider_registry::{apply_provider_defaults, ProviderDefinitionRegistry};
 pub use registry::FormatterRegistry;
 pub use token_count::{
     estimate_image_tokens, estimate_message_tokens, estimate_messages, estimate_request_tokens,

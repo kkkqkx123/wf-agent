@@ -4,7 +4,7 @@ use dashmap::DashMap;
 use wf_metrics::collectors::TokenMetricsCollector;
 use wf_types::llm::{
     LlmProfile, LlmRequest, LlmResult as LlmResponseType, MessageStreamEvent, StreamStats,
-    TokenUsageStats, ToolCallFormat, ToolCallProtocolViolationPolicy,
+    TokenUsageStats, ToolCallProtocol, ToolCallProtocolViolationPolicy,
     DEFAULT_TOOL_CALL_PROTOCOL_POLICY,
 };
 
@@ -12,7 +12,9 @@ use crate::client::LlmClient;
 use crate::client::LlmClientImpl;
 use crate::error::{LlmError, LlmResult};
 use crate::message_stream::MessageStream;
+use crate::model_catalog::ModelCatalog;
 use crate::profile_manager::ProfileManager;
+use crate::provider_registry::{apply_provider_defaults, ProviderDefinitionRegistry};
 use crate::registry::FormatterRegistry;
 
 /// Single facade for all LLM calls.
@@ -28,6 +30,8 @@ pub struct LlmGateway {
     clients: Arc<DashMap<String, Arc<LlmClientImpl>>>,
     profiles: ProfileManager,
     formatters: FormatterRegistry,
+    providers: ProviderDefinitionRegistry,
+    model_catalog: ModelCatalog,
     #[cfg(feature = "mock")]
     mock_clients: Arc<DashMap<String, Arc<crate::mock::MockLlmClient>>>,
     token_metrics: Option<TokenMetricsCollector>,
@@ -39,12 +43,14 @@ impl LlmGateway {
     }
 
     /// Create a gateway with a caller-provided formatter registry (custom
-    /// providers must be registered on the registry before first use).
+    /// formats must be registered on the registry before first use).
     pub fn new_with_formatter_registry(formatters: FormatterRegistry) -> Self {
         Self {
             clients: Arc::new(DashMap::new()),
             profiles: ProfileManager::new(),
             formatters,
+            providers: ProviderDefinitionRegistry::new(),
+            model_catalog: ModelCatalog::new(),
             #[cfg(feature = "mock")]
             mock_clients: Arc::new(DashMap::new()),
             token_metrics: None,
@@ -58,7 +64,32 @@ impl LlmGateway {
     }
 
     pub fn register_profile(&self, profile: LlmProfile) -> LlmResult<()> {
-        self.profiles.register(profile)
+        let effective = apply_provider_defaults(profile, &self.providers)?;
+        self.profiles.register(effective)
+    }
+
+    /// Register a provider definition. All cached clients are evicted so
+    /// profiles referencing the definition pick up the new defaults.
+    pub fn register_provider_definition(
+        &self,
+        definition: wf_types::llm::LlmProviderDefinition,
+    ) -> LlmResult<()> {
+        self.providers.register(definition)?;
+        self.clients.clear();
+        Ok(())
+    }
+
+    /// Remove a provider definition and evict all cached clients. Profiles
+    /// referencing the removed definition keep their merged snapshot.
+    pub fn remove_provider_definition(
+        &self,
+        id: &str,
+    ) -> Option<wf_types::llm::LlmProviderDefinition> {
+        let removed = self.providers.remove(id);
+        if removed.is_some() {
+            self.clients.clear();
+        }
+        removed
     }
 
     /// Register a mock client under an arbitrary id (a real profile id can be
@@ -78,10 +109,20 @@ impl LlmGateway {
         &self.profiles
     }
 
-    /// The formatter registry: register custom providers here before the
+    /// The formatter registry: register custom formats here before the
     /// first request that uses them.
     pub fn formatter_registry(&self) -> &FormatterRegistry {
         &self.formatters
+    }
+
+    /// The provider definition registry backing `LlmProfile::provider_id`.
+    pub fn provider_registry(&self) -> &ProviderDefinitionRegistry {
+        &self.providers
+    }
+
+    /// Off-hot-path model listing over a provider definition.
+    pub fn model_catalog(&self) -> &ModelCatalog {
+        &self.model_catalog
     }
 
     pub fn has_profile(&self, id: &str) -> bool {
@@ -99,9 +140,10 @@ impl LlmGateway {
         removed
     }
 
-    /// Clear all profiles and the client cache.
+    /// Clear all profiles, provider definitions and the client cache.
     pub fn clear_all(&self) {
         self.profiles.clear();
+        self.providers.clear();
         self.clients.clear();
     }
 
@@ -178,7 +220,7 @@ impl LlmGateway {
             return Ok(client.clone());
         }
 
-        let formatter = self.formatters.get_by_provider(&profile.provider)?;
+        let formatter = self.formatters.get_by_format(&profile.format)?;
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(
                 profile.timeout.unwrap_or(60),
@@ -193,21 +235,21 @@ impl LlmGateway {
 
     /// Single-point merge of profile defaults with request overrides:
     /// - `parameters`: request wins per key, profile fills the rest
-    /// - `tool_call_format`: request wins, otherwise the profile default
-    /// - `locked_tool_call_format`: always wins when present, governed by the
+    /// - `tool_call_protocol`: request wins, otherwise the profile default
+    /// - `locked_tool_call_protocol`: always wins when present, governed by the
     ///   violation policy (fail / warn / auto-convert / ignore)
     fn merge_request(&self, request: &LlmRequest, profile: &LlmProfile) -> LlmResult<LlmRequest> {
         let mut effective = request.clone();
 
-        if effective.tool_call_format.is_none() {
-            effective.tool_call_format = profile
-                .tool_call_format
+        if effective.tool_call_protocol.is_none() {
+            effective.tool_call_protocol = profile
+                .tool_call_protocol
                 .as_ref()
                 .map(|config| config.format.clone());
         }
 
-        if let Some(locked) = effective.locked_tool_call_format.clone() {
-            if let Some(attempted) = effective.tool_call_format {
+        if let Some(locked) = effective.locked_tool_call_protocol.clone() {
+            if let Some(attempted) = effective.tool_call_protocol {
                 // Compatible formats (e.g. both JSON-based) proceed silently;
                 // a genuine protocol conflict is governed by the policy.
                 if attempted != locked.format && !attempted.is_compatible_with(&locked.format) {
@@ -227,7 +269,7 @@ impl LlmGateway {
                     }
                 }
             }
-            effective.tool_call_format = Some(locked.format);
+            effective.tool_call_protocol = Some(locked.format);
         }
 
         let merged = crate::formatter_helpers::merge_parameters(profile, &effective.parameters);
@@ -244,8 +286,8 @@ impl LlmGateway {
         &self,
         request: &LlmRequest,
         profile: &LlmProfile,
-        locked: &ToolCallFormat,
-        attempted: ToolCallFormat,
+        locked: &ToolCallProtocol,
+        attempted: ToolCallProtocol,
         policy: ToolCallProtocolViolationPolicy,
     ) -> LlmResult<()> {
         match policy {
@@ -407,7 +449,7 @@ mod tests {
     use crate::error::LlmError;
     use crate::formatters::LlmFormatter;
     use crate::registry::FormatterRegistry;
-    use wf_types::llm::{LlmProfile, LlmProvider, LlmRequest};
+    use wf_types::llm::{LlmFormat, LlmProfile, LlmRequest};
     use wf_types::tool::Tool;
 
     struct FakeStream {
@@ -511,11 +553,12 @@ mod tests {
         }
     }
 
-    fn profile(id: &str, provider: LlmProvider) -> LlmProfile {
+    fn profile(id: &str, format: LlmFormat) -> LlmProfile {
         LlmProfile {
             id: id.to_string(),
             name: id.to_string(),
-            provider,
+            format,
+            provider_id: None,
             model: "custom-model".to_string(),
             api_key: None,
             base_url: None,
@@ -526,7 +569,7 @@ mod tests {
             retry_delay: None,
             headers: None,
             metadata: None,
-            tool_call_format: None,
+            tool_call_protocol: None,
             auth_type: None,
             custom_headers: None,
             custom_body: None,
@@ -544,8 +587,8 @@ mod tests {
             parameters: None,
             generation: None,
             tools: None,
-            tool_call_format: None,
-            locked_tool_call_format: None,
+            tool_call_protocol: None,
+            locked_tool_call_protocol: None,
             violation_policy: None,
             execution_id: None,
             stream: None,
@@ -564,7 +607,7 @@ mod tests {
         gateway
             .register_profile(profile(
                 "p1",
-                LlmProvider::Custom("my_custom_provider".to_string()),
+                LlmFormat::Custom("my_custom_provider".to_string()),
             ))
             .unwrap();
 
@@ -577,10 +620,10 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn unregistered_custom_provider_errors_before_http() {
+    async fn unregistered_custom_format_errors_before_http() {
         let gateway = LlmGateway::new();
         gateway
-            .register_profile(profile("p1", LlmProvider::Custom("nope".to_string())))
+            .register_profile(profile("p1", LlmFormat::Custom("nope".to_string())))
             .unwrap();
 
         let err = gateway.generate(&request("p1"), None).await.unwrap_err();
@@ -595,7 +638,7 @@ mod tests {
             .expect("registration must succeed");
         let gateway = LlmGateway::new_with_formatter_registry(registry);
         gateway
-            .register_profile(profile("p1", LlmProvider::Custom("probe".to_string())))
+            .register_profile(profile("p1", LlmFormat::Custom("probe".to_string())))
             .unwrap();
 
         // The custom formatter fails inside `build_request` before any HTTP;
@@ -618,10 +661,10 @@ mod tests {
     fn remove_profile_evicts_cached_clients() {
         let gateway = LlmGateway::new();
         gateway
-            .register_profile(profile("p1", LlmProvider::OpenaiChat))
+            .register_profile(profile("p1", LlmFormat::OpenaiChat))
             .unwrap();
         gateway
-            .register_profile(profile("p2", LlmProvider::OpenaiChat))
+            .register_profile(profile("p2", LlmFormat::OpenaiChat))
             .unwrap();
 
         let client = gateway
@@ -643,10 +686,10 @@ mod tests {
     fn remove_profile_preserves_other_clients() {
         let gateway = LlmGateway::new();
         gateway
-            .register_profile(profile("p1", LlmProvider::OpenaiChat))
+            .register_profile(profile("p1", LlmFormat::OpenaiChat))
             .unwrap();
         gateway
-            .register_profile(profile("p2", LlmProvider::OpenaiChat))
+            .register_profile(profile("p2", LlmFormat::OpenaiChat))
             .unwrap();
 
         let client = gateway
@@ -658,6 +701,69 @@ mod tests {
         assert!(
             gateway.clients.contains_key(key.as_str()),
             "unrelated clients must survive"
+        );
+    }
+
+    fn provider_definition() -> wf_types::llm::LlmProviderDefinition {
+        wf_types::llm::LlmProviderDefinition {
+            id: "acme".to_string(),
+            name: None,
+            description: None,
+            base_url: Some("https://api.acme.test".to_string()),
+            auth_type: Some("bearer".to_string()),
+            default_headers: None,
+            format: "OPENAI_CHAT".to_string(),
+            model_discovery: None,
+            api_version: None,
+            metadata: None,
+        }
+    }
+
+    #[test]
+    fn register_profile_merges_provider_defaults() {
+        let gateway = LlmGateway::new();
+        gateway
+            .register_provider_definition(provider_definition())
+            .unwrap();
+
+        let mut pending = profile("p1", LlmFormat::OpenaiChat);
+        pending.provider_id = Some("acme".to_string());
+        gateway.register_profile(pending).unwrap();
+
+        let stored = gateway.profiles.get("p1").unwrap();
+        assert_eq!(stored.base_url.as_deref(), Some("https://api.acme.test"));
+        assert_eq!(stored.auth_type.as_deref(), Some("bearer"));
+    }
+
+    #[test]
+    fn register_profile_with_unknown_provider_fails() {
+        let gateway = LlmGateway::new();
+        let mut pending = profile("p1", LlmFormat::OpenaiChat);
+        pending.provider_id = Some("nope".to_string());
+        assert!(gateway.register_profile(pending).is_err());
+    }
+
+    #[test]
+    fn provider_definition_change_evicts_clients() {
+        let gateway = LlmGateway::new();
+        gateway
+            .register_provider_definition(provider_definition())
+            .unwrap();
+        let mut pending = profile("p1", LlmFormat::OpenaiChat);
+        pending.provider_id = Some("acme".to_string());
+        gateway.register_profile(pending).unwrap();
+
+        let stored = gateway.profiles.get("p1").unwrap();
+        let client = gateway.get_or_create_client(&stored).unwrap();
+        let key = format!("{}::{}", client.profile().id, client.profile().model);
+        assert!(gateway.clients.contains_key(key.as_str()));
+
+        gateway
+            .register_provider_definition(provider_definition())
+            .unwrap();
+        assert!(
+            !gateway.clients.contains_key(key.as_str()),
+            "provider change must evict cached clients"
         );
     }
 }

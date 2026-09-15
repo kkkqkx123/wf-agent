@@ -1,23 +1,23 @@
 # LLM Profile: OpenAI o1 (Reasoning)
 #
 # Schema:  wf_types::llm::profile::LlmProfile
-# Provider: LlmProvider::OPENAI_RESPONSE
+# Format: LlmFormat::OPENAI_RESPONSE
 #
 # The o1 model uses the OpenAI Responses API (not Chat Completions).
 # o1 supports reasoning effort low/medium/high (no minimal/none/xhigh/max).
 
 id = "o1"
 name = "OpenAI o1"
-provider = "OPENAI_RESPONSE"
+format = "OPENAI_RESPONSE"
 model = "o1"
-apiKey = "${OPENAI_API_KEY}"
-baseUrl = "https://api.openai.com/v1"
-authType = "native"
-contextWindowSize = 200000
+api_key = "${OPENAI_API_KEY}"
+base_url = "https://api.openai.com/v1"
+auth_type = "native"
+context_window_size = 200000
 
 timeout = 300000
-maxRetries = 3
-retryDelay = 15000
+max_retries = 3
+retry_delay = 15000
 
 [generation]
 max_tokens = 32768

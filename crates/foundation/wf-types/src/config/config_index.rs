@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "snake_case")]
 pub enum IndexType {
     LlmProfiles,
+    LlmProviders,
     Workflows,
     NodeTemplates,
     TriggerTemplates,
@@ -19,6 +20,7 @@ impl IndexType {
     pub fn as_str(&self) -> &'static str {
         match self {
             IndexType::LlmProfiles => "llm_profiles",
+            IndexType::LlmProviders => "llm_providers",
             IndexType::Workflows => "workflows",
             IndexType::NodeTemplates => "node_templates",
             IndexType::TriggerTemplates => "trigger_templates",
@@ -65,7 +67,8 @@ pub struct ResolvedIndexEntry {
 pub struct ResolvedLlmProfileEntry {
     #[serde(flatten)]
     pub base: ResolvedIndexEntry,
-    pub provider: Option<String>,
+    pub format: Option<String>,
+    pub provider_id: Option<String>,
     pub model: Option<String>,
 }
 

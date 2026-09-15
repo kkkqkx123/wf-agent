@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 use std::str::FromStr;
 
-use wf_types::llm::ToolCallFormat;
+use wf_types::llm::ToolCallProtocol;
 use wf_types::trigger::TriggerTemplate;
 use wf_types::workflow_execution::{WorkflowGraphStructure, WorkflowNode};
 use wf_types::ValidationError;
@@ -15,7 +15,7 @@ pub const MAX_REFERENCE_DEPTH: usize = 16;
 #[derive(Debug, Clone, Default)]
 pub struct ReferenceContext {
     pub profile_ids: HashSet<String>,
-    pub profile_formats: HashMap<String, ToolCallFormat>,
+    pub profile_formats: HashMap<String, ToolCallProtocol>,
     pub tool_names: HashSet<String>,
     pub disabled_tools: HashSet<String>,
     pub script_names: HashSet<String>,
@@ -30,7 +30,7 @@ impl ReferenceContext {
         Self::default()
     }
 
-    pub fn with_profile(mut self, id: impl Into<String>, format: Option<ToolCallFormat>) -> Self {
+    pub fn with_profile(mut self, id: impl Into<String>, format: Option<ToolCallProtocol>) -> Self {
         let id = id.into();
         self.profile_ids.insert(id.clone());
         if let Some(format) = format {
@@ -156,14 +156,14 @@ fn node_profile_id(node: &WorkflowNode) -> Option<String> {
     .map(String::from)
 }
 
-fn node_tool_call_format(node: &WorkflowNode) -> Option<String> {
+fn node_tool_call_protocol(node: &WorkflowNode) -> Option<String> {
     let inner = match node.node_type.as_str() {
-        "LLM" => node.inner.get("tool_call_format"),
+        "LLM" => node.inner.get("tool_call_protocol"),
         "AGENT_LOOP" => node
             .inner
             .get("inline_definition")
             .and_then(|v| v.get("config"))
-            .and_then(|v| v.get("tool_call_format")),
+            .and_then(|v| v.get("tool_call_protocol")),
         _ => return None,
     };
     inner
@@ -250,10 +250,10 @@ fn validate_profile_format_compatibility(
     let Some(profile_id) = node_profile_id(node) else {
         return;
     };
-    let Some(format_str) = node_tool_call_format(node) else {
+    let Some(format_str) = node_tool_call_protocol(node) else {
         return;
     };
-    let Ok(node_format) = ToolCallFormat::from_str(&format_str) else {
+    let Ok(node_format) = ToolCallProtocol::from_str(&format_str) else {
         return;
     };
     let Some(profile_format) = ctx.profile_formats.get(&profile_id) else {
@@ -264,7 +264,7 @@ fn validate_profile_format_compatibility(
     }
     if node_format.is_compatible_with(profile_format) {
         report.warnings.push(error(
-            format!("nodes.{}.config.tool_call_format", node.id),
+            format!("nodes.{}.config.tool_call_protocol", node.id),
             format!(
                 "Node '{}' tool call format \"{}\" differs from profile '{}' format \"{}\" but both are JSON based",
                 node.id, node_format, profile_id, profile_format
@@ -272,7 +272,7 @@ fn validate_profile_format_compatibility(
         ));
     } else {
         report.errors.push(error(
-            format!("nodes.{}.config.tool_call_format", node.id),
+            format!("nodes.{}.config.tool_call_protocol", node.id),
             format!(
                 "Node '{}' tool call format \"{}\" is incompatible with profile '{}' format \"{}\"",
                 node.id, node_format, profile_id, profile_format
@@ -854,18 +854,18 @@ mod tests {
     #[test]
     fn incompatible_format_is_error_and_json_diff_is_warning() {
         let ctx = ReferenceContext::new()
-            .with_profile("xml-p", Some(ToolCallFormat::Xml))
-            .with_profile("json-p", Some(ToolCallFormat::JsonWrapped));
+            .with_profile("xml-p", Some(ToolCallProtocol::Xml))
+            .with_profile("json-p", Some(ToolCallProtocol::JsonWrapped));
         let graph = graph_with(vec![
             node(
                 "l1",
                 "LLM",
-                serde_json::json!({"profile_id": "xml-p", "tool_call_format": "native"}),
+                serde_json::json!({"profile_id": "xml-p", "tool_call_protocol": "native"}),
             ),
             node(
                 "l2",
                 "LLM",
-                serde_json::json!({"profile_id": "json-p", "tool_call_format": "json_raw"}),
+                serde_json::json!({"profile_id": "json-p", "tool_call_protocol": "json_raw"}),
             ),
         ]);
         let report = validate_reference_closure(&graph, &ctx);

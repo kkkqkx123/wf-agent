@@ -8,6 +8,12 @@
 //!
 //! Long-term direction is a `wf:plugin/plugin` WIT world; until then this
 //! core-module contract is the stable surface.
+//!
+//! Middleware guests answer a dispatch with either a JSON boolean (legacy:
+//! continue or stop, context unchanged) or an envelope object
+//! `{"proceed": bool, "context": <replacement>}` (both keys optional,
+//! defaulting to `true` and the incoming context). The host threads the
+//! returned context through the rest of the chain.
 
 /// Contract version implemented by the host loader. Guests should treat a
 /// mismatch as a load failure.
@@ -23,11 +29,18 @@ pub const WF_WASM_WORLD: &str = "wf:plugin/plugin";
 /// Lifecycle hooks are optional and default to success when absent.
 /// `REGISTER` is optional (no contributions when absent); `DISPATCH` is
 /// required only when the registration declares contributions.
+/// `ABI_VERSION` is optional: guests exporting `wf_abi_version() -> u32`
+/// declare the contract version they implement; when absent the host
+/// assumes version 1. `LAST_ERROR` is optional: guests may export
+/// `wf_last_error() -> i64` (same packed `(ptr, len)` as `REGISTER`)
+/// carrying a short UTF-8 detail string for the last failed hook call.
 pub mod export {
     pub const MEMORY: &str = "memory";
     pub const ALLOC: &str = "alloc";
     pub const DEALLOC: &str = "dealloc";
     pub const HEAP_RESET: &str = "wf_heap_reset";
+    pub const ABI_VERSION: &str = "wf_abi_version";
+    pub const LAST_ERROR: &str = "wf_last_error";
     pub const ON_LOAD: &str = "wf_on_load";
     pub const ON_ACTIVATE: &str = "wf_on_activate";
     pub const ON_DEACTIVATE: &str = "wf_on_deactivate";
@@ -35,6 +48,28 @@ pub mod export {
     pub const ON_CONFIG_CHANGE: &str = "wf_on_config_change";
     pub const REGISTER: &str = "wf_register";
     pub const DISPATCH: &str = "wf_dispatch";
+}
+
+/// Host-provided imports a wasm guest may optionally use.
+///
+/// These imports are always available; guests that never import them are
+/// unaffected. Importing them on an old host fails loudly at instantiation.
+pub mod host {
+    /// Module name of the core-module host import namespace.
+    pub const MODULE: &str = "wf_host";
+    /// Structured log import: `(level: u32, ptr: u32, len: u32)` pointing at
+    /// a UTF-8 message in guest memory. Best-effort on the host side: unreadable
+    /// input is dropped, never traps.
+    pub const LOG: &str = "log";
+    /// Log levels for the `log` import. Values at or above `LEVEL_ERROR`
+    /// are recorded as errors.
+    pub const LEVEL_TRACE: u32 = 0;
+    pub const LEVEL_DEBUG: u32 = 1;
+    pub const LEVEL_INFO: u32 = 2;
+    pub const LEVEL_WARN: u32 = 3;
+    pub const LEVEL_ERROR: u32 = 4;
+    /// Single log messages longer than this are truncated by the host.
+    pub const LOG_MESSAGE_CAP_BYTES: usize = 4096;
 }
 
 /// Contribution declaration returned by the `wf_register` export.

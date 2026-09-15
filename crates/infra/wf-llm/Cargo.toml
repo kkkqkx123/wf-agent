@@ -10,6 +10,7 @@ mock = []
 wf-types = { path = "../../foundation/wf-types" }
 wf-common = { path = "../../foundation/wf-common" }
 wf-metrics = { path = "../wf-metrics" }
+wf-plugin-sdk = { path = "../../foundation/wf-plugin-sdk" }
 
 async-trait.workspace = true
 serde.workspace = true

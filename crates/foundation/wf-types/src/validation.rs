@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
-use crate::llm::ToolCallFormat;
+use crate::llm::ToolCallProtocol;
 use crate::trigger::TriggerTemplate;
 use crate::workflow_execution::WorkflowGraphStructure;
 
@@ -84,7 +84,7 @@ pub struct ValidationContext {
     pub tool_names: HashSet<String>,
     pub disabled_tools: HashSet<String>,
     pub profile_ids: HashSet<String>,
-    pub profile_formats: HashMap<String, ToolCallFormat>,
+    pub profile_formats: HashMap<String, ToolCallProtocol>,
     pub script_names: HashSet<String>,
     pub workflow_ids: HashSet<String>,
     pub workflow_graphs: HashMap<String, WorkflowGraphStructure>,
@@ -97,7 +97,7 @@ impl ValidationContext {
         Self::default()
     }
 
-    pub fn with_profile(mut self, id: impl Into<String>, format: Option<ToolCallFormat>) -> Self {
+    pub fn with_profile(mut self, id: impl Into<String>, format: Option<ToolCallProtocol>) -> Self {
         let id = id.into();
         self.profile_ids.insert(id.clone());
         if let Some(format) = format {

@@ -468,12 +468,14 @@ pub fn parse_invoke_json_calls_detailed(
                 })
                 .collect())
         }
-        obj @ serde_json::Value::Object(_) => Ok(vec![
-            convert_invoke_object(obj).map_err(|reason| InvokeParseError {
-                index: Some(0),
-                reason,
-            }),
-        ]),
+        obj @ serde_json::Value::Object(_) => {
+            Ok(vec![convert_invoke_object(obj).map_err(|reason| {
+                InvokeParseError {
+                    index: Some(0),
+                    reason,
+                }
+            })])
+        }
         _ => Err(InvokeParseError {
             index: None,
             reason: "expected a JSON object or an array of objects".to_string(),
@@ -490,7 +492,9 @@ pub fn parse_invoke_json_calls_detailed(
 /// derivation (`"{outer}#{index}#{tool}"`) so checkpoint replay keys survive
 /// re-execution. Callers must not persist or correlate on this id.
 fn convert_invoke_object(value: serde_json::Value) -> Result<LlmToolCall, String> {
-    let obj = value.as_object().ok_or_else(|| "expected a JSON object".to_string())?;
+    let obj = value
+        .as_object()
+        .ok_or_else(|| "expected a JSON object".to_string())?;
     let tool_name = obj
         .get("tool")
         .and_then(|v| v.as_str())

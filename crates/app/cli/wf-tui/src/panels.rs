@@ -706,13 +706,14 @@ impl crate::renderable::Renderable for QueuedPanel {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wf_types::llm::LlmProvider;
+    use wf_types::llm::LlmFormat;
 
     fn profile(id: &str, model: &str) -> LlmProfile {
         LlmProfile {
             id: id.into(),
             name: format!("{id} display"),
-            provider: LlmProvider::Anthropic,
+            format: LlmFormat::Anthropic,
+            provider_id: None,
             model: model.into(),
             api_key: None,
             base_url: None,
@@ -723,7 +724,7 @@ mod tests {
             retry_delay: None,
             headers: None,
             metadata: None,
-            tool_call_format: None,
+            tool_call_protocol: None,
             auth_type: None,
             custom_headers: None,
             custom_body: None,

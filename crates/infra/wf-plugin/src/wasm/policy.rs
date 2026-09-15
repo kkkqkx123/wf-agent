@@ -98,6 +98,20 @@ pub fn resolve_limits(
     })
 }
 
+/// Reject manifests that request guest network access. The host grants
+/// no socket access in this phase (neither WASI p1 sockets nor p2
+/// `NetworkPreopen` are wired), so `allow_network = true` fails loudly
+/// instead of warning and then silently running without network.
+pub fn validate_network_policy(manifest: &PluginManifest) -> PluginResult<()> {
+    if manifest.wasm.as_ref().and_then(|c| c.allow_network) == Some(true) {
+        return Err(PluginError::InvalidManifest(format!(
+            "plugin '{}': wasm.allow_network=true is not supported in this phase; remove the field or set it to false",
+            manifest.id
+        )));
+    }
+    Ok(())
+}
+
 /// Resolve WASI grants from declared permissions plus explicit grant lists.
 /// A grant list without the matching permission grants nothing.
 pub fn resolve_grants(manifest: &PluginManifest) -> WasiGrants {
@@ -230,6 +244,34 @@ mod tests {
         let limits = resolve_limits(&m, 10000).expect("limits");
         assert_eq!(limits.fuel_limit, None);
         assert_eq!(limits.call_timeout_ms, Some(500));
+    }
+
+    #[test]
+    fn network_true_is_rejected_with_or_without_permission() {
+        for permissions in [
+            vec![PluginPermission::Network],
+            vec![],
+            vec![PluginPermission::Filesystem],
+        ] {
+            let m = manifest_with(
+                Some(WasmConfig {
+                    allow_network: Some(true),
+                    ..Default::default()
+                }),
+                permissions,
+            );
+            let err = validate_network_policy(&m).expect_err("network must fail");
+            assert!(err.to_string().contains("allow_network"), "got: {err}");
+        }
+        let m = manifest_with(
+            Some(WasmConfig {
+                allow_network: Some(false),
+                ..Default::default()
+            }),
+            vec![PluginPermission::Network],
+        );
+        assert!(validate_network_policy(&m).is_ok());
+        assert!(validate_network_policy(&manifest_with(None, vec![])).is_ok());
     }
 
     #[test]

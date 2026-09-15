@@ -85,7 +85,7 @@ impl NodeBuilder<NoType> {
             parameters: None,
             generation: None,
             max_tool_calls_per_request: None,
-            tool_call_format: None,
+            tool_call_protocol: None,
         };
         Self::new(id)
             .type_(StaticNodeType::Llm)

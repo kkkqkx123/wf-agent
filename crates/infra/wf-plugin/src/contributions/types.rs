@@ -3,10 +3,10 @@
 // valid. `ContributionType` stays host-side: it describes
 // registration/override semantics owned by the engine.
 pub use wf_plugin_sdk::contributions::{
-    NextFn, PluginEventData, PluginEventHandler, PluginExecutionContext, PluginLlmConfig,
-    PluginLlmFormatter, PluginLlmRequest, PluginLlmResponse, PluginLlmUsage, PluginMessage,
-    PluginMiddlewareHandler, PluginNodeHandler, PluginNodeResult, PluginToolContext,
-    PluginToolExecutor, PluginToolResult,
+    parse_middleware_outcome, MiddlewareOutcome, NextFn, PluginEventData, PluginEventHandler,
+    PluginExecutionContext, PluginLlmConfig, PluginLlmFormatter, PluginLlmRequest,
+    PluginLlmResponse, PluginLlmUsage, PluginMessage, PluginMiddlewareHandler, PluginNodeHandler,
+    PluginNodeResult, PluginToolContext, PluginToolExecutor, PluginToolResult,
 };
 
 // ============================================================
@@ -21,7 +21,7 @@ pub use wf_plugin_sdk::contributions::{
 pub enum ContributionType {
     NodeType,
     ToolType,
-    LlmProvider,
+    LlmFormat,
     Formatter,
     EventHandler,
     Middleware,
@@ -42,7 +42,7 @@ impl ContributionType {
         match self {
             Self::NodeType => "node-type",
             Self::ToolType => "tool-type",
-            Self::LlmProvider => "llm-provider",
+            Self::LlmFormat => "llm-provider",
             Self::Formatter => "formatter",
             Self::EventHandler => "event-handler",
             Self::Middleware => "middleware",
@@ -62,7 +62,7 @@ impl ContributionType {
         &[
             Self::NodeType,
             Self::ToolType,
-            Self::LlmProvider,
+            Self::LlmFormat,
             Self::Formatter,
             Self::EventHandler,
             Self::Middleware,
@@ -98,7 +98,7 @@ impl std::fmt::Display for ContributionType {
 }
 
 /// Role tag distinguishing the two LLM formatter registrations sharing one
-/// backing registry: a `Provider` backs `LlmProvider::Custom(name)`
+/// backing registry: a `Provider` backs `LlmFormat::Custom(name)`
 /// resolution, a `Formatter` is a named message formatter.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum FormatterRole {

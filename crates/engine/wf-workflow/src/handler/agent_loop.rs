@@ -158,7 +158,7 @@ fn export_conversation(ctx: &NodeExecutionContext, conversation: &[Message]) {
 /// Render the `general` tool description at loop assembly time.
 ///
 /// The text comes from the `tool-visibility.general_description` resource
-/// template (variables: `tool_call_format`, `invoke_example`), so it follows
+/// template (variables: `tool_call_protocol`, `invoke_example`), so it follows
 /// custom resource overrides and the effective tool call format; the
 /// per-turn schema assembly (wf-agent) writes the rendered text into the
 /// routed tool copy. Executions without injected registries fall back to
@@ -166,16 +166,16 @@ fn export_conversation(ctx: &NodeExecutionContext, conversation: &[Message]) {
 fn render_general_description(
     general_enabled: bool,
     regs: Option<&wf_resource::ResourceRegistries>,
-    tool_call_format: Option<&wf_types::llm::ToolCallFormatConfig>,
+    tool_call_protocol: Option<&wf_types::llm::ToolCallProtocolConfig>,
 ) -> Option<String> {
     if !general_enabled {
         return None;
     }
     let regs = regs?;
-    let format = tool_call_format.map(|f| &f.format);
+    let format = tool_call_protocol.map(|f| &f.format);
     let mut variables = std::collections::HashMap::new();
     variables.insert(
-        "tool_call_format".to_string(),
+        "tool_call_protocol".to_string(),
         format
             .map(|f| f.to_string())
             .unwrap_or_else(|| "xml".to_string()),
@@ -194,11 +194,11 @@ fn render_general_description(
 /// Invoke example for the `general` tool description, adapted to the outer
 /// tool call format: XML formats teach the `<tool_use>`-wrapped JSON body;
 /// JSON formats teach the bare JSON body the model must emit.
-fn general_invoke_example(format: Option<&wf_types::llm::ToolCallFormat>) -> String {
+fn general_invoke_example(format: Option<&wf_types::llm::ToolCallProtocol>) -> String {
     match format {
-        Some(wf_types::llm::ToolCallFormat::JsonWrapped)
-        | Some(wf_types::llm::ToolCallFormat::JsonRaw)
-        | Some(wf_types::llm::ToolCallFormat::Native) => {
+        Some(wf_types::llm::ToolCallProtocol::JsonWrapped)
+        | Some(wf_types::llm::ToolCallProtocol::JsonRaw)
+        | Some(wf_types::llm::ToolCallProtocol::Native) => {
             "{\"tool\": \"general\", \"parameters\": {\"request\": \"{\\\"tool\\\": \\\"web_search\\\", \
              \\\"parameters\\\": {\\\"query\\\": \\\"rust\\\"}}\"}}"
                 .to_string()
@@ -385,23 +385,23 @@ impl AgentLoopHandler {
         // supplies the description options (`include_description` /
         // `description_style`, currently unconsumed); the agent-level
         // canonical string overrides the format name when present.
-        let tool_call_format = {
+        let tool_call_protocol = {
             let profile_config = self
                 .gateway
                 .profile_registry()
                 .get(&model)
-                .and_then(|p| p.tool_call_format);
+                .and_then(|p| p.tool_call_protocol);
             let agent_format = agent_config
-                .and_then(|c| c.tool_call_format.as_ref())
+                .and_then(|c| c.tool_call_protocol.as_ref())
                 .and_then(|format| {
-                    match wf_types::llm::ToolCallFormatConfig::from_format_str(format) {
+                    match wf_types::llm::ToolCallProtocolConfig::from_protocol_str(format) {
                         Some(config) => Some(config),
                         None => {
                             // An explicit but unknown agent-level override must
                             // not silently dissolve into the profile default.
                             tracing::warn!(
                                 node_id = %ctx.node_id,
-                                field = "inner.inline_definition.config.tool_call_format",
+                                field = "inner.inline_definition.config.tool_call_protocol",
                                 value = %format,
                                 "unknown tool call format, ignoring agent-level override"
                             );
@@ -422,7 +422,7 @@ impl AgentLoopHandler {
         // the enhanced `name(type, required)` shape, Detailed attaches
         // parameter descriptions, `include_description=false` reverts to the
         // legacy names-only list.
-        let metadata_options = wf_tools::discoverable_metadata_options(tool_call_format.as_ref());
+        let metadata_options = wf_tools::discoverable_metadata_options(tool_call_protocol.as_ref());
 
         let tool_names: Vec<String> = agent_config
             .and_then(|c| c.available_tools.as_ref())
@@ -560,7 +560,7 @@ impl AgentLoopHandler {
                 .map(|resolution| resolution.general_enabled)
                 .unwrap_or(false),
             ctx.resource_registries.as_deref(),
-            tool_call_format.as_ref(),
+            tool_call_protocol.as_ref(),
         );
 
         // Discoverable tool metadata block (templateable): rendered at
@@ -682,7 +682,7 @@ impl AgentLoopHandler {
             hooks: parse_agent_hooks(agent_config),
             max_iterations: Some(max_iterations),
             max_execution_time,
-            tool_call_format: tool_call_format.clone(),
+            tool_call_protocol: tool_call_protocol.clone(),
             token_limit: agent_config
                 .and_then(|c| c.token_limit)
                 .or_else(|| exec_config.token_limit.map(u64::from)),
@@ -880,15 +880,15 @@ mod tests {
                     name: "custom general".into(),
                     description: None,
                     category: "tool-visibility".into(),
-                    content: "Call inner tools with format={tool_call_format}".into(),
+                    content: "Call inner tools with format={tool_call_protocol}".into(),
                     variables: None,
                     fragments: None,
                 }),
             )
             .unwrap();
 
-        let format = Some(wf_types::llm::ToolCallFormatConfig {
-            format: wf_types::llm::ToolCallFormat::Xml,
+        let format = Some(wf_types::llm::ToolCallProtocolConfig {
+            format: wf_types::llm::ToolCallProtocol::Xml,
             markers: None,
             xml_tags: None,
             include_description: None,
@@ -913,8 +913,8 @@ mod tests {
         assert!(builtin.contains("web_search"));
 
         // JsonWrapped: the builtin example switches to the bare JSON body.
-        let json_format = Some(wf_types::llm::ToolCallFormatConfig {
-            format: wf_types::llm::ToolCallFormat::JsonWrapped,
+        let json_format = Some(wf_types::llm::ToolCallProtocolConfig {
+            format: wf_types::llm::ToolCallProtocol::JsonWrapped,
             markers: None,
             xml_tags: None,
             include_description: None,

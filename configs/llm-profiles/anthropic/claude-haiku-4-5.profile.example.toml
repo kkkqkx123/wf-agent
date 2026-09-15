@@ -1,22 +1,22 @@
 # LLM Profile: Claude Haiku 4.5 (Anthropic)
 #
 # Schema:  wf_types::llm::profile::LlmProfile
-# Provider: LlmProvider::ANTHROPIC
+# Format: LlmFormat::ANTHROPIC
 
 id = "claude-haiku-4-5"
 name = "Claude Haiku 4.5"
-provider = "ANTHROPIC"
+format = "ANTHROPIC"
 model = "claude-haiku-4-5"
-apiKey = "${ANTHROPIC_API_KEY}"
-baseUrl = "https://api.anthropic.com/v1"
-authType = "native"
-[toolCallFormat]
+api_key = "${ANTHROPIC_API_KEY}"
+base_url = "https://api.anthropic.com/v1"
+auth_type = "native"
+[tool_call_protocol]
 format = "json_wrapped"
-contextWindowSize = 200000
+context_window_size = 200000
 
 timeout = 30000
-maxRetries = 2
-retryDelay = 1000
+max_retries = 2
+retry_delay = 1000
 
 [generation]
 temperature = 0.3

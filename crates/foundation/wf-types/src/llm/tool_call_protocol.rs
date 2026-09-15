@@ -5,20 +5,20 @@ use std::str::FromStr;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
-pub enum ToolCallFormat {
+pub enum ToolCallProtocol {
     Native,
     Xml,
     JsonWrapped,
     JsonRaw,
 }
 
-impl ToolCallFormat {
-    /// All supported formats in canonical (snake_case) order.
+impl ToolCallProtocol {
+    /// All supported protocols in canonical (snake_case) order.
     pub const ALL: [Self; 4] = [Self::Native, Self::Xml, Self::JsonWrapped, Self::JsonRaw];
 
-    /// Whether two formats can interoperate at runtime (TS
-    /// `validateToolFormatCompatibility`): identical formats always match,
-    /// and the two JSON formats are interchangeable (markers may differ).
+    /// Whether two protocols can interoperate at runtime: identical protocols
+    /// always match, and the two JSON protocols are interchangeable (markers
+    /// may differ).
     pub fn is_compatible_with(&self, other: &Self) -> bool {
         self == other
             || matches!(
@@ -28,7 +28,7 @@ impl ToolCallFormat {
     }
 }
 
-impl FromStr for ToolCallFormat {
+impl FromStr for ToolCallProtocol {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -38,7 +38,7 @@ impl FromStr for ToolCallFormat {
             "json_wrapped" => Ok(Self::JsonWrapped),
             "json_raw" => Ok(Self::JsonRaw),
             other => Err(format!(
-                "unsupported tool call format '{other}', expected one of {}",
+                "unsupported tool call protocol '{other}', expected one of {}",
                 Self::ALL
                     .iter()
                     .map(ToString::to_string)
@@ -49,7 +49,7 @@ impl FromStr for ToolCallFormat {
     }
 }
 
-impl fmt::Display for ToolCallFormat {
+impl fmt::Display for ToolCallProtocol {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
             Self::Native => "native",
@@ -69,7 +69,7 @@ pub struct ToolCallMarkers {
 }
 
 impl ToolCallMarkers {
-    /// Default markers for wrapped JSON format: `<<<TOOL_CALL>>> ... <<<END_TOOL_CALL>>>`.
+    /// Default markers for wrapped JSON protocol: `<<<TOOL_CALL>>> ... <<<END_TOOL_CALL>>>`.
     pub fn default_json() -> Self {
         Self {
             start: Some("<<<TOOL_CALL>>>".to_string()),
@@ -78,7 +78,7 @@ impl ToolCallMarkers {
     }
 }
 
-impl ToolCallFormatConfig {
+impl ToolCallProtocolConfig {
     /// Resolve effective start marker, falling back to the JSON defaults.
     pub fn effective_start(&self) -> &str {
         self.markers
@@ -107,8 +107,8 @@ pub struct XmlTags {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct ToolCallFormatConfig {
-    pub format: ToolCallFormat,
+pub struct ToolCallProtocolConfig {
+    pub format: ToolCallProtocol,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub markers: Option<ToolCallMarkers>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -125,11 +125,11 @@ pub struct ToolCallFormatConfig {
     pub additional_config: Option<HashMap<String, serde_json::Value>>,
 }
 
-impl ToolCallFormatConfig {
-    /// Build a bare config from a raw format string (node or agent config
-    /// `tool_call_format`), with no markers/tags overrides. Returns `None`
-    /// for unknown format strings.
-    pub fn from_format_str(s: &str) -> Option<Self> {
+impl ToolCallProtocolConfig {
+    /// Build a bare config from a raw protocol string (node or agent config
+    /// `tool_call_protocol`), with no markers/tags overrides. Returns `None`
+    /// for unknown protocol strings.
+    pub fn from_protocol_str(s: &str) -> Option<Self> {
         let format = s.parse().ok()?;
         Some(Self {
             format,
@@ -150,22 +150,22 @@ mod tests {
 
     #[test]
     fn parses_canonical_names() {
-        assert_eq!("native".parse(), Ok(ToolCallFormat::Native));
-        assert_eq!("xml".parse(), Ok(ToolCallFormat::Xml));
-        assert_eq!("json_wrapped".parse(), Ok(ToolCallFormat::JsonWrapped));
-        assert_eq!("json_raw".parse(), Ok(ToolCallFormat::JsonRaw));
+        assert_eq!("native".parse(), Ok(ToolCallProtocol::Native));
+        assert_eq!("xml".parse(), Ok(ToolCallProtocol::Xml));
+        assert_eq!("json_wrapped".parse(), Ok(ToolCallProtocol::JsonWrapped));
+        assert_eq!("json_raw".parse(), Ok(ToolCallProtocol::JsonRaw));
         assert_eq!(
-            " native ".parse::<ToolCallFormat>(),
-            Ok(ToolCallFormat::Native)
+            " native ".parse::<ToolCallProtocol>(),
+            Ok(ToolCallProtocol::Native)
         );
-        assert!("yaml".parse::<ToolCallFormat>().is_err());
+        assert!("yaml".parse::<ToolCallProtocol>().is_err());
     }
 
     #[test]
     fn display_matches_serde_names() {
-        for format in ToolCallFormat::ALL {
+        for format in ToolCallProtocol::ALL {
             let name = format.to_string();
-            let roundtrip: ToolCallFormat =
+            let roundtrip: ToolCallProtocol =
                 serde_json::from_value(serde_json::Value::String(name.clone())).unwrap();
             assert_eq!(roundtrip, format);
         }
@@ -173,10 +173,10 @@ mod tests {
 
     #[test]
     fn bare_config_from_string() {
-        let cfg = ToolCallFormatConfig::from_format_str("xml").unwrap();
-        assert_eq!(cfg.format, ToolCallFormat::Xml);
+        let cfg = ToolCallProtocolConfig::from_protocol_str("xml").unwrap();
+        assert_eq!(cfg.format, ToolCallProtocol::Xml);
         assert!(cfg.xml_tags.is_none());
         assert!(cfg.markers.is_none());
-        assert!(ToolCallFormatConfig::from_format_str("yaml").is_none());
+        assert!(ToolCallProtocolConfig::from_protocol_str("yaml").is_none());
     }
 }

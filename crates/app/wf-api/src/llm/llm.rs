@@ -90,7 +90,7 @@ mod tests {
     use wf_resource::registry::ResourceRegistries;
     use wf_resource::resource_plugin::ResourcePluginRegistry;
     use wf_storage::context::StorageContext;
-    use wf_types::llm::LlmProvider;
+    use wf_types::llm::LlmFormat;
     use wf_types::message::{Message, MessageContentValue, MessageRole};
 
     fn make_ctx() -> Arc<ApiContext> {
@@ -122,8 +122,8 @@ mod tests {
             parameters: None,
             generation: None,
             tools: None,
-            tool_call_format: None,
-            locked_tool_call_format: None,
+            tool_call_protocol: None,
+            locked_tool_call_protocol: None,
             violation_policy: None,
             execution_id: Some("exec-llm".into()),
             stream: None,
@@ -136,7 +136,8 @@ mod tests {
         wf_types::llm::LlmProfile {
             id: id.to_string(),
             name: id.to_string(),
-            provider: LlmProvider::OpenaiChat,
+            format: LlmFormat::OpenaiChat,
+            provider_id: None,
             model: "mock-model".to_string(),
             api_key: Some("sk-test".into()),
             base_url: None,
@@ -147,7 +148,7 @@ mod tests {
             retry_delay: None,
             headers: None,
             metadata: None,
-            tool_call_format: None,
+            tool_call_protocol: None,
             auth_type: None,
             custom_headers: None,
             custom_body: None,

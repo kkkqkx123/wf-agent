@@ -9,7 +9,7 @@ use wf_execution_shared::context::{NodeExecutionContext, NodeExecutionResult};
 
 use wf_llm::LlmGateway;
 use wf_types::events::{BaseEvent, EventType};
-use wf_types::llm::{LlmRequest, MessageStreamEvent, ToolCallFormatConfig};
+use wf_types::llm::{LlmRequest, MessageStreamEvent, ToolCallProtocolConfig};
 use wf_types::message::{Message, MessageContentValue, MessageRole};
 use wf_types::node::StaticNodeType;
 
@@ -702,15 +702,15 @@ impl LlmHandler {
         // unknown or non-string value is ignored as before, but now warns:
         // registered graphs are statically rejected for this, so reaching
         // here means an unvalidated graph where silence would hide a typo.
-        let tool_call_format = match config.get("tool_call_format") {
+        let tool_call_protocol = match config.get("tool_call_protocol") {
             None | Some(Value::Null) => None,
             Some(v) => match v.as_str() {
-                Some(s) => match ToolCallFormatConfig::from_format_str(s) {
+                Some(s) => match ToolCallProtocolConfig::from_protocol_str(s) {
                     Some(format) => Some(format),
                     None => {
                         tracing::warn!(
                             node_id = %ctx.node_id,
-                            field = "inner.tool_call_format",
+                            field = "inner.tool_call_protocol",
                             value = %s,
                             "unknown tool call format, ignoring node-level override"
                         );
@@ -720,8 +720,8 @@ impl LlmHandler {
                 None => {
                     tracing::warn!(
                         node_id = %ctx.node_id,
-                        field = "inner.tool_call_format",
-                        "tool_call_format must be a canonical format string, ignoring"
+                        field = "inner.tool_call_protocol",
+                        "tool_call_protocol must be a canonical format string, ignoring"
                     );
                     None
                 }
@@ -838,10 +838,10 @@ impl LlmHandler {
                 } else {
                     Some(tools.clone())
                 },
-                tool_call_format: tool_call_format
+                tool_call_protocol: tool_call_protocol
                     .as_ref()
                     .map(|config| config.format.clone()),
-                locked_tool_call_format: tool_call_format.clone(),
+                locked_tool_call_protocol: tool_call_protocol.clone(),
                 violation_policy: violation_policy.clone(),
                 execution_id: Some(ctx.execution_id.to_string()),
                 stream: None,

@@ -5,6 +5,7 @@ pub mod plugin;
 pub mod policy;
 pub mod pool;
 pub mod stats;
+pub mod stdio;
 
 pub use loader::{load_wasm_plugin, load_wasm_plugin_with_base};
 pub use plugin::WasmPlugin;

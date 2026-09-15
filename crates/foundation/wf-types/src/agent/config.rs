@@ -51,7 +51,7 @@ pub struct AgentConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stream: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub tool_call_format: Option<String>,
+    pub tool_call_protocol: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hooks: Option<Vec<AgentHookConfig>>,
     #[serde(skip_serializing_if = "Option::is_none")]

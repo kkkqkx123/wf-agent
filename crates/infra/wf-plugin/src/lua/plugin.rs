@@ -362,7 +362,7 @@ impl PluginEventHandler for LuaEventHandler {
 
 #[async_trait]
 impl PluginMiddlewareHandler for LuaMiddlewareHandler {
-    async fn handle(&self, context: Value, next: NextFn) -> PluginResult<()> {
+    async fn handle(&self, context: Value, next: NextFn) -> PluginResult<Value> {
         let lua = self.lua.clone();
         let func_key = self.func_key.clone();
         // Middleware `next` may drive arbitrary async handlers, so the Lua
@@ -385,26 +385,81 @@ impl PluginMiddlewareHandler for LuaMiddlewareHandler {
                 .registry_value(&func_key)
                 .map_err(|e| PluginError::LuaError(e.to_string()))?;
             let ctx_val = to_lua_value(&lua, &context);
-            let next = std::sync::Mutex::new(Some(next));
+            // Request rewrite: `next(new_ctx)` continues with the replacement
+            // (`next()`, `next(nil)`, and `next(tbl)` all work); without an
+            // argument the incoming context travels downstream.
+            let incoming = context.clone();
+            let next_cell: Arc<std::sync::Mutex<Option<NextFn>>> =
+                Arc::new(std::sync::Mutex::new(Some(next)));
+            let downstream: Arc<std::sync::Mutex<Option<Value>>> =
+                Arc::new(std::sync::Mutex::new(None));
+            let wrapper_incoming = incoming.clone();
+            let wrapper_next = next_cell.clone();
+            let wrapper_downstream = downstream.clone();
+            let wrapper_handle = handle.clone();
             let next_wrapper = lua
-                .create_function(move |_lua, _: ()| {
-                    let f = next
+                .create_function(move |lua_ctx, args: mlua::Variadic<mlua::Value>| {
+                    let next = wrapper_next
                         .lock()
                         .unwrap()
                         .take()
                         .ok_or_else(|| mlua::Error::external("next already called"))?;
-                    let fut = f();
-                    match &handle {
-                        Some(handle) => handle
-                            .block_on(fut)
-                            .map_err(|e| mlua::Error::external(e.to_string())),
-                        None => futures::executor::block_on(fut)
-                            .map_err(|e| mlua::Error::external(e.to_string())),
+                    let replacement = match args.into_iter().next().map(from_lua_value) {
+                        None | Some(Value::Null) => wrapper_incoming.clone(),
+                        Some(value) => value,
+                    };
+                    let out = match &wrapper_handle {
+                        Some(wrapper_handle) => wrapper_handle.block_on(next(replacement)),
+                        None => futures::executor::block_on(next(replacement)),
                     }
+                    .map_err(|e| mlua::Error::external(e.to_string()))?;
+                    *wrapper_downstream.lock().unwrap() = Some(out.clone());
+                    Ok(to_lua_value(lua_ctx, &out))
                 })
                 .map_err(|e| PluginError::LuaError(e.to_string()))?;
-            func.call::<_, ()>((ctx_val, next_wrapper))
-                .map_err(|e| PluginError::LuaError(e.to_string()))
+            let ret: mlua::Value = func
+                .call((ctx_val, next_wrapper))
+                .map_err(|e| PluginError::LuaError(e.to_string()))?;
+            // Response rules: the function return value is converted and run
+            // through the shared envelope parser. An envelope object
+            // (`{proceed, context}`) rewrites; a plain returned table becomes
+            // the short-circuit context when `next` was never called, while
+            // any other value keeps the incoming context and stops the chain
+            // (legacy behavior: not calling `next` halts).
+            let ret_val = from_lua_value(ret);
+            let is_envelope = ret_val
+                .as_object()
+                .is_some_and(|o| o.contains_key("proceed") || o.contains_key("context"));
+            let downstream = downstream.lock().unwrap().take();
+            match downstream {
+                Some(down) => {
+                    if is_envelope {
+                        Ok(parse_middleware_outcome(&ret_val, &down).context)
+                    } else {
+                        Ok(down)
+                    }
+                }
+                None => {
+                    if is_envelope {
+                        let outcome = parse_middleware_outcome(&ret_val, &incoming);
+                        if outcome.proceed {
+                            let next = next_cell.lock().unwrap().take().expect("next never taken");
+                            match &handle {
+                                Some(handle) => handle.block_on(next(outcome.context)),
+                                None => futures::executor::block_on(next(outcome.context)),
+                            }
+                            .map_err(|e| PluginError::LuaError(e.to_string()))
+                        } else {
+                            Ok(outcome.context)
+                        }
+                    } else {
+                        match ret_val {
+                            Value::Object(_) => Ok(ret_val),
+                            _ => Ok(incoming),
+                        }
+                    }
+                }
+            }
         };
 
         // `block_in_place` panics on a current-thread runtime; only use it when

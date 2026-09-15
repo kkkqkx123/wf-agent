@@ -169,17 +169,44 @@ fn optional_tags(value: &serde_json::Value, key: &str) -> Option<Vec<String>> {
 }
 
 /// Extract metadata from an LLM Profile config (`id` / `name` /
-/// `description` / `tags` / `provider` / `model`).
+/// `description` / `tags` / `format` / `provider_id` / `model`).
 pub fn extract_llm_profile_metadata(
     value: &serde_json::Value,
     file_path: &str,
 ) -> ResolvedIndexEntry {
     let mut extra = serde_json::Map::new();
-    if let Some(p) = optional_string(value, "provider") {
-        extra.insert("provider".to_string(), serde_json::Value::String(p));
+    if let Some(f) = optional_string(value, "format") {
+        extra.insert("format".to_string(), serde_json::Value::String(f));
+    }
+    if let Some(p) = optional_string(value, "provider_id") {
+        extra.insert("provider_id".to_string(), serde_json::Value::String(p));
     }
     if let Some(m) = optional_string(value, "model") {
         extra.insert("model".to_string(), serde_json::Value::String(m));
+    }
+    build_entry(
+        optional_string(value, "id").unwrap_or_default(),
+        optional_string(value, "name"),
+        optional_string(value, "description"),
+        optional_tags(value, "tags"),
+        None,
+        file_path,
+        serde_json::Value::Object(extra),
+    )
+}
+
+/// Extract metadata from an LLM Provider Definition config (`id` / `name` /
+/// `description` / `tags` / `format` / `base_url`).
+pub fn extract_llm_provider_metadata(
+    value: &serde_json::Value,
+    file_path: &str,
+) -> ResolvedIndexEntry {
+    let mut extra = serde_json::Map::new();
+    if let Some(f) = optional_string(value, "format") {
+        extra.insert("format".to_string(), serde_json::Value::String(f));
+    }
+    if let Some(b) = optional_string(value, "base_url") {
+        extra.insert("base_url".to_string(), serde_json::Value::String(b));
     }
     build_entry(
         optional_string(value, "id").unwrap_or_default(),
@@ -315,6 +342,14 @@ fn load_llm_profile(path: &Path) -> ConfigResult<serde_json::Value> {
         &profile,
         &std::collections::HashMap::new(),
     )?;
+    Ok(value)
+}
+
+fn load_llm_provider_definition(path: &Path) -> ConfigResult<serde_json::Value> {
+    let value = crate::parser::parse_config_file::<serde_json::Value>(path)?;
+    let definition: wf_types::llm::LlmProviderDefinition = serde_json::from_value(value.clone())
+        .map_err(|e| ConfigError::Parse(format!("invalid LLM provider: {e}")))?;
+    crate::processor::llm_profile::validate_provider_definition(&definition)?;
     Ok(value)
 }
 
@@ -614,11 +649,15 @@ fn sync_resolver(f: fn(&Path) -> ConfigResult<ResolvedIndex>) -> IndexResolver {
 
 /// Create the resolver for a supported index type.
 ///
-/// Supported types (8 of the 10 index types; `trigger_templates` is not
+/// Supported types (9 of the 11 index types; `trigger_templates` is not
 /// supported).
 pub fn create_index_resolver_for_type(ty: &IndexType) -> ConfigResult<IndexResolver> {
     let (loader, extract): (IndexConfigLoader, IndexMetadataExtractor) = match ty {
         IndexType::LlmProfiles => (Arc::new(load_llm_profile), extract_llm_profile_metadata),
+        IndexType::LlmProviders => (
+            Arc::new(load_llm_provider_definition),
+            extract_llm_provider_metadata,
+        ),
         IndexType::Workflows => (Arc::new(load_workflow), extract_workflow_metadata),
         IndexType::NodeTemplates => (Arc::new(load_node_template), extract_node_template_metadata),
         IndexType::Scripts => (Arc::new(load_script), extract_script_metadata),
@@ -642,6 +681,7 @@ pub fn create_index_resolver_for_type(ty: &IndexType) -> ConfigResult<IndexResol
 pub fn register_all_index_resolvers(registry: &mut IndexRegistry) -> ConfigResult<()> {
     for ty in [
         IndexType::LlmProfiles,
+        IndexType::LlmProviders,
         IndexType::Workflows,
         IndexType::NodeTemplates,
         IndexType::Scripts,
@@ -843,7 +883,8 @@ mod tests {
     fn test_metadata_extraction() {
         let llm = serde_json::json!({
             "id": "p1", "name": "Profile One", "description": "desc",
-            "tags": ["code", "review"], "provider": "openai", "model": "gpt-4"
+            "tags": ["code", "review"], "format": "OPENAI_CHAT",
+            "provider_id": "acme", "model": "gpt-4"
         });
         let entry = extract_llm_profile_metadata(&llm, "/x/p1.json");
         assert_eq!(entry.id, "p1");
@@ -852,7 +893,8 @@ mod tests {
             Some(vec!["code".to_string(), "review".to_string()])
         );
         let extra = entry.metadata.as_ref().unwrap();
-        assert_eq!(extra["provider"], "openai");
+        assert_eq!(extra["format"], "OPENAI_CHAT");
+        assert_eq!(extra["provider_id"], "acme");
         assert_eq!(extra["model"], "gpt-4");
         assert_eq!(entry.format, ConfigFileFormat::Json);
 

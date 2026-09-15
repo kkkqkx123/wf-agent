@@ -275,13 +275,14 @@ impl LlmClient for LlmClientImpl {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wf_types::llm::{LlmProfile, LlmProvider};
+    use wf_types::llm::{LlmFormat, LlmProfile};
 
     fn profile(id: &str) -> LlmProfile {
         LlmProfile {
             id: id.to_string(),
             name: id.to_string(),
-            provider: LlmProvider::OpenaiChat,
+            format: LlmFormat::OpenaiChat,
+            provider_id: None,
             model: "gpt-4o".to_string(),
             api_key: None,
             base_url: None,
@@ -292,7 +293,7 @@ mod tests {
             retry_delay: None,
             headers: None,
             metadata: None,
-            tool_call_format: None,
+            tool_call_protocol: None,
             auth_type: None,
             custom_headers: None,
             custom_body: None,
@@ -366,7 +367,7 @@ mod tests {
     fn timeout_defaults_to_60_seconds() {
         let client = LlmClientImpl::new(
             reqwest::Client::new(),
-            crate::formatters::create_formatter(&LlmProvider::OpenaiChat).unwrap(),
+            crate::formatters::create_formatter(&LlmFormat::OpenaiChat).unwrap(),
             profile("p1"),
         );
         assert_eq!(client.build_timeout(), Duration::from_secs(60));
@@ -375,7 +376,7 @@ mod tests {
         p.timeout = Some(5);
         let client = LlmClientImpl::new(
             reqwest::Client::new(),
-            crate::formatters::create_formatter(&LlmProvider::OpenaiChat).unwrap(),
+            crate::formatters::create_formatter(&LlmFormat::OpenaiChat).unwrap(),
             p,
         );
         assert_eq!(client.build_timeout(), Duration::from_secs(5));
@@ -385,7 +386,7 @@ mod tests {
     fn retry_parameters_use_defaults_and_overrides() {
         let client = LlmClientImpl::new(
             reqwest::Client::new(),
-            crate::formatters::create_formatter(&LlmProvider::OpenaiChat).unwrap(),
+            crate::formatters::create_formatter(&LlmFormat::OpenaiChat).unwrap(),
             profile("p1"),
         );
         assert_eq!(client.max_retries(), 3);
@@ -399,7 +400,7 @@ mod tests {
         p.retry_delay = Some(250);
         let client = LlmClientImpl::new(
             reqwest::Client::new(),
-            crate::formatters::create_formatter(&LlmProvider::OpenaiChat).unwrap(),
+            crate::formatters::create_formatter(&LlmFormat::OpenaiChat).unwrap(),
             p,
         );
         assert_eq!(client.max_retries(), 5);
@@ -413,7 +414,7 @@ mod tests {
     fn profile_accessor_returns_configured_profile() {
         let client = LlmClientImpl::new(
             reqwest::Client::new(),
-            crate::formatters::create_formatter(&LlmProvider::OpenaiChat).unwrap(),
+            crate::formatters::create_formatter(&LlmFormat::OpenaiChat).unwrap(),
             profile("p1"),
         );
         assert_eq!(client.profile().id, "p1");

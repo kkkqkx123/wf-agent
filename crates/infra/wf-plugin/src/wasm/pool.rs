@@ -2,6 +2,7 @@ use std::collections::VecDeque;
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
+use moka::sync::Cache;
 use tokio::sync::Mutex;
 use wasmtime::{
     Config, Engine, Instance, InstancePre, Linker, Memory, ResourceLimiter, Store, StoreLimits,
@@ -13,6 +14,7 @@ use wf_plugin_sdk::wasm::export;
 
 use super::policy::{WasiGrants, WasmLimits};
 use super::stats::WasmStats;
+use super::stdio::{GuestLogPipe, GUEST_STDIO_CAP_BYTES};
 use crate::error::{PluginError, PluginResult};
 
 /// Per-call store state: WASI context plus the memory limiter.
@@ -22,6 +24,13 @@ use crate::error::{PluginError, PluginResult};
 pub struct WasmStoreState {
     wasi: WasiP1Ctx,
     limits: StoreLimits,
+    /// Owning plugin id, used to attribute guest-to-host log records.
+    plugin_id: String,
+    /// Guest `stdout` capture. Drained to the host log after every call so
+    /// pooled sessions never accumulate output across calls.
+    pub(crate) stdout: GuestLogPipe,
+    /// Guest `stderr` capture, drained like `stdout`.
+    pub(crate) stderr: GuestLogPipe,
 }
 
 /// Live guest instance plus its private store. When the pool is disabled
@@ -254,25 +263,53 @@ pub fn wasm_err(context: &str, err: impl std::fmt::Display) -> PluginError {
     PluginError::WasmError(text)
 }
 
-/// Linker pre-loaded with WASI imports. Guests that do not import WASI
-/// still instantiate: unused imports are simply never resolved.
+/// Linker pre-loaded with WASI imports plus the `wf_host` guest-to-host
+/// namespace. Guests that do not import WASI or `wf_host` still
+/// instantiate: unused imports are simply never resolved.
 pub fn new_linker(engine: &Engine) -> PluginResult<Linker<WasmStoreState>> {
     let mut linker = Linker::new(engine);
     preview1::add_to_linker_async(&mut linker, |state: &mut WasmStoreState| &mut state.wasi)
         .map_err(|e| wasm_err("wasi linker setup failed", e))?;
+    linker
+        .func_wrap(
+            wf_plugin_sdk::wasm::host::MODULE,
+            wf_plugin_sdk::wasm::host::LOG,
+            |mut caller: wasmtime::Caller<'_, WasmStoreState>, level: u32, ptr: u32, len: u32| {
+                // Best-effort observability path: unreadable input is
+                // dropped instead of trapping the guest call.
+                let plugin_id = caller.data().plugin_id.clone();
+                let len = (len as usize).min(super::stdio::HOST_LOG_MESSAGE_CAP_BYTES);
+                if len == 0 {
+                    return;
+                }
+                let mut buf = vec![0u8; len];
+                let read = caller
+                    .get_export(export::MEMORY)
+                    .and_then(|extern_ref| extern_ref.into_memory())
+                    .is_some_and(|memory| memory.read(&mut caller, ptr as usize, &mut buf).is_ok());
+                if read {
+                    super::stdio::emit_host_log(&plugin_id, level, &buf);
+                }
+            },
+        )
+        .map_err(|e| wasm_err("host log linker setup failed", e))?;
     Ok(linker)
 }
 
 /// Build a per-call store: WASI context from grants, fuel budget and memory
-/// cap from limits. Missing preopen directories are skipped with a warning
-/// so one stale grant does not break every call.
+/// cap from limits. Guest `stdout`/`stderr` are captured to bounded pipes
+/// and drained to the host log after each call. Missing preopen directories
+/// are skipped with a warning so one stale grant does not break every call.
 pub fn build_store(
     engine: &Engine,
     plugin_id: &str,
     grants: &WasiGrants,
     limits: &WasmLimits,
 ) -> PluginResult<Store<WasmStoreState>> {
+    let stdout = GuestLogPipe::new(GUEST_STDIO_CAP_BYTES);
+    let stderr = GuestLogPipe::new(GUEST_STDIO_CAP_BYTES);
     let mut builder = WasiCtxBuilder::new();
+    builder.stdout(stdout.clone()).stderr(stderr.clone());
     for (key, value) in &grants.env_vars {
         builder.env(key, value);
     }
@@ -300,6 +337,9 @@ pub fn build_store(
             limits: StoreLimitsBuilder::new()
                 .memory_size(limits.memory_max_bytes as usize)
                 .build(),
+            plugin_id: plugin_id.to_owned(),
+            stdout,
+            stderr,
         },
     );
     store.limiter(|state: &mut WasmStoreState| &mut state.limits as &mut dyn ResourceLimiter);
@@ -358,11 +398,15 @@ pub fn engine_handle() -> Engine {
     shared_engine()
 }
 
-fn module_cache() -> &'static std::sync::Mutex<std::collections::HashMap<String, wasmtime::Module>>
-{
-    static CACHE: OnceLock<std::sync::Mutex<std::collections::HashMap<String, wasmtime::Module>>> =
-        OnceLock::new();
-    CACHE.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+/// Maximum compiled artifacts retained per cache. Each entry holds machine
+/// code for one distinct module/component (up to tens of MiB), so the cap
+/// keeps long-running hosts from growing without bound. Eviction follows
+/// the cache's approximate-LRU policy; evicted bytes recompile on demand.
+pub const MAX_CACHED_ARTIFACTS: u64 = 32;
+
+fn module_cache() -> &'static Cache<String, wasmtime::Module> {
+    static CACHE: OnceLock<Cache<String, wasmtime::Module>> = OnceLock::new();
+    CACHE.get_or_init(|| Cache::builder().max_capacity(MAX_CACHED_ARTIFACTS).build())
 }
 
 fn compile_count() -> &'static std::sync::atomic::AtomicU64 {
@@ -370,25 +414,18 @@ fn compile_count() -> &'static std::sync::atomic::AtomicU64 {
     COUNT.get_or_init(|| std::sync::atomic::AtomicU64::new(0))
 }
 
-/// Compile `bytes` to a `Module`, reusing a content-keyed cache so reloads
-/// of an unchanged plugin skip recompilation. Keyed by the blake3 digest
-/// of the exact bytes, so a key hit always means identical code.
+/// Compile `bytes` to a `Module`, reusing a content-keyed bounded cache so
+/// reloads of an unchanged plugin skip recompilation. Keyed by the blake3
+/// digest of the exact bytes, so a key hit always means identical code.
 pub fn cached_module(engine: &Engine, bytes: &[u8]) -> PluginResult<wasmtime::Module> {
     let digest = blake3::hash(bytes).to_hex().to_string();
-    if let Some(module) = module_cache()
-        .lock()
-        .expect("module cache poisoned")
-        .get(&digest)
-    {
-        return Ok(module.clone());
+    if let Some(module) = module_cache().get(&digest) {
+        return Ok(module);
     }
     let module = wasmtime::Module::new(engine, bytes)
         .map_err(|e| wasm_err("wasm module compile failed", e))?;
     compile_count().fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    module_cache()
-        .lock()
-        .expect("module cache poisoned")
-        .insert(digest, module.clone());
+    module_cache().insert(digest, module.clone());
     Ok(module)
 }
 
@@ -414,5 +451,81 @@ mod tests {
         let store =
             build_store(&engine, "test", &WasiGrants::default(), &limits).expect("store builds");
         assert_eq!(store.get_fuel().expect("fuel readable"), 100);
+    }
+
+    #[test]
+    fn module_cache_is_bounded() {
+        let engine = engine_handle();
+        for i in 0..(MAX_CACHED_ARTIFACTS + 8) {
+            let wat = format!("(module (memory 1) (data (i32.const 0) \"bound{i}\"))");
+            let bytes = wat::parse_str(&wat).expect("valid wat");
+            cached_module(&engine, &bytes).expect("compile");
+        }
+        module_cache().run_pending_tasks();
+        assert!(
+            module_cache().entry_count() <= MAX_CACHED_ARTIFACTS,
+            "cache holds {} entries, cap is {MAX_CACHED_ARTIFACTS}",
+            module_cache().entry_count()
+        );
+    }
+
+    /// Guest writes to fd 1/2 via WASI `fd_write` must land in the host
+    /// capture pipes instead of vanishing.
+    #[tokio::test]
+    async fn guest_stdout_and_stderr_are_captured() {
+        let wat = r#"(module
+  (import "wasi_snapshot_preview1" "fd_write"
+    (func $fd_write (param i32 i32 i32 i32) (result i32)))
+  (memory (export "memory") 1)
+  (global $heap (mut i32) (i32.const 128))
+  (data (i32.const 64) "hi-stdout")
+  (data (i32.const 80) "hi-stderr")
+  (func (export "alloc") (param $n i32) (result i32)
+    (local $p i32) (global.get $heap) (local.set $p)
+    (global.set $heap (i32.add (global.get $heap) (local.get $n)))
+    (local.get $p))
+  (func $write (param $fd i32) (param $ptr i32) (param $len i32)
+    (i32.store (i32.const 16) (local.get $ptr))
+    (i32.store (i32.const 20) (local.get $len))
+    (drop (call $fd_write (local.get $fd) (i32.const 16) (i32.const 1) (i32.const 24))))
+  (func (export "wf_on_load") (param $p i32) (param $n i32) (result i32)
+    (call $write (i32.const 1) (i32.const 64) (i32.const 9))
+    (call $write (i32.const 2) (i32.const 80) (i32.const 9))
+    (i32.const 0)))
+"#;
+        let bytes = wat::parse_str(wat).expect("valid wat");
+        let engine = engine_handle();
+        let module = cached_module(&engine, &bytes).expect("compile");
+        let linker = new_linker(&engine).expect("linker");
+        let pre = linker.instantiate_pre(&module).expect("pre-instantiate");
+        let limits = WasmLimits {
+            memory_max_bytes: 64 * 1024 * 1024,
+            fuel_limit: Some(1_000_000),
+            call_timeout_ms: Some(10_000),
+            max_module_bytes: 1024 * 1024,
+            pool_size: 0,
+        };
+        let mut session = new_session(
+            &engine,
+            &pre,
+            "stdio-probe",
+            &WasiGrants::default(),
+            &limits,
+        )
+        .await
+        .expect("session");
+        let hook = session
+            .instance
+            .get_typed_func::<(u32, u32), u32>(&mut session.store, export::ON_LOAD)
+            .expect("hook");
+        arm_epoch(&engine, &mut session.store, limits.call_timeout_ms);
+        let code = hook
+            .call_async(&mut session.store, (0, 0))
+            .await
+            .expect("hook runs");
+        assert_eq!(code, 0);
+        let state = session.store.data();
+        assert_eq!(state.stdout.take_contents(), b"hi-stdout");
+        assert_eq!(state.stderr.take_contents(), b"hi-stderr");
     }
 }

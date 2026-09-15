@@ -84,8 +84,10 @@ pub struct WasmConfig {
     /// the `environment` permission; empty means a minimal environment.
     #[serde(default)]
     pub allowed_env_prefixes: Option<Vec<String>>,
-    /// Whether guest network access is allowed. Always denied unless both
-    /// this flag and the `network` permission are present.
+    /// Whether guest network access is allowed. Always denied in this
+    /// phase: setting it to `true` fails plugin loading with a clear
+    /// error, so manifests must leave it absent or `false`. Even with the
+    /// `network` permission present the host grants no socket access.
     #[serde(default)]
     pub allow_network: Option<bool>,
     /// Number of idle guest sessions retained for reuse. `None` or `0`

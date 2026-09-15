@@ -172,13 +172,13 @@ pub fn inject_discoverable_tools_metadata(system_prompt: &str, tools: &[Tool]) -
 /// the legacy names-only parameter list. Single source for both the
 /// agent-loop schema assembly and the workflow template rendering.
 pub fn discoverable_metadata_options(
-    tool_call_format: Option<&wf_types::llm::ToolCallFormatConfig>,
+    tool_call_protocol: Option<&wf_types::llm::ToolCallProtocolConfig>,
 ) -> DiscoverableMetadataOptions {
     DiscoverableMetadataOptions {
-        include_description: tool_call_format
+        include_description: tool_call_protocol
             .and_then(|c| c.include_description)
             .unwrap_or(true),
-        description_style: tool_call_format
+        description_style: tool_call_protocol
             .and_then(|c| c.description_style.as_deref())
             .map(DescriptionStyle::from_config_str)
             .unwrap_or(DescriptionStyle::Brief),
@@ -434,15 +434,15 @@ mod tests {
     }
 
     #[test]
-    fn discoverable_metadata_options_follow_tool_call_format_config() {
+    fn discoverable_metadata_options_follow_tool_call_protocol_config() {
         // No config: enhanced default (types on, Brief).
         let defaults = discoverable_metadata_options(None);
         assert!(defaults.include_description);
         assert_eq!(defaults.description_style, DescriptionStyle::Brief);
 
         // include_description=false reverts to the legacy names-only shape.
-        let legacy = discoverable_metadata_options(Some(&wf_types::llm::ToolCallFormatConfig {
-            format: wf_types::llm::ToolCallFormat::Xml,
+        let legacy = discoverable_metadata_options(Some(&wf_types::llm::ToolCallProtocolConfig {
+            format: wf_types::llm::ToolCallProtocol::Xml,
             markers: None,
             xml_tags: None,
             include_description: Some(false),
@@ -459,16 +459,17 @@ mod tests {
         );
 
         // Detailed style is forwarded for parameter descriptions.
-        let detailed = discoverable_metadata_options(Some(&wf_types::llm::ToolCallFormatConfig {
-            format: wf_types::llm::ToolCallFormat::Xml,
-            markers: None,
-            xml_tags: None,
-            include_description: None,
-            description_style: Some("detailed".to_string()),
-            include_examples: None,
-            include_rules: None,
-            additional_config: None,
-        }));
+        let detailed =
+            discoverable_metadata_options(Some(&wf_types::llm::ToolCallProtocolConfig {
+                format: wf_types::llm::ToolCallProtocol::Xml,
+                markers: None,
+                xml_tags: None,
+                include_description: None,
+                description_style: Some("detailed".to_string()),
+                include_examples: None,
+                include_rules: None,
+                additional_config: None,
+            }));
         assert!(detailed.include_description);
         assert_eq!(detailed.description_style, DescriptionStyle::Detailed);
     }

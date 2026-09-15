@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
 use wf_llm::profile_manager::validate_profile;
-use wf_types::llm::{LlmProfile, LlmProvider};
+use wf_types::llm::{LlmFormat, LlmProfile};
 
 use crate::infra::context::ApiContext;
 use crate::infra::error::{not_found, ApiError, ApiResult};
@@ -30,7 +30,7 @@ pub struct LlmProfileTemplate {
 pub struct LlmProfileFilter {
     pub id: Option<String>,
     pub name: Option<String>,
-    pub provider: Option<LlmProvider>,
+    pub format: Option<LlmFormat>,
     pub model: Option<String>,
 }
 
@@ -95,7 +95,7 @@ pub async fn delete(ctx: &ApiContext, id: &str) -> ApiResult<()> {
         .ok_or_else(|| not_found("profile", id))
 }
 
-/// Filter the profile list by id/name/provider/model.
+/// Filter the profile list by id/name/format/model.
 pub async fn query(ctx: &ApiContext, filter: &LlmProfileFilter) -> ApiResult<Vec<LlmProfile>> {
     let profiles = list(ctx).await?;
     Ok(profiles
@@ -111,8 +111,8 @@ pub async fn query(ctx: &ApiContext, filter: &LlmProfileFilter) -> ApiResult<Vec
                     return false;
                 }
             }
-            if let Some(provider) = &filter.provider {
-                if p.provider != *provider {
+            if let Some(format) = &filter.format {
+                if p.format != *format {
                     return false;
                 }
             }
@@ -340,14 +340,15 @@ fn mask_profile(profile: &LlmProfile) -> Value {
 }
 
 fn template_profile(
-    provider: LlmProvider,
+    format: LlmFormat,
     model: &str,
     generation: wf_types::llm::generation::LlmGenerationParams,
 ) -> LlmProfile {
     LlmProfile {
         id: String::new(),
         name: String::new(),
-        provider,
+        format,
+        provider_id: None,
         model: model.to_string(),
         api_key: None,
         base_url: None,
@@ -358,7 +359,7 @@ fn template_profile(
         retry_delay: None,
         headers: None,
         metadata: None,
-        tool_call_format: None,
+        tool_call_protocol: None,
         auth_type: None,
         custom_headers: None,
         custom_body: None,
@@ -376,7 +377,7 @@ fn builtin_templates() -> Vec<LlmProfileTemplate> {
             name: "openai-chat".into(),
             description: "OpenAI Chat API configuration template".into(),
             profile: template_profile(
-                LlmProvider::OpenaiChat,
+                LlmFormat::OpenaiChat,
                 "gpt-5",
                 LlmGenerationParams {
                     temperature: Some(0.7),
@@ -389,7 +390,7 @@ fn builtin_templates() -> Vec<LlmProfileTemplate> {
             name: "anthropic".into(),
             description: "Anthropic Claude configuration template".into(),
             profile: template_profile(
-                LlmProvider::Anthropic,
+                LlmFormat::Anthropic,
                 "claude-4.5-opus",
                 LlmGenerationParams {
                     temperature: Some(0.7),
@@ -402,7 +403,7 @@ fn builtin_templates() -> Vec<LlmProfileTemplate> {
             name: "gemini".into(),
             description: "Google Gemini configuration template".into(),
             profile: template_profile(
-                LlmProvider::GeminiNative,
+                LlmFormat::GeminiNative,
                 "gemini-2.5-pro",
                 LlmGenerationParams {
                     temperature: Some(0.7),
@@ -430,15 +431,15 @@ mod tests {
         ))
     }
 
-    fn profile(id: &str, provider: LlmProvider, model: &str, key: Option<&str>) -> LlmProfile {
+    fn profile(id: &str, format: LlmFormat, model: &str, key: Option<&str>) -> LlmProfile {
         LlmProfile {
             id: id.into(),
             name: format!("profile {}", id),
-            provider,
+            format,
             model: model.into(),
             api_key: key.map(ToOwned::to_owned),
             ..template_profile(
-                LlmProvider::OpenaiChat,
+                LlmFormat::OpenaiChat,
                 "x",
                 wf_types::llm::generation::LlmGenerationParams::default(),
             )
@@ -451,13 +452,13 @@ mod tests {
 
         create(
             &ctx,
-            &profile("p1", LlmProvider::OpenaiChat, "gpt-4o", Some("sk-1")),
+            &profile("p1", LlmFormat::OpenaiChat, "gpt-4o", Some("sk-1")),
         )
         .await
         .unwrap();
         create(
             &ctx,
-            &profile("p2", LlmProvider::Anthropic, "claude-4", Some("sk-2")),
+            &profile("p2", LlmFormat::Anthropic, "claude-4", Some("sk-2")),
         )
         .await
         .unwrap();
@@ -466,13 +467,13 @@ mod tests {
         assert_eq!(get_default_id(&ctx).await.unwrap().as_deref(), Some("p1"));
 
         // Duplicate id is rejected.
-        let err = create(&ctx, &profile("p1", LlmProvider::OpenaiChat, "gpt-5", None))
+        let err = create(&ctx, &profile("p1", LlmFormat::OpenaiChat, "gpt-5", None))
             .await
             .unwrap_err();
         assert!(matches!(err, ApiError::AlreadyExists { .. }));
 
         // Update via the full-profile form.
-        let mut updated = profile("p2", LlmProvider::Anthropic, "claude-5", Some("sk-3"));
+        let mut updated = profile("p2", LlmFormat::Anthropic, "claude-5", Some("sk-3"));
         updated.max_retries = Some(3);
         update(&ctx, &updated).await.unwrap();
         assert_eq!(get(&ctx, "p2").await.unwrap().max_retries, Some(3));
@@ -494,12 +495,7 @@ mod tests {
 
         create(
             &ctx,
-            &profile(
-                "p-exp",
-                LlmProvider::OpenaiChat,
-                "gpt-4o",
-                Some("sk-secret"),
-            ),
+            &profile("p-exp", LlmFormat::OpenaiChat, "gpt-4o", Some("sk-secret")),
         )
         .await
         .unwrap();
@@ -519,7 +515,7 @@ mod tests {
         let clean = serde_json::json!({
             "id": "p-imp",
             "name": "imported",
-            "provider": "OPENAI_CHAT",
+            "format": "OPENAI_CHAT",
             "model": "gpt-4o",
             "api_key": "sk-imported",
         });
@@ -548,7 +544,7 @@ mod tests {
         assert_eq!(id, "tpl-1");
         let created = get(&ctx, "tpl-1").await.unwrap();
         assert_eq!(created.model, "gpt-5");
-        assert_eq!(created.provider, LlmProvider::OpenaiChat);
+        assert_eq!(created.format, LlmFormat::OpenaiChat);
 
         // Generated id when none is supplied.
         let auto = create_from_template(&ctx, "gemini", &json!({ "api_key": "sk-g" }))
@@ -559,7 +555,7 @@ mod tests {
         let matched = query(
             &ctx,
             &LlmProfileFilter {
-                provider: Some(LlmProvider::GeminiNative),
+                format: Some(LlmFormat::GeminiNative),
                 ..LlmProfileFilter::default()
             },
         )
@@ -578,7 +574,7 @@ mod tests {
             name: "custom-chat".into(),
             description: "A runtime template".into(),
             profile: template_profile(
-                LlmProvider::OpenaiChat,
+                LlmFormat::OpenaiChat,
                 "gpt-custom",
                 wf_types::llm::generation::LlmGenerationParams::default(),
             ),
@@ -592,7 +588,7 @@ mod tests {
                 name: "openai-chat".into(),
                 description: "clashes with builtin".into(),
                 profile: template_profile(
-                    LlmProvider::OpenaiChat,
+                    LlmFormat::OpenaiChat,
                     "x",
                     wf_types::llm::generation::LlmGenerationParams::default(),
                 ),

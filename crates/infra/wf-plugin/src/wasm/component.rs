@@ -22,9 +22,10 @@ use wasmtime_wasi::p2::{IoView, WasiCtx, WasiCtxBuilder, WasiView};
 use wf_plugin_sdk::wasm::{WasmContributionDecl, WasmMiddlewareDecl};
 use wf_types::MiddlewarePhase;
 
-use super::policy::{WasiGrants, WasmLimits};
+use super::policy::{validate_network_policy, WasiGrants, WasmLimits};
 use super::pool::{self, wasm_err};
 use super::stats::WasmStats;
+use super::stdio::{GuestLogPipe, GUEST_STDIO_CAP_BYTES};
 use crate::context::PluginContext;
 use crate::contributions::registrar::ContributionRegistrar;
 use crate::contributions::types::*;
@@ -54,6 +55,12 @@ pub(crate) struct ComponentHostState {
     ctx: WasiCtx,
     table: ResourceTable,
     limits: StoreLimits,
+    /// Owning plugin id, used to attribute guest-to-host log records.
+    plugin_id: String,
+    /// Guest `stdout` capture, drained to the host log after every call.
+    pub(crate) stdout: GuestLogPipe,
+    /// Guest `stderr` capture, drained like `stdout`.
+    pub(crate) stderr: GuestLogPipe,
 }
 
 impl IoView for ComponentHostState {
@@ -67,6 +74,12 @@ impl WasiView for ComponentHostState {
         &mut self.ctx
     }
 }
+
+/// Pinned component-world version. The WIT package
+/// (`wit/plugin.wit`) and these bindings must agree; a world change
+/// requires a version bump on both sides, and old guests then fail
+/// loudly at bind time instead of silently misbehaving.
+pub(crate) const WF_COMPONENT_WORLD_VERSION: &str = "0.1.0-draft";
 
 pub(crate) struct ComponentPluginInner {
     pub(crate) manifest: PluginManifest,
@@ -96,11 +109,33 @@ impl ComponentPlugin {
     }
 }
 
-/// Build the linker shared by every component plugin: WASI p2 imports only.
+/// Host implementation of the `wf:plugin/host-log` world import: structured
+/// guest-to-host logging. Best-effort; over-long messages are truncated by
+/// the shared emitter and the call never fails the guest.
+impl gen::wf::plugin::host_log::Host for ComponentHostState {
+    async fn log(&mut self, level: u32, message: String) {
+        let plugin_id = self.plugin_id.clone();
+        super::stdio::emit_host_log(&plugin_id, level, message.as_bytes());
+    }
+}
+
+/// Marker connecting the generated world bindings to [`ComponentHostState`].
+struct ComponentHostView;
+
+impl wasmtime::component::HasData for ComponentHostView {
+    type Data<'a> = &'a mut ComponentHostState;
+}
+
+/// Build the linker shared by every component plugin: WASI p2 imports plus
+/// the `wf:plugin/host-log` guest-to-host namespace.
 fn new_component_linker(engine: &Engine) -> PluginResult<Linker<ComponentHostState>> {
     let mut linker = Linker::new(engine);
     wasmtime_wasi::p2::add_to_linker_sync(&mut linker)
         .map_err(|e| wasm_err("component wasi linker setup failed", e))?;
+    GeneratedPlugin::add_to_linker::<ComponentHostState, ComponentHostView>(&mut linker, |state| {
+        state
+    })
+    .map_err(|e| wasm_err("component host-log linker setup failed", e))?;
     Ok(linker)
 }
 
@@ -113,7 +148,10 @@ fn build_component_store(
     grants: &WasiGrants,
     limits: &WasmLimits,
 ) -> PluginResult<Store<ComponentHostState>> {
+    let stdout = GuestLogPipe::new(GUEST_STDIO_CAP_BYTES);
+    let stderr = GuestLogPipe::new(GUEST_STDIO_CAP_BYTES);
     let mut builder = WasiCtxBuilder::new();
+    builder.stdout(stdout.clone()).stderr(stderr.clone());
     for (key, value) in &grants.env_vars {
         builder.env(key, value);
     }
@@ -141,6 +179,9 @@ fn build_component_store(
             limits: StoreLimitsBuilder::new()
                 .memory_size(limits.memory_max_bytes as usize)
                 .build(),
+            plugin_id: plugin_id.to_owned(),
+            stdout,
+            stderr,
         },
     );
     store.limiter(|state: &mut ComponentHostState| {
@@ -233,6 +274,43 @@ fn bind_instance(
         .map_err(|e| wasm_err(&format!("plugin '{}' bind failed", inner.manifest.id), e))
 }
 
+/// Drain captured guest `stdout`/`stderr` to the host log. Runs after every
+/// guest call (success or failure) so failures stay diagnosable.
+fn drain_component_stdio(
+    inner: &ComponentPluginInner,
+    op: &str,
+    store: &Store<ComponentHostState>,
+) {
+    let state = store.data();
+    super::stdio::drain_guest_stdio(&inner.manifest.id, op, &state.stdout, &state.stderr);
+}
+
+/// Credit fuel consumed by one component call. The timeout guard records
+/// the call outcome without fuel (the store is mutably borrowed by the
+/// in-flight call), so the caller snapshots fuel before the call and
+/// settles the delta here, mirroring the core-module `observe` path.
+fn record_component_fuel(
+    inner: &ComponentPluginInner,
+    store: &Store<ComponentHostState>,
+    fuel_before: Option<u64>,
+) {
+    if let Some(before) = fuel_before {
+        if let Ok(remaining) = store.get_fuel() {
+            inner
+                .stats
+                .record_fuel_used(before.saturating_sub(remaining));
+        }
+    }
+}
+
+/// Snapshot metered fuel before a component call; `None` when unmetered.
+fn component_fuel_before(
+    inner: &ComponentPluginInner,
+    store: &Store<ComponentHostState>,
+) -> Option<u64> {
+    inner.limits.fuel_limit.and_then(|_| store.get_fuel().ok())
+}
+
 /// Call one lifecycle hook. A component instantiates only when it
 /// implements the full world, so unlike the tolerant core-module path a
 /// bind failure here means host/guest skew and fails loudly.
@@ -252,6 +330,7 @@ async fn invoke_component_hook(
     let instance = instantiate_component(inner, &mut store).await?;
     let bindings = bind_instance(inner, &mut store, &instance)?;
     let lifecycle = bindings.wf_plugin_lifecycle();
+    let fuel_before = component_fuel_before(inner, &store);
     let call = async {
         let result = match (op, input) {
             (HookOp::Load, Some(input)) => lifecycle.call_on_load(&mut store, &input).await,
@@ -271,9 +350,17 @@ async fn invoke_component_hook(
             }
         }
         .map_err(|e| component_call_error(inner, name, e))?;
-        result.map_err(|e| PluginError::WasmError(format!("plugin hook '{name}' failed: {e}")))
+        result.map_err(|e| {
+            PluginError::WasmError(format!(
+                "plugin '{}' hook '{name}' failed: {e}",
+                inner.manifest.id
+            ))
+        })
     };
-    guard_component_call(&inner.manifest.id, &inner.limits, &inner.stats, call).await
+    let outcome = guard_component_call(&inner.manifest.id, &inner.limits, &inner.stats, call).await;
+    record_component_fuel(inner, &store, fuel_before);
+    drain_component_stdio(inner, name, &store);
+    outcome
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -315,13 +402,17 @@ pub(crate) async fn fetch_component_declaration(
     let bindings =
         GeneratedPlugin::new(&mut store, &instance).map_err(|e| wasm_err("bind failed", e))?;
     let contributions = bindings.wf_plugin_contributions();
+    let fuel_before = component_fuel_before(inner, &store);
     let decl = guard_component_call(&plugin_id, &limits, &stats, async {
         contributions
             .call_register(&mut store)
             .await
             .map_err(|e| wasm_err("register call failed", e))
     })
-    .await?;
+    .await;
+    record_component_fuel(inner, &store, fuel_before);
+    drain_component_stdio(inner, "register", &store);
+    let decl = decl?;
     Ok(WasmContributionDecl {
         node_types: decl.node_types,
         tool_types: decl.tool_types,
@@ -349,6 +440,10 @@ pub(crate) async fn load_component_plugin_at(
     grants: &WasiGrants,
 ) -> PluginResult<Arc<dyn PluginTrait>> {
     let id = manifest.id.clone();
+    validate_network_policy(manifest)?;
+    tracing::debug!(
+        "wasm component '{id}' loading against world version {WF_COMPONENT_WORLD_VERSION}"
+    );
     let bytes = tokio::fs::read(module_path)
         .await
         .map_err(|e| PluginError::LoadFailed(format!("cannot read {module_path:?}: {e}")))?;
@@ -370,6 +465,12 @@ pub(crate) async fn load_component_plugin_at(
     let pre = linker
         .instantiate_pre(&component)
         .map_err(|e| wasm_err(&format!("plugin '{id}' pre-instantiation failed"), e))?;
+    if limits.pool_size > 0 {
+        tracing::info!(
+            "wasm component '{id}' requests a session pool (size {}), but component calls still build a fresh store per invocation until a component reset contract lands; pre-resolved imports are reused",
+            limits.pool_size
+        );
+    }
     let stats = Arc::new(WasmStats::default());
     let inner = ComponentPluginInner {
         manifest: manifest.clone(),
@@ -385,30 +486,26 @@ pub(crate) async fn load_component_plugin_at(
     Ok(Arc::new(ComponentPlugin::from_inner(inner)) as Arc<dyn PluginTrait>)
 }
 
-fn component_cache() -> &'static std::sync::Mutex<std::collections::HashMap<String, Component>> {
-    static CACHE: std::sync::OnceLock<
-        std::sync::Mutex<std::collections::HashMap<String, Component>>,
-    > = std::sync::OnceLock::new();
-    CACHE.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+fn component_cache() -> &'static moka::sync::Cache<String, Component> {
+    static CACHE: std::sync::OnceLock<moka::sync::Cache<String, Component>> =
+        std::sync::OnceLock::new();
+    CACHE.get_or_init(|| {
+        moka::sync::Cache::builder()
+            .max_capacity(pool::MAX_CACHED_ARTIFACTS)
+            .build()
+    })
 }
 
-/// Compile component bytes, reusing a content-keyed cache so reloads of an
-/// unchanged plugin skip recompilation.
+/// Compile component bytes, reusing a content-keyed bounded cache so
+/// reloads of an unchanged plugin skip recompilation.
 pub fn cached_component(engine: &Engine, bytes: &[u8]) -> PluginResult<Component> {
     let digest = blake3::hash(bytes).to_hex().to_string();
-    if let Some(component) = component_cache()
-        .lock()
-        .expect("component cache poisoned")
-        .get(&digest)
-    {
-        return Ok(component.clone());
+    if let Some(component) = component_cache().get(&digest) {
+        return Ok(component);
     }
     let component =
         Component::new(engine, bytes).map_err(|e| wasm_err("component compile failed", e))?;
-    component_cache()
-        .lock()
-        .expect("component cache poisoned")
-        .insert(digest, component.clone());
+    component_cache().insert(digest, component.clone());
     Ok(component)
 }
 
@@ -434,6 +531,7 @@ async fn invoke_component_dispatch(
     let instance = instantiate_component(inner, &mut store).await?;
     let bindings = bind_instance(inner, &mut store, &instance)?;
     let contributions = bindings.wf_plugin_contributions();
+    let fuel_before = component_fuel_before(inner, &store);
     let call = async {
         let result = contributions
             .call_dispatch(&mut store, &handler_type, &handler_name, &input_json)
@@ -447,7 +545,10 @@ async fn invoke_component_dispatch(
             ))),
         }
     };
-    guard_component_call(&inner.manifest.id, &inner.limits, &inner.stats, call).await
+    let outcome = guard_component_call(&inner.manifest.id, &inner.limits, &inner.stats, call).await;
+    record_component_fuel(inner, &store, fuel_before);
+    drain_component_stdio(inner, "dispatch", &store);
+    outcome
 }
 
 fn config_json(config: &Value) -> PluginResult<String> {
@@ -644,15 +745,19 @@ impl PluginEventHandler for ComponentEventHandler {
 
 #[async_trait]
 impl PluginMiddlewareHandler for ComponentMiddlewareHandler {
-    async fn handle(&self, context: Value, next: NextFn) -> PluginResult<()> {
+    async fn handle(&self, context: Value, next: NextFn) -> PluginResult<Value> {
         let input = serde_json::to_string(&context)
             .map_err(|e| PluginError::WasmError(format!("serialize middleware ctx: {e}")))?;
         let output = invoke_component_dispatch(&self.inner, "mw", &self.phase, &input).await?;
-        let proceed: Value = serde_json::from_slice(&output).unwrap_or(Value::Null);
-        if proceed.as_bool().unwrap_or(true) {
-            next().await?;
+        // Middleware answers with a boolean (legacy) or a `{proceed,
+        // context}` envelope; the rewritten context threads downstream.
+        let response: Value = serde_json::from_slice(&output).unwrap_or(Value::Null);
+        let outcome = wf_plugin_sdk::contributions::parse_middleware_outcome(&response, &context);
+        if outcome.proceed {
+            next(outcome.context).await
+        } else {
+            Ok(outcome.context)
         }
-        Ok(())
     }
 }
 
@@ -882,12 +987,62 @@ mod tests {
         }
     }
 
+    #[tokio::test]
+    async fn component_cache_is_bounded() {
+        // Distinct guests keep the encoded bytes distinct: the replacement
+        // preserves the 11-byte payload length the guest hardcodes.
+        let mut resolve = wit_parser::Resolve::new();
+        let pkg = resolve
+            .push_str("plugin.wit", TEST_WIT)
+            .expect("wit parses");
+        let world = resolve
+            .select_world(&[pkg], Some("plugin"))
+            .expect("world resolves");
+        let engine = super::super::pool::engine_handle();
+        let cap = super::super::pool::MAX_CACHED_ARTIFACTS;
+        for i in 0..(cap + 8) {
+            let core_wat = TEST_GUEST_WAT.replace("boom failed", &format!("boomfail{i:03}"));
+            let module = wat::parse_str(&core_wat).expect("valid core guest wat");
+            let fragment = wit_component::metadata::encode(
+                &resolve,
+                world,
+                wit_component::StringEncoding::UTF8,
+                None,
+            )
+            .expect("metadata encodes");
+            let full = embed_component_type(&module, "component-type:plugin", &fragment);
+            let bytes = wit_component::ComponentEncoder::default()
+                .module(&full)
+                .expect("encoder accepts module")
+                .validate(true)
+                .encode()
+                .expect("component encodes");
+            cached_component(&engine, &bytes).expect("component caches");
+        }
+        super::component_cache().run_pending_tasks();
+        assert!(
+            super::component_cache().entry_count() <= cap,
+            "cache holds {} entries, cap is {cap}",
+            super::component_cache().entry_count()
+        );
+    }
+
+    #[test]
+    fn component_wit_version_is_pinned() {
+        assert!(
+            TEST_WIT.contains(WF_COMPONENT_WORLD_VERSION),
+            "wit world must carry the pinned version {WF_COMPONENT_WORLD_VERSION}"
+        );
+        assert!(
+            TEST_WIT.contains("wf:plugin"),
+            "wit world must declare the wf:plugin package"
+        );
+    }
     #[test]
     fn encoded_guest_is_detected_as_component() {
         let bytes = encode_test_component(TEST_GUEST_WAT);
         assert!(is_component(&bytes));
     }
-
     #[test]
     fn encoded_guest_exports_plugin_world() {
         use wasmparser::{Parser, Payload};
@@ -926,7 +1081,9 @@ mod tests {
         manager.start_registration("comp-e2e");
         {
             let mut registrar = manager.as_registrar();
-            plugin.register_contributions(&mut registrar).expect("contributions register");
+            plugin
+                .register_contributions(&mut registrar)
+                .expect("contributions register");
         }
         let executor = manager
             .get_tool_executor("echo")
@@ -964,7 +1121,9 @@ mod tests {
         manager.start_registration("comp-boom");
         {
             let mut registrar = manager.as_registrar();
-            plugin.register_contributions(&mut registrar).expect("contributions register");
+            plugin
+                .register_contributions(&mut registrar)
+                .expect("contributions register");
         }
         let executor = manager
             .get_tool_executor("boom")
@@ -978,6 +1137,112 @@ mod tests {
         assert!(
             matches!(err, PluginError::WasmError(_)),
             "expected wasm error, got {err:?}"
+        );
+        let text = err.to_string();
+        assert!(
+            text.contains("comp-boom"),
+            "error must name the plugin: {text}"
+        );
+        assert!(
+            text.contains("boom failed"),
+            "guest detail must surface: {text}"
+        );
+    }
+
+    /// The standard test guest answers dispatch with a fixed JSON object
+    /// (neither a boolean nor a middleware envelope), so the middleware
+    /// handler must pass the context through unchanged (legacy behavior).
+    #[tokio::test]
+    async fn component_middleware_legacy_output_passes_context_through() {
+        use crate::contributions::NextFn;
+
+        let bytes = encode_test_component(TEST_GUEST_WAT);
+        let engine = super::super::pool::engine_handle();
+        let component = cached_component(&engine, &bytes).expect("compiles");
+        let linker = new_component_linker(&engine).expect("linker");
+        let pre = linker.instantiate_pre(&component).expect("pre-instantiate");
+        let manifest = test_manifest("comp-mw", Default::default());
+        let limits = resolve_limits(&manifest, 10_000).expect("limits");
+        let grants = resolve_grants(&manifest);
+        let inner = Arc::new(ComponentPluginInner {
+            manifest,
+            engine,
+            pre,
+            limits,
+            grants,
+            decl: WasmContributionDecl::default(),
+            stats: Arc::new(WasmStats::default()),
+        });
+        let handler = ComponentMiddlewareHandler {
+            inner,
+            phase: "pre_tool".to_owned(),
+        };
+        let input = serde_json::json!({"a": 1});
+        let next: NextFn = Box::new(|ctx| Box::pin(async move { Ok(ctx) }));
+        let out = handler
+            .handle(input.clone(), next)
+            .await
+            .expect("middleware runs");
+        assert_eq!(out, input);
+    }
+
+    /// Test guest variant that calls the `host-log` world import from
+    /// `on-load` before succeeding. The import line matches the world
+    /// import name; the call passes `(level, ptr, len)` of a static message.
+    fn host_log_component_wat() -> String {
+        TEST_GUEST_WAT
+            .replacen(
+                "(module",
+                "(module\n  (import \"wf:plugin/host-log@0.1.0-draft\" \"log\" (func $host_log (param i32 i32 i32)))\n  (data (i32.const 4096) \"hello-host\")",
+                1,
+            )
+            .replacen(
+                "(func (export \"wf:plugin/lifecycle@0.1.0-draft#on-load\")\n    (param i32 i32 i32 i32) (result i32)\n    (call $ok))",
+                "(func (export \"wf:plugin/lifecycle@0.1.0-draft#on-load\")\n    (param i32 i32 i32 i32) (result i32)\n    (call $host_log (i32.const 2) (i32.const 4096) (i32.const 10))\n    (call $ok))",
+                1,
+            )
+    }
+
+    #[tokio::test]
+    async fn component_host_log_import_resolves_and_runs() {
+        let bytes = encode_test_component(&host_log_component_wat());
+        let plugin = load_test_component("comp-hostlog", &bytes, Default::default(), 10_000)
+            .await
+            .expect("component with host-log import loads");
+        plugin
+            .on_load(&hook_context("comp-hostlog"))
+            .await
+            .expect("host log call succeeds");
+    }
+
+    #[tokio::test]
+    async fn component_register_call_records_fuel() {
+        let bytes = encode_test_component(TEST_GUEST_WAT);
+        let engine = super::super::pool::engine_handle();
+        let component = cached_component(&engine, &bytes).expect("compiles");
+        let linker = new_component_linker(&engine).expect("linker");
+        let pre = linker.instantiate_pre(&component).expect("pre-instantiate");
+        let manifest = test_manifest("comp-fuel", Default::default());
+        let limits = resolve_limits(&manifest, 10_000).expect("limits");
+        let grants = resolve_grants(&manifest);
+        let stats = Arc::new(WasmStats::default());
+        let inner = ComponentPluginInner {
+            manifest,
+            engine,
+            pre,
+            limits,
+            grants,
+            decl: WasmContributionDecl::default(),
+            stats: stats.clone(),
+        };
+        fetch_component_declaration(&inner)
+            .await
+            .expect("register works");
+        let snap = stats.snapshot();
+        assert!(snap.calls >= 1, "register call is counted");
+        assert!(
+            snap.fuel_consumed > 0,
+            "metered component calls consume fuel, got {snap:?}"
         );
     }
 
@@ -1003,7 +1268,9 @@ mod tests {
         manager.start_registration("comp-spin");
         {
             let mut registrar = manager.as_registrar();
-            plugin.register_contributions(&mut registrar).expect("contributions register");
+            plugin
+                .register_contributions(&mut registrar)
+                .expect("contributions register");
         }
         let executor = manager
             .get_tool_executor("spin")

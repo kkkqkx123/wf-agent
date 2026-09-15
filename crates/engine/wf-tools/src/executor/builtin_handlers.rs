@@ -21,7 +21,7 @@ use crate::executor::builtin_handler::{
 use crate::executor::trait_def::ToolExecutionContext;
 use crate::general::GeneralHandler;
 use crate::skill::SkillLoadContext;
-use wf_types::llm::ToolCallFormatConfig;
+use wf_types::llm::ToolCallProtocolConfig;
 use wf_types::message::Message;
 fn default_wait() -> bool {
     true
@@ -57,7 +57,7 @@ pub struct CallAgentParams {
     #[serde(default)]
     pub enable_general_tool: Option<bool>,
     #[serde(default)]
-    pub tool_call_format: Option<String>,
+    pub tool_call_protocol: Option<String>,
     #[serde(default)]
     pub token_limit: Option<u64>,
     #[serde(default)]
@@ -132,10 +132,10 @@ impl BuiltinToolHandler for CallAgentHandler {
             max_execution_time: params.max_execution_time,
             hooks: params.hooks,
             available_tool_names: params.available_tool_names,
-            tool_call_format: params
-                .tool_call_format
+            tool_call_protocol: params
+                .tool_call_protocol
                 .as_deref()
-                .and_then(ToolCallFormatConfig::from_format_str),
+                .and_then(ToolCallProtocolConfig::from_protocol_str),
             token_limit: params.token_limit,
             token_warning_threshold: params.token_warning_threshold,
             enable_token_tracking: params.enable_token_tracking,

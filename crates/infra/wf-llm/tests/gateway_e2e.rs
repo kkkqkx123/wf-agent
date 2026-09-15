@@ -6,7 +6,7 @@ mod common;
 
 use common::{MockRequest, MockResponse, MockServer};
 use wf_types::llm::{
-    LlmProfile, LlmProvider, LlmRequest, ToolCallFormat, ToolCallFormatConfig,
+    LlmFormat, LlmProfile, LlmRequest, ToolCallProtocol, ToolCallProtocolConfig,
     ToolCallProtocolViolationPolicy,
 };
 use wf_types::message::{Message, MessageContentValue, MessageRole};
@@ -27,11 +27,12 @@ const OPENAI_CHAT_RESPONSE: &str = r#"{
     "usage": {"prompt_tokens": 4, "completion_tokens": 3, "total_tokens": 7}
 }"#;
 
-fn profile(server: &MockServer, id: &str, format: Option<ToolCallFormat>) -> LlmProfile {
+fn profile(server: &MockServer, id: &str, format: Option<ToolCallProtocol>) -> LlmProfile {
     LlmProfile {
         id: id.to_string(),
         name: id.to_string(),
-        provider: LlmProvider::OpenaiChat,
+        format: LlmFormat::OpenaiChat,
+        provider_id: None,
         model: "gpt-4o".to_string(),
         api_key: Some("sk-test".to_string()),
         base_url: Some(server.url("/v1")),
@@ -42,7 +43,7 @@ fn profile(server: &MockServer, id: &str, format: Option<ToolCallFormat>) -> Llm
         retry_delay: Some(10),
         headers: None,
         metadata: None,
-        tool_call_format: format.map(|f| ToolCallFormatConfig {
+        tool_call_protocol: format.map(|f| ToolCallProtocolConfig {
             format: f,
             markers: None,
             xml_tags: None,
@@ -79,8 +80,8 @@ fn user_request(profile_id: &str) -> LlmRequest {
         parameters: None,
         generation: None,
         tools: None,
-        tool_call_format: None,
-        locked_tool_call_format: None,
+        tool_call_protocol: None,
+        locked_tool_call_protocol: None,
         violation_policy: None,
         execution_id: None,
         stream: None,
@@ -167,12 +168,12 @@ async fn locked_format_conflict_fails_under_fail_policy() {
     let gateway = LlmGateway::new();
     // Profile defaults to JsonWrapped.
     gateway
-        .register_profile(profile(&server, "p1", Some(ToolCallFormat::JsonWrapped)))
+        .register_profile(profile(&server, "p1", Some(ToolCallProtocol::JsonWrapped)))
         .expect("register");
 
     let mut req = user_request("p1");
-    req.locked_tool_call_format = Some(ToolCallFormatConfig {
-        format: ToolCallFormat::Xml,
+    req.locked_tool_call_protocol = Some(ToolCallProtocolConfig {
+        format: ToolCallProtocol::Xml,
         markers: None,
         xml_tags: None,
         include_description: None,
@@ -197,13 +198,13 @@ async fn compatible_locked_format_passes_silently() {
         MockServer::spawn(|_: &MockRequest| MockResponse::ok_json(OPENAI_CHAT_RESPONSE)).await;
     let gateway = LlmGateway::new();
     gateway
-        .register_profile(profile(&server, "p1", Some(ToolCallFormat::JsonRaw)))
+        .register_profile(profile(&server, "p1", Some(ToolCallProtocol::JsonRaw)))
         .expect("register");
 
     // JsonWrapped and JsonRaw are compatible (markers may differ).
     let mut req = user_request("p1");
-    req.locked_tool_call_format = Some(ToolCallFormatConfig {
-        format: ToolCallFormat::JsonWrapped,
+    req.locked_tool_call_protocol = Some(ToolCallProtocolConfig {
+        format: ToolCallProtocol::JsonWrapped,
         markers: None,
         xml_tags: None,
         include_description: None,
@@ -233,12 +234,12 @@ async fn auto_convert_policy_marks_request_and_uses_locked_format() {
         MockServer::spawn(|_: &MockRequest| MockResponse::ok_json(OPENAI_CHAT_RESPONSE)).await;
     let gateway = LlmGateway::new();
     gateway
-        .register_profile(profile(&server, "p1", Some(ToolCallFormat::Xml)))
+        .register_profile(profile(&server, "p1", Some(ToolCallProtocol::Xml)))
         .expect("register");
 
     let mut req = user_request("p1");
-    req.locked_tool_call_format = Some(ToolCallFormatConfig {
-        format: ToolCallFormat::JsonWrapped,
+    req.locked_tool_call_protocol = Some(ToolCallProtocolConfig {
+        format: ToolCallProtocol::JsonWrapped,
         markers: None,
         xml_tags: None,
         include_description: None,
@@ -268,7 +269,7 @@ async fn text_mode_tools_are_declared_in_system_content() {
     let gateway = LlmGateway::new();
     // Xml tool call format -> text mode.
     gateway
-        .register_profile(profile(&server, "p1", Some(ToolCallFormat::Xml)))
+        .register_profile(profile(&server, "p1", Some(ToolCallProtocol::Xml)))
         .expect("register");
 
     let mut req = user_request("p1");
@@ -356,7 +357,7 @@ async fn gateway_count_tokens_uses_provider_api_when_available() {
     .await;
 
     let mut p = profile(&server, "p1", None);
-    p.provider = LlmProvider::Anthropic;
+    p.format = LlmFormat::Anthropic;
     p.model = "claude-3-5-sonnet".to_string();
     let gateway = LlmGateway::new();
     gateway.register_profile(p).expect("register");
@@ -383,7 +384,7 @@ async fn gateway_count_tokens_uses_openai_responses_api_when_available() {
     .await;
 
     let mut p = profile(&server, "p1", None);
-    p.provider = LlmProvider::OpenaiResponse;
+    p.format = LlmFormat::OpenaiResponse;
     p.model = "gpt-4o".to_string();
     let gateway = LlmGateway::new();
     gateway.register_profile(p).expect("register");
@@ -411,7 +412,7 @@ async fn gateway_count_tokens_uses_gemini_api_when_available() {
     .await;
 
     let mut p = profile(&server, "p1", None);
-    p.provider = LlmProvider::GeminiNative;
+    p.format = LlmFormat::GeminiNative;
     p.model = "gemini-1.5-flash".to_string();
     p.base_url = Some(server.url("/v1beta"));
     let gateway = LlmGateway::new();

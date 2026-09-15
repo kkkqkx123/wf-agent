@@ -1,0 +1,28 @@
+# LLM Provider: example third-party gateway with a static model list
+#
+# Schema: wf_types::llm::provider_definition::LlmProviderDefinition
+# No discovery request is sent; profiles referencing `acme` pick models
+# from the inline list below.
+
+id = "acme"
+name = "Acme Gateway"
+description = "Example OpenAI-compatible gateway"
+base_url = "https://api.acme.test/v1"
+auth_type = "bearer"
+format = "OPENAI_CHAT"
+
+[model_discovery]
+kind = "static_list"
+
+[[model_discovery.models]]
+id = "acme-7b"
+name = "Acme 7B"
+context_window_size = 128000
+
+[[model_discovery.models]]
+id = "acme-70b"
+name = "Acme 70B"
+context_window_size = 128000
+
+[metadata]
+tags = ["example"]

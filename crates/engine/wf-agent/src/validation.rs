@@ -1,6 +1,6 @@
 use wf_tools::callback::HookConfig;
 use wf_tools::registry::ToolRegistry;
-use wf_types::llm::{ToolCallFormat, ToolCallFormatConfig};
+use wf_types::llm::{ToolCallProtocol, ToolCallProtocolConfig};
 
 use crate::constants::AGENT_MAX_ITERATIONS_CAP;
 
@@ -164,8 +164,8 @@ impl AgentLoopValidator {
     /// and the LLM profile. Uses the same
     /// compatibility rule the gateway applies at runtime.
     pub fn validate_tool_call_protocol(
-        config_format: Option<&ToolCallFormatConfig>,
-        profile_format: Option<ToolCallFormat>,
+        config_format: Option<&ToolCallProtocolConfig>,
+        profile_format: Option<ToolCallProtocol>,
     ) -> ProtocolValidationResult {
         let mut result = ProtocolValidationResult::default();
 
@@ -330,19 +330,19 @@ fn validate_tool_lists(
 
 /// Validate that a tool call format config is structurally sound (markers
 /// present for non-native formats).
-pub fn validate_tool_call_format_config(config: &ToolCallFormatConfig) -> Vec<ValidationIssue> {
+pub fn validate_tool_call_protocol_config(config: &ToolCallProtocolConfig) -> Vec<ValidationIssue> {
     let mut issues = Vec::new();
     match config.format {
-        ToolCallFormat::Native => {}
-        ToolCallFormat::Xml => {
+        ToolCallProtocol::Native => {}
+        ToolCallProtocol::Xml => {
             if config.xml_tags.is_none() {
                 issues.push(ValidationIssue::warning(
-                    "tool_call_format.xml_tags",
+                    "tool_call_protocol.xml_tags",
                     "XML format without custom xml_tags falls back to defaults",
                 ));
             }
         }
-        ToolCallFormat::JsonWrapped | ToolCallFormat::JsonRaw => {}
+        ToolCallProtocol::JsonWrapped | ToolCallProtocol::JsonRaw => {}
     }
     issues
 }
@@ -366,7 +366,7 @@ mod tests {
             enable_general_tool: None,
             activated_tool_names: Vec::new(),
             hidden_tool_names: Vec::new(),
-            tool_call_format: None,
+            tool_call_protocol: None,
             token_limit: None,
             token_warning_threshold: None,
             enable_token_tracking: None,
@@ -460,8 +460,8 @@ mod tests {
 
     #[test]
     fn test_protocol_mismatch() {
-        let cfg = ToolCallFormatConfig {
-            format: ToolCallFormat::Xml,
+        let cfg = ToolCallProtocolConfig {
+            format: ToolCallProtocol::Xml,
             markers: None,
             xml_tags: None,
             include_description: None,
@@ -472,7 +472,7 @@ mod tests {
         };
         let result = AgentLoopValidator::validate_tool_call_protocol(
             Some(&cfg),
-            Some(ToolCallFormat::Native),
+            Some(ToolCallProtocol::Native),
         );
         assert!(!result.valid);
         assert_eq!(result.errors.len(), 1);
@@ -480,8 +480,8 @@ mod tests {
 
     #[test]
     fn test_protocol_match_ok() {
-        let cfg = ToolCallFormatConfig {
-            format: ToolCallFormat::JsonWrapped,
+        let cfg = ToolCallProtocolConfig {
+            format: ToolCallProtocol::JsonWrapped,
             markers: None,
             xml_tags: None,
             include_description: None,
@@ -492,7 +492,7 @@ mod tests {
         };
         let result = AgentLoopValidator::validate_tool_call_protocol(
             Some(&cfg),
-            Some(ToolCallFormat::JsonWrapped),
+            Some(ToolCallProtocol::JsonWrapped),
         );
         assert!(result.valid);
         assert!(result.errors.is_empty());
@@ -500,8 +500,8 @@ mod tests {
 
     #[test]
     fn test_protocol_agent_only_warns() {
-        let cfg = ToolCallFormatConfig {
-            format: ToolCallFormat::Native,
+        let cfg = ToolCallProtocolConfig {
+            format: ToolCallProtocol::Native,
             markers: None,
             xml_tags: None,
             include_description: None,
@@ -528,9 +528,9 @@ mod tests {
     }
 
     #[test]
-    fn test_tool_call_format_config_warning() {
-        let cfg = ToolCallFormatConfig {
-            format: ToolCallFormat::Xml,
+    fn test_tool_call_protocol_config_warning() {
+        let cfg = ToolCallProtocolConfig {
+            format: ToolCallProtocol::Xml,
             markers: None,
             xml_tags: None,
             include_description: None,
@@ -539,7 +539,7 @@ mod tests {
             include_rules: None,
             additional_config: None,
         };
-        let issues = validate_tool_call_format_config(&cfg);
+        let issues = validate_tool_call_protocol_config(&cfg);
         assert_eq!(issues.len(), 1);
     }
 

@@ -10,13 +10,13 @@
 
 id = "gpt-5.4-mini"
 name = "GPT-5.4-mini"
-provider = "OPENAI_CHAT"
+format = "OPENAI_CHAT"
 model = "gpt-5.4-mini"
-apiKey = "${OPENAI_API_KEY}"
-baseUrl = "https://api.openai.com/v1"
+api_key = "${OPENAI_API_KEY}"
+base_url = "https://api.openai.com/v1"
 timeout = 30000
-maxRetries = 2
-retryDelay = 5000
+max_retries = 2
+retry_delay = 5000
 
 [generation]
 max_tokens = 12800

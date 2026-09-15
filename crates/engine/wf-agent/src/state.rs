@@ -122,7 +122,7 @@ pub struct AgentLoopStateSnapshot {
     /// Ensures checkpoint restore uses the same protocol format as the
     /// original run.
     #[serde(default)]
-    pub locked_tool_call_format: Option<wf_types::llm::ToolCallFormatConfig>,
+    pub locked_tool_call_protocol: Option<wf_types::llm::ToolCallProtocolConfig>,
     /// Number of timeout events that have occurred.
     #[serde(default)]
     pub timeout_count: u32,
@@ -144,7 +144,7 @@ pub struct AgentLoopState {
     tool_discovery: ToolDiscoveryState,
     pending_tool_calls: HashSet<String>,
     completed_tool_results: HashMap<String, Value>,
-    locked_tool_call_format: Option<wf_types::llm::ToolCallFormatConfig>,
+    locked_tool_call_protocol: Option<wf_types::llm::ToolCallProtocolConfig>,
     timeout_count: u32,
     /// Streaming message buffer: content accumulated while streaming.
     streaming_message_buffer: Option<String>,
@@ -176,7 +176,7 @@ impl AgentLoopState {
             tool_discovery: ToolDiscoveryState::default(),
             pending_tool_calls: HashSet::new(),
             completed_tool_results: HashMap::new(),
-            locked_tool_call_format: None,
+            locked_tool_call_protocol: None,
             timeout_count: 0,
             streaming_message_buffer: None,
             is_streaming: false,
@@ -474,12 +474,12 @@ impl AgentLoopState {
 
     // ── Tool Call Format persistence ──────────────────────────────────────
 
-    pub fn locked_tool_call_format(&self) -> Option<&wf_types::llm::ToolCallFormatConfig> {
-        self.locked_tool_call_format.as_ref()
+    pub fn locked_tool_call_protocol(&self) -> Option<&wf_types::llm::ToolCallProtocolConfig> {
+        self.locked_tool_call_protocol.as_ref()
     }
 
-    pub fn set_locked_tool_call_format(&mut self, format: wf_types::llm::ToolCallFormatConfig) {
-        self.locked_tool_call_format = Some(format);
+    pub fn set_locked_tool_call_protocol(&mut self, format: wf_types::llm::ToolCallProtocolConfig) {
+        self.locked_tool_call_protocol = Some(format);
     }
 
     // ── Timeout counting ──────────────────────────────────────────────────
@@ -659,7 +659,7 @@ impl StateManager<AgentLoopStateSnapshot> for AgentLoopState {
             tool_discovery: self.tool_discovery.clone(),
             pending_tool_calls: self.pending_tool_calls.clone(),
             completed_tool_results: self.completed_tool_results.clone(),
-            locked_tool_call_format: self.locked_tool_call_format.clone(),
+            locked_tool_call_protocol: self.locked_tool_call_protocol.clone(),
             timeout_count: self.timeout_count,
         })
     }
@@ -682,7 +682,7 @@ impl StateManager<AgentLoopStateSnapshot> for AgentLoopState {
         self.tool_discovery = snapshot.tool_discovery;
         self.pending_tool_calls = snapshot.pending_tool_calls;
         self.completed_tool_results = snapshot.completed_tool_results;
-        self.locked_tool_call_format = snapshot.locked_tool_call_format;
+        self.locked_tool_call_protocol = snapshot.locked_tool_call_protocol;
         self.timeout_count = snapshot.timeout_count;
         Ok(())
     }

@@ -677,7 +677,8 @@ mod tests {
         LlmProfile {
             id: "p1".to_string(),
             name: "test".to_string(),
-            provider: wf_types::llm::LlmProvider::Anthropic,
+            format: wf_types::llm::LlmFormat::Anthropic,
+            provider_id: None,
             model: "claude-3-5-sonnet".to_string(),
             api_key: Some("sk-test".to_string()),
             base_url: None,
@@ -688,7 +689,7 @@ mod tests {
             retry_delay: None,
             headers: None,
             metadata: None,
-            tool_call_format: None,
+            tool_call_protocol: None,
             auth_type: None,
             custom_headers: None,
             custom_body: None,
@@ -723,8 +724,8 @@ mod tests {
             parameters: params,
             generation: None,
             tools: None,
-            tool_call_format: None,
-            locked_tool_call_format: None,
+            tool_call_protocol: None,
+            locked_tool_call_protocol: None,
             violation_policy: None,
             execution_id: None,
             stream: None,
@@ -769,7 +770,7 @@ mod tests {
             ],
             None,
         );
-        req.tool_call_format = Some(wf_types::llm::ToolCallFormat::Xml);
+        req.tool_call_protocol = Some(wf_types::llm::ToolCallProtocol::Xml);
         let body = formatter.build_body(&req, &profile()).expect("must build");
 
         let system = body["system"].as_str().unwrap();

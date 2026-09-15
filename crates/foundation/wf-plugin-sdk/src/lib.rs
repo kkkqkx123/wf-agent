@@ -16,9 +16,10 @@ pub mod wasm;
 
 pub use config::validate_config_for;
 pub use contributions::{
-    PluginEventHandler, PluginExecutionContext, PluginLlmConfig, PluginLlmFormatter,
-    PluginLlmRequest, PluginLlmResponse, PluginLlmUsage, PluginMessage, PluginMiddlewareHandler,
-    PluginNodeHandler, PluginNodeResult, PluginToolContext, PluginToolExecutor, PluginToolResult,
+    parse_middleware_outcome, CodecHttpRequest, MiddlewareOutcome, NextFn, PluginEventHandler,
+    PluginExecutionContext, PluginLlmCodec, PluginLlmConfig, PluginLlmFormatter, PluginLlmRequest,
+    PluginLlmResponse, PluginLlmUsage, PluginMessage, PluginMiddlewareHandler, PluginNodeHandler,
+    PluginNodeResult, PluginToolContext, PluginToolExecutor, PluginToolResult,
 };
 pub use error::{PluginError, PluginResult};
 pub use manifest::{

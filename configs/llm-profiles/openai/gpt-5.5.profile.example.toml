@@ -8,13 +8,13 @@
 
 id = "gpt-5.5"
 name = "5.5 Deep Reasoning"
-provider = "OPENAI_RESPONSE"
+format = "OPENAI_RESPONSE"
 model = "gpt-5.5"
-apiKey = "${OPENAI_API_KEY}"
-baseUrl = "https://api.openai.com/v1"
+api_key = "${OPENAI_API_KEY}"
+base_url = "https://api.openai.com/v1"
 timeout = 300000
-maxRetries = 3
-retryDelay = 15000
+max_retries = 3
+retry_delay = 15000
 
 [generation]
 max_tokens = 32768

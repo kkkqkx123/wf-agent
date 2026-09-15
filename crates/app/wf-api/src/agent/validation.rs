@@ -54,9 +54,9 @@ impl<'a> AgentValidator<'a> {
         // format must be compatible with the referenced profile format.
         // Uses the shared engine validator so API-time and runtime rules match.
         if let Some(config) = &definition.config {
-            if let Some(tool_call_format) = config.tool_call_format.as_ref() {
+            if let Some(tool_call_protocol) = config.tool_call_protocol.as_ref() {
                 if let Some(format_config) =
-                    wf_types::llm::ToolCallFormatConfig::from_format_str(tool_call_format)
+                    wf_types::llm::ToolCallProtocolConfig::from_protocol_str(tool_call_protocol)
                 {
                     if let Some(profile_id) = config.profile_id.as_ref() {
                         if let Some(profile_format) = self.ctx.profile_formats.get(profile_id) {
@@ -67,13 +67,13 @@ impl<'a> AgentValidator<'a> {
                                 );
                             for error in &protocol_result.errors {
                                 result.push_error(ValidationError::new(
-                                    "tool_call_format",
+                                    "tool_call_protocol",
                                     error.clone(),
                                 ));
                             }
                             for warning in &protocol_result.warnings {
                                 result.push_warning(ValidationError::new(
-                                    "tool_call_format",
+                                    "tool_call_protocol",
                                     warning.clone(),
                                 ));
                             }

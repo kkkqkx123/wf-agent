@@ -1852,7 +1852,7 @@ mod tests {
     }
 
     #[test]
-    fn test_inconsistent_tool_call_formats_rejected() {
+    fn test_inconsistent_tool_call_protocols_rejected() {
         let graph = make_graph(
             vec![
                 make_node("start", "START"),
@@ -1861,7 +1861,7 @@ mod tests {
                     "LLM",
                     serde_json::json!({
                         "profile_id": "mock",
-                        "tool_call_format": "native",
+                        "tool_call_protocol": "native",
                     }),
                 ),
                 make_node_with_inner(
@@ -1869,7 +1869,7 @@ mod tests {
                     "LLM",
                     serde_json::json!({
                         "profile_id": "mock",
-                        "tool_call_format": "xml",
+                        "tool_call_protocol": "xml",
                     }),
                 ),
                 make_node("end", "END"),

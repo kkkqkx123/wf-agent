@@ -11,11 +11,17 @@ pub struct LlmStreamOptions {
 pub struct LlmProfile {
     pub id: String,
     pub name: String,
-    pub provider: super::LlmProvider,
+    /// Wire protocol format used to encode requests for this profile.
+    pub format: super::LlmFormat,
+    /// Optional reference to an `LlmProviderDefinition` carrying the
+    /// connection defaults (base URL, auth, headers, model discovery).
+    /// Explicit fields on the profile win over the referenced definition.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider_id: Option<String>,
     pub model: String,
-    #[serde(skip_serializing_if = "Option::is_none", alias = "apiKey")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub api_key: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none", alias = "baseUrl")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub base_url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub parameters: Option<serde_json::Value>,
@@ -23,34 +29,34 @@ pub struct LlmProfile {
     pub generation: Option<super::generation::LlmGenerationParams>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub timeout: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none", alias = "maxRetries")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub max_retries: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none", alias = "retryDelay")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub retry_delay: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub headers: Option<crate::Metadata>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metadata: Option<crate::Metadata>,
-    #[serde(skip_serializing_if = "Option::is_none", alias = "toolCallFormat")]
-    pub tool_call_format: Option<super::tool_call_format::ToolCallFormatConfig>,
-    /// Authentication type: "native" (provider-specific headers) or "bearer"
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_call_protocol: Option<super::tool_call_protocol::ToolCallProtocolConfig>,
+    /// Authentication type: "native" (format-specific headers) or "bearer"
     /// (Authorization: Bearer). Defaults to "native".
-    #[serde(skip_serializing_if = "Option::is_none", alias = "authType")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub auth_type: Option<String>,
     /// Custom headers to add to every request (simple key-value map).
-    #[serde(skip_serializing_if = "Option::is_none", alias = "customHeaders")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub custom_headers: Option<crate::Metadata>,
     /// Custom body fields to deep-merge into the request body.
-    #[serde(skip_serializing_if = "Option::is_none", alias = "customBody")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub custom_body: Option<serde_json::Value>,
     /// Whether custom body merging is enabled (default: true when custom_body present).
-    #[serde(skip_serializing_if = "Option::is_none", alias = "customBodyEnabled")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub custom_body_enabled: Option<bool>,
     /// Query parameters to append to the request URL.
-    #[serde(skip_serializing_if = "Option::is_none", alias = "queryParams")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub query_params: Option<crate::Metadata>,
     /// Streaming options (e.g. include_usage for OpenAI).
-    #[serde(skip_serializing_if = "Option::is_none", alias = "streamOptions")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub stream_options: Option<LlmStreamOptions>,
     /// Model's maximum input context window size in tokens.
     ///
@@ -60,6 +66,6 @@ pub struct LlmProfile {
     ///
     /// Common values: 128000 (GPT-4o, Gemini 2.5 Flash), 200000 (Claude 4.5),
     /// 256000 (Gemini 2.5 Pro), 1048576 (Gemini 2.5 Pro extended).
-    #[serde(skip_serializing_if = "Option::is_none", alias = "contextWindowSize")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub context_window_size: Option<u32>,
 }

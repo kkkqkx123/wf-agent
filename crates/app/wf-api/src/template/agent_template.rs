@@ -198,7 +198,7 @@ mod tests {
                     initial_messages: None,
                     available_tools: None,
                     stream: None,
-                    tool_call_format: None,
+                    tool_call_protocol: None,
                     hooks: None,
                     dynamic_context: None,
                     checkpoint: None,

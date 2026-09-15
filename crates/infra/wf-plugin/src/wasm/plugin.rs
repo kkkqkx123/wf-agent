@@ -152,6 +152,14 @@ async fn read_output(
     Ok(bytes)
 }
 
+/// Drain captured guest `stdout`/`stderr` to the host log. Runs after every
+/// guest call (success or failure) so pooled sessions never carry output
+/// across calls and failures stay diagnosable.
+fn drain_stdio(inner: &WasmPluginInner, op: &str, session: &PooledSession) {
+    let state = session.store.data();
+    super::stdio::drain_guest_stdio(&inner.manifest.id, op, &state.stdout, &state.stderr);
+}
+
 /// Call a lifecycle hook export with a JSON envelope. A missing export
 /// counts as success, matching the Lua loader convention. The session is
 /// checked out from the pool and returned afterwards; only sessions from
@@ -159,6 +167,7 @@ async fn read_output(
 async fn invoke_hook(inner: &WasmPluginInner, export_name: &str, input: &[u8]) -> PluginResult<()> {
     let mut session = inner.pool.acquire().await?;
     let result = invoke_hook_inner(inner, &mut session, export_name, input).await;
+    drain_stdio(inner, export_name, &session);
     observe(inner, &session, &result);
     inner.pool.release(session, result.is_ok()).await;
     result
@@ -208,16 +217,75 @@ async fn invoke_hook_inner(
     .await;
     let code = code?;
     release_output(inner, &mut *session, ptr, input.len() as u32).await;
-    abi::check_hook_status(export_name, &inner.manifest.id, code)
+    if code == 0 {
+        return Ok(());
+    }
+    let detail = read_last_error(inner, &mut *session).await;
+    abi::check_hook_status_with_detail(export_name, &inner.manifest.id, code, detail.as_deref())
+}
+
+/// Read the optional guest `wf_last_error` detail string after a hook
+/// reported failure. Best-effort: any lookup/call/read problem yields
+/// `None` so error-detail probing never masks the original status code.
+async fn read_last_error(inner: &WasmPluginInner, session: &mut PooledSession) -> Option<String> {
+    session
+        .instance
+        .get_func(&mut session.store, export::LAST_ERROR)?;
+    let detail_fn = session
+        .instance
+        .get_typed_func::<(), u64>(&mut session.store, export::LAST_ERROR)
+        .ok()?;
+    pool::arm_epoch(
+        &inner.engine,
+        &mut session.store,
+        inner.limits.call_timeout_ms,
+    );
+    let packed = with_call_timeout(inner, async {
+        detail_fn
+            .call_async(&mut session.store, ())
+            .await
+            .map_err(|e| guest_call_error(inner, export::LAST_ERROR, e))
+    })
+    .await
+    .ok()?;
+    let (ptr, len) = abi::unpack_ptr_len(packed);
+    let bytes = abi::read_bytes(&session.store, &session.memory, ptr, len).ok()?;
+    release_output(inner, session, ptr, len).await;
+    let mut text = String::from_utf8_lossy(&bytes).trim().to_owned();
+    if text.is_empty() {
+        return None;
+    }
+    if text.len() > 512 {
+        text.truncate(512);
+        text.push_str("...(truncated)");
+    }
+    Some(text)
 }
 
 /// Fetch the contribution declaration by calling `wf_register`.
 /// Used once at load time; the result is cached on the plugin.
+/// The core-module ABI version is negotiated first so an upgraded
+/// guest never silently misbehaves.
 pub(crate) async fn fetch_declaration(
     inner: &WasmPluginInner,
 ) -> PluginResult<WasmContributionDecl> {
     let mut session = inner.pool.acquire().await?;
+    if let Err(e) = abi::negotiate_abi_version(
+        &mut session,
+        &inner.engine,
+        &inner.manifest.id,
+        &inner.limits,
+    )
+    .await
+    {
+        let result: PluginResult<WasmContributionDecl> = Err(e);
+        drain_stdio(inner, export::ABI_VERSION, &session);
+        observe(inner, &session, &result);
+        inner.pool.release(session, false).await;
+        return result;
+    }
     let result = fetch_declaration_inner(inner, &mut session).await;
+    drain_stdio(inner, export::REGISTER, &session);
     observe(inner, &session, &result);
     inner.pool.release(session, result.is_ok()).await;
     result
@@ -276,6 +344,7 @@ async fn invoke_dispatch(
     let mut session = inner.pool.acquire().await?;
     let result =
         invoke_dispatch_inner(inner, &mut session, handler_type, handler_name, input_json).await;
+    drain_stdio(inner, export::DISPATCH, &session);
     observe(inner, &session, &result);
     inner.pool.release(session, result.is_ok()).await;
     result
@@ -497,15 +566,19 @@ impl PluginEventHandler for WasmEventHandler {
 
 #[async_trait]
 impl PluginMiddlewareHandler for WasmMiddlewareHandler {
-    async fn handle(&self, context: Value, next: NextFn) -> PluginResult<()> {
+    async fn handle(&self, context: Value, next: NextFn) -> PluginResult<Value> {
         let input = serde_json::to_string(&context)
             .map_err(|e| PluginError::WasmError(format!("serialize middleware ctx: {e}")))?;
         let output = invoke_dispatch(&self.inner, "mw", &self.phase, &input).await?;
-        let proceed: Value = serde_json::from_slice(&output).unwrap_or(Value::Null);
-        if proceed.as_bool().unwrap_or(true) {
-            next().await?;
+        // Middleware answers with a boolean (legacy) or a `{proceed,
+        // context}` envelope; the rewritten context threads downstream.
+        let response: Value = serde_json::from_slice(&output).unwrap_or(Value::Null);
+        let outcome = wf_plugin_sdk::contributions::parse_middleware_outcome(&response, &context);
+        if outcome.proceed {
+            next(outcome.context).await
+        } else {
+            Ok(outcome.context)
         }
-        Ok(())
     }
 }
 
@@ -765,5 +838,277 @@ mod tests {
         );
         assert_eq!(snap.pool_drops, 1, "post-trap session is discarded");
         assert_eq!(snap.failed, 1);
+    }
+
+    const ABI_PROBE_BASE_WAT: &str = r#"(module
+  (memory (export "memory") 1)
+  (func (export "alloc") (param $n i32) (result i32) (i32.const 0)))
+"#;
+
+    /// Build one live session from WAT and run the ABI version probe.
+    async fn negotiate_probe(wat: &str) -> PluginResult<()> {
+        let bytes = wat::parse_str(wat).expect("valid wat");
+        let engine = pool::engine_handle();
+        let module = pool::cached_module(&engine, &bytes).expect("compile");
+        let linker = pool::new_linker(&engine).expect("linker");
+        let pre = linker.instantiate_pre(&module).expect("pre-instantiate");
+        let manifest = PluginManifest {
+            id: "abi-probe".into(),
+            version: "1.0.0".into(),
+            name: None,
+            description: None,
+            plugin_type: Some(PluginType::Wasm),
+            sdk_version: None,
+            entry_point: "plugin.wasm".into(),
+            dependencies: Default::default(),
+            optional_dependencies: Default::default(),
+            contributions: vec![],
+            permissions: vec![],
+            config_schema: None,
+            config: None,
+            hooks: None,
+            wasm: None,
+        };
+        let limits = resolve_limits(&manifest, 10_000).expect("limits");
+        let grants = WasiGrants::default();
+        let mut session = pool::new_session(&engine, &pre, "abi-probe", &grants, &limits).await?;
+        super::abi::negotiate_abi_version(&mut session, &engine, "abi-probe", &limits).await
+    }
+
+    fn with_version_func(base: &str, func: &str) -> String {
+        let stripped = base.trim_end().strip_suffix(')').expect("wat ends");
+        format!("{stripped}\n  {func}\n)\n")
+    }
+
+    #[tokio::test]
+    async fn abi_version_missing_means_v1() {
+        negotiate_probe(ABI_PROBE_BASE_WAT)
+            .await
+            .expect("absent version is compatible");
+    }
+
+    #[tokio::test]
+    async fn abi_version_match_accepts_v1() {
+        let wat = with_version_func(
+            ABI_PROBE_BASE_WAT,
+            r#"(func (export "wf_abi_version") (result i32) (i32.const 1))"#,
+        );
+        negotiate_probe(&wat).await.expect("v1 is compatible");
+    }
+
+    #[tokio::test]
+    async fn abi_version_mismatch_fails_load() {
+        let wat = with_version_func(
+            ABI_PROBE_BASE_WAT,
+            r#"(func (export "wf_abi_version") (result i32) (i32.const 99))"#,
+        );
+        let err = negotiate_probe(&wat).await.expect_err("v99 must fail");
+        assert!(err.to_string().contains("incompatible abi"), "got: {err}");
+    }
+
+    #[tokio::test]
+    async fn abi_version_wrong_signature_fails_load() {
+        let wat = with_version_func(
+            ABI_PROBE_BASE_WAT,
+            r#"(func (export "wf_abi_version") (param i32) (result i32) (local.get 0))"#,
+        );
+        let err = negotiate_probe(&wat)
+            .await
+            .expect_err("wrong signature must fail");
+        assert!(
+            err.to_string().contains("unexpected signature"),
+            "got: {err}"
+        );
+    }
+
+    const HOOK_FAIL_WAT: &str = r#"(module
+  (memory (export "memory") 1)
+  (global $heap (mut i32) (i32.const 4096))
+  (data (i32.const 0) "bad config")
+  (func (export "alloc") (param $n i32) (result i32)
+    (local $p i32) (global.get $heap) (local.set $p)
+    (global.set $heap (i32.add (global.get $heap) (local.get $n)))
+    (local.get $p))
+  (func (export "wf_on_load") (param $p i32) (param $n i32) (result i32) (i32.const 7))
+  (func (export "wf_last_error") (result i64)
+    (i64.or (i64.extend_i32_u (i32.const 0)) (i64.shl (i64.extend_i32_u (i32.const 10)) (i64.const 32)))))
+"#;
+
+    const HOOK_FAIL_NO_DETAIL_WAT: &str = r#"(module
+  (memory (export "memory") 1)
+  (global $heap (mut i32) (i32.const 4096))
+  (func (export "alloc") (param $n i32) (result i32)
+    (local $p i32) (global.get $heap) (local.set $p)
+    (global.set $heap (i32.add (global.get $heap) (local.get $n)))
+    (local.get $p))
+  (func (export "wf_on_load") (param $p i32) (param $n i32) (result i32) (i32.const 7)))
+"#;
+
+    #[tokio::test]
+    async fn hook_failure_carries_last_error_detail() {
+        let plugin = build_pooled_plugin("detail", HOOK_FAIL_WAT, 0).await;
+        let err = plugin
+            .on_load(&hook_context("detail"))
+            .await
+            .expect_err("hook code 7 must fail");
+        let text = err.to_string();
+        assert!(text.contains("detail"), "got: {text}");
+        assert!(text.contains("code 7"), "got: {text}");
+        assert!(text.contains("bad config"), "got: {text}");
+    }
+
+    #[tokio::test]
+    async fn hook_failure_without_last_error_has_code_only() {
+        let plugin = build_pooled_plugin("nocode-detail", HOOK_FAIL_NO_DETAIL_WAT, 0).await;
+        let err = plugin
+            .on_load(&hook_context("nocode-detail"))
+            .await
+            .expect_err("hook code 7 must fail");
+        let text = err.to_string();
+        assert!(text.contains("code 7"), "got: {text}");
+    }
+
+    /// Guest whose `wf_dispatch` always answers with `response_json`.
+    /// Used to drive middleware envelope cases without a real chain.
+    fn mw_response_wat(response_json: &str) -> String {
+        let escaped = response_json.replace('\\', "\\\\").replace('"', "\\\"");
+        let len = response_json.len();
+        format!(
+            r#"(module
+  (memory (export "memory") 1)
+  (global $heap (mut i32) (i32.const 4096))
+  (data (i32.const 0) "{{}}")
+  (data (i32.const 1024) "{escaped}")
+  (func (export "alloc") (param $n i32) (result i32)
+    (local $p i32) (global.get $heap) (local.set $p)
+    (global.set $heap (i32.add (global.get $heap) (local.get $n)))
+    (local.get $p))
+  (func (export "wf_register") (result i64)
+    (i64.or (i64.extend_i32_u (i32.const 0)) (i64.shl (i64.extend_i32_u (i32.const 2)) (i64.const 32))))
+  (func (export "wf_dispatch")
+    (param $tp i32) (param $tl i32) (param $np i32) (param $nl i32)
+    (param $ip i32) (param $il i32) (result i64)
+    (i64.or (i64.extend_i32_u (i32.const 1024)) (i64.shl (i64.extend_i32_u (i32.const {len})) (i64.const 32)))))
+"#
+        )
+    }
+
+    async fn drive_middleware(
+        id: &str,
+        response_json: &str,
+        input: Value,
+        next: NextFn,
+    ) -> PluginResult<Value> {
+        let plugin = build_pooled_plugin(id, &mw_response_wat(response_json), 0).await;
+        let handler = WasmMiddlewareHandler {
+            inner: plugin.inner.clone(),
+            phase: "pre_tool".to_owned(),
+        };
+        handler.handle(input, next).await
+    }
+
+    #[tokio::test]
+    async fn middleware_envelope_rewrites_downstream_context() {
+        use std::sync::Mutex;
+
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let seen_next = seen.clone();
+        let next: NextFn = Box::new(move |ctx| {
+            seen_next.lock().expect("lock").push(ctx.clone());
+            Box::pin(async move { Ok(ctx) })
+        });
+        let out = drive_middleware(
+            "mw-rewrite",
+            r#"{"proceed":true,"context":{"patched":1}}"#,
+            serde_json::json!({"a": 1}),
+            next,
+        )
+        .await
+        .expect("middleware runs");
+        assert_eq!(out, serde_json::json!({"patched": 1}));
+        assert_eq!(
+            *seen.lock().expect("lock"),
+            vec![serde_json::json!({"patched": 1})]
+        );
+    }
+
+    #[tokio::test]
+    async fn middleware_envelope_short_circuits_chain() {
+        let next: NextFn = Box::new(|_| {
+            Box::pin(async move {
+                panic!("short-circuited chain must not call next");
+            })
+        });
+        let out = drive_middleware(
+            "mw-stop",
+            r#"{"proceed":false,"context":{"stopped":true}}"#,
+            serde_json::json!({"a": 1}),
+            next,
+        )
+        .await
+        .expect("middleware runs");
+        assert_eq!(out, serde_json::json!({"stopped": true}));
+    }
+
+    #[tokio::test]
+    async fn middleware_legacy_bool_still_proceeds() {
+        let next: NextFn = Box::new(|ctx| Box::pin(async move { Ok(ctx) }));
+        let out = drive_middleware("mw-legacy", "true", serde_json::json!({"a": 1}), next)
+            .await
+            .expect("middleware runs");
+        assert_eq!(out, serde_json::json!({"a": 1}));
+    }
+
+    /// Guest calling the `wf_host::log` import from `wf_on_load`, then
+    /// succeeding. Proves the host namespace resolves and the call traps
+    /// nothing.
+    const HOST_LOG_WAT: &str = r#"(module
+  (import "wf_host" "log" (func $hlog (param i32 i32 i32)))
+  (memory (export "memory") 1)
+  (global $heap (mut i32) (i32.const 128))
+  (data (i32.const 0) "{}")
+  (data (i32.const 64) "hello-host")
+  (func (export "alloc") (param $n i32) (result i32)
+    (local $p i32) (global.get $heap) (local.set $p)
+    (global.set $heap (i32.add (global.get $heap) (local.get $n)))
+    (local.get $p))
+  (func (export "wf_on_load") (param $p i32) (param $n i32) (result i32)
+    (call $hlog (i32.const 2) (i32.const 64) (i32.const 10))
+    (i32.const 0))
+  (func (export "wf_register") (result i64)
+    (i64.or (i64.extend_i32_u (i32.const 0)) (i64.shl (i64.extend_i32_u (i32.const 2)) (i64.const 32)))))
+"#;
+
+    #[tokio::test]
+    async fn guest_host_log_import_resolves_and_runs() {
+        let dir = std::env::temp_dir().join("wf-wasm-test-hostlog");
+        let _ = std::fs::create_dir_all(&dir);
+        let bytes = wat::parse_str(HOST_LOG_WAT).expect("valid wat");
+        std::fs::write(dir.join("plugin.wasm"), &bytes).expect("write module");
+        let manifest = PluginManifest {
+            id: "hostlog".into(),
+            version: "1.0.0".into(),
+            name: None,
+            description: None,
+            plugin_type: Some(PluginType::Wasm),
+            sdk_version: None,
+            entry_point: "plugin.wasm".into(),
+            dependencies: Default::default(),
+            optional_dependencies: Default::default(),
+            contributions: vec![],
+            permissions: vec![],
+            config_schema: None,
+            config: None,
+            hooks: None,
+            wasm: None,
+        };
+        let plugin = super::super::loader::load_wasm_plugin_with_base(&manifest, &dir)
+            .await
+            .expect("load with host-log import");
+        plugin
+            .on_load(&hook_context("hostlog"))
+            .await
+            .expect("host log call succeeds");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

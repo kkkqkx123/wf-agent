@@ -6,7 +6,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use wf_llm::profile_manager::validate_profile;
+use wf_llm::config::profile::validate_profile;
 use wf_types::llm::{LlmFormat, LlmProfile};
 
 use crate::infra::context::ApiContext;
@@ -207,7 +207,7 @@ pub async fn import_all_json(ctx: &ApiContext, json: &str) -> ApiResult<Vec<Stri
 
 /// Validate a profile without registering or persisting it.
 ///
-/// Delegates to the shared `wf_llm::profile_manager::validate_profile` so
+/// Delegates to the shared `wf_llm::config::profile::validate_profile` so
 /// the verdict always agrees with `create` / `update` (which route through
 /// the same check). `api_key` is intentionally not required — it may be
 /// injected per request (see `wf-llm`).

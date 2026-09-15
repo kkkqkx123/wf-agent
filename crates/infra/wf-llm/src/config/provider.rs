@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use dashmap::DashMap;
-use wf_types::llm::{LlmProfile, LlmProviderDefinition};
+use wf_types::llm::{LlmFormat, LlmProfile, LlmProviderDefinition};
 
 use crate::error::{LlmError, LlmResult};
 
@@ -30,11 +30,13 @@ impl ProviderDefinitionRegistry {
                 "Provider definition validation failed: 'id' is required".to_string(),
             ));
         }
-        if definition.format.trim().is_empty() {
-            return Err(LlmError::ConfigError(format!(
-                "Provider definition '{}' is missing 'format'",
-                definition.id
-            )));
+        if let LlmFormat::Custom(name) = &definition.format {
+            if name.trim().is_empty() {
+                return Err(LlmError::ConfigError(format!(
+                    "Provider definition '{}' is missing 'format'",
+                    definition.id
+                )));
+            }
         }
         self.providers.insert(definition.id.clone(), definition);
         Ok(())
@@ -68,7 +70,8 @@ impl ProviderDefinitionRegistry {
 /// Merge a provider definition's connection defaults into a profile.
 ///
 /// Explicit profile fields always win; only missing fields are filled from
-/// the definition. Fails when the referenced definition is unknown.
+/// the definition. Fails when the referenced definition is unknown or when
+/// its wire format disagrees with the profile format.
 pub fn apply_provider_defaults(
     mut profile: LlmProfile,
     providers: &ProviderDefinitionRegistry,
@@ -83,6 +86,16 @@ pub fn apply_provider_defaults(
         ))
     })?;
 
+    if !formats_match(&profile.format, &definition.format) {
+        return Err(LlmError::ConfigError(format!(
+            "Profile '{}' format '{}' disagrees with provider '{}' format '{}'",
+            profile.id,
+            profile.format.as_str(),
+            provider_id,
+            definition.format.as_str()
+        )));
+    }
+
     if profile.base_url.is_none() {
         profile.base_url = definition.base_url.clone();
     }
@@ -96,6 +109,13 @@ pub fn apply_provider_defaults(
         }
     }
     Ok(profile)
+}
+
+fn formats_match(profile: &LlmFormat, provider: &LlmFormat) -> bool {
+    match (profile, provider) {
+        (LlmFormat::Custom(a), LlmFormat::Custom(b)) => a.eq_ignore_ascii_case(b),
+        (a, b) => a == b,
+    }
 }
 
 #[cfg(test)]
@@ -142,7 +162,7 @@ mod tests {
                     .into_iter()
                     .collect(),
             ),
-            format: "OPENAI_CHAT".to_string(),
+            format: LlmFormat::OpenaiChat,
             model_discovery: None,
             api_version: None,
             metadata: None,
@@ -156,7 +176,7 @@ mod tests {
         bad.id = "  ".to_string();
         assert!(registry.register(bad).is_err());
         let mut bad = definition();
-        bad.format = String::new();
+        bad.format = LlmFormat::Custom("  ".to_string());
         assert!(registry.register(bad).is_err());
     }
 
@@ -193,5 +213,27 @@ mod tests {
         profile.provider_id = None;
         let merged = apply_provider_defaults(profile.clone(), &registry).unwrap();
         assert_eq!(merged, profile);
+    }
+
+    #[test]
+    fn format_mismatch_fails() {
+        let registry = ProviderDefinitionRegistry::new();
+        registry.register(definition()).unwrap();
+        let mut mismatched = profile("p1");
+        mismatched.format = LlmFormat::Anthropic;
+        assert!(apply_provider_defaults(mismatched, &registry).is_err());
+    }
+
+    #[test]
+    fn custom_format_matches_case_insensitively() {
+        let registry = ProviderDefinitionRegistry::new();
+        let mut custom_definition = definition();
+        custom_definition.id = "custom".to_string();
+        custom_definition.format = LlmFormat::Custom("ACME_CHAT".to_string());
+        registry.register(custom_definition).unwrap();
+        let mut custom_profile = profile("p1");
+        custom_profile.provider_id = Some("custom".to_string());
+        custom_profile.format = LlmFormat::Custom("acme_chat".to_string());
+        assert!(apply_provider_defaults(custom_profile, &registry).is_ok());
     }
 }

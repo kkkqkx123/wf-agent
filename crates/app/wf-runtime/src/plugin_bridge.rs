@@ -550,7 +550,7 @@ mod tests {
                 base_url: Some("https://api.acme.test".to_string()),
                 auth_type: Some("bearer".to_string()),
                 default_headers: None,
-                format: "ACME_CODEC".to_string(),
+                format: wf_types::llm::LlmFormat::Custom("ACME_CODEC".to_string()),
                 model_discovery: None,
                 api_version: None,
                 metadata: None,

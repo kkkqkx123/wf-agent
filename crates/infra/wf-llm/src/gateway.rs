@@ -2,29 +2,29 @@ use std::sync::Arc;
 
 use dashmap::DashMap;
 use wf_metrics::collectors::TokenMetricsCollector;
-use wf_types::llm::{
-    LlmProfile, LlmRequest, LlmResult as LlmResponseType, MessageStreamEvent, StreamStats,
-    TokenUsageStats, ToolCallProtocol, ToolCallProtocolViolationPolicy,
-    DEFAULT_TOOL_CALL_PROTOCOL_POLICY,
-};
+use wf_types::llm::{LlmProfile, LlmRequest, LlmResult as LlmResponseType};
+
+pub mod merge;
 
 use crate::client::LlmClient;
 use crate::client::LlmClientImpl;
+use crate::config::catalog::ModelCatalog;
+use crate::config::profile::ProfileManager;
+use crate::config::provider::{apply_provider_defaults, ProviderDefinitionRegistry};
 use crate::error::{LlmError, LlmResult};
-use crate::message_stream::MessageStream;
-use crate::model_catalog::ModelCatalog;
-use crate::profile_manager::ProfileManager;
-use crate::provider_registry::{apply_provider_defaults, ProviderDefinitionRegistry};
+use crate::messaging::stream::MessageStream;
 use crate::registry::CodecRegistry;
 
 /// Single facade for all LLM calls.
 ///
 /// Responsibilities:
 /// - resolve the profile for a mandatory `profile_id` (no fallback branch)
-/// - merge profile defaults with request overrides in one place
 /// - route to mock clients (test injection) or real clients
 /// - resolve codecs through the registry (built-ins + runtime custom)
 /// - record token usage metrics for both generate and stream paths
+///
+/// Request merging delegates to `gateway::merge`; stream metrics wrapping
+/// delegates to `token::stream`.
 #[derive(Clone)]
 pub struct LlmGateway {
     clients: Arc<DashMap<String, Arc<LlmClientImpl>>>,
@@ -65,7 +65,11 @@ impl LlmGateway {
 
     pub fn register_profile(&self, profile: LlmProfile) -> LlmResult<()> {
         let effective = apply_provider_defaults(profile, &self.providers)?;
-        self.profiles.register(effective)
+        let profile_id = effective.id.clone();
+        self.profiles.register(effective)?;
+        let prefix = format!("{profile_id}::");
+        self.clients.retain(|key, _| !key.starts_with(&prefix));
+        Ok(())
     }
 
     /// Register a provider definition. All cached clients are evicted so
@@ -158,7 +162,7 @@ impl LlmGateway {
         }
 
         let profile = self.resolve_profile(&request.profile_id)?;
-        let effective = self.merge_request(request, &profile)?;
+        let effective = merge::merge_request(request, &profile)?;
         let client = self.get_or_create_client(&profile)?;
         let result = client.generate(&effective, cancel).await?;
         self.record_token_usage(&result, &profile);
@@ -176,10 +180,10 @@ impl LlmGateway {
         }
 
         let profile = self.resolve_profile(&request.profile_id)?;
-        let effective = self.merge_request(request, &profile)?;
+        let effective = merge::merge_request(request, &profile)?;
         let client = self.get_or_create_client(&profile)?;
         let stream = client.generate_stream(&effective, cancel).await?;
-        Ok(Box::new(TokenRecordingStream::new(
+        Ok(Box::new(crate::token::stream::TokenRecordingStream::new(
             stream,
             self.token_metrics.clone(),
             profile.model.clone(),
@@ -197,7 +201,7 @@ impl LlmGateway {
         }
 
         let profile = self.resolve_profile(&request.profile_id)?;
-        let effective = self.merge_request(request, &profile)?;
+        let effective = merge::merge_request(request, &profile)?;
         let client = self.get_or_create_client(&profile)?;
         client.count_tokens(&effective, cancel).await
     }
@@ -233,95 +237,6 @@ impl LlmGateway {
         Ok(client_impl)
     }
 
-    /// Single-point merge of profile defaults with request overrides:
-    /// - `parameters`: request wins per key, profile fills the rest
-    /// - `tool_call_protocol`: request wins, otherwise the profile default
-    /// - `locked_tool_call_protocol`: always wins when present, governed by the
-    ///   violation policy (fail / warn / auto-convert / ignore)
-    fn merge_request(&self, request: &LlmRequest, profile: &LlmProfile) -> LlmResult<LlmRequest> {
-        let mut effective = request.clone();
-
-        if effective.tool_call_protocol.is_none() {
-            effective.tool_call_protocol = profile
-                .tool_call_protocol
-                .as_ref()
-                .map(|config| config.format.clone());
-        }
-
-        if let Some(locked) = effective.locked_tool_call_protocol.clone() {
-            if let Some(attempted) = effective.tool_call_protocol {
-                // Compatible formats (e.g. both JSON-based) proceed silently;
-                // a genuine protocol conflict is governed by the policy.
-                if attempted != locked.format && !attempted.is_compatible_with(&locked.format) {
-                    let policy = effective
-                        .violation_policy
-                        .clone()
-                        .unwrap_or(DEFAULT_TOOL_CALL_PROTOCOL_POLICY);
-                    self.handle_protocol_violation(
-                        request,
-                        profile,
-                        &locked.format,
-                        attempted,
-                        policy.clone(),
-                    )?;
-                    if policy == ToolCallProtocolViolationPolicy::AutoConvert {
-                        effective.protocol_auto_converted = Some(true);
-                    }
-                }
-            }
-            effective.tool_call_protocol = Some(locked.format);
-        }
-
-        let merged = crate::codec_helpers::merge_parameters(profile, &effective.parameters);
-        effective.parameters = if merged.is_empty() {
-            None
-        } else {
-            Some(serde_json::Value::Object(merged.into_iter().collect()))
-        };
-
-        Ok(effective)
-    }
-
-    fn handle_protocol_violation(
-        &self,
-        request: &LlmRequest,
-        profile: &LlmProfile,
-        locked: &ToolCallProtocol,
-        attempted: ToolCallProtocol,
-        policy: ToolCallProtocolViolationPolicy,
-    ) -> LlmResult<()> {
-        match policy {
-            ToolCallProtocolViolationPolicy::Fail => Err(LlmError::ConfigError(format!(
-                "Tool call protocol conflict: locked \"{}\" but profile \"{}\" attempted \"{}\". Execution interrupted per fail policy.",
-                locked, profile.id, attempted
-            ))),
-            ToolCallProtocolViolationPolicy::Warn => {
-                tracing::warn!(
-                    profile_id = %profile.id,
-                    locked_format = %locked,
-                    attempted_format = %attempted,
-                    execution_id = ?request.execution_id,
-                    "Tool call protocol violation detected, using the locked format"
-                );
-                Ok(())
-            }
-            ToolCallProtocolViolationPolicy::AutoConvert => {
-                tracing::info!(
-                    profile_id = %profile.id,
-                    locked_format = %locked,
-                    attempted_format = %attempted,
-                    execution_id = ?request.execution_id,
-                    "Auto-converting tool call protocol to locked format"
-                );
-                Ok(())
-            }
-            ToolCallProtocolViolationPolicy::Ignore => {
-                // Silently use the locked protocol
-                Ok(())
-            }
-        }
-    }
-
     fn record_token_usage(&self, result: &LlmResponseType, profile: &LlmProfile) {
         let Some(collector) = self.token_metrics.as_ref() else {
             return;
@@ -344,177 +259,14 @@ impl Default for LlmGateway {
     }
 }
 
-/// Stream wrapper that records token usage from mid-stream usage events
-/// (OpenAI `include_usage` chunk, Anthropic `message_delta`) or, as a
-/// fallback, from the final message once the stream is exhausted. It also
-/// collects stream statistics (chunk count / first-chunk latency / stream
-/// and total durations) and attaches them to the `FinalMessage` event.
-struct TokenRecordingStream {
-    inner: Box<dyn MessageStream>,
-    collector: Option<TokenMetricsCollector>,
-    model: String,
-    last_usage: Option<TokenUsageStats>,
-    recorded: bool,
-    start_time: i64,
-    first_chunk_time: Option<i64>,
-    last_chunk_time: Option<i64>,
-    chunk_count: u32,
-}
-
-impl TokenRecordingStream {
-    fn new(
-        inner: Box<dyn MessageStream>,
-        collector: Option<TokenMetricsCollector>,
-        model: String,
-    ) -> Self {
-        Self {
-            inner,
-            collector,
-            model,
-            last_usage: None,
-            recorded: false,
-            start_time: wf_common::time::now(),
-            first_chunk_time: None,
-            last_chunk_time: None,
-            chunk_count: 0,
-        }
-    }
-
-    fn record(&mut self, usage: &TokenUsageStats) {
-        let Some(collector) = &self.collector else {
-            return;
-        };
-        self.recorded = true;
-        collector.record_token_usage(
-            usage.prompt_tokens as u64,
-            usage.completion_tokens as u64,
-            usage.total_cost,
-            Some(&self.model),
-        );
-    }
-
-    fn build_stats(&self, end_time: i64) -> StreamStats {
-        let first = self.first_chunk_time.unwrap_or(end_time);
-        let last = self.last_chunk_time.unwrap_or(first);
-        StreamStats {
-            chunk_count: self.chunk_count,
-            time_to_first_chunk: first - self.start_time,
-            stream_duration: last.saturating_sub(first),
-            total_duration: end_time.saturating_sub(self.start_time),
-        }
-    }
-}
-
-#[async_trait::async_trait]
-impl MessageStream for TokenRecordingStream {
-    async fn next(&mut self) -> Option<Result<MessageStreamEvent, LlmError>> {
-        let mut event = self.inner.next().await;
-
-        let now = wf_common::time::now();
-        if event.is_some() {
-            if self.first_chunk_time.is_none() {
-                self.first_chunk_time = Some(now);
-            }
-            self.last_chunk_time = Some(now);
-            self.chunk_count = self.chunk_count.saturating_add(1);
-        }
-
-        if let Some(Ok(MessageStreamEvent::Usage(usage))) = &event {
-            self.last_usage = Some(usage.usage.clone());
-            if !self.recorded {
-                self.record(&usage.usage);
-            }
-        }
-
-        if let Some(Ok(MessageStreamEvent::FinalMessage(msg))) = &mut event {
-            self.last_usage = msg.usage.clone();
-            if msg.stream_stats.is_none() {
-                msg.stream_stats = Some(self.build_stats(now));
-            }
-        }
-
-        if event.is_none() && !self.recorded {
-            if let Some(usage) = self.last_usage.clone() {
-                self.record(&usage);
-            }
-        }
-
-        event
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::codecs::LlmCodec;
     use crate::error::LlmError;
     use crate::registry::CodecRegistry;
-    use wf_types::llm::{LlmFormat, LlmProfile, LlmRequest};
+    use wf_types::llm::{LlmFormat, LlmProfile, LlmRequest, MessageStreamEvent};
     use wf_types::tool::Tool;
-
-    struct FakeStream {
-        events: Vec<MessageStreamEvent>,
-    }
-
-    #[async_trait::async_trait]
-    impl MessageStream for FakeStream {
-        async fn next(&mut self) -> Option<Result<MessageStreamEvent, LlmError>> {
-            if self.events.is_empty() {
-                return None;
-            }
-            Some(Ok(self.events.remove(0)))
-        }
-    }
-
-    fn text_event(text: &str) -> MessageStreamEvent {
-        MessageStreamEvent::Text(wf_types::llm::MessageStreamText {
-            text: text.to_string(),
-            snapshot: text.to_string(),
-        })
-    }
-
-    #[tokio::test]
-    async fn final_message_carries_stream_stats() {
-        let message = wf_types::message::Message {
-            id: wf_types::Id::new(),
-            role: wf_types::message::MessageRole::Assistant,
-            content: wf_types::message::MessageContentValue::Text("hello world".to_string()),
-            timestamp: 0,
-            tool_call_id: None,
-            tool_name: None,
-            tool_calls: None,
-            thinking: None,
-            metadata: None,
-        };
-        let inner = FakeStream {
-            events: vec![
-                text_event("hello"),
-                text_event(" world"),
-                MessageStreamEvent::FinalMessage(wf_types::llm::MessageStreamFinal {
-                    message,
-                    usage: None,
-                    stream_stats: None,
-                }),
-            ],
-        };
-        let mut stream = TokenRecordingStream::new(Box::new(inner), None, "test-model".to_string());
-
-        let mut final_stats = None;
-        while let Some(event) = stream.next().await {
-            if let Ok(MessageStreamEvent::FinalMessage(msg)) = event {
-                final_stats = msg.stream_stats;
-            }
-        }
-
-        let stats = final_stats.expect("FinalMessage must carry stream_stats");
-        assert!(stats.chunk_count >= 2, "chunk_count: {}", stats.chunk_count);
-        assert!(
-            stats.time_to_first_chunk >= 0,
-            "time_to_first_chunk: {}",
-            stats.time_to_first_chunk
-        );
-        assert!(stats.total_duration >= 0);
-    }
 
     /// A codec whose `build_request` fails with a distinctive error, used
     /// to prove the gateway resolved the *custom* codec from the registry.
@@ -708,7 +460,7 @@ mod tests {
             base_url: Some("https://api.acme.test".to_string()),
             auth_type: Some("bearer".to_string()),
             default_headers: None,
-            format: "OPENAI_CHAT".to_string(),
+            format: LlmFormat::OpenaiChat,
             model_discovery: None,
             api_version: None,
             metadata: None,

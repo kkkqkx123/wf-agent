@@ -442,14 +442,16 @@ impl ContributionRegistrar for RegistrarGuard<'_> {
                 message: "provider definition id must not be empty".to_string(),
             });
         }
-        if definition.format.trim().is_empty() {
-            return Err(PluginError::InvalidContribution {
-                plugin_id,
-                message: format!(
-                    "provider definition '{}' format must not be empty",
-                    definition.id
-                ),
-            });
+        if let wf_types::llm::LlmFormat::Custom(name) = &definition.format {
+            if name.trim().is_empty() {
+                return Err(PluginError::InvalidContribution {
+                    plugin_id,
+                    message: format!(
+                        "provider definition '{}' format must not be empty",
+                        definition.id
+                    ),
+                });
+            }
         }
         let key = definition.id.clone();
         self.manager
@@ -971,7 +973,7 @@ mod tests {
                 base_url: Some("https://api.acme.test".to_string()),
                 auth_type: Some("bearer".to_string()),
                 default_headers: None,
-                format: "ACME_CHAT".to_string(),
+                format: wf_types::llm::LlmFormat::Custom("ACME_CHAT".to_string()),
                 model_discovery: None,
                 api_version: None,
                 metadata: None,

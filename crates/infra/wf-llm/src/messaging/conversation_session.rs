@@ -1,5 +1,5 @@
-use crate::token_count::estimate_message_tokens;
-use crate::token_tracker::{RequestUsage, TokenTrackerState, TokenUsageTracker};
+use crate::token::count::estimate_message_tokens;
+use crate::token::tracker::{RequestUsage, TokenTrackerState, TokenUsageTracker};
 use wf_types::llm::{MessageStreamUsage, TokenLedger, TokenUsageStats};
 use wf_types::message::{Message, MessageView};
 
@@ -212,7 +212,7 @@ impl ConversationSession {
     /// recomputed exactly once after a replacement (dirty ledger).
     pub fn estimated_conversation_tokens(&mut self) -> u64 {
         if self.state.ledger.is_dirty(CONVERSATION_CONTEXT_ID) {
-            let estimated = crate::token_count::estimate_messages(&self.state.messages) as u64;
+            let estimated = crate::token::count::estimate_messages(&self.state.messages) as u64;
             let count = self.state.messages.len();
             self.state
                 .ledger
@@ -227,7 +227,7 @@ impl ConversationSession {
     /// keeps growing, so a history-based estimate would re-trigger
     /// compression immediately.
     pub fn estimated_view_tokens(&self) -> u64 {
-        crate::token_count::estimate_messages(&self.view_messages()) as u64
+        crate::token::count::estimate_messages(&self.view_messages()) as u64
     }
 
     /// Current version of the conversation array (ledger).

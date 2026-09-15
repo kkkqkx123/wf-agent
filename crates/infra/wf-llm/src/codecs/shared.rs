@@ -41,7 +41,7 @@ pub fn convert_history_for_text_mode(messages: &[Message], request: &LlmRequest)
 /// Build the system prompt content for text-based tool mode: existing system
 /// message + tool usage instructions + tool declarations.
 pub fn text_mode_system_content(request: &LlmRequest) -> String {
-    use crate::tool_protocol::{build_text_mode_system_content, extract_system_message};
+    use crate::tool::protocol::{build_text_mode_system_content, extract_system_message};
     let protocol = effective_tool_call_protocol(request);
     let (system, _) = extract_system_message(&request.messages);
     let tools = request.tools.as_deref().unwrap_or(&[]);
@@ -53,8 +53,8 @@ pub fn parse_text_tool_calls(
     request: &LlmRequest,
     content: &str,
 ) -> Vec<wf_types::message::LlmToolCall> {
-    use crate::tool_call_parser::parse_from_text;
-    use crate::tool_protocol::get_tool_call_parser_options;
+    use crate::tool::parser::parse_from_text;
+    use crate::tool::protocol::get_tool_call_parser_options;
     let protocol = effective_tool_call_protocol(request);
     if protocol == ToolCallProtocol::Native {
         return Vec::new();
@@ -163,7 +163,7 @@ pub fn merge_and_apply_params(
     profile: &LlmProfile,
     request_params: &Option<serde_json::Value>,
 ) {
-    let merged_params = crate::codec_helpers::merge_parameters(profile, request_params);
+    let merged_params = crate::codecs::helpers::merge_parameters(profile, request_params);
     for (key, value) in merged_params {
         if key == "stream" || crate::generation::is_typed_param_key(&key) {
             continue;
@@ -475,7 +475,7 @@ pub fn apply_auth_and_headers(
 pub fn apply_custom_body(body: &mut serde_json::Value, profile: &LlmProfile) {
     if profile.custom_body_enabled.unwrap_or(true) {
         if let Some(custom) = &profile.custom_body {
-            *body = crate::codec_helpers::deep_merge(body, custom);
+            *body = crate::codecs::helpers::deep_merge(body, custom);
         }
     }
 }

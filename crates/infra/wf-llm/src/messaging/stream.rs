@@ -387,7 +387,7 @@ mod tests {
             })
             .expect("FinalMessage must be emitted");
         assert_eq!(
-            crate::message_helper::extract_text_content(&final_msg.message),
+            crate::messaging::helper::extract_text_content(&final_msg.message),
             "Hello world"
         );
         let calls = final_msg

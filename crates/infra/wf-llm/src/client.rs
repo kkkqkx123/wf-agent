@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 
 use crate::codecs::LlmCodec;
 use crate::error::{LlmError, LlmResult};
-use crate::message_stream::MessageStream;
+use crate::messaging::stream::MessageStream;
 use reqwest::Client as ReqwestClient;
 use tokio_util::sync::CancellationToken;
 use wf_common::exec::{execute_with_timeout, TimeoutError};
@@ -182,7 +182,7 @@ impl LlmClientImpl {
 
         let stream = eventsource_stream::EventStream::new(response.bytes_stream());
 
-        Ok(Box::new(crate::message_stream::SseMessageStream::new(
+        Ok(Box::new(crate::messaging::stream::SseMessageStream::new(
             stream,
             self.codec.clone(),
             cancel,
@@ -262,7 +262,7 @@ impl LlmClient for LlmClientImpl {
         request: &LlmRequest,
         cancel: Option<CancellationToken>,
     ) -> LlmResult<wf_types::llm::TokenCountResult> {
-        crate::token_count::count_tokens_client(self, request, cancel).await
+        crate::token::count::count_tokens_client(self, request, cancel).await
     }
 }
 

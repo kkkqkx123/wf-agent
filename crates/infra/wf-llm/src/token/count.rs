@@ -4,9 +4,9 @@
 //! tools, and multimodal content. Prefers the provider's count-tokens API
 //! when available, otherwise falls back to local estimation.
 
+use super::estimation::{estimate_tokens, TokenEstimator, MESSAGE_OVERHEAD_TOKENS};
 use crate::client::LlmClientImpl;
 use crate::error::{LlmError, LlmResult};
-use crate::token_estimation::{estimate_tokens, TokenEstimator, MESSAGE_OVERHEAD_TOKENS};
 use wf_types::llm::{LlmRequest, TokenCountResult};
 use wf_types::message::{Message, MessageContent, MessageContentValue};
 

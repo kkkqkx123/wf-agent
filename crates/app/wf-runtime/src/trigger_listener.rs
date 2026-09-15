@@ -560,7 +560,7 @@ pub fn register_compression_handler(
     // The builtin handler runs first (priority above any user handler): the
     // takeover must be immediate once the engine fires.
     if !registry.register(
-        wf_llm::token_events::COMPRESSION_SIGNAL_HOOK_TYPE,
+        wf_llm::token::events::COMPRESSION_SIGNAL_HOOK_TYPE,
         service.clone(),
         1000,
     ) {
@@ -1376,7 +1376,7 @@ mod tests {
     async fn compression_fire_takes_over_immediately() {
         use std::sync::atomic::{AtomicBool, Ordering};
         use wf_execution_shared::hooks::fire;
-        use wf_llm::token_events::{
+        use wf_llm::token::events::{
             KEY_ARRAY_VERSION, KEY_MESSAGES, KEY_MESSAGE_COUNT, KEY_TARGET_CONTEXT_ID,
             KEY_TOKENS_USED, KEY_TOKEN_LIMIT,
         };
@@ -1424,7 +1424,7 @@ mod tests {
         );
         let ctx = HookContext {
             execution_id: Id::from("wf-run".to_string()),
-            hook_type: wf_llm::token_events::COMPRESSION_SIGNAL_HOOK_TYPE.to_string(),
+            hook_type: wf_llm::token::events::COMPRESSION_SIGNAL_HOOK_TYPE.to_string(),
             data,
         };
 
@@ -1434,7 +1434,7 @@ mod tests {
         fire(
             &hook_handler_registry,
             &[],
-            wf_llm::token_events::COMPRESSION_SIGNAL_HOOK_TYPE,
+            wf_llm::token::events::COMPRESSION_SIGNAL_HOOK_TYPE,
             &ctx,
             Some(&bus),
         )

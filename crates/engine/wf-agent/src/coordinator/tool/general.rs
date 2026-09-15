@@ -251,7 +251,7 @@ impl wf_tools::general::GeneralToolInvoker for GeneralToolContext {
         // Explicit per-item errors: the whole body failing parses to the
         // format hint; individual bad items become positioned error values
         // while their siblings still execute.
-        let items = match wf_llm::tool_call_parser::parse_invoke_json_calls_detailed(request) {
+        let items = match wf_llm::tool::parser::parse_invoke_json_calls_detailed(request) {
             Ok(items) => items,
             Err(_) => return Err(wf_tools::general::build_format_error()),
         };

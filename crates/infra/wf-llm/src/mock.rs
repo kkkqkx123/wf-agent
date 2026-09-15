@@ -19,8 +19,8 @@ use wf_types::message::{LlmToolCall, Message, MessageContentValue, MessageRole};
 
 use crate::client::LlmClient;
 use crate::error::{LlmError, LlmResult};
-use crate::message_helper::extract_text_content;
-use crate::message_stream::MessageStream;
+use crate::messaging::helper::extract_text_content;
+use crate::messaging::stream::MessageStream;
 
 /// Builder that turns a natural-language description into a real `LlmResult`,
 /// generating the matching assistant `Message` (content or tool_calls).
@@ -371,7 +371,7 @@ impl LlmClient for MockLlmClient {
         _cancel: Option<tokio_util::sync::CancellationToken>,
     ) -> LlmResult<wf_types::llm::TokenCountResult> {
         // Mock returns a simple estimation wrapped in TokenCountResult
-        let estimated = crate::token_count::estimate_request_tokens(request);
+        let estimated = crate::token::count::estimate_request_tokens(request);
         Ok(wf_types::llm::TokenCountResult {
             input_tokens: estimated,
             raw: None,

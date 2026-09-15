@@ -37,7 +37,7 @@ impl TokenEstimator {
     /// # Example
     ///
     /// ```
-    /// use wf_llm::token_estimation::TokenEstimator;
+    /// use wf_llm::token::estimation::TokenEstimator;
     ///
     /// let estimator = TokenEstimator::new(0.8, 0.3);
     /// ```
@@ -53,7 +53,7 @@ impl TokenEstimator {
     /// # Example
     ///
     /// ```
-    /// use wf_llm::token_estimation::TokenEstimator;
+    /// use wf_llm::token::estimation::TokenEstimator;
     ///
     /// let tokens = TokenEstimator::estimate("Hello world");
     /// ```

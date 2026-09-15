@@ -1355,14 +1355,11 @@ mod tests {
             for meta in &all {
                 let restored = coord.restore(&meta.id).await.expect("restore ok");
                 let snap = restored.snapshot;
-                let has_result = snap
-                    .node_results
-                    .as_ref()
-                    .is_some_and(|m| {
-                        snap.current_node_id
-                            .as_deref()
-                            .is_some_and(|n| m.contains_key(n))
-                    });
+                let has_result = snap.node_results.as_ref().is_some_and(|m| {
+                    snap.current_node_id
+                        .as_deref()
+                        .is_some_and(|n| m.contains_key(n))
+                });
                 out.push((snap.current_node_id.clone(), has_result));
             }
             out

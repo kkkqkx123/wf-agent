@@ -90,7 +90,7 @@ impl HookHandler for AgentCompressionHandler {
     }
 
     async fn on_point(&self, ctx: &HookContext) -> HookOutcome {
-        use wf_llm::token_events::{KEY_ARRAY_VERSION, KEY_MESSAGES, KEY_TARGET_CONTEXT_ID};
+        use wf_llm::token::events::{KEY_ARRAY_VERSION, KEY_MESSAGES, KEY_TARGET_CONTEXT_ID};
 
         let Some(target_context_id) = ctx
             .data
@@ -158,7 +158,7 @@ impl HookHandler for AgentCompressionHandler {
 /// The signal the agent engine dispatches when its conversation exceeds the
 /// token limit: named conversation array + snapshot + `agent_loop_id`.
 fn agent_compression_signal(snapshot: &[Message], version: u64) -> HookContext {
-    use wf_llm::token_events::{
+    use wf_llm::token::events::{
         KEY_ARRAY_VERSION, KEY_MESSAGES, KEY_MESSAGE_COUNT, KEY_TARGET_CONTEXT_ID, KEY_TOKENS_USED,
         KEY_TOKEN_LIMIT,
     };
@@ -181,7 +181,7 @@ fn agent_compression_signal(snapshot: &[Message], version: u64) -> HookContext {
     data.insert("agent_loop_id".to_string(), serde_json::json!("agent-1"));
     HookContext {
         execution_id: wf_types::Id::from("agent-1".to_string()),
-        hook_type: wf_llm::token_events::COMPRESSION_SIGNAL_HOOK_TYPE.to_string(),
+        hook_type: wf_llm::token::events::COMPRESSION_SIGNAL_HOOK_TYPE.to_string(),
         data,
     }
 }
@@ -241,7 +241,7 @@ async fn agent_conversation_compression_chain_closes_via_self_consumption() {
     // targets are consumed by the agent itself).
     let hook_handlers = Arc::new(HookHandlerRegistry::new());
     hook_handlers.register(
-        wf_llm::token_events::COMPRESSION_SIGNAL_HOOK_TYPE,
+        wf_llm::token::events::COMPRESSION_SIGNAL_HOOK_TYPE,
         Arc::new(AgentCompressionHandler {
             runner: Arc::new(SummaryRunner),
             bus: bus.clone(),
@@ -256,7 +256,7 @@ async fn agent_conversation_compression_chain_closes_via_self_consumption() {
     wf_execution_shared::hooks::fire(
         &hook_handlers,
         &[],
-        wf_llm::token_events::COMPRESSION_SIGNAL_HOOK_TYPE,
+        wf_llm::token::events::COMPRESSION_SIGNAL_HOOK_TYPE,
         &agent_compression_signal(&snapshot, version),
         Some(&bus),
     )
@@ -350,7 +350,7 @@ async fn agent_request_does_not_consult_the_registry() {
 
     let hook_handlers = Arc::new(HookHandlerRegistry::new());
     hook_handlers.register(
-        wf_llm::token_events::COMPRESSION_SIGNAL_HOOK_TYPE,
+        wf_llm::token::events::COMPRESSION_SIGNAL_HOOK_TYPE,
         Arc::new(AgentCompressionHandler {
             runner: Arc::new(SummaryRunner),
             bus: bus.clone(),
@@ -362,7 +362,7 @@ async fn agent_request_does_not_consult_the_registry() {
     wf_execution_shared::hooks::fire(
         &hook_handlers,
         &[],
-        wf_llm::token_events::COMPRESSION_SIGNAL_HOOK_TYPE,
+        wf_llm::token::events::COMPRESSION_SIGNAL_HOOK_TYPE,
         &agent_compression_signal(&messages, 3),
         Some(&bus),
     )

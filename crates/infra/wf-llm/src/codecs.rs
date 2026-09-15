@@ -7,8 +7,10 @@ use wf_types::tool::Tool;
 
 pub mod anthropic;
 pub mod gemini_native;
+pub mod helpers;
 pub mod openai_chat;
 pub mod openai_response;
+pub mod plugin;
 pub mod shared;
 
 pub use anthropic::AnthropicCodec;

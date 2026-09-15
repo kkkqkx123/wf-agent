@@ -2,7 +2,7 @@ use wf_types::llm::{ToolCallMarkers, ToolCallProtocol};
 use wf_types::message::Message;
 use wf_types::tool::Tool;
 
-use crate::tool_call_parser::{ParseFormat, ToolCallParseOptions};
+use super::parser::{ParseFormat, ToolCallParseOptions};
 
 /// Tool format template set.
 pub struct ToolProtocolTemplateSet {
@@ -302,7 +302,7 @@ pub fn extract_system_message(messages: &[Message]) -> (Option<String>, Vec<Mess
     for msg in messages {
         match msg.role {
             wf_types::message::MessageRole::System => {
-                system_content = Some(crate::message_helper::extract_text_content(msg));
+                system_content = Some(crate::messaging::helper::extract_text_content(msg));
             }
             _ => filtered.push(msg.clone()),
         }

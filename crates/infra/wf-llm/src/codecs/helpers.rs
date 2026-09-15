@@ -52,21 +52,6 @@ pub fn merge_parameters(
     merged
 }
 
-/// Deep-merge profile parameters with request parameters.
-pub fn deep_merge_parameters(
-    profile: &LlmProfile,
-    request_params: &Option<serde_json::Value>,
-) -> serde_json::Value {
-    let profile_obj = profile
-        .parameters
-        .clone()
-        .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
-    let request_obj = request_params
-        .clone()
-        .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
-    deep_merge(&profile_obj, &request_obj)
-}
-
 pub fn build_auth_header(
     api_key: &Option<String>,
     native_header: &str,
@@ -181,24 +166,6 @@ mod tests {
         let profile = profile_with_params(Some(serde_json::json!({"a": 1})));
         let merged = merge_parameters(&profile, &Some(serde_json::json!("nope")));
         assert_eq!(merged["a"], serde_json::json!(1));
-    }
-
-    #[test]
-    fn deep_merge_parameters_combines_profile_and_request() {
-        let profile = profile_with_params(Some(serde_json::json!({
-            "temperature": 0.7,
-            "nested": {"from_profile": true},
-        })));
-        let merged = deep_merge_parameters(
-            &profile,
-            &Some(serde_json::json!({
-                "temperature": 0.1,
-                "nested": {"from_request": true},
-            })),
-        );
-        assert_eq!(merged["temperature"], serde_json::json!(0.1));
-        assert_eq!(merged["nested"]["from_profile"], serde_json::json!(true));
-        assert_eq!(merged["nested"]["from_request"], serde_json::json!(true));
     }
 
     #[test]

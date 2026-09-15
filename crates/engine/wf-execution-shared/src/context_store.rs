@@ -96,10 +96,10 @@ pub async fn dispatch_compression_signal(
     fire(
         registry,
         &[],
-        wf_llm::token_events::COMPRESSION_SIGNAL_HOOK_TYPE,
+        wf_llm::token::events::COMPRESSION_SIGNAL_HOOK_TYPE,
         &HookContext {
             execution_id: execution_id.clone(),
-            hook_type: wf_llm::token_events::COMPRESSION_SIGNAL_HOOK_TYPE.to_string(),
+            hook_type: wf_llm::token::events::COMPRESSION_SIGNAL_HOOK_TYPE.to_string(),
             data,
         },
         bus,

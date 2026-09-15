@@ -16,9 +16,9 @@ use crate::events::PluginEvent;
 use crate::guard::PluginGuard;
 use crate::manifest::{PluginManifest, PluginPermission, PluginType};
 use crate::package::{InstalledPlugin, PluginPackageManager};
-use crate::signing::{enforce_signature, TrustedKeys, verify_file};
 use crate::plugin::Plugin;
 use crate::registry::{PluginInfo, PluginRegistry, PluginStatus};
+use crate::signing::{enforce_signature, verify_file, TrustedKeys};
 
 pub struct PluginSystemConfig {
     pub enabled: bool,
@@ -1093,7 +1093,10 @@ fn convert_provider_definition(
         base_url: provider.base_url.clone(),
         auth_type: provider.auth_type.clone(),
         default_headers: provider.default_headers.clone(),
-        format: provider.format.clone(),
+        format: provider
+            .format
+            .parse::<wf_types::llm::LlmFormat>()
+            .unwrap_or_else(|_| wf_types::llm::LlmFormat::Custom(provider.format.clone())),
         model_discovery: provider.model_discovery.as_ref().map(convert_discovery),
         api_version: provider.api_version.clone(),
         metadata: provider.metadata.clone(),
@@ -1951,7 +1954,10 @@ mod tests {
 
         let mut manifest = make_manifest("strict-sdk");
         manifest.sdk_version = Some("not-a-version".into());
-        let err = engine.load_plugin(manifest, Path::new(".")).await.unwrap_err();
+        let err = engine
+            .load_plugin(manifest, Path::new("."))
+            .await
+            .unwrap_err();
         assert!(matches!(err, PluginError::InvalidManifest(_)));
 
         // Fail-open (default) still skips the check with a warning.
@@ -1960,7 +1966,10 @@ mod tests {
         manifest.sdk_version = Some("not-a-version".into());
         // No loadable module exists for the fake entry point, so a
         // fail-open check proceeds past the sdk gate into module loading.
-        let err = engine.load_plugin(manifest, Path::new(".")).await.unwrap_err();
+        let err = engine
+            .load_plugin(manifest, Path::new("."))
+            .await
+            .unwrap_err();
         assert!(!matches!(err, PluginError::InvalidManifest(_)));
     }
 }

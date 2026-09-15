@@ -189,7 +189,7 @@ impl HookHandler for CompressionHandler {
     }
 
     async fn on_point(&self, ctx: &HookContext) -> HookOutcome {
-        use wf_llm::token_events::{KEY_ARRAY_VERSION, KEY_MESSAGES, KEY_TARGET_CONTEXT_ID};
+        use wf_llm::token::events::{KEY_ARRAY_VERSION, KEY_MESSAGES, KEY_TARGET_CONTEXT_ID};
 
         let Some(target_context_id) = ctx
             .data
@@ -357,7 +357,7 @@ async fn over_limit_named_array_flows_through_compression_chain() {
     // hook registry; the receiver takes over immediately.
     let hook_handlers = Arc::new(HookHandlerRegistry::new());
     hook_handlers.register(
-        wf_llm::token_events::COMPRESSION_SIGNAL_HOOK_TYPE,
+        wf_llm::token::events::COMPRESSION_SIGNAL_HOOK_TYPE,
         Arc::new(CompressionHandler {
             runner,
             contexts: contexts.clone(),
@@ -401,14 +401,14 @@ async fn over_limit_named_array_flows_through_compression_chain() {
         requested
             .metadata
             .as_ref()
-            .and_then(|m| m.get(wf_llm::token_events::KEY_TARGET_CONTEXT_ID))
+            .and_then(|m| m.get(wf_llm::token::events::KEY_TARGET_CONTEXT_ID))
             .and_then(|v| v.as_str()),
         Some("chat")
     );
     let snapshot: Vec<Message> = requested
         .metadata
         .as_ref()
-        .and_then(|m| m.get(wf_llm::token_events::KEY_MESSAGES))
+        .and_then(|m| m.get(wf_llm::token::events::KEY_MESSAGES))
         .and_then(|v| serde_json::from_value(v.clone()).ok())
         .unwrap_or_default();
     assert_eq!(
@@ -478,14 +478,14 @@ async fn over_limit_named_array_flows_through_compression_chain() {
         completed
             .metadata
             .as_ref()
-            .and_then(|m| m.get(wf_llm::token_events::KEY_TARGET_CONTEXT_ID))
+            .and_then(|m| m.get(wf_llm::token::events::KEY_TARGET_CONTEXT_ID))
             .and_then(|v| v.as_str()),
         Some("chat")
     );
     let tokens_after = completed
         .metadata
         .as_ref()
-        .and_then(|m| m.get(wf_llm::token_events::KEY_TOKENS_AFTER))
+        .and_then(|m| m.get(wf_llm::token::events::KEY_TOKENS_AFTER))
         .and_then(|v| v.as_u64())
         .unwrap_or(u64::MAX);
     assert!(

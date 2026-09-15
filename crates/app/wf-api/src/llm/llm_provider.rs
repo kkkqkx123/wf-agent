@@ -32,11 +32,13 @@ pub async fn create(ctx: &ApiContext, definition: &LlmProviderDefinition) -> Api
     if definition.id.trim().is_empty() {
         return Err(ApiError::Validation("provider id must not be empty".into()));
     }
-    if definition.format.trim().is_empty() {
-        return Err(ApiError::Validation(format!(
-            "provider '{}' format must not be empty",
-            definition.id
-        )));
+    if let wf_types::llm::LlmFormat::Custom(name) = &definition.format {
+        if name.trim().is_empty() {
+            return Err(ApiError::Validation(format!(
+                "provider '{}' format must not be empty",
+                definition.id
+            )));
+        }
     }
     ctx.llm_gateway
         .register_provider_definition(definition.clone())

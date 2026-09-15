@@ -17,7 +17,9 @@ pub fn validate_llm_profile(profile: &LlmProfile) -> ConfigResult<()> {
 /// Validate a provider definition's required fields at load time.
 pub fn validate_provider_definition(definition: &LlmProviderDefinition) -> ConfigResult<()> {
     validate_not_empty(&definition.id, "id")?;
-    validate_not_empty(&definition.format, "format")?;
+    if let wf_types::llm::LlmFormat::Custom(name) = &definition.format {
+        validate_not_empty(name, "format")?;
+    }
     Ok(())
 }
 

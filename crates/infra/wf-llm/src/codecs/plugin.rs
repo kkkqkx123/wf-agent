@@ -39,14 +39,29 @@ fn http_request_from_description(described: &CodecHttpRequest) -> LlmResult<reqw
             described.method
         ))
     })?;
-    let mut builder = reqwest::Client::new().request(method, &described.url);
-    if !described.body.is_null() {
-        builder = builder.json(&described.body);
-    }
+    let url: reqwest::Url = described.url.parse().map_err(|_| {
+        LlmError::ConfigError(format!("Invalid codec request url '{}'", described.url))
+    })?;
+    let mut request = reqwest::Request::new(method, url);
     for (name, value) in &described.headers {
-        builder = builder.header(name, value.as_str());
+        request.headers_mut().insert(
+            reqwest::header::HeaderName::from_bytes(name.as_bytes()).map_err(|_| {
+                LlmError::ConfigError(format!("Invalid codec request header '{name}'"))
+            })?,
+            value.parse().map_err(|_| {
+                LlmError::ConfigError(format!("Invalid codec request header value for '{name}'"))
+            })?,
+        );
     }
-    builder.build().map_err(LlmError::HttpError)
+    if !described.body.is_null() {
+        let body = serde_json::to_vec(&described.body)?;
+        request.headers_mut().insert(
+            reqwest::header::CONTENT_TYPE,
+            reqwest::header::HeaderValue::from_static("application/json"),
+        );
+        *request.body_mut() = Some(reqwest::Body::from(body));
+    }
+    Ok(request)
 }
 
 impl LlmCodec for PluginCodecAdapter {

@@ -37,7 +37,7 @@ impl AnthropicCodec {
         // in the dedicated `system` field. Text mode injects the original
         // system + tool usage instructions + declarations; native mode keeps
         // the original system message.
-        let (system_content, _) = crate::tool_protocol::extract_system_message(&request.messages);
+        let (system_content, _) = crate::tool::protocol::extract_system_message(&request.messages);
 
         let history = if use_text_mode {
             super::shared::convert_history_for_text_mode(&request.messages, request)
@@ -105,7 +105,7 @@ impl AnthropicCodec {
             "messages": messages,
         });
 
-        let (system_content, _) = crate::tool_protocol::extract_system_message(&request.messages);
+        let (system_content, _) = crate::tool::protocol::extract_system_message(&request.messages);
         if let Some(system) = system_content {
             if !system.is_empty() {
                 body["system"] = serde_json::json!(system);

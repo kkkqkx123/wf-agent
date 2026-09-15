@@ -300,7 +300,7 @@ impl GeminiNativeCodec {
         // field in both modes. Text mode injects the original system + tool
         // usage instructions + declarations; native mode keeps the original
         // system message.
-        let (system_content, _) = crate::tool_protocol::extract_system_message(&request.messages);
+        let (system_content, _) = crate::tool::protocol::extract_system_message(&request.messages);
 
         let history = if use_text_mode {
             super::shared::convert_history_for_text_mode(&request.messages, request)

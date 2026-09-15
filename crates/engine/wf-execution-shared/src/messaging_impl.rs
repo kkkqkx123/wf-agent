@@ -1,6 +1,6 @@
 use crate::error::ExecutionSharedError;
 use crate::types::state_manager::StateManager;
-use wf_llm::messaging::conversation_session::{ConversationSession, ConversationState};
+use crate::conversation_session::{ConversationSession, ConversationState};
 
 impl StateManager<ConversationState> for ConversationSession {
     async fn cleanup(&mut self) -> Result<(), ExecutionSharedError> {

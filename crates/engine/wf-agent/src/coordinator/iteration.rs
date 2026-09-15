@@ -38,14 +38,14 @@ fn publish_stream_termination(
 ) {
     let Some(bus) = event_bus else { return };
     if aborted {
-        let _ = bus.publish(wf_llm::build_llm_stream_aborted_event(
+        let _ = bus.publish(wf_execution_shared::build_llm_stream_aborted_event(
             agent_loop_id,
             Some(agent_loop_id),
             message,
             profile_id,
         ));
     } else {
-        let _ = bus.publish(wf_llm::build_llm_stream_error_event(
+        let _ = bus.publish(wf_execution_shared::build_llm_stream_error_event(
             agent_loop_id,
             Some(agent_loop_id),
             message,
@@ -86,7 +86,7 @@ pub enum IterationMode {
 }
 
 /// Default token warning threshold percentage of the configured limit.
-pub const DEFAULT_TOKEN_WARNING_THRESHOLD: u32 = wf_llm::DEFAULT_TOKEN_WARNING_THRESHOLD;
+pub const DEFAULT_TOKEN_WARNING_THRESHOLD: u32 = wf_execution_shared::DEFAULT_TOKEN_WARNING_THRESHOLD;
 
 /// Single iteration implementation shared by blocking and streaming runs.
 pub struct AgentIterationCoordinator {
@@ -423,7 +423,7 @@ impl AgentIterationCoordinator {
                 if token_limit > 0 {
                     let estimated = u64::from(wf_llm::estimate_request_tokens(&request));
                     if estimated > token_limit && conversation.consume_preflight_warning() {
-                        let _ = bus.publish(wf_llm::build_token_usage_warning_event(
+                        let _ = bus.publish(wf_execution_shared::build_token_usage_warning_event(
                             &execution_id,
                             Some(entity.id()),
                             estimated,
@@ -496,7 +496,7 @@ impl AgentIterationCoordinator {
                         return Err(e.into());
                     }
                 };
-                let usage = llm_result.usage.as_ref().map(wf_llm::RequestUsage::from);
+                let usage = llm_result.usage.as_ref().map(wf_execution_shared::RequestUsage::from);
                 // Record the completed call (request/response summaries).
                 let content = text_of(&llm_result.message.content);
                 let response_summary = build_response_summary(
@@ -564,7 +564,7 @@ impl AgentIterationCoordinator {
                 if token_limit > 0 {
                     if conversation.consume_token_warning(self.token_warning_threshold as f64) {
                         let percentage = conversation.usage_percentage().unwrap_or(0.0);
-                        let _ = bus.publish(wf_llm::build_token_usage_warning_event(
+                        let _ = bus.publish(wf_execution_shared::build_token_usage_warning_event(
                             &execution_id,
                             Some(entity.id()),
                             tokens_used,
@@ -573,7 +573,7 @@ impl AgentIterationCoordinator {
                         ));
                     }
                     if conversation.consume_limit_exceeded_tier().is_some() {
-                        let _ = bus.publish(wf_llm::build_token_limit_exceeded_event(
+                        let _ = bus.publish(wf_execution_shared::build_token_limit_exceeded_event(
                             &execution_id,
                             Some(entity.id()),
                             tokens_used,
@@ -591,7 +591,7 @@ impl AgentIterationCoordinator {
                         let message_count = conversation.view_messages().len();
                         let messages = conversation.history().to_vec();
                         let request = wf_execution_shared::context_store::compression_request(
-                            wf_llm::CONVERSATION_CONTEXT_ID,
+                            wf_execution_shared::CONVERSATION_CONTEXT_ID,
                             estimated,
                             token_limit,
                             message_count,
@@ -840,7 +840,7 @@ impl AgentIterationCoordinator {
         let tokens_used = u64::from(wf_llm::estimate_request_tokens(request));
         let messages = request.messages.clone();
         let compression_request = wf_execution_shared::context_store::compression_request(
-            wf_llm::CONVERSATION_CONTEXT_ID,
+            wf_execution_shared::CONVERSATION_CONTEXT_ID,
             tokens_used,
             token_limit,
             request.messages.len(),
@@ -883,7 +883,7 @@ impl AgentIterationCoordinator {
         let Some(ref bus) = self.event_bus else {
             return;
         };
-        let _ = bus.publish(wf_llm::build_llm_requested_event(
+        let _ = bus.publish(wf_execution_shared::build_llm_requested_event(
             entity.id(),
             Some(entity.id()),
             &request.profile_id,
@@ -907,14 +907,14 @@ impl AgentIterationCoordinator {
             return;
         };
         if let Some(error) = &call.error {
-            let _ = bus.publish(wf_llm::build_llm_failed_event(
+            let _ = bus.publish(wf_execution_shared::build_llm_failed_event(
                 entity.id(),
                 Some(entity.id()),
                 error,
                 &request.profile_id,
             ));
         } else {
-            let _ = bus.publish(wf_llm::build_llm_responded_event(
+            let _ = bus.publish(wf_execution_shared::build_llm_responded_event(
                 entity.id(),
                 Some(entity.id()),
                 &request.profile_id,
@@ -939,7 +939,7 @@ impl AgentIterationCoordinator {
         Message,
         Option<String>,
         Option<String>,
-        Option<wf_llm::RequestUsage>,
+        Option<wf_execution_shared::RequestUsage>,
     )> {
         let started_at = wf_common::now();
         // Publish the request event before the stream opens.
@@ -961,7 +961,7 @@ impl AgentIterationCoordinator {
             }
         };
         let mut final_message: Option<Message> = None;
-        let mut request_usage: Option<wf_llm::RequestUsage> = None;
+        let mut request_usage: Option<wf_execution_shared::RequestUsage> = None;
         let mut content_parts: Vec<String> = Vec::new();
         let mut failure: Option<wf_llm::LlmError> = None;
 
@@ -1012,12 +1012,12 @@ impl AgentIterationCoordinator {
                     final_message = Some(msg.message);
                     content_parts.push(content);
                     if let Some(usage) = msg.usage {
-                        request_usage = Some(wf_llm::RequestUsage::from(&usage));
+                        request_usage = Some(wf_execution_shared::RequestUsage::from(&usage));
                     }
                 }
                 Ok(MessageStreamEvent::Usage(u)) => {
                     // Merge mid-stream usage deltas into the current request
-                    let usage = wf_llm::RequestUsage::from(&u.usage);
+                    let usage = wf_execution_shared::RequestUsage::from(&u.usage);
                     match &mut request_usage {
                         Some(acc) => {
                             acc.merge_non_zero(&usage);
@@ -1059,7 +1059,7 @@ impl AgentIterationCoordinator {
                         self.event_bus.as_deref(),
                         entity.id(),
                         &request.profile_id,
-                        wf_llm::is_stream_abort(&e),
+                        wf_execution_shared::is_stream_abort(&e),
                         &e.to_string(),
                     );
                     if e.is_context_length_exceeded() {

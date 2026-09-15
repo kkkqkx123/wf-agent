@@ -223,7 +223,7 @@ fn build_compression_completed_event(
         }),
     });
     let tokens_after = wf_llm::estimate_messages(messages) as u64;
-    wf_llm::build_context_compression_completed_event(
+    wf_execution_shared::build_context_compression_completed_event(
         execution_id,
         agent_loop_id,
         target_context_id,
@@ -560,7 +560,7 @@ pub fn register_compression_handler(
     // The builtin handler runs first (priority above any user handler): the
     // takeover must be immediate once the engine fires.
     if !registry.register(
-        wf_llm::token::events::COMPRESSION_SIGNAL_HOOK_TYPE,
+        wf_execution_shared::token_events::COMPRESSION_SIGNAL_HOOK_TYPE,
         service.clone(),
         1000,
     ) {
@@ -953,9 +953,9 @@ mod tests {
                 Err(_) => panic!("event bus closed"),
             }
         };
-        let meta = wf_llm::ConversationWritebackCompletedMeta::try_from(&writeback_event).unwrap();
+        let meta = wf_execution_shared::ConversationWritebackCompletedMeta::try_from(&writeback_event).unwrap();
         assert_eq!(meta.array_version, array_version);
-        assert_eq!(meta.operation, wf_llm::WRITEBACK_OPERATION_APPEND);
+        assert_eq!(meta.operation, wf_execution_shared::WRITEBACK_OPERATION_APPEND);
         assert_eq!(meta.messages.len(), 1);
 
         stop_trigger_listener(listener).await;
@@ -1075,7 +1075,7 @@ mod tests {
             requested.execution_id.as_deref(),
             Some(execution_id.as_str())
         );
-        let requested_meta = wf_llm::ContextCompressionRequestedMeta::try_from(&requested).unwrap();
+        let requested_meta = wf_execution_shared::ContextCompressionRequestedMeta::try_from(&requested).unwrap();
         assert_eq!(requested_meta.target_context_id, "chat");
         assert_eq!(
             requested_meta.messages.len(),
@@ -1112,7 +1112,7 @@ mod tests {
                 Err(_) => panic!("event bus closed"),
             }
         };
-        let completed_meta = wf_llm::ContextCompressionCompletedMeta::try_from(&completed).unwrap();
+        let completed_meta = wf_execution_shared::ContextCompressionCompletedMeta::try_from(&completed).unwrap();
         assert_eq!(completed_meta.target_context_id, "chat");
         assert_eq!(completed_meta.messages.len(), 1);
         assert_eq!(
@@ -1376,7 +1376,7 @@ mod tests {
     async fn compression_fire_takes_over_immediately() {
         use std::sync::atomic::{AtomicBool, Ordering};
         use wf_execution_shared::hooks::fire;
-        use wf_llm::token::events::{
+        use wf_execution_shared::token_events::{
             KEY_ARRAY_VERSION, KEY_MESSAGES, KEY_MESSAGE_COUNT, KEY_TARGET_CONTEXT_ID,
             KEY_TOKENS_USED, KEY_TOKEN_LIMIT,
         };
@@ -1424,7 +1424,7 @@ mod tests {
         );
         let ctx = HookContext {
             execution_id: Id::from("wf-run".to_string()),
-            hook_type: wf_llm::token::events::COMPRESSION_SIGNAL_HOOK_TYPE.to_string(),
+            hook_type: wf_execution_shared::token_events::COMPRESSION_SIGNAL_HOOK_TYPE.to_string(),
             data,
         };
 
@@ -1434,7 +1434,7 @@ mod tests {
         fire(
             &hook_handler_registry,
             &[],
-            wf_llm::token::events::COMPRESSION_SIGNAL_HOOK_TYPE,
+            wf_execution_shared::token_events::COMPRESSION_SIGNAL_HOOK_TYPE,
             &ctx,
             Some(&bus),
         )

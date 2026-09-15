@@ -18,6 +18,15 @@ pub use gemini_native::GeminiNativeCodec;
 pub use openai_chat::OpenaiChatCodec;
 pub use openai_response::OpenaiResponseCodec;
 
+/// Wire protocol codec with three responsibility bands:
+/// - core encoding (required): `build_request`, `parse_response`,
+///   `parse_stream_chunk`;
+/// - tool protocol companion (required): `convert_tools`, `parse_tool_calls`;
+/// - count-tokens extension (optional): `build_count_tokens_request`,
+///   `parse_count_tokens_response`, both with default implementations.
+///
+/// New capabilities must follow the optional-extension band with defaults
+/// instead of widening the required surface.
 pub trait LlmCodec: Send + Sync {
     fn build_request(
         &self,

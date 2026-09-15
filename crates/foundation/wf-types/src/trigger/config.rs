@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 ///
 /// An agent loop's externally observable position is its conversation
 /// message array, characterized by two quantities already maintained by the
-/// conversation ledger (`ConversationSession`, wf-llm):
+/// conversation ledger (execution-shared `ConversationSession`):
 ///
 /// - `message_count`: the number of messages at the capture point — the
 ///   boundary of the child input snapshot (prefix slice) and the reference

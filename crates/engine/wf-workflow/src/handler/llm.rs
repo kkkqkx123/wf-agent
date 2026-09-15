@@ -72,7 +72,7 @@ fn publish_stream_termination(
     };
     if aborted {
         bus.publish_logged(
-            wf_llm::build_llm_stream_aborted_event(&ctx.execution_id, None, message, profile_id),
+            wf_execution_shared::build_llm_stream_aborted_event(&ctx.execution_id, None, message, profile_id),
             &format!(
                 "workflow={} llm={} stream-aborted",
                 ctx.execution_id, ctx.node_id
@@ -81,7 +81,7 @@ fn publish_stream_termination(
         .ok();
     } else {
         bus.publish_logged(
-            wf_llm::build_llm_stream_error_event(&ctx.execution_id, None, message, profile_id),
+            wf_execution_shared::build_llm_stream_error_event(&ctx.execution_id, None, message, profile_id),
             &format!(
                 "workflow={} llm={} stream-error",
                 ctx.execution_id, ctx.node_id
@@ -139,7 +139,7 @@ async fn publish_forced_compression(ctx: &NodeExecutionContext, request: &LlmReq
 /// goes through the execution registry.
 async fn dispatch_compression_signal(
     ctx: &NodeExecutionContext,
-    request: &wf_llm::ContextCompressionRequest<'_>,
+    request: &wf_execution_shared::ContextCompressionRequest<'_>,
 ) {
     wf_execution_shared::context_store::dispatch_compression_signal(
         ctx.hook_handler_registry.as_deref(),
@@ -198,7 +198,7 @@ fn injected_messages(config: &Value) -> Vec<Message> {
 /// the checkpointed guards and accumulations together with the variables.
 fn restore_tracker_from_variables(
     ctx: &NodeExecutionContext,
-    tracker: &mut wf_llm::TokenUsageTracker,
+    tracker: &mut wf_execution_shared::TokenUsageTracker,
 ) {
     if tracker.cumulative_usage().total_tokens > 0 || tracker.estimated_total() > 0 {
         return;
@@ -213,7 +213,7 @@ fn restore_tracker_from_variables(
 
 /// Persist the execution-scoped tracker state into the variable map so
 /// checkpoints (which snapshot the variables) restore the guards too.
-fn persist_tracker_state(ctx: &NodeExecutionContext, tracker: &wf_llm::TokenUsageTracker) {
+fn persist_tracker_state(ctx: &NodeExecutionContext, tracker: &wf_execution_shared::TokenUsageTracker) {
     if let Ok(value) = serde_json::to_value(tracker.state()) {
         ctx.variables.insert(TRACKER_STATE_KEY.to_string(), value);
     }
@@ -242,7 +242,7 @@ async fn emit_token_usage_events(ctx: &NodeExecutionContext, warning_threshold: 
     if tracker.consume_warning(warning_threshold as f64) {
         let percentage = tracker.estimated_usage_percentage().unwrap_or(0.0);
         bus.publish_logged(
-            wf_llm::build_token_usage_warning_event(
+            wf_execution_shared::build_token_usage_warning_event(
                 &ctx.execution_id,
                 Some(&ctx.node_id),
                 tokens_used,
@@ -258,7 +258,7 @@ async fn emit_token_usage_events(ctx: &NodeExecutionContext, warning_threshold: 
     }
     if tracker.consume_limit_exceeded_tier().is_some() {
         bus.publish_logged(
-            wf_llm::build_token_limit_exceeded_event(
+            wf_execution_shared::build_token_limit_exceeded_event(
                 &ctx.execution_id,
                 Some(&ctx.node_id),
                 tokens_used,
@@ -307,7 +307,7 @@ async fn emit_token_usage_events(ctx: &NodeExecutionContext, warning_threshold: 
             if injected_count > 0 {
                 if let Some(meta) = event.metadata.as_mut() {
                     meta.insert(
-                        wf_llm::KEY_INJECTED_MESSAGE_COUNT.to_string(),
+                        wf_execution_shared::KEY_INJECTED_MESSAGE_COUNT.to_string(),
                         Value::Number(serde_json::Number::from(injected_count as u64)),
                     );
                 }
@@ -763,7 +763,7 @@ impl LlmHandler {
         let token_warning_threshold = exec_config
             .token_warning_threshold
             .map(u64::from)
-            .unwrap_or(wf_llm::DEFAULT_TOKEN_WARNING_THRESHOLD as u64);
+            .unwrap_or(wf_execution_shared::DEFAULT_TOKEN_WARNING_THRESHOLD as u64);
         if token_tracking_enabled {
             if let Some(ref tracker) = ctx.token_tracker {
                 // A single lock acquisition covers both the token-limit setup
@@ -875,7 +875,7 @@ impl LlmHandler {
                         let mut tracker = tracker.lock().await;
                         if estimated > token_limit && tracker.consume_preflight_warning() {
                             if let Some(ref bus) = ctx.event_bus {
-                                let mut event = wf_llm::build_token_usage_warning_event(
+                                let mut event = wf_execution_shared::build_token_usage_warning_event(
                                     &ctx.execution_id,
                                     Some(&ctx.node_id),
                                     estimated,
@@ -961,7 +961,7 @@ impl LlmHandler {
                             if token_tracking_enabled {
                                 if let Some(ref tracker) = ctx.token_tracker {
                                     tracker.lock().await.accumulate_stream_usage(
-                                        &wf_llm::RequestUsage::from(&u.usage),
+                                        &wf_execution_shared::RequestUsage::from(&u.usage),
                                     );
                                 }
                             }
@@ -973,7 +973,7 @@ impl LlmHandler {
                                 if token_tracking_enabled {
                                     if let Some(ref tracker) = ctx.token_tracker {
                                         tracker.lock().await.accumulate_stream_usage(
-                                            &wf_llm::RequestUsage::from(usage),
+                                            &wf_execution_shared::RequestUsage::from(usage),
                                         );
                                     }
                                 }
@@ -1031,7 +1031,7 @@ impl LlmHandler {
                                 ctx.event_bus.as_deref(),
                                 ctx,
                                 &request.profile_id,
-                                wf_llm::is_stream_abort(&e),
+                                wf_execution_shared::is_stream_abort(&e),
                                 &e.to_string(),
                             );
                             if e.is_context_length_exceeded() {

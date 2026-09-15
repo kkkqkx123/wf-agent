@@ -5,7 +5,7 @@
 //! keys follow a fixed schema (see constants below) so trigger conditions and
 //! external consumers can match on them.
 
-use crate::error::LlmError;
+use wf_llm::error::LlmError;
 use wf_types::events::{BaseEvent, EventType};
 use wf_types::message::Message;
 
@@ -902,7 +902,7 @@ mod tests {
         let event = build_conversation_writeback_completed_event(
             "loop-1",
             Some("loop-1"),
-            crate::messaging::conversation_session::CONVERSATION_CONTEXT_ID,
+            crate::conversation_session::CONVERSATION_CONTEXT_ID,
             3,
             WRITEBACK_OPERATION_APPEND,
             std::slice::from_ref(&msg),

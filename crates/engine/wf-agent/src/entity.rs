@@ -5,7 +5,7 @@ use wf_core::interruption::{InterruptionSignal, InterruptionState};
 use wf_execution_shared::error::ExecutionSharedError;
 use wf_execution_shared::hooks::types::HookDefinition;
 use wf_execution_shared::types::execution_entity::{ExecutionEntity, ExecutionStatus};
-use wf_llm::messaging::conversation_session::ConversationSession;
+use wf_execution_shared::conversation_session::ConversationSession;
 use wf_types::llm::ToolCallProtocolConfig;
 use wf_types::Id;
 

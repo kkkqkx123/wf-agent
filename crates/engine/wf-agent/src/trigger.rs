@@ -424,14 +424,14 @@ async fn write_back_result(
         return;
     };
     let operation = match writeback {
-        TriggerAgentWriteback::ConversationAppend => wf_llm::WRITEBACK_OPERATION_APPEND,
+        TriggerAgentWriteback::ConversationAppend => wf_execution_shared::WRITEBACK_OPERATION_APPEND,
         TriggerAgentWriteback::Variable => return,
     };
     let message = assistant_message_from_result(&output.result);
-    let event = wf_llm::build_conversation_writeback_completed_event(
+    let event = wf_execution_shared::build_conversation_writeback_completed_event(
         parent.id(),
         Some(parent.id()),
-        wf_llm::CONVERSATION_CONTEXT_ID,
+        wf_execution_shared::CONVERSATION_CONTEXT_ID,
         anchor.array_version,
         operation,
         std::slice::from_ref(&message),
@@ -1010,9 +1010,9 @@ mod tests {
                 Err(_) => panic!("event bus closed"),
             }
         };
-        let meta = wf_llm::ConversationWritebackCompletedMeta::try_from(&writeback_event).unwrap();
+        let meta = wf_execution_shared::ConversationWritebackCompletedMeta::try_from(&writeback_event).unwrap();
         assert_eq!(meta.array_version, array_version);
-        assert_eq!(meta.operation, wf_llm::WRITEBACK_OPERATION_APPEND);
+        assert_eq!(meta.operation, wf_execution_shared::WRITEBACK_OPERATION_APPEND);
         assert_eq!(meta.target_context_id, "conversation");
         assert_eq!(
             writeback_event.execution_id.as_deref(),

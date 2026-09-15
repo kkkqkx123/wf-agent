@@ -23,8 +23,8 @@ use tokio::sync::RwLock;
 use tracing::debug;
 use wf_core::EventBus;
 use wf_execution_shared::context_store::{check_anchor, WritebackOp};
-use wf_llm::messaging::conversation_session::{ConversationSession, CONVERSATION_CONTEXT_ID};
-use wf_llm::{ContextCompressionCompletedMeta, ConversationWritebackCompletedMeta};
+use wf_execution_shared::conversation_session::{ConversationSession, CONVERSATION_CONTEXT_ID};
+use wf_execution_shared::{ContextCompressionCompletedMeta, ConversationWritebackCompletedMeta};
 use wf_types::checkpoint::CheckpointTiming;
 use wf_types::events::EventType;
 use wf_types::message::Message;
@@ -190,7 +190,7 @@ mod tests {
     }
 
     fn completed_event(agent_loop_id: &str, version: u64, messages: &[Message]) -> BaseEvent {
-        wf_llm::build_context_compression_completed_event(
+        wf_execution_shared::build_context_compression_completed_event(
             agent_loop_id,
             Some(agent_loop_id),
             CONVERSATION_CONTEXT_ID,
@@ -207,7 +207,7 @@ mod tests {
         operation: &str,
         messages: &[Message],
     ) -> BaseEvent {
-        wf_llm::build_conversation_writeback_completed_event(
+        wf_execution_shared::build_conversation_writeback_completed_event(
             agent_loop_id,
             Some(agent_loop_id),
             CONVERSATION_CONTEXT_ID,
@@ -362,7 +362,7 @@ mod tests {
         bus.publish(writeback_event(
             "loop-1",
             version,
-            wf_llm::WRITEBACK_OPERATION_APPEND,
+            wf_execution_shared::WRITEBACK_OPERATION_APPEND,
             &[text_message(MessageRole::Assistant, "child result")],
         ))
         .unwrap();
@@ -413,7 +413,7 @@ mod tests {
         bus.publish(writeback_event(
             "loop-1",
             stale_version,
-            wf_llm::WRITEBACK_OPERATION_APPEND,
+            wf_execution_shared::WRITEBACK_OPERATION_APPEND,
             &[text_message(MessageRole::Assistant, "stale child result")],
         ))
         .unwrap();

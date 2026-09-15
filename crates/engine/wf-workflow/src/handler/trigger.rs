@@ -460,7 +460,7 @@ impl TriggerCoordinator {
                 custom_filter,
             },
         );
-        let (result, stats) = wf_llm::messaging::message_ops::apply(&messages, &operation);
+        let (result, stats) = wf_execution_shared::message_ops::apply(&messages, &operation);
         crate::message_context::register_context(&ctx.variables, context_id, result);
         Self::emit_with_metadata(
             ctx,

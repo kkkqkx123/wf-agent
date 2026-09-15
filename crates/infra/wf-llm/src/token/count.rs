@@ -1,13 +1,13 @@
-//! Token counting for LLM requests
+//! Pure token estimation for LLM requests
 //!
-//! Combination layer built on top of [`TokenEstimator`]: counts messages,
-//! tools, and multimodal content. Prefers the provider's count-tokens API
-//! when available, otherwise falls back to local estimation.
+//! Estimation layer built on top of [`TokenEstimator`]: counts messages,
+//! tools, and multimodal content. Transport-level counting (provider
+//! count-tokens API first, estimation as fallback) lives in
+//! `client::LlmClientImpl::count_tokens_inner`; this module never touches
+//! HTTP clients or codecs.
 
 use super::estimation::{estimate_tokens, TokenEstimator, MESSAGE_OVERHEAD_TOKENS};
-use crate::client::LlmClientImpl;
-use crate::error::{LlmError, LlmResult};
-use wf_types::llm::{LlmRequest, TokenCountResult};
+use wf_types::llm::LlmRequest;
 use wf_types::message::{Message, MessageContent, MessageContentValue};
 
 /// Estimate tokens for a single message: content (text / rich blocks),
@@ -91,68 +91,6 @@ pub fn estimate_image_tokens(url_or_data_uri: &str) -> u32 {
         (pixels / 750.0).ceil() as u32 + 200
     } else {
         170
-    }
-}
-
-/// Execute token counting for a request: provider API first, local
-/// estimation as fallback.
-pub(crate) async fn count_tokens_client(
-    client_impl: &LlmClientImpl,
-    request: &LlmRequest,
-    cancel: Option<tokio_util::sync::CancellationToken>,
-) -> LlmResult<TokenCountResult> {
-    if let Some(http_request) = client_impl
-        .codec
-        .build_count_tokens_request(request, &client_impl.profile)?
-    {
-        let timeout_dur = client_impl.build_timeout();
-        let timeout_ms = timeout_dur.as_millis() as u64;
-        let response = if let Some(ref cancel) = cancel {
-            let req = client_impl.client.execute(http_request);
-            tokio::select! {
-                result = req => result.map_err(LlmError::HttpError)?,
-                _ = cancel.cancelled() => return Err(LlmError::Cancelled),
-                _ = tokio::time::sleep(timeout_dur) => {
-                    return Err(LlmError::Timeout(timeout_ms));
-                }
-            }
-        } else {
-            tokio::time::timeout(timeout_dur, client_impl.client.execute(http_request))
-                .await
-                .map_err(|_| LlmError::Timeout(timeout_ms))?
-                .map_err(|e| {
-                    if e.is_timeout() {
-                        LlmError::Timeout(timeout_ms)
-                    } else {
-                        LlmError::HttpError(e)
-                    }
-                })?
-        };
-
-        if !response.status().is_success() {
-            let status = response.status();
-            let body = response.text().await.unwrap_or_default();
-            return Err(LlmClientImpl::map_http_error(
-                status,
-                &body,
-                timeout_dur.as_millis() as u64,
-            ));
-        }
-
-        let body = response.text().await?;
-        let json: serde_json::Value = serde_json::from_str(&body)?;
-        let input_tokens = client_impl.codec.parse_count_tokens_response(&json)?;
-        Ok(TokenCountResult {
-            input_tokens,
-            raw: Some(json),
-        })
-    } else {
-        // Fallback to local estimation
-        let estimated = estimate_request_tokens(request);
-        Ok(TokenCountResult {
-            input_tokens: estimated,
-            raw: None,
-        })
     }
 }
 

@@ -30,9 +30,9 @@ pub trait LlmClient: Send + Sync {
 }
 
 pub struct LlmClientImpl {
-    pub(crate) client: ReqwestClient,
-    pub(crate) codec: Arc<dyn LlmCodec>,
-    pub(crate) profile: LlmProfile,
+    client: ReqwestClient,
+    codec: Arc<dyn LlmCodec>,
+    profile: LlmProfile,
 }
 
 impl LlmClientImpl {
@@ -189,6 +189,70 @@ impl LlmClientImpl {
             request.dead_loop_detection.as_ref(),
         )))
     }
+
+    /// Execute token counting for a request: provider count-tokens API
+    /// first, local estimation as fallback. Transport execution lives
+    /// here with the rest of the HTTP paths; `token::count` only owns
+    /// the pure estimation fallback.
+    async fn count_tokens_inner(
+        &self,
+        request: &LlmRequest,
+        cancel: Option<CancellationToken>,
+    ) -> LlmResult<wf_types::llm::TokenCountResult> {
+        if let Some(http_request) = self
+            .codec
+            .build_count_tokens_request(request, &self.profile)?
+        {
+            let timeout_dur = self.build_timeout();
+            let timeout_ms = timeout_dur.as_millis() as u64;
+            let response = if let Some(ref cancel) = cancel {
+                let req = self.client.execute(http_request);
+                tokio::select! {
+                    result = req => result.map_err(LlmError::HttpError)?,
+                    _ = cancel.cancelled() => return Err(LlmError::Cancelled),
+                    _ = tokio::time::sleep(timeout_dur) => {
+                        return Err(LlmError::Timeout(timeout_ms));
+                    }
+                }
+            } else {
+                tokio::time::timeout(timeout_dur, self.client.execute(http_request))
+                    .await
+                    .map_err(|_| LlmError::Timeout(timeout_ms))?
+                    .map_err(|e| {
+                        if e.is_timeout() {
+                            LlmError::Timeout(timeout_ms)
+                        } else {
+                            LlmError::HttpError(e)
+                        }
+                    })?
+            };
+
+            if !response.status().is_success() {
+                let status = response.status();
+                let body = response.text().await.unwrap_or_default();
+                return Err(Self::map_http_error(
+                    status,
+                    &body,
+                    timeout_dur.as_millis() as u64,
+                ));
+            }
+
+            let body = response.text().await?;
+            let json: serde_json::Value = serde_json::from_str(&body)?;
+            let input_tokens = self.codec.parse_count_tokens_response(&json)?;
+            Ok(wf_types::llm::TokenCountResult {
+                input_tokens,
+                raw: Some(json),
+            })
+        } else {
+            // Fallback to local estimation
+            let estimated = crate::token::count::estimate_request_tokens(request);
+            Ok(wf_types::llm::TokenCountResult {
+                input_tokens: estimated,
+                raw: None,
+            })
+        }
+    }
 }
 
 impl LlmClient for LlmClientImpl {
@@ -262,7 +326,7 @@ impl LlmClient for LlmClientImpl {
         request: &LlmRequest,
         cancel: Option<CancellationToken>,
     ) -> LlmResult<wf_types::llm::TokenCountResult> {
-        crate::token::count::count_tokens_client(self, request, cancel).await
+        self.count_tokens_inner(request, cancel).await
     }
 }
 

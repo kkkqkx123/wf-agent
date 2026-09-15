@@ -42,7 +42,7 @@ struct CompressionSignal {
 /// Parse the compression signal payload from a hook context; `None` when the
 /// payload is missing or invalid (logged skip, never a fire failure).
 fn parse_compression_signal(ctx: &HookContext) -> Option<CompressionSignal> {
-    use wf_llm::token::events::{
+    use wf_execution_shared::token_events::{
         KEY_ARRAY_VERSION, KEY_FORCED, KEY_MESSAGES, KEY_MESSAGE_COUNT, KEY_TARGET_CONTEXT_ID,
         KEY_TOKENS_USED, KEY_TOKEN_LIMIT,
     };
@@ -66,7 +66,7 @@ fn parse_compression_signal(ctx: &HookContext) -> Option<CompressionSignal> {
 }
 
 /// The engine's builtin hook handler for the `CONTEXT_COMPRESSION_REQUESTED`
-/// signal (see `wf_llm::token::events::COMPRESSION_SIGNAL_HOOK_TYPE`).
+/// signal (see `wf_execution_shared::token_events::COMPRESSION_SIGNAL_HOOK_TYPE`).
 ///
 /// The engine detects a token-limit overrun (or a forced safety-net request)
 /// and fires the signal synchronously; this service takes over
@@ -198,7 +198,7 @@ impl CompressionService {
                 wf_workflow::TriggerStateRecord::running(
                     COMPRESSION_SERVICE_HANDLER_NAME.to_string(),
                     event_id.clone(),
-                    wf_llm::token::events::COMPRESSION_SIGNAL_HOOK_TYPE.to_string(),
+                    wf_execution_shared::token_events::COMPRESSION_SIGNAL_HOOK_TYPE.to_string(),
                     wf_common::now(),
                 ),
             );
@@ -303,7 +303,7 @@ async fn record_compression_execution(
         id: Id::new(),
         trigger_name: COMPRESSION_SERVICE_HANDLER_NAME.to_string(),
         trigger_type: "hook_handler".to_string(),
-        event: wf_llm::token::events::COMPRESSION_SIGNAL_HOOK_TYPE.to_string(),
+        event: wf_execution_shared::token_events::COMPRESSION_SIGNAL_HOOK_TYPE.to_string(),
         execution_id: Some(Id::from(execution_id.to_string())),
         workflow_id: None,
         success,

@@ -90,7 +90,7 @@ impl HookHandler for AgentCompressionHandler {
     }
 
     async fn on_point(&self, ctx: &HookContext) -> HookOutcome {
-        use wf_llm::token::events::{KEY_ARRAY_VERSION, KEY_MESSAGES, KEY_TARGET_CONTEXT_ID};
+        use wf_execution_shared::token_events::{KEY_ARRAY_VERSION, KEY_MESSAGES, KEY_TARGET_CONTEXT_ID};
 
         let Some(target_context_id) = ctx
             .data
@@ -140,7 +140,7 @@ impl HookHandler for AgentCompressionHandler {
                     _ => None,
                 }),
             });
-            bus.publish(wf_llm::build_context_compression_completed_event(
+            bus.publish(wf_execution_shared::build_context_compression_completed_event(
                 execution_id.as_str(),
                 Some(&agent_loop_id),
                 &target_context_id,
@@ -158,14 +158,14 @@ impl HookHandler for AgentCompressionHandler {
 /// The signal the agent engine dispatches when its conversation exceeds the
 /// token limit: named conversation array + snapshot + `agent_loop_id`.
 fn agent_compression_signal(snapshot: &[Message], version: u64) -> HookContext {
-    use wf_llm::token::events::{
+    use wf_execution_shared::token_events::{
         KEY_ARRAY_VERSION, KEY_MESSAGES, KEY_MESSAGE_COUNT, KEY_TARGET_CONTEXT_ID, KEY_TOKENS_USED,
         KEY_TOKEN_LIMIT,
     };
     let mut data = HashMap::new();
     data.insert(
         KEY_TARGET_CONTEXT_ID.to_string(),
-        serde_json::json!(wf_llm::CONVERSATION_CONTEXT_ID),
+        serde_json::json!(wf_execution_shared::CONVERSATION_CONTEXT_ID),
     );
     data.insert(KEY_TOKENS_USED.to_string(), serde_json::json!(200));
     data.insert(KEY_TOKEN_LIMIT.to_string(), serde_json::json!(100));
@@ -181,7 +181,7 @@ fn agent_compression_signal(snapshot: &[Message], version: u64) -> HookContext {
     data.insert("agent_loop_id".to_string(), serde_json::json!("agent-1"));
     HookContext {
         execution_id: wf_types::Id::from("agent-1".to_string()),
-        hook_type: wf_llm::token::events::COMPRESSION_SIGNAL_HOOK_TYPE.to_string(),
+        hook_type: wf_execution_shared::token_events::COMPRESSION_SIGNAL_HOOK_TYPE.to_string(),
         data,
     }
 }
@@ -220,7 +220,7 @@ async fn agent_conversation_compression_chain_closes_via_self_consumption() {
     // The live conversation of the agent loop, with the compression
     // consumer wired exactly like `AgentLoopCoordinator` does on start.
     let conversation = Arc::new(tokio::sync::RwLock::new(
-        wf_llm::messaging::conversation_session::ConversationSession::with_token_limit(100),
+        wf_execution_shared::conversation_session::ConversationSession::with_token_limit(100),
     ));
     conversation.write().await.add_message(text_message(
         MessageRole::User,
@@ -241,7 +241,7 @@ async fn agent_conversation_compression_chain_closes_via_self_consumption() {
     // targets are consumed by the agent itself).
     let hook_handlers = Arc::new(HookHandlerRegistry::new());
     hook_handlers.register(
-        wf_llm::token::events::COMPRESSION_SIGNAL_HOOK_TYPE,
+        wf_execution_shared::token_events::COMPRESSION_SIGNAL_HOOK_TYPE,
         Arc::new(AgentCompressionHandler {
             runner: Arc::new(SummaryRunner),
             bus: bus.clone(),
@@ -256,7 +256,7 @@ async fn agent_conversation_compression_chain_closes_via_self_consumption() {
     wf_execution_shared::hooks::fire(
         &hook_handlers,
         &[],
-        wf_llm::token::events::COMPRESSION_SIGNAL_HOOK_TYPE,
+        wf_execution_shared::token_events::COMPRESSION_SIGNAL_HOOK_TYPE,
         &agent_compression_signal(&snapshot, version),
         Some(&bus),
     )
@@ -302,7 +302,7 @@ async fn agent_consumer_discards_stale_compression_result() {
     let bus = Arc::new(EventBus::new(64));
 
     let conversation = Arc::new(tokio::sync::RwLock::new(
-        wf_llm::messaging::conversation_session::ConversationSession::with_token_limit(100),
+        wf_execution_shared::conversation_session::ConversationSession::with_token_limit(100),
     ));
     conversation
         .write()
@@ -326,10 +326,10 @@ async fn agent_consumer_discards_stale_compression_result() {
 
     // The completed event arrives for the stale version: discarded.
     let messages = vec![text_message(MessageRole::Assistant, "compressed")];
-    bus.publish(wf_llm::build_context_compression_completed_event(
+    bus.publish(wf_execution_shared::build_context_compression_completed_event(
         "agent-1",
         Some("agent-1"),
-        wf_llm::CONVERSATION_CONTEXT_ID,
+        wf_execution_shared::CONVERSATION_CONTEXT_ID,
         stale_version,
         Some("compressed"),
         5,
@@ -350,7 +350,7 @@ async fn agent_request_does_not_consult_the_registry() {
 
     let hook_handlers = Arc::new(HookHandlerRegistry::new());
     hook_handlers.register(
-        wf_llm::token::events::COMPRESSION_SIGNAL_HOOK_TYPE,
+        wf_execution_shared::token_events::COMPRESSION_SIGNAL_HOOK_TYPE,
         Arc::new(AgentCompressionHandler {
             runner: Arc::new(SummaryRunner),
             bus: bus.clone(),
@@ -362,7 +362,7 @@ async fn agent_request_does_not_consult_the_registry() {
     wf_execution_shared::hooks::fire(
         &hook_handlers,
         &[],
-        wf_llm::token::events::COMPRESSION_SIGNAL_HOOK_TYPE,
+        wf_execution_shared::token_events::COMPRESSION_SIGNAL_HOOK_TYPE,
         &agent_compression_signal(&messages, 3),
         Some(&bus),
     )
@@ -377,7 +377,7 @@ async fn agent_request_does_not_consult_the_registry() {
             Err(_) => panic!("event bus closed"),
         }
     };
-    let meta = wf_llm::ContextCompressionCompletedMeta::try_from(&completed).unwrap();
-    assert_eq!(meta.target_context_id, wf_llm::CONVERSATION_CONTEXT_ID);
+    let meta = wf_execution_shared::ContextCompressionCompletedMeta::try_from(&completed).unwrap();
+    assert_eq!(meta.target_context_id, wf_execution_shared::CONVERSATION_CONTEXT_ID);
     assert_eq!(meta.array_version, 3);
 }

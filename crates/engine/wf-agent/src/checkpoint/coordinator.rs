@@ -27,7 +27,7 @@ use crate::state::{AgentLoopStateSnapshot, IterationRecord, ToolDiscoveryState};
 pub struct RestoredAgentLoop {
     pub agent_loop_id: Id,
     pub state: AgentLoopStateSnapshot,
-    pub conversation: wf_llm::messaging::conversation_session::ConversationState,
+    pub conversation: wf_execution_shared::conversation_session::ConversationState,
     /// Checkpoint id this restoration was built from, recorded as branch
     /// lineage on the new execution.
     pub source_checkpoint_id: String,
@@ -259,8 +259,8 @@ impl AgentCheckpointIntegration {
 
     fn conversation_state_from_snapshot(
         snapshot: &AgentStateSnapshot,
-    ) -> wf_llm::messaging::conversation_session::ConversationState {
-        use wf_llm::messaging::conversation_session::ConversationState;
+    ) -> wf_execution_shared::conversation_session::ConversationState {
+        use wf_execution_shared::conversation_session::ConversationState;
         let messages = snapshot
             .conversation_snapshot
             .clone()

@@ -15,6 +15,16 @@ use crate::error::{LlmError, LlmResult};
 use crate::messaging::stream::MessageStream;
 use crate::registry::CodecRegistry;
 
+/// Assembled request ready for dispatch: the resolved profile snapshot,
+/// the merged effective request and the cached client bound to them.
+/// Produced only by `LlmGateway::prepare` so every entry point shares
+/// a single assembly sequence.
+struct PreparedRequest {
+    profile: LlmProfile,
+    effective: LlmRequest,
+    client: Arc<LlmClientImpl>,
+}
+
 /// Single facade for all LLM calls.
 ///
 /// Responsibilities:
@@ -161,11 +171,12 @@ impl LlmGateway {
             return client.generate(request, cancel).await;
         }
 
-        let profile = self.resolve_profile(&request.profile_id)?;
-        let effective = merge::merge_request(request, &profile)?;
-        let client = self.get_or_create_client(&profile)?;
-        let result = client.generate(&effective, cancel).await?;
-        self.record_token_usage(&result, &profile);
+        let prepared = self.prepare(request)?;
+        let result = prepared
+            .client
+            .generate(&prepared.effective, cancel)
+            .await?;
+        self.record_token_usage(&result, &prepared.profile);
         Ok(result)
     }
 
@@ -179,14 +190,15 @@ impl LlmGateway {
             return client.generate_stream(request, cancel).await;
         }
 
-        let profile = self.resolve_profile(&request.profile_id)?;
-        let effective = merge::merge_request(request, &profile)?;
-        let client = self.get_or_create_client(&profile)?;
-        let stream = client.generate_stream(&effective, cancel).await?;
+        let prepared = self.prepare(request)?;
+        let stream = prepared
+            .client
+            .generate_stream(&prepared.effective, cancel)
+            .await?;
         Ok(Box::new(crate::token::stream::TokenRecordingStream::new(
             stream,
             self.token_metrics.clone(),
-            profile.model.clone(),
+            prepared.profile.model.clone(),
         )))
     }
 
@@ -200,10 +212,25 @@ impl LlmGateway {
             return client.count_tokens(request, cancel).await;
         }
 
+        let prepared = self.prepare(request)?;
+        prepared
+            .client
+            .count_tokens(&prepared.effective, cancel)
+            .await
+    }
+
+    /// Single assembly preamble shared by all request entry points:
+    /// resolve the profile, merge request overrides, then fetch the client.
+    /// Mock routing and result post-processing stay in each caller.
+    fn prepare(&self, request: &LlmRequest) -> LlmResult<PreparedRequest> {
         let profile = self.resolve_profile(&request.profile_id)?;
         let effective = merge::merge_request(request, &profile)?;
         let client = self.get_or_create_client(&profile)?;
-        client.count_tokens(&effective, cancel).await
+        Ok(PreparedRequest {
+            profile,
+            effective,
+            client,
+        })
     }
 
     fn resolve_profile(&self, profile_id: &str) -> LlmResult<LlmProfile> {

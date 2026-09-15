@@ -23,7 +23,7 @@ impl WritebackOp {
     /// destructive replace can never silently resume.
     pub fn from_operation_name(operation: &str) -> Option<Self> {
         match operation {
-            wf_llm::WRITEBACK_OPERATION_APPEND => Some(Self::Append),
+            crate::WRITEBACK_OPERATION_APPEND => Some(Self::Append),
             _ => None,
         }
     }
@@ -48,8 +48,8 @@ pub fn compression_request<'a>(
     array_version: u64,
     forced: bool,
     messages: &'a [Message],
-) -> wf_llm::ContextCompressionRequest<'a> {
-    wf_llm::ContextCompressionRequest {
+) -> crate::ContextCompressionRequest<'a> {
+    crate::ContextCompressionRequest {
         target_context_id,
         tokens_used,
         token_limit,
@@ -66,9 +66,9 @@ pub fn compression_request<'a>(
 pub fn compression_event(
     execution_id: &str,
     agent_loop_id: Option<&str>,
-    request: &wf_llm::ContextCompressionRequest<'_>,
+    request: &crate::ContextCompressionRequest<'_>,
 ) -> BaseEvent {
-    wf_llm::build_context_compression_requested_event(execution_id, agent_loop_id, request)
+    crate::build_context_compression_requested_event(execution_id, agent_loop_id, request)
 }
 
 /// Deliver the compression signal synchronously to registered receivers
@@ -81,12 +81,12 @@ pub async fn dispatch_compression_signal(
     bus: Option<&EventBus>,
     execution_id: &Id,
     agent_loop_id: Option<&Id>,
-    request: &wf_llm::ContextCompressionRequest<'_>,
+    request: &crate::ContextCompressionRequest<'_>,
 ) {
     let Some(registry) = registry else {
         return;
     };
-    let mut data = wf_llm::compression_request_hook_data(request);
+    let mut data = crate::compression_request_hook_data(request);
     if let Some(loop_id) = agent_loop_id {
         data.insert(
             "agent_loop_id".to_string(),
@@ -96,10 +96,10 @@ pub async fn dispatch_compression_signal(
     fire(
         registry,
         &[],
-        wf_llm::token::events::COMPRESSION_SIGNAL_HOOK_TYPE,
+        crate::token_events::COMPRESSION_SIGNAL_HOOK_TYPE,
         &HookContext {
             execution_id: execution_id.clone(),
-            hook_type: wf_llm::token::events::COMPRESSION_SIGNAL_HOOK_TYPE.to_string(),
+            hook_type: crate::token_events::COMPRESSION_SIGNAL_HOOK_TYPE.to_string(),
             data,
         },
         bus,
@@ -163,12 +163,12 @@ mod tests {
     #[test]
     fn writeback_op_resolves_wire_names() {
         assert_eq!(
-            WritebackOp::from_operation_name(wf_llm::WRITEBACK_OPERATION_APPEND),
+            WritebackOp::from_operation_name(crate::WRITEBACK_OPERATION_APPEND),
             Some(WritebackOp::Append)
         );
         assert_eq!(WritebackOp::from_operation_name("bogus"), None);
         assert_eq!(
-            WritebackOp::from_operation_name(wf_llm::WRITEBACK_OPERATION_REPLACE),
+            WritebackOp::from_operation_name(crate::WRITEBACK_OPERATION_REPLACE),
             None,
             "destructive replace wire name is rejected"
         );

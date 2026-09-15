@@ -12,7 +12,7 @@ use wf_execution_shared::hooks::types::HookDefinition;
 use wf_execution_shared::hooks::HookHandlerRegistry;
 use wf_execution_shared::types::execution_entity::{ExecutionEntity, ExecutionStatus};
 use wf_execution_shared::types::state_manager::StateManager;
-use wf_llm::messaging::conversation_session::ConversationSession;
+use wf_execution_shared::conversation_session::ConversationSession;
 use wf_llm::LlmGateway;
 use wf_metrics::MetricsRegistry;
 use wf_storage::backend::StorageBackend;

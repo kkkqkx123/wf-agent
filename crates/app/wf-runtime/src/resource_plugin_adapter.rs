@@ -80,44 +80,40 @@ impl Plugin for ResourcePluginAdapter {
         &self.manifest
     }
 
-    fn register_contributions(&self, registrar: &mut dyn ContributionRegistrar) {
-        if let Err(e) = self.inner.on_before_assemble(&self.config) {
-            tracing::error!(
-                "resource plugin '{}' on_before_assemble failed: {}",
+    fn register_contributions(
+        &self,
+        registrar: &mut dyn ContributionRegistrar,
+    ) -> PluginResult<()> {
+        self.inner.on_before_assemble(&self.config).map_err(|e| {
+            wf_plugin::PluginError::ActivationFailed(format!(
+                "resource plugin '{}' on_before_assemble failed: {e}",
                 self.manifest.id,
-                e
-            );
-            return;
-        }
-        let bundle = match self.inner.assemble(&self.config) {
-            Ok(bundle) => bundle,
-            Err(e) => {
-                tracing::error!(
-                    "resource plugin '{}' assemble failed: {}",
-                    self.manifest.id,
-                    e
-                );
-                return;
-            }
-        };
+            ))
+        })?;
+        let bundle = self.inner.assemble(&self.config).map_err(|e| {
+            wf_plugin::PluginError::ActivationFailed(format!(
+                "resource plugin '{}' assemble failed: {e}",
+                self.manifest.id,
+            ))
+        })?;
 
         for wf in &bundle.workflows {
-            registrar.register_workflow(&wf.id, wf.clone());
+            registrar.register_workflow(&wf.id, wf.clone())?;
         }
         for t in &bundle.prompts {
-            registrar.register_prompt(&t.id, t.clone());
+            registrar.register_prompt(&t.id, t.clone())?;
         }
         for a in &bundle.agent_templates {
-            registrar.register_agent_template(&a.id, a.clone());
+            registrar.register_agent_template(&a.id, a.clone())?;
         }
         for n in &bundle.node_templates {
-            registrar.register_node_template(&n.id, n.clone());
+            registrar.register_node_template(&n.id, n.clone())?;
         }
         for t in &bundle.triggers {
-            registrar.register_trigger(&t.name, t.clone());
+            registrar.register_trigger(&t.name, t.clone())?;
         }
         for tool in &bundle.tools {
-            registrar.register_tool(&tool.id, tool.clone());
+            registrar.register_tool(&tool.id, tool.clone())?;
         }
 
         if let Err(e) = self.inner.on_after_install(&bundle) {
@@ -127,6 +123,7 @@ impl Plugin for ResourcePluginAdapter {
                 e
             );
         }
+        Ok(())
     }
 
     async fn on_activate(&self, _ctx: &PluginContext) -> PluginResult<()> {

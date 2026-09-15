@@ -70,10 +70,13 @@ impl Plugin for NativePlugin {
         call_config_hook_fn(self.abi.on_config_change, self.manifest.id.as_str(), config)
     }
 
-    fn register_contributions(&self, registrar: &mut dyn ContributionRegistrar) {
+    fn register_contributions(
+        &self,
+        registrar: &mut dyn ContributionRegistrar,
+    ) -> PluginResult<()> {
         let func = match self.abi.register_contributions {
             Some(f) => f,
-            None => return,
+            None => return Ok(()),
         };
 
         let dispatch = self.abi.dispatch_handler;
@@ -81,6 +84,7 @@ impl Plugin for NativePlugin {
         let registrar_with_dispatch = RegistrarWithDispatch {
             registrar,
             dispatch,
+            first_error: None,
         };
         let boxed = Box::new(registrar_with_dispatch);
         let context_ptr = Box::into_raw(boxed) as *mut std::ffi::c_void;
@@ -98,21 +102,44 @@ impl Plugin for NativePlugin {
 
         let result =
             func(&c_registrar as *const ContributionRegistrarC as *mut ContributionRegistrarC);
-        unsafe {
-            drop(Box::from_raw(context_ptr as *mut RegistrarWithDispatch));
-        }
+        let first_error = unsafe {
+            let owned = Box::from_raw(context_ptr as *mut RegistrarWithDispatch);
+            owned.first_error
+        };
         if result != 0 {
-            tracing::warn!(
-                "wf_plugin_register_contributions returned non-zero: {}",
-                result
-            );
+            return Err(PluginError::NativeError(format!(
+                "wf_plugin_register_contributions returned non-zero: {result}"
+            )));
         }
+        if let Some(e) = first_error {
+            return Err(e);
+        }
+        Ok(())
     }
 }
 
 struct RegistrarWithDispatch<'a> {
     registrar: &'a mut dyn ContributionRegistrar,
     dispatch: Option<DispatchFn>,
+    /// First contribution registration failure observed across the FFI
+    /// calls of one `register_contributions` invocation. The C ABI reports
+    /// per-call status codes, so the error is captured here and surfaced
+    /// to the engine once the guest returns.
+    first_error: Option<PluginError>,
+}
+
+impl RegistrarWithDispatch<'_> {
+    fn record(&mut self, result: PluginResult<()>) -> i32 {
+        match result {
+            Ok(()) => 0,
+            Err(e) => {
+                if self.first_error.is_none() {
+                    self.first_error = Some(e);
+                }
+                2
+            }
+        }
+    }
 }
 
 unsafe fn registrar_from_ctx(
@@ -241,14 +268,15 @@ extern "C" fn ffi_register_node_type(
     }
     let registrar_ctx = unsafe { registrar_from_ctx(ctx_ptr) };
     let name_str = unsafe { ptr_to_string(name) };
-    registrar_ctx.registrar.register_node_type(
+    let dispatch = registrar_ctx.dispatch;
+    let result = registrar_ctx.registrar.register_node_type(
         &name_str.clone(),
         Arc::new(NativeNodeHandler {
             type_name: name_str,
-            dispatch: registrar_ctx.dispatch,
+            dispatch,
         }),
     );
-    0
+    registrar_ctx.record(result)
 }
 
 extern "C" fn ffi_register_tool_type(
@@ -260,14 +288,15 @@ extern "C" fn ffi_register_tool_type(
     }
     let registrar_ctx = unsafe { registrar_from_ctx(ctx_ptr) };
     let name_str = unsafe { ptr_to_string(name) };
-    registrar_ctx.registrar.register_tool_type(
+    let dispatch = registrar_ctx.dispatch;
+    let result = registrar_ctx.registrar.register_tool_type(
         &name_str.clone(),
         Arc::new(NativeToolExecutor {
             type_name: name_str,
-            dispatch: registrar_ctx.dispatch,
+            dispatch,
         }),
     );
-    0
+    registrar_ctx.record(result)
 }
 
 extern "C" fn ffi_register_llm_provider(
@@ -279,14 +308,15 @@ extern "C" fn ffi_register_llm_provider(
     }
     let registrar_ctx = unsafe { registrar_from_ctx(ctx_ptr) };
     let name_str = unsafe { ptr_to_string(name) };
-    registrar_ctx.registrar.register_llm_provider(
+    let dispatch = registrar_ctx.dispatch;
+    let result = registrar_ctx.registrar.register_llm_provider(
         &name_str.clone(),
         Arc::new(NativeLlmFormatter {
             name: name_str,
-            dispatch: registrar_ctx.dispatch,
+            dispatch,
         }),
     );
-    0
+    registrar_ctx.record(result)
 }
 
 extern "C" fn ffi_register_formatter(
@@ -298,14 +328,15 @@ extern "C" fn ffi_register_formatter(
     }
     let registrar_ctx = unsafe { registrar_from_ctx(ctx_ptr) };
     let name_str = unsafe { ptr_to_string(name) };
-    registrar_ctx.registrar.register_formatter(
+    let dispatch = registrar_ctx.dispatch;
+    let result = registrar_ctx.registrar.register_formatter(
         &name_str.clone(),
         Arc::new(NativeLlmFormatter {
             name: name_str,
-            dispatch: registrar_ctx.dispatch,
+            dispatch,
         }),
     );
-    0
+    registrar_ctx.record(result)
 }
 
 extern "C" fn ffi_register_event_handler(
@@ -317,14 +348,15 @@ extern "C" fn ffi_register_event_handler(
     }
     let registrar_ctx = unsafe { registrar_from_ctx(ctx_ptr) };
     let event_str = unsafe { ptr_to_string(event_type) };
-    registrar_ctx.registrar.register_event_handler(
+    let dispatch = registrar_ctx.dispatch;
+    let result = registrar_ctx.registrar.register_event_handler(
         &event_str.clone(),
         Arc::new(NativeEventHandler {
             event_type: event_str,
-            dispatch: registrar_ctx.dispatch,
+            dispatch,
         }),
     );
-    0
+    registrar_ctx.record(result)
 }
 
 extern "C" fn ffi_register_middleware(
@@ -337,15 +369,16 @@ extern "C" fn ffi_register_middleware(
     }
     let registrar_ctx = unsafe { registrar_from_ctx(ctx_ptr) };
     let phase_str = unsafe { ptr_to_string(phase) };
-    registrar_ctx.registrar.register_middleware(
+    let dispatch = registrar_ctx.dispatch;
+    let result = registrar_ctx.registrar.register_middleware(
         MiddlewarePhase::from(phase_str.as_str()),
         priority,
         Arc::new(NativeMiddlewareHandler {
             phase: phase_str,
-            dispatch: registrar_ctx.dispatch,
+            dispatch,
         }),
     );
-    0
+    registrar_ctx.record(result)
 }
 
 // ============================================================

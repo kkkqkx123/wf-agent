@@ -20,7 +20,9 @@ use wf_workflow::entity::WorkflowExecutionEntity;
 use wf_workflow::handler::NodeHandler;
 use wf_workflow::registry::WorkflowExecutionRegistry;
 
-use crate::infra::handler_chain::{node_type_name, NoopPluginHandlerSource, PluginHandlerSource};
+use crate::infra::handler_chain::{
+    NoopPluginHandlerSource, PluginHandlerSource, PluginNodeAdapter,
+};
 use crate::infra::persistence::{PersistenceLayer, StorePersistenceLayer};
 use crate::infra::tasks::ExecutionTaskRegistry;
 use crate::ApiResult;
@@ -290,13 +292,46 @@ impl ApiContext {
         self.handlers.clone()
     }
 
+    /// Materialize plugin-contributed node handlers as engine handlers for
+    /// the node types registered on the plugin source (builtin handlers
+    /// always win: a plugin cannot shadow a builtin node type).
+    pub fn plugin_handlers(&self) -> Arc<HashMap<StaticNodeType, Box<dyn NodeHandler>>> {
+        let mut map: HashMap<StaticNodeType, Box<dyn NodeHandler>> = HashMap::new();
+        for type_name in self.plugin_source.plugin_node_types() {
+            if let Some(node_type) = self.plugin_node_type(&type_name) {
+                if self.handlers.contains_key(&node_type) {
+                    continue;
+                }
+                if let Some(executor) = self.plugin_source.node_executor(&type_name) {
+                    map.insert(
+                        node_type.clone(),
+                        Box::new(PluginNodeAdapter::new(executor, node_type)),
+                    );
+                }
+            }
+        }
+        Arc::new(map)
+    }
+
+    /// Parse a plugin node type name into a graph node type. Builtin types
+    /// parse strictly; anything else is a plugin-contributed custom type.
+    fn plugin_node_type(&self, type_name: &str) -> Option<StaticNodeType> {
+        match StaticNodeType::from_str_ci(type_name) {
+            Some(node_type) => Some(node_type),
+            None => serde_json::from_value::<StaticNodeType>(serde_json::Value::String(
+                type_name.to_string(),
+            ))
+            .ok(),
+        }
+    }
+
     /// Resolve the builtin handler for `node_type` from the shared handler
     /// map. The map is immutable after construction, so callers borrow the
     /// resolved handler rather than taking ownership of a per-handler clone.
     ///
-    /// Plugin contributions (executors / middleware) are resolved
-    /// through `plugin_source` instead (see
-    /// [`Self::has_plugin_node_executor`]).
+    /// Plugin contributions (node executors / middleware) are resolved
+    /// through `plugin_source` instead (see [`Self::plugin_handlers`] and
+    /// [`Self::run_middleware`]).
     pub fn resolve_handler(&self, node_type: StaticNodeType) -> Option<&dyn NodeHandler> {
         self.handlers
             .get(&node_type)
@@ -313,13 +348,6 @@ impl ApiContext {
             middleware.handle(&phase, context).await?;
         }
         Ok(())
-    }
-
-    /// Whether any plugin node executor is registered for `node_type`.
-    pub fn has_plugin_node_executor(&self, node_type: &StaticNodeType) -> bool {
-        self.plugin_source
-            .node_executor(&node_type_name(node_type))
-            .is_some()
     }
 
     /// Look up a live workflow execution handle by id.

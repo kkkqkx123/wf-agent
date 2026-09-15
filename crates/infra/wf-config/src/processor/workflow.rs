@@ -175,7 +175,7 @@ pub fn transform_nodes(nodes: &[WorkflowNodeConfig]) -> ConfigResult<Vec<BaseSta
         .map(|node| {
             Ok(BaseStaticNode {
                 id: node.id.clone(),
-                node_type: parse_node_type(&node.node_type, &node.id)?,
+                node_type: parse_node_type(&node.node_type)?,
                 name: Some(node.name.as_deref().unwrap_or(&node.id).to_string()),
                 description: node.description.clone(),
                 config: node.config.clone(),
@@ -228,7 +228,7 @@ pub fn transform_edges(edges: &[WorkflowEdgeConfig]) -> ConfigResult<Vec<Edge>> 
         .collect()
 }
 
-fn parse_node_type(type_str: &str, node_id: &str) -> ConfigResult<StaticNodeType> {
+fn parse_node_type(type_str: &str) -> ConfigResult<StaticNodeType> {
     match type_str.to_uppercase().as_str() {
         "START" => Ok(StaticNodeType::Start),
         "END" => Ok(StaticNodeType::End),
@@ -252,9 +252,10 @@ fn parse_node_type(type_str: &str, node_id: &str) -> ConfigResult<StaticNodeType
         "CONTINUE_FROM_MESSAGE" => Ok(StaticNodeType::ContinueFromMessage),
         "EMBED_START" => Ok(StaticNodeType::EmbedStart),
         "EMBED_END" => Ok(StaticNodeType::EmbedEnd),
-        _ => Err(ConfigError::Validation(format!(
-            "node '{node_id}' has unknown node type '{type_str}'"
-        ))),
+        // Unknown types are kept as plugin-contributed node types so plugin
+        // workflows pass config processing; execution resolves their handler
+        // through the plugin source.
+        _ => Ok(StaticNodeType::Custom(type_str.to_string())),
     }
 }
 

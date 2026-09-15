@@ -59,6 +59,23 @@ impl<K: Hash + Eq, V: Clone> Registry<K, V> {
             .map(|e| (e.key().clone(), e.value().plugin_id.clone()))
             .collect()
     }
+
+    /// All entries with their values: `(key, owner_plugin_id, value)`.
+    pub fn all_with_values(&self) -> Vec<(K, String, V)>
+    where
+        K: Clone,
+    {
+        self.entries
+            .iter()
+            .map(|e| {
+                (
+                    e.key().clone(),
+                    e.value().plugin_id.clone(),
+                    e.value().value.clone(),
+                )
+            })
+            .collect()
+    }
 }
 
 impl<K: Hash + Eq, V: Clone> Default for Registry<K, V> {

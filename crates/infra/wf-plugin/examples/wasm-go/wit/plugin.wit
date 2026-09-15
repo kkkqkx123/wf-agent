@@ -1,0 +1,55 @@
+// Wasm plugin world (DRAFT, not implemented).
+//
+// Long-term direction for the `Wasm` plugin type: replace the core-module
+// `wf_*` export contract (`wf-plugin-sdk/src/wasm.rs`) with a typed
+// component-model world. Host support is planned for a later phase; guests
+// must target the core-module contract until then.
+//
+// This file is reference only: no build consumes it yet.
+
+package wf:plugin@0.1.0-draft;
+
+interface lifecycle {
+    /// Hook input envelope, mirroring the JSON passed today.
+    record hook-input {
+        plugin-id: string,
+        config: string,
+    }
+
+    on-load: func(input: hook-input) -> result<_, string>;
+    on-activate: func(input: hook-input) -> result<_, string>;
+    on-deactivate: func() -> result<_, string>;
+    on-unload: func() -> result<_, string>;
+    on-config-change: func(config: string) -> result<_, string>;
+}
+
+interface contributions {
+    record middleware-decl {
+        phase: string,
+        priority: s32,
+    }
+
+    /// Contribution declaration, mirroring `wf_register` JSON today.
+    record declaration {
+        node-types: list<string>,
+        tool-types: list<string>,
+        llm-providers: list<string>,
+        formatters: list<string>,
+        event-handlers: list<string>,
+        middleware: list<middleware-decl>,
+    }
+
+    register: func() -> declaration;
+
+    /// Single dispatch entry, mirroring `wf_dispatch` today.
+    dispatch: func(
+        handler-type: string,
+        handler-name: string,
+        input-json: string,
+    ) -> result<string, string>;
+}
+
+world plugin {
+    export lifecycle;
+    export contributions;
+}

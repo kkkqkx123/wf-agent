@@ -18,6 +18,7 @@ use wf_tools::callback::WorkflowOutput;
 use wf_types::checkpoint::workflow::WorkflowExecutionStateSnapshot;
 use wf_types::checkpoint::{CheckpointTiming, CheckpointVariableState};
 use wf_types::execution::{ChildExecutionReference, ExecutionHierarchy, ExecutionType};
+use wf_types::enums::MiddlewarePhase;
 use wf_types::workflow_execution::{
     WorkflowEdge, WorkflowExecutionOptions, WorkflowGraphStructure, WorkflowNode,
 };
@@ -276,6 +277,7 @@ pub async fn resume(
     attach_host_tool_approval(ctx, &mut exec_ctx, entity.id().as_str());
 
     let mut coordinator = WorkflowCoordinator::new(exec_ctx, graph, ctx.handlers())?
+        .with_plugin_handlers(ctx.plugin_handlers())
         .with_entity_arc(entity.clone())
         .with_state_manager(ctx.state_manager.clone());
     coordinator = attach_checkpoints(coordinator, ctx, checkpoints_enabled);
@@ -284,11 +286,22 @@ pub async fn resume(
 
     let _ = entity.state.write().await.resume();
 
+    run_lifecycle_middleware(ctx, MiddlewarePhase::BeforeWorkflowExecution, &entity, None).await?;
+
     match coordinator.execute().await {
-        Ok(result) => Ok(WorkflowOutput {
-            execution_id: entity.id().clone(),
-            result,
-        }),
+        Ok(result) => {
+            run_lifecycle_middleware(
+                ctx,
+                MiddlewarePhase::AfterWorkflowExecution,
+                &entity,
+                Some(&result),
+            )
+            .await?;
+            Ok(WorkflowOutput {
+                execution_id: entity.id().clone(),
+                result,
+            })
+        }
         Err(e) => {
             mark_failed(&entity);
             Err(e.into())
@@ -852,7 +865,25 @@ fn attach_host_tool_approval(ctx: &ApiContext, exec_ctx: &mut ExecutorContext, e
     }
 }
 
-/// Run a workflow against the shared context, driving the given entity so
+/// Plugin lifecycle middleware around workflow executions: run every plugin
+/// middleware registered for `phase` in priority order. The context payload
+/// carries the execution id, workflow id and the workflow input / final
+/// output (when one exists).
+async fn run_lifecycle_middleware(
+    ctx: &ApiContext,
+    phase: MiddlewarePhase,
+    entity: &WorkflowExecutionEntity,
+    payload: Option<&Value>,
+) -> crate::infra::error::ApiResult<()> {
+    let context = serde_json::json!({
+        "execution_id": entity.id().as_str(),
+        "workflow_id": entity.workflow_id().as_str(),
+        "payload": payload.cloned().unwrap_or(Value::Null),
+    });
+    ctx.run_middleware(phase, &context).await
+}
+
+/// Run a workflow against the shared context, driving the entity so
 /// external `pause` / `resume` / `cancel` calls apply to the live execution.
 /// The coordinator persists the `WorkflowExecution` record through the shared
 /// state manager at start and on every terminal exit; `execute` / `stream`
@@ -867,6 +898,7 @@ async fn run_workflow(
 ) -> crate::infra::error::ApiResult<WorkflowOutput> {
     let checkpoints_enabled = options.enable_checkpoints.unwrap_or(true);
     let retry_budget = build_retry_budget(&options, ctx.metrics.as_ref());
+    let workflow_input = options.input.clone();
     let mut exec_ctx = ExecutorContext::new(
         entity.id().clone(),
         entity.workflow_id().clone(),
@@ -887,17 +919,35 @@ async fn run_workflow(
     }
     attach_host_tool_approval(ctx, &mut exec_ctx, entity.id().as_str());
 
+    // Plugin lifecycle middleware (`BeforeWorkflowExecution`) runs before the
+    // state machine starts; a middleware failure aborts the execution.
+    run_lifecycle_middleware(
+        ctx,
+        MiddlewarePhase::BeforeWorkflowExecution,
+        &entity,
+        workflow_input.as_ref(),
+    )
+    .await?;
+
     let _ = entity.state.write().await.start();
 
     // Node hooks publish HOOK_TRIGGERED events on the shared event bus
     // (carried by the execution context).
     let mut coordinator = WorkflowCoordinator::new(exec_ctx, graph, ctx.handlers())?
+        .with_plugin_handlers(ctx.plugin_handlers())
         .with_entity_arc(entity.clone())
         .with_state_manager(ctx.state_manager.clone())
         .with_hooks(hooks);
     coordinator = attach_checkpoints(coordinator, ctx, checkpoints_enabled);
 
     let result = coordinator.execute().await;
+    run_lifecycle_middleware(
+        ctx,
+        MiddlewarePhase::AfterWorkflowExecution,
+        &entity,
+        result.as_ref().ok(),
+    )
+    .await?;
     match result {
         Ok(output) => {
             // Mirror the final outcome onto the entity exposed through the

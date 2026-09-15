@@ -22,7 +22,6 @@ pub enum OverridePolicy {
     Forbid,
     Warn,
     Allow,
-    Priority,
 }
 
 pub struct ContributionManager {
@@ -30,8 +29,10 @@ pub struct ContributionManager {
     override_policy: RwLock<OverridePolicy>,
     node_type_registry: Registry<String, Arc<dyn PluginNodeHandler>>,
     tool_type_registry: Registry<String, Arc<dyn PluginToolExecutor>>,
-    llm_provider_registry: Registry<String, Arc<dyn PluginLlmFormatter>>,
-    formatter_registry: Registry<String, Arc<dyn PluginLlmFormatter>>,
+    /// Single backing registry for both LLM contribution kinds; the role
+    /// tag keeps provider registrations (backing `LlmProvider::Custom`
+    /// resolution) distinct from named message formatters.
+    llm_registry: Registry<String, (FormatterRole, Arc<dyn PluginLlmFormatter>)>,
     event_handler_registry: MultiRegistry<String, Arc<dyn PluginEventHandler>>,
     middleware_registry: MultiRegistry<String, (i32, Arc<dyn PluginMiddlewareHandler>)>,
     // Declarative resource contribution registry (owner tracking + bridge placement)
@@ -58,8 +59,7 @@ impl ContributionManager {
             override_policy: RwLock::new(OverridePolicy::Forbid),
             node_type_registry: Registry::new(),
             tool_type_registry: Registry::new(),
-            llm_provider_registry: Registry::new(),
-            formatter_registry: Registry::new(),
+            llm_registry: Registry::new(),
             event_handler_registry: MultiRegistry::new(),
             middleware_registry: MultiRegistry::new(),
             workflow_registry: Registry::new(),
@@ -88,8 +88,7 @@ impl ContributionManager {
     pub fn unregister_all(&self, plugin_id: &str) {
         self.node_type_registry.unregister_by_plugin(plugin_id);
         self.tool_type_registry.unregister_by_plugin(plugin_id);
-        self.llm_provider_registry.unregister_by_plugin(plugin_id);
-        self.formatter_registry.unregister_by_plugin(plugin_id);
+        self.llm_registry.unregister_by_plugin(plugin_id);
         self.event_handler_registry.unregister_by_plugin(plugin_id);
         self.middleware_registry.unregister_by_plugin(plugin_id);
         self.workflow_registry.unregister_by_plugin(plugin_id);
@@ -114,11 +113,19 @@ impl ContributionManager {
     }
 
     pub fn get_llm_formatter(&self, name: &str) -> Option<Arc<dyn PluginLlmFormatter>> {
-        self.llm_provider_registry.get(name)
+        self.llm_registry
+            .get(name)
+            .and_then(|(role, formatter)| {
+                (role == FormatterRole::Provider).then_some(formatter)
+            })
     }
 
     pub fn get_formatter(&self, name: &str) -> Option<Arc<dyn PluginLlmFormatter>> {
-        self.formatter_registry.get(name)
+        self.llm_registry
+            .get(name)
+            .and_then(|(role, formatter)| {
+                (role == FormatterRole::Formatter).then_some(formatter)
+            })
     }
 
     pub fn get_event_handlers(&self, event_type: &str) -> Vec<Arc<dyn PluginEventHandler>> {
@@ -146,11 +153,21 @@ impl ContributionManager {
     }
 
     pub fn all_llm_providers(&self) -> Vec<(String, String)> {
-        self.llm_provider_registry.all()
+        self.llm_registry
+            .all_with_values()
+            .into_iter()
+            .filter(|(_, _, (role, _))| *role == FormatterRole::Provider)
+            .map(|(name, owner, _)| (name, owner))
+            .collect()
     }
 
     pub fn all_formatters(&self) -> Vec<(String, String)> {
-        self.formatter_registry.all()
+        self.llm_registry
+            .all_with_values()
+            .into_iter()
+            .filter(|(_, _, (role, _))| *role == FormatterRole::Formatter)
+            .map(|(name, owner, _)| (name, owner))
+            .collect()
     }
 
     pub fn all_event_handlers(&self) -> Vec<(String, String)> {
@@ -225,79 +242,78 @@ impl ContributionManager {
     }
 
     /// All contribution keys owned by `plugin_id` as `(contribution_type,
-    /// key)` pairs, using the kebab-case type identifiers of the
-    /// `ContributionType` union. Used to fill the registry's
-    /// `ContributionRecord`s after activation.
+    /// key)` pairs, using the kebab-case identifiers of [`ContributionType`].
+    /// Used to fill the registry's `ContributionRecord`s after activation.
     pub fn contributions_for(&self, plugin_id: &str) -> Vec<(String, String)> {
         let mut records: Vec<(String, String)> = Vec::new();
         for (key, owner) in self.all_node_types() {
             if owner == plugin_id {
-                records.push(("node-type".into(), key));
+                records.push((ContributionType::NodeType.as_str().into(), key));
             }
         }
         for (key, owner) in self.all_tool_types() {
             if owner == plugin_id {
-                records.push(("tool-type".into(), key));
+                records.push((ContributionType::ToolType.as_str().into(), key));
             }
         }
         for (key, owner) in self.all_llm_providers() {
             if owner == plugin_id {
-                records.push(("llm-provider".into(), key));
+                records.push((ContributionType::LlmProvider.as_str().into(), key));
             }
         }
         for (key, owner) in self.all_formatters() {
             if owner == plugin_id {
-                records.push(("formatter".into(), key));
+                records.push((ContributionType::Formatter.as_str().into(), key));
             }
         }
         for (key, owner) in self.all_event_handlers() {
             if owner == plugin_id {
-                records.push(("event-handler".into(), key));
+                records.push((ContributionType::EventHandler.as_str().into(), key));
             }
         }
         for (key, owner) in self.all_middleware() {
             if owner == plugin_id {
-                records.push(("middleware".into(), key));
+                records.push((ContributionType::Middleware.as_str().into(), key));
             }
         }
         for (key, owner) in self.all_workflows() {
             if owner == plugin_id {
-                records.push(("workflow".into(), key));
+                records.push((ContributionType::Workflow.as_str().into(), key));
             }
         }
         for (key, owner) in self.all_prompts() {
             if owner == plugin_id {
-                records.push(("prompt".into(), key));
+                records.push((ContributionType::Prompt.as_str().into(), key));
             }
         }
         for (key, owner) in self.all_fragments() {
             if owner == plugin_id {
-                records.push(("fragment".into(), key));
+                records.push((ContributionType::Fragment.as_str().into(), key));
             }
         }
         for (key, owner) in self.all_agent_templates() {
             if owner == plugin_id {
-                records.push(("agent-template".into(), key));
+                records.push((ContributionType::AgentTemplate.as_str().into(), key));
             }
         }
         for (key, owner) in self.all_node_templates() {
             if owner == plugin_id {
-                records.push(("node-template".into(), key));
+                records.push((ContributionType::NodeTemplate.as_str().into(), key));
             }
         }
         for (key, owner) in self.all_triggers() {
             if owner == plugin_id {
-                records.push(("trigger".into(), key));
+                records.push((ContributionType::Trigger.as_str().into(), key));
             }
         }
         for (key, owner) in self.all_tool_descriptions() {
             if owner == plugin_id {
-                records.push(("tool-description".into(), key));
+                records.push((ContributionType::ToolDescription.as_str().into(), key));
             }
         }
         for (key, owner) in self.all_tools() {
             if owner == plugin_id {
-                records.push(("tool".into(), key));
+                records.push((ContributionType::Tool.as_str().into(), key));
             }
         }
         let mut seen = std::collections::BTreeSet::new();
@@ -353,7 +369,7 @@ impl ContributionManager {
                             owner
                         );
                     }
-                    OverridePolicy::Allow | OverridePolicy::Priority => {}
+                    OverridePolicy::Allow => {}
                 }
             }
         }
@@ -366,77 +382,91 @@ pub struct RegistrarGuard<'a> {
 }
 
 impl ContributionRegistrar for RegistrarGuard<'_> {
-    fn register_node_type(&mut self, type_name: &str, handler: Arc<dyn PluginNodeHandler>) {
+    fn register_node_type(
+        &mut self,
+        type_name: &str,
+        handler: Arc<dyn PluginNodeHandler>,
+    ) -> PluginResult<()> {
         let plugin_id = wf_common::lock::read_ok(self.manager.current_plugin_id.read()).clone();
-        if self.validate(&plugin_id, "node-type", type_name)
-            && self
-                .manager
-                .check_conflict("node-type", type_name, || {
-                    self.manager.node_type_registry.get_owner(type_name)
-                })
-                .is_ok()
-        {
-            self.manager
-                .node_type_registry
-                .register(type_name.into(), plugin_id, handler);
-        }
+        self.validate(&plugin_id, ContributionType::NodeType, type_name)?;
+        self.manager
+            .check_conflict(ContributionType::NodeType.as_str(), type_name, || {
+                self.manager.node_type_registry.get_owner(type_name)
+            })?;
+        self.manager
+            .node_type_registry
+            .register(type_name.into(), plugin_id, handler);
+        Ok(())
     }
 
-    fn register_tool_type(&mut self, type_name: &str, executor: Arc<dyn PluginToolExecutor>) {
+    fn register_tool_type(
+        &mut self,
+        type_name: &str,
+        executor: Arc<dyn PluginToolExecutor>,
+    ) -> PluginResult<()> {
         let plugin_id = wf_common::lock::read_ok(self.manager.current_plugin_id.read()).clone();
-        if self.validate(&plugin_id, "tool-type", type_name)
-            && self
-                .manager
-                .check_conflict("tool-type", type_name, || {
-                    self.manager.tool_type_registry.get_owner(type_name)
-                })
-                .is_ok()
-        {
-            self.manager
-                .tool_type_registry
-                .register(type_name.into(), plugin_id, executor);
-        }
+        self.validate(&plugin_id, ContributionType::ToolType, type_name)?;
+        self.manager
+            .check_conflict(ContributionType::ToolType.as_str(), type_name, || {
+                self.manager.tool_type_registry.get_owner(type_name)
+            })?;
+        self.manager
+            .tool_type_registry
+            .register(type_name.into(), plugin_id, executor);
+        Ok(())
     }
 
-    fn register_llm_provider(&mut self, name: &str, formatter: Arc<dyn PluginLlmFormatter>) {
+    fn register_llm_provider(
+        &mut self,
+        name: &str,
+        formatter: Arc<dyn PluginLlmFormatter>,
+    ) -> PluginResult<()> {
         let plugin_id = wf_common::lock::read_ok(self.manager.current_plugin_id.read()).clone();
-        if self.validate(&plugin_id, "llm-provider", name)
-            && self
-                .manager
-                .check_conflict("llm-provider", name, || {
-                    self.manager.llm_provider_registry.get_owner(name)
-                })
-                .is_ok()
-        {
-            self.manager
-                .llm_provider_registry
-                .register(name.into(), plugin_id, formatter);
-        }
+        self.validate(&plugin_id, ContributionType::LlmProvider, name)?;
+        self.manager.check_conflict(
+            ContributionType::LlmProvider.as_str(),
+            name,
+            || self.manager.llm_registry.get_owner(name),
+        )?;
+        self.manager.llm_registry.register(
+            name.into(),
+            plugin_id,
+            (FormatterRole::Provider, formatter),
+        );
+        Ok(())
     }
 
-    fn register_formatter(&mut self, name: &str, formatter: Arc<dyn PluginLlmFormatter>) {
+    fn register_formatter(
+        &mut self,
+        name: &str,
+        formatter: Arc<dyn PluginLlmFormatter>,
+    ) -> PluginResult<()> {
         let plugin_id = wf_common::lock::read_ok(self.manager.current_plugin_id.read()).clone();
-        if self.validate(&plugin_id, "formatter", name)
-            && self
-                .manager
-                .check_conflict("formatter", name, || {
-                    self.manager.formatter_registry.get_owner(name)
-                })
-                .is_ok()
-        {
-            self.manager
-                .formatter_registry
-                .register(name.into(), plugin_id, formatter);
-        }
+        self.validate(&plugin_id, ContributionType::Formatter, name)?;
+        self.manager.check_conflict(
+            ContributionType::Formatter.as_str(),
+            name,
+            || self.manager.llm_registry.get_owner(name),
+        )?;
+        self.manager.llm_registry.register(
+            name.into(),
+            plugin_id,
+            (FormatterRole::Formatter, formatter),
+        );
+        Ok(())
     }
 
-    fn register_event_handler(&mut self, event_type: &str, handler: Arc<dyn PluginEventHandler>) {
+    fn register_event_handler(
+        &mut self,
+        event_type: &str,
+        handler: Arc<dyn PluginEventHandler>,
+    ) -> PluginResult<()> {
         let plugin_id = wf_common::lock::read_ok(self.manager.current_plugin_id.read()).clone();
-        if self.validate(&plugin_id, "event-handler", event_type) {
-            self.manager
-                .event_handler_registry
-                .register(event_type.into(), plugin_id, handler);
-        }
+        self.validate(&plugin_id, ContributionType::EventHandler, event_type)?;
+        self.manager
+            .event_handler_registry
+            .register(event_type.into(), plugin_id, handler);
+        Ok(())
     }
 
     fn register_middleware(
@@ -444,159 +474,158 @@ impl ContributionRegistrar for RegistrarGuard<'_> {
         phase: MiddlewarePhase,
         priority: i32,
         handler: Arc<dyn PluginMiddlewareHandler>,
-    ) {
+    ) -> PluginResult<()> {
         let plugin_id = wf_common::lock::read_ok(self.manager.current_plugin_id.read()).clone();
         let key = phase.as_str().to_string();
-        if self.validate(&plugin_id, "middleware", &key) {
-            self.manager
-                .middleware_registry
-                .register(key, plugin_id, (priority, handler));
-        }
+        self.validate(&plugin_id, ContributionType::Middleware, &key)?;
+        self.manager
+            .middleware_registry
+            .register(key, plugin_id, (priority, handler));
+        Ok(())
     }
 
-    fn register_workflow(&mut self, id: &str, wf: WorkflowTemplate) {
+    fn register_workflow(&mut self, id: &str, wf: WorkflowTemplate) -> PluginResult<()> {
         let plugin_id = wf_common::lock::read_ok(self.manager.current_plugin_id.read()).clone();
-        if self.validate(&plugin_id, "workflow", id)
-            && self
-                .manager
-                .check_conflict("workflow", id, || {
-                    self.manager.workflow_registry.get_owner(id)
-                })
-                .is_ok()
-        {
-            self.manager
-                .workflow_registry
-                .register(id.into(), plugin_id, Arc::new(wf));
-        }
+        self.validate(&plugin_id, ContributionType::Workflow, id)?;
+        self.manager.check_conflict(
+            ContributionType::Workflow.as_str(),
+            id,
+            || self.manager.workflow_registry.get_owner(id),
+        )?;
+        self.manager
+            .workflow_registry
+            .register(id.into(), plugin_id, Arc::new(wf));
+        Ok(())
     }
 
-    fn register_prompt(&mut self, id: &str, template: Template) {
+    fn register_prompt(&mut self, id: &str, template: Template) -> PluginResult<()> {
         let plugin_id = wf_common::lock::read_ok(self.manager.current_plugin_id.read()).clone();
-        if self.validate(&plugin_id, "prompt", id)
-            && self
-                .manager
-                .check_conflict("prompt", id, || self.manager.prompt_registry.get_owner(id))
-                .is_ok()
-        {
-            self.manager
-                .prompt_registry
-                .register(id.into(), plugin_id, Arc::new(template));
-        }
+        self.validate(&plugin_id, ContributionType::Prompt, id)?;
+        self.manager.check_conflict(
+            ContributionType::Prompt.as_str(),
+            id,
+            || self.manager.prompt_registry.get_owner(id),
+        )?;
+        self.manager
+            .prompt_registry
+            .register(id.into(), plugin_id, Arc::new(template));
+        Ok(())
     }
 
-    fn register_fragment(&mut self, id: &str, fragment: SystemPromptFragment) {
+    fn register_fragment(&mut self, id: &str, fragment: SystemPromptFragment) -> PluginResult<()> {
         let plugin_id = wf_common::lock::read_ok(self.manager.current_plugin_id.read()).clone();
-        if self.validate(&plugin_id, "fragment", id)
-            && self
-                .manager
-                .check_conflict("fragment", id, || {
-                    self.manager.fragment_registry.get_owner(id)
-                })
-                .is_ok()
-        {
-            self.manager
-                .fragment_registry
-                .register(id.into(), plugin_id, Arc::new(fragment));
-        }
+        self.validate(&plugin_id, ContributionType::Fragment, id)?;
+        self.manager.check_conflict(
+            ContributionType::Fragment.as_str(),
+            id,
+            || self.manager.fragment_registry.get_owner(id),
+        )?;
+        self.manager
+            .fragment_registry
+            .register(id.into(), plugin_id, Arc::new(fragment));
+        Ok(())
     }
 
-    fn register_agent_template(&mut self, id: &str, agent: AgentTemplate) {
+    fn register_agent_template(&mut self, id: &str, agent: AgentTemplate) -> PluginResult<()> {
         let plugin_id = wf_common::lock::read_ok(self.manager.current_plugin_id.read()).clone();
-        if self.validate(&plugin_id, "agent-template", id)
-            && self
-                .manager
-                .check_conflict("agent-template", id, || {
-                    self.manager.agent_template_registry.get_owner(id)
-                })
-                .is_ok()
-        {
-            self.manager
-                .agent_template_registry
-                .register(id.into(), plugin_id, Arc::new(agent));
-        }
+        self.validate(&plugin_id, ContributionType::AgentTemplate, id)?;
+        self.manager.check_conflict(
+            ContributionType::AgentTemplate.as_str(),
+            id,
+            || self.manager.agent_template_registry.get_owner(id),
+        )?;
+        self.manager
+            .agent_template_registry
+            .register(id.into(), plugin_id, Arc::new(agent));
+        Ok(())
     }
 
-    fn register_node_template(&mut self, id: &str, node: NodeTemplate) {
+    fn register_node_template(&mut self, id: &str, node: NodeTemplate) -> PluginResult<()> {
         let plugin_id = wf_common::lock::read_ok(self.manager.current_plugin_id.read()).clone();
-        if self.validate(&plugin_id, "node-template", id)
-            && self
-                .manager
-                .check_conflict("node-template", id, || {
-                    self.manager.node_template_registry.get_owner(id)
-                })
-                .is_ok()
-        {
-            self.manager
-                .node_template_registry
-                .register(id.into(), plugin_id, Arc::new(node));
-        }
+        self.validate(&plugin_id, ContributionType::NodeTemplate, id)?;
+        self.manager.check_conflict(
+            ContributionType::NodeTemplate.as_str(),
+            id,
+            || self.manager.node_template_registry.get_owner(id),
+        )?;
+        self.manager
+            .node_template_registry
+            .register(id.into(), plugin_id, Arc::new(node));
+        Ok(())
     }
 
-    fn register_trigger(&mut self, id: &str, trigger: TriggerTemplate) {
+    fn register_trigger(&mut self, id: &str, trigger: TriggerTemplate) -> PluginResult<()> {
         let plugin_id = wf_common::lock::read_ok(self.manager.current_plugin_id.read()).clone();
-        if self.validate(&plugin_id, "trigger", id)
-            && self
-                .manager
-                .check_conflict("trigger", id, || {
-                    self.manager.trigger_registry.get_owner(id)
-                })
-                .is_ok()
-        {
-            self.manager
-                .trigger_registry
-                .register(id.into(), plugin_id, Arc::new(trigger));
-        }
+        self.validate(&plugin_id, ContributionType::Trigger, id)?;
+        self.manager.check_conflict(
+            ContributionType::Trigger.as_str(),
+            id,
+            || self.manager.trigger_registry.get_owner(id),
+        )?;
+        self.manager
+            .trigger_registry
+            .register(id.into(), plugin_id, Arc::new(trigger));
+        Ok(())
     }
 
-    fn register_tool_description(&mut self, id: &str, description: ToolDescriptionData) {
+    fn register_tool_description(
+        &mut self,
+        id: &str,
+        description: ToolDescriptionData,
+    ) -> PluginResult<()> {
         let plugin_id = wf_common::lock::read_ok(self.manager.current_plugin_id.read()).clone();
-        if self.validate(&plugin_id, "tool-description", id)
-            && self
-                .manager
-                .check_conflict("tool-description", id, || {
-                    self.manager.tool_description_registry.get_owner(id)
-                })
-                .is_ok()
-        {
-            self.manager.tool_description_registry.register(
-                id.into(),
-                plugin_id,
-                Arc::new(description),
-            );
-        }
+        self.validate(&plugin_id, ContributionType::ToolDescription, id)?;
+        self.manager.check_conflict(
+            ContributionType::ToolDescription.as_str(),
+            id,
+            || self.manager.tool_description_registry.get_owner(id),
+        )?;
+        self.manager.tool_description_registry.register(
+            id.into(),
+            plugin_id,
+            Arc::new(description),
+        );
+        Ok(())
     }
 
-    fn register_tool(&mut self, id: &str, tool: ToolDef) {
+    fn register_tool(&mut self, id: &str, tool: ToolDef) -> PluginResult<()> {
         let plugin_id = wf_common::lock::read_ok(self.manager.current_plugin_id.read()).clone();
-        if self.validate(&plugin_id, "tool", id)
-            && self
-                .manager
-                .check_conflict("tool", id, || self.manager.tool_registry.get_owner(id))
-                .is_ok()
-        {
-            self.manager
-                .tool_registry
-                .register(id.into(), plugin_id, Arc::new(tool));
-        }
+        self.validate(&plugin_id, ContributionType::Tool, id)?;
+        self.manager.check_conflict(
+            ContributionType::Tool.as_str(),
+            id,
+            || self.manager.tool_registry.get_owner(id),
+        )?;
+        self.manager
+            .tool_registry
+            .register(id.into(), plugin_id, Arc::new(tool));
+        Ok(())
     }
 }
 
 impl RegistrarGuard<'_> {
-    /// Validate a contribution before registration (type + key). Invalid
-    /// contributions are rejected with a warning and are not registered
-    /// (the registrar interface is infallible: an error message is returned
-    /// without registering).
-    fn validate(&self, plugin_id: &str, contribution_type: &str, key: &str) -> bool {
+    /// Validate a contribution before registration (non-empty key). Invalid
+    /// contributions are rejected with an error the caller must propagate,
+    /// so a plugin never silently runs with missing contributions.
+    fn validate(
+        &self,
+        plugin_id: &str,
+        contribution_type: ContributionType,
+        key: &str,
+    ) -> PluginResult<()> {
         match crate::contributions::validation::validate_contribution(
             plugin_id,
             contribution_type,
             key,
         ) {
             Some(message) => {
-                tracing::warn!(plugin_id, contribution_type, key, "{message}");
-                false
+                tracing::warn!(plugin_id, %contribution_type, key, "{message}");
+                Err(PluginError::InvalidContribution {
+                    plugin_id: plugin_id.to_owned(),
+                    message,
+                })
             }
-            None => true,
+            None => Ok(()),
         }
     }
 }
@@ -620,11 +649,13 @@ mod tests {
         let manager = ContributionManager::new();
         manager.start_registration("p1");
         let mut registrar = manager.as_registrar();
-        registrar.register_middleware(
-            MiddlewarePhase::OnCheckpoint,
-            10,
-            Arc::new(NoopMiddlewareHandler),
-        );
+        registrar
+            .register_middleware(
+                MiddlewarePhase::OnCheckpoint,
+                10,
+                Arc::new(NoopMiddlewareHandler),
+            )
+            .unwrap();
         assert_eq!(
             manager.get_middleware(&MiddlewarePhase::OnCheckpoint).len(),
             1
@@ -644,28 +675,34 @@ mod tests {
     fn resource_contributions_round_trip_by_owner() {
         let manager = ContributionManager::new();
         manager.start_registration("p1");
-        manager.as_registrar().register_prompt(
-            "sys.plugin",
-            Template {
-                id: "sys.plugin".into(),
-                name: "plugin prompt".into(),
-                description: None,
-                category: "system".into(),
-                content: "hello from plugin".into(),
-                variables: None,
-                fragments: None,
-            },
-        );
-        manager.as_registrar().register_fragment(
-            "fragments.plugin.rule",
-            SystemPromptFragment {
-                id: "fragments.plugin.rule".into(),
-                category: "constraint".into(),
-                content: "plugin constraint".into(),
-                description: None,
-                variables: None,
-            },
-        );
+        manager
+            .as_registrar()
+            .register_prompt(
+                "sys.plugin",
+                Template {
+                    id: "sys.plugin".into(),
+                    name: "plugin prompt".into(),
+                    description: None,
+                    category: "system".into(),
+                    content: "hello from plugin".into(),
+                    variables: None,
+                    fragments: None,
+                },
+            )
+            .unwrap();
+        manager
+            .as_registrar()
+            .register_fragment(
+                "fragments.plugin.rule",
+                SystemPromptFragment {
+                    id: "fragments.plugin.rule".into(),
+                    category: "constraint".into(),
+                    content: "plugin constraint".into(),
+                    description: None,
+                    variables: None,
+                },
+            )
+            .unwrap();
 
         // Registered under the owning plugin, queryable by type.
         assert_eq!(
@@ -681,21 +718,26 @@ mod tests {
             .contributions_for("p1")
             .contains(&("fragment".to_string(), "fragments.plugin.rule".to_string())));
 
-        // Override policy `Forbid` keeps the original owner: p2 cannot claim
-        // the same id, so ownership stays with p1.
+        // Override policy `Forbid` keeps the original owner and reports the
+        // conflict to the caller: p2 cannot claim the same id, so ownership
+        // stays with p1 and the registration returns an error.
         manager.start_registration("p2");
-        manager.as_registrar().register_prompt(
-            "sys.plugin",
-            Template {
-                id: "sys.plugin".into(),
-                name: "attempted override".into(),
-                description: None,
-                category: "system".into(),
-                content: "nope".into(),
-                variables: None,
-                fragments: None,
-            },
-        );
+        let err = manager
+            .as_registrar()
+            .register_prompt(
+                "sys.plugin",
+                Template {
+                    id: "sys.plugin".into(),
+                    name: "attempted override".into(),
+                    description: None,
+                    category: "system".into(),
+                    content: "nope".into(),
+                    variables: None,
+                    fragments: None,
+                },
+            )
+            .unwrap_err();
+        assert!(matches!(err, PluginError::ContributionConflict(_)));
         assert_eq!(
             manager.all_prompts(),
             vec![("sys.plugin".to_string(), "p1".to_string())]
@@ -709,5 +751,127 @@ mod tests {
             .contributions_for("p1")
             .iter()
             .all(|(t, _)| t != "prompt" && t != "fragment"));
+    }
+
+    #[test]
+    fn allow_policy_overrides_previous_owner() {
+        let manager = ContributionManager::new();
+        manager.set_override_policy(OverridePolicy::Allow);
+        manager.start_registration("p1");
+        manager
+            .as_registrar()
+            .register_tool(
+                "shared-tool",
+                wf_types::tool::Tool {
+                    id: "shared-tool".into(),
+                    name: "v1".into(),
+                    description: String::new(),
+                    tool_type: wf_types::tool::ToolType::BuiltIn,
+                    parameters: None,
+                    metadata: None,
+                    config: None,
+                    enabled: None,
+                    strict: None,
+                    default_timeout_ms: None,
+                },
+            )
+            .unwrap();
+        manager.start_registration("p2");
+        manager
+            .as_registrar()
+            .register_tool(
+                "shared-tool",
+                wf_types::tool::Tool {
+                    id: "shared-tool".into(),
+                    name: "v2".into(),
+                    description: String::new(),
+                    tool_type: wf_types::tool::ToolType::BuiltIn,
+                    parameters: None,
+                    metadata: None,
+                    config: None,
+                    enabled: None,
+                    strict: None,
+                    default_timeout_ms: None,
+                },
+            )
+            .unwrap();
+        assert_eq!(
+            manager.all_tools(),
+            vec![("shared-tool".to_string(), "p2".to_string())]
+        );
+    }
+
+    #[test]
+    fn invalid_keys_are_reported_not_dropped() {
+        struct NoopTool;
+        #[async_trait::async_trait]
+        impl crate::contributions::types::PluginToolExecutor for NoopTool {
+            async fn execute(
+                &self,
+                _ctx: crate::contributions::types::PluginToolContext,
+            ) -> PluginResult<crate::contributions::types::PluginToolResult> {
+                Ok(crate::contributions::types::PluginToolResult {
+                    result: Value::Null,
+                })
+            }
+        }
+        let manager = ContributionManager::new();
+        manager.start_registration("p1");
+        let err = manager
+            .as_registrar()
+            .register_tool_type("  ", Arc::new(NoopTool))
+            .unwrap_err();
+        assert!(matches!(err, PluginError::InvalidContribution { .. }));
+        assert!(manager.all_tool_types().is_empty());
+    }
+
+    #[test]
+    fn llm_provider_and_formatter_share_one_registry_with_roles() {
+        struct NoopFormatter;
+        #[async_trait::async_trait]
+        impl crate::contributions::types::PluginLlmFormatter for NoopFormatter {
+            async fn format(
+                &self,
+                _request: crate::contributions::types::PluginLlmRequest,
+            ) -> PluginResult<crate::contributions::types::PluginLlmResponse> {
+                Ok(crate::contributions::types::PluginLlmResponse {
+                    content: String::new(),
+                    usage: None,
+                })
+            }
+        }
+        let manager = ContributionManager::new();
+        manager.start_registration("p1");
+        manager
+            .as_registrar()
+            .register_llm_provider("acme", Arc::new(NoopFormatter))
+            .unwrap();
+        manager
+            .as_registrar()
+            .register_formatter("pretty", Arc::new(NoopFormatter))
+            .unwrap();
+
+        assert!(manager.get_llm_formatter("acme").is_some());
+        assert!(manager.get_llm_formatter("pretty").is_none());
+        assert!(manager.get_formatter("pretty").is_some());
+        assert!(manager.get_formatter("acme").is_none());
+        assert_eq!(
+            manager.all_llm_providers(),
+            vec![("acme".to_string(), "p1".to_string())]
+        );
+        assert_eq!(
+            manager.all_formatters(),
+            vec![("pretty".to_string(), "p1".to_string())]
+        );
+        assert!(manager
+            .contributions_for("p1")
+            .contains(&("llm-provider".to_string(), "acme".to_string())));
+        assert!(manager
+            .contributions_for("p1")
+            .contains(&("formatter".to_string(), "pretty".to_string())));
+
+        manager.unregister_all("p1");
+        assert!(manager.all_llm_providers().is_empty());
+        assert!(manager.all_formatters().is_empty());
     }
 }

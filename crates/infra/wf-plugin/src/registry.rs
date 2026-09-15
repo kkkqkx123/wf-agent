@@ -1,5 +1,4 @@
 use dashmap::DashMap;
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::error::{PluginError, PluginResult};
@@ -182,8 +181,111 @@ pub struct PluginInfo {
     pub contributions: Vec<ContributionRecord>,
 }
 
-#[derive(Debug, Clone)]
-pub struct DiscoveredPlugin {
-    pub manifest: PluginManifest,
-    pub source_path: PathBuf,
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_manifest(id: &str) -> PluginManifest {
+        PluginManifest {
+            id: id.into(),
+            version: "1.0.0".into(),
+            name: None,
+            description: None,
+            plugin_type: None,
+            sdk_version: None,
+            entry_point: "entry.so".into(),
+            dependencies: Default::default(),
+            optional_dependencies: Default::default(),
+            contributions: Default::default(),
+            permissions: vec![],
+            config_schema: None,
+            config: None,
+            hooks: None,
+            wasm: None,
+        }
+    }
+
+    struct NoopPlugin {
+        manifest: PluginManifest,
+    }
+
+    #[async_trait::async_trait]
+    impl crate::plugin::Plugin for NoopPlugin {
+        fn manifest(&self) -> &PluginManifest {
+            &self.manifest
+        }
+    }
+
+    fn noop_plugin(id: &str) -> (PluginManifest, std::sync::Arc<dyn crate::plugin::Plugin>) {
+        let manifest = test_manifest(id);
+        let plugin = NoopPlugin {
+            manifest: manifest.clone(),
+        };
+        (manifest, std::sync::Arc::new(plugin))
+    }
+
+    #[test]
+    fn register_and_lookup_round_trip() {
+        let registry = PluginRegistry::new();
+        let (manifest, plugin) = noop_plugin("p1");
+        registry.register(manifest, plugin).unwrap();
+        assert!(registry.has("p1"));
+        assert_eq!(registry.len(), 1);
+        let info = registry.get("p1").unwrap();
+        assert_eq!(info.status, PluginStatus::Discovered);
+        assert!(registry.instance("p1").is_some());
+    }
+
+    #[test]
+    fn duplicate_registration_is_rejected() {
+        let registry = PluginRegistry::new();
+        let (manifest, plugin) = noop_plugin("p1");
+        registry.register(manifest.clone(), plugin.clone()).unwrap();
+        let err = registry.register(manifest, plugin).unwrap_err();
+        assert!(matches!(err, crate::error::PluginError::AlreadyExists(_)));
+    }
+
+    #[test]
+    fn contributions_index_tracks_and_clears_by_owner() {
+        let registry = PluginRegistry::new();
+        let (manifest, plugin) = noop_plugin("p1");
+        registry.register(manifest, plugin).unwrap();
+        registry.add_contributions(
+            "p1",
+            vec![
+                ContributionRecord {
+                    contribution_type: "tool-type".into(),
+                    key: "t1".into(),
+                    plugin_id: "p1".into(),
+                },
+                ContributionRecord {
+                    contribution_type: "prompt".into(),
+                    key: "s1".into(),
+                    plugin_id: "p1".into(),
+                },
+            ],
+        );
+        assert_eq!(registry.list_by_contribution("tool-type").len(), 1);
+        assert_eq!(registry.list_by_status(PluginStatus::Discovered).len(), 1);
+
+        registry.update_status("p1", PluginStatus::Active);
+        assert_eq!(registry.list_by_status(PluginStatus::Active).len(), 1);
+        assert!(registry.get("p1").unwrap().activated_at.is_some());
+
+        registry.remove("p1");
+        assert!(!registry.has("p1"));
+        assert!(registry.list_by_contribution("tool-type").is_empty());
+        assert!(registry.is_empty());
+    }
+
+    #[test]
+    fn set_error_marks_plugin_failed() {
+        let registry = PluginRegistry::new();
+        let (manifest, plugin) = noop_plugin("p1");
+        registry.register(manifest, plugin).unwrap();
+        registry.set_error("p1", "boom");
+        let info = registry.get("p1").unwrap();
+        assert_eq!(info.status, PluginStatus::Error);
+        assert_eq!(info.error.as_deref(), Some("boom"));
+    }
 }

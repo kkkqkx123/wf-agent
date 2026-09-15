@@ -1,0 +1,9 @@
+id = "wasm-python-echo"
+name = "Python Echo Plugin"
+version = "1.0.0"
+description = "Minimal component-model wasm guest written in Python (componentize-py)."
+entry_point = "plugin.wasm"
+
+[wasm]
+fuel_limit = 5000000
+call_timeout_ms = 500

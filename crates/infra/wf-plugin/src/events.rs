@@ -41,3 +41,41 @@ pub enum PluginEvent {
         config: serde_json::Value,
     },
 }
+
+impl PluginEvent {
+    /// Lifecycle event type string (matches the `PLUGIN_*` constants).
+    pub fn event_type(&self) -> &'static str {
+        match self {
+            Self::Discovered { .. } => PLUGIN_DISCOVERED,
+            Self::Loading { .. } => PLUGIN_LOADING,
+            Self::Loaded { .. } => PLUGIN_LOADED,
+            Self::Activating { .. } => PLUGIN_ACTIVATING,
+            Self::Activated { .. } => PLUGIN_ACTIVATED,
+            Self::Deactivating { .. } => PLUGIN_DEACTIVATING,
+            Self::Deactivated { .. } => PLUGIN_DEACTIVATED,
+            Self::Error { .. } => PLUGIN_ERROR,
+            Self::ConfigChanged { .. } => PLUGIN_CONFIG_CHANGED,
+        }
+    }
+
+    /// Structured payload forwarded to plugin event handlers.
+    pub fn payload(&self) -> serde_json::Value {
+        match self {
+            Self::Discovered { plugin_id }
+            | Self::Loading { plugin_id }
+            | Self::Activating { plugin_id }
+            | Self::Activated { plugin_id }
+            | Self::Deactivating { plugin_id }
+            | Self::Deactivated { plugin_id } => serde_json::json!({ "plugin_id": plugin_id }),
+            Self::Loaded { plugin_id, version } => {
+                serde_json::json!({ "plugin_id": plugin_id, "version": version })
+            }
+            Self::Error { plugin_id, error } => {
+                serde_json::json!({ "plugin_id": plugin_id, "error": error })
+            }
+            Self::ConfigChanged { plugin_id, config } => {
+                serde_json::json!({ "plugin_id": plugin_id, "config": config })
+            }
+        }
+    }
+}

@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
@@ -27,6 +28,10 @@ pub struct PluginSystemConfig {
     /// Plugins declaring any of these permissions are refused at load time.
     pub required_permissions_blocklist: Vec<PluginPermission>,
     pub config: std::collections::HashMap<String, Value>,
+    /// How to treat an unparseable `sdk_version` requirement (or host
+    /// version): `false` (default) keeps the historical fail-open skip,
+    /// `true` rejects the plugin with `InvalidManifest` instead.
+    pub strict_sdk_version: bool,
 }
 
 impl Default for PluginSystemConfig {
@@ -41,6 +46,7 @@ impl Default for PluginSystemConfig {
             block_list: vec![],
             required_permissions_blocklist: vec![],
             config: std::collections::HashMap::new(),
+            strict_sdk_version: false,
         }
     }
 }
@@ -56,6 +62,10 @@ pub struct PluginEngine {
     package_manager: Arc<PluginPackageManager>,
     sdk_version: String,
     initialized: bool,
+    /// Per-plugin event dispatch tasks (subscribe the plugin event bus and
+    /// forward events to the plugin's event-handler contributions). Aborted
+    /// on deactivation so the subscription teardown is symmetric.
+    event_tasks: Arc<std::sync::Mutex<HashMap<String, tokio::task::JoinHandle<()>>>>,
 }
 
 impl PluginEngine {
@@ -80,6 +90,7 @@ impl PluginEngine {
             package_manager: Arc::new(PluginPackageManager::new(&state_dir)),
             sdk_version: sdk_version.to_owned(),
             initialized: false,
+            event_tasks: Arc::new(std::sync::Mutex::new(HashMap::new())),
         }
     }
 
@@ -165,6 +176,10 @@ impl PluginEngine {
             return Ok(());
         }
 
+        self.publish(PluginEvent::Loading {
+            plugin_id: plugin_id.clone(),
+        });
+
         if let Some(errors) = validate_manifest(&manifest) {
             tracing::warn!("plugin '{}' manifest invalid: {:?}", plugin_id, errors);
             return Err(PluginError::InvalidManifest(errors.join(", ")));
@@ -184,29 +199,74 @@ impl PluginEngine {
             });
         }
 
-        if let Some(ref sdk_req) = manifest.sdk_version {
-            if let Ok(req) = semver::VersionReq::parse(sdk_req) {
-                if let Ok(ver) = semver::Version::parse(&self.sdk_version) {
-                    if !req.matches(&ver) {
-                        return Err(PluginError::InvalidManifest(format!(
-                            "sdk version '{}' not satisfied by host '{}'",
-                            sdk_req, self.sdk_version
-                        )));
-                    }
-                }
-            }
-        }
+        self.check_sdk_version(&manifest)?;
 
         let plugin = load_plugin_module(manifest.clone()).await?;
         self.registry.register(manifest, plugin)?;
         self.registry
             .update_status(&plugin_id, PluginStatus::Loaded);
 
+        let version = self
+            .registry
+            .get(&plugin_id)
+            .map(|info| info.manifest.version)
+            .unwrap_or_default();
+        self.publish(PluginEvent::Loaded {
+            plugin_id: plugin_id.clone(),
+            version,
+        });
         self.publish(PluginEvent::Discovered {
             plugin_id: plugin_id.clone(),
         });
         tracing::info!("discovered plugin: {}", plugin_id);
 
+        Ok(())
+    }
+
+    /// Enforce the manifest's `sdk_version` requirement against the host
+    /// version. A mismatch always rejects the plugin; unparseable
+    /// requirements (or host version) reject only under
+    /// `strict_sdk_version`, otherwise they are skipped with a warning
+    /// (historical fail-open behavior).
+    fn check_sdk_version(&self, manifest: &PluginManifest) -> PluginResult<()> {
+        let sdk_req = match manifest.sdk_version.as_deref() {
+            Some(req) => req,
+            None => return Ok(()),
+        };
+        let req = match semver::VersionReq::parse(sdk_req) {
+            Ok(req) => req,
+            Err(e) => {
+                let message = format!(
+                    "plugin '{}' declares unparseable sdk_version '{}': {}",
+                    manifest.id, sdk_req, e
+                );
+                if self.options.strict_sdk_version {
+                    return Err(PluginError::InvalidManifest(message));
+                }
+                tracing::warn!("{message}; skipping sdk_version check (fail-open)");
+                return Ok(());
+            }
+        };
+        let host = match semver::Version::parse(&self.sdk_version) {
+            Ok(host) => host,
+            Err(e) => {
+                let message = format!(
+                    "host sdk_version '{}' is unparseable: {}",
+                    self.sdk_version, e
+                );
+                if self.options.strict_sdk_version {
+                    return Err(PluginError::InvalidManifest(message));
+                }
+                tracing::warn!("{message}; skipping sdk_version check (fail-open)");
+                return Ok(());
+            }
+        };
+        if !req.matches(&host) {
+            return Err(PluginError::InvalidManifest(format!(
+                "sdk version '{}' not satisfied by host '{}'",
+                sdk_req, self.sdk_version
+            )));
+        }
         Ok(())
     }
 
@@ -241,11 +301,18 @@ impl PluginEngine {
             .parent()
             .map(|p| p.to_path_buf())
             .unwrap_or_default();
+        self.publish(PluginEvent::Loading {
+            plugin_id: manifest.id.clone(),
+        });
         let plugin = load_plugin_module_with_base(&manifest, &plugin_dir).await?;
         self.registry.register(manifest.clone(), plugin)?;
         self.registry
             .update_status(&manifest.id, PluginStatus::Loaded);
 
+        self.publish(PluginEvent::Loaded {
+            plugin_id: manifest.id.clone(),
+            version: manifest.version.clone(),
+        });
         self.publish(PluginEvent::Discovered {
             plugin_id: manifest.id.clone(),
         });
@@ -377,8 +444,7 @@ impl PluginEngine {
         match self
             .guard
             .execute(plugin_id, async {
-                instance.register_contributions(&mut registrar);
-                PluginResult::Ok(())
+                instance.register_contributions(&mut registrar)
             })
             .await
         {
@@ -392,6 +458,8 @@ impl PluginEngine {
                 return Err(e);
             }
         }
+
+        self.check_manifest_contributions(plugin_id);
 
         // Record the registered contributions on the registry record so
         // `list_by_contribution` / plugin info expose them.
@@ -432,10 +500,75 @@ impl PluginEngine {
         }
 
         self.registry.update_status(plugin_id, PluginStatus::Active);
+        self.start_event_dispatch(plugin_id);
         self.publish(PluginEvent::Activated {
             plugin_id: plugin_id.to_owned(),
         });
         Ok(())
+    }
+
+    /// Spawn the per-plugin event dispatch task: subscribes the plugin event
+    /// bus and forwards every event to the plugin's event-handler
+    /// contributions. The handle is stored so `deactivate` can abort it —
+    /// the subscription teardown is symmetric with activation.
+    fn start_event_dispatch(&self, plugin_id: &str) {
+        if self.contribution_manager.all_event_handlers().is_empty() {
+            return;
+        }
+        let subscription = self.plugin_event_bus.subscribe();
+        let manager = self.contribution_manager.clone();
+        let owned_plugin_id = plugin_id.to_owned();
+        let handle = tokio::spawn(async move {
+            let mut subscription = subscription;
+            let plugin_id = owned_plugin_id;
+            loop {
+                match subscription.recv().await {
+                    Ok(event) => {
+                        let data = crate::contributions::PluginEventData {
+                            event_type: event.event_type().to_string(),
+                            data: event.payload(),
+                        };
+                        for handler in manager.get_event_handlers(data.event_type.as_str()) {
+                            if let Err(e) = handler.handle(data.clone()).await {
+                                tracing::warn!(
+                                    plugin_id = %plugin_id,
+                                    event_type = %data.event_type,
+                                    "plugin event handler failed: {}",
+                                    e
+                                );
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        // `PluginEventSubscription::recv` maps Lagged/Closed
+                        // onto `PluginError`; a closed bus (engine dropped)
+                        // ends the dispatch loop, other errors just log.
+                        tracing::warn!(
+                            plugin_id = %plugin_id,
+                            "plugin event dispatch stopped: {}",
+                            e
+                        );
+                        break;
+                    }
+                }
+            }
+        });
+        self.event_tasks
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(plugin_id.to_owned(), handle);
+    }
+
+    /// Abort the per-plugin event dispatch task (if any).
+    fn stop_event_dispatch(&self, plugin_id: &str) {
+        if let Some(handle) = self
+            .event_tasks
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(plugin_id)
+        {
+            handle.abort();
+        }
     }
 
     pub async fn deactivate(&self, plugin_id: &str) -> PluginResult<()> {
@@ -450,32 +583,72 @@ impl PluginEngine {
         self.registry
             .update_status(plugin_id, PluginStatus::Deactivating);
 
+        // Stop forwarding lifecycle events to the plugin's event handlers
+        // before removing the contributions themselves.
+        self.stop_event_dispatch(plugin_id);
+
+        // Best-effort teardown: every step runs even when an earlier one
+        // fails, failures warn and are accumulated into the returned error
+        // instead of being silently dropped.
+        let mut failures: Vec<String> = Vec::new();
+
         if let Some(ref bridge) = self.bridge {
-            let _ = bridge
+            if let Err(e) = bridge
                 .unsync_all(plugin_id, &self.contribution_manager)
-                .await;
+                .await
+            {
+                tracing::warn!(
+                    plugin_id,
+                    "plugin bridge unsync failed during deactivation: {}",
+                    e
+                );
+                failures.push(format!("unsync: {e}"));
+            }
         }
 
         self.contribution_manager.unregister_all(plugin_id);
 
+        // The plugin sees the same config it ran with, not `Value::Null`.
+        let plugin_config = self
+            .options
+            .config
+            .get(plugin_id)
+            .cloned()
+            .unwrap_or(Value::Null);
         if let Some(instance) = self.registry.instance(plugin_id) {
             let ctx = PluginContext {
                 plugin_id: plugin_id.to_owned(),
                 sdk_version: self.sdk_version.clone(),
-                config: Value::Null,
+                config: plugin_config,
                 logger: PluginLogger,
                 contribution_manager: self.contribution_manager.clone(),
             };
-            let _ = instance.on_deactivate(&ctx).await;
-            let _ = instance.on_unload(&ctx).await;
+            if let Err(e) = instance.on_deactivate(&ctx).await {
+                tracing::warn!(plugin_id, "on_deactivate failed: {}", e);
+                failures.push(format!("on_deactivate: {e}"));
+            }
+            if let Err(e) = instance.on_unload(&ctx).await {
+                tracing::warn!(plugin_id, "on_unload failed: {}", e);
+                failures.push(format!("on_unload: {e}"));
+            }
         }
 
-        self.registry
-            .update_status(plugin_id, PluginStatus::Deactivated);
-        self.publish(PluginEvent::Deactivated {
-            plugin_id: plugin_id.to_owned(),
-        });
-        Ok(())
+        if failures.is_empty() {
+            self.registry
+                .update_status(plugin_id, PluginStatus::Deactivated);
+            self.publish(PluginEvent::Deactivated {
+                plugin_id: plugin_id.to_owned(),
+            });
+            Ok(())
+        } else {
+            let message = failures.join("; ");
+            self.registry.set_error(plugin_id, message.clone());
+            self.publish(PluginEvent::Error {
+                plugin_id: plugin_id.to_owned(),
+                error: message.clone(),
+            });
+            Err(PluginError::DeactivationFailed(message))
+        }
     }
 
     /// Fully remove a plugin: deactivate it, then remove it from the
@@ -658,6 +831,44 @@ impl PluginEngine {
             return !self.options.block_list.contains(&plugin_id.to_owned());
         }
         true
+    }
+
+    /// Cross-check the manifest's declared `contributions` / `hooks`
+    /// against what the plugin actually registered. Declarations are
+    /// advisory: mismatches warn (they usually mean a stale manifest or a
+    /// silently skipped registration) but do not fail activation.
+    fn check_manifest_contributions(&self, plugin_id: &str) {
+        let manifest = match self.registry.get(plugin_id) {
+            Some(info) => info.manifest,
+            None => return,
+        };
+        if manifest.contributions.is_empty() && manifest.hooks.is_none() {
+            return;
+        }
+        let registered = self.contribution_manager.contributions_for(plugin_id);
+        for declared in &manifest.contributions {
+            match declared.parse::<crate::contributions::ContributionType>() {
+                Err(_) => tracing::warn!(
+                    plugin_id,
+                    "manifest declares unrecognized contribution type '{declared}'"
+                ),
+                Ok(kind) => {
+                    if !registered.iter().any(|(t, _)| t == kind.as_str()) {
+                        tracing::warn!(
+                            plugin_id,
+                            "manifest declares '{declared}' contributions but none were registered"
+                        );
+                    }
+                }
+            }
+        }
+        if let Some(hooks) = manifest.hooks.as_ref() {
+            for key in hooks.keys() {
+                if key.trim().is_empty() {
+                    tracing::warn!(plugin_id, "manifest declares a hook with an empty name");
+                }
+            }
+        }
     }
 
     async fn find_plugin_dir(&self, plugin_id: &str) -> PluginResult<PathBuf> {
@@ -916,8 +1127,12 @@ mod tests {
         fn manifest(&self) -> &PluginManifest {
             &self.manifest
         }
-        fn register_contributions(&self, registrar: &mut dyn ContributionRegistrar) {
-            registrar.register_tool_type("my_tool", Arc::new(NoopToolExecutor));
+        fn register_contributions(
+            &self,
+            registrar: &mut dyn ContributionRegistrar,
+        ) -> PluginResult<()> {
+            registrar.register_tool_type("my_tool", Arc::new(NoopToolExecutor))?;
+            Ok(())
         }
     }
 
@@ -1132,10 +1347,16 @@ mod tests {
             fn manifest(&self) -> &PluginManifest {
                 &self.manifest
             }
-            fn register_contributions(&self, registrar: &mut dyn ContributionRegistrar) {
-                registrar.register_tool_type("", Arc::new(NoopToolExecutor));
-                registrar.register_tool_type("  ", Arc::new(NoopToolExecutor));
-                registrar.register_tool_type("valid_tool", Arc::new(NoopToolExecutor));
+            fn register_contributions(
+                &self,
+                registrar: &mut dyn ContributionRegistrar,
+            ) -> PluginResult<()> {
+                // Invalid keys report errors without registering; the
+                // plugin skips them and continues with the valid one.
+                let _ = registrar.register_tool_type("", Arc::new(NoopToolExecutor));
+                let _ = registrar.register_tool_type("  ", Arc::new(NoopToolExecutor));
+                registrar.register_tool_type("valid_tool", Arc::new(NoopToolExecutor))?;
+                Ok(())
             }
         }
 
@@ -1215,5 +1436,117 @@ mod tests {
             .get_tool_executor("echo_tool")
             .is_none());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn forbid_conflict_aborts_activation() {
+        struct ClaimingPlugin {
+            manifest: PluginManifest,
+        }
+
+        #[async_trait]
+        impl Plugin for ClaimingPlugin {
+            fn manifest(&self) -> &PluginManifest {
+                &self.manifest
+            }
+            fn register_contributions(
+                &self,
+                registrar: &mut dyn ContributionRegistrar,
+            ) -> PluginResult<()> {
+                registrar.register_tool_type("my_tool", Arc::new(NoopToolExecutor))?;
+                Ok(())
+            }
+        }
+
+        let engine = make_engine(true);
+        load_and_activate(&engine, "owner").await;
+
+        engine
+            .registry
+            .register(
+                make_manifest("claimer"),
+                Arc::new(ClaimingPlugin {
+                    manifest: make_manifest("claimer"),
+                }),
+            )
+            .unwrap();
+        engine
+            .registry
+            .update_status("claimer", PluginStatus::Loaded);
+        // Default policy is `Forbid`: activation fails and the error is
+        // recorded on the registry instead of dropping the conflict.
+        let err = engine.activate("claimer").await.unwrap_err();
+        assert!(matches!(err, PluginError::ContributionConflict(_)));
+        assert_eq!(
+            engine.registry.get("claimer").unwrap().status,
+            PluginStatus::Error
+        );
+        // The original owner's contribution is untouched.
+        assert!(engine
+            .contribution_manager()
+            .get_tool_executor("my_tool")
+            .is_some());
+    }
+
+    #[tokio::test]
+    async fn deactivation_reports_lifecycle_failures() {
+        struct FailingDeactivate {
+            manifest: PluginManifest,
+        }
+
+        #[async_trait]
+        impl Plugin for FailingDeactivate {
+            fn manifest(&self) -> &PluginManifest {
+                &self.manifest
+            }
+            async fn on_deactivate(&self, _ctx: &PluginContext) -> PluginResult<()> {
+                Err(PluginError::Internal("cannot stop".into()))
+            }
+        }
+
+        let engine = make_engine(true);
+        engine
+            .registry
+            .register(
+                make_manifest("flaky"),
+                Arc::new(FailingDeactivate {
+                    manifest: make_manifest("flaky"),
+                }),
+            )
+            .unwrap();
+        engine.registry.update_status("flaky", PluginStatus::Loaded);
+        engine.activate("flaky").await.unwrap();
+
+        let err = engine.deactivate("flaky").await.unwrap_err();
+        assert!(matches!(err, PluginError::DeactivationFailed(_)));
+        assert_eq!(
+            engine.registry.get("flaky").unwrap().status,
+            PluginStatus::Error
+        );
+    }
+
+    #[tokio::test]
+    async fn strict_sdk_version_rejects_unparseable_requirement() {
+        let registry = Arc::new(PluginRegistry::new());
+        let manager = Arc::new(ContributionManager::new());
+        let options = PluginSystemConfig {
+            strict_sdk_version: true,
+            ..PluginSystemConfig::default()
+        };
+        let engine = PluginEngine::new(registry, manager, None, options, "0.1.0");
+
+        let mut manifest = make_manifest("strict-sdk");
+        manifest.sdk_version = Some("not-a-version".into());
+        let err = engine.load_plugin(manifest).await.unwrap_err();
+        assert!(matches!(err, PluginError::InvalidManifest(_)));
+
+        // Fail-open (default) still skips the check with a warning.
+        let engine = make_engine(true);
+        let mut manifest = make_manifest("lenient-sdk");
+        manifest.sdk_version = Some("not-a-version".into());
+        // No loadable module exists for the fake entry point, so a
+        // fail-open check proceeds past the sdk gate into module loading.
+        let err = engine.load_plugin(manifest).await.unwrap_err();
+        assert!(!matches!(err, PluginError::InvalidManifest(_)));
     }
 }

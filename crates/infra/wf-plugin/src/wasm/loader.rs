@@ -138,20 +138,6 @@ pub(crate) fn is_component(bytes: &[u8]) -> bool {
     bytes.len() >= 8 && &bytes[..4] == WASM_MAGIC && &bytes[4..8] == COMPONENT_VERSION
 }
 
-/// Reject component-model binaries with a guidance message. Kept for
-/// backward-compatible tests; the production path uses `is_component` to
-/// route instead.
-fn reject_component(plugin_id: &str, bytes: &[u8]) -> PluginResult<()> {
-    const WASM_MAGIC: &[u8; 4] = b"\0asm";
-    const COMPONENT_VERSION: &[u8; 4] = &[0x0D, 0x00, 0x01, 0x00];
-    if bytes.len() >= 8 && &bytes[..4] == WASM_MAGIC && &bytes[4..8] == COMPONENT_VERSION {
-        return Err(PluginError::LoadFailed(format!(
-            "plugin '{plugin_id}' is a component-model binary, which the wasm host does not run yet (see wit/plugin.wit)"
-        )));
-    }
-    Ok(())
-}
-
 fn validate_plugin_id(id: &str) -> PluginResult<()> {
     if id.is_empty() {
         return Err(PluginError::LoadFailed("plugin id is empty".into()));
@@ -379,7 +365,7 @@ mod tests {
         let manager = crate::contributions::ContributionManager::new();
         {
             let mut registrar = manager.as_registrar();
-            plugin.register_contributions(&mut registrar);
+            plugin.register_contributions(&mut registrar).expect("contributions register");
         }
         let executor = manager
             .get_tool_executor("echo_tool")

@@ -104,9 +104,9 @@ fn parse_node_type(node_type_str: &str) -> WorkflowResult<StaticNodeType> {
         "AGENT_LOOP" => Ok(StaticNodeType::AgentLoop),
         "START_FROM_MESSAGE" => Ok(StaticNodeType::StartFromMessage),
         "CONTINUE_FROM_MESSAGE" => Ok(StaticNodeType::ContinueFromMessage),
-        other => Err(WorkflowError::HandlerNotFound {
-            node_type: other.to_string(),
-        }),
+        // Unknown types are kept as plugin-contributed node types; handler
+        // resolution falls back to the plugin source for them.
+        other => Ok(StaticNodeType::Custom(other.to_string())),
     }
 }
 
@@ -268,6 +268,11 @@ pub struct WorkflowCoordinator {
     /// variables into the fork registry so SYNC nodes can read the source
     /// branch's intermediate state.
     fork_branch_progress: Option<(Arc<ForkRegistry>, String)>,
+    /// Plugin-contributed node handlers consulted when the builtin map has
+    /// no handler for a node type (resolution chain: builtin → plugin).
+    /// Built once per execution by the application layer from the plugin
+    /// contribution source.
+    plugin_handlers: Arc<HashMap<StaticNodeType, Box<dyn NodeHandler>>>,
     /// Receiver for typed internal signals (replaces the `__`-prefixed
     /// variable protocol).
     signal_receiver: Option<InternalSignalReceiver>,
@@ -368,9 +373,36 @@ impl WorkflowCoordinator {
             checkpoint: None,
             state_manager: None,
             fork_branch_progress: None,
+            plugin_handlers: Arc::new(HashMap::new()),
             signal_receiver,
             skipped_nodes: HashSet::new(),
         })
+    }
+
+    /// Attach plugin-contributed node handlers used as fallback when the
+    /// builtin handler map has no entry for a node type.
+    pub fn with_plugin_handlers(
+        mut self,
+        handlers: Arc<HashMap<StaticNodeType, Box<dyn NodeHandler>>>,
+    ) -> Self {
+        self.plugin_handlers = handlers;
+        self
+    }
+
+    /// Resolve the handler for a node type: builtin map first, then the
+    /// plugin-contributed fallback map (builtin → plugin resolution chain).
+    fn resolve_node_handler(
+        &self,
+        node_type: &StaticNodeType,
+    ) -> Option<&dyn NodeHandler> {
+        self.handlers
+            .get(node_type)
+            .map(|h| h.as_ref())
+            .or_else(|| {
+                self.plugin_handlers
+                    .get(node_type)
+                    .map(|h| h.as_ref())
+            })
     }
 
     pub fn with_entity(mut self, entity: WorkflowExecutionEntity) -> Self {
@@ -1032,12 +1064,11 @@ impl WorkflowCoordinator {
         let node_id = attempt.node_id;
         let node_type = attempt.node_type;
 
-        let handler =
-            self.handlers
-                .get(node_type)
-                .ok_or_else(|| WorkflowError::HandlerNotFound {
-                    node_type: node.node_type.clone(),
-                })?;
+        let handler = self.resolve_node_handler(node_type).ok_or_else(|| {
+            WorkflowError::HandlerNotFound {
+                node_type: node.node_type.clone(),
+            }
+        })?;
 
         let coordinator = NodeCoordinator::new();
         // Node-level `timeout_seconds` wins, then the global options default,
@@ -1053,7 +1084,7 @@ impl WorkflowCoordinator {
 
         let fut = coordinator.execute_node(
             entity,
-            handler.as_ref(),
+            handler,
             node_ctx,
             event_bus,
             &self.hooks,
@@ -1224,12 +1255,11 @@ impl WorkflowCoordinator {
         let node_metrics = outcome.metrics;
         let node_duration_ms = outcome.duration_ms;
 
-        let handler =
-            self.handlers
-                .get(node_type)
-                .ok_or_else(|| WorkflowError::HandlerNotFound {
-                    node_type: node_type_str.to_string(),
-                })?;
+        let handler = self.resolve_node_handler(node_type).ok_or_else(|| {
+            WorkflowError::HandlerNotFound {
+                node_type: node_type_str.to_string(),
+            }
+        })?;
 
         match retry_config.on_failure.as_str() {
             "retry" | "continue" | "fallback" => {

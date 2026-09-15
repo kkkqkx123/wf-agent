@@ -39,6 +39,29 @@ pub trait PluginHandlerSource: Send + Sync {
     /// Look up a plugin node executor registered under `type_name`.
     fn node_executor(&self, type_name: &str) -> Option<Arc<dyn PluginNodeExecutor>>;
 
+    /// All node type names with a plugin-registered executor.
+    fn plugin_node_types(&self) -> Vec<String> {
+        Vec::new()
+    }
+
+    /// Names of plugin-contributed LLM providers (backing
+    /// `LlmProvider::Custom(name)` resolution through the host formatter
+    /// registry once bridged).
+    fn llm_provider_names(&self) -> Vec<String> {
+        Vec::new()
+    }
+
+    /// Names of plugin-contributed message formatters.
+    fn formatter_names(&self) -> Vec<String> {
+        Vec::new()
+    }
+
+    /// Event types with at least one plugin-registered event handler
+    /// (dispatched by the plugin engine's event tasks).
+    fn event_handler_event_types(&self) -> Vec<String> {
+        Vec::new()
+    }
+
     /// Plugin middleware handlers registered for `phase`.
     fn middleware(&self, phase: &MiddlewarePhase) -> Vec<Arc<dyn PluginMiddlewareBridge>>;
 }

@@ -464,7 +464,10 @@ impl Plugin for LuaPlugin {
         .await
     }
 
-    fn register_contributions(&self, registrar: &mut dyn ContributionRegistrar) {
+    fn register_contributions(
+        &self,
+        registrar: &mut dyn ContributionRegistrar,
+    ) -> PluginResult<()> {
         // Step 1: extract keys from Lua state (Mutex held)
         struct RegEntry {
             name: String,
@@ -476,24 +479,26 @@ impl Plugin for LuaPlugin {
         let entries: Vec<RegEntry> = {
             let locked = match self.lua.lock() {
                 Ok(l) => l,
-                Err(_) => return,
+                Err(_) => {
+                    return Err(PluginError::Internal("lua state lock poisoned".into()));
+                }
             };
 
             let plugin_table: mlua::Table = match locked.globals().get("plugin") {
                 Ok(t) => t,
-                Err(_) => return,
+                Err(_) => return Ok(()),
             };
             let register_fn: mlua::Function = match plugin_table.get("register_contributions") {
                 Ok(f) => f,
-                Err(_) => return,
+                Err(_) => return Ok(()),
             };
             let contribs: mlua::Value = match register_fn.call(()) {
                 Ok(v) => v,
-                Err(_) => return,
+                Err(e) => return Err(PluginError::LuaError(e.to_string())),
             };
             let contribs_table: mlua::Table = match contribs {
                 mlua::Value::Table(t) => t,
-                _ => return,
+                _ => return Ok(()),
             };
 
             let mut out: Vec<RegEntry> = Vec::new();
@@ -552,35 +557,35 @@ impl Plugin for LuaPlugin {
                         lua: self.lua.clone(),
                         func_key: Arc::new(e.key),
                     }),
-                ),
+                )?,
                 1 => registrar.register_tool_type(
                     &e.name,
                     Arc::new(LuaToolExecutor {
                         lua: self.lua.clone(),
                         func_key: Arc::new(e.key),
                     }),
-                ),
+                )?,
                 2 => registrar.register_llm_provider(
                     &e.name,
                     Arc::new(LuaLlmFormatter {
                         lua: self.lua.clone(),
                         func_key: Arc::new(e.key),
                     }),
-                ),
+                )?,
                 3 => registrar.register_formatter(
                     &e.name,
                     Arc::new(LuaLlmFormatter {
                         lua: self.lua.clone(),
                         func_key: Arc::new(e.key),
                     }),
-                ),
+                )?,
                 4 => registrar.register_event_handler(
                     &e.name,
                     Arc::new(LuaEventHandler {
                         lua: self.lua.clone(),
                         func_key: Arc::new(e.key),
                     }),
-                ),
+                )?,
                 6 => registrar.register_middleware(
                     MiddlewarePhase::from(e.phase.as_str()),
                     e.priority,
@@ -588,9 +593,10 @@ impl Plugin for LuaPlugin {
                         lua: self.lua.clone(),
                         func_key: Arc::new(e.key),
                     }),
-                ),
+                )?,
                 _ => {}
             }
         }
+        Ok(())
     }
 }

@@ -363,7 +363,10 @@ impl Plugin for WasmPlugin {
         invoke_hook(&self.inner, export::ON_CONFIG_CHANGE, &input).await
     }
 
-    fn register_contributions(&self, registrar: &mut dyn ContributionRegistrar) {
+    fn register_contributions(
+        &self,
+        registrar: &mut dyn ContributionRegistrar,
+    ) -> PluginResult<()> {
         let decl = &self.inner.decl;
         for name in &decl.node_types {
             registrar.register_node_type(
@@ -372,7 +375,7 @@ impl Plugin for WasmPlugin {
                     inner: self.inner.clone(),
                     type_name: name.clone(),
                 }),
-            );
+            )?;
         }
         for name in &decl.tool_types {
             registrar.register_tool_type(
@@ -381,7 +384,7 @@ impl Plugin for WasmPlugin {
                     inner: self.inner.clone(),
                     type_name: name.clone(),
                 }),
-            );
+            )?;
         }
         for name in &decl.llm_providers {
             registrar.register_llm_provider(
@@ -390,7 +393,7 @@ impl Plugin for WasmPlugin {
                     inner: self.inner.clone(),
                     name: name.clone(),
                 }),
-            );
+            )?;
         }
         for name in &decl.formatters {
             registrar.register_formatter(
@@ -399,7 +402,7 @@ impl Plugin for WasmPlugin {
                     inner: self.inner.clone(),
                     name: name.clone(),
                 }),
-            );
+            )?;
         }
         for event_type in &decl.event_handlers {
             registrar.register_event_handler(
@@ -408,7 +411,7 @@ impl Plugin for WasmPlugin {
                     inner: self.inner.clone(),
                     event_type: event_type.clone(),
                 }),
-            );
+            )?;
         }
         for mw in &decl.middleware {
             registrar.register_middleware(
@@ -418,8 +421,9 @@ impl Plugin for WasmPlugin {
                     inner: self.inner.clone(),
                     phase: mw.phase.clone(),
                 }),
-            );
+            )?;
         }
+        Ok(())
     }
 }
 

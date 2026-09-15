@@ -1,0 +1,9 @@
+id = "wasm-go-echo"
+name = "Go Echo Plugin"
+version = "1.0.0"
+description = "Minimal component-model wasm guest written in Go (TinyGo wasip2)."
+entry_point = "plugin.wasm"
+
+[wasm]
+fuel_limit = 5000000
+call_timeout_ms = 500

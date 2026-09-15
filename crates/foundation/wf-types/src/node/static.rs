@@ -1,7 +1,15 @@
-use serde::{Deserialize, Serialize};
+use serde::{de, Deserialize, Deserializer, Serialize, Serializer};
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+/// Node types of the static workflow graph. The closed variants cover the
+/// builtin engine handlers; [`StaticNodeType::Custom`] carries node types
+/// contributed by plugins, which are only known at runtime and therefore
+/// cannot be enum variants.
+///
+/// Serialization mirrors the graph JSON syntax: every variant round-trips as
+/// a bare SCREAMING_SNAKE_CASE string (`"START"`, `"LLM"`, or the custom
+/// name itself), so plugin-contributed types can appear in workflow graphs
+/// without a wrapper object.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum StaticNodeType {
     Start,
     End,
@@ -25,6 +33,8 @@ pub enum StaticNodeType {
     AgentLoop,
     StartFromMessage,
     ContinueFromMessage,
+    /// A plugin-contributed node type identified by its registered name.
+    Custom(String),
 }
 
 impl StaticNodeType {
@@ -82,6 +92,60 @@ impl StaticNodeType {
             "CONTINUE_FROM_MESSAGE" => Some(Self::ContinueFromMessage),
             _ => None,
         }
+    }
+}
+
+impl StaticNodeType {
+    fn as_static_str(&self) -> Option<&'static str> {
+        match self {
+            Self::Start => Some("START"),
+            Self::End => Some("END"),
+            Self::EmbedStart => Some("EMBED_START"),
+            Self::EmbedEnd => Some("EMBED_END"),
+            Self::Variable => Some("VARIABLE"),
+            Self::Fork => Some("FORK"),
+            Self::Join => Some("JOIN"),
+            Self::Sync => Some("SYNC"),
+            Self::Subgraph => Some("SUBGRAPH"),
+            Self::EmbedGraph => Some("EMBED_GRAPH"),
+            Self::Script => Some("SCRIPT"),
+            Self::InteractiveScript => Some("INTERACTIVE_SCRIPT"),
+            Self::Llm => Some("LLM"),
+            Self::ToolVisibility => Some("TOOL_VISIBILITY"),
+            Self::UserInteraction => Some("USER_INTERACTION"),
+            Self::Route => Some("ROUTE"),
+            Self::ContextProcessor => Some("CONTEXT_PROCESSOR"),
+            Self::LoopStart => Some("LOOP_START"),
+            Self::LoopEnd => Some("LOOP_END"),
+            Self::AgentLoop => Some("AGENT_LOOP"),
+            Self::StartFromMessage => Some("START_FROM_MESSAGE"),
+            Self::ContinueFromMessage => Some("CONTINUE_FROM_MESSAGE"),
+            Self::Custom(_) => None,
+        }
+    }
+}
+
+impl Serialize for StaticNodeType {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match self.as_static_str() {
+            Some(name) => serializer.serialize_str(name),
+            None => match self {
+                Self::Custom(name) => serializer.serialize_str(name),
+                _ => unreachable!("non-custom variants always have a static name"),
+            },
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for StaticNodeType {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let value = String::deserialize(deserializer)?;
+        Self::from_str_ci(&value).ok_or_else(|| {
+            de::Error::invalid_value(
+                de::Unexpected::Str(&value),
+                &"a known node type or a plugin-contributed type name",
+            )
+        })
     }
 }
 

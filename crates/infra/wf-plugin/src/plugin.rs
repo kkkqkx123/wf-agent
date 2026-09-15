@@ -24,9 +24,13 @@ pub trait Plugin: Send + Sync {
     async fn on_config_change(&self, _config: &Value) -> PluginResult<()> {
         Ok(())
     }
-    fn register_contributions(&self, _registrar: &mut dyn ContributionRegistrar) {}
+    /// Register the plugin's contributions. A returned error aborts
+    /// activation: propagate registrar errors with `?` instead of dropping
+    /// them so `Forbid`-policy conflicts fail loudly.
+    fn register_contributions(
+        &self,
+        _registrar: &mut dyn ContributionRegistrar,
+    ) -> PluginResult<()> {
+        Ok(())
+    }
 }
-
-/// Alias used by the `wasmtime::component::bindgen!` macro which generates
-/// its own `Plugin` type for the `wf:plugin/plugin` world.
-pub use Plugin as WasmPluginTrait;

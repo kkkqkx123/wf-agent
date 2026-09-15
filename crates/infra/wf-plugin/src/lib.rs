@@ -23,11 +23,11 @@ pub mod wasm;
 
 pub use context::PluginContext;
 pub use contributions::{
-    ContributionBridge, ContributionManager, ContributionRegistrar, ContributionType, NextFn,
-    OverridePolicy, PluginEventData, PluginEventHandler, PluginExecutionContext, PluginLlmConfig,
-    PluginLlmFormatter, PluginLlmRequest, PluginLlmResponse, PluginLlmUsage, PluginMessage,
-    PluginMiddlewareDef, PluginMiddlewareHandler, PluginNodeHandler, PluginNodeResult,
-    PluginToolContext, PluginToolExecutor, PluginToolResult, RegistrarGuard,
+    ContributionBridge, ContributionManager, ContributionRegistrar, ContributionType, FormatterRole,
+    NextFn, OverridePolicy, PluginEventData, PluginEventHandler, PluginExecutionContext,
+    PluginLlmConfig, PluginLlmFormatter, PluginLlmRequest, PluginLlmResponse, PluginLlmUsage,
+    PluginMessage, PluginMiddlewareHandler, PluginNodeHandler, PluginNodeResult, PluginToolContext,
+    PluginToolExecutor, PluginToolResult, RegistrarGuard,
 };
 pub use dependency::{resolve_dependencies, ResolvedGraph};
 pub use engine::{PluginEngine, PluginSystemConfig};
@@ -38,6 +38,4 @@ pub use guard::PluginGuard;
 pub use manifest::{PluginManifest, PluginPermission, PluginType};
 pub use package::{InstalledPlugin, PackageState, PluginPackageManager};
 pub use plugin::Plugin;
-pub use registry::{
-    ContributionRecord, DiscoveredPlugin, PluginInfo, PluginRegistry, PluginStatus,
-};
+pub use registry::{ContributionRecord, PluginInfo, PluginRegistry, PluginStatus};

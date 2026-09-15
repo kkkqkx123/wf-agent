@@ -1,3 +1,5 @@
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -10,6 +12,8 @@ use wf_api::infra::handler_chain::{
 use wf_core::registry::{MutableRegistry, Registry};
 use wf_plugin::{ContributionBridge, ContributionManager, PluginResult};
 use wf_resource::registry::ResourceRegistries;
+use wf_tools::error::ToolResult;
+use wf_tools::executor::trait_def::ToolExecutionContext;
 use wf_tools::registry::ToolRegistry;
 
 /// Bridge between the `wf-plugin` contribution manager and the runtime's
@@ -40,23 +44,47 @@ impl ContributionBridge for WfPluginBridge {
     async fn sync_all(&self, plugin_id: &str, manager: &ContributionManager) -> PluginResult<()> {
         tracing::info!("[bridge] syncing contributions for '{}'", plugin_id);
 
+        // Behavioral contributions are resolved on the execution path:
+        // node executors and middleware through `WfPluginHandlerSource`
+        // (handler chain builtin → plugin → template), tool-type executors
+        // land here as stateless async handlers so `ToolRegistry` can
+        // dispatch them. LLM provider/formatter contributions stay on the
+        // manager: the plugin-side `PluginLlmFormatter` (messages → content)
+        // is not an HTTP-level `wf_llm::LlmFormatter` and cannot be bridged
+        // without faking request building/response parsing.
         for (name, _) in manager.all_node_types() {
             tracing::debug!("  node-type: {}", name);
         }
-        for (name, _) in manager.all_tool_types() {
-            tracing::debug!("  tool-type: {}", name);
-        }
         for (name, _) in manager.all_llm_providers() {
-            tracing::debug!("  llm-provider: {}", name);
+            tracing::debug!("  llm-provider (manager-resolved): {}", name);
         }
         for (name, _) in manager.all_formatters() {
-            tracing::debug!("  formatter: {}", name);
+            tracing::debug!("  formatter (manager-resolved): {}", name);
         }
         for (name, _) in manager.all_event_handlers() {
             tracing::debug!("  event-handler: {}", name);
         }
         for phase in manager.all_middleware_phases() {
             tracing::debug!("  middleware: {}", phase);
+        }
+
+        // Tool-type executors → stateless async handlers. The host
+        // `ToolType` enum is closed, so a plugin's custom tool type cannot
+        // be expressed on `Tool::tool_type`; the convention is that a
+        // plugin's tool-type executor serves the tools contributed by the
+        // same plugin (handlers keyed by tool id, resolved by
+        // `StatelessExecutor` through `tool.id`).
+        for (type_name, _) in manager.all_tool_types() {
+            if let Some(executor) = manager.get_tool_executor(&type_name) {
+                let handler = make_plugin_tool_handler(executor.clone());
+                for (id, owner) in manager.all_tools() {
+                    if owner == plugin_id {
+                        self.tool_registry
+                            .register_stateless_async_handler(&id, handler.clone());
+                        tracing::debug!("  tool-type: {} → handler for '{}'", type_name, id);
+                    }
+                }
+            }
         }
 
         // Declarative resource contribution placement (skip-existing, idempotent)
@@ -193,11 +221,35 @@ impl ContributionBridge for WfPluginBridge {
         for (id, owner) in manager.all_tools() {
             if owner == plugin_id {
                 self.tool_registry.remove_tool(&id);
+                // Symmetric teardown of the tool-type handler installed by
+                // `sync_all` (see the tool-type bridge comment there).
+                self.tool_registry.unregister_stateless_handler(&id);
             }
         }
 
         Ok(())
     }
+}
+
+/// Adapt a plugin `PluginToolExecutor` to a `ToolRegistry` stateless async
+/// handler. Tool execution errors are reported as failed tool results
+/// (carrying the plugin error message) rather than aborting the caller.
+fn make_plugin_tool_handler(
+    executor: Arc<dyn wf_plugin::PluginToolExecutor>,
+) -> wf_tools::executor::StatelessAsyncHandler {
+    Arc::new(move |args: Value, _ctx: ToolExecutionContext| {
+        let executor = executor.clone();
+        Box::pin(async move {
+            executor
+                .execute(wf_plugin::PluginToolContext { args })
+                .await
+                .map(|result| result.result)
+                .map_err(|e| wf_tools::ToolError::ExecutionFailed {
+                    tool_id: "plugin-tool".to_string(),
+                    reason: e.to_string(),
+                })
+        }) as Pin<Box<dyn Future<Output = ToolResult<Value>> + Send>>
+    })
 }
 
 /// `wf-plugin` contribution source wired into `ApiContext`'s handler
@@ -218,6 +270,40 @@ impl PluginHandlerSource for WfPluginHandlerSource {
         self.manager
             .get_node_handler(type_name)
             .map(|handler| Arc::new(WfPluginNodeExecutor(handler)) as Arc<dyn PluginNodeExecutor>)
+    }
+
+    fn plugin_node_types(&self) -> Vec<String> {
+        self.manager
+            .all_node_types()
+            .into_iter()
+            .map(|(name, _)| name)
+            .collect()
+    }
+
+    fn llm_provider_names(&self) -> Vec<String> {
+        self.manager
+            .all_llm_providers()
+            .into_iter()
+            .map(|(name, _)| name)
+            .collect()
+    }
+
+    fn formatter_names(&self) -> Vec<String> {
+        self.manager
+            .all_formatters()
+            .into_iter()
+            .map(|(name, _)| name)
+            .collect()
+    }
+
+    fn event_handler_event_types(&self) -> Vec<String> {
+        self.manager
+            .all_event_handlers()
+            .into_iter()
+            .map(|(event_type, _)| event_type)
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect()
     }
 
     fn middleware(&self, phase: &MiddlewarePhase) -> Vec<Arc<dyn PluginMiddlewareBridge>> {
@@ -265,5 +351,92 @@ impl PluginMiddlewareBridge for WfPluginMiddlewareRunner {
             .run_middleware(phase, context.clone())
             .await
             .map_err(wf_api::ApiError::execution_with_source)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use wf_plugin::{
+        ContributionRegistrar, PluginToolContext, PluginToolExecutor, PluginToolResult,
+    };
+    use wf_types::tool::{Tool, ToolType};
+
+    struct EchoExecutor;
+
+    #[async_trait]
+    impl PluginToolExecutor for EchoExecutor {
+        async fn execute(
+            &self,
+            ctx: PluginToolContext,
+        ) -> wf_plugin::PluginResult<PluginToolResult> {
+            Ok(PluginToolResult {
+                result: serde_json::json!({"echo": ctx.args}),
+            })
+        }
+    }
+
+    fn contributed_tool(id: &str) -> Tool {
+        Tool {
+            id: id.into(),
+            name: format!("{id} tool"),
+            description: "plugin-contributed tool".into(),
+            tool_type: ToolType::Stateless,
+            parameters: None,
+            metadata: None,
+            config: None,
+            enabled: None,
+            strict: None,
+            default_timeout_ms: None,
+        }
+    }
+
+    fn manager_with_tool(plugin_id: &str, type_name: &str, tool_id: &str) -> ContributionManager {
+        let manager = ContributionManager::new();
+        manager.start_registration(plugin_id);
+        manager
+            .as_registrar()
+            .register_tool_type(type_name, Arc::new(EchoExecutor))
+            .unwrap();
+        manager
+            .as_registrar()
+            .register_tool(tool_id, contributed_tool(tool_id))
+            .unwrap();
+        manager
+    }
+
+    #[tokio::test]
+    async fn sync_install_tool_and_handler_unsync_removes_both() {
+        let registries = Arc::new(ResourceRegistries::new());
+        let tool_registry = Arc::new(ToolRegistry::new());
+        let bridge = WfPluginBridge::new(registries, tool_registry.clone());
+        let manager = manager_with_tool("p1", "echo_type", "p1.echo");
+
+        bridge.sync_all("p1", &manager).await.unwrap();
+        assert!(tool_registry.has("p1.echo"), "tool registered on sync");
+
+        bridge.unsync_all("p1", &manager).await.unwrap();
+        assert!(
+            !tool_registry.has("p1.echo"),
+            "tool removed on unsync (symmetric teardown)"
+        );
+    }
+
+    #[tokio::test]
+    async fn unsync_only_touches_owning_plugin() {
+        let registries = Arc::new(ResourceRegistries::new());
+        let tool_registry = Arc::new(ToolRegistry::new());
+        let bridge = WfPluginBridge::new(registries, tool_registry.clone());
+
+        let m1 = manager_with_tool("p1", "t1", "p1.a");
+        let m2 = manager_with_tool("p2", "t2", "p2.b");
+        bridge.sync_all("p1", &m1).await.unwrap();
+        bridge.sync_all("p2", &m2).await.unwrap();
+        assert!(tool_registry.has("p1.a"));
+        assert!(tool_registry.has("p2.b"));
+
+        bridge.unsync_all("p1", &m1).await.unwrap();
+        assert!(!tool_registry.has("p1.a"), "p1 tool removed");
+        assert!(tool_registry.has("p2.b"), "p2 tool untouched");
     }
 }

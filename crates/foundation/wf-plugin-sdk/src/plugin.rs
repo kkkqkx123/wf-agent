@@ -51,10 +51,6 @@ impl NativeRegistrar {
         self.record("llm-provider", name);
     }
 
-    pub fn register_formatter(&self, name: &str) {
-        self.record("formatter", name);
-    }
-
     pub fn register_event_handler(&self, event_type: &str) {
         self.record("event-handler", event_type);
     }
@@ -288,7 +284,6 @@ pub mod __private {
                 "node-type" => host.register_node_type.map(|f| f(ctx, name_ptr)),
                 "tool-type" => host.register_tool_type.map(|f| f(ctx, name_ptr)),
                 "llm-provider" => host.register_llm_provider.map(|f| f(ctx, name_ptr)),
-                "formatter" => host.register_formatter.map(|f| f(ctx, name_ptr)),
                 "event-handler" => host.register_event_handler.map(|f| f(ctx, name_ptr)),
                 "middleware" => host.register_middleware.map(|f| f(ctx, name_ptr, 0)),
                 _ => None,
@@ -536,6 +531,7 @@ mod tests {
                 config_schema: None,
                 config: None,
                 hooks: None,
+                llm_providers: vec![],
                 wasm: None,
             }
         }

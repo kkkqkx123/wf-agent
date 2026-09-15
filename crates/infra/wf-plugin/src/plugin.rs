@@ -33,4 +33,13 @@ pub trait Plugin: Send + Sync {
     ) -> PluginResult<()> {
         Ok(())
     }
+    /// Re-read the plugin's contribution declaration and adopt it when it
+    /// changed. Returns true when the engine should re-sync contributions
+    /// (unregister plus re-register). The default reports no change, so
+    /// backends with static declarations are unaffected; the engine calls
+    /// this after a successful config change and exposes it for explicit
+    /// refreshes.
+    async fn reload_declaration(&self) -> PluginResult<bool> {
+        Ok(false)
+    }
 }

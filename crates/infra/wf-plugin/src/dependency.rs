@@ -211,6 +211,7 @@ mod tests {
             config_schema: None,
             config: None,
             hooks: None,
+            llm_providers: vec![],
             wasm: None,
         }
     }

@@ -35,13 +35,17 @@ pub struct LlmProfileFilter {
 }
 
 /// Register a profile; errors with `AlreadyExists` when the id is taken.
+///
+/// Profiles with `provider_id` merge the referenced provider defaults
+/// once here and run the catalog assembly check (warn-only, backfills
+/// `context_window_size`).
 pub async fn create(ctx: &ApiContext, profile: &LlmProfile) -> ApiResult<()> {
-    let manager = ctx.llm_gateway.profile_registry();
-    if manager.has(&profile.id) {
+    if ctx.llm_gateway.profile_registry().has(&profile.id) {
         return Err(ApiError::already_exists("profile", &profile.id));
     }
     validate_profile(profile)?;
-    manager.register(profile.clone())?;
+    let assembled = super::llm_provider::assemble_check(ctx, profile).await;
+    ctx.llm_gateway.register_profile(assembled)?;
     Ok(())
 }
 
@@ -49,12 +53,12 @@ pub async fn create(ctx: &ApiContext, profile: &LlmProfile) -> ApiResult<()> {
 /// target id). The idiomatic update form: load, modify and pass the full
 /// record back.
 pub async fn update(ctx: &ApiContext, profile: &LlmProfile) -> ApiResult<()> {
-    let manager = ctx.llm_gateway.profile_registry();
-    if !manager.has(&profile.id) {
+    if !ctx.llm_gateway.profile_registry().has(&profile.id) {
         return Err(not_found("profile", &profile.id));
     }
     validate_profile(profile)?;
-    manager.register(profile.clone())?;
+    let assembled = super::llm_provider::assemble_check(ctx, profile).await;
+    ctx.llm_gateway.register_profile(assembled)?;
     Ok(())
 }
 

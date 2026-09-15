@@ -1,4 +1,4 @@
-use super::LlmFormatter;
+use super::LlmCodec;
 use crate::error::LlmResult;
 use reqwest::Method;
 use std::collections::HashMap;
@@ -6,7 +6,7 @@ use std::sync::Mutex;
 use wf_types::llm::{LlmProfile, LlmRequest, LlmResult as LlmResponseType, MessageStreamEvent};
 use wf_types::tool::Tool;
 
-pub struct OpenaiResponseFormatter {
+pub struct OpenaiResponseCodec {
     base_url: String,
     /// Maps streaming `item_id` to the accumulated tool call index so
     /// `function_call_arguments.delta` fragments land on the same call as the
@@ -15,13 +15,13 @@ pub struct OpenaiResponseFormatter {
     next_index: Mutex<usize>,
 }
 
-impl Default for OpenaiResponseFormatter {
+impl Default for OpenaiResponseCodec {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl OpenaiResponseFormatter {
+impl OpenaiResponseCodec {
     pub fn new() -> Self {
         Self {
             base_url: "https://api.openai.com/v1".to_string(),
@@ -175,7 +175,7 @@ impl OpenaiResponseFormatter {
     }
 }
 
-impl LlmFormatter for OpenaiResponseFormatter {
+impl LlmCodec for OpenaiResponseCodec {
     fn build_request(
         &self,
         request: &LlmRequest,
@@ -399,7 +399,7 @@ impl LlmFormatter for OpenaiResponseFormatter {
     }
 }
 
-impl OpenaiResponseFormatter {
+impl OpenaiResponseCodec {
     fn parse_response_inner(&self, body: &str) -> LlmResult<LlmResponseType> {
         let json: serde_json::Value = serde_json::from_str(body)?;
 
@@ -500,10 +500,10 @@ mod tests {
 
     #[test]
     fn function_call_arguments_delta_and_done_share_index() {
-        let formatter = OpenaiResponseFormatter::new();
+        let codec = OpenaiResponseCodec::new();
 
         let delta = r#"{"type":"response.function_call_arguments.delta","item_id":"fc_1","delta":"{\"city\":"}"#;
-        match formatter
+        match codec
             .parse_stream_chunk(delta)
             .expect("chunk must parse")
         {
@@ -516,7 +516,7 @@ mod tests {
         }
 
         let done = r#"{"type":"response.function_call.done","item":{"type":"function_call","id":"fc_1","name":"get_weather","arguments":"{\"city\":\"Beijing\"}"}}"#;
-        match formatter
+        match codec
             .parse_stream_chunk(done)
             .expect("chunk must parse")
         {
@@ -533,9 +533,9 @@ mod tests {
 
     #[test]
     fn stream_chunks_cover_text_completion_and_usage() {
-        let formatter = OpenaiResponseFormatter::new();
+        let codec = OpenaiResponseCodec::new();
 
-        match formatter
+        match codec
             .parse_stream_chunk(r#"{"type":"response.output_text.delta","delta":"Hello "}"#)
             .expect("text chunk parses")
         {
@@ -543,7 +543,7 @@ mod tests {
             other => panic!("expected Text, got {other:?}"),
         }
 
-        match formatter
+        match codec
             .parse_stream_chunk(
                 r#"{"type":"response.completed","response":{"status":"completed"},"usage":{"input_tokens":10,"output_tokens":5,"total_tokens":15,"output_tokens_details":{"reasoning_tokens":2},"input_tokens_details":{"cached_tokens":3}}}"#,
             )
@@ -559,7 +559,7 @@ mod tests {
             other => panic!("expected Usage, got {other:?}"),
         }
 
-        match formatter
+        match codec
             .parse_stream_chunk(r#"{"type":"response.completed"}"#)
             .expect("completed without usage parses")
         {
@@ -567,8 +567,8 @@ mod tests {
             other => panic!("expected End, got {other:?}"),
         }
 
-        assert!(formatter.parse_stream_chunk("").unwrap().is_none());
-        assert!(formatter
+        assert!(codec.parse_stream_chunk("").unwrap().is_none());
+        assert!(codec
             .parse_stream_chunk(r#"{"type":"unknown"}"#)
             .unwrap()
             .is_none());
@@ -576,13 +576,13 @@ mod tests {
 
     #[test]
     fn multiple_call_deltas_get_distinct_indices() {
-        let formatter = OpenaiResponseFormatter::new();
+        let codec = OpenaiResponseCodec::new();
         let chunk = |id: &str| {
             format!(
                 r#"{{"type":"response.function_call_arguments.delta","item_id":"{id}","delta":"x"}}"#
             )
         };
-        let i1 = match formatter
+        let i1 = match codec
             .parse_stream_chunk(&chunk("fc_a"))
             .unwrap()
             .unwrap()
@@ -590,7 +590,7 @@ mod tests {
             MessageStreamEvent::ToolCallDelta(d) => d.index,
             other => panic!("expected ToolCallDelta, got {other:?}"),
         };
-        let i2 = match formatter
+        let i2 = match codec
             .parse_stream_chunk(&chunk("fc_b"))
             .unwrap()
             .unwrap()
@@ -600,7 +600,7 @@ mod tests {
         };
         assert_ne!(i1, i2);
         // Repeating the same item_id keeps its index.
-        let again = match formatter
+        let again = match codec
             .parse_stream_chunk(&chunk("fc_a"))
             .unwrap()
             .unwrap()
@@ -613,7 +613,7 @@ mod tests {
 
     #[test]
     fn parse_response_extracts_text_output_and_usage() {
-        let formatter = OpenaiResponseFormatter::new();
+        let codec = OpenaiResponseCodec::new();
         let body = r#"{
             "id": "resp_1",
             "object": "response",
@@ -630,7 +630,7 @@ mod tests {
                 "input_tokens_details": {"cached_tokens": 5}
             }
         }"#;
-        let result = formatter
+        let result = codec
             .parse_response(
                 body,
                 &LlmRequest {
@@ -658,7 +658,7 @@ mod tests {
 
     #[test]
     fn parse_response_extracts_function_calls() {
-        let formatter = OpenaiResponseFormatter::new();
+        let codec = OpenaiResponseCodec::new();
         let body = r#"{
             "id": "resp_2",
             "object": "response",
@@ -669,7 +669,7 @@ mod tests {
                 {"type": "function_call", "id": "fc_7", "call_id": "call_7", "name": "get_weather", "arguments": "{\"city\":\"Beijing\"}"}
             ]
         }"#;
-        let result = formatter
+        let result = codec
             .parse_response(
                 body,
                 &LlmRequest {
@@ -696,9 +696,9 @@ mod tests {
 
     #[test]
     fn parse_response_tolerates_empty_output() {
-        let formatter = OpenaiResponseFormatter::new();
+        let codec = OpenaiResponseCodec::new();
         let body = r#"{"id":"resp_3","object":"response","model":"gpt-4o","status":"incomplete"}"#;
-        let result = formatter
+        let result = codec
             .parse_response(
                 body,
                 &LlmRequest {
@@ -786,8 +786,8 @@ mod tests {
 
     #[test]
     fn count_tokens_request_targets_input_tokens_endpoint() {
-        let formatter = OpenaiResponseFormatter::new();
-        let req = formatter
+        let codec = OpenaiResponseCodec::new();
+        let req = codec
             .build_count_tokens_request(&count_request(), &count_profile())
             .expect("count request must build")
             .expect("responses provider supports counting");
@@ -810,7 +810,7 @@ mod tests {
 
     #[test]
     fn count_tokens_body_carries_native_tools() {
-        let formatter = OpenaiResponseFormatter::new();
+        let codec = OpenaiResponseCodec::new();
         let mut req = count_request();
         req.tool_call_protocol = Some(wf_types::llm::ToolCallProtocol::Native);
         req.tools = Some(vec![serde_json::from_value(serde_json::json!({
@@ -822,7 +822,7 @@ mod tests {
             "enabled": true
         }))
         .unwrap()]);
-        let body = formatter
+        let body = codec
             .build_count_tokens_body(&req, &count_profile())
             .unwrap();
         assert_eq!(
@@ -833,7 +833,7 @@ mod tests {
 
     #[test]
     fn count_tokens_body_text_mode_inlines_tools_into_system() {
-        let formatter = OpenaiResponseFormatter::new();
+        let codec = OpenaiResponseCodec::new();
         let mut req = count_request();
         req.messages.insert(
             0,
@@ -861,7 +861,7 @@ mod tests {
             "enabled": true
         }))
         .unwrap()]);
-        let body = formatter
+        let body = codec
             .build_count_tokens_body(&req, &count_profile())
             .unwrap();
         assert!(
@@ -874,12 +874,12 @@ mod tests {
 
     #[test]
     fn count_tokens_response_parses_input_tokens() {
-        let formatter = OpenaiResponseFormatter::new();
+        let codec = OpenaiResponseCodec::new();
         let body: serde_json::Value =
             serde_json::from_str(r#"{"object":"response.input_tokens","input_tokens":13}"#)
                 .unwrap();
-        assert_eq!(formatter.parse_count_tokens_response(&body).unwrap(), 13);
+        assert_eq!(codec.parse_count_tokens_response(&body).unwrap(), 13);
         let empty: serde_json::Value = serde_json::from_str("{}").unwrap();
-        assert_eq!(formatter.parse_count_tokens_response(&empty).unwrap(), 0);
+        assert_eq!(codec.parse_count_tokens_response(&empty).unwrap(), 0);
     }
 }

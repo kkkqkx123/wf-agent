@@ -33,13 +33,16 @@ pub struct RestoredAgentLoop {
     pub source_checkpoint_id: String,
 }
 
-/// How a restored checkpoint may be used. Only branch continuation and
-/// read-only replay exist: restoring into the same execution id or
-/// truncating the source chain in place is rejected.
+/// How a restored checkpoint may be used. `Branch` continues under a fresh
+/// execution id (default, audit-friendly); `Replay` is read-only;
+/// `InPlace` continues under the source execution id (task-stable id,
+/// opt-in; the caller must ensure the source execution is terminal/paused
+/// so two writers never share one id).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RestoreMode {
     Branch,
     Replay,
+    InPlace,
 }
 
 pub struct AgentCheckpointIntegration {
@@ -198,9 +201,9 @@ impl AgentCheckpointIntegration {
     /// Restore a checkpointed agent loop into a branch-ready runtime state.
     /// The full conversation state (history, sequences, view, ledger,
     /// tracker) is rebuilt from the snapshot; legacy snapshots without
-    /// sequences or tracking state are backfilled deterministically. The
-    /// caller must start a new execution id (branch); reusing the source
-    /// execution id is rejected at the coordinator layer.
+    /// sequences or tracking state are backfilled deterministically. Branch
+    /// callers must start a new execution id; in-place callers reuse
+    /// `agent_loop_id` via `RestoreMode::InPlace` (see lifecycle resume).
     pub async fn restore_entity(
         &self,
         checkpoint_id: &str,

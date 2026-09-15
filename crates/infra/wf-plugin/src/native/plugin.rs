@@ -95,7 +95,6 @@ impl Plugin for NativePlugin {
             register_node_type: Some(ffi_register_node_type),
             register_tool_type: Some(ffi_register_tool_type),
             register_llm_provider: Some(ffi_register_llm_provider),
-            register_formatter: Some(ffi_register_formatter),
             register_event_handler: Some(ffi_register_event_handler),
             register_middleware: Some(ffi_register_middleware),
         };
@@ -210,6 +209,9 @@ fn call_hook_fn(
     }
 }
 
+/// Maximum codec dispatch output buffer after expansion retries.
+const DISPATCH_MAX_BYTES: usize = 4 * 1024 * 1024;
+
 fn dispatch_call(
     dispatch: Option<DispatchFn>,
     handler_type: &str,
@@ -220,39 +222,55 @@ fn dispatch_call(
         Some(f) => f,
         None => {
             return Err(PluginError::NativeError(format!(
-                "native plugin '{}' does not export wf_plugin_dispatch_handler",
-                handler_name
+                "native plugin '{handler_name}' does not export wf_plugin_dispatch_handler"
             )))
         }
     };
 
     let c_type = CString::new(handler_type)
-        .map_err(|e| PluginError::NativeError(format!("CString error: {}", e)))?;
+        .map_err(|e| PluginError::NativeError(format!("CString error: {e}")))?;
     let c_name = CString::new(handler_name)
-        .map_err(|e| PluginError::NativeError(format!("CString error: {}", e)))?;
+        .map_err(|e| PluginError::NativeError(format!("CString error: {e}")))?;
     let c_input = CString::new(input_json)
-        .map_err(|e| PluginError::NativeError(format!("CString error: {}", e)))?;
+        .map_err(|e| PluginError::NativeError(format!("CString error: {e}")))?;
 
-    let mut buf: Vec<u8> = vec![0u8; 65536];
-    let mut written: usize = buf.len();
+    // Output buffer with expansion retry: the guest reports `2` with the
+    // required size in `written` when the buffer is too small, so grow and
+    // retry instead of truncating structured codec payloads.
+    let mut capacity: usize = 65536;
+    loop {
+        let mut buf: Vec<u8> = vec![0u8; capacity];
+        let mut written: usize = buf.len();
 
-    let result = func(
-        c_type.as_ptr(),
-        c_name.as_ptr(),
-        c_input.as_ptr(),
-        buf.as_mut_ptr(),
-        &mut written as *mut usize,
-    );
+        let result = func(
+            c_type.as_ptr(),
+            c_name.as_ptr(),
+            c_input.as_ptr(),
+            buf.as_mut_ptr(),
+            &mut written as *mut usize,
+        );
 
-    if result != 0 {
-        return Err(PluginError::NativeError(format!(
-            "dispatch '{}' failed for '{}'",
-            handler_type, handler_name
-        )));
+        if result == 2 {
+            // Guest needs `written` bytes; grow (at least double for
+            // races) and retry up to the cap.
+            let needed = written.max(capacity.saturating_mul(2));
+            if needed > DISPATCH_MAX_BYTES {
+                return Err(PluginError::NativeError(format!(
+                    "dispatch '{handler_type}' for '{handler_name}' exceeds {DISPATCH_MAX_BYTES} bytes"
+                )));
+            }
+            capacity = needed;
+            continue;
+        }
+        if result != 0 {
+            return Err(PluginError::NativeError(format!(
+                "dispatch '{handler_type}' failed for '{handler_name}'"
+            )));
+        }
+
+        buf.truncate(written.min(buf.len()));
+        return Ok(buf);
     }
-
-    buf.truncate(written);
-    Ok(buf)
 }
 
 // ============================================================
@@ -311,27 +329,7 @@ extern "C" fn ffi_register_llm_provider(
     let dispatch = registrar_ctx.dispatch;
     let result = registrar_ctx.registrar.register_llm_provider(
         &name_str.clone(),
-        Arc::new(NativeLlmFormatter {
-            name: name_str,
-            dispatch,
-        }),
-    );
-    registrar_ctx.record(result)
-}
-
-extern "C" fn ffi_register_formatter(
-    ctx_ptr: *mut std::ffi::c_void,
-    name: *const std::os::raw::c_char,
-) -> i32 {
-    if ctx_ptr.is_null() || name.is_null() {
-        return 1;
-    }
-    let registrar_ctx = unsafe { registrar_from_ctx(ctx_ptr) };
-    let name_str = unsafe { ptr_to_string(name) };
-    let dispatch = registrar_ctx.dispatch;
-    let result = registrar_ctx.registrar.register_formatter(
-        &name_str.clone(),
-        Arc::new(NativeLlmFormatter {
+        Arc::new(NativeLlmCodec {
             name: name_str,
             dispatch,
         }),
@@ -395,9 +393,74 @@ pub struct NativeToolExecutor {
     dispatch: Option<DispatchFn>,
 }
 
-pub struct NativeLlmFormatter {
+pub struct NativeLlmCodec {
     name: String,
     dispatch: Option<DispatchFn>,
+}
+
+impl NativeLlmCodec {
+    /// Structured codec round-trip over the dispatch channel: the op
+    /// selects the codec function (`build_request`, `parse_response`,
+    /// ...) and the JSON input carries the structured arguments. The
+    /// guest answers with JSON decoded into `T`.
+    fn roundtrip<T: serde::de::DeserializeOwned>(&self, op: &str, input: Value) -> PluginResult<T> {
+        let input_json = serde_json::to_string(&input)
+            .map_err(|e| PluginError::NativeError(format!("serialize codec input: {e}")))?;
+        let output = dispatch_call(
+            self.dispatch,
+            "llm-codec",
+            &format!("{}/{op}", self.name),
+            &input_json,
+        )?;
+        serde_json::from_slice::<T>(&output)
+            .map_err(|e| PluginError::NativeError(format!("deserialize codec {op}: {e}")))
+    }
+}
+
+impl PluginLlmCodec for NativeLlmCodec {
+    fn build_request(&self, request: Value, profile: Value) -> PluginResult<CodecHttpRequest> {
+        self.roundtrip(
+            "build_request",
+            serde_json::json!({"request": request, "profile": profile}),
+        )
+    }
+
+    fn parse_response(&self, body: &str, request: Value) -> PluginResult<Value> {
+        self.roundtrip(
+            "parse_response",
+            serde_json::json!({"body": body, "request": request}),
+        )
+    }
+
+    fn parse_stream_chunk(&self, chunk: &str) -> PluginResult<Option<Value>> {
+        self.roundtrip("parse_stream_chunk", serde_json::json!({"chunk": chunk}))
+    }
+
+    fn convert_tools(&self, tools: Value) -> PluginResult<Value> {
+        self.roundtrip("convert_tools", serde_json::json!({"tools": tools}))
+    }
+
+    fn parse_tool_calls(&self, result: Value) -> PluginResult<Value> {
+        self.roundtrip("parse_tool_calls", serde_json::json!({"result": result}))
+    }
+
+    fn build_count_tokens_request(
+        &self,
+        request: Value,
+        profile: Value,
+    ) -> PluginResult<Option<CodecHttpRequest>> {
+        self.roundtrip(
+            "build_count_tokens_request",
+            serde_json::json!({"request": request, "profile": profile}),
+        )
+    }
+
+    fn parse_count_tokens_response(&self, body: Value) -> PluginResult<u32> {
+        self.roundtrip(
+            "parse_count_tokens_response",
+            serde_json::json!({"body": body}),
+        )
+    }
 }
 
 pub struct NativeEventHandler {
@@ -428,17 +491,6 @@ impl PluginToolExecutor for NativeToolExecutor {
             .map_err(|e| PluginError::NativeError(format!("serialize ctx: {}", e)))?;
         let output = dispatch_call(self.dispatch, "tool", &self.type_name, &input_json)?;
         serde_json::from_slice::<PluginToolResult>(&output)
-            .map_err(|e| PluginError::NativeError(format!("deserialize result: {}", e)))
-    }
-}
-
-#[async_trait]
-impl PluginLlmFormatter for NativeLlmFormatter {
-    async fn format(&self, request: PluginLlmRequest) -> PluginResult<PluginLlmResponse> {
-        let input_json = serde_json::to_string(&request)
-            .map_err(|e| PluginError::NativeError(format!("serialize request: {}", e)))?;
-        let output = dispatch_call(self.dispatch, "llm", &self.name, &input_json)?;
-        serde_json::from_slice::<PluginLlmResponse>(&output)
             .map_err(|e| PluginError::NativeError(format!("deserialize result: {}", e)))
     }
 }

@@ -5,7 +5,7 @@ use wf_types::tool::Tool;
 use crate::tool_call_parser::{ParseFormat, ToolCallParseOptions};
 
 /// Tool format template set.
-pub struct ToolFormatTemplateSet {
+pub struct ToolProtocolTemplateSet {
     pub list_template: &'static str,
     pub single_template: &'static str,
     pub parameter_template: &'static str,
@@ -82,32 +82,35 @@ const TOOL_RAW_COMPACT_TEMPLATE: &str =
     "{name}: {description}\nParameters (JSON Schema):\n{parameters}";
 
 /// Get the appropriate template set for a tool call format.
-pub fn get_tool_format_templates(format: ToolCallProtocol, compact: bool) -> ToolFormatTemplateSet {
+pub fn get_tool_protocol_templates(
+    format: ToolCallProtocol,
+    compact: bool,
+) -> ToolProtocolTemplateSet {
     match format {
-        ToolCallProtocol::Native => ToolFormatTemplateSet {
+        ToolCallProtocol::Native => ToolProtocolTemplateSet {
             list_template: TOOLS_RAW_LIST_TEMPLATE,
             single_template: TOOL_RAW_FORMAT_TEMPLATE,
             parameter_template: TOOL_RAW_PARAMETER_LINE_TEMPLATE,
         },
-        ToolCallProtocol::Xml => ToolFormatTemplateSet {
+        ToolCallProtocol::Xml => ToolProtocolTemplateSet {
             list_template: TOOLS_XML_LIST_TEMPLATE,
             single_template: TOOL_XML_FORMAT_TEMPLATE,
             parameter_template: TOOL_XML_PARAMETER_LINE_TEMPLATE,
         },
-        ToolCallProtocol::JsonWrapped => ToolFormatTemplateSet {
+        ToolCallProtocol::JsonWrapped => ToolProtocolTemplateSet {
             list_template: TOOLS_JSON_LIST_TEMPLATE,
             single_template: TOOL_JSON_FORMAT_TEMPLATE,
             parameter_template: TOOL_JSON_PARAMETER_LINE_TEMPLATE,
         },
         ToolCallProtocol::JsonRaw => {
             if compact {
-                ToolFormatTemplateSet {
+                ToolProtocolTemplateSet {
                     list_template: TOOLS_RAW_COMPACT_LIST_TEMPLATE,
                     single_template: TOOL_RAW_COMPACT_TEMPLATE,
                     parameter_template: TOOL_RAW_PARAMETER_LINE_TEMPLATE,
                 }
             } else {
-                ToolFormatTemplateSet {
+                ToolProtocolTemplateSet {
                     list_template: TOOLS_RAW_LIST_TEMPLATE,
                     single_template: TOOL_RAW_FORMAT_TEMPLATE,
                     parameter_template: TOOL_RAW_PARAMETER_LINE_TEMPLATE,
@@ -199,9 +202,9 @@ You can use multiple tools in one response by including multiple blocks."#
 
 /// Render a single tool declaration.
 pub fn render_tool_declaration(tool: &Tool, format: ToolCallProtocol, compact: bool) -> String {
-    let templates = get_tool_format_templates(format.clone(), compact);
+    let templates = get_tool_protocol_templates(format.clone(), compact);
 
-    let parameters = render_parameters(tool, format.clone(), templates.parameter_template, compact);
+    let parameters = render_parameters(tool, templates.parameter_template, compact);
 
     templates
         .single_template
@@ -211,12 +214,7 @@ pub fn render_tool_declaration(tool: &Tool, format: ToolCallProtocol, compact: b
 }
 
 /// Render tool parameters.
-fn render_parameters(
-    tool: &Tool,
-    _format: ToolCallProtocol,
-    parameter_template: &str,
-    compact: bool,
-) -> String {
+fn render_parameters(tool: &Tool, parameter_template: &str, compact: bool) -> String {
     if compact {
         return tool
             .parameters
@@ -258,7 +256,7 @@ pub fn render_tool_list_description(
     format: ToolCallProtocol,
     compact: bool,
 ) -> String {
-    let templates = get_tool_format_templates(format.clone(), compact);
+    let templates = get_tool_protocol_templates(format.clone(), compact);
     let tool_str = tools
         .iter()
         .map(|t| render_tool_declaration(t, format.clone(), compact))
@@ -294,6 +292,9 @@ pub fn build_text_mode_system_content(
 }
 
 /// Extract the system message content from messages and filter out system messages.
+///
+/// When several system messages exist only the last one is kept; the rest are
+/// dropped along with the system role itself.
 pub fn extract_system_message(messages: &[Message]) -> (Option<String>, Vec<Message>) {
     let mut system_content = None;
     let mut filtered = Vec::new();
@@ -301,11 +302,7 @@ pub fn extract_system_message(messages: &[Message]) -> (Option<String>, Vec<Mess
     for msg in messages {
         match msg.role {
             wf_types::message::MessageRole::System => {
-                if let Some(text) = Some(crate::message_helper::extract_text_content(msg)) {
-                    system_content = Some(text);
-                } else {
-                    system_content = Some(String::new());
-                }
+                system_content = Some(crate::message_helper::extract_text_content(msg));
             }
             _ => filtered.push(msg.clone()),
         }
@@ -360,17 +357,17 @@ mod tests {
             (ToolCallProtocol::JsonWrapped, "## Available Tools"),
             (ToolCallProtocol::JsonRaw, "Available Tools:"),
         ] {
-            let templates = get_tool_format_templates(format.clone(), false);
+            let templates = get_tool_protocol_templates(format.clone(), false);
             assert!(
                 templates.list_template.contains(expected_list),
                 "format {format:?}"
             );
         }
-        let compact = get_tool_format_templates(ToolCallProtocol::JsonRaw, true);
+        let compact = get_tool_protocol_templates(ToolCallProtocol::JsonRaw, true);
         assert!(compact.list_template.starts_with("Available tools:"));
         assert!(compact.single_template.starts_with("{name}:"));
         // Compact only affects JsonRaw; the others keep the full templates.
-        assert!(get_tool_format_templates(ToolCallProtocol::Xml, true)
+        assert!(get_tool_protocol_templates(ToolCallProtocol::Xml, true)
             .list_template
             .contains("## Available Tools"));
     }
@@ -434,7 +431,7 @@ mod tests {
 
     #[test]
     fn xml_list_template_matches_usage_instructions() {
-        let list = get_tool_format_templates(ToolCallProtocol::Xml, false)
+        let list = get_tool_protocol_templates(ToolCallProtocol::Xml, false)
             .list_template
             .to_string();
         let instructions = get_tool_usage_instructions(ToolCallProtocol::Xml);

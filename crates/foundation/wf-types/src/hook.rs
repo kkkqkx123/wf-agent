@@ -181,6 +181,12 @@ pub struct CanonicalHookSpec {
     pub priority: i32,
     pub payload: Option<serde_json::Value>,
     pub handler: Option<String>,
+    /// Opt-in checkpoint mark: when `Some(true)` the engine creates a
+    /// strategy-gated checkpoint after the hook fires. Carried end to end
+    /// from config forms into the executable definition; `None`/false
+    /// means no checkpoint request.
+    pub create_checkpoint: Option<bool>,
+    pub checkpoint_description: Option<String>,
 }
 
 impl CanonicalHookSpec {
@@ -201,6 +207,8 @@ impl CanonicalHookSpec {
             priority,
             payload,
             handler,
+            create_checkpoint: None,
+            checkpoint_description: None,
         }
     }
 
@@ -219,6 +227,8 @@ impl CanonicalHookSpec {
             priority: config.priority.unwrap_or(0),
             payload: config.event_payload.clone(),
             handler: config.handler.clone(),
+            create_checkpoint: config.create_checkpoint,
+            checkpoint_description: config.checkpoint_description.clone(),
         }
     }
 
@@ -232,6 +242,8 @@ impl CanonicalHookSpec {
             priority: config.priority.unwrap_or(0),
             payload: config.event_payload.clone(),
             handler: config.handler.clone(),
+            create_checkpoint: config.create_checkpoint,
+            checkpoint_description: config.checkpoint_description.clone(),
         }
     }
 
@@ -244,6 +256,8 @@ impl CanonicalHookSpec {
             priority: config.priority.unwrap_or(0),
             payload: config.event_payload.clone(),
             handler: config.handler.clone(),
+            create_checkpoint: config.create_checkpoint,
+            checkpoint_description: config.checkpoint_description.clone(),
         }
     }
 }
@@ -418,6 +432,8 @@ mod tests {
             priority: 7,
             payload: Some(serde_json::json!({"k": 1})),
             handler: Some("h".to_string()),
+            create_checkpoint: None,
+            checkpoint_description: None,
         };
         assert_eq!(CanonicalHookSpec::from_workflow(&workflow), expected);
         assert_eq!(CanonicalHookSpec::from_static(&static_form), expected);

@@ -329,6 +329,8 @@ mod tests {
                 enabled: true,
                 payload: None,
                 handler: Some("ready".to_string()),
+                create_checkpoint: None,
+                checkpoint_description: None,
             },
             HookDefinition {
                 id: "2".to_string(),
@@ -338,6 +340,8 @@ mod tests {
                 enabled: true,
                 payload: None,
                 handler: Some("typo-handler".to_string()),
+                create_checkpoint: None,
+                checkpoint_description: None,
             },
             HookDefinition {
                 id: "3".to_string(),
@@ -347,6 +351,8 @@ mod tests {
                 enabled: true,
                 payload: None,
                 handler: Some("typo-handler".to_string()),
+                create_checkpoint: None,
+                checkpoint_description: None,
             },
         ];
         assert_eq!(

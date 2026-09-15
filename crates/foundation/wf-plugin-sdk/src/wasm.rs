@@ -1,13 +1,11 @@
 //! Wasm plugin guest contract v1 (author- and host-visible).
 //!
-//! The contract mirrors the native C ABI v1 contribution model but uses
-//! linear-memory string passing instead of C pointers: the guest exports a
-//! `memory`, an `alloc` bump allocator, and a fixed set of `wf_*` functions.
-//! JSON is the only data encoding, so guests in any language can implement
-//! the contract without shared bindings.
-//!
-//! Long-term direction is a `wf:plugin/plugin` WIT world; until then this
-//! core-module contract is the stable surface.
+//! The contract has two guest surfaces with identical contribution
+//! semantics: the core-module `wf_*` export contract below (linear-memory
+//! string passing) and the component-model `wf:plugin/plugin` WIT world
+//! (`crates/infra/wf-plugin/wit/plugin.wit`, WASI p2 context). JSON is the
+//! only data encoding on both paths, so guests in any language can
+//! implement the contract without shared bindings.
 //!
 //! Middleware guests answer a dispatch with either a JSON boolean (legacy:
 //! continue or stop, context unchanged) or an envelope object
@@ -19,7 +17,8 @@
 /// mismatch as a load failure.
 pub const WF_WASM_ABI_VERSION: u32 = 1;
 
-/// Reserved WIT world name for the future component-model contract.
+/// WIT world implemented by the component-model host
+/// (`wasm/component.rs` against `wit/plugin.wit`).
 pub const WF_WASM_WORLD: &str = "wf:plugin/plugin";
 
 /// Guest export names. `MEMORY` and `ALLOC` are required; `DEALLOC` is
@@ -85,8 +84,6 @@ pub struct WasmContributionDecl {
     pub tool_types: Vec<String>,
     #[serde(default)]
     pub llm_providers: Vec<String>,
-    #[serde(default)]
-    pub formatters: Vec<String>,
     #[serde(default)]
     pub event_handlers: Vec<String>,
     #[serde(default)]

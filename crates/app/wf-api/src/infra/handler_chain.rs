@@ -45,14 +45,9 @@ pub trait PluginHandlerSource: Send + Sync {
     }
 
     /// Names of plugin-contributed LLM providers (backing
-    /// `LlmFormat::Custom(name)` resolution through the host formatter
+    /// `LlmFormat::Custom(name)` resolution through the host codec
     /// registry once bridged).
     fn llm_provider_names(&self) -> Vec<String> {
-        Vec::new()
-    }
-
-    /// Names of plugin-contributed message formatters.
-    fn formatter_names(&self) -> Vec<String> {
         Vec::new()
     }
 

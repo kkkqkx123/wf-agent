@@ -200,6 +200,8 @@ mod tests {
             enabled,
             payload: None,
             handler: None,
+            create_checkpoint: None,
+            checkpoint_description: None,
         }
     }
 

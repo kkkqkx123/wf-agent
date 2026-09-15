@@ -688,6 +688,8 @@ mod tests {
                 enabled: true,
                 payload: None,
                 handler: None,
+                create_checkpoint: None,
+                checkpoint_description: None,
             },
             HookDefinition {
                 id: "h-after".to_string(),
@@ -697,6 +699,8 @@ mod tests {
                 enabled: true,
                 payload: None,
                 handler: None,
+                create_checkpoint: None,
+                checkpoint_description: None,
             },
         ];
 
@@ -799,6 +803,8 @@ mod tests {
             enabled: true,
             payload: None,
             handler: None,
+            create_checkpoint: None,
+            checkpoint_description: None,
         })
         .collect();
 

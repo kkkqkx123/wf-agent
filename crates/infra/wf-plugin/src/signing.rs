@@ -97,6 +97,48 @@ impl SignatureStatus {
     }
 }
 
+/// Apply `trust` to one verification outcome. `Valid` passes; `Unsigned`
+/// and `Invalid` reject in `Enforcing` mode and warn-and-continue in
+/// `Permissive` mode. `action` names the ongoing operation for the warning
+/// (e.g. "installing", "loading"). Shared by package installation and
+/// opt-in verified loads so both layers enforce identical semantics.
+pub fn enforce_signature(
+    plugin_id: &str,
+    artifact: &Path,
+    status: &SignatureStatus,
+    trust: &TrustedKeys,
+    action: &str,
+) -> PluginResult<()> {
+    match status {
+        SignatureStatus::Valid { key } => {
+            tracing::info!("plugin '{plugin_id}' signature valid (signer {key})");
+            Ok(())
+        }
+        SignatureStatus::Unsigned => {
+            let msg = format!(
+                "plugin '{plugin_id}' has no signature for '{}'",
+                artifact.display()
+            );
+            if trust.mode() == Enforcement::Enforcing {
+                return Err(PluginError::LoadFailed(msg));
+            }
+            tracing::warn!("{msg}; {action} without verification");
+            Ok(())
+        }
+        SignatureStatus::Invalid { reason } => {
+            let msg = format!(
+                "plugin '{plugin_id}' signature invalid for '{}': {reason}",
+                artifact.display()
+            );
+            if trust.mode() == Enforcement::Enforcing {
+                return Err(PluginError::LoadFailed(msg));
+            }
+            tracing::warn!("{msg}; {action} without verification");
+            Ok(())
+        }
+    }
+}
+
 /// Publisher-side keypair. Serialize the bytes with your own secret
 /// management; the host API only accepts public keys.
 pub struct SigningKeypair {

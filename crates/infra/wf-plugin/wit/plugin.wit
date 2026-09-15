@@ -36,14 +36,15 @@ interface contributions {
         node-types: list<string>,
         tool-types: list<string>,
         llm-providers: list<string>,
-        formatters: list<string>,
         event-handlers: list<string>,
         middleware: list<middleware-decl>,
     }
 
     register: func() -> declaration;
 
-    /// Single dispatch entry, mirroring `wf_dispatch` today.
+    /// Single dispatch entry, mirroring `wf_dispatch` today. Payloads stay
+    /// JSON strings by design (cross-language guests, small control docs);
+    /// structured payloads would be a breaking contract upgrade.
     dispatch: func(
         handler-type: string,
         handler-name: string,

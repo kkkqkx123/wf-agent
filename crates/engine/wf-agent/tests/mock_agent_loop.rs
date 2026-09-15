@@ -7,6 +7,7 @@ use std::sync::Arc;
 use futures::StreamExt;
 use wf_agent::coordinator::lifecycle::AgentLoopCoordinator;
 use wf_llm::{LlmError, LlmGateway, LlmResponseSpec, MockLlmClient};
+use wf_storage::backend::StorageBackend;
 use wf_tools::callback::{AgentLoopConfig, AgentLoopInput};
 use wf_tools::registry::ToolRegistry;
 use wf_types::message::{LlmFunctionCall, LlmToolCall, Message, MessageContentValue, MessageRole};
@@ -669,7 +670,7 @@ async fn resume_from_checkpoint_replays_idempotent_tool_calls() {
     mock.script(LlmResponseSpec::text("recovered"));
 
     let output = coordinator
-        .resume_from_checkpoint(&meta.id, config(5), input("continue"))
+        .resume_from_checkpoint_in_place(&meta.id, config(5), input("continue"))
         .await
         .unwrap();
     assert_eq!(output.result, serde_json::json!("recovered"));
@@ -681,5 +682,333 @@ async fn resume_from_checkpoint_replays_idempotent_tool_calls() {
         echo_runs.load(Ordering::SeqCst),
         1,
         "replayed tool call served from the idempotency cache, not re-executed"
+    );
+}
+
+#[tokio::test]
+async fn checkpoint_message_interval_produces_interval_checkpoints() {
+    use wf_checkpoint::state::agent::AgentCheckpointStateManager;
+    use wf_checkpoint::state::CheckpointStateManager;
+
+    // Message backstop path: no explicit strategy is configured, so the
+    // run-level `checkpoint_message_interval` alone must derive a strategy
+    // that emits `Interval` checkpoints as the conversation grows.
+    let store = Arc::new(StorageBackend::new_memory());
+    let mock = Arc::new(MockLlmClient::new());
+    mock.script(LlmResponseSpec::text("final answer"));
+
+    let coordinator =
+        AgentLoopCoordinator::with_store(gateway_with(mock), registry_with_echo(), store.clone())
+            .with_agent_loop_id(wf_types::Id::from("interval-loop"));
+
+    let mut cfg = config(5);
+    cfg.checkpoint_message_interval = Some(2);
+    let output = coordinator
+        .execute(cfg, input("keep talking"))
+        .await
+        .unwrap();
+    assert_eq!(output.result, serde_json::json!("final answer"));
+
+    let sm = AgentCheckpointStateManager::new(store.clone());
+    let all = sm.list_by_entity("interval-loop").await.unwrap();
+    assert!(!all.is_empty(), "interval run must persist checkpoints");
+    let mut saw_interval = false;
+    for meta in &all {
+        let cp = sm
+            .load(&meta.id)
+            .await
+            .unwrap()
+            .expect("listed checkpoint blob must load");
+        let tags = cp
+            .metadata
+            .as_ref()
+            .and_then(|m| m.get("tags"))
+            .and_then(|t| t.as_array())
+            .cloned()
+            .unwrap_or_default();
+        if tags.iter().any(|t| t.as_str() == Some("trigger:INTERVAL")) {
+            saw_interval = true;
+            break;
+        }
+    }
+    assert!(
+        saw_interval,
+        "expected an Interval checkpoint among {} checkpoints",
+        all.len()
+    );
+
+    // Control: with no checkpoint configuration at all the run stays
+    // checkpoint-free (the previous zero-checkpoint default is preserved).
+    let plain_store = Arc::new(StorageBackend::new_memory());
+    let plain_mock = Arc::new(MockLlmClient::new());
+    plain_mock.script(LlmResponseSpec::text("final answer"));
+    let plain = AgentLoopCoordinator::with_store(
+        gateway_with(plain_mock),
+        registry_with_echo(),
+        plain_store.clone(),
+    );
+    let plain_output = plain.execute(config(5), input("quiet run")).await.unwrap();
+    let plain_sm = AgentCheckpointStateManager::new(plain_store);
+    assert_eq!(
+        plain_sm
+            .count_by_entity(&plain_output.agent_loop_id)
+            .await
+            .unwrap(),
+        0,
+        "unconfigured runs must not persist checkpoints"
+    );
+}
+
+/// Fire `AFTER_ITERATION` on a bare entity carrying a single hook with the
+/// given checkpoint opt-in; returns the entity's checkpoint count after
+/// the fire. Drives `fire_agent_point_with_checkpoint` directly so the
+/// opt-in gate is isolated from the per-iteration `AfterExecute`
+/// checkpoint the execution coordinator takes on its own.
+async fn fire_after_iteration_with_opt_in(
+    store: Arc<StorageBackend>,
+    loop_id: &str,
+    create_checkpoint: Option<bool>,
+) -> u64 {
+    use wf_agent::checkpoint::AgentCheckpointIntegration;
+    use wf_agent::entity::AgentLoopEntity;
+    use wf_agent::hook::AgentHookEmitter;
+    use wf_agent::AgentCheckpointStrategy;
+    use wf_checkpoint::state::agent::AgentCheckpointStateManager;
+    use wf_checkpoint::state::CheckpointStateManager;
+    use wf_execution_shared::hooks::types::HookDefinition;
+
+    let entity =
+        AgentLoopEntity::new(wf_types::Id::from(loop_id)).with_hooks(vec![HookDefinition {
+            id: "hook-1".to_string(),
+            hook_type: "AFTER_ITERATION".to_string(),
+            priority: 0,
+            condition: None,
+            enabled: true,
+            payload: None,
+            handler: None,
+            create_checkpoint,
+            checkpoint_description: None,
+        }]);
+    let cp = AgentCheckpointIntegration::new(store.clone())
+        .with_strategy(AgentCheckpointStrategy::every_iteration());
+    AgentHookEmitter::fire_agent_point_with_checkpoint(
+        &entity,
+        "AFTER_ITERATION",
+        std::collections::HashMap::new(),
+        None,
+        None,
+        Some(&cp),
+    )
+    .await;
+    AgentCheckpointStateManager::new(store)
+        .count_by_entity(loop_id)
+        .await
+        .unwrap()
+}
+
+#[tokio::test]
+async fn hook_create_checkpoint_persists_after_iteration() {
+    // Opt-in gate, isolated: only `create_checkpoint: Some(true)` persists.
+    let store = Arc::new(StorageBackend::new_memory());
+    assert_eq!(
+        fire_after_iteration_with_opt_in(store.clone(), "hook-fire", Some(true)).await,
+        1,
+        "opted-in hook fire must persist exactly one gated checkpoint"
+    );
+    let plain_store = Arc::new(StorageBackend::new_memory());
+    assert_eq!(
+        fire_after_iteration_with_opt_in(plain_store, "hook-quiet", None).await,
+        0,
+        "hook fire without the opt-in must persist nothing"
+    );
+
+    // End-to-end wiring: the `HookConfig` opt-in survives config parsing,
+    // `build_entity` and the iteration loop, and lands a checkpoint.
+    let e2e_store = Arc::new(StorageBackend::new_memory());
+    let mock = Arc::new(MockLlmClient::new());
+    mock.script(LlmResponseSpec::text("done"));
+    let coordinator = AgentLoopCoordinator::with_store(
+        gateway_with(mock),
+        registry_with_echo(),
+        e2e_store.clone(),
+    )
+    .with_agent_loop_id(wf_types::Id::from("hook-loop"))
+    .with_checkpoint_strategy(wf_agent::AgentCheckpointStrategy::every_iteration());
+    let mut cfg = config(5);
+    cfg.hooks.push(wf_tools::callback::HookConfig {
+        hook_type: "AFTER_ITERATION".to_string(),
+        condition: None,
+        enabled: true,
+        priority: 0,
+        payload: None,
+        handler: None,
+        create_checkpoint: Some(true),
+        checkpoint_description: None,
+    });
+    let output = coordinator.execute(cfg, input("hook run")).await.unwrap();
+    assert_eq!(output.agent_loop_id, "hook-loop");
+    assert!(
+        {
+            use wf_checkpoint::state::agent::AgentCheckpointStateManager;
+            use wf_checkpoint::state::CheckpointStateManager;
+            AgentCheckpointStateManager::new(e2e_store)
+                .count_by_entity("hook-loop")
+                .await
+                .unwrap()
+        } >= 1,
+        "hook-requested checkpoint must persist after iteration"
+    );
+}
+
+#[tokio::test]
+async fn in_place_resume_continues_under_source_execution_id() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    use wf_agent::AgentCheckpointStrategy;
+    use wf_checkpoint::state::agent::AgentCheckpointStateManager;
+    use wf_checkpoint::state::CheckpointStateManager;
+    use wf_types::Id;
+
+    // Same interrupted-run setup as the idempotency test above.
+    let registry = Arc::new(ToolRegistry::new());
+    let echo_runs = Arc::new(AtomicUsize::new(0));
+    let counter = echo_runs.clone();
+    registry.register_stateless_handler(
+        "echo",
+        Arc::new(move |params, _ctx| {
+            counter.fetch_add(1, Ordering::SeqCst);
+            Ok(serde_json::json!({
+                "echoed": params.get("text").cloned().unwrap_or(serde_json::Value::Null)
+            }))
+        }),
+    );
+    registry.register_tool(wf_types::tool::Tool {
+        id: "echo".to_string(),
+        name: "echo".to_string(),
+        description: "Echo the given text back".to_string(),
+        tool_type: wf_types::tool::ToolType::Stateless,
+        parameters: None,
+        metadata: None,
+        config: None,
+        enabled: Some(true),
+        strict: None,
+        default_timeout_ms: None,
+    });
+
+    let store = Arc::new(StorageBackend::new_memory());
+    let mock = Arc::new(MockLlmClient::new());
+    mock.script(LlmResponseSpec::tool_calls(vec![tool_call(
+        "call_1",
+        "echo",
+        r#"{"text":"ping"}"#,
+    )]));
+    mock.script_error(LlmError::AuthError("interrupted".to_string()));
+
+    let coordinator = AgentLoopCoordinator::with_store(
+        gateway_with(mock.clone()),
+        registry.clone(),
+        store.clone(),
+    )
+    .with_agent_loop_id(Id::from("inplace-loop"))
+    .with_checkpoint_strategy(AgentCheckpointStrategy::from_agent_config(
+        1, true, false, false, None,
+    ));
+
+    let err = coordinator
+        .execute(config(5), input("first run"))
+        .await
+        .unwrap_err();
+    assert!(
+        err.to_string().contains("interrupted"),
+        "first run must be interrupted: {err}"
+    );
+
+    let sm = AgentCheckpointStateManager::new(store.clone());
+    let meta = sm
+        .get_latest("inplace-loop")
+        .await
+        .unwrap()
+        .expect("interrupted run left a checkpoint");
+    let count_before = sm.count_by_entity("inplace-loop").await.unwrap();
+
+    // In-place resume continues under the source id and appends new
+    // checkpoints to the same partition (no branch, no fresh id).
+    mock.script(LlmResponseSpec::tool_calls(vec![tool_call(
+        "call_1",
+        "echo",
+        r#"{"text":"ping"}"#,
+    )]));
+    mock.script(LlmResponseSpec::text("recovered"));
+    let output = coordinator
+        .resume_from_checkpoint_in_place(&meta.id, config(5), input("continue"))
+        .await
+        .unwrap();
+    assert_eq!(output.agent_loop_id, "inplace-loop");
+    assert_eq!(output.result, serde_json::json!("recovered"));
+    assert_eq!(
+        echo_runs.load(Ordering::SeqCst),
+        1,
+        "replayed tool call served from the idempotency cache, not re-executed"
+    );
+    let count_after = sm.count_by_entity("inplace-loop").await.unwrap();
+    assert!(
+        count_after > count_before,
+        "in-place resume must append checkpoints under the source id"
+    );
+    let latest = sm
+        .get_latest("inplace-loop")
+        .await
+        .unwrap()
+        .expect("checkpoints remain under the source id");
+    assert_eq!(latest.entity_id, "inplace-loop");
+
+    // Branch stays the default: a fresh coordinator id resumes under a new
+    // execution id, leaving the source chain untouched.
+    mock.script(LlmResponseSpec::text("branched"));
+    let branch_coordinator = AgentLoopCoordinator::with_store(
+        gateway_with(mock.clone()),
+        registry.clone(),
+        store.clone(),
+    )
+    .with_agent_loop_id(Id::from("branch-loop"))
+    .with_checkpoint_strategy(AgentCheckpointStrategy::from_agent_config(
+        1, true, false, false, None,
+    ));
+    let branch_output = branch_coordinator
+        .resume_from_checkpoint(&meta.id, config(5), input("branch off"))
+        .await
+        .unwrap();
+    assert_eq!(branch_output.agent_loop_id, "branch-loop");
+    assert_ne!(
+        branch_output.agent_loop_id, "inplace-loop",
+        "branch resume must not reuse the source execution id"
+    );
+
+    // Guards: branch resume reusing the source id is rejected, and in-place
+    // resume with a conflicting coordinator id is rejected.
+    let same_id_err = coordinator
+        .resume_from_checkpoint(&meta.id, config(5), input("bad branch"))
+        .await
+        .unwrap_err();
+    assert!(
+        same_id_err.to_string().contains("fresh execution id"),
+        "branch resume must reject source id reuse: {same_id_err}"
+    );
+    let other = AgentLoopCoordinator::with_store(
+        gateway_with(mock.clone()),
+        registry.clone(),
+        store.clone(),
+    )
+    .with_agent_loop_id(Id::from("other-id"))
+    .with_checkpoint_strategy(AgentCheckpointStrategy::from_agent_config(
+        1, true, false, false, None,
+    ));
+    let mismatch_err = other
+        .resume_from_checkpoint_in_place(&meta.id, config(5), input("bad inplace"))
+        .await
+        .unwrap_err();
+    assert!(
+        mismatch_err.to_string().contains("match the source"),
+        "in-place resume must reject a conflicting coordinator id: {mismatch_err}"
     );
 }

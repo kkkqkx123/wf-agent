@@ -23,6 +23,12 @@ pub struct HookConfig {
     /// notifies it synchronously at this hook point.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub handler: Option<String>,
+    /// Opt-in checkpoint mark: when `Some(true)` the engine creates a
+    /// strategy-gated checkpoint after the hook fires.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub create_checkpoint: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checkpoint_description: Option<String>,
 }
 
 impl HookConfig {
@@ -30,14 +36,17 @@ impl HookConfig {
     /// single source of truth for field semantics). `payload` maps onto
     /// the canonical payload.
     pub fn to_canonical(&self) -> wf_types::hook::CanonicalHookSpec {
-        wf_types::hook::CanonicalHookSpec::from_parts(
+        let mut spec = wf_types::hook::CanonicalHookSpec::from_parts(
             self.hook_type.clone(),
             self.condition.clone(),
             self.enabled,
             self.priority,
             self.payload.clone(),
             self.handler.clone(),
-        )
+        );
+        spec.create_checkpoint = self.create_checkpoint;
+        spec.checkpoint_description = self.checkpoint_description.clone();
+        spec
     }
 
     /// Build a tool-callback hook from a canonical spec.
@@ -50,6 +59,8 @@ impl HookConfig {
             priority: spec.priority,
             payload: spec.payload.clone(),
             handler: spec.handler.clone(),
+            create_checkpoint: spec.create_checkpoint,
+            checkpoint_description: spec.checkpoint_description.clone(),
         }
     }
 }

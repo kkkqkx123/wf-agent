@@ -54,6 +54,9 @@ pub async fn run(cli: Cli) -> CliResult<()> {
         Some(Command::LlmProfile { sub }) => {
             return cmd::llm::run(&cli, sub).await;
         }
+        Some(Command::LlmProvider { sub }) => {
+            return cmd::llm::run_provider(&cli, sub).await;
+        }
         Some(Command::Skill { sub }) => {
             return cmd::skill::run(&cli, sub).await;
         }

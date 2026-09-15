@@ -1,21 +1,21 @@
 use super::shared;
-use super::LlmFormatter;
+use super::LlmCodec;
 use crate::error::LlmResult;
 use reqwest::Method;
 use wf_types::llm::{LlmProfile, LlmRequest, LlmResult as LlmResponseType, MessageStreamEvent};
 use wf_types::tool::Tool;
 
-pub struct OpenaiChatFormatter {
+pub struct OpenaiChatCodec {
     base_url: String,
 }
 
-impl Default for OpenaiChatFormatter {
+impl Default for OpenaiChatCodec {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl OpenaiChatFormatter {
+impl OpenaiChatCodec {
     pub fn new() -> Self {
         Self {
             base_url: "https://api.openai.com/v1".to_string(),
@@ -35,7 +35,7 @@ impl OpenaiChatFormatter {
         let use_text_mode = shared::is_text_mode(request);
 
         let messages = if use_text_mode {
-            let (_, filtered) = crate::tool_format::extract_system_message(&request.messages);
+            let (_, filtered) = crate::tool_protocol::extract_system_message(&request.messages);
             let content = shared::text_mode_system_content(request);
             let history = shared::convert_history_for_text_mode(&filtered, request);
             let mut converted = shared::convert_openai_messages(&history);
@@ -78,7 +78,7 @@ impl OpenaiChatFormatter {
     }
 }
 
-impl LlmFormatter for OpenaiChatFormatter {
+impl LlmCodec for OpenaiChatCodec {
     fn build_request(
         &self,
         request: &LlmRequest,
@@ -106,7 +106,7 @@ impl LlmFormatter for OpenaiChatFormatter {
     // Chat Completions has no token counting endpoint (unlike the Responses
     // API `/responses/input_tokens`): keep the default `None` so the caller
     // falls back to local estimation. Covers all OpenAI-compatible third
-    // parties routed through this formatter as well.
+    // parties routed through this codec as well.
     fn build_count_tokens_request(
         &self,
         _request: &LlmRequest,
@@ -223,8 +223,8 @@ mod tests {
 
     #[test]
     fn text_mode_injects_templates_and_skips_native_tools() {
-        let formatter = OpenaiChatFormatter::new();
-        let body = formatter
+        let codec = OpenaiChatCodec::new();
+        let body = codec
             .build_body(&request_with_format(ToolCallProtocol::Xml), &profile())
             .unwrap();
 
@@ -243,8 +243,8 @@ mod tests {
 
     #[test]
     fn native_mode_sends_tools_and_keeps_original_system() {
-        let formatter = OpenaiChatFormatter::new();
-        let body = formatter
+        let codec = OpenaiChatCodec::new();
+        let body = codec
             .build_body(&request_with_format(ToolCallProtocol::Native), &profile())
             .unwrap();
 
@@ -255,10 +255,10 @@ mod tests {
 
     #[test]
     fn text_mode_parse_extracts_xml_tool_calls() {
-        let formatter = OpenaiChatFormatter::new();
+        let codec = OpenaiChatCodec::new();
         let body = r#"{"id":"1","model":"gpt-4o","choices":[{"message":{"role":"assistant","content":"<tool_use>\n  <tool_name>get_weather</tool_name>\n  <parameters>\n    <city>Beijing</city>\n  </parameters>\n</tool_use>"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2}}"#;
 
-        let result = formatter
+        let result = codec
             .parse_response(body, &request_with_format(ToolCallProtocol::Xml))
             .unwrap();
         let calls = result.tool_calls.unwrap();
@@ -275,8 +275,8 @@ mod tests {
         });
         let mut req = request_with_format(ToolCallProtocol::Native);
         req.stream = Some(true);
-        let formatter = OpenaiChatFormatter::new();
-        let body = formatter.build_body(&req, &p).unwrap();
+        let codec = OpenaiChatCodec::new();
+        let body = codec.build_body(&req, &p).unwrap();
         assert_eq!(
             body["stream_options"]["include_usage"],
             serde_json::json!(false)
@@ -287,8 +287,8 @@ mod tests {
     fn custom_body_is_deep_merged() {
         let mut p = profile();
         p.custom_body = Some(serde_json::json!({"custom_field": {"nested": 1}}));
-        let formatter = OpenaiChatFormatter::new();
-        let body = formatter
+        let codec = OpenaiChatCodec::new();
+        let body = codec
             .build_body(&request_with_format(ToolCallProtocol::Native), &p)
             .unwrap();
         assert_eq!(body["custom_field"]["nested"], serde_json::json!(1));
@@ -311,8 +311,8 @@ mod tests {
         req.messages.push(assistant);
         req.messages.push(tool_result);
 
-        let formatter = OpenaiChatFormatter::new();
-        let body = formatter.build_body(&req, &profile()).unwrap();
+        let codec = OpenaiChatCodec::new();
+        let body = codec.build_body(&req, &profile()).unwrap();
 
         let messages = body["messages"].as_array().unwrap();
         let assistant_msg = messages

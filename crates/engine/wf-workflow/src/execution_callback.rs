@@ -677,6 +677,8 @@ mod tests {
                 enabled: true,
                 payload: None,
                 handler: None,
+                create_checkpoint: None,
+                checkpoint_description: None,
             }],
         );
 
@@ -749,6 +751,8 @@ mod tests {
                 enabled: true,
                 payload: None,
                 handler: Some("gate".to_string()),
+                create_checkpoint: None,
+                checkpoint_description: None,
             }],
         );
 

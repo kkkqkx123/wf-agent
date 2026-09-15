@@ -15,7 +15,7 @@ use crate::message_stream::MessageStream;
 use crate::model_catalog::ModelCatalog;
 use crate::profile_manager::ProfileManager;
 use crate::provider_registry::{apply_provider_defaults, ProviderDefinitionRegistry};
-use crate::registry::FormatterRegistry;
+use crate::registry::CodecRegistry;
 
 /// Single facade for all LLM calls.
 ///
@@ -23,13 +23,13 @@ use crate::registry::FormatterRegistry;
 /// - resolve the profile for a mandatory `profile_id` (no fallback branch)
 /// - merge profile defaults with request overrides in one place
 /// - route to mock clients (test injection) or real clients
-/// - resolve formatters through the registry (built-ins + runtime custom)
+/// - resolve codecs through the registry (built-ins + runtime custom)
 /// - record token usage metrics for both generate and stream paths
 #[derive(Clone)]
 pub struct LlmGateway {
     clients: Arc<DashMap<String, Arc<LlmClientImpl>>>,
     profiles: ProfileManager,
-    formatters: FormatterRegistry,
+    codecs: CodecRegistry,
     providers: ProviderDefinitionRegistry,
     model_catalog: ModelCatalog,
     #[cfg(feature = "mock")]
@@ -39,16 +39,16 @@ pub struct LlmGateway {
 
 impl LlmGateway {
     pub fn new() -> Self {
-        Self::new_with_formatter_registry(FormatterRegistry::new())
+        Self::new_with_codec_registry(CodecRegistry::new())
     }
 
-    /// Create a gateway with a caller-provided formatter registry (custom
+    /// Create a gateway with a caller-provided codec registry (custom
     /// formats must be registered on the registry before first use).
-    pub fn new_with_formatter_registry(formatters: FormatterRegistry) -> Self {
+    pub fn new_with_codec_registry(codecs: CodecRegistry) -> Self {
         Self {
             clients: Arc::new(DashMap::new()),
             profiles: ProfileManager::new(),
-            formatters,
+            codecs,
             providers: ProviderDefinitionRegistry::new(),
             model_catalog: ModelCatalog::new(),
             #[cfg(feature = "mock")]
@@ -109,10 +109,10 @@ impl LlmGateway {
         &self.profiles
     }
 
-    /// The formatter registry: register custom formats here before the
+    /// The codec registry: register custom formats here before the
     /// first request that uses them.
-    pub fn formatter_registry(&self) -> &FormatterRegistry {
-        &self.formatters
+    pub fn codec_registry(&self) -> &CodecRegistry {
+        &self.codecs
     }
 
     /// The provider definition registry backing `LlmProfile::provider_id`.
@@ -220,7 +220,7 @@ impl LlmGateway {
             return Ok(client.clone());
         }
 
-        let formatter = self.formatters.get_by_format(&profile.format)?;
+        let codec = self.codecs.get_by_format(&profile.format)?;
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(
                 profile.timeout.unwrap_or(60),
@@ -228,7 +228,7 @@ impl LlmGateway {
             .build()
             .unwrap_or_default();
 
-        let client_impl = Arc::new(LlmClientImpl::new(client, formatter, profile.clone()));
+        let client_impl = Arc::new(LlmClientImpl::new(client, codec, profile.clone()));
         self.clients.insert(key, client_impl.clone());
         Ok(client_impl)
     }
@@ -272,7 +272,7 @@ impl LlmGateway {
             effective.tool_call_protocol = Some(locked.format);
         }
 
-        let merged = crate::formatter_helpers::merge_parameters(profile, &effective.parameters);
+        let merged = crate::codec_helpers::merge_parameters(profile, &effective.parameters);
         effective.parameters = if merged.is_empty() {
             None
         } else {
@@ -381,10 +381,10 @@ impl TokenRecordingStream {
     }
 
     fn record(&mut self, usage: &TokenUsageStats) {
-        self.recorded = true;
         let Some(collector) = &self.collector else {
             return;
         };
+        self.recorded = true;
         collector.record_token_usage(
             usage.prompt_tokens as u64,
             usage.completion_tokens as u64,
@@ -446,9 +446,9 @@ impl MessageStream for TokenRecordingStream {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::codecs::LlmCodec;
     use crate::error::LlmError;
-    use crate::formatters::LlmFormatter;
-    use crate::registry::FormatterRegistry;
+    use crate::registry::CodecRegistry;
     use wf_types::llm::{LlmFormat, LlmProfile, LlmRequest};
     use wf_types::tool::Tool;
 
@@ -516,24 +516,24 @@ mod tests {
         assert!(stats.total_duration >= 0);
     }
 
-    /// A formatter whose `build_request` fails with a distinctive error, used
-    /// to prove the gateway resolved the *custom* formatter from the registry.
-    struct ProbeFormatter;
+    /// A codec whose `build_request` fails with a distinctive error, used
+    /// to prove the gateway resolved the *custom* codec from the registry.
+    struct ProbeCodec;
 
-    impl LlmFormatter for ProbeFormatter {
+    impl LlmCodec for ProbeCodec {
         fn build_request(
             &self,
             _request: &LlmRequest,
             _profile: &LlmProfile,
         ) -> LlmResult<reqwest::Request> {
             Err(LlmError::ConfigError(
-                "custom formatter engaged".to_string(),
+                "custom codec engaged".to_string(),
             ))
         }
 
         fn parse_response(&self, _body: &str, _request: &LlmRequest) -> LlmResult<LlmResponseType> {
             Err(LlmError::ConfigError(
-                "custom formatter engaged".to_string(),
+                "custom codec engaged".to_string(),
             ))
         }
 
@@ -598,12 +598,12 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn custom_formatter_resolved_via_registry() {
-        let registry = FormatterRegistry::new();
+    async fn custom_codec_resolved_via_registry() {
+        let registry = CodecRegistry::new();
         registry
-            .register("my_custom_provider", Arc::new(ProbeFormatter))
+            .register("my_custom_provider", Arc::new(ProbeCodec))
             .expect("custom registration must succeed");
-        let gateway = LlmGateway::new_with_formatter_registry(registry);
+        let gateway = LlmGateway::new_with_codec_registry(registry);
         gateway
             .register_profile(profile(
                 "p1",
@@ -613,8 +613,8 @@ mod tests {
 
         let err = gateway.generate(&request("p1"), None).await.unwrap_err();
         assert!(
-            err.to_string().contains("custom formatter engaged"),
-            "custom formatter must have been selected: {}",
+            err.to_string().contains("custom codec engaged"),
+            "custom codec must have been selected: {}",
             err
         );
     }
@@ -627,25 +627,25 @@ mod tests {
             .unwrap();
 
         let err = gateway.generate(&request("p1"), None).await.unwrap_err();
-        assert!(matches!(err, LlmError::FormatterNotFound(_)));
+        assert!(matches!(err, LlmError::CodecNotFound(_)));
     }
 
     #[tokio::test]
     async fn empty_profile_id_resolves_to_default() {
-        let registry = FormatterRegistry::new();
+        let registry = CodecRegistry::new();
         registry
-            .register("probe", Arc::new(ProbeFormatter))
+            .register("probe", Arc::new(ProbeCodec))
             .expect("registration must succeed");
-        let gateway = LlmGateway::new_with_formatter_registry(registry);
+        let gateway = LlmGateway::new_with_codec_registry(registry);
         gateway
             .register_profile(profile("p1", LlmFormat::Custom("probe".to_string())))
             .unwrap();
 
-        // The custom formatter fails inside `build_request` before any HTTP;
+        // The custom codec fails inside `build_request` before any HTTP;
         // reaching it proves the default profile was resolved.
         let err = gateway.generate(&request(""), None).await.unwrap_err();
         assert!(
-            err.to_string().contains("custom formatter engaged"),
+            err.to_string().contains("custom codec engaged"),
             "empty id must resolve the default profile: {err}"
         );
     }

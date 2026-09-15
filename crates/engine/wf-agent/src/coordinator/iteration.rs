@@ -797,12 +797,13 @@ impl AgentIterationCoordinator {
             }
         }
 
-        AgentHookEmitter::fire_agent_point(
+        AgentHookEmitter::fire_agent_point_with_checkpoint(
             entity,
             "AFTER_ITERATION",
             HashMap::new(),
             self.hook_handler_registry.as_deref(),
             self.event_bus.as_deref(),
+            self.checkpoint.as_ref(),
         )
         .await;
 

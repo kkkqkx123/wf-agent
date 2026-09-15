@@ -35,39 +35,6 @@ pub struct PluginToolResult {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PluginLlmRequest {
-    pub messages: Vec<PluginMessage>,
-    pub config: Option<PluginLlmConfig>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PluginMessage {
-    pub role: String,
-    pub content: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PluginLlmConfig {
-    pub model: String,
-    pub provider: String,
-    pub temperature: Option<f64>,
-    pub max_tokens: Option<u32>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PluginLlmResponse {
-    pub content: String,
-    pub usage: Option<PluginLlmUsage>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PluginLlmUsage {
-    pub prompt_tokens: u32,
-    pub completion_tokens: u32,
-    pub total_tokens: u32,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PluginEventData {
     pub event_type: String,
     pub data: Value,
@@ -133,18 +100,9 @@ pub trait PluginToolExecutor: Send + Sync {
     async fn execute(&self, ctx: PluginToolContext) -> PluginResult<PluginToolResult>;
 }
 
-#[async_trait]
-pub trait PluginLlmFormatter: Send + Sync {
-    async fn format(&self, request: PluginLlmRequest) -> PluginResult<PluginLlmResponse>;
-}
-
 // ── low-level LLM codec ─────────────────────────────────────────────
 // A codec contributes a full wire protocol format: request building,
 // response and stream-chunk parsing, tool conversion and token counting.
-// Unlike `PluginLlmFormatter` (plain text in/out), a codec sees the
-// structured request and profile and answers with structured results, so
-// the host can route streaming and tool calls through it.
-//
 // The contract is synchronous and JSON-based so Lua tables and native
 // dispatch buffers share one shape. The host builds the actual HTTP
 // request from the returned description and translates the returned
@@ -195,10 +153,14 @@ pub trait PluginLlmCodec: Send + Sync {
         let _ = (request, profile);
         Ok(None)
     }
-    /// Parse a counting response body into input tokens.
+    /// Parse a counting response body into input tokens. No default: a codec
+    /// that describes a counting request must implement this explicitly so a
+    /// missing implementation fails loudly instead of reporting `0` tokens.
     fn parse_count_tokens_response(&self, body: Value) -> PluginResult<u32> {
         let _ = body;
-        Ok(0)
+        Err(crate::error::PluginError::Internal(
+            "codec does not implement parse_count_tokens_response".to_string(),
+        ))
     }
 }
 

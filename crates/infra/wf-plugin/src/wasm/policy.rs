@@ -33,14 +33,18 @@ pub const MAX_POOL_SIZE: usize = 64;
 /// manifest both declares the matching permission and lists the grant.
 #[derive(Debug, Clone, Default)]
 pub struct WasiGrants {
-    /// `(host_path, guest_path)` directory preopens. Read-only in this
-    /// phase; writable preopens are a later enhancement.
+    /// `(host_path, guest_path)` directory preopens. Read-only; directories
+    /// that also appear in `writable_dirs` are mounted writable instead.
     pub preopened_dirs: Vec<(String, String)>,
+    /// `(host_path, guest_path)` directory preopens with read and write
+    /// access. Opt-in per directory: absent means the guest cannot write.
+    pub writable_dirs: Vec<(String, String)>,
     /// Environment variables inherited from the host.
     pub env_vars: Vec<(String, String)>,
-    /// Whether guest network access is granted. Always false in this phase:
-    /// WASI p1 has no socket support wired, so the flag is recorded for
-    /// policy review but never enforced as an allowance.
+    /// Whether guest network access is granted. Always false:
+    /// `allow_network = true` is rejected at load by
+    /// `validate_network_policy`, so this field only exists for
+    /// observability in startup logs and never enables sockets.
     pub allow_network: bool,
 }
 
@@ -127,6 +131,14 @@ pub fn resolve_grants(manifest: &PluginManifest) -> WasiGrants {
                 grants.preopened_dirs.push((dir.clone(), dir.clone()));
             }
         }
+        if let Some(dirs) = cfg.allowed_write_dirs.as_ref() {
+            for dir in dirs {
+                // Write implies read: a directory granted writable must not
+                // also be mounted read-only.
+                grants.preopened_dirs.retain(|(host, _)| host != dir);
+                grants.writable_dirs.push((dir.clone(), dir.clone()));
+            }
+        }
     }
     if has(PluginPermission::Environment) {
         if let Some(prefixes) = cfg.allowed_env_prefixes.as_ref() {
@@ -137,9 +149,20 @@ pub fn resolve_grants(manifest: &PluginManifest) -> WasiGrants {
             }
         }
     }
-    if has(PluginPermission::Network) && cfg.allow_network == Some(true) {
-        tracing::warn!(
-            "wasm plugin '{}' requests network access, which is not granted in this phase",
+    // Network and shell grants are explicitly denied for wasm guests:
+    // `allow_network = true` is rejected at load, and the `shell`
+    // permission grants nothing (guests have no shell import and must go
+    // through host tool contributions). Log the request so the denial is
+    // visible instead of silent.
+    if has(PluginPermission::Network) {
+        tracing::info!(
+            "wasm plugin '{}' declares the network permission, which grants no socket access",
+            manifest.id
+        );
+    }
+    if has(PluginPermission::Shell) {
+        tracing::info!(
+            "wasm plugin '{}' declares the shell permission, which is denied for wasm guests",
             manifest.id
         );
     }
@@ -170,6 +193,7 @@ mod tests {
             config_schema: None,
             config: None,
             hooks: None,
+            llm_providers: vec![],
             wasm,
         }
     }
@@ -311,5 +335,37 @@ mod tests {
         assert!(without_perm.preopened_dirs.is_empty());
         let with_perm = resolve_grants(&manifest_with(cfg(), vec![PluginPermission::Filesystem]));
         assert_eq!(with_perm.preopened_dirs.len(), 1);
+    }
+
+    #[test]
+    fn writable_dirs_require_permission_and_imply_read() {
+        let cfg = || {
+            Some(WasmConfig {
+                allowed_dirs: Some(vec!["./data".into()]),
+                allowed_write_dirs: Some(vec!["./data".into(), "./cache".into()]),
+                ..Default::default()
+            })
+        };
+        let denied = resolve_grants(&manifest_with(cfg(), vec![]));
+        assert!(denied.writable_dirs.is_empty());
+        assert!(denied.preopened_dirs.is_empty());
+
+        let granted = resolve_grants(&manifest_with(cfg(), vec![PluginPermission::Filesystem]));
+        assert_eq!(granted.writable_dirs.len(), 2);
+        // `./data` was requested read-write: it mounts once, writable.
+        assert!(granted.preopened_dirs.is_empty());
+    }
+
+    #[test]
+    fn read_only_dirs_stay_read_only() {
+        let cfg = || {
+            Some(WasmConfig {
+                allowed_dirs: Some(vec!["./ro".into()]),
+                ..Default::default()
+            })
+        };
+        let granted = resolve_grants(&manifest_with(cfg(), vec![PluginPermission::Filesystem]));
+        assert_eq!(granted.preopened_dirs.len(), 1);
+        assert!(granted.writable_dirs.is_empty());
     }
 }

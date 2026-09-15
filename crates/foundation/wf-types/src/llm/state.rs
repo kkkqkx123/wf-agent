@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 /// binding belongs to [`LlmProfile`](super::LlmProfile).
 ///
 /// The four built-in formats cover the supported protocols; `Custom`
-/// addresses a formatter registered at runtime through the formatter registry
+/// addresses a codec registered at runtime through the codec registry
 /// (plugin extension point).
 ///
 /// Serde is implemented via the canonical string form: built-ins use their
@@ -21,7 +21,7 @@ pub enum LlmFormat {
     OpenaiResponse,
     Anthropic,
     GeminiNative,
-    /// Format whose formatter is resolved through the runtime registry.
+    /// Format whose codec is resolved through the runtime registry.
     Custom(String),
 }
 

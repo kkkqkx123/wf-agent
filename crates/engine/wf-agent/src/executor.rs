@@ -527,6 +527,8 @@ mod tests {
                 priority: 0,
                 payload: None,
                 handler: None,
+                create_checkpoint: None,
+                checkpoint_description: None,
             },
             wf_tools::callback::HookConfig {
                 hook_type: "AFTER_AGENT".to_string(),
@@ -535,6 +537,8 @@ mod tests {
                 priority: 0,
                 payload: None,
                 handler: None,
+                create_checkpoint: None,
+                checkpoint_description: None,
             },
         ];
 

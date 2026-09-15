@@ -19,6 +19,7 @@
 //! cat diff_log.txt | ansi-to-html > diff_log.html
 //! ```
 
+#[cfg(feature = "diff-record")]
 use std::fs::File;
 use std::io;
 

@@ -221,6 +221,11 @@ pub struct RunAgentLoopBody {
     token_limit: Option<u64>,
     token_warning_threshold: Option<u32>,
     enable_token_tracking: Option<bool>,
+    /// Checkpoint every N appended conversation messages (`None` disables
+    /// the message-count backstop). Wired through to
+    /// `AgentLoopConfig::checkpoint_message_interval`.
+    #[serde(default)]
+    checkpoint_message_interval: Option<u32>,
     #[serde(default)]
     context: HashMap<String, Value>,
     conversation: Option<Vec<Message>>,
@@ -251,7 +256,7 @@ fn params_from_body(body: RunAgentLoopBody) -> wf_api::agent::agent_execution::R
         general_description: None,
         discoverable_metadata_block: None,
         history_normalization: false,
-        checkpoint_message_interval: None,
+        checkpoint_message_interval: body.checkpoint_message_interval.filter(|n| *n > 0),
     };
     let input = AgentLoopInput {
         message: body.message,
@@ -468,6 +473,7 @@ async fn handle_loop_execution_path(
 
 #[cfg(test)]
 mod tests {
+    use super::{params_from_body, RunAgentLoopBody};
     use axum::body::Body as AxBody;
     use axum::http::{Request, StatusCode};
     use axum::response::Response;
@@ -488,6 +494,47 @@ mod tests {
             .oneshot(Request::builder().uri(uri).body(AxBody::empty()).unwrap())
             .await
             .unwrap()
+    }
+
+    #[test]
+    fn run_body_forwards_checkpoint_message_interval() {
+        // REST backstop wiring: `checkpoint_message_interval` must reach
+        // `AgentLoopConfig`; a zero value disables instead of passing
+        // through (the engine treats `> 0` as enabled).
+        let body = serde_json::from_value::<RunAgentLoopBody>(serde_json::json!({
+            "agent_id": "agent1",
+            "model": "mock",
+            "message": "hi",
+            "checkpoint_message_interval": 5,
+        }))
+        .unwrap();
+        assert_eq!(
+            params_from_body(body).config.checkpoint_message_interval,
+            Some(5)
+        );
+
+        let zero = serde_json::from_value::<RunAgentLoopBody>(serde_json::json!({
+            "agent_id": "agent1",
+            "model": "mock",
+            "message": "hi",
+            "checkpoint_message_interval": 0,
+        }))
+        .unwrap();
+        assert_eq!(
+            params_from_body(zero).config.checkpoint_message_interval,
+            None
+        );
+
+        let absent = serde_json::from_value::<RunAgentLoopBody>(serde_json::json!({
+            "agent_id": "agent1",
+            "model": "mock",
+            "message": "hi",
+        }))
+        .unwrap();
+        assert_eq!(
+            params_from_body(absent).config.checkpoint_message_interval,
+            None
+        );
     }
 
     #[tokio::test]

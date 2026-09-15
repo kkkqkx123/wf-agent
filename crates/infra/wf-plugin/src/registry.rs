@@ -121,6 +121,25 @@ impl PluginRegistry {
         }
     }
 
+    /// Replace one plugin's contribution records (refresh path): drops the
+    /// plugin's index entries and stored list, then stores the new ones.
+    /// Other plugins' entries are untouched.
+    pub fn replace_contributions(&self, plugin_id: &str, contributions: Vec<ContributionRecord>) {
+        for mut entries in self.contributions_index.iter_mut() {
+            entries.retain(|e| e.plugin_id != plugin_id);
+        }
+        self.contributions_index.retain(|_, v| !v.is_empty());
+        if let Some(mut r) = self.plugins.get_mut(plugin_id) {
+            r.contributions = contributions.clone();
+            for c in &contributions {
+                self.contributions_index
+                    .entry(c.contribution_type.clone())
+                    .or_default()
+                    .push(c.clone());
+            }
+        }
+    }
+
     pub fn list_by_contribution(&self, contribution_type: &str) -> Vec<ContributionRecord> {
         self.contributions_index
             .get(contribution_type)
@@ -201,6 +220,7 @@ mod tests {
             config_schema: None,
             config: None,
             hooks: None,
+            llm_providers: vec![],
             wasm: None,
         }
     }
@@ -287,5 +307,32 @@ mod tests {
         let info = registry.get("p1").unwrap();
         assert_eq!(info.status, PluginStatus::Error);
         assert_eq!(info.error.as_deref(), Some("boom"));
+    }
+
+    #[test]
+    fn replace_contributions_swaps_one_owners_records() {
+        let registry = PluginRegistry::new();
+        let (manifest, plugin) = noop_plugin("p1");
+        registry.register(manifest, plugin).unwrap();
+        let (manifest2, plugin2) = noop_plugin("p2");
+        registry.register(manifest2, plugin2).unwrap();
+        let record = |plugin_id: &str, key: &str| ContributionRecord {
+            contribution_type: "tool-type".into(),
+            key: key.into(),
+            plugin_id: plugin_id.into(),
+        };
+        registry.add_contributions("p1", vec![record("p1", "old")]);
+        registry.add_contributions("p2", vec![record("p2", "other")]);
+        registry.replace_contributions("p1", vec![record("p1", "new")]);
+
+        let tools = registry.list_by_contribution("tool-type");
+        assert_eq!(tools.len(), 2);
+        assert!(tools.iter().any(|r| r.plugin_id == "p1" && r.key == "new"));
+        assert!(tools
+            .iter()
+            .any(|r| r.plugin_id == "p2" && r.key == "other"));
+        let info = registry.get("p1").unwrap();
+        assert_eq!(info.contributions.len(), 1);
+        assert_eq!(info.contributions[0].key, "new");
     }
 }

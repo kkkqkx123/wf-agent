@@ -23,12 +23,11 @@ pub mod wasm;
 
 pub use context::PluginContext;
 pub use contributions::{
-    parse_middleware_outcome, ContributionBridge, ContributionManager, ContributionRegistrar,
-    ContributionType, FormatterRole, MiddlewareOutcome, NextFn, OverridePolicy, PluginEventData,
-    PluginEventHandler, PluginExecutionContext, PluginLlmConfig, PluginLlmFormatter,
-    PluginLlmRequest, PluginLlmResponse, PluginLlmUsage, PluginMessage, PluginMiddlewareHandler,
-    PluginNodeHandler, PluginNodeResult, PluginToolContext, PluginToolExecutor, PluginToolResult,
-    RegistrarGuard,
+    parse_middleware_outcome, CodecHttpRequest, ContributionBridge, ContributionManager,
+    ContributionRegistrar, ContributionType, MiddlewareOutcome, NextFn, OverridePolicy,
+    PluginEventData, PluginEventHandler, PluginExecutionContext, PluginLlmCodec,
+    PluginMiddlewareHandler, PluginNodeHandler, PluginNodeResult, PluginToolContext,
+    PluginToolExecutor, PluginToolResult, RegistrarGuard,
 };
 pub use dependency::{resolve_dependencies, ResolvedGraph};
 pub use engine::{PluginEngine, PluginSystemConfig};

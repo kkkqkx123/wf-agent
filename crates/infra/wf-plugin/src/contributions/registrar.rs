@@ -31,12 +31,14 @@ pub trait ContributionRegistrar {
     fn register_llm_provider(
         &mut self,
         name: &str,
-        formatter: Arc<dyn PluginLlmFormatter>,
+        codec: Arc<dyn PluginLlmCodec>,
     ) -> PluginResult<()>;
-    fn register_formatter(
+    /// Register a declarative LLM connection template. The runtime bridge
+    /// writes it into the provider registry on activation and removes it
+    /// symmetrically on deactivation.
+    fn register_llm_provider_definition(
         &mut self,
-        name: &str,
-        formatter: Arc<dyn PluginLlmFormatter>,
+        definition: wf_types::llm::LlmProviderDefinition,
     ) -> PluginResult<()>;
     fn register_event_handler(
         &mut self,

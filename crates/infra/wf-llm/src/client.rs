@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crate::error::{LlmError, LlmResult};
-use crate::formatters::LlmFormatter;
+use crate::codecs::LlmCodec;
 use crate::message_stream::MessageStream;
 use reqwest::Client as ReqwestClient;
 use tokio_util::sync::CancellationToken;
@@ -31,19 +31,15 @@ pub trait LlmClient: Send + Sync {
 
 pub struct LlmClientImpl {
     pub(crate) client: ReqwestClient,
-    pub(crate) formatter: Arc<dyn LlmFormatter>,
+    pub(crate) codec: Arc<dyn LlmCodec>,
     pub(crate) profile: LlmProfile,
 }
 
 impl LlmClientImpl {
-    pub fn new(
-        client: ReqwestClient,
-        formatter: Arc<dyn LlmFormatter>,
-        profile: LlmProfile,
-    ) -> Self {
+    pub fn new(client: ReqwestClient, codec: Arc<dyn LlmCodec>, profile: LlmProfile) -> Self {
         Self {
             client,
-            formatter,
+            codec,
             profile,
         }
     }
@@ -120,7 +116,7 @@ impl LlmClientImpl {
     ) -> LlmResult<LlmResponseType> {
         let start = Instant::now();
 
-        let http_request = self.formatter.build_request(request, &self.profile)?;
+        let http_request = self.codec.build_request(request, &self.profile)?;
 
         let timeout_dur = self.build_timeout();
         let timeout_ms = timeout_dur.as_millis() as u64;
@@ -145,7 +141,7 @@ impl LlmClientImpl {
         }
 
         let body = response.text().await?;
-        let mut result = self.formatter.parse_response(&body, request)?;
+        let mut result = self.codec.parse_response(&body, request)?;
 
         result.duration = start.elapsed().as_millis() as i64;
 
@@ -161,7 +157,7 @@ impl LlmClientImpl {
         stream_request.stream = Some(true);
 
         let http_request = self
-            .formatter
+            .codec
             .build_request(&stream_request, &self.profile)?;
 
         let timeout_dur = self.build_timeout();
@@ -190,7 +186,7 @@ impl LlmClientImpl {
 
         Ok(Box::new(crate::message_stream::SseMessageStream::new(
             stream,
-            self.formatter.clone(),
+            self.codec.clone(),
             cancel,
             request.dead_loop_detection.as_ref(),
         )))
@@ -367,7 +363,7 @@ mod tests {
     fn timeout_defaults_to_60_seconds() {
         let client = LlmClientImpl::new(
             reqwest::Client::new(),
-            crate::formatters::create_formatter(&LlmFormat::OpenaiChat).unwrap(),
+            crate::codecs::create_codec(&LlmFormat::OpenaiChat).unwrap(),
             profile("p1"),
         );
         assert_eq!(client.build_timeout(), Duration::from_secs(60));
@@ -376,7 +372,7 @@ mod tests {
         p.timeout = Some(5);
         let client = LlmClientImpl::new(
             reqwest::Client::new(),
-            crate::formatters::create_formatter(&LlmFormat::OpenaiChat).unwrap(),
+            crate::codecs::create_codec(&LlmFormat::OpenaiChat).unwrap(),
             p,
         );
         assert_eq!(client.build_timeout(), Duration::from_secs(5));
@@ -386,7 +382,7 @@ mod tests {
     fn retry_parameters_use_defaults_and_overrides() {
         let client = LlmClientImpl::new(
             reqwest::Client::new(),
-            crate::formatters::create_formatter(&LlmFormat::OpenaiChat).unwrap(),
+            crate::codecs::create_codec(&LlmFormat::OpenaiChat).unwrap(),
             profile("p1"),
         );
         assert_eq!(client.max_retries(), 3);
@@ -400,7 +396,7 @@ mod tests {
         p.retry_delay = Some(250);
         let client = LlmClientImpl::new(
             reqwest::Client::new(),
-            crate::formatters::create_formatter(&LlmFormat::OpenaiChat).unwrap(),
+            crate::codecs::create_codec(&LlmFormat::OpenaiChat).unwrap(),
             p,
         );
         assert_eq!(client.max_retries(), 5);
@@ -414,7 +410,7 @@ mod tests {
     fn profile_accessor_returns_configured_profile() {
         let client = LlmClientImpl::new(
             reqwest::Client::new(),
-            crate::formatters::create_formatter(&LlmFormat::OpenaiChat).unwrap(),
+            crate::codecs::create_codec(&LlmFormat::OpenaiChat).unwrap(),
             profile("p1"),
         );
         assert_eq!(client.profile().id, "p1");

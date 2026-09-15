@@ -11,19 +11,19 @@ pub mod openai_chat;
 pub mod openai_response;
 pub mod shared;
 
-pub use anthropic::AnthropicFormatter;
-pub use gemini_native::GeminiNativeFormatter;
-pub use openai_chat::OpenaiChatFormatter;
-pub use openai_response::OpenaiResponseFormatter;
+pub use anthropic::AnthropicCodec;
+pub use gemini_native::GeminiNativeCodec;
+pub use openai_chat::OpenaiChatCodec;
+pub use openai_response::OpenaiResponseCodec;
 
-pub trait LlmFormatter: Send + Sync {
+pub trait LlmCodec: Send + Sync {
     fn build_request(
         &self,
         request: &LlmRequest,
         profile: &LlmProfile,
     ) -> LlmResult<reqwest::Request>;
     /// Parse a non-streaming response. `request` carries the effective tool
-    /// call protocol so the formatter can route to text-mode parsing when needed.
+    /// call protocol so the codec can route to text-mode parsing when needed.
     fn parse_response(&self, body: &str, request: &LlmRequest) -> LlmResult<LlmResponseType>;
     fn parse_stream_chunk(&self, data: &str) -> LlmResult<Option<MessageStreamEvent>>;
     fn convert_tools(&self, tools: &[Tool]) -> LlmResult<Vec<serde_json::Value>>;
@@ -57,15 +57,15 @@ pub trait LlmFormatter: Send + Sync {
     }
 }
 
-/// Create the formatter for a built-in format. Custom formats are not
-/// handled here: they are resolved through `FormatterRegistry` and yield
+/// Create the codec for a built-in format. Custom formats are not
+/// handled here: they are resolved through `CodecRegistry` and yield
 /// `UnsupportedFormat` when passed to this factory.
-pub fn create_formatter(format: &LlmFormat) -> LlmResult<Arc<dyn LlmFormatter>> {
+pub fn create_codec(format: &LlmFormat) -> LlmResult<Arc<dyn LlmCodec>> {
     match format {
-        LlmFormat::OpenaiChat => Ok(Arc::new(OpenaiChatFormatter::new())),
-        LlmFormat::OpenaiResponse => Ok(Arc::new(OpenaiResponseFormatter::new())),
-        LlmFormat::Anthropic => Ok(Arc::new(AnthropicFormatter::new())),
-        LlmFormat::GeminiNative => Ok(Arc::new(GeminiNativeFormatter::new())),
+        LlmFormat::OpenaiChat => Ok(Arc::new(OpenaiChatCodec::new())),
+        LlmFormat::OpenaiResponse => Ok(Arc::new(OpenaiResponseCodec::new())),
+        LlmFormat::Anthropic => Ok(Arc::new(AnthropicCodec::new())),
+        LlmFormat::GeminiNative => Ok(Arc::new(GeminiNativeCodec::new())),
         LlmFormat::Custom(_) => Err(crate::error::LlmError::UnsupportedFormat(format.clone())),
     }
 }

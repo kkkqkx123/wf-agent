@@ -33,6 +33,8 @@ fn parse_agent_hooks(agent_config: Option<&wf_types::agent::AgentConfig>) -> Vec
                     priority: h.priority.unwrap_or(0),
                     payload: h.event_payload.clone(),
                     handler: h.handler.clone(),
+                    create_checkpoint: h.create_checkpoint,
+                    checkpoint_description: h.checkpoint_description.clone(),
                 })
                 .collect()
         })

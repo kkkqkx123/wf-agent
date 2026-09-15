@@ -1,8 +1,8 @@
 pub mod client;
 pub mod dead_loop_detector;
 pub mod error;
-pub mod formatter_helpers;
-pub mod formatters;
+pub mod codec_helpers;
+pub mod codecs;
 pub mod gateway;
 pub mod generation;
 pub mod message_helper;
@@ -21,14 +21,13 @@ pub mod token_estimation;
 pub mod token_events;
 pub mod token_tracker;
 pub mod tool_call_parser;
-pub mod tool_format;
+pub mod tool_protocol;
 
 pub use client::LlmClient;
 pub use dead_loop_detector::{DeadLoopDetectionResult, DeadLoopDetector, DeadLoopDetectorConfig};
 pub use error::{LlmError, LlmResult};
-pub use formatters::{
-    create_formatter, AnthropicFormatter, GeminiNativeFormatter, LlmFormatter, OpenaiChatFormatter,
-    OpenaiResponseFormatter,
+pub use codecs::{
+    create_codec, AnthropicCodec, GeminiNativeCodec, LlmCodec, OpenaiChatCodec, OpenaiResponseCodec,
 };
 pub use gateway::LlmGateway;
 pub use message_helper::extract_text_content;
@@ -52,7 +51,7 @@ pub use partial_json_parser::{parse_partial_json, recover_partial_json, PartialP
 pub use plugin_codec::PluginCodecAdapter;
 pub use profile_manager::ProfileManager;
 pub use provider_registry::{apply_provider_defaults, ProviderDefinitionRegistry};
-pub use registry::FormatterRegistry;
+pub use registry::CodecRegistry;
 pub use token_count::{
     estimate_image_tokens, estimate_message_tokens, estimate_messages, estimate_request_tokens,
 };
@@ -79,9 +78,9 @@ pub use tool_call_parser::{
     parse_partial, parse_raw_json_tool_calls, parse_xml_tool_calls, InvokeParseError, ParseFormat,
     ToolCallParseOptions,
 };
-pub use tool_format::{
+pub use tool_protocol::{
     build_text_mode_system_content, extract_system_message, get_tool_call_parser_options,
-    get_tool_format_templates, get_tool_usage_instructions, is_text_based_tool_mode,
+    get_tool_protocol_templates, get_tool_usage_instructions, is_text_based_tool_mode,
     render_tool_declaration, render_tool_list_description, requires_prompt_tool_descriptions,
-    ToolFormatTemplateSet,
+    ToolProtocolTemplateSet,
 };

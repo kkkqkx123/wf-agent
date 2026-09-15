@@ -1,21 +1,23 @@
-//! Runtime formatter registry
+//! Runtime codec registry
 //!
-//! Resolves a formatter for a wire protocol format at request time. The four
-//! built-in formats are pre-registered; custom formats register their own
-//! `Arc<dyn LlmFormatter>` and are addressed through
+//! Resolves a codec for a wire protocol format at request time. The four
+//! built-in formats resolve through the static factory; custom formats
+//! register their own `Arc<dyn LlmCodec>` here and are addressed through
 //! `LlmFormat::Custom(name)` on the profile (plugin extension point).
 //!
-//! Lookups are case-insensitive. Built-in canonical names (`OPENAI_CHAT`,
-//! `OPENAI_RESPONSE`, `ANTHROPIC`, `GEMINI_NATIVE`) cannot
-//! be overridden by custom registrations.
+//! Only custom codecs live in the map. Built-in canonical names
+//! (`OPENAI_CHAT`, `OPENAI_RESPONSE`, `ANTHROPIC`, `GEMINI_NATIVE`) cannot
+//! be registered or unregistered.
+//!
+//! Lookups are case-insensitive.
 
 use std::sync::Arc;
 
 use dashmap::DashMap;
 use wf_types::llm::LlmFormat;
 
+use crate::codecs::{create_codec, LlmCodec};
 use crate::error::{LlmError, LlmResult};
-use crate::formatters::{create_formatter, LlmFormatter};
 
 const BUILTIN_FORMATS: [&str; 4] = [
     "OPENAI_CHAT",
@@ -24,95 +26,87 @@ const BUILTIN_FORMATS: [&str; 4] = [
     "GEMINI_NATIVE",
 ];
 
-/// Thread-safe registry of formatters keyed by normalized format name.
-#[derive(Clone)]
-pub struct FormatterRegistry {
-    formatters: Arc<DashMap<String, Arc<dyn LlmFormatter>>>,
+fn is_builtin(name: &str) -> bool {
+    BUILTIN_FORMATS.contains(&name.to_uppercase().as_str())
 }
 
-impl FormatterRegistry {
-    /// Create a registry pre-populated with the four built-in formatters.
+/// Thread-safe registry of custom codecs keyed by normalized format name.
+#[derive(Clone)]
+pub struct CodecRegistry {
+    codecs: Arc<DashMap<String, Arc<dyn LlmCodec>>>,
+}
+
+impl CodecRegistry {
+    /// Create an empty registry. Built-ins need no storage: they resolve
+    /// through the static factory.
     pub fn new() -> Self {
-        let formatters: Arc<DashMap<String, Arc<dyn LlmFormatter>>> = Arc::new(DashMap::new());
-        for format in [
-            LlmFormat::OpenaiChat,
-            LlmFormat::OpenaiResponse,
-            LlmFormat::Anthropic,
-            LlmFormat::GeminiNative,
-        ] {
-            if let Ok(formatter) = create_formatter(&format) {
-                formatters.insert(format.as_str().to_string(), formatter);
-            }
+        Self {
+            codecs: Arc::new(DashMap::new()),
         }
-        Self { formatters }
     }
 
-    /// Register a custom formatter under a format name. Built-in canonical
+    /// Register a custom codec under a format name. Built-in canonical
     /// names are rejected.
-    pub fn register(&self, name: &str, formatter: Arc<dyn LlmFormatter>) -> LlmResult<()> {
+    pub fn register(&self, name: &str, codec: Arc<dyn LlmCodec>) -> LlmResult<()> {
         let normalized = name.to_uppercase();
-        if BUILTIN_FORMATS.contains(&normalized.as_str()) {
+        if normalized.is_empty() {
+            return Err(LlmError::ConfigError(
+                "Cannot register codec with an empty name".to_string(),
+            ));
+        }
+        if is_builtin(&normalized) {
             return Err(LlmError::ConfigError(format!(
-                "Cannot register formatter: {} is a built-in format",
+                "Cannot register codec: {} is a built-in format",
                 name
             )));
         }
-        if normalized.is_empty() {
-            return Err(LlmError::ConfigError(
-                "Cannot register formatter with an empty name".to_string(),
-            ));
-        }
-        self.formatters.insert(normalized, formatter);
+        self.codecs.insert(normalized, codec);
         Ok(())
     }
 
-    /// Remove a custom formatter. Built-ins cannot be unregistered; the call
-    /// is a no-op for them.
+    /// Remove a custom codec. Built-ins are never stored, so unregistering
+    /// one simply reports `false`.
     pub fn unregister(&self, name: &str) -> bool {
-        let normalized = name.to_uppercase();
-        if BUILTIN_FORMATS.contains(&normalized.as_str()) {
-            return false;
-        }
-        self.formatters.remove(&normalized).is_some()
+        self.codecs.remove(&name.to_uppercase()).is_some()
     }
 
-    /// Resolve the formatter for a format: built-ins resolve through the
+    /// Resolve the codec for a format: built-ins resolve through the
     /// static factory, `Custom(name)` through the registry.
-    pub fn get_by_format(&self, format: &LlmFormat) -> LlmResult<Arc<dyn LlmFormatter>> {
+    pub fn get_by_format(&self, format: &LlmFormat) -> LlmResult<Arc<dyn LlmCodec>> {
         match format {
             LlmFormat::Custom(name) => self
-                .formatters
+                .codecs
                 .get(&name.to_uppercase())
                 .map(|entry| entry.clone())
-                .ok_or_else(|| LlmError::FormatterNotFound(name.clone())),
-            builtin => create_formatter(builtin),
+                .ok_or_else(|| LlmError::CodecNotFound(name.clone())),
+            builtin => create_codec(builtin),
         }
     }
 
-    /// Whether a formatter (built-in or custom) is available under `name`.
+    /// Whether a codec (built-in or custom) is available under `name`.
     pub fn contains(&self, name: &str) -> bool {
-        self.formatters.contains_key(&name.to_uppercase())
+        is_builtin(name) || self.codecs.contains_key(&name.to_uppercase())
     }
 
-    /// Number of registered formatters (built-ins included).
+    /// Number of registered codecs (built-ins included).
     pub fn len(&self) -> usize {
-        self.formatters.len()
+        self.codecs.len() + BUILTIN_FORMATS.len()
     }
 
+    /// Always `false`: the four built-ins mean the registry is never empty.
     pub fn is_empty(&self) -> bool {
-        self.formatters.is_empty()
+        false
     }
 
-    /// Names of all registered formatters (custom + built-in).
+    /// Names of all registered codecs (custom + built-in).
     pub fn registered_names(&self) -> Vec<String> {
-        self.formatters
-            .iter()
-            .map(|entry| entry.key().clone())
-            .collect()
+        let mut names: Vec<String> = BUILTIN_FORMATS.iter().map(|s| s.to_string()).collect();
+        names.extend(self.codecs.iter().map(|entry| entry.key().clone()));
+        names
     }
 }
 
-impl Default for FormatterRegistry {
+impl Default for CodecRegistry {
     fn default() -> Self {
         Self::new()
     }
@@ -121,28 +115,29 @@ impl Default for FormatterRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::formatters::OpenaiChatFormatter;
+    use crate::codecs::OpenaiChatCodec;
 
-    fn make_custom_formatter() -> Arc<dyn LlmFormatter> {
-        Arc::new(OpenaiChatFormatter::new())
+    fn make_custom_codec() -> Arc<dyn LlmCodec> {
+        Arc::new(OpenaiChatCodec::new())
     }
 
     #[test]
-    fn builtins_pre_registered() {
-        let registry = FormatterRegistry::new();
+    fn builtins_resolve_without_registration() {
+        let registry = CodecRegistry::new();
         assert_eq!(registry.len(), 4);
         for name in BUILTIN_FORMATS {
             assert!(registry.contains(name));
         }
         assert!(registry.get_by_format(&LlmFormat::OpenaiChat).is_ok());
         assert!(registry.get_by_format(&LlmFormat::GeminiNative).is_ok());
+        assert_eq!(registry.registered_names().len(), 4);
     }
 
     #[test]
     fn register_and_resolve_custom() {
-        let registry = FormatterRegistry::new();
+        let registry = CodecRegistry::new();
         registry
-            .register("my_provider", make_custom_formatter())
+            .register("my_provider", make_custom_codec())
             .expect("custom registration must succeed");
         assert_eq!(registry.len(), 5);
 
@@ -157,8 +152,8 @@ mod tests {
 
     #[test]
     fn builtin_names_cannot_be_overridden() {
-        let registry = FormatterRegistry::new();
-        let err = match registry.register("OPENAI_CHAT", make_custom_formatter()) {
+        let registry = CodecRegistry::new();
+        let err = match registry.register("OPENAI_CHAT", make_custom_codec()) {
             Err(e) => e,
             Ok(_) => panic!("built-in name must be rejected"),
         };
@@ -169,24 +164,24 @@ mod tests {
 
     #[test]
     fn empty_name_rejected() {
-        let registry = FormatterRegistry::new();
-        assert!(registry.register("", make_custom_formatter()).is_err());
+        let registry = CodecRegistry::new();
+        assert!(registry.register("", make_custom_codec()).is_err());
     }
 
     #[test]
     fn unregistered_custom_errors() {
-        let registry = FormatterRegistry::new();
+        let registry = CodecRegistry::new();
         let err = match registry.get_by_format(&LlmFormat::Custom("nope".to_string())) {
             Err(e) => e,
             Ok(_) => panic!("unregistered format must error"),
         };
-        assert!(matches!(err, LlmError::FormatterNotFound(_)));
+        assert!(matches!(err, LlmError::CodecNotFound(_)));
     }
 
     #[test]
     fn unregister_custom() {
-        let registry = FormatterRegistry::new();
-        registry.register("tmp", make_custom_formatter()).unwrap();
+        let registry = CodecRegistry::new();
+        registry.register("tmp", make_custom_codec()).unwrap();
         assert!(registry.unregister("TMP"));
         assert!(!registry.contains("tmp"));
         assert!(!registry.unregister("TMP"));

@@ -29,10 +29,13 @@ pub struct ContributionManager {
     override_policy: RwLock<OverridePolicy>,
     node_type_registry: Registry<String, Arc<dyn PluginNodeHandler>>,
     tool_type_registry: Registry<String, Arc<dyn PluginToolExecutor>>,
-    /// Single backing registry for both LLM contribution kinds; the role
-    /// tag keeps provider registrations (backing `LlmFormat::Custom`
-    /// resolution) distinct from named message formatters.
-    llm_registry: Registry<String, (FormatterRole, Arc<dyn PluginLlmFormatter>)>,
+    /// Codec registry backing `LlmFormat::Custom(name)` resolution. Each
+    /// entry is a low-level wire-protocol codec contributed by a plugin.
+    llm_registry: Registry<String, Arc<dyn PluginLlmCodec>>,
+    /// Declarative provider definitions contributed by plugins (manifest
+    /// `llm_providers` segment or `register_llm_provider_definition`).
+    /// The runtime bridge writes them into the gateway provider registry.
+    llm_provider_definitions: Registry<String, Arc<wf_types::llm::LlmProviderDefinition>>,
     event_handler_registry: MultiRegistry<String, Arc<dyn PluginEventHandler>>,
     middleware_registry: MultiRegistry<String, (i32, Arc<dyn PluginMiddlewareHandler>)>,
     // Declarative resource contribution registry (owner tracking + bridge placement)
@@ -60,6 +63,7 @@ impl ContributionManager {
             node_type_registry: Registry::new(),
             tool_type_registry: Registry::new(),
             llm_registry: Registry::new(),
+            llm_provider_definitions: Registry::new(),
             event_handler_registry: MultiRegistry::new(),
             middleware_registry: MultiRegistry::new(),
             workflow_registry: Registry::new(),
@@ -89,6 +93,8 @@ impl ContributionManager {
         self.node_type_registry.unregister_by_plugin(plugin_id);
         self.tool_type_registry.unregister_by_plugin(plugin_id);
         self.llm_registry.unregister_by_plugin(plugin_id);
+        self.llm_provider_definitions
+            .unregister_by_plugin(plugin_id);
         self.event_handler_registry.unregister_by_plugin(plugin_id);
         self.middleware_registry.unregister_by_plugin(plugin_id);
         self.workflow_registry.unregister_by_plugin(plugin_id);
@@ -112,16 +118,16 @@ impl ContributionManager {
         self.tool_type_registry.get(type_name)
     }
 
-    pub fn get_llm_formatter(&self, name: &str) -> Option<Arc<dyn PluginLlmFormatter>> {
-        self.llm_registry
-            .get(name)
-            .and_then(|(role, formatter)| (role == FormatterRole::Provider).then_some(formatter))
+    pub fn get_llm_codec(&self, name: &str) -> Option<Arc<dyn PluginLlmCodec>> {
+        self.llm_registry.get(name)
     }
 
-    pub fn get_formatter(&self, name: &str) -> Option<Arc<dyn PluginLlmFormatter>> {
-        self.llm_registry
-            .get(name)
-            .and_then(|(role, formatter)| (role == FormatterRole::Formatter).then_some(formatter))
+    /// Declarative provider definition contributed by a plugin.
+    pub fn get_llm_provider_definition(
+        &self,
+        id: &str,
+    ) -> Option<Arc<wf_types::llm::LlmProviderDefinition>> {
+        self.llm_provider_definitions.get(id)
     }
 
     pub fn get_event_handlers(&self, event_type: &str) -> Vec<Arc<dyn PluginEventHandler>> {
@@ -149,21 +155,12 @@ impl ContributionManager {
     }
 
     pub fn all_llm_providers(&self) -> Vec<(String, String)> {
-        self.llm_registry
-            .all_with_values()
-            .into_iter()
-            .filter(|(_, _, (role, _))| *role == FormatterRole::Provider)
-            .map(|(name, owner, _)| (name, owner))
-            .collect()
+        self.llm_registry.all()
     }
 
-    pub fn all_formatters(&self) -> Vec<(String, String)> {
-        self.llm_registry
-            .all_with_values()
-            .into_iter()
-            .filter(|(_, _, (role, _))| *role == FormatterRole::Formatter)
-            .map(|(name, owner, _)| (name, owner))
-            .collect()
+    /// All plugin-contributed provider definitions as `(id, owner)` pairs.
+    pub fn all_llm_provider_definitions(&self) -> Vec<(String, String)> {
+        self.llm_provider_definitions.all()
     }
 
     pub fn all_event_handlers(&self) -> Vec<(String, String)> {
@@ -257,9 +254,9 @@ impl ContributionManager {
                 records.push((ContributionType::LlmFormat.as_str().into(), key));
             }
         }
-        for (key, owner) in self.all_formatters() {
+        for (key, owner) in self.all_llm_provider_definitions() {
             if owner == plugin_id {
-                records.push((ContributionType::Formatter.as_str().into(), key));
+                records.push(("llm-provider-definition".to_string(), key));
             }
         }
         for (key, owner) in self.all_event_handlers() {
@@ -420,7 +417,7 @@ impl ContributionRegistrar for RegistrarGuard<'_> {
     fn register_llm_provider(
         &mut self,
         name: &str,
-        formatter: Arc<dyn PluginLlmFormatter>,
+        codec: Arc<dyn PluginLlmCodec>,
     ) -> PluginResult<()> {
         let plugin_id = wf_common::lock::read_ok(self.manager.current_plugin_id.read()).clone();
         self.validate(&plugin_id, ContributionType::LlmFormat, name)?;
@@ -428,30 +425,36 @@ impl ContributionRegistrar for RegistrarGuard<'_> {
             .check_conflict(ContributionType::LlmFormat.as_str(), name, || {
                 self.manager.llm_registry.get_owner(name)
             })?;
-        self.manager.llm_registry.register(
-            name.into(),
-            plugin_id,
-            (FormatterRole::Provider, formatter),
-        );
+        self.manager
+            .llm_registry
+            .register(name.into(), plugin_id, codec);
         Ok(())
     }
 
-    fn register_formatter(
+    fn register_llm_provider_definition(
         &mut self,
-        name: &str,
-        formatter: Arc<dyn PluginLlmFormatter>,
+        definition: wf_types::llm::LlmProviderDefinition,
     ) -> PluginResult<()> {
         let plugin_id = wf_common::lock::read_ok(self.manager.current_plugin_id.read()).clone();
-        self.validate(&plugin_id, ContributionType::Formatter, name)?;
+        if definition.id.trim().is_empty() {
+            return Err(PluginError::InvalidContribution {
+                plugin_id,
+                message: "provider definition id must not be empty".to_string(),
+            });
+        }
+        if definition.format.trim().is_empty() {
+            return Err(PluginError::InvalidContribution {
+                plugin_id,
+                message: format!(
+                    "provider definition '{}' format must not be empty",
+                    definition.id
+                ),
+            });
+        }
+        let key = definition.id.clone();
         self.manager
-            .check_conflict(ContributionType::Formatter.as_str(), name, || {
-                self.manager.llm_registry.get_owner(name)
-            })?;
-        self.manager.llm_registry.register(
-            name.into(),
-            plugin_id,
-            (FormatterRole::Formatter, formatter),
-        );
+            .llm_provider_definitions
+            .register(key, plugin_id, Arc::new(definition));
         Ok(())
     }
 
@@ -929,52 +932,58 @@ mod tests {
     }
 
     #[test]
-    fn llm_provider_and_formatter_share_one_registry_with_roles() {
-        struct NoopFormatter;
-        #[async_trait::async_trait]
-        impl crate::contributions::types::PluginLlmFormatter for NoopFormatter {
-            async fn format(
+    fn llm_codec_registers_custom_format() {
+        struct NoopCodec;
+        impl crate::contributions::types::PluginLlmCodec for NoopCodec {
+            fn build_request(
                 &self,
-                _request: crate::contributions::types::PluginLlmRequest,
-            ) -> PluginResult<crate::contributions::types::PluginLlmResponse> {
-                Ok(crate::contributions::types::PluginLlmResponse {
-                    content: String::new(),
-                    usage: None,
-                })
+                _request: Value,
+                _profile: Value,
+            ) -> PluginResult<crate::contributions::types::CodecHttpRequest> {
+                Err(PluginError::Internal("noop".to_string()))
+            }
+            fn parse_response(&self, _body: &str, _request: Value) -> PluginResult<Value> {
+                Err(PluginError::Internal("noop".to_string()))
             }
         }
         let manager = ContributionManager::new();
         manager.start_registration("p1");
         manager
             .as_registrar()
-            .register_llm_provider("acme", Arc::new(NoopFormatter))
-            .unwrap();
-        manager
-            .as_registrar()
-            .register_formatter("pretty", Arc::new(NoopFormatter))
+            .register_llm_provider("acme", Arc::new(NoopCodec))
             .unwrap();
 
-        assert!(manager.get_llm_formatter("acme").is_some());
-        assert!(manager.get_llm_formatter("pretty").is_none());
-        assert!(manager.get_formatter("pretty").is_some());
-        assert!(manager.get_formatter("acme").is_none());
+        assert!(manager.get_llm_codec("acme").is_some());
         assert_eq!(
             manager.all_llm_providers(),
             vec![("acme".to_string(), "p1".to_string())]
         );
-        assert_eq!(
-            manager.all_formatters(),
-            vec![("pretty".to_string(), "p1".to_string())]
-        );
         assert!(manager
             .contributions_for("p1")
             .contains(&("llm-provider".to_string(), "acme".to_string())));
-        assert!(manager
-            .contributions_for("p1")
-            .contains(&("formatter".to_string(), "pretty".to_string())));
+
+        manager
+            .as_registrar()
+            .register_llm_provider_definition(wf_types::llm::LlmProviderDefinition {
+                id: "acme".to_string(),
+                name: None,
+                description: None,
+                base_url: Some("https://api.acme.test".to_string()),
+                auth_type: Some("bearer".to_string()),
+                default_headers: None,
+                format: "ACME_CHAT".to_string(),
+                model_discovery: None,
+                api_version: None,
+                metadata: None,
+            })
+            .unwrap();
+        assert_eq!(
+            manager.all_llm_provider_definitions(),
+            vec![("acme".to_string(), "p1".to_string())]
+        );
 
         manager.unregister_all("p1");
         assert!(manager.all_llm_providers().is_empty());
-        assert!(manager.all_formatters().is_empty());
+        assert!(manager.all_llm_provider_definitions().is_empty());
     }
 }

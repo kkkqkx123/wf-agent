@@ -5,9 +5,9 @@ use wf_types::llm::{LlmProfile, LlmRequest, LlmResult as LlmResponseType, Messag
 use wf_types::tool::Tool;
 
 use crate::error::{LlmError, LlmResult};
-use crate::formatters::LlmFormatter;
+use crate::codecs::LlmCodec;
 
-/// Adapt a plugin-provided [`PluginLlmCodec`] to the host [`LlmFormatter`].
+/// Adapt a plugin-provided [`PluginLlmCodec`] to the host [`LlmCodec`].
 ///
 /// Structured values cross the boundary as JSON: the request and profile are
 /// serialized before entering the codec, and the codec answers are
@@ -34,7 +34,10 @@ fn plugin_error(error: wf_plugin_sdk::PluginError) -> LlmError {
 
 fn http_request_from_description(described: &CodecHttpRequest) -> LlmResult<reqwest::Request> {
     let method: reqwest::Method = described.method.parse().map_err(|_| {
-        LlmError::ConfigError(format!("Invalid codec request method '{}'", described.method))
+        LlmError::ConfigError(format!(
+            "Invalid codec request method '{}'",
+            described.method
+        ))
     })?;
     let mut builder = reqwest::Client::new().request(method, &described.url);
     if !described.body.is_null() {
@@ -46,7 +49,7 @@ fn http_request_from_description(described: &CodecHttpRequest) -> LlmResult<reqw
     builder.build().map_err(LlmError::HttpError)
 }
 
-impl LlmFormatter for PluginCodecAdapter {
+impl LlmCodec for PluginCodecAdapter {
     fn build_request(
         &self,
         request: &LlmRequest,
@@ -86,11 +89,19 @@ impl LlmFormatter for PluginCodecAdapter {
     }
 
     fn parse_tool_calls(&self, result: &LlmResponseType) -> Vec<wf_types::message::LlmToolCall> {
-        let Ok(request) = serde_json::to_value(result) else {
-            return Vec::new();
+        let request = match serde_json::to_value(result) {
+            Ok(request) => request,
+            Err(e) => {
+                tracing::warn!("plugin codec parse_tool_calls: result serialization failed: {e}");
+                return Vec::new();
+            }
         };
-        let Ok(value) = self.codec.parse_tool_calls(request).map_err(|_| ()) else {
-            return Vec::new();
+        let value = match self.codec.parse_tool_calls(request) {
+            Ok(value) => value,
+            Err(e) => {
+                tracing::warn!("plugin codec parse_tool_calls failed: {e}");
+                return Vec::new();
+            }
         };
         serde_json::from_value(value).unwrap_or_default()
     }

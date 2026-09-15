@@ -17,13 +17,13 @@ pub mod wasm;
 pub use config::validate_config_for;
 pub use contributions::{
     parse_middleware_outcome, CodecHttpRequest, MiddlewareOutcome, NextFn, PluginEventHandler,
-    PluginExecutionContext, PluginLlmCodec, PluginLlmConfig, PluginLlmFormatter, PluginLlmRequest,
-    PluginLlmResponse, PluginLlmUsage, PluginMessage, PluginMiddlewareHandler, PluginNodeHandler,
+    PluginExecutionContext, PluginLlmCodec, PluginMiddlewareHandler, PluginNodeHandler,
     PluginNodeResult, PluginToolContext, PluginToolExecutor, PluginToolResult,
 };
 pub use error::{PluginError, PluginResult};
 pub use manifest::{
-    PluginManifest, PluginPermission, PluginType, WasmConfig, WASM_DEFAULT_FUEL_LIMIT,
+    PluginLlmProviderDefinition, PluginManifest, PluginModelDiscovery, PluginModelInfo,
+    PluginPermission, PluginType, WasmConfig, WASM_DEFAULT_FUEL_LIMIT,
     WASM_DEFAULT_MAX_MODULE_BYTES, WASM_DEFAULT_MEMORY_MAX_MB,
 };
 pub use native::{ContributionRegistrarC, DispatchFn, PluginContextC, WF_PLUGIN_ABI_VERSION};

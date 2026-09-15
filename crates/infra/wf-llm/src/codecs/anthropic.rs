@@ -1,20 +1,20 @@
-use super::LlmFormatter;
+use super::LlmCodec;
 use crate::error::LlmResult;
 use reqwest::Method;
 use wf_types::llm::{LlmProfile, LlmRequest, LlmResult as LlmResponseType, MessageStreamEvent};
 use wf_types::tool::Tool;
 
-pub struct AnthropicFormatter {
+pub struct AnthropicCodec {
     base_url: String,
 }
 
-impl Default for AnthropicFormatter {
+impl Default for AnthropicCodec {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl AnthropicFormatter {
+impl AnthropicCodec {
     pub fn new() -> Self {
         Self {
             base_url: "https://api.anthropic.com/v1".to_string(),
@@ -37,7 +37,7 @@ impl AnthropicFormatter {
         // in the dedicated `system` field. Text mode injects the original
         // system + tool usage instructions + declarations; native mode keeps
         // the original system message.
-        let (system_content, _) = crate::tool_format::extract_system_message(&request.messages);
+        let (system_content, _) = crate::tool_protocol::extract_system_message(&request.messages);
 
         let history = if use_text_mode {
             super::shared::convert_history_for_text_mode(&request.messages, request)
@@ -105,7 +105,7 @@ impl AnthropicFormatter {
             "messages": messages,
         });
 
-        let (system_content, _) = crate::tool_format::extract_system_message(&request.messages);
+        let (system_content, _) = crate::tool_protocol::extract_system_message(&request.messages);
         if let Some(system) = system_content {
             if !system.is_empty() {
                 body["system"] = serde_json::json!(system);
@@ -270,7 +270,7 @@ impl AnthropicFormatter {
     }
 }
 
-impl LlmFormatter for AnthropicFormatter {
+impl LlmCodec for AnthropicCodec {
     fn build_request(
         &self,
         request: &LlmRequest,
@@ -498,7 +498,7 @@ impl LlmFormatter for AnthropicFormatter {
     }
 }
 
-impl AnthropicFormatter {
+impl AnthropicCodec {
     fn parse_anthropic_response(&self, body: &str) -> LlmResult<LlmResponseType> {
         let json: serde_json::Value = serde_json::from_str(body)?;
 
@@ -643,7 +643,7 @@ mod tests {
     #[test]
     fn content_block_start_tool_use_emits_name_and_id() {
         let chunk = r#"{"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"toolu_1","name":"get_weather","input":{}}}"#;
-        match AnthropicFormatter::new()
+        match AnthropicCodec::new()
             .parse_stream_chunk(chunk)
             .expect("chunk must parse")
         {
@@ -660,7 +660,7 @@ mod tests {
     #[test]
     fn input_json_delta_emits_arguments_fragment() {
         let chunk = r#"{"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\"city\":\"Beijing\"}"}}"#;
-        match AnthropicFormatter::new()
+        match AnthropicCodec::new()
             .parse_stream_chunk(chunk)
             .expect("chunk must parse")
         {
@@ -736,8 +736,8 @@ mod tests {
 
     #[test]
     fn native_mode_sends_system_field() {
-        let formatter = AnthropicFormatter::new();
-        let body = formatter
+        let codec = AnthropicCodec::new();
+        let body = codec
             .build_body(
                 &request(
                     vec![
@@ -762,7 +762,7 @@ mod tests {
 
     #[test]
     fn text_mode_system_field_includes_tool_instructions() {
-        let formatter = AnthropicFormatter::new();
+        let codec = AnthropicCodec::new();
         let mut req = request(
             vec![
                 msg(wf_types::message::MessageRole::System, "You are a helper"),
@@ -771,7 +771,7 @@ mod tests {
             None,
         );
         req.tool_call_protocol = Some(wf_types::llm::ToolCallProtocol::Xml);
-        let body = formatter.build_body(&req, &profile()).expect("must build");
+        let body = codec.build_body(&req, &profile()).expect("must build");
 
         let system = body["system"].as_str().unwrap();
         assert!(system.contains("You are a helper"));
@@ -780,7 +780,7 @@ mod tests {
 
     #[test]
     fn params_pass_through_except_stream_and_stop() {
-        let formatter = AnthropicFormatter::new();
+        let codec = AnthropicCodec::new();
         let req = request(
             vec![msg(wf_types::message::MessageRole::User, "Hello")],
             Some(serde_json::json!({
@@ -791,7 +791,7 @@ mod tests {
                 "stream": true,
             })),
         );
-        let body = formatter.build_body(&req, &profile()).expect("must build");
+        let body = codec.build_body(&req, &profile()).expect("must build");
 
         assert_eq!(body["temperature"], serde_json::json!(0.2));
         assert_eq!(body["thinking"]["budget_tokens"], serde_json::json!(1024));
@@ -803,7 +803,7 @@ mod tests {
 
     #[test]
     fn count_tokens_includes_system() {
-        let formatter = AnthropicFormatter::new();
+        let codec = AnthropicCodec::new();
         let req = request(
             vec![msg(
                 wf_types::message::MessageRole::System,
@@ -811,7 +811,7 @@ mod tests {
             )],
             None,
         );
-        let body = formatter
+        let body = codec
             .build_count_tokens_body(&req, &profile())
             .expect("must build");
         assert_eq!(body["system"], serde_json::json!("You are a helper"));

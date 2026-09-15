@@ -59,6 +59,16 @@ pub(crate) fn routes() -> Router<ApiState> {
             "/llm/profiles/from-template",
             post(handle_create_from_template),
         )
+        // ── LLM providers ──
+        .route(
+            "/llm/providers",
+            get(handle_list_providers).post(handle_create_provider),
+        )
+        .route(
+            "/llm/providers/{id}",
+            get(handle_get_provider).delete(handle_delete_provider),
+        )
+        .route("/llm/providers/{id}/models", get(handle_list_models))
 }
 
 // ── LLM generation ────────────────────────────────────────────────
@@ -326,6 +336,56 @@ async fn handle_create_from_template(
     }
 }
 
+// ── LLM providers ─────────────────────────────────────────────────
+
+async fn handle_list_providers(State(state): State<ApiState>) -> impl IntoResponse {
+    match wf_api::llm::llm_provider::list(&state.ctx).await {
+        Ok(providers) => ok(providers).into_response(),
+        Err(e) => error_response(e),
+    }
+}
+
+async fn handle_create_provider(
+    State(state): State<ApiState>,
+    Json(provider): Json<wf_types::llm::LlmProviderDefinition>,
+) -> impl IntoResponse {
+    match wf_api::llm::llm_provider::create(&state.ctx, &provider).await {
+        Ok(()) => ok(provider.id).into_response(),
+        Err(e) => error_response(e),
+    }
+}
+
+async fn handle_get_provider(
+    State(state): State<ApiState>,
+    Path(path): Path<IdPath>,
+) -> impl IntoResponse {
+    match wf_api::llm::llm_provider::get(&state.ctx, &path.id).await {
+        Ok(provider) => ok(provider).into_response(),
+        Err(e) => error_response(e),
+    }
+}
+
+async fn handle_delete_provider(
+    State(state): State<ApiState>,
+    Path(path): Path<IdPath>,
+) -> impl IntoResponse {
+    match wf_api::llm::llm_provider::delete(&state.ctx, &path.id).await {
+        Ok(()) => ok(()).into_response(),
+        Err(e) => error_response(e),
+    }
+}
+
+/// Off-hot-path model listing for a provider definition.
+async fn handle_list_models(
+    State(state): State<ApiState>,
+    Path(path): Path<IdPath>,
+) -> impl IntoResponse {
+    match wf_api::llm::llm_provider::list_models(&state.ctx, &path.id).await {
+        Ok(models) => ok(models).into_response(),
+        Err(e) => error_response(e),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use axum::body::Body as AxBody;
@@ -357,6 +417,7 @@ mod tests {
             "/api/v1/llm/profiles",
             "/api/v1/llm/profiles/default",
             "/api/v1/llm/profile-templates",
+            "/api/v1/llm/providers",
             "/api/v1/scripts",
             "/api/v1/scripts/search?q=test",
             "/api/v1/tools",
@@ -386,7 +447,7 @@ mod tests {
                             "id": "",
                             "name": "",
                             "model": "",
-                            "provider": "mock"
+                            "format": "OPENAI_CHAT"
                         })
                         .to_string(),
                     ))

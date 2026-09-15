@@ -102,7 +102,7 @@ pub(crate) async fn count_tokens_client(
     cancel: Option<tokio_util::sync::CancellationToken>,
 ) -> LlmResult<TokenCountResult> {
     if let Some(http_request) = client_impl
-        .formatter
+        .codec
         .build_count_tokens_request(request, &client_impl.profile)?
     {
         let timeout_dur = client_impl.build_timeout();
@@ -141,7 +141,7 @@ pub(crate) async fn count_tokens_client(
 
         let body = response.text().await?;
         let json: serde_json::Value = serde_json::from_str(&body)?;
-        let input_tokens = client_impl.formatter.parse_count_tokens_response(&json)?;
+        let input_tokens = client_impl.codec.parse_count_tokens_response(&json)?;
         Ok(TokenCountResult {
             input_tokens,
             raw: Some(json),

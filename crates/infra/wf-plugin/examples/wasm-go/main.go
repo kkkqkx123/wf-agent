@@ -22,11 +22,13 @@ type MiddlewareDecl struct {
 }
 
 // Declaration mirrors `wf:plugin/contributions#declaration`.
+// `llm-providers` names wire-protocol codecs served through the
+// `llm-codec` dispatch channel (`<name>/<op>` with JSON envelopes;
+// the host builds the HTTP request from the returned description).
 type Declaration struct {
 	NodeTypes     []string
 	ToolTypes     []string
 	LlmProviders  []string
-	Formatters    []string
 	EventHandlers []string
 	Middleware    []MiddlewareDecl
 }

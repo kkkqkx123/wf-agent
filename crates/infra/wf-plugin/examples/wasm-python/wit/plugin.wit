@@ -30,11 +30,12 @@ interface contributions {
     }
 
     /// Contribution declaration, mirroring `wf_register` JSON today.
+    /// `llm-providers` names wire-protocol codecs served through the
+    /// `llm-codec` dispatch channel (`<name>/<op>`, JSON envelopes).
     record declaration {
         node-types: list<string>,
         tool-types: list<string>,
         llm-providers: list<string>,
-        formatters: list<string>,
         event-handlers: list<string>,
         middleware: list<middleware-decl>,
     }

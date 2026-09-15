@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::{PluginError, PluginResult};
 use crate::manifest::PluginManifest;
-use crate::signing::{verify_file, Enforcement, SignatureStatus, TrustedKeys};
+use crate::signing::{enforce_signature, verify_file, SignatureStatus, TrustedKeys};
 
 pub const PACKAGE_STATE_FILE: &str = "installed-plugins.json";
 
@@ -156,33 +156,8 @@ impl PluginPackageManager {
     ) -> PluginResult<()> {
         let artifact = source_path.join(&manifest.entry_point);
         let trust = self.trust.lock().expect("trust poisoned").clone();
-        match verify_file(&artifact, &trust) {
-            SignatureStatus::Valid { key } => {
-                tracing::info!("plugin '{}' signature valid (signer {})", manifest.id, key);
-            }
-            SignatureStatus::Unsigned => {
-                let msg = format!(
-                    "plugin '{}' has no signature for '{}'",
-                    manifest.id,
-                    artifact.display()
-                );
-                if trust.mode() == Enforcement::Enforcing {
-                    return Err(PluginError::LoadFailed(msg));
-                }
-                tracing::warn!("{msg}; installing without verification");
-            }
-            SignatureStatus::Invalid { reason } => {
-                let msg = format!(
-                    "plugin '{}' signature invalid for '{}': {reason}",
-                    manifest.id,
-                    artifact.display()
-                );
-                if trust.mode() == Enforcement::Enforcing {
-                    return Err(PluginError::LoadFailed(msg));
-                }
-                tracing::warn!("{msg}; installing without verification");
-            }
-        }
+        let status = verify_file(&artifact, &trust);
+        enforce_signature(&manifest.id, &artifact, &status, &trust, "installing")?;
         self.install(manifest, source_path)
     }
 
@@ -255,6 +230,7 @@ mod tests {
             config_schema: None,
             config: None,
             hooks: None,
+            llm_providers: vec![],
             wasm: None,
         }
     }

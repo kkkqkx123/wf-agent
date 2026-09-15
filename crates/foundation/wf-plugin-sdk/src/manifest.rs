@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -20,6 +21,17 @@ pub enum PluginPermission {
     Shell,
     Environment,
     Llm,
+    /// Register a low-level LLM wire-format codec (`llm-provider`
+    /// contribution). Subdivides the coarse `llm` permission so a plugin
+    /// that only contributes prompts cannot register formats.
+    LlmCodec,
+    /// Perform LLM model discovery over the network for a contributed
+    /// provider (default models endpoint or custom endpoint). Subdivides
+    /// `network` so discovery can be granted without general socket access.
+    LlmDiscovery,
+    /// Implement the codec through the native dispatch channel (structured
+    /// codec round-trip). Subdivides the native backend surface.
+    NativeCodec,
     Storage,
 }
 
@@ -50,9 +62,80 @@ pub struct PluginManifest {
     pub config: Option<serde_json::Value>,
     #[serde(default)]
     pub hooks: Option<HashMap<String, String>>,
+    /// Declarative connection templates contributed by the plugin. Each
+    /// entry is written into the host provider registry on activation
+    /// (linked with the `llm-provider` codec contribution) and removed
+    /// symmetrically on deactivation. The shape mirrors
+    /// `wf_types::llm::LlmProviderDefinition`; maps stay generic JSON so
+    /// this crate keeps no dependency on `wf-types`.
+    #[serde(default)]
+    pub llm_providers: Vec<PluginLlmProviderDefinition>,
     /// Wasm-only execution limits and WASI grants. Ignored for other types.
     #[serde(default)]
     pub wasm: Option<WasmConfig>,
+}
+
+/// Declarative LLM connection template in the plugin manifest.
+///
+/// Mirrors `wf_types::llm::LlmProviderDefinition` without depending on
+/// `wf-types`: the host converts each entry at sync time.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct PluginLlmProviderDefinition {
+    pub id: String,
+    pub format: String,
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub base_url: Option<String>,
+    #[serde(default)]
+    pub auth_type: Option<String>,
+    #[serde(default)]
+    pub default_headers: Option<HashMap<String, Value>>,
+    #[serde(default)]
+    pub api_version: Option<String>,
+    #[serde(default)]
+    pub model_discovery: Option<PluginModelDiscovery>,
+    #[serde(default)]
+    pub metadata: Option<HashMap<String, Value>>,
+}
+
+/// Model discovery description in the plugin manifest.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum PluginModelDiscovery {
+    ModelsEndpoint {
+        #[serde(default)]
+        path: Option<String>,
+        #[serde(default)]
+        json_path: Option<String>,
+    },
+    CustomEndpoint {
+        url: String,
+        #[serde(default)]
+        method: Option<String>,
+        #[serde(default)]
+        headers: Option<HashMap<String, Value>>,
+        #[serde(default)]
+        json_path: Option<String>,
+    },
+    StaticList {
+        models: Vec<PluginModelInfo>,
+    },
+    Disabled,
+}
+
+/// Model entry in a manifest static list.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct PluginModelInfo {
+    pub id: String,
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub context_window_size: Option<u32>,
+    #[serde(default)]
+    pub metadata: Option<HashMap<String, Value>>,
 }
 
 /// Execution limits and WASI capability grants for `Wasm` plugins.
@@ -80,6 +163,12 @@ pub struct WasmConfig {
     /// permission; empty means no filesystem access.
     #[serde(default)]
     pub allowed_dirs: Option<Vec<String>>,
+    /// Host directories preopened with write access. Requires the
+    /// `filesystem` permission; a directory listed here is readable and
+    /// writable even when it also appears in `allowed_dirs`. Empty means
+    /// the guest cannot write to the host filesystem.
+    #[serde(default)]
+    pub allowed_write_dirs: Option<Vec<String>>,
     /// Environment variable name prefixes visible to the guest. Requires
     /// the `environment` permission; empty means a minimal environment.
     #[serde(default)]
@@ -158,6 +247,25 @@ store_pool_size = 4
         assert_eq!(wasm.allow_network, Some(false));
         assert_eq!(wasm.allowed_dirs, Some(vec!["./data".to_owned()]));
         assert_eq!(wasm.store_pool_size, Some(4));
+    }
+
+    #[test]
+    fn manifest_parses_wasm_write_dirs() {
+        let raw = r#"
+id = "wasm-write"
+version = "1.0.0"
+entry_point = "plugin.wasm"
+plugin_type = "wasm"
+permissions = ["filesystem"]
+
+[wasm]
+allowed_dirs = ["./data"]
+allowed_write_dirs = ["./cache"]
+"#;
+        let manifest: PluginManifest = toml::from_str(raw).expect("parse manifest");
+        let wasm = manifest.wasm.expect("wasm config present");
+        assert_eq!(wasm.allowed_dirs, Some(vec!["./data".to_owned()]));
+        assert_eq!(wasm.allowed_write_dirs, Some(vec!["./cache".to_owned()]));
     }
 
     #[test]

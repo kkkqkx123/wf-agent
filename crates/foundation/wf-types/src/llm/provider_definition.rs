@@ -25,7 +25,7 @@ pub struct LlmProviderDefinition {
     /// Default headers; profile `custom_headers` override per key.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub default_headers: Option<crate::Metadata>,
-    /// Wire protocol format name resolved through `FormatterRegistry`
+    /// Wire protocol format name resolved through `CodecRegistry`
     /// (built-in canonical name or registered custom name).
     pub format: String,
     #[serde(skip_serializing_if = "Option::is_none")]

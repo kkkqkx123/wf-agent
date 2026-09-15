@@ -199,9 +199,124 @@ struct LuaToolExecutor {
     func_key: Arc<mlua::RegistryKey>,
 }
 
-struct LuaLlmFormatter {
+struct LuaLlmCodec {
     lua: Arc<Mutex<mlua::Lua>>,
-    func_key: Arc<mlua::RegistryKey>,
+    table_key: Arc<mlua::RegistryKey>,
+}
+
+/// Call one codec function of a Lua codec table synchronously and return
+/// the host JSON value.
+///
+/// The codec table holds the wire-protocol functions (`build_request`,
+/// `parse_response`, `parse_stream_chunk`, `convert_tools`,
+/// `parse_tool_calls`, ...); the script only returns the request
+/// description and the host constructs the HTTP request. When called
+/// inside a tokio runtime the call runs on the blocking pool so a slow
+/// script never pins an async worker.
+fn call_lua_codec_fn(
+    lua: &Arc<Mutex<mlua::Lua>>,
+    table_key: &Arc<mlua::RegistryKey>,
+    func_name: &'static str,
+    args: Vec<Value>,
+) -> PluginResult<Value> {
+    let lua = lua.clone();
+    let table_key = table_key.clone();
+    let invoke = move || -> PluginResult<Value> {
+        let locked = lua
+            .lock()
+            .map_err(|e| PluginError::LuaError(e.to_string()))?;
+        let table: mlua::Table = locked
+            .registry_value(&table_key)
+            .map_err(|e| PluginError::LuaError(e.to_string()))?;
+        let func: mlua::Function = table
+            .get(func_name)
+            .map_err(|e| PluginError::LuaError(format!("codec missing '{func_name}': {e}")))?;
+        let lua_args = args
+            .iter()
+            .map(|v| to_lua_value(&locked, v))
+            .collect::<Vec<_>>();
+        let result: mlua::Value = func
+            .call(mlua::Variadic::from_iter(lua_args))
+            .map_err(|e| PluginError::LuaError(e.to_string()))?;
+        Ok(from_lua_value(result))
+    };
+    // Inside a tokio runtime, hop to the blocking pool so a slow script
+    // never pins an async worker; outside a runtime, call inline.
+    match tokio::runtime::Handle::try_current() {
+        Ok(handle) => tokio::task::block_in_place(|| handle.block_on(run_lua_blocking(invoke))),
+        Err(_) => invoke(),
+    }
+}
+
+impl PluginLlmCodec for LuaLlmCodec {
+    fn build_request(&self, request: Value, profile: Value) -> PluginResult<CodecHttpRequest> {
+        let value = call_lua_codec_fn(
+            &self.lua,
+            &self.table_key,
+            "build_request",
+            vec![request, profile],
+        )?;
+        serde_json::from_value(value)
+            .map_err(|e| PluginError::LuaError(format!("codec build_request: {e}")))
+    }
+
+    fn parse_response(&self, body: &str, request: Value) -> PluginResult<Value> {
+        call_lua_codec_fn(
+            &self.lua,
+            &self.table_key,
+            "parse_response",
+            vec![Value::String(body.to_owned()), request],
+        )
+    }
+
+    fn parse_stream_chunk(&self, chunk: &str) -> PluginResult<Option<Value>> {
+        let value = call_lua_codec_fn(
+            &self.lua,
+            &self.table_key,
+            "parse_stream_chunk",
+            vec![Value::String(chunk.to_owned())],
+        )?;
+        Ok(if value.is_null() { None } else { Some(value) })
+    }
+
+    fn convert_tools(&self, tools: Value) -> PluginResult<Value> {
+        call_lua_codec_fn(&self.lua, &self.table_key, "convert_tools", vec![tools])
+    }
+
+    fn parse_tool_calls(&self, result: Value) -> PluginResult<Value> {
+        call_lua_codec_fn(&self.lua, &self.table_key, "parse_tool_calls", vec![result])
+    }
+
+    fn build_count_tokens_request(
+        &self,
+        request: Value,
+        profile: Value,
+    ) -> PluginResult<Option<CodecHttpRequest>> {
+        let value = call_lua_codec_fn(
+            &self.lua,
+            &self.table_key,
+            "build_count_tokens_request",
+            vec![request, profile],
+        )?;
+        if value.is_null() {
+            return Ok(None);
+        }
+        serde_json::from_value(value)
+            .map(Some)
+            .map_err(|e| PluginError::LuaError(format!("codec build_count_tokens_request: {e}")))
+    }
+
+    fn parse_count_tokens_response(&self, body: Value) -> PluginResult<u32> {
+        let value = call_lua_codec_fn(
+            &self.lua,
+            &self.table_key,
+            "parse_count_tokens_response",
+            vec![body],
+        )?;
+        value.as_u64().map(|n| n as u32).ok_or_else(|| {
+            PluginError::LuaError("codec parse_count_tokens_response must return a number".into())
+        })
+    }
 }
 
 struct LuaEventHandler {
@@ -271,68 +386,6 @@ impl PluginToolExecutor for LuaToolExecutor {
             Ok(PluginToolResult {
                 result: from_lua_value(r),
             })
-        })
-        .await
-    }
-}
-
-#[async_trait]
-impl PluginLlmFormatter for LuaLlmFormatter {
-    async fn format(&self, request: PluginLlmRequest) -> PluginResult<PluginLlmResponse> {
-        let lua = self.lua.clone();
-        let func_key = self.func_key.clone();
-        run_lua_blocking(move || {
-            let lua = lua
-                .lock()
-                .map_err(|e| PluginError::LuaError(e.to_string()))?;
-            let func: mlua::Function = lua
-                .registry_value(&func_key)
-                .map_err(|e| PluginError::LuaError(e.to_string()))?;
-            let req_tbl = create_lua_handler_table(&lua)?;
-            let msgs_arr = create_lua_handler_table(&lua)?;
-            for (i, msg) in request.messages.iter().enumerate() {
-                let msg_tbl = create_lua_handler_table(&lua)?;
-                set_table_str(&msg_tbl, "role", &msg.role)?;
-                set_table_str(&msg_tbl, "content", &msg.content)?;
-                msgs_arr
-                    .set(i + 1, msg_tbl)
-                    .map_err(|e| PluginError::LuaError(e.to_string()))?;
-            }
-            set_table_value(&req_tbl, "messages", mlua::Value::Table(msgs_arr))?;
-            if let Some(ref config) = request.config {
-                let cfg_tbl = create_lua_handler_table(&lua)?;
-                set_table_str(&cfg_tbl, "model", &config.model)?;
-                set_table_str(&cfg_tbl, "provider", &config.provider)?;
-                if let Some(t) = config.temperature {
-                    cfg_tbl
-                        .set("temperature", t)
-                        .map_err(|e| PluginError::LuaError(e.to_string()))?;
-                }
-                if let Some(m) = config.max_tokens {
-                    cfg_tbl
-                        .set("max_tokens", m)
-                        .map_err(|e| PluginError::LuaError(e.to_string()))?;
-                }
-                set_table_value(&req_tbl, "config", mlua::Value::Table(cfg_tbl))?;
-            }
-            let result: mlua::Value = func
-                .call(req_tbl)
-                .map_err(|e| PluginError::LuaError(e.to_string()))?;
-            let t = result
-                .as_table()
-                .ok_or_else(|| PluginError::LuaError("result must be a table".into()))?;
-            let content: String = t
-                .get("content")
-                .map_err(|e| PluginError::LuaError(e.to_string()))?;
-            let usage = t
-                .get::<&str, mlua::Table>("usage")
-                .ok()
-                .map(|ut| PluginLlmUsage {
-                    prompt_tokens: ut.get("prompt_tokens").unwrap_or(0),
-                    completion_tokens: ut.get("completion_tokens").unwrap_or(0),
-                    total_tokens: ut.get("total_tokens").unwrap_or(0),
-                });
-            Ok(PluginLlmResponse { content, usage })
         })
         .await
     }
@@ -558,29 +611,67 @@ impl Plugin for LuaPlugin {
 
             let mut out: Vec<RegEntry> = Vec::new();
 
-            let mut extract = |type_key: &str, handler_key: &str, kind: u8| {
-                if let Ok(Some(t)) = contribs_table.get::<_, Option<mlua::Table>>(type_key) {
-                    for (name, handler_tbl) in t.pairs::<String, mlua::Table>().flatten() {
-                        if let Ok(func) = handler_tbl.get::<_, mlua::Function>(handler_key) {
-                            if let Ok(key) = locked.create_registry_value(&func) {
-                                out.push(RegEntry {
-                                    name,
-                                    key,
-                                    kind,
-                                    phase: String::new(),
-                                    priority: 0,
-                                });
+            {
+                let mut extract = |type_key: &str, handler_key: &str, kind: u8| {
+                    if let Ok(Some(t)) = contribs_table.get::<_, Option<mlua::Table>>(type_key) {
+                        for (name, handler_tbl) in t.pairs::<String, mlua::Table>().flatten() {
+                            if let Ok(func) = handler_tbl.get::<_, mlua::Function>(handler_key) {
+                                if let Ok(key) = locked.create_registry_value(&func) {
+                                    out.push(RegEntry {
+                                        name,
+                                        key,
+                                        kind,
+                                        phase: String::new(),
+                                        priority: 0,
+                                    });
+                                }
                             }
                         }
                     }
-                }
-            };
+                };
 
-            extract("node_types", "execute", 0);
-            extract("tool_types", "execute", 1);
-            extract("llm_providers", "format", 2);
-            extract("formatters", "format", 3);
-            extract("event_handlers", "handle", 4);
+                extract("node_types", "execute", 0);
+                extract("tool_types", "execute", 1);
+            }
+            // Low-level wire-protocol codecs: each entry is a table of
+            // codec functions (`build_request`, `parse_response`,
+            // `parse_stream_chunk`, `convert_tools`, ...). The script
+            // only returns the request description; the host constructs
+            // the HTTP request.
+            if let Ok(Some(t)) = contribs_table.get::<_, Option<mlua::Table>>("llm_codecs") {
+                for (name, codec_tbl) in t.pairs::<String, mlua::Table>().flatten() {
+                    if let Ok(key) = locked.create_registry_value(&codec_tbl) {
+                        out.push(RegEntry {
+                            name,
+                            key,
+                            kind: 2,
+                            phase: String::new(),
+                            priority: 0,
+                        });
+                    }
+                }
+            }
+            {
+                let mut extract = |type_key: &str, handler_key: &str, kind: u8| {
+                    if let Ok(Some(t)) = contribs_table.get::<_, Option<mlua::Table>>(type_key) {
+                        for (name, handler_tbl) in t.pairs::<String, mlua::Table>().flatten() {
+                            if let Ok(func) = handler_tbl.get::<_, mlua::Function>(handler_key) {
+                                if let Ok(key) = locked.create_registry_value(&func) {
+                                    out.push(RegEntry {
+                                        name,
+                                        key,
+                                        kind,
+                                        phase: String::new(),
+                                        priority: 0,
+                                    });
+                                }
+                            }
+                        }
+                    }
+                };
+
+                extract("event_handlers", "handle", 4);
+            }
 
             if let Ok(Some(t)) = contribs_table.get::<_, Option<mlua::Table>>("middleware") {
                 for (_, mw_tbl) in t.pairs::<i32, mlua::Table>().flatten() {
@@ -622,16 +713,9 @@ impl Plugin for LuaPlugin {
                 )?,
                 2 => registrar.register_llm_provider(
                     &e.name,
-                    Arc::new(LuaLlmFormatter {
+                    Arc::new(LuaLlmCodec {
                         lua: self.lua.clone(),
-                        func_key: Arc::new(e.key),
-                    }),
-                )?,
-                3 => registrar.register_formatter(
-                    &e.name,
-                    Arc::new(LuaLlmFormatter {
-                        lua: self.lua.clone(),
-                        func_key: Arc::new(e.key),
+                        table_key: Arc::new(e.key),
                     }),
                 )?,
                 4 => registrar.register_event_handler(

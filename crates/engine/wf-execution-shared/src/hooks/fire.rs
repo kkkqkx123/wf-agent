@@ -272,6 +272,8 @@ mod tests {
             enabled: true,
             payload: None,
             handler: handler.map(String::from),
+            create_checkpoint: None,
+            checkpoint_description: None,
         }
     }
 
@@ -351,6 +353,8 @@ mod tests {
             enabled: true,
             payload: None,
             handler: Some("r1".to_string()),
+            create_checkpoint: None,
+            checkpoint_description: None,
         }];
         let summary = fire(&registry, &hooks, "TEST", &ctx(), None).await;
         assert_eq!(
@@ -506,6 +510,8 @@ mod tests {
             enabled: true,
             payload: Some(serde_json::json!({"k": "{{name}}"})),
             handler: None,
+            create_checkpoint: None,
+            checkpoint_description: None,
         }];
         let mut data = HashMap::new();
         data.insert("name".to_string(), Value::String("world".to_string()));

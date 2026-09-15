@@ -54,7 +54,7 @@ pub struct LlmRequest {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dead_loop_detection: Option<DeadLoopDetectionConfig>,
     /// Set by the gateway when a locked tool call protocol conflict was resolved
-    /// via the `auto_convert` policy; observed by formatters for observability.
+    /// via the `auto_convert` policy; observed by codecs for observability.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub protocol_auto_converted: Option<bool>,
 }

@@ -49,7 +49,6 @@ Wasm 插件有两条加载路径，宿主按二进制头部自动分流，上层
   "node_types": [],
   "tool_types": ["echo"],
   "llm_providers": [],
-  "formatters": [],
   "event_handlers": [],
   "middleware": [{"phase": "pre_tool", "priority": 0}]
 }
@@ -80,8 +79,8 @@ Wasm 插件有两条加载路径，宿主按二进制头部自动分流，上层
 5. release profile 开 `lto` 与 `opt-level = "s"`，示例产物约 0.5KB。
 
 动态逻辑（如解析输入 JSON）建议先用最小的手写解析起步，
-待组件模型（`wit/plugin.wit`）落地后再迁移到 `wit-bindgen`
-生成的强类型绑定。
+如需强类型绑定可用 `wit/plugin.wit`（`wf:plugin/plugin` 世界）经由
+Component 路径（`wasm32-wasip2` + `wit-bindgen`/`jco` 等）构建。
 
 ---
 
@@ -97,10 +96,11 @@ memory_max_mb = 64      # 缺省 64，0 为非法
 fuel_limit = 10000000   # 缺省 1000 万，0 表示不设限
 call_timeout_ms = 10000 # 缺省跟随引擎 guard 超时
 max_module_bytes = 33554432  # 缺省 32MiB
-allowed_dirs = ["./data"]    # 需同时声明 filesystem 权限
+allowed_dirs = ["./data"]    # 需同时声明 filesystem 权限，只读
+allowed_write_dirs = []       # 需同时声明 filesystem 权限；列出的目录可读写（读写蕴含读）
 allowed_env_prefixes = ["MYAPP_"]  # 需同时声明 environment 权限
 allow_network = false   # 缺省 false；置 true 会在加载期直接失败（本阶段无 socket 授权）
-store_pool_size = 0     # 缺省 0（关闭）；>0 且 guest 导出 wf_heap_reset 时启用 Core 路径实例池
+store_pool_size = 0     # 缺省 0（关闭）；>0 时启用实例池：Core 路径还要求 guest 导出 wf_heap_reset
 ```
 
 权限声明沿用 `permissions` 数组。注意：授权列表没有对应权限时
@@ -130,17 +130,31 @@ store_pool_size = 0     # 缺省 0（关闭）；>0 且 guest 导出 wf_heap_res
 
 ## 六、已知限制（本阶段）
 
-- 中间件语义为简化版：guest 返回 JSON 布尔值决定是否继续，
-  不支持 guest 回调宿主的 `next` 链之外的双向调用。
+- 中间件支持布尔与信封两种回答：guest 返回 JSON 布尔值表示沿用传入 context
+  继续/截断，或返回 `{"proceed": bool, "context": <replacement>}` 改写下游
+  context（两键可选，缺省为 `true`/传入 context）；非法输出按继续处理。
+  guest 无法反向回调宿主的 `next` 链之外的双向调用。
+- LLM wire 协议通过 `llm_providers` 声明暴露（逐项对应 `llm-codec` 分发）。
 - 网络能力恒关闭；`allow_network = true` 会在加载期直接失败（需移除或置 false）；
   `shell` 权限对 wasm 恒为拒绝。
 - guest `stdout` 输出接入宿主日志（`tracing::info`），`stderr` 接入警告日志
   （`tracing::warn`）；单流捕获上限 64KiB，超出会 trap，
   每次调用最多转发 4KiB / 20 行，超出部分截断并计数。
-- 会话复用：Core 路径支持实例池（manifest 设 `store_pool_size > 0`
-  且 guest 导出 `wf_heap_reset` 才启用，缺省关闭）；Component 路径暂无池化
-  （设计决策：缺少堆复位契约，盲目复用会累积 canonical-ABI 堆；
-  `InstancePre` 预解析已复用，fuel 统计已与 Core 对齐），
-  每次调用新建 Store + 实例化。
+- 会话复用：`store_pool_size > 0` 时启用实例池（缺省关闭），成功调用的
+  会话会被复用，失败/trap 的会话直接丢弃。Core 路径还要求 guest 导出
+  `wf_heap_reset`（加载时探测一次，不支持则打日志关闭池化）；
+  Component 路径无复位契约要求，但 guest 须容忍实例复用
+  （全局变量在池化调用间保持，处理器应写成无状态）。
+- 贡献刷新：宿主在加载时调用一次 `register` 并缓存结果；配置变更成功后
+  会重调 `register`，声明变化时自动取消旧贡献并重新注册
+  （引擎 `refresh_plugin_contributions` 也可显式触发）。
+- 数据编码统一为 JSON（双路径一致）：这是有意的设计——Go/Python/Rust
+  guest 无需共享绑定即可实现契约；分发载荷多为小控制文档，编解码开销
+  相对 guest 调用本身可忽略。Component 路径暂不启用 WIT 结构化载荷，
+  启用将是破坏性契约升级，需另行版本协商。
+- Guest-to-Host 回调目前仅有日志（Core 的 `wf_host::log`、
+  Component 的 `wf:plugin/host-log`）。tool/LLM/event 调用暂不开放：
+  需先定跨后端（Lua/Native 对齐）设计、重入策略与权限模型，
+  wasm 单开接口会分裂插件模型，故 deferred 到统一设计。
 - 编译缓存为进程内有界缓存（按模块字节 blake3 去重，最多保留 32 个产物），
   宿主重启后失效。

@@ -323,15 +323,33 @@ impl AgentLoopCoordinator {
 
     /// Branch resume from a checkpoint. A fresh execution id is always
     /// allocated and linked to the source execution as its parent; the source
-    /// chain is never mutated or truncated. Restoring into the same execution
-    /// id (in-place continuation) is rejected. Use read-only preview APIs for
-    /// replay without execution.
+    /// chain is never mutated or truncated. Use read-only preview APIs for
+    /// replay without execution. For same-id continuation see
+    /// [`Self::resume_from_checkpoint_in_place`].
     pub async fn resume_from_checkpoint(
         &self,
         checkpoint_id: &str,
         config: AgentLoopConfig,
         input: AgentLoopInput,
     ) -> AgentResult<AgentLoopOutput> {
+        self.resume_from_checkpoint_with_mode(checkpoint_id, config, input, false)
+            .await
+    }
+
+    /// Resume mode selector: `false` (default) is branch resume, `true` is
+    /// in-place continuation under the source execution id.
+    pub async fn resume_from_checkpoint_with_mode(
+        &self,
+        checkpoint_id: &str,
+        config: AgentLoopConfig,
+        input: AgentLoopInput,
+        in_place: bool,
+    ) -> AgentResult<AgentLoopOutput> {
+        if in_place {
+            return self
+                .resume_from_checkpoint_in_place(checkpoint_id, config, input)
+                .await;
+        }
         let prompt = input.message.clone();
         let restore = self.restore_checkpoint(checkpoint_id).await?;
         if let Some(ref forced_id) = self.agent_loop_id {
@@ -358,6 +376,72 @@ impl AgentLoopCoordinator {
         // Full conversation restoration: history, sequences, view, ledger
         // and tracker come back together so the branch continues exactly
         // where the source stood.
+        entity
+            .conversation()
+            .write()
+            .await
+            .restore_state(restore.conversation);
+        self.run_loop(&config, entity, prompt, IterationMode::Blocking, None)
+            .await
+    }
+
+    /// In-place continuation under the source execution id. New checkpoints
+    /// append to the same `agent_loop_id` partition (recycled by the
+    /// existing retention policy); only a `resume_source_checkpoint` audit
+    /// key is recorded, no parent/branch link. The source execution must be
+    /// terminal or paused, never `Running`, so two writers never share one
+    /// id. A caller-forced `agent_loop_id` conflicting with the source is
+    /// rejected.
+    pub async fn resume_from_checkpoint_in_place(
+        &self,
+        checkpoint_id: &str,
+        config: AgentLoopConfig,
+        input: AgentLoopInput,
+    ) -> AgentResult<AgentLoopOutput> {
+        let prompt = input.message.clone();
+        let restore = self.restore_checkpoint(checkpoint_id).await?;
+        // Concurrency guard: reject only when the same id is still live
+        // and non-terminal in the entity registry (a real second writer).
+        // Snapshot status alone cannot decide: snapshots are normally taken
+        // while running, including the error-interrupted runs in-place
+        // resume exists to recover.
+        if let Some(ref registry) = self.entity_registry {
+            if let Some(live) = registry.get(&restore.agent_loop_id) {
+                let state = live.state.read().await;
+                if !state.status().is_terminal() {
+                    return Err(AgentError::ExecutionError(format!(
+                        "in-place resume rejected: execution {} is still live ({:?})",
+                        restore.agent_loop_id,
+                        state.status(),
+                    )));
+                }
+            }
+        }
+        if let Some(ref forced_id) = self.agent_loop_id {
+            if forced_id.as_str() != restore.agent_loop_id.as_str() {
+                return Err(AgentError::ExecutionError(
+                    "in-place resume requires the coordinator id to match the source execution id"
+                        .to_string(),
+                ));
+            }
+        }
+        let mut resume_input = input;
+        resume_input.context.insert(
+            "resume_source_checkpoint".to_string(),
+            Value::String(restore.source_checkpoint_id.clone()),
+        );
+        let entity = Arc::new(
+            self.build_entity_with_forced_id(
+                &config,
+                resume_input,
+                Some(restore.agent_loop_id.clone()),
+            )
+            .await?,
+        );
+        {
+            let mut state = entity.state.write().await;
+            state.restore_from_snapshot(restore.state).await?;
+        }
         entity
             .conversation()
             .write()
@@ -472,11 +556,11 @@ impl AgentLoopCoordinator {
         )
         .await;
 
-        let checkpoint = self.build_checkpoint_integration();
+        let checkpoint = self.checkpoint_integration_for_config(config);
         // A second handle kept for the outcome checkpoints: the first one is
         // moved into the execution coordinator that drives the iteration
         // loop, and the terminal status only settles after it returns.
-        let outcome_checkpoint = self.build_checkpoint_integration();
+        let outcome_checkpoint = self.checkpoint_integration_for_config(config);
         if let Some(ref cp) = checkpoint {
             cp.create_checkpoint_gated(&entity, CheckpointTiming::Manual)
                 .await
@@ -504,7 +588,7 @@ impl AgentLoopCoordinator {
         .with_hook_handler_registry(self.hook_handler_registry.clone())
         // Intra-iteration boundary checkpoints (tool calls, compression
         // signals, message-count backstop) share the run strategy.
-        .with_checkpoint(self.build_checkpoint_integration())
+        .with_checkpoint(self.checkpoint_integration_for_config(config))
         .with_message_interval(config.checkpoint_message_interval);
         // File-content observation: the agent actor partition receives
         // precise file-tool events and scoped shell diffs. Blocking,
@@ -708,6 +792,33 @@ impl AgentLoopCoordinator {
         Some(self.build_checkpoint_integration_any())
     }
 
+    /// Checkpoint integration for a concrete run config. An explicitly
+    /// configured strategy wins; otherwise a `checkpoint_message_interval`
+    /// derives a `from_agent_config` strategy (tool/compression boundaries
+    /// on, message backstop at the requested interval) so the REST
+    /// `checkpoint_message_interval` actually produces `Interval`
+    /// checkpoints. With neither configured there is no integration
+    /// (previous default: no checkpoints), preserving prior behavior.
+    fn checkpoint_integration_for_config(
+        &self,
+        config: &AgentLoopConfig,
+    ) -> Option<AgentCheckpointIntegration> {
+        if self.checkpoint_strategy.is_some() {
+            return self.build_checkpoint_integration();
+        }
+        let interval = config.checkpoint_message_interval.filter(|n| *n > 0)?;
+        let strategy = AgentCheckpointStrategy::from_agent_config(
+            self.default_max_iterations,
+            true,
+            true,
+            true,
+            Some(interval),
+        );
+        let mut cp = self.build_checkpoint_integration_any();
+        cp = cp.with_strategy(strategy);
+        Some(cp)
+    }
+
     /// Assemble the checkpoint integration from shared components. Used
     /// unconditionally (i.e. also when no checkpoint strategy is configured)
     /// so checkpoint restore is always available: `resume_from_checkpoint`
@@ -770,6 +881,15 @@ impl AgentLoopCoordinator {
         config: &AgentLoopConfig,
         input: AgentLoopInput,
     ) -> AgentResult<AgentLoopEntity> {
+        self.build_entity_with_forced_id(config, input, None).await
+    }
+
+    async fn build_entity_with_forced_id(
+        &self,
+        config: &AgentLoopConfig,
+        input: AgentLoopInput,
+        forced_id: Option<Id>,
+    ) -> AgentResult<AgentLoopEntity> {
         let hooks: Vec<HookDefinition> = config
             .hooks
             .iter()
@@ -781,14 +901,17 @@ impl AgentLoopCoordinator {
                 enabled: h.enabled,
                 payload: h.payload.clone(),
                 handler: h.handler.clone(),
+                create_checkpoint: h.create_checkpoint,
+                checkpoint_description: h.checkpoint_description.clone(),
             })
             .collect();
 
         // Every run gets a fresh agent loop id; the config's `agent_id` only
-        // identifies the definition (persisted as `definition_id`).
-        let agent_loop_id = self
-            .agent_loop_id
-            .clone()
+        // identifies the definition (persisted as `definition_id`). An
+        // explicit `forced_id` (in-place resume) wins over the coordinator
+        // preset so the continuation reuses the source execution id.
+        let agent_loop_id = forced_id
+            .or_else(|| self.agent_loop_id.clone())
             .unwrap_or_else(|| Id::from(wf_common::generate_id()));
         let mut entity = AgentLoopEntity::new(agent_loop_id)
             .with_definition_id(config.agent_id.clone())

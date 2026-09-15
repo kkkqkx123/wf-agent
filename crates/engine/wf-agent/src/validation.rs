@@ -449,6 +449,8 @@ mod tests {
                 priority: 0,
                 payload: None,
                 handler: None,
+                create_checkpoint: None,
+                checkpoint_description: None,
             }],
             ..base_config()
         };

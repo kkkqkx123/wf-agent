@@ -106,7 +106,7 @@ fn search_tool() -> Tool {
 }
 
 #[tokio::test]
-async fn gateway_generates_through_real_formatter_and_http() {
+async fn gateway_generates_through_real_codec_and_http() {
     let server =
         MockServer::spawn(|_: &MockRequest| MockResponse::ok_json(OPENAI_CHAT_RESPONSE)).await;
     let gateway = LlmGateway::new();

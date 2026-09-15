@@ -31,8 +31,8 @@ pub enum LlmError {
     #[error("Unsupported format: {0:?}")]
     UnsupportedFormat(wf_types::llm::LlmFormat),
 
-    #[error("Formatter not registered for format: {0}")]
-    FormatterNotFound(String),
+    #[error("Codec not registered for format: {0}")]
+    CodecNotFound(String),
 
     #[error("Request timed out after {0}ms")]
     Timeout(u64),
@@ -64,7 +64,7 @@ impl LlmError {
             | LlmError::ConfigError(_)
             | LlmError::ProfileNotFound(_)
             | LlmError::UnsupportedFormat(_)
-            | LlmError::FormatterNotFound(_)
+            | LlmError::CodecNotFound(_)
             | LlmError::AuthError(_)
             | LlmError::ToolNotFound(_)
             | LlmError::InvalidResponse(_)
@@ -144,7 +144,7 @@ mod tests {
             LlmError::ConfigError("bad".to_string()),
             LlmError::ProfileNotFound("p".to_string()),
             LlmError::UnsupportedFormat(LlmFormat::Custom("x".to_string())),
-            LlmError::FormatterNotFound("x".to_string()),
+            LlmError::CodecNotFound("x".to_string()),
             LlmError::AuthError("denied".to_string()),
             LlmError::ToolNotFound("t".to_string()),
             LlmError::InvalidResponse("bad body".to_string()),

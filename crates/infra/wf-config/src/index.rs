@@ -931,7 +931,7 @@ mod tests {
         );
         write_json(
             &dir.join("good.json"),
-            r#"{"id": "g1", "name": "G", "provider": "OPENAI", "model": "m1"}"#,
+            r#"{"id": "g1", "name": "G", "format": "OPENAI_CHAT", "model": "m1"}"#,
         );
         write_json(&dir.join("bad.json"), r#"{invalid json"#);
 

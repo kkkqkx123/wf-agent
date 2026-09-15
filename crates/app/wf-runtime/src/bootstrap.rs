@@ -37,9 +37,10 @@ pub use bootstrap_helpers::activate_builtin_resource_plugins_legacy;
 #[cfg(feature = "plugins")]
 pub use bootstrap_helpers::init_plugins;
 pub use bootstrap_helpers::{
-    adjust_log_config, hydrate_tool_registry_from_storage, init_checkpoint_store,
-    init_event_persistence, init_llm_gateway, init_mcp, init_metrics_context,
-    init_plugins_and_resources, init_tool_registry_with_mcp, resolve_infra_config, storage_db_path,
+    adjust_log_config, create_llm_gateway, hydrate_tool_registry_from_storage,
+    init_checkpoint_store, init_event_persistence, init_llm_gateway, init_mcp,
+    init_metrics_context, init_plugins_and_resources, init_tool_registry_with_mcp,
+    register_llm_config, resolve_infra_config, storage_db_path,
 };
 pub use bootstrap_helpers::{
     init_file_checkpoint_manager, init_gc_timer, init_manual_change_service,
@@ -335,9 +336,35 @@ impl Runtime {
         )
         .await?;
 
+        // Fixed startup order for LLM extensibility: the gateway exists
+        // before plugin activation so the bridge can sync plugin codecs
+        // and provider definitions into it; file-layer providers and
+        // profiles register afterwards. No lazy backfill.
+        let agent_registry = std::sync::Arc::new(wf_agent::registry::AgentLoopRegistry::new());
+        let gate_stats = agent_registry.gate_stats();
+        info!(
+            "Agent capacity gate at startup: max_concurrent={}, active={}, available={}",
+            gate_stats.max_concurrent, gate_stats.active_count, gate_stats.available_permits
+        );
+
+        let metrics = init_metrics_context(
+            &config.metrics,
+            &storage_manager,
+            &event_bus,
+            &agent_registry,
+        )
+        .await?;
+
+        let llm_gateway = create_llm_gateway(metrics.as_ref().map(|m| m.registry().as_ref()));
+
         #[cfg(feature = "plugins")]
-        let plugin_engine =
-            init_plugins(&config.plugins, registries.clone(), tool_registry.clone()).await?;
+        let plugin_engine = init_plugins(
+            &config.plugins,
+            registries.clone(),
+            tool_registry.clone(),
+            llm_gateway.clone(),
+        )
+        .await?;
         init_plugins_and_resources(
             &bundles,
             &config.resource.options,
@@ -347,6 +374,8 @@ impl Runtime {
             &plugin_engine,
         )
         .await?;
+
+        register_llm_config(&llm_gateway, &config.llm)?;
 
         // Hydrate persisted agent templates into the runtime registry so
         // templates created through the API survive restarts. Predefined
@@ -376,28 +405,7 @@ impl Runtime {
             }
         }
 
-        // The agent loop registry is created before metrics so the runtime
-        // can wire its capacity gate into the resource sampler from the
-        // first observation tick.
-        let agent_registry = std::sync::Arc::new(wf_agent::registry::AgentLoopRegistry::new());
-        let gate_stats = agent_registry.gate_stats();
-        info!(
-            "Agent capacity gate at startup: max_concurrent={}, active={}, available={}",
-            gate_stats.max_concurrent, gate_stats.active_count, gate_stats.available_permits
-        );
-
-        let metrics = init_metrics_context(
-            &config.metrics,
-            &storage_manager,
-            &event_bus,
-            &agent_registry,
-        )
-        .await?;
-
         let (shutdown_handle, _shutdown_waiter) = shutdown_channel();
-
-        let llm_gateway =
-            init_llm_gateway(&config.llm, metrics.as_ref().map(|m| m.registry().as_ref()))?;
 
         // Execution callback assembly: a composite covering agent and
         // workflow dispatch, registered on both the global callback

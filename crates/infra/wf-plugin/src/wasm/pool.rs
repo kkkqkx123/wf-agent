@@ -1,9 +1,8 @@
 use std::collections::VecDeque;
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use moka::sync::Cache;
-use tokio::sync::Mutex;
 use wasmtime::{
     Config, Engine, Instance, InstancePre, Linker, Memory, ResourceLimiter, Store, StoreLimits,
     StoreLimitsBuilder,
@@ -80,6 +79,13 @@ pub async fn new_session(
 /// Sessions are only retained when the guest exports `wf_heap_reset`
 /// (probed once at load time) and the manifest enables pooling; otherwise
 /// every call builds a fresh session exactly as before.
+///
+/// The idle queue uses a plain blocking mutex: every critical section is a
+/// short synchronous queue operation with no `.await` inside, so an async
+/// mutex would only add scheduling overhead. A lock-free queue was
+/// deliberately not chosen: it would be unbounded (capacity would need a
+/// separate atomic counter) while queue operations are negligible next to
+/// wasm instantiation cost.
 pub struct SessionPool {
     plugin_id: String,
     engine: Engine,
@@ -126,10 +132,12 @@ impl SessionPool {
     }
 
     /// Check out a session: reuse an idle one when available, otherwise
-    /// build a fresh session. Never blocks.
+    /// build a fresh session. Never blocks. The lock is released before
+    /// any `.await`, so a blocking mutex is safe inside this async fn.
     pub async fn acquire(&self) -> PluginResult<PooledSession> {
         if let Some(idle) = &self.idle {
-            if let Some(session) = idle.lock().await.pop_front() {
+            let reused = idle.lock().expect("session pool poisoned").pop_front();
+            if let Some(session) = reused {
                 self.stats.record_pool_hit();
                 return Ok(session);
             }
@@ -162,7 +170,8 @@ impl SessionPool {
             self.stats.record_pool_drop();
             return;
         }
-        let mut idle = idle.lock().await;
+        // Synchronous tail: no `.await` while the queue lock is held.
+        let mut idle = idle.lock().expect("session pool poisoned");
         if idle.len() >= self.limits.pool_size {
             self.stats.record_pool_drop();
             return;
@@ -253,14 +262,43 @@ fn shared_engine() -> Engine {
         .clone()
 }
 
+/// Maximum rendered length of a wasmtime error. Backtraces are longest at
+/// the tail, so over-long messages keep a head (context plus the error
+/// summary) and a tail (the innermost frames) with the byte count removed
+/// from the middle recorded explicitly.
+pub const WASM_ERR_CAP_BYTES: usize = 2000;
+/// Head bytes preserved when a wasmtime error exceeds the cap.
+pub const WASM_ERR_HEAD_BYTES: usize = 1400;
+/// Tail bytes preserved when a wasmtime error exceeds the cap.
+pub const WASM_ERR_TAIL_BYTES: usize = 400;
+
 /// Shorten a wasmtime error (which may embed a full backtrace) for logs.
+/// Unlike a plain head truncation, the tail is preserved so the innermost
+/// frames and trap cause stay diagnosable.
 pub fn wasm_err(context: &str, err: impl std::fmt::Display) -> PluginError {
-    let mut text = format!("{context}: {err}");
-    if text.len() > 2000 {
-        text.truncate(2000);
-        text.push_str("...(truncated)");
+    PluginError::WasmError(cap_wasmtime_error(&format!("{context}: {err}")))
+}
+
+/// Cap a rendered error to [`WASM_ERR_CAP_BYTES`], keeping the head and
+/// the tail on UTF-8 boundaries and recording the removed middle.
+fn cap_wasmtime_error(text: &str) -> String {
+    if text.len() <= WASM_ERR_CAP_BYTES {
+        return text.to_owned();
     }
-    PluginError::WasmError(text)
+    let mut head = WASM_ERR_HEAD_BYTES.min(text.len());
+    while !text.is_char_boundary(head) {
+        head -= 1;
+    }
+    let mut tail_start = text.len().saturating_sub(WASM_ERR_TAIL_BYTES);
+    while tail_start < text.len() && !text.is_char_boundary(tail_start) {
+        tail_start += 1;
+    }
+    let removed = tail_start.saturating_sub(head);
+    format!(
+        "{}...({removed} bytes truncated)...{}",
+        &text[..head],
+        &text[tail_start..]
+    )
 }
 
 /// Linker pre-loaded with WASI imports plus the `wf_host` guest-to-host
@@ -327,6 +365,24 @@ pub fn build_store(
             wasmtime_wasi::FilePerms::READ,
         ) {
             tracing::warn!("wasm plugin '{plugin_id}' preopen failed for '{host_path}': {e}");
+        }
+    }
+    for (host_path, guest_path) in &grants.writable_dirs {
+        if !std::path::Path::new(host_path).is_dir() {
+            tracing::warn!(
+                "wasm plugin '{plugin_id}' writable preopen skipped, not a directory: {host_path}"
+            );
+            continue;
+        }
+        if let Err(e) = builder.preopened_dir(
+            host_path,
+            guest_path,
+            wasmtime_wasi::DirPerms::READ | wasmtime_wasi::DirPerms::MUTATE,
+            wasmtime_wasi::FilePerms::READ | wasmtime_wasi::FilePerms::WRITE,
+        ) {
+            tracing::warn!(
+                "wasm plugin '{plugin_id}' writable preopen failed for '{host_path}': {e}"
+            );
         }
     }
     let wasi = builder.build_p1();
@@ -437,6 +493,21 @@ pub fn compile_count_value() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn capped_error_keeps_head_and_tail() {
+        let long = format!("{}-TAIL", "x".repeat(WASM_ERR_CAP_BYTES + 100));
+        let capped = cap_wasmtime_error(&long);
+        assert!(capped.len() < long.len());
+        assert!(capped.contains("bytes truncated"));
+        assert!(capped.ends_with("-TAIL"));
+    }
+
+    #[test]
+    fn short_error_passes_through() {
+        assert_eq!(cap_wasmtime_error("boom"), "boom");
+        assert_eq!(cap_wasmtime_error(""), "");
+    }
 
     #[test]
     fn store_applies_fuel_limit() {

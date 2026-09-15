@@ -1,4 +1,4 @@
-use std::path::{Component, Path};
+use std::path::{Component, Path, PathBuf};
 use std::sync::Arc;
 
 use tokio::fs;
@@ -10,6 +10,7 @@ use super::stats::WasmStats;
 use crate::error::{PluginError, PluginResult};
 use crate::manifest::PluginManifest;
 use crate::plugin::Plugin;
+use crate::signing::{enforce_signature, verify_file, TrustedKeys};
 use wf_plugin_sdk::wasm::export;
 
 /// Fallback per-call timeout when the manifest sets none. Mirrors the
@@ -30,10 +31,31 @@ pub async fn load_wasm_plugin_with_base(
     load_wasm_plugin_at(manifest, base).await
 }
 
-async fn load_wasm_plugin_at(
+/// Load a wasm plugin with a point-in-time signature check on its
+/// entry-point artifact.
+///
+/// Supply-chain integrity primarily lives at the package layer:
+/// `PluginPackageManager::install_verified` in `Enforcing` mode plus
+/// `verify_installed` audits. The default load entries above assume that
+/// boundary and perform no integrity check themselves. This opt-in entry
+/// re-checks the artifact at load time for hosts that want explicit
+/// load-point assurance; under `Permissive` trust it warns and proceeds
+/// with the same semantics as `install_verified`.
+pub async fn load_wasm_plugin_verified_with_base(
     manifest: &PluginManifest,
-    base_path: &Path,
+    base: &Path,
+    trust: &TrustedKeys,
 ) -> PluginResult<Arc<dyn Plugin>> {
+    let module_path = resolve_module_path(manifest, base)?;
+    let status = verify_file(&module_path, trust);
+    enforce_signature(&manifest.id, &module_path, &status, trust, "loading")?;
+    load_wasm_plugin_at(manifest, base).await
+}
+
+/// Resolve the on-disk module path for a manifest, rejecting absolute
+/// entries, parent traversal, and escapes from the base directory.
+/// Shared by the default and verified load entries.
+fn resolve_module_path(manifest: &PluginManifest, base_path: &Path) -> PluginResult<PathBuf> {
     let id = &manifest.id;
     validate_plugin_id(id)?;
     validate_entry_point(&manifest.entry_point)?;
@@ -49,6 +71,15 @@ async fn load_wasm_plugin_at(
             )));
         }
     }
+    Ok(module_path)
+}
+
+async fn load_wasm_plugin_at(
+    manifest: &PluginManifest,
+    base_path: &Path,
+) -> PluginResult<Arc<dyn Plugin>> {
+    let id = &manifest.id;
+    let module_path = resolve_module_path(manifest, base_path)?;
 
     let limits = resolve_limits(manifest, DEFAULT_WASM_CALL_TIMEOUT_MS)?;
     validate_network_policy(manifest)?;
@@ -59,13 +90,8 @@ async fn load_wasm_plugin_at(
     // component magic; the core-module path handles everything else.
     if is_component(&bytes) {
         let grants = resolve_grants(manifest);
-        return super::component::load_component_plugin_at(
-            manifest,
-            &module_path,
-            &limits,
-            &grants,
-        )
-        .await;
+        return super::component::load_component_plugin_at(manifest, &bytes, &limits, &grants)
+            .await;
     }
     if bytes.len() as u64 > limits.max_module_bytes {
         return Err(PluginError::LoadFailed(format!(
@@ -100,8 +126,9 @@ async fn load_wasm_plugin_at(
         .map_err(|e| pool::wasm_err(&format!("plugin '{id}' pre-instantiation failed"), e))?;
     let grants = resolve_grants(manifest);
     tracing::info!(
-        "wasm plugin '{id}' grants: {} dir(s), {} env var(s), network={}",
+        "wasm plugin '{id}' grants: {} dir(s), {} writable dir(s), {} env var(s), network={}",
         grants.preopened_dirs.len(),
+        grants.writable_dirs.len(),
         grants.env_vars.len(),
         grants.allow_network
     );
@@ -117,15 +144,16 @@ async fn load_wasm_plugin_at(
     }
     let stats = Arc::new(WasmStats::default());
     let pool = SessionPool::new(id, &engine, &pre, &grants, &limits, &stats, supports_reset);
-    let mut inner = WasmPluginInner {
+    let inner = WasmPluginInner {
         manifest: manifest.clone(),
         engine,
         limits,
-        decl: Default::default(),
+        decl: std::sync::RwLock::new(Default::default()),
         stats,
         pool,
     };
-    inner.decl = fetch_declaration(&inner).await?;
+    let decl = fetch_declaration(&inner).await?;
+    *wf_common::lock::write_ok(inner.decl.write()) = decl;
 
     Ok(Arc::new(WasmPlugin::from_inner(inner)) as Arc<dyn Plugin>)
 }
@@ -294,6 +322,7 @@ mod tests {
             config_schema: None,
             config: None,
             hooks: None,
+            llm_providers: vec![],
             wasm: None,
         }
     }
@@ -548,6 +577,94 @@ mod tests {
             matches!(err, PluginError::WasmError(_)),
             "expected hook error, got {err:?}"
         );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    fn test_signing_key() -> ed25519_dalek::SigningKey {
+        // Deterministic key for tests; production callers use generate_keypair.
+        ed25519_dalek::SigningKey::from_bytes(&[7u8; 32])
+    }
+
+    fn test_trust(
+        key: &ed25519_dalek::SigningKey,
+        mode: crate::signing::Enforcement,
+    ) -> crate::signing::TrustedKeys {
+        crate::signing::TrustedKeys::new(vec![key.verifying_key().to_bytes()], mode)
+    }
+
+    fn write_signed_module(dir: &std::path::Path, key: &ed25519_dalek::SigningKey) {
+        write_module(dir, &wasm_test_echo_wat(r#"{"tool_types":[]}"#));
+        crate::signing::sign_file(&dir.join("plugin.wasm"), key).expect("sign module");
+    }
+
+    #[tokio::test]
+    async fn verified_load_accepts_trusted_signature() {
+        use crate::signing::Enforcement;
+
+        let dir = std::env::temp_dir().join("wf-wasm-test-sig-ok");
+        let _ = std::fs::create_dir_all(&dir);
+        let key = test_signing_key();
+        write_signed_module(&dir, &key);
+
+        let m = manifest("sig-ok", "plugin.wasm");
+        load_wasm_plugin_verified_with_base(&m, &dir, &test_trust(&key, Enforcement::Enforcing))
+            .await
+            .expect("trusted load");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn verified_load_rejects_tampered_artifact() {
+        use crate::signing::Enforcement;
+
+        let dir = std::env::temp_dir().join("wf-wasm-test-sig-tamper");
+        let _ = std::fs::create_dir_all(&dir);
+        let key = test_signing_key();
+        write_signed_module(&dir, &key);
+        // Replace the artifact after signing; the digest check must fail
+        // before any compilation is attempted.
+        write_module(&dir, &wasm_test_echo_wat(r#"{"tool_types":["other"]}"#));
+
+        let m = manifest("sig-tamper", "plugin.wasm");
+        let err = match load_wasm_plugin_verified_with_base(
+            &m,
+            &dir,
+            &test_trust(&key, Enforcement::Enforcing),
+        )
+        .await
+        {
+            Ok(_) => panic!("tampered artifact must fail"),
+            Err(e) => e,
+        };
+        assert!(err.to_string().contains("signature invalid"), "got: {err}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn verified_load_enforcing_rejects_unsigned_but_permissive_loads() {
+        use crate::signing::Enforcement;
+
+        let dir = std::env::temp_dir().join("wf-wasm-test-sig-unsigned");
+        let _ = std::fs::create_dir_all(&dir);
+        write_module(&dir, &wasm_test_echo_wat(r#"{"tool_types":[]}"#));
+
+        let key = test_signing_key();
+        let m = manifest("sig-unsigned", "plugin.wasm");
+        let err = match load_wasm_plugin_verified_with_base(
+            &m,
+            &dir,
+            &test_trust(&key, Enforcement::Enforcing),
+        )
+        .await
+        {
+            Ok(_) => panic!("unsigned artifact must fail in enforcing mode"),
+            Err(e) => e,
+        };
+        assert!(err.to_string().contains("has no signature"), "got: {err}");
+
+        load_wasm_plugin_verified_with_base(&m, &dir, &test_trust(&key, Enforcement::Permissive))
+            .await
+            .expect("permissive load proceeds");
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

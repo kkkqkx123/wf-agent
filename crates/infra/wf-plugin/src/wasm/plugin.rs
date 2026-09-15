@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -23,7 +23,9 @@ pub(crate) struct WasmPluginInner {
     pub(crate) manifest: PluginManifest,
     pub(crate) engine: Engine,
     pub(crate) limits: WasmLimits,
-    pub(crate) decl: WasmContributionDecl,
+    /// Cached contribution declaration. Locked because `reload_declaration`
+    /// may replace it while registered handlers hold the same inner.
+    pub(crate) decl: RwLock<WasmContributionDecl>,
     pub(crate) stats: Arc<WasmStats>,
     /// Idle session pool. Disabled by default; enabled only when the
     /// manifest requests it and the guest exports the heap-reset hook.
@@ -43,8 +45,8 @@ impl WasmPlugin {
         }
     }
 
-    pub fn declaration(&self) -> &WasmContributionDecl {
-        &self.inner.decl
+    pub fn declaration(&self) -> WasmContributionDecl {
+        wf_common::lock::read_ok(self.inner.decl.read()).clone()
     }
 
     pub fn stats(&self) -> super::stats::WasmStatsSnapshot {
@@ -329,7 +331,8 @@ async fn fetch_declaration_inner(
     .await;
     let packed = packed?;
     let bytes = read_output(inner, &mut *session, packed).await?;
-    abi::decode_decl(&bytes)
+    let decl = abi::decode_decl(&bytes)?;
+    Ok(decl)
 }
 
 /// Call the `wf_dispatch` export. Required whenever the plugin declares
@@ -432,11 +435,28 @@ impl Plugin for WasmPlugin {
         invoke_hook(&self.inner, export::ON_CONFIG_CHANGE, &input).await
     }
 
+    /// Re-call `wf_register` and adopt the result when it differs from the
+    /// cached declaration. Returns true exactly when the engine must
+    /// re-sync contributions.
+    async fn reload_declaration(&self) -> PluginResult<bool> {
+        let fresh = fetch_declaration(&self.inner).await?;
+        let mut current = wf_common::lock::write_ok(self.inner.decl.write());
+        if *current == fresh {
+            return Ok(false);
+        }
+        *current = fresh;
+        Ok(true)
+    }
+
+    /// The six registration loops intentionally mirror the component-model
+    /// path: unifying them would require handler types generic over both
+    /// backends for no behavioral gain. Shared call logic lives in
+    /// `super::shared` instead.
     fn register_contributions(
         &self,
         registrar: &mut dyn ContributionRegistrar,
     ) -> PluginResult<()> {
-        let decl = &self.inner.decl;
+        let decl = wf_common::lock::read_ok(self.inner.decl.read());
         for name in &decl.node_types {
             registrar.register_node_type(
                 name,
@@ -458,16 +478,7 @@ impl Plugin for WasmPlugin {
         for name in &decl.llm_providers {
             registrar.register_llm_provider(
                 name,
-                Arc::new(WasmLlmFormatter {
-                    inner: self.inner.clone(),
-                    name: name.clone(),
-                }),
-            )?;
-        }
-        for name in &decl.formatters {
-            registrar.register_formatter(
-                name,
-                Arc::new(WasmLlmFormatter {
+                Arc::new(WasmLlmCodec {
                     inner: self.inner.clone(),
                     name: name.clone(),
                 }),
@@ -506,9 +517,78 @@ pub struct WasmToolExecutor {
     type_name: String,
 }
 
-pub struct WasmLlmFormatter {
+pub struct WasmLlmCodec {
     inner: Arc<WasmPluginInner>,
     name: String,
+}
+
+impl WasmLlmCodec {
+    /// Structured codec round-trip over the guest dispatch channel.
+    /// The sync `PluginLlmCodec` contract cannot await, so block the
+    /// current thread on the async dispatch; inside a tokio runtime this
+    /// uses `block_in_place` to keep async workers free.
+    fn roundtrip<T: serde::de::DeserializeOwned>(&self, op: &str, input: Value) -> PluginResult<T> {
+        let input_json = super::shared::encode_call_input(&input, "llm codec input")?;
+        let inner = self.inner.clone();
+        let handler = format!("{}/{}", self.name, op);
+        let output = match tokio::runtime::Handle::try_current() {
+            Ok(handle) => tokio::task::block_in_place(|| {
+                handle.block_on(invoke_dispatch(&inner, "llm-codec", &handler, &input_json))
+            })?,
+            Err(_) => {
+                return Err(PluginError::WasmError(
+                    "llm codec requires a tokio runtime".to_string(),
+                ));
+            }
+        };
+        super::shared::decode_call_output(&output, "llm codec output")
+    }
+}
+
+impl PluginLlmCodec for WasmLlmCodec {
+    fn build_request(&self, request: Value, profile: Value) -> PluginResult<CodecHttpRequest> {
+        self.roundtrip(
+            "build_request",
+            serde_json::json!({"request": request, "profile": profile}),
+        )
+    }
+
+    fn parse_response(&self, body: &str, request: Value) -> PluginResult<Value> {
+        self.roundtrip(
+            "parse_response",
+            serde_json::json!({"body": body, "request": request}),
+        )
+    }
+
+    fn parse_stream_chunk(&self, chunk: &str) -> PluginResult<Option<Value>> {
+        self.roundtrip("parse_stream_chunk", serde_json::json!({"chunk": chunk}))
+    }
+
+    fn convert_tools(&self, tools: Value) -> PluginResult<Value> {
+        self.roundtrip("convert_tools", serde_json::json!({"tools": tools}))
+    }
+
+    fn parse_tool_calls(&self, result: Value) -> PluginResult<Value> {
+        self.roundtrip("parse_tool_calls", serde_json::json!({"result": result}))
+    }
+
+    fn build_count_tokens_request(
+        &self,
+        request: Value,
+        profile: Value,
+    ) -> PluginResult<Option<CodecHttpRequest>> {
+        self.roundtrip(
+            "build_count_tokens_request",
+            serde_json::json!({"request": request, "profile": profile}),
+        )
+    }
+
+    fn parse_count_tokens_response(&self, body: Value) -> PluginResult<u32> {
+        self.roundtrip(
+            "parse_count_tokens_response",
+            serde_json::json!({"body": body}),
+        )
+    }
 }
 
 pub struct WasmEventHandler {
@@ -524,41 +604,25 @@ pub struct WasmMiddlewareHandler {
 #[async_trait]
 impl PluginNodeHandler for WasmNodeHandler {
     async fn execute(&self, ctx: PluginExecutionContext) -> PluginResult<PluginNodeResult> {
-        let input = serde_json::to_string(&ctx)
-            .map_err(|e| PluginError::WasmError(format!("serialize node ctx: {e}")))?;
+        let input = super::shared::encode_call_input(&ctx, "node ctx")?;
         let output = invoke_dispatch(&self.inner, "node", &self.type_name, &input).await?;
-        serde_json::from_slice::<PluginNodeResult>(&output)
-            .map_err(|e| PluginError::WasmError(format!("deserialize node result: {e}")))
+        super::shared::decode_call_output(&output, "node result")
     }
 }
 
 #[async_trait]
 impl PluginToolExecutor for WasmToolExecutor {
     async fn execute(&self, ctx: PluginToolContext) -> PluginResult<PluginToolResult> {
-        let input = serde_json::to_string(&ctx)
-            .map_err(|e| PluginError::WasmError(format!("serialize tool ctx: {e}")))?;
+        let input = super::shared::encode_call_input(&ctx, "tool ctx")?;
         let output = invoke_dispatch(&self.inner, "tool", &self.type_name, &input).await?;
-        serde_json::from_slice::<PluginToolResult>(&output)
-            .map_err(|e| PluginError::WasmError(format!("deserialize tool result: {e}")))
-    }
-}
-
-#[async_trait]
-impl PluginLlmFormatter for WasmLlmFormatter {
-    async fn format(&self, request: PluginLlmRequest) -> PluginResult<PluginLlmResponse> {
-        let input = serde_json::to_string(&request)
-            .map_err(|e| PluginError::WasmError(format!("serialize llm request: {e}")))?;
-        let output = invoke_dispatch(&self.inner, "llm", &self.name, &input).await?;
-        serde_json::from_slice::<PluginLlmResponse>(&output)
-            .map_err(|e| PluginError::WasmError(format!("deserialize llm response: {e}")))
+        super::shared::decode_call_output(&output, "tool result")
     }
 }
 
 #[async_trait]
 impl PluginEventHandler for WasmEventHandler {
     async fn handle(&self, event: PluginEventData) -> PluginResult<()> {
-        let input = serde_json::to_string(&event)
-            .map_err(|e| PluginError::WasmError(format!("serialize event: {e}")))?;
+        let input = super::shared::encode_call_input(&event, "event")?;
         invoke_dispatch(&self.inner, "event", &self.event_type, &input).await?;
         Ok(())
     }
@@ -567,18 +631,9 @@ impl PluginEventHandler for WasmEventHandler {
 #[async_trait]
 impl PluginMiddlewareHandler for WasmMiddlewareHandler {
     async fn handle(&self, context: Value, next: NextFn) -> PluginResult<Value> {
-        let input = serde_json::to_string(&context)
-            .map_err(|e| PluginError::WasmError(format!("serialize middleware ctx: {e}")))?;
+        let input = super::shared::encode_call_input(&context, "middleware ctx")?;
         let output = invoke_dispatch(&self.inner, "mw", &self.phase, &input).await?;
-        // Middleware answers with a boolean (legacy) or a `{proceed,
-        // context}` envelope; the rewritten context threads downstream.
-        let response: Value = serde_json::from_slice(&output).unwrap_or(Value::Null);
-        let outcome = wf_plugin_sdk::contributions::parse_middleware_outcome(&response, &context);
-        if outcome.proceed {
-            next(outcome.context).await
-        } else {
-            Ok(outcome.context)
-        }
+        super::shared::resolve_middleware_output(&output, &context, next).await
     }
 }
 
@@ -611,6 +666,7 @@ mod tests {
             config_schema: None,
             config: None,
             hooks: None,
+            llm_providers: vec![],
             wasm: None,
         };
         let limits = resolve_limits(&manifest, 10_000).expect("limits");
@@ -626,15 +682,16 @@ mod tests {
             &stats,
             module.get_export(export::HEAP_RESET).is_some(),
         );
-        let mut inner = WasmPluginInner {
+        let inner = WasmPluginInner {
             manifest,
             engine,
             limits,
-            decl: WasmContributionDecl::default(),
+            decl: RwLock::new(Default::default()),
             stats,
             pool,
         };
-        inner.decl = fetch_declaration(&inner).await.expect("decl");
+        let decl = fetch_declaration(&inner).await.expect("decl");
+        *wf_common::lock::write_ok(inner.decl.write()) = decl;
         let plugin = WasmPlugin::from_inner(inner);
 
         let ctx = PluginContext {
@@ -697,6 +754,7 @@ mod tests {
             config_schema: None,
             config: None,
             hooks: None,
+            llm_providers: vec![],
             wasm: Some(WasmConfig {
                 store_pool_size: Some(pool_size),
                 ..Default::default()
@@ -714,15 +772,16 @@ mod tests {
             &stats,
             module.get_export(export::HEAP_RESET).is_some(),
         );
-        let mut inner = WasmPluginInner {
+        let inner = WasmPluginInner {
             manifest,
             engine,
             limits,
-            decl: WasmContributionDecl::default(),
+            decl: RwLock::new(Default::default()),
             stats,
             pool,
         };
-        inner.decl = fetch_declaration(&inner).await.expect("decl");
+        let decl = fetch_declaration(&inner).await.expect("decl");
+        *wf_common::lock::write_ok(inner.decl.write()) = decl;
         WasmPlugin::from_inner(inner)
     }
 
@@ -867,6 +926,7 @@ mod tests {
             config_schema: None,
             config: None,
             hooks: None,
+            llm_providers: vec![],
             wasm: None,
         };
         let limits = resolve_limits(&manifest, 10_000).expect("limits");
@@ -1059,6 +1119,89 @@ mod tests {
         assert_eq!(out, serde_json::json!({"a": 1}));
     }
 
+    /// Guest whose declaration grows after its `toggle` tool runs: a
+    /// mutable flag selects between two static declaration documents.
+    /// Requires a pooled session (plus the heap-reset hook): without reuse
+    /// every call would see a fresh flag and the change would never stick.
+    fn redeclaring_guest_wat() -> String {
+        let before = r#"{"tool_types":["toggle"]}"#;
+        let after = r#"{"tool_types":["toggle","extra"]}"#;
+        let result = r#"{"result":{}}"#;
+        let escape = |s: &str| s.replace('\\', "\\\\").replace('"', "\\\"");
+        let (before_escaped, after_escaped, result_escaped) =
+            (escape(before), escape(after), escape(result));
+        format!(
+            r#"(module
+  (memory (export "memory") 1)
+  (global $heap (mut i32) (i32.const 4096))
+  (global $flipped (mut i32) (i32.const 0))
+  (data (i32.const 0) "{before_escaped}")
+  (data (i32.const 128) "{after_escaped}")
+  (data (i32.const 256) "{result_escaped}")
+  (func (export "alloc") (param $n i32) (result i32)
+    (local $p i32) (global.get $heap) (local.set $p)
+    (global.set $heap (i32.add (global.get $heap) (local.get $n)))
+    (local.get $p))
+  (func (export "wf_heap_reset") (result i32)
+    (global.set $heap (i32.const 4096))
+    (i32.const 0))
+  (func (export "wf_register") (result i64)
+    (if (result i64) (i32.eqz (global.get $flipped))
+      (then (i64.or (i64.extend_i32_u (i32.const 0)) (i64.shl (i64.extend_i32_u (i32.const {before_len})) (i64.const 32))))
+      (else (i64.or (i64.extend_i32_u (i32.const 128)) (i64.shl (i64.extend_i32_u (i32.const {after_len})) (i64.const 32))))))
+  (func (export "wf_dispatch")
+    (param $tp i32) (param $tl i32) (param $np i32) (param $nl i32)
+    (param $ip i32) (param $il i32) (result i64)
+    (global.set $flipped (i32.const 1))
+    (i64.or (i64.extend_i32_u (i32.const 256)) (i64.shl (i64.extend_i32_u (i32.const {result_len})) (i64.const 32)))))
+"#,
+            before_len = before.len(),
+            after_len = after.len(),
+            result_len = result.len(),
+        )
+    }
+
+    #[tokio::test]
+    async fn reload_reports_unchanged_for_static_guest() {
+        use super::super::loader::wasm_test_echo_wat;
+
+        let wat = wasm_test_echo_wat(r#"{"tool_types":[]}"#);
+        let plugin = build_pooled_plugin("static-decl", &wat, 2).await;
+        assert!(!plugin.reload_declaration().await.expect("reload"));
+        assert!(plugin.declaration().tool_types.is_empty());
+    }
+
+    #[tokio::test]
+    async fn reload_adopts_grown_declaration() {
+        let plugin = build_pooled_plugin("redecl", &redeclaring_guest_wat(), 2).await;
+        assert!(plugin.inner.pool.enabled());
+        assert_eq!(plugin.declaration().tool_types, vec!["toggle".to_owned()]);
+        assert!(!plugin.reload_declaration().await.expect("reload"));
+
+        PluginToolExecutorBridge(&plugin, "toggle")
+            .call()
+            .await
+            .expect("toggle flips the guest flag");
+        assert!(plugin.reload_declaration().await.expect("reload"));
+        assert_eq!(
+            plugin.declaration().tool_types,
+            vec!["toggle".to_owned(), "extra".to_owned()]
+        );
+
+        // The newly declared contribution registers and runs.
+        let manager = crate::contributions::ContributionManager::new();
+        manager.start_registration("redecl");
+        {
+            let mut registrar = manager.as_registrar();
+            plugin
+                .register_contributions(&mut registrar)
+                .expect("contributions register");
+        }
+        manager
+            .get_tool_executor("extra")
+            .expect("extra tool registered");
+    }
+
     /// Guest calling the `wf_host::log` import from `wf_on_load`, then
     /// succeeding. Proves the host namespace resolves and the call traps
     /// nothing.
@@ -1100,6 +1243,7 @@ mod tests {
             config_schema: None,
             config: None,
             hooks: None,
+            llm_providers: vec![],
             wasm: None,
         };
         let plugin = super::super::loader::load_wasm_plugin_with_base(&manifest, &dir)

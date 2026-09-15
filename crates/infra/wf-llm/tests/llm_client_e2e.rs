@@ -13,7 +13,7 @@ use wf_types::message::{Message, MessageContentValue, MessageRole};
 
 use wf_llm::client::{LlmClient, LlmClientImpl};
 use wf_llm::error::LlmError;
-use wf_llm::formatters::create_formatter;
+use wf_llm::codecs::create_codec;
 
 const OPENAI_CHAT_RESPONSE: &str = r#"{
     "id": "chatcmpl-1",
@@ -86,10 +86,10 @@ fn request(text: &str) -> LlmRequest {
 }
 
 fn client_for(server: &MockServer, profile_id: &str) -> LlmClientImpl {
-    let formatter = create_formatter(&LlmFormat::OpenaiChat).expect("formatter");
+    let codec = create_codec(&LlmFormat::OpenaiChat).expect("codec");
     LlmClientImpl::new(
         reqwest::Client::new(),
-        formatter,
+        codec,
         profile(server.url("/v1"), profile_id),
     )
 }
@@ -138,8 +138,8 @@ async fn generate_retries_on_5xx_then_succeeds() {
     let mut p = profile(server.url("/v1"), "p1");
     p.max_retries = Some(3);
     p.retry_delay = Some(10);
-    let formatter = create_formatter(&LlmFormat::OpenaiChat).expect("formatter");
-    let client = LlmClientImpl::new(reqwest::Client::new(), formatter, p);
+    let codec = create_codec(&LlmFormat::OpenaiChat).expect("codec");
+    let client = LlmClientImpl::new(reqwest::Client::new(), codec, p);
 
     let result = client
         .generate(&request("hi"), None)
@@ -159,8 +159,8 @@ async fn generate_gives_up_after_retries_exhausted() {
     let mut p = profile(server.url("/v1"), "p1");
     p.max_retries = Some(2);
     p.retry_delay = Some(10);
-    let formatter = create_formatter(&LlmFormat::OpenaiChat).expect("formatter");
-    let client = LlmClientImpl::new(reqwest::Client::new(), formatter, p);
+    let codec = create_codec(&LlmFormat::OpenaiChat).expect("codec");
+    let client = LlmClientImpl::new(reqwest::Client::new(), codec, p);
 
     let err = client
         .generate(&request("hi"), None)
@@ -180,8 +180,8 @@ async fn generate_surfaces_auth_error_without_retry() {
     let mut p = profile(server.url("/v1"), "p1");
     p.max_retries = Some(3);
     p.retry_delay = Some(10);
-    let formatter = create_formatter(&LlmFormat::OpenaiChat).expect("formatter");
-    let client = LlmClientImpl::new(reqwest::Client::new(), formatter, p);
+    let codec = create_codec(&LlmFormat::OpenaiChat).expect("codec");
+    let client = LlmClientImpl::new(reqwest::Client::new(), codec, p);
 
     let err = client
         .generate(&request("hi"), None)
@@ -226,8 +226,8 @@ async fn generate_times_out_when_server_is_slow() {
     let mut p = profile(server.url("/v1"), "p1");
     p.timeout = Some(1); // 1 second
     p.max_retries = Some(0); // timeout errors are retryable; disable retries
-    let formatter = create_formatter(&LlmFormat::OpenaiChat).expect("formatter");
-    let client = LlmClientImpl::new(reqwest::Client::new(), formatter, p);
+    let codec = create_codec(&LlmFormat::OpenaiChat).expect("codec");
+    let client = LlmClientImpl::new(reqwest::Client::new(), codec, p);
 
     let start = std::time::Instant::now();
     let err = client
@@ -285,8 +285,8 @@ async fn generate_stream_propagates_http_errors() {
 
     let mut p = profile(server.url("/v1"), "p1");
     p.max_retries = Some(0);
-    let formatter = create_formatter(&LlmFormat::OpenaiChat).expect("formatter");
-    let client = LlmClientImpl::new(reqwest::Client::new(), formatter, p);
+    let codec = create_codec(&LlmFormat::OpenaiChat).expect("codec");
+    let client = LlmClientImpl::new(reqwest::Client::new(), codec, p);
 
     let err = match client.generate_stream(&request("hi"), None).await {
         Ok(_) => panic!("stream must fail"),

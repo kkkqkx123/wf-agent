@@ -1,4 +1,4 @@
-use super::LlmFormatter;
+use super::LlmCodec;
 use crate::error::LlmResult;
 use reqwest::Method;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -10,17 +10,17 @@ use wf_types::tool::Tool;
 /// the accumulator).
 static GEMINI_CALL_INDEX: AtomicUsize = AtomicUsize::new(0);
 
-pub struct GeminiNativeFormatter {
+pub struct GeminiNativeCodec {
     base_url: String,
 }
 
-impl Default for GeminiNativeFormatter {
+impl Default for GeminiNativeCodec {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl GeminiNativeFormatter {
+impl GeminiNativeCodec {
     pub fn new() -> Self {
         Self {
             base_url: "https://generativelanguage.googleapis.com/v1beta".to_string(),
@@ -121,7 +121,7 @@ impl GeminiNativeFormatter {
     }
 }
 
-impl LlmFormatter for GeminiNativeFormatter {
+impl LlmCodec for GeminiNativeCodec {
     fn build_request(
         &self,
         request: &LlmRequest,
@@ -285,7 +285,7 @@ impl LlmFormatter for GeminiNativeFormatter {
     }
 }
 
-impl GeminiNativeFormatter {
+impl GeminiNativeCodec {
     /// Build the request body (separated from the HTTP layer for testability).
     fn build_body(
         &self,
@@ -300,7 +300,7 @@ impl GeminiNativeFormatter {
         // field in both modes. Text mode injects the original system + tool
         // usage instructions + declarations; native mode keeps the original
         // system message.
-        let (system_content, _) = crate::tool_format::extract_system_message(&request.messages);
+        let (system_content, _) = crate::tool_protocol::extract_system_message(&request.messages);
 
         let history = if use_text_mode {
             super::shared::convert_history_for_text_mode(&request.messages, request)
@@ -491,7 +491,7 @@ mod tests {
     #[test]
     fn function_call_part_emits_snapshot_delta() {
         let chunk = r#"{"candidates":[{"content":{"parts":[{"functionCall":{"name":"get_weather","args":{"city":"Beijing"}}}]},"finishReason":"STOP"}]}"#;
-        match GeminiNativeFormatter::new()
+        match GeminiNativeCodec::new()
             .parse_stream_chunk(chunk)
             .expect("chunk must parse")
         {
@@ -569,7 +569,7 @@ mod tests {
 
     #[test]
     fn native_mode_sends_system_instruction() {
-        let formatter = GeminiNativeFormatter::new();
+        let codec = GeminiNativeCodec::new();
         let req = request(
             vec![
                 msg(wf_types::message::MessageRole::System, "You are a helper"),
@@ -577,7 +577,7 @@ mod tests {
             ],
             None,
         );
-        let body = formatter.build_body(&req, &profile()).expect("must build");
+        let body = codec.build_body(&req, &profile()).expect("must build");
 
         assert_eq!(
             body["systemInstruction"]["parts"][0]["text"],
@@ -594,7 +594,7 @@ mod tests {
 
     #[test]
     fn native_mode_sends_tools_alongside_system() {
-        let formatter = GeminiNativeFormatter::new();
+        let codec = GeminiNativeCodec::new();
         let req = request(
             vec![
                 msg(wf_types::message::MessageRole::System, "You are a helper"),
@@ -612,7 +612,7 @@ mod tests {
             "enabled": true
         }))
         .unwrap()]);
-        let body = formatter.build_body(&req, &profile()).expect("must build");
+        let body = codec.build_body(&req, &profile()).expect("must build");
 
         assert_eq!(
             body["systemInstruction"]["parts"][0]["text"],
@@ -626,8 +626,8 @@ mod tests {
 
     #[test]
     fn generation_config_defaults_and_overrides() {
-        let formatter = GeminiNativeFormatter::new();
-        let body = formatter
+        let codec = GeminiNativeCodec::new();
+        let body = codec
             .build_body(&request(vec![], None), &profile())
             .expect("must build");
 
@@ -646,7 +646,7 @@ mod tests {
             vec![],
             Some(serde_json::json!({"temperature": 0.2, "max_tokens": 128})),
         );
-        let body = formatter.build_body(&req, &profile()).expect("must build");
+        let body = codec.build_body(&req, &profile()).expect("must build");
         assert_eq!(
             body["generationConfig"]["temperature"],
             serde_json::json!(0.2)
@@ -669,8 +669,8 @@ mod tests {
 
     #[test]
     fn count_tokens_request_targets_count_tokens_endpoint() {
-        let formatter = GeminiNativeFormatter::new();
-        let req = formatter
+        let codec = GeminiNativeCodec::new();
+        let req = codec
             .build_count_tokens_request(&count_request(), &profile())
             .expect("count request must build")
             .expect("gemini native supports counting");
@@ -697,11 +697,11 @@ mod tests {
 
     #[test]
     fn count_tokens_body_covers_same_contents_as_inference() {
-        let formatter = GeminiNativeFormatter::new();
-        let inference = formatter
+        let codec = GeminiNativeCodec::new();
+        let inference = codec
             .build_body(&count_request(), &profile())
             .expect("inference body must build");
-        let req = formatter
+        let req = codec
             .build_count_tokens_request(&count_request(), &profile())
             .expect("count request must build")
             .unwrap();
@@ -720,12 +720,12 @@ mod tests {
 
     #[test]
     fn count_tokens_response_parses_total_tokens() {
-        let formatter = GeminiNativeFormatter::new();
+        let codec = GeminiNativeCodec::new();
         let body: serde_json::Value = serde_json::from_str(r#"{"totalTokens": 42}"#).unwrap();
-        assert_eq!(formatter.parse_count_tokens_response(&body).unwrap(), 42);
+        assert_eq!(codec.parse_count_tokens_response(&body).unwrap(), 42);
         let snake: serde_json::Value = serde_json::from_str(r#"{"total_tokens": 7}"#).unwrap();
-        assert_eq!(formatter.parse_count_tokens_response(&snake).unwrap(), 7);
+        assert_eq!(codec.parse_count_tokens_response(&snake).unwrap(), 7);
         let empty: serde_json::Value = serde_json::from_str("{}").unwrap();
-        assert_eq!(formatter.parse_count_tokens_response(&empty).unwrap(), 0);
+        assert_eq!(codec.parse_count_tokens_response(&empty).unwrap(), 0);
     }
 }

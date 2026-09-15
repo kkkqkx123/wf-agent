@@ -24,6 +24,13 @@ pub struct HookDefinition {
     /// the hook degrades to the audit-only behavior (event + log).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub handler: Option<String>,
+    /// Opt-in checkpoint mark carried from the config spec. When
+    /// `Some(true)` the engine creates a strategy-gated checkpoint after
+    /// the hook fires; `None`/false means no checkpoint request.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub create_checkpoint: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub checkpoint_description: Option<String>,
 }
 
 /// Outcome of one hook fire: the engine stops and waits for every
@@ -104,6 +111,8 @@ impl From<&wf_types::hook::CanonicalHookSpec> for HookDefinition {
             enabled: spec.enabled,
             payload: spec.payload.clone(),
             handler: spec.handler.clone(),
+            create_checkpoint: spec.create_checkpoint,
+            checkpoint_description: spec.checkpoint_description.clone(),
         }
     }
 }

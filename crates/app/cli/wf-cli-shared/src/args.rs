@@ -291,6 +291,12 @@ pub enum Command {
         #[command(subcommand)]
         sub: LlmProfileSub,
     },
+    /// LLM provider management commands (connection templates + discovery).
+    #[command(name = "llm-provider")]
+    LlmProvider {
+        #[command(subcommand)]
+        sub: LlmProviderSub,
+    },
     /// Skill management commands (read-only subset).
     Skill {
         #[command(subcommand)]
@@ -882,6 +888,25 @@ pub enum LlmProfileSub {
         /// Path to profile JSON file.
         #[arg(value_name = "FILE")]
         file: String,
+    },
+}
+
+/// LLM provider subcommands.
+#[derive(Debug, Clone, Subcommand)]
+pub enum LlmProviderSub {
+    /// List registered LLM providers.
+    List,
+    /// Show a single provider definition.
+    Show {
+        /// Provider id.
+        #[arg(value_name = "ID")]
+        id: String,
+    },
+    /// List models advertised by a provider (model discovery).
+    Models {
+        /// Provider id.
+        #[arg(value_name = "ID")]
+        id: String,
     },
 }
 

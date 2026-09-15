@@ -1,8 +1,8 @@
 use std::path::Path;
 
-use wf_api::llm::llm_profile;
+use wf_api::llm::{llm_profile, llm_provider};
 
-use crate::args::{Cli, LlmProfileSub, LlmTemplateSub};
+use crate::args::{Cli, LlmProfileSub, LlmProviderSub, LlmTemplateSub};
 use crate::cmd::render::render_envelope;
 use crate::error::{CliError, CliResult};
 use crate::output::OutputEnvelope;
@@ -183,4 +183,42 @@ fn load_profile(path: &Path) -> CliResult<wf_types::llm::LlmProfile> {
     serde_json::from_str(&content).map_err(|e| {
         CliError::Arguments(format!("invalid profile JSON in {}: {e}", path.display()))
     })
+}
+
+/// Run an `llm-provider` subcommand: list definitions, show one
+/// definition, or list its discovered models.
+pub async fn run_provider(cli: &Cli, sub: &LlmProviderSub) -> CliResult<()> {
+    let adapter =
+        crate::domain::DomainAdapter::bootstrap_for_cli(cli, crate::mode::CliMode::Run).await?;
+    let ctx = adapter.api_context();
+
+    let result = match sub {
+        LlmProviderSub::List => {
+            let providers = llm_provider::list(ctx).await?;
+            let data = serde_json::to_value(&providers)?;
+            render_envelope(
+                cli.output,
+                OutputEnvelope::success("llm-provider-list", data),
+            )
+        }
+        LlmProviderSub::Show { id } => {
+            let provider = llm_provider::get(ctx, id).await?;
+            let data = serde_json::to_value(&provider)?;
+            render_envelope(
+                cli.output,
+                OutputEnvelope::success("llm-provider-show", data).with_entity(id.clone()),
+            )
+        }
+        LlmProviderSub::Models { id } => {
+            let models = llm_provider::list_models(ctx, id).await?;
+            let data = serde_json::to_value(&models)?;
+            render_envelope(
+                cli.output,
+                OutputEnvelope::success("llm-provider-models", data).with_entity(id.clone()),
+            )
+        }
+    };
+
+    adapter.shutdown().await?;
+    result
 }

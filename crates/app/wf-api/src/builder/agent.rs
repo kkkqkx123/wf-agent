@@ -645,6 +645,8 @@ impl<S> AgentLoopConfigBuilder<S> {
             priority: hook.priority.unwrap_or(0),
             payload: hook.event_payload,
             handler: hook.handler,
+            create_checkpoint: hook.create_checkpoint,
+            checkpoint_description: hook.checkpoint_description,
         });
         self
     }

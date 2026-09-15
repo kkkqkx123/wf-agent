@@ -10,7 +10,7 @@ use wf_api::infra::handler_chain::{
     PluginHandlerSource, PluginMiddlewareBridge, PluginNodeExecutor,
 };
 use wf_core::registry::{MutableRegistry, Registry};
-use wf_plugin::{ContributionBridge, ContributionManager, PluginResult};
+use wf_plugin::{ContributionBridge, ContributionManager, PluginError, PluginResult};
 use wf_resource::registry::ResourceRegistries;
 use wf_tools::error::ToolResult;
 use wf_tools::executor::trait_def::ToolExecutionContext;
@@ -28,13 +28,83 @@ use wf_tools::registry::ToolRegistry;
 pub struct WfPluginBridge {
     registries: Arc<ResourceRegistries>,
     tool_registry: Arc<ToolRegistry>,
+    llm_gateway: Arc<wf_llm::LlmGateway>,
 }
 
 impl WfPluginBridge {
-    pub fn new(registries: Arc<ResourceRegistries>, tool_registry: Arc<ToolRegistry>) -> Self {
+    pub fn new(
+        registries: Arc<ResourceRegistries>,
+        tool_registry: Arc<ToolRegistry>,
+        llm_gateway: Arc<wf_llm::LlmGateway>,
+    ) -> Self {
         Self {
             registries,
             tool_registry,
+            llm_gateway,
+        }
+    }
+
+    /// Sync plugin LLM contributions into the gateway: wrap each owned
+    /// codec in a `PluginCodecAdapter` and register it as a custom format,
+    /// then write each owned provider definition into the provider
+    /// registry (which evicts cached clients).
+    fn sync_llm(&self, plugin_id: &str, manager: &ContributionManager) -> PluginResult<()> {
+        for (name, owner) in manager.all_llm_providers() {
+            if owner != plugin_id {
+                continue;
+            }
+            let Some(codec) = manager.get_llm_codec(&name) else {
+                continue;
+            };
+            let adapter = Arc::new(wf_llm::PluginCodecAdapter::new(codec));
+            if let Err(e) = self
+                .llm_gateway
+                .codec_registry()
+                .register(&name, adapter)
+            {
+                tracing::warn!(
+                    plugin_id,
+                    format = %name,
+                    "plugin llm codec registration failed: {e}"
+                );
+                return Err(PluginError::LoadFailed(format!(
+                    "plugin '{plugin_id}' codec '{name}': {e}"
+                )));
+            }
+            tracing::debug!("  llm-codec (gateway-registered): {}", name);
+        }
+        for (id, owner) in manager.all_llm_provider_definitions() {
+            if owner != plugin_id {
+                continue;
+            }
+            let Some(definition) = manager.get_llm_provider_definition(&id) else {
+                continue;
+            };
+            self.llm_gateway
+                .register_provider_definition((*definition).clone())
+                .map_err(|e| {
+                    PluginError::LoadFailed(format!("plugin '{plugin_id}' provider '{id}': {e}"))
+                })?;
+            tracing::debug!("  llm-provider-definition (gateway-registered): {}", id);
+        }
+        Ok(())
+    }
+
+    /// Symmetric teardown of [`Self::sync_llm`]: unregister the plugin's
+    /// codecs and remove its provider definitions (both evict cached
+    /// gateway clients).
+    fn unsync_llm(&self, plugin_id: &str, manager: &ContributionManager) {
+        for (name, owner) in manager.all_llm_providers() {
+            if owner == plugin_id {
+                self.llm_gateway.codec_registry().unregister(&name);
+                tracing::debug!("  llm-codec (gateway-removed): {}", name);
+            }
+        }
+        for (id, owner) in manager.all_llm_provider_definitions() {
+            if owner == plugin_id {
+                self.llm_gateway.remove_provider_definition(&id);
+                tracing::debug!("  llm-provider-definition (gateway-removed): {}", id);
+            }
         }
     }
 }
@@ -48,18 +118,13 @@ impl ContributionBridge for WfPluginBridge {
         // node executors and middleware through `WfPluginHandlerSource`
         // (handler chain builtin → plugin → template), tool-type executors
         // land here as stateless async handlers so `ToolRegistry` can
-        // dispatch them. LLM provider/formatter contributions stay on the
-        // manager: the plugin-side `PluginLlmFormatter` (messages → content)
-        // is not an HTTP-level `wf_llm::LlmFormatter` and cannot be bridged
-        // without faking request building/response parsing.
+        // dispatch them. LLM codecs and provider definitions sync into the
+        // gateway below (`sync_llm`): each owned codec is wrapped in a
+        // `PluginCodecAdapter` and registered as a custom format, each
+        // owned provider definition is written into the provider registry
+        // (evicting cached gateway clients).
         for (name, _) in manager.all_node_types() {
             tracing::debug!("  node-type: {}", name);
-        }
-        for (name, _) in manager.all_llm_providers() {
-            tracing::debug!("  llm-provider (manager-resolved): {}", name);
-        }
-        for (name, _) in manager.all_formatters() {
-            tracing::debug!("  formatter (manager-resolved): {}", name);
         }
         for (name, _) in manager.all_event_handlers() {
             tracing::debug!("  event-handler: {}", name);
@@ -175,11 +240,20 @@ impl ContributionBridge for WfPluginBridge {
             }
         }
 
+        // LLM formats and providers land in the gateway last so a codec
+        // registration failure fails activation loudly instead of running
+        // with missing formats.
+        self.sync_llm(plugin_id, manager)?;
+
         Ok(())
     }
 
     async fn unsync_all(&self, plugin_id: &str, manager: &ContributionManager) -> PluginResult<()> {
         tracing::info!("[bridge] unsyncing contributions for '{}'", plugin_id);
+
+        // LLM teardown first while the manager still holds the plugin's
+        // entries (mirrors the tail of `sync_all`).
+        self.unsync_llm(plugin_id, manager);
 
         for (id, owner) in manager.all_workflows() {
             if owner == plugin_id {
@@ -283,14 +357,6 @@ impl PluginHandlerSource for WfPluginHandlerSource {
     fn llm_provider_names(&self) -> Vec<String> {
         self.manager
             .all_llm_providers()
-            .into_iter()
-            .map(|(name, _)| name)
-            .collect()
-    }
-
-    fn formatter_names(&self) -> Vec<String> {
-        self.manager
-            .all_formatters()
             .into_iter()
             .map(|(name, _)| name)
             .collect()
@@ -413,7 +479,8 @@ mod tests {
     async fn sync_install_tool_and_handler_unsync_removes_both() {
         let registries = Arc::new(ResourceRegistries::new());
         let tool_registry = Arc::new(ToolRegistry::new());
-        let bridge = WfPluginBridge::new(registries, tool_registry.clone());
+        let gateway = Arc::new(wf_llm::LlmGateway::new());
+        let bridge = WfPluginBridge::new(registries, tool_registry.clone(), gateway.clone());
         let manager = manager_with_tool("p1", "echo_type", "p1.echo");
 
         bridge.sync_all("p1", &manager).await.unwrap();
@@ -430,7 +497,8 @@ mod tests {
     async fn unsync_only_touches_owning_plugin() {
         let registries = Arc::new(ResourceRegistries::new());
         let tool_registry = Arc::new(ToolRegistry::new());
-        let bridge = WfPluginBridge::new(registries, tool_registry.clone());
+        let gateway = Arc::new(wf_llm::LlmGateway::new());
+        let bridge = WfPluginBridge::new(registries, tool_registry.clone(), gateway.clone());
 
         let m1 = manager_with_tool("p1", "t1", "p1.a");
         let m2 = manager_with_tool("p2", "t2", "p2.b");
@@ -442,5 +510,75 @@ mod tests {
         bridge.unsync_all("p1", &m1).await.unwrap();
         assert!(!tool_registry.has("p1.a"), "p1 tool removed");
         assert!(tool_registry.has("p2.b"), "p2 tool untouched");
+    }
+
+    struct NoopCodec;
+
+    impl wf_plugin::PluginLlmCodec for NoopCodec {
+        fn build_request(
+            &self,
+            _request: serde_json::Value,
+            _profile: serde_json::Value,
+        ) -> wf_plugin::PluginResult<wf_plugin::CodecHttpRequest> {
+            Err(wf_plugin::PluginError::Internal("noop".to_string()))
+        }
+
+        fn parse_response(
+            &self,
+            _body: &str,
+            _request: serde_json::Value,
+        ) -> wf_plugin::PluginResult<serde_json::Value> {
+            Err(wf_plugin::PluginError::Internal("noop".to_string()))
+        }
+    }
+
+    #[tokio::test]
+    async fn sync_registers_codec_and_provider_unsync_removes_both() {
+        let registries = Arc::new(ResourceRegistries::new());
+        let tool_registry = Arc::new(ToolRegistry::new());
+        let gateway = Arc::new(wf_llm::LlmGateway::new());
+        let bridge = WfPluginBridge::new(registries, tool_registry, gateway.clone());
+
+        let manager = ContributionManager::new();
+        manager.start_registration("p1");
+        manager
+            .as_registrar()
+            .register_llm_provider("acme-codec", Arc::new(NoopCodec))
+            .unwrap();
+        manager
+            .as_registrar()
+            .register_llm_provider_definition(wf_types::llm::LlmProviderDefinition {
+                id: "acme".to_string(),
+                name: None,
+                description: None,
+                base_url: Some("https://api.acme.test".to_string()),
+                auth_type: Some("bearer".to_string()),
+                default_headers: None,
+                format: "ACME_CODEC".to_string(),
+                model_discovery: None,
+                api_version: None,
+                metadata: None,
+            })
+            .unwrap();
+
+        bridge.sync_all("p1", &manager).await.unwrap();
+        assert!(
+            gateway.codec_registry().contains("acme-codec"),
+            "codec registered as custom format"
+        );
+        assert!(
+            gateway.provider_registry().has("acme"),
+            "provider definition written to provider registry"
+        );
+
+        bridge.unsync_all("p1", &manager).await.unwrap();
+        assert!(
+            !gateway.codec_registry().contains("acme-codec"),
+            "codec removed on unsync"
+        );
+        assert!(
+            !gateway.provider_registry().has("acme"),
+            "provider definition removed on unsync"
+        );
     }
 }

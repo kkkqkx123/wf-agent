@@ -6,7 +6,9 @@ use serde_json::Value;
 use tokio::fs;
 
 use crate::context::{PluginContext, PluginLogger};
-use crate::contributions::{ContributionBridge, ContributionManager, OverridePolicy};
+use crate::contributions::{
+    ContributionBridge, ContributionManager, ContributionRegistrar, OverridePolicy,
+};
 use crate::dependency::{resolve_dependencies, ResolvedGraph};
 use crate::error::{PluginError, PluginResult};
 use crate::event_bus::{PluginEventBus, PluginEventSubscription};
@@ -439,6 +441,7 @@ impl PluginEngine {
         }
 
         self.contribution_manager.start_registration(plugin_id);
+        self.sync_manifest_llm_providers(plugin_id);
         let mut registrar = self.contribution_manager.as_registrar();
 
         match self
@@ -710,7 +713,84 @@ impl PluginEngine {
             config,
         });
 
+        // A config change may alter a plugin's declared contributions (wasm
+        // guests re-evaluate `register` on reload). Re-sync when the plugin
+        // reports a changed declaration; backends with static declarations
+        // report no change and skip this entirely.
+        if let Err(e) = self.refresh_plugin_contributions(plugin_id).await {
+            let message = format!("contribution refresh failed: {e}");
+            self.registry.set_error(plugin_id, message.clone());
+            self.publish(PluginEvent::Error {
+                plugin_id: plugin_id.to_owned(),
+                error: message.clone(),
+            });
+            return Err(PluginError::ConfigChangeFailed {
+                plugin_id: plugin_id.to_owned(),
+                message,
+            });
+        }
+
         Ok(())
+    }
+
+    /// Re-read one plugin's contribution declaration and re-sync the
+    /// contribution manager when it changed. Returns true when a re-sync
+    /// happened. Safe to call for any backend: plugins without dynamic
+    /// declarations report no change.
+    pub async fn refresh_plugin_contributions(&self, plugin_id: &str) -> PluginResult<bool> {
+        let instance = self
+            .registry
+            .instance(plugin_id)
+            .ok_or_else(|| PluginError::NotFound(plugin_id.to_owned()))?;
+        if !self
+            .guard
+            .execute(plugin_id, instance.reload_declaration())
+            .await?
+        {
+            return Ok(false);
+        }
+        if let Some(ref bridge) = self.bridge {
+            if let Err(e) = bridge
+                .unsync_all(plugin_id, &self.contribution_manager)
+                .await
+            {
+                tracing::warn!(
+                    plugin_id,
+                    "plugin bridge unsync failed during refresh: {}",
+                    e
+                );
+            }
+        }
+        self.contribution_manager.unregister_all(plugin_id);
+        self.contribution_manager.start_registration(plugin_id);
+        self.sync_manifest_llm_providers(plugin_id);
+        let mut registrar = self.contribution_manager.as_registrar();
+        self.guard
+            .execute(plugin_id, async {
+                instance.register_contributions(&mut registrar)
+            })
+            .await?;
+        self.check_manifest_contributions(plugin_id);
+        let records: Vec<crate::registry::ContributionRecord> = self
+            .contribution_manager
+            .contributions_for(plugin_id)
+            .into_iter()
+            .map(
+                |(contribution_type, key)| crate::registry::ContributionRecord {
+                    contribution_type,
+                    key,
+                    plugin_id: plugin_id.to_owned(),
+                },
+            )
+            .collect();
+        self.registry.replace_contributions(plugin_id, records);
+        if let Some(ref bridge) = self.bridge {
+            bridge
+                .sync_all(plugin_id, &self.contribution_manager)
+                .await?;
+        }
+        tracing::info!(plugin_id, "plugin contributions refreshed");
+        Ok(true)
     }
 
     pub async fn shutdown(&self) {
@@ -837,12 +917,74 @@ impl PluginEngine {
     /// against what the plugin actually registered. Declarations are
     /// advisory: mismatches warn (they usually mean a stale manifest or a
     /// silently skipped registration) but do not fail activation.
+    /// Sync the manifest `llm_providers` segment into the contribution
+    /// manager, linked with the `llm-provider` codec contributions.
+    ///
+    /// Codec registration requires the `llm_codec` permission (the coarse
+    /// `llm` permission is accepted with a warning for existing manifests).
+    /// Remote model discovery additionally requires `llm_discovery` (or the
+    /// coarse `network` permission); without it discovery is downgraded to
+    /// `Disabled` so the codec still registers but lists no models.
+    fn sync_manifest_llm_providers(&self, plugin_id: &str) {
+        let info = match self.registry.get(plugin_id) {
+            Some(info) => info,
+            None => return,
+        };
+        if info.manifest.llm_providers.is_empty() {
+            return;
+        }
+        let permissions = &info.manifest.permissions;
+        let may_register_codec = permissions.contains(&PluginPermission::LlmCodec)
+            || permissions.contains(&PluginPermission::Llm);
+        if !may_register_codec {
+            tracing::warn!(
+                plugin_id,
+                "manifest declares llm_providers but lacks the llm_codec permission; skipping"
+            );
+            return;
+        }
+        if !permissions.contains(&PluginPermission::LlmCodec)
+            && permissions.contains(&PluginPermission::Llm)
+        {
+            tracing::warn!(
+                plugin_id,
+                "manifest uses the coarse llm permission for llm_providers; declare llm_codec instead"
+            );
+        }
+        let may_discover = permissions.contains(&PluginPermission::LlmDiscovery)
+            || permissions.contains(&PluginPermission::Network);
+        for provider in &info.manifest.llm_providers {
+            let mut definition = convert_provider_definition(provider);
+            match definition.model_discovery {
+                Some(wf_types::llm::ModelDiscovery::ModelsEndpoint { .. })
+                | Some(wf_types::llm::ModelDiscovery::CustomEndpoint { .. })
+                    if !may_discover =>
+                {
+                    tracing::warn!(
+                        plugin_id,
+                        provider = %definition.id,
+                        "provider discovery needs the llm_discovery permission; downgrading to disabled"
+                    );
+                    definition.model_discovery = Some(wf_types::llm::ModelDiscovery::Disabled);
+                }
+                _ => {}
+            }
+            let mut registrar = self.contribution_manager.as_registrar();
+            if let Err(e) = registrar.register_llm_provider_definition(definition) {
+                tracing::warn!(plugin_id, "manifest llm_providers sync failed: {e}");
+            }
+        }
+    }
+
     fn check_manifest_contributions(&self, plugin_id: &str) {
         let manifest = match self.registry.get(plugin_id) {
             Some(info) => info.manifest,
             None => return,
         };
-        if manifest.contributions.is_empty() && manifest.hooks.is_none() {
+        if manifest.contributions.is_empty()
+            && manifest.hooks.is_none()
+            && manifest.llm_providers.is_empty()
+        {
             return;
         }
         let registered = self.contribution_manager.contributions_for(plugin_id);
@@ -869,6 +1011,22 @@ impl PluginEngine {
                 }
             }
         }
+        if !manifest.llm_providers.is_empty() {
+            let codecs = self.contribution_manager.all_llm_providers();
+            for provider in &manifest.llm_providers {
+                if !codecs.iter().any(|(name, _)| name == &provider.id)
+                    && !codecs
+                        .iter()
+                        .any(|(name, _)| name.eq_ignore_ascii_case(&provider.format))
+                {
+                    tracing::warn!(
+                        plugin_id,
+                        provider = %provider.id,
+                        "manifest declares an llm_providers entry with no matching llm-provider codec"
+                    );
+                }
+            }
+        }
     }
 
     async fn find_plugin_dir(&self, plugin_id: &str) -> PluginResult<PathBuf> {
@@ -879,6 +1037,60 @@ impl PluginEngine {
             }
         }
         Err(PluginError::NotFound(plugin_id.to_owned()))
+    }
+}
+
+/// Convert a manifest provider entry into the host provider definition.
+fn convert_provider_definition(
+    provider: &wf_plugin_sdk::manifest::PluginLlmProviderDefinition,
+) -> wf_types::llm::LlmProviderDefinition {
+    wf_types::llm::LlmProviderDefinition {
+        id: provider.id.clone(),
+        name: provider.name.clone(),
+        description: provider.description.clone(),
+        base_url: provider.base_url.clone(),
+        auth_type: provider.auth_type.clone(),
+        default_headers: provider.default_headers.clone(),
+        format: provider.format.clone(),
+        model_discovery: provider.model_discovery.as_ref().map(convert_discovery),
+        api_version: provider.api_version.clone(),
+        metadata: provider.metadata.clone(),
+    }
+}
+
+fn convert_discovery(
+    discovery: &wf_plugin_sdk::manifest::PluginModelDiscovery,
+) -> wf_types::llm::ModelDiscovery {
+    use wf_plugin_sdk::manifest::PluginModelDiscovery as From;
+    use wf_types::llm::ModelDiscovery as To;
+    match discovery {
+        From::ModelsEndpoint { path, json_path } => To::ModelsEndpoint {
+            path: path.clone(),
+            json_path: json_path.clone(),
+        },
+        From::CustomEndpoint {
+            url,
+            method,
+            headers,
+            json_path,
+        } => To::CustomEndpoint {
+            url: url.clone(),
+            method: method.clone(),
+            headers: headers.clone(),
+            json_path: json_path.clone(),
+        },
+        From::StaticList { models } => To::StaticList {
+            models: models
+                .iter()
+                .map(|m| wf_types::llm::ModelInfo {
+                    id: m.id.clone(),
+                    name: m.name.clone(),
+                    context_window_size: m.context_window_size,
+                    metadata: m.metadata.clone(),
+                })
+                .collect(),
+        },
+        From::Disabled => To::Disabled,
     }
 }
 
@@ -1147,6 +1359,35 @@ mod tests {
         }
     }
 
+    /// Plugin with a changing declaration: every reload bumps the
+    /// generation, and registration exposes the current generation as a
+    /// tool name.
+    struct VersionedPlugin {
+        manifest: PluginManifest,
+        generation: std::sync::atomic::AtomicUsize,
+    }
+
+    #[async_trait]
+    impl Plugin for VersionedPlugin {
+        fn manifest(&self) -> &PluginManifest {
+            &self.manifest
+        }
+        async fn reload_declaration(&self) -> PluginResult<bool> {
+            self.generation
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Ok(true)
+        }
+        fn register_contributions(
+            &self,
+            registrar: &mut dyn ContributionRegistrar,
+        ) -> PluginResult<()> {
+            let generation = self.generation.load(std::sync::atomic::Ordering::SeqCst);
+            registrar
+                .register_tool_type(&format!("tool_v{generation}"), Arc::new(NoopToolExecutor))?;
+            Ok(())
+        }
+    }
+
     fn make_engine(enabled: bool) -> PluginEngine {
         let registry = Arc::new(PluginRegistry::new());
         let manager = Arc::new(ContributionManager::new());
@@ -1173,6 +1414,7 @@ mod tests {
             config_schema: None,
             config: None,
             hooks: None,
+            llm_providers: vec![],
             wasm: None,
         }
     }
@@ -1209,6 +1451,56 @@ mod tests {
         assert_eq!(by_tool[0].plugin_id, "test-plugin");
 
         // The contribution is queryable through the manager.
+        assert!(engine
+            .contribution_manager()
+            .get_tool_executor("my_tool")
+            .is_some());
+    }
+
+    #[tokio::test]
+    async fn refresh_replaces_changed_contributions() {
+        let engine = make_engine(true);
+        let manifest = make_manifest("versioned");
+        engine
+            .registry
+            .register(
+                manifest.clone(),
+                Arc::new(VersionedPlugin {
+                    manifest,
+                    generation: std::sync::atomic::AtomicUsize::new(0),
+                }),
+            )
+            .unwrap();
+        engine
+            .registry
+            .update_status("versioned", PluginStatus::Loaded);
+        engine.activate("versioned").await.unwrap();
+        assert!(engine
+            .contribution_manager()
+            .get_tool_executor("tool_v0")
+            .is_some());
+
+        assert!(engine
+            .refresh_plugin_contributions("versioned")
+            .await
+            .unwrap());
+        let manager = engine.contribution_manager();
+        assert!(manager.get_tool_executor("tool_v1").is_some());
+        assert!(manager.get_tool_executor("tool_v0").is_none());
+
+        let tools = engine.registry.list_by_contribution("tool-type");
+        assert_eq!(tools.len(), 1);
+        assert_eq!(tools[0].key, "tool_v1");
+    }
+
+    #[tokio::test]
+    async fn refresh_is_noop_for_static_declarations() {
+        let engine = make_engine(true);
+        load_and_activate(&engine, "test-plugin").await;
+        assert!(!engine
+            .refresh_plugin_contributions("test-plugin")
+            .await
+            .unwrap());
         assert!(engine
             .contribution_manager()
             .get_tool_executor("my_tool")

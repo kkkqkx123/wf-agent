@@ -38,7 +38,6 @@ class Contributions(plugin.contributions.Contributions):
             node_types=[],
             tool_types=["echo"],
             llm_providers=[],
-            formatters=[],
             event_handlers=[],
             middleware=[],
         )
@@ -49,6 +48,9 @@ class Contributions(plugin.contributions.Contributions):
         handler_name: str,
         input_json: str,
     ) -> str:
+        # LLM codecs arrive as ("llm-codec", "<name>/<op>") with a JSON
+        # envelope; the host builds the HTTP request from the returned
+        # description.
         if handler_type == "tool" and handler_name == "echo":
             return '{"result":{"echo":true}}'
         raise ValueError(f"unknown handler: {handler_type}/{handler_name}")

@@ -1,6 +1,6 @@
 use crate::dead_loop_detector::DeadLoopDetector;
 use crate::error::LlmError;
-use crate::formatters::LlmFormatter;
+use crate::codecs::LlmCodec;
 use async_trait::async_trait;
 use eventsource_stream::EventStream;
 use futures::StreamExt;
@@ -22,10 +22,10 @@ pub trait MessageStream: Send {
 
 pub struct SseMessageStream<S> {
     stream: EventStream<S>,
-    formatter: Arc<dyn LlmFormatter>,
+    codec: Arc<dyn LlmCodec>,
     cancel: Option<CancellationToken>,
     done: bool,
-    /// The formatter emitted `End`; the accumulator built the `FinalMessage`
+    /// The codec emitted `End`; the accumulator built the `FinalMessage`
     /// and the `End` event itself is pending on the next `next()` call.
     pending_end: bool,
     accumulator: MessageAccumulator,
@@ -34,13 +34,13 @@ pub struct SseMessageStream<S> {
 impl<S> SseMessageStream<S> {
     pub fn new(
         stream: EventStream<S>,
-        formatter: Arc<dyn LlmFormatter>,
+        codec: Arc<dyn LlmCodec>,
         cancel: Option<CancellationToken>,
         dead_loop_config: Option<&wf_types::llm::DeadLoopDetectionConfig>,
     ) -> Self {
         Self {
             stream,
-            formatter,
+            codec,
             cancel,
             done: false,
             pending_end: false,
@@ -87,7 +87,7 @@ where
                         continue;
                     }
 
-                    match self.formatter.parse_stream_chunk(&data) {
+                    match self.codec.parse_stream_chunk(&data) {
                         Ok(Some(raw_event)) => {
                             // Always route `End` through the accumulator: it
                             // assembles the `FinalMessage` (content, tool calls,
@@ -343,7 +343,7 @@ mod tests {
     use wf_types::llm::{MessageStreamToolCallDelta, MessageStreamUsage};
 
     /// Feed a real OpenAI-style SSE byte stream through `SseMessageStream` with
-    /// the real `OpenaiChatFormatter`, proving that the `FinalMessage` is
+    /// the real `OpenaiChatCodec`, proving that the `FinalMessage` is
     /// assembled and delivered before the `End` event (regression test for the
     /// `End` short-circuit that skipped the accumulator).
     #[tokio::test]
@@ -362,9 +362,8 @@ mod tests {
 
         let inner = stream::iter(vec![Ok::<_, std::io::Error>(sse.as_bytes().to_vec())]);
         let sse_stream = EventStream::new(inner);
-        let formatter: Arc<dyn LlmFormatter> =
-            Arc::new(crate::formatters::OpenaiChatFormatter::new());
-        let mut stream = SseMessageStream::new(sse_stream, formatter, None, None);
+        let codec: Arc<dyn LlmCodec> = Arc::new(crate::codecs::OpenaiChatCodec::new());
+        let mut stream = SseMessageStream::new(sse_stream, codec, None, None);
 
         let mut events: Vec<MessageStreamEvent> = Vec::new();
         while let Some(event) = stream.next().await {

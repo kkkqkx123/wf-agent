@@ -206,6 +206,30 @@ impl From<String> for MiddlewarePhase {
     }
 }
 
+impl MiddlewarePhase {
+    /// Whether this phase is one the engine actually dispatches. Anything
+    /// other than `Other` round-trips through the recognized set; `Other`
+    /// is a plugin-supplied phase the engine never invokes. Callers should
+    /// warn when this returns `false` so a typo'd phase is not silently
+    /// dead.
+    pub fn is_known(&self) -> bool {
+        matches!(
+            self,
+            MiddlewarePhase::BeforeWorkflowExecution
+                | MiddlewarePhase::AfterWorkflowExecution
+                | MiddlewarePhase::BeforeNodeExecution
+                | MiddlewarePhase::AfterNodeExecution
+                | MiddlewarePhase::BeforeLlmInvocation
+                | MiddlewarePhase::AfterLlmInvocation
+                | MiddlewarePhase::BeforeToolExecution
+                | MiddlewarePhase::AfterToolExecution
+                | MiddlewarePhase::OnError
+                | MiddlewarePhase::OnCheckpoint
+                | MiddlewarePhase::OnResume
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

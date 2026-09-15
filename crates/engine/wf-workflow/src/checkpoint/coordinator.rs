@@ -122,16 +122,23 @@ impl WorkflowCheckpointIntegration {
         }
     }
 
+    /// Node completion checkpoint: fires when the resolved strategy says so,
+    /// or when the node forced it via `checkpoint_after_execute` (forced
+    /// checkpoints ignore the trigger list and cadence but still honor the
+    /// master switch, same contract as hook opt-in checkpoints, so exactly
+    /// one checkpoint is persisted per completion either way).
     pub async fn on_node_completed(
         &mut self,
         entity: &WorkflowExecutionEntity,
         node_config: Option<&NodeCheckpointConfig>,
+        forced: bool,
     ) {
         self.node_count += 1;
         if !self
             .strategy
             .resolve(node_config)
             .should_checkpoint(&WorkflowCheckpointTiming::AfterNode, self.node_count)
+            && !(forced && self.strategy.is_enabled())
         {
             return;
         }
@@ -152,15 +159,21 @@ impl WorkflowCheckpointIntegration {
         }
     }
 
+    /// Node pre-execution checkpoint: fires when the resolved strategy says
+    /// so, or when the node forced it via `checkpoint_before_execute` (same
+    /// force contract as completion: trigger list and cadence ignored, master
+    /// switch still honored, at most one checkpoint per node entry).
     pub async fn on_node_before(
         &mut self,
         entity: &WorkflowExecutionEntity,
         node_config: Option<&NodeCheckpointConfig>,
+        forced: bool,
     ) {
         if !self
             .strategy
             .resolve(node_config)
             .should_checkpoint(&WorkflowCheckpointTiming::BeforeNode, self.node_count)
+            && !(forced && self.strategy.is_enabled())
         {
             return;
         }

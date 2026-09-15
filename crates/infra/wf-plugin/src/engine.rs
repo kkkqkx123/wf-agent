@@ -16,6 +16,7 @@ use crate::events::PluginEvent;
 use crate::guard::PluginGuard;
 use crate::manifest::{PluginManifest, PluginPermission, PluginType};
 use crate::package::{InstalledPlugin, PluginPackageManager};
+use crate::signing::{enforce_signature, TrustedKeys, verify_file};
 use crate::plugin::Plugin;
 use crate::registry::{PluginInfo, PluginRegistry, PluginStatus};
 
@@ -34,6 +35,12 @@ pub struct PluginSystemConfig {
     /// version): `false` (default) keeps the historical fail-open skip,
     /// `true` rejects the plugin with `InvalidManifest` instead.
     pub strict_sdk_version: bool,
+    /// Signature trust applied to wasm entry-point artifacts on the load
+    /// path. Empty (the default) preserves the historical fail-open
+    /// behavior: plugins load without verification. Configure trusted keys
+    /// to enforce signatures; `Enforcement::Enforcing` rejects unsigned or
+    /// invalid artifacts while `Permissive` warns and proceeds.
+    pub signing: TrustedKeys,
 }
 
 impl Default for PluginSystemConfig {
@@ -49,6 +56,7 @@ impl Default for PluginSystemConfig {
             required_permissions_blocklist: vec![],
             config: std::collections::HashMap::new(),
             strict_sdk_version: false,
+            signing: TrustedKeys::default(),
         }
     }
 }
@@ -171,7 +179,7 @@ impl PluginEngine {
         }
     }
 
-    async fn load_plugin(&self, manifest: PluginManifest) -> PluginResult<()> {
+    async fn load_plugin(&self, manifest: PluginManifest, base: &Path) -> PluginResult<()> {
         let plugin_id = manifest.id.clone();
 
         if !self.is_allowed(&plugin_id) {
@@ -203,7 +211,11 @@ impl PluginEngine {
 
         self.check_sdk_version(&manifest)?;
 
-        let plugin = load_plugin_module(manifest.clone()).await?;
+        if manifest.entry_point.ends_with(".wasm") {
+            self.verify_wasm_signature(&base.join(&manifest.entry_point), &plugin_id)?;
+        }
+
+        let plugin = load_plugin_module_with_base(&manifest, base).await?;
         self.registry.register(manifest, plugin)?;
         self.registry
             .update_status(&plugin_id, PluginStatus::Loaded);
@@ -272,9 +284,23 @@ impl PluginEngine {
         Ok(())
     }
 
+    /// Verify a wasm entry-point artifact against the configured trust
+    /// before loading it. No-op when no trust is configured, preserving the
+    /// historical fail-open behavior. Delegates to
+    /// `crate::signing::enforce_signature` so the load path enforces
+    /// identical semantics to package installation.
+    fn verify_wasm_signature(&self, artifact: &Path, plugin_id: &str) -> PluginResult<()> {
+        let trust = &self.options.signing;
+        if trust.is_empty() {
+            return Ok(());
+        }
+        let status = verify_file(artifact, trust);
+        enforce_signature(plugin_id, artifact, &status, trust, "loading")
+    }
+
     pub async fn discover(&self) -> PluginResult<Vec<PluginInfo>> {
         let manifests = scan_plugin_manifests(&self.options.paths).await?;
-        for manifest in manifests {
+        for (manifest, base) in manifests {
             // Installed-but-disabled plugins stay unloaded; plugins absent
             // from the install registry keep loading (registry is an
             // enhancement, not a gate).
@@ -282,7 +308,7 @@ impl PluginEngine {
                 tracing::info!("plugin '{}' is disabled, skipping", manifest.id);
                 continue;
             }
-            let _ = self.load_plugin(manifest).await;
+            let _ = self.load_plugin(manifest, &base).await;
         }
         Ok(self.registry.all())
     }
@@ -306,6 +332,9 @@ impl PluginEngine {
         self.publish(PluginEvent::Loading {
             plugin_id: manifest.id.clone(),
         });
+        if manifest.entry_point.ends_with(".wasm") {
+            self.verify_wasm_signature(&plugin_dir.join(&manifest.entry_point), &manifest.id)?;
+        }
         let plugin = load_plugin_module_with_base(&manifest, &plugin_dir).await?;
         self.registry.register(manifest.clone(), plugin)?;
         self.registry
@@ -819,7 +848,14 @@ impl PluginEngine {
         let _ = self.deactivate(plugin_id).await;
         self.registry.remove(plugin_id);
 
-        let plugin = load_plugin_module(manifest.clone()).await?;
+        // A hot-reload swaps the artifact in place, so re-verify it against
+        // the configured trust before reloading; the boundary enforced at
+        // discover must hold for the reloaded bytes as well.
+        if manifest.entry_point.ends_with(".wasm") {
+            let artifact = plugin_dir.join(&manifest.entry_point);
+            self.verify_wasm_signature(&artifact, plugin_id)?;
+        }
+        let plugin = load_plugin_module_with_base(&manifest, &plugin_dir).await?;
         self.registry.register(manifest, plugin)?;
         self.registry.update_status(plugin_id, PluginStatus::Loaded);
 
@@ -837,9 +873,10 @@ impl PluginEngine {
             .into_iter()
             .map(|i| i.manifest.id.clone())
             .collect();
-        let manifests = scan_plugin_manifests(&self.options.paths).await?;
+        let scanned = scan_plugin_manifests(&self.options.paths).await?;
+        let manifests: Vec<(PluginManifest, PathBuf)> = scanned;
 
-        let new_ids: Vec<String> = manifests.iter().map(|m| m.id.clone()).collect();
+        let new_ids: Vec<String> = manifests.iter().map(|(m, _)| m.id.clone()).collect();
         let removed: Vec<String> = current_ids
             .into_iter()
             .filter(|id| !new_ids.contains(id))
@@ -854,7 +891,7 @@ impl PluginEngine {
             self.registry.remove(id);
         }
 
-        for manifest in manifests {
+        for (manifest, base) in manifests {
             if added.contains(&manifest.id) {
                 let plugin_id = manifest.id.clone();
                 if !self.is_allowed(&plugin_id) {
@@ -864,7 +901,12 @@ impl PluginEngine {
                     tracing::warn!("plugin '{}' manifest invalid: {:?}", plugin_id, errors);
                     continue;
                 }
-                let plugin = load_plugin_module(manifest.clone()).await?;
+                // Newly discovered plugins clear the same trust boundary as
+                // at startup; verify the artifact before building the module.
+                if manifest.entry_point.ends_with(".wasm") {
+                    self.verify_wasm_signature(&base.join(&manifest.entry_point), &plugin_id)?;
+                }
+                let plugin = load_plugin_module_with_base(&manifest, &base).await?;
                 self.registry.register(manifest, plugin)?;
                 self.registry
                     .update_status(&plugin_id, PluginStatus::Loaded);
@@ -1196,7 +1238,7 @@ fn uuid_or_fallback() -> String {
 // Standalone loading helpers
 // ============================================================
 
-async fn scan_plugin_manifests(paths: &[PathBuf]) -> PluginResult<Vec<PluginManifest>> {
+async fn scan_plugin_manifests(paths: &[PathBuf]) -> PluginResult<Vec<(PluginManifest, PathBuf)>> {
     let mut manifests = Vec::new();
     for path in paths {
         if !path.exists() {
@@ -1216,7 +1258,7 @@ async fn scan_plugin_manifests(paths: &[PathBuf]) -> PluginResult<Vec<PluginMani
                 .await
                 .map_err(PluginError::Io)?;
             match toml::from_str::<PluginManifest>(&content) {
-                Ok(m) => manifests.push(m),
+                Ok(m) => manifests.push((m, dir_path)),
                 Err(e) => tracing::warn!("failed to parse {:?}: {}", manifest_path, e),
             }
         }
@@ -1265,23 +1307,6 @@ fn resolve_plugin_type(manifest: &PluginManifest) -> PluginResult<PluginType> {
     )))
 }
 
-async fn load_plugin_module(manifest: PluginManifest) -> PluginResult<Arc<dyn Plugin>> {
-    match resolve_plugin_type(&manifest)? {
-        #[cfg(feature = "lua")]
-        PluginType::Lua => load_lua_plugin(&manifest).await,
-        #[cfg(not(feature = "lua"))]
-        PluginType::Lua => Err(PluginError::LoadFailed("lua feature not enabled".into())),
-        #[cfg(feature = "native")]
-        PluginType::Native => load_native_plugin(&manifest),
-        #[cfg(not(feature = "native"))]
-        PluginType::Native => Err(PluginError::LoadFailed("native feature not enabled".into())),
-        #[cfg(feature = "wasm")]
-        PluginType::Wasm => load_wasm_plugin(&manifest).await,
-        #[cfg(not(feature = "wasm"))]
-        PluginType::Wasm => Err(PluginError::LoadFailed("wasm feature not enabled".into())),
-    }
-}
-
 #[cfg_attr(
     not(any(feature = "lua", feature = "native", feature = "wasm")),
     allow(unused_variables)
@@ -1304,21 +1329,6 @@ async fn load_plugin_module_with_base(
         #[cfg(not(feature = "wasm"))]
         PluginType::Wasm => Err(PluginError::LoadFailed("wasm feature not enabled".into())),
     }
-}
-
-#[cfg(feature = "lua")]
-async fn load_lua_plugin(manifest: &PluginManifest) -> PluginResult<Arc<dyn Plugin>> {
-    crate::lua::loader::load_lua_plugin(manifest).await
-}
-
-#[cfg(feature = "wasm")]
-async fn load_wasm_plugin(manifest: &PluginManifest) -> PluginResult<Arc<dyn Plugin>> {
-    crate::wasm::loader::load_wasm_plugin(manifest).await
-}
-
-#[cfg(feature = "native")]
-fn load_native_plugin(manifest: &PluginManifest) -> PluginResult<Arc<dyn Plugin>> {
-    crate::native::loader::load_native_plugin(manifest)
 }
 
 #[cfg(test)]
@@ -1730,6 +1740,118 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    #[cfg(feature = "wasm")]
+    #[tokio::test]
+    async fn wasm_plugin_load_single_rejects_unsigned_under_enforcing() {
+        use crate::signing::{Enforcement, TrustedKeys};
+
+        let dir = std::env::temp_dir().join("wf-wasm-test-engine-enforce");
+        let plugin_dir = dir.join("echo-wasm");
+        let _ = std::fs::create_dir_all(&plugin_dir);
+        let wat = crate::wasm::loader::wasm_test_echo_wat(r#"{"tool_types":["echo_tool"]}"#);
+        let bytes = wat::parse_str(&wat).expect("valid wat");
+        std::fs::write(plugin_dir.join("plugin.wasm"), &bytes).expect("write module");
+        std::fs::write(
+            plugin_dir.join("plugin.toml"),
+            "id = \"echo-wasm\"\nversion = \"1.0.0\"\nentry_point = \"plugin.wasm\"\n",
+        )
+        .expect("write manifest");
+
+        // Trust that does not match the unsigned artifact with enforcement
+        // on: loading must be rejected by the new verify-on-load path.
+        let options = PluginSystemConfig {
+            signing: TrustedKeys::new(vec![[1u8; 32]], Enforcement::Enforcing),
+            ..PluginSystemConfig::default()
+        };
+        let registry = Arc::new(PluginRegistry::new());
+        let manager = Arc::new(ContributionManager::new());
+        let engine = PluginEngine::new(registry, manager, None, options, "0.1.0");
+
+        let err = engine
+            .load_single(&plugin_dir.join("plugin.toml"))
+            .await
+            .unwrap_err();
+        assert!(
+            matches!(err, PluginError::LoadFailed(_)),
+            "unsigned wasm must be rejected under Enforcing: {err:?}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(feature = "wasm")]
+    #[tokio::test]
+    async fn wasm_plugin_load_single_accepts_signed_under_enforcing() {
+        use crate::signing::{generate_keypair, sign_file, Enforcement, TrustedKeys};
+
+        let dir = std::env::temp_dir().join("wf-wasm-test-engine-signed");
+        let plugin_dir = dir.join("echo-wasm");
+        let _ = std::fs::create_dir_all(&plugin_dir);
+        let wat = crate::wasm::loader::wasm_test_echo_wat(r#"{"tool_types":["echo_tool"]}"#);
+        let bytes = wat::parse_str(&wat).expect("valid wat");
+        let wasm_path = plugin_dir.join("plugin.wasm");
+        std::fs::write(&wasm_path, &bytes).expect("write module");
+        std::fs::write(
+            plugin_dir.join("plugin.toml"),
+            "id = \"echo-wasm\"\nversion = \"1.0.0\"\nentry_point = \"plugin.wasm\"\n",
+        )
+        .expect("write manifest");
+
+        let pair = generate_keypair();
+        sign_file(&wasm_path, &pair.signing).expect("sign artifact");
+
+        let options = PluginSystemConfig {
+            signing: TrustedKeys::new(vec![pair.verifying.to_bytes()], Enforcement::Enforcing),
+            ..PluginSystemConfig::default()
+        };
+        let registry = Arc::new(PluginRegistry::new());
+        let manager = Arc::new(ContributionManager::new());
+        let engine = PluginEngine::new(registry, manager, None, options, "0.1.0");
+
+        let info = engine
+            .load_single(&plugin_dir.join("plugin.toml"))
+            .await
+            .expect("signed wasm loads under Enforcing");
+        assert_eq!(info.status, PluginStatus::Loaded);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(feature = "wasm")]
+    #[tokio::test]
+    async fn wasm_plugin_reload_rejects_unsigned_under_enforcing() {
+        use crate::signing::{Enforcement, TrustedKeys};
+
+        let dir = std::env::temp_dir().join("wf-wasm-test-engine-reload-enforce");
+        let plugin_dir = dir.join("echo-wasm");
+        let _ = std::fs::create_dir_all(&plugin_dir);
+        let wat = crate::wasm::loader::wasm_test_echo_wat(r#"{"tool_types":["echo_tool"]}"#);
+        let bytes = wat::parse_str(&wat).expect("valid wat");
+        std::fs::write(plugin_dir.join("plugin.wasm"), &bytes).expect("write module");
+        std::fs::write(
+            plugin_dir.join("plugin.toml"),
+            "id = \"echo-wasm\"\nversion = \"1.0.0\"\nentry_point = \"plugin.wasm\"\n",
+        )
+        .expect("write manifest");
+
+        // Trust that does not match the unsigned artifact with enforcement
+        // on: reloading the on-disk plugin must be rejected by the
+        // verify-on-reload path, closing the hot-reload trust boundary.
+        let options = PluginSystemConfig {
+            paths: vec![dir.clone()],
+            signing: TrustedKeys::new(vec![[1u8; 32]], Enforcement::Enforcing),
+            ..PluginSystemConfig::default()
+        };
+        let registry = Arc::new(PluginRegistry::new());
+        let manager = Arc::new(ContributionManager::new());
+        let engine = PluginEngine::new(registry, manager, None, options, "0.1.0");
+
+        let err = engine.reload("echo-wasm").await.unwrap_err();
+        assert!(
+            matches!(err, PluginError::LoadFailed(_)),
+            "unsigned wasm reload must be rejected under Enforcing: {err:?}"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[tokio::test]
     async fn forbid_conflict_aborts_activation() {
         struct ClaimingPlugin {
@@ -1829,7 +1951,7 @@ mod tests {
 
         let mut manifest = make_manifest("strict-sdk");
         manifest.sdk_version = Some("not-a-version".into());
-        let err = engine.load_plugin(manifest).await.unwrap_err();
+        let err = engine.load_plugin(manifest, Path::new(".")).await.unwrap_err();
         assert!(matches!(err, PluginError::InvalidManifest(_)));
 
         // Fail-open (default) still skips the check with a warning.
@@ -1838,7 +1960,7 @@ mod tests {
         manifest.sdk_version = Some("not-a-version".into());
         // No loadable module exists for the fake entry point, so a
         // fail-open check proceeds past the sdk gate into module loading.
-        let err = engine.load_plugin(manifest).await.unwrap_err();
+        let err = engine.load_plugin(manifest, Path::new(".")).await.unwrap_err();
         assert!(!matches!(err, PluginError::InvalidManifest(_)));
     }
 }

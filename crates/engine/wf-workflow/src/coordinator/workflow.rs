@@ -64,6 +64,9 @@ struct NodeOutcome<'a> {
     start: i64,
     duration_ms: f64,
     checkpoint_config: Option<NodeCheckpointConfig>,
+    /// Node-level `checkpoint_after_execute` force flag, carried from the
+    /// pre-execution read so the completion path needs no second lookup.
+    force_checkpoint_after: bool,
 }
 
 /// Parse the node-level checkpoint configuration embedded in the node config
@@ -78,6 +81,17 @@ fn node_checkpoint_config(
         None => Ok(None),
         Some(v) => crate::config_parse::parse_node_config(node_id, "inner.checkpoint", v).map(Some),
     }
+}
+
+/// Read a node-level force-checkpoint flag from the node config blob
+/// (`checkpoint_before_execute` / `checkpoint_after_execute`, snake case as
+/// serialized from `NodeExecutionConfig`). Absent or non-boolean means no
+/// force: the strategy decision stands on its own.
+fn node_force_checkpoint(node_inner: &Value, key: &str) -> bool {
+    node_inner
+        .get(key)
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
 }
 
 fn parse_node_type(node_type_str: &str) -> WorkflowResult<StaticNodeType> {
@@ -748,10 +762,15 @@ impl WorkflowCoordinator {
             let node_type = parse_node_type(&node.node_type)?;
             let node_type_str = node.node_type.clone();
             let checkpoint_config = node_checkpoint_config(node_id, &node.inner)?;
+            let force_checkpoint_before =
+                node_force_checkpoint(&node.inner, "checkpoint_before_execute");
+            let force_checkpoint_after =
+                node_force_checkpoint(&node.inner, "checkpoint_after_execute");
             let retry_config = NodeRetryConfig::resolve(node, &self.ctx.options)?;
 
             if let Some(ref mut cp) = self.checkpoint {
-                cp.on_node_before(&entity, checkpoint_config.as_ref()).await;
+                cp.on_node_before(&entity, checkpoint_config.as_ref(), force_checkpoint_before)
+                    .await;
             }
             // BEFORE_EXECUTE hook opt-in checkpoints even when the node
             // policy would not: the hook fired, so its request is honored
@@ -790,6 +809,7 @@ impl WorkflowCoordinator {
                 start: node_start,
                 duration_ms: node_duration_ms,
                 checkpoint_config,
+                force_checkpoint_after,
             };
 
             match result {
@@ -1161,8 +1181,12 @@ impl WorkflowCoordinator {
         .await;
 
         if let Some(ref mut cp) = self.checkpoint {
-            cp.on_node_completed(entity, checkpoint_config.as_ref())
-                .await;
+            cp.on_node_completed(
+                entity,
+                checkpoint_config.as_ref(),
+                outcome.force_checkpoint_after,
+            )
+            .await;
         }
         WorkflowHookEmitter::maybe_hook_checkpoint(
             &self.hooks,

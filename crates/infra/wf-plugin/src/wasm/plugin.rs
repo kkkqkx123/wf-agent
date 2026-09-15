@@ -493,9 +493,11 @@ impl Plugin for WasmPlugin {
                 }),
             )?;
         }
+        super::warn_unknown_middleware_phases(&self.inner.manifest.id, &decl.middleware);
         for mw in &decl.middleware {
+            let phase = MiddlewarePhase::from(mw.phase.as_str());
             registrar.register_middleware(
-                MiddlewarePhase::from(mw.phase.as_str()),
+                phase,
                 mw.priority,
                 Arc::new(WasmMiddlewareHandler {
                     inner: self.inner.clone(),

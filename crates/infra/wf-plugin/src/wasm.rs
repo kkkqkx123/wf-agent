@@ -14,3 +14,21 @@ pub use loader::{
 pub use plugin::WasmPlugin;
 pub use policy::{resolve_grants, resolve_limits, WasiGrants, WasmLimits};
 pub use stats::{WasmStats, WasmStatsSnapshot};
+
+use wf_plugin_sdk::wasm::WasmMiddlewareDecl;
+use wf_types::MiddlewarePhase;
+
+/// Emit a warning for each middleware entry whose phase the engine does not
+/// dispatch. Shared by the core-module and component loaders so the check
+/// lives in one place (see each loader's `register_contributions`).
+pub(crate) fn warn_unknown_middleware_phases(plugin_id: &str, middleware: &[WasmMiddlewareDecl]) {
+    for mw in middleware {
+        let phase = MiddlewarePhase::from(mw.phase.as_str());
+        if !phase.is_known() {
+            tracing::warn!(
+                "wasm plugin '{}' registers middleware for unknown phase '{}'; it will never be dispatched",
+                plugin_id, mw.phase
+            );
+        }
+    }
+}

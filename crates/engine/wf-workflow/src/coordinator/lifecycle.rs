@@ -500,6 +500,22 @@ mod tests {
             .with_checkpoint_strategy(NodeCheckpointStrategy::every_node())
     }
 
+    /// Instance strategy with the master switch on but an empty trigger
+    /// list: no automatic node checkpoint fires, while explicit opt-ins
+    /// (hook `create_checkpoint`, node force flags) still do. This is the
+    /// shape the opt-in tests need; `never()` is the kill switch (master
+    /// switch off) and suppresses even explicit opt-ins, same as the agent
+    /// engine gate.
+    fn triggerless_strategy() -> NodeCheckpointStrategy {
+        NodeCheckpointStrategy::from_policy(&wf_types::checkpoint::UnifiedCheckpointPolicy {
+            enabled: true,
+            triggers: Vec::new(),
+            content: None,
+            retention: None,
+            error_handling: None,
+        })
+    }
+
     #[tokio::test]
     async fn test_execute_then_resume() {
         let store = Arc::new(StorageBackend::new_memory());
@@ -1164,7 +1180,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_hook_opt_in_forces_checkpoint_under_never_strategy() {
+    async fn test_hook_opt_in_forces_checkpoint_under_triggerless_strategy() {
         use wf_checkpoint::coordinator::workflow::WorkflowCheckpointCoordinator;
         use wf_checkpoint::coordinator::CheckpointCoordinator;
         use wf_checkpoint::state::CheckpointStateManager;
@@ -1217,12 +1233,14 @@ mod tests {
         }];
 
         // A BEFORE_EXECUTE opt-in forces per-node checkpoints even though
-        // the instance strategy disables everything.
+        // the instance strategy carries no automatic triggers. The master
+        // switch stays on: opt-ins ignore the trigger list, never the kill
+        // switch (`never()` would suppress even this fire).
         let store = Arc::new(StorageBackend::new_memory());
         let lifecycle = WorkflowLifecycleCoordinator::with_store(None, store.clone())
-            .with_checkpoint_strategy(NodeCheckpointStrategy::never());
+            .with_checkpoint_strategy(triggerless_strategy());
         lifecycle
-            .execute_workflow(run_params("exec-hook-opt-in", opt_in))
+            .execute_workflow(run_params("exec-hook-opt-in", opt_in.clone()))
             .await
             .expect("workflow should complete");
         let nodes = checkpointed_nodes(&store, "exec-hook-opt-in").await;
@@ -1231,11 +1249,11 @@ mod tests {
             "hook opt-in must force a node checkpoint, got {nodes:?}"
         );
 
-        // Control: the same disabled strategy without opt-in leaves no
+        // Control: the same triggerless strategy without opt-in leaves no
         // node snapshots (only the workflow start/end checkpoints).
         let store = Arc::new(StorageBackend::new_memory());
         let lifecycle = WorkflowLifecycleCoordinator::with_store(None, store.clone())
-            .with_checkpoint_strategy(NodeCheckpointStrategy::never());
+            .with_checkpoint_strategy(triggerless_strategy());
         lifecycle
             .execute_workflow(run_params("exec-hook-control", Vec::new()))
             .await
@@ -1246,6 +1264,173 @@ mod tests {
                 .iter()
                 .all(|n| !matches!(n.as_deref(), Some("v1" | "v2"))),
             "no node checkpoint without opt-in, got {nodes:?}"
+        );
+
+        // Kill switch: `never()` (master switch off) suppresses even the
+        // opted-in hook fire, matching the agent engine gate.
+        let store = Arc::new(StorageBackend::new_memory());
+        let lifecycle = WorkflowLifecycleCoordinator::with_store(None, store.clone())
+            .with_checkpoint_strategy(NodeCheckpointStrategy::never());
+        lifecycle
+            .execute_workflow(run_params("exec-hook-killed", opt_in))
+            .await
+            .expect("workflow should complete");
+        let nodes = checkpointed_nodes(&store, "exec-hook-killed").await;
+        assert!(
+            nodes
+                .iter()
+                .all(|n| !matches!(n.as_deref(), Some("v1" | "v2"))),
+            "kill switch must suppress even an opted-in hook fire, got {nodes:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_node_force_flags_checkpoint_under_triggerless_strategy() {
+        use wf_checkpoint::coordinator::workflow::WorkflowCheckpointCoordinator;
+        use wf_checkpoint::coordinator::CheckpointCoordinator;
+        use wf_checkpoint::state::CheckpointStateManager;
+        use wf_checkpoint::state::WorkflowCheckpointStateManager;
+
+        // Only v2 carries the force flags; v1 and the control nodes do not.
+        fn force_graph() -> WorkflowGraphStructure {
+            WorkflowGraphStructure {
+                nodes: vec![
+                    node("start", "START", serde_json::json!({})),
+                    node(
+                        "v1",
+                        "VARIABLE",
+                        serde_json::json!({
+                            "variable_name": "mid",
+                            "expression": "${input.greeting}"
+                        }),
+                    ),
+                    node(
+                        "v2",
+                        "VARIABLE",
+                        serde_json::json!({
+                            "variable_name": "final",
+                            "expression": "${mid}",
+                            "checkpoint_before_execute": true,
+                            "checkpoint_after_execute": true
+                        }),
+                    ),
+                    node("end", "END", serde_json::json!({})),
+                ],
+                edges: vec![edge("start", "v1"), edge("v1", "v2"), edge("v2", "end")],
+                adjacency_list: HashMap::new(),
+                reverse_adjacency_list: HashMap::new(),
+                start_node_id: Some("start".to_string()),
+                end_node_ids: vec!["end".to_string()],
+            }
+        }
+
+        fn force_params(execution_id: &str) -> WorkflowExecutionParams {
+            WorkflowExecutionParams {
+                execution_id: wf_types::Id::from(execution_id.to_string()),
+                workflow_id: wf_types::Id::from("wf-node-force".to_string()),
+                graph: force_graph(),
+                options: options_with(Some(serde_json::json!({"greeting": "hello"}))),
+                handlers: make_handlers(),
+                tool_registry: Arc::new(wf_tools::registry::ToolRegistry::new()),
+                resource_registries: None,
+                input: None,
+                hooks: Vec::new(),
+            }
+        }
+
+        // Classify restored snapshots by node: (current_node_id, has_result).
+        async fn snapshots(
+            store: &Arc<StorageBackend>,
+            execution_id: &str,
+        ) -> Vec<(Option<String>, bool)> {
+            let sm = WorkflowCheckpointStateManager::new(store.clone());
+            let all = sm
+                .list_by_entity(execution_id)
+                .await
+                .expect("checkpoints listed");
+            let coord = WorkflowCheckpointCoordinator::new(WorkflowCheckpointStateManager::new(
+                store.clone(),
+            ));
+            let mut out = Vec::new();
+            for meta in &all {
+                let restored = coord.restore(&meta.id).await.expect("restore ok");
+                let snap = restored.snapshot;
+                let has_result = snap
+                    .node_results
+                    .as_ref()
+                    .is_some_and(|m| {
+                        snap.current_node_id
+                            .as_deref()
+                            .is_some_and(|n| m.contains_key(n))
+                    });
+                out.push((snap.current_node_id.clone(), has_result));
+            }
+            out
+        }
+
+        // Triggerless strategy (master on, no automatic triggers): only the
+        // forced node snapshots, before and after v2, plus the unconditional
+        // workflow start/end checkpoints.
+        let store = Arc::new(StorageBackend::new_memory());
+        let lifecycle = WorkflowLifecycleCoordinator::with_store(None, store.clone())
+            .with_checkpoint_strategy(triggerless_strategy());
+        lifecycle
+            .execute_workflow(force_params("exec-node-force"))
+            .await
+            .expect("workflow should complete");
+        let snaps = snapshots(&store, "exec-node-force").await;
+        assert!(
+            snaps
+                .iter()
+                .any(|(n, has)| n.as_deref() == Some("v2") && !has),
+            "forced before-checkpoint for v2 must exist, got {snaps:?}"
+        );
+        assert!(
+            snaps
+                .iter()
+                .any(|(n, has)| n.as_deref() == Some("v2") && *has),
+            "forced after-checkpoint for v2 must exist, got {snaps:?}"
+        );
+        assert!(
+            snaps.iter().all(|(n, _)| n.as_deref() != Some("v1")),
+            "unflagged v1 must leave no snapshot, got {snaps:?}"
+        );
+
+        // No duplication: under every_node the strategy already snapshots
+        // after v2, so the force flag must not add a second after-checkpoint
+        // (exactly one before + one after for v2).
+        let store = Arc::new(StorageBackend::new_memory());
+        let lifecycle = WorkflowLifecycleCoordinator::with_store(None, store.clone())
+            .with_checkpoint_strategy(NodeCheckpointStrategy::every_node());
+        lifecycle
+            .execute_workflow(force_params("exec-node-force-dedupe"))
+            .await
+            .expect("workflow should complete");
+        let snaps = snapshots(&store, "exec-node-force-dedupe").await;
+        let v2: Vec<_> = snaps
+            .iter()
+            .filter(|(n, _)| n.as_deref() == Some("v2"))
+            .collect();
+        assert_eq!(
+            v2.len(),
+            2,
+            "strategy hit plus force must collapse to one before + one after, got {snaps:?}"
+        );
+
+        // Kill switch: `never()` suppresses even forced node checkpoints.
+        let store = Arc::new(StorageBackend::new_memory());
+        let lifecycle = WorkflowLifecycleCoordinator::with_store(None, store.clone())
+            .with_checkpoint_strategy(NodeCheckpointStrategy::never());
+        lifecycle
+            .execute_workflow(force_params("exec-node-force-killed"))
+            .await
+            .expect("workflow should complete");
+        let snaps = snapshots(&store, "exec-node-force-killed").await;
+        assert!(
+            snaps
+                .iter()
+                .all(|(n, _)| !matches!(n.as_deref(), Some("v1" | "v2"))),
+            "kill switch must suppress forced node checkpoints, got {snaps:?}"
         );
     }
 

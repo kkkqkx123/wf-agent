@@ -349,7 +349,9 @@ impl PluginEngine {
         });
         tracing::info!("loaded plugin '{}' from {:?}", manifest.id, manifest_path);
 
-        Ok(self.registry.get(&manifest.id).unwrap())
+        self.registry
+            .get(&manifest.id)
+            .ok_or_else(|| PluginError::NotFound(manifest.id.clone()))
     }
 
     /// Register an in-memory plugin instance directly (no manifest file on
@@ -442,7 +444,10 @@ impl PluginEngine {
         self.registry
             .update_status(plugin_id, PluginStatus::Activating);
 
-        let instance = self.registry.instance(plugin_id).unwrap();
+        let instance = self
+            .registry
+            .instance(plugin_id)
+            .ok_or_else(|| PluginError::NotFound(plugin_id.to_owned()))?;
         let plugin_config = self
             .options
             .config

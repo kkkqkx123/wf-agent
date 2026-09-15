@@ -10,6 +10,8 @@
 use std::io::Write;
 use std::process::{Child, ChildStdin};
 use std::sync::Mutex;
+
+use wf_common::lock::lock_ok;
 use std::time::{Duration, Instant};
 
 use crate::error::{ShellError, ShellResult};
@@ -141,9 +143,7 @@ impl PtyBackend {
     }
 
     fn pid(&self) -> Option<u32> {
-        self.child
-            .lock()
-            .unwrap()
+        lock_ok(self.child.lock())
             .as_ref()
             .and_then(|c| c.process_id())
     }

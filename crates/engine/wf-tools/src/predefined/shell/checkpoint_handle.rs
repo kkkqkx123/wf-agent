@@ -6,6 +6,7 @@
 
 use std::path::PathBuf;
 
+use wf_common::lock::lock_ok;
 use wf_shell::engine::BackgroundShellStore;
 
 use super::session_observe::SharedSessionForwarder;
@@ -31,13 +32,13 @@ impl ShellCheckpointHandle {
     /// background-event forwarder in one call.
     pub fn attach_ctx(&self, ctx: &crate::executor::trait_def::ToolExecutionContext) {
         if let Some(sess) = ctx.checkpoint_session.clone() {
-            *self.session.lock().unwrap() = Some(sess.clone());
+            *lock_ok(self.session.lock()) = Some(sess.clone());
             self.forwarder.set_session(self.execution_id.clone(), sess);
         }
     }
 
     pub fn get(&self) -> Option<wf_checkpoint::CheckpointSession> {
-        self.session.lock().unwrap().as_ref().cloned()
+        lock_ok(self.session.lock()).as_ref().cloned()
     }
 
     pub fn begin_session(&self, session_id: &str, scope_dir: Option<PathBuf>) {

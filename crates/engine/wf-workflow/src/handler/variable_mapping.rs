@@ -121,13 +121,22 @@ pub fn set_variable_path(
         if !target.is_object() {
             *target = Value::Object(serde_json::Map::new());
         }
-        let entry = target.as_object_mut().unwrap().entry((*part).to_string());
+        let entry = target
+            .as_object_mut()
+            .expect("invariant: target is an object after the shape guard above")
+            .entry((*part).to_string());
         let entry_ref = entry.or_insert_with(|| Value::Object(serde_json::Map::new()));
         target = entry_ref;
     }
 
     if let Value::Object(map) = target {
-        map.insert(parts.last().unwrap().to_string(), value);
+        map.insert(
+            parts
+                .last()
+                .expect("invariant: parts has at least two segments in this branch")
+                .to_string(),
+            value,
+        );
     }
     vars.insert(parts[0].to_string(), current);
     Ok(())

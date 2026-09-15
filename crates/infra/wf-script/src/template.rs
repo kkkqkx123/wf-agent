@@ -32,8 +32,16 @@ impl ScriptTemplateEngine {
         let mut unresolved = Vec::new();
 
         for cap in re.captures_iter(template) {
-            let placeholder = cap.get(1).unwrap().as_str().to_string();
-            let full_match = cap.get(0).unwrap().as_str().to_string();
+            let placeholder = cap
+                .get(1)
+                .expect("invariant: capture group 1 is always present for a matched template pattern")
+                .as_str()
+                .to_string();
+            let full_match = cap
+                .get(0)
+                .expect("invariant: capture group 0 (the whole match) is always present")
+                .as_str()
+                .to_string();
 
             match variables.get(&placeholder) {
                 Some(value) => {

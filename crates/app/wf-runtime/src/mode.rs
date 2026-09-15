@@ -87,7 +87,7 @@ fn detect_mode_inner(config_fallback: Option<ExecutionMode>) -> ExecutionMode {
     }
 
     match config_fallback {
-        Some(ExecutionMode::Headless) | Some(ExecutionMode::Test) => config_fallback.unwrap(),
+        Some(mode @ (ExecutionMode::Headless | ExecutionMode::Test)) => mode,
         _ => ExecutionMode::Interactive,
     }
 }

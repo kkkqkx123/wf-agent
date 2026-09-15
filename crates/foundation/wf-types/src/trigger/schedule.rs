@@ -275,25 +275,30 @@ impl CronSchedule {
     }
 
     /// Whether a unix timestamp (seconds) matches in the given offset.
-    fn matches(&self, timestamp: i64, offset: &FixedOffset) -> bool {
-        let local = offset.timestamp_opt(timestamp, 0).unwrap();
+    fn matches(&self, timestamp: i64, offset: &FixedOffset) -> Result<bool, String> {
+        let local = offset
+            .timestamp_opt(timestamp, 0)
+            .earliest()
+            .ok_or_else(|| {
+                format!("timestamp {timestamp} has no valid local time in offset {offset}")
+            })?;
         let minute = local.minute() as usize;
         let hour = local.hour() as usize;
         let day = local.day() as usize;
         let month = local.month() as usize;
         let weekday = local.weekday().num_days_from_sunday() as usize;
         if !self.minutes[minute] || !self.hours[hour] || !self.months[month] {
-            return false;
+            return Ok(false);
         }
         // Standard cron day semantics: when both dom and dow are restricted,
         // either matching fires; otherwise the restricted one (or the
         // unrestricted wildcard) decides.
-        match (self.dom_restricted, self.dow_restricted) {
+        Ok(match (self.dom_restricted, self.dow_restricted) {
             (true, true) => self.days[day] || self.weekdays[weekday],
             (true, false) => self.days[day],
             (false, true) => self.weekdays[weekday],
             (false, false) => true,
-        }
+        })
     }
 
     /// First fire time strictly after `after` (interpreted in `tz_name`).
@@ -306,7 +311,7 @@ impl CronSchedule {
         // Truncate to the minute and step past `after`.
         let mut cursor = (after.timestamp() / 60) * 60 + 60;
         for _ in 0..CRON_SEARCH_LIMIT_MINUTES {
-            if self.matches(cursor, &offset) {
+            if self.matches(cursor, &offset)? {
                 return Ok(DateTime::from_timestamp(cursor, 0)
                     .expect("search stays in range")
                     .to_utc());

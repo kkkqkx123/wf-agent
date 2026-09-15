@@ -5,6 +5,8 @@
 //! faulty subscriber never breaks the execution flow.
 
 use std::sync::Arc;
+
+use wf_common::lock::write_ok;
 use wf_types::execution::{ExecutionEvent, ExecutionEventType};
 
 type Handler = Arc<dyn Fn(&ExecutionEvent) + Send + Sync>;
@@ -52,10 +54,7 @@ impl ExecutionEventBus {
         wf_common::lock::write_ok(self.wildcard.write()).push(handler.clone());
         let wildcard = self.wildcard.clone();
         move || {
-            wildcard
-                .write()
-                .unwrap()
-                .retain(|h| !Arc::ptr_eq(h, &handler));
+            write_ok(wildcard.write()).retain(|h| !Arc::ptr_eq(h, &handler));
         }
     }
 
@@ -69,10 +68,7 @@ impl ExecutionEventBus {
         wf_common::lock::write_ok(self.error_handlers.write()).push(handler.clone());
         let error_handlers = self.error_handlers.clone();
         move || {
-            error_handlers
-                .write()
-                .unwrap()
-                .retain(|h| !Arc::ptr_eq(h, &handler));
+            write_ok(error_handlers.write()).retain(|h| !Arc::ptr_eq(h, &handler));
         }
     }
 

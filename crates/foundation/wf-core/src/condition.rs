@@ -214,7 +214,7 @@ fn check_braces_balanced(condition: &str) -> Result<(), String> {
         while let Some(start) = search.find("${") {
             let rest = &search[start + 2..];
             match rest.find('}') {
-                Some(_) => search = &rest[rest.find('}').unwrap() + 1..],
+                Some(pos) => search = &rest[pos + 1..],
                 None => {
                     return Err(format!(
                         "Invalid condition expression '{}': unterminated '${{...}}' reference",
@@ -432,8 +432,12 @@ impl ConditionEvaluator {
                     }
                 }
             }
-            result.push(condition[i..].chars().next().unwrap());
-            i += condition[i..].chars().next().unwrap().len_utf8();
+            let ch = condition[i..]
+                .chars()
+                .next()
+                .expect("invariant: loop index always stays at a char boundary");
+            result.push(ch);
+            i += ch.len_utf8();
         }
         result
     }

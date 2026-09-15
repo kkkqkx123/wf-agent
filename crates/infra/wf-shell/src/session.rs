@@ -8,6 +8,8 @@
 use std::io::Read;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
+
+use wf_common::lock::wait_timeout_ok;
 use std::time::{Duration, Instant};
 
 use crate::backend::Backend;
@@ -213,7 +215,7 @@ impl ShellSession {
             if now >= deadline {
                 return (None, true);
             }
-            let (guard, timed_out) = self.exit_cv.wait_timeout(exit, deadline - now).unwrap();
+            let (guard, timed_out) = wait_timeout_ok(self.exit_cv.wait_timeout(exit, deadline - now));
             exit = guard;
             if timed_out.timed_out() && exit.is_none() {
                 return (None, true);

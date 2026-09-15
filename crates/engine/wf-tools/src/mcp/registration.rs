@@ -12,6 +12,8 @@
 use std::collections::BTreeMap;
 
 use serde_json::Value;
+
+use wf_common::lock::lock_ok;
 use wf_types::tool::{Tool, ToolMetadata, ToolParameterSchema, ToolPropertySchema, ToolType};
 
 use crate::error::ToolResult;
@@ -324,14 +326,9 @@ impl McpToolsRegistrar {
                 registry.register_tool(tool);
 
                 if self.options.track_registrations {
-                    self.registered_tool_ids
-                        .lock()
-                        .unwrap()
-                        .insert(tool_id.clone());
-                    self.registration_map
-                        .lock()
-                        .unwrap()
-                        .insert(tool_id.clone(), (server.clone(), info.name.clone()));
+                lock_ok(self.registered_tool_ids.lock()).insert(tool_id.clone());
+                lock_ok(self.registration_map.lock())
+                    .insert(tool_id.clone(), (server.clone(), info.name.clone()));
                 }
                 registered.push(tool_id);
                 remaining -= 1;
@@ -375,9 +372,7 @@ impl McpToolsRegistrar {
     }
 
     pub fn registered_tool_ids(&self) -> Vec<String> {
-        self.registered_tool_ids
-            .lock()
-            .unwrap()
+        lock_ok(self.registered_tool_ids.lock())
             .iter()
             .cloned()
             .collect()

@@ -360,10 +360,10 @@ fn last_line_is_fence(s: &str) -> bool {
         return false; // single line: an opening fence, not a closing one
     };
     let t = last.trim();
-    let first = t.chars().next();
-    let pure = matches!(first, Some('`') | Some('~'))
-        && t.len() >= 3
-        && t.chars().all(|c| c == first.unwrap());
+    let Some(first) = t.chars().next().filter(|c| *c == '`' || *c == '~') else {
+        return false;
+    };
+    let pure = t.len() >= 3 && t.chars().all(|c| c == first);
     if !pure {
         return false;
     }

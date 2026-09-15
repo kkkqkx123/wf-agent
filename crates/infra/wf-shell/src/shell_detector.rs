@@ -12,6 +12,8 @@
 use std::collections::HashMap;
 use std::sync::Mutex;
 
+use wf_common::lock::lock_ok;
+
 /// Supported shell types.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ShellType {
@@ -198,10 +200,7 @@ impl ShellDetector {
         }
 
         let resolved = self.resolve_shell_path_uncached(shell_type);
-        self.cache
-            .lock()
-            .unwrap()
-            .insert(shell_type, resolved.clone());
+        lock_ok(self.cache.lock()).insert(shell_type, resolved.clone());
         resolved
     }
 

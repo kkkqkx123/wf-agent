@@ -2,12 +2,29 @@ use async_trait::async_trait;
 use regex::Regex;
 use serde_json::Value;
 use std::collections::HashSet;
+use std::sync::LazyLock;
 
 use crate::error::ToolResult;
 use crate::executor::trait_def::{ToolExecutionContext, ToolExecutor};
 use wf_types::tool::ToolExecutionOptions;
 use wf_types::tool::ToolExecutionResult;
 use wf_types::tool::ToolPropertySchema;
+
+/// Pre-compiled format-validation patterns. Module-level singletons so the
+/// regexes are built once instead of on every `validate_format` call.
+static DATETIME_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$")
+        .expect("invariant: regex literal is a fixed pattern and must compile")
+});
+static DATE_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"^\d{4}-\d{2}-\d{2}$").expect("invariant: regex literal is a fixed pattern and must compile"));
+static TIME_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^\d{2}:\d{2}:\d{2}(\.\d+)?$").expect("invariant: regex literal is a fixed pattern and must compile")
+});
+static UUID_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
+        .expect("invariant: regex literal is a fixed pattern and must compile")
+});
 
 pub struct BaseExecutor;
 
@@ -143,10 +160,7 @@ impl BaseExecutor {
     fn validate_format(key: &str, s: &str, format: &str) -> ToolResult<()> {
         match format {
             "date-time" => {
-                let dt_re =
-                    Regex::new(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$")
-                        .unwrap();
-                if !dt_re.is_match(s) {
+                if !DATETIME_RE.is_match(s) {
                     return Err(crate::error::ToolError::ValidationFailed(format!(
                         "Parameter '{}' is not a valid date-time (RFC3339): {}",
                         key, s
@@ -154,8 +168,7 @@ impl BaseExecutor {
                 }
             }
             "date" => {
-                let d_re = Regex::new(r"^\d{4}-\d{2}-\d{2}$").unwrap();
-                if !d_re.is_match(s) {
+                if !DATE_RE.is_match(s) {
                     return Err(crate::error::ToolError::ValidationFailed(format!(
                         "Parameter '{}' is not a valid date (YYYY-MM-DD): {}",
                         key, s
@@ -163,8 +176,7 @@ impl BaseExecutor {
                 }
             }
             "time" => {
-                let t_re = Regex::new(r"^\d{2}:\d{2}:\d{2}(\.\d+)?$").unwrap();
-                if !t_re.is_match(s) {
+                if !TIME_RE.is_match(s) {
                     return Err(crate::error::ToolError::ValidationFailed(format!(
                         "Parameter '{}' is not a valid time (HH:MM:SS): {}",
                         key, s
@@ -193,10 +205,7 @@ impl BaseExecutor {
                 }
             }
             "uuid" => {
-                let uuid_pattern = Regex::new(
-                    r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
-                ).unwrap();
-                if !uuid_pattern.is_match(s) {
+                if !UUID_RE.is_match(s) {
                     return Err(crate::error::ToolError::ValidationFailed(format!(
                         "Parameter '{}' is not a valid UUID: {}",
                         key, s

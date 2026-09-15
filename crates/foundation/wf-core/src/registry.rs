@@ -1,6 +1,8 @@
 use std::sync::Arc;
 use std::sync::Mutex;
 
+use wf_common::lock::lock_ok;
+
 use async_trait::async_trait;
 use dashmap::DashMap;
 use serde::Serialize;
@@ -205,7 +207,7 @@ impl<T: Send + Sync> MutableRegistry<T> for ConcurrentRegistry<T> {
             return Err(RegistryError::AlreadyExists { key });
         }
         // Run validator if one is set
-        if let Some(ref validator) = *self.validator.lock().unwrap() {
+        if let Some(ref validator) = *lock_ok(self.validator.lock()) {
             validator(&key, &item)?;
         }
         self.items.insert(key, item);
@@ -217,7 +219,7 @@ impl<T: Send + Sync> MutableRegistry<T> for ConcurrentRegistry<T> {
     }
 
     fn set_validator(&self, validator: Arc<dyn Fn(&str, &T) -> RegistryResult<()> + Send + Sync>) {
-        *self.validator.lock().unwrap() = Some(validator);
+        *lock_ok(self.validator.lock()) = Some(validator);
     }
 
     fn unregister(&self, key: &str) -> Option<Arc<T>> {

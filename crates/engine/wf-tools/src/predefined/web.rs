@@ -11,6 +11,8 @@ pub mod web_search;
 pub use web_fetch::WEB_FETCH;
 pub use web_search::{parse_duckduckgo_results, WebSearchResult, WEB_SEARCH};
 
+use std::sync::LazyLock;
+
 use super::schema::ToolDefinition;
 use crate::error::ToolResult;
 use crate::registry::ToolRegistry;
@@ -46,10 +48,15 @@ impl Default for WebToolConfig {
     }
 }
 
+/// Pre-compiled HTML-tag-stripping pattern. Module-level singleton so the
+/// regex compiles once instead of on every `strip_html_tags` call.
+static TAG_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(r"<[^>]*>").expect("invariant: regex literal is a fixed pattern and must compile")
+});
+
 /// Strip HTML tags and collapse whitespace runs.
 pub(crate) fn strip_html_tags(input: &str) -> String {
-    let tag_re = regex::Regex::new(r"<[^>]*>").unwrap();
-    let without_tags = tag_re.replace_all(input, "");
+    let without_tags = TAG_RE.replace_all(input, "");
     let mut out = String::with_capacity(without_tags.len());
     let mut prev_ws = true;
     for c in without_tags.chars() {

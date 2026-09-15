@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use std::sync::RwLock;
 
+use wf_common::lock::read_ok;
+
 use serde::{Deserialize, Serialize};
 use wf_types::execution::{ChildExecutionReference, ExecutionType};
 use wf_types::Id;
@@ -161,9 +163,7 @@ impl ExecutionHierarchyManager {
     }
 
     pub fn children(&self) -> Vec<ChildExecutionReference> {
-        self.inner
-            .read()
-            .unwrap()
+        read_ok(self.inner.read())
             .children
             .values()
             .cloned()

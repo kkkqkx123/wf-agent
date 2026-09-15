@@ -339,7 +339,7 @@ pub(crate) fn root_actor(execution_id: wf_types::Id) -> crate::actor::id::ActorI
                 crate::actor::id::ActorKind::Agent,
                 &[wf_types::Id::from("unknown")],
             )
-            .unwrap()
+            .expect("invariant: the 'unknown' fallback actor id is always valid")
         })
 }
 

@@ -1,6 +1,8 @@
 use std::sync::Arc;
 use std::sync::Mutex;
 
+use wf_common::lock::lock_ok;
+
 use async_trait::async_trait;
 use serde_json::Value;
 
@@ -452,11 +454,9 @@ impl PluginMiddlewareHandler for LuaMiddlewareHandler {
             let wrapper_handle = handle.clone();
             let next_wrapper = lua
                 .create_function(move |lua_ctx, args: mlua::Variadic<mlua::Value>| {
-                    let next = wrapper_next
-                        .lock()
-                        .unwrap()
-                        .take()
-                        .ok_or_else(|| mlua::Error::external("next already called"))?;
+            let next = lock_ok(wrapper_next.lock())
+                .take()
+                .ok_or_else(|| mlua::Error::external("next already called"))?;
                     let replacement = match args.into_iter().next().map(from_lua_value) {
                         None | Some(Value::Null) => wrapper_incoming.clone(),
                         Some(value) => value,
@@ -466,7 +466,7 @@ impl PluginMiddlewareHandler for LuaMiddlewareHandler {
                         None => futures::executor::block_on(next(replacement)),
                     }
                     .map_err(|e| mlua::Error::external(e.to_string()))?;
-                    *wrapper_downstream.lock().unwrap() = Some(out.clone());
+                    *lock_ok(wrapper_downstream.lock()) = Some(out.clone());
                     Ok(to_lua_value(lua_ctx, &out))
                 })
                 .map_err(|e| PluginError::LuaError(e.to_string()))?;
@@ -483,7 +483,7 @@ impl PluginMiddlewareHandler for LuaMiddlewareHandler {
             let is_envelope = ret_val
                 .as_object()
                 .is_some_and(|o| o.contains_key("proceed") || o.contains_key("context"));
-            let downstream = downstream.lock().unwrap().take();
+            let downstream = lock_ok(downstream.lock()).take();
             match downstream {
                 Some(down) => {
                     if is_envelope {
@@ -496,7 +496,7 @@ impl PluginMiddlewareHandler for LuaMiddlewareHandler {
                     if is_envelope {
                         let outcome = parse_middleware_outcome(&ret_val, &incoming);
                         if outcome.proceed {
-                            let next = next_cell.lock().unwrap().take().expect("next never taken");
+                            let next = lock_ok(next_cell.lock()).take().expect("next never taken");
                             match &handle {
                                 Some(handle) => handle.block_on(next(outcome.context)),
                                 None => futures::executor::block_on(next(outcome.context)),

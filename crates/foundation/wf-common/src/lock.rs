@@ -23,7 +23,9 @@
 //! multi-step invariants). For multi-step mutations under one lock, propagate
 //! the error or panic instead — recovering would continue with a torn state.
 
-use std::sync::{LockResult, MutexGuard, RwLockReadGuard, RwLockWriteGuard};
+use std::sync::{
+    LockResult, MutexGuard, RwLockReadGuard, RwLockWriteGuard, WaitTimeoutResult,
+};
 
 /// Acquire a `std::sync::Mutex` guard, recovering from a poisoned mutex
 /// instead of panicking.
@@ -48,6 +50,17 @@ pub fn read_ok<T>(result: LockResult<RwLockReadGuard<'_, T>>) -> RwLockReadGuard
 pub fn write_ok<T>(result: LockResult<RwLockWriteGuard<'_, T>>) -> RwLockWriteGuard<'_, T> {
     result.unwrap_or_else(|poisoned| {
         tracing::warn!("rwlock was poisoned; recovering the write guard");
+        poisoned.into_inner()
+    })
+}
+
+/// Recover the `(guard, timeout-result)` pair from a `Condvar::wait_timeout`
+/// that hit a poisoned mutex, instead of panicking.
+pub fn wait_timeout_ok<T>(
+    result: LockResult<(MutexGuard<'_, T>, WaitTimeoutResult)>,
+) -> (MutexGuard<'_, T>, WaitTimeoutResult) {
+    result.unwrap_or_else(|poisoned| {
+        tracing::warn!("mutex was poisoned; recovering condvar wait guard");
         poisoned.into_inner()
     })
 }

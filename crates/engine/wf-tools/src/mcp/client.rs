@@ -13,6 +13,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::sync::{mpsc, oneshot};
 
+use wf_common::lock::lock_ok;
+
 use crate::error::{ToolError, ToolResult};
 use crate::mcp::transport::{JsonRpcRequest, JsonRpcResponse, McpTransport, TransportHandle};
 
@@ -307,10 +309,7 @@ impl McpClient {
     /// Send a JSON-RPC notification (no id, no response expected).
     async fn send_notification(&self, method: &str, params: Option<Value>) -> ToolResult<()> {
         let request = JsonRpcRequest::notification(method, params);
-        let tx = self
-            .request_tx
-            .lock()
-            .unwrap()
+        let tx = lock_ok(self.request_tx.lock())
             .clone()
             .ok_or_else(|| ToolError::McpError("Transport not connected".into()))?;
         tx.send(request)

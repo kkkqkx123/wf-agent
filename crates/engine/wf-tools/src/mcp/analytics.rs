@@ -7,6 +7,8 @@
 use std::collections::HashMap;
 use std::sync::Mutex;
 
+use wf_common::lock::lock_ok;
+
 /// Default maximum number of execution history records kept in memory.
 pub const DEFAULT_MAX_HISTORY: usize = 10_000;
 
@@ -174,9 +176,7 @@ impl McpUsageAnalytics {
 
     /// Statistics for one tool, if present.
     pub fn get_tool_stats(&self, server_name: &str, tool_name: &str) -> Option<ToolStats> {
-        self.stats
-            .lock()
-            .unwrap()
+        lock_ok(self.stats.lock())
             .get(&Self::tool_id(server_name, tool_name))
             .cloned()
     }
@@ -208,10 +208,7 @@ impl McpUsageAnalytics {
 
     /// Least frequently called tools with at least one call.
     pub fn get_cold_tools(&self, limit: usize) -> Vec<ToolStats> {
-        let mut values: Vec<ToolStats> = self
-            .stats
-            .lock()
-            .unwrap()
+        let mut values: Vec<ToolStats> = lock_ok(self.stats.lock())
             .values()
             .filter(|t| t.call_count > 0)
             .cloned()
@@ -223,10 +220,7 @@ impl McpUsageAnalytics {
 
     /// Tools with the lowest success rate (at least one call).
     pub fn get_problematic_tools(&self, limit: usize) -> Vec<ToolStats> {
-        let mut values: Vec<ToolStats> = self
-            .stats
-            .lock()
-            .unwrap()
+        let mut values: Vec<ToolStats> = lock_ok(self.stats.lock())
             .values()
             .filter(|t| t.call_count > 0)
             .cloned()

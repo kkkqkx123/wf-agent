@@ -9,6 +9,8 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+
+use wf_common::lock::lock_ok;
 use std::time::Duration;
 
 use serde_json::Value;
@@ -210,9 +212,7 @@ impl TerminalSession {
     /// Process id of the running command, or of the most recently finished
     /// command once the monitor thread has cleared the current handle.
     pub fn pid(&self) -> Option<u32> {
-        self.current
-            .lock()
-            .unwrap()
+        lock_ok(self.current.lock())
             .as_ref()
             .and_then(|c| c.pid())
             .or(*wf_common::lock::lock_ok(self.last_pid.lock()))
@@ -255,10 +255,7 @@ impl TerminalSession {
     pub fn snapshot(&self) -> Value {
         let status = self.status();
         let exit_code = *wf_common::lock::lock_ok(self.last_exit_code.lock());
-        let running_seconds = self
-            .current
-            .lock()
-            .unwrap()
+        let running_seconds = lock_ok(self.current.lock())
             .as_ref()
             .map_or(0, |c| c.elapsed_secs());
         serde_json::json!({

@@ -34,7 +34,7 @@ pub const MAX_NORMALIZE_DEPTH: usize = 32;
 
 fn fd_redirect_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| Regex::new(r"\d*>&\d*").unwrap())
+    RE.get_or_init(|| Regex::new(r"\d*>&\d*").expect("invariant: regex literal is a fixed pattern and must compile"))
 }
 
 /// Strip fd redirect tokens (`2>&1`, `3>&2`) — they carry no command identity
@@ -480,7 +480,7 @@ pub fn mask_data_spans(command: &str, shell_type: ShellType) -> String {
 fn extract_literal_tokens(s: &str) -> Vec<String> {
     static TOKEN_RE: OnceLock<Regex> = OnceLock::new();
     // No `.` in the character class: `curl.*` must yield `curl`, not `curl.`.
-    let re = TOKEN_RE.get_or_init(|| Regex::new(r"[A-Za-z_][A-Za-z0-9_\-]*").unwrap());
+    let re = TOKEN_RE.get_or_init(|| Regex::new(r"[A-Za-z_][A-Za-z0-9_\-]*").expect("invariant: regex literal is a fixed pattern and must compile"));
     re.find_iter(s)
         .map(|m| m.as_str().to_lowercase())
         .filter(|t| t.len() >= 2)

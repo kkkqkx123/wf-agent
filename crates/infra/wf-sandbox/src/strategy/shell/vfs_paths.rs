@@ -109,7 +109,10 @@ fn parse_redirect_token(tok: &str) -> Option<(RedirectKind, String)> {
         return None;
     }
 
-    let op = rest.chars().next().unwrap();
+    let op = rest
+        .chars()
+        .next()
+        .expect("invariant: rest is non-empty after the early return on empty input");
     rest = &rest[op.len_utf8()..];
     match op {
         '>' => {

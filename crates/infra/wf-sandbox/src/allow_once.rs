@@ -9,6 +9,8 @@
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Mutex;
+
+use wf_common::lock::lock_ok;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
@@ -119,7 +121,7 @@ impl AllowOnceStore {
             single_use: true,
             used: false,
         };
-        self.entries.lock().unwrap().insert(code.clone(), entry);
+        lock_ok(self.entries.lock()).insert(code.clone(), entry);
         code
     }
 

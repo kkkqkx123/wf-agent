@@ -3,6 +3,8 @@ use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, RwLock};
+
+use wf_common::lock::write_ok;
 use std::time::{Duration, Instant};
 
 use crate::error::{ToolError, ToolResult};
@@ -199,10 +201,7 @@ impl SkillLoader {
             },
         );
         // Newly loaded skills are enabled by default.
-        self.enabled
-            .write()
-            .unwrap()
-            .insert(skill.metadata.name.clone());
+        write_ok(self.enabled.write()).insert(skill.metadata.name.clone());
 
         Ok(skill)
     }

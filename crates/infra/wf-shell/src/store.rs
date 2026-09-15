@@ -13,6 +13,8 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+
+use wf_common::lock::lock_ok;
 use std::time::{Duration, Instant};
 
 use serde_json::Value;
@@ -454,10 +456,7 @@ impl BackgroundShellStore {
                 to_remove.push(session.session_id.clone());
             } else {
                 *wf_common::lock::lock_ok(session.task_id.lock()) = None;
-                let has_running = session
-                    .current
-                    .lock()
-                    .unwrap()
+                let has_running = lock_ok(session.current.lock())
                     .as_ref()
                     .is_some_and(|c| c.status().0 == "running");
                 if !has_running {

@@ -12,6 +12,8 @@ use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::sync::Mutex;
 
+use wf_common::lock::lock_ok;
+
 /// Maximum number of entries in the unified diff cache to prevent memory leaks
 const DIFF_CACHE_MAX_ENTRIES: usize = 100;
 
@@ -213,7 +215,7 @@ pub fn format_unified_diff(old: &str, new: &str, context: usize) -> String {
     let total_size = old.len() + new.len();
     if total_size < 100000 {
         let hash = compute_hash(old, new, context);
-        if let Some(cached) = DIFF_CACHE.lock().unwrap().get(&hash) {
+        if let Some(cached) = lock_ok(DIFF_CACHE.lock()).get(&hash) {
             return cached.clone();
         }
     }
@@ -236,7 +238,7 @@ pub fn format_unified_diff(old: &str, new: &str, context: usize) -> String {
     // Cache small file results with bounded size to prevent memory leaks
     if total_size < 100000 {
         let hash = compute_hash(old, new, context);
-        let mut cache = DIFF_CACHE.lock().unwrap();
+        let mut cache = lock_ok(DIFF_CACHE.lock());
         if cache.len() >= DIFF_CACHE_MAX_ENTRIES {
             // Evict oldest half of entries instead of clearing all,
             // preserving some cache benefit during consecutive calls.

@@ -5,6 +5,7 @@ edition = "2021"
 autotests = false
 
 [dependencies]
+wf-common = { path = "../../foundation/wf-common" }
 rusqlite = { version = "0.32", features = ["bundled"] }
 blake3 = { workspace = true }
 serde = { workspace = true }

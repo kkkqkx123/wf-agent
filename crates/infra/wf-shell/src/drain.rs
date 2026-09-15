@@ -9,6 +9,8 @@
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
+
+use wf_common::lock::wait_timeout_ok;
 use std::time::{Duration, Instant};
 
 /// Store-level wakeup for the monitor thread. The output reader threads signal
@@ -40,7 +42,7 @@ impl MonitorWakeup {
     /// progress even when no reader ever signals (daemon-descendant case).
     pub(crate) fn wait(&self, timeout: Duration) {
         let guard = wf_common::lock::lock_ok(self.lock.lock());
-        let _ = self.cv.wait_timeout(guard, timeout).unwrap();
+        let _ = wait_timeout_ok(self.cv.wait_timeout(guard, timeout));
     }
 }
 
@@ -94,7 +96,7 @@ impl OutputDrain {
             if now >= deadline {
                 return;
             }
-            let (g, _) = self.cv.wait_timeout(guard, deadline - now).unwrap();
+            let (g, _) = wait_timeout_ok(self.cv.wait_timeout(guard, deadline - now));
             guard = g;
         }
     }

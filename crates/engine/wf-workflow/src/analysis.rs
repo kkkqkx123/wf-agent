@@ -148,7 +148,9 @@ pub fn topological_sort(graph: &WorkflowGraphStructure) -> TopologicalSortResult
         sorted.push(node.to_string());
         if let Some(neighbors) = adj.get(node) {
             for neighbor in neighbors {
-                let degree = in_degree.get_mut(*neighbor).unwrap();
+                let degree = in_degree.get_mut(*neighbor).expect(
+                    "invariant: every neighbor in the adjacency list was inserted into in_degree from the same edge set",
+                );
                 *degree -= 1;
                 if *degree == 0 {
                     queue.push_back(neighbor);

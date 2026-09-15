@@ -223,10 +223,9 @@ pub fn parse_raw_json_tool_calls(text: &str) -> Vec<LlmToolCall> {
         .to_string();
 
     if let Ok(value) = serde_json::from_str::<serde_json::Value>(&cleaned) {
-        let array = if value.is_array() {
-            value.as_array().unwrap().clone()
-        } else {
-            vec![value]
+        let array = match value {
+            serde_json::Value::Array(arr) => arr,
+            other => vec![other],
         };
 
         array

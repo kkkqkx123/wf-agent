@@ -759,14 +759,16 @@ async fn checkpoint_message_interval_produces_interval_checkpoints() {
     );
 }
 
-/// Fire `AFTER_ITERATION` on a bare entity carrying a single hook with the
-/// given checkpoint opt-in; returns the entity's checkpoint count after
-/// the fire. Drives `fire_agent_point_with_checkpoint` directly so the
-/// opt-in gate is isolated from the per-iteration `AfterExecute`
-/// checkpoint the execution coordinator takes on its own.
-async fn fire_after_iteration_with_opt_in(
+/// Fire `hook_type` on a bare entity carrying a single hook with the given
+/// checkpoint opt-in; returns the entity's checkpoint count after the fire.
+/// Drives `fire_agent_point_with_checkpoint` directly so the opt-in gate is
+/// isolated from the per-iteration `AfterExecute` checkpoint the execution
+/// coordinator takes on its own. The strategy enables every hook-mapped
+/// timing so the opt-in decision (not the strategy gate) is what varies.
+async fn fire_hook_with_opt_in(
     store: Arc<StorageBackend>,
     loop_id: &str,
+    hook_type: &str,
     create_checkpoint: Option<bool>,
 ) -> u64 {
     use wf_agent::checkpoint::AgentCheckpointIntegration;
@@ -776,11 +778,12 @@ async fn fire_after_iteration_with_opt_in(
     use wf_checkpoint::state::agent::AgentCheckpointStateManager;
     use wf_checkpoint::state::CheckpointStateManager;
     use wf_execution_shared::hooks::types::HookDefinition;
+    use wf_types::checkpoint::{CheckpointTiming, UnifiedCheckpointPolicy};
 
     let entity =
         AgentLoopEntity::new(wf_types::Id::from(loop_id)).with_hooks(vec![HookDefinition {
             id: "hook-1".to_string(),
-            hook_type: "AFTER_ITERATION".to_string(),
+            hook_type: hook_type.to_string(),
             priority: 0,
             condition: None,
             enabled: true,
@@ -789,11 +792,25 @@ async fn fire_after_iteration_with_opt_in(
             create_checkpoint,
             checkpoint_description: None,
         }]);
-    let cp = AgentCheckpointIntegration::new(store.clone())
-        .with_strategy(AgentCheckpointStrategy::every_iteration());
+    let cp = AgentCheckpointIntegration::new(store.clone()).with_strategy(
+        AgentCheckpointStrategy::from_policy(&UnifiedCheckpointPolicy {
+            enabled: true,
+            triggers: vec![
+                CheckpointTiming::BeforeExecute,
+                CheckpointTiming::AfterExecute,
+                CheckpointTiming::ToolBefore,
+                CheckpointTiming::ToolAfter,
+                CheckpointTiming::Manual,
+                CheckpointTiming::OnComplete,
+            ],
+            content: None,
+            retention: None,
+            error_handling: None,
+        }),
+    );
     AgentHookEmitter::fire_agent_point_with_checkpoint(
         &entity,
-        "AFTER_ITERATION",
+        hook_type,
         std::collections::HashMap::new(),
         None,
         None,
@@ -811,13 +828,13 @@ async fn hook_create_checkpoint_persists_after_iteration() {
     // Opt-in gate, isolated: only `create_checkpoint: Some(true)` persists.
     let store = Arc::new(StorageBackend::new_memory());
     assert_eq!(
-        fire_after_iteration_with_opt_in(store.clone(), "hook-fire", Some(true)).await,
+        fire_hook_with_opt_in(store.clone(), "hook-fire", "AFTER_ITERATION", Some(true)).await,
         1,
         "opted-in hook fire must persist exactly one gated checkpoint"
     );
     let plain_store = Arc::new(StorageBackend::new_memory());
     assert_eq!(
-        fire_after_iteration_with_opt_in(plain_store, "hook-quiet", None).await,
+        fire_hook_with_opt_in(plain_store, "hook-quiet", "AFTER_ITERATION", None).await,
         0,
         "hook fire without the opt-in must persist nothing"
     );
@@ -858,6 +875,84 @@ async fn hook_create_checkpoint_persists_after_iteration() {
         } >= 1,
         "hook-requested checkpoint must persist after iteration"
     );
+}
+
+#[tokio::test]
+async fn hook_create_checkpoint_covers_all_wired_points() {
+    // Every hook point wired through `fire_agent_point_with_checkpoint`
+    // honors the opt-in: `Some(true)` persists one gated checkpoint,
+    // `None` persists nothing. `SUBAGENT_START/STOP` stay notification-only
+    // (parent-entity lifecycle points, intentionally unwired).
+    for hook_type in [
+        "BEFORE_ITERATION",
+        "BEFORE_LLM_CALL",
+        "AFTER_LLM_CALL",
+        "AFTER_ITERATION",
+        "BEFORE_TOOL_CALL",
+        "AFTER_TOOL_CALL",
+        "BEFORE_USER_PROMPT",
+        "BEFORE_AGENT",
+        "AFTER_AGENT",
+    ] {
+        let store = Arc::new(StorageBackend::new_memory());
+        assert_eq!(
+            fire_hook_with_opt_in(store.clone(), "wired-on", hook_type, Some(true)).await,
+            1,
+            "opted-in {hook_type} fire must persist exactly one gated checkpoint"
+        );
+        let quiet = Arc::new(StorageBackend::new_memory());
+        assert_eq!(
+            fire_hook_with_opt_in(quiet, "wired-off", hook_type, None).await,
+            0,
+            "{hook_type} fire without the opt-in must persist nothing"
+        );
+    }
+
+    // Strategy gate still applies: a disabled instance strategy suppresses
+    // even an opted-in hook fire.
+    {
+        use wf_agent::checkpoint::AgentCheckpointIntegration;
+        use wf_agent::entity::AgentLoopEntity;
+        use wf_agent::hook::AgentHookEmitter;
+        use wf_agent::AgentCheckpointStrategy;
+        use wf_checkpoint::state::agent::AgentCheckpointStateManager;
+        use wf_checkpoint::state::CheckpointStateManager;
+        use wf_execution_shared::hooks::types::HookDefinition;
+
+        let store = Arc::new(StorageBackend::new_memory());
+        let entity = AgentLoopEntity::new(wf_types::Id::from("gated-off")).with_hooks(vec![
+            HookDefinition {
+                id: "hook-1".to_string(),
+                hook_type: "AFTER_ITERATION".to_string(),
+                priority: 0,
+                condition: None,
+                enabled: true,
+                payload: None,
+                handler: None,
+                create_checkpoint: Some(true),
+                checkpoint_description: None,
+            },
+        ]);
+        let cp = AgentCheckpointIntegration::new(store.clone())
+            .with_strategy(AgentCheckpointStrategy::never());
+        AgentHookEmitter::fire_agent_point_with_checkpoint(
+            &entity,
+            "AFTER_ITERATION",
+            std::collections::HashMap::new(),
+            None,
+            None,
+            Some(&cp),
+        )
+        .await;
+        assert_eq!(
+            AgentCheckpointStateManager::new(store)
+                .count_by_entity("gated-off")
+                .await
+                .unwrap(),
+            0,
+            "disabled strategy must suppress even an opted-in hook fire"
+        );
+    }
 }
 
 #[tokio::test]

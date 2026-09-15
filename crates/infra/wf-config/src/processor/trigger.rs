@@ -172,11 +172,21 @@ pub fn validate_trigger_action(action: &TriggerAction, field_prefix: &str) -> Co
             }
         }
         TriggerAction::ExecuteTriggeredAgentExecution {
-            agent_id, timeout, ..
+            agent_id,
+            timeout,
+            checkpoint_message_interval,
+            ..
         } => {
             validate_not_empty(agent_id, &format!("{field_prefix}.agent_id"))?;
             if let Some(t) = timeout {
                 validate_min(*t, 1, &format!("{field_prefix}.timeout"))?;
+            }
+            if let Some(n) = checkpoint_message_interval {
+                validate_min(
+                    *n,
+                    1,
+                    &format!("{field_prefix}.checkpoint_message_interval"),
+                )?;
             }
         }
         TriggerAction::ExecuteWorkflow {
@@ -190,11 +200,21 @@ pub fn validate_trigger_action(action: &TriggerAction, field_prefix: &str) -> Co
             }
         }
         TriggerAction::ExecuteAgent {
-            agent_id, timeout, ..
+            agent_id,
+            timeout,
+            checkpoint_message_interval,
+            ..
         } => {
             validate_not_empty(agent_id, &format!("{field_prefix}.agent_id"))?;
             if let Some(t) = timeout {
                 validate_min(*t, 1, &format!("{field_prefix}.timeout"))?;
+            }
+            if let Some(n) = checkpoint_message_interval {
+                validate_min(
+                    *n,
+                    1,
+                    &format!("{field_prefix}.checkpoint_message_interval"),
+                )?;
             }
         }
         TriggerAction::SkipNode { node_id } => {
@@ -577,6 +597,7 @@ mod tests {
             timeout: None,
             input_mode: None,
             writeback: None,
+            checkpoint_message_interval: None,
         };
         assert!(validate_trigger_action(&action, "action").is_err());
 
@@ -589,6 +610,7 @@ mod tests {
             timeout: None,
             input_mode: None,
             writeback: None,
+            checkpoint_message_interval: None,
         };
         assert!(validate_trigger_action(&action, "action").is_ok());
     }
@@ -994,6 +1016,7 @@ mod tests {
                 timeout: None,
                 input_mode: None,
                 writeback: None,
+                checkpoint_message_interval: None,
             },
             TriggerAction::ExecuteWorkflow {
                 workflow_id: "wf".to_string(),
@@ -1006,6 +1029,7 @@ mod tests {
                 model: None,
                 input: None,
                 timeout: None,
+                checkpoint_message_interval: None,
             },
         ];
         for action in &actions {
@@ -1029,6 +1053,7 @@ mod tests {
             timeout: None,
             input_mode: None,
             writeback: None,
+            checkpoint_message_interval: None,
         };
         let err = validate_trigger_action_for_context(&nested, MessageNode, "action")
             .expect_err("nested agent must be rejected in message nodes");
@@ -1060,6 +1085,7 @@ mod tests {
                 model: None,
                 input: None,
                 timeout: None,
+                checkpoint_message_interval: None,
             },
         ] {
             let err = validate_trigger_action_for_context(&cold, MessageNode, "action")

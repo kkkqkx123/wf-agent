@@ -363,6 +363,11 @@ pub enum TriggerAction {
         /// Where the child result is written back (defaults to `Variable`).
         #[serde(skip_serializing_if = "Option::is_none")]
         writeback: Option<TriggerAgentWriteback>,
+        /// Message-count checkpoint backstop for the child agent loop
+        /// (`None` disables; forwarded to
+        /// `AgentLoopConfig::checkpoint_message_interval`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        checkpoint_message_interval: Option<u32>,
     },
     /// Replace the active view of a named message context with the given
     /// messages. The superseded active messages are archived (append-only),
@@ -439,6 +444,11 @@ pub enum TriggerAction {
         /// Max child execution time in ms.
         #[serde(skip_serializing_if = "Option::is_none")]
         timeout: Option<u64>,
+        /// Message-count checkpoint backstop for the child agent loop
+        /// (`None` disables; forwarded to
+        /// `AgentLoopConfig::checkpoint_message_interval`).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        checkpoint_message_interval: Option<u32>,
     },
 }
 
@@ -713,6 +723,7 @@ mod tests {
                 timeout: None,
                 input_mode: None,
                 writeback: None,
+                checkpoint_message_interval: None,
             },
             TriggerAction::ExecuteWorkflow {
                 workflow_id: "wf".to_string(),
@@ -725,6 +736,7 @@ mod tests {
                 model: None,
                 input: None,
                 timeout: None,
+                checkpoint_message_interval: None,
             },
         ];
         for action in &all {
@@ -758,6 +770,7 @@ mod tests {
             timeout: None,
             input_mode: None,
             writeback: None,
+            checkpoint_message_interval: None,
         };
         let message = nested
             .rejection_message(MessageNode)
@@ -786,6 +799,7 @@ mod tests {
             model: None,
             input: None,
             timeout: None,
+            checkpoint_message_interval: None,
         };
         assert!(workflow.is_execution_creating());
         assert!(agent.is_execution_creating());
@@ -820,6 +834,7 @@ mod tests {
             timeout: Some(1000),
             input_mode: Some(TriggerAgentInputMode::FullSnapshot),
             writeback: Some(TriggerAgentWriteback::ConversationAppend),
+            checkpoint_message_interval: Some(5),
         };
         let json = serde_json::to_value(&action).unwrap();
         assert_eq!(
@@ -828,6 +843,7 @@ mod tests {
         );
         assert_eq!(json["input_mode"], serde_json::json!("full_snapshot"));
         assert_eq!(json["writeback"], serde_json::json!("conversation_append"));
+        assert_eq!(json["checkpoint_message_interval"], serde_json::json!(5));
 
         let back: TriggerAction = serde_json::from_value(json).unwrap();
         assert_eq!(back, action);
@@ -842,10 +858,15 @@ mod tests {
             timeout: None,
             input_mode: None,
             writeback: None,
+            checkpoint_message_interval: None,
         };
         let json = serde_json::to_value(&bare).unwrap();
         assert!(!json.as_object().unwrap().contains_key("input_mode"));
         assert!(!json.as_object().unwrap().contains_key("writeback"));
+        assert!(!json
+            .as_object()
+            .unwrap()
+            .contains_key("checkpoint_message_interval"));
         let TriggerAction::ExecuteTriggeredAgentExecution {
             input_mode,
             writeback,

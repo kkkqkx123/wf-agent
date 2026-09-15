@@ -985,6 +985,7 @@ mod tests {
                     timeout: None,
                     input_mode: None,
                     writeback: None,
+                    checkpoint_message_interval: None,
                 },
             ));
         let graph = graph_with(vec![]);
@@ -1005,6 +1006,7 @@ mod tests {
                 timeout: None,
                 input_mode: None,
                 writeback: None,
+                checkpoint_message_interval: None,
             },
         ));
         let graph = graph_with(vec![]);

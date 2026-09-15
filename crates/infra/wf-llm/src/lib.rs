@@ -1,8 +1,8 @@
 pub mod client;
-pub mod dead_loop_detector;
-pub mod error;
 pub mod codec_helpers;
 pub mod codecs;
+pub mod dead_loop_detector;
+pub mod error;
 pub mod gateway;
 pub mod generation;
 pub mod message_helper;
@@ -24,11 +24,11 @@ pub mod tool_call_parser;
 pub mod tool_protocol;
 
 pub use client::LlmClient;
-pub use dead_loop_detector::{DeadLoopDetectionResult, DeadLoopDetector, DeadLoopDetectorConfig};
-pub use error::{LlmError, LlmResult};
 pub use codecs::{
     create_codec, AnthropicCodec, GeminiNativeCodec, LlmCodec, OpenaiChatCodec, OpenaiResponseCodec,
 };
+pub use dead_loop_detector::{DeadLoopDetectionResult, DeadLoopDetector, DeadLoopDetectorConfig};
+pub use error::{LlmError, LlmResult};
 pub use gateway::LlmGateway;
 pub use message_helper::extract_text_content;
 pub use message_stream::MessageStream;

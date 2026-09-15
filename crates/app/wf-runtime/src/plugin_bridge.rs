@@ -57,11 +57,7 @@ impl WfPluginBridge {
                 continue;
             };
             let adapter = Arc::new(wf_llm::PluginCodecAdapter::new(codec));
-            if let Err(e) = self
-                .llm_gateway
-                .codec_registry()
-                .register(&name, adapter)
-            {
+            if let Err(e) = self.llm_gateway.codec_registry().register(&name, adapter) {
                 tracing::warn!(
                     plugin_id,
                     format = %name,

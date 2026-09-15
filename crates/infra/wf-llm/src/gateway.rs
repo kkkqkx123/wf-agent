@@ -526,15 +526,11 @@ mod tests {
             _request: &LlmRequest,
             _profile: &LlmProfile,
         ) -> LlmResult<reqwest::Request> {
-            Err(LlmError::ConfigError(
-                "custom codec engaged".to_string(),
-            ))
+            Err(LlmError::ConfigError("custom codec engaged".to_string()))
         }
 
         fn parse_response(&self, _body: &str, _request: &LlmRequest) -> LlmResult<LlmResponseType> {
-            Err(LlmError::ConfigError(
-                "custom codec engaged".to_string(),
-            ))
+            Err(LlmError::ConfigError("custom codec engaged".to_string()))
         }
 
         fn parse_stream_chunk(&self, _data: &str) -> LlmResult<Option<MessageStreamEvent>> {

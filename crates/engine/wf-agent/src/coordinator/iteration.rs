@@ -109,10 +109,11 @@ pub struct AgentIterationCoordinator {
     /// request assembly time.
     discoverable_metadata_block: Option<String>,
     /// Strategy-gated checkpoint handle for intra-iteration boundaries
-    /// (tool calls, compression signals, message-count backstop). `None`
-    /// disables boundary checkpoints; the iteration-end checkpoint stays
-    /// with the execution coordinator.
-    checkpoint: Option<crate::checkpoint::AgentCheckpointIntegration>,
+    /// (tool calls, compression signals, message-count backstop). Shared via
+    /// `Arc` so the tool execution coordinator observes the same handle.
+    /// `None` disables boundary checkpoints; the iteration-end checkpoint
+    /// stays with the execution coordinator.
+    checkpoint: Option<Arc<crate::checkpoint::AgentCheckpointIntegration>>,
     /// Message-count backstop: checkpoint every N appended messages.
     /// `None` disables (tool boundaries already cover most cases).
     message_interval: Option<u32>,
@@ -156,11 +157,13 @@ impl AgentIterationCoordinator {
     ) -> Self {
         let registry = self.tool_coordinator.tool_registry().clone();
         let file_observer = self.tool_coordinator.checkpoint_session_config();
+        let agent_checkpoint = self.tool_coordinator.agent_checkpoint_config();
         self.tool_coordinator = ToolExecutionCoordinator::new(registry)
             .with_event_bus(self.event_bus.clone())
             .with_metrics(self.metrics.clone())
             .with_approval(options, handler)
-            .with_checkpoint_session(file_observer);
+            .with_checkpoint_session(file_observer)
+            .with_agent_checkpoint(agent_checkpoint);
         self
     }
 
@@ -176,12 +179,14 @@ impl AgentIterationCoordinator {
         let registry = self.tool_coordinator.tool_registry().clone();
         let (approval_options, approval_handler) = self.tool_coordinator.approval_config();
         let file_observer = self.tool_coordinator.checkpoint_session_config();
+        let agent_checkpoint = self.tool_coordinator.agent_checkpoint_config();
         self.tool_coordinator = ToolExecutionCoordinator::new(registry)
             .with_event_bus(self.event_bus.clone())
             .with_metrics(self.metrics.clone())
             .with_approval(approval_options, approval_handler)
             .with_visibility_store(store)
-            .with_checkpoint_session(file_observer);
+            .with_checkpoint_session(file_observer)
+            .with_agent_checkpoint(agent_checkpoint);
         self
     }
 
@@ -245,12 +250,16 @@ impl AgentIterationCoordinator {
     }
 
     /// Attach the strategy-gated checkpoint handle used for intra-iteration
-    /// boundaries (tool calls, compression signals, message backstop).
+    /// boundaries (tool calls, compression signals, message backstop) and
+    /// hook `create_checkpoint` opt-ins. The same handle is shared with the
+    /// tool execution coordinator so tool-call hook points observe it.
     pub fn with_checkpoint(
         mut self,
         checkpoint: Option<crate::checkpoint::AgentCheckpointIntegration>,
     ) -> Self {
-        self.checkpoint = checkpoint;
+        let shared = checkpoint.map(Arc::new);
+        self.tool_coordinator.set_agent_checkpoint(shared.clone());
+        self.checkpoint = shared;
         self
     }
 
@@ -353,12 +362,13 @@ impl AgentIterationCoordinator {
     ) -> AgentResult<IterationResult> {
         let execution_id = entity.id().clone();
 
-        AgentHookEmitter::fire_agent_point(
+        AgentHookEmitter::fire_agent_point_with_checkpoint(
             entity,
             "BEFORE_ITERATION",
             HashMap::new(),
             self.hook_handler_registry.as_deref(),
             self.event_bus.as_deref(),
+            self.checkpoint.as_deref(),
         )
         .await;
 
@@ -384,12 +394,13 @@ impl AgentIterationCoordinator {
             return Ok(result);
         }
 
-        AgentHookEmitter::fire_agent_point(
+        AgentHookEmitter::fire_agent_point_with_checkpoint(
             entity,
             "BEFORE_LLM_CALL",
             HashMap::new(),
             self.hook_handler_registry.as_deref(),
             self.event_bus.as_deref(),
+            self.checkpoint.as_deref(),
         )
         .await;
 
@@ -641,12 +652,13 @@ impl AgentIterationCoordinator {
             "finish_reason".to_string(),
             Value::String(finish_reason.unwrap_or_default()),
         );
-        AgentHookEmitter::fire_agent_point(
+        AgentHookEmitter::fire_agent_point_with_checkpoint(
             entity,
             "AFTER_LLM_CALL",
             hook_data,
             self.hook_handler_registry.as_deref(),
             self.event_bus.as_deref(),
+            self.checkpoint.as_deref(),
         )
         .await;
 
@@ -803,7 +815,7 @@ impl AgentIterationCoordinator {
             HashMap::new(),
             self.hook_handler_registry.as_deref(),
             self.event_bus.as_deref(),
-            self.checkpoint.as_ref(),
+            self.checkpoint.as_deref(),
         )
         .await;
 

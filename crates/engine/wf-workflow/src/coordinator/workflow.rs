@@ -606,6 +606,13 @@ impl WorkflowCoordinator {
             self.ctx.event_bus.as_deref(),
         )
         .await;
+        WorkflowHookEmitter::maybe_hook_checkpoint(
+            &self.hooks,
+            hook_type,
+            self.checkpoint.as_ref(),
+            entity,
+        )
+        .await;
     }
 
     /// Persist the start record (status is whatever the entity currently
@@ -746,6 +753,16 @@ impl WorkflowCoordinator {
             if let Some(ref mut cp) = self.checkpoint {
                 cp.on_node_before(&entity, checkpoint_config.as_ref()).await;
             }
+            // BEFORE_EXECUTE hook opt-in checkpoints even when the node
+            // policy would not: the hook fired, so its request is honored
+            // (a later veto still denies the node via the fire summary).
+            WorkflowHookEmitter::maybe_hook_checkpoint(
+                &self.hooks,
+                "BEFORE_EXECUTE",
+                self.checkpoint.as_ref(),
+                &entity,
+            )
+            .await;
 
             let mut node_ctx = self.build_node_context(node_id, &node_type).await?;
 
@@ -1147,6 +1164,13 @@ impl WorkflowCoordinator {
             cp.on_node_completed(entity, checkpoint_config.as_ref())
                 .await;
         }
+        WorkflowHookEmitter::maybe_hook_checkpoint(
+            &self.hooks,
+            "AFTER_EXECUTE",
+            self.checkpoint.as_ref(),
+            entity,
+        )
+        .await;
 
         if let Some(node_metrics) = node_metrics {
             node_metrics.record_execution(MetricsNodeExecutionRecord {
@@ -1215,6 +1239,13 @@ impl WorkflowCoordinator {
         if let Some(ref mut cp) = self.checkpoint {
             cp.on_node_failed(entity, checkpoint_config.as_ref()).await;
         }
+        WorkflowHookEmitter::maybe_hook_checkpoint(
+            &self.hooks,
+            "ON_ERROR",
+            self.checkpoint.as_ref(),
+            entity,
+        )
+        .await;
 
         if let Some(node_metrics) = node_metrics {
             node_metrics.record_execution(MetricsNodeExecutionRecord {

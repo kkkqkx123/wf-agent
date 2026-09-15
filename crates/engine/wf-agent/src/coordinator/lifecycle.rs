@@ -493,15 +493,20 @@ impl AgentLoopCoordinator {
 
         // BEFORE_USER_PROMPT: the user-input boundary. The prompt is already
         // committed into the conversation; this fires before the loop start
-        // event so observers see the input enter the loop.
+        // event so observers see the input enter the loop. A
+        // `create_checkpoint` opt-in settles one strategy-gated checkpoint
+        // through the run-derived handle (same derivation as the execution
+        // body, so the message backstop and explicit strategies both apply).
         let mut prompt_hook_data = HashMap::new();
         prompt_hook_data.insert("prompt".to_string(), Value::String(prompt));
-        AgentHookEmitter::fire_agent_point(
+        let prompt_checkpoint = self.checkpoint_integration_for_config(config);
+        AgentHookEmitter::fire_agent_point_with_checkpoint(
             &entity,
             "BEFORE_USER_PROMPT",
             prompt_hook_data,
             self.hook_handler_registry.as_deref(),
             self.event_bus.as_deref(),
+            prompt_checkpoint.as_ref(),
         )
         .await;
 
@@ -538,7 +543,9 @@ impl AgentLoopCoordinator {
         // BEFORE_AGENT fires once per run, right after the start event and
         // before the first iteration (symmetric with AFTER_AGENT). The hook
         // pipeline is event-only: failing conditions or template errors only
-        // degrade to a skipped event, never to an engine error.
+        // degrade to a skipped event, never to an engine error. A
+        // `create_checkpoint` opt-in settles one strategy-gated checkpoint;
+        // failures only warn.
         let mut start_hook_data = HashMap::new();
         start_hook_data.insert("model".to_string(), Value::String(config.model.clone()));
         start_hook_data.insert(
@@ -547,20 +554,21 @@ impl AgentLoopCoordinator {
                 config.max_iterations.unwrap_or(self.default_max_iterations),
             )),
         );
-        AgentHookEmitter::fire_agent_point(
-            &entity,
-            "BEFORE_AGENT",
-            start_hook_data,
-            self.hook_handler_registry.as_deref(),
-            self.event_bus.as_deref(),
-        )
-        .await;
-
         let checkpoint = self.checkpoint_integration_for_config(config);
         // A second handle kept for the outcome checkpoints: the first one is
         // moved into the execution coordinator that drives the iteration
         // loop, and the terminal status only settles after it returns.
         let outcome_checkpoint = self.checkpoint_integration_for_config(config);
+        AgentHookEmitter::fire_agent_point_with_checkpoint(
+            &entity,
+            "BEFORE_AGENT",
+            start_hook_data,
+            self.hook_handler_registry.as_deref(),
+            self.event_bus.as_deref(),
+            checkpoint.as_ref(),
+        )
+        .await;
+
         if let Some(ref cp) = checkpoint {
             cp.create_checkpoint_gated(&entity, CheckpointTiming::Manual)
                 .await
@@ -689,12 +697,13 @@ impl AgentLoopCoordinator {
                     Value::Number(iterations.into()),
                 );
                 hook_data.insert("success".to_string(), Value::Bool(true));
-                AgentHookEmitter::fire_agent_point(
+                AgentHookEmitter::fire_agent_point_with_checkpoint(
                     &entity,
                     "AFTER_AGENT",
                     hook_data,
                     self.hook_handler_registry.as_deref(),
                     self.event_bus.as_deref(),
+                    outcome_checkpoint.as_ref(),
                 )
                 .await;
 
@@ -770,15 +779,18 @@ impl AgentLoopCoordinator {
                 }
                 // AFTER_AGENT fires on the failure path too (success=false +
                 // error summary), keeping the lifecycle observation symmetric.
+                // A `create_checkpoint` opt-in settles through the outcome
+                // handle; failures only warn.
                 let mut hook_data = HashMap::new();
                 hook_data.insert("success".to_string(), Value::Bool(false));
                 hook_data.insert("error".to_string(), Value::String(e.to_string()));
-                AgentHookEmitter::fire_agent_point(
+                AgentHookEmitter::fire_agent_point_with_checkpoint(
                     &entity,
                     "AFTER_AGENT",
                     hook_data,
                     self.hook_handler_registry.as_deref(),
                     self.event_bus.as_deref(),
+                    outcome_checkpoint.as_ref(),
                 )
                 .await;
                 Err(e)

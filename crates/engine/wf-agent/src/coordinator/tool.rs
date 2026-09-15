@@ -59,6 +59,10 @@ pub struct ToolExecutionCoordinator {
     /// File-content observer (agent actor partition). Independent from the
     /// execution-state `checkpoint_handler` above.
     checkpoint_session: Option<wf_checkpoint::CheckpointSession>,
+    /// Strategy-gated checkpoint handle for hook `create_checkpoint` opt-ins
+    /// (`BEFORE_TOOL_CALL` / `AFTER_TOOL_CALL`). Shared (Arc) so coordinator
+    /// rebuilds stay cheap; `None` keeps hook fires checkpoint-free.
+    agent_checkpoint: Option<Arc<crate::checkpoint::AgentCheckpointIntegration>>,
 }
 
 impl ToolExecutionCoordinator {
@@ -80,6 +84,7 @@ impl ToolExecutionCoordinator {
             general_invoker: Arc::new(std::sync::Mutex::new(None)),
             retry_budget: None,
             checkpoint_session: None,
+            agent_checkpoint: None,
         }
     }
 
@@ -218,6 +223,34 @@ impl ToolExecutionCoordinator {
     /// file-content observation contract.
     pub fn checkpoint_session_config(&self) -> Option<wf_checkpoint::CheckpointSession> {
         self.checkpoint_session.clone()
+    }
+
+    /// Attach the strategy-gated checkpoint handle used for hook
+    /// `create_checkpoint` opt-ins on the tool-call hook points. Shared via
+    /// `Arc` so coordinator rebuilds stay cheap.
+    pub fn with_agent_checkpoint(
+        mut self,
+        checkpoint: Option<Arc<crate::checkpoint::AgentCheckpointIntegration>>,
+    ) -> Self {
+        self.agent_checkpoint = checkpoint;
+        self
+    }
+
+    /// Current hook-checkpoint wiring; lets coordinator rebuilds preserve
+    /// the hook opt-in contract.
+    pub fn agent_checkpoint_config(
+        &self,
+    ) -> Option<Arc<crate::checkpoint::AgentCheckpointIntegration>> {
+        self.agent_checkpoint.clone()
+    }
+
+    /// Attach the hook-checkpoint handle on an already assembled
+    /// coordinator (used by the iteration coordinator after `with_checkpoint`).
+    pub fn set_agent_checkpoint(
+        &mut self,
+        checkpoint: Option<Arc<crate::checkpoint::AgentCheckpointIntegration>>,
+    ) {
+        self.agent_checkpoint = checkpoint;
     }
 
     pub fn with_rejection_builder(mut self, builder: RejectionMessageBuilder) -> Self {
@@ -407,12 +440,16 @@ impl ToolExecutionCoordinator {
                     // BEFORE_TOOL_CALL is a gate point: a veto denies the
                     // call exactly like an approval rejection (same
                     // rejection message, same error-carrying AFTER fire).
-                    let before = AgentHookEmitter::fire_agent_point(
+                    // The `_with_checkpoint` fire additionally settles a
+                    // strategy-gated checkpoint on `create_checkpoint`
+                    // opt-in; it only warns, so the veto decision is untouched.
+                    let before = AgentHookEmitter::fire_agent_point_with_checkpoint(
                         entity,
                         "BEFORE_TOOL_CALL",
                         build_hook_data(&tc),
                         self.hook_handler_registry.as_deref(),
                         self.event_bus.as_deref(),
+                        self.agent_checkpoint.as_deref(),
                     )
                     .await;
                     if let Some(reason) = before.vetoed_reason() {
@@ -420,12 +457,13 @@ impl ToolExecutionCoordinator {
                         let msg = self.build_rejection_message(&tc, &reason);
                         let mut hook_data = build_hook_data(&tc);
                         hook_data.insert("error".to_string(), Value::String(reason.clone()));
-                        AgentHookEmitter::fire_agent_point(
+                        AgentHookEmitter::fire_agent_point_with_checkpoint(
                             entity,
                             "AFTER_TOOL_CALL",
                             hook_data,
                             self.hook_handler_registry.as_deref(),
                             self.event_bus.as_deref(),
+                            self.agent_checkpoint.as_deref(),
                         )
                         .await;
                         messages.push(msg);
@@ -434,12 +472,13 @@ impl ToolExecutionCoordinator {
 
                     let msg = self.execute_single_tool(entity, &tc).await?;
 
-                    AgentHookEmitter::fire_agent_point(
+                    AgentHookEmitter::fire_agent_point_with_checkpoint(
                         entity,
                         "AFTER_TOOL_CALL",
                         build_hook_data(&tc),
                         self.hook_handler_registry.as_deref(),
                         self.event_bus.as_deref(),
+                        self.agent_checkpoint.as_deref(),
                     )
                     .await;
 
@@ -620,6 +659,31 @@ impl ToolExecutionCoordinator {
                     ));
                 }
             }
+        }
+
+        // Batch-level hook checkpoints: spawned tasks fire via `fire_point`
+        // without the entity (no snapshot possible inside the task), so one
+        // strategy-gated checkpoint per hook type settles here where the
+        // entity is available. Only when at least one call was approved for
+        // execution; gate/approval rejections alone never snapshot.
+        let executed_any = outcomes
+            .iter()
+            .any(|o| matches!(o, Some(ApprovalOutcome::Execute { .. })));
+        if executed_any {
+            AgentHookEmitter::maybe_hook_checkpoint(
+                entity.hooks(),
+                "BEFORE_TOOL_CALL",
+                self.agent_checkpoint.as_deref(),
+                entity,
+            )
+            .await;
+            AgentHookEmitter::maybe_hook_checkpoint(
+                entity.hooks(),
+                "AFTER_TOOL_CALL",
+                self.agent_checkpoint.as_deref(),
+                entity,
+            )
+            .await;
         }
 
         Ok(messages.into_iter().flatten().collect())

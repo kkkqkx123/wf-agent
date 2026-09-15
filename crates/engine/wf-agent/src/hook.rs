@@ -119,15 +119,34 @@ impl AgentHookEmitter {
     ) -> FireSummary {
         let summary =
             Self::fire_agent_point(entity, hook_type, extra_data, registry, event_bus).await;
-        let Some(cp) = checkpoint else {
-            return summary;
-        };
-        let opted_in = entity
-            .hooks()
+        Self::maybe_hook_checkpoint(entity.hooks(), hook_type, checkpoint, entity).await;
+        summary
+    }
+
+    /// Whether any enabled hook definition of `hook_type` opts in via
+    /// `create_checkpoint`.
+    pub fn hook_opted_in(hooks: &[HookDefinition], hook_type: &str) -> bool {
+        hooks
             .iter()
-            .any(|h| h.hook_type == hook_type && h.enabled && h.create_checkpoint == Some(true));
-        if !opted_in {
-            return summary;
+            .any(|h| h.hook_type == hook_type && h.enabled && h.create_checkpoint == Some(true))
+    }
+
+    /// Strategy-gated checkpoint for a hook point that was fired without the
+    /// entity (e.g. the parallel tool-call path fires via `fire_point` inside
+    /// spawned tasks, then settles one batch-level checkpoint per hook type
+    /// here where the entity is available). No opt-in or no handle means no
+    /// checkpoint; failures only warn so the fire outcome never changes.
+    pub async fn maybe_hook_checkpoint(
+        hooks: &[HookDefinition],
+        hook_type: &str,
+        checkpoint: Option<&AgentCheckpointIntegration>,
+        entity: &AgentLoopEntity,
+    ) {
+        let Some(cp) = checkpoint else {
+            return;
+        };
+        if !Self::hook_opted_in(hooks, hook_type) {
+            return;
         }
         let timing = hook_type_to_checkpoint_timing(hook_type);
         if let Err(e) = cp.create_checkpoint_gated(entity, timing.clone()).await {
@@ -139,6 +158,5 @@ impl AgentHookEmitter {
                 "hook-requested checkpoint failed"
             );
         }
-        summary
     }
 }

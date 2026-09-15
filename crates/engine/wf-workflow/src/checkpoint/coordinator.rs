@@ -95,6 +95,33 @@ impl WorkflowCheckpointIntegration {
         self.node_count = 0;
     }
 
+    /// Hook opt-in checkpoint: a hook definition carried
+    /// `create_checkpoint`, so the checkpoint ignores the instance trigger
+    /// list but still honors the master switch. Failures only warn so the
+    /// hook fire outcome never changes. Never touches the node cadence
+    /// counter.
+    pub async fn create_hook_checkpoint(
+        &self,
+        entity: &WorkflowExecutionEntity,
+        timing: CheckpointTiming,
+        description: Option<String>,
+    ) {
+        if !self.strategy.is_enabled() {
+            return;
+        }
+        if let Err(e) = self
+            .create_checkpoint(entity, timing.clone(), description)
+            .await
+        {
+            tracing::warn!(
+                execution_id = %entity.id(),
+                timing = ?timing,
+                error = %e,
+                "hook-requested checkpoint failed"
+            );
+        }
+    }
+
     pub async fn on_node_completed(
         &mut self,
         entity: &WorkflowExecutionEntity,

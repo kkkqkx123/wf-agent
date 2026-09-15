@@ -168,6 +168,72 @@ pub async fn cancel(ctx: &ApiContext, agent_loop_id: &str) -> crate::infra::erro
     Ok(())
 }
 
+/// Resume an agent loop from an engine checkpoint.
+///
+/// This drives the engine coordinators (`resume_from_checkpoint_with_mode`)
+/// over the checkpoints persisted to `ctx.checkpoint_store` during runs
+/// (boundary / interval / hook opt-in checkpoints), not the API-level
+/// snapshots managed by `agent_checkpoint` (which only replay state onto a
+/// live entity and never continue execution).
+///
+/// - `in_place = false` (default, branch): continues under a fresh execution
+///   id linked to the source via `parent_execution_id`; the source chain is
+///   never mutated.
+/// - `in_place = true`: continues under the source execution id; the source
+///   execution must be terminal or paused (a live run is rejected), and a
+///   caller-preset loop id conflicting with the source is rejected.
+///
+/// Ownership is checked up front: the checkpoint must be partitioned under
+/// `agent_loop_id` in the checkpoint store.
+pub async fn resume_from_checkpoint(
+    ctx: &ApiContext,
+    agent_loop_id: &str,
+    checkpoint_id: &str,
+    params: RunAgentLoopParams,
+    in_place: bool,
+) -> crate::infra::error::ApiResult<AgentLoopOutput> {
+    use wf_checkpoint::state::CheckpointStateManager;
+
+    gate_agent_config(ctx, &params.config)?;
+    let state_manager =
+        wf_checkpoint::state::agent::AgentCheckpointStateManager::new(ctx.checkpoint_store.clone());
+    let owned = state_manager
+        .list_by_entity(agent_loop_id)
+        .await
+        .map_err(|e| ApiError::execution(format!("checkpoint lookup failed: {e}")))?
+        .iter()
+        .any(|meta| meta.id.as_str() == checkpoint_id);
+    if !owned {
+        return Err(ApiError::Validation(format!(
+            "checkpoint {checkpoint_id} does not belong to agent loop {agent_loop_id}"
+        )));
+    }
+    let mut coordinator = coordinator_for(ctx, &params, None);
+    if in_place {
+        coordinator = coordinator.with_agent_loop_id(wf_types::Id::from(agent_loop_id.to_string()));
+    } else if let Some(id) = params.agent_loop_id.clone() {
+        coordinator = coordinator.with_agent_loop_id(id);
+    }
+    let timeout_ms = agent_timeout_ms(&params.config);
+    let config = params.config.clone();
+    let input = params.input.clone();
+    let outcome =
+        crate::infra::error::with_timeout(Duration::from_millis(timeout_ms), async move {
+            coordinator
+                .resume_from_checkpoint_with_mode(checkpoint_id, config, input, in_place)
+                .await
+                .map_err(Into::into)
+        })
+        .await;
+    match outcome {
+        Ok(output) => {
+            persist_conversation(ctx, &output.agent_loop_id, &output.conversation).await;
+            Ok(output)
+        }
+        Err(e) => Err(e),
+    }
+}
+
 /// Query the live status of an agent loop execution.
 ///
 /// Returns the typed [`wf_types::ExecutionStatus`] (the persisted status
@@ -589,5 +655,125 @@ mod tests {
 
         let err = pause(&ctx, "missing").await.expect_err("unknown loop");
         assert!(matches!(err, ApiError::ExecutionNotFound { .. }));
+    }
+
+    fn resume_config() -> AgentLoopConfig {
+        AgentLoopConfig {
+            agent_id: wf_types::Id::from("agent-resume".to_string()),
+            model: "mock".to_string(),
+            max_iterations: Some(3),
+            max_execution_time: None,
+            hooks: Vec::new(),
+            available_tool_names: Vec::new(),
+            initial_tool_names: Vec::new(),
+            discoverable_tool_names: Vec::new(),
+            enable_general_tool: None,
+            activated_tool_names: Vec::new(),
+            hidden_tool_names: Vec::new(),
+            tool_call_protocol: None,
+            token_limit: None,
+            token_warning_threshold: None,
+            enable_token_tracking: None,
+            general_description: None,
+            discoverable_metadata_block: None,
+            history_normalization: false,
+            checkpoint_message_interval: Some(1),
+        }
+    }
+
+    fn resume_input(message: &str) -> AgentLoopInput {
+        AgentLoopInput {
+            message: message.to_string(),
+            context: Default::default(),
+            conversation: Vec::new(),
+        }
+    }
+
+    #[tokio::test]
+    async fn resume_from_engine_checkpoint_branch_and_in_place() {
+        use wf_checkpoint::state::CheckpointStateManager;
+
+        let ctx = make_ctx();
+        let output = run(
+            &ctx,
+            RunAgentLoopParams::new(resume_config(), resume_input("hi")),
+        )
+        .await
+        .expect("initial run completes");
+        let loop_id = output.agent_loop_id.to_string();
+
+        let state_manager = wf_checkpoint::state::agent::AgentCheckpointStateManager::new(
+            ctx.checkpoint_store.clone(),
+        );
+        let checkpoints = state_manager
+            .list_by_entity(&loop_id)
+            .await
+            .expect("engine checkpoints list");
+        assert!(
+            !checkpoints.is_empty(),
+            "message backstop must persist engine checkpoints"
+        );
+        let checkpoint_id = checkpoints[0].id.to_string();
+
+        // Branch (default): a fresh execution id continues the restored
+        // state; the source id is untouched.
+        let branch = resume_from_checkpoint(
+            &ctx,
+            &loop_id,
+            &checkpoint_id,
+            RunAgentLoopParams::new(resume_config(), resume_input("branch off")),
+            false,
+        )
+        .await
+        .expect("branch resume completes");
+        assert_ne!(
+            branch.agent_loop_id.to_string(),
+            loop_id,
+            "branch resume must not reuse the source execution id"
+        );
+
+        // In-place: the completed source is terminal, so continuation under
+        // the source id is accepted and appends to the same partition.
+        let continued = resume_from_checkpoint(
+            &ctx,
+            &loop_id,
+            &checkpoint_id,
+            RunAgentLoopParams::new(resume_config(), resume_input("continue")),
+            true,
+        )
+        .await
+        .expect("in-place resume completes");
+        assert_eq!(continued.agent_loop_id.to_string(), loop_id);
+
+        // Ownership: a checkpoint of another loop is rejected, as is an
+        // unknown checkpoint id.
+        let other = run(
+            &ctx,
+            RunAgentLoopParams::new(resume_config(), resume_input("other")),
+        )
+        .await
+        .expect("second run completes");
+        let other_id = other.agent_loop_id.to_string();
+        assert_ne!(other_id, loop_id);
+        let err = resume_from_checkpoint(
+            &ctx,
+            &other_id,
+            &checkpoint_id,
+            RunAgentLoopParams::new(resume_config(), resume_input("cross")),
+            true,
+        )
+        .await
+        .expect_err("cross-loop checkpoint must be rejected");
+        assert!(matches!(err, ApiError::Validation(_)));
+        let err = resume_from_checkpoint(
+            &ctx,
+            &loop_id,
+            "missing-checkpoint",
+            RunAgentLoopParams::new(resume_config(), resume_input("missing")),
+            false,
+        )
+        .await
+        .expect_err("unknown checkpoint must be rejected");
+        assert!(matches!(err, ApiError::Validation(_)));
     }
 }

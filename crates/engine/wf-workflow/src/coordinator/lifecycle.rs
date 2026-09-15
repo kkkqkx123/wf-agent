@@ -1164,6 +1164,92 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_hook_opt_in_forces_checkpoint_under_never_strategy() {
+        use wf_checkpoint::coordinator::workflow::WorkflowCheckpointCoordinator;
+        use wf_checkpoint::coordinator::CheckpointCoordinator;
+        use wf_checkpoint::state::CheckpointStateManager;
+        use wf_checkpoint::state::WorkflowCheckpointStateManager;
+
+        async fn checkpointed_nodes(
+            store: &Arc<StorageBackend>,
+            execution_id: &str,
+        ) -> Vec<Option<String>> {
+            let sm = WorkflowCheckpointStateManager::new(store.clone());
+            let all = sm
+                .list_by_entity(execution_id)
+                .await
+                .expect("checkpoints listed");
+            let coord = WorkflowCheckpointCoordinator::new(WorkflowCheckpointStateManager::new(
+                store.clone(),
+            ));
+            let mut nodes = Vec::new();
+            for meta in &all {
+                let restored = coord.restore(&meta.id).await.expect("restore ok");
+                nodes.push(restored.snapshot.current_node_id.clone());
+            }
+            nodes
+        }
+
+        fn run_params(execution_id: &str, hooks: Vec<HookDefinition>) -> WorkflowExecutionParams {
+            WorkflowExecutionParams {
+                execution_id: wf_types::Id::from(execution_id.to_string()),
+                workflow_id: wf_types::Id::from("wf-hook-opt-in".to_string()),
+                graph: make_graph(),
+                options: options_with(Some(serde_json::json!({"greeting": "hello"}))),
+                handlers: make_handlers(),
+                tool_registry: Arc::new(wf_tools::registry::ToolRegistry::new()),
+                resource_registries: None,
+                input: None,
+                hooks,
+            }
+        }
+
+        let opt_in = vec![HookDefinition {
+            id: wf_types::Id::from("h-before-opt-in".to_string()),
+            hook_type: "BEFORE_EXECUTE".to_string(),
+            priority: 0,
+            condition: None,
+            enabled: true,
+            payload: None,
+            handler: None,
+            create_checkpoint: Some(true),
+            checkpoint_description: Some("hook forced".to_string()),
+        }];
+
+        // A BEFORE_EXECUTE opt-in forces per-node checkpoints even though
+        // the instance strategy disables everything.
+        let store = Arc::new(StorageBackend::new_memory());
+        let lifecycle = WorkflowLifecycleCoordinator::with_store(None, store.clone())
+            .with_checkpoint_strategy(NodeCheckpointStrategy::never());
+        lifecycle
+            .execute_workflow(run_params("exec-hook-opt-in", opt_in))
+            .await
+            .expect("workflow should complete");
+        let nodes = checkpointed_nodes(&store, "exec-hook-opt-in").await;
+        assert!(
+            nodes.iter().any(|n| n.as_deref() == Some("v1")),
+            "hook opt-in must force a node checkpoint, got {nodes:?}"
+        );
+
+        // Control: the same disabled strategy without opt-in leaves no
+        // node snapshots (only the workflow start/end checkpoints).
+        let store = Arc::new(StorageBackend::new_memory());
+        let lifecycle = WorkflowLifecycleCoordinator::with_store(None, store.clone())
+            .with_checkpoint_strategy(NodeCheckpointStrategy::never());
+        lifecycle
+            .execute_workflow(run_params("exec-hook-control", Vec::new()))
+            .await
+            .expect("workflow should complete");
+        let nodes = checkpointed_nodes(&store, "exec-hook-control").await;
+        assert!(
+            nodes
+                .iter()
+                .all(|n| !matches!(n.as_deref(), Some("v1" | "v2"))),
+            "no node checkpoint without opt-in, got {nodes:?}"
+        );
+    }
+
+    #[tokio::test]
     async fn test_node_checkpoint_config_skips_disabled_node_snapshots() {
         use wf_checkpoint::coordinator::workflow::WorkflowCheckpointCoordinator;
         use wf_checkpoint::coordinator::CheckpointCoordinator;

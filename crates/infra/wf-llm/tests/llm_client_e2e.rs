@@ -12,8 +12,8 @@ use wf_types::llm::{LlmFormat, LlmProfile, LlmRequest, MessageStreamEvent};
 use wf_types::message::{Message, MessageContentValue, MessageRole};
 
 use wf_llm::client::{LlmClient, LlmClientImpl};
-use wf_llm::error::LlmError;
 use wf_llm::codecs::create_codec;
+use wf_llm::error::LlmError;
 
 const OPENAI_CHAT_RESPONSE: &str = r#"{
     "id": "chatcmpl-1",

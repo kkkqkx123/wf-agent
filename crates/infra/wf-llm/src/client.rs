@@ -2,8 +2,8 @@ use std::future::Future;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use crate::error::{LlmError, LlmResult};
 use crate::codecs::LlmCodec;
+use crate::error::{LlmError, LlmResult};
 use crate::message_stream::MessageStream;
 use reqwest::Client as ReqwestClient;
 use tokio_util::sync::CancellationToken;
@@ -156,9 +156,7 @@ impl LlmClientImpl {
         let mut stream_request = request.clone();
         stream_request.stream = Some(true);
 
-        let http_request = self
-            .codec
-            .build_request(&stream_request, &self.profile)?;
+        let http_request = self.codec.build_request(&stream_request, &self.profile)?;
 
         let timeout_dur = self.build_timeout();
         let timeout_ms = timeout_dur.as_millis() as u64;

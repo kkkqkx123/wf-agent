@@ -133,6 +133,13 @@ impl<T: CheckpointTimingVariant> CadencedCheckpointStrategy<T> {
         true
     }
 
+    /// Whether the master switch is on, ignoring the timing set. Used
+    /// by hook opt-in checkpoints, which honor the master switch but not
+    /// the instance trigger list.
+    pub fn is_enabled(&self) -> bool {
+        self.inner.enabled()
+    }
+
     pub fn content_config(&self) -> &CheckpointContentConfig {
         self.inner.content_config()
     }

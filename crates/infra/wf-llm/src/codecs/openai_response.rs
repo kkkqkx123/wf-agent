@@ -503,10 +503,7 @@ mod tests {
         let codec = OpenaiResponseCodec::new();
 
         let delta = r#"{"type":"response.function_call_arguments.delta","item_id":"fc_1","delta":"{\"city\":"}"#;
-        match codec
-            .parse_stream_chunk(delta)
-            .expect("chunk must parse")
-        {
+        match codec.parse_stream_chunk(delta).expect("chunk must parse") {
             Some(MessageStreamEvent::ToolCallDelta(d)) => {
                 assert_eq!(d.index, 0);
                 assert_eq!(d.arguments.as_deref(), Some(r#"{"city":"#));
@@ -516,10 +513,7 @@ mod tests {
         }
 
         let done = r#"{"type":"response.function_call.done","item":{"type":"function_call","id":"fc_1","name":"get_weather","arguments":"{\"city\":\"Beijing\"}"}}"#;
-        match codec
-            .parse_stream_chunk(done)
-            .expect("chunk must parse")
-        {
+        match codec.parse_stream_chunk(done).expect("chunk must parse") {
             Some(MessageStreamEvent::ToolCallDelta(d)) => {
                 assert_eq!(d.index, 0, "fragments must land on the same call");
                 assert_eq!(d.id.as_deref(), Some("fc_1"));
@@ -582,29 +576,17 @@ mod tests {
                 r#"{{"type":"response.function_call_arguments.delta","item_id":"{id}","delta":"x"}}"#
             )
         };
-        let i1 = match codec
-            .parse_stream_chunk(&chunk("fc_a"))
-            .unwrap()
-            .unwrap()
-        {
+        let i1 = match codec.parse_stream_chunk(&chunk("fc_a")).unwrap().unwrap() {
             MessageStreamEvent::ToolCallDelta(d) => d.index,
             other => panic!("expected ToolCallDelta, got {other:?}"),
         };
-        let i2 = match codec
-            .parse_stream_chunk(&chunk("fc_b"))
-            .unwrap()
-            .unwrap()
-        {
+        let i2 = match codec.parse_stream_chunk(&chunk("fc_b")).unwrap().unwrap() {
             MessageStreamEvent::ToolCallDelta(d) => d.index,
             other => panic!("expected ToolCallDelta, got {other:?}"),
         };
         assert_ne!(i1, i2);
         // Repeating the same item_id keeps its index.
-        let again = match codec
-            .parse_stream_chunk(&chunk("fc_a"))
-            .unwrap()
-            .unwrap()
-        {
+        let again = match codec.parse_stream_chunk(&chunk("fc_a")).unwrap().unwrap() {
             MessageStreamEvent::ToolCallDelta(d) => d.index,
             other => panic!("expected ToolCallDelta, got {other:?}"),
         };

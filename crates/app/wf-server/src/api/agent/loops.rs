@@ -231,7 +231,9 @@ pub struct RunAgentLoopBody {
     conversation: Option<Vec<Message>>,
 }
 
-fn params_from_body(body: RunAgentLoopBody) -> wf_api::agent::agent_execution::RunAgentLoopParams {
+pub(crate) fn params_from_body(
+    body: RunAgentLoopBody,
+) -> wf_api::agent::agent_execution::RunAgentLoopParams {
     let config = AgentLoopConfig {
         agent_id: wf_types::Id::from(body.agent_id),
         model: body.model,

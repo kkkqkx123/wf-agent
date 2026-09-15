@@ -708,6 +708,7 @@ mod tests {
                 model: None,
                 input: None,
                 timeout: None,
+                checkpoint_message_interval: None,
             }),
             ..event_trigger("hook-trigger")
         };

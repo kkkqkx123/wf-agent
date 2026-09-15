@@ -41,6 +41,10 @@ pub(crate) fn routes() -> Router<ApiState> {
             post(handle_restore_checkpoint),
         )
         .route(
+            "/agent-loops/{id}/checkpoints/{cid}/resume",
+            post(handle_resume_checkpoint),
+        )
+        .route(
             "/agent-loops/{id}/checkpoints/chain",
             get(handle_checkpoint_chain),
         )
@@ -187,6 +191,61 @@ async fn handle_restore_checkpoint(
     }
 }
 
+/// Resume mode for checkpoint resume: `branch` (default) continues under a
+/// fresh execution id; `in_place` continues under the source execution id.
+#[derive(Deserialize, Default, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+enum ResumeCheckpointMode {
+    #[default]
+    Branch,
+    InPlace,
+}
+
+#[derive(Deserialize)]
+struct ResumeCheckpointBody {
+    #[serde(default)]
+    mode: ResumeCheckpointMode,
+    #[serde(flatten)]
+    run: super::loops::RunAgentLoopBody,
+}
+
+#[derive(serde::Serialize)]
+struct AgentResumeView {
+    agent_loop_id: String,
+    result: Value,
+    iterations: u32,
+}
+
+/// Resume an agent loop from one of its engine checkpoints and run it to
+/// completion: `mode: "branch"` (default) forks under a fresh execution id,
+/// `mode: "in_place"` continues under the source execution id (the source
+/// must be terminal or paused). The remaining body fields mirror
+/// `/agent-loops/{id}/run` (model, message, hooks, tool visibility, ...).
+async fn handle_resume_checkpoint(
+    State(state): State<ApiState>,
+    Path(path): Path<crate::extract::IdCidPath>,
+    Json(body): Json<ResumeCheckpointBody>,
+) -> impl IntoResponse {
+    let in_place = body.mode == ResumeCheckpointMode::InPlace;
+    match wf_api::agent::agent_execution::resume_from_checkpoint(
+        &state.ctx,
+        &path.id,
+        &path.cid,
+        super::loops::params_from_body(body.run),
+        in_place,
+    )
+    .await
+    {
+        Ok(output) => ok(AgentResumeView {
+            agent_loop_id: output.agent_loop_id.to_string(),
+            result: output.result,
+            iterations: output.iterations,
+        })
+        .into_response(),
+        Err(e) => error_response(e),
+    }
+}
+
 async fn handle_checkpoint_chain(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
@@ -211,5 +270,50 @@ async fn handle_checkpoint_statistics(State(state): State<ApiState>) -> impl Int
     match wf_api::agent::agent_checkpoint::statistics(&state.ctx, None).await {
         Ok(stats) => ok(stats).into_response(),
         Err(e) => error_response(e),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use axum::body::Body as AxBody;
+    use axum::http::{Request, StatusCode};
+    use tower::ServiceExt;
+    use wf_api::ApiContext;
+
+    fn make_ctx() -> Arc<ApiContext> {
+        Arc::new(ApiContext::new(
+            wf_storage::context::StorageContext::new_memory(),
+            Arc::new(wf_resource::registry::ResourceRegistries::new()),
+            Arc::new(wf_resource::resource_plugin::ResourcePluginRegistry::new()),
+        ))
+    }
+
+    #[tokio::test]
+    async fn resume_checkpoint_route_rejects_unknown_checkpoint() {
+        // The route exists and reaches the ownership check without any LLM
+        // involvement: an unknown checkpoint id is a client error, never a
+        // routing failure.
+        let app = crate::router::api_router(make_ctx());
+        let body = serde_json::json!({
+            "mode": "in_place",
+            "agent_id": "agent-1",
+            "model": "mock",
+            "message": "hi",
+        });
+        let request = Request::builder()
+            .method("POST")
+            .uri("/api/v1/agent-loops/loop-1/checkpoints/cid-1/resume")
+            .header("content-type", "application/json")
+            .body(AxBody::from(serde_json::to_string(&body).unwrap()))
+            .unwrap();
+        let response = app.oneshot(request).await.unwrap();
+        assert_ne!(response.status(), StatusCode::NOT_FOUND);
+        assert!(
+            response.status().is_client_error(),
+            "unknown checkpoint must be a client error, got {}",
+            response.status()
+        );
     }
 }

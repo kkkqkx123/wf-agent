@@ -134,6 +134,7 @@ impl TriggerActionRunner for AgentTriggerRunner {
             timeout,
             input_mode,
             writeback,
+            checkpoint_message_interval,
         }) = &template.action
         else {
             return Ok(());
@@ -160,7 +161,8 @@ impl TriggerActionRunner for AgentTriggerRunner {
             general_description: None,
             discoverable_metadata_block: None,
             history_normalization: false,
-            checkpoint_message_interval: None,
+            checkpoint_message_interval: checkpoint_message_interval
+                .and_then(|n| (n > 0).then_some(n)),
         };
         let start = wf_common::now();
         let action_type = "execute_triggered_agent_execution";
@@ -311,6 +313,7 @@ impl AgentTriggerRunner {
             model,
             input,
             timeout,
+            checkpoint_message_interval,
         }) = &template.action
         else {
             return Ok(());
@@ -336,7 +339,8 @@ impl AgentTriggerRunner {
             general_description: None,
             discoverable_metadata_block: None,
             history_normalization: false,
-            checkpoint_message_interval: None,
+            checkpoint_message_interval: checkpoint_message_interval
+                .and_then(|n| (n > 0).then_some(n)),
         };
         let child_input = AgentLoopInput {
             message: prompt.clone().unwrap_or_else(|| template.name.clone()),
@@ -388,5 +392,192 @@ impl AgentTriggerRunner {
         )
         .await;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Run the nested-agent trigger action with a recording executor and
+    /// return the child `checkpoint_message_interval` the runner forwarded.
+    async fn forwarded_interval(action: TriggerAction) -> Option<u32> {
+        use wf_tools::callback::AgentLoopOutput;
+        use wf_types::events::EventType;
+
+        let seen = Arc::new(std::sync::Mutex::new(None::<Option<u32>>));
+        let seen_clone = seen.clone();
+        let executor: AgentExecutorCallback = Arc::new(move |config, _input| {
+            let seen_clone = seen_clone.clone();
+            Box::pin(async move {
+                *wf_common::lock::lock_ok(seen_clone.lock()) =
+                    Some(config.checkpoint_message_interval);
+                Ok(AgentLoopOutput {
+                    agent_loop_id: Id::from("child-1"),
+                    result: serde_json::Value::Null,
+                    iterations: 1,
+                    conversation: Vec::new(),
+                })
+            })
+        });
+        let registry = Arc::new(AgentLoopRegistry::new());
+        let parent = Arc::new(AgentLoopEntity::new(Id::from("parent-1")));
+        registry.register(parent).expect("parent registers");
+        let runner = AgentTriggerRunner::new(executor, registry, CancellationToken::new(), None);
+        let template = TriggerTemplate {
+            name: "t".to_string(),
+            description: None,
+            condition: None,
+            action: Some(action),
+            enabled: Some(true),
+            max_triggers: None,
+            priority: None,
+            dispatch_mode: None,
+            allow_multi_effect: None,
+            effect_order: None,
+            metadata: None,
+            created_at: wf_common::now(),
+            updated_at: wf_common::now(),
+            create_checkpoint: None,
+            checkpoint_description_template: None,
+        };
+        let event = BaseEvent {
+            id: Id::from("evt-1"),
+            r#type: EventType::NodeCompleted,
+            timestamp: wf_common::now(),
+            event_name: None,
+            workflow_id: None,
+            execution_id: None,
+            agent_loop_id: Some(Id::from("parent-1")),
+            metadata: None,
+        };
+        runner
+            .run(&template, &event)
+            .await
+            .expect("trigger run succeeds");
+        let recorded = *wf_common::lock::lock_ok(seen.lock());
+        recorded.expect("executor ran")
+    }
+
+    #[tokio::test]
+    async fn nested_agent_forwards_checkpoint_message_interval() {
+        let interval = forwarded_interval(TriggerAction::ExecuteTriggeredAgentExecution {
+            agent_id: "child".to_string(),
+            prompt: None,
+            model: None,
+            result_variable: None,
+            wait_for_completion: Some(true),
+            timeout: None,
+            input_mode: None,
+            writeback: None,
+            checkpoint_message_interval: Some(7),
+        })
+        .await;
+        assert_eq!(interval, Some(7));
+
+        let absent = forwarded_interval(TriggerAction::ExecuteTriggeredAgentExecution {
+            agent_id: "child".to_string(),
+            prompt: None,
+            model: None,
+            result_variable: None,
+            wait_for_completion: Some(true),
+            timeout: None,
+            input_mode: None,
+            writeback: None,
+            checkpoint_message_interval: None,
+        })
+        .await;
+        assert_eq!(absent, None);
+
+        let zero = forwarded_interval(TriggerAction::ExecuteTriggeredAgentExecution {
+            agent_id: "child".to_string(),
+            prompt: None,
+            model: None,
+            result_variable: None,
+            wait_for_completion: Some(true),
+            timeout: None,
+            input_mode: None,
+            writeback: None,
+            checkpoint_message_interval: Some(0),
+        })
+        .await;
+        assert_eq!(zero, None, "zero disables instead of passing through");
+    }
+
+    #[tokio::test]
+    async fn cold_start_agent_forwards_checkpoint_message_interval() {
+        // Cold-start children run fire-and-forget on a spawned task; poll
+        // briefly for the recording instead of asserting synchronously.
+        use wf_tools::callback::AgentLoopOutput;
+        use wf_types::events::EventType;
+
+        let seen = Arc::new(std::sync::Mutex::new(None::<Option<u32>>));
+        let seen_clone = seen.clone();
+        let executor: AgentExecutorCallback = Arc::new(move |config, _input| {
+            let seen_clone = seen_clone.clone();
+            Box::pin(async move {
+                *wf_common::lock::lock_ok(seen_clone.lock()) =
+                    Some(config.checkpoint_message_interval);
+                Ok(AgentLoopOutput {
+                    agent_loop_id: Id::from("child-1"),
+                    result: serde_json::Value::Null,
+                    iterations: 1,
+                    conversation: Vec::new(),
+                })
+            })
+        });
+        let runner = AgentTriggerRunner::new(
+            executor,
+            Arc::new(AgentLoopRegistry::new()),
+            CancellationToken::new(),
+            None,
+        );
+        let template = TriggerTemplate {
+            name: "t".to_string(),
+            description: None,
+            condition: None,
+            action: Some(TriggerAction::ExecuteAgent {
+                agent_id: "child".to_string(),
+                prompt: None,
+                model: None,
+                input: None,
+                timeout: None,
+                checkpoint_message_interval: Some(3),
+            }),
+            enabled: Some(true),
+            max_triggers: None,
+            priority: None,
+            dispatch_mode: None,
+            allow_multi_effect: None,
+            effect_order: None,
+            metadata: None,
+            created_at: wf_common::now(),
+            updated_at: wf_common::now(),
+            create_checkpoint: None,
+            checkpoint_description_template: None,
+        };
+        let event = BaseEvent {
+            id: Id::from("evt-1"),
+            r#type: EventType::NodeCompleted,
+            timestamp: wf_common::now(),
+            event_name: None,
+            workflow_id: None,
+            execution_id: None,
+            agent_loop_id: None,
+            metadata: None,
+        };
+        runner
+            .run(&template, &event)
+            .await
+            .expect("cold start submits");
+        let mut forwarded = None;
+        for _ in 0..100 {
+            if let Some(recorded) = *wf_common::lock::lock_ok(seen.lock()) {
+                forwarded = recorded;
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        assert_eq!(forwarded, Some(3));
     }
 }

@@ -1,6 +1,6 @@
+use crate::codecs::LlmCodec;
 use crate::dead_loop_detector::DeadLoopDetector;
 use crate::error::LlmError;
-use crate::codecs::LlmCodec;
 use async_trait::async_trait;
 use eventsource_stream::EventStream;
 use futures::StreamExt;

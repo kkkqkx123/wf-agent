@@ -212,6 +212,12 @@ impl NodeCheckpointStrategy {
         self
     }
 
+    /// Whether the master switch is on, ignoring the timing set. Hook
+    /// opt-in checkpoints honor this switch but not the trigger list.
+    pub fn is_enabled(&self) -> bool {
+        self.inner.is_enabled()
+    }
+
     pub fn content_config(&self) -> &CheckpointContentConfig {
         self.inner.content_config()
     }
@@ -247,6 +253,13 @@ mod tests {
         let s = NodeCheckpointStrategy::never();
         assert!(!s.should_checkpoint(&WorkflowCheckpointTiming::AfterNode, 1));
         assert!(!s.should_checkpoint(&WorkflowCheckpointTiming::OnNodeError, 1));
+    }
+
+    #[test]
+    fn is_enabled_reflects_master_switch_only() {
+        assert!(!NodeCheckpointStrategy::never().is_enabled());
+        assert!(NodeCheckpointStrategy::every_node().is_enabled());
+        assert!(NodeCheckpointStrategy::always().is_enabled());
     }
 
     #[test]

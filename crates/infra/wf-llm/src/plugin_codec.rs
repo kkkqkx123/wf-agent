@@ -4,8 +4,8 @@ use wf_plugin_sdk::{CodecHttpRequest, PluginLlmCodec};
 use wf_types::llm::{LlmProfile, LlmRequest, LlmResult as LlmResponseType, MessageStreamEvent};
 use wf_types::tool::Tool;
 
-use crate::error::{LlmError, LlmResult};
 use crate::codecs::LlmCodec;
+use crate::error::{LlmError, LlmResult};
 
 /// Adapt a plugin-provided [`PluginLlmCodec`] to the host [`LlmCodec`].
 ///

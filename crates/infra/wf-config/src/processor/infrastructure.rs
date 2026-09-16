@@ -140,6 +140,8 @@ fn merge_collector_with_defaults(
         flush_interval: c.flush_interval.or(Some(5000)),
         enable_periodic_reporting: c.enable_periodic_reporting.or(Some(false)),
         reporting_interval: c.reporting_interval.or(Some(10000)),
+        strict_labels: c.strict_labels.or(Some(false)),
+        allowed_label_keys: c.allowed_label_keys.clone(),
     })
 }
 

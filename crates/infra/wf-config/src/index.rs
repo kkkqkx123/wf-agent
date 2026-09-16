@@ -649,7 +649,7 @@ fn sync_resolver(f: fn(&Path) -> ConfigResult<ResolvedIndex>) -> IndexResolver {
 
 /// Create the resolver for a supported index type.
 ///
-/// Supported types (9 of the 11 index types; `trigger_templates` is not
+/// Supported types (10 of the 11 index types; `trigger_templates` is not
 /// supported).
 pub fn create_index_resolver_for_type(ty: &IndexType) -> ConfigResult<IndexResolver> {
     let (loader, extract): (IndexConfigLoader, IndexMetadataExtractor) = match ty {
@@ -804,10 +804,10 @@ mod tests {
     fn test_register_all_index_resolvers() {
         let mut registry = IndexRegistry::new();
         register_all_index_resolvers(&mut registry).unwrap();
-        assert_eq!(registry.registered_types().len(), 9);
+        assert_eq!(registry.registered_types().len(), 10);
         // Idempotent: calling again keeps the same set.
         register_all_index_resolvers(&mut registry).unwrap();
-        assert_eq!(registry.registered_types().len(), 9);
+        assert_eq!(registry.registered_types().len(), 10);
         assert!(registry.has_resolver(&IndexType::McpPresets));
     }
 

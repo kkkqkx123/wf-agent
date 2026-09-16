@@ -294,6 +294,40 @@ impl MetricsRegistry {
         }
     }
 
+    /// Start registry-owned background tasks: a flush loop at the smallest
+    /// configured collector interval and a cleanup loop at the workflow
+    /// retention cadence. Callers abort the returned handles to stop.
+    pub fn start_background_tasks(self: &Arc<Self>) -> Vec<tokio::task::JoinHandle<()>> {
+        let flush_ms = self
+            .collectors()
+            .iter()
+            .map(|c| c.config().flush_interval_ms.max(1) as u64)
+            .min()
+            .unwrap_or(5000);
+        let retention_ms = self.workflow().collector().config().retention_ms;
+        let cleanup_ms = (retention_ms.max(1) as u64).clamp(1000, 3_600_000);
+
+        let flushing = Arc::clone(self);
+        let flush_task = tokio::spawn(async move {
+            let mut ticker = tokio::time::interval(std::time::Duration::from_millis(flush_ms));
+            loop {
+                ticker.tick().await;
+                flushing.flush_all().await;
+            }
+        });
+        let cleaning = Arc::clone(self);
+        let cleanup_task = tokio::spawn(async move {
+            let mut ticker = tokio::time::interval(std::time::Duration::from_millis(cleanup_ms));
+            loop {
+                ticker.tick().await;
+                cleaning.cleanup_all_before(retention_ms);
+                let cutoff = wf_common::time::now() - retention_ms;
+                let _ = cleaning.delete_old_persisted(cutoff).await;
+            }
+        });
+        vec![flush_task, cleanup_task]
+    }
+
     /// Purge buffered metrics older than `retention_ms` from every collector.
     ///
     /// The runtime drives this and the persisted `delete_old_persisted` from
@@ -690,5 +724,29 @@ mod tests {
         }));
         registry.publish_report(&MetricReport::default());
         assert_eq!(delivered.load(Ordering::Relaxed), 1);
+    }
+
+    #[tokio::test]
+    async fn background_tasks_flush_without_sink() {
+        let config = MetricsConfig {
+            workflow_metrics: Some(MetricCollectorConfig {
+                flush_interval: Some(10),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let registry = Arc::new(MetricsRegistry::with_config(&config));
+        registry.workflow().record_execution_start("wf-1");
+        let handles = registry.start_background_tasks();
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+        while registry.workflow().collector().buffer_len() > 0
+            && tokio::time::Instant::now() < deadline
+        {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        assert_eq!(registry.workflow().collector().buffer_len(), 0);
+        for handle in handles {
+            handle.abort();
+        }
     }
 }

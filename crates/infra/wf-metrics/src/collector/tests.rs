@@ -102,6 +102,23 @@ fn record_skips_empty_name() {
 }
 
 #[test]
+fn strict_label_config_drops_unlisted_series() {
+    use crate::labels::LabelConfig;
+    use std::collections::HashSet;
+    let c = collector(Some(CollectorConfig {
+        label_config: LabelConfig {
+            allowed_keys: Some(HashSet::from(["env".to_string()])),
+            strict: true,
+        },
+        ..Default::default()
+    }));
+    c.increment_counter("test.counter", labels(&[("other", "v")]));
+    assert_eq!(c.query(&MetricFilter::default()).total_count, 0);
+    c.increment_counter("test.counter", labels(&[("env", "prod")]));
+    assert_eq!(c.query(&MetricFilter::default()).total_count, 1);
+}
+
+#[test]
 fn record_fills_missing_timestamp() {
     let c = collector(None);
     c.record(counter_metric("test.counter", 1.0));
@@ -120,10 +137,11 @@ fn record_drains_buffer_at_threshold() {
     c.increment_counter("test.counter", HashMap::new());
     assert_eq!(c.buffer_len(), 2);
     c.increment_counter("test.counter", HashMap::new());
-    // Buffer drained to pending; data must still be queryable.
+    // The lock-free journal keeps every record queryable until flush;
+    // utilization reflects the soft record target instead of draining.
     assert_eq!(c.query(&MetricFilter::default()).total_count, 3);
     assert_eq!(c.buffer_len(), 3);
-    assert_eq!(c.get_internal_metrics().buffer_size, 0);
+    assert_eq!(c.get_internal_metrics().buffer_size, 3);
 }
 
 #[test]
@@ -789,17 +807,15 @@ fn latest_snapshots_honors_name_filter() {
 }
 
 impl BaseMetricCollector {
-    /// Test helper: re-query the latest recorded metric snapshot.
+    /// Test helper: latest recorded metric snapshot through the read path.
     fn raw_latest(&self, name: &str) -> Metric {
-        let buffers = self.lock_buffers();
-        buffers
-            .buffer
-            .iter()
-            .chain(buffers.pending.iter())
-            .chain(buffers.failed.iter())
-            .rev()
-            .find(|m| m.name == name)
-            .cloned()
-            .expect("metric not found")
+        self.matching_snapshots(&MetricFilter {
+            name: Some(name.to_string()),
+            ..Default::default()
+        })
+        .into_iter()
+        .rev()
+        .find(|m| m.name == name)
+        .expect("metric not found")
     }
 }

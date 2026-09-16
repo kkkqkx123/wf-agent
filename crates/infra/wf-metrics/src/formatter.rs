@@ -41,6 +41,18 @@ pub fn format_registry_json(registry: &crate::MetricsRegistry) -> Value {
     )
 }
 
+/// Render pre-collected snapshots as Prometheus text. Shared by the direct
+/// collector export and the render cache single-pass refresh.
+pub(crate) fn snapshots_prometheus(snapshots: &[Metric]) -> String {
+    format_snapshots_prometheus(snapshots)
+}
+
+/// Render pre-collected snapshots as JSON. Shared by the direct collector
+/// export and the render cache single-pass refresh.
+pub(crate) fn snapshots_json(snapshots: &[Metric]) -> Value {
+    serde_json::to_value(snapshots).unwrap_or(Value::Null)
+}
+
 fn format_snapshots_prometheus(snapshots: &[Metric]) -> String {
     let mut out = String::new();
     for metric in snapshots {
@@ -56,12 +68,17 @@ fn format_snapshots_prometheus(snapshots: &[Metric]) -> String {
 ///
 /// Counters get the conventional `_total` suffix on the sample name; the
 /// internal metric name stays unchanged elsewhere (stats APIs, JSON export).
+/// Descriptions come from the central table, falling back to a humanized
+/// metric name for unlisted metrics.
 fn output_identity(metric: &Metric) -> (String, String) {
     let name = match metric.metric_type {
         MetricType::Counter => format!("{}_total", metric.name),
         _ => metric.name.clone(),
     };
-    (name, describe(&metric.name))
+    let help = crate::descriptions::metric_description(&metric.name)
+        .map(str::to_string)
+        .unwrap_or_else(|| describe(&metric.name));
+    (name, help)
 }
 
 /// Human-readable description built from the dotted metric name, e.g.

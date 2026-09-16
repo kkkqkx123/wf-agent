@@ -6,6 +6,13 @@ pub struct MetricCollectorConfig {
     pub flush_interval: Option<i64>,
     pub enable_periodic_reporting: Option<bool>,
     pub reporting_interval: Option<i64>,
+    /// Reject series carrying label keys outside the allowlist instead of
+    /// only warning. Defaults to permissive warning.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub strict_labels: Option<bool>,
+    /// Explicit label key allowlist. Absent means every key is accepted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub allowed_label_keys: Option<Vec<String>>,
 }
 
 /// Anomaly detection thresholds consumed by the report generator.

@@ -369,6 +369,7 @@ mod tests {
         second.previous_checkpoint_id = Some("cp-a".into());
         second.base_checkpoint_id = Some("cp-a".into());
         second.chain_root_id = Some("cp-a".into());
+        second.chain_position = Some(1);
         second.custom_fields = Some(
             serde_json::from_value(serde_json::json!({"description": "after node n1"}))
                 .expect("metadata map"),

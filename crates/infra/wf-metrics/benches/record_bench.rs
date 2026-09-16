@@ -1,9 +1,9 @@
 //! Record-path throughput benchmarks for `BaseMetricCollector`.
 //!
 //! Covers the write hot path (counters/gauges/histograms) single-threaded
-//! and multi-threaded, plus a writer + periodic export scenario. The split
-//! buffers/states lock design keeps histogram percentile computation from
-//! blocking counter recording, which these benchmarks exercise.
+//! and multi-threaded, plus a writer + periodic export scenario. The
+//! lock-free series state keeps histogram observation from blocking counter
+//! recording, which these benchmarks exercise.
 
 use std::sync::Arc;
 

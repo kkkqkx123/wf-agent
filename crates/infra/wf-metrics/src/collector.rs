@@ -1,11 +1,14 @@
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicI64, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
+use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use wf_common::time::now;
 use wf_types::config::metrics::MetricCollectorConfig;
 
-use crate::collector_math::merge_points;
+use crate::collector_math::{calculate_percentiles, merge_points, percentiles_from_buckets};
+use crate::labels::LabelConfig;
 use crate::metric::{HistogramBucket, Metric, MetricFilter, MetricQueryResult, MetricType};
 use crate::sink::{MetricPoint, MetricsError, MetricsSink};
 
@@ -32,6 +35,7 @@ pub const DEFAULT_PERCENTILE_TARGETS: [f64; 4] = [0.5, 0.9, 0.95, 0.99];
 const DEFAULT_BUFFER_SIZE: usize = 100;
 const DEFAULT_FLUSH_INTERVAL_MS: i64 = 5000;
 const DEFAULT_REPORTING_INTERVAL_MS: i64 = 10000;
+const DEFAULT_RETENTION_MS: i64 = 3_600_000;
 const ESTIMATED_BYTES_PER_METRIC: u64 = 500;
 /// Upper bound on the failed-flush retry queue as a multiple of the buffer
 /// size. Once exhausted the oldest retry points are dropped and counted in
@@ -40,12 +44,18 @@ const MAX_FAILED_BATCHES: usize = 8;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct CollectorConfig {
-    /// Buffer size before the buffer drains into the pending batch.
+    /// Soft record target before utilization reads as full; the journal is
+    /// drained by flush, not by threshold.
     pub buffer_size: usize,
-    /// Periodic flush interval in milliseconds (driven by the runtime).
+    /// Periodic flush interval in milliseconds (driven by the runtime or by
+    /// the registry background tasks).
     pub flush_interval_ms: i64,
     pub enable_periodic_reporting: bool,
     pub reporting_interval_ms: i64,
+    /// In-memory retention window in milliseconds for expiry cleanup.
+    pub retention_ms: i64,
+    /// Label allowlist governance for every recorded series.
+    pub label_config: LabelConfig,
 }
 
 impl Default for CollectorConfig {
@@ -55,6 +65,8 @@ impl Default for CollectorConfig {
             flush_interval_ms: DEFAULT_FLUSH_INTERVAL_MS,
             enable_periodic_reporting: false,
             reporting_interval_ms: DEFAULT_REPORTING_INTERVAL_MS,
+            retention_ms: DEFAULT_RETENTION_MS,
+            label_config: LabelConfig::default(),
         }
     }
 }
@@ -74,6 +86,8 @@ impl From<&MetricCollectorConfig> for CollectorConfig {
             reporting_interval_ms: cfg
                 .reporting_interval
                 .unwrap_or(defaults.reporting_interval_ms),
+            retention_ms: defaults.retention_ms,
+            label_config: LabelConfig::from(cfg),
         }
     }
 }
@@ -100,40 +114,107 @@ pub struct InternalMetrics {
     pub estimated_memory_usage: u64,
 }
 
+/// Lock-free self-monitoring counters backing `InternalMetrics`.
+#[derive(Default)]
+struct Stats {
+    record_count: AtomicU64,
+    flush_count: AtomicU64,
+    query_count: AtomicU64,
+    cleanup_count: AtomicU64,
+    expired_removed: AtomicU64,
+    flush_errors: AtomicU64,
+    drops: AtomicU64,
+    last_flush_ms_bits: AtomicU64,
+    avg_flush_ms_bits: AtomicU64,
+    avg_query_ms_bits: AtomicU64,
+    last_cleanup_time: AtomicI64,
+}
+
+fn atomic_add_f64(dst: &AtomicU64, delta: f64) {
+    let mut current = dst.load(Ordering::Relaxed);
+    loop {
+        let next = f64::from_bits(current) + delta;
+        match dst.compare_exchange_weak(
+            current,
+            next.to_bits(),
+            Ordering::Relaxed,
+            Ordering::Relaxed,
+        ) {
+            Ok(_) => break,
+            Err(actual) => current = actual,
+        }
+    }
+}
+
+/// Cumulative running average update: `avg += (sample - avg) / count`.
+fn blend_avg(avg_bits: &AtomicU64, count: u64, sample: f64) {
+    if count == 0 {
+        return;
+    }
+    let mut current = avg_bits.load(Ordering::Relaxed);
+    loop {
+        let current_value = f64::from_bits(current);
+        let next = current_value + (sample - current_value) / count as f64;
+        match avg_bits.compare_exchange_weak(
+            current,
+            next.to_bits(),
+            Ordering::Relaxed,
+            Ordering::Relaxed,
+        ) {
+            Ok(_) => break,
+            Err(actual) => current = actual,
+        }
+    }
+}
+
+/// Per-series histogram state with interior mutability.
+///
+/// Bucket counts, sum and sample count are atomics, so concurrent
+/// observations of the same series never block each other.
 #[derive(Debug)]
-struct HistogramState {
+pub(crate) struct HistogramState {
     /// Cumulative bucket counts aligned with `DEFAULT_HISTOGRAM_BUCKETS`.
-    counts: Vec<u64>,
-    sum: f64,
-    count: u64,
+    counts: Vec<AtomicU64>,
+    sum_bits: AtomicU64,
+    count: AtomicU64,
 }
 
 impl HistogramState {
     fn new() -> Self {
         Self {
-            counts: vec![0; DEFAULT_HISTOGRAM_BUCKETS.len()],
-            sum: 0.0,
-            count: 0,
+            counts: (0..DEFAULT_HISTOGRAM_BUCKETS.len())
+                .map(|_| AtomicU64::new(0))
+                .collect(),
+            sum_bits: AtomicU64::new(0.0f64.to_bits()),
+            count: AtomicU64::new(0),
         }
     }
 
-    fn observe(&mut self, value: f64) {
-        for (count, bound) in self.counts.iter_mut().zip(DEFAULT_HISTOGRAM_BUCKETS.iter()) {
+    fn observe(&self, value: f64) {
+        for (slot, bound) in self.counts.iter().zip(DEFAULT_HISTOGRAM_BUCKETS.iter()) {
             if value <= *bound {
-                *count += 1;
+                slot.fetch_add(1, Ordering::Relaxed);
             }
         }
-        self.sum += value;
-        self.count += 1;
+        atomic_add_f64(&self.sum_bits, value);
+        self.count.fetch_add(1, Ordering::Relaxed);
+    }
+
+    fn sum(&self) -> f64 {
+        f64::from_bits(self.sum_bits.load(Ordering::Relaxed))
+    }
+
+    fn count(&self) -> u64 {
+        self.count.load(Ordering::Relaxed)
     }
 
     fn serialize_buckets(&self) -> Vec<HistogramBucket> {
         self.counts
             .iter()
             .zip(DEFAULT_HISTOGRAM_BUCKETS.iter())
-            .map(|(count, bound)| HistogramBucket {
+            .map(|(slot, bound)| HistogramBucket {
                 upper_bound: *bound,
-                count: *count,
+                count: slot.load(Ordering::Relaxed),
             })
             .collect()
     }
@@ -171,62 +252,25 @@ impl SummaryState {
     }
 }
 
-#[derive(Default)]
-struct Buffers {
-    buffer: Vec<Metric>,
-    /// Batch drained from `buffer` on threshold overflow, awaiting the next flush.
-    pending: Vec<Metric>,
-    /// Non-summary metrics whose last flush attempt failed, awaiting retry.
-    failed: Vec<Metric>,
-    internal: InternalMetrics,
-}
-
-impl Buffers {
-    fn buffered_len(&self) -> usize {
-        self.buffer.len() + self.pending.len() + self.failed.len()
-    }
-
-    fn record_metric(&mut self, mut metric: Metric, config: &CollectorConfig) {
-        if metric.timestamp == 0 {
-            metric.timestamp = now();
-        }
-        self.buffer.push(metric);
-        self.internal.record_count += 1;
-        self.internal.buffer_size = self.buffer.len();
-        self.internal.buffer_utilization = self.buffer.len() as f64 / config.buffer_size as f64;
-        self.internal.estimated_memory_usage =
-            self.buffer.len() as u64 * ESTIMATED_BYTES_PER_METRIC;
-
-        if self.buffer.len() >= config.buffer_size {
-            let drained = std::mem::take(&mut self.buffer);
-            self.pending.extend(drained);
-            self.internal.buffer_size = 0;
-            self.internal.buffer_utilization = 0.0;
-            self.internal.estimated_memory_usage = 0;
-        }
-    }
-}
-
-#[derive(Default)]
-struct States {
-    histogram_states: HashMap<String, HistogramState>,
-    summary_states: HashMap<String, SummaryState>,
-}
-
-/// Base metric collector providing buffering, batching, histogram/summary
-/// state, query aggregation and self-monitoring.
+/// Base metric collector with a lock-free record path.
 ///
-/// Thread-safe: recording and querying serialize on a pair of internal
-/// mutexes. The buffered write path (`record`/`increment_counter`/`set_gauge`)
-/// only touches the `buffers` lock with a short append; histogram/summary
-/// state computation runs under the separate `states` lock so percentile
-/// sorting never blocks counter recording or exports. Periodic flush/cleanup
-/// is driven externally (e.g. by `wf-runtime` tokio intervals reading
-/// `CollectorConfig::flush_interval_ms`).
+/// Counter, gauge and histogram observations update sharded series state
+/// through atomics and append the journal without taking a global lock, so
+/// writers never block each other. Percentile estimates are deferred to read
+/// time (query, export, flush) instead of being recomputed on every sample.
+/// Periodic flush/cleanup is driven externally or by the registry background
+/// tasks reading `CollectorConfig::flush_interval_ms`/`retention_ms`.
 #[derive(Clone)]
 pub struct BaseMetricCollector {
-    buffers: Arc<Mutex<Buffers>>,
-    states: Arc<Mutex<States>>,
+    /// Insertion-ordered journal (`sequence -> record`) for history, query
+    /// time series and flush batches.
+    records: Arc<DashMap<u64, Metric>>,
+    /// Batches whose last flush attempt failed, awaiting retry.
+    failed: Arc<DashMap<u64, Metric>>,
+    next_seq: Arc<AtomicU64>,
+    histograms: Arc<DashMap<String, HistogramState>>,
+    summaries: Arc<DashMap<String, Mutex<SummaryState>>>,
+    stats: Arc<Stats>,
     config: CollectorConfig,
     sink: Arc<Mutex<Option<Arc<dyn MetricsSink>>>>,
 }
@@ -234,14 +278,18 @@ pub struct BaseMetricCollector {
 impl BaseMetricCollector {
     pub fn new(config: CollectorConfig) -> Self {
         Self {
-            buffers: Arc::new(Mutex::new(Buffers::default())),
-            states: Arc::new(Mutex::new(States::default())),
+            records: Arc::new(DashMap::new()),
+            failed: Arc::new(DashMap::new()),
+            next_seq: Arc::new(AtomicU64::new(0)),
+            histograms: Arc::new(DashMap::new()),
+            summaries: Arc::new(DashMap::new()),
+            stats: Arc::new(Stats::default()),
             config,
             sink: Arc::new(Mutex::new(None)),
         }
     }
 
-    /// Attach a persistence sink. Flush persists non-summary metrics to it.
+    /// Attach a persistence sink. Flush persists metrics to it.
     pub fn with_sink(self, sink: Arc<dyn MetricsSink>) -> Self {
         self.set_sink(sink);
         self
@@ -258,14 +306,6 @@ impl BaseMetricCollector {
 
     /// A poisoned mutex is recovered rather than panicking: the collector
     /// degrades to the last consistent state instead of crashing the process.
-    fn lock_buffers(&self) -> MutexGuard<'_, Buffers> {
-        wf_common::lock::lock_ok(self.buffers.lock())
-    }
-
-    fn lock_states(&self) -> MutexGuard<'_, States> {
-        wf_common::lock::lock_ok(self.states.lock())
-    }
-
     fn sink_guard(&self) -> MutexGuard<'_, Option<Arc<dyn MetricsSink>>> {
         wf_common::lock::lock_ok(self.sink.lock())
     }
@@ -274,12 +314,28 @@ impl BaseMetricCollector {
         self.sink_guard().clone()
     }
 
+    fn push_record(&self, mut metric: Metric) {
+        if metric.timestamp == 0 {
+            metric.timestamp = now();
+        }
+        let seq = self.next_seq.fetch_add(1, Ordering::Relaxed);
+        self.records.insert(seq, metric);
+        self.stats.record_count.fetch_add(1, Ordering::Relaxed);
+    }
+
     fn record_checked(&self, metric: Metric) {
         if metric.name.is_empty() {
             tracing::warn!(target: "wf_metrics", "record called with empty metric name");
             return;
         }
-        self.lock_buffers().record_metric(metric, &self.config);
+        if !self
+            .config
+            .label_config
+            .validate(&metric.name, &metric.labels)
+        {
+            return;
+        }
+        self.push_record(metric);
     }
 
     /// Record a metric, filling the timestamp when absent.
@@ -310,6 +366,9 @@ impl BaseMetricCollector {
     }
 
     /// Observe a histogram sample with cumulative bucket counts.
+    ///
+    /// The hot path only bumps atomic bucket counters; percentile estimates
+    /// are derived from the stored buckets when snapshots are read.
     pub fn observe_histogram(
         &self,
         name: &str,
@@ -321,38 +380,32 @@ impl BaseMetricCollector {
             tracing::warn!(target: "wf_metrics", "observe_histogram called with empty name");
             return;
         }
-        let metric = {
-            let mut states = self.lock_states();
-            let state = states
-                .histogram_states
-                .entry(crate::collector_math::state_key(name, &labels))
-                .or_insert_with(HistogramState::new);
-            state.observe(value);
-            let buckets = state.serialize_buckets();
-            let percentiles = crate::collector_math::percentiles_from_buckets(
-                &buckets,
-                state.count as f64,
-                &DEFAULT_PERCENTILE_TARGETS,
-            );
-            Metric {
-                name: name.to_string(),
-                metric_type: MetricType::Histogram,
-                value,
-                timestamp: 0,
-                labels: labels.clone(),
-                source: String::new(),
-                buckets,
-                // Bucket-derived percentiles keep `usage_stats()` p95/p99
-                // queries working for histogram durations.
-                percentiles,
-                sum: state.sum,
-                count: state.count,
-            }
-        };
-        self.lock_buffers().record_metric(metric, &self.config);
+        if !self.config.label_config.validate(name, &labels) {
+            return;
+        }
+        let state = self
+            .histograms
+            .entry(crate::collector_math::state_key(name, &labels))
+            .or_insert_with(HistogramState::new);
+        state.observe(value);
+        self.push_record(Metric {
+            name: name.to_string(),
+            metric_type: MetricType::Histogram,
+            value,
+            timestamp: 0,
+            labels,
+            source: String::new(),
+            buckets: state.serialize_buckets(),
+            percentiles: Vec::new(),
+            sum: state.sum(),
+            count: state.count(),
+        });
     }
 
-    /// Observe a summary sample; percentiles are computed over a sliding window.
+    /// Observe a summary sample.
+    ///
+    /// The hot path appends to the per-series window in constant time;
+    /// percentiles are computed over the window when snapshots are read.
     pub fn observe_summary(
         &self,
         name: &str,
@@ -364,36 +417,64 @@ impl BaseMetricCollector {
             tracing::warn!(target: "wf_metrics", "observe_summary called with empty name");
             return;
         }
-        let metric = {
-            let mut states = self.lock_states();
-            let state = states
-                .summary_states
-                .entry(crate::collector_math::state_key(name, &labels))
-                .or_insert_with(|| SummaryState::new(DEFAULT_SUMMARY_WINDOW_SIZE));
+        if !self.config.label_config.validate(name, &labels) {
+            return;
+        }
+        let slot = self
+            .summaries
+            .entry(crate::collector_math::state_key(name, &labels))
+            .or_insert_with(|| Mutex::new(SummaryState::new(DEFAULT_SUMMARY_WINDOW_SIZE)));
+        let (sum, count) = {
+            let mut state = wf_common::lock::lock_ok(slot.lock());
             state.observe(value);
-            let percentiles =
-                crate::collector_math::calculate_percentiles(state, &DEFAULT_PERCENTILE_TARGETS);
-            Metric {
-                name: name.to_string(),
-                metric_type: MetricType::Summary,
-                value,
-                timestamp: 0,
-                labels: labels.clone(),
-                source: String::new(),
-                buckets: Vec::new(),
-                percentiles,
-                sum: state.sum,
-                count: state.count,
-            }
+            (state.sum, state.count)
         };
-        self.lock_buffers().record_metric(metric, &self.config);
+        self.push_record(Metric {
+            name: name.to_string(),
+            metric_type: MetricType::Summary,
+            value,
+            timestamp: 0,
+            labels,
+            source: String::new(),
+            buckets: Vec::new(),
+            percentiles: Vec::new(),
+            sum,
+            count,
+        });
+    }
+
+    /// Fill deferred percentile estimates for a snapshot in place.
+    ///
+    /// Histograms interpolate from their stored buckets; summaries compute
+    /// over the current per-series window. Snapshots that already carry
+    /// percentiles (for example rebuilt persisted state) are left untouched.
+    fn fill_percentiles(&self, metric: &mut Metric) {
+        match metric.metric_type {
+            MetricType::Histogram
+                if metric.percentiles.is_empty() && !metric.buckets.is_empty() =>
+            {
+                metric.percentiles = percentiles_from_buckets(
+                    &metric.buckets,
+                    metric.count as f64,
+                    &DEFAULT_PERCENTILE_TARGETS,
+                );
+            }
+            MetricType::Summary if metric.percentiles.is_empty() => {
+                let key = crate::collector_math::state_key(&metric.name, &metric.labels);
+                if let Some(slot) = self.summaries.get(&key) {
+                    let state = wf_common::lock::lock_ok(slot.lock());
+                    metric.percentiles = calculate_percentiles(&state, &DEFAULT_PERCENTILE_TARGETS);
+                }
+            }
+            _ => {}
+        }
     }
 
     /// Flush buffered and pending metrics.
     ///
     /// Persistence keeps enough state to rebuild distributions after a
-    /// restart (M4/M5): histogram snapshots carry their cumulative bucket
-    /// counts, `sum` and `count`, and summary percentiles are written as
+    /// restart: histogram snapshots carry their cumulative bucket counts,
+    /// `sum` and `count`, and summary percentiles are written as
     /// `{name}_p{percentile}` gauge points. Duration metrics are histograms,
     /// which persist their cumulative snapshots.
     ///
@@ -405,18 +486,36 @@ impl BaseMetricCollector {
     /// values are harmless to re-persist and a superseded snapshot is simply
     /// overwritten by the newer one on the next successful flush.
     pub async fn flush(&self) {
-        let (points, batch) = {
-            let mut buffers = self.lock_buffers();
-            if buffers.buffer.is_empty() && buffers.pending.is_empty() && buffers.failed.is_empty()
-            {
-                return;
+        if self.records.is_empty() && self.failed.is_empty() {
+            return;
+        }
+        let mut batch: Vec<(u64, Metric)> = Vec::new();
+        for key in self
+            .records
+            .iter()
+            .map(|entry| *entry.key())
+            .collect::<Vec<_>>()
+        {
+            if let Some((seq, metric)) = self.records.remove(&key) {
+                batch.push((seq, metric));
             }
-            let mut batch: Vec<Metric> = std::mem::take(&mut buffers.pending);
-            batch.append(&mut buffers.buffer);
-            batch.append(&mut buffers.failed);
-            let points = merge_points(crate::collector_math::to_persisted_points(&batch));
-            (points, batch)
-        };
+        }
+        for key in self
+            .failed
+            .iter()
+            .map(|entry| *entry.key())
+            .collect::<Vec<_>>()
+        {
+            if let Some((seq, metric)) = self.failed.remove(&key) {
+                batch.push((seq, metric));
+            }
+        }
+        batch.sort_by_key(|(seq, _)| *seq);
+        let mut batch: Vec<Metric> = batch.into_iter().map(|(_, metric)| metric).collect();
+        for metric in batch.iter_mut() {
+            self.fill_percentiles(metric);
+        }
+        let points = merge_points(crate::collector_math::to_persisted_points(&batch));
 
         let start = now();
         let result = match self.sink() {
@@ -425,31 +524,33 @@ impl BaseMetricCollector {
         };
         let duration = (now() - start) as f64;
 
-        let mut buffers = self.lock_buffers();
-        buffers.internal.flush_count += 1;
-        buffers.internal.last_flush_duration_ms = duration;
-        let count = buffers.internal.flush_count as f64;
-        buffers.internal.avg_flush_duration_ms +=
-            (duration - buffers.internal.avg_flush_duration_ms) / count;
+        let flush_count = self.stats.flush_count.fetch_add(1, Ordering::Relaxed) + 1;
+        self.stats
+            .last_flush_ms_bits
+            .store(duration.to_bits(), Ordering::Relaxed);
+        blend_avg(&self.stats.avg_flush_ms_bits, flush_count, duration);
         if let Err(err) = result {
-            buffers.internal.flush_error_count += 1;
+            self.stats.flush_errors.fetch_add(1, Ordering::Relaxed);
             // Re-enqueue the drained batch for the next flush, dropping the
             // oldest points when the retry queue cap is exceeded. Summaries
             // are retained too: they re-expand into percentile gauges on the
             // next attempt.
             let cap = MAX_FAILED_BATCHES.saturating_mul(self.config.buffer_size.max(1));
-            let room = cap.saturating_sub(buffers.failed.len());
-            let mut refill: Vec<Metric> = batch;
-            if refill.len() > room {
-                let dropped = refill.len() - room;
-                buffers.internal.drop_count += dropped as u64;
-                refill.drain(0..dropped);
+            if batch.len() > cap {
+                let dropped = batch.len() - cap;
+                self.stats
+                    .drops
+                    .fetch_add(dropped as u64, Ordering::Relaxed);
+                batch.drain(0..dropped);
             }
-            buffers.failed.extend(refill);
+            for metric in batch {
+                let seq = self.next_seq.fetch_add(1, Ordering::Relaxed);
+                self.failed.insert(seq, metric);
+            }
             tracing::error!(
                 target: "wf_metrics",
                 error = %err,
-                failed = buffers.failed.len(),
+                failed = self.failed.len(),
                 "metrics flush failed; batch retained for retry"
             );
         }
@@ -457,45 +558,18 @@ impl BaseMetricCollector {
 
     /// Query buffered metrics with filters and aggregation.
     ///
-    /// Matching records are cloned under the buffers lock; filtering and
-    /// aggregation run after the lock is released so export never blocks
+    /// Matching records are cloned out of the sharded journal; filtering and
+    /// aggregation run without holding any record lock so export never blocks
     /// concurrent recording.
     pub fn query(&self, filter: &MetricFilter) -> MetricQueryResult {
         let start = now();
-        let (total_count, filtered) = {
-            let buffers = self.lock_buffers();
-            let mut filtered: Vec<Metric> = buffers
-                .buffer
-                .iter()
-                .chain(buffers.pending.iter())
-                .chain(buffers.failed.iter())
-                .filter(|m| {
-                    filter.name.as_ref().is_none_or(|n| &m.name == n)
-                        && filter.metric_type.is_none_or(|t| m.metric_type == t)
-                        && filter
-                            .labels
-                            .as_ref()
-                            .is_none_or(|l| l.iter().all(|(k, v)| m.labels.get(k) == Some(v)))
-                        && filter
-                            .time_range
-                            .is_none_or(|r| m.timestamp >= r.from && m.timestamp <= r.to)
-                })
-                .cloned()
-                .collect();
-            if let Some(limit) = filter.limit {
-                filtered.truncate(limit);
-            }
-            let total_count = filtered.len();
-            (total_count, filtered)
-        };
+        let filtered = self.matching_snapshots(filter);
+        let total_count = filtered.len();
         let metrics = crate::collector_math::aggregate(&filtered.iter().collect::<Vec<_>>());
         let query_time_ms = (now() - start) as f64;
 
-        let mut buffers = self.lock_buffers();
-        buffers.internal.query_count += 1;
-        let count = buffers.internal.query_count as f64;
-        buffers.internal.avg_query_duration_ms +=
-            (query_time_ms - buffers.internal.avg_query_duration_ms) / count;
+        let query_count = self.stats.query_count.fetch_add(1, Ordering::Relaxed) + 1;
+        blend_avg(&self.stats.avg_query_ms_bits, query_count, query_time_ms);
 
         MetricQueryResult {
             total_count,
@@ -507,23 +581,23 @@ impl BaseMetricCollector {
     /// Remove buffered metrics older than `retention_ms`.
     ///
     /// The runtime drives both this in-memory cleanup and the persisted
-    /// `delete_old_persisted` from a single global retention window (L3).
+    /// `delete_old_persisted` from a single global retention window.
     pub fn cleanup_expired_before(&self, retention_ms: i64) {
         let cutoff = now() - retention_ms;
-        let mut buffers = self.lock_buffers();
-        let before = buffers.buffered_len();
-        buffers.buffer.retain(|m| m.timestamp >= cutoff);
-        buffers.pending.retain(|m| m.timestamp >= cutoff);
-        buffers.failed.retain(|m| m.timestamp >= cutoff);
-        let removed = before - buffers.buffered_len();
+        let before = self.buffer_len();
+        self.records.retain(|_, metric| metric.timestamp >= cutoff);
+        self.failed.retain(|_, metric| metric.timestamp >= cutoff);
+        let removed = before.saturating_sub(self.buffer_len());
         if removed > 0 {
-            buffers.internal.cleanup_count += 1;
-            buffers.internal.expired_metrics_removed += removed as u64;
-            buffers.internal.last_cleanup_time = now();
+            self.stats.cleanup_count.fetch_add(1, Ordering::Relaxed);
+            self.stats
+                .expired_removed
+                .fetch_add(removed as u64, Ordering::Relaxed);
+            self.stats.last_cleanup_time.store(now(), Ordering::Relaxed);
             tracing::debug!(
                 target: "wf_metrics",
                 removed,
-                remaining = buffers.buffered_len(),
+                remaining = self.buffer_len(),
                 "expired metrics cleaned up"
             );
         }
@@ -532,23 +606,19 @@ impl BaseMetricCollector {
     /// Clear all buffered metrics and histogram/summary state.
     /// Cumulative counters (record/flush/query counts) are kept.
     pub fn clear(&self) {
-        let mut buffers = self.lock_buffers();
-        buffers.buffer.clear();
-        buffers.pending.clear();
-        buffers.failed.clear();
-        self.lock_states().histogram_states.clear();
-        self.lock_states().summary_states.clear();
-        buffers.internal.buffer_size = 0;
-        buffers.internal.buffer_utilization = 0.0;
-        buffers.internal.estimated_memory_usage = 0;
+        self.records.clear();
+        self.failed.clear();
+        self.histograms.clear();
+        self.summaries.clear();
         tracing::info!(target: "wf_metrics", "metrics cleared");
     }
 
     /// Latest recorded snapshot per metric name, optionally filtered.
     ///
     /// State-bearing metrics (histogram/summary) resolve to their most
-    /// recent cumulative snapshot. Used by domain stats helpers; exporters
-    /// should prefer `export_snapshots` which keeps label series intact.
+    /// recent cumulative snapshot with percentiles filled. Used by domain
+    /// stats helpers; exporters should prefer `export_snapshots` which keeps
+    /// label series intact.
     pub fn latest_snapshots(&self, filter: &MetricFilter) -> Vec<Metric> {
         let filtered = self.matching_snapshots(filter);
         let mut latest: HashMap<String, Metric> = HashMap::new();
@@ -556,7 +626,7 @@ impl BaseMetricCollector {
             match latest.get(&m.name) {
                 Some(existing) if existing.timestamp > m.timestamp => {}
                 _ => {
-                    latest.insert(m.name.clone(), m.clone());
+                    latest.insert(m.name.clone(), m);
                 }
             }
         }
@@ -580,11 +650,11 @@ impl BaseMetricCollector {
                 }
                 Some(existing) => {
                     if m.timestamp >= existing.timestamp {
-                        *existing = m.clone();
+                        *existing = m;
                     }
                 }
                 None => {
-                    groups.insert(key, m.clone());
+                    groups.insert(key, m);
                 }
             }
         }
@@ -598,28 +668,33 @@ impl BaseMetricCollector {
         snapshots
     }
 
-    /// Clone the records matching `filter` out of the buffers under the
-    /// buffers lock, releasing it before the caller runs any aggregation.
+    /// Clone the records matching `filter` out of the journal in insertion
+    /// order with deferred percentiles filled, holding no record lock while
+    /// the caller runs aggregation.
     fn matching_snapshots(&self, filter: &MetricFilter) -> Vec<Metric> {
-        let buffers = self.lock_buffers();
-        buffers
-            .buffer
-            .iter()
-            .chain(buffers.pending.iter())
-            .chain(buffers.failed.iter())
-            .filter(|m| {
-                filter.name.as_ref().is_none_or(|n| &m.name == n)
-                    && filter.metric_type.is_none_or(|t| m.metric_type == t)
-                    && filter
-                        .labels
-                        .as_ref()
-                        .is_none_or(|l| l.iter().all(|(k, v)| m.labels.get(k) == Some(v)))
-                    && filter
-                        .time_range
-                        .is_none_or(|r| m.timestamp >= r.from && m.timestamp <= r.to)
-            })
-            .cloned()
-            .collect()
+        let mut entries: Vec<(u64, Metric)> =
+            Vec::with_capacity(self.records.len() + self.failed.len());
+        for entry in self.records.iter() {
+            entries.push((*entry.key(), entry.value().clone()));
+        }
+        for entry in self.failed.iter() {
+            entries.push((*entry.key(), entry.value().clone()));
+        }
+        entries.sort_by_key(|(seq, _)| *seq);
+        let mut out = Vec::new();
+        for (_, mut metric) in entries {
+            if !metric_matches(&metric, filter) {
+                continue;
+            }
+            if let Some(limit) = filter.limit {
+                if out.len() >= limit {
+                    break;
+                }
+            }
+            self.fill_percentiles(&mut metric);
+            out.push(metric);
+        }
+        out
     }
 
     /// Query the attached persistence sink for a metric over a time range.
@@ -635,7 +710,7 @@ impl BaseMetricCollector {
         Some(self.sink()?.query(name, from, to).await)
     }
 
-    /// Rebuild a `Metric` from a persisted histogram snapshot (M5).
+    /// Rebuild a `Metric` from a persisted histogram snapshot.
     ///
     /// Recomputes the percentile estimates from the stored cumulative bucket
     /// counts so `usage_stats()`-style p95/p99 survive a process restart.
@@ -652,7 +727,7 @@ impl BaseMetricCollector {
             labels: point.labels,
             source: point.source,
             buckets: point.buckets.clone(),
-            percentiles: crate::collector_math::percentiles_from_buckets(
+            percentiles: percentiles_from_buckets(
                 &point.buckets,
                 point.count as f64,
                 &DEFAULT_PERCENTILE_TARGETS,
@@ -663,7 +738,7 @@ impl BaseMetricCollector {
     }
 
     /// Restore stateful (histogram) snapshots from the sink back into the
-    /// buffer so domain stats keep their percentiles after a restart (M4/M5).
+    /// journal so domain stats keep their percentiles after a restart.
     ///
     /// Only records with reconstructable state are replayed; counters and
     /// gauges are left untouched to avoid double counting on the next flush.
@@ -688,12 +763,50 @@ impl BaseMetricCollector {
 
     /// Snapshot of the collector self-monitoring metrics.
     pub fn get_internal_metrics(&self) -> InternalMetrics {
-        self.lock_buffers().internal.clone()
+        InternalMetrics {
+            buffer_size: self.records.len(),
+            buffer_utilization: self.buffer_len() as f64 / self.config.buffer_size.max(1) as f64,
+            record_count: self.stats.record_count.load(Ordering::Relaxed),
+            flush_count: self.stats.flush_count.load(Ordering::Relaxed),
+            query_count: self.stats.query_count.load(Ordering::Relaxed),
+            avg_flush_duration_ms: f64::from_bits(
+                self.stats.avg_flush_ms_bits.load(Ordering::Relaxed),
+            ),
+            avg_query_duration_ms: f64::from_bits(
+                self.stats.avg_query_ms_bits.load(Ordering::Relaxed),
+            ),
+            last_flush_duration_ms: f64::from_bits(
+                self.stats.last_flush_ms_bits.load(Ordering::Relaxed),
+            ),
+            cleanup_count: self.stats.cleanup_count.load(Ordering::Relaxed),
+            expired_metrics_removed: self.stats.expired_removed.load(Ordering::Relaxed),
+            last_cleanup_time: self.stats.last_cleanup_time.load(Ordering::Relaxed),
+            flush_error_count: self.stats.flush_errors.load(Ordering::Relaxed),
+            drop_count: self.stats.drops.load(Ordering::Relaxed),
+            estimated_memory_usage: self.buffer_len() as u64 * ESTIMATED_BYTES_PER_METRIC,
+            ..Default::default()
+        }
     }
 
-    /// Total number of metrics currently buffered (including pending and the
-    /// failed retry queue).
+    /// Total number of metrics currently buffered (including the failed
+    /// retry queue).
     pub fn buffer_len(&self) -> usize {
-        self.lock_buffers().buffered_len()
+        self.records.len() + self.failed.len()
     }
 }
+
+fn metric_matches(metric: &Metric, filter: &MetricFilter) -> bool {
+    filter.name.as_ref().is_none_or(|n| &metric.name == n)
+        && filter.metric_type.is_none_or(|t| metric.metric_type == t)
+        && filter
+            .labels
+            .as_ref()
+            .is_none_or(|l| l.iter().all(|(k, v)| metric.labels.get(k) == Some(v)))
+        && filter
+            .time_range
+            .is_none_or(|r| metric.timestamp >= r.from && metric.timestamp <= r.to)
+}
+
+#[cfg(test)]
+#[path = "collector/tests.rs"]
+mod tests;

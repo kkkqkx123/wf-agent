@@ -16,20 +16,12 @@
 
 use serde::Serialize;
 
-use wf_checkpoint::serializer::CheckpointSerializer;
 use wf_execution_shared::types::state_manager::StateManager;
 use wf_storage::adapter::base::BaseStorageAdapter;
-use wf_storage::adapter::checkpoint::CheckpointStorageAdapter;
-use wf_storage::domain::store::Store;
 use wf_types::agent_execution::LlmCallRecord;
 
 use crate::infra::context::ApiContext;
 use crate::infra::error::ApiResult;
-
-/// Entity type tag of a checkpoint row (agent checkpoints are stored under
-/// `"checkpoint"`, workflow checkpoints under `"execution"`).
-const AGENT_CHECKPOINT_ENTITY_TYPE: &str = "checkpoint";
-const WORKFLOW_CHECKPOINT_ENTITY_TYPE: &str = "execution";
 
 /// Where the audit data was resolved from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -302,59 +294,58 @@ async fn resolve_workflow(
     Ok(None)
 }
 
-/// Latest checkpoint blob of an agent loop, or `None` when none exists.
+/// Latest checkpoint snapshot of an agent loop, or `None` when none exists.
+/// Restored through the coordinator so delta chains resolve to full state.
 async fn agent_checkpoint_snapshot(
     ctx: &ApiContext,
     execution_id: &str,
 ) -> ApiResult<Option<wf_types::checkpoint::agent::AgentStateSnapshot>> {
-    let checkpoint = ctx
-        .storage
-        .checkpoint
-        .get_latest_by_entity(execution_id, AGENT_CHECKPOINT_ENTITY_TYPE)
-        .await?;
-    checkpoint_blob(ctx, checkpoint).await.map(|bytes| {
-        bytes.and_then(|bytes| {
-            CheckpointSerializer::auto_deserialize::<
-                    wf_types::checkpoint::agent::AgentStateSnapshot,
-                >(&bytes)
-                .ok()
-        })
-    })
+    use wf_checkpoint::coordinator::CheckpointCoordinator;
+    use wf_checkpoint::state::CheckpointStateManager;
+
+    let state_manager = wf_checkpoint::state::agent::AgentCheckpointStateManager::new(
+        ctx.checkpoint_store.clone(),
+    );
+    let Some(latest) = state_manager.get_latest(execution_id).await.map_err(|e| {
+        crate::infra::error::ApiError::execution(format!("checkpoint lookup failed: {e}"))
+    })?
+    else {
+        return Ok(None);
+    };
+    let coordinator =
+        wf_checkpoint::coordinator::agent::AgentCheckpointCoordinator::new(state_manager);
+    Ok(coordinator
+        .restore(&latest.id)
+        .await
+        .ok()
+        .map(|entity| entity.snapshot))
 }
 
-/// Latest checkpoint blob of a workflow execution, or `None`.
+/// Latest checkpoint snapshot of a workflow execution, or `None`.
+/// Restored through the coordinator so delta chains resolve to full state.
 async fn workflow_checkpoint_snapshot(
     ctx: &ApiContext,
     execution_id: &str,
 ) -> ApiResult<Option<wf_types::checkpoint::workflow::WorkflowExecutionStateSnapshot>> {
-    let checkpoint = ctx
-        .storage
-        .checkpoint
-        .get_latest_by_entity(execution_id, WORKFLOW_CHECKPOINT_ENTITY_TYPE)
-        .await?;
-    checkpoint_blob(ctx, checkpoint).await.map(|bytes| {
-        bytes.and_then(|bytes| {
-            CheckpointSerializer::auto_deserialize::<
-                wf_types::checkpoint::workflow::WorkflowExecutionStateSnapshot,
-            >(&bytes)
-            .ok()
-        })
-    })
-}
+    use wf_checkpoint::coordinator::CheckpointCoordinator;
+    use wf_checkpoint::state::CheckpointStateManager;
 
-async fn checkpoint_blob(
-    ctx: &ApiContext,
-    checkpoint: Option<wf_types::Checkpoint>,
-) -> ApiResult<Option<Vec<u8>>> {
-    match checkpoint {
-        Some(checkpoint) => {
-            let Some((bytes, _)) = ctx.checkpoint_store.load(&checkpoint.id).await? else {
-                return Ok(None);
-            };
-            Ok(Some(bytes))
-        }
-        None => Ok(None),
-    }
+    let state_manager = wf_checkpoint::state::workflow::WorkflowCheckpointStateManager::new(
+        ctx.checkpoint_store.clone(),
+    );
+    let Some(latest) = state_manager.get_latest(execution_id).await.map_err(|e| {
+        crate::infra::error::ApiError::execution(format!("checkpoint lookup failed: {e}"))
+    })?
+    else {
+        return Ok(None);
+    };
+    let coordinator =
+        wf_checkpoint::coordinator::workflow::WorkflowCheckpointCoordinator::new(state_manager);
+    Ok(coordinator
+        .restore(&latest.id)
+        .await
+        .ok()
+        .map(|entity| entity.snapshot))
 }
 
 // ─── view builders ─────────────────────────────────────────────────────────
@@ -521,19 +512,25 @@ fn checkpoint_node_view(
     }
 }
 
-/// Number of checkpoints persisted for the execution across both entity
-/// type tags (agent `"checkpoint"` and workflow `"execution"`).
+/// Number of checkpoints persisted for the execution across the agent and
+/// workflow checkpoint stores.
 async fn checkpoint_count(ctx: &ApiContext, execution_id: &str) -> ApiResult<usize> {
-    let agent = ctx
-        .storage
-        .checkpoint
-        .list_by_entity(execution_id, AGENT_CHECKPOINT_ENTITY_TYPE)
-        .await?;
-    let workflow = ctx
-        .storage
-        .checkpoint
-        .list_by_entity(execution_id, WORKFLOW_CHECKPOINT_ENTITY_TYPE)
-        .await?;
+    use wf_checkpoint::state::CheckpointStateManager;
+
+    let lookup_failed =
+        |e: wf_checkpoint::CheckpointError| crate::infra::error::ApiError::execution(format!("checkpoint lookup failed: {e}"));
+    let agent = wf_checkpoint::state::agent::AgentCheckpointStateManager::new(
+        ctx.checkpoint_store.clone(),
+    )
+    .list_by_entity(execution_id)
+    .await
+    .map_err(lookup_failed)?;
+    let workflow = wf_checkpoint::state::workflow::WorkflowCheckpointStateManager::new(
+        ctx.checkpoint_store.clone(),
+    )
+    .list_by_entity(execution_id)
+    .await
+    .map_err(lookup_failed)?;
     let mut ids = std::collections::HashSet::new();
     for checkpoint in agent.into_iter().chain(workflow) {
         ids.insert(checkpoint.id);

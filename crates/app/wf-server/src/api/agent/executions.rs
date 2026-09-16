@@ -9,8 +9,6 @@ use axum::{Json, Router};
 use serde::Deserialize;
 use serde_json::Value;
 
-use wf_types::checkpoint::base::CheckpointType;
-
 use crate::envelope::{error_response, ok};
 use crate::extract::{DefIdPath, IdPath};
 use crate::router::ApiState;
@@ -149,8 +147,7 @@ async fn handle_executions_by_status(
 
 #[derive(Deserialize)]
 struct CreateCheckpointBody {
-    checkpoint_type: Option<CheckpointType>,
-    tags: Option<Vec<String>>,
+    description: Option<String>,
 }
 
 async fn handle_create_checkpoint(
@@ -158,13 +155,7 @@ async fn handle_create_checkpoint(
     Path(path): Path<IdPath>,
     Json(body): Json<CreateCheckpointBody>,
 ) -> impl IntoResponse {
-    match wf_api::agent::agent_checkpoint::create(
-        &state.ctx,
-        &path.id,
-        body.checkpoint_type.unwrap_or(CheckpointType::Full),
-        body.tags,
-    )
-    .await
+    match wf_api::agent::agent_checkpoint::create(&state.ctx, &path.id, body.description).await
     {
         Ok(checkpoint) => ok(checkpoint).into_response(),
         Err(e) => error_response(e),

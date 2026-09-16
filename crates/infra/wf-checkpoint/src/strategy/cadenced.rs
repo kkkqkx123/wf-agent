@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
 use wf_types::checkpoint::{
-    CheckpointContentConfig, CheckpointContext, CheckpointRetentionConfig, CheckpointTiming,
-    UnifiedCheckpointPolicy,
+    CheckpointContentConfig, CheckpointContext, CheckpointErrorHandlingConfig,
+    CheckpointRetentionConfig, CheckpointTiming, UnifiedCheckpointPolicy,
 };
 
 use super::inner::{CheckpointStrategy, StandardStrategy};
@@ -146,6 +146,10 @@ impl<T: CheckpointTimingVariant> CadencedCheckpointStrategy<T> {
 
     pub fn retention_config(&self) -> Option<&CheckpointRetentionConfig> {
         self.inner.retention_config()
+    }
+
+    pub fn error_handling_config(&self) -> Option<&CheckpointErrorHandlingConfig> {
+        self.inner.error_handling_config()
     }
 }
 

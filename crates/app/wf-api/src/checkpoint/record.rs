@@ -8,14 +8,49 @@ use wf_storage::adapter::checkpoint::{CheckpointListOptions, CheckpointStorageAd
 use wf_storage::context::StorageContext;
 use wf_types::Checkpoint;
 
+use crate::infra::error::ApiError;
 use crate::not_found;
 
+/// Direct record write: only accepts chain-coherent nodes built by a
+/// coordinator. Full checkpoints need no links; delta checkpoints must
+/// carry previous, base and chain root plus a chain position, otherwise the
+/// write is rejected instead of storing a broken chain.
 pub async fn save_checkpoint(
     ctx: &StorageContext,
     checkpoint: &Checkpoint,
 ) -> crate::ApiResult<()> {
+    validate_chain_record(checkpoint)?;
     ctx.checkpoint.save(checkpoint).await?;
     Ok(())
+}
+
+fn validate_chain_record(checkpoint: &Checkpoint) -> crate::ApiResult<()> {
+    if checkpoint.id.is_empty() {
+        return Err(ApiError::Validation(
+            "checkpoint id must not be empty".to_string(),
+        ));
+    }
+    if checkpoint.entity_id.is_empty() {
+        return Err(ApiError::Validation(
+            "checkpoint entity id must not be empty".to_string(),
+        ));
+    }
+    match checkpoint.checkpoint_type {
+        wf_types::checkpoint::base::CheckpointType::Full => Ok(()),
+        wf_types::checkpoint::base::CheckpointType::Delta => {
+            if checkpoint.previous_checkpoint_id.is_none()
+                || checkpoint.base_checkpoint_id.is_none()
+                || checkpoint.chain_root_id.is_none()
+                || checkpoint.chain_position.is_none()
+            {
+                return Err(ApiError::Validation(
+                    "delta checkpoint must carry previous, base, chain root and chain position"
+                        .to_string(),
+                ));
+            }
+            Ok(())
+        }
+    }
 }
 
 pub async fn get_checkpoint(ctx: &StorageContext, id: &str) -> crate::ApiResult<Checkpoint> {
@@ -253,6 +288,15 @@ mod tests {
 
         assert!(delete_checkpoint(&ctx, "cp-1").await.unwrap());
         assert!(!delete_checkpoint(&ctx, "cp-1").await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn save_checkpoint_rejects_broken_delta_chain() {
+        let ctx = StorageContext::new_memory();
+        let mut broken = make_checkpoint("cp-broken", "ex-1", 1000);
+        broken.checkpoint_type = CheckpointType::Delta;
+        let err = save_checkpoint(&ctx, &broken).await.unwrap_err();
+        assert!(matches!(err, crate::ApiError::Validation(_)));
     }
 
     #[tokio::test]

@@ -16,7 +16,7 @@ use wf_execution_shared::types::execution_entity::ExecutionStatus;
 use wf_storage::adapter::base::BaseStorageAdapter;
 use wf_tools::callback::WorkflowOutput;
 use wf_types::checkpoint::workflow::WorkflowExecutionStateSnapshot;
-use wf_types::checkpoint::{CheckpointTiming, CheckpointVariableState};
+use wf_types::checkpoint::CheckpointVariableState;
 use wf_types::enums::MiddlewarePhase;
 use wf_types::execution::{ChildExecutionReference, ExecutionHierarchy, ExecutionType};
 use wf_types::workflow_execution::{
@@ -324,7 +324,7 @@ pub async fn create_checkpoint(
     let snapshot = build_checkpoint_snapshot(ctx, &entity).await;
     let coordinator = checkpoint_coordinator(ctx);
     let checkpoint_id = coordinator
-        .create_checkpoint(CheckpointTiming::Manual, execution_id, snapshot)
+        .create_manual_checkpoint(execution_id, snapshot)
         .await
         .map_err(|e| ApiError::execution(format!("checkpoint creation failed: {e}")))?;
     Ok(checkpoint_id)

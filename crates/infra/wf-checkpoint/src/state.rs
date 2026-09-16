@@ -6,6 +6,6 @@ pub mod workflow;
 pub use agent::AgentCheckpoint;
 pub use agent::AgentCheckpointStateManager;
 pub use base::CheckpointStateManager;
-pub use storage::StorageBackedStateManager;
+pub use storage::{parse_storage_metadata, StorageBackedStateManager};
 pub use workflow::WorkflowCheckpoint;
 pub use workflow::WorkflowCheckpointStateManager;

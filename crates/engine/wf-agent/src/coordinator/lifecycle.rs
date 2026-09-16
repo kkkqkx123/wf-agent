@@ -570,12 +570,8 @@ impl AgentLoopCoordinator {
         .await;
 
         if let Some(ref cp) = checkpoint {
-            cp.create_checkpoint_gated(&entity, CheckpointTiming::Manual, None)
-                .await
-                .unwrap_or_else(|e| {
-                    tracing::warn!("Failed to create agent start checkpoint: {}", e);
-                    false
-                });
+            cp.create_lifecycle_checkpoint(&entity, CheckpointTiming::Manual, None)
+                .await;
         }
 
         let mut coordinator = AgentIterationCoordinator::new(
@@ -672,15 +668,8 @@ impl AgentLoopCoordinator {
                     // the status settles, so this is the record that actually
                     // carries the completed state.
                     if let Some(ref cp) = outcome_checkpoint {
-                        cp.create_checkpoint_gated(&entity, CheckpointTiming::OnComplete, None)
-                            .await
-                            .unwrap_or_else(|e| {
-                                tracing::warn!(
-                                    "Failed to create agent completion checkpoint: {}",
-                                    e
-                                );
-                                false
-                            });
+                        cp.create_lifecycle_checkpoint(&entity, CheckpointTiming::OnComplete, None)
+                            .await;
                     }
                 }
                 if let Some(ref metrics) = self.metrics {
@@ -761,12 +750,7 @@ impl AgentLoopCoordinator {
                         ExecutionStatus::Failed => CheckpointTiming::OnFailure,
                         _ => CheckpointTiming::OnError,
                     };
-                    cp.create_checkpoint_gated(&entity, trigger, None)
-                        .await
-                        .unwrap_or_else(|err| {
-                            tracing::warn!("Failed to create agent terminal checkpoint: {}", err);
-                            false
-                        });
+                    cp.create_lifecycle_checkpoint(&entity, trigger, None).await;
                 }
                 if let Some(ref metrics) = self.metrics {
                     metrics

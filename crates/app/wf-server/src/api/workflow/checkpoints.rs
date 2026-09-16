@@ -35,10 +35,7 @@ pub(crate) fn routes() -> Router<ApiState> {
             post(handle_restore_and_resume),
         )
         // ── checkpoints ──
-        .route(
-            "/checkpoints",
-            get(handle_list_checkpoints).post(handle_save_checkpoint),
-        )
+        .route("/checkpoints", get(handle_list_checkpoints))
         .route(
             "/checkpoints/{id}",
             get(handle_get_checkpoint).delete(handle_delete_checkpoint),
@@ -131,16 +128,6 @@ async fn handle_list_checkpoints(
     };
     match wf_api::checkpoint::record::list_checkpoints(&state.ctx.storage, Some(options)).await {
         Ok(checkpoints) => ok(checkpoints).into_response(),
-        Err(e) => error_response(e),
-    }
-}
-
-async fn handle_save_checkpoint(
-    State(state): State<ApiState>,
-    Json(checkpoint): Json<wf_types::Checkpoint>,
-) -> impl IntoResponse {
-    match wf_api::checkpoint::record::save_checkpoint(&state.ctx.storage, &checkpoint).await {
-        Ok(()) => ok(checkpoint.id).into_response(),
         Err(e) => error_response(e),
     }
 }

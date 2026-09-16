@@ -168,13 +168,12 @@ pub async fn cancel(ctx: &ApiContext, agent_loop_id: &str) -> crate::infra::erro
     Ok(())
 }
 
-/// Resume an agent loop from an engine checkpoint.
+/// Resume an agent loop from a checkpoint.
 ///
 /// This drives the engine coordinators (`resume_from_checkpoint_with_mode`)
-/// over the checkpoints persisted to `ctx.checkpoint_store` during runs
-/// (boundary / interval / hook opt-in checkpoints), not the API-level
-/// snapshots managed by `agent_checkpoint` (which only replay state onto a
-/// live entity and never continue execution).
+/// over the checkpoints in `ctx.checkpoint_store` (run boundary / interval /
+/// hook opt-in checkpoints as well as manual `agent_checkpoint` snapshots,
+/// which share the same store and chain).
 ///
 /// - `in_place = false` (default, branch): continues under a fresh execution
 ///   id linked to the source via `parent_execution_id`; the source chain is

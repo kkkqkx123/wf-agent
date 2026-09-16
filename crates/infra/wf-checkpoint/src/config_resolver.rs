@@ -68,6 +68,11 @@ pub struct ResolvedCheckpointConfig {
 #[derive(Debug, Clone)]
 pub struct CheckpointConfigResolver;
 
+/// Throttle ownership: trigger whitelists live in `StandardStrategy`,
+/// per-occurrence cadence lives in the engine `CadencedCheckpointStrategy`
+/// wrappers, and message-count waterlines live in the iteration
+/// coordinator. This resolver only merges config layers and answers the
+/// whitelist question; it owns no counting state.
 impl CheckpointConfigResolver {
     /// Resolve a list of layers with first-wins semantics: the highest
     /// precedence layer (runtime > workflow > node > agent > global > default)
@@ -153,32 +158,6 @@ impl CheckpointConfigResolver {
             return false;
         }
         resolved.policy.triggers.is_empty() || resolved.policy.triggers.contains(trigger)
-    }
-
-    /// Agent-loop cadence semantics: with `interval > 1` a checkpoint fires
-    /// only every `interval` iterations; with `on_error_only` only when the
-    /// current iteration errored.
-    pub fn evaluate_agent_trigger(
-        &self,
-        resolved: &ResolvedCheckpointConfig,
-        trigger: &CheckpointTiming,
-        current_iteration: u32,
-        has_error: bool,
-        interval: Option<u32>,
-        on_error_only: Option<bool>,
-    ) -> bool {
-        if !self.should_create_checkpoint(resolved, trigger) {
-            return false;
-        }
-        if on_error_only.unwrap_or(false) && !has_error {
-            return false;
-        }
-        if let Some(interval) = interval {
-            if interval > 1 && !current_iteration.is_multiple_of(interval) {
-                return false;
-            }
-        }
-        true
     }
 
     /// Build the checkpoint description: agent cadence descriptions use
@@ -344,52 +323,6 @@ mod tests {
         ))]);
         assert!(!resolver.should_create_checkpoint(&resolved, &CheckpointTiming::OnError));
         assert!(!resolver.should_create_checkpoint(&resolved, &CheckpointTiming::Manual));
-    }
-
-    #[test]
-    fn agent_cadence_semantics() {
-        let resolver = CheckpointConfigResolver;
-        let resolved = CheckpointConfigResolver::resolve(&[CheckpointConfigLayer::agent(policy(
-            true,
-            vec![CheckpointTiming::IterationEnd],
-        ))]);
-
-        assert!(resolver.evaluate_agent_trigger(
-            &resolved,
-            &CheckpointTiming::IterationEnd,
-            2,
-            false,
-            Some(2),
-            None,
-        ));
-        assert!(!resolver.evaluate_agent_trigger(
-            &resolved,
-            &CheckpointTiming::IterationEnd,
-            3,
-            false,
-            Some(2),
-            None,
-        ));
-
-        let error_only = CheckpointConfigResolver::resolve(&[CheckpointConfigLayer::agent(
-            policy(true, vec![CheckpointTiming::OnError]),
-        )]);
-        assert!(!resolver.evaluate_agent_trigger(
-            &error_only,
-            &CheckpointTiming::OnError,
-            1,
-            false,
-            None,
-            Some(true),
-        ));
-        assert!(resolver.evaluate_agent_trigger(
-            &error_only,
-            &CheckpointTiming::OnError,
-            1,
-            true,
-            None,
-            Some(true),
-        ));
     }
 
     #[test]

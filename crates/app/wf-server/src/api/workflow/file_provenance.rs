@@ -171,7 +171,7 @@ async fn handle_begin_session(
     State(state): State<ApiState>,
     axum::Json(body): axum::Json<BeginSessionRequest>,
 ) -> impl IntoResponse {
-    match wf_api::checkpoint::provenance::begin_session(&state.ctx, body.label) {
+    match wf_api::checkpoint::provenance::begin_edit_group(&state.ctx, body.label) {
         Ok(id) => ok(id).into_response(),
         Err(err) => error_response(err),
     }

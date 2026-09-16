@@ -46,6 +46,13 @@ pub trait CheckpointStrategy: Send + Sync {
 
     fn is_disabled(&self) -> bool;
 
+    /// Whether a manual checkpoint is allowed. Manual creation honors the
+    /// master switch only and bypasses the per-trigger whitelist, so a
+    /// policy that omits the manual trigger still permits manual creation.
+    fn manual_allowed(&self) -> bool {
+        !self.is_disabled()
+    }
+
     /// Auto tags derived from the content config
     /// (`has-state`, `has-history`, `has-statistics`).
     fn auto_tags(&self) -> Vec<String> {
@@ -408,6 +415,18 @@ mod tests {
         assert!(tags.contains(&"has-state".to_string()));
         assert!(tags.contains(&"has-history".to_string()));
         assert!(!tags.contains(&"has-statistics".to_string()));
+    }
+
+    #[test]
+    fn manual_allowed_honors_master_switch_only() {
+        let ctx = make_context();
+        let without_manual =
+            create_checkpoint_strategy(&make_policy(vec![CheckpointTiming::AfterExecute]));
+        assert!(!without_manual.should_checkpoint(&CheckpointTiming::Manual, &ctx));
+        assert!(without_manual.manual_allowed());
+
+        let disabled = StandardStrategy::disabled();
+        assert!(!disabled.manual_allowed());
     }
 
     #[test]

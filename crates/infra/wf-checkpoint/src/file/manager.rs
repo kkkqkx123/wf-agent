@@ -466,7 +466,7 @@ impl FileCheckpointManager {
                 entries.push(FileContentEntry::deleted(path));
             }
         }
-        let mut checkpoint = self.create_checkpoint_with_content(entity_id, &entries)?;
+        let mut checkpoint = self.create_checkpoint(entity_id, &entries)?;
         checkpoint.empty_dirs = Some(scan.empty_dirs.clone());
         // Single source of truth: persisted metadata only. The previous
         // in-memory DashMap mirror is removed to avoid dual-write divergence.
@@ -703,7 +703,7 @@ mod tests {
         let manager = manager();
         let entries = vec![entry("a.txt", b"hello a"), entry("b.txt", b"hello b")];
         let cp = manager
-            .create_checkpoint_with_content("exec-1", &entries)
+            .create_checkpoint("exec-1", &entries)
             .unwrap();
         assert_eq!(cp.files.len(), 2);
         assert_eq!(

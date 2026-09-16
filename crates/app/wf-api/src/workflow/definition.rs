@@ -142,13 +142,23 @@ pub async fn delete_workflow(ctx: &ApiContext, id: &str) -> crate::ApiResult<boo
         }),
     )
     .await?;
+    {
+        use wf_checkpoint::state::CheckpointStateManager;
+
+        let checkpoints = wf_checkpoint::state::workflow::WorkflowCheckpointStateManager::new(
+            ctx.checkpoint_store.clone(),
+        );
+        for execution in &executions {
+            let metas = checkpoints
+                .list_by_entity(&execution.id)
+                .await
+                .unwrap_or_default();
+            for meta in metas {
+                let _ = checkpoints.delete(&meta.id).await;
+            }
+        }
+    }
     for execution in executions {
-        let _ = crate::checkpoint::record::delete_checkpoints_by_entity(
-            &ctx.storage,
-            &execution.id,
-            "checkpoint",
-        )
-        .await;
         let _ = delete_execution(ctx, &execution.id).await;
     }
 
@@ -234,16 +244,16 @@ pub(super) fn upsert_workflow_registry(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::checkpoint::record::{get_checkpoint, save_checkpoint};
     use crate::workflow::version::{
         list_workflow_versions as list_vers, save_workflow_version as save_ver,
     };
+    use wf_checkpoint::coordinator::CheckpointCoordinator;
+    use wf_checkpoint::state::CheckpointStateManager;
     use wf_common;
     use wf_core::registry::Registry;
     use wf_resource::registry::ResourceRegistries;
     use wf_resource::resource_plugin::ResourcePluginRegistry;
     use wf_storage::context::StorageContext;
-    use wf_types::checkpoint::base::{CheckpointStatus, CheckpointType};
     use wf_types::{ExecutionStatus, WorkflowExecution};
 
     fn make_ctx() -> ApiContext {
@@ -471,22 +481,45 @@ mod tests {
         super::super::execution::save_execution(&ctx, &execution)
             .await
             .unwrap();
-        let checkpoint = wf_types::Checkpoint {
-            id: "cp-cascade-1".into(),
-            entity_type: "workflow_execution".into(),
-            entity_id: "exec-cascade-1".into(),
-            checkpoint_type: CheckpointType::Full,
-            timestamp: wf_common::now(),
-            status: CheckpointStatus::Active,
-            previous_checkpoint_id: None,
-            base_checkpoint_id: None,
-            chain_root_id: None,
-            chain_position: None,
-            blob_size: None,
-            tags: None,
-            custom_fields: None,
+        let snapshot = wf_types::checkpoint::workflow::WorkflowExecutionStateSnapshot {
+            execution_id: "exec-cascade-1".into(),
+            status: "completed".into(),
+            current_node_id: None,
+            node_results: None,
+            variable_state: wf_types::checkpoint::CheckpointVariableState {
+                variables: std::collections::HashMap::new(),
+            },
+            message_contexts: None,
+            input: None,
+            output: None,
+            messages: None,
+            fork_join_context: None,
+            active_operations: None,
+            node_execution_records: None,
+            conversation_state: None,
+            trigger_states: None,
+            error_records: None,
+            interruption_records: None,
+            event_records: None,
+            hierarchy: None,
+            execution_config: None,
+            fork_join_aggregation_state: None,
+            hook_execution_context: None,
         };
-        save_checkpoint(&ctx.storage, &checkpoint).await.unwrap();
+        let coordinator =
+            wf_checkpoint::coordinator::workflow::WorkflowCheckpointCoordinator::new(
+                wf_checkpoint::state::workflow::WorkflowCheckpointStateManager::new(
+                    ctx.checkpoint_store.clone(),
+                ),
+            );
+        coordinator
+            .create_checkpoint(
+                wf_types::checkpoint::CheckpointTiming::Manual,
+                "exec-cascade-1",
+                snapshot,
+            )
+            .await
+            .unwrap();
         save_ver(&ctx, "wf-cascade", "0.1", &make_workflow("wf-cascade"))
             .await
             .unwrap();
@@ -498,7 +531,13 @@ mod tests {
                 .await
                 .is_err()
         );
-        assert!(get_checkpoint(&ctx.storage, "cp-cascade-1").await.is_err());
+        let remaining = wf_checkpoint::state::workflow::WorkflowCheckpointStateManager::new(
+            ctx.checkpoint_store.clone(),
+        )
+        .list_by_entity("exec-cascade-1")
+        .await
+        .unwrap();
+        assert!(remaining.is_empty());
         assert!(list_vers(&ctx, "wf-cascade").await.unwrap().is_empty());
     }
 

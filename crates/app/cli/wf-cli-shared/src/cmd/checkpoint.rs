@@ -11,13 +11,42 @@ pub async fn run(cli: &Cli, sub: &CheckpointSub) -> CliResult<()> {
         crate::domain::DomainAdapter::bootstrap_for_cli(cli, crate::mode::CliMode::Run).await?;
     let ctx = adapter.api_context();
     let result = match sub {
-        CheckpointSub::Create { id, name: _ } => {
-            let checkpoint_id = workflow_execution::create_checkpoint(ctx, id).await?;
-            let data = serde_json::json!({"executionId": id, "checkpointId": checkpoint_id});
+        CheckpointSub::Create { id, name, agent } => {
+            if *agent {
+                let created =
+                    wf_api::agent::agent_checkpoint::create(ctx, id, name.clone()).await?;
+                let data =
+                    serde_json::json!({"agentLoopId": id, "checkpointId": created.id});
+                render_envelope(
+                    cli.output,
+                    OutputEnvelope::success("checkpoint-create", data)
+                        .with_entity(created.id.clone()),
+                )
+            } else {
+                let checkpoint_id = workflow_execution::create_checkpoint(ctx, id).await?;
+                let data = serde_json::json!({"executionId": id, "checkpointId": checkpoint_id});
+                render_envelope(
+                    cli.output,
+                    OutputEnvelope::success("checkpoint-create", data)
+                        .with_entity(checkpoint_id.clone()),
+                )
+            }
+        }
+        CheckpointSub::FileCreate { id, path } => {
+            let manager = ctx.file_checkpoint_manager().ok_or_else(|| {
+                crate::error::CliError::Business(
+                    "file checkpointing is not enabled; set file_checkpoint.enabled=true".to_string(),
+                )
+            })?;
+            let summary = wf_api::checkpoint::file::create_file_checkpoint(
+                manager,
+                id,
+                std::path::Path::new(path),
+            )?;
+            let data = serde_json::to_value(&summary)?;
             render_envelope(
                 cli.output,
-                OutputEnvelope::success("checkpoint-create", data)
-                    .with_entity(checkpoint_id.clone()),
+                OutputEnvelope::success("checkpoint-file-create", data).with_entity(id.clone()),
             )
         }
         CheckpointSub::List { id, limit, offset } => {

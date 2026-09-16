@@ -40,8 +40,7 @@ pub fn spawn(
 /// Forward one checkpoint event onto the shared event bus (best-effort).
 fn forward(bus: &Arc<EventBus>, event: &CheckpointEvent) {
     let (event_type, metadata) = match event {
-        CheckpointEvent::FileChanged { data, summary, .. } => {
-            let mut metadata = HashMap::new();
+        CheckpointEvent::FileChanged { data, summary, .. } => {            let mut metadata = HashMap::new();
             if let Some(snapshot_id) = &data.checkpoint_id {
                 metadata.insert("snapshot_id".to_string(), serde_json::json!(snapshot_id));
             }
@@ -73,14 +72,70 @@ fn forward(bus: &Arc<EventBus>, event: &CheckpointEvent) {
             }
             (EventType::CheckpointMergeConflicted, metadata)
         }
-        // Checkpoint lifecycle events (created / restored / deleted /
-        // failed) are published by the checkpoint coordinators through their
-        // own bus; they are not bridged here.
-        CheckpointEvent::Created { .. }
-        | CheckpointEvent::Restored { .. }
-        | CheckpointEvent::Deleted { .. }
-        | CheckpointEvent::Failed { .. }
-        | CheckpointEvent::GcCompleted { .. } => return,
+        // Checkpoint lifecycle events are published by the coordinators
+        // through their own bus and bridged here so observers see one
+        // unified stream alongside file changes.
+        CheckpointEvent::Created { data, .. } => {
+            let mut metadata = HashMap::new();
+            if let Some(id) = &data.checkpoint_id {
+                metadata.insert("checkpoint_id".to_string(), serde_json::json!(id));
+            }
+            if let Some(execution) = &data.execution_id {
+                metadata.insert("execution_id".to_string(), serde_json::json!(execution));
+            }
+            if let Some(description) = &data.description {
+                metadata.insert("description".to_string(), serde_json::json!(description));
+            }
+            (EventType::CheckpointCreated, metadata)
+        }
+        CheckpointEvent::Restored { data, .. } => {
+            let mut metadata = HashMap::new();
+            if let Some(id) = &data.checkpoint_id {
+                metadata.insert("checkpoint_id".to_string(), serde_json::json!(id));
+            }
+            if let Some(execution) = &data.execution_id {
+                metadata.insert("execution_id".to_string(), serde_json::json!(execution));
+            }
+            (EventType::CheckpointRestored, metadata)
+        }
+        CheckpointEvent::Deleted { data, .. } => {
+            let mut metadata = HashMap::new();
+            if let Some(id) = &data.checkpoint_id {
+                metadata.insert("checkpoint_id".to_string(), serde_json::json!(id));
+            }
+            if let Some(reason) = &data.reason {
+                metadata.insert("reason".to_string(), serde_json::json!(reason));
+            }
+            (EventType::CheckpointDeleted, metadata)
+        }
+        CheckpointEvent::Failed { data, .. } => {
+            let mut metadata = HashMap::new();
+            if let Some(id) = &data.checkpoint_id {
+                metadata.insert("checkpoint_id".to_string(), serde_json::json!(id));
+            }
+            if let Some(operation) = &data.operation {
+                metadata.insert("operation".to_string(), serde_json::json!(operation));
+            }
+            if let Some(error) = &data.error {
+                metadata.insert("error".to_string(), serde_json::json!(error));
+            }
+            (EventType::CheckpointFailed, metadata)
+        }
+        CheckpointEvent::GcCompleted { data, stats, .. } => {
+            let mut metadata = HashMap::new();
+            if let Some(description) = &data.description {
+                metadata.insert("description".to_string(), serde_json::json!(description));
+            }
+            metadata.insert(
+                "removed_checkpoints".to_string(),
+                serde_json::json!(stats.removed_checkpoints),
+            );
+            metadata.insert(
+                "removed_snapshots".to_string(),
+                serde_json::json!(stats.removed_snapshots),
+            );
+            (EventType::CheckpointGcCompleted, metadata)
+        }
     };
 
     let _ = bus.publish(BaseEvent {

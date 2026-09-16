@@ -94,10 +94,10 @@ pub fn rename_file(
         .map_err(ApiError::execution_with_source)
 }
 
-/// Begin a new edit session for grouping a multi-file operation.
-pub fn begin_session(ctx: &ApiContext, label: Option<String>) -> ApiResult<String> {
+/// Begin a new edit group for grouping a multi-file operation.
+pub fn begin_edit_group(ctx: &ApiContext, label: Option<String>) -> ApiResult<String> {
     manager(ctx)?
-        .begin_session(label)
+        .begin_edit_group(label)
         .map(|id| id.to_string())
         .map_err(ApiError::execution_with_source)
 }

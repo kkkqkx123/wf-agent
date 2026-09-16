@@ -1,21 +1,23 @@
-//! Agent loop checkpoint management.
+//! Agent loop checkpoint management through the unified coordinator store.
 //!
-//! Checkpoints are persisted through the shared checkpoint adapter scoped to
-//! the agent loop entity (`entity_type = "agent_loop"`), with the content blob
-//! stored in the context's checkpoint store. Restore is best-effort: the blob
-//! is decoded into an agent state snapshot and replayed onto the live entity
-//! when the loop is still registered.
+//! Manual checkpoints share the checkpoint store and chain logic with the
+//! engine-created ones: the coordinator decides the storage type, links the
+//! chain and persists the blob, so listing, resume and audit observe a single
+//! checkpoint history per agent loop. Restore replays the snapshot onto the
+//! live entity when the loop is still registered.
 
 use std::collections::BTreeMap;
 
 use serde::Serialize;
 
-use wf_checkpoint::serializer::{CheckpointCodec, CheckpointSerializer};
+use wf_checkpoint::coordinator::agent::AgentCheckpointCoordinator;
+use wf_checkpoint::coordinator::CheckpointCoordinator;
+use wf_checkpoint::delta::CheckpointLoader;
+use wf_checkpoint::state::agent::AgentCheckpointStateManager;
+use wf_checkpoint::state::CheckpointStateManager;
 use wf_execution_shared::types::state_manager::StateManager;
-use wf_storage::adapter::base::BaseStorageAdapter;
-use wf_storage::adapter::checkpoint::CheckpointStorageAdapter;
-use wf_storage::domain::store::Store;
 use wf_types::checkpoint::base::{CheckpointStatus, CheckpointType};
+use wf_types::checkpoint::CheckpointTiming;
 use wf_types::Checkpoint;
 
 use crate::infra::context::ApiContext;
@@ -31,68 +33,84 @@ pub struct AgentCheckpointStatistics {
     pub avg_blob_size: Option<u64>,
 }
 
-/// Create an agent loop checkpoint.
+fn state_manager(ctx: &ApiContext) -> AgentCheckpointStateManager {
+    AgentCheckpointStateManager::new(ctx.checkpoint_store.clone())
+}
+
+fn coordinator(ctx: &ApiContext) -> AgentCheckpointCoordinator {
+    let mut coordinator = AgentCheckpointCoordinator::new(state_manager(ctx));
+    if let Some(manager) = ctx.file_checkpoint_manager() {
+        coordinator = coordinator.with_file_checkpoint_manager(manager.clone());
+    }
+    coordinator
+}
+
+/// Create a manual checkpoint for an agent loop.
+///
+/// A live loop is snapshotted through the engine integration (full runtime
+/// state including the conversation); otherwise an empty snapshot seeds the
+/// chain. The coordinator decides the storage type and links the chain, so
+/// the caller only supplies an optional description recorded in the
+/// checkpoint metadata.
 pub async fn create(
     ctx: &ApiContext,
     agent_loop_id: &str,
-    checkpoint_type: CheckpointType,
-    tags: Option<Vec<String>>,
+    description: Option<String>,
 ) -> ApiResult<Checkpoint> {
-    let latest = ctx
-        .storage
-        .checkpoint
-        .get_latest_by_entity(agent_loop_id, "checkpoint")
-        .await?;
-    let now = wf_common::now();
-
-    let snapshot = build_snapshot(ctx, agent_loop_id, now).await?;
-
-    let bytes = CheckpointSerializer::serialize(&snapshot, CheckpointCodec::Bincode)
-        .map_err(|e| ApiError::execution(format!("checkpoint serialize failed: {e}")))?;
-    let blob_size = bytes.len() as u64;
-
-    let checkpoint_id = wf_types::Id::from(wf_common::generate_id());
-    let checkpoint = Checkpoint {
-        id: checkpoint_id.clone(),
-        entity_type: "agent_loop".into(),
-        entity_id: agent_loop_id.to_string(),
-        checkpoint_type,
-        timestamp: now,
-        status: CheckpointStatus::Active,
-        previous_checkpoint_id: latest.as_ref().map(|c| c.id.to_string()),
-        base_checkpoint_id: latest.as_ref().and_then(|c| c.base_checkpoint_id.clone()),
-        chain_root_id: latest
-            .as_ref()
-            .and_then(|c| c.chain_root_id.clone())
-            .or_else(|| latest.as_ref().map(|c| c.id.to_string()))
-            .or_else(|| Some(checkpoint_id.to_string())),
-        chain_position: Some(
-            latest
-                .as_ref()
-                .map(|c| c.chain_position.unwrap_or(0) + 1)
-                .unwrap_or(0),
-        ),
-        blob_size: Some(blob_size),
-        tags,
-        custom_fields: None,
-    };
-
-    ctx.storage.checkpoint.save(&checkpoint).await?;
-    ctx.checkpoint_store
-        .save(&checkpoint.id, &bytes, &serde_json::Value::Null)
-        .await?;
-    Ok(checkpoint)
+    if let Some(entity) = ctx.agent_loop(agent_loop_id) {
+        let mut integration =
+            wf_agent::checkpoint::AgentCheckpointIntegration::new(ctx.checkpoint_store.clone());
+        if let Some(manager) = ctx.file_checkpoint_manager() {
+            integration = integration.with_file_checkpoint_manager(manager.clone());
+        }
+        integration
+            .create_checkpoint(&entity, CheckpointTiming::Manual, description)
+            .await
+            .map_err(|e| ApiError::execution(format!("checkpoint creation failed: {e}")))?;
+    } else {
+        let coordinator = coordinator(ctx);
+        if !coordinator.manual_allowed() {
+            return Err(ApiError::execution(
+                "manual checkpoint rejected: checkpointing is disabled",
+            ));
+        }
+        let mut prepare = coordinator
+            .prepare(agent_loop_id, CheckpointTiming::Manual)
+            .await
+            .map_err(|e| ApiError::execution(format!("checkpoint creation failed: {e}")))?;
+        if let Some(text) = description {
+            prepare
+                .metadata
+                .get_or_insert_default()
+                .insert("description".to_string(), serde_json::json!(text));
+        }
+        let checkpoint = coordinator
+            .build(prepare, empty_snapshot(agent_loop_id))
+            .await
+            .map_err(|e| ApiError::execution(format!("checkpoint creation failed: {e}")))?;
+        coordinator
+            .validate_checkpoint(&checkpoint)
+            .await
+            .map_err(|e| ApiError::execution(format!("checkpoint creation failed: {e}")))?;
+        coordinator
+            .persist(&checkpoint, agent_loop_id)
+            .await
+            .map_err(|e| ApiError::execution(format!("checkpoint creation failed: {e}")))?;
+        let _ = coordinator
+            .save_file_snapshot(&checkpoint.id, agent_loop_id)
+            .await;
+    }
+    state_manager(ctx)
+        .get_latest(agent_loop_id)
+        .await
+        .map_err(|e| ApiError::execution(format!("checkpoint lookup failed: {e}")))?
+        .ok_or_else(|| not_found("checkpoint", agent_loop_id))
 }
 
-/// Encode the live agent state (or an empty snapshot when the loop is not
-/// registered) as the checkpoint blob.
-async fn build_snapshot(
-    ctx: &ApiContext,
-    agent_loop_id: &str,
-    now: i64,
-) -> ApiResult<wf_types::checkpoint::agent::AgentStateSnapshot> {
-    let mut snapshot = wf_types::checkpoint::agent::AgentStateSnapshot {
-        agent_loop_id: wf_types::Id::from(agent_loop_id.to_string()),
+/// Seed snapshot for an agent loop with no live state to read.
+fn empty_snapshot(agent_loop_id: &str) -> wf_types::checkpoint::agent::AgentStateSnapshot {
+    wf_types::checkpoint::agent::AgentStateSnapshot {
+        agent_loop_id: agent_loop_id.to_string(),
         status: "running".into(),
         current_iteration: 0,
         tool_call_count: 0,
@@ -107,7 +125,7 @@ async fn build_snapshot(
         is_streaming: None,
         variable_snapshots: None,
         error: None,
-        started_at: Some(now),
+        started_at: Some(wf_common::now()),
         completed_at: None,
         error_records: None,
         interruption_records: None,
@@ -120,93 +138,33 @@ async fn build_snapshot(
         hierarchy: None,
         messages: None,
         tool_discovery_state: None,
-    };
-
-    let Some(entity) = ctx.agent_loop(agent_loop_id) else {
-        return Ok(snapshot);
-    };
-    let state = entity.state.read().await;
-    let state_snapshot = state
-        .create_snapshot()
-        .await
-        .map_err(|e| ApiError::execution(format!("state snapshot failed: {e}")))?;
-    let status: wf_types::ExecutionStatus = state_snapshot.status.clone().into();
-    let variables = state_snapshot
-        .variable_snapshots
-        .into_iter()
-        .map(|(name, value)| {
-            (
-                name,
-                wf_types::checkpoint::agent::VariableSnapshot {
-                    value,
-                    r#type: "string".into(),
-                    size: None,
-                    updated: true,
-                    source: "live".into(),
-                },
-            )
-        })
-        .collect();
-    snapshot.status = crate::workflow::execution_state::status_str(&status).to_string();
-    snapshot.current_iteration = state_snapshot.current_iteration;
-    snapshot.tool_call_count = state_snapshot.tool_call_count;
-    snapshot.variable_snapshots = Some(variables);
-    snapshot.error = state_snapshot.error.clone();
-    snapshot.started_at = Some(state_snapshot.start_time);
-    snapshot.completed_at = state_snapshot.end_time;
-    snapshot.tool_discovery_state = serde_json::to_value(state_snapshot.tool_discovery).ok();
-    // The iteration trail (including llm_calls) enters the blob so
-    // audit queries fall back to the checkpoint when the execution record
-    // was cleaned up.
-    snapshot.iteration_history = if state_snapshot.iteration_history.is_empty() {
-        None
-    } else {
-        Some(
-            state_snapshot
-                .iteration_history
-                .iter()
-                .map(serde_json::to_value)
-                .collect::<Result<Vec<_>, _>>()
-                .unwrap_or_default(),
-        )
-    };
-    // persist the in-flight tool call ids so a restore can distinguish
-    // calls that never completed (re-executed) from calls that did.
-    snapshot.pending_tool_call_ids = if state_snapshot.pending_tool_calls.is_empty() {
-        None
-    } else {
-        Some(state_snapshot.pending_tool_calls.into_iter().collect())
-    };
-    Ok(snapshot)
+    }
 }
 
-/// Restore an agent loop from a checkpoint: verifies ownership, decodes
-/// the blob and replays the snapshot onto the live entity (best effort).
+/// Restore an agent loop from a checkpoint: verifies ownership, restores the
+/// full state through the coordinator (delta chains resolved) and replays it
+/// onto the live entity when the loop is still registered.
 pub async fn restore(
     ctx: &ApiContext,
     agent_loop_id: &str,
     checkpoint_id: &str,
 ) -> ApiResult<Checkpoint> {
-    let checkpoint = ctx
-        .storage
-        .checkpoint
-        .load(checkpoint_id)
-        .await?
-        .ok_or_else(|| not_found("checkpoint", checkpoint_id))?;
-    if checkpoint.entity_type != "agent_loop" || checkpoint.entity_id != agent_loop_id {
+    let coordinator = coordinator(ctx);
+    let restored = coordinator.restore(checkpoint_id).await.map_err(|e| {
+        if matches!(e, wf_checkpoint::CheckpointError::NotFound { .. }) {
+            not_found("checkpoint", checkpoint_id)
+        } else {
+            ApiError::execution(format!("checkpoint restore failed: {e}"))
+        }
+    })?;
+    if restored.snapshot.agent_loop_id != agent_loop_id {
         return Err(ApiError::Validation(format!(
             "checkpoint {checkpoint_id} does not belong to agent loop {agent_loop_id}"
         )));
     }
+    let snapshot = restored.snapshot;
 
     if let Some(entity) = ctx.agent_loop(agent_loop_id) {
-        let Some((bytes, _)) = ctx.checkpoint_store.load(&checkpoint.id).await? else {
-            return Err(not_found("checkpoint_blob", checkpoint_id));
-        };
-        let snapshot = CheckpointSerializer::auto_deserialize::<
-            wf_types::checkpoint::agent::AgentStateSnapshot,
-        >(&bytes)
-        .map_err(|e| ApiError::execution(format!("checkpoint decode failed: {e}")))?;
         let mut state = entity.state.write().await;
         state
             .restore_from_snapshot(wf_agent::state::AgentLoopStateSnapshot {
@@ -247,9 +205,9 @@ pub async fn restore(
             .await
             .map_err(|e| ApiError::execution(format!("state restore failed: {e}")))?;
     } else {
-        // The checkpoint belongs to this agent loop and is already persisted;
-        // a loop that is not currently running has no live state to replay, so
-        // the restore is idempotent: it does not fail for an absent loop.
+        // The checkpoint is already persisted; a loop that is not currently
+        // running has no live state to replay, so the restore is idempotent:
+        // it does not fail for an absent loop.
         tracing::warn!(
             target: "wf_api",
             agent_loop_id,
@@ -258,17 +216,19 @@ pub async fn restore(
         );
     }
 
-    Ok(checkpoint)
+    state_manager(ctx)
+        .load_metadata(checkpoint_id)
+        .await
+        .map_err(|e| ApiError::execution(format!("checkpoint lookup failed: {e}")))?
+        .ok_or_else(|| not_found("checkpoint", checkpoint_id))
 }
 
 /// Checkpoints of one agent loop, newest first.
 pub async fn list(ctx: &ApiContext, agent_loop_id: &str) -> ApiResult<Vec<Checkpoint>> {
-    let mut checkpoints = crate::checkpoint::record::list_checkpoints_by_entity(
-        &ctx.storage,
-        agent_loop_id,
-        "checkpoint",
-    )
-    .await?;
+    let mut checkpoints = state_manager(ctx)
+        .list_by_entity(agent_loop_id)
+        .await
+        .map_err(|e| ApiError::execution(format!("checkpoint lookup failed: {e}")))?;
     // Newest first; tie-break on id so same-millisecond checkpoints keep a
     // stable, deterministic order regardless of the store's iteration order.
     checkpoints.sort_by(|a, b| b.timestamp.cmp(&a.timestamp).then_with(|| b.id.cmp(&a.id)));
@@ -296,23 +256,33 @@ pub async fn chain(ctx: &ApiContext, agent_loop_id: &str) -> ApiResult<Vec<Vec<C
 
 /// Delete all checkpoints of one agent loop; returns the number removed.
 pub async fn delete_for(ctx: &ApiContext, agent_loop_id: &str) -> ApiResult<u64> {
-    crate::checkpoint::record::delete_checkpoints_by_entity(
-        &ctx.storage,
-        agent_loop_id,
-        "checkpoint",
-    )
-    .await
+    let manager = state_manager(ctx);
+    let checkpoints = manager
+        .list_by_entity(agent_loop_id)
+        .await
+        .map_err(|e| ApiError::execution(format!("checkpoint lookup failed: {e}")))?;
+    let mut removed = 0u64;
+    for checkpoint in checkpoints {
+        let deleted = manager
+            .delete(&checkpoint.id)
+            .await
+            .map_err(|e| ApiError::execution(format!("checkpoint delete failed: {e}")))?;
+        if deleted {
+            removed += 1;
+        }
+    }
+    Ok(removed)
 }
 
-/// Statistics over the checkpoints of one agent loop (or all when the id
-/// is `None`).
+/// Statistics over the checkpoints of one agent loop (or all agent loops
+/// when the id is `None`).
 pub async fn statistics(
     ctx: &ApiContext,
     agent_loop_id: Option<&str>,
 ) -> ApiResult<AgentCheckpointStatistics> {
     let all = match agent_loop_id {
         Some(id) => list(ctx, id).await?,
-        None => ctx.storage.checkpoint.list(None).await?,
+        None => global_checkpoints(ctx).await?,
     };
     let mut stats = AgentCheckpointStatistics {
         total: all.len(),
@@ -325,7 +295,10 @@ pub async fn statistics(
             CheckpointType::Delta => "delta",
         };
         *stats.by_type.entry(type_name.to_string()).or_insert(0) += 1;
-        if checkpoint.status == CheckpointStatus::Active {
+        if matches!(
+            checkpoint.status,
+            CheckpointStatus::Active | CheckpointStatus::Completed
+        ) {
             stats.active += 1;
         }
         if let Some(size) = checkpoint.blob_size {
@@ -336,6 +309,31 @@ pub async fn statistics(
         stats.avg_blob_size = Some(blob_total / stats.total as u64);
     }
     Ok(stats)
+}
+
+/// Every agent loop checkpoint in the shared store, oldest first.
+async fn global_checkpoints(ctx: &ApiContext) -> ApiResult<Vec<Checkpoint>> {
+    use wf_storage::domain::store::{QueryFilter, Store};
+
+    let filter = QueryFilter::new().with_field("entityType", "agent_loop");
+    let entries = ctx
+        .checkpoint_store
+        .list(Some(&filter))
+        .await
+        .map_err(|e| ApiError::execution(format!("checkpoint lookup failed: {e}")))?;
+    let mut checkpoints: Vec<Checkpoint> = entries
+        .iter()
+        .map(|(id, meta)| {
+            let entity_id = meta
+                .get("entityId")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default();
+            wf_checkpoint::state::parse_storage_metadata(id, entity_id, meta)
+        })
+        .filter(|checkpoint| checkpoint.entity_type == "agent_loop")
+        .collect();
+    checkpoints.sort_by_key(|c| c.timestamp);
+    Ok(checkpoints)
 }
 
 /// Parse a checkpoint status string onto the live execution status contract.
@@ -377,22 +375,19 @@ mod tests {
     async fn create_list_and_statistics() {
         let ctx = make_ctx();
 
-        let cp1 = create(
-            &ctx,
-            "loop-c",
-            CheckpointType::Full,
-            Some(vec!["initial".into()]),
-        )
-        .await
-        .unwrap();
+        let cp1 = create(&ctx, "loop-c", Some("initial".into()))
+            .await
+            .unwrap();
         assert_eq!(cp1.entity_type, "agent_loop");
         assert_eq!(cp1.entity_id, "loop-c");
+        assert_eq!(cp1.checkpoint_type, CheckpointType::Full);
         assert_eq!(cp1.chain_position, Some(0));
         assert!(cp1.blob_size.is_some());
 
-        let cp2 = create(&ctx, "loop-c", CheckpointType::Delta, None)
-            .await
-            .unwrap();
+        // The coordinator links the chain and picks the storage type: the
+        // second checkpoint is a delta of the first.
+        let cp2 = create(&ctx, "loop-c", None).await.unwrap();
+        assert_eq!(cp2.checkpoint_type, CheckpointType::Delta);
         assert_eq!(cp2.chain_position, Some(1));
         assert_eq!(cp2.previous_checkpoint_id.as_deref(), Some(cp1.id.as_str()));
 
@@ -411,23 +406,22 @@ mod tests {
         assert_eq!(stats.by_type.get("full"), Some(&1));
         assert_eq!(stats.by_type.get("delta"), Some(&1));
         assert!(stats.avg_blob_size.is_some());
+
+        let global = statistics(&ctx, None).await.unwrap();
+        assert_eq!(global.total, 2);
     }
 
     #[tokio::test]
     async fn restore_validates_ownership() {
         let ctx = make_ctx();
-        let cp = create(&ctx, "loop-r", CheckpointType::Full, None)
-            .await
-            .unwrap();
+        let cp = create(&ctx, "loop-r", None).await.unwrap();
 
         // Restoring the loop's own checkpoint succeeds.
         let restored = restore(&ctx, "loop-r", &cp.id).await.unwrap();
         assert_eq!(restored.id, cp.id);
 
         // A checkpoint of another loop is rejected.
-        let other = create(&ctx, "loop-other", CheckpointType::Full, None)
-            .await
-            .unwrap();
+        let other = create(&ctx, "loop-other", None).await.unwrap();
         let err = restore(&ctx, "loop-r", &other.id).await.unwrap_err();
         assert!(matches!(err, ApiError::Validation(_)));
 
@@ -439,15 +433,9 @@ mod tests {
     #[tokio::test]
     async fn delete_for_removes_checkpoints() {
         let ctx = make_ctx();
-        create(&ctx, "loop-d", CheckpointType::Full, None)
-            .await
-            .unwrap();
-        create(&ctx, "loop-d", CheckpointType::Full, None)
-            .await
-            .unwrap();
-        create(&ctx, "other", CheckpointType::Full, None)
-            .await
-            .unwrap();
+        create(&ctx, "loop-d", None).await.unwrap();
+        create(&ctx, "loop-d", None).await.unwrap();
+        create(&ctx, "other", None).await.unwrap();
 
         let removed = delete_for(&ctx, "loop-d").await.unwrap();
         assert_eq!(removed, 2);

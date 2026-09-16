@@ -222,11 +222,14 @@ impl WorkflowCheckpointIntegration {
     }
 
     pub async fn on_workflow_start(&mut self, entity: &WorkflowExecutionEntity) {
+        if !self.strategy.is_enabled() {
+            return;
+        }
         if let Err(e) = self
             .create_checkpoint(entity, CheckpointTiming::Manual, None)
             .await
         {
-            tracing::warn!(
+            tracing::error!(
                 execution_id = %entity.id(),
                 error = %e,
                 "Failed to create checkpoint at workflow start"
@@ -235,11 +238,14 @@ impl WorkflowCheckpointIntegration {
     }
 
     pub async fn on_workflow_end(&mut self, entity: &WorkflowExecutionEntity) {
+        if !self.strategy.is_enabled() {
+            return;
+        }
         if let Err(e) = self
             .create_checkpoint(entity, CheckpointTiming::OnComplete, None)
             .await
         {
-            tracing::warn!(
+            tracing::error!(
                 execution_id = %entity.id(),
                 error = %e,
                 "Failed to create checkpoint at workflow end"
@@ -251,11 +257,14 @@ impl WorkflowCheckpointIntegration {
     /// Unlike the strategy-gated methods, interruption checkpoints are
     /// always persisted so a stopped execution can be resumed.
     pub async fn on_interruption(&mut self, entity: &WorkflowExecutionEntity) {
+        if !self.strategy.is_enabled() {
+            return;
+        }
         if let Err(e) = self
             .create_checkpoint(entity, CheckpointTiming::OnCancel, None)
             .await
         {
-            tracing::warn!(
+            tracing::error!(
                 execution_id = %entity.id(),
                 error = %e,
                 "Failed to create interruption checkpoint"
@@ -268,11 +277,14 @@ impl WorkflowCheckpointIntegration {
     /// paused status and the loop can be resumed from storage after a crash.
     /// Like interruption checkpoints, pause checkpoints are always persisted.
     pub async fn on_pause(&mut self, entity: &WorkflowExecutionEntity) {
+        if !self.strategy.is_enabled() {
+            return;
+        }
         if let Err(e) = self
             .create_checkpoint(entity, CheckpointTiming::OnPause, None)
             .await
         {
-            tracing::warn!(
+            tracing::error!(
                 execution_id = %entity.id(),
                 error = %e,
                 "Failed to create pause checkpoint"
@@ -285,11 +297,14 @@ impl WorkflowCheckpointIntegration {
     /// so a timed-out run is identifiable at restore time instead of being
     /// folded into a generic failure.
     pub async fn on_timeout(&mut self, entity: &WorkflowExecutionEntity) {
+        if !self.strategy.is_enabled() {
+            return;
+        }
         if let Err(e) = self
             .create_checkpoint(entity, CheckpointTiming::OnTimeout, None)
             .await
         {
-            tracing::warn!(
+            tracing::error!(
                 execution_id = %entity.id(),
                 error = %e,
                 "Failed to create timeout checkpoint"
@@ -316,6 +331,10 @@ impl WorkflowCheckpointIntegration {
         self.inner
             .persist(&checkpoint, entity.id().as_str())
             .await?;
+        let _ = self
+            .inner
+            .save_file_snapshot(&checkpoint.id, entity.id().as_str())
+            .await;
 
         match &self.event_bus {
             Some(bus) => {

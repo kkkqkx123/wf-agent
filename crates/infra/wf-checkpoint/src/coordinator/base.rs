@@ -31,14 +31,6 @@ pub fn next_chain_position(
     }
 }
 
-/// Shared cadence rule: count-based gating used by both coordinators.
-pub fn cadence_allows(count: u32, cadence: u32) -> bool {
-    if cadence <= 1 {
-        return true;
-    }
-    count.is_multiple_of(cadence)
-}
-
 /// Shared persist event publishing so agent and workflow report identically.
 pub fn publish_persisted(
     bus: Option<&CheckpointEventBus>,
@@ -130,13 +122,17 @@ pub trait CheckpointCoordinator: Send + Sync {
     /// Best-effort file snapshot hook invoked by `create_checkpoint` after
     /// the checkpoint has been persisted. The default is a no-op; engine
     /// integrations (layertwine / file-history adapters) override it. Errors
-    /// are logged by `create_checkpoint` and never fail the create flow.
+    /// are logged with the state checkpoint id for correlation and never
+    /// fail the create flow.
     fn save_file_snapshot(
         &self,
-        _checkpoint_id: &str,
+        checkpoint_id: &str,
         _entity_id: &str,
     ) -> impl std::future::Future<Output = Result<(), CheckpointError>> + Send {
-        async move { Ok(()) }
+        async move {
+            let _ = checkpoint_id;
+            Ok(())
+        }
     }
 
     /// Whether post-persist side effects are deferred to a background
@@ -185,6 +181,7 @@ pub trait CheckpointCoordinator: Send + Sync {
         state: Self::State,
     ) -> impl std::future::Future<Output = Result<String, CheckpointError>> + Send {
         async move {
+            let lifecycle = is_lifecycle_trigger(&trigger);
             let ctx = self.prepare(entity_id, trigger).await?;
             let checkpoint = self.build(ctx, state).await?;
             self.validate_checkpoint(&checkpoint).await?;
@@ -193,12 +190,21 @@ pub trait CheckpointCoordinator: Send + Sync {
             if self.async_persistence_enabled() {
                 self.enqueue_persistence(&checkpoint_id, entity_id).await;
             } else if let Err(err) = self.save_file_snapshot(&checkpoint_id, entity_id).await {
-                tracing::warn!(
-                    entity_id = %entity_id,
-                    checkpoint_id = %checkpoint_id,
-                    error = %err,
-                    "file checkpoint creation failed (best-effort)"
-                );
+                if lifecycle {
+                    tracing::error!(
+                        entity_id = %entity_id,
+                        checkpoint_id = %checkpoint_id,
+                        error = %err,
+                        "file projection failed for lifecycle checkpoint (best-effort)"
+                    );
+                } else {
+                    tracing::warn!(
+                        entity_id = %entity_id,
+                        checkpoint_id = %checkpoint_id,
+                        error = %err,
+                        "file checkpoint creation failed (best-effort)"
+                    );
+                }
             }
             Ok(checkpoint_id)
         }
@@ -225,6 +231,88 @@ pub trait CheckpointCoordinator: Send + Sync {
             Ok(Some(id))
         }
     }
+
+    /// Whether a manual checkpoint is allowed. Manual creation honors the
+    /// master switch only and bypasses the per-trigger whitelist and
+    /// cadence, so it stays available even when the policy omits the manual
+    /// trigger. No strategy means every manual request is accepted.
+    fn manual_allowed(&self) -> bool {
+        self.default_strategy()
+            .map(|strategy| strategy.manual_allowed())
+            .unwrap_or(true)
+    }
+
+    /// Create a manual checkpoint: rejects only when the master switch is
+    /// off, otherwise delegates to the unguarded aggregate entry point.
+    fn create_manual_checkpoint(
+        &self,
+        entity_id: &str,
+        state: Self::State,
+    ) -> impl std::future::Future<Output = Result<String, CheckpointError>> + Send {
+        async move {
+            if !self.manual_allowed() {
+                return Err(CheckpointError::Strategy(
+                    "manual checkpoint rejected: checkpointing is disabled".to_string(),
+                ));
+            }
+            self.create_checkpoint(CheckpointTiming::Manual, entity_id, state)
+                .await
+        }
+    }
+}
+
+/// Whether the trigger marks an execution lifecycle boundary. Lifecycle
+/// checkpoints honor the master switch but bypass per-trigger cadence, so
+/// both coordinators classify the same trigger set identically.
+pub fn is_lifecycle_trigger(trigger: &CheckpointTiming) -> bool {
+    matches!(
+        trigger,
+        CheckpointTiming::Manual
+            | CheckpointTiming::OnComplete
+            | CheckpointTiming::OnPause
+            | CheckpointTiming::OnCancel
+            | CheckpointTiming::OnTimeout
+            | CheckpointTiming::OnStopped
+            | CheckpointTiming::OnFailure
+    )
+}
+
+/// Upper bound on deferred persistence queues shared by both coordinators.
+pub const MAX_PERSISTENCE_QUEUE: usize = 128;
+
+/// Push a background persistence handle, awaiting the backlog first when
+/// the queue is full so memory stays bounded. Shared by both coordinators.
+pub async fn push_persistence_handle(
+    queue: &std::sync::Arc<tokio::sync::Mutex<Vec<tokio::task::JoinHandle<()>>>>,
+    handle: tokio::task::JoinHandle<()>,
+) {
+    let mut guard = queue.lock().await;
+    if guard.len() >= MAX_PERSISTENCE_QUEUE {
+        let backlog: Vec<_> = std::mem::take(&mut *guard);
+        drop(guard);
+        for task in backlog {
+            if let Err(join_err) = task.await {
+                tracing::warn!(error = %join_err, "persistence task panicked");
+            }
+        }
+        guard = queue.lock().await;
+    }
+    guard.push(handle);
+}
+
+/// Drain all deferred persistence handles. Shared by both coordinators.
+pub async fn drain_persistence_handles(
+    queue: &std::sync::Arc<tokio::sync::Mutex<Vec<tokio::task::JoinHandle<()>>>>,
+) {
+    let handles: Vec<_> = {
+        let mut guard = queue.lock().await;
+        std::mem::take(&mut *guard)
+    };
+    for handle in handles {
+        if let Err(join_err) = handle.await {
+            tracing::warn!(error = %join_err, "persistence task panicked");
+        }
+    }
 }
 
 /// Read the execution status carried by a restored checkpoint payload.
@@ -232,8 +320,7 @@ pub trait CheckpointCoordinator: Send + Sync {
 /// Shared by the agent-loop and workflow coordinators so both resolve the
 /// status field identically. Returns `None` when the payload carries no
 /// usable status string, letting the caller apply its own default.
-pub fn restored_status(value: &serde_json::Value) -> Option<ExecutionStatus> {
-    value
+pub fn restored_status(value: &serde_json::Value) -> Option<ExecutionStatus> {    value
         .get("status")
         .and_then(|status| status.as_str())
         .map(ExecutionStatus::from_wire)

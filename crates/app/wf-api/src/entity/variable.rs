@@ -10,9 +10,7 @@ use serde::Serialize;
 use serde_json::Value;
 
 use wf_storage::adapter::base::BaseStorageAdapter;
-use wf_storage::adapter::checkpoint::CheckpointStorageAdapter;
 use wf_storage::adapter::variable::{VariableListOptions, VariableStorageAdapter};
-use wf_storage::domain::store::Store;
 use wf_types::enums::VariableSource;
 use wf_types::VariableStorageMetadata;
 
@@ -325,30 +323,30 @@ pub async fn history(
 }
 
 /// Best-effort variable map of the latest checkpoint of an execution,
-/// decoded from the checkpoint content blob. Returns `Ok(None)` when no
-/// checkpoint exists or its content cannot be decoded.
+/// restored through the coordinator so delta chains resolve. Returns
+/// `Ok(None)` when no checkpoint exists or it cannot be restored.
 async fn latest_checkpoint_variables(
     ctx: &ApiContext,
     execution_id: &str,
 ) -> ApiResult<Option<BTreeMap<String, Value>>> {
-    let Some(latest) = ctx
-        .storage
-        .checkpoint
-        .get_latest_by_entity(execution_id, "checkpoint")
-        .await?
+    use wf_checkpoint::coordinator::CheckpointCoordinator;
+    use wf_checkpoint::state::CheckpointStateManager;
+
+    let state_manager = wf_checkpoint::state::workflow::WorkflowCheckpointStateManager::new(
+        ctx.checkpoint_store.clone(),
+    );
+    let Some(latest) = state_manager.get_latest(execution_id).await.map_err(|e| {
+        ApiError::execution(format!("checkpoint lookup failed: {e}"))
+    })?
     else {
         return Ok(None);
     };
-    let Some((bytes, _)) = ctx.checkpoint_store.load(&latest.id).await? else {
-        return Ok(None);
-    };
-    match wf_checkpoint::serializer::CheckpointSerializer::auto_deserialize::<
-        wf_types::checkpoint::workflow::WorkflowExecutionStateSnapshot,
-    >(&bytes)
-    {
-        Ok(snapshot) => {
+    let coordinator =
+        wf_checkpoint::coordinator::workflow::WorkflowCheckpointCoordinator::new(state_manager);
+    match coordinator.restore(&latest.id).await {
+        Ok(entity) => {
             let mut map = BTreeMap::new();
-            for (name, value) in snapshot.variable_state.variables {
+            for (name, value) in entity.snapshot.variable_state.variables {
                 map.insert(name, value);
             }
             Ok(Some(map))
@@ -358,7 +356,7 @@ async fn latest_checkpoint_variables(
                 target: "wf_api",
                 checkpoint = %latest.id,
                 error = %err,
-                "could not decode checkpoint variable state"
+                "could not restore checkpoint variable state"
             );
             Ok(None)
         }

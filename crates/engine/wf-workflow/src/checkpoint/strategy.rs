@@ -148,6 +148,9 @@ impl NodeCheckpointStrategy {
     /// layering. Workflow-scope timings (start/end) are never affected by
     /// node config. `None` node config returns the workflow strategy as-is.
     pub fn resolve(&self, node_config: Option<&NodeCheckpointConfig>) -> Self {
+        if !self.is_enabled() {
+            return Self::never();
+        }
         let Some(cfg) = node_config else {
             return self.clone();
         };
@@ -196,9 +199,9 @@ impl NodeCheckpointStrategy {
         let mut resolved = Self::from_policy(&UnifiedCheckpointPolicy {
             enabled: true,
             triggers,
-            content: None,
-            retention: None,
-            error_handling: None,
+            content: Some(self.content_config().clone()),
+            retention: self.retention_config().cloned(),
+            error_handling: self.error_handling_config().cloned(),
         });
         for (timing, n) in cadences {
             resolved = resolved.with_cadence(timing, n);
@@ -224,6 +227,12 @@ impl NodeCheckpointStrategy {
 
     pub fn retention_config(&self) -> Option<&CheckpointRetentionConfig> {
         self.inner.retention_config()
+    }
+
+    pub fn error_handling_config(
+        &self,
+    ) -> Option<&wf_types::checkpoint::CheckpointErrorHandlingConfig> {
+        self.inner.error_handling_config()
     }
 }
 

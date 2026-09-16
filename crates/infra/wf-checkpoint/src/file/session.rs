@@ -8,13 +8,13 @@ use crate::file::util::map_layertwine_error;
 use crate::file::FileCheckpointManager;
 
 impl FileCheckpointManager {
-    // ── edit sessions (operation batches) ─────────────────────────────
+    // ── edit groups (operation batches) ─────────────────────────────
 
-    /// Begin a new edit session for grouping a multi-file operation.
-    /// Returns the session id. The session is persisted immediately so it
+    /// Begin a new edit group for grouping a multi-file operation.
+    /// Returns the group id. The group is persisted immediately so it
     /// survives process restarts; deltas/snapshots are appended as the
     /// operation records them.
-    pub fn begin_session(&self, label: Option<String>) -> Result<EditSessionId, CheckpointError> {
+    pub fn begin_edit_group(&self, label: Option<String>) -> Result<EditSessionId, CheckpointError> {
         let storage = self.storage_ref()?;
         let session = EditSession::new(label);
         let id = session.id;

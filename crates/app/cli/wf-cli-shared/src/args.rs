@@ -967,12 +967,24 @@ pub enum SkillSub {
 pub enum CheckpointSub {
     /// Create a checkpoint for an execution.
     Create {
-        /// Execution id.
+        /// Execution id (workflow execution, or agent loop id with --agent).
         #[arg(value_name = "ID")]
         id: String,
         /// Checkpoint name.
         #[arg(long, value_name = "NAME")]
         name: Option<String>,
+        /// Create an agent-loop checkpoint instead of a workflow one.
+        #[arg(long)]
+        agent: bool,
+    },
+    /// Create a file checkpoint for a workspace directory.
+    FileCreate {
+        /// Actor or entity id the file edits are attributed to.
+        #[arg(value_name = "ID")]
+        id: String,
+        /// Workspace root to scan.
+        #[arg(long, value_name = "PATH")]
+        path: String,
     },
     /// List checkpoints of an execution.
     List {

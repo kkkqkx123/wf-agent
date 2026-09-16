@@ -29,10 +29,10 @@ impl FileCheckpointManager {
         let actor = self.actor_id_for(entity_id);
         let agent_id = actor.to_agent_instance_id();
         self.ensure_agent_partition(&actor)?;
-        // One operation creates one EditSession: every entry of this
+        // One operation creates one edit group: every entry of this
         // checkpoint is grouped so the whole multi-file operation can be
         // listed and rolled back atomically.
-        let session_id = self.begin_session(Some("file checkpoint".to_string()))?;
+        let session_id = self.begin_edit_group(Some("file checkpoint".to_string()))?;
         for entry in entries {
             let path = crate::file::util::validate_workspace_relative_path(&entry.path)?;
             if entry.deleted {
@@ -69,15 +69,6 @@ impl FileCheckpointManager {
             .branch_adapter
             .set_branch_head(&branch_name, &checkpoint.id.to_hex())?;
         self.project(storage, &checkpoint)
-    }
-
-    /// Content-level checkpoint: alias of [`FileCheckpointManager::create_checkpoint`].
-    pub fn create_checkpoint_with_content(
-        &self,
-        entity_id: &str,
-        entries: &[FileContentEntry],
-    ) -> Result<FileCheckpoint, CheckpointError> {
-        self.create_checkpoint(entity_id, entries)
     }
 
     /// Create a file checkpoint for an entity from the actor partition's

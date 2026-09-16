@@ -796,7 +796,11 @@ fn extract_optional_i64_field<T: Serialize>(
     }))
 }
 
-fn parse_storage_metadata(id: &str, entity_id: &str, meta: &Value) -> CheckpointStorageMetadata {
+pub fn parse_storage_metadata(
+    id: &str,
+    entity_id: &str,
+    meta: &Value,
+) -> CheckpointStorageMetadata {
     let entity_type = meta
         .get("entityType")
         .and_then(|v| v.as_str())

@@ -1,5 +1,5 @@
 use crate::coordinator::base::{
-    cadence_allows, decide_checkpoint_type_by_count, next_chain_position, publish_persist_failed,
+    decide_checkpoint_type_by_count, next_chain_position, publish_persist_failed,
     publish_persisted, restored_status,
 };
 use crate::coordinator::CheckpointCoordinator;
@@ -42,10 +42,6 @@ use wf_types::checkpoint::UnifiedCheckpointPolicy;
 use wf_types::execution::ExecutionStatus;
 use wf_types::storage::CheckpointStorageMetadata;
 
-/// Upper bound on the deferred persistence queue; when reached the oldest
-/// deferred work is awaited before enqueueing so memory stays bounded.
-const MAX_PERSISTENCE_QUEUE: usize = 128;
-
 pub struct WorkflowCheckpointCoordinator {
     state_manager: WorkflowCheckpointStateManager,
     diff_calculator:
@@ -54,8 +50,6 @@ pub struct WorkflowCheckpointCoordinator {
     delta_config: DeltaStorageConfig,
     version_manager: VersionManager,
     strategy: Option<StandardStrategy>,
-    cadence: HashMap<CheckpointTiming, u32>,
-    cadence_attempts: dashmap::DashMap<String, u32>,
     error_handler: crate::error_handling::CheckpointErrorHandler,
     restore_registry: Option<RestoreStrategyRegistry>,
     execution_registry: Option<Arc<dyn ExecutionRegistry>>,
@@ -77,8 +71,6 @@ impl WorkflowCheckpointCoordinator {
             delta_config: DeltaStorageConfig::default(),
             version_manager: VersionManager::new(),
             strategy: None,
-            cadence: HashMap::new(),
-            cadence_attempts: dashmap::DashMap::new(),
             error_handler: crate::error_handling::CheckpointErrorHandler::default(),
             restore_registry: None,
             execution_registry: None,
@@ -128,14 +120,6 @@ impl WorkflowCheckpointCoordinator {
     /// Number of pending persistence tasks in the async queue.
     pub async fn pending_persistence_count(&self) -> usize {
         self.persistence_queue.lock().await.len()
-    }
-
-    /// Set an interval cadence for a trigger: in the strategy-gated create
-    /// path the checkpoint fires only every `n` existing checkpoints.
-    /// May be called multiple times.
-    pub fn with_cadence(mut self, trigger: CheckpointTiming, n: u32) -> Self {
-        self.cadence.insert(trigger, n.max(1));
-        self
     }
 
     /// Configure the checkpoint error handler (default: `warn`, non-fatal).
@@ -491,66 +475,79 @@ impl CheckpointCoordinator for WorkflowCheckpointCoordinator {
     }
 
     /// Synchronous best-effort file projection for the entity. Missing file
-    /// history yields `Ok` so the state checkpoint never fails.
+    /// history yields `Ok` so the state checkpoint never fails. Success and
+    /// failure are logged with the state checkpoint id for correlation.
     async fn save_file_snapshot(
         &self,
-        _checkpoint_id: &str,
+        checkpoint_id: &str,
         entity_id: &str,
     ) -> Result<(), CheckpointError> {
         if let Some(manager) = &self.file_checkpoint_manager {
-            let _ = manager.create_latest_file_checkpoint(entity_id)?;
+            match manager.create_latest_file_checkpoint(entity_id)? {
+                Some(file_checkpoint) => {
+                    tracing::debug!(
+                        entity_id = %entity_id,
+                        checkpoint_id = %checkpoint_id,
+                        file_checkpoint_id = %file_checkpoint.id,
+                        "file projection correlated with state checkpoint"
+                    );
+                }
+                None => {
+                    tracing::debug!(
+                        entity_id = %entity_id,
+                        checkpoint_id = %checkpoint_id,
+                        "no file history for state checkpoint"
+                    );
+                }
+            }
         }
         Ok(())
     }
 
     /// Defer post-persist side effects (file snapshot) to the background
-    /// persistence queue (async mode). The queue is bounded:
-    /// when it exceeds `MAX_PERSISTENCE_QUEUE`, the oldest deferred work is
-    /// awaited first so the `Vec<JoinHandle>` never grows without bound.
+    /// persistence queue (async mode). The queue is bounded and shared with
+    /// the agent coordinator.
     async fn enqueue_persistence(&self, checkpoint_id: &str, entity_id: &str) {
         let checkpoint_id = checkpoint_id.to_string();
         let entity_id = entity_id.to_string();
         let file_manager = self.file_checkpoint_manager.clone();
-        let queue = self.persistence_queue.clone();
         // File-snapshot creation is blocking file I/O; run it on the blocking
         // pool so a slow filesystem never pins a tokio worker.
         let handle = tokio::task::spawn_blocking(move || {
             if let Some(manager) = file_manager {
-                if let Err(err) = manager.create_latest_file_checkpoint(&entity_id) {
-                    tracing::warn!(
-                        entity_id = %entity_id,
-                        checkpoint_id = %checkpoint_id,
-                        error = %err,
-                        "deferred file checkpoint creation failed (best-effort)"
-                    );
+                match manager.create_latest_file_checkpoint(&entity_id) {
+                    Ok(Some(file_checkpoint)) => {
+                        tracing::debug!(
+                            entity_id = %entity_id,
+                            checkpoint_id = %checkpoint_id,
+                            file_checkpoint_id = %file_checkpoint.id,
+                            "deferred file projection correlated with state checkpoint"
+                        );
+                    }
+                    Ok(None) => {
+                        tracing::debug!(
+                            entity_id = %entity_id,
+                            checkpoint_id = %checkpoint_id,
+                            "deferred file projection found no history"
+                        );
+                    }
+                    Err(err) => {
+                        tracing::warn!(
+                            entity_id = %entity_id,
+                            checkpoint_id = %checkpoint_id,
+                            error = %err,
+                            "deferred file checkpoint creation failed (best-effort)"
+                        );
+                    }
                 }
             }
         });
-        let mut queue_guard = queue.lock().await;
-        if queue_guard.len() >= MAX_PERSISTENCE_QUEUE {
-            let backlog: Vec<_> = std::mem::take(&mut *queue_guard);
-            drop(queue_guard);
-            for task in backlog {
-                if let Err(join_err) = task.await {
-                    tracing::warn!(error = %join_err, "persistence task panicked");
-                }
-            }
-            queue_guard = queue.lock().await;
-        }
-        queue_guard.push(handle);
+        crate::coordinator::base::push_persistence_handle(&self.persistence_queue, handle).await;
     }
 
     /// Drain the persistence queue and wait for all deferred operations.
     async fn wait_for_persistence(&self) {
-        let handles: Vec<_> = {
-            let mut queue = self.persistence_queue.lock().await;
-            std::mem::take(&mut *queue)
-        };
-        for handle in handles {
-            if let Err(join_err) = handle.await {
-                tracing::warn!(error = %join_err, "persistence task panicked");
-            }
-        }
+        crate::coordinator::base::drain_persistence_handles(&self.persistence_queue).await;
     }
 
     async fn prepare(
@@ -891,38 +888,6 @@ impl CheckpointCoordinator for WorkflowCheckpointCoordinator {
         self.strategy.as_ref().map(|s| s as &dyn CheckpointStrategy)
     }
 
-    /// Strategy-gated create with the optional per-trigger cadence: the
-    /// checkpoint fires only every `n` attempts for the entity (attempts
-    /// increment regardless of whether the checkpoint is created, matching
-    /// the agent-loop iteration cadence semantics).
-    async fn create_checkpoint_with_strategy(
-        &self,
-        trigger: CheckpointTiming,
-        entity_id: &str,
-        state: Self::State,
-    ) -> Result<Option<String>, CheckpointError> {
-        let ctx = self.prepare(entity_id, trigger.clone()).await?;
-        if let Some(strategy) = self.default_strategy() {
-            if !strategy.should_checkpoint(&trigger, &ctx) {
-                return Ok(None);
-            }
-        }
-        if let Some(cadence) = self.cadence.get(&trigger) {
-            let attempt = {
-                let mut entry = self
-                    .cadence_attempts
-                    .entry(entity_id.to_string())
-                    .or_insert(0);
-                *entry += 1;
-                *entry
-            };
-            if !cadence_allows(attempt, *cadence) {
-                return Ok(None);
-            }
-        }
-        let id = self.create_checkpoint(trigger, entity_id, state).await?;
-        Ok(Some(id))
-    }
 }
 
 impl WorkflowCheckpointCoordinator {
@@ -1844,21 +1809,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn cadence_gates_strategy_created_checkpoints() {
-        let coord = make_coordinator()
-            .with_strategy(&make_policy(vec![CheckpointTiming::AfterExecute]))
-            .with_cadence(CheckpointTiming::AfterExecute, 2);
-
-        // Attempts increment on every call: 1 skipped, 2 fires, 3 skipped.
-        let skipped = coord
-            .create_checkpoint_with_strategy(
-                CheckpointTiming::AfterExecute,
-                "exec-1",
-                make_snapshot(),
-            )
-            .await
-            .unwrap();
-        assert!(skipped.is_none(), "attempt 1 skipped");
+    async fn strategy_gates_created_checkpoints_without_second_cadence_layer() {
+        let coord =
+            make_coordinator().with_strategy(&make_policy(vec![CheckpointTiming::AfterExecute]));
 
         let created = coord
             .create_checkpoint_with_strategy(
@@ -1868,16 +1821,16 @@ mod tests {
             )
             .await
             .unwrap();
-        assert!(created.is_some(), "attempt 2 fires");
+        assert!(created.is_some(), "configured trigger fires");
 
         let skipped = coord
             .create_checkpoint_with_strategy(
-                CheckpointTiming::AfterExecute,
+                CheckpointTiming::BeforeExecute,
                 "exec-1",
                 make_snapshot(),
             )
             .await
             .unwrap();
-        assert!(skipped.is_none(), "attempt 3 skipped");
+        assert!(skipped.is_none(), "unconfigured trigger skipped");
     }
 }

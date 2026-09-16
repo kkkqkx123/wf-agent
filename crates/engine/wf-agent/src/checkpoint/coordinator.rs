@@ -159,6 +159,32 @@ impl AgentCheckpointIntegration {
         }
     }
 
+    /// Lifecycle checkpoint: honors the master switch but bypasses the
+    /// per-trigger cadence, mirroring the workflow lifecycle contract.
+    /// Start, completion, terminal and pause snapshots must not depend on
+    /// the iteration cadence. Failures only warn so the lifecycle outcome
+    /// never changes.
+    pub async fn create_lifecycle_checkpoint(
+        &self,
+        entity: &AgentLoopEntity,
+        trigger: CheckpointTiming,
+        description: Option<String>,
+    ) -> bool {
+        if !self.strategy.is_enabled() {
+            return false;
+        }
+        if let Err(e) = self.create_checkpoint(entity, trigger.clone(), description).await {
+            tracing::error!(
+                error = %e,
+                entity_id = %entity.id(),
+                trigger = ?trigger,
+                "lifecycle checkpoint failed"
+            );
+            return false;
+        }
+        true
+    }
+
     pub fn store(&self) -> &Arc<StorageBackend> {
         &self.store
     }
@@ -170,7 +196,7 @@ impl AgentCheckpointIntegration {
         description: Option<String>,
     ) -> Result<(), CheckpointError> {
         let snapshot = self.build_snapshot(entity).await;
-        let ctx = self
+        let mut ctx = self
             .inner
             .prepare_with_parent(
                 entity.id().as_str(),
@@ -178,10 +204,19 @@ impl AgentCheckpointIntegration {
                 entity.parent_execution_id().map(|p| p.as_str()),
             )
             .await?;
+        if let Some(ref text) = description {
+            ctx.metadata
+                .get_or_insert_default()
+                .insert("description".to_string(), serde_json::json!(text));
+        }
         let checkpoint = self.inner.build(ctx, snapshot).await?;
         self.inner
             .persist(&checkpoint, entity.id().as_str())
             .await?;
+        let _ = self
+            .inner
+            .save_file_snapshot(&checkpoint.id, entity.id().as_str())
+            .await;
 
         if let Some(ref bus) = self.execution_events {
             let mut changes = serde_json::Map::new();
@@ -218,16 +253,8 @@ impl AgentCheckpointIntegration {
         if !entity.state.read().await.is_paused() {
             return;
         }
-        if let Err(err) = self
-            .create_checkpoint_gated(entity, CheckpointTiming::OnPause, None)
-            .await
-        {
-            tracing::warn!(
-                error = %err,
-                entity_id = %entity.id(),
-                "failed to create pause checkpoint"
-            );
-        }
+        self.create_lifecycle_checkpoint(entity, CheckpointTiming::OnPause, None)
+            .await;
     }
 
     /// Restore a checkpointed agent loop into a branch-ready runtime state.

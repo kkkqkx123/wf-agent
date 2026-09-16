@@ -16,11 +16,11 @@ uuid.workspace = true
 
 sqlx = { workspace = true, optional = true }
 
-moka = { version = "0.12", features = ["sync"] }
-sha2 = "0.11"
-flate2 = "1.1"
-url = "2"
-tokio-util = "0.7"
+moka.workspace = true
+sha2.workspace = true
+flate2.workspace = true
+url.workspace = true
+tokio-util.workspace = true
 
 [features]
 default = ["sqlite", "postgres"]

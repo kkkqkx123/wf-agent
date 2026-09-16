@@ -10,11 +10,11 @@ serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
-async-trait = "0.1"
+async-trait.workspace = true
 
 [dev-dependencies]
 tokio.workspace = true
-criterion = "0.5"
+criterion.workspace = true
 
 [[bench]]
 name = "record_bench"

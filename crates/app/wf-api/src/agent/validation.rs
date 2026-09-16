@@ -1,8 +1,8 @@
 //! Agent definition validation using the shared [`ValidationContext`].
 
 use wf_types::{
-    validate_hook_type, validate_profile_reference, validate_tool_list, ValidationContext,
-    ValidationError, ValidationResult,
+    validate_profile_reference, validate_tool_list, ValidationContext, ValidationError,
+    ValidationResult,
 };
 
 /// Agent-specific validator that uses the shared [`ValidationContext`].
@@ -39,18 +39,7 @@ impl<'a> AgentValidator<'a> {
         let tool_names = extract_tool_names(definition);
         result.extend_errors(validate_tool_list(&tool_names, self.ctx));
 
-        // 4. Hook type validation (using shared validator).
-        if let Some(config) = &definition.config {
-            if let Some(hooks) = &config.hooks {
-                for hook in hooks {
-                    if let Some(e) = validate_hook_type(hook.hook_type_name()) {
-                        result.push_warning(e);
-                    }
-                }
-            }
-        }
-
-        // 5. Tool call format protocol compatibility check: agent config
+        // 4. Tool call format protocol compatibility check: agent config
         // format must be compatible with the referenced profile format.
         // Uses the shared engine validator so API-time and runtime rules match.
         if let Some(config) = &definition.config {

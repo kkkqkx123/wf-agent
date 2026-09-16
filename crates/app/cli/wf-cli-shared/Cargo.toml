@@ -34,8 +34,8 @@ lua = ["wf-runtime/lua"]
 native = ["wf-runtime/native"]
 
 [dev-dependencies]
-tempfile = "3"
-insta = "1"
+tempfile.workspace = true
+insta.workspace = true
 wf-llm = { path = "../../../infra/wf-llm", features = ["mock"] }
 wf-storage = { path = "../../../infra/wf-storage" }
 wf-resource = { path = "../../../infra/wf-resource" }

@@ -33,4 +33,4 @@ sqlite = ["dep:rusqlite"]
 lua = ["wf-sandbox/lua"]
 
 [dev-dependencies]
-tempfile = "3"
+tempfile.workspace = true

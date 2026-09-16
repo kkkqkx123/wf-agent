@@ -1,5 +1,4 @@
-use crate::error::ConfigResult;
-use crate::validator::{validate_min, validate_not_empty};
+use crate::error::{ConfigError, ConfigResult};
 
 use wf_types::hook::{
     hook_effect, is_known_hook_point, CanonicalHookSpec, HookPointConfig, HookPointStaticConfig,
@@ -44,71 +43,35 @@ fn validate_payload_template_syntax(
     payload: &serde_json::Value,
     field_prefix: &str,
 ) -> ConfigResult<()> {
-    match payload {
-        serde_json::Value::String(s) => validate_template_string(s, field_prefix),
-        serde_json::Value::Object(map) => {
-            for value in map.values() {
-                validate_payload_template_syntax(value, field_prefix)?;
-            }
-            Ok(())
-        }
-        serde_json::Value::Array(items) => {
-            for value in items {
-                validate_payload_template_syntax(value, field_prefix)?;
-            }
-            Ok(())
-        }
-        _ => Ok(()),
-    }
-}
-
-fn validate_template_string(template: &str, field_prefix: &str) -> ConfigResult<()> {
-    let mut rest = template;
-    while let Some(start) = rest.find("{{") {
-        let after = &rest[start + 2..];
-        let Some(end) = after.find("}}") else {
-            return Err(crate::error::ConfigError::Validation(format!(
-                "{field_prefix}.payload contains unclosed template expression"
-            )));
-        };
-        if after[..end].trim().is_empty() {
-            return Err(crate::error::ConfigError::Validation(format!(
-                "{field_prefix}.payload contains empty template expression"
-            )));
-        }
-        rest = &after[end + 2..];
-    }
-    if rest.contains("}}") {
-        return Err(crate::error::ConfigError::Validation(format!(
-            "{field_prefix}.payload contains stray template close without open"
-        )));
-    }
-    Ok(())
+    wf_types::hook::validate_payload_template_syntax(payload).map_err(|e| {
+        ConfigError::Validation(format!("{field_prefix}.payload {e}"))
+    })
 }
 
 /// Single validation entry for every hook config form.
 ///
 /// All four forms (workflow, agent, static, tool-callback) converge to
 /// `CanonicalHookSpec` first; this function holds the only copy of the
-/// behavior: unknown types warn (forward compatible, never fire),
-/// deprecated `event_name` always passes with a warning, negative weights
-/// are rejected, empty handler names are rejected, a set handler warns
-/// about sync/async unordered paths, and request/mutated hooks without a
-/// handler warn about completeness (observability hooks skip that check).
+/// behavior: unknown types are rejected, deprecated `event_name` always
+/// passes with a warning, negative weights are rejected, empty handler
+/// names are rejected, a set handler warns about sync/async unordered
+/// paths, and request/mutated hooks without a handler warn about
+/// completeness (observability hooks skip that check).
 pub fn validate_canonical_hook(
     spec: &CanonicalHookSpec,
     event_name: &str,
     field_prefix: &str,
 ) -> ConfigResult<()> {
     if !is_known_hook_point(&spec.hook_type) {
-        tracing::warn!(
-            "{}.hook_type references unknown hook type '{}'; allowing registration but it will never fire",
-            field_prefix,
+        return Err(ConfigError::Validation(format!(
+            "{field_prefix}.hook_type references unknown hook type '{}'",
             spec.hook_type
-        );
+        )));
     }
     warn_deprecated_event_name(field_prefix, event_name);
-    validate_min(spec.priority, 0, &format!("{field_prefix}.priority"))?;
+    wf_types::hook::validate_hook_priority(spec.priority).map_err(|e| {
+        ConfigError::Validation(format!("{field_prefix}.priority {e}"))
+    })?;
     if let Some(payload) = spec.payload.as_ref() {
         validate_payload_template_syntax(payload, field_prefix)?;
     }
@@ -120,22 +83,20 @@ pub fn validate_canonical_hook(
         }
     }
     if let Some(ref handler) = spec.handler {
-        validate_not_empty(handler, &format!("{field_prefix}.handler"))?;
+        wf_types::hook::validate_hook_handler_name(Some(handler)).map_err(|e| {
+            ConfigError::Validation(format!("{field_prefix}.handler {e}"))
+        })?;
         tracing::warn!(
             "{}.handler '{}' completes before the HOOK_TRIGGERED audit event is published, so a matching trigger template starts after it but its completion is not awaited by the engine; where a domain event exists prefer subscribing the trigger to it, and configure both paths only when the two effects commute",
             field_prefix,
             handler
         );
-    } else if is_known_hook_point(&spec.hook_type)
-        && !matches!(
-            hook_effect(&spec.hook_type),
-            wf_types::events::EventCategory::Observable
-        )
-    {
+    } else if !matches!(
+        hook_effect(&spec.hook_type),
+        wf_types::events::EventCategory::Observable
+    ) {
         warn_missing_handler(field_prefix, &spec.hook_type);
-    } else if is_known_hook_point(&spec.hook_type)
-        && !wf_types::hook::hook_allows_trigger(&spec.hook_type)
-    {
+    } else if !wf_types::hook::hook_allows_trigger(&spec.hook_type) {
         // BEFORE_* without a handler: the audit event it publishes is
         // trigger-closed, so the definition has no consumer. Warn instead
         // of rejecting: the fire itself is harmless and the handler can be
@@ -231,10 +192,10 @@ mod tests {
     }
 
     #[test]
-    fn base_hook_unknown_type_allowed_with_warning() {
+    fn base_hook_unknown_type_rejected() {
         let mut hook = make_base_hook();
         hook.hook_type = "NOPE".to_string();
-        assert!(validate_base_hook_config(&hook, "hooks[0]").is_ok());
+        assert!(validate_base_hook_config(&hook, "hooks[0]").is_err());
     }
 
     #[test]

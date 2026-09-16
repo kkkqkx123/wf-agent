@@ -10,16 +10,16 @@ tracing.workspace = true
 thiserror.workspace = true
 async-trait.workspace = true
 futures.workspace = true
-regex = "1.10"
-serde_json = "1"
-shlex = "2.0"
+regex.workspace = true
+serde_json.workspace = true
+shlex.workspace = true
 blake3.workspace = true
 
 wf-types = { path = "../../foundation/wf-types" }
 wf-common = { path = "../../foundation/wf-common" }
 
 mlua = { workspace = true, optional = true }
-libc = "0.2"
+libc.workspace = true
 
 [features]
 default = []

@@ -242,37 +242,30 @@ impl AgentLoopValidator {
     }
 }
 
-/// Validates hook configuration. Mirrors the authoritative
-/// `wf-config::processor::hook::validate_canonical_hook` rules without taking
-/// a dependency on wf-config: unknown hook types warn (never fire), negative
-/// priorities and empty handler names are errors, malformed condition
-/// expressions are errors, and malformed payload templates are errors.
-/// Tool-callback hooks arrive via model output, so a
-/// structured warning is emitted for the whole hook form at the call site.
+/// Validates hook configuration. Delegates pure shape checks to the
+/// shared truth in `wf_types::hook`; condition syntax uses the shared
+/// evaluator in `wf_core`. Config sources reject unknown hook types.
+/// Tool-callback hooks arriving via model output keep runtime clamping at
+/// the conversion site.
 fn validate_hook(hook: &HookConfig, issues: &mut Vec<ValidationIssue>) {
     use wf_types::hook::is_known_hook_point;
     if !is_known_hook_point(&hook.hook_type) {
-        issues.push(ValidationIssue::warning(
+        issues.push(ValidationIssue::error(
             "hooks",
-            format!("unknown hook type '{}' will never fire", hook.hook_type),
+            format!("unknown hook type '{}'", hook.hook_type),
         ));
     }
-    if hook.priority < 0 {
+    if let Err(e) = wf_types::hook::validate_hook_priority(hook.priority) {
         issues.push(ValidationIssue::error(
             "hooks.priority",
-            format!(
-                "hook '{}' priority {} must be >= 0",
-                hook.hook_type, hook.priority
-            ),
+            format!("hook '{}' {e}", hook.hook_type),
         ));
     }
-    if let Some(handler) = &hook.handler {
-        if handler.trim().is_empty() {
-            issues.push(ValidationIssue::error(
-                "hooks.handler",
-                format!("hook '{}' handler must not be empty", hook.hook_type),
-            ));
-        }
+    if let Err(e) = wf_types::hook::validate_hook_handler_name(hook.handler.as_deref()) {
+        issues.push(ValidationIssue::error(
+            "hooks.handler",
+            format!("hook '{}' {e}", hook.hook_type),
+        ));
     }
     if let Some(condition) = &hook.condition {
         if let Err(e) = wf_core::condition::ConditionEvaluator::validate_syntax(condition) {
@@ -283,50 +276,13 @@ fn validate_hook(hook: &HookConfig, issues: &mut Vec<ValidationIssue>) {
         }
     }
     if let Some(payload) = hook.payload.as_ref() {
-        if let Err(e) = validate_payload_template_syntax(payload) {
+        if let Err(e) = wf_types::hook::validate_payload_template_syntax(payload) {
             issues.push(ValidationIssue::error(
                 "hooks.payload",
                 format!("hook '{}' payload invalid: {}", hook.hook_type, e),
             ));
         }
     }
-}
-
-fn validate_payload_template_syntax(payload: &serde_json::Value) -> Result<(), String> {
-    match payload {
-        serde_json::Value::String(s) => validate_template_string(s),
-        serde_json::Value::Object(map) => {
-            for value in map.values() {
-                validate_payload_template_syntax(value)?;
-            }
-            Ok(())
-        }
-        serde_json::Value::Array(items) => {
-            for value in items {
-                validate_payload_template_syntax(value)?;
-            }
-            Ok(())
-        }
-        _ => Ok(()),
-    }
-}
-
-fn validate_template_string(template: &str) -> Result<(), String> {
-    let mut rest = template;
-    while let Some(start) = rest.find("{{") {
-        let after = &rest[start + 2..];
-        let Some(end) = after.find("}}") else {
-            return Err("payload contains unclosed template expression".to_string());
-        };
-        if after[..end].trim().is_empty() {
-            return Err("payload contains empty template expression".to_string());
-        }
-        rest = &after[end + 2..];
-    }
-    if rest.contains("}}") {
-        return Err("payload contains stray template close without open".to_string());
-    }
-    Ok(())
 }
 
 fn validate_tool_lists(
@@ -485,7 +441,7 @@ mod tests {
     }
 
     #[test]
-    fn test_unknown_hook_warns() {
+    fn test_unknown_hook_errors() {
         let registry = ToolRegistry::new();
         let config = AgentLoopConfig {
             hooks: vec![HookConfig {
@@ -503,7 +459,7 @@ mod tests {
         let issues = AgentLoopValidator::validate_config(&config, &registry);
         assert!(issues
             .iter()
-            .any(|i| i.field == "hooks" && i.severity == ValidationSeverity::Warning));
+            .any(|i| i.field == "hooks" && i.severity == ValidationSeverity::Error));
     }
 
     #[test]

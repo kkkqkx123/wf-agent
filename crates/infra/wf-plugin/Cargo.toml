@@ -14,6 +14,12 @@ dashmap.workspace = true
 chrono.workspace = true
 semver.workspace = true
 futures.workspace = true
+toml.workspace = true
+ed25519-dalek.workspace = true
+sha2.workspace = true
+hex.workspace = true
+rand.workspace = true
+anyhow.workspace = true
 
 wf-types = { path = "../../foundation/wf-types" }
 wf-common = { path = "../../foundation/wf-common" }
@@ -21,20 +27,12 @@ wf-core = { path = "../../foundation/wf-core" }
 wf-plugin-sdk = { path = "../../foundation/wf-plugin-sdk" }
 wf-sandbox = { path = "../wf-sandbox", optional = true }
 
-toml.workspace = true
-
-ed25519-dalek.workspace = true
-sha2.workspace = true
-hex.workspace = true
-rand.workspace = true
-anyhow = "1"
-
 mlua = { workspace = true, optional = true }
-libloading = { version = "0.8", optional = true }
+libloading = { workspace = true, optional = true }
 wasmtime = { workspace = true, optional = true }
 wasmtime-wasi = { workspace = true, optional = true }
 blake3 = { workspace = true, optional = true }
-bytes = { version = "1", optional = true }
+bytes = { workspace = true, optional = true }
 moka = { workspace = true, optional = true }
 
 [dev-dependencies]

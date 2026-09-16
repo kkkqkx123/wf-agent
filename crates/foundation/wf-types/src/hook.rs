@@ -64,12 +64,66 @@ pub const WORKFLOW_HOOK_TYPES: &[&str] = &[
 ];
 
 /// Whether the hook type is a known agent or workflow hook type. Config
-/// validation uses this as the single source of truth; unknown types may
-/// still be handled by externally registered handlers.
+/// validation uses this as the single source of truth; unknown types are
+/// rejected at config boundaries.
 pub fn is_known_hook_point(hook_type: &str) -> bool {
     AGENT_HOOK_TYPES.contains(&hook_type)
         || WORKFLOW_HOOK_TYPES.contains(&hook_type)
         || INTERNAL_SIGNAL_TYPES.contains(&hook_type)
+}
+
+/// Pure priority check shared by every hook validation entry.
+pub fn validate_hook_priority(priority: i32) -> Result<(), String> {
+    if priority < 0 {
+        return Err(format!("priority {priority} must be >= 0"));
+    }
+    Ok(())
+}
+
+/// Pure handler-name check shared by every hook validation entry.
+pub fn validate_hook_handler_name(handler: Option<&str>) -> Result<(), String> {
+    if handler.is_some_and(|h| h.trim().is_empty()) {
+        return Err("handler must not be empty".to_string());
+    }
+    Ok(())
+}
+
+/// Pure payload template check shared by every hook validation entry.
+pub fn validate_payload_template_syntax(payload: &serde_json::Value) -> Result<(), String> {
+    match payload {
+        serde_json::Value::String(s) => validate_hook_template_string(s),
+        serde_json::Value::Object(map) => {
+            for value in map.values() {
+                validate_payload_template_syntax(value)?;
+            }
+            Ok(())
+        }
+        serde_json::Value::Array(items) => {
+            for value in items {
+                validate_payload_template_syntax(value)?;
+            }
+            Ok(())
+        }
+        _ => Ok(()),
+    }
+}
+
+fn validate_hook_template_string(template: &str) -> Result<(), String> {
+    let mut rest = template;
+    while let Some(start) = rest.find("{{") {
+        let after = &rest[start + 2..];
+        let Some(end) = after.find("}}") else {
+            return Err("payload contains unclosed template expression".to_string());
+        };
+        if after[..end].trim().is_empty() {
+            return Err("payload contains empty template expression".to_string());
+        }
+        rest = &after[end + 2..];
+    }
+    if rest.contains("}}") {
+        return Err("payload contains stray template close without open".to_string());
+    }
+    Ok(())
 }
 
 /// Effect category of a hook point, mirroring `events::EventCategory`.
@@ -153,7 +207,7 @@ pub fn hook_allows_trigger(hook_type: &str) -> bool {
 /// Authoritative field set and value rules (frozen by the winner-mechanism
 /// phase; every form must map onto these without behavior change):
 /// - `hook_type`: canonical wire name (`is_known_hook_point` decides
-///   known vs forward-compatible unknown; unknown never fires).
+///   known vs rejected; unknown is rejected at config boundaries).
 /// - `condition`: optional expression string evaluated against the hook
 ///   context (`None` always matches).
 /// - `enabled`: concrete bool (absent means true in every config form).

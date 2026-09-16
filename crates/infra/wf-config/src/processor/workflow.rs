@@ -335,7 +335,7 @@ mod tests {
     }
 
     #[test]
-    fn test_unknown_hook_type_allowed_with_warning() {
+    fn test_unknown_hook_type_rejected() {
         let mut wf = make_workflow();
         wf.hooks = Some(vec![wf_types::hook::HookPointConfig {
             hook_type: "BEFORE_ECECUTE".to_string(),
@@ -348,7 +348,7 @@ mod tests {
             checkpoint_description: None,
             handler: None,
         }]);
-        assert!(validate_workflow_definition(&wf).is_ok());
+        assert!(validate_workflow_definition(&wf).is_err());
     }
 
     #[test]

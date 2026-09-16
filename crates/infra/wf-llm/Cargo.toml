@@ -23,6 +23,6 @@ futures.workspace = true
 dashmap.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
-url = { version = "2.5", features = ["serde"] }
-bytes = "1"
+url.workspace = true
+bytes.workspace = true
 regex.workspace = true

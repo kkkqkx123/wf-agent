@@ -65,6 +65,8 @@ num_cpus = "1"
 semver = "1"
 
 # General-purpose utilities
+anyhow = "1"
+bytes = "1"
 parking_lot = "0.12"
 zstd = "0.13"
 smallvec = "1"
@@ -75,10 +77,18 @@ clap = { version = "4", features = ["derive"] }
 sha2 = "0.11"
 ed25519-dalek = { version = "2", features = ["rand_core"] }
 rusqlite = { version = "0.32", features = ["bundled"] }
+url = { version = "2", features = ["serde"] }
+flate2 = "1"
+lazy_static = "1"
+shlex = "2"
 
 # Pattern matching / glob
 regex = "1"
 globset = "0.4"
+glob = "0.3"
+
+# FFI / dynamic loading
+libloading = "0.8"
 
 # Lua plugin runtime (optional, enabled via wf-plugin/lua and wf-sandbox/lua)
 mlua = { version = "0.9", default-features = false, features = ["luajit", "send"] }
@@ -113,3 +123,8 @@ tower = "0.5"
 tower-http = { version = "0.6", features = ["cors", "trace", "timeout", "limit"] }
 http = "1.1"
 tokio-tungstenite = { version = "0.27", default-features = false, features = ["connect", "handshake"] }
+
+# Dev / test only
+tempfile = "3"
+criterion = "0.5"
+insta = "1"

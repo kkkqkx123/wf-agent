@@ -77,6 +77,7 @@ pub fn spawn_conversation_compression_consumer(
                             .create_checkpoint_gated(
                                 &ctx.entity,
                                 CheckpointTiming::AfterCompression,
+                                None,
                             )
                             .await
                         {

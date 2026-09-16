@@ -162,7 +162,7 @@ impl AgentExecutionCoordinator {
             match iteration_result {
                 Some(result) => {
                     if let Some(ref cp) = self.checkpoint {
-                        cp.create_checkpoint_gated(entity, CheckpointTiming::AfterExecute)
+                        cp.create_checkpoint_gated(entity, CheckpointTiming::AfterExecute, None)
                             .await
                             .unwrap_or_else(|e| {
                                 tracing::warn!("Failed to create iteration checkpoint: {}", e);
@@ -302,7 +302,7 @@ impl AgentExecutionCoordinator {
                     entity.state.write().await.record_error(record);
 
                     if let Some(ref cp) = self.checkpoint {
-                        cp.create_checkpoint_gated(entity, CheckpointTiming::OnError)
+                        cp.create_checkpoint_gated(entity, CheckpointTiming::OnError, None)
                             .await
                             .unwrap_or_else(|ce| {
                                 tracing::warn!("Failed to create error checkpoint: {}", ce);

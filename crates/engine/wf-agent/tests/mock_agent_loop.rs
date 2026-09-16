@@ -763,8 +763,8 @@ async fn checkpoint_message_interval_produces_interval_checkpoints() {
 /// checkpoint opt-in; returns the entity's checkpoint count after the fire.
 /// Drives `fire_agent_point_with_checkpoint` directly so the opt-in gate is
 /// isolated from the per-iteration `AfterExecute` checkpoint the execution
-/// coordinator takes on its own. The strategy enables every hook-mapped
-/// timing so the opt-in decision (not the strategy gate) is what varies.
+/// coordinator takes on its own. The strategy is enabled so the opt-in
+/// decision (not the master switch) is what varies.
 async fn fire_hook_with_opt_in(
     store: Arc<StorageBackend>,
     loop_id: &str,
@@ -830,7 +830,7 @@ async fn hook_create_checkpoint_persists_after_iteration() {
     assert_eq!(
         fire_hook_with_opt_in(store.clone(), "hook-fire", "AFTER_ITERATION", Some(true)).await,
         1,
-        "opted-in hook fire must persist exactly one gated checkpoint"
+        "opted-in hook fire must persist exactly one hook-requested checkpoint"
     );
     let plain_store = Arc::new(StorageBackend::new_memory());
     assert_eq!(
@@ -880,7 +880,7 @@ async fn hook_create_checkpoint_persists_after_iteration() {
 #[tokio::test]
 async fn hook_create_checkpoint_covers_all_wired_points() {
     // Every hook point wired through `fire_agent_point_with_checkpoint`
-    // honors the opt-in: `Some(true)` persists one gated checkpoint,
+    // honors the opt-in: `Some(true)` persists one hook-requested checkpoint,
     // `None` persists nothing. `SUBAGENT_START/STOP` stay notification-only
     // (parent-entity lifecycle points, intentionally unwired).
     for hook_type in [
@@ -898,7 +898,7 @@ async fn hook_create_checkpoint_covers_all_wired_points() {
         assert_eq!(
             fire_hook_with_opt_in(store.clone(), "wired-on", hook_type, Some(true)).await,
             1,
-            "opted-in {hook_type} fire must persist exactly one gated checkpoint"
+            "opted-in {hook_type} fire must persist exactly one hook-requested checkpoint"
         );
         let quiet = Arc::new(StorageBackend::new_memory());
         assert_eq!(
@@ -908,7 +908,7 @@ async fn hook_create_checkpoint_covers_all_wired_points() {
         );
     }
 
-    // Strategy gate still applies: a disabled instance strategy suppresses
+    // Master switch still applies: a disabled instance strategy suppresses
     // even an opted-in hook fire.
     {
         use wf_agent::checkpoint::AgentCheckpointIntegration;

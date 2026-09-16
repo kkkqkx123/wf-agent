@@ -122,13 +122,41 @@ impl AgentCheckpointIntegration {
         &self,
         entity: &AgentLoopEntity,
         trigger: CheckpointTiming,
+        description: Option<String>,
     ) -> Result<bool, CheckpointError> {
         let iteration = entity.state.read().await.current_iteration();
         if !self.should_checkpoint(&trigger, iteration) {
             return Ok(false);
         }
-        self.create_checkpoint(entity, trigger).await?;
+        self.create_checkpoint(entity, trigger, description).await?;
         Ok(true)
+    }
+
+    /// Hook opt-in checkpoint: a hook definition carried
+    /// `create_checkpoint`, so the checkpoint ignores the per-trigger
+    /// cadence but still honors the master switch. Failures only warn so
+    /// the hook fire outcome never changes. Mirrors the workflow hook
+    /// contract, so one hook forces a checkpoint independently of policy.
+    pub async fn create_hook_checkpoint(
+        &self,
+        entity: &AgentLoopEntity,
+        trigger: CheckpointTiming,
+        description: Option<String>,
+    ) {
+        if !self.strategy.is_enabled() {
+            return;
+        }
+        if let Err(e) = self
+            .create_checkpoint(entity, trigger.clone(), description)
+            .await
+        {
+            tracing::warn!(
+                error = %e,
+                entity_id = %entity.id(),
+                trigger = ?trigger,
+                "hook-requested checkpoint failed"
+            );
+        }
     }
 
     pub fn store(&self) -> &Arc<StorageBackend> {
@@ -139,6 +167,7 @@ impl AgentCheckpointIntegration {
         &self,
         entity: &AgentLoopEntity,
         trigger: CheckpointTiming,
+        description: Option<String>,
     ) -> Result<(), CheckpointError> {
         let snapshot = self.build_snapshot(entity).await;
         let ctx = self
@@ -164,6 +193,9 @@ impl AgentCheckpointIntegration {
                 "trigger".to_string(),
                 serde_json::json!(format!("{:?}", trigger)),
             );
+            if let Some(d) = description {
+                changes.insert("description".to_string(), serde_json::json!(d));
+            }
             bus.publish(&ExecutionEvent::StateChanged(
                 wf_types::execution::ExecutionStateChangedEvent {
                     execution_id: entity.id().to_string(),
@@ -187,7 +219,7 @@ impl AgentCheckpointIntegration {
             return;
         }
         if let Err(err) = self
-            .create_checkpoint_gated(entity, CheckpointTiming::OnPause)
+            .create_checkpoint_gated(entity, CheckpointTiming::OnPause, None)
             .await
         {
             tracing::warn!(

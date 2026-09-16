@@ -53,6 +53,14 @@ impl HookHandlerRegistry {
         }
     }
 
+    /// Shared no-handler fallback: without an injected registry the fire
+    /// degrades to audit-only event publication, so tests and minimal
+    /// embeddings keep their observable events.
+    pub fn fallback() -> &'static Self {
+        static DEFAULT: std::sync::OnceLock<HookHandlerRegistry> = std::sync::OnceLock::new();
+        DEFAULT.get_or_init(HookHandlerRegistry::new)
+    }
+
     /// Override the per-handler notification timeout (default 3s).
     pub fn with_timeout(mut self, timeout: Duration) -> Self {
         self.timeout = timeout;

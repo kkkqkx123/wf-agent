@@ -63,6 +63,22 @@ pub fn empty_fire_log_level(hook_type: &str) -> tracing::Level {
     }
 }
 
+/// Whether any enabled hook definition of `hook_type` opts in via
+/// `create_checkpoint`.
+pub fn hook_opted_in(hooks: &[HookDefinition], hook_type: &str) -> bool {
+    hooks
+        .iter()
+        .any(|h| h.hook_type == hook_type && h.enabled && h.create_checkpoint == Some(true))
+}
+
+/// Description of the first opted-in hook definition of `hook_type`.
+pub fn hook_checkpoint_description(hooks: &[HookDefinition], hook_type: &str) -> Option<String> {
+    hooks
+        .iter()
+        .find(|h| h.hook_type == hook_type && h.enabled && h.create_checkpoint == Some(true))
+        .and_then(|h| h.checkpoint_description.clone())
+}
+
 /// Publish the `HOOK_TRIGGERED` audit event for one fire.
 ///
 /// The event is routable and matchable by trigger templates:

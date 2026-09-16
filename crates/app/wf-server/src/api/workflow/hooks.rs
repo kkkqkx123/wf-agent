@@ -1,5 +1,8 @@
 //! Webhook ingress gateway: external events enter the trigger system here.
 //!
+//! Unrelated to the engine hook pipeline (`wf-execution-shared::hooks`):
+//! this module only translates external HTTP calls into trigger events.
+//!
 //! Each trigger template carrying a `webhook_spec` is mounted as
 //! `POST /api/v1/hooks/{name}` (the template name; the spec `path` is the
 //! documented external path operators map onto it). The gateway's job ends at

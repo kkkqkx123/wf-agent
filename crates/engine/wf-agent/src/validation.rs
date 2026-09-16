@@ -246,7 +246,11 @@ impl AgentLoopValidator {
 /// shared truth in `wf_types::hook`; condition syntax uses the shared
 /// evaluator in `wf_core`. Config sources reject unknown hook types.
 /// Tool-callback hooks arriving via model output keep runtime clamping at
-/// the conversion site.
+/// the conversion site (`HookDefinition::from`).
+/// Completeness warnings (missing sync handler on request/mutated points,
+/// handler-less `BEFORE_*` definitions) mirror the config loader's
+/// `validate_canonical_hook` semantics via the same `wf_types::hook`
+/// effect helpers, so both entries warn on the same inputs.
 fn validate_hook(hook: &HookConfig, issues: &mut Vec<ValidationIssue>) {
     use wf_types::hook::is_known_hook_point;
     if !is_known_hook_point(&hook.hook_type) {
@@ -280,6 +284,25 @@ fn validate_hook(hook: &HookConfig, issues: &mut Vec<ValidationIssue>) {
             issues.push(ValidationIssue::error(
                 "hooks.payload",
                 format!("hook '{}' payload invalid: {}", hook.hook_type, e),
+            ));
+        }
+    }
+    if hook.handler.as_deref().is_none_or(|h| h.trim().is_empty()) {
+        if wf_types::hook::hook_requires_handler(&hook.hook_type) {
+            issues.push(ValidationIssue::warning(
+                "hooks.handler",
+                format!(
+                    "hook '{}' needs a sync handler for in-step effects; a trigger rule matching the audit event only observes asynchronously after the fire",
+                    hook.hook_type
+                ),
+            ));
+        } else if !wf_types::hook::hook_allows_trigger(&hook.hook_type) {
+            issues.push(ValidationIssue::warning(
+                "hooks.handler",
+                format!(
+                    "hook '{}' is a BEFORE_* point closed to triggers: without a sync handler the definition only writes a write-only audit event nobody may consume",
+                    hook.hook_type
+                ),
             ));
         }
     }

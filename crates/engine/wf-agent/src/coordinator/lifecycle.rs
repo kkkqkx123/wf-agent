@@ -7,12 +7,12 @@ use wf_checkpoint::event::CheckpointEventBus;
 use wf_checkpoint::execution_events::ExecutionEventBus;
 use wf_core::event::EventBus;
 use wf_core::internal_signal::InternalSignalBus;
+use wf_execution_shared::conversation_session::ConversationSession;
 use wf_execution_shared::execution_state::ExecutionStateManager;
 use wf_execution_shared::hooks::types::HookDefinition;
 use wf_execution_shared::hooks::HookHandlerRegistry;
 use wf_execution_shared::types::execution_entity::{ExecutionEntity, ExecutionStatus};
 use wf_execution_shared::types::state_manager::StateManager;
-use wf_execution_shared::conversation_session::ConversationSession;
 use wf_llm::LlmGateway;
 use wf_metrics::MetricsRegistry;
 use wf_storage::backend::StorageBackend;
@@ -570,7 +570,7 @@ impl AgentLoopCoordinator {
         .await;
 
         if let Some(ref cp) = checkpoint {
-            cp.create_checkpoint_gated(&entity, CheckpointTiming::Manual)
+            cp.create_checkpoint_gated(&entity, CheckpointTiming::Manual, None)
                 .await
                 .unwrap_or_else(|e| {
                     tracing::warn!("Failed to create agent start checkpoint: {}", e);
@@ -672,7 +672,7 @@ impl AgentLoopCoordinator {
                     // the status settles, so this is the record that actually
                     // carries the completed state.
                     if let Some(ref cp) = outcome_checkpoint {
-                        cp.create_checkpoint_gated(&entity, CheckpointTiming::OnComplete)
+                        cp.create_checkpoint_gated(&entity, CheckpointTiming::OnComplete, None)
                             .await
                             .unwrap_or_else(|e| {
                                 tracing::warn!(
@@ -761,7 +761,7 @@ impl AgentLoopCoordinator {
                         ExecutionStatus::Failed => CheckpointTiming::OnFailure,
                         _ => CheckpointTiming::OnError,
                     };
-                    cp.create_checkpoint_gated(&entity, trigger)
+                    cp.create_checkpoint_gated(&entity, trigger, None)
                         .await
                         .unwrap_or_else(|err| {
                             tracing::warn!("Failed to create agent terminal checkpoint: {}", err);
@@ -905,16 +905,14 @@ impl AgentLoopCoordinator {
         let hooks: Vec<HookDefinition> = config
             .hooks
             .iter()
-            .map(|h| HookDefinition {
-                id: wf_common::generate_id(),
-                hook_type: h.hook_type.clone(),
-                priority: h.priority,
-                condition: h.condition.clone(),
-                enabled: h.enabled,
-                payload: h.payload.clone(),
-                handler: h.handler.clone(),
-                create_checkpoint: h.create_checkpoint,
-                checkpoint_description: h.checkpoint_description.clone(),
+            .map(|h| {
+                // Single runtime normalization point (`HookDefinition::from`
+                // clamps negative priorities and drops empty handler names
+                // with a warning); only the id is assigned here so every
+                // definition carries a fresh identity.
+                let mut def = HookDefinition::from(h);
+                def.id = wf_common::generate_id();
+                def
             })
             .collect();
 

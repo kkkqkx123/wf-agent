@@ -6,7 +6,8 @@ pub mod template;
 pub mod types;
 
 pub use audit::{
-    empty_fire_log_level, evaluate_hook_condition, filter_and_sort_hooks, publish_hook_audit_event,
+    empty_fire_log_level, evaluate_hook_condition, filter_and_sort_hooks,
+    hook_checkpoint_description, hook_opted_in, publish_hook_audit_event,
 };
 pub use fire::{fire, FireSummary, HandlerResult};
 pub use handler::HookHandler;

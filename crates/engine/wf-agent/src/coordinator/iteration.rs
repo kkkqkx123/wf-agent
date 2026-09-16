@@ -279,7 +279,7 @@ impl AgentIterationCoordinator {
         let Some(ref cp) = self.checkpoint else {
             return;
         };
-        if let Err(e) = cp.create_checkpoint_gated(entity, trigger.clone()).await {
+        if let Err(e) = cp.create_checkpoint_gated(entity, trigger.clone(), None).await {
             tracing::warn!(
                 error = %e,
                 entity_id = %entity.id(),

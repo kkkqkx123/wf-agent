@@ -3,7 +3,8 @@ use std::collections::HashMap;
 use serde_json::Value;
 use wf_core::EventBus;
 use wf_execution_shared::hooks::{
-    fire, fire::FireSummary, HookContext, HookDefinition, HookHandlerRegistry,
+    fire, fire::FireSummary, hook_checkpoint_description, hook_opted_in, HookContext,
+    HookDefinition, HookHandlerRegistry,
 };
 use wf_types::checkpoint::CheckpointTiming;
 
@@ -27,16 +28,6 @@ fn hook_type_to_checkpoint_timing(hook_type: &str) -> CheckpointTiming {
         "SUBAGENT_STOP" => CheckpointTiming::OnComplete,
         _ => CheckpointTiming::Manual,
     }
-}
-
-/// Shared no-handler fallback registry: without an injected registry the
-/// fire degrades to the audit-only behavior (event publication), so
-/// tests and minimal embeddings keep their observable events.
-fn registry_or_default(registry: Option<&HookHandlerRegistry>) -> &HookHandlerRegistry {
-    registry.unwrap_or_else(|| {
-        static DEFAULT: std::sync::OnceLock<HookHandlerRegistry> = std::sync::OnceLock::new();
-        DEFAULT.get_or_init(HookHandlerRegistry::new)
-    })
 }
 
 pub struct AgentHookEmitter;
@@ -71,7 +62,7 @@ impl AgentHookEmitter {
         data.extend(extra_data);
 
         fire(
-            registry_or_default(registry),
+            registry.unwrap_or_else(|| HookHandlerRegistry::fallback()),
             entity.hooks(),
             hook_type,
             &HookContext {
@@ -95,7 +86,7 @@ impl AgentHookEmitter {
         event_bus: Option<&EventBus>,
     ) -> FireSummary {
         fire(
-            registry_or_default(registry),
+            registry.unwrap_or_else(|| HookHandlerRegistry::fallback()),
             hooks,
             hook_type,
             ctx,
@@ -105,10 +96,10 @@ impl AgentHookEmitter {
     }
 
     /// Fire a hook point and, when any enabled definition of that type opts
-    /// in via `create_checkpoint`, create one strategy-gated checkpoint.
-    /// The checkpoint is a direct `create_checkpoint_gated` call (not a
-    /// broadcast event) so ordering, strategy gating and error reporting
-    /// stay synchronous with the fire. Failures only warn.
+    /// in via `create_checkpoint`, create one hook-requested checkpoint.
+    /// The checkpoint honors the master switch but bypasses per-trigger
+    /// cadence (one hook forces a checkpoint independently of policy),
+    /// mirroring the workflow hook contract. Failures only warn.
     pub async fn fire_agent_point_with_checkpoint(
         entity: &AgentLoopEntity,
         hook_type: &str,
@@ -123,15 +114,7 @@ impl AgentHookEmitter {
         summary
     }
 
-    /// Whether any enabled hook definition of `hook_type` opts in via
-    /// `create_checkpoint`.
-    pub fn hook_opted_in(hooks: &[HookDefinition], hook_type: &str) -> bool {
-        hooks
-            .iter()
-            .any(|h| h.hook_type == hook_type && h.enabled && h.create_checkpoint == Some(true))
-    }
-
-    /// Strategy-gated checkpoint for a hook point that was fired without the
+    /// Hook opt-in checkpoint for a hook point that was fired without the
     /// entity (e.g. the parallel tool-call path fires via `fire_point` inside
     /// spawned tasks, then settles one batch-level checkpoint per hook type
     /// here where the entity is available). No opt-in or no handle means no
@@ -145,18 +128,11 @@ impl AgentHookEmitter {
         let Some(cp) = checkpoint else {
             return;
         };
-        if !Self::hook_opted_in(hooks, hook_type) {
+        if !hook_opted_in(hooks, hook_type) {
             return;
         }
         let timing = hook_type_to_checkpoint_timing(hook_type);
-        if let Err(e) = cp.create_checkpoint_gated(entity, timing.clone()).await {
-            tracing::warn!(
-                error = %e,
-                entity_id = %entity.id(),
-                hook_type = %hook_type,
-                trigger = ?timing,
-                "hook-requested checkpoint failed"
-            );
-        }
+        let description = hook_checkpoint_description(hooks, hook_type);
+        cp.create_hook_checkpoint(entity, timing, description).await;
     }
 }

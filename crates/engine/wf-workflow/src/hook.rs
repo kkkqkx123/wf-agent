@@ -3,29 +3,22 @@ use std::collections::HashMap;
 use serde_json::Value;
 use wf_core::EventBus;
 use wf_execution_shared::hooks::{
-    fire, fire::FireSummary, HookContext, HookDefinition, HookHandlerRegistry,
+    fire, fire::FireSummary, hook_checkpoint_description, hook_opted_in, HookContext,
+    HookDefinition, HookHandlerRegistry,
 };
 use wf_types::checkpoint::CheckpointTiming;
 
 use crate::checkpoint::WorkflowCheckpointIntegration;
 use crate::entity::WorkflowExecutionEntity;
 
-/// Shared no-handler fallback registry: without an injected registry the
-/// fire degrades to the audit-only behavior (event publication), so
-/// tests and minimal embeddings keep their observable events.
-fn registry_or_default(registry: Option<&HookHandlerRegistry>) -> &HookHandlerRegistry {
-    registry.unwrap_or_else(|| {
-        static DEFAULT: std::sync::OnceLock<HookHandlerRegistry> = std::sync::OnceLock::new();
-        DEFAULT.get_or_init(HookHandlerRegistry::new)
-    })
-}
-
 pub struct WorkflowHookEmitter;
 
 impl WorkflowHookEmitter {
     /// Fire the hooks of `hook_type` against the workflow execution
     /// entity: evaluate, notify registered handlers synchronously and
-    /// publish the `HOOK_TRIGGERED` audit event.
+    /// publish the `HOOK_TRIGGERED` audit event. Returns the fire summary
+    /// so callers can inspect veto/observed outcomes uniformly with the
+    /// agent emitter; non-gate callers ignore it.
     pub async fn fire_workflow_point(
         entity: &WorkflowExecutionEntity,
         hooks: &[HookDefinition],
@@ -33,7 +26,7 @@ impl WorkflowHookEmitter {
         extra_data: HashMap<String, Value>,
         registry: Option<&HookHandlerRegistry>,
         event_bus: Option<&EventBus>,
-    ) {
+    ) -> FireSummary {
         let mut data = HashMap::new();
         data.insert(
             "execution_id".to_string(),
@@ -50,7 +43,7 @@ impl WorkflowHookEmitter {
         data.extend(extra_data);
 
         fire(
-            registry_or_default(registry),
+            registry.unwrap_or_else(|| HookHandlerRegistry::fallback()),
             hooks,
             hook_type,
             &HookContext {
@@ -60,7 +53,7 @@ impl WorkflowHookEmitter {
             },
             event_bus,
         )
-        .await;
+        .await
     }
 
     /// Fire hooks against a caller-built context (e.g. the node
@@ -74,7 +67,7 @@ impl WorkflowHookEmitter {
         event_bus: Option<&EventBus>,
     ) -> FireSummary {
         fire(
-            registry_or_default(registry),
+            registry.unwrap_or_else(|| HookHandlerRegistry::fallback()),
             hooks,
             hook_type,
             ctx,
@@ -97,25 +90,6 @@ impl WorkflowHookEmitter {
         }
     }
 
-    /// Whether any enabled hook definition of `hook_type` opts in via
-    /// `create_checkpoint`.
-    pub fn hook_opted_in(hooks: &[HookDefinition], hook_type: &str) -> bool {
-        hooks
-            .iter()
-            .any(|h| h.hook_type == hook_type && h.enabled && h.create_checkpoint == Some(true))
-    }
-
-    /// Description of the first opted-in hook definition of `hook_type`.
-    pub fn hook_checkpoint_description(
-        hooks: &[HookDefinition],
-        hook_type: &str,
-    ) -> Option<String> {
-        hooks
-            .iter()
-            .find(|h| h.hook_type == hook_type && h.enabled && h.create_checkpoint == Some(true))
-            .and_then(|h| h.checkpoint_description.clone())
-    }
-
     /// Hook opt-in checkpoint for a fired workflow hook point: no opt-in
     /// or no handle means no checkpoint. The checkpoint honors the master
     /// switch but not the instance trigger list, so one hook can force a
@@ -130,14 +104,14 @@ impl WorkflowHookEmitter {
         let Some(cp) = checkpoint else {
             return;
         };
-        if !Self::hook_opted_in(hooks, hook_type) {
+        if !hook_opted_in(hooks, hook_type) {
             return;
         }
         let timing = Self::hook_type_to_checkpoint_timing(hook_type);
         cp.create_hook_checkpoint(
             entity,
             timing,
-            Self::hook_checkpoint_description(hooks, hook_type),
+            hook_checkpoint_description(hooks, hook_type),
         )
         .await;
     }
@@ -146,6 +120,7 @@ impl WorkflowHookEmitter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use wf_execution_shared::hooks::HookDefinition;
 
     fn definition(hook_type: &str, enabled: bool, opt_in: Option<bool>) -> HookDefinition {
         HookDefinition {
@@ -168,26 +143,20 @@ mod tests {
             definition("AFTER_EXECUTE", true, None),
             definition("ON_ERROR", false, Some(true)),
         ];
-        assert!(WorkflowHookEmitter::hook_opted_in(&hooks, "BEFORE_EXECUTE"));
-        assert!(!WorkflowHookEmitter::hook_opted_in(&hooks, "AFTER_EXECUTE"));
-        assert!(!WorkflowHookEmitter::hook_opted_in(&hooks, "ON_ERROR"));
-        assert!(!WorkflowHookEmitter::hook_opted_in(
-            &hooks,
-            "WORKFLOW_BEFORE"
-        ));
+        assert!(hook_opted_in(&hooks, "BEFORE_EXECUTE"));
+        assert!(!hook_opted_in(&hooks, "AFTER_EXECUTE"));
+        assert!(!hook_opted_in(&hooks, "ON_ERROR"));
+        assert!(!hook_opted_in(&hooks, "WORKFLOW_BEFORE"));
     }
 
     #[test]
     fn hook_checkpoint_description_comes_from_first_opt_in() {
         let hooks = vec![definition("AFTER_EXECUTE", true, Some(true))];
         assert_eq!(
-            WorkflowHookEmitter::hook_checkpoint_description(&hooks, "AFTER_EXECUTE"),
+            hook_checkpoint_description(&hooks, "AFTER_EXECUTE"),
             Some("AFTER_EXECUTE snapshot".to_string())
         );
-        assert_eq!(
-            WorkflowHookEmitter::hook_checkpoint_description(&hooks, "BEFORE_EXECUTE"),
-            None
-        );
+        assert_eq!(hook_checkpoint_description(&hooks, "BEFORE_EXECUTE"), None);
     }
 
     #[test]

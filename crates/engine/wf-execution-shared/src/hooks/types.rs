@@ -160,7 +160,7 @@ impl From<&wf_tools::callback::HookConfig> for HookDefinition {
                 "tool-callback hook references unknown hook type; allowing registration but it will never fire"
             );
         }
-        if spec.priority < 0 {
+        if wf_types::hook::validate_hook_priority(spec.priority).is_err() {
             tracing::warn!(
                 hook_type = %spec.hook_type,
                 priority = spec.priority,
@@ -168,7 +168,7 @@ impl From<&wf_tools::callback::HookConfig> for HookDefinition {
                 "tool-callback hook priority below 0 clamped to 0"
             );
         }
-        if spec.handler.as_deref().is_some_and(|h| h.trim().is_empty()) {
+        if wf_types::hook::validate_hook_handler_name(spec.handler.as_deref()).is_err() {
             tracing::warn!(
                 hook_type = %spec.hook_type,
                 source = "tool-callback",

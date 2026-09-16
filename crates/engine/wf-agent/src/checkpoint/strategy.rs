@@ -185,6 +185,13 @@ impl AgentCheckpointStrategy {
             .should_checkpoint(timing, "agent_loop", "", iteration_count)
     }
 
+    /// Master switch only: hook opt-in checkpoints honor this and bypass
+    /// per-trigger cadence, mirroring the workflow hook contract so one
+    /// hook can force a checkpoint independently of the policy.
+    pub fn is_enabled(&self) -> bool {
+        self.inner.is_enabled()
+    }
+
     pub fn content_config(&self) -> &CheckpointContentConfig {
         self.inner.content_config()
     }

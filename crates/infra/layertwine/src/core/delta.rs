@@ -115,6 +115,17 @@ impl Delta {
         let json = serde_json::to_vec(&delta_for_id).unwrap_or_default();
         ContentId::from_content(&json)
     }
+
+    /// Dual identity: `id` is the unique record identity (timestamp + seq +
+    /// process instance), `content_hash` is the deduplication identity.
+    /// Two records with equal `content_hash` carry the same diff payload even
+    /// though their ids differ. Use this predicate for content equality.
+    pub fn content_equals(&self, other: &Self) -> bool {
+        match (&self.content_hash, &other.content_hash) {
+            (Some(a), Some(b)) => a == b,
+            _ => compute_delta_content_hash(&self.diff) == compute_delta_content_hash(&other.diff),
+        }
+    }
 }
 
 /// Application summary: how many lines changed

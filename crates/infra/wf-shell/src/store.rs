@@ -14,8 +14,8 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
-use wf_common::lock::lock_ok;
 use std::time::{Duration, Instant};
+use wf_common::lock::lock_ok;
 
 use serde_json::Value;
 

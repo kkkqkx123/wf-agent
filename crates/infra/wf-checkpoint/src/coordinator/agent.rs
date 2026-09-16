@@ -1,4 +1,7 @@
-use crate::coordinator::base::restored_status;
+use crate::coordinator::base::{
+    cadence_allows, decide_checkpoint_type_by_count, next_chain_position, publish_persist_failed,
+    publish_persisted, restored_status,
+};
 use crate::coordinator::CheckpointCoordinator;
 use crate::delta::AgentDiffCalculator;
 use crate::delta::CheckpointLoader;
@@ -49,6 +52,10 @@ pub type TimelineRow = (
     Option<i64>,
 );
 
+/// Upper bound on the deferred persistence queue; when reached the oldest
+/// deferred work is awaited before enqueueing so memory stays bounded.
+const MAX_PERSISTENCE_QUEUE: usize = 128;
+
 pub struct AgentCheckpointCoordinator {
     state_manager: AgentCheckpointStateManager,
     diff_calculator: Arc<dyn DiffCalculator<AgentStateSnapshot, AgentCheckpointDelta>>,
@@ -61,6 +68,11 @@ pub struct AgentCheckpointCoordinator {
     restore_registry: Option<RestoreStrategyRegistry>,
     execution_registry: Option<Arc<dyn ExecutionRegistry>>,
     file_checkpoint_manager: Option<FileCheckpointManager>,
+    /// `contentConfig.async`: defer post-persist side effects to the
+    /// background persistence queue.
+    async_persistence: bool,
+    /// Background persistence queue; drained by `wait_for_persistence`.
+    persistence_queue: Arc<tokio::sync::Mutex<Vec<tokio::task::JoinHandle<()>>>>,
 }
 
 impl AgentCheckpointCoordinator {
@@ -77,6 +89,8 @@ impl AgentCheckpointCoordinator {
             restore_registry: None,
             execution_registry: None,
             file_checkpoint_manager: None,
+            async_persistence: false,
+            persistence_queue: Arc::new(tokio::sync::Mutex::new(Vec::new())),
         }
     }
 
@@ -96,9 +110,15 @@ impl AgentCheckpointCoordinator {
     }
 
     /// Configure the default checkpoint strategy from a unified policy.
-    /// A disabled policy yields a strategy that never checkpoints.
+    /// A disabled policy yields a strategy that never checkpoints. The
+    /// policy's `content.async` flag also enables async persistence mode.
     pub fn with_strategy(mut self, policy: &UnifiedCheckpointPolicy) -> Self {
         self.strategy = Some(crate::strategy::create_checkpoint_strategy(policy));
+        self.async_persistence = policy
+            .content
+            .as_ref()
+            .and_then(|c| c.asynchronous)
+            .unwrap_or(false);
         self
     }
 
@@ -123,6 +143,19 @@ impl AgentCheckpointCoordinator {
     pub fn with_error_policy(mut self, policy: &UnifiedCheckpointPolicy) -> Self {
         self.error_handler = crate::error_handling::CheckpointErrorHandler::from_policy(policy);
         self
+    }
+
+    /// Enable async (non-blocking) checkpoint creation (`contentConfig.async`):
+    /// post-persist side effects run on the background persistence queue and
+    /// the checkpoint id is returned immediately.
+    pub fn with_async_persistence(mut self, enabled: bool) -> Self {
+        self.async_persistence = enabled;
+        self
+    }
+
+    /// Number of pending persistence tasks in the async queue.
+    pub async fn pending_persistence_count(&self) -> usize {
+        self.persistence_queue.lock().await.len()
     }
 
     /// Register restore strategies used for child execution recovery in the
@@ -517,14 +550,10 @@ impl CheckpointCoordinator for AgentCheckpointCoordinator {
         // node/tool ids), plus the injected formatVersion/createdAt/
         // chainPosition. The wire shape is a flat map with
         // description/tags/customFields keys.
-        let chain_position: u32 = match checkpoint_type {
-            CheckpointType::Full => 0,
-            CheckpointType::Delta => previous
-                .as_ref()
-                .and_then(|p| p.chain_position)
-                .map(|p| p + 1)
-                .unwrap_or(1),
-        };
+        let chain_position: u32 = next_chain_position(
+            &checkpoint_type,
+            previous.as_ref().and_then(|p| p.chain_position),
+        );
         let mut custom_fields = ctx.metadata.clone().unwrap_or_default();
         custom_fields.insert(
             CHAIN_POSITION_FIELD.to_string(),
@@ -613,14 +642,12 @@ impl CheckpointCoordinator for AgentCheckpointCoordinator {
             .save(checkpoint, "agent_loop", entity_id)
             .await
         {
-            if let Some(ref bus) = self.event_bus {
-                bus.publish(CheckpointEventBus::failed_with(
-                    Some(checkpoint.id.clone()),
-                    "create",
-                    format!("persist failed: {}", err),
-                    Some(entity_id.to_string()),
-                ));
-            }
+            publish_persist_failed(
+                self.event_bus.as_ref(),
+                Some(checkpoint.id.clone()),
+                entity_id,
+                &err,
+            );
             // Route through the checkpoint error handler: non-fatal
             // strategies (warn/silent) swallow the failure so the execution
             // continues without a checkpoint.
@@ -634,18 +661,17 @@ impl CheckpointCoordinator for AgentCheckpointCoordinator {
             return Ok(());
         }
 
-        if let Some(ref bus) = self.event_bus {
-            let description = checkpoint
-                .metadata
-                .as_ref()
-                .and_then(|m| m.get("description"))
-                .and_then(|v| v.as_str());
-            bus.publish(CheckpointEventBus::created_with(
-                checkpoint.id.clone(),
-                Some(entity_id.to_string()),
-                description.map(String::from),
-            ));
-        }
+        let description = checkpoint
+            .metadata
+            .as_ref()
+            .and_then(|m| m.get("description"))
+            .and_then(|v| v.as_str());
+        publish_persisted(
+            self.event_bus.as_ref(),
+            &checkpoint.id,
+            entity_id,
+            description,
+        );
 
         Ok(())
     }
@@ -831,24 +857,78 @@ impl CheckpointCoordinator for AgentCheckpointCoordinator {
         entity_id: &str,
         config: &DeltaStorageConfig,
     ) -> Result<CheckpointType, CheckpointError> {
-        if !config.enabled {
-            return Ok(CheckpointType::Full);
-        }
-
         // aggregate COUNT query instead of materializing the full
         // history listing.
-        let count = self.state_manager.count_by_entity(entity_id).await? as u32;
-        let effective_interval = config.baseline_interval.min(config.max_delta_chain_length);
-
-        if count == 0 || effective_interval == 0 || count.is_multiple_of(effective_interval) {
-            return Ok(CheckpointType::Full);
-        }
-
-        Ok(CheckpointType::Delta)
+        let count = self.state_manager.count_by_entity(entity_id).await?;
+        Ok(decide_checkpoint_type_by_count(count, config))
     }
 
     fn default_strategy(&self) -> Option<&dyn CheckpointStrategy> {
         self.strategy.as_ref().map(|s| s as &dyn CheckpointStrategy)
+    }
+
+    fn async_persistence_enabled(&self) -> bool {
+        self.async_persistence
+    }
+
+    /// Synchronous best-effort file projection for the entity. Missing file
+    /// history yields `Ok` so the state checkpoint never fails.
+    async fn save_file_snapshot(
+        &self,
+        _checkpoint_id: &str,
+        entity_id: &str,
+    ) -> Result<(), CheckpointError> {
+        if let Some(manager) = &self.file_checkpoint_manager {
+            let _ = manager.create_latest_file_checkpoint(entity_id)?;
+        }
+        Ok(())
+    }
+
+    /// Defer the file projection to the background persistence queue. The
+    /// queue is bounded: when it exceeds `MAX_PERSISTENCE_QUEUE`, the oldest
+    /// deferred work is awaited first.
+    async fn enqueue_persistence(&self, checkpoint_id: &str, entity_id: &str) {
+        let checkpoint_id = checkpoint_id.to_string();
+        let entity_id = entity_id.to_string();
+        let file_manager = self.file_checkpoint_manager.clone();
+        let queue = self.persistence_queue.clone();
+        let handle = tokio::task::spawn_blocking(move || {
+            if let Some(manager) = file_manager {
+                if let Err(err) = manager.create_latest_file_checkpoint(&entity_id) {
+                    tracing::warn!(
+                        entity_id = %entity_id,
+                        checkpoint_id = %checkpoint_id,
+                        error = %err,
+                        "deferred file checkpoint creation failed (best-effort)"
+                    );
+                }
+            }
+        });
+        let mut queue_guard = queue.lock().await;
+        if queue_guard.len() >= MAX_PERSISTENCE_QUEUE {
+            let backlog: Vec<_> = std::mem::take(&mut *queue_guard);
+            drop(queue_guard);
+            for task in backlog {
+                if let Err(join_err) = task.await {
+                    tracing::warn!(error = %join_err, "persistence task panicked");
+                }
+            }
+            queue_guard = queue.lock().await;
+        }
+        queue_guard.push(handle);
+    }
+
+    /// Drain the persistence queue and wait for all deferred operations.
+    async fn wait_for_persistence(&self) {
+        let handles: Vec<_> = {
+            let mut queue = self.persistence_queue.lock().await;
+            std::mem::take(&mut *queue)
+        };
+        for handle in handles {
+            if let Err(join_err) = handle.await {
+                tracing::warn!(error = %join_err, "persistence task panicked");
+            }
+        }
     }
 
     /// Strategy-gated create with the optional per-trigger cadence: the
@@ -867,7 +947,7 @@ impl CheckpointCoordinator for AgentCheckpointCoordinator {
             }
         }
         if let Some(cadence) = self.cadence.get(&trigger) {
-            if *cadence > 1 && !state.current_iteration.is_multiple_of(*cadence) {
+            if !cadence_allows(state.current_iteration, *cadence) {
                 return Ok(None);
             }
         }

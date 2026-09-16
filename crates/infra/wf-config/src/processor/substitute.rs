@@ -3,8 +3,10 @@ use std::sync::LazyLock;
 
 use crate::error::{ConfigError, ConfigResult};
 
-static PARAM_REGEX: LazyLock<regex::Regex> =
-    LazyLock::new(|| regex::Regex::new(r"\{\{parameters\.([a-zA-Z0-9_.-]+)\}\}").expect("invariant: regex literal is a fixed pattern and must compile"));
+static PARAM_REGEX: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(r"\{\{parameters\.([a-zA-Z0-9_.-]+)\}\}")
+        .expect("invariant: regex literal is a fixed pattern and must compile")
+});
 
 pub fn substitute_string(input: &str, parameters: &HashMap<String, String>) -> String {
     PARAM_REGEX

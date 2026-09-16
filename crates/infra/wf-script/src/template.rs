@@ -34,7 +34,9 @@ impl ScriptTemplateEngine {
         for cap in re.captures_iter(template) {
             let placeholder = cap
                 .get(1)
-                .expect("invariant: capture group 1 is always present for a matched template pattern")
+                .expect(
+                    "invariant: capture group 1 is always present for a matched template pattern",
+                )
                 .as_str()
                 .to_string();
             let full_match = cap

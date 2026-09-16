@@ -10,8 +10,8 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
-use wf_common::lock::lock_ok;
 use std::time::Duration;
+use wf_common::lock::lock_ok;
 
 use serde_json::Value;
 

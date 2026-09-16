@@ -1,7 +1,76 @@
 use crate::error::CheckpointError;
+use crate::event::CheckpointEventBus;
 use crate::strategy::CheckpointStrategy;
-use wf_types::checkpoint::{CheckpointContext, CheckpointTiming, DeltaStorageConfig};
+use wf_types::checkpoint::{
+    CheckpointContext, CheckpointTiming, CheckpointType, DeltaStorageConfig,
+};
 use wf_types::execution::ExecutionStatus;
+
+/// Shared storage-type decision: aggregate COUNT query semantics live in the
+/// caller, this helper only maps count to Full/Delta.
+pub fn decide_checkpoint_type_by_count(count: u64, config: &DeltaStorageConfig) -> CheckpointType {
+    if !config.enabled {
+        return CheckpointType::Full;
+    }
+    let effective_interval = config.baseline_interval.min(config.max_delta_chain_length);
+    if count == 0 || effective_interval == 0 || count.is_multiple_of(effective_interval as u64) {
+        CheckpointType::Full
+    } else {
+        CheckpointType::Delta
+    }
+}
+
+/// Shared chain-position rule: Full resets to zero, Delta increments.
+pub fn next_chain_position(
+    checkpoint_type: &CheckpointType,
+    previous_position: Option<u32>,
+) -> u32 {
+    match checkpoint_type {
+        CheckpointType::Full => 0,
+        CheckpointType::Delta => previous_position.map(|p| p + 1).unwrap_or(1),
+    }
+}
+
+/// Shared cadence rule: count-based gating used by both coordinators.
+pub fn cadence_allows(count: u32, cadence: u32) -> bool {
+    if cadence <= 1 {
+        return true;
+    }
+    count.is_multiple_of(cadence)
+}
+
+/// Shared persist event publishing so agent and workflow report identically.
+pub fn publish_persisted(
+    bus: Option<&CheckpointEventBus>,
+    checkpoint_id: &str,
+    entity_id: &str,
+    description: Option<&str>,
+) {
+    if let Some(bus) = bus {
+        bus.publish(CheckpointEventBus::created_with(
+            checkpoint_id.to_string(),
+            Some(entity_id.to_string()),
+            description.map(String::from),
+        ));
+    }
+}
+
+/// Shared persist-failure event publishing.
+pub fn publish_persist_failed(
+    bus: Option<&CheckpointEventBus>,
+    checkpoint_id: Option<String>,
+    entity_id: &str,
+    err: &CheckpointError,
+) {
+    if let Some(bus) = bus {
+        bus.publish(CheckpointEventBus::failed_with(
+            checkpoint_id,
+            "create",
+            format!("persist failed: {}", err),
+            Some(entity_id.to_string()),
+        ));
+    }
+}
 
 pub trait CheckpointCoordinator: Send + Sync {
     type Checkpoint: Send + Sync + serde::Serialize;

@@ -16,10 +16,13 @@ static DATETIME_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$")
         .expect("invariant: regex literal is a fixed pattern and must compile")
 });
-static DATE_RE: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"^\d{4}-\d{2}-\d{2}$").expect("invariant: regex literal is a fixed pattern and must compile"));
+static DATE_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"^\d{4}-\d{2}-\d{2}$")
+        .expect("invariant: regex literal is a fixed pattern and must compile")
+});
 static TIME_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"^\d{2}:\d{2}:\d{2}(\.\d+)?$").expect("invariant: regex literal is a fixed pattern and must compile")
+    Regex::new(r"^\d{2}:\d{2}:\d{2}(\.\d+)?$")
+        .expect("invariant: regex literal is a fixed pattern and must compile")
 });
 static UUID_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")

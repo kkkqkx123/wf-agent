@@ -51,7 +51,8 @@ impl Default for WebToolConfig {
 /// Pre-compiled HTML-tag-stripping pattern. Module-level singleton so the
 /// regex compiles once instead of on every `strip_html_tags` call.
 static TAG_RE: LazyLock<regex::Regex> = LazyLock::new(|| {
-    regex::Regex::new(r"<[^>]*>").expect("invariant: regex literal is a fixed pattern and must compile")
+    regex::Regex::new(r"<[^>]*>")
+        .expect("invariant: regex literal is a fixed pattern and must compile")
 });
 
 /// Strip HTML tags and collapse whitespace runs.

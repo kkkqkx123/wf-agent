@@ -89,6 +89,45 @@ impl LayertwineGitAdapter {
         ids.sort();
         Ok(ids)
     }
+
+    /// File-history facade: persist a multi-file history commit. Callers go
+    /// through this method instead of touching the storage traits directly so
+    /// the checkpoint table stays behind one boundary.
+    pub fn store_file_history_checkpoint(
+        &self,
+        checkpoint: &layertwine::checkpoint::Checkpoint,
+    ) -> Result<(), CheckpointError> {
+        use layertwine::storage::repository::CheckpointPersist;
+
+        self.storage
+            .store_checkpoint(checkpoint)
+            .map_err(map_layertwine_error)
+    }
+
+    /// File-history facade: list all stored history commits.
+    pub fn list_file_history_checkpoints(
+        &self,
+    ) -> Result<Vec<layertwine::checkpoint::Checkpoint>, CheckpointError> {
+        use layertwine::storage::repository::CheckpointPersist;
+
+        self.storage
+            .list_checkpoints()
+            .map_err(map_layertwine_error)
+    }
+
+    /// File-history facade: latest commit id for an author (cross-process
+    /// fallback when the in-memory cache misses).
+    pub fn latest_file_history_id_by_author(
+        &self,
+        author: &str,
+    ) -> Result<Option<String>, CheckpointError> {
+        let checkpoints = self.list_file_history_checkpoints()?;
+        let latest = checkpoints
+            .iter()
+            .filter(|c| c.metadata.author == author)
+            .max_by_key(|c| c.created_at);
+        Ok(latest.map(|c| c.id.to_hex()))
+    }
 }
 
 impl GitCheckpointAdapter for LayertwineGitAdapter {

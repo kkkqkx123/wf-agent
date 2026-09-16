@@ -1,6 +1,6 @@
-//! Execution domain: workflow execution trigger + control (pause/resume/
+//! Execution domain: workflow execution control (pause/resume/
 //! cancel/status/stream), execution list/detail and execution-scoped trigger
-//! history. Checkpoint / state-view / graph-analysis surfaces live in the
+//! execution history. Checkpoint / state-view / graph-analysis surfaces live in the
 //! sibling modules `api_checkpoints`, `api_execution_state` and
 //! `api_execution_analysis`.
 
@@ -17,7 +17,7 @@ use serde::{Deserialize, Serialize};
 use wf_storage::adapter::execution::WorkflowExecutionListOptions;
 
 use crate::envelope::{error_response, ok};
-use crate::extract::{ExecutionIdPath, IdPath, ListQuery};
+use crate::extract::{IdPath, ListQuery};
 use crate::router::ApiState;
 use crate::sse::sse_response;
 pub(crate) fn routes() -> Router<ApiState> {
@@ -41,16 +41,8 @@ pub(crate) fn routes() -> Router<ApiState> {
         .route("/executions/{id}/resume", post(handle_resume))
         .route("/executions/{id}/cancel", post(handle_cancel))
         .route("/executions/{id}/status", get(handle_status))
-        // ── execution triggers ──
+        // ── execution trigger history (ledger view) ──
         .route("/executions/{id}/triggers", get(handle_trigger_history))
-        .route(
-            "/execution-triggers/{id}/enable",
-            post(handle_trigger_enable),
-        )
-        .route(
-            "/execution-triggers/{id}/disable",
-            post(handle_trigger_disable),
-        )
 }
 
 #[derive(Deserialize)]
@@ -224,34 +216,14 @@ async fn handle_trigger_history(
     Path(path): Path<IdPath>,
     Query(query): Query<TriggerHistoryQuery>,
 ) -> impl IntoResponse {
-    match wf_api::workflow::execution_trigger::trigger_execution_history(
-        &state.ctx,
+    match wf_api::entity::trigger_execution::execution_history(
+        &state.ctx.storage,
         &path.id,
         query.trigger_name.as_deref(),
     )
     .await
     {
         Ok(history) => ok(history).into_response(),
-        Err(e) => error_response(e),
-    }
-}
-
-async fn handle_trigger_enable(
-    State(state): State<ApiState>,
-    Path(path): Path<ExecutionIdPath>,
-) -> impl IntoResponse {
-    match wf_api::workflow::execution_trigger::enable(&state.ctx, &path.execution_id).await {
-        Ok(()) => ok(()).into_response(),
-        Err(e) => error_response(e),
-    }
-}
-
-async fn handle_trigger_disable(
-    State(state): State<ApiState>,
-    Path(path): Path<ExecutionIdPath>,
-) -> impl IntoResponse {
-    match wf_api::workflow::execution_trigger::disable(&state.ctx, &path.execution_id).await {
-        Ok(()) => ok(()).into_response(),
         Err(e) => error_response(e),
     }
 }

@@ -153,7 +153,6 @@ impl StorageManager {
         ctx.task.store().clear().await.ok();
         ctx.agent_loop.store().clear().await.ok();
         ctx.metrics.inner().clear().await.ok();
-        ctx.trigger.store().clear().await.ok();
         ctx.tool.store().clear().await.ok();
         ctx.script.store().clear().await.ok();
         ctx.node_template.store().clear().await.ok();

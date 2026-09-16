@@ -90,7 +90,9 @@ impl HookHandler for AgentCompressionHandler {
     }
 
     async fn on_point(&self, ctx: &HookContext) -> HookOutcome {
-        use wf_execution_shared::token_events::{KEY_ARRAY_VERSION, KEY_MESSAGES, KEY_TARGET_CONTEXT_ID};
+        use wf_execution_shared::token_events::{
+            KEY_ARRAY_VERSION, KEY_MESSAGES, KEY_TARGET_CONTEXT_ID,
+        };
 
         let Some(target_context_id) = ctx
             .data
@@ -140,15 +142,17 @@ impl HookHandler for AgentCompressionHandler {
                     _ => None,
                 }),
             });
-            bus.publish(wf_execution_shared::build_context_compression_completed_event(
-                execution_id.as_str(),
-                Some(&agent_loop_id),
-                &target_context_id,
-                array_version,
-                summary.as_deref(),
-                wf_llm::estimate_messages(&compressed) as u64,
-                Some(&compressed),
-            ))
+            bus.publish(
+                wf_execution_shared::build_context_compression_completed_event(
+                    execution_id.as_str(),
+                    Some(&agent_loop_id),
+                    &target_context_id,
+                    array_version,
+                    summary.as_deref(),
+                    wf_llm::estimate_messages(&compressed) as u64,
+                    Some(&compressed),
+                ),
+            )
             .expect("compression completed event must publish to live subscribers");
         });
         HookOutcome::Continue
@@ -326,15 +330,17 @@ async fn agent_consumer_discards_stale_compression_result() {
 
     // The completed event arrives for the stale version: discarded.
     let messages = vec![text_message(MessageRole::Assistant, "compressed")];
-    bus.publish(wf_execution_shared::build_context_compression_completed_event(
-        "agent-1",
-        Some("agent-1"),
-        wf_execution_shared::CONVERSATION_CONTEXT_ID,
-        stale_version,
-        Some("compressed"),
-        5,
-        Some(&messages),
-    ))
+    bus.publish(
+        wf_execution_shared::build_context_compression_completed_event(
+            "agent-1",
+            Some("agent-1"),
+            wf_execution_shared::CONVERSATION_CONTEXT_ID,
+            stale_version,
+            Some("compressed"),
+            5,
+            Some(&messages),
+        ),
+    )
     .unwrap();
 
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
@@ -378,6 +384,9 @@ async fn agent_request_does_not_consult_the_registry() {
         }
     };
     let meta = wf_execution_shared::ContextCompressionCompletedMeta::try_from(&completed).unwrap();
-    assert_eq!(meta.target_context_id, wf_execution_shared::CONVERSATION_CONTEXT_ID);
+    assert_eq!(
+        meta.target_context_id,
+        wf_execution_shared::CONVERSATION_CONTEXT_ID
+    );
     assert_eq!(meta.array_version, 3);
 }

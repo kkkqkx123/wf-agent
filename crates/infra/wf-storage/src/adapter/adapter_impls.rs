@@ -16,7 +16,6 @@ use crate::adapter::script::{ScriptListOptions, ScriptStorageAdapter};
 use crate::adapter::task::{TaskListOptions, TaskStorageAdapter};
 use crate::adapter::tool::{ToolListOptions, ToolStorageAdapter};
 use crate::adapter::tool_definition::{ToolDefinitionListOptions, ToolDefinitionStorageAdapter};
-use crate::adapter::trigger::{TriggerListOptions, TriggerStorageAdapter};
 use crate::adapter::trigger_execution::{
     TriggerExecutionListOptions, TriggerExecutionStorageAdapter,
 };
@@ -67,11 +66,6 @@ make_base_adapter!(
     AgentDraftStorage,
     wf_types::agent::AgentDefinition,
     AgentDraftListOptions
-);
-make_base_adapter!(
-    TriggerStorage,
-    wf_types::TriggerStorageMetadata,
-    TriggerListOptions
 );
 make_base_adapter!(ToolStorage, wf_types::ToolStorageMetadata, ToolListOptions);
 make_base_adapter!(
@@ -359,32 +353,6 @@ impl<S: Store> AgentLoopStorageAdapter for AgentLoopStorage<S> {
 
     async fn get_stats(&self) -> Result<HashMap<String, u64>, StorageError> {
         self.count_by_field("status").await
-    }
-}
-
-// ─── TriggerStorageAdapter ───
-
-impl<S: Store> TriggerStorageAdapter for TriggerStorage<S> {
-    async fn list_by_event(
-        &self,
-        event: &str,
-    ) -> Result<Vec<wf_types::TriggerStorageMetadata>, StorageError> {
-        let filter = QueryFilter::new().with_field("event", event);
-        self.entity_store.list(Some(&filter)).await
-    }
-
-    async fn set_enabled(
-        &self,
-        id: &str,
-        enabled: bool,
-    ) -> Result<Option<wf_types::TriggerStorageMetadata>, StorageError> {
-        self.entity_store
-            .mutate(id, |trigger| {
-                trigger.enabled = enabled;
-                trigger.updated_at = chrono::Utc::now().timestamp_millis();
-                Ok(())
-            })
-            .await
     }
 }
 

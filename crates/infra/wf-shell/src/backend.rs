@@ -11,8 +11,8 @@ use std::io::Write;
 use std::process::{Child, ChildStdin};
 use std::sync::Mutex;
 
-use wf_common::lock::lock_ok;
 use std::time::{Duration, Instant};
+use wf_common::lock::lock_ok;
 
 use crate::error::{ShellError, ShellResult};
 

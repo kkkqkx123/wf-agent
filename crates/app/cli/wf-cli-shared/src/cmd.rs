@@ -16,6 +16,5 @@ pub mod skill;
 pub mod task;
 pub mod template;
 pub mod tool;
-pub mod trigger;
 pub mod variable;
 pub mod workflow;

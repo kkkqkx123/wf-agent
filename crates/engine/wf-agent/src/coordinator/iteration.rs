@@ -86,7 +86,8 @@ pub enum IterationMode {
 }
 
 /// Default token warning threshold percentage of the configured limit.
-pub const DEFAULT_TOKEN_WARNING_THRESHOLD: u32 = wf_execution_shared::DEFAULT_TOKEN_WARNING_THRESHOLD;
+pub const DEFAULT_TOKEN_WARNING_THRESHOLD: u32 =
+    wf_execution_shared::DEFAULT_TOKEN_WARNING_THRESHOLD;
 
 /// Single iteration implementation shared by blocking and streaming runs.
 pub struct AgentIterationCoordinator {
@@ -279,7 +280,10 @@ impl AgentIterationCoordinator {
         let Some(ref cp) = self.checkpoint else {
             return;
         };
-        if let Err(e) = cp.create_checkpoint_gated(entity, trigger.clone(), None).await {
+        if let Err(e) = cp
+            .create_checkpoint_gated(entity, trigger.clone(), None)
+            .await
+        {
             tracing::warn!(
                 error = %e,
                 entity_id = %entity.id(),
@@ -496,7 +500,10 @@ impl AgentIterationCoordinator {
                         return Err(e.into());
                     }
                 };
-                let usage = llm_result.usage.as_ref().map(wf_execution_shared::RequestUsage::from);
+                let usage = llm_result
+                    .usage
+                    .as_ref()
+                    .map(wf_execution_shared::RequestUsage::from);
                 // Record the completed call (request/response summaries).
                 let content = text_of(&llm_result.message.content);
                 let response_summary = build_response_summary(

@@ -1,5 +1,5 @@
 //! Agent domain composition: profiles, loops, executions, checkpoints,
-//! messages, variables, triggers and interactions. Each surface lives in a
+//! messages, variables and interactions. Each surface lives in a
 //! sibling module; this file only merges them and hosts the shared tests.
 
 use axum::Router;
@@ -57,7 +57,7 @@ mod tests {
             "/api/v1/agent-executions/by-definition/def-1",
             "/api/v1/agents",
             "/api/v1/agent-loops",
-            "/api/v1/agent-triggers/stats",
+            "/api/v1/trigger-executions/stats",
             "/api/v1/agent-checkpoints/stats",
         ] {
             let response = send(ctx.clone(), "GET", uri).await;

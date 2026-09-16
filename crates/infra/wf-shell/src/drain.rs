@@ -10,8 +10,8 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 
-use wf_common::lock::wait_timeout_ok;
 use std::time::{Duration, Instant};
+use wf_common::lock::wait_timeout_ok;
 
 /// Store-level wakeup for the monitor thread. The output reader threads signal
 /// it when a command's output reaches EOF, so the monitor can detect a process

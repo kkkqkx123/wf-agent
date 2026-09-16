@@ -2,7 +2,10 @@ use std::collections::{HashMap, HashSet};
 
 use wf_types::storage::CheckpointStorageMetadata;
 
-/// Dependency graph over an entity's checkpoint chain.
+/// Dependency graph over an entity's execution-state checkpoint chain.
+/// Division of labor: this graph protects `wf-storage` rows only. File-history
+/// ancestry lives in `layertwine` (`checkpoint::dag`) and is reclaimed by its
+/// own mark-sweep; the two graphs never share nodes.
 ///
 /// - `referenced_by` maps each checkpoint id to the ids of checkpoints that
 ///   reference it as their `previous_checkpoint_id`.

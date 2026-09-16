@@ -424,7 +424,9 @@ async fn write_back_result(
         return;
     };
     let operation = match writeback {
-        TriggerAgentWriteback::ConversationAppend => wf_execution_shared::WRITEBACK_OPERATION_APPEND,
+        TriggerAgentWriteback::ConversationAppend => {
+            wf_execution_shared::WRITEBACK_OPERATION_APPEND
+        }
         TriggerAgentWriteback::Variable => return,
     };
     let message = assistant_message_from_result(&output.result);
@@ -1010,9 +1012,14 @@ mod tests {
                 Err(_) => panic!("event bus closed"),
             }
         };
-        let meta = wf_execution_shared::ConversationWritebackCompletedMeta::try_from(&writeback_event).unwrap();
+        let meta =
+            wf_execution_shared::ConversationWritebackCompletedMeta::try_from(&writeback_event)
+                .unwrap();
         assert_eq!(meta.array_version, array_version);
-        assert_eq!(meta.operation, wf_execution_shared::WRITEBACK_OPERATION_APPEND);
+        assert_eq!(
+            meta.operation,
+            wf_execution_shared::WRITEBACK_OPERATION_APPEND
+        );
         assert_eq!(meta.target_context_id, "conversation");
         assert_eq!(
             writeback_event.execution_id.as_deref(),

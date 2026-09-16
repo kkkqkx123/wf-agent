@@ -43,9 +43,8 @@ fn validate_payload_template_syntax(
     payload: &serde_json::Value,
     field_prefix: &str,
 ) -> ConfigResult<()> {
-    wf_types::hook::validate_payload_template_syntax(payload).map_err(|e| {
-        ConfigError::Validation(format!("{field_prefix}.payload {e}"))
-    })
+    wf_types::hook::validate_payload_template_syntax(payload)
+        .map_err(|e| ConfigError::Validation(format!("{field_prefix}.payload {e}")))
 }
 
 /// Single validation entry for every hook config form.
@@ -69,9 +68,8 @@ pub fn validate_canonical_hook(
         )));
     }
     warn_deprecated_event_name(field_prefix, event_name);
-    wf_types::hook::validate_hook_priority(spec.priority).map_err(|e| {
-        ConfigError::Validation(format!("{field_prefix}.priority {e}"))
-    })?;
+    wf_types::hook::validate_hook_priority(spec.priority)
+        .map_err(|e| ConfigError::Validation(format!("{field_prefix}.priority {e}")))?;
     if let Some(payload) = spec.payload.as_ref() {
         validate_payload_template_syntax(payload, field_prefix)?;
     }
@@ -83,9 +81,8 @@ pub fn validate_canonical_hook(
         }
     }
     if let Some(ref handler) = spec.handler {
-        wf_types::hook::validate_hook_handler_name(Some(handler)).map_err(|e| {
-            ConfigError::Validation(format!("{field_prefix}.handler {e}"))
-        })?;
+        wf_types::hook::validate_hook_handler_name(Some(handler))
+            .map_err(|e| ConfigError::Validation(format!("{field_prefix}.handler {e}")))?;
         tracing::warn!(
             "{}.handler '{}' completes before the HOOK_TRIGGERED audit event is published, so a matching trigger template starts after it but its completion is not awaited by the engine; where a domain event exists prefer subscribing the trigger to it, and configure both paths only when the two effects commute",
             field_prefix,

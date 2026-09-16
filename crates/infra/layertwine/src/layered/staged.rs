@@ -285,7 +285,8 @@ where
     }
 
     Ok(MergeResult {
-        snapshot_id: last_snapshot_id.expect("invariant: the feature_names loop assigns last_snapshot_id at least once"),
+        snapshot_id: last_snapshot_id
+            .expect("invariant: the feature_names loop assigns last_snapshot_id at least once"),
         conflicts: all_conflicts,
     })
 }

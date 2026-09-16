@@ -1,4 +1,4 @@
-//! Entity resource domain composition: tasks, triggers, trigger executions,
+//! Entity resource domain composition: tasks, trigger executions,
 //! variables, messages and skills. Each surface lives in a sibling module;
 //! this file only merges them and hosts the shared tests.
 
@@ -45,9 +45,6 @@ mod tests {
             "/api/v1/tasks",
             "/api/v1/tasks/stats",
             "/api/v1/tasks/by-execution/exec-1",
-            "/api/v1/triggers",
-            "/api/v1/triggers/stats",
-            "/api/v1/triggers/search?q=push",
             "/api/v1/trigger-executions",
             "/api/v1/trigger-executions/stats",
             "/api/v1/trigger-executions/by-execution/exec-1",
@@ -74,7 +71,6 @@ mod tests {
         // Single-resource routes map unknown ids to NotFound.
         for uri in [
             "/api/v1/tasks/missing",
-            "/api/v1/triggers/missing",
             "/api/v1/trigger-executions/missing",
             "/api/v1/variables/missing?scope=default",
             "/api/v1/messages/missing",

@@ -63,7 +63,6 @@ pub use storage::ScriptStorageMetadata;
 pub use storage::TaskStorageMetadata;
 pub use storage::ToolStorageMetadata;
 pub use storage::TriggerExecutionStorageMetadata;
-pub use storage::TriggerStorageMetadata;
 pub use storage::TriggerTemplateStorageMetadata;
 pub use storage::UserInteractionStorageMetadata;
 pub use storage::VariableStorageMetadata;

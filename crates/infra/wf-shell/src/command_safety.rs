@@ -10,37 +10,58 @@ pub use wf_sandbox::command_policy::CommandDecision;
 
 fn dangerous_param_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| Regex::new(r"\$\{[^}]*@[PQEAa][^}]*\}").expect("invariant: regex literal is a fixed pattern and must compile"))
+    RE.get_or_init(|| {
+        Regex::new(r"\$\{[^}]*@[PQEAa][^}]*\}")
+            .expect("invariant: regex literal is a fixed pattern and must compile")
+    })
 }
 
 fn assignment_octal_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| Regex::new(r"\$\{[^}]*[=+\-?][^}]*\\[0-7]{3}[^}]*\}").expect("invariant: regex literal is a fixed pattern and must compile"))
+    RE.get_or_init(|| {
+        Regex::new(r"\$\{[^}]*[=+\-?][^}]*\\[0-7]{3}[^}]*\}")
+            .expect("invariant: regex literal is a fixed pattern and must compile")
+    })
 }
 
 fn assignment_hex_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| Regex::new(r"\$\{[^}]*[=+\-?][^}]*\\x[0-9a-fA-F]{2}[^}]*\}").expect("invariant: regex literal is a fixed pattern and must compile"))
+    RE.get_or_init(|| {
+        Regex::new(r"\$\{[^}]*[=+\-?][^}]*\\x[0-9a-fA-F]{2}[^}]*\}")
+            .expect("invariant: regex literal is a fixed pattern and must compile")
+    })
 }
 
 fn assignment_unicode_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| Regex::new(r"\$\{[^}]*[=+\-?][^}]*\\u[0-9a-fA-F]{4}[^}]*\}").expect("invariant: regex literal is a fixed pattern and must compile"))
+    RE.get_or_init(|| {
+        Regex::new(r"\$\{[^}]*[=+\-?][^}]*\\u[0-9a-fA-F]{4}[^}]*\}")
+            .expect("invariant: regex literal is a fixed pattern and must compile")
+    })
 }
 
 fn indirect_expansion_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| Regex::new(r"\$\{![^}]+\}").expect("invariant: regex literal is a fixed pattern and must compile"))
+    RE.get_or_init(|| {
+        Regex::new(r"\$\{![^}]+\}")
+            .expect("invariant: regex literal is a fixed pattern and must compile")
+    })
 }
 
 fn here_string_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| Regex::new(r"<<<\s*(\$\(|`)").expect("invariant: regex literal is a fixed pattern and must compile"))
+    RE.get_or_init(|| {
+        Regex::new(r"<<<\s*(\$\(|`)")
+            .expect("invariant: regex literal is a fixed pattern and must compile")
+    })
 }
 
 fn zsh_glob_re() -> &'static Regex {
     static RE: OnceLock<Regex> = OnceLock::new();
-    RE.get_or_init(|| Regex::new(r"[*?+@!]\(e:[^:]+:\)").expect("invariant: regex literal is a fixed pattern and must compile"))
+    RE.get_or_init(|| {
+        Regex::new(r"[*?+@!]\(e:[^:]+:\)")
+            .expect("invariant: regex literal is a fixed pattern and must compile")
+    })
 }
 
 /// Split a command line into sub-commands on the shell separators.

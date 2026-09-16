@@ -23,9 +23,7 @@
 //! multi-step invariants). For multi-step mutations under one lock, propagate
 //! the error or panic instead — recovering would continue with a torn state.
 
-use std::sync::{
-    LockResult, MutexGuard, RwLockReadGuard, RwLockWriteGuard, WaitTimeoutResult,
-};
+use std::sync::{LockResult, MutexGuard, RwLockReadGuard, RwLockWriteGuard, WaitTimeoutResult};
 
 /// Acquire a `std::sync::Mutex` guard, recovering from a poisoned mutex
 /// instead of panicking.

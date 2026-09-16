@@ -1,4 +1,7 @@
-use crate::coordinator::base::restored_status;
+use crate::coordinator::base::{
+    cadence_allows, decide_checkpoint_type_by_count, next_chain_position, publish_persist_failed,
+    publish_persisted, restored_status,
+};
 use crate::coordinator::CheckpointCoordinator;
 use crate::delta::CheckpointLoader;
 use crate::delta::DeltaRestorer;
@@ -487,6 +490,19 @@ impl CheckpointCoordinator for WorkflowCheckpointCoordinator {
         self.async_persistence
     }
 
+    /// Synchronous best-effort file projection for the entity. Missing file
+    /// history yields `Ok` so the state checkpoint never fails.
+    async fn save_file_snapshot(
+        &self,
+        _checkpoint_id: &str,
+        entity_id: &str,
+    ) -> Result<(), CheckpointError> {
+        if let Some(manager) = &self.file_checkpoint_manager {
+            let _ = manager.create_latest_file_checkpoint(entity_id)?;
+        }
+        Ok(())
+    }
+
     /// Defer post-persist side effects (file snapshot) to the background
     /// persistence queue (async mode). The queue is bounded:
     /// when it exceeds `MAX_PERSISTENCE_QUEUE`, the oldest deferred work is
@@ -564,14 +580,10 @@ impl CheckpointCoordinator for WorkflowCheckpointCoordinator {
         // node/tool ids), plus the injected formatVersion/createdAt/
         // chainPosition. The wire shape is a flat map with
         // description/tags/customFields keys.
-        let chain_position: u32 = match checkpoint_type {
-            CheckpointType::Full => 0,
-            CheckpointType::Delta => previous
-                .as_ref()
-                .and_then(|p| p.chain_position)
-                .map(|p| p + 1)
-                .unwrap_or(1),
-        };
+        let chain_position: u32 = next_chain_position(
+            &checkpoint_type,
+            previous.as_ref().and_then(|p| p.chain_position),
+        );
         let mut custom_fields = ctx.metadata.clone().unwrap_or_default();
         custom_fields.insert(
             CHAIN_POSITION_FIELD.to_string(),
@@ -651,14 +663,12 @@ impl CheckpointCoordinator for WorkflowCheckpointCoordinator {
             .save(checkpoint, "workflow_execution", entity_id)
             .await
         {
-            if let Some(ref bus) = self.event_bus {
-                bus.publish(CheckpointEventBus::failed_with(
-                    Some(checkpoint.id.clone()),
-                    "create",
-                    format!("persist failed: {}", err),
-                    Some(entity_id.to_string()),
-                ));
-            }
+            publish_persist_failed(
+                self.event_bus.as_ref(),
+                Some(checkpoint.id.clone()),
+                entity_id,
+                &err,
+            );
             // Route through the checkpoint error handler: non-fatal
             // strategies (warn/silent) swallow the failure so the execution
             // continues without a checkpoint.
@@ -672,18 +682,17 @@ impl CheckpointCoordinator for WorkflowCheckpointCoordinator {
             return Ok(());
         }
 
-        if let Some(ref bus) = self.event_bus {
-            let description = checkpoint
-                .metadata
-                .as_ref()
-                .and_then(|m| m.get("description"))
-                .and_then(|v| v.as_str());
-            bus.publish(CheckpointEventBus::created_with(
-                checkpoint.id.clone(),
-                Some(entity_id.to_string()),
-                description.map(String::from),
-            ));
-        }
+        let description = checkpoint
+            .metadata
+            .as_ref()
+            .and_then(|m| m.get("description"))
+            .and_then(|v| v.as_str());
+        publish_persisted(
+            self.event_bus.as_ref(),
+            &checkpoint.id,
+            entity_id,
+            description,
+        );
 
         Ok(())
     }
@@ -872,20 +881,10 @@ impl CheckpointCoordinator for WorkflowCheckpointCoordinator {
         entity_id: &str,
         config: &DeltaStorageConfig,
     ) -> Result<CheckpointType, CheckpointError> {
-        if !config.enabled {
-            return Ok(CheckpointType::Full);
-        }
-
         // aggregate COUNT query instead of materializing the full
         // history listing.
-        let count = self.state_manager.count_by_entity(entity_id).await? as u32;
-        let effective_interval = config.baseline_interval.min(config.max_delta_chain_length);
-
-        if count == 0 || effective_interval == 0 || count.is_multiple_of(effective_interval) {
-            return Ok(CheckpointType::Full);
-        }
-
-        Ok(CheckpointType::Delta)
+        let count = self.state_manager.count_by_entity(entity_id).await?;
+        Ok(decide_checkpoint_type_by_count(count, config))
     }
 
     fn default_strategy(&self) -> Option<&dyn CheckpointStrategy> {
@@ -909,18 +908,16 @@ impl CheckpointCoordinator for WorkflowCheckpointCoordinator {
             }
         }
         if let Some(cadence) = self.cadence.get(&trigger) {
-            if *cadence > 1 {
-                let attempt = {
-                    let mut entry = self
-                        .cadence_attempts
-                        .entry(entity_id.to_string())
-                        .or_insert(0);
-                    *entry += 1;
-                    *entry
-                };
-                if !attempt.is_multiple_of(*cadence) {
-                    return Ok(None);
-                }
+            let attempt = {
+                let mut entry = self
+                    .cadence_attempts
+                    .entry(entity_id.to_string())
+                    .or_insert(0);
+                *entry += 1;
+                *entry
+            };
+            if !cadence_allows(attempt, *cadence) {
+                return Ok(None);
             }
         }
         let id = self.create_checkpoint(trigger, entity_id, state).await?;

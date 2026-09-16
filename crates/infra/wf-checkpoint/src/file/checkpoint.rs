@@ -55,18 +55,19 @@ impl FileCheckpointManager {
             parents,
             CheckpointMetadata::new(actor.as_str(), "file checkpoint"),
         );
-        storage
-            .store_checkpoint(&checkpoint)
-            .map_err(|e| map_layertwine_error_with("create_checkpoint.store_checkpoint", e))?;
+        self.store
+            .branch_adapter
+            .store_file_history_checkpoint(&checkpoint)?;
+        // Single truth: DB row plus branch head are authoritative, the
+        // in-memory map is only a lookup cache. The branch head is always
+        // advanced so it never lags behind the cache.
         self.store
             .latest_checkpoints
             .insert(actor.as_str().to_string(), checkpoint.id.to_hex());
         let branch_name = execution_branch_name("execution", entity_id);
-        if self.store.branch_adapter.branch_exists_now(&branch_name)? {
-            self.store
-                .branch_adapter
-                .set_branch_head(&branch_name, &checkpoint.id.to_hex())?;
-        }
+        self.store
+            .branch_adapter
+            .set_branch_head(&branch_name, &checkpoint.id.to_hex())?;
         self.project(storage, &checkpoint)
     }
 
@@ -107,18 +108,18 @@ impl FileCheckpointManager {
             parents,
             CheckpointMetadata::new(actor.as_str(), "file checkpoint"),
         );
-        storage
-            .store_checkpoint(&checkpoint)
-            .map_err(map_layertwine_error)?;
+        self.store
+            .branch_adapter
+            .store_file_history_checkpoint(&checkpoint)?;
+        // Single truth: DB row plus branch head are authoritative, the
+        // in-memory map is only a lookup cache.
         self.store
             .latest_checkpoints
             .insert(actor.as_str().to_string(), checkpoint.id.to_hex());
         let branch_name = execution_branch_name("execution", entity_id);
-        if self.store.branch_adapter.branch_exists_now(&branch_name)? {
-            self.store
-                .branch_adapter
-                .set_branch_head(&branch_name, &checkpoint.id.to_hex())?;
-        }
+        self.store
+            .branch_adapter
+            .set_branch_head(&branch_name, &checkpoint.id.to_hex())?;
         Ok(Some(self.project(storage, &checkpoint)?))
     }
 
@@ -156,20 +157,20 @@ impl FileCheckpointManager {
 
     pub(crate) fn latest_checkpoint_id(
         &self,
-        storage: &SqliteStorage,
+        _storage: &SqliteStorage,
         actor: &crate::actor::id::ActorId,
     ) -> Result<Option<String>, CheckpointError> {
         let actor_str = actor.as_str().to_string();
+        // Cache first, DB scan as cross-process fallback. The branch head is
+        // maintained on every create so it stays consistent with the cache;
+        // the stored checkpoint row remains the authoritative record.
         if let Some(id) = self.store.latest_checkpoints.get(&actor_str) {
             return Ok(Some(id.clone()));
         }
-        // Cross-process fallback: scan stored checkpoints by author.
-        let checkpoints = storage.list_checkpoints().map_err(map_layertwine_error)?;
-        let latest = checkpoints
-            .iter()
-            .filter(|c| c.metadata.author == actor_str)
-            .max_by_key(|c| c.created_at);
-        Ok(latest.map(|c| c.id.to_hex()))
+        // Cross-process fallback via the file-history facade.
+        self.store
+            .branch_adapter
+            .latest_file_history_id_by_author(&actor_str)
     }
 }
 

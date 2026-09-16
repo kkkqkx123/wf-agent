@@ -37,7 +37,7 @@ pub(crate) struct CidPath {
     pub(crate) cid: String,
 }
 
-/// `{id}` + `{name}` path pair used by variable / trigger routes.
+/// `{id}` + `{name}` path pair used by variable routes.
 #[derive(Deserialize)]
 pub(crate) struct IdNamePath {
     pub(crate) id: String,
@@ -48,12 +48,6 @@ pub(crate) struct IdNamePath {
 #[derive(Deserialize)]
 pub(crate) struct NamePath {
     pub(crate) name: String,
-}
-
-/// `{tid}` path parameter used by trigger routes.
-#[derive(Deserialize)]
-pub(crate) struct TidPath {
-    pub(crate) tid: String,
 }
 
 /// `{defId}` path parameter used by by-definition routes.

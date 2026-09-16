@@ -435,6 +435,10 @@ impl CheckpointRepo {
     /// snapshot IDs as the current head (e.g. for tagging or metadata-only commits).
     /// Also allows empty snapshot lists for annotation-style commits.
     ///
+    /// Identity is still content-addressed (parents + baseline + author +
+    /// message): byte-identical payloads dedupe to the same id and the head
+    /// move stays idempotent instead of forking a duplicate record.
+    ///
     /// Returns the new checkpoint ID.
     pub fn commit_allow_empty(
         &mut self,

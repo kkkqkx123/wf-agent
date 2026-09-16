@@ -556,13 +556,19 @@ mod tests {
             .await
             .unwrap());
 
-        // Idempotent: preparing the same child again keeps a single branch.
+        // Idempotent: preparing the same child again keeps the branch set
+        // stable. The parent branch exists because every file checkpoint
+        // advances its entity branch head (single truth: DB row plus branch
+        // head authoritative, memory map only a cache).
         manager
             .ensure_child_branch("child-1", Some("parent-1"))
             .await
             .unwrap();
         let branches = manager.store.branch_adapter.list_branches().await.unwrap();
-        assert_eq!(branches, vec![branch]);
+        assert_eq!(
+            branches,
+            vec![branch, execution_branch_name("execution", "parent-1"),]
+        );
     }
 
     #[tokio::test]

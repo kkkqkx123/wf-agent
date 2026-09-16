@@ -2,8 +2,8 @@ use crate::adapter::adapter_impls::{
     AgentDraftStorage, AgentExecutionStorage, AgentLoopStorage, AgentProfileStorage,
     AgentTemplateStorage, CheckpointStorage, MessageStorage, MetricsStorage, NodeTemplateStorage,
     ScriptStorage, TaskStorage, ToolDefinitionStorage, ToolStorage, TriggerExecutionStorage,
-    TriggerStorage, TriggerTemplateStorage, UserInteractionStorage, VariableStorage,
-    WorkflowDraftStorage, WorkflowExecutionStorage, WorkflowStorage,
+    TriggerTemplateStorage, UserInteractionStorage, VariableStorage, WorkflowDraftStorage,
+    WorkflowExecutionStorage, WorkflowStorage,
 };
 use crate::backend::StorageBackend;
 use crate::decorator::instrumented::{InstrumentedStore, StorageMetrics};
@@ -25,7 +25,6 @@ pub struct StorageContext {
     pub agent_template: AgentTemplateStorage<StorageBackend>,
     pub agent_draft: AgentDraftStorage<StorageBackend>,
     pub trigger_template: TriggerTemplateStorage<StorageBackend>,
-    pub trigger: TriggerStorage<StorageBackend>,
     pub trigger_execution: TriggerExecutionStorage<StorageBackend>,
     pub user_interaction: UserInteractionStorage<StorageBackend>,
     pub tool: ToolStorage<StorageBackend>,
@@ -60,7 +59,6 @@ impl StorageContext {
                 Memory,
                 "trigger_template"
             )),
-            trigger: TriggerStorage::new(make_backend!(Memory, "trigger")),
             trigger_execution: TriggerExecutionStorage::new(make_backend!(
                 Memory,
                 "trigger_execution"
@@ -98,7 +96,6 @@ impl StorageContext {
             agent_template: AgentTemplateStorage::new(sqlite_backend!("agent_template")),
             agent_draft: AgentDraftStorage::new(sqlite_backend!("agent_draft")),
             trigger_template: TriggerTemplateStorage::new(sqlite_backend!("trigger_template")),
-            trigger: TriggerStorage::new(sqlite_backend!("trigger")),
             trigger_execution: TriggerExecutionStorage::new(sqlite_backend!("trigger_execution")),
             user_interaction: UserInteractionStorage::new(sqlite_backend!("user_interaction")),
             tool: ToolStorage::new(sqlite_backend!("tool")),
@@ -132,7 +129,6 @@ impl StorageContext {
             agent_template: AgentTemplateStorage::new(pg_backend!("agent_template")),
             agent_draft: AgentDraftStorage::new(pg_backend!("agent_draft")),
             trigger_template: TriggerTemplateStorage::new(pg_backend!("trigger_template")),
-            trigger: TriggerStorage::new(pg_backend!("trigger")),
             trigger_execution: TriggerExecutionStorage::new(pg_backend!("trigger_execution")),
             user_interaction: UserInteractionStorage::new(pg_backend!("user_interaction")),
             tool: ToolStorage::new(pg_backend!("tool")),
@@ -163,7 +159,6 @@ impl StorageContext {
             self.agent_template.store().op_metrics(),
             self.agent_draft.store().op_metrics(),
             self.trigger_template.store().op_metrics(),
-            self.trigger.store().op_metrics(),
             self.trigger_execution.store().op_metrics(),
             self.user_interaction.store().op_metrics(),
             self.tool.store().op_metrics(),

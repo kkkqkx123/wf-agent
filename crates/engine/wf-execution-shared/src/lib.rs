@@ -37,9 +37,7 @@ pub use interruption::{
 // Conversation and token-usage engine contract: session state, message-array
 // operations, usage tracking and event builders relocated from the LLM
 // transport crate, which now only owns transport, config and estimation.
-pub use conversation_session::{
-    ConversationSession, ConversationState, CONVERSATION_CONTEXT_ID,
-};
+pub use conversation_session::{ConversationSession, ConversationState, CONVERSATION_CONTEXT_ID};
 pub use message_ops::{apply as apply_message_operation, extract_by_role, is_agent_safe};
 pub use token_events::{
     build_context_compression_completed_event, build_context_compression_requested_event,

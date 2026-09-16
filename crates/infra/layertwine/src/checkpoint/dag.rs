@@ -3,6 +3,10 @@
 //! Manages the parent-child relationship of checkpoints, providing functions such as ancestor lookup, reachability determination, and common ancestor lookup.
 //!
 //! Note: DAG is built dynamically from Checkpoint relationships and is not persisted to storage.
+//! Division of labor: this DAG is the file-history storage view only.
+//! Retention decisions and dependency protection for execution state live in
+//! `wf-checkpoint` (`cleanup_policy` + `checkpoint_graph`); this module never
+//! deletes rows on its own.
 
 use crate::core::types::CheckpointId;
 use std::collections::{HashMap, HashSet, VecDeque};

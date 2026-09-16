@@ -953,9 +953,14 @@ mod tests {
                 Err(_) => panic!("event bus closed"),
             }
         };
-        let meta = wf_execution_shared::ConversationWritebackCompletedMeta::try_from(&writeback_event).unwrap();
+        let meta =
+            wf_execution_shared::ConversationWritebackCompletedMeta::try_from(&writeback_event)
+                .unwrap();
         assert_eq!(meta.array_version, array_version);
-        assert_eq!(meta.operation, wf_execution_shared::WRITEBACK_OPERATION_APPEND);
+        assert_eq!(
+            meta.operation,
+            wf_execution_shared::WRITEBACK_OPERATION_APPEND
+        );
         assert_eq!(meta.messages.len(), 1);
 
         stop_trigger_listener(listener).await;
@@ -1075,7 +1080,8 @@ mod tests {
             requested.execution_id.as_deref(),
             Some(execution_id.as_str())
         );
-        let requested_meta = wf_execution_shared::ContextCompressionRequestedMeta::try_from(&requested).unwrap();
+        let requested_meta =
+            wf_execution_shared::ContextCompressionRequestedMeta::try_from(&requested).unwrap();
         assert_eq!(requested_meta.target_context_id, "chat");
         assert_eq!(
             requested_meta.messages.len(),
@@ -1112,7 +1118,8 @@ mod tests {
                 Err(_) => panic!("event bus closed"),
             }
         };
-        let completed_meta = wf_execution_shared::ContextCompressionCompletedMeta::try_from(&completed).unwrap();
+        let completed_meta =
+            wf_execution_shared::ContextCompressionCompletedMeta::try_from(&completed).unwrap();
         assert_eq!(completed_meta.target_context_id, "chat");
         assert_eq!(completed_meta.messages.len(), 1);
         assert_eq!(

@@ -9,6 +9,9 @@ use crate::metrics_collector::CheckpointMetricsCollector;
 
 const DAY_MS: i64 = 86_400_000;
 
+// Division of labor: this policy decides *which* state checkpoints may go;
+// file-history reclamation lives in `layertwine` (`checkpoint::gc`) and only
+// reclaims commit rows whose snapshots lost all references.
 /// Age tier for the tiered cleanup strategy
 /// (`{minAgeDays, maxAgeDays?, retentionIntervalDays}`).
 #[derive(Debug, Clone)]

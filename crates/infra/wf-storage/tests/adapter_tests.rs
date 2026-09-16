@@ -67,34 +67,6 @@ async fn test_workflow_adapter_crud() {
 }
 
 #[tokio::test]
-async fn test_trigger_adapter_list_by_event() {
-    let adapter = TriggerStorage::new(make_store("test_tr"));
-    let t1 = wf_types::TriggerStorageMetadata {
-        id: "tr-1".into(),
-        name: "t1".into(),
-        description: None,
-        event: "pull_request".into(),
-        enabled: true,
-        created_at: 1000,
-        updated_at: 1000,
-    };
-    let t2 = wf_types::TriggerStorageMetadata {
-        id: "tr-2".into(),
-        name: "t2".into(),
-        description: None,
-        event: "push".into(),
-        enabled: true,
-        created_at: 1001,
-        updated_at: 1001,
-    };
-    adapter.save(&t1).await.unwrap();
-    adapter.save(&t2).await.unwrap();
-    let pr_triggers = adapter.list_by_event("pull_request").await.unwrap();
-    assert_eq!(pr_triggers.len(), 1);
-    assert_eq!(pr_triggers[0].name, "t1");
-}
-
-#[tokio::test]
 async fn test_tool_adapter_get_stats() {
     let adapter = ToolStorage::new(make_store("test_tl"));
     for i in 0..3 {

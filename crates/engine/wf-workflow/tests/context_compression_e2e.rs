@@ -190,7 +190,9 @@ impl HookHandler for CompressionHandler {
     }
 
     async fn on_point(&self, ctx: &HookContext) -> HookOutcome {
-        use wf_execution_shared::token_events::{KEY_ARRAY_VERSION, KEY_MESSAGES, KEY_TARGET_CONTEXT_ID};
+        use wf_execution_shared::token_events::{
+            KEY_ARRAY_VERSION, KEY_MESSAGES, KEY_TARGET_CONTEXT_ID,
+        };
 
         let Some(target_context_id) = ctx
             .data
@@ -244,15 +246,17 @@ impl HookHandler for CompressionHandler {
                     _ => None,
                 }),
             });
-            bus.publish(wf_execution_shared::build_context_compression_completed_event(
-                execution_id.as_str(),
-                None,
-                &target_context_id,
-                array_version,
-                summary.as_deref(),
-                wf_llm::estimate_messages(&compressed) as u64,
-                Some(&compressed),
-            ))
+            bus.publish(
+                wf_execution_shared::build_context_compression_completed_event(
+                    execution_id.as_str(),
+                    None,
+                    &target_context_id,
+                    array_version,
+                    summary.as_deref(),
+                    wf_llm::estimate_messages(&compressed) as u64,
+                    Some(&compressed),
+                ),
+            )
             .expect("compression completed event must publish to live subscribers");
         });
         HookOutcome::Continue

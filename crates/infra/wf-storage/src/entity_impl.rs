@@ -182,26 +182,6 @@ impl Entity for wf_types::TriggerTemplateStorageMetadata {
     }
 }
 
-impl Entity for wf_types::TriggerStorageMetadata {
-    type Metadata = Value;
-
-    fn entity_id(&self) -> &str {
-        &self.id
-    }
-
-    fn entity_type() -> &'static str {
-        "trigger"
-    }
-
-    fn metadata(&self) -> Self::Metadata {
-        serde_json::json!({
-            "name": self.name,
-            "event": self.event,
-            "enabled": self.enabled,
-        })
-    }
-}
-
 impl Entity for wf_types::ToolStorageMetadata {
     type Metadata = Value;
 

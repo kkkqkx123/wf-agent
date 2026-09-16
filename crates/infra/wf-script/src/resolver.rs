@@ -10,7 +10,8 @@ use crate::error::{ScriptError, ScriptResult};
 /// Matches `$ref.path` style variable references. Pre-compiled singleton so
 /// the regex is built once instead of on every `resolve_string` call.
 static VAR_REF_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"\$(\w+(?:\.\w+)*)").expect("invariant: regex literal is a fixed pattern and must compile")
+    Regex::new(r"\$(\w+(?:\.\w+)*)")
+        .expect("invariant: regex literal is a fixed pattern and must compile")
 });
 
 pub struct ArgumentResolver;
@@ -192,17 +193,18 @@ impl DynamicResolver {
     }
 
     fn resolve_string(value: &str, context: &HashMap<String, Value>) -> String {
-        VAR_REF_RE.replace_all(value, |caps: &regex::Captures| {
-            let ref_path = caps
-                .get(1)
-                .expect("invariant: capture group 1 is always present for a matched pattern")
-                .as_str();
-            match resolve_path(ref_path, context) {
-                Some(resolved) => value_as_string_2(&resolved),
-                None => format!("${}", ref_path),
-            }
-        })
-        .to_string()
+        VAR_REF_RE
+            .replace_all(value, |caps: &regex::Captures| {
+                let ref_path = caps
+                    .get(1)
+                    .expect("invariant: capture group 1 is always present for a matched pattern")
+                    .as_str();
+                match resolve_path(ref_path, context) {
+                    Some(resolved) => value_as_string_2(&resolved),
+                    None => format!("${}", ref_path),
+                }
+            })
+            .to_string()
     }
 }
 

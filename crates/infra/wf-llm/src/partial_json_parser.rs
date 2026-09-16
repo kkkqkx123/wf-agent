@@ -209,7 +209,9 @@ fn strip(tokens: &[Token]) -> Vec<Token> {
     }
 
     let mut result = tokens.to_vec();
-    let last = result.last().expect("invariant: result is non-empty because the is_empty early return guards this path");
+    let last = result.last().expect(
+        "invariant: result is non-empty because the is_empty early return guards this path",
+    );
 
     match last {
         Token::Separator(_) | Token::Delimiter(_) => {

@@ -49,6 +49,10 @@ fn default_checkpoint_type() -> String {
 /// downstream code stays unchanged. Every checkpoint is a "full" projection
 /// of the actor partition's latest per-file state — incremental storage is a
 /// layertwine-internal concern (partition history).
+///
+/// Naming: `FileProjection` is the preferred alias at new call sites; the
+/// `FileCheckpoint` name is retained for the wire shape. `checkpoint_type` is
+/// always `"full"` and `base_checkpoint_id` is always `None` by construction.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
 pub struct FileCheckpoint {
     /// layertwine checkpoint id (Blake3 hex).
@@ -68,6 +72,10 @@ pub struct FileCheckpoint {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub empty_dirs: Option<Vec<String>>,
 }
+
+/// Preferred alias for new call sites: this value is always a full
+/// projection, never an incremental delta chain.
+pub type FileProjection = FileCheckpoint;
 
 /// Metadata for indexing and querying file checkpoints.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]

@@ -212,8 +212,7 @@ impl ConversationSession {
     /// recomputed exactly once after a replacement (dirty ledger).
     pub fn estimated_conversation_tokens(&mut self) -> u64 {
         if self.state.ledger.is_dirty(CONVERSATION_CONTEXT_ID) {
-            let estimated =
-                wf_llm::token::count::estimate_messages(&self.state.messages) as u64;
+            let estimated = wf_llm::token::count::estimate_messages(&self.state.messages) as u64;
             let count = self.state.messages.len();
             self.state
                 .ledger

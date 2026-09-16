@@ -4,8 +4,10 @@ use crate::error::{ConfigError, ConfigResult};
 
 use wf_types::hook::is_known_hook_point;
 
-static EMAIL_REGEX: LazyLock<regex::Regex> =
-    LazyLock::new(|| regex::Regex::new(r"^[^\s@]+@[^\s@]+\.[^\s@]+$").expect("invariant: regex literal is a fixed pattern and must compile"));
+static EMAIL_REGEX: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(r"^[^\s@]+@[^\s@]+\.[^\s@]+$")
+        .expect("invariant: regex literal is a fixed pattern and must compile")
+});
 
 pub fn validate_required(value: &str, field_name: &str) -> ConfigResult<()> {
     if value.is_empty() {

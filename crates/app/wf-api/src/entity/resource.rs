@@ -173,7 +173,7 @@ mod tests {
     use wf_storage::adapter::task::TaskListOptions;
     use wf_storage::context::StorageContext;
     use wf_storage::domain::Entity;
-    use wf_types::{TaskStorageMetadata, TriggerStorageMetadata};
+    use wf_types::TaskStorageMetadata;
 
     #[tokio::test]
     async fn get_returns_not_found_for_unknown_id() {
@@ -257,18 +257,29 @@ mod tests {
     #[tokio::test]
     async fn works_for_other_adapter_types() {
         let ctx = StorageContext::new_memory();
-        let trigger = TriggerStorageMetadata {
+        let template = wf_types::TriggerTemplateStorageMetadata {
             id: "tr-1".into(),
             name: "on push".into(),
+            trigger_type: "event".into(),
             description: None,
-            event: "push".into(),
+            category: None,
+            tags: None,
             enabled: true,
+            max_triggers: None,
+            priority: None,
+            dispatch_mode: None,
+            condition: None,
+            action_config: None,
             created_at: 1000,
             updated_at: 1000,
         };
-        ctx.trigger.save(&trigger).await.unwrap();
-        let loaded: TriggerStorageMetadata = ctx.trigger.get("tr-1").await.unwrap();
+        ctx.trigger_template.save(&template).await.unwrap();
+        let loaded: wf_types::TriggerTemplateStorageMetadata =
+            ctx.trigger_template.get("tr-1").await.unwrap();
         assert_eq!(loaded.name, "on push");
-        assert_eq!(TriggerStorageMetadata::entity_type(), "trigger");
+        assert_eq!(
+            wf_types::TriggerTemplateStorageMetadata::entity_type(),
+            "trigger_template"
+        );
     }
 }

@@ -72,7 +72,12 @@ fn publish_stream_termination(
     };
     if aborted {
         bus.publish_logged(
-            wf_execution_shared::build_llm_stream_aborted_event(&ctx.execution_id, None, message, profile_id),
+            wf_execution_shared::build_llm_stream_aborted_event(
+                &ctx.execution_id,
+                None,
+                message,
+                profile_id,
+            ),
             &format!(
                 "workflow={} llm={} stream-aborted",
                 ctx.execution_id, ctx.node_id
@@ -81,7 +86,12 @@ fn publish_stream_termination(
         .ok();
     } else {
         bus.publish_logged(
-            wf_execution_shared::build_llm_stream_error_event(&ctx.execution_id, None, message, profile_id),
+            wf_execution_shared::build_llm_stream_error_event(
+                &ctx.execution_id,
+                None,
+                message,
+                profile_id,
+            ),
             &format!(
                 "workflow={} llm={} stream-error",
                 ctx.execution_id, ctx.node_id
@@ -213,7 +223,10 @@ fn restore_tracker_from_variables(
 
 /// Persist the execution-scoped tracker state into the variable map so
 /// checkpoints (which snapshot the variables) restore the guards too.
-fn persist_tracker_state(ctx: &NodeExecutionContext, tracker: &wf_execution_shared::TokenUsageTracker) {
+fn persist_tracker_state(
+    ctx: &NodeExecutionContext,
+    tracker: &wf_execution_shared::TokenUsageTracker,
+) {
     if let Ok(value) = serde_json::to_value(tracker.state()) {
         ctx.variables.insert(TRACKER_STATE_KEY.to_string(), value);
     }
@@ -875,13 +888,14 @@ impl LlmHandler {
                         let mut tracker = tracker.lock().await;
                         if estimated > token_limit && tracker.consume_preflight_warning() {
                             if let Some(ref bus) = ctx.event_bus {
-                                let mut event = wf_execution_shared::build_token_usage_warning_event(
-                                    &ctx.execution_id,
-                                    Some(&ctx.node_id),
-                                    estimated,
-                                    token_limit,
-                                    estimated as f64 / token_limit as f64 * 100.0,
-                                );
+                                let mut event =
+                                    wf_execution_shared::build_token_usage_warning_event(
+                                        &ctx.execution_id,
+                                        Some(&ctx.node_id),
+                                        estimated,
+                                        token_limit,
+                                        estimated as f64 / token_limit as f64 * 100.0,
+                                    );
                                 let array_details: Vec<Value> = declared_contexts(config)
                                     .iter()
                                     .map(|id| {

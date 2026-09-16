@@ -111,7 +111,9 @@ pub fn collect_protected_checkpoints(
 ///
 /// Only checkpoint rows are reclaimed. Snapshots, deltas and file nodes
 /// are content-addressed and immutable, so `removed_snapshots` counts the
-/// snapshot references dropped with the removed checkpoints.
+/// snapshot references dropped with the removed checkpoints. Shared rows are
+/// intentionally retained: use `referenced_snapshot_ids` to compute the live
+/// set before any physical snapshot reclamation.
 pub fn run_gc(repo: &mut CheckpointRepo, retention: GcRetention) -> Result<GcStats> {
     let protected = collect_protected_checkpoints(repo, retention);
     let all_checkpoints = repo.dag().all_nodes();
@@ -137,6 +139,25 @@ pub fn run_gc(repo: &mut CheckpointRepo, retention: GcRetention) -> Result<GcSta
 /// recent-head protection).
 pub fn collect_garbage(repo: &mut CheckpointRepo) -> Result<GcStats> {
     run_gc(repo, GcRetention::default())
+}
+
+/// Live snapshot references held by the protected set. Physical snapshot
+/// reclamation must only remove ids outside this set so shared rows stay
+/// intact.
+pub fn referenced_snapshot_ids(
+    repo: &CheckpointRepo,
+    retention: GcRetention,
+) -> HashSet<crate::core::types::SnapshotId> {
+    let protected = collect_protected_checkpoints(repo, retention);
+    let mut live = HashSet::new();
+    for id in protected {
+        if let Ok(cp) = repo.get_checkpoint(&id) {
+            for snap in &cp.baseline_snapshots {
+                live.insert(*snap);
+            }
+        }
+    }
+    live
 }
 
 #[cfg(test)]

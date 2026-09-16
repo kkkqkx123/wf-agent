@@ -376,11 +376,6 @@ pub enum Command {
         #[command(subcommand)]
         sub: ScriptSub,
     },
-    /// Trigger management.
-    Trigger {
-        #[command(subcommand)]
-        sub: TriggerSub,
-    },
     /// Template management.
     Template {
         #[command(subcommand)]
@@ -1339,57 +1334,6 @@ pub enum ScriptSub {
         #[arg(value_name = "QUERY")]
         query: String,
     },
-}
-
-/// Trigger subcommands.
-#[derive(Debug, Clone, Subcommand)]
-pub enum TriggerSub {
-    /// List triggers.
-    List,
-    /// Show a trigger.
-    Show {
-        /// Trigger id.
-        #[arg(value_name = "ID")]
-        id: String,
-    },
-    /// Enable a trigger.
-    Enable {
-        /// Trigger id.
-        #[arg(value_name = "ID")]
-        id: String,
-    },
-    /// Disable a trigger.
-    Disable {
-        /// Trigger id.
-        #[arg(value_name = "ID")]
-        id: String,
-    },
-    /// Register a trigger from a JSON file.
-    Register {
-        /// Path to trigger JSON file.
-        #[arg(long, value_name = "PATH", value_hint = clap::ValueHint::FilePath)]
-        file: String,
-    },
-    /// Save (upsert) a trigger from a JSON file.
-    Save {
-        /// Path to trigger JSON file.
-        #[arg(long, value_name = "PATH", value_hint = clap::ValueHint::FilePath)]
-        file: String,
-    },
-    /// Delete a trigger.
-    Delete {
-        /// Trigger id.
-        #[arg(value_name = "ID")]
-        id: String,
-    },
-    /// Search triggers by keyword.
-    Search {
-        /// Keyword.
-        #[arg(value_name = "QUERY")]
-        query: String,
-    },
-    /// Show trigger statistics.
-    Stats,
 }
 
 /// Template subcommands.

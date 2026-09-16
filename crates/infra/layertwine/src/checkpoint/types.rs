@@ -30,6 +30,10 @@ impl CheckpointMetadata {
 /// Single parent = linear commit, multiple parents = branch merge.
 /// `baseline_snapshots` stores the snapshot IDs of all files involved in the commit.
 /// This allows a Checkpoint to correspond to a single multi-file commit in Git.
+///
+/// Naming: within file history this is a history commit. The
+/// `FileHistoryCommit` alias exists so `wf-checkpoint` call sites read as
+/// history commits rather than execution checkpoints.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Checkpoint {
     /// Unique hash ID (content addressing)
@@ -150,6 +154,11 @@ impl Checkpoint {
         ContentId(*hasher.finalize().as_bytes())
     }
 }
+
+/// File-history commit: same record as `Checkpoint`, aliased so execution
+/// checkpoints (`wf-storage` envelopes) and history commits never share a
+/// name at call sites.
+pub type FileHistoryCommit = Checkpoint;
 
 /// Checkpoint Chained Constructor (refer to jj CommitBuilder)
 #[derive(Debug, Clone)]

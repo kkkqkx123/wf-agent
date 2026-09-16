@@ -59,7 +59,6 @@ async fn health_for(storage: &Arc<StorageContext>) -> ApiResult<StorageDiagnosti
     probe!("agent_execution", &storage.agent_execution);
     probe!("agent_profile", &storage.agent_profile);
     probe!("trigger_template", &storage.trigger_template);
-    probe!("trigger", &storage.trigger);
     probe!("trigger_execution", &storage.trigger_execution);
     probe!("user_interaction", &storage.user_interaction);
     probe!("tool", &storage.tool);
@@ -158,7 +157,7 @@ mod tests {
         let report = health(&ctx).await.unwrap();
         assert!(report.healthy);
         assert_eq!(report.total_entries, 0);
-        assert_eq!(report.stores.len(), 16);
+        assert_eq!(report.stores.len(), 15);
         assert!(report.stores.iter().all(|s| s.healthy));
     }
 

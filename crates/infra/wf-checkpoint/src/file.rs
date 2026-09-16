@@ -10,5 +10,5 @@ pub mod workspace;
 
 pub use manager::{
     ApprovalPolicy, FileCheckpoint, FileCheckpointManager, FileCheckpointMetadata,
-    FileCheckpointOptions, FileContentEntry, FileState, WorkspaceRestoreResult,
+    FileCheckpointOptions, FileContentEntry, FileProjection, FileState, WorkspaceRestoreResult,
 };

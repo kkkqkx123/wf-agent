@@ -454,9 +454,9 @@ impl PluginMiddlewareHandler for LuaMiddlewareHandler {
             let wrapper_handle = handle.clone();
             let next_wrapper = lua
                 .create_function(move |lua_ctx, args: mlua::Variadic<mlua::Value>| {
-            let next = lock_ok(wrapper_next.lock())
-                .take()
-                .ok_or_else(|| mlua::Error::external("next already called"))?;
+                    let next = lock_ok(wrapper_next.lock())
+                        .take()
+                        .ok_or_else(|| mlua::Error::external("next already called"))?;
                     let replacement = match args.into_iter().next().map(from_lua_value) {
                         None | Some(Value::Null) => wrapper_incoming.clone(),
                         Some(value) => value,

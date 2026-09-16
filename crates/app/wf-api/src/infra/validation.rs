@@ -94,6 +94,22 @@ pub async fn build_validation_context(ctx: &ApiContext) -> ValidationContext {
         }
     }
 
+    let mut agent_ids = std::collections::HashSet::new();
+    for id in ctx.registries.agent_templates.list() {
+        agent_ids.insert(id.clone());
+        if let Some(template) = ctx.registries.agent_templates.get(&id) {
+            agent_ids.insert(template.definition.id.to_string());
+            agent_ids.insert(template.name.clone());
+        }
+    }
+    if let Ok(stored) = ctx.storage.agent_template.list(None).await {
+        for template in &stored {
+            agent_ids.insert(template.id.to_string());
+            agent_ids.insert(template.definition.id.to_string());
+            agent_ids.insert(template.name.clone());
+        }
+    }
+
     ValidationContext {
         tool_names,
         disabled_tools,
@@ -102,6 +118,7 @@ pub async fn build_validation_context(ctx: &ApiContext) -> ValidationContext {
         script_names,
         workflow_ids,
         workflow_graphs: std::collections::HashMap::new(),
+        agent_ids,
         trigger_ids,
         trigger_templates: Vec::new(),
     }
@@ -142,6 +159,7 @@ mod tests {
             script_names,
             workflow_ids,
             workflow_graphs: std::collections::HashMap::new(),
+            agent_ids: std::collections::HashSet::from(["agent-1".to_string()]),
             trigger_ids,
             trigger_templates: Vec::new(),
         }

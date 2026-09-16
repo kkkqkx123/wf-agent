@@ -247,6 +247,21 @@ pub async fn build_reference_context(ctx: &ApiContext) -> ValidationContext {
     val_ctx.workflow_ids = workflow_ids;
     val_ctx.workflow_graphs = workflow_graphs;
 
+    for id in ctx.registries.agent_templates.list() {
+        val_ctx.agent_ids.insert(id.clone());
+        if let Some(template) = ctx.registries.agent_templates.get(&id) {
+            val_ctx.agent_ids.insert(template.definition.id.to_string());
+            val_ctx.agent_ids.insert(template.name.clone());
+        }
+    }
+    if let Ok(stored) = ctx.storage.agent_template.list(None).await {
+        for template in &stored {
+            val_ctx.agent_ids.insert(template.id.to_string());
+            val_ctx.agent_ids.insert(template.definition.id.to_string());
+            val_ctx.agent_ids.insert(template.name.clone());
+        }
+    }
+
     for id in ctx.registries.trigger_templates.list() {
         val_ctx.trigger_ids.insert(id.clone());
         if let Some(template) = ctx.registries.trigger_templates.get(&id) {

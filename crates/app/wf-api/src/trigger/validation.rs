@@ -108,15 +108,12 @@ impl<'a> TriggerValidator<'a> {
                         "agent_id",
                         "Agent id must not be empty for ExecuteTriggeredAgentExecution",
                     ));
+                } else if !self.ctx.agent_ids.contains(agent_id) {
+                    errors.push(ValidationError::new(
+                        "agent_id",
+                        format!("Agent '{}' not registered", agent_id),
+                    ));
                 }
-                // When an agent registry is added to ValidationContext,
-                // validate agent_id existence here:
-                // if !self.ctx.agent_ids.contains(agent_id) {
-                //     errors.push(ValidationError::new(
-                //         "agent_id",
-                //         format!("Agent '{}' not registered", agent_id),
-                //     ));
-                // }
                 if let Some(profile) = model {
                     if let Some(e) = validate_profile_reference(profile, self.ctx) {
                         errors.push(e);
@@ -143,6 +140,11 @@ impl<'a> TriggerValidator<'a> {
                     errors.push(ValidationError::new(
                         "agent_id",
                         "Agent id must not be empty for ExecuteAgent",
+                    ));
+                } else if !self.ctx.agent_ids.contains(agent_id) {
+                    errors.push(ValidationError::new(
+                        "agent_id",
+                        format!("Agent '{}' not registered", agent_id),
                     ));
                 }
                 if let Some(profile) = model {

@@ -4,15 +4,29 @@ use wf_types::script::sandbox::{LuaPolicy, SandboxPolicy, ScriptExecutionResult}
 use crate::resolver::{StrategyExecuteOptions, StrategyImplementation, StrategyKind};
 use wf_common::exec::execute_with_timeout;
 
+pub fn restricted_std_libs() -> mlua::StdLib {
+    use mlua::StdLib;
+    StdLib::STRING | StdLib::TABLE | StdLib::MATH
+}
+
+pub fn create_restricted_lua() -> Result<mlua::Lua, mlua::Error> {
+    mlua::Lua::new_with(restricted_std_libs(), mlua::LuaOptions::default())
+}
+
+fn remove_dangerous_globals(lua: &mlua::Lua) -> Result<(), mlua::Error> {
+    let globals = lua.globals();
+    for module in ["os", "io", "package", "debug", "ffi"] {
+        globals.set(module, mlua::Value::Nil)?;
+    }
+    Ok(())
+}
+
 pub fn configure_lua_sandbox(lua: &mlua::Lua, policy: &LuaPolicy) -> Result<(), mlua::Error> {
     let globals = lua.globals();
 
-    let denied_by_default = ["os", "io", "package", "debug", "ffi"];
-    let denied_modules = policy.denied_modules.as_deref().unwrap_or_default();
-    for module in &denied_by_default {
-        if denied_modules.contains(&(*module).to_string()) || denied_modules.is_empty() {
-            globals.set(*module, mlua::Value::Nil)?;
-        }
+    remove_dangerous_globals(lua)?;
+    for module in policy.denied_modules.as_deref().unwrap_or_default() {
+        globals.set(module.as_str(), mlua::Value::Nil)?;
     }
 
     let safe_print = lua.create_function(|_, s: String| {
@@ -54,12 +68,8 @@ pub fn configure_lua_sandbox(lua: &mlua::Lua, policy: &LuaPolicy) -> Result<(), 
 }
 
 pub fn apply_plugin_sandbox(lua: &mlua::Lua) -> Result<(), mlua::Error> {
-    let denied = ["os", "io", "package", "debug", "ffi"];
+    remove_dangerous_globals(lua)?;
     let globals = lua.globals();
-
-    for module in &denied {
-        let _ = globals.set(*module, mlua::Value::Nil);
-    }
 
     let safe_print = lua.create_function(|_, s: String| {
         tracing::info!("[lua:print] {}", s);
@@ -107,7 +117,23 @@ impl LuaMluaSandboxStrategy {
             });
         }
 
-        let lua = mlua::Lua::new();
+        let lua = match create_restricted_lua() {
+            Ok(lua) => lua,
+            Err(e) => {
+                return Ok(ScriptExecutionResult {
+                    success: false,
+                    script_name: "sandbox-lua".to_string(),
+                    stdout: None,
+                    stderr: Some(e.to_string()),
+                    exit_code: Some(1),
+                    execution_time: start.elapsed().as_millis() as u64,
+                    error: Some(e.to_string()),
+                    sandbox_mode: None,
+                    strategy_id: Some("mlua-sandbox".to_string()),
+                    violations: None,
+                });
+            }
+        };
 
         if let Err(e) = Self::create_safe_environment(&lua, policy) {
             return Ok(ScriptExecutionResult {

@@ -245,8 +245,9 @@ impl AgentLoopValidator {
 /// Validates hook configuration. Mirrors the authoritative
 /// `wf-config::processor::hook::validate_canonical_hook` rules without taking
 /// a dependency on wf-config: unknown hook types warn (never fire), negative
-/// priorities and empty handler names are errors, and malformed condition
-/// expressions are errors. Tool-callback hooks arrive via model output, so a
+/// priorities and empty handler names are errors, malformed condition
+/// expressions are errors, and malformed payload templates are errors.
+/// Tool-callback hooks arrive via model output, so a
 /// structured warning is emitted for the whole hook form at the call site.
 fn validate_hook(hook: &HookConfig, issues: &mut Vec<ValidationIssue>) {
     use wf_types::hook::is_known_hook_point;
@@ -281,6 +282,51 @@ fn validate_hook(hook: &HookConfig, issues: &mut Vec<ValidationIssue>) {
             ));
         }
     }
+    if let Some(payload) = hook.payload.as_ref() {
+        if let Err(e) = validate_payload_template_syntax(payload) {
+            issues.push(ValidationIssue::error(
+                "hooks.payload",
+                format!("hook '{}' payload invalid: {}", hook.hook_type, e),
+            ));
+        }
+    }
+}
+
+fn validate_payload_template_syntax(payload: &serde_json::Value) -> Result<(), String> {
+    match payload {
+        serde_json::Value::String(s) => validate_template_string(s),
+        serde_json::Value::Object(map) => {
+            for value in map.values() {
+                validate_payload_template_syntax(value)?;
+            }
+            Ok(())
+        }
+        serde_json::Value::Array(items) => {
+            for value in items {
+                validate_payload_template_syntax(value)?;
+            }
+            Ok(())
+        }
+        _ => Ok(()),
+    }
+}
+
+fn validate_template_string(template: &str) -> Result<(), String> {
+    let mut rest = template;
+    while let Some(start) = rest.find("{{") {
+        let after = &rest[start + 2..];
+        let Some(end) = after.find("}}") else {
+            return Err("payload contains unclosed template expression".to_string());
+        };
+        if after[..end].trim().is_empty() {
+            return Err("payload contains empty template expression".to_string());
+        }
+        rest = &after[end + 2..];
+    }
+    if rest.contains("}}") {
+        return Err("payload contains stray template close without open".to_string());
+    }
+    Ok(())
 }
 
 fn validate_tool_lists(

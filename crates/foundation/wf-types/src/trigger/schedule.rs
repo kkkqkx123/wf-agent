@@ -76,8 +76,8 @@ impl ScheduleTarget {
                 agent_id,
                 ..
             } => match (workflow_id, agent_id) {
-                (Some(w), None) if !w.is_empty() => Ok(()),
-                (None, Some(a)) if !a.is_empty() => Ok(()),
+                (Some(w), None) if !w.trim().is_empty() => Ok(()),
+                (None, Some(a)) if !a.trim().is_empty() => Ok(()),
                 _ => Err(format!(
                     "trigger '{}' targets creation but sets neither a workflow_id nor an agent_id (exactly one is required)",
                     trigger_name
@@ -160,18 +160,35 @@ pub struct WebhookSpec {
 impl WebhookSpec {
     /// Validate path shape, auth completeness and target.
     pub fn validate(&self, trigger_name: &str) -> Result<(), String> {
-        if self.path.is_empty() || !self.path.starts_with('/') {
+        if self.path.trim().is_empty() || !self.path.starts_with('/') {
             return Err(format!(
                 "trigger '{}' has an invalid webhook path '{}': must start with '/'",
                 trigger_name, self.path
             ));
         }
         if let WebhookAuth::Token { token } = &self.auth {
-            if token.is_empty() {
+            if token.trim().is_empty() {
                 return Err(format!(
                     "trigger '{}' declares token auth with an empty token",
                     trigger_name
                 ));
+            }
+        }
+        if let Some(mapping) = self.input_mapping.as_ref() {
+            let mut seen = std::collections::HashSet::new();
+            for key in mapping {
+                if key.trim().is_empty() {
+                    return Err(format!(
+                        "trigger '{}' declares an empty webhook input_mapping key; remove it or set a concrete key",
+                        trigger_name
+                    ));
+                }
+                if !seen.insert(key.clone()) {
+                    return Err(format!(
+                        "trigger '{}' declares duplicate webhook input_mapping key '{}'",
+                        trigger_name, key
+                    ));
+                }
             }
         }
         self.target.validate(trigger_name)?;

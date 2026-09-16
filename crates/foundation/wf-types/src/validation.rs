@@ -88,6 +88,7 @@ pub struct ValidationContext {
     pub script_names: HashSet<String>,
     pub workflow_ids: HashSet<String>,
     pub workflow_graphs: HashMap<String, WorkflowGraphStructure>,
+    pub agent_ids: HashSet<String>,
     pub trigger_ids: HashSet<String>,
     pub trigger_templates: Vec<TriggerTemplate>,
 }
@@ -135,6 +136,11 @@ impl ValidationContext {
 
     pub fn with_trigger(mut self, id: impl Into<String>) -> Self {
         self.trigger_ids.insert(id.into());
+        self
+    }
+
+    pub fn with_agent(mut self, id: impl Into<String>) -> Self {
+        self.agent_ids.insert(id.into());
         self
     }
 
@@ -271,6 +277,7 @@ mod tests {
             script_names,
             workflow_ids,
             workflow_graphs: std::collections::HashMap::new(),
+            agent_ids: HashSet::from(["agent-1".to_string()]),
             trigger_ids,
             trigger_templates: Vec::new(),
         }

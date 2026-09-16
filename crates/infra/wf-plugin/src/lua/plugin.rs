@@ -19,13 +19,58 @@ use crate::plugin::Plugin;
 pub struct LuaPlugin {
     manifest: PluginManifest,
     lua: Arc<Mutex<mlua::Lua>>,
+    script: Arc<String>,
+    limits: super::pool::LuaExecutionLimits,
 }
 
 impl LuaPlugin {
-    pub fn new(manifest: PluginManifest, lua: mlua::Lua) -> Self {
+    pub fn new(manifest: PluginManifest, lua: mlua::Lua, script: Arc<String>) -> Self {
         Self {
             manifest,
             lua: Arc::new(Mutex::new(lua)),
+            script,
+            limits: super::pool::LuaExecutionLimits::default(),
+        }
+    }
+
+    pub fn with_limits(mut self, limits: super::pool::LuaExecutionLimits) -> Self {
+        self.limits = limits;
+        self
+    }
+
+    fn arm_hook(lua: &mlua::Lua, limits: super::pool::LuaExecutionLimits) -> PluginResult<()> {
+        let deadline = std::time::Instant::now() + limits.timeout;
+        let max_kb = limits.memory_limit_kb;
+        super::pool::set_protection_hook(lua, deadline, max_kb)
+            .map_err(|e| PluginError::LuaError(e.to_string()))
+    }
+
+    fn is_limit_error(error: &PluginError) -> bool {
+        match error {
+            PluginError::LuaError(message) => {
+                message.contains("timed out") || message.contains("memory limit")
+            }
+            PluginError::Timeout { .. } => true,
+            _ => false,
+        }
+    }
+
+    fn reload_state(lua: &Arc<Mutex<mlua::Lua>>, script: &Arc<String>) {
+        let fresh = (|| -> PluginResult<mlua::Lua> {
+            let state = wf_sandbox::strategy::lua::mlua_sandbox::create_restricted_lua()
+                .map_err(|e| PluginError::LuaError(e.to_string()))?;
+            wf_sandbox::strategy::lua::mlua_sandbox::apply_plugin_sandbox(&state)
+                .map_err(|e| PluginError::LuaError(e.to_string()))?;
+            state
+                .load(script.as_str())
+                .eval::<mlua::Value>()
+                .map_err(|e| PluginError::LuaError(e.to_string()))?;
+            Ok(state)
+        })();
+        if let Ok(state) = fresh {
+            if let Ok(mut locked) = lua.lock() {
+                *locked = state;
+            }
         }
     }
 
@@ -34,30 +79,42 @@ impl LuaPlugin {
     /// timeout can actually fire).
     async fn call_hook(&self, hook_name: &'static str, ctx: PluginContext) -> PluginResult<()> {
         let lua = self.lua.clone();
+        let script = self.script.clone();
+        let limits = self.limits;
         let manifest_id = self.manifest.id.clone();
-        run_lua_blocking(move || {
-            let lua = lua
+        let result = run_lua_blocking(move || {
+            let locked = lua
                 .lock()
                 .map_err(|e| PluginError::LuaError(e.to_string()))?;
 
-            let plugin_table: mlua::Table = lua
-                .globals()
-                .get("plugin")
-                .map_err(|e| PluginError::LuaError(e.to_string()))?;
+            Self::arm_hook(&locked, limits)?;
+            let outcome = (|| -> PluginResult<()> {
+                let plugin_table: mlua::Table = locked
+                    .globals()
+                    .get("plugin")
+                    .map_err(|e| PluginError::LuaError(e.to_string()))?;
 
-            let hook: mlua::Function = match plugin_table.get(hook_name) {
-                Ok(f) => f,
-                Err(_) => {
-                    tracing::debug!("lua plugin '{}' has no hook '{}'", manifest_id, hook_name);
-                    return Ok(());
-                }
-            };
+                let hook: mlua::Function = match plugin_table.get(hook_name) {
+                    Ok(f) => f,
+                    Err(_) => {
+                        tracing::debug!("lua plugin '{}' has no hook '{}'", manifest_id, hook_name);
+                        return Ok(());
+                    }
+                };
 
-            let ctx_tbl = build_lua_context(&lua, &ctx)?;
-            hook.call::<_, ()>(ctx_tbl)
-                .map_err(|e| PluginError::LuaError(e.to_string()))
+                let ctx_tbl = build_lua_context(&locked, &ctx)?;
+                hook.call::<_, ()>(ctx_tbl)
+                    .map_err(|e| PluginError::LuaError(e.to_string()))
+            })();
+            locked.remove_hook();
+            if outcome.as_ref().is_err_and(Self::is_limit_error) {
+                drop(locked);
+                Self::reload_state(&lua, &script);
+            }
+            outcome
         })
-        .await
+        .await;
+        result
     }
 }
 
@@ -194,16 +251,19 @@ fn set_table_value<'lua>(t: &mlua::Table<'lua>, k: &str, v: mlua::Value<'lua>) -
 struct LuaNodeHandler {
     lua: Arc<Mutex<mlua::Lua>>,
     func_key: Arc<mlua::RegistryKey>,
+    limits: super::pool::LuaExecutionLimits,
 }
 
 struct LuaToolExecutor {
     lua: Arc<Mutex<mlua::Lua>>,
     func_key: Arc<mlua::RegistryKey>,
+    limits: super::pool::LuaExecutionLimits,
 }
 
 struct LuaLlmCodec {
     lua: Arc<Mutex<mlua::Lua>>,
     table_key: Arc<mlua::RegistryKey>,
+    limits: super::pool::LuaExecutionLimits,
 }
 
 /// Call one codec function of a Lua codec table synchronously and return
@@ -218,29 +278,29 @@ struct LuaLlmCodec {
 fn call_lua_codec_fn(
     lua: &Arc<Mutex<mlua::Lua>>,
     table_key: &Arc<mlua::RegistryKey>,
+    limits: super::pool::LuaExecutionLimits,
     func_name: &'static str,
     args: Vec<Value>,
 ) -> PluginResult<Value> {
     let lua = lua.clone();
     let table_key = table_key.clone();
     let invoke = move || -> PluginResult<Value> {
-        let locked = lua
-            .lock()
-            .map_err(|e| PluginError::LuaError(e.to_string()))?;
-        let table: mlua::Table = locked
-            .registry_value(&table_key)
-            .map_err(|e| PluginError::LuaError(e.to_string()))?;
-        let func: mlua::Function = table
-            .get(func_name)
-            .map_err(|e| PluginError::LuaError(format!("codec missing '{func_name}': {e}")))?;
-        let lua_args = args
-            .iter()
-            .map(|v| to_lua_value(&locked, v))
-            .collect::<Vec<_>>();
-        let result: mlua::Value = func
-            .call(mlua::Variadic::from_iter(lua_args))
-            .map_err(|e| PluginError::LuaError(e.to_string()))?;
-        Ok(from_lua_value(result))
+        with_guarded_lua(&lua, limits, |locked| {
+            let table: mlua::Table = locked
+                .registry_value(&table_key)
+                .map_err(|e| PluginError::LuaError(e.to_string()))?;
+            let func: mlua::Function = table
+                .get(func_name)
+                .map_err(|e| PluginError::LuaError(format!("codec missing '{func_name}': {e}")))?;
+            let lua_args = args
+                .iter()
+                .map(|v| to_lua_value(locked, v))
+                .collect::<Vec<_>>();
+            let result: mlua::Value = func
+                .call(mlua::Variadic::from_iter(lua_args))
+                .map_err(|e| PluginError::LuaError(e.to_string()))?;
+            Ok(from_lua_value(result))
+        })
     };
     // Inside a tokio runtime, hop to the blocking pool so a slow script
     // never pins an async worker; outside a runtime, call inline.
@@ -255,6 +315,7 @@ impl PluginLlmCodec for LuaLlmCodec {
         let value = call_lua_codec_fn(
             &self.lua,
             &self.table_key,
+            self.limits,
             "build_request",
             vec![request, profile],
         )?;
@@ -266,6 +327,7 @@ impl PluginLlmCodec for LuaLlmCodec {
         call_lua_codec_fn(
             &self.lua,
             &self.table_key,
+            self.limits,
             "parse_response",
             vec![Value::String(body.to_owned()), request],
         )
@@ -275,6 +337,7 @@ impl PluginLlmCodec for LuaLlmCodec {
         let value = call_lua_codec_fn(
             &self.lua,
             &self.table_key,
+            self.limits,
             "parse_stream_chunk",
             vec![Value::String(chunk.to_owned())],
         )?;
@@ -282,11 +345,23 @@ impl PluginLlmCodec for LuaLlmCodec {
     }
 
     fn convert_tools(&self, tools: Value) -> PluginResult<Value> {
-        call_lua_codec_fn(&self.lua, &self.table_key, "convert_tools", vec![tools])
+        call_lua_codec_fn(
+            &self.lua,
+            &self.table_key,
+            self.limits,
+            "convert_tools",
+            vec![tools],
+        )
     }
 
     fn parse_tool_calls(&self, result: Value) -> PluginResult<Value> {
-        call_lua_codec_fn(&self.lua, &self.table_key, "parse_tool_calls", vec![result])
+        call_lua_codec_fn(
+            &self.lua,
+            &self.table_key,
+            self.limits,
+            "parse_tool_calls",
+            vec![result],
+        )
     }
 
     fn build_count_tokens_request(
@@ -297,6 +372,7 @@ impl PluginLlmCodec for LuaLlmCodec {
         let value = call_lua_codec_fn(
             &self.lua,
             &self.table_key,
+            self.limits,
             "build_count_tokens_request",
             vec![request, profile],
         )?;
@@ -312,6 +388,7 @@ impl PluginLlmCodec for LuaLlmCodec {
         let value = call_lua_codec_fn(
             &self.lua,
             &self.table_key,
+            self.limits,
             "parse_count_tokens_response",
             vec![body],
         )?;
@@ -324,11 +401,39 @@ impl PluginLlmCodec for LuaLlmCodec {
 struct LuaEventHandler {
     lua: Arc<Mutex<mlua::Lua>>,
     func_key: Arc<mlua::RegistryKey>,
+    limits: super::pool::LuaExecutionLimits,
 }
 
 struct LuaMiddlewareHandler {
     lua: Arc<Mutex<mlua::Lua>>,
     func_key: Arc<mlua::RegistryKey>,
+    limits: super::pool::LuaExecutionLimits,
+}
+
+fn with_guarded_lua<T>(
+    lua: &Arc<Mutex<mlua::Lua>>,
+    limits: super::pool::LuaExecutionLimits,
+    f: impl FnOnce(&mlua::Lua) -> PluginResult<T>,
+) -> PluginResult<T> {
+    let start = std::time::Instant::now();
+    let locked = lua
+        .lock()
+        .map_err(|e| PluginError::LuaError(e.to_string()))?;
+    LuaPlugin::arm_hook(&locked, limits)?;
+    let outcome = f(&locked);
+    locked.remove_hook();
+    let elapsed_ms = start.elapsed().as_millis();
+    match &outcome {
+        Ok(_) => {
+            if elapsed_ms > 1_000 {
+                tracing::debug!("lua call completed slowly: {}ms", elapsed_ms);
+            }
+        }
+        Err(e) => {
+            tracing::warn!("lua call failed after {}ms: {}", elapsed_ms, e);
+        }
+    }
+    outcome
 }
 
 // Async handler implementations
@@ -338,26 +443,26 @@ impl PluginNodeHandler for LuaNodeHandler {
     async fn execute(&self, ctx: PluginExecutionContext) -> PluginResult<PluginNodeResult> {
         let lua = self.lua.clone();
         let func_key = self.func_key.clone();
+        let limits = self.limits;
         run_lua_blocking(move || {
-            let lua = lua
-                .lock()
-                .map_err(|e| PluginError::LuaError(e.to_string()))?;
-            let func: mlua::Function = lua
-                .registry_value(&func_key)
-                .map_err(|e| PluginError::LuaError(e.to_string()))?;
-            let ctx_tbl = create_lua_handler_table(&lua)?;
-            set_table_str(&ctx_tbl, "node_id", &ctx.node_id)?;
-            set_table_value(&ctx_tbl, "inputs", to_lua_value(&lua, &ctx.inputs))?;
-            set_table_value(&ctx_tbl, "config", to_lua_value(&lua, &ctx.config))?;
-            let result: mlua::Value = func
-                .call(ctx_tbl)
-                .map_err(|e| PluginError::LuaError(e.to_string()))?;
-            let o = result
-                .as_table()
-                .and_then(|t| t.get::<&str, mlua::Value>("outputs").ok())
-                .unwrap_or(mlua::Value::Nil);
-            Ok(PluginNodeResult {
-                outputs: from_lua_value(o),
+            with_guarded_lua(&lua, limits, |locked| {
+                let func: mlua::Function = locked
+                    .registry_value(&func_key)
+                    .map_err(|e| PluginError::LuaError(e.to_string()))?;
+                let ctx_tbl = create_lua_handler_table(locked)?;
+                set_table_str(&ctx_tbl, "node_id", &ctx.node_id)?;
+                set_table_value(&ctx_tbl, "inputs", to_lua_value(locked, &ctx.inputs))?;
+                set_table_value(&ctx_tbl, "config", to_lua_value(locked, &ctx.config))?;
+                let result: mlua::Value = func
+                    .call(ctx_tbl)
+                    .map_err(|e| PluginError::LuaError(e.to_string()))?;
+                let o = result
+                    .as_table()
+                    .and_then(|t| t.get::<&str, mlua::Value>("outputs").ok())
+                    .unwrap_or(mlua::Value::Nil);
+                Ok(PluginNodeResult {
+                    outputs: from_lua_value(o),
+                })
             })
         })
         .await
@@ -369,24 +474,24 @@ impl PluginToolExecutor for LuaToolExecutor {
     async fn execute(&self, ctx: PluginToolContext) -> PluginResult<PluginToolResult> {
         let lua = self.lua.clone();
         let func_key = self.func_key.clone();
+        let limits = self.limits;
         run_lua_blocking(move || {
-            let lua = lua
-                .lock()
-                .map_err(|e| PluginError::LuaError(e.to_string()))?;
-            let func: mlua::Function = lua
-                .registry_value(&func_key)
-                .map_err(|e| PluginError::LuaError(e.to_string()))?;
-            let ctx_tbl = create_lua_handler_table(&lua)?;
-            set_table_value(&ctx_tbl, "args", to_lua_value(&lua, &ctx.args))?;
-            let result: mlua::Value = func
-                .call(ctx_tbl)
-                .map_err(|e| PluginError::LuaError(e.to_string()))?;
-            let r = result
-                .as_table()
-                .and_then(|t| t.get::<&str, mlua::Value>("result").ok())
-                .unwrap_or(mlua::Value::Nil);
-            Ok(PluginToolResult {
-                result: from_lua_value(r),
+            with_guarded_lua(&lua, limits, |locked| {
+                let func: mlua::Function = locked
+                    .registry_value(&func_key)
+                    .map_err(|e| PluginError::LuaError(e.to_string()))?;
+                let ctx_tbl = create_lua_handler_table(locked)?;
+                set_table_value(&ctx_tbl, "args", to_lua_value(locked, &ctx.args))?;
+                let result: mlua::Value = func
+                    .call(ctx_tbl)
+                    .map_err(|e| PluginError::LuaError(e.to_string()))?;
+                let r = result
+                    .as_table()
+                    .and_then(|t| t.get::<&str, mlua::Value>("result").ok())
+                    .unwrap_or(mlua::Value::Nil);
+                Ok(PluginToolResult {
+                    result: from_lua_value(r),
+                })
             })
         })
         .await
@@ -398,18 +503,18 @@ impl PluginEventHandler for LuaEventHandler {
     async fn handle(&self, event: PluginEventData) -> PluginResult<()> {
         let lua = self.lua.clone();
         let func_key = self.func_key.clone();
+        let limits = self.limits;
         run_lua_blocking(move || {
-            let lua = lua
-                .lock()
-                .map_err(|e| PluginError::LuaError(e.to_string()))?;
-            let func: mlua::Function = lua
-                .registry_value(&func_key)
-                .map_err(|e| PluginError::LuaError(e.to_string()))?;
-            let evt_tbl = create_lua_handler_table(&lua)?;
-            set_table_str(&evt_tbl, "event_type", &event.event_type)?;
-            set_table_value(&evt_tbl, "data", to_lua_value(&lua, &event.data))?;
-            func.call(evt_tbl)
-                .map_err(|e| PluginError::LuaError(e.to_string()))
+            with_guarded_lua(&lua, limits, |locked| {
+                let func: mlua::Function = locked
+                    .registry_value(&func_key)
+                    .map_err(|e| PluginError::LuaError(e.to_string()))?;
+                let evt_tbl = create_lua_handler_table(locked)?;
+                set_table_str(&evt_tbl, "event_type", &event.event_type)?;
+                set_table_value(&evt_tbl, "data", to_lua_value(locked, &event.data))?;
+                func.call(evt_tbl)
+                    .map_err(|e| PluginError::LuaError(e.to_string()))
+            })
         })
         .await
     }
@@ -420,6 +525,7 @@ impl PluginMiddlewareHandler for LuaMiddlewareHandler {
     async fn handle(&self, context: Value, next: NextFn) -> PluginResult<Value> {
         let lua = self.lua.clone();
         let func_key = self.func_key.clone();
+        let limits = self.limits;
         // Middleware `next` may drive arbitrary async handlers, so the Lua
         // call must stay on the worker thread; `block_in_place` releases the
         // worker so other tasks keep running while Lua executes. The `next`
@@ -433,86 +539,93 @@ impl PluginMiddlewareHandler for LuaMiddlewareHandler {
             .is_some_and(|h| h.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread);
 
         let run = move || {
-            let lua = lua
+            let locked = lua
                 .lock()
                 .map_err(|e| PluginError::LuaError(e.to_string()))?;
-            let func: mlua::Function = lua
-                .registry_value(&func_key)
-                .map_err(|e| PluginError::LuaError(e.to_string()))?;
-            let ctx_val = to_lua_value(&lua, &context);
-            // Request rewrite: `next(new_ctx)` continues with the replacement
-            // (`next()`, `next(nil)`, and `next(tbl)` all work); without an
-            // argument the incoming context travels downstream.
-            let incoming = context.clone();
-            let next_cell: Arc<std::sync::Mutex<Option<NextFn>>> =
-                Arc::new(std::sync::Mutex::new(Some(next)));
-            let downstream: Arc<std::sync::Mutex<Option<Value>>> =
-                Arc::new(std::sync::Mutex::new(None));
-            let wrapper_incoming = incoming.clone();
-            let wrapper_next = next_cell.clone();
-            let wrapper_downstream = downstream.clone();
-            let wrapper_handle = handle.clone();
-            let next_wrapper = lua
-                .create_function(move |lua_ctx, args: mlua::Variadic<mlua::Value>| {
-                    let next = lock_ok(wrapper_next.lock())
-                        .take()
-                        .ok_or_else(|| mlua::Error::external("next already called"))?;
-                    let replacement = match args.into_iter().next().map(from_lua_value) {
-                        None | Some(Value::Null) => wrapper_incoming.clone(),
-                        Some(value) => value,
-                    };
-                    let out = match &wrapper_handle {
-                        Some(wrapper_handle) => wrapper_handle.block_on(next(replacement)),
-                        None => futures::executor::block_on(next(replacement)),
-                    }
-                    .map_err(|e| mlua::Error::external(e.to_string()))?;
-                    *lock_ok(wrapper_downstream.lock()) = Some(out.clone());
-                    Ok(to_lua_value(lua_ctx, &out))
-                })
-                .map_err(|e| PluginError::LuaError(e.to_string()))?;
-            let ret: mlua::Value = func
-                .call((ctx_val, next_wrapper))
-                .map_err(|e| PluginError::LuaError(e.to_string()))?;
-            // Response rules: the function return value is converted and run
-            // through the shared envelope parser. An envelope object
-            // (`{proceed, context}`) rewrites; a plain returned table becomes
-            // the short-circuit context when `next` was never called, while
-            // any other value keeps the incoming context and stops the chain
-            // (legacy behavior: not calling `next` halts).
-            let ret_val = from_lua_value(ret);
-            let is_envelope = ret_val
-                .as_object()
-                .is_some_and(|o| o.contains_key("proceed") || o.contains_key("context"));
-            let downstream = lock_ok(downstream.lock()).take();
-            match downstream {
-                Some(down) => {
-                    if is_envelope {
-                        Ok(parse_middleware_outcome(&ret_val, &down).context)
-                    } else {
-                        Ok(down)
-                    }
-                }
-                None => {
-                    if is_envelope {
-                        let outcome = parse_middleware_outcome(&ret_val, &incoming);
-                        if outcome.proceed {
-                            let next = lock_ok(next_cell.lock()).take().expect("next never taken");
-                            match &handle {
-                                Some(handle) => handle.block_on(next(outcome.context)),
-                                None => futures::executor::block_on(next(outcome.context)),
-                            }
-                            .map_err(|e| PluginError::LuaError(e.to_string()))
+            LuaPlugin::arm_hook(&locked, limits)?;
+            let lua = locked;
+            let outcome = (|| -> PluginResult<Value> {
+                let func: mlua::Function = lua
+                    .registry_value(&func_key)
+                    .map_err(|e| PluginError::LuaError(e.to_string()))?;
+                let ctx_val = to_lua_value(&lua, &context);
+                // Request rewrite: `next(new_ctx)` continues with the replacement
+                // (`next()`, `next(nil)`, and `next(tbl)` all work); without an
+                // argument the incoming context travels downstream.
+                let incoming = context.clone();
+                let next_cell: Arc<std::sync::Mutex<Option<NextFn>>> =
+                    Arc::new(std::sync::Mutex::new(Some(next)));
+                let downstream: Arc<std::sync::Mutex<Option<Value>>> =
+                    Arc::new(std::sync::Mutex::new(None));
+                let wrapper_incoming = incoming.clone();
+                let wrapper_next = next_cell.clone();
+                let wrapper_downstream = downstream.clone();
+                let wrapper_handle = handle.clone();
+                let next_wrapper = lua
+                    .create_function(move |lua_ctx, args: mlua::Variadic<mlua::Value>| {
+                        let next = lock_ok(wrapper_next.lock())
+                            .take()
+                            .ok_or_else(|| mlua::Error::external("next already called"))?;
+                        let replacement = match args.into_iter().next().map(from_lua_value) {
+                            None | Some(Value::Null) => wrapper_incoming.clone(),
+                            Some(value) => value,
+                        };
+                        let out = match &wrapper_handle {
+                            Some(wrapper_handle) => wrapper_handle.block_on(next(replacement)),
+                            None => futures::executor::block_on(next(replacement)),
+                        }
+                        .map_err(|e| mlua::Error::external(e.to_string()))?;
+                        *lock_ok(wrapper_downstream.lock()) = Some(out.clone());
+                        Ok(to_lua_value(lua_ctx, &out))
+                    })
+                    .map_err(|e| PluginError::LuaError(e.to_string()))?;
+                let ret: mlua::Value = func
+                    .call((ctx_val, next_wrapper))
+                    .map_err(|e| PluginError::LuaError(e.to_string()))?;
+                // Response rules: the function return value is converted and run
+                // through the shared envelope parser. An envelope object
+                // (`{proceed, context}`) rewrites; a plain returned table becomes
+                // the short-circuit context when `next` was never called, while
+                // any other value keeps the incoming context and stops the chain
+                // (legacy behavior: not calling `next` halts).
+                let ret_val = from_lua_value(ret);
+                let is_envelope = ret_val
+                    .as_object()
+                    .is_some_and(|o| o.contains_key("proceed") || o.contains_key("context"));
+                let downstream = lock_ok(downstream.lock()).take();
+                match downstream {
+                    Some(down) => {
+                        if is_envelope {
+                            Ok(parse_middleware_outcome(&ret_val, &down).context)
                         } else {
-                            Ok(outcome.context)
+                            Ok(down)
                         }
-                    } else {
-                        match ret_val {
-                            Value::Object(_) => Ok(ret_val),
-                            _ => Ok(incoming),
+                    }
+                    None => {
+                        if is_envelope {
+                            let outcome = parse_middleware_outcome(&ret_val, &incoming);
+                            if outcome.proceed {
+                                let next =
+                                    lock_ok(next_cell.lock()).take().expect("next never taken");
+                                match &handle {
+                                    Some(handle) => handle.block_on(next(outcome.context)),
+                                    None => futures::executor::block_on(next(outcome.context)),
+                                }
+                                .map_err(|e| PluginError::LuaError(e.to_string()))
+                            } else {
+                                Ok(outcome.context)
+                            }
+                        } else {
+                            match ret_val {
+                                Value::Object(_) => Ok(ret_val),
+                                _ => Ok(incoming),
+                            }
                         }
                     }
                 }
-            }
+            })();
+            lua.remove_hook();
+            outcome
         };
 
         // `block_in_place` panics on a current-thread runtime; only use it when
@@ -551,23 +664,36 @@ impl Plugin for LuaPlugin {
 
     async fn on_config_change(&self, config: &serde_json::Value) -> PluginResult<()> {
         let lua = self.lua.clone();
+        let script = self.script.clone();
+        let limits = self.limits;
         let config = config.clone();
         run_lua_blocking(move || {
-            let lua = match lua.lock() {
+            let locked = match lua.lock() {
                 Ok(l) => l,
                 Err(e) => return Err(PluginError::LuaError(e.to_string())),
             };
-            let plugin_table: mlua::Table = match lua.globals().get("plugin") {
-                Ok(t) => t,
-                Err(_) => return Ok(()),
-            };
-            let hook: mlua::Function = match plugin_table.get("on_config_change") {
-                Ok(f) => f,
-                Err(_) => return Ok(()),
-            };
-            let cfg_val = to_lua_value(&lua, &config);
-            hook.call::<_, ()>(cfg_val)
-                .map_err(|e| PluginError::LuaError(e.to_string()))
+            if Self::arm_hook(&locked, limits).is_err() {
+                return Err(PluginError::LuaError("lua hook setup failed".into()));
+            }
+            let outcome = (|| -> PluginResult<()> {
+                let plugin_table: mlua::Table = match locked.globals().get("plugin") {
+                    Ok(t) => t,
+                    Err(_) => return Ok(()),
+                };
+                let hook: mlua::Function = match plugin_table.get("on_config_change") {
+                    Ok(f) => f,
+                    Err(_) => return Ok(()),
+                };
+                let cfg_val = to_lua_value(&locked, &config);
+                hook.call::<_, ()>(cfg_val)
+                    .map_err(|e| PluginError::LuaError(e.to_string()))
+            })();
+            locked.remove_hook();
+            if outcome.as_ref().is_err_and(Self::is_limit_error) {
+                drop(locked);
+                Self::reload_state(&lua, &script);
+            }
+            outcome
         })
         .await
     }
@@ -591,22 +717,37 @@ impl Plugin for LuaPlugin {
                     return Err(PluginError::Internal("lua state lock poisoned".into()));
                 }
             };
+            if Self::arm_hook(&locked, self.limits).is_err() {
+                return Err(PluginError::LuaError("lua hook setup failed".into()));
+            }
 
             let plugin_table: mlua::Table = match locked.globals().get("plugin") {
                 Ok(t) => t,
-                Err(_) => return Ok(()),
+                Err(_) => {
+                    locked.remove_hook();
+                    return Ok(());
+                }
             };
             let register_fn: mlua::Function = match plugin_table.get("register_contributions") {
                 Ok(f) => f,
-                Err(_) => return Ok(()),
+                Err(_) => {
+                    locked.remove_hook();
+                    return Ok(());
+                }
             };
             let contribs: mlua::Value = match register_fn.call(()) {
                 Ok(v) => v,
-                Err(e) => return Err(PluginError::LuaError(e.to_string())),
+                Err(e) => {
+                    locked.remove_hook();
+                    return Err(PluginError::LuaError(e.to_string()));
+                }
             };
             let contribs_table: mlua::Table = match contribs {
                 mlua::Value::Table(t) => t,
-                _ => return Ok(()),
+                _ => {
+                    locked.remove_hook();
+                    return Ok(());
+                }
             };
 
             let mut out: Vec<RegEntry> = Vec::new();
@@ -691,6 +832,7 @@ impl Plugin for LuaPlugin {
                 }
             }
 
+            locked.remove_hook();
             out
         };
 
@@ -702,6 +844,7 @@ impl Plugin for LuaPlugin {
                     Arc::new(LuaNodeHandler {
                         lua: self.lua.clone(),
                         func_key: Arc::new(e.key),
+                        limits: self.limits,
                     }),
                 )?,
                 1 => registrar.register_tool_type(
@@ -709,6 +852,7 @@ impl Plugin for LuaPlugin {
                     Arc::new(LuaToolExecutor {
                         lua: self.lua.clone(),
                         func_key: Arc::new(e.key),
+                        limits: self.limits,
                     }),
                 )?,
                 2 => registrar.register_llm_provider(
@@ -716,6 +860,7 @@ impl Plugin for LuaPlugin {
                     Arc::new(LuaLlmCodec {
                         lua: self.lua.clone(),
                         table_key: Arc::new(e.key),
+                        limits: self.limits,
                     }),
                 )?,
                 4 => registrar.register_event_handler(
@@ -723,6 +868,7 @@ impl Plugin for LuaPlugin {
                     Arc::new(LuaEventHandler {
                         lua: self.lua.clone(),
                         func_key: Arc::new(e.key),
+                        limits: self.limits,
                     }),
                 )?,
                 6 => registrar.register_middleware(
@@ -731,6 +877,7 @@ impl Plugin for LuaPlugin {
                     Arc::new(LuaMiddlewareHandler {
                         lua: self.lua.clone(),
                         func_key: Arc::new(e.key),
+                        limits: self.limits,
                     }),
                 )?,
                 _ => {}

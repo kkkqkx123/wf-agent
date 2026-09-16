@@ -40,6 +40,52 @@ fn warn_deprecated_event_name(field_prefix: &str, event_name: &str) {
     }
 }
 
+fn validate_payload_template_syntax(
+    payload: &serde_json::Value,
+    field_prefix: &str,
+) -> ConfigResult<()> {
+    match payload {
+        serde_json::Value::String(s) => validate_template_string(s, field_prefix),
+        serde_json::Value::Object(map) => {
+            for value in map.values() {
+                validate_payload_template_syntax(value, field_prefix)?;
+            }
+            Ok(())
+        }
+        serde_json::Value::Array(items) => {
+            for value in items {
+                validate_payload_template_syntax(value, field_prefix)?;
+            }
+            Ok(())
+        }
+        _ => Ok(()),
+    }
+}
+
+fn validate_template_string(template: &str, field_prefix: &str) -> ConfigResult<()> {
+    let mut rest = template;
+    while let Some(start) = rest.find("{{") {
+        let after = &rest[start + 2..];
+        let Some(end) = after.find("}}") else {
+            return Err(crate::error::ConfigError::Validation(format!(
+                "{field_prefix}.payload contains unclosed template expression"
+            )));
+        };
+        if after[..end].trim().is_empty() {
+            return Err(crate::error::ConfigError::Validation(format!(
+                "{field_prefix}.payload contains empty template expression"
+            )));
+        }
+        rest = &after[end + 2..];
+    }
+    if rest.contains("}}") {
+        return Err(crate::error::ConfigError::Validation(format!(
+            "{field_prefix}.payload contains stray template close without open"
+        )));
+    }
+    Ok(())
+}
+
 /// Single validation entry for every hook config form.
 ///
 /// All four forms (workflow, agent, static, tool-callback) converge to
@@ -63,6 +109,9 @@ pub fn validate_canonical_hook(
     }
     warn_deprecated_event_name(field_prefix, event_name);
     validate_min(spec.priority, 0, &format!("{field_prefix}.priority"))?;
+    if let Some(payload) = spec.payload.as_ref() {
+        validate_payload_template_syntax(payload, field_prefix)?;
+    }
     if let Some(condition) = spec.condition.as_deref() {
         if let Err(e) = wf_core::condition::ConditionEvaluator::validate_syntax(condition) {
             return Err(crate::error::ConfigError::Validation(format!(
@@ -101,6 +150,13 @@ pub fn validate_canonical_hook(
 /// Thin adapter: converts to the authoritative spec and delegates to
 /// [`validate_canonical_hook`], which holds the only copy of the rules.
 pub fn validate_base_hook_config(hook: &HookPointConfig, field_prefix: &str) -> ConfigResult<()> {
+    if let Some(condition) = hook.condition.as_ref() {
+        if !condition.is_null() && !condition.is_string() {
+            return Err(crate::error::ConfigError::Validation(format!(
+                "{field_prefix}.condition must be a string expression or absent"
+            )));
+        }
+    }
     validate_canonical_hook(
         &CanonicalHookSpec::from_workflow(hook),
         &hook.event_name,
@@ -309,6 +365,34 @@ mod tests {
         let mut hook = make_base_hook();
         hook.hook_type = "ON_ERROR".to_string();
         hook.handler = None;
+        assert!(validate_base_hook_config(&hook, "hooks[0]").is_ok());
+    }
+
+    #[test]
+    fn base_hook_non_string_condition_rejected() {
+        let mut hook = make_base_hook();
+        hook.condition = Some(serde_json::json!({"expr": "flag"}));
+        assert!(validate_base_hook_config(&hook, "hooks[0]").is_err());
+    }
+
+    #[test]
+    fn base_hook_unclosed_payload_rejected() {
+        let mut hook = make_base_hook();
+        hook.event_payload = Some(serde_json::json!("hello {{name}"));
+        assert!(validate_base_hook_config(&hook, "hooks[0]").is_err());
+    }
+
+    #[test]
+    fn base_hook_empty_payload_expression_rejected() {
+        let mut hook = make_base_hook();
+        hook.event_payload = Some(serde_json::json!("hello {{  }}"));
+        assert!(validate_base_hook_config(&hook, "hooks[0]").is_err());
+    }
+
+    #[test]
+    fn base_hook_valid_payload_accepted() {
+        let mut hook = make_base_hook();
+        hook.event_payload = Some(serde_json::json!("hello {{name}}"));
         assert!(validate_base_hook_config(&hook, "hooks[0]").is_ok());
     }
 }

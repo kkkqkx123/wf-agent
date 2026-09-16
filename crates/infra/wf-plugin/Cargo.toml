@@ -29,7 +29,7 @@ hex.workspace = true
 rand.workspace = true
 anyhow = "1"
 
-mlua = { version = "0.9", optional = true, default-features = false, features = ["luajit", "send"] }
+mlua = { workspace = true, optional = true }
 libloading = { version = "0.8", optional = true }
 wasmtime = { workspace = true, optional = true }
 wasmtime-wasi = { workspace = true, optional = true }

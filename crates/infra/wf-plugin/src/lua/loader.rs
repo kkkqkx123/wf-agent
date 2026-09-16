@@ -28,35 +28,44 @@ async fn load_lua_plugin_at(
     let script = fs::read_to_string(&entry_path)
         .await
         .map_err(|e| PluginError::LoadFailed(format!("cannot read {:?}: {}", entry_path, e)))?;
-
-    let lua = mlua::Lua::new();
-
-    apply_sandbox(&lua)?;
-
-    let result: mlua::Value = lua
-        .load(&script)
-        .eval()
-        .map_err(|e| PluginError::LoadFailed(format!("lua eval error: {}", e)))?;
-
-    if let mlua::Value::Table(tbl) = &result {
-        let globals = lua.globals();
-        globals
-            .set("plugin", tbl.clone())
-            .map_err(|e| PluginError::LoadFailed(format!("lua set globals error: {}", e)))?;
-        drop(globals);
-        drop(result);
-    } else {
-        return Err(PluginError::LoadFailed(
-            "lua plugin must return a table".into(),
-        ));
+    if script.trim().is_empty() {
+        return Err(PluginError::LoadFailed("lua plugin script is empty".into()));
     }
 
-    Ok(Arc::new(LuaPlugin::new(manifest.clone(), lua)))
+    let lua = super::pool::create_state(&script)?;
+
+    {
+        let plugin_value: mlua::Value = lua.globals().get("plugin").map_err(|e| {
+            PluginError::LoadFailed(format!("lua plugin must set global 'plugin': {}", e))
+        })?;
+        let plugin_table = match plugin_value {
+            mlua::Value::Table(table) => table,
+            _ => {
+                return Err(PluginError::LoadFailed(
+                    "lua plugin must return a table".into(),
+                ));
+            }
+        };
+        validate_priority(&plugin_table)?;
+    }
+
+    Ok(Arc::new(LuaPlugin::new(
+        manifest.clone(),
+        lua,
+        Arc::new(script),
+    )))
 }
 
-fn apply_sandbox(lua: &mlua::Lua) -> PluginResult<()> {
-    wf_sandbox::strategy::lua::mlua_sandbox::apply_plugin_sandbox(lua)
-        .map_err(|e| PluginError::LuaError(e.to_string()))
+fn validate_priority(plugin_table: &mlua::Table) -> PluginResult<()> {
+    let raw: mlua::Value = plugin_table.get("priority").unwrap_or(mlua::Value::Nil);
+    match raw {
+        mlua::Value::Nil => Ok(()),
+        mlua::Value::Integer(_) => Ok(()),
+        mlua::Value::Number(n) if n.is_finite() && n.fract() == 0.0 => Ok(()),
+        _ => Err(PluginError::LoadFailed(
+            "lua plugin 'priority' must be an integer".into(),
+        )),
+    }
 }
 
 fn determine_base_path(manifest: &PluginManifest) -> PluginResult<std::path::PathBuf> {

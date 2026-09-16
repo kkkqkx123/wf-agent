@@ -80,6 +80,9 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 regex = "1"
 globset = "0.4"
 
+# Lua plugin runtime (optional, enabled via wf-plugin/lua and wf-sandbox/lua)
+mlua = { version = "0.9", default-features = false, features = ["luajit", "send"] }
+
 # WASM plugin runtime (optional, enabled via wf-plugin/wasm)
 wasmtime = { version = "34", default-features = false, features = ["async", "runtime", "cranelift", "wat", "component-model"] }
 wasmtime-wasi = { version = "34" }

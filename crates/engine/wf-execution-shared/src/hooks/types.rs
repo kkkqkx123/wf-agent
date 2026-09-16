@@ -175,7 +175,7 @@ impl From<&wf_tools::callback::HookConfig> for HookDefinition {
                 "tool-callback hook handler is empty and will be ignored"
             );
         }
-        let mut def = Self::from(&spec);
+        let mut def = HookDefinition::from(&spec);
         if def.priority < 0 {
             def.priority = 0;
         }

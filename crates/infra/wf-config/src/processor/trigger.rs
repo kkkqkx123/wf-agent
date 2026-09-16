@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use crate::error::{ConfigError, ConfigResult};
 use crate::processor::substitute::substitute_in_struct;
-use crate::validator::{validate_min, validate_not_empty, validate_required};
+use crate::validator::{validate_min, validate_not_empty};
 
 use wf_types::trigger::config::TriggerAction;
 use wf_types::trigger::template::{TriggerRuntimeLimits, TriggerTemplate};
@@ -34,9 +34,12 @@ pub fn validate_multi_effect(template: &TriggerTemplate) -> ConfigResult<()> {
 }
 
 pub fn validate_trigger_template(template: &TriggerTemplate) -> ConfigResult<()> {
-    validate_required(&template.name, "name")?;
+    validate_not_empty(&template.name, "name")?;
     if let Some(max_triggers) = template.max_triggers {
         validate_min(max_triggers, 1, "max_triggers")?;
+    }
+    if let Some(priority) = template.priority {
+        validate_min(priority, 0, "priority")?;
     }
     if template.condition.is_none() {
         tracing::warn!(
@@ -100,10 +103,74 @@ pub fn validate_trigger_template(template: &TriggerTemplate) -> ConfigResult<()>
         }
         // A NODE_CUSTOM_EVENT condition is matched by `event_name`: it is
         // required, otherwise the template can never match.
-        if condition.event_type == "NODE_CUSTOM_EVENT" && condition.event_name.is_none() {
+        if condition.event_type == "NODE_CUSTOM_EVENT"
+            && condition
+                .event_name
+                .as_deref()
+                .is_none_or(|s| s.trim().is_empty())
+        {
             return Err(ConfigError::Validation(
                 "event_name is required when event_type is NODE_CUSTOM_EVENT".to_string(),
             ));
+        }
+        if condition
+            .event_name
+            .as_deref()
+            .is_some_and(|s| s.trim().is_empty())
+        {
+            return Err(ConfigError::Validation(format!(
+                "trigger '{}' declares an empty event_name; remove it or set a concrete name",
+                template.name
+            )));
+        }
+        if condition
+            .execution_prefix
+            .as_deref()
+            .is_some_and(|s| s.trim().is_empty())
+        {
+            return Err(ConfigError::Validation(format!(
+                "trigger '{}' declares an empty execution_prefix; remove it or set a concrete prefix",
+                template.name
+            )));
+        }
+        if condition.event_type == wf_types::events::EventType::HookTriggered.as_str() {
+            if let Some(meta) = condition.metadata.as_ref() {
+                if let Some(value) = meta.get("hook_type") {
+                    let shaped = match value {
+                        serde_json::Value::String(s) => !s.trim().is_empty(),
+                        serde_json::Value::Array(items) => {
+                            !items.is_empty()
+                                && items
+                                    .iter()
+                                    .all(|item| item.as_str().is_some_and(|s| !s.trim().is_empty()))
+                        }
+                        _ => false,
+                    };
+                    if !shaped {
+                        return Err(ConfigError::Validation(format!(
+                            "trigger '{}' declares hook_type metadata that is not a string or string array; use a plain hook name or array of hook names",
+                            template.name
+                        )));
+                    }
+                }
+            }
+        }
+        if let Some(keys) = condition.metadata_exists.as_deref() {
+            let mut seen = std::collections::HashSet::new();
+            for key in keys {
+                if key.trim().is_empty() {
+                    return Err(ConfigError::Validation(format!(
+                        "trigger '{}' declares an empty metadata_exists key; remove it or set a concrete key",
+                        template.name
+                    )));
+                }
+                if !seen.insert(key.clone()) {
+                    return Err(ConfigError::Validation(format!(
+                        "trigger '{}' declares duplicate metadata_exists key '{}'",
+                        template.name, key
+                    )));
+                }
+            }
         }
     }
     if let Some(action) = &template.action {
@@ -130,6 +197,9 @@ pub fn validate_trigger_template(template: &TriggerTemplate) -> ConfigResult<()>
             "enabled template must have an action".to_string(),
         ));
     }
+    if let Some(description) = template.checkpoint_description_template.as_deref() {
+        validate_not_empty(description, "checkpoint_description_template")?;
+    }
     Ok(())
 }
 
@@ -144,6 +214,12 @@ pub fn validate_trigger_action(action: &TriggerAction, field_prefix: &str) -> Co
             value: _,
         } => {
             validate_not_empty(variable_name, &format!("{field_prefix}.variable_name"))?;
+            if !crate::processor::node_config::is_valid_identifier(variable_name) {
+                return Err(ConfigError::Validation(format!(
+                    "{field_prefix}.variable_name '{}' must start with a letter or '_' and contain only letters, digits or '_'",
+                    variable_name
+                )));
+            }
         }
         TriggerAction::SendNotification { message } => {
             validate_not_empty(message, &format!("{field_prefix}.message"))?;
@@ -175,6 +251,7 @@ pub fn validate_trigger_action(action: &TriggerAction, field_prefix: &str) -> Co
             agent_id,
             timeout,
             checkpoint_message_interval,
+            result_variable,
             ..
         } => {
             validate_not_empty(agent_id, &format!("{field_prefix}.agent_id"))?;
@@ -187,6 +264,14 @@ pub fn validate_trigger_action(action: &TriggerAction, field_prefix: &str) -> Co
                     1,
                     &format!("{field_prefix}.checkpoint_message_interval"),
                 )?;
+            }
+            if let Some(name) = result_variable {
+                if !crate::processor::node_config::is_valid_identifier(name) {
+                    return Err(ConfigError::Validation(format!(
+                        "{field_prefix}.result_variable '{}' must start with a letter or '_' and contain only letters, digits or '_'",
+                        name
+                    )));
+                }
             }
         }
         TriggerAction::ExecuteWorkflow {
@@ -220,6 +305,12 @@ pub fn validate_trigger_action(action: &TriggerAction, field_prefix: &str) -> Co
         TriggerAction::SkipNode { node_id } => {
             if let Some(id) = node_id {
                 validate_not_empty(id, &format!("{field_prefix}.node_id"))?;
+                if !crate::processor::node_config::is_valid_identifier(id) {
+                    return Err(ConfigError::Validation(format!(
+                        "{field_prefix}.node_id '{}' must start with a letter or '_' and contain only letters, digits or '_'",
+                        id
+                    )));
+                }
             }
         }
         TriggerAction::SetMessageContext {
@@ -227,6 +318,12 @@ pub fn validate_trigger_action(action: &TriggerAction, field_prefix: &str) -> Co
             messages,
         } => {
             validate_not_empty(context_id, &format!("{field_prefix}.context_id"))?;
+            if !crate::processor::node_config::is_valid_identifier(context_id) {
+                return Err(ConfigError::Validation(format!(
+                    "{field_prefix}.context_id '{}' must start with a letter or '_' and contain only letters, digits or '_'",
+                    context_id
+                )));
+            }
             if messages.is_empty() {
                 return Err(ConfigError::Validation(format!(
                     "{field_prefix}.messages cannot be empty"
@@ -238,6 +335,12 @@ pub fn validate_trigger_action(action: &TriggerAction, field_prefix: &str) -> Co
             messages,
         } => {
             validate_not_empty(context_id, &format!("{field_prefix}.context_id"))?;
+            if !crate::processor::node_config::is_valid_identifier(context_id) {
+                return Err(ConfigError::Validation(format!(
+                    "{field_prefix}.context_id '{}' must start with a letter or '_' and contain only letters, digits or '_'",
+                    context_id
+                )));
+            }
             if messages.is_empty() {
                 return Err(ConfigError::Validation(format!(
                     "{field_prefix}.messages cannot be empty"
@@ -251,7 +354,13 @@ pub fn validate_trigger_action(action: &TriggerAction, field_prefix: &str) -> Co
             ..
         } => {
             validate_not_empty(context_id, &format!("{field_prefix}.context_id"))?;
-            if role.is_none() && custom_filter.as_ref().is_none_or(|s| s.is_empty()) {
+            if !crate::processor::node_config::is_valid_identifier(context_id) {
+                return Err(ConfigError::Validation(format!(
+                    "{field_prefix}.context_id '{}' must start with a letter or '_' and contain only letters, digits or '_'",
+                    context_id
+                )));
+            }
+            if role.is_none() && custom_filter.as_ref().is_none_or(|s| s.trim().is_empty()) {
                 return Err(ConfigError::Validation(format!(
                     "{field_prefix} needs at least one of role or custom_filter"
                 )));
@@ -1144,5 +1253,100 @@ mod tests {
         });
         assert!(validate_trigger_template(&template).is_ok());
         assert!(validate_trigger_set(std::slice::from_ref(&template)).is_ok());
+    }
+
+    #[test]
+    fn test_empty_event_name_rejected() {
+        use wf_types::trigger::TriggerCondition;
+        let mut template = make_template();
+        template.condition = Some(TriggerCondition {
+            event_type: "NODE_COMPLETED".to_string(),
+            event_name: Some("   ".to_string()),
+            condition: None,
+            metadata: None,
+            metadata_exists: None,
+            execution_prefix: None,
+        });
+        template.action = Some(TriggerAction::StopWorkflowExecution {});
+        assert!(validate_trigger_template(&template).is_err());
+    }
+
+    #[test]
+    fn test_empty_execution_prefix_rejected() {
+        use wf_types::trigger::TriggerCondition;
+        let mut template = make_template();
+        template.condition = Some(TriggerCondition {
+            event_type: "NODE_COMPLETED".to_string(),
+            event_name: None,
+            condition: None,
+            metadata: None,
+            metadata_exists: None,
+            execution_prefix: Some("  ".to_string()),
+        });
+        template.action = Some(TriggerAction::StopWorkflowExecution {});
+        assert!(validate_trigger_template(&template).is_err());
+    }
+
+    #[test]
+    fn test_non_string_hook_type_rejected() {
+        use wf_types::trigger::TriggerCondition;
+        let mut template = make_template();
+        template.condition = Some(TriggerCondition {
+            event_type: "HOOK_TRIGGERED".to_string(),
+            event_name: None,
+            condition: None,
+            metadata: Some(std::collections::HashMap::from([(
+                "hook_type".to_string(),
+                serde_json::json!(42),
+            )])),
+            metadata_exists: None,
+            execution_prefix: None,
+        });
+        template.action = Some(TriggerAction::StopWorkflowExecution {});
+        assert!(validate_trigger_template(&template).is_err());
+    }
+
+    #[test]
+    fn test_duplicate_metadata_exists_rejected() {
+        use wf_types::trigger::TriggerCondition;
+        let mut template = make_template();
+        template.condition = Some(TriggerCondition {
+            event_type: "NODE_COMPLETED".to_string(),
+            event_name: None,
+            condition: None,
+            metadata: None,
+            metadata_exists: Some(vec!["attempt".to_string(), "attempt".to_string()]),
+            execution_prefix: None,
+        });
+        template.action = Some(TriggerAction::StopWorkflowExecution {});
+        assert!(validate_trigger_template(&template).is_err());
+    }
+
+    #[test]
+    fn test_invalid_variable_identifier_rejected() {
+        let action = TriggerAction::SetVariable {
+            variable_name: "9bad".to_string(),
+            value: serde_json::json!(1),
+        };
+        assert!(validate_trigger_action(&action, "action").is_err());
+    }
+
+    #[test]
+    fn test_invalid_context_identifier_rejected() {
+        let action = TriggerAction::AppendMessageContext {
+            context_id: "bad-name".to_string(),
+            messages: vec![wf_types::message::Message {
+                id: wf_types::Id::new(),
+                role: wf_types::message::MessageRole::User,
+                content: wf_types::message::MessageContentValue::Text("hi".to_string()),
+                timestamp: 0,
+                tool_call_id: None,
+                tool_name: None,
+                tool_calls: None,
+                thinking: None,
+                metadata: None,
+            }],
+        };
+        assert!(validate_trigger_action(&action, "action").is_err());
     }
 }

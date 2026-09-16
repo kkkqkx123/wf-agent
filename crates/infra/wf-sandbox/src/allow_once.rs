@@ -10,8 +10,8 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Mutex;
 
-use wf_common::lock::lock_ok;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use wf_common::lock::lock_ok;
 
 use serde::{Deserialize, Serialize};
 

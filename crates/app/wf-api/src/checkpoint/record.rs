@@ -231,6 +231,29 @@ pub async fn entity_type_for_execution(
     Ok(domain.checkpoint_entity_type())
 }
 
+/// Assert a checkpoint id belongs to the expected execution domain.
+///
+/// Returns the loaded checkpoint on success. When the checkpoint's recorded
+/// `entity_type` names the other domain, a `Validation` error carrying the
+/// actual domain guides the caller to the matching endpoint; a missing
+/// checkpoint yields `NotFound`.
+pub async fn ensure_checkpoint_domain(
+    ctx: &crate::infra::context::ApiContext,
+    checkpoint_id: &str,
+    expected: crate::entity::execution::ExecutionDomain,
+) -> crate::ApiResult<Checkpoint> {
+    let checkpoint = get_checkpoint(&ctx.storage, checkpoint_id).await?;
+    if checkpoint.entity_type != expected.checkpoint_entity_type() {
+        return Err(crate::infra::error::ApiError::Validation(format!(
+            "checkpoint [{checkpoint_id}] belongs to {}, not {}; use the {} checkpoint endpoint",
+            checkpoint.entity_type,
+            expected.checkpoint_entity_type(),
+            checkpoint.entity_type
+        )));
+    }
+    Ok(checkpoint)
+}
+
 /// List checkpoints of an execution, selecting the `entity_type` filter via
 /// the unified execution resolver instead of a hardcoded workflow value.
 pub async fn list_for_execution(

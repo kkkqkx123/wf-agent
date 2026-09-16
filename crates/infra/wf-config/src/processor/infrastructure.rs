@@ -140,6 +140,8 @@ fn merge_collector_with_defaults(
         flush_interval: c.flush_interval.or(Some(5000)),
         enable_periodic_reporting: c.enable_periodic_reporting.or(Some(false)),
         reporting_interval: c.reporting_interval.or(Some(10000)),
+        enabled: c.enabled.or(Some(true)),
+        retention_ms: c.retention_ms,
         strict_labels: c.strict_labels.or(Some(false)),
         allowed_label_keys: c.allowed_label_keys.clone(),
     })
@@ -360,9 +362,8 @@ mod tests {
 
     #[test]
     fn test_merge_metrics_unifies_global_retention() {
-        // The global retention window drives both in-memory and persisted
-        // pruning (L3); there is no per-collector retention to diverge, so
-        // `retention_ms` is the single source of truth.
+        // Global retention is the fallback; per-collector retention overrides
+        // it when explicitly configured.
         let user = MetricsConfig {
             workflow_metrics: Some(MetricCollectorConfig {
                 buffer_size: Some(7),
@@ -375,6 +376,14 @@ mod tests {
         assert_eq!(
             merged.workflow_metrics.as_ref().unwrap().buffer_size,
             Some(7)
+        );
+        assert_eq!(
+            merged.workflow_metrics.as_ref().unwrap().retention_ms,
+            None
+        );
+        assert_eq!(
+            merged.workflow_metrics.as_ref().unwrap().enabled,
+            Some(true)
         );
     }
 

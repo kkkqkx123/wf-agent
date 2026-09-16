@@ -4,8 +4,8 @@ use crate::labels;
 
 /// Process/entity resource sample consumed by the resource collector.
 ///
-/// `active_executions` is fed by the agent capacity gate held-permit count;
-/// `queued_tasks` stays 0 until a task-queueing layer exists. Only fields
+/// `active_executions` is fed by the agent capacity gate held-permit count.
+/// `queued_tasks` stays absent until a task-queueing layer exists. Only fields
 /// set to `Some` are recorded.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct ResourceSample {
@@ -61,7 +61,7 @@ impl ResourceMetricsCollector {
         );
     }
 
-    /// Reserved: records `0` until a task queue statistic exists.
+    /// Reserved: only recorded when a task queue statistic exists.
     pub fn record_queued_tasks(&self, count: u64) {
         self.inner
             .set_gauge(resource_metrics::QUEUED_TASKS, count as f64, labels(&[]));
@@ -125,7 +125,15 @@ mod tests {
         });
         assert_eq!(gauge_value(&c, resource_metrics::MEMORY_USAGE), 2048.0);
         assert_eq!(gauge_value(&c, resource_metrics::ACTIVE_EXECUTIONS), 0.0);
-        assert_eq!(gauge_value(&c, resource_metrics::QUEUED_TASKS), 0.0);
+        assert!(c
+            .collector()
+            .query(&MetricFilter {
+                name: Some(resource_metrics::QUEUED_TASKS.to_string()),
+                metric_type: Some(MetricType::Gauge),
+                ..Default::default()
+            })
+            .metrics
+            .is_empty());
     }
 
     #[test]

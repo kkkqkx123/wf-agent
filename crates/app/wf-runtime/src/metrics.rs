@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use wf_agent::capacity::AgentCapacityGate;
 use wf_core::event::EventBus;
-use wf_core::EventMetricsBridge;
+use wf_execution_shared::EventMetricsBridge;
 use wf_metrics::{
     generate_report, labels, storage_metrics, ConfigMetricsCollector, MetricPoint, MetricsError,
     MetricsRegistry, MetricsSink, ReportOptions, ResourceSample,
@@ -70,8 +70,8 @@ impl<A: MetricsStorageAdapter> MetricsSink for StorageMetricsSink<A> {
             .map(|points| {
                 points
                     .into_iter()
-                    .filter_map(|p| {
-                        parse_metric_type(&p.metric_type).map(|metric_type| MetricPoint {
+                    .filter_map(|p| match parse_metric_type(&p.metric_type) {
+                        Some(metric_type) => Some(MetricPoint {
                             name: p.name,
                             metric_type,
                             value: p.value,
@@ -88,7 +88,16 @@ impl<A: MetricsStorageAdapter> MetricsSink for StorageMetricsSink<A> {
                                 .collect(),
                             sum: p.sum,
                             count: p.count,
-                        })
+                        }),
+                        None => {
+                            tracing::warn!(
+                                target: "wf_metrics",
+                                metric = p.name.as_str(),
+                                metric_type = p.metric_type.as_str(),
+                                "persisted metric skipped: unknown metric type"
+                            );
+                            None
+                        }
                     })
                     .collect()
             })
@@ -182,16 +191,15 @@ impl MetricsContext {
         }
         {
             let registry = registry.clone();
-            // A single retention window (global `retention_ms`, defaulting
-            // to 1h) drives both the in-memory cleanup and the persisted
-            // pruning so the two stay in sync (L3).
+            // In-memory cleanup honors each collector retention window;
+            // persisted pruning uses the global window as the single source.
             let retention_ms = config.retention_ms.unwrap_or(3_600_000);
             tasks.push(tokio::spawn(async move {
                 let mut ticker = tokio::time::interval(cleanup_interval);
                 ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
                 loop {
                     ticker.tick().await;
-                    registry.cleanup_all_before(retention_ms);
+                    registry.cleanup_all();
                     // Prune persisted metric points older than the retention
                     // window (in-memory cleanup handles buffered data).
                     if let Some(Ok(_)) = registry
@@ -329,7 +337,7 @@ impl ResourceSampler {
         let sample = ResourceSample {
             memory_bytes: process_rss_bytes(),
             active_executions,
-            queued_tasks: Some(0),
+            queued_tasks: None,
             event_queue_length: self.event_bus.as_ref().map(|bus| bus.queue_len() as u64),
         };
         self.registry.resource().record_sample(&sample);

@@ -185,24 +185,6 @@ async fn handle_list_checkpoints(
     }
 }
 
-async fn reject_workflow_checkpoint(
-    state: &ApiState,
-    cid: &str,
-) -> Option<axum::response::Response> {
-    match wf_api::checkpoint::record::get_checkpoint(&state.ctx.storage, cid).await {
-        Ok(cp) if cp.entity_type != "agent_loop" => Some(error_response(
-            wf_api::ApiError::Validation(format!(
-                "checkpoint [{cid}] belongs to workflow, not agent_loop; use the workflow checkpoint endpoint"
-            )),
-        )),
-        Ok(_) => None,
-        Err(e) => match e {
-            wf_api::ApiError::NotFound { .. } => Some(error_response(e)),
-            _ => Some(error_response(e)),
-        },
-    }
-}
-
 async fn handle_restore_checkpoint(
     State(state): State<ApiState>,
     Path(path): Path<crate::extract::IdCidPath>,
@@ -210,8 +192,11 @@ async fn handle_restore_checkpoint(
     if let Err(e) = ensure_agent_domain(&state.ctx, &path.id).await {
         return error_response(e);
     }
-    if let Some(response) = reject_workflow_checkpoint(&state, &path.cid).await {
-        return response;
+    if let Err(e) =
+        wf_api::checkpoint::ensure_checkpoint_domain(&state.ctx, &path.cid, wf_api::ExecutionDomain::AgentLoop)
+            .await
+    {
+        return error_response(e);
     }
     match wf_api::agent::agent_checkpoint::restore(&state.ctx, &path.id, &path.cid).await {
         Ok(checkpoint) => ok(checkpoint).into_response(),
@@ -257,8 +242,15 @@ async fn handle_resume_checkpoint(
     if let Err(e) = ensure_agent_domain(&state.ctx, &path.id).await {
         return error_response(e);
     }
-    if let Some(response) = reject_workflow_checkpoint(&state, &path.cid).await {
-        return response;
+    if let Err(e) =
+        wf_api::checkpoint::ensure_checkpoint_domain(
+            &state.ctx,
+            &path.cid,
+            wf_api::ExecutionDomain::AgentLoop,
+        )
+        .await
+    {
+        return error_response(e);
     }
     let in_place = body.mode == ResumeCheckpointMode::InPlace;
     match wf_api::agent::agent_execution::resume_from_checkpoint(

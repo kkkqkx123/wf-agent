@@ -3,6 +3,7 @@ pub mod context;
 pub mod context_store;
 pub mod conversation_session;
 pub mod error;
+pub mod event_metrics_bridge;
 pub mod execution_loop;
 pub mod execution_state;
 pub mod fork;
@@ -18,6 +19,7 @@ pub mod types;
 pub use approval::{ToolApprovalHandler, ToolApprovalRequest, ToolApprovalResult};
 pub use context::{ExecutorContext, NodeExecutionContext, NodeExecutionResult, NodeInputShape};
 pub use error::{ExecutionSharedError, ExecutionSharedResult};
+pub use event_metrics_bridge::EventMetricsBridge;
 pub use execution_loop::{
     is_pause_signal, is_paused, is_stop_signal, is_stopped, wait_for_resume, HasInterruption,
     LoopDecision,

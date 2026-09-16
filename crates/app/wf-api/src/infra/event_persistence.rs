@@ -4,7 +4,7 @@
 //! Engine-side publishers (workflow / agent / node / fork / shell /
 //! interruption) all publish to the shared bus directly and never touch
 //! `wf-api`'s `PersistenceLayer` (which uses `ApiResult`, a `wf-api` type).
-//! This watcher mirrors [`wf_core::event_bridge::EventMetricsBridge`]: one
+//! This watcher mirrors `wf_execution_shared::EventMetricsBridge`: one
 //! subscriber picks up every bus event and forwards it to the buffered
 //! persistence layer, so the ~120 engine event types reach durable storage
 //! with zero changes to the emitting crates.

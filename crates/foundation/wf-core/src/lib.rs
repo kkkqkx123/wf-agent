@@ -1,7 +1,6 @@
 pub mod condition;
 pub mod error;
 pub mod event;
-pub mod event_bridge;
 pub mod failure_policy;
 pub mod hierarchy;
 pub mod internal_signal;
@@ -13,7 +12,6 @@ pub mod state;
 pub use condition::{ConditionCache, ConditionCacheConfig, ConditionEvaluator};
 pub use error::CoreError;
 pub use event::{EventBus, EventBusBuilder, Subscription};
-pub use event_bridge::EventMetricsBridge;
 pub use failure_policy::{
     default_failure_policy_config, default_fallback_policy, default_retry_policy,
     FailurePolicyManager,

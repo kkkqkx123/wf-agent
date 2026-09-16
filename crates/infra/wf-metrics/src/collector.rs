@@ -54,6 +54,9 @@ pub struct CollectorConfig {
     pub reporting_interval_ms: i64,
     /// In-memory retention window in milliseconds for expiry cleanup.
     pub retention_ms: i64,
+    /// Per-collector enable switch. Disabled collectors drop every record
+    /// without allocating series state.
+    pub enabled: bool,
     /// Label allowlist governance for every recorded series.
     pub label_config: LabelConfig,
 }
@@ -66,6 +69,7 @@ impl Default for CollectorConfig {
             enable_periodic_reporting: false,
             reporting_interval_ms: DEFAULT_REPORTING_INTERVAL_MS,
             retention_ms: DEFAULT_RETENTION_MS,
+            enabled: true,
             label_config: LabelConfig::default(),
         }
     }
@@ -86,7 +90,8 @@ impl From<&MetricCollectorConfig> for CollectorConfig {
             reporting_interval_ms: cfg
                 .reporting_interval
                 .unwrap_or(defaults.reporting_interval_ms),
-            retention_ms: defaults.retention_ms,
+            retention_ms: cfg.retention_ms.unwrap_or(defaults.retention_ms),
+            enabled: cfg.enabled.unwrap_or(true),
             label_config: LabelConfig::from(cfg),
         }
     }
@@ -304,6 +309,10 @@ impl BaseMetricCollector {
         &self.config
     }
 
+    pub fn is_enabled(&self) -> bool {
+        self.config.enabled
+    }
+
     /// A poisoned mutex is recovered rather than panicking: the collector
     /// degrades to the last consistent state instead of crashing the process.
     fn sink_guard(&self) -> MutexGuard<'_, Option<Arc<dyn MetricsSink>>> {
@@ -324,7 +333,11 @@ impl BaseMetricCollector {
     }
 
     fn record_checked(&self, metric: Metric) {
+        if !self.config.enabled {
+            return;
+        }
         if metric.name.is_empty() {
+            self.stats.drops.fetch_add(1, Ordering::Relaxed);
             tracing::warn!(target: "wf_metrics", "record called with empty metric name");
             return;
         }
@@ -333,6 +346,12 @@ impl BaseMetricCollector {
             .label_config
             .validate(&metric.name, &metric.labels)
         {
+            self.stats.drops.fetch_add(1, Ordering::Relaxed);
+            tracing::warn!(
+                target: "wf_metrics",
+                metric = metric.name.as_str(),
+                "metric dropped by label governance"
+            );
             return;
         }
         self.push_record(metric);
@@ -375,12 +394,22 @@ impl BaseMetricCollector {
         value: f64,
         labels: impl Into<HashMap<String, String>>,
     ) {
+        if !self.config.enabled {
+            return;
+        }
         let labels = labels.into();
         if name.is_empty() {
+            self.stats.drops.fetch_add(1, Ordering::Relaxed);
             tracing::warn!(target: "wf_metrics", "observe_histogram called with empty name");
             return;
         }
         if !self.config.label_config.validate(name, &labels) {
+            self.stats.drops.fetch_add(1, Ordering::Relaxed);
+            tracing::warn!(
+                target: "wf_metrics",
+                metric = name,
+                "metric dropped by label governance"
+            );
             return;
         }
         let state = self
@@ -412,12 +441,22 @@ impl BaseMetricCollector {
         value: f64,
         labels: impl Into<HashMap<String, String>>,
     ) {
+        if !self.config.enabled {
+            return;
+        }
         let labels = labels.into();
         if name.is_empty() {
+            self.stats.drops.fetch_add(1, Ordering::Relaxed);
             tracing::warn!(target: "wf_metrics", "observe_summary called with empty name");
             return;
         }
         if !self.config.label_config.validate(name, &labels) {
+            self.stats.drops.fetch_add(1, Ordering::Relaxed);
+            tracing::warn!(
+                target: "wf_metrics",
+                metric = name,
+                "metric dropped by label governance"
+            );
             return;
         }
         let slot = self
@@ -601,6 +640,11 @@ impl BaseMetricCollector {
                 "expired metrics cleaned up"
             );
         }
+    }
+
+    /// Remove buffered metrics older than the configured retention window.
+    pub fn cleanup_expired(&self) {
+        self.cleanup_expired_before(self.config.retention_ms);
     }
 
     /// Clear all buffered metrics and histogram/summary state.

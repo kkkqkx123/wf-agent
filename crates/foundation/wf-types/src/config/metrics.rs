@@ -6,6 +6,13 @@ pub struct MetricCollectorConfig {
     pub flush_interval: Option<i64>,
     pub enable_periodic_reporting: Option<bool>,
     pub reporting_interval: Option<i64>,
+    /// Per-collector enable switch. Absent means enabled.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
+    /// Per-collector retention window in milliseconds. Absent means the
+    /// global retention window applies.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub retention_ms: Option<i64>,
     /// Reject series carrying label keys outside the allowlist instead of
     /// only warning. Defaults to permissive warning.
     #[serde(default, skip_serializing_if = "Option::is_none")]

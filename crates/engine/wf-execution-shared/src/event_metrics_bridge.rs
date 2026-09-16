@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
+use wf_core::error::EventError;
+use wf_core::event::EventBus;
 use wf_metrics::MetricsRegistry;
 use wf_types::events::{BaseEvent, EventType};
-
-use crate::event::EventBus;
 
 /// Bridges execution events published on the `EventBus` into the metrics
 /// registry.
@@ -28,8 +28,8 @@ impl EventMetricsBridge {
             loop {
                 match subscription.recv().await {
                     Ok(event) => self.handle_event(&event),
-                    Err(crate::error::EventError::ChannelClosed) => break,
-                    Err(crate::error::EventError::Lagged(skipped)) => {
+                    Err(EventError::ChannelClosed) => break,
+                    Err(EventError::Lagged(skipped)) => {
                         // The metrics bridge must not go blind under load: a
                         // lagged subscriber means events were skipped, so the
                         // counters below are undercounting. Surface it.

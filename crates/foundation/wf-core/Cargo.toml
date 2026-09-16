@@ -23,4 +23,3 @@ rand.workspace = true
 
 wf-types = { path = "../wf-types" }
 wf-common = { path = "../wf-common" }
-wf-metrics = { path = "../../infra/wf-metrics" }

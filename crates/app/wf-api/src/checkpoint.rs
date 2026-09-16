@@ -19,8 +19,8 @@ pub use provenance::{
 };
 pub use record::{
     chain_for_execution, delete_checkpoint, delete_checkpoints_by_entity, delete_for_execution,
-    entity_type_for_execution, gc_for_execution, get_checkpoint, get_checkpoint_chain,
-    get_checkpoint_entity_metadata, get_latest_checkpoint, list_checkpoints,
+    ensure_checkpoint_domain, entity_type_for_execution, gc_for_execution, get_checkpoint,
+    get_checkpoint_chain, get_checkpoint_entity_metadata, get_latest_checkpoint, list_checkpoints,
     list_checkpoints_by_entities, list_checkpoints_by_entity, list_checkpoints_by_time_range,
     list_for_execution, save_checkpoint, set_checkpoint_entity_metadata,
     CheckpointChainAnalysisView, CheckpointTimeRangeView, CheckpointTransitionView,

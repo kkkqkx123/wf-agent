@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use wf_metrics::collectors::TokenMetricsCollector;
 use wf_types::llm::{MessageStreamEvent, StreamStats, TokenUsageStats};
 
@@ -11,7 +13,7 @@ use crate::messaging::stream::MessageStream;
 /// and total durations) and attaches them to the `FinalMessage` event.
 pub struct TokenRecordingStream {
     inner: Box<dyn MessageStream>,
-    collector: Option<TokenMetricsCollector>,
+    collector: Option<Arc<TokenMetricsCollector>>,
     model: String,
     last_usage: Option<TokenUsageStats>,
     recorded: bool,
@@ -24,7 +26,7 @@ pub struct TokenRecordingStream {
 impl TokenRecordingStream {
     pub fn new(
         inner: Box<dyn MessageStream>,
-        collector: Option<TokenMetricsCollector>,
+        collector: Option<Arc<TokenMetricsCollector>>,
         model: String,
     ) -> Self {
         Self {

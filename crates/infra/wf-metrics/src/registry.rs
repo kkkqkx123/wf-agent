@@ -73,106 +73,63 @@ impl MetricsRegistry {
     }
 
     /// Build the registry, applying per-collector configs where present.
+    ///
+    /// A per-collector retention window overrides the global one; absent
+    /// per-collector retention falls back to the global window.
     pub fn with_config(config: &MetricsConfig) -> Self {
+        let global_retention = config.retention_ms.unwrap_or(3_600_000);
+        let resolve = |section: Option<&wf_types::config::metrics::MetricCollectorConfig>| {
+            let mut resolved = section
+                .map(CollectorConfig::from)
+                .unwrap_or_default();
+            if section.is_none_or(|c| c.retention_ms.is_none()) {
+                resolved.retention_ms = global_retention;
+            }
+            resolved
+        };
         Self {
-            workflow: Arc::new(WorkflowMetricsCollector::new(
-                config
-                    .workflow_metrics
-                    .as_ref()
-                    .map(CollectorConfig::from)
-                    .unwrap_or_default(),
-            )),
-            node: Arc::new(NodeMetricsCollector::new(
-                config
-                    .node_metrics
-                    .as_ref()
-                    .map(CollectorConfig::from)
-                    .unwrap_or_default(),
-            )),
-            agent: Arc::new(AgentMetricsCollector::new(
-                config
-                    .agent_metrics
-                    .as_ref()
-                    .map(CollectorConfig::from)
-                    .unwrap_or_default(),
-            )),
-            agent_loop: Arc::new(AgentLoopMetricsCollector::new(
-                config
-                    .agent_loop_metrics
-                    .as_ref()
-                    .map(CollectorConfig::from)
-                    .unwrap_or_default(),
-            )),
-            event: Arc::new(EventMetricsCollector::new(
-                config
-                    .event_metrics
-                    .as_ref()
-                    .map(CollectorConfig::from)
-                    .unwrap_or_default(),
-            )),
-            tool: Arc::new(ToolMetricsCollector::new(
-                config
-                    .tool_metrics
-                    .as_ref()
-                    .map(CollectorConfig::from)
-                    .unwrap_or_default(),
-            )),
-            token: Arc::new(TokenMetricsCollector::new(
-                config
-                    .token_metrics
-                    .as_ref()
-                    .map(CollectorConfig::from)
-                    .unwrap_or_default(),
-            )),
-            error: Arc::new(ErrorMetricsCollector::new(
-                config
-                    .error_metrics
-                    .as_ref()
-                    .map(CollectorConfig::from)
-                    .unwrap_or_default(),
-            )),
-            config: Arc::new(ConfigMetricsCollector::new(
-                config
-                    .config_metrics
-                    .as_ref()
-                    .map(CollectorConfig::from)
-                    .unwrap_or_default(),
-            )),
-            resource: Arc::new(ResourceMetricsCollector::new(
-                config
-                    .resource_metrics
-                    .as_ref()
-                    .map(CollectorConfig::from)
-                    .unwrap_or_default(),
-            )),
-            subgraph: Arc::new(SubgraphMetricsCollector::new(
-                config
-                    .subgraph_metrics
-                    .as_ref()
-                    .map(CollectorConfig::from)
-                    .unwrap_or_default(),
-            )),
-            template: Arc::new(TemplateMetricsCollector::new(
-                config
-                    .template_metrics
-                    .as_ref()
-                    .map(CollectorConfig::from)
-                    .unwrap_or_default(),
-            )),
-            retry_budget: Arc::new(RetryBudgetMetricsCollector::new(
-                config
-                    .retry_budget_metrics
-                    .as_ref()
-                    .map(CollectorConfig::from)
-                    .unwrap_or_default(),
-            )),
-            timeout: Arc::new(TimeoutMetricsCollector::new(
-                config
-                    .timeout_metrics
-                    .as_ref()
-                    .map(CollectorConfig::from)
-                    .unwrap_or_default(),
-            )),
+            workflow: Arc::new(WorkflowMetricsCollector::new(resolve(
+                config.workflow_metrics.as_ref(),
+            ))),
+            node: Arc::new(NodeMetricsCollector::new(resolve(
+                config.node_metrics.as_ref(),
+            ))),
+            agent: Arc::new(AgentMetricsCollector::new(resolve(
+                config.agent_metrics.as_ref(),
+            ))),
+            agent_loop: Arc::new(AgentLoopMetricsCollector::new(resolve(
+                config.agent_loop_metrics.as_ref(),
+            ))),
+            event: Arc::new(EventMetricsCollector::new(resolve(
+                config.event_metrics.as_ref(),
+            ))),
+            tool: Arc::new(ToolMetricsCollector::new(resolve(
+                config.tool_metrics.as_ref(),
+            ))),
+            token: Arc::new(TokenMetricsCollector::new(resolve(
+                config.token_metrics.as_ref(),
+            ))),
+            error: Arc::new(ErrorMetricsCollector::new(resolve(
+                config.error_metrics.as_ref(),
+            ))),
+            config: Arc::new(ConfigMetricsCollector::new(resolve(
+                config.config_metrics.as_ref(),
+            ))),
+            resource: Arc::new(ResourceMetricsCollector::new(resolve(
+                config.resource_metrics.as_ref(),
+            ))),
+            subgraph: Arc::new(SubgraphMetricsCollector::new(resolve(
+                config.subgraph_metrics.as_ref(),
+            ))),
+            template: Arc::new(TemplateMetricsCollector::new(resolve(
+                config.template_metrics.as_ref(),
+            ))),
+            retry_budget: Arc::new(RetryBudgetMetricsCollector::new(resolve(
+                config.retry_budget_metrics.as_ref(),
+            ))),
+            timeout: Arc::new(TimeoutMetricsCollector::new(resolve(
+                config.timeout_metrics.as_ref(),
+            ))),
             subscribers: Mutex::new(Vec::new()),
             next_subscription_id: AtomicUsize::new(1),
             anomaly_thresholds: AnomalyThresholds {
@@ -294,38 +251,11 @@ impl MetricsRegistry {
         }
     }
 
-    /// Start registry-owned background tasks: a flush loop at the smallest
-    /// configured collector interval and a cleanup loop at the workflow
-    /// retention cadence. Callers abort the returned handles to stop.
-    pub fn start_background_tasks(self: &Arc<Self>) -> Vec<tokio::task::JoinHandle<()>> {
-        let flush_ms = self
-            .collectors()
-            .iter()
-            .map(|c| c.config().flush_interval_ms.max(1) as u64)
-            .min()
-            .unwrap_or(5000);
-        let retention_ms = self.workflow().collector().config().retention_ms;
-        let cleanup_ms = (retention_ms.max(1) as u64).clamp(1000, 3_600_000);
-
-        let flushing = Arc::clone(self);
-        let flush_task = tokio::spawn(async move {
-            let mut ticker = tokio::time::interval(std::time::Duration::from_millis(flush_ms));
-            loop {
-                ticker.tick().await;
-                flushing.flush_all().await;
-            }
-        });
-        let cleaning = Arc::clone(self);
-        let cleanup_task = tokio::spawn(async move {
-            let mut ticker = tokio::time::interval(std::time::Duration::from_millis(cleanup_ms));
-            loop {
-                ticker.tick().await;
-                cleaning.cleanup_all_before(retention_ms);
-                let cutoff = wf_common::time::now() - retention_ms;
-                let _ = cleaning.delete_old_persisted(cutoff).await;
-            }
-        });
-        vec![flush_task, cleanup_task]
+    /// Purge buffered metrics using each collector retention window.
+    pub fn cleanup_all(&self) {
+        for c in self.collectors() {
+            c.cleanup_expired();
+        }
     }
 
     /// Purge buffered metrics older than `retention_ms` from every collector.
@@ -726,27 +656,36 @@ mod tests {
         assert_eq!(delivered.load(Ordering::Relaxed), 1);
     }
 
-    #[tokio::test]
-    async fn background_tasks_flush_without_sink() {
+    #[test]
+    fn disabled_collector_drops_records() {
         let config = MetricsConfig {
             workflow_metrics: Some(MetricCollectorConfig {
-                flush_interval: Some(10),
+                enabled: Some(false),
                 ..Default::default()
             }),
             ..Default::default()
         };
-        let registry = Arc::new(MetricsRegistry::with_config(&config));
+        let registry = MetricsRegistry::with_config(&config);
+        assert!(!registry.workflow().collector().is_enabled());
         registry.workflow().record_execution_start("wf-1");
-        let handles = registry.start_background_tasks();
-        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
-        while registry.workflow().collector().buffer_len() > 0
-            && tokio::time::Instant::now() < deadline
-        {
-            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-        }
         assert_eq!(registry.workflow().collector().buffer_len(), 0);
-        for handle in handles {
-            handle.abort();
-        }
+    }
+
+    #[test]
+    fn per_collector_retention_overrides_global() {
+        let config = MetricsConfig {
+            retention_ms: Some(9000),
+            workflow_metrics: Some(MetricCollectorConfig {
+                retention_ms: Some(1000),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        let registry = MetricsRegistry::with_config(&config);
+        assert_eq!(
+            registry.workflow().collector().config().retention_ms,
+            1000
+        );
+        assert_eq!(registry.node().collector().config().retention_ms, 9000);
     }
 }

@@ -300,7 +300,7 @@ pub async fn resolve_infra_config(
 pub fn create_llm_gateway(metrics: Option<&wf_metrics::MetricsRegistry>) -> Arc<LlmGateway> {
     let gateway = LlmGateway::new();
     let gateway = match metrics {
-        Some(registry) => gateway.with_token_metrics(registry.token().as_ref().clone()),
+        Some(registry) => gateway.with_token_metrics(registry.token()),
         None => gateway,
     };
     Arc::new(gateway)

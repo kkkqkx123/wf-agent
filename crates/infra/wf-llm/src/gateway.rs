@@ -44,7 +44,7 @@ pub struct LlmGateway {
     model_catalog: ModelCatalog,
     #[cfg(feature = "mock")]
     mock_clients: Arc<DashMap<String, Arc<crate::mock::MockLlmClient>>>,
-    token_metrics: Option<TokenMetricsCollector>,
+    token_metrics: Option<Arc<TokenMetricsCollector>>,
 }
 
 impl LlmGateway {
@@ -68,7 +68,7 @@ impl LlmGateway {
     }
 
     /// Attach an optional token usage collector (zero overhead when absent).
-    pub fn with_token_metrics(mut self, token_metrics: TokenMetricsCollector) -> Self {
+    pub fn with_token_metrics(mut self, token_metrics: Arc<TokenMetricsCollector>) -> Self {
         self.token_metrics = Some(token_metrics);
         self
     }

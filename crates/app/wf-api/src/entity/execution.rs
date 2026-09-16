@@ -41,6 +41,9 @@ impl std::fmt::Display for ExecutionDomain {
     }
 }
 
+/// Whether the id exists in the agent-loop domain, probed only when the
+/// cheaper layers (live registry, persisted record) found nothing: live
+/// registry, persisted record, then checkpoint partition.
 async fn agent_present(ctx: &ApiContext, id: &str) -> ApiResult<bool> {
     if ctx.agent_loop(id).is_some() {
         return Ok(true);
@@ -57,6 +60,7 @@ async fn agent_present(ctx: &ApiContext, id: &str) -> ApiResult<bool> {
     Ok(!list.is_empty())
 }
 
+/// Workflow-domain counterpart of [`agent_present`], same cost order.
 async fn workflow_present(ctx: &ApiContext, id: &str) -> ApiResult<bool> {
     if ctx.workflow_execution(id).is_some() {
         return Ok(true);
@@ -84,19 +88,14 @@ pub async fn resolve_execution(ctx: &ApiContext, id: &str) -> ApiResult<Executio
     resolve_execution_with_override(ctx, id, None).await
 }
 
-/// Resolve with an explicit domain override.
-///
-/// The override is only meaningful on the ambiguous path: when both domains
-/// contain the id it selects the winner. When only one domain contains the
-/// id and the override names the other, a domain-mismatch `Validation`
-/// error is returned; when neither contains the id, `ExecutionNotFound`.
-pub async fn resolve_execution_with_override(
-    ctx: &ApiContext,
+/// Verdict for a resolved (agent, workflow) presence pair under an optional
+/// explicit domain override.
+fn execution_verdict(
     id: &str,
+    agent: bool,
+    workflow: bool,
     domain: Option<ExecutionDomain>,
 ) -> ApiResult<ExecutionDomain> {
-    let agent = agent_present(ctx, id).await?;
-    let workflow = workflow_present(ctx, id).await?;
     match (agent, workflow, domain) {
         (false, false, _) => Err(ApiError::execution_not_found(id)),
         (true, true, None) => Err(ApiError::Conflict(format!(
@@ -116,6 +115,46 @@ pub async fn resolve_execution_with_override(
             other.as_str()
         ))),
     }
+}
+
+/// Resolve with an explicit domain override.
+///
+/// Probing is layered by cost and short-circuits: (1) live registries for
+/// both domains are in-memory checks; (2) persisted execution records; (3)
+/// checkpoint partitions, probed only when layers 1-2 left both domains
+/// unresolved, since a conclusion already reached for one domain cannot be
+/// changed by the other domain's partition probe. Both domains hit means the
+/// id is ambiguous and a `Conflict` is returned; neither hit means a unified
+/// `ExecutionNotFound`.
+pub async fn resolve_execution_with_override(
+    ctx: &ApiContext,
+    id: &str,
+    domain: Option<ExecutionDomain>,
+) -> ApiResult<ExecutionDomain> {
+    // Layer 1: live registries (in-memory).
+    let agent_registry = ctx.agent_loop(id).is_some();
+    let workflow_registry = ctx.workflow_execution(id).is_some();
+    if agent_registry && workflow_registry {
+        return execution_verdict(id, true, true, domain);
+    }
+
+    // Layer 2: persisted execution records.
+    let agent_persisted = !agent_registry
+        && ctx.storage.agent_execution.load(id).await?.is_some();
+    let workflow_persisted = !workflow_registry
+        && ctx.storage.workflow_execution.load(id).await?.is_some();
+    let agent = agent_registry || agent_persisted;
+    let workflow = workflow_registry || workflow_persisted;
+    if agent || workflow {
+        // Exactly one domain answered (or both): layer 3 cannot change the
+        // verdict for the answered side, so skip the partition probes.
+        return execution_verdict(id, agent, workflow, domain);
+    }
+
+    // Layer 3: ghost ids visible only through checkpoint partitions.
+    let agent = agent_present(ctx, id).await?;
+    let workflow = workflow_present(ctx, id).await?;
+    execution_verdict(id, agent, workflow, domain)
 }
 
 /// Assert the id belongs to the endpoint's domain.
@@ -235,5 +274,53 @@ mod tests {
             ApiError::Validation(msg) => assert!(msg.contains("agent_loop"), "{msg}"),
             other => panic!("expected Validation, got {other:?}"),
         }
+    }
+
+    fn ghost_checkpoint(id: &str, entity_id: &str, entity_type: &str) -> wf_types::Checkpoint {
+        wf_types::Checkpoint {
+            id: wf_types::Id::from(id.to_string()),
+            entity_type: entity_type.to_string(),
+            entity_id: entity_id.to_string(),
+            checkpoint_type: wf_types::checkpoint::CheckpointType::Full,
+            timestamp: 1000,
+            status: wf_types::checkpoint::CheckpointStatus::Active,
+            previous_checkpoint_id: None,
+            base_checkpoint_id: None,
+            chain_root_id: None,
+            chain_position: None,
+            blob_size: None,
+            tags: None,
+            custom_fields: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn ghost_workflow_id_resolves_via_checkpoint_partition() {
+        let ctx = make_ctx();
+        crate::checkpoint::record::save_checkpoint(
+            &ctx.storage,
+            &ghost_checkpoint("cp-ghost", "exec-ghost", "checkpoint"),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            resolve_execution(&ctx, "exec-ghost").await.unwrap(),
+            ExecutionDomain::Workflow
+        );
+    }
+
+    #[tokio::test]
+    async fn ghost_agent_id_resolves_via_checkpoint_partition() {
+        let ctx = make_ctx();
+        crate::checkpoint::record::save_checkpoint(
+            &ctx.storage,
+            &ghost_checkpoint("cp-ghost-agent", "loop-ghost", "agent_loop"),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            resolve_execution(&ctx, "loop-ghost").await.unwrap(),
+            ExecutionDomain::AgentLoop
+        );
     }
 }

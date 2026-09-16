@@ -166,13 +166,7 @@ pub struct CheckpointChainAnalysisView {
     pub time_range: CheckpointTimeRangeView,
 }
 
-/// Chronological chain of an execution's checkpoints with transitions
-/// between consecutive checkpoints.
-pub async fn get_checkpoint_chain(
-    ctx: &StorageContext,
-    execution_id: &str,
-) -> crate::ApiResult<CheckpointChainAnalysisView> {
-    let mut sorted = list_checkpoints_by_entity(ctx, execution_id, "checkpoint").await?;
+fn build_chain(execution_id: &str, mut sorted: Vec<Checkpoint>) -> CheckpointChainAnalysisView {
     sorted.sort_by_key(|c| c.timestamp);
 
     let mut transitions = Vec::new();
@@ -195,7 +189,7 @@ pub async fn get_checkpoint_chain(
 
     let first = sorted.first();
     let last = sorted.last();
-    Ok(CheckpointChainAnalysisView {
+    CheckpointChainAnalysisView {
         execution_id: execution_id.to_string(),
         checkpoints: sorted.clone(),
         transitions,
@@ -208,7 +202,90 @@ pub async fn get_checkpoint_chain(
             start: first.map(|c| c.timestamp).unwrap_or(0),
             end: last.map(|c| c.timestamp).unwrap_or(0),
         },
-    })
+    }
+}
+
+/// Chronological chain of an execution's checkpoints with transitions
+/// between consecutive checkpoints.
+pub async fn get_checkpoint_chain(
+    ctx: &StorageContext,
+    execution_id: &str,
+) -> crate::ApiResult<CheckpointChainAnalysisView> {
+    let sorted = list_checkpoints_by_entity(ctx, execution_id, "checkpoint").await?;
+    Ok(build_chain(execution_id, sorted))
+}
+
+/// Resolve the checkpoint `entity_type` filter for an execution id through
+/// the unified execution resolver.
+pub async fn entity_type_for_execution(
+    ctx: &crate::infra::context::ApiContext,
+    execution_id: &str,
+    domain_override: Option<crate::entity::execution::ExecutionDomain>,
+) -> crate::ApiResult<&'static str> {
+    let domain = crate::entity::execution::resolve_execution_with_override(
+        ctx,
+        execution_id,
+        domain_override,
+    )
+    .await?;
+    Ok(domain.checkpoint_entity_type())
+}
+
+/// List checkpoints of an execution, selecting the `entity_type` filter via
+/// the unified execution resolver instead of a hardcoded workflow value.
+pub async fn list_for_execution(
+    ctx: &crate::infra::context::ApiContext,
+    execution_id: &str,
+    domain_override: Option<crate::entity::execution::ExecutionDomain>,
+) -> crate::ApiResult<Vec<Checkpoint>> {
+    let entity_type = entity_type_for_execution(ctx, execution_id, domain_override).await?;
+    list_checkpoints_by_entity(&ctx.storage, execution_id, entity_type).await
+}
+
+/// Checkpoint chain of an execution with the `entity_type` resolved through
+/// the unified execution resolver.
+pub async fn chain_for_execution(
+    ctx: &crate::infra::context::ApiContext,
+    execution_id: &str,
+    domain_override: Option<crate::entity::execution::ExecutionDomain>,
+) -> crate::ApiResult<CheckpointChainAnalysisView> {
+    let sorted = list_for_execution(ctx, execution_id, domain_override).await?;
+    Ok(build_chain(execution_id, sorted))
+}
+
+/// Delete all checkpoints of an execution with the `entity_type` resolved
+/// through the unified execution resolver. Returns the number removed.
+pub async fn delete_for_execution(
+    ctx: &crate::infra::context::ApiContext,
+    execution_id: &str,
+    domain_override: Option<crate::entity::execution::ExecutionDomain>,
+) -> crate::ApiResult<u64> {
+    let entity_type = entity_type_for_execution(ctx, execution_id, domain_override).await?;
+    delete_checkpoints_by_entity(&ctx.storage, execution_id, entity_type).await
+}
+
+/// GC checkpoints of an execution: delete all, or only those before
+/// `before` when set. The `entity_type` is resolved through the unified
+/// execution resolver. Returns the number removed.
+pub async fn gc_for_execution(
+    ctx: &crate::infra::context::ApiContext,
+    execution_id: &str,
+    before: Option<i64>,
+    domain_override: Option<crate::entity::execution::ExecutionDomain>,
+) -> crate::ApiResult<u64> {
+    let entity_type = entity_type_for_execution(ctx, execution_id, domain_override).await?;
+    if let Some(ts) = before {
+        let list = list_checkpoints_by_entity(&ctx.storage, execution_id, entity_type).await?;
+        let mut count = 0u64;
+        for cp in list {
+            if cp.timestamp < ts && delete_checkpoint(&ctx.storage, &cp.id).await? {
+                count += 1;
+            }
+        }
+        Ok(count)
+    } else {
+        delete_checkpoints_by_entity(&ctx.storage, execution_id, entity_type).await
+    }
 }
 
 /// Checkpoints of every execution of a workflow within a timestamp range,

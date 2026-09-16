@@ -6,31 +6,36 @@ use crate::cmd::render::render_envelope;
 use crate::error::CliResult;
 use crate::output::OutputEnvelope;
 
+fn domain_override(
+    domain: Option<crate::args::CheckpointDomain>,
+) -> Option<wf_api::ExecutionDomain> {
+    domain.map(wf_api::ExecutionDomain::from)
+}
+
 pub async fn run(cli: &Cli, sub: &CheckpointSub) -> CliResult<()> {
     let adapter =
         crate::domain::DomainAdapter::bootstrap_for_cli(cli, crate::mode::CliMode::Run).await?;
     let ctx = adapter.api_context();
     let result = match sub {
-        CheckpointSub::Create { id, name, agent } => {
-            if *agent {
-                let created =
-                    wf_api::agent::agent_checkpoint::create(ctx, id, name.clone()).await?;
-                let data =
-                    serde_json::json!({"agentLoopId": id, "checkpointId": created.id});
-                render_envelope(
-                    cli.output,
-                    OutputEnvelope::success("checkpoint-create", data)
-                        .with_entity(created.id.clone()),
-                )
-            } else {
-                let checkpoint_id = workflow_execution::create_checkpoint(ctx, id).await?;
-                let data = serde_json::json!({"executionId": id, "checkpointId": checkpoint_id});
-                render_envelope(
-                    cli.output,
-                    OutputEnvelope::success("checkpoint-create", data)
-                        .with_entity(checkpoint_id.clone()),
-                )
-            }
+        CheckpointSub::Create { id } => {
+            let checkpoint_id = workflow_execution::create_checkpoint(ctx, id).await?;
+            let data = serde_json::json!({"executionId": id, "checkpointId": checkpoint_id});
+            render_envelope(
+                cli.output,
+                OutputEnvelope::success("checkpoint-create", data)
+                    .with_entity(checkpoint_id.clone()),
+            )
+        }
+        CheckpointSub::CreateAgent { id, name } => {
+            let created =
+                wf_api::agent::agent_checkpoint::create(ctx, id, name.clone()).await?;
+            let data =
+                serde_json::json!({"agentLoopId": id, "checkpointId": created.id});
+            render_envelope(
+                cli.output,
+                OutputEnvelope::success("checkpoint-create", data)
+                    .with_entity(created.id.clone()),
+            )
         }
         CheckpointSub::FileCreate { id, path } => {
             let manager = ctx.file_checkpoint_manager().ok_or_else(|| {
@@ -49,9 +54,14 @@ pub async fn run(cli: &Cli, sub: &CheckpointSub) -> CliResult<()> {
                 OutputEnvelope::success("checkpoint-file-create", data).with_entity(id.clone()),
             )
         }
-        CheckpointSub::List { id, limit, offset } => {
+        CheckpointSub::List {
+            id,
+            limit,
+            offset,
+            domain,
+        } => {
             let mut list =
-                checkpoint::list_checkpoints_by_entity(&ctx.storage, id, "checkpoint").await?;
+                checkpoint::list_for_execution(ctx, id, domain_override(*domain)).await?;
             list.sort_by_key(|c| c.timestamp);
             let off = offset.unwrap_or(0);
             let lim = limit.unwrap_or(usize::MAX);
@@ -89,6 +99,16 @@ pub async fn run(cli: &Cli, sub: &CheckpointSub) -> CliResult<()> {
                 )
             }
         }
+        CheckpointSub::RestoreAgent { id, checkpoint } => {
+            let restored =
+                wf_api::agent::agent_checkpoint::restore(ctx, id, checkpoint).await?;
+            let data = serde_json::to_value(&restored)?;
+            render_envelope(
+                cli.output,
+                OutputEnvelope::success("checkpoint-restore", data)
+                    .with_entity(restored.id.clone()),
+            )
+        }
         CheckpointSub::Delete { id } => {
             let deleted = checkpoint::delete_checkpoint(&ctx.storage, id).await?;
             let data = serde_json::json!({"deleted": id, "ok": deleted});
@@ -97,31 +117,18 @@ pub async fn run(cli: &Cli, sub: &CheckpointSub) -> CliResult<()> {
                 OutputEnvelope::success("checkpoint-delete", data).with_entity(id.clone()),
             )
         }
-        CheckpointSub::Chain { id } => {
-            let chain = checkpoint::get_checkpoint_chain(&ctx.storage, id).await?;
+        CheckpointSub::Chain { id, domain } => {
+            let chain =
+                checkpoint::chain_for_execution(ctx, id, domain_override(*domain)).await?;
             let data = serde_json::to_value(&chain)?;
             render_envelope(
                 cli.output,
                 OutputEnvelope::success("checkpoint-chain", data).with_entity(id.clone()),
             )
         }
-        CheckpointSub::Gc { id, before } => {
-            let deleted = if let Some(ts) = before {
-                // Filter by timestamp before deleting.
-                let list =
-                    checkpoint::list_checkpoints_by_entity(&ctx.storage, id, "checkpoint").await?;
-                let mut count = 0u64;
-                for cp in list {
-                    if cp.timestamp < *ts
-                        && checkpoint::delete_checkpoint(&ctx.storage, &cp.id).await?
-                    {
-                        count += 1;
-                    }
-                }
-                count
-            } else {
-                checkpoint::delete_checkpoints_by_entity(&ctx.storage, id, "checkpoint").await?
-            };
+        CheckpointSub::Gc { id, before, domain } => {
+            let deleted =
+                checkpoint::gc_for_execution(ctx, id, *before, domain_override(*domain)).await?;
             let data = serde_json::json!({"executionId": id, "deleted": deleted});
             render_envelope(
                 cli.output,

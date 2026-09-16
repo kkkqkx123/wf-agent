@@ -1,6 +1,7 @@
 //! Low-level storage entity CRUD APIs: messages, tasks, trigger executions,
 //! user interactions, resources and skills.
 
+pub mod execution;
 pub mod message;
 pub mod resource;
 pub mod skill;

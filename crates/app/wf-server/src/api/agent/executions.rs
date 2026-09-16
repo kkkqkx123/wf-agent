@@ -150,11 +150,21 @@ struct CreateCheckpointBody {
     description: Option<String>,
 }
 
+async fn ensure_agent_domain(
+    ctx: &wf_api::ApiContext,
+    id: &str,
+) -> Result<wf_api::ExecutionDomain, wf_api::ApiError> {
+    wf_api::ensure_execution_domain(ctx, id, wf_api::ExecutionDomain::AgentLoop).await
+}
+
 async fn handle_create_checkpoint(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
     Json(body): Json<CreateCheckpointBody>,
 ) -> impl IntoResponse {
+    if let Err(e) = ensure_agent_domain(&state.ctx, &path.id).await {
+        return error_response(e);
+    }
     match wf_api::agent::agent_checkpoint::create(&state.ctx, &path.id, body.description).await
     {
         Ok(checkpoint) => ok(checkpoint).into_response(),
@@ -166,9 +176,30 @@ async fn handle_list_checkpoints(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
+    if let Err(e) = ensure_agent_domain(&state.ctx, &path.id).await {
+        return error_response(e);
+    }
     match wf_api::agent::agent_checkpoint::list(&state.ctx, &path.id).await {
         Ok(checkpoints) => ok(checkpoints).into_response(),
         Err(e) => error_response(e),
+    }
+}
+
+async fn reject_workflow_checkpoint(
+    state: &ApiState,
+    cid: &str,
+) -> Option<axum::response::Response> {
+    match wf_api::checkpoint::record::get_checkpoint(&state.ctx.storage, cid).await {
+        Ok(cp) if cp.entity_type != "agent_loop" => Some(error_response(
+            wf_api::ApiError::Validation(format!(
+                "checkpoint [{cid}] belongs to workflow, not agent_loop; use the workflow checkpoint endpoint"
+            )),
+        )),
+        Ok(_) => None,
+        Err(e) => match e {
+            wf_api::ApiError::NotFound { .. } => Some(error_response(e)),
+            _ => Some(error_response(e)),
+        },
     }
 }
 
@@ -176,6 +207,12 @@ async fn handle_restore_checkpoint(
     State(state): State<ApiState>,
     Path(path): Path<crate::extract::IdCidPath>,
 ) -> impl IntoResponse {
+    if let Err(e) = ensure_agent_domain(&state.ctx, &path.id).await {
+        return error_response(e);
+    }
+    if let Some(response) = reject_workflow_checkpoint(&state, &path.cid).await {
+        return response;
+    }
     match wf_api::agent::agent_checkpoint::restore(&state.ctx, &path.id, &path.cid).await {
         Ok(checkpoint) => ok(checkpoint).into_response(),
         Err(e) => error_response(e),
@@ -217,6 +254,12 @@ async fn handle_resume_checkpoint(
     Path(path): Path<crate::extract::IdCidPath>,
     Json(body): Json<ResumeCheckpointBody>,
 ) -> impl IntoResponse {
+    if let Err(e) = ensure_agent_domain(&state.ctx, &path.id).await {
+        return error_response(e);
+    }
+    if let Some(response) = reject_workflow_checkpoint(&state, &path.cid).await {
+        return response;
+    }
     let in_place = body.mode == ResumeCheckpointMode::InPlace;
     match wf_api::agent::agent_execution::resume_from_checkpoint(
         &state.ctx,
@@ -241,6 +284,9 @@ async fn handle_checkpoint_chain(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
+    if let Err(e) = ensure_agent_domain(&state.ctx, &path.id).await {
+        return error_response(e);
+    }
     match wf_api::agent::agent_checkpoint::chain(&state.ctx, &path.id).await {
         Ok(chain) => ok(chain).into_response(),
         Err(e) => error_response(e),
@@ -251,6 +297,9 @@ async fn handle_delete_checkpoints(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
+    if let Err(e) = ensure_agent_domain(&state.ctx, &path.id).await {
+        return error_response(e);
+    }
     match wf_api::agent::agent_checkpoint::delete_for(&state.ctx, &path.id).await {
         Ok(removed) => ok(removed).into_response(),
         Err(e) => error_response(e),

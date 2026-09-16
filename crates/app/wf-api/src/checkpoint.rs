@@ -18,9 +18,10 @@ pub use provenance::{
     list_changes_by_path, list_partitions as provenance_list_partitions, run_gc,
 };
 pub use record::{
-    delete_checkpoint, delete_checkpoints_by_entity, get_checkpoint, get_checkpoint_chain,
+    chain_for_execution, delete_checkpoint, delete_checkpoints_by_entity, delete_for_execution,
+    entity_type_for_execution, gc_for_execution, get_checkpoint, get_checkpoint_chain,
     get_checkpoint_entity_metadata, get_latest_checkpoint, list_checkpoints,
     list_checkpoints_by_entities, list_checkpoints_by_entity, list_checkpoints_by_time_range,
-    save_checkpoint, set_checkpoint_entity_metadata, CheckpointChainAnalysisView,
-    CheckpointTimeRangeView, CheckpointTransitionView,
+    list_for_execution, save_checkpoint, set_checkpoint_entity_metadata,
+    CheckpointChainAnalysisView, CheckpointTimeRangeView, CheckpointTransitionView,
 };

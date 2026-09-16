@@ -20,6 +20,7 @@ use wf_execution_shared::types::state_manager::StateManager;
 use wf_storage::adapter::base::BaseStorageAdapter;
 use wf_types::agent_execution::LlmCallRecord;
 
+use crate::entity::execution::{resolve_execution, ExecutionDomain};
 use crate::infra::context::ApiContext;
 use crate::infra::error::ApiResult;
 
@@ -540,48 +541,56 @@ async fn checkpoint_count(ctx: &ApiContext, execution_id: &str) -> ApiResult<usi
 
 // ─── public API ────────────────────────────────────────────────────────────
 
-/// Audit summary of an execution (agent loop or workflow).
-pub async fn audit_summary(ctx: &ApiContext, execution_id: &str) -> ApiResult<AuditSummary> {
-    let checkpoints = checkpoint_count(ctx, execution_id).await?;
-    if let Some(data) = resolve_agent(ctx, execution_id).await? {
-        return Ok(AuditSummary {
-            execution_id: execution_id.to_string(),
-            entity_kind: "agent_loop".to_string(),
-            source: data.source,
-            status: data.status,
-            started_at: data.started_at,
-            ended_at: data.ended_at,
-            iteration_count: data.iterations.len(),
-            tool_call_count: data
-                .iterations
-                .iter()
-                .map(|iteration| iteration.tool_calls.len())
-                .sum(),
-            llm_call_count: data
-                .iterations
-                .iter()
-                .map(|iteration| iteration.llm_calls.len())
-                .sum(),
-            node_execution_count: 0,
-            checkpoint_count: checkpoints,
-        });
+fn agent_summary(
+    execution_id: &str,
+    checkpoints: usize,
+    data: AgentAuditData,
+) -> AuditSummary {
+    AuditSummary {
+        execution_id: execution_id.to_string(),
+        entity_kind: "agent_loop".to_string(),
+        source: data.source,
+        status: data.status,
+        started_at: data.started_at,
+        ended_at: data.ended_at,
+        iteration_count: data.iterations.len(),
+        tool_call_count: data
+            .iterations
+            .iter()
+            .map(|iteration| iteration.tool_calls.len())
+            .sum(),
+        llm_call_count: data
+            .iterations
+            .iter()
+            .map(|iteration| iteration.llm_calls.len())
+            .sum(),
+        node_execution_count: 0,
+        checkpoint_count: checkpoints,
     }
-    if let Some(data) = resolve_workflow(ctx, execution_id).await? {
-        return Ok(AuditSummary {
-            execution_id: execution_id.to_string(),
-            entity_kind: "workflow".to_string(),
-            source: data.source,
-            status: data.status,
-            started_at: data.started_at,
-            ended_at: data.ended_at,
-            iteration_count: 0,
-            tool_call_count: 0,
-            llm_call_count: 0,
-            node_execution_count: data.node_executions.len(),
-            checkpoint_count: checkpoints,
-        });
+}
+
+fn workflow_summary(
+    execution_id: &str,
+    checkpoints: usize,
+    data: WorkflowAuditData,
+) -> AuditSummary {
+    AuditSummary {
+        execution_id: execution_id.to_string(),
+        entity_kind: "workflow".to_string(),
+        source: data.source,
+        status: data.status,
+        started_at: data.started_at,
+        ended_at: data.ended_at,
+        iteration_count: 0,
+        tool_call_count: 0,
+        llm_call_count: 0,
+        node_execution_count: data.node_executions.len(),
+        checkpoint_count: checkpoints,
     }
-    Ok(AuditSummary {
+}
+
+fn unknown_summary(execution_id: &str) -> AuditSummary {
+    AuditSummary {
         execution_id: execution_id.to_string(),
         entity_kind: "unknown".to_string(),
         source: AuditSource::Unknown,
@@ -593,7 +602,43 @@ pub async fn audit_summary(ctx: &ApiContext, execution_id: &str) -> ApiResult<Au
         llm_call_count: 0,
         node_execution_count: 0,
         checkpoint_count: 0,
-    })
+    }
+}
+
+/// Audit summary of an execution (agent loop or workflow).
+pub async fn audit_summary(ctx: &ApiContext, execution_id: &str) -> ApiResult<AuditSummary> {
+    let checkpoints = checkpoint_count(ctx, execution_id).await?;
+    match resolve_execution(ctx, execution_id).await {
+        Ok(ExecutionDomain::AgentLoop) => {
+            if let Some(data) = resolve_agent(ctx, execution_id).await? {
+                return Ok(agent_summary(execution_id, checkpoints, data));
+            }
+            if let Some(data) = resolve_workflow(ctx, execution_id).await? {
+                return Ok(workflow_summary(execution_id, checkpoints, data));
+            }
+            Ok(unknown_summary(execution_id))
+        }
+        Ok(ExecutionDomain::Workflow) => {
+            if let Some(data) = resolve_workflow(ctx, execution_id).await? {
+                return Ok(workflow_summary(execution_id, checkpoints, data));
+            }
+            if let Some(data) = resolve_agent(ctx, execution_id).await? {
+                return Ok(agent_summary(execution_id, checkpoints, data));
+            }
+            Ok(unknown_summary(execution_id))
+        }
+        Err(crate::ApiError::ExecutionNotFound { .. }) => Ok(unknown_summary(execution_id)),
+        Err(crate::ApiError::Conflict(_)) => {
+            if let Some(data) = resolve_agent(ctx, execution_id).await? {
+                return Ok(agent_summary(execution_id, checkpoints, data));
+            }
+            if let Some(data) = resolve_workflow(ctx, execution_id).await? {
+                return Ok(workflow_summary(execution_id, checkpoints, data));
+            }
+            Ok(unknown_summary(execution_id))
+        }
+        Err(e) => Err(e),
+    }
 }
 
 /// Iterations of an agent loop execution with their tool/LLM audit trails.
@@ -694,10 +739,23 @@ pub async fn audit_timeline(
     execution_id: &str,
 ) -> ApiResult<Vec<AuditTimelineEntry>> {
     let mut entries = Vec::new();
-    if let Some(data) = resolve_agent(ctx, execution_id).await? {
-        entries.extend(agent_timeline_events(&data.iterations));
-    } else if let Some(data) = resolve_workflow(ctx, execution_id).await? {
-        entries.extend(workflow_timeline_events(&data.node_executions));
+    match resolve_execution(ctx, execution_id).await {
+        Ok(ExecutionDomain::AgentLoop) | Err(crate::ApiError::Conflict(_)) => {
+            if let Some(data) = resolve_agent(ctx, execution_id).await? {
+                entries.extend(agent_timeline_events(&data.iterations));
+            } else if let Some(data) = resolve_workflow(ctx, execution_id).await? {
+                entries.extend(workflow_timeline_events(&data.node_executions));
+            }
+        }
+        Ok(ExecutionDomain::Workflow) => {
+            if let Some(data) = resolve_workflow(ctx, execution_id).await? {
+                entries.extend(workflow_timeline_events(&data.node_executions));
+            } else if let Some(data) = resolve_agent(ctx, execution_id).await? {
+                entries.extend(agent_timeline_events(&data.iterations));
+            }
+        }
+        Err(crate::ApiError::ExecutionNotFound { .. }) => {}
+        Err(e) => return Err(e),
     }
     // Phase sorting: end-of-phase entries trail same-timestamp starts so a
     // zero-duration call still renders as start → end.

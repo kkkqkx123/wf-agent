@@ -71,6 +71,9 @@ pub use builder::{
     AgentToolConfigBuilder, ExecutionBuilder, ExecutionResult, NodeBuilder, NodeTemplateBuilder,
     TriggerTemplateBuilder, WorkflowBuilder,
 };
+pub use entity::execution::{
+    ensure_execution_domain, resolve_execution, resolve_execution_with_override, ExecutionDomain,
+};
 pub use entity::message::{MessageOrder, MessageStats};
 pub use entity::resource::ResourceApi;
 pub use entity::skill::{SkillFilter, SkillResourceEntry};

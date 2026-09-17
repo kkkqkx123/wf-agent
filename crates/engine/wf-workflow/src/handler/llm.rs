@@ -841,10 +841,35 @@ impl LlmHandler {
             .get("stream")
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
-        let max_tool_calls = config
-            .get("max_tool_calls_per_request")
+        // Interaction budget: maximum model generations per node
+        // execution. Static validation rejects an explicit zero; the
+        // runtime guard below covers unvalidated graphs the same way
+        // instead of running zero generations and returning nothing.
+        let max_interactions = config
+            .get("max_interactions")
             .and_then(|v| v.as_u64())
             .unwrap_or(5);
+        if max_interactions == 0 {
+            return Err(WorkflowError::OperationError(format!(
+                "LLM node '{}' has max_interactions 0; it must be >= 1",
+                ctx.node_id
+            )));
+        }
+        // Per-response tool cap: at most this many tool calls of a single
+        // model response are executed; the rest fail with an error result
+        // so the next generation sees what was skipped. Absent means no
+        // cap. Zero would execute nothing while declaring tools, which
+        // masks a misconfiguration, so it is rejected: omit the tools
+        // list for text-only calls.
+        let max_tools_per_response: Option<u64> = config
+            .get("max_tool_calls_per_request")
+            .and_then(|v| v.as_u64());
+        if max_tools_per_response == Some(0) {
+            return Err(WorkflowError::OperationError(format!(
+                "LLM node '{}' has max_tool_calls_per_request 0; omit the tools list for text-only calls",
+                ctx.node_id
+            )));
+        }
 
         // Token tracking: the node-level settings consolidate through
         // `LlmExecutionConfig` (typed extraction from the node config JSON);
@@ -902,9 +927,14 @@ impl LlmHandler {
         let mut aggregated_content: Option<String> = None;
 
         // Multi-round tool loop: keep calling the model while it emits tool
-        // calls, feeding tool results back, up to max_tool_calls_per_request.
-        // A loop that exhausts the budget while the model keeps emitting tool
-        // calls is an error, not a silent truncation.
+        // calls, feeding tool results back, up to max_interactions
+        // generations. Each response executes at most
+        // max_tool_calls_per_request tool calls; excess calls fail with an
+        // error result so the next generation sees what was skipped. When
+        // the interaction budget is spent with tools just executed, the
+        // node returns the collected tool record instead of failing: the
+        // structured output carries every call, so nothing is truncated
+        // silently.
         // An invalid node-level `generation` warns and falls through to the
         // execution defaults, mirroring the previous `.ok()` fallback with
         // observability added. Registered graphs are statically rejected
@@ -926,8 +956,8 @@ impl LlmHandler {
                 },
             };
         let node_generation = parsed_generation.or_else(|| exec_config.generation.clone());
-        let mut tool_loop_exhausted = false;
-        for _round in 0..max_tool_calls {
+        let mut stopped_with_tools = false;
+        for _round in 0..max_interactions {
             let request = LlmRequest {
                 profile_id: profile_id.clone(),
                 messages: messages.clone(),
@@ -1170,7 +1200,6 @@ impl LlmHandler {
                     emit_token_usage_events(ctx, token_warning_threshold).await;
                 }
                 aggregated_content = Some(content_parts.concat());
-                tool_loop_exhausted = false;
                 break;
             }
 
@@ -1207,26 +1236,35 @@ impl LlmHandler {
             aggregated_content = response.content.clone();
 
             if !has_tool_calls {
-                tool_loop_exhausted = false;
                 break;
             }
 
             let calls = response.tool_calls.unwrap_or_default();
+            let run_now: &[LlmToolCall] = match max_tools_per_response {
+                Some(cap) => {
+                    let at = cap.min(calls.len() as u64) as usize;
+                    &calls[..at]
+                }
+                None => &calls,
+            };
+            let skipped = &calls[run_now.len()..];
             let mut any_result = false;
             // One approval batch per response, mirroring the agent gate:
             // parallel calls share the batch id and see each other in the
-            // pending queue instead of approving in isolation.
-            let pending_queue = pending_queue_for(&calls, ctx.tool_registry.as_ref());
-            let batch_id = if calls.len() > 1 {
+            // pending queue instead of approving in isolation. Skipped
+            // calls never reach approval or execution; they only record a
+            // failure below.
+            let pending_queue = pending_queue_for(run_now, ctx.tool_registry.as_ref());
+            let batch_id = if run_now.len() > 1 {
                 Some(wf_common::generate_id())
             } else {
                 None
             };
-            for (idx, call) in calls.iter().enumerate() {
+            for (idx, call) in run_now.iter().enumerate() {
                 let batch = batch_id.as_ref().map(|batch_id| LlmToolCallBatch {
                     batch_id: batch_id.clone(),
                     index: idx as u32,
-                    total: calls.len() as u32,
+                    total: run_now.len() as u32,
                     pending_queue: pending_queue.clone(),
                 });
                 let result_msg =
@@ -1246,28 +1284,52 @@ impl LlmHandler {
                 messages.push(result_msg);
                 any_result = true;
             }
+            if let Some(cap) = max_tools_per_response {
+                for call in skipped {
+                    let reason = format!(
+                        "Tool \"{}\" was not executed: the response exceeds max_tool_calls_per_request ({}); only the first {} calls ran",
+                        call.function.name, cap, cap,
+                    );
+                    messages.push(tool_result_message(
+                        &call.id,
+                        &call.function.name,
+                        reason,
+                        true,
+                    ));
+                    executed_tool_calls.push(serde_json::json!({
+                        "id": call.id,
+                        "name": call.function.name,
+                        "success": false,
+                        "skipped": true,
+                    }));
+                    any_result = true;
+                }
+            }
             if !any_result {
-                tool_loop_exhausted = false;
                 break;
             }
-            // The iteration ended with tool calls executed and no break: if
-            // the `max_tool_calls_per_request` budget is now spent, the model
-            // still emitting tool calls is an error, not a silent truncation.
-            tool_loop_exhausted = true;
+            // The interaction budget covers model generations: when no
+            // generation remains, the tools just executed are returned
+            // instead of fed back. The structured output below carries
+            // every call, so stopping here truncates nothing silently.
+            if _round + 1 >= max_interactions {
+                stopped_with_tools = true;
+                break;
+            }
         }
 
-        if tool_loop_exhausted {
-            return Err(WorkflowError::OperationError(format!(
-                "LLM node '{}' exceeded max_tool_calls_per_request ({}) with the model still emitting tool calls",
-                ctx.node_id, max_tool_calls
-            )));
-        }
-
-        let output = aggregated_content
-            .as_deref()
-            .filter(|s| !s.is_empty())
-            .map(|s| Value::String(s.to_string()))
-            .unwrap_or(Value::Null);
+        let output = if stopped_with_tools {
+            serde_json::json!({
+                "content": aggregated_content.clone().unwrap_or_default(),
+                "tool_calls": executed_tool_calls.clone(),
+            })
+        } else {
+            aggregated_content
+                .as_deref()
+                .filter(|s| !s.is_empty())
+                .map(|s| Value::String(s.to_string()))
+                .unwrap_or(Value::Null)
+        };
 
         let mut metadata = HashMap::new();
         if let Some(response) = &final_response {
@@ -1296,6 +1358,9 @@ impl LlmHandler {
             metadata.insert("tool_calls".to_string(), Value::Array(executed_tool_calls));
         }
         metadata.insert("stream".to_string(), Value::Bool(stream_enabled));
+        if stopped_with_tools {
+            metadata.insert("rounds_exhausted".to_string(), Value::Bool(true));
+        }
 
         // Write the assistant response to the configured output context
         // (the read context is left untouched so the compression chain can
@@ -1317,20 +1382,24 @@ impl LlmHandler {
             }
         }
 
+        let mut completion_meta = HashMap::from([
+            (
+                "event".to_string(),
+                Value::String("llm_node_completed".to_string()),
+            ),
+            (
+                "tool_call_count".to_string(),
+                Value::Number(serde_json::Number::from(executed_tool_count as u64)),
+            ),
+        ]);
+        if stopped_with_tools {
+            completion_meta.insert("rounds_exhausted".to_string(), Value::Bool(true));
+        }
         emit_llm_event(
             ctx.event_bus.as_deref(),
             EventType::NodeCustomEvent,
             ctx,
-            HashMap::from([
-                (
-                    "event".to_string(),
-                    Value::String("llm_node_completed".to_string()),
-                ),
-                (
-                    "tool_call_count".to_string(),
-                    Value::Number(serde_json::Number::from(executed_tool_count as u64)),
-                ),
-            ]),
+            completion_meta,
         );
 
         Ok(NodeExecutionResult {

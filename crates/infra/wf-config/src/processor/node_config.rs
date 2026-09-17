@@ -103,6 +103,46 @@ mod tests {
     }
 
     #[test]
+    fn llm_rejects_zero_budgets() {
+        let errors = validate_node_config(
+            "LLM",
+            "n1",
+            Some(&serde_json::json!({"profile_id": "mock", "max_interactions": 0})),
+        );
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].message.contains("max_interactions"));
+
+        let errors = validate_node_config(
+            "LLM",
+            "n1",
+            Some(
+                &serde_json::json!({"profile_id": "mock", "max_tool_calls_per_request": 0}),
+            ),
+        );
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].message.contains("max_tool_calls_per_request"));
+
+        assert!(validate_node_config(
+            "LLM",
+            "n1",
+            Some(
+                &serde_json::json!({"profile_id": "mock", "max_interactions": 1, "max_tool_calls_per_request": 2}),
+            ),
+        )
+        .is_empty());
+
+        let errors = validate_node_config(
+            "LLM",
+            "n1",
+            Some(&serde_json::json!({"profile_id": "mock", "max_interactions": "many"})),
+        );
+        assert!(
+            errors.iter().any(|e| e.message.contains("execution settings")),
+            "non-integer budgets stay owned by the execution-settings type check"
+        );
+    }
+
+    #[test]
     fn variable_requires_name_and_expression() {
         let errors = validate_node_config("VARIABLE", "n1", Some(&serde_json::json!({})));
         assert_eq!(errors.len(), 2);

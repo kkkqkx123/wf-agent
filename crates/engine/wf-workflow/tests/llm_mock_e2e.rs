@@ -527,17 +527,20 @@ async fn agent_loop_runs_mock_driven_iterations() {
     assert_eq!(mock.recorded_count(), 2);
 }
 
-/// Exhausting `max_tool_calls_per_request` while the model keeps
-/// emitting tool calls must fail the node — not silently truncate.
+/// Exhausting `max_interactions` while the model keeps emitting tool
+/// calls returns the collected tool record instead of failing: the
+/// structured output carries every executed call, so nothing is
+/// truncated silently.
 #[tokio::test]
-async fn max_tool_calls_exhaustion_errors_instead_of_truncating() {
+async fn rounds_exhaustion_returns_tool_record_instead_of_error() {
     let mock = Arc::new(MockLlmClient::new());
     mock.script(LlmResponseSpec::tool_calls(vec![tool_call(
         "c1",
         "echo",
         r#"{"text":"a"}"#,
     )]));
-    // Every further call also returns tool calls: the loop can never break.
+    // Every further call also returns tool calls: the loop can never break
+    // on text.
     mock.default(LlmResponseSpec::tool_calls(vec![tool_call(
         "c2",
         "echo",
@@ -553,21 +556,151 @@ async fn max_tool_calls_exhaustion_errors_instead_of_truncating() {
         serde_json::json!({
             "profile_id": "mock",
             "tools": ["echo"],
+            "max_interactions": 2,
+        }),
+    );
+    ctx.tool_registry = Some(registered_echo_tool());
+
+    let result = handler.execute(&mut ctx).await.unwrap();
+    // Two rounds ran before the budget was spent.
+    assert_eq!(mock.recorded_requests().len(), 2);
+    let calls = result
+        .output
+        .get("tool_calls")
+        .and_then(|v| v.as_array())
+        .expect("exhausted node must return a structured tool record");
+    assert_eq!(calls.len(), 2);
+    assert_eq!(
+        result.metadata.get("rounds_exhausted"),
+        Some(&serde_json::json!(true))
+    );
+}
+
+/// A single response carrying more tool calls than
+/// `max_tool_calls_per_request` executes the first calls and records the
+/// rest as skipped failures; the error results reach the next generation
+/// through the context.
+#[tokio::test]
+async fn per_response_cap_skips_excess_with_error_context() {
+    let mock = Arc::new(MockLlmClient::new());
+    mock.script(LlmResponseSpec::tool_calls(vec![
+        tool_call("c1", "echo", r#"{"text":"a"}"#),
+        tool_call("c2", "echo", r#"{"text":"b"}"#),
+        tool_call("c3", "echo", r#"{"text":"c"}"#),
+    ]));
+    mock.script(LlmResponseSpec::text("done"));
+
+    let gateway = Arc::new(LlmGateway::new());
+    gateway.register_mock("mock", mock.clone());
+    let handler = LlmHandler::new(gateway);
+
+    let mut ctx = llm_ctx(
+        "llm1",
+        serde_json::json!({
+            "profile_id": "mock",
+            "tools": ["echo"],
             "max_tool_calls_per_request": 2,
         }),
     );
     ctx.tool_registry = Some(registered_echo_tool());
 
+    let result = handler.execute(&mut ctx).await.unwrap();
+    assert_eq!(result.output, serde_json::json!("done"));
+    let calls = result
+        .metadata
+        .get("tool_calls")
+        .and_then(|v| v.as_array())
+        .expect("executed calls must be recorded in metadata");
+    assert_eq!(calls.len(), 3);
+    assert_eq!(calls[2].get("success"), Some(&serde_json::json!(false)));
+    assert_eq!(calls[2].get("skipped"), Some(&serde_json::json!(true)));
+
+    // The skipped call surfaces to the next generation as an error tool
+    // result instead of being silently dropped.
+    let requests = mock.recorded_requests();
+    assert_eq!(requests.len(), 2);
+    let skipped_msg = requests[1]
+        .messages
+        .iter()
+        .find(|m| m.role == MessageRole::Tool && m.tool_call_id.as_deref() == Some("c3"))
+        .expect("skipped call must reach the next generation as a tool result");
+    match &skipped_msg.content {
+        MessageContentValue::Text(text) => assert!(
+            text.contains("max_tool_calls_per_request"),
+            "skip reason must name the cap, got: {text}"
+        ),
+        other => panic!("skip result must be text, got: {other:?}"),
+    }
+}
+
+/// `max_interactions: 1` is the audited single round: one generation, one
+/// bounded tool round, no follow-up model call.
+#[tokio::test]
+async fn single_interaction_returns_tool_results_without_followup() {
+    let mock = Arc::new(MockLlmClient::new());
+    mock.script(LlmResponseSpec::tool_calls(vec![tool_call(
+        "c1",
+        "echo",
+        r#"{"text":"a"}"#,
+    )]));
+
+    let gateway = Arc::new(LlmGateway::new());
+    gateway.register_mock("mock", mock.clone());
+    let handler = LlmHandler::new(gateway);
+
+    let mut ctx = llm_ctx(
+        "llm1",
+        serde_json::json!({
+            "profile_id": "mock",
+            "tools": ["echo"],
+            "max_interactions": 1,
+        }),
+    );
+    ctx.tool_registry = Some(registered_echo_tool());
+
+    let result = handler.execute(&mut ctx).await.unwrap();
+    assert_eq!(mock.recorded_requests().len(), 1);
+    let calls = result
+        .output
+        .get("tool_calls")
+        .and_then(|v| v.as_array())
+        .expect("single round must return a structured tool record");
+    assert_eq!(calls.len(), 1);
+    assert_eq!(calls[0].get("name"), Some(&serde_json::json!("echo")));
+    assert_eq!(calls[0].get("success"), Some(&serde_json::json!(true)));
+}
+
+/// Explicit zero budgets are rejected instead of running nothing.
+#[tokio::test]
+async fn zero_budgets_are_rejected() {
+    let gateway = Arc::new(LlmGateway::new());
+    let handler = LlmHandler::new(gateway);
+
+    let mut ctx = llm_ctx(
+        "llm1",
+        serde_json::json!({"profile_id": "mock", "max_interactions": 0}),
+    );
+    ctx.tool_registry = Some(registered_echo_tool());
     let err = match handler.execute(&mut ctx).await {
         Err(e) => e.to_string(),
-        Ok(_) => panic!("the tool loop must fail on exhaustion"),
+        Ok(_) => panic!("zero max_interactions must be rejected"),
     };
-    assert!(
-        err.contains("max_tool_calls_per_request") && err.contains("2"),
-        "exhaustion must surface as an explicit error, got: {err}"
+    assert!(err.contains("max_interactions"));
+
+    let mut ctx = llm_ctx(
+        "llm1",
+        serde_json::json!({
+            "profile_id": "mock",
+            "tools": ["echo"],
+            "max_tool_calls_per_request": 0,
+        }),
     );
-    // Two rounds ran before the budget was spent.
-    assert_eq!(mock.recorded_requests().len(), 2);
+    ctx.tool_registry = Some(registered_echo_tool());
+    let err = match handler.execute(&mut ctx).await {
+        Err(e) => e.to_string(),
+        Ok(_) => panic!("zero max_tool_calls_per_request must be rejected"),
+    };
+    assert!(err.contains("max_tool_calls_per_request"));
 }
 
 /// A configured `dead_loop_detection` block is forwarded on every

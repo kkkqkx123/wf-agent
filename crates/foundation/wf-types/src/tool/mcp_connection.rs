@@ -42,6 +42,9 @@ pub struct McpServerConfigBase {
     /// Per-call timeout in seconds (schema default: 60).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub timeout: Option<u64>,
+    /// Retained for parsing historical configs only. Per-tool approval is
+    /// owned by approval settings; the connection layer only enforces
+    /// `disabled` and `disabled_tools`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub always_allow: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]

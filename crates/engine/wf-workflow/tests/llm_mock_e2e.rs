@@ -470,7 +470,9 @@ async fn llm_errors_propagate_without_node_retry() {
         ),
         node("end", "END", serde_json::json!({})),
     ]);
-    let err = run_workflow(g, handlers).await.expect_err("LLM error must fail the node");
+    let err = run_workflow(g, handlers)
+        .await
+        .expect_err("LLM error must fail the node");
     assert!(
         err.to_string().contains("HTTP 500 boom"),
         "unexpected error: {err}"

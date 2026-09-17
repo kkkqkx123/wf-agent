@@ -27,11 +27,6 @@ use crate::registry::ToolRegistry;
 /// Id prefix for dynamically registered per-tool entries.
 pub const MCP_TOOL_ID_PREFIX: &str = "mcp_";
 
-/// Build the tool id for a server tool: `mcp_{server}_{tool}`.
-pub fn mcp_tool_id(server_name: &str, tool_name: &str) -> String {
-    format!("{}{}_{}", MCP_TOOL_ID_PREFIX, server_name, tool_name)
-}
-
 /// Register the generic `use_mcp` tool into the registry.
 pub fn register_use_mcp(registry: &ToolRegistry) -> ToolResult<()> {
     let tool = USE_MCP.tool_def();
@@ -166,7 +161,7 @@ pub fn mcp_tool_to_tool(server_name: &str, info: &McpToolInfo) -> Tool {
     };
 
     Tool {
-        id: mcp_tool_id(server_name, &info.name),
+        id: sanitized_mcp_tool_id(MCP_TOOL_ID_PREFIX, server_name, &info.name),
         name: info.name.clone(),
         description: info
             .description
@@ -277,6 +272,10 @@ impl McpToolsRegistrar {
         manager: &McpConnectionManager,
         analytics: Option<&crate::mcp::analytics::McpUsageAnalytics>,
     ) -> Vec<String> {
+        if self.options.only_hot_tools && analytics.is_none() {
+            return Vec::new();
+        }
+
         let mut registered = Vec::new();
         let mut remaining = self.options.max_tools;
 
@@ -300,7 +299,9 @@ impl McpToolsRegistrar {
             let Some(entry) = manager.registry().get(server) else {
                 continue;
             };
-            for info in &entry.tools {
+            let mut tools = entry.tools.clone();
+            tools.sort_by(|a, b| a.name.cmp(&b.name));
+            for info in &tools {
                 if self.options.only_hot_tools {
                     let Some(hot) = &hot_tools else {
                         continue 'outer;
@@ -404,7 +405,10 @@ mod tests {
 
     #[test]
     fn test_mcp_tool_id_format() {
-        assert_eq!(mcp_tool_id("db", "query"), "mcp_db_query");
+        assert_eq!(
+            sanitized_mcp_tool_id(MCP_TOOL_ID_PREFIX, "db", "query"),
+            "mcp_db__query"
+        );
     }
 
     #[test]
@@ -491,7 +495,7 @@ mod tests {
             })),
         };
         let tool = mcp_tool_to_tool("db", &info);
-        assert_eq!(tool.id, "mcp_db_query");
+        assert_eq!(tool.id, "mcp_db__query");
         assert_eq!(tool.name, "query");
         assert_eq!(tool.tool_type, ToolType::Mcp);
         assert_eq!(
@@ -573,7 +577,7 @@ mod tests {
             ids
         );
         assert_eq!(ids[0], "mcp_db__one");
-        assert_eq!(ids[1], "mcp_db__two");
+        assert_eq!(ids[1], "mcp_db__three");
 
         assert!(registrar.is_tool_registered("mcp_db__one"));
         assert!(registry.get_tool("mcp_db__one").is_some());

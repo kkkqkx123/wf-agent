@@ -171,9 +171,12 @@ impl ToolApprovalCoordinator {
             }
         }
 
+        let risk_level =
+            ToolRiskLevel::parse_case_insensitive(tool.risk_level.as_deref().unwrap_or("write"));
+
         if let Some(ref fp) = self.options.file_permissions {
-            if let Ok(op) = extract_file_operation(&tool.tool_name, &tool.parameters) {
-                let paths = extract_file_paths(&tool.tool_name, &tool.parameters);
+            if let Ok(op) = extract_file_operation(&tool.tool_name, risk_level, &tool.parameters) {
+                let paths = extract_file_paths(&tool.parameters);
                 if !paths.is_empty() && paths.iter().any(|p| !check_file_permission(p, &op, fp)) {
                     // Sensitive or protected files (e.g. .env, *.pem,
                     // secrets/**) must be routed through human review rather
@@ -188,23 +191,16 @@ impl ToolApprovalCoordinator {
         }
 
         if let Some(ref pc) = self.protect_controller {
-            if let Ok(op) = extract_file_operation(&tool.tool_name, &tool.parameters) {
+            if let Ok(op) = extract_file_operation(&tool.tool_name, risk_level, &tool.parameters) {
                 if (op == FileOperationType::Write || op == FileOperationType::Delete)
                     && self.options.allow_write_protected != Some(true)
-                    && extract_file_paths(&tool.tool_name, &tool.parameters)
+                    && extract_file_paths(&tool.parameters)
                         .iter()
                         .any(|p| pc.is_write_protected(p))
                 {
                     return ApprovalDecision::Deny("File is write-protected".to_string());
                 }
             }
-        }
-
-        let risk_level =
-            ToolRiskLevel::parse_case_insensitive(tool.risk_level.as_deref().unwrap_or("write"));
-
-        if risk_level == Some(ToolRiskLevel::System) {
-            return ApprovalDecision::Ask;
         }
 
         match risk_level {
@@ -290,16 +286,21 @@ impl ToolApprovalCoordinator {
                     ApprovalDecision::Ask
                 }
             }
-            _ => {
-                if matches!(
-                    self.options.security_preset,
-                    Some(SecurityPreset::Balanced) | Some(SecurityPreset::Permissive)
-                ) {
+            Some(ToolRiskLevel::System) => ApprovalDecision::Ask,
+            Some(ToolRiskLevel::Interaction) => {
+                let allow = self
+                    .options
+                    .categories
+                    .as_ref()
+                    .and_then(|c| c.always_allow_interaction)
+                    .unwrap_or(true);
+                if allow {
                     ApprovalDecision::Approve
                 } else {
                     ApprovalDecision::Ask
                 }
             }
+            None => ApprovalDecision::Ask,
         }
     }
 
@@ -617,11 +618,17 @@ fn domain_matches(host: &str, rule: &str) -> bool {
 }
 
 fn extract_domain(tool: &ToolApprovalRequestData) -> Option<String> {
-    tool.parameters
-        .get("domain")
-        .or_else(|| tool.parameters.get("url"))
-        .and_then(|v| v.as_str())
-        .and_then(normalize_host)
+    for key in ["domain", "url", "uri", "host", "endpoint", "link"] {
+        if let Some(domain) = tool
+            .parameters
+            .get(key)
+            .and_then(|v| v.as_str())
+            .and_then(normalize_host)
+        {
+            return Some(domain);
+        }
+    }
+    None
 }
 
 pub fn check_file_permission(
@@ -655,26 +662,21 @@ fn normalize_file_path(path: &str) -> String {
     path.replace('\\', "/").trim().to_string()
 }
 
-fn extract_file_paths(tool_name: &str, params: &serde_json::Value) -> Vec<String> {
+fn extract_file_paths(params: &serde_json::Value) -> Vec<String> {
     let mut paths = Vec::new();
-    let mut push = |value: Option<&str>| {
-        if let Some(p) = value {
+    for key in ["path", "file_path", "file", "filename"] {
+        if let Some(p) = params.get(key).and_then(|v| v.as_str()) {
             let normalized = normalize_file_path(p);
             if !normalized.is_empty() {
                 paths.push(normalized);
             }
         }
-    };
-    match tool_name {
-        "read_file" | "write_file" | "edit_file" | "apply_diff" => {
-            push(params.get("path").and_then(|v| v.as_str()));
-        }
-        "apply_patch" => {
-            if let Some(patch) = params.get("patch").and_then(|v| v.as_str()) {
-                paths.extend(extract_patch_paths(patch));
-            }
-        }
-        _ => {}
+    }
+    if let Some(patch) = params.get("patch").and_then(|v| v.as_str()) {
+        paths.extend(extract_patch_paths(patch));
+    }
+    if let Some(diff) = params.get("diff").and_then(|v| v.as_str()) {
+        paths.extend(extract_patch_paths(diff));
     }
     paths
 }
@@ -703,12 +705,23 @@ fn extract_patch_paths(patch: &str) -> Vec<String> {
 
 fn extract_file_operation(
     tool_name: &str,
-    _params: &serde_json::Value,
+    risk_level: Option<ToolRiskLevel>,
+    params: &serde_json::Value,
 ) -> Result<FileOperationType, ()> {
+    match risk_level {
+        Some(ToolRiskLevel::ReadOnly) => return Ok(FileOperationType::Read),
+        Some(ToolRiskLevel::Write) => return Ok(FileOperationType::Write),
+        _ => {}
+    }
     match tool_name {
         "read_file" => Ok(FileOperationType::Read),
         "write_file" | "edit_file" | "apply_diff" | "apply_patch" => Ok(FileOperationType::Write),
-        _ => Err(()),
+        _ => {
+            if params.get("patch").or_else(|| params.get("diff")).is_some() {
+                return Ok(FileOperationType::Write);
+            }
+            Err(())
+        }
     }
 }
 

@@ -188,12 +188,6 @@ impl McpServerRegistry {
             }
         }
 
-        if let Some(always_allow) = &base.always_allow {
-            if always_allow.contains(&tool_name.to_string()) {
-                return true;
-            }
-        }
-
         true
     }
 }

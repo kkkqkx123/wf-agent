@@ -16,7 +16,6 @@ pub mod file;
 pub mod layertwine;
 pub mod manager_store;
 pub mod metadata;
-pub mod metrics_collector;
 pub mod precise;
 pub mod provenance;
 pub mod recent_agent_writes;

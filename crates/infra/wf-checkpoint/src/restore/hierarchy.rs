@@ -1,10 +1,9 @@
 use crate::error::CheckpointError;
-use crate::metrics_collector::CheckpointMetricsCollector;
 use dashmap::DashMap;
 use std::collections::VecDeque;
 use std::sync::Arc;
 use std::time::Instant;
-use wf_types::checkpoint::CheckpointLoadMetrics;
+use wf_metrics::CheckpointMetricsCollector;
 use wf_types::storage::CheckpointStorageMetadata;
 
 pub trait ChildCheckpointResolver: Send + Sync {
@@ -153,11 +152,8 @@ impl HierarchyRestorer {
                 };
                 if let Some(metrics) = metrics {
                     metrics.record_load(
-                        &CheckpointLoadMetrics {
-                            duration_ms: start.elapsed().as_millis() as u64,
-                            size_bytes: 0,
-                            compressed: false,
-                        },
+                        parent_id,
+                        start.elapsed().as_millis() as f64,
                         matches!(result, RestoreResult::Success { .. }),
                     );
                 }
@@ -536,7 +532,7 @@ mod tests {
         let resolver: Arc<dyn ChildCheckpointResolver> = Arc::new(storage_resolver);
 
         let restorer = HierarchyRestorer::new(resolver);
-        let metrics = CheckpointMetricsCollector::new();
+        let metrics = CheckpointMetricsCollector::new(wf_metrics::CollectorConfig::default());
 
         struct FailingLoader;
         impl CheckpointLoader for FailingLoader {
@@ -581,11 +577,10 @@ mod tests {
             .restore_children_bfs("root", &MockLoader, 3, Some(&metrics))
             .unwrap();
 
-        let agg = metrics.aggregate();
-        assert_eq!(agg.load_count, 4);
-        assert_eq!(agg.load_failed, 2);
-        assert_eq!(agg.load_success, 2);
-        assert!(agg.avg_load_duration_ms >= 0.0);
+        let stats = metrics.usage_stats();
+        assert_eq!(stats.load_count, 4);
+        assert_eq!(stats.load_failures, 2);
+        assert!(stats.avg_load_duration_ms >= 0.0);
     }
 
     #[test]

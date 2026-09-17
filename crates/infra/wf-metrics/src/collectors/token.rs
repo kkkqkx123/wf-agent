@@ -13,7 +13,9 @@ pub struct TokenUsageStats {
     pub total_cost: f64,
     pub request_count: u64,
     pub error_count: u64,
+    pub retry_count: u64,
     pub avg_request_duration_ms: f64,
+    pub avg_first_byte_duration_ms: f64,
     pub by_model: Vec<crate::metric::LabelGroup>,
 }
 
@@ -95,8 +97,37 @@ impl TokenMetricsCollector {
         }
     }
 
+    /// Record one LLM retry attempt for a model.
+    pub fn record_retry(&self, model: Option<&str>) {
+        self.inner.increment_counter(
+            token_metrics::RETRY_COUNT,
+            labels(&[("model", model.unwrap_or("unknown"))]),
+        );
+    }
+
+    /// Record stream establishment latency as a first-byte proxy.
+    pub fn record_first_byte(&self, duration_ms: f64, model: Option<&str>) {
+        self.inner.observe_histogram(
+            token_metrics::FIRST_BYTE_DURATION,
+            duration_ms,
+            labels(&[("model", model.unwrap_or("unknown"))]),
+        );
+    }
+
     pub fn usage_stats(&self) -> TokenUsageStats {
         let duration = crate::collectors::latest(&self.inner, token_metrics::REQUEST_DURATION);
+        let first_byte = crate::collectors::latest(&self.inner, token_metrics::FIRST_BYTE_DURATION);
+        let avg_of = |m: &Option<crate::metric::Metric>| {
+            m.as_ref()
+                .map(|d| {
+                    if d.count > 0 {
+                        d.sum / d.count as f64
+                    } else {
+                        0.0
+                    }
+                })
+                .unwrap_or(0.0)
+        };
         TokenUsageStats {
             total_tokens: crate::collectors::counter_total(&self.inner, token_metrics::TOTAL_TOKENS)
                 as u64,
@@ -115,16 +146,10 @@ impl TokenMetricsCollector {
             ) as u64,
             error_count: crate::collectors::counter_total(&self.inner, token_metrics::ERROR_COUNT)
                 as u64,
-            avg_request_duration_ms: duration
-                .as_ref()
-                .map(|d| {
-                    if d.count > 0 {
-                        d.sum / d.count as f64
-                    } else {
-                        0.0
-                    }
-                })
-                .unwrap_or(0.0),
+            retry_count: crate::collectors::counter_total(&self.inner, token_metrics::RETRY_COUNT)
+                as u64,
+            avg_request_duration_ms: avg_of(&duration),
+            avg_first_byte_duration_ms: avg_of(&first_byte),
             by_model: self
                 .inner
                 .query(&crate::metric::MetricFilter {
@@ -192,5 +217,17 @@ mod tests {
         assert_eq!(stats.avg_request_duration_ms, 150.0);
         c.record_request(50.0, false, Some("timeout"), Some("gpt-4o"));
         assert_eq!(c.usage_stats().error_count, 1);
+    }
+
+    #[test]
+    fn records_retry_and_first_byte() {
+        let c = collector();
+        c.record_retry(Some("gpt-4o"));
+        c.record_retry(Some("gpt-4o"));
+        c.record_first_byte(40.0, Some("gpt-4o"));
+        c.record_first_byte(60.0, Some("gpt-4o"));
+        let stats = c.usage_stats();
+        assert_eq!(stats.retry_count, 2);
+        assert_eq!(stats.avg_first_byte_duration_ms, 50.0);
     }
 }

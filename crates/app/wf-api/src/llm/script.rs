@@ -240,6 +240,14 @@ pub async fn execute(
         let error = engine_result
             .error
             .unwrap_or_else(|| "script execution failed".into());
+        if let Some(metrics) = ctx.metrics.as_ref() {
+            metrics
+                .error()
+                .record_error("script_execution", "script", None);
+            metrics
+                .template()
+                .record_error(&params.name, "execution_failed", &[]);
+        }
         return Err(ApiError::execution(error));
     }
 

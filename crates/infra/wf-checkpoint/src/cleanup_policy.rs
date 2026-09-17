@@ -1,11 +1,10 @@
 use std::collections::{HashMap, HashSet};
 use std::time::Instant;
 
-use wf_types::checkpoint::CheckpointCleanupMetrics;
 use wf_types::storage::CheckpointStorageMetadata;
 
 use crate::checkpoint_graph::CheckpointDependencyGraph;
-use crate::metrics_collector::CheckpointMetricsCollector;
+use wf_metrics::CheckpointMetricsCollector;
 
 const DAY_MS: i64 = 86_400_000;
 
@@ -106,11 +105,11 @@ impl CleanupExecutor {
         let start = Instant::now();
         let to_remove = self.evaluate(checkpoints, strategy);
         if let Some(metrics) = metrics {
-            metrics.record_cleanup(&CheckpointCleanupMetrics {
-                deleted_count: to_remove.len() as u32,
-                freed_bytes: 0,
-                duration_ms: start.elapsed().as_millis() as u64,
-            });
+            metrics.record_cleanup(
+                to_remove.len() as u64,
+                0,
+                start.elapsed().as_millis() as f64,
+            );
         }
         to_remove
     }

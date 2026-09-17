@@ -205,7 +205,12 @@ impl LlmGateway {
             .await;
         let duration_ms = start.elapsed().as_millis() as f64;
         match &stream {
-            Ok(_) => self.record_request(duration_ms, true, None, &prepared.profile),
+            Ok(_) => {
+                self.record_request(duration_ms, true, None, &prepared.profile);
+                if let Some(collector) = self.token_metrics.as_ref() {
+                    collector.record_first_byte(duration_ms, Some(&prepared.profile.model));
+                }
+            }
             Err(error) => self.record_request(duration_ms, false, Some(error), &prepared.profile),
         }
         let stream = stream?;
@@ -309,6 +314,9 @@ impl LlmGateway {
             error.map(classify_error),
             Some(&profile.model),
         );
+        if !success && profile.max_retries.unwrap_or(0) > 0 {
+            collector.record_retry(Some(&profile.model));
+        }
     }
 }
 

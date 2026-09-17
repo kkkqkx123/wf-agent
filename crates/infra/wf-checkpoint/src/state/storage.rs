@@ -1,7 +1,6 @@
 use crate::cleanup_policy::{CleanupExecutor, CleanupResult, CleanupStrategy};
 use crate::delta::{CheckpointLoader, DiffCalculator};
 use crate::error::CheckpointError;
-use crate::metrics_collector::CheckpointMetricsCollector;
 use crate::serializer::{CheckpointCodec, CheckpointSerializer};
 use crate::state::CheckpointStateManager;
 use serde::Serialize;
@@ -9,6 +8,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
+use wf_metrics::CheckpointMetricsCollector;
 use wf_storage::backend::StorageBackend;
 use wf_storage::domain::store::{BatchItem, QueryFilter, Store, StoreOperation};
 use wf_storage::error::StorageError;
@@ -214,29 +214,6 @@ where
         })
     }
 
-    fn extract_json_count(checkpoint: &T, field: &str) -> u32 {
-        serde_json::to_value(checkpoint)
-            .ok()
-            .and_then(|json| {
-                json.get(field)
-                    .and_then(|v| v.as_object())
-                    .map(|obj| obj.len() as u32)
-            })
-            .unwrap_or(0)
-    }
-
-    fn extract_variable_count(checkpoint: &T) -> u32 {
-        serde_json::to_value(checkpoint)
-            .ok()
-            .and_then(|json| {
-                json.get("variable_state")
-                    .and_then(|v| v.get("variables"))
-                    .and_then(|v| v.as_object())
-                    .map(|obj| obj.len() as u32)
-            })
-            .unwrap_or(0)
-    }
-
     /// Execute a cleanup run for an entity with dependency protection:
     /// per-entity cleanup serialization, optional excluded checkpoint id,
     /// real `blob_size`-based freed byte accounting, and a `CleanupResult`.
@@ -334,11 +311,11 @@ where
         result.remaining_count = candidates.len().saturating_sub(deleted as usize) as u64;
 
         if let Some(ref metrics) = self.metrics {
-            metrics.record_cleanup(&wf_types::checkpoint::CheckpointCleanupMetrics {
-                deleted_count: deleted as u32,
-                freed_bytes: result.freed_bytes,
-                duration_ms: start.elapsed().as_millis() as u64,
-            });
+            metrics.record_cleanup(
+                deleted,
+                result.freed_bytes,
+                start.elapsed().as_millis() as f64,
+            );
         }
 
         // Reap the per-entity lock when no other run (or waiter) holds a
@@ -541,25 +518,13 @@ where
             .map_err(CheckpointError::Storage)?;
 
         if let Some(ref metrics) = self.metrics {
-            metrics.record_creation_for_entity(
+            metrics.record_creation(
                 entity_id,
-                &wf_types::checkpoint::CheckpointCreationMetrics {
-                    duration_ms: start.elapsed().as_millis() as u64,
-                    size_bytes: data.len() as u64,
-                    node_count: Self::extract_json_count(checkpoint, "node_results"),
-                    variable_count: Self::extract_variable_count(checkpoint),
-                },
+                start.elapsed().as_millis() as f64,
+                data.len() as u64,
                 is_full,
             );
-            metrics.record_chain_length(&wf_types::checkpoint::CheckpointChainLengthMetric {
-                entity_id: entity_id.to_string(),
-                chain_length: chain_position.unwrap_or(0) + 1,
-                delta_count: if is_full {
-                    0
-                } else {
-                    chain_position.unwrap_or(0)
-                },
-            });
+            metrics.record_chain_length(entity_id, (chain_position.unwrap_or(0) + 1) as u64);
         }
 
         Ok(())
@@ -593,28 +558,13 @@ where
             result => {
                 let Some((data, _)) = result? else {
                     if let Some(ref metrics) = self.metrics {
-                        metrics.record_load(
-                            &wf_types::checkpoint::CheckpointLoadMetrics {
-                                duration_ms: start.elapsed().as_millis() as u64,
-                                size_bytes: 0,
-                                compressed: false,
-                            },
-                            false,
-                        );
+                        metrics.record_load(id, start.elapsed().as_millis() as f64, false);
                     }
                     return Ok(None);
                 };
-                let size = data.len() as u64;
                 let checkpoint = CheckpointSerializer::auto_deserialize(&data)?;
                 if let Some(ref metrics) = self.metrics {
-                    metrics.record_load(
-                        &wf_types::checkpoint::CheckpointLoadMetrics {
-                            duration_ms: start.elapsed().as_millis() as u64,
-                            size_bytes: size,
-                            compressed: false,
-                        },
-                        true,
-                    );
+                    metrics.record_load(id, start.elapsed().as_millis() as f64, true);
                 }
                 Ok(Some(checkpoint))
             }
@@ -1559,7 +1509,9 @@ mod tests {
     #[tokio::test]
     async fn metrics_recorded_on_save_and_load() {
         let storage = make_storage();
-        let metrics = Arc::new(CheckpointMetricsCollector::new());
+        let metrics = Arc::new(CheckpointMetricsCollector::new(
+            wf_metrics::CollectorConfig::default(),
+        ));
         let mgr = StorageBackedStateManager::<Envelope>::new(storage).with_metrics(metrics.clone());
 
         mgr.save(
@@ -1573,12 +1525,10 @@ mod tests {
         let _ = mgr.load("cp-1").await.unwrap();
         let _ = mgr.load("missing").await.unwrap();
 
-        let agg = metrics.aggregate();
-        assert_eq!(agg.total_checkpoints, 1);
-        assert_eq!(agg.full_checkpoints, 1);
-        assert_eq!(agg.load_count, 2);
-        assert_eq!(agg.load_success, 1);
-        assert_eq!(agg.load_failed, 1);
+        let stats = metrics.usage_stats();
+        assert_eq!(stats.creation_count, 1);
+        assert_eq!(stats.load_count, 2);
+        assert_eq!(stats.load_failures, 1);
     }
 
     #[tokio::test]

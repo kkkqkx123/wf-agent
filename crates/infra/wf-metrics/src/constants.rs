@@ -46,6 +46,8 @@ pub mod token_metrics {
     pub const REQUEST_COUNT: &str = "token.request.count";
     pub const REQUEST_DURATION: &str = "token.request.duration";
     pub const ERROR_COUNT: &str = "token.request.error.count";
+    pub const RETRY_COUNT: &str = "token.request.retry.count";
+    pub const FIRST_BYTE_DURATION: &str = "token.stream.first_byte.duration";
 }
 
 pub mod error_metrics {
@@ -131,6 +133,8 @@ pub mod retry_metrics {
     pub const BACKOFF_FACTOR: &str = "retry.backoff.factor";
     pub const TIMEOUT_ERROR_COUNT: &str = "retry.timeout_error.count";
     pub const TIMEOUT_ERROR_NO_RETRY: &str = "retry.timeout_error.no_retry.count";
+    pub const TIMEOUT_ACTUAL_MS: &str = "retry.timeout.actual_ms";
+    pub const BACKOFF_CALCULATED_DELAY_MS: &str = "retry.backoff.calculated_delay_ms";
     pub const ULTIMATELY_SUCCEEDED: &str = "retry.outcome.succeeded";
     pub const ULTIMATELY_FAILED: &str = "retry.outcome.failed";
     pub const CONSUMER_ACTIVE_RETRIES: &str = "retry.consumer.active.count";
@@ -226,6 +230,8 @@ mod tests {
             token_metrics::REQUEST_COUNT,
             token_metrics::REQUEST_DURATION,
             token_metrics::ERROR_COUNT,
+            token_metrics::RETRY_COUNT,
+            token_metrics::FIRST_BYTE_DURATION,
             error_metrics::OCCURRENCE_COUNT,
             error_metrics::RECOVERY_RATE,
             error_metrics::AFFECTED_EXECUTIONS,
@@ -272,6 +278,8 @@ mod tests {
             retry_metrics::BACKOFF_FACTOR,
             retry_metrics::TIMEOUT_ERROR_COUNT,
             retry_metrics::TIMEOUT_ERROR_NO_RETRY,
+            retry_metrics::TIMEOUT_ACTUAL_MS,
+            retry_metrics::BACKOFF_CALCULATED_DELAY_MS,
             retry_metrics::ULTIMATELY_SUCCEEDED,
             retry_metrics::ULTIMATELY_FAILED,
             retry_metrics::CONSUMER_ACTIVE_RETRIES,

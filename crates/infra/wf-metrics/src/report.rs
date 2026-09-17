@@ -78,7 +78,7 @@ pub struct ReportOptions {
 
 const TOP_METRICS_LIMIT: usize = 10;
 const PER_COLLECTOR_TOP: usize = 5;
-const TREND_KEY_METRICS: [&str; 11] = [
+const TREND_KEY_METRICS: [&str; 14] = [
     "workflow.execution.count",
     "workflow.execution.duration",
     "node.execution.count",
@@ -86,10 +86,13 @@ const TREND_KEY_METRICS: [&str; 11] = [
     "event.count",
     "tool.call.count",
     "token.usage.total",
+    "token.request.duration",
     "error.occurrence.count",
     "template.render.duration",
     "retry.budget.consumed.count",
     "timeout.expiration.count",
+    "http.request.count",
+    "checkpoint.creation.count",
 ];
 
 /// Generate a full report from the registry.
@@ -279,6 +282,22 @@ fn detect_anomalies(registry: &MetricsRegistry) -> Vec<Anomaly> {
             description: format!(
                 "High checkpoint creation failures: {}",
                 checkpoint_stats.creation_failures
+            ),
+            severity: Severity::Medium,
+        });
+    }
+
+    let token_stats = registry.token().usage_stats();
+    if token_stats.request_count > 0
+        && (token_stats.error_count as f64 / token_stats.request_count as f64)
+            > thresholds.max_tool_error_rate
+    {
+        anomalies.push(Anomaly {
+            metric_name: crate::constants::token_metrics::ERROR_COUNT.to_string(),
+            description: format!(
+                "High token error rate: {:.2}% over {} requests",
+                (token_stats.error_count as f64 / token_stats.request_count as f64) * 100.0,
+                token_stats.request_count
             ),
             severity: Severity::Medium,
         });
@@ -581,6 +600,26 @@ mod tests {
             .find(|a| a.metric_name == "workflow.execution.success.rate")
             .unwrap();
         assert_eq!(anomaly.severity, Severity::Medium);
+    }
+
+    #[tokio::test]
+    async fn report_detects_token_error_rate() {
+        let registry = MetricsRegistry::new();
+        for _ in 0..4 {
+            registry
+                .token()
+                .record_token_usage(10, 10, None, Some("model-a"));
+        }
+        for _ in 0..4 {
+            registry
+                .token()
+                .record_request(10.0, false, Some("timeout"), Some("model-a"));
+        }
+        let report = generate_report(&registry, &ReportOptions::default()).await;
+        assert!(report
+            .anomalies
+            .iter()
+            .any(|a| a.metric_name == crate::constants::token_metrics::ERROR_COUNT));
     }
 
     #[tokio::test]

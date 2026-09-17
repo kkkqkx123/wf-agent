@@ -5,9 +5,10 @@
 //! execution) with a bounded execution history.
 
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use wf_common::lock::lock_ok;
+use wf_metrics::ToolMetricsCollector;
 
 /// Default maximum number of execution history records kept in memory.
 pub const DEFAULT_MAX_HISTORY: usize = 10_000;
@@ -87,10 +88,16 @@ struct ExecutionRecord {
 }
 
 /// Tracks MCP tool usage statistics.
+///
+/// Optionally forwards each execution into the shared [`ToolMetricsCollector`]
+/// so MCP calls show up in the unified registry export. The local
+/// per-server breakdown, rankings and bounded history are kept here because
+/// the generic collector does not provide them.
 pub struct McpUsageAnalytics {
     stats: Mutex<HashMap<String, ToolStats>>,
     history: Mutex<Vec<ExecutionRecord>>,
     max_history_size: usize,
+    metrics: Mutex<Option<Arc<ToolMetricsCollector>>>,
 }
 
 impl Default for McpUsageAnalytics {
@@ -105,7 +112,15 @@ impl McpUsageAnalytics {
             stats: Mutex::new(HashMap::new()),
             history: Mutex::new(Vec::new()),
             max_history_size,
+            metrics: Mutex::new(None),
         }
+    }
+
+    /// Attach the shared tool collector; executions recorded afterwards are
+    /// forwarded with the `server/tool` id as the inner tool name.
+    pub fn with_tool_metrics(self: &Arc<Self>, metrics: Arc<ToolMetricsCollector>) -> Arc<Self> {
+        *lock_ok(self.metrics.lock()) = Some(metrics);
+        Arc::clone(self)
     }
 
     /// Compose the tool id (`server/tool`) used as the map key.
@@ -161,7 +176,7 @@ impl McpUsageAnalytics {
 
         let mut history = wf_common::lock::lock_ok(self.history.lock());
         history.push(ExecutionRecord {
-            tool_id,
+            tool_id: tool_id.clone(),
             execution_ms,
             success,
             error: last_error,
@@ -171,6 +186,11 @@ impl McpUsageAnalytics {
         if history.len() > self.max_history_size {
             let cut = history.len() - self.max_history_size;
             history.drain(0..cut);
+        }
+        drop(history);
+
+        if let Some(metrics) = lock_ok(self.metrics.lock()).as_ref() {
+            metrics.record_general_invoke(&tool_id, success, execution_ms as f64);
         }
     }
 
@@ -480,6 +500,24 @@ mod tests {
             "history should be bounded, got {}",
             history.len()
         );
+    }
+
+    #[test]
+    fn test_forwards_to_tool_collector() {
+        use std::sync::Arc;
+        let metrics = Arc::new(wf_metrics::ToolMetricsCollector::new(
+            wf_metrics::CollectorConfig::default(),
+        ));
+        let analytics = Arc::new(McpUsageAnalytics::new(100));
+        analytics.with_tool_metrics(metrics.clone());
+        analytics.record_execution("db", "query", 50, true, None, None);
+        analytics.record_execution("db", "query", 150, false, Some("timeout".into()), None);
+        let result = metrics.collector().query(&wf_metrics::MetricFilter {
+            name: Some("tool.general.invoke.count".to_string()),
+            ..Default::default()
+        });
+        let total: f64 = result.metrics.iter().map(|m| m.value).sum();
+        assert_eq!(total, 2.0);
     }
 
     #[test]

@@ -176,7 +176,7 @@ impl RetryBudgetMetricsCollector {
         self.inner
             .increment_counter(retry_metrics::TIMEOUT_ERROR_NO_RETRY, label_map);
         self.inner.observe_histogram(
-            "retry.timeout.actual_ms",
+            retry_metrics::TIMEOUT_ACTUAL_MS,
             actual_ms as f64,
             labels(&[("consumer_id", consumer_id)]),
         );
@@ -203,7 +203,7 @@ impl RetryBudgetMetricsCollector {
             label_map.clone(),
         );
         self.inner.observe_histogram(
-            "retry.backoff.calculated_delay_ms",
+            retry_metrics::BACKOFF_CALCULATED_DELAY_MS,
             calculated_delay_ms as f64,
             label_map,
         );

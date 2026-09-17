@@ -2,7 +2,7 @@
 //!
 //! The registry holds server configuration and runtime state (status,
 //! discovered tools/resources). The connection manager owns live
-//! [`McpClient`] instances, performs the full MCP handshake on connect and
+//! [`RmcpClient`] instances, performs the full MCP handshake on connect and
 //! supports the lazy / eager / keep-alive lifecycle modes:
 //!
 //! - `lazy`: registered only; connected on first use;
@@ -18,8 +18,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crate::error::ToolResult;
-use crate::mcp::client::{McpClient, McpToolInfo};
-use crate::mcp::transport;
+use crate::mcp::rmcp_client::{RmcpClient, McpToolInfo};
 use wf_types::tool::mcp_connection::{McpServerConfig, McpServerLifecycle, McpServerStatus};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -49,7 +48,6 @@ pub const DEFAULT_MCP_TIMEOUT_MS: u64 = 60_000;
 pub fn server_timeout_ms(config: &McpServerConfig) -> u64 {
     let base = match config {
         McpServerConfig::Stdio(c) => &c.base,
-        McpServerConfig::Sse(c) => &c.base,
         McpServerConfig::StreamableHttp(c) => &c.base,
     };
     base.timeout.unwrap_or(60).saturating_mul(1000).max(1)
@@ -99,7 +97,6 @@ fn base_config(
 ) -> Option<&wf_types::tool::mcp_connection::McpServerConfigBase> {
     match config {
         McpServerConfig::Stdio(c) => Some(&c.base),
-        McpServerConfig::Sse(c) => Some(&c.base),
         McpServerConfig::StreamableHttp(c) => Some(&c.base),
     }
 }
@@ -212,11 +209,14 @@ pub type ConnectionCallback = std::sync::RwLock<Arc<dyn Fn(&str) + Send + Sync>>
 
 #[derive(Clone)]
 pub struct McpConnectionManager {
-    clients: Arc<DashMap<String, Arc<McpClient>>>,
+    clients: Arc<DashMap<String, Arc<RmcpClient>>>,
     registry: Arc<McpServerRegistry>,
     last_activity: Arc<DashMap<String, Instant>>,
     /// Shared across clones: all instances observe the same callback.
     on_connected: Arc<ConnectionCallback>,
+    /// Invoked when a connected server reports a capability list change
+    /// (tools/resources/prompts list-changed); used to refresh metadata.
+    on_capabilities_changed: Arc<ConnectionCallback>,
     /// Per-server connect mutex: two concurrent `connect` calls for the same
     /// server must not each spin up a transport (check-then-act race).
     connect_locks: Arc<DashMap<String, Arc<tokio::sync::Mutex<()>>>>,
@@ -229,6 +229,7 @@ impl McpConnectionManager {
             registry,
             last_activity: Arc::new(DashMap::new()),
             on_connected: Arc::new(std::sync::RwLock::new(Arc::new(|_| {}))),
+            on_capabilities_changed: Arc::new(std::sync::RwLock::new(Arc::new(|_| {}))),
             connect_locks: Arc::new(DashMap::new()),
         }
     }
@@ -238,6 +239,13 @@ impl McpConnectionManager {
     /// tools into a shared tool registry).
     pub fn set_on_connected(&self, callback: Arc<dyn Fn(&str) + Send + Sync>) {
         *wf_common::lock::write_ok(self.on_connected.write()) = callback;
+    }
+
+    /// Register a callback invoked when a connected server reports a
+    /// capability list change (tools/resources/prompts list-changed), so the
+    /// caller can re-register or invalidate cached metadata.
+    pub fn set_on_capabilities_changed(&self, callback: Arc<dyn Fn(&str) + Send + Sync>) {
+        *wf_common::lock::write_ok(self.on_capabilities_changed.write()) = callback;
     }
 
     pub fn registry(&self) -> &Arc<McpServerRegistry> {
@@ -303,7 +311,7 @@ impl McpConnectionManager {
         }
 
         // Guard against concurrent connection attempts: serialize per-server
-        // and re-check after acquiring the lock (the earlier `contains_key`
+        // and re-check after acquiring the lock (the earlier `is_connected`
         // check alone has a check-then-act race).
         let key = server_name.to_string();
         self.connect_locks
@@ -316,36 +324,44 @@ impl McpConnectionManager {
             .expect("connect lock inserted above");
         let guard = connect_lock.lock().await;
 
-        if self.clients.contains_key(server_name) {
+        if self.is_connected(server_name) {
             return Ok(());
         }
 
         self.registry
             .update_status(server_name, McpServerStatus::Connecting);
 
-        let transport = transport::create_transport(&entry.config);
-        let client = McpClient::new(server_name, transport);
-
-        // The per-server lock is held only through the connect handshake
-        // (single-flight, check-then-act). Capability discovery and the
-        // on-connected callback run *after* the lock is released: they perform
-        // further RPCs and must not serialize all operations behind a wedged
-        // handshake.
-        match client.connect().await {
-            Ok(_) => {
-                self.registry
-                    .update_status(server_name, McpServerStatus::Connected);
-                self.clients
-                    .insert(server_name.to_string(), Arc::new(client));
-                self.record_activity(server_name);
-            }
-            Err(e) => {
-                self.registry
-                    .update_status(server_name, McpServerStatus::Disconnected);
-                return Err(e);
-            }
+        // Each server owns its own rmcp-backed client; the handshake and
+        // capability discovery are driven inside `RmcpClient::connect`.
+        let client = Arc::new(RmcpClient::new(server_name));
+        if let Err(e) = client.connect(&entry.config).await {
+            self.registry
+                .update_status(server_name, McpServerStatus::Disconnected);
+            return Err(e);
         }
+        self.clients
+            .insert(server_name.to_string(), client.clone());
+        self.registry
+            .update_status(server_name, McpServerStatus::Connected);
+        self.record_activity(server_name);
         drop(guard);
+
+        // Pump server notifications (tool/resource/prompt list-changed) so the
+        // manager re-discovers capabilities and refreshes registered tools.
+        let pump_client = client.clone();
+        let pump_manager = Arc::new(self.clone());
+        let on_changed: Arc<dyn Fn(&str) + Send + Sync> = Arc::new(move |name: &str| {
+            let mgr = pump_manager.clone();
+            let name = name.to_string();
+            tokio::spawn(async move {
+                mgr.discover_capabilities(&name).await;
+                let cb = wf_common::lock::read_ok(mgr.on_capabilities_changed.read()).clone();
+                cb(&name);
+            });
+        });
+        tokio::spawn(async move {
+            pump_client.run_notification_pump(on_changed).await;
+        });
 
         self.discover_capabilities(server_name).await;
         let callback = wf_common::lock::read_ok(self.on_connected.read()).clone();
@@ -495,8 +511,17 @@ impl McpConnectionManager {
             .unwrap_or(DEFAULT_MCP_TIMEOUT_MS)
     }
 
-    pub fn get_client(&self, server_name: &str) -> Option<Arc<McpClient>> {
+    pub fn get_client(&self, server_name: &str) -> Option<Arc<RmcpClient>> {
         self.clients.get(server_name).map(|c| c.clone())
+    }
+
+    /// Whether a server is currently connected (a live rmcp service exists
+    /// and has not been closed).
+    pub fn is_connected(&self, server_name: &str) -> bool {
+        self.clients
+            .get(server_name)
+            .map(|c| c.is_connected())
+            .unwrap_or(false)
     }
 
     pub fn connected_servers(&self) -> Vec<String> {
@@ -684,7 +709,7 @@ impl McpConnectionManager {
         });
     }
 
-    fn find_client_for_tool(&self, tool_name: &str) -> Option<(String, Arc<McpClient>)> {
+    fn find_client_for_tool(&self, tool_name: &str) -> Option<(String, Arc<RmcpClient>)> {
         for entry in self.clients.iter() {
             let server_name = entry.key().clone();
             if !self.registry.is_tool_allowed(&server_name, tool_name) {

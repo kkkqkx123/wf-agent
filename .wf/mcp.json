@@ -10,7 +10,7 @@
       "disabledTools": ["drop-table", "delete-all"]
     },
     "project-search": {
-      "type": "sse",
+      "type": "streamable-http",
       "url": "http://localhost:8080/mcp",
       "timeout": 30
     }

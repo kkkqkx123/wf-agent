@@ -38,6 +38,7 @@ members = [
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.88"
 
 [workspace.dependencies]
 serde = { version = "1", features = ["derive"] }
@@ -55,7 +56,17 @@ blake3 = "1"
 bincode = "1.3"
 moka = { version = "0.12", features = ["sync"] }
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt", "std", "json"] }
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
+# MCP protocol/transport stack (replaces the hand-rolled client/transport).
+rmcp = { version = "3.4", default-features = false, features = [
+    "client",
+    "transport-child-process",
+    "transport-streamable-http-client-reqwest",
+    "reqwest",
+] }
+# Pinned to 0.13 so the workspace and rmcp share a single reqwest major line.
+# `query` is required by wf-llm (RequestBuilder::query), which became an
+# explicit opt-in feature in reqwest 0.13.
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls", "stream", "query"] }
 once_cell = "1"
 eventsource-stream = "0.2"
 futures = "0.3"

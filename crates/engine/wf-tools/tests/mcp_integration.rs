@@ -12,22 +12,30 @@ use wf_types::tool::mcp_connection::{McpServerConfig, McpServerConfigBase, McpSt
 /// Minimal MCP server responding to initialize / tools/list / tools/call.
 const SERVER_SCRIPT: &str = r#"#!/bin/sh
 while IFS= read -r line; do
-  id=$(printf '%s' "$line" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p')
+  # rmcp (rust-sdk) sends request ids as JSON numbers, so capture either a
+  # quoted string or a bare integer and echo it back verbatim.
+  id=$(printf '%s' "$line" | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*\("[^"]*"\|[0-9][0-9]*\).*/\1/p')
   case "$line" in
+    *"\"method\":\"server/discover\""*)
+      # A legacy server does not implement server/discover. Returning a
+      # correlated JSON-RPC error lets rmcp's Auto lifecycle fall back to the
+      # legacy 2024-11-05 initialize handshake immediately (no 10s timeout).
+      printf '{"jsonrpc":"2.0","id":%s,"error":{"code":-32601,"message":"Method not found"}}\n' "$id"
+      ;;
     *"\"method\":\"initialize\""*)
-      printf '{"jsonrpc":"2.0","id":"%s","result":{"protocolVersion":"2024-11-05","capabilities":{"tools":{}},"serverInfo":{"name":"test-srv","version":"1.0"},"instructions":"use me"}}\n' "$id"
+      printf '{"jsonrpc":"2.0","id":%s,"result":{"protocolVersion":"2024-11-05","capabilities":{"tools":{}},"serverInfo":{"name":"test-srv","version":"1.0"},"instructions":"use me"}}\n' "$id"
       ;;
     *"\"method\":\"tools/list\""*)
-      printf '{"jsonrpc":"2.0","id":"%s","result":{"tools":[{"name":"ping","description":"ping tool","inputSchema":{"type":"object","properties":{"msg":{"type":"string"}},"required":[]}}]}}\n' "$id"
+      printf '{"jsonrpc":"2.0","id":%s,"result":{"tools":[{"name":"ping","description":"ping tool","inputSchema":{"type":"object","properties":{"msg":{"type":"string"}},"required":[]}}]}}\n' "$id"
       ;;
     *"\"method\":\"tools/call\""*)
-      printf '{"jsonrpc":"2.0","id":"%s","result":{"content":[{"type":"text","text":"pong"}]}}\n' "$id"
+      printf '{"jsonrpc":"2.0","id":%s,"result":{"content":[{"type":"text","text":"pong"}]}}\n' "$id"
       ;;
     *"\"method\":\"resources/list\""*)
-      printf '{"jsonrpc":"2.0","id":"%s","result":{"resources":[]}}\n' "$id"
+      printf '{"jsonrpc":"2.0","id":%s,"result":{"resources":[]}}\n' "$id"
       ;;
     *"\"method\":\"resources/templates/list\""*)
-      printf '{"jsonrpc":"2.0","id":"%s","result":{"resourceTemplates":[]}}\n' "$id"
+      printf '{"jsonrpc":"2.0","id":%s,"result":{"resourceTemplates":[]}}\n' "$id"
       ;;
   esac
 done

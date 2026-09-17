@@ -16,7 +16,7 @@
       "healthCheckInterval": 30
     },
     "example-remote": {
-      "type": "sse",
+      "type": "streamable-http",
       "url": "https://api.example.com/mcp",
       "headers": {
         "Authorization": "Bearer ${MCP_API_TOKEN}"

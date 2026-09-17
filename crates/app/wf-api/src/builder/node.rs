@@ -255,9 +255,6 @@ impl NodeBuilder<NoType> {
             subgraph_id: Some(subgraph_id.into()),
             embed_id: None,
             async_: None,
-            retry_policy: None,
-            on_failure: None,
-            fallback_output: None,
             variable_inputs: None,
             variable_outputs: None,
         };
@@ -293,10 +290,7 @@ impl NodeBuilder<NoType> {
         let config = AgentLoopNodeConfig {
             agent_loop_id: Some(agent_loop_id.into()),
             inline_definition: None,
-            retry_policy: None,
             execution_timeout: None,
-            on_failure: None,
-            fallback_output: None,
         };
         Self::new(id)
             .type_(StaticNodeType::AgentLoop)

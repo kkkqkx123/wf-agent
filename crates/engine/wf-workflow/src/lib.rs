@@ -38,8 +38,7 @@ pub use checkpoint::{
     NodeCheckpointStrategy, WorkflowCheckpointIntegration, WorkflowCheckpointTiming,
 };
 pub use coordinator::{
-    state_transitor::WorkflowStateTransitor, NodeCoordinator, WorkflowCoordinator,
-    WorkflowExecutionParams, WorkflowLifecycleCoordinator,
+    NodeCoordinator, WorkflowCoordinator, WorkflowExecutionParams, WorkflowLifecycleCoordinator,
 };
 pub use entity::WorkflowExecutionEntity;
 pub use error::{WorkflowError, WorkflowResult};

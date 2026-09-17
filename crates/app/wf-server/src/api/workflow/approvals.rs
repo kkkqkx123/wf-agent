@@ -98,8 +98,23 @@ async fn handle_check_approval(
         .options
         .clone()
         .unwrap_or_else(wf_types::tool::ToolApprovalOptions::balanced_defaults);
+    let tool_snapshot = state
+        .ctx
+        .tool_registry
+        .list_tools()
+        .into_iter()
+        .find(|t| t.name == body.request.tool_name);
+    let mcp_manager = state.ctx.tool_registry.mcp_manager();
+    let mcp_registry = mcp_manager.as_ref().map(|m| m.registry().as_ref());
+    let mcp_context = wf_tools::approval::McpToolContext {
+        tool: tool_snapshot.as_ref(),
+        mcp_registry,
+    };
     let decision = wf_tools::approval::ToolApprovalCoordinator::new(options)
-        .evaluate(std::slice::from_ref(&body.request))
+        .evaluate_with_mcp_context(
+            std::slice::from_ref(&body.request),
+            std::slice::from_ref(&mcp_context),
+        )
         .remove(0);
     if matches!(decision, wf_tools::approval::ApprovalDecision::Ask)
         && !wf_api::entity::user_interaction::has_handler(&state.ctx).await
@@ -138,17 +153,12 @@ async fn handle_execute_tool(
     // Policy-first like `handle_check_approval`: resolve the tool's risk
     // from the registry and evaluate before requiring a handler, so
     // auto-approved and denied tools behave the same with or without one.
-    let risk_level = state
-        .ctx
-        .tool_registry
-        .get_tool(&body.tool_id)
-        .and_then(|tool| tool.metadata)
+    let tool_snapshot = state.ctx.tool_registry.get_tool(&body.tool_id);
+    let risk_level = tool_snapshot
+        .as_ref()
+        .and_then(|tool| tool.metadata.as_ref())
         .and_then(|m| m.risk_level)
-        .map(|level| {
-            serde_json::to_string(&level)
-                .map(|s| s.trim_matches('"').to_string())
-                .unwrap_or_default()
-        });
+        .map(|level| level.as_str().to_string());
     let policy_request = ToolApprovalRequestData {
         tool_call_id: wf_common::generate_id(),
         tool_name: body.tool_id.clone(),
@@ -164,8 +174,17 @@ async fn handle_execute_tool(
         .approval_options
         .clone()
         .unwrap_or_else(wf_types::tool::ToolApprovalOptions::balanced_defaults);
+    let mcp_manager = state.ctx.tool_registry.mcp_manager();
+    let mcp_registry = mcp_manager.as_ref().map(|m| m.registry().as_ref());
+    let mcp_context = wf_tools::approval::McpToolContext {
+        tool: tool_snapshot.as_ref(),
+        mcp_registry,
+    };
     let decision = wf_tools::approval::ToolApprovalCoordinator::new(policy_options)
-        .evaluate(std::slice::from_ref(&policy_request))
+        .evaluate_with_mcp_context(
+            std::slice::from_ref(&policy_request),
+            std::slice::from_ref(&mcp_context),
+        )
         .remove(0);
     if matches!(decision, wf_tools::approval::ApprovalDecision::Ask)
         && !wf_api::entity::user_interaction::has_handler(&state.ctx).await

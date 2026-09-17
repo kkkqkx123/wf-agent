@@ -3,7 +3,6 @@ use std::sync::Arc;
 use crate::token_tracker::TokenUsageTracker;
 use dashmap::DashMap;
 use serde_json::Value;
-use wf_common::retry::RetryBudget;
 use wf_core::internal_signal::InternalSignalBus;
 use wf_core::EventBus;
 use wf_metrics::MetricsRegistry;
@@ -31,9 +30,6 @@ pub struct ExecutorContext {
     pub metrics: Option<Arc<MetricsRegistry>>,
     /// Execution-scoped token usage tracker shared by LLM nodes.
     pub token_tracker: Option<Arc<tokio::sync::Mutex<TokenUsageTracker>>>,
-    /// Global retry budget shared across the execution (fork branches,
-    /// node retries). `None` = no budget constraint.
-    pub retry_budget: Option<Arc<RetryBudget>>,
     /// Shared hook handler registry; hook points and engine signals of this
     /// execution fire through it.
     pub hook_handler_registry: Option<Arc<HookHandlerRegistry>>,
@@ -79,7 +75,6 @@ impl ExecutorContext {
             parent_execution_id: None,
             metrics: None,
             token_tracker: Some(Arc::new(tokio::sync::Mutex::new(TokenUsageTracker::new(0)))),
-            retry_budget: None,
             hook_handler_registry: None,
             tool_approval_handler: None,
             tool_approval_options: None,
@@ -115,12 +110,6 @@ impl ExecutorContext {
     /// texts).
     pub fn with_resource_registries(mut self, regs: Arc<ResourceRegistries>) -> Self {
         self.resource_registries = Some(regs);
-        self
-    }
-
-    /// Set the global retry budget for this execution.
-    pub fn with_retry_budget(mut self, budget: Arc<RetryBudget>) -> Self {
-        self.retry_budget = Some(budget);
         self
     }
 
@@ -226,8 +215,6 @@ pub struct NodeExecutionContext {
     /// branches, triggered sub-executions) race their work against it so a
     /// cancelled parent stops them.
     pub cancellation: Option<tokio_util::sync::CancellationToken>,
-    /// Global retry budget inherited from the parent execution.
-    pub retry_budget: Option<Arc<RetryBudget>>,
     /// Shared hook handler registry inherited from the parent execution.
     pub hook_handler_registry: Option<Arc<HookHandlerRegistry>>,
     /// Tool-level approval handler inherited from the parent execution
@@ -282,7 +269,6 @@ impl NodeExecutionContext {
             metrics: None,
             token_tracker: None,
             cancellation: None,
-            retry_budget: None,
             hook_handler_registry: None,
             tool_approval_handler: None,
             tool_approval_options: None,
@@ -322,12 +308,6 @@ impl NodeExecutionContext {
     /// handlers; absent contexts fall back to built-in texts).
     pub fn with_resource_registries(mut self, regs: Arc<ResourceRegistries>) -> Self {
         self.resource_registries = Some(regs);
-        self
-    }
-
-    /// Set the global retry budget for this node execution.
-    pub fn with_retry_budget(mut self, budget: Arc<RetryBudget>) -> Self {
-        self.retry_budget = Some(budget);
         self
     }
 

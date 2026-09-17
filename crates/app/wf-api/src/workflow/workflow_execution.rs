@@ -8,7 +8,6 @@ use serde_json::Value;
 use wf_checkpoint::coordinator::workflow::WorkflowCheckpointCoordinator;
 use wf_checkpoint::coordinator::CheckpointCoordinator;
 use wf_checkpoint::state::WorkflowCheckpointStateManager;
-use wf_common::retry::{RetryBudget, RetryBudgetConfig, TimeBudgetMode};
 use wf_core::registry::MutableRegistry;
 use wf_execution_shared::context::ExecutorContext;
 use wf_execution_shared::hooks::types::HookDefinition;
@@ -279,7 +278,6 @@ pub async fn resume(
 
     let options = execution_options(ctx, &entity).await;
     let checkpoints_enabled = options.enable_checkpoints.unwrap_or(true);
-    let retry_budget = build_retry_budget(&options, ctx.metrics.as_ref());
     let mut exec_ctx = ExecutorContext::new(
         entity.id().clone(),
         entity.workflow_id().clone(),
@@ -288,9 +286,6 @@ pub async fn resume(
         options,
     )
     .with_resource_registries(ctx.registries.clone());
-    if let Some(budget) = &retry_budget {
-        exec_ctx = exec_ctx.with_retry_budget(budget.clone());
-    }
     exec_ctx.variables = entity.variables().clone();
     if let Some(ref metrics) = ctx.metrics {
         metrics
@@ -923,7 +918,6 @@ async fn run_workflow(
     options: WorkflowExecutionOptions,
 ) -> crate::infra::error::ApiResult<WorkflowOutput> {
     let checkpoints_enabled = options.enable_checkpoints.unwrap_or(true);
-    let retry_budget = build_retry_budget(&options, ctx.metrics.as_ref());
     let workflow_input = options.input.clone();
     let mut exec_ctx = ExecutorContext::new(
         entity.id().clone(),
@@ -933,9 +927,6 @@ async fn run_workflow(
         options,
     )
     .with_resource_registries(ctx.registries.clone());
-    if let Some(budget) = &retry_budget {
-        exec_ctx = exec_ctx.with_retry_budget(budget.clone());
-    }
     exec_ctx.variables = entity.variables().clone();
     if let Some(ref metrics) = ctx.metrics {
         metrics
@@ -1017,40 +1008,9 @@ fn default_options() -> WorkflowExecutionOptions {
         enable_checkpoints: Some(true),
         node_timeout: None,
         max_pause_duration: None,
-        retry_budget: None,
-        on_failure: None,
-        max_retries: None,
-        retry_delay_ms: None,
-        exponential_backoff: None,
-        fallback_output: None,
         max_navigation_multiplier: None,
         loop_max_iterations_cap: None,
     }
-}
-
-/// Shared retry budget created from `WorkflowExecutionOptions::retry_budget`.
-/// `None` keeps the historical no-budget behavior (each retry path applies
-/// its own limits without a global accounting). When a metrics registry is
-/// present, budget events are wired into the `RetryBudgetMetricsCollector`.
-fn build_retry_budget(
-    options: &WorkflowExecutionOptions,
-    metrics: Option<&Arc<wf_metrics::MetricsRegistry>>,
-) -> Option<Arc<RetryBudget>> {
-    options.retry_budget.as_ref().map(|opt| {
-        let on_event = metrics.map(|m| {
-            wf_metrics::RetryBudgetMetricsCollector::event_handler(
-                m.retry_budget(),
-                "workflow".to_string(),
-            )
-        });
-        Arc::new(RetryBudget::new(RetryBudgetConfig {
-            max_retries: opt.max_retries,
-            time_budget_ms: opt.time_budget_ms,
-            time_budget_mode: TimeBudgetMode::default(),
-            name: "workflow".to_string(),
-            on_event,
-        }))
-    })
 }
 
 fn mark_failed(entity: &WorkflowExecutionEntity) {

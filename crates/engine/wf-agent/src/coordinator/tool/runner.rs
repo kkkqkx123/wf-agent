@@ -503,17 +503,7 @@ pub(crate) fn risk_level_of(
     registry: &wf_tools::registry::ToolRegistry,
     name: &str,
 ) -> Option<String> {
-    risk_level_enum_of(registry, name)
-        .map(|level| match level {
-            ToolRiskLevel::ReadOnly => "read_only",
-            ToolRiskLevel::Write => "write",
-            ToolRiskLevel::Execute => "execute",
-            ToolRiskLevel::Mcp => "mcp",
-            ToolRiskLevel::Network => "network",
-            ToolRiskLevel::System => "system",
-            ToolRiskLevel::Interaction => "interaction",
-        })
-        .map(String::from)
+    risk_level_enum_of(registry, name).map(|level| level.as_str().to_string())
 }
 
 /// Serialized size of a value in bytes, used for tool parameter/result metrics.

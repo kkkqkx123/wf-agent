@@ -359,12 +359,6 @@ impl WorkflowLifecycleCoordinator {
                 enable_checkpoints: Some(true),
                 node_timeout: None,
                 max_pause_duration: None,
-                retry_budget: None,
-                on_failure: None,
-                max_retries: None,
-                retry_delay_ms: None,
-                exponential_backoff: None,
-                fallback_output: None,
                 max_navigation_multiplier: None,
                 loop_max_iterations_cap: None,
             },
@@ -536,12 +530,6 @@ mod tests {
                 enable_checkpoints: Some(true),
                 node_timeout: None,
                 max_pause_duration: None,
-                retry_budget: None,
-                on_failure: None,
-                max_retries: None,
-                retry_delay_ms: None,
-                exponential_backoff: None,
-                fallback_output: None,
                 max_navigation_multiplier: None,
                 loop_max_iterations_cap: None,
             },
@@ -640,12 +628,6 @@ mod tests {
                 enable_checkpoints: Some(false),
                 node_timeout: None,
                 max_pause_duration: None,
-                retry_budget: None,
-                on_failure: None,
-                max_retries: None,
-                retry_delay_ms: None,
-                exponential_backoff: None,
-                fallback_output: None,
                 max_navigation_multiplier: None,
                 loop_max_iterations_cap: None,
             },
@@ -677,12 +659,6 @@ mod tests {
             enable_checkpoints: Some(true),
             node_timeout: None,
             max_pause_duration: None,
-            retry_budget: None,
-            on_failure: None,
-            max_retries: None,
-            retry_delay_ms: None,
-            exponential_backoff: None,
-            fallback_output: None,
             max_navigation_multiplier: None,
             loop_max_iterations_cap: None,
         }
@@ -996,122 +972,6 @@ mod tests {
             found_timeout,
             "interruption checkpoint with timeout status must exist"
         );
-    }
-
-    #[tokio::test]
-    async fn test_fallback_output_used_on_continue() {
-        let store = Arc::new(StorageBackend::new_memory());
-        let lifecycle = make_lifecycle(store.clone());
-
-        let graph = WorkflowGraphStructure {
-            nodes: vec![
-                node("start", "START", serde_json::json!({})),
-                node(
-                    "v1",
-                    "VARIABLE",
-                    serde_json::json!({
-                        "variable_name": "__forbidden",
-                        "expression": "1"
-                    }),
-                ),
-                node(
-                    "v2",
-                    "VARIABLE",
-                    serde_json::json!({
-                        "variable_name": "final",
-                        "expression": "${input.greeting}"
-                    }),
-                ),
-                node("end", "END", serde_json::json!({})),
-            ],
-            edges: vec![edge("start", "v1"), edge("v1", "v2"), edge("v2", "end")],
-            adjacency_list: HashMap::new(),
-            reverse_adjacency_list: HashMap::new(),
-            start_node_id: Some("start".to_string()),
-            end_node_ids: vec!["end".to_string()],
-        };
-
-        let params = WorkflowExecutionParams {
-            execution_id: wf_types::Id::from("exec-fallback-1".to_string()),
-            workflow_id: wf_types::Id::from("wf-fallback-1".to_string()),
-            graph,
-            options: WorkflowExecutionOptions {
-                on_failure: Some("continue".to_string()),
-                max_retries: Some(0),
-                fallback_output: Some(serde_json::json!({"fallback": "used"})),
-                ..options_with(Some(serde_json::json!({"greeting": "hello"})))
-            },
-            handlers: make_handlers(),
-            tool_registry: Arc::new(wf_tools::registry::ToolRegistry::new()),
-            resource_registries: None,
-            input: None,
-            hooks: Vec::new(),
-        };
-
-        let output = lifecycle
-            .execute_workflow(params)
-            .await
-            .expect("fallback path must complete the workflow");
-        assert_eq!(output.result, serde_json::json!({"fallback": "used"}));
-    }
-
-    #[tokio::test]
-    async fn test_continue_without_fallback_produces_empty_output() {
-        let store = Arc::new(StorageBackend::new_memory());
-        let lifecycle = make_lifecycle(store.clone());
-
-        let graph = WorkflowGraphStructure {
-            nodes: vec![
-                node("start", "START", serde_json::json!({})),
-                node(
-                    "v1",
-                    "VARIABLE",
-                    serde_json::json!({
-                        "variable_name": "__forbidden",
-                        "expression": "1"
-                    }),
-                ),
-                node(
-                    "v2",
-                    "VARIABLE",
-                    serde_json::json!({
-                        "variable_name": "final",
-                        "expression": "${input.greeting}"
-                    }),
-                ),
-                node("end", "END", serde_json::json!({})),
-            ],
-            edges: vec![edge("start", "v1"), edge("v1", "v2"), edge("v2", "end")],
-            adjacency_list: HashMap::new(),
-            reverse_adjacency_list: HashMap::new(),
-            start_node_id: Some("start".to_string()),
-            end_node_ids: vec!["end".to_string()],
-        };
-
-        let params = WorkflowExecutionParams {
-            execution_id: wf_types::Id::from("exec-fallback-2".to_string()),
-            workflow_id: wf_types::Id::from("wf-fallback-2".to_string()),
-            graph,
-            options: WorkflowExecutionOptions {
-                on_failure: Some("continue".to_string()),
-                max_retries: Some(0),
-                fallback_output: None,
-                max_navigation_multiplier: None,
-                loop_max_iterations_cap: None,
-                ..options_with(Some(serde_json::json!({"greeting": "hello"})))
-            },
-            handlers: make_handlers(),
-            tool_registry: Arc::new(wf_tools::registry::ToolRegistry::new()),
-            resource_registries: None,
-            input: None,
-            hooks: Vec::new(),
-        };
-
-        let output = lifecycle
-            .execute_workflow(params)
-            .await
-            .expect("continue path must complete the workflow");
-        assert_eq!(output.result, serde_json::json!({}));
     }
 
     #[tokio::test]
@@ -1629,8 +1489,8 @@ mod tests {
         let tool_registry = Arc::new(wf_tools::registry::ToolRegistry::new());
         let handlers = make_handlers();
 
-        // v1 always fails (read-only assignment); on_failure defaults to
-        // "fail" so run 1 ends with an error and no OnComplete checkpoint.
+        // v1 always fails (read-only assignment); node failures abort
+        // the run, so run 1 ends with an error and no OnComplete checkpoint.
         let graph = WorkflowGraphStructure {
             nodes: vec![
                 node("start", "START", serde_json::json!({})),

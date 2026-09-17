@@ -591,19 +591,19 @@ async fn execute_tool_call(
     // the external handler, failing closed when none is attached. With
     // neither options nor handler the call is auto-approved (library
     // opt-in default, same as the agent fast path).
-    let (risk_level, tool_description) = ctx
+    let (registered_tool, risk_level, tool_description) = ctx
         .tool_registry
         .as_ref()
         .and_then(|registry| registry.get_tool(&tool_name))
         .map(|tool| {
             let risk = tool
                 .metadata
+                .as_ref()
                 .and_then(|m| m.risk_level)
-                .map(|level| serde_json::to_string(&level).unwrap_or_default())
-                .map(|s| s.trim_matches('"').to_string());
-            (risk, Some(tool.description))
+                .map(|level| level.as_str().to_string());
+            (Some(tool.clone()), risk, Some(tool.description.clone()))
         })
-        .unwrap_or((None, None));
+        .unwrap_or((None, None, None));
     // A handler without explicit options falls back to ask-everything over
     // the default sensitive-file rules, like the agent gate, so attaching
     // a handler never silently weakens the baseline.
@@ -620,19 +620,7 @@ async fn execute_tool_call(
         }
         None => {
             if ctx.tool_approval_handler.is_some() {
-                Some(wf_types::tool::approval::ToolApprovalOptions {
-                    auto_approval_enabled: Some(false),
-                    security_preset: None,
-                    auto_approve_patterns: None,
-                    categories: None,
-                    file_permissions: Some(
-                        wf_types::tool::file_permission::FilePermissionSettings::default_rules(),
-                    ),
-                    command: None,
-                    mcp: None,
-                    network: None,
-                    allow_write_protected: None,
-                })
+                Some(wf_types::tool::approval::ToolApprovalOptions::handler_fallback())
             } else {
                 None
             }
@@ -653,8 +641,20 @@ async fn execute_tool_call(
                 total_tools: batch.map(|b| b.total),
             };
             let coordinator = wf_tools::approval::ToolApprovalCoordinator::new(approval_options);
+            let mcp_manager = ctx
+                .tool_registry
+                .as_ref()
+                .and_then(|registry| registry.mcp_manager());
+            let mcp_registry = mcp_manager.as_ref().map(|m| m.registry().as_ref());
+            let mcp_context = wf_tools::approval::McpToolContext {
+                tool: registered_tool.as_ref(),
+                mcp_registry,
+            };
             let decision = coordinator
-                .evaluate(std::slice::from_ref(&request_data))
+                .evaluate_with_mcp_context(
+                    std::slice::from_ref(&request_data),
+                    std::slice::from_ref(&mcp_context),
+                )
                 .remove(0);
             match decision {
                 wf_tools::approval::ApprovalDecision::Approve => Ok(None),

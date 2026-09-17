@@ -6,14 +6,6 @@ use crate::Id;
 use crate::Timestamp;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct RetryBudgetOption {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub max_retries: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub time_budget_ms: Option<u64>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct WorkflowExecutionOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub input: Option<serde_json::Value>,
@@ -29,18 +21,6 @@ pub struct WorkflowExecutionOptions {
     pub node_timeout: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_pause_duration: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub retry_budget: Option<RetryBudgetOption>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub on_failure: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub max_retries: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub retry_delay_ms: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub exponential_backoff: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub fallback_output: Option<serde_json::Value>,
     /// Navigation-budget multiplier for the infinite-loop backstop: the
     /// runtime aborts when the navigation count exceeds
     /// `node_count * multiplier`. Legitimate loops re-arm the counter at

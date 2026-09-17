@@ -1,11 +1,10 @@
 use serde_json::Value;
 use std::sync::Arc;
 
-use wf_tools::approval::{ApprovalDecision, ToolApprovalCoordinator};
+use wf_tools::approval::{ApprovalDecision, McpToolContext, ToolApprovalCoordinator};
 use wf_types::interaction::tool_approval::{PendingToolCallInfo, ToolApprovalRequestData};
 use wf_types::message::LlmToolCall;
 use wf_types::tool::approval::ToolApprovalOptions;
-use wf_types::tool::file_permission::FilePermissionSettings;
 
 use crate::approval::{ToolApprovalHandler, ToolApprovalRequest};
 use crate::entity::AgentLoopEntity;
@@ -77,21 +76,32 @@ impl ToolApprovalGate {
 
         // When a handler is registered it controls the policy; without
         // explicit options fall back to ask-everything for the handler.
-        let options = self.options.clone().unwrap_or_else(|| ToolApprovalOptions {
-            auto_approval_enabled: Some(self.handler.is_none()),
-            security_preset: None,
-            auto_approve_patterns: None,
-            categories: None,
-            file_permissions: Some(FilePermissionSettings::default_rules()),
-            command: None,
-            mcp: None,
-            network: None,
-            allow_write_protected: None,
-        });
+        let options = self
+            .options
+            .clone()
+            .unwrap_or_else(ToolApprovalOptions::handler_fallback);
 
         let coordinator = ToolApprovalCoordinator::new(options);
-        let decisions = coordinator.evaluate(&requests);
-        let batch = coordinator.process_batch(requests);
+        let mcp_manager = registry.mcp_manager();
+        let mcp_registry = mcp_manager.as_ref().map(|m| m.registry().as_ref());
+        let snapshot: Vec<Option<wf_types::tool::Tool>> = tool_calls
+            .iter()
+            .map(|tc| {
+                registry
+                    .list_tools()
+                    .into_iter()
+                    .find(|t| t.name == tc.function.name)
+            })
+            .collect();
+        let contexts: Vec<McpToolContext<'_>> = snapshot
+            .iter()
+            .map(|tool| McpToolContext {
+                tool: tool.as_ref(),
+                mcp_registry,
+            })
+            .collect();
+        let decisions = coordinator.evaluate_with_mcp_context(&requests, &contexts);
+        let batch = ToolApprovalCoordinator::batch_from_decisions(requests, &decisions);
 
         // Policy denials are final: they must never be escalated into a
         // human approval request, so drop them from the pending set before

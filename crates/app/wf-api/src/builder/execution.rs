@@ -90,12 +90,6 @@ impl ExecutionBuilder {
         self
     }
 
-    /// Set the workflow-level failure strategy (`fail` | `continue` | `retry`).
-    pub fn with_on_failure(mut self, on_failure: impl Into<String>) -> Self {
-        self.options.on_failure = Some(on_failure.into());
-        self
-    }
-
     /// Register a callback invoked whenever a node completes.
     pub fn on_node_executed(
         mut self,
@@ -329,12 +323,6 @@ fn default_options() -> WorkflowExecutionOptions {
         enable_checkpoints: Some(true),
         node_timeout: None,
         max_pause_duration: None,
-        retry_budget: None,
-        on_failure: None,
-        max_retries: None,
-        retry_delay_ms: None,
-        exponential_backoff: None,
-        fallback_output: None,
         max_navigation_multiplier: None,
         loop_max_iterations_cap: None,
     }

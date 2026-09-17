@@ -95,6 +95,23 @@ impl ToolApprovalOptions {
             ..Self::empty()
         }
     }
+
+    /// Fallback for hosts that attach a human handler without explicit
+    /// options: nothing auto-runs, every decision is either denied by
+    /// policy or escalated, over the default sensitive-file ruleset.
+    pub fn handler_fallback() -> Self {
+        Self {
+            auto_approval_enabled: Some(false),
+            security_preset: None,
+            auto_approve_patterns: None,
+            categories: None,
+            file_permissions: Some(FilePermissionSettings::default_rules()),
+            command: None,
+            mcp: None,
+            network: None,
+            allow_write_protected: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

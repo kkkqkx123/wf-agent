@@ -10,7 +10,7 @@ use wf_types::tool::file_permission::{
 use wf_types::tool::mcp_approval::{
     McpApprovalSettings, McpDecision, McpDefaultBehavior, McpRequest, McpRequestType,
 };
-use wf_types::tool::ToolRiskLevel;
+use wf_types::tool::{Tool, ToolRiskLevel};
 
 use wf_shell::command_safety::{CommandDecision, CommandPolicy};
 use wf_shell::config::ShellToolConfig;
@@ -27,6 +27,19 @@ pub struct ToolBatch {
 pub struct ToolApprovalCoordinator {
     options: ToolApprovalOptions,
     protect_controller: Option<crate::protect::ProtectController>,
+}
+
+/// Per-request registry context for MCP approval.
+///
+/// Callers that hold a tool registry pass the registered tool (for the
+/// server name of single-server MCP tools, kept in the tool config) and
+/// the MCP server registry (so connection-level disables agree with the
+/// approval decision). Both are optional; absent context keeps the
+/// parameter-only behavior.
+#[derive(Default)]
+pub struct McpToolContext<'a> {
+    pub tool: Option<&'a Tool>,
+    pub mcp_registry: Option<&'a crate::mcp::connection::McpServerRegistry>,
 }
 
 impl ToolApprovalCoordinator {
@@ -50,12 +63,60 @@ impl ToolApprovalCoordinator {
     }
 
     pub fn process_batch(&self, tools: Vec<ToolApprovalRequestData>) -> ToolBatch {
+        let decisions = self.evaluate(&tools);
+        Self::build_batch(tools, &decisions)
+    }
+
+    /// Evaluate with per-request registry context (see
+    /// [`McpToolContext`]). The context slice must align with `tools`;
+    /// a shorter slice degrades the tail to parameter-only evaluation.
+    pub fn evaluate_with_mcp_context(
+        &self,
+        tools: &[ToolApprovalRequestData],
+        contexts: &[McpToolContext<'_>],
+    ) -> Vec<ApprovalDecision> {
+        tools
+            .iter()
+            .enumerate()
+            .map(|(idx, t)| {
+                let ctx = contexts.get(idx);
+                self.check_approval(
+                    t,
+                    ctx.and_then(|c| c.tool),
+                    ctx.and_then(|c| c.mcp_registry),
+                )
+            })
+            .collect()
+    }
+
+    pub fn process_batch_with_mcp_context(
+        &self,
+        tools: Vec<ToolApprovalRequestData>,
+        contexts: &[McpToolContext<'_>],
+    ) -> ToolBatch {
+        let decisions = self.evaluate_with_mcp_context(&tools, contexts);
+        Self::batch_from_decisions(tools, &decisions)
+    }
+
+    /// Build a batch from precomputed decisions, avoiding a second
+    /// evaluation pass when the caller already has them.
+    pub fn batch_from_decisions(
+        tools: Vec<ToolApprovalRequestData>,
+        decisions: &[ApprovalDecision],
+    ) -> ToolBatch {
+        Self::build_batch(tools, decisions)
+    }
+
+    fn build_batch(
+        tools: Vec<ToolApprovalRequestData>,
+        decisions: &[ApprovalDecision],
+    ) -> ToolBatch {
         let batch_id = wf_common::generate_id();
         let mut auto_approved = Vec::new();
         let mut pending = Vec::new();
 
-        for (idx, tool) in tools.iter().enumerate() {
-            match self.check_approval(tool) {
+        for (idx, decision) in decisions.iter().enumerate() {
+            match decision {
                 ApprovalDecision::Approve => {
                     auto_approved.push(idx);
                 }
@@ -79,10 +140,18 @@ impl ToolApprovalCoordinator {
     /// from human-approval requests, so callers can finalize denied calls
     /// without escalating them to an interaction.
     pub fn evaluate(&self, tools: &[ToolApprovalRequestData]) -> Vec<ApprovalDecision> {
-        tools.iter().map(|t| self.check_approval(t)).collect()
+        tools
+            .iter()
+            .map(|t| self.check_approval(t, None, None))
+            .collect()
     }
 
-    fn check_approval(&self, tool: &ToolApprovalRequestData) -> ApprovalDecision {
+    fn check_approval(
+        &self,
+        tool: &ToolApprovalRequestData,
+        mcp_tool: Option<&Tool>,
+        mcp_registry: Option<&crate::mcp::connection::McpServerRegistry>,
+    ) -> ApprovalDecision {
         if self.options.auto_approval_enabled != Some(true) {
             return ApprovalDecision::Ask;
         }
@@ -104,42 +173,42 @@ impl ToolApprovalCoordinator {
 
         if let Some(ref fp) = self.options.file_permissions {
             if let Ok(op) = extract_file_operation(&tool.tool_name, &tool.parameters) {
-                if let Some(file_path) = extract_file_path(&tool.tool_name, &tool.parameters) {
-                    if !check_file_permission(&file_path, &op, fp) {
-                        // Sensitive or protected files (e.g. .env, *.pem,
-                        // secrets/**) must be routed through human review rather
-                        // than hard-denied: editing them is often legitimate
-                        // (the user asked the agent to change .env), it just
-                        // needs explicit sign-off. Reserve the hard `Deny` for
-                        // write-protected files guarded by the protect_controller
-                        // below, which are never meant to be edited at all.
-                        return ApprovalDecision::Ask;
-                    }
+                let paths = extract_file_paths(&tool.tool_name, &tool.parameters);
+                if !paths.is_empty() && paths.iter().any(|p| !check_file_permission(p, &op, fp)) {
+                    // Sensitive or protected files (e.g. .env, *.pem,
+                    // secrets/**) must be routed through human review rather
+                    // than hard-denied: editing them is often legitimate
+                    // (the user asked the agent to change .env), it just
+                    // needs explicit sign-off. Reserve the hard `Deny` for
+                    // write-protected files guarded by the protect_controller
+                    // below, which are never meant to be edited at all.
+                    return ApprovalDecision::Ask;
                 }
             }
         }
 
         if let Some(ref pc) = self.protect_controller {
-            if let Some(file_path) = extract_file_path(&tool.tool_name, &tool.parameters) {
-                let op = extract_file_operation(&tool.tool_name, &tool.parameters)
-                    .unwrap_or(FileOperationType::Read);
+            if let Ok(op) = extract_file_operation(&tool.tool_name, &tool.parameters) {
                 if (op == FileOperationType::Write || op == FileOperationType::Delete)
-                    && pc.is_write_protected(&file_path)
                     && self.options.allow_write_protected != Some(true)
+                    && extract_file_paths(&tool.tool_name, &tool.parameters)
+                        .iter()
+                        .any(|p| pc.is_write_protected(p))
                 {
                     return ApprovalDecision::Deny("File is write-protected".to_string());
                 }
             }
         }
 
-        let risk_level = tool.risk_level.as_deref().unwrap_or("write");
+        let risk_level =
+            ToolRiskLevel::parse_case_insensitive(tool.risk_level.as_deref().unwrap_or("write"));
 
-        if risk_level == "system" {
+        if risk_level == Some(ToolRiskLevel::System) {
             return ApprovalDecision::Ask;
         }
 
         match risk_level {
-            "read_only" => {
+            Some(ToolRiskLevel::ReadOnly) => {
                 let cat = self.options.categories.as_ref();
                 let allow = cat.and_then(|c| c.always_allow_read_only).unwrap_or(true);
                 if allow {
@@ -148,7 +217,7 @@ impl ToolApprovalCoordinator {
                     ApprovalDecision::Ask
                 }
             }
-            "write" => {
+            Some(ToolRiskLevel::Write) => {
                 let cat_allow = self
                     .options
                     .categories
@@ -161,7 +230,7 @@ impl ToolApprovalCoordinator {
                     ApprovalDecision::Ask
                 }
             }
-            "execute" => {
+            Some(ToolRiskLevel::Execute) => {
                 let cat_allow = self
                     .options
                     .categories
@@ -176,8 +245,10 @@ impl ToolApprovalCoordinator {
                     ApprovalDecision::Ask
                 }
             }
-            "mcp" => handle_mcp_approval(&self.options, tool),
-            "network" => {
+            Some(ToolRiskLevel::Mcp) => {
+                handle_mcp_approval(&self.options, tool, mcp_tool, mcp_registry)
+            }
+            Some(ToolRiskLevel::Network) => {
                 if self
                     .options
                     .categories
@@ -191,7 +262,7 @@ impl ToolApprovalCoordinator {
                             .network
                             .as_ref()
                             .and_then(|n| n.denied_domains.as_ref())
-                            .map(|d| d.iter().any(|d| domain.contains(d.as_str())))
+                            .map(|d| d.iter().any(|d| domain_matches(&domain, d)))
                             .unwrap_or(false);
                         if denied {
                             return ApprovalDecision::Deny(format!(
@@ -206,7 +277,7 @@ impl ToolApprovalCoordinator {
                             .and_then(|n| n.allowed_domains.as_ref());
                         if let Some(allowed) = allowed {
                             if !allowed.is_empty()
-                                && !allowed.iter().any(|d| domain.contains(d.as_str()))
+                                && !allowed.iter().any(|d| domain_matches(&domain, d))
                             {
                                 return ApprovalDecision::Ask;
                             }
@@ -334,6 +405,8 @@ pub fn command_approval_settings_from_shell(config: &ShellToolConfig) -> Command
 fn handle_mcp_approval(
     options: &ToolApprovalOptions,
     tool: &ToolApprovalRequestData,
+    mcp_tool: Option<&Tool>,
+    mcp_registry: Option<&crate::mcp::connection::McpServerRegistry>,
 ) -> ApprovalDecision {
     if options.categories.as_ref().and_then(|c| c.always_allow_mcp) != Some(true) {
         return ApprovalDecision::Ask;
@@ -343,9 +416,25 @@ fn handle_mcp_approval(
         return ApprovalDecision::Approve;
     };
 
-    let Some(mcp_request) = build_mcp_request(tool) else {
+    let Some(mcp_request) = build_mcp_request(tool, mcp_tool) else {
         return ApprovalDecision::Ask;
     };
+
+    if let Some(registry) = mcp_registry {
+        if let Some(tool_name) = mcp_request.tool_name.as_deref() {
+            if !registry.is_tool_allowed(&mcp_request.server_name, tool_name) {
+                return ApprovalDecision::Deny(format!(
+                    "MCP tool '{}' is disabled on server '{}'",
+                    tool_name, mcp_request.server_name
+                ));
+            }
+        } else if registry.is_disabled(&mcp_request.server_name) {
+            return ApprovalDecision::Deny(format!(
+                "MCP server '{}' is disabled",
+                mcp_request.server_name
+            ));
+        }
+    }
 
     match check_mcp_approval(mcp_settings, &mcp_request) {
         McpDecision::Approve => ApprovalDecision::Approve,
@@ -354,9 +443,54 @@ fn handle_mcp_approval(
     }
 }
 
-fn build_mcp_request(tool: &ToolApprovalRequestData) -> Option<McpRequest> {
-    let server_name = tool.parameters.get("server_name")?.as_str()?.to_string();
-    let tool_name = tool.parameters.get("tool_name")?.as_str()?.to_string();
+fn build_mcp_request(
+    tool: &ToolApprovalRequestData,
+    mcp_tool: Option<&Tool>,
+) -> Option<McpRequest> {
+    if let Some(uri) = tool.parameters.get("uri").and_then(|v| v.as_str()) {
+        let server_name = tool
+            .parameters
+            .get("server_name")
+            .and_then(|v| v.as_str())
+            .map(str::to_string)
+            .or_else(|| {
+                mcp_tool.and_then(|t| {
+                    t.config
+                        .as_ref()
+                        .and_then(|c| c.get("server_name"))
+                        .and_then(|v| v.as_str())
+                        .map(str::to_string)
+                })
+            })?;
+        return Some(McpRequest {
+            r#type: McpRequestType::ReadResource,
+            server_name,
+            tool_name: None,
+            uri: Some(uri.to_string()),
+            arguments: None,
+        });
+    }
+
+    let server_name = tool
+        .parameters
+        .get("server_name")
+        .and_then(|v| v.as_str())
+        .map(str::to_string)
+        .or_else(|| {
+            mcp_tool.and_then(|t| {
+                t.config
+                    .as_ref()
+                    .and_then(|c| c.get("server_name"))
+                    .and_then(|v| v.as_str())
+                    .map(str::to_string)
+            })
+        })?;
+    let tool_name = tool
+        .parameters
+        .get("tool_name")
+        .and_then(|v| v.as_str())
+        .map(str::to_string)
+        .unwrap_or_else(|| tool.tool_name.clone());
     let args = tool.parameters.get("arguments").cloned();
 
     Some(McpRequest {
@@ -402,7 +536,11 @@ pub fn check_mcp_approval(settings: &McpApprovalSettings, request: &McpRequest) 
                     if cfg.always_allow == Some(true) {
                         return McpDecision::Approve;
                     }
-                    if cfg.risk_level.as_deref() == Some("READ_ONLY") {
+                    if cfg
+                        .risk_level
+                        .as_deref()
+                        .is_some_and(|level| level.eq_ignore_ascii_case("read_only"))
+                    {
                         return McpDecision::Approve;
                     }
                     McpDecision::Ask
@@ -451,12 +589,39 @@ fn match_uri_pattern(uri: &str, pattern: &str) -> bool {
         .unwrap_or(false)
 }
 
+fn normalize_host(value: &str) -> Option<String> {
+    let value = value.trim().to_ascii_lowercase();
+    let value = value
+        .strip_prefix("http://")
+        .or_else(|| value.strip_prefix("https://"))
+        .unwrap_or(&value);
+    let host = value.split('/').next().unwrap_or(value);
+    let host = host.split('@').next_back().unwrap_or(host);
+    let host = host.split(':').next().unwrap_or(host);
+    let host = host.trim().trim_matches('.');
+    if host.is_empty() {
+        None
+    } else {
+        Some(host.to_string())
+    }
+}
+
+fn domain_matches(host: &str, rule: &str) -> bool {
+    let Some(host) = normalize_host(host) else {
+        return false;
+    };
+    let Some(rule) = normalize_host(rule) else {
+        return false;
+    };
+    host == rule || host.ends_with(&format!(".{rule}"))
+}
+
 fn extract_domain(tool: &ToolApprovalRequestData) -> Option<String> {
     tool.parameters
         .get("domain")
         .or_else(|| tool.parameters.get("url"))
         .and_then(|v| v.as_str())
-        .map(|s| s.to_string())
+        .and_then(normalize_host)
 }
 
 pub fn check_file_permission(
@@ -464,7 +629,7 @@ pub fn check_file_permission(
     operation: &FileOperationType,
     settings: &FilePermissionSettings,
 ) -> bool {
-    let normalized = file_path.replace('\\', "/");
+    let normalized = normalize_file_path(file_path);
 
     for rule in &settings.rules {
         let opts = globset::GlobBuilder::new(&rule.pattern)
@@ -486,26 +651,54 @@ pub fn check_file_permission(
     is_operation_allowed(default, operation)
 }
 
-fn extract_file_path(tool_name: &str, params: &serde_json::Value) -> Option<String> {
-    let file_tools = [
-        "read_file",
-        "write_file",
-        "edit",
-        "edit_file",
-        "apply_diff",
-        "apply_patch",
-        "create_file",
-        "delete_file",
-        "rename_file",
-    ];
-    if file_tools.contains(&tool_name) {
-        params
-            .get("path")
-            .and_then(|v| v.as_str())
-            .map(|s| s.to_string())
-    } else {
-        None
+fn normalize_file_path(path: &str) -> String {
+    path.replace('\\', "/").trim().to_string()
+}
+
+fn extract_file_paths(tool_name: &str, params: &serde_json::Value) -> Vec<String> {
+    let mut paths = Vec::new();
+    let mut push = |value: Option<&str>| {
+        if let Some(p) = value {
+            let normalized = normalize_file_path(p);
+            if !normalized.is_empty() {
+                paths.push(normalized);
+            }
+        }
+    };
+    match tool_name {
+        "read_file" | "write_file" | "edit_file" | "apply_diff" => {
+            push(params.get("path").and_then(|v| v.as_str()));
+        }
+        "apply_patch" => {
+            if let Some(patch) = params.get("patch").and_then(|v| v.as_str()) {
+                paths.extend(extract_patch_paths(patch));
+            }
+        }
+        _ => {}
     }
+    paths
+}
+
+fn extract_patch_paths(patch: &str) -> Vec<String> {
+    let mut paths = Vec::new();
+    for line in patch.lines() {
+        let line = line.trim();
+        for marker in [
+            "*** Add File: ",
+            "*** Update File: ",
+            "*** Delete File: ",
+            "*** Move to: ",
+        ] {
+            if let Some(rest) = line.strip_prefix(marker) {
+                let path = normalize_file_path(rest.trim());
+                if !path.is_empty() {
+                    paths.push(path);
+                }
+                break;
+            }
+        }
+    }
+    paths
 }
 
 fn extract_file_operation(
@@ -514,10 +707,7 @@ fn extract_file_operation(
 ) -> Result<FileOperationType, ()> {
     match tool_name {
         "read_file" => Ok(FileOperationType::Read),
-        "write_file" | "edit" | "apply_diff" | "apply_patch" | "create_file" => {
-            Ok(FileOperationType::Write)
-        }
-        "delete_file" => Ok(FileOperationType::Delete),
+        "write_file" | "edit_file" | "apply_diff" | "apply_patch" => Ok(FileOperationType::Write),
         _ => Err(()),
     }
 }
@@ -890,7 +1080,10 @@ mod tests {
         let coordinator = ToolApprovalCoordinator::with_defaults();
         let mut req = make_request("t1", "write_file", Some("write"));
         req.parameters = json!({ "path": "/workspace/app/.env" });
-        assert_eq!(coordinator.check_approval(&req), ApprovalDecision::Ask);
+        assert_eq!(
+            coordinator.check_approval(&req, None, None),
+            ApprovalDecision::Ask
+        );
     }
 
     #[test]
@@ -913,8 +1106,174 @@ mod tests {
         let mut req = make_request("t1", "write_file", Some("write"));
         req.parameters = json!({ "path": "/workspace/app/.env" });
         assert_eq!(
-            coordinator.check_approval(&req),
+            coordinator.check_approval(&req, None, None),
             ApprovalDecision::Deny("File is write-protected".to_string())
         );
+    }
+
+    fn mcp_options() -> ToolApprovalOptions {
+        use wf_types::tool::mcp_approval::*;
+        ToolApprovalOptions {
+            auto_approval_enabled: Some(true),
+            security_preset: Some(SecurityPreset::Balanced),
+            auto_approve_patterns: None,
+            categories: Some(ApprovalCategories {
+                always_allow_read_only: None,
+                always_allow_write: None,
+                always_allow_execute: None,
+                always_allow_mcp: Some(true),
+                always_allow_network: None,
+                always_allow_interaction: None,
+            }),
+            file_permissions: None,
+            command: None,
+            mcp: Some(McpApprovalSettings {
+                servers: vec![McpApprovalServerConfig {
+                    name: "db".to_string(),
+                    tools: Some(vec![McpApprovalToolConfig {
+                        name: "query".to_string(),
+                        always_allow: Some(true),
+                        risk_level: None,
+                    }]),
+                    resources: None,
+                    default_tool_behavior: Some(McpDefaultBehavior::AlwaysAsk),
+                    default_resource_behavior: None,
+                }],
+                default_server_behavior: Some(McpDefaultBehavior::AlwaysAsk),
+            }),
+            network: None,
+            allow_write_protected: None,
+        }
+    }
+
+    fn mcp_tool_entry() -> wf_types::tool::Tool {
+        wf_types::tool::Tool {
+            id: "mcp_db_query".into(),
+            name: "query".into(),
+            description: "Run SQL".into(),
+            tool_type: wf_types::tool::ToolType::Mcp,
+            parameters: None,
+            metadata: None,
+            config: Some(json!({ "server_name": "db" })),
+            enabled: Some(true),
+            strict: None,
+            default_timeout_ms: None,
+        }
+    }
+
+    #[test]
+    fn test_single_server_mcp_tool_resolves_server_from_registry_tool() {
+        let coordinator = ToolApprovalCoordinator::new(mcp_options());
+        let tool = mcp_tool_entry();
+        let mut req = make_request("t1", "query", Some("mcp"));
+        req.parameters = json!({});
+        let ctx = McpToolContext {
+            tool: Some(&tool),
+            mcp_registry: None,
+        };
+        assert_eq!(
+            coordinator
+                .evaluate_with_mcp_context(std::slice::from_ref(&req), std::slice::from_ref(&ctx)),
+            vec![ApprovalDecision::Approve]
+        );
+    }
+
+    #[test]
+    fn test_single_server_mcp_tool_unknown_without_context_asks() {
+        let coordinator = ToolApprovalCoordinator::new(mcp_options());
+        let mut req = make_request("t1", "query", Some("mcp"));
+        req.parameters = json!({});
+        assert_eq!(
+            coordinator.evaluate(std::slice::from_ref(&req)),
+            vec![ApprovalDecision::Ask]
+        );
+    }
+
+    #[test]
+    fn test_mcp_disabled_tool_is_denied_not_asked() {
+        use wf_types::tool::mcp_connection::*;
+        let coordinator = ToolApprovalCoordinator::new(mcp_options());
+        let tool = mcp_tool_entry();
+        let registry = crate::mcp::connection::McpServerRegistry::new();
+        registry.register(
+            "db",
+            McpServerConfig::Stdio(McpStdioConfig {
+                base: McpServerConfigBase {
+                    disabled: None,
+                    timeout: None,
+                    always_allow: None,
+                    disabled_tools: Some(vec!["query".to_string()]),
+                    lifecycle: None,
+                    idle_timeout: None,
+                    health_check_interval: None,
+                },
+                command: "echo".into(),
+                args: None,
+                cwd: None,
+                env: None,
+            }),
+        );
+        let mut req = make_request("t1", "query", Some("mcp"));
+        req.parameters = json!({});
+        let ctx = McpToolContext {
+            tool: Some(&tool),
+            mcp_registry: Some(&registry),
+        };
+        assert_eq!(
+            coordinator
+                .evaluate_with_mcp_context(std::slice::from_ref(&req), std::slice::from_ref(&ctx)),
+            vec![ApprovalDecision::Deny(
+                "MCP tool 'query' is disabled on server 'db'".to_string()
+            )]
+        );
+    }
+
+    #[test]
+    fn test_mcp_read_only_risk_level_case_insensitive() {
+        use wf_types::tool::mcp_approval::*;
+        let settings = McpApprovalSettings {
+            servers: vec![McpApprovalServerConfig {
+                name: "db".to_string(),
+                tools: Some(vec![McpApprovalToolConfig {
+                    name: "query".to_string(),
+                    always_allow: None,
+                    risk_level: Some("read_only".to_string()),
+                }]),
+                resources: None,
+                default_tool_behavior: Some(McpDefaultBehavior::AlwaysAsk),
+                default_resource_behavior: None,
+            }],
+            default_server_behavior: Some(McpDefaultBehavior::AlwaysAsk),
+        };
+        let req = McpRequest {
+            r#type: McpRequestType::UseMcp,
+            server_name: "db".to_string(),
+            tool_name: Some("query".to_string()),
+            uri: None,
+            arguments: None,
+        };
+        assert_eq!(check_mcp_approval(&settings, &req), McpDecision::Approve);
+    }
+
+    #[test]
+    fn test_apply_patch_with_sensitive_target_requires_approval() {
+        let coordinator = ToolApprovalCoordinator::with_defaults();
+        let mut req = make_request("t1", "apply_patch", Some("write"));
+        req.parameters = json!({ "patch": "*** Begin Patch\n*** Update File: app/.env\n@@\n-old\n+new\n*** End Patch" });
+        assert_eq!(
+            coordinator.check_approval(&req, None, None),
+            ApprovalDecision::Ask
+        );
+    }
+
+    #[test]
+    fn test_network_domain_suffix_match() {
+        assert!(domain_matches("api.evil.example", "evil.example"));
+        assert!(domain_matches(
+            "https://api.evil.example/v1",
+            "evil.example"
+        ));
+        assert!(!domain_matches("not-evil.example", "evil.example"));
+        assert!(!domain_matches("evil.example.evil.com", "evil.example"));
     }
 }

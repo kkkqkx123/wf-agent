@@ -1,6 +1,8 @@
 //! End-to-end tests for LLM nodes driven by the scriptable mock provider
 //! (wf-llm `mock` feature). Covers C4 (tool_calls multi-round loop, stream,
-//! outputContext) and C7 (node retry / fallback) acceptance items.
+//! outputContext). Node-level retry / fallback no longer exists: LLM errors
+//! propagate as node failures (real providers still retry transient faults
+//! inside the wf-llm client).
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -413,12 +415,6 @@ fn options() -> WorkflowExecutionOptions {
         enable_checkpoints: Some(false),
         node_timeout: None,
         max_pause_duration: None,
-        retry_budget: None,
-        on_failure: None,
-        max_retries: None,
-        retry_delay_ms: None,
-        exponential_backoff: None,
-        fallback_output: None,
         max_navigation_multiplier: None,
         loop_max_iterations_cap: None,
     }
@@ -458,39 +454,8 @@ async fn run_workflow(
 }
 
 #[tokio::test]
-async fn retry_recovers_after_transient_llm_errors() {
+async fn llm_errors_propagate_without_node_retry() {
     let mock = Arc::new(MockLlmClient::new());
-    mock.script_error(LlmError::ProviderError("HTTP 500 boom".to_string()));
-    mock.script_error(LlmError::ProviderError("HTTP 500 boom".to_string()));
-    mock.script(LlmResponseSpec::text("recovered reply"));
-    let handlers = llm_handlers(mock.clone());
-
-    let g = graph(vec![
-        node("start", "START", serde_json::json!({})),
-        node(
-            "llm1",
-            "LLM",
-            serde_json::json!({
-                "profile_id": "mock",
-                "on_failure": "retry",
-                "retry_policy": {
-                    "enabled": true,
-                    "max_retries": 3,
-                    "base_delay_ms": 1
-                },
-            }),
-        ),
-        node("end", "END", serde_json::json!({})),
-    ]);
-    let output = run_workflow(g, handlers).await.unwrap();
-    assert_eq!(output.result, serde_json::json!("recovered reply"));
-    assert_eq!(mock.recorded_count(), 3);
-}
-
-#[tokio::test]
-async fn fallback_output_used_when_retries_exhausted() {
-    let mock = Arc::new(MockLlmClient::new());
-    mock.script_error(LlmError::ProviderError("HTTP 500 boom".to_string()));
     mock.script_error(LlmError::ProviderError("HTTP 500 boom".to_string()));
     let handlers = llm_handlers(mock.clone());
 
@@ -501,19 +466,15 @@ async fn fallback_output_used_when_retries_exhausted() {
             "LLM",
             serde_json::json!({
                 "profile_id": "mock",
-                "on_failure": "continue",
-                "retry_policy": {
-                    "enabled": true,
-                    "max_retries": 1,
-                    "base_delay_ms": 1
-                },
-                "fallback_output": {"fallback": true},
             }),
         ),
         node("end", "END", serde_json::json!({})),
     ]);
-    let output = run_workflow(g, handlers).await.unwrap();
-    assert_eq!(output.result, serde_json::json!({"fallback": true}));
+    let err = run_workflow(g, handlers).await.expect_err("LLM error must fail the node");
+    assert!(
+        err.to_string().contains("HTTP 500 boom"),
+        "unexpected error: {err}"
+    );
 }
 
 #[tokio::test]

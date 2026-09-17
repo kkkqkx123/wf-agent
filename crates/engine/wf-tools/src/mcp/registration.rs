@@ -14,7 +14,9 @@ use std::collections::BTreeMap;
 use serde_json::Value;
 
 use wf_common::lock::lock_ok;
-use wf_types::tool::{Tool, ToolMetadata, ToolParameterSchema, ToolPropertySchema, ToolType};
+use wf_types::tool::{
+    Tool, ToolMetadata, ToolParameterSchema, ToolPropertySchema, ToolRiskLevel, ToolType,
+};
 
 use crate::error::ToolResult;
 use crate::mcp::connection::McpConnectionManager;
@@ -157,7 +159,7 @@ pub fn mcp_tool_to_tool(server_name: &str, info: &McpToolInfo) -> Tool {
         ]),
         documentation_url: None,
         custom_fields: None,
-        risk_level: None,
+        risk_level: Some(ToolRiskLevel::Mcp),
         auto_approvable: None,
         create_checkpoint: None,
         exposure: None,

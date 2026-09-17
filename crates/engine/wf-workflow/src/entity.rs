@@ -2,7 +2,6 @@ use std::sync::Arc;
 
 use dashmap::DashMap;
 use serde_json::Value;
-use wf_common::retry::RetryBudget;
 use wf_core::interruption::{InterruptionSignal, InterruptionState};
 use wf_execution_shared::types::execution_entity::{ExecutionEntity, ExecutionStatus};
 use wf_types::Id;
@@ -29,9 +28,6 @@ pub struct WorkflowExecutionEntity {
     /// Final result of the execution, written on completion (both sync and
     /// spawned paths). `None` until the execution settles.
     output: Arc<tokio::sync::RwLock<Option<Value>>>,
-    /// Global retry budget shared across the execution (fork branches,
-    /// node retries). `None` = no budget constraint.
-    retry_budget: Option<Arc<RetryBudget>>,
 }
 
 impl WorkflowExecutionEntity {
@@ -50,7 +46,6 @@ impl WorkflowExecutionEntity {
             ancestors: Vec::new(),
             hierarchy_depth: 0,
             output: Arc::new(tokio::sync::RwLock::new(None)),
-            retry_budget: None,
         }
     }
 
@@ -70,17 +65,6 @@ impl WorkflowExecutionEntity {
     pub fn with_hierarchy_depth(mut self, depth: u32) -> Self {
         self.hierarchy_depth = depth;
         self
-    }
-
-    /// Set the global retry budget for this execution.
-    pub fn with_retry_budget(mut self, budget: Arc<RetryBudget>) -> Self {
-        self.retry_budget = Some(budget);
-        self
-    }
-
-    /// Get the retry budget if configured.
-    pub fn retry_budget(&self) -> Option<&Arc<RetryBudget>> {
-        self.retry_budget.as_ref()
     }
 
     pub fn id(&self) -> &Id {

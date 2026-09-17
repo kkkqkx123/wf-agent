@@ -1,6 +1,5 @@
 pub mod lifecycle;
 pub mod node;
-pub mod state_transitor;
 pub mod workflow;
 
 pub use lifecycle::{WorkflowExecutionParams, WorkflowLifecycleCoordinator};

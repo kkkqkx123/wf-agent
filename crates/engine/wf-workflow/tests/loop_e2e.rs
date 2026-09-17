@@ -57,8 +57,7 @@ impl NodeHandler for RecordingBody {
     }
 }
 
-/// Loop body that always fails; node-level `on_failure: continue` absorbs
-/// the failure so the loop failure strategy can observe it.
+/// Loop body that always fails.
 struct FailingBody;
 
 #[async_trait]
@@ -137,12 +136,6 @@ fn options() -> WorkflowExecutionOptions {
         enable_checkpoints: Some(false),
         node_timeout: None,
         max_pause_duration: None,
-        retry_budget: None,
-        on_failure: None,
-        max_retries: None,
-        retry_delay_ms: None,
-        exponential_backoff: None,
-        fallback_output: None,
         max_navigation_multiplier: None,
         loop_max_iterations_cap: None,
     }
@@ -420,7 +413,7 @@ async fn loop_start_break_condition_is_symmetric() {
 }
 
 #[tokio::test]
-async fn loop_failure_strategy_fail_errors() {
+async fn loop_body_failure_aborts_run() {
     let g = loop_graph(
         serde_json::json!({"loop_id": "l1", "max_iterations": 5, "on_iteration_failure": "fail"}),
         node(
@@ -429,7 +422,6 @@ async fn loop_failure_strategy_fail_errors() {
             serde_json::json!({
                 "script_name": "s",
                 "risk": "medium",
-                "on_failure": "continue",
             }),
         ),
         None,
@@ -437,38 +429,12 @@ async fn loop_failure_strategy_fail_errors() {
 
     let err = run_workflow(g, failing_handlers(), options())
         .await
-        .expect_err("fail strategy must surface an error");
+        .expect_err("body failure must abort the run");
     assert!(
-        err.to_string().contains("on_iteration_failure=fail"),
+        err.to_string().contains("body boom"),
         "unexpected error: {}",
         err
     );
-}
-
-#[tokio::test]
-async fn loop_failure_strategy_continue_with_threshold() {
-    let g = loop_graph(
-        serde_json::json!({
-            "loop_id": "l1",
-            "max_iterations": 10,
-            "on_iteration_failure": "continue",
-            "max_consecutive_failures": 2,
-        }),
-        node(
-            "body",
-            "SCRIPT",
-            serde_json::json!({
-                "script_name": "s",
-                "risk": "medium",
-                "on_failure": "continue",
-            }),
-        ),
-        None,
-    );
-
-    run_workflow(g, failing_handlers(), options())
-        .await
-        .expect("continue strategy with threshold must terminate the loop quietly");
 }
 
 #[tokio::test]
@@ -604,12 +570,6 @@ async fn loop_resume_after_checkpoint_continues_correctly() {
         enable_checkpoints: Some(true),
         node_timeout: None,
         max_pause_duration: None,
-        retry_budget: None,
-        on_failure: None,
-        max_retries: None,
-        retry_delay_ms: None,
-        exponential_backoff: None,
-        fallback_output: None,
         max_navigation_multiplier: None,
         loop_max_iterations_cap: None,
     };
@@ -655,27 +615,6 @@ async fn loop_resume_after_checkpoint_continues_correctly() {
         "resumed loop must process every item exactly once"
     );
     assert_eq!(resumed.execution_id, "exec-loop-resume");
-}
-
-#[tokio::test]
-async fn loop_failure_strategy_skip_terminates_quietly() {
-    let g = loop_graph(
-        serde_json::json!({"loop_id": "l1", "max_iterations": 5, "on_iteration_failure": "skip"}),
-        node(
-            "body",
-            "SCRIPT",
-            serde_json::json!({
-                "script_name": "s",
-                "risk": "medium",
-                "on_failure": "continue",
-            }),
-        ),
-        None,
-    );
-
-    run_workflow(g, failing_handlers(), options())
-        .await
-        .expect("skip strategy must terminate the loop quietly without an error");
 }
 
 #[tokio::test]

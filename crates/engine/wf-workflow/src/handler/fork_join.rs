@@ -278,10 +278,6 @@ impl ForkHandler {
             ctx.graph_structure.as_ref().map(|g| (**g).clone());
 
         let handlers = resolve_handler_registry(ctx)?;
-        let path_ids: Vec<String> = paths
-            .iter()
-            .filter_map(|p| p.get("path_id").and_then(|v| v.as_str()).map(String::from))
-            .collect();
         // The JOIN node is derived structurally: the earliest JOIN-type
         // node all branch edges converge to (no config string matching).
         let join_node_id = graph.as_ref().and_then(|g| find_join_node(g, &node_id));
@@ -290,23 +286,6 @@ impl ForkHandler {
         let resource_registries = ctx.resource_registries.clone();
         let tool_approval_options = ctx.tool_approval_options.clone();
         let tool_approval_handler = ctx.tool_approval_handler.clone();
-        // Retry budget policy: by default each branch consumes its own
-        // allocated slice of the shared budget (`allocate_branch_budgets`,
-        // equal split, pool borrowing only from the unallocated remainder) so
-        // concurrent branches cannot starve each other. `share_retry_budget:
-        // true` opts into the legacy shared semantics: all branches consume
-        // the global pool directly and a branch exhausting the budget denies
-        // retries everywhere else.
-        let share_retry_budget = config
-            .get("share_retry_budget")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
-        let retry_budget = ctx.retry_budget.clone();
-        if let Some(budget) = &retry_budget {
-            if !share_retry_budget {
-                budget.allocate_branch_budgets(&path_ids);
-            }
-        }
 
         // Whether the fork handler waits for every branch to settle before
         // returning (blocking, default). `false` launches the branches and
@@ -360,7 +339,6 @@ impl ForkHandler {
                         tool_registry: tool_registry.clone(),
                         resource_registries: resource_registries.clone(),
                         parent_variables: parent_variables.clone(),
-                        retry_budget: retry_budget.clone(),
                         tool_approval_options: tool_approval_options.clone(),
                         tool_approval_handler: tool_approval_handler.clone(),
                         fork_registries: fork_registries.clone(),
@@ -403,7 +381,6 @@ impl ForkHandler {
                             tool_registry: tool_registry.clone(),
                             resource_registries: resource_registries.clone(),
                             parent_variables: parent_variables.clone(),
-                            retry_budget: retry_budget.clone(),
                             tool_approval_options: tool_approval_options.clone(),
                             tool_approval_handler: tool_approval_handler.clone(),
                             fork_registries: fork_registries.clone(),
@@ -437,7 +414,6 @@ impl ForkHandler {
                         tool_registry: tool_registry.clone(),
                         resource_registries: resource_registries.clone(),
                         parent_variables: parent_variables.clone(),
-                        retry_budget: retry_budget.clone(),
                         tool_approval_options: tool_approval_options.clone(),
                         tool_approval_handler: tool_approval_handler.clone(),
                         fork_registries: fork_registries.clone(),
@@ -636,7 +612,6 @@ struct BranchContext {
     tool_registry: Option<Arc<ToolRegistry>>,
     resource_registries: Option<Arc<wf_resource::registry::ResourceRegistries>>,
     parent_variables: Arc<dashmap::DashMap<String, Value>>,
-    retry_budget: Option<Arc<wf_common::retry::RetryBudget>>,
     tool_approval_options: Option<wf_types::tool::approval::ToolApprovalOptions>,
     tool_approval_handler: Option<Arc<dyn ToolApprovalHandler>>,
     /// All fork registries of the parent execution (keyed by fork node id),
@@ -830,12 +805,6 @@ async fn execute_branch(
         enable_checkpoints: Some(false),
         node_timeout: None,
         max_pause_duration: None,
-        retry_budget: None,
-        on_failure: None,
-        max_retries: None,
-        retry_delay_ms: None,
-        exponential_backoff: None,
-        fallback_output: None,
         max_navigation_multiplier: None,
         loop_max_iterations_cap: None,
     };
@@ -866,10 +835,6 @@ async fn execute_branch(
     if !branch_ctx.fork_registries.is_empty() {
         exec_ctx = exec_ctx.with_fork_registries(branch_ctx.fork_registries.clone());
     }
-    // Inherit retry budget from parent execution.
-    if let Some(budget) = branch_ctx.retry_budget.as_ref() {
-        exec_ctx = exec_ctx.with_retry_budget(budget.clone());
-    }
     // Branches inherit a read-only snapshot of the parent variables.
     crate::handler::variable_mapping::inherit_all_variables(
         &branch_ctx.parent_variables,
@@ -878,11 +843,7 @@ async fn execute_branch(
 
     let branch_variables = exec_ctx.variables.clone();
 
-    let mut entity = WorkflowExecutionEntity::new(execution_id.clone(), workflow_id);
-    // Inherit retry budget from parent execution.
-    if let Some(budget) = branch_ctx.retry_budget.as_ref() {
-        entity = entity.with_retry_budget(budget.clone());
-    }
+    let entity = WorkflowExecutionEntity::new(execution_id.clone(), workflow_id);
 
     let mut coordinator: WorkflowCoordinator =
         WorkflowCoordinator::new(exec_ctx, subgraph, branch_ctx.handlers)?.with_entity(entity);

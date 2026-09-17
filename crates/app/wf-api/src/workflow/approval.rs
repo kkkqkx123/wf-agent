@@ -2,7 +2,9 @@ use serde::Serialize;
 use serde_json::Value;
 use std::sync::Arc;
 
-use wf_tools::approval::{ApprovalDecision, ToolApprovalCoordinator as EngineApprovalCoordinator};
+use wf_tools::approval::{
+    ApprovalDecision, McpToolContext, ToolApprovalCoordinator as EngineApprovalCoordinator,
+};
 use wf_types::events::{BaseEvent, EventType};
 use wf_types::interaction::tool_approval::{ToolApprovalRequestData, ToolApprovalResponseData};
 use wf_types::tool::approval::ToolApprovalOptions;
@@ -103,8 +105,24 @@ pub async fn check_and_request_approval(
 ) -> ApiResult<ApprovalResult> {
     let options = options.unwrap_or_else(ToolApprovalOptions::balanced_defaults);
 
+    let registered_tool = ctx
+        .tool_registry
+        .list_tools()
+        .into_iter()
+        .find(|t| t.name == request.tool_name);
+    let mcp_manager = ctx.tool_registry.mcp_manager();
+    let mcp_registry = mcp_manager.as_ref().map(|m| m.registry().as_ref());
+    let mcp_context = McpToolContext {
+        tool: registered_tool.as_ref(),
+        mcp_registry,
+    };
     let engine = EngineApprovalCoordinator::new(options);
-    let decision = engine.evaluate(std::slice::from_ref(request)).remove(0);
+    let decision = engine
+        .evaluate_with_mcp_context(
+            std::slice::from_ref(request),
+            std::slice::from_ref(&mcp_context),
+        )
+        .remove(0);
 
     match decision {
         ApprovalDecision::Approve => Ok(ApprovalResult {
@@ -271,11 +289,7 @@ pub async fn execute_tool_with_approval(
         .metadata
         .as_ref()
         .and_then(|m| m.risk_level)
-        .map(|level| {
-            serde_json::to_string(&level)
-                .map(|s| s.trim_matches('"').to_string())
-                .unwrap_or_default()
-        });
+        .map(|level| level.as_str().to_string());
 
     let request = ToolApprovalRequestData {
         tool_call_id: wf_common::generate_id(),

@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 
-use wf_common::retry::RetryBudget;
 use wf_core::EventBus;
 use wf_execution_shared::context::{NodeExecutionContext, NodeExecutionResult};
 use wf_execution_shared::error::ExecutionSharedError;
@@ -243,32 +242,6 @@ impl NodeCoordinator {
             node_id: node.id.to_string(),
             reason: reason.to_string(),
         })
-    }
-
-    pub async fn execute_with_retry(
-        &self,
-        handler: &dyn NodeHandler,
-        ctx: &mut NodeExecutionContext,
-        retry_budget: Option<&RetryBudget>,
-    ) -> WorkflowResult<NodeExecutionResult> {
-        loop {
-            match handler.execute(ctx).await {
-                Ok(result) => return Ok(result),
-                Err(e) => {
-                    let Some(budget) = retry_budget else {
-                        return Err(e.into());
-                    };
-                    let delay = std::time::Duration::from_millis(
-                        1000 * 2_u64.pow(budget.get_state().retries_consumed.min(10)),
-                    );
-                    let check = budget.consume_retry(delay.as_millis() as u64, None, 0);
-                    if !check.allowed {
-                        return Err(e.into());
-                    }
-                    tokio::time::sleep(delay).await;
-                }
-            }
-        }
     }
 
     async fn execute_hooks(

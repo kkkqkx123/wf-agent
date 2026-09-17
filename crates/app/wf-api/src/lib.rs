@@ -253,8 +253,7 @@ pub use wf_workflow::analysis::{
 };
 pub use wf_workflow::barrier::{BranchResult, FailureStrategy, ForkOutcome};
 pub use wf_workflow::coordinator::{
-    state_transitor::WorkflowStateTransitor, NodeCoordinator, WorkflowCoordinator,
-    WorkflowExecutionParams, WorkflowLifecycleCoordinator,
+    NodeCoordinator, WorkflowCoordinator, WorkflowExecutionParams, WorkflowLifecycleCoordinator,
 };
 pub use wf_workflow::create_default_handlers;
 pub use wf_workflow::entity::WorkflowExecutionEntity;

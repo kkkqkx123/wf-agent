@@ -143,6 +143,31 @@ pub async fn generate_with_tools_once(
     })
 }
 
+/// Run one model generation without tools.
+///
+/// Fails when the request carries no messages or declares any tools: a
+/// text-only call must not declare tools, so a tool-carrying request is a
+/// caller misuse rather than an executable branch.
+pub async fn generate_text_once(
+    gateway: &LlmGateway,
+    request: &LlmRequest,
+    cancel: Option<tokio_util::sync::CancellationToken>,
+) -> ExecutionSharedResult<LlmResult> {
+    if request.messages.is_empty() {
+        return Err(ExecutionSharedError::Internal(
+            "single-shot text call requires at least one message".to_string(),
+        ));
+    }
+    if request.tools.as_ref().map(Vec::len).unwrap_or(0) > 0 {
+        return Err(ExecutionSharedError::Internal(
+            "single-shot text call must not declare tools".to_string(),
+        ));
+    }
+    gateway.generate(request, cancel).await.map_err(|e| {
+        ExecutionSharedError::Internal(format!("single-shot text generation failed: {e}"))
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -395,5 +420,39 @@ mod tests {
         .await
         .unwrap_err();
         assert!(err.to_string().contains("exceeding the bound"));
+    }
+
+    #[tokio::test]
+    async fn text_call_returns_generation() {
+        let (gateway, _) = setup();
+        let mock = Arc::new(wf_llm::MockLlmClient::new());
+        mock.script(wf_llm::LlmResponseSpec::text("plain reply"));
+        gateway.register_mock("mock-text-ok", mock);
+        gateway
+            .register_profile(mock_profile("mock-text-ok"))
+            .unwrap();
+
+        let result = generate_text_once(&gateway, &request("mock-text-ok", false), None)
+            .await
+            .unwrap();
+        assert_eq!(result.content.as_deref(), Some("plain reply"));
+    }
+
+    #[tokio::test]
+    async fn text_call_rejects_empty_messages() {
+        let (gateway, _) = setup();
+        let mut req = request("mock-text-ok", false);
+        req.messages.clear();
+        let err = generate_text_once(&gateway, &req, None).await.unwrap_err();
+        assert!(err.to_string().contains("at least one message"));
+    }
+
+    #[tokio::test]
+    async fn text_call_rejects_declared_tools() {
+        let (gateway, _) = setup();
+        let err = generate_text_once(&gateway, &request("mock-text-ok", true), None)
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("must not declare tools"));
     }
 }

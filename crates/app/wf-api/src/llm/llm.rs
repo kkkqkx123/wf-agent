@@ -57,6 +57,36 @@ pub async fn generate_with_tools_once(
     .map_err(ApiError::execution_with_source)
 }
 
+/// Run a single tool-free LLM generation. Requests that declare tools are
+/// rejected; use `generate_with_tools_once` for tool-carrying calls.
+/// Backed by the shared single-shot primitive so engine and API callers
+/// share one semantics.
+pub async fn generate_text(ctx: &ApiContext, request: &LlmRequest) -> ApiResult<LlmResult> {
+    if request.messages.is_empty() {
+        return Err(ApiError::Validation(
+            "LLM request must contain at least one message".into(),
+        ));
+    }
+    wf_execution_shared::generate_text_once(&ctx.llm_gateway, request, None)
+        .await
+        .map_err(ApiError::execution_with_source)
+}
+
+/// Drive one turn of a caller-owned tool-free chat session through the
+/// shared gateway. The session stays with the caller; nothing is
+/// checkpointed or persisted.
+pub async fn chat_send(
+    ctx: &ApiContext,
+    session: &mut wf_execution_shared::ChatSession,
+    text: &str,
+    execution_id: Option<&str>,
+) -> ApiResult<LlmResult> {
+    session
+        .send(&ctx.llm_gateway, text, execution_id, None)
+        .await
+        .map_err(ApiError::execution_with_source)
+}
+
 /// Run several LLM requests in parallel; fails fast on the first error.
 pub async fn generate_batch(
     ctx: &ApiContext,

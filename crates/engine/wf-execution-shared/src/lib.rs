@@ -1,4 +1,5 @@
 pub mod approval;
+pub mod chat;
 pub mod context;
 pub mod context_store;
 pub mod conversation_session;
@@ -18,6 +19,7 @@ pub mod token_tracker;
 pub mod types;
 
 pub use approval::{ToolApprovalHandler, ToolApprovalRequest, ToolApprovalResult};
+pub use chat::{ChatSession, ChatTemplate};
 pub use context::{ExecutorContext, NodeExecutionContext, NodeExecutionResult, NodeInputShape};
 pub use error::{ExecutionSharedError, ExecutionSharedResult};
 pub use event_metrics_bridge::EventMetricsBridge;
@@ -43,7 +45,7 @@ pub use interruption::{
 pub use conversation_session::{ConversationSession, ConversationState, CONVERSATION_CONTEXT_ID};
 pub use message_ops::{apply as apply_message_operation, extract_by_role, is_agent_safe};
 pub use single_shot::{
-    generate_with_tools_once, SingleShotOutcome, SingleShotToolExecution,
+    generate_text_once, generate_with_tools_once, SingleShotOutcome, SingleShotToolExecution,
     MAX_SINGLE_SHOT_TOOL_CALLS,
 };
 pub use token_events::{

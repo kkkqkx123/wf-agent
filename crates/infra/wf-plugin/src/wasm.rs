@@ -10,9 +10,12 @@ pub mod stdio;
 
 pub use loader::{
     load_wasm_plugin, load_wasm_plugin_verified_with_base, load_wasm_plugin_with_base,
+    load_wasm_plugin_with_engine_config,
 };
 pub use plugin::WasmPlugin;
-pub use policy::{resolve_grants, resolve_limits, WasiGrants, WasmLimits};
+pub use policy::{
+    resolve_grants, resolve_limits, resolve_limits_with_defaults, WasiGrants, WasmLimits,
+};
 pub use stats::{WasmStats, WasmStatsSnapshot};
 
 use wf_plugin_sdk::wasm::WasmMiddlewareDecl;

@@ -7,7 +7,14 @@ use crate::contributions::OverridePolicy;
 use crate::error::{PluginError, PluginResult};
 use crate::manifest::{PluginManifest, PluginPermission};
 use crate::signing::TrustedKeys;
+use wf_plugin_sdk::manifest::{LuaConfig, WasmConfig};
 
+/// Limit resolution order, weakest to strongest: built-in defaults, engine
+/// globals below, per-plugin manifest declaration. Wasm `call_timeout_ms`
+/// additionally falls back to `guard_timeout_ms` when neither level sets it.
+/// Numeric limits never fail loading; only the gates below (plus manifest
+/// validity, permission blocklist, sdk version, and signatures) can refuse
+/// a plugin.
 pub struct PluginSystemConfig {
     pub enabled: bool,
     pub paths: Vec<PathBuf>,
@@ -16,9 +23,21 @@ pub struct PluginSystemConfig {
     pub override_policy: OverridePolicy,
     pub allow_list: Vec<String>,
     pub block_list: Vec<String>,
+    /// Per-backend load gates. A disabled backend refuses its plugins at
+    /// load with a clear error; this is the explicit off-switch, so limit
+    /// values are never overloaded with enable semantics.
+    pub lua_enabled: bool,
+    pub native_enabled: bool,
+    pub wasm_enabled: bool,
     /// Plugins declaring any of these permissions are refused at load time.
     pub required_permissions_blocklist: Vec<PluginPermission>,
     pub config: std::collections::HashMap<String, Value>,
+    /// Engine-wide lua limit defaults applied when a manifest sets no `lua`
+    /// values. `None` keeps the built-in defaults.
+    pub lua_defaults: Option<LuaConfig>,
+    /// Engine-wide wasm limit defaults applied when a manifest sets no
+    /// `wasm` values. `None` keeps the built-in defaults.
+    pub wasm_defaults: Option<WasmConfig>,
     /// How to treat an unparseable `sdk_version` requirement (or host
     /// version): `false` (default) keeps the historical fail-open skip,
     /// `true` rejects the plugin with `InvalidManifest` instead.
@@ -36,8 +55,13 @@ impl Default for PluginSystemConfig {
             override_policy: OverridePolicy::Forbid,
             allow_list: vec![],
             block_list: vec![],
+            lua_enabled: true,
+            native_enabled: true,
+            wasm_enabled: true,
             required_permissions_blocklist: vec![],
             config: std::collections::HashMap::new(),
+            lua_defaults: None,
+            wasm_defaults: None,
             strict_sdk_version: false,
             signing: TrustedKeys::default(),
         }

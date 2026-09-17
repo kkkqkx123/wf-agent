@@ -10,9 +10,11 @@ pub enum PluginType {
     Wasm,
 }
 
-/// Declared capability a plugin may touch. Declaration-only in this phase:
-/// the engine treats permissions as audit/policy input (blocklist matching),
-/// not as runtime capability enforcement.
+/// Declared capability a plugin may touch. Enforcement differs by backend:
+/// wasm guests get runtime capability enforcement (WASI grants), while lua
+/// and native declarations are admission and audit input only (blocklist
+/// matching plus sandbox library removal for lua, nothing at runtime for
+/// native). Never read a permission as a cross-backend security boundary.
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
 pub enum PluginPermission {
@@ -73,6 +75,9 @@ pub struct PluginManifest {
     /// Wasm-only execution limits and WASI grants. Ignored for other types.
     #[serde(default)]
     pub wasm: Option<WasmConfig>,
+    /// Lua-only execution limits. Ignored for other types.
+    #[serde(default)]
+    pub lua: Option<LuaConfig>,
 }
 
 /// Declarative LLM connection template in the plugin manifest.
@@ -140,11 +145,16 @@ pub struct PluginModelInfo {
 
 /// Execution limits and WASI capability grants for `Wasm` plugins.
 ///
-/// Every field is optional; the host falls back to conservative defaults
-/// when a field is absent. Capabilities not granted here stay disabled.
+/// Every field is optional; the host falls back to engine-global defaults
+/// and then to conservative built-ins when a field is absent. Limits never
+/// fail loading: `call_timeout_ms: Some(0)` disables the epoch deadline,
+/// `memory_max_mb` and `max_module_bytes` of `Some(0)` fall back to their
+/// built-ins, and an over-large `store_pool_size` is clamped.
+/// Capabilities not granted here stay disabled.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct WasmConfig {
-    /// Linear-memory cap in MiB. Defaults to `WASM_DEFAULT_MEMORY_MAX_MB`.
+    /// Linear-memory cap in MiB. Defaults to `WASM_DEFAULT_MEMORY_MAX_MB`;
+    /// `Some(0)` falls back to that default.
     #[serde(default)]
     pub memory_max_mb: Option<u64>,
     /// Fuel budget per guest call. Defaults to `WASM_DEFAULT_FUEL_LIMIT`.
@@ -152,11 +162,13 @@ pub struct WasmConfig {
     #[serde(default)]
     pub fuel_limit: Option<u64>,
     /// Per-call wall-clock timeout in ms enforced via epoch interruption.
-    /// `None` falls back to the engine guard timeout.
+    /// `None` falls back to the engine guard timeout; `Some(0)` disables
+    /// the epoch deadline.
     #[serde(default)]
     pub call_timeout_ms: Option<u64>,
     /// Maximum accepted `.wasm` module size in bytes.
-    /// Defaults to `WASM_DEFAULT_MAX_MODULE_BYTES`.
+    /// Defaults to `WASM_DEFAULT_MAX_MODULE_BYTES`; `Some(0)` falls back
+    /// to that default.
     #[serde(default)]
     pub max_module_bytes: Option<u64>,
     /// Host directories preopened for the guest. Requires the `filesystem`
@@ -185,6 +197,31 @@ pub struct WasmConfig {
     #[serde(default)]
     pub store_pool_size: Option<u32>,
 }
+
+/// Execution limits for `Lua` plugins.
+///
+/// Every field is optional; the host falls back to engine-global defaults
+/// and then to conservative built-ins when a field is absent. Limits never
+/// fail loading: `timeout_ms: Some(0)` disables the hook deadline (the
+/// outer guard still applies), and `memory_limit_kb: Some(0)` falls back
+/// to the built-in default because memory has no outer backstop.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct LuaConfig {
+    /// Per-call wall-clock timeout in ms enforced via the interpreter hook.
+    /// Defaults to `LUA_DEFAULT_TIMEOUT_MS`; `Some(0)` disables the hook
+    /// deadline.
+    #[serde(default)]
+    pub timeout_ms: Option<u64>,
+    /// Interpreter memory cap in KiB. Defaults to
+    /// `LUA_DEFAULT_MEMORY_LIMIT_KB`; `Some(0)` falls back to that default.
+    #[serde(default)]
+    pub memory_limit_kb: Option<usize>,
+}
+
+/// Default per-call timeout (ms) for lua plugins.
+pub const LUA_DEFAULT_TIMEOUT_MS: u64 = 5_000;
+/// Default interpreter memory cap (KiB) for lua plugins.
+pub const LUA_DEFAULT_MEMORY_LIMIT_KB: usize = 64 * 1024;
 
 /// Default linear-memory cap (MiB) for wasm plugins.
 pub const WASM_DEFAULT_MEMORY_MAX_MB: u64 = 64;
@@ -266,6 +303,24 @@ allowed_write_dirs = ["./cache"]
         let wasm = manifest.wasm.expect("wasm config present");
         assert_eq!(wasm.allowed_dirs, Some(vec!["./data".to_owned()]));
         assert_eq!(wasm.allowed_write_dirs, Some(vec!["./cache".to_owned()]));
+    }
+
+    #[test]
+    fn manifest_parses_lua_limits() {
+        let raw = r#"
+id = "lua-demo"
+version = "1.0.0"
+entry_point = "main.lua"
+plugin_type = "lua"
+
+[lua]
+timeout_ms = 2000
+memory_limit_kb = 8192
+"#;
+        let manifest: PluginManifest = toml::from_str(raw).expect("parse manifest");
+        let lua = manifest.lua.expect("lua config present");
+        assert_eq!(lua.timeout_ms, Some(2000));
+        assert_eq!(lua.memory_limit_kb, Some(8192));
     }
 
     #[test]

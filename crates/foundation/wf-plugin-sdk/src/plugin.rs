@@ -533,6 +533,7 @@ mod tests {
                 hooks: None,
                 llm_providers: vec![],
                 wasm: None,
+                lua: None,
             }
         }
 

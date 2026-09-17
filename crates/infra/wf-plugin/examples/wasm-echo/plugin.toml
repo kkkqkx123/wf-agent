@@ -1,3 +1,6 @@
+# Wasm plugins are the default for untrusted extensions: limits and
+# capability grants stay deny-by-default unless a [wasm] section says
+# otherwise. Native libraries take no sandbox; keep them first-party only.
 id = "wasm-echo"
 version = "1.0.0"
 entry_point = "wasm_echo.wasm"

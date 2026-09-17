@@ -5,7 +5,7 @@ use super::PluginEngine;
 use crate::context::{PluginContext, PluginLogger};
 use crate::dependency::{resolve_dependencies, ResolvedGraph};
 use crate::engine::config::validate_manifest;
-use crate::engine::loader::{load_plugin_module_with_base, scan_plugin_manifests};
+use crate::engine::loader::{load_plugin_module, scan_plugin_manifests};
 use crate::error::{PluginError, PluginResult};
 use crate::events::PluginEvent;
 use crate::manifest::PluginManifest;
@@ -307,7 +307,7 @@ impl PluginEngine {
             let artifact = plugin_dir.join(&manifest.entry_point);
             self.verify_wasm_signature(&artifact, plugin_id)?;
         }
-        let plugin = load_plugin_module_with_base(&manifest, &plugin_dir).await?;
+        let plugin = load_plugin_module(&manifest, &plugin_dir, &self.options).await?;
         self.registry.register(manifest, plugin)?;
         self.registry.update_status(plugin_id, PluginStatus::Loaded);
 
@@ -369,7 +369,7 @@ impl PluginEngine {
                         continue;
                     }
                 }
-                let plugin = match load_plugin_module_with_base(&manifest, &base).await {
+                let plugin = match load_plugin_module(&manifest, &base, &self.options).await {
                     Ok(plugin) => plugin,
                     Err(e) => {
                         tracing::warn!("plugin '{}' load failed: {}", plugin_id, e);

@@ -8,7 +8,9 @@ use crate::error::{PluginError, PluginResult};
 /// Plugin Guard - Provides stability guarantees for plugin execution.
 ///
 /// This is NOT a security sandbox - plugins are considered trusted.
-/// Responsibilities:
+/// It is an outer backstop only: per-backend enforcement differs (wasm
+/// fuel/epoch limits, lua interpreter hooks, nothing at runtime for
+/// native). Responsibilities:
 /// - Timeout enforcement (prevents infinite loops from blocking the engine)
 /// - Panic isolation (a panicking plugin hook does not tear down the engine)
 pub struct PluginGuard {

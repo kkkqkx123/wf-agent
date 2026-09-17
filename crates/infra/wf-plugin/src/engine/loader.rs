@@ -4,7 +4,7 @@ use std::sync::Arc;
 use tokio::fs;
 
 use super::PluginEngine;
-use crate::engine::config::validate_manifest;
+use crate::engine::config::{validate_manifest, PluginSystemConfig};
 use crate::error::{PluginError, PluginResult};
 use crate::events::PluginEvent;
 use crate::manifest::{PluginManifest, PluginType};
@@ -39,7 +39,7 @@ impl PluginEngine {
             self.verify_wasm_signature(&base.join(&manifest.entry_point), &plugin_id)?;
         }
 
-        let plugin = load_plugin_module_with_base(&manifest, base).await?;
+        let plugin = load_plugin_module(&manifest, base, &self.options).await?;
         self.registry.register(manifest, plugin)?;
         self.registry
             .update_status(&plugin_id, PluginStatus::Loaded);
@@ -98,7 +98,7 @@ impl PluginEngine {
         if manifest.entry_point.ends_with(".wasm") {
             self.verify_wasm_signature(&plugin_dir.join(&manifest.entry_point), &manifest.id)?;
         }
-        let plugin = load_plugin_module_with_base(&manifest, &plugin_dir).await?;
+        let plugin = load_plugin_module(&manifest, &plugin_dir, &self.options).await?;
         self.registry.register(manifest.clone(), plugin)?;
         self.registry
             .update_status(&manifest.id, PluginStatus::Loaded);
@@ -197,26 +197,132 @@ pub(crate) fn resolve_plugin_type(manifest: &PluginManifest) -> PluginResult<Plu
     )))
 }
 
-#[cfg_attr(
-    not(any(feature = "lua", feature = "native", feature = "wasm")),
-    allow(unused_variables)
-)]
-pub(crate) async fn load_plugin_module_with_base(
+/// Load the backend module for a manifest, applying engine-global limit
+/// defaults under the per-plugin manifest values. Native plugins take no
+/// limits; only admission checks apply to them. A backend disabled via
+/// `PluginSystemConfig` refuses its plugins here with a logged error.
+pub(crate) async fn load_plugin_module(
     manifest: &PluginManifest,
     base: &Path,
+    options: &PluginSystemConfig,
 ) -> PluginResult<Arc<dyn Plugin>> {
-    match resolve_plugin_type(manifest)? {
+    let plugin_type = resolve_plugin_type(manifest)?;
+    check_backend_gate(&manifest.id, &plugin_type, options)?;
+    match plugin_type {
         #[cfg(feature = "lua")]
-        PluginType::Lua => crate::lua::loader::load_lua_plugin_with_base(manifest, base).await,
+        PluginType::Lua => {
+            crate::lua::loader::load_lua_plugin_with_base_and_defaults(
+                manifest,
+                base,
+                options.lua_defaults.as_ref(),
+            )
+            .await
+        }
         #[cfg(not(feature = "lua"))]
         PluginType::Lua => Err(PluginError::LoadFailed("lua feature not enabled".into())),
         #[cfg(feature = "native")]
         PluginType::Native => crate::native::loader::load_native_plugin_with_base(manifest, base),
         #[cfg(not(feature = "native"))]
-        PluginType::Native => Err(PluginError::LoadFailed("native feature not enabled".into())),
+        PluginType::Native => Err(PluginError::LoadFailed(
+            "native plugins require the `native` feature and a trusted library; untrusted code should use wasm instead".into(),
+        )),
         #[cfg(feature = "wasm")]
-        PluginType::Wasm => crate::wasm::loader::load_wasm_plugin_with_base(manifest, base).await,
+        PluginType::Wasm => {
+            crate::wasm::loader::load_wasm_plugin_with_engine_config(
+                manifest,
+                base,
+                options.wasm_defaults.as_ref(),
+                options.guard_timeout_ms,
+            )
+            .await
+        }
         #[cfg(not(feature = "wasm"))]
         PluginType::Wasm => Err(PluginError::LoadFailed("wasm feature not enabled".into())),
+    }
+}
+
+/// Enforce the per-backend load gates. Disabled backends fail loudly with
+/// the flag name so operators can tell "refused by policy" apart from
+/// "failed to load". The warning keeps bulk discovery (which drops load
+/// errors) observable.
+fn check_backend_gate(
+    plugin_id: &str,
+    plugin_type: &PluginType,
+    options: &PluginSystemConfig,
+) -> PluginResult<()> {
+    let (allowed, flag) = match plugin_type {
+        PluginType::Lua => (options.lua_enabled, "lua_enabled"),
+        PluginType::Native => (options.native_enabled, "native_enabled"),
+        PluginType::Wasm => (options.wasm_enabled, "wasm_enabled"),
+    };
+    if allowed {
+        return Ok(());
+    }
+    tracing::warn!(
+        "plugin '{plugin_id}' refused: {:?} backend is disabled by host policy ({flag}=false)",
+        plugin_type
+    );
+    Err(PluginError::LoadFailed(format!(
+        "plugin '{plugin_id}' refused: {flag}=false disables this backend"
+    )))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::manifest::PluginManifest;
+
+    fn gate_manifest(id: &str, entry_point: &str) -> PluginManifest {
+        PluginManifest {
+            id: id.into(),
+            version: "1.0.0".into(),
+            name: None,
+            description: None,
+            plugin_type: None,
+            sdk_version: None,
+            entry_point: entry_point.into(),
+            dependencies: Default::default(),
+            optional_dependencies: Default::default(),
+            contributions: vec![],
+            permissions: vec![],
+            config_schema: None,
+            config: None,
+            hooks: None,
+            llm_providers: vec![],
+            wasm: None,
+            lua: None,
+        }
+    }
+
+    #[test]
+    fn backend_gates_default_to_enabled() {
+        let options = PluginSystemConfig::default();
+        assert!(options.lua_enabled && options.native_enabled && options.wasm_enabled);
+    }
+
+    #[test]
+    fn disabled_backend_is_refused_with_flag_name() {
+        let options = PluginSystemConfig {
+            lua_enabled: false,
+            ..Default::default()
+        };
+        let manifest = gate_manifest("gated", "main.lua");
+        let err = check_backend_gate(&manifest.id, &PluginType::Lua, &options)
+            .expect_err("disabled backend must fail");
+        assert!(err.to_string().contains("lua_enabled"), "got: {err}");
+    }
+
+    #[tokio::test]
+    async fn load_module_honors_gates_without_touching_disk() {
+        let options = PluginSystemConfig {
+            wasm_enabled: false,
+            ..Default::default()
+        };
+        let manifest = gate_manifest("gated-wasm", "plugin.wasm");
+        let err = match load_plugin_module(&manifest, std::path::Path::new("."), &options).await {
+            Ok(_) => panic!("gated load must fail"),
+            Err(e) => e,
+        };
+        assert!(err.to_string().contains("wasm_enabled"), "got: {err}");
     }
 }

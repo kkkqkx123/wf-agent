@@ -424,6 +424,9 @@ pub async fn init_plugins(
         paths: config.paths.clone(),
         auto_activate: config.auto_activate,
         guard_timeout_ms: config.guard_timeout_ms,
+        lua_enabled: config.lua_enabled,
+        native_enabled: config.native_enabled,
+        wasm_enabled: config.wasm_enabled,
         ..Default::default()
     };
 

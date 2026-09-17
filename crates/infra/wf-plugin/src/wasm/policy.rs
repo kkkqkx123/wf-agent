@@ -1,6 +1,6 @@
 use wf_plugin_sdk::manifest::{
-    PluginManifest, PluginPermission, WASM_DEFAULT_FUEL_LIMIT, WASM_DEFAULT_MAX_MODULE_BYTES,
-    WASM_DEFAULT_MEMORY_MAX_MB,
+    PluginManifest, PluginPermission, WasmConfig, WASM_DEFAULT_FUEL_LIMIT,
+    WASM_DEFAULT_MAX_MODULE_BYTES, WASM_DEFAULT_MEMORY_MAX_MB,
 };
 
 use crate::error::{PluginError, PluginResult};
@@ -49,57 +49,103 @@ pub struct WasiGrants {
 }
 
 /// Resolve execution limits from the manifest, falling back to engine and
-/// SDK defaults. Rejects explicit zero values that would silently disable
-/// protections or make loading impossible.
-pub fn resolve_limits(
+/// SDK defaults. Limits never fail loading: unset values fall back, explicit
+/// zeros degrade to a safe reading with a warning (see
+/// `resolve_limits_with_defaults`).
+pub fn resolve_limits(manifest: &PluginManifest, engine_guard_timeout_ms: u64) -> WasmLimits {
+    resolve_limits_with_defaults(manifest, None, engine_guard_timeout_ms)
+}
+
+/// Resolve execution limits with built-in < engine-global < manifest
+/// priority. `call_timeout_ms: Some(0)` disables the epoch deadline with a
+/// warning (the outer guard still applies); `memory_max_mb` and
+/// `max_module_bytes` of `Some(0)` fall back to their built-in defaults
+/// with a warning because memory has no outer backstop and "unlimited" is
+/// not expressible. An over-large `store_pool_size` is clamped to
+/// `MAX_POOL_SIZE` with a warning instead of failing the load.
+pub fn resolve_limits_with_defaults(
     manifest: &PluginManifest,
+    engine_defaults: Option<&WasmConfig>,
     engine_guard_timeout_ms: u64,
-) -> PluginResult<WasmLimits> {
+) -> WasmLimits {
     let cfg = manifest.wasm.as_ref();
     let memory_mb = cfg
         .and_then(|c| c.memory_max_mb)
+        .or_else(|| engine_defaults.and_then(|c| c.memory_max_mb))
         .unwrap_or(WASM_DEFAULT_MEMORY_MAX_MB);
-    if memory_mb == 0 {
-        return Err(PluginError::InvalidManifest(format!(
-            "plugin '{}': wasm.memory_max_mb must be > 0",
-            manifest.id
-        )));
-    }
+    let memory_mb = match memory_mb {
+        0 => {
+            tracing::warn!(
+                "plugin '{}': wasm.memory_max_mb=0 falls back to the built-in default of {WASM_DEFAULT_MEMORY_MAX_MB}MiB",
+                manifest.id
+            );
+            WASM_DEFAULT_MEMORY_MAX_MB
+        }
+        mb => mb,
+    };
     let max_module_bytes = cfg
         .and_then(|c| c.max_module_bytes)
+        .or_else(|| engine_defaults.and_then(|c| c.max_module_bytes))
         .unwrap_or(WASM_DEFAULT_MAX_MODULE_BYTES);
-    if max_module_bytes == 0 {
-        return Err(PluginError::InvalidManifest(format!(
-            "plugin '{}': wasm.max_module_bytes must be > 0",
-            manifest.id
-        )));
-    }
-    let fuel_limit = match cfg.and_then(|c| c.fuel_limit) {
+    let max_module_bytes = match max_module_bytes {
+        0 => {
+            tracing::warn!(
+                "plugin '{}': wasm.max_module_bytes=0 falls back to the built-in default of {WASM_DEFAULT_MAX_MODULE_BYTES} bytes",
+                manifest.id
+            );
+            WASM_DEFAULT_MAX_MODULE_BYTES
+        }
+        n => n,
+    };
+    let fuel_limit = match cfg
+        .and_then(|c| c.fuel_limit)
+        .or_else(|| engine_defaults.and_then(|c| c.fuel_limit))
+    {
         None => Some(WASM_DEFAULT_FUEL_LIMIT),
         Some(0) => None,
         Some(n) => Some(n),
     };
-    let call_timeout_ms = cfg
+    let call_timeout_ms = match cfg
         .and_then(|c| c.call_timeout_ms)
-        .or(if engine_guard_timeout_ms > 0 {
-            Some(engine_guard_timeout_ms)
-        } else {
+        .or_else(|| engine_defaults.and_then(|c| c.call_timeout_ms))
+    {
+        Some(0) => {
+            tracing::warn!(
+                "plugin '{}': wasm.call_timeout_ms=0 disables the epoch deadline; the outer guard timeout still applies",
+                manifest.id
+            );
             None
-        });
-    let pool_size = cfg.and_then(|c| c.store_pool_size).unwrap_or(0) as usize;
-    if pool_size > MAX_POOL_SIZE {
-        return Err(PluginError::InvalidManifest(format!(
-            "plugin '{}': wasm.store_pool_size {pool_size} exceeds the maximum of {MAX_POOL_SIZE}",
-            manifest.id
-        )));
-    }
-    Ok(WasmLimits {
+        }
+        explicit @ Some(_) => explicit,
+        None => {
+            if engine_guard_timeout_ms > 0 {
+                Some(engine_guard_timeout_ms)
+            } else {
+                None
+            }
+        }
+    };
+    let pool_size = cfg
+        .and_then(|c| c.store_pool_size)
+        .or_else(|| engine_defaults.and_then(|c| c.store_pool_size))
+        .unwrap_or(0) as usize;
+    let pool_size = match pool_size > MAX_POOL_SIZE {
+        true => {
+            tracing::warn!(
+                "plugin '{}': wasm.store_pool_size {pool_size} exceeds the maximum of {MAX_POOL_SIZE}; clamped",
+                manifest.id
+            );
+            MAX_POOL_SIZE
+        }
+        false => pool_size,
+    };
+    WasmLimits {
         memory_max_bytes: memory_mb.saturating_mul(1024 * 1024),
         fuel_limit,
         call_timeout_ms,
         max_module_bytes,
         pool_size,
-    })
+    }
 }
 
 /// Reject manifests that request guest network access. The host grants
@@ -195,12 +241,12 @@ mod tests {
             hooks: None,
             llm_providers: vec![],
             wasm,
+            lua: None,
         }
     }
-
     #[test]
     fn limits_fall_back_to_defaults() {
-        let limits = resolve_limits(&manifest_with(None, vec![]), 10000).expect("limits");
+        let limits = resolve_limits(&manifest_with(None, vec![]), 10000);
         assert_eq!(
             limits.memory_max_bytes,
             WASM_DEFAULT_MEMORY_MAX_MB * 1024 * 1024
@@ -211,21 +257,79 @@ mod tests {
     }
 
     #[test]
-    fn limits_reject_zero_memory_and_size() {
-        let m = manifest_with(
+    fn engine_defaults_apply_and_manifest_wins() {
+        let engine = WasmConfig {
+            memory_max_mb: Some(32),
+            call_timeout_ms: Some(500),
+            ..Default::default()
+        };
+        let plain = manifest_with(None, vec![]);
+        let limits = resolve_limits_with_defaults(&plain, Some(&engine), 10000);
+        assert_eq!(limits.memory_max_bytes, 32 * 1024 * 1024);
+        assert_eq!(limits.call_timeout_ms, Some(500));
+
+        let mut with_manifest = manifest_with(
             Some(WasmConfig {
-                memory_max_mb: Some(0),
+                memory_max_mb: Some(16),
                 ..Default::default()
             }),
             vec![],
         );
-        assert!(resolve_limits(&m, 0).is_err());
+        let limits = resolve_limits_with_defaults(&with_manifest, Some(&engine), 10000);
+        assert_eq!(limits.memory_max_bytes, 16 * 1024 * 1024);
+        assert_eq!(limits.call_timeout_ms, Some(500));
+
+        with_manifest.wasm.as_mut().expect("wasm").call_timeout_ms = Some(700);
+        let limits = resolve_limits_with_defaults(&with_manifest, Some(&engine), 10000);
+        assert_eq!(limits.call_timeout_ms, Some(700));
     }
 
     #[test]
-    fn pool_size_defaults_to_disabled_and_rejects_overflow() {
+    fn zero_memory_and_size_fall_back_to_defaults() {
+        let m = manifest_with(
+            Some(WasmConfig {
+                memory_max_mb: Some(0),
+                max_module_bytes: Some(0),
+                ..Default::default()
+            }),
+            vec![],
+        );
+        let limits = resolve_limits(&m, 0);
+        assert_eq!(
+            limits.memory_max_bytes,
+            WASM_DEFAULT_MEMORY_MAX_MB * 1024 * 1024
+        );
+        assert_eq!(limits.max_module_bytes, WASM_DEFAULT_MAX_MODULE_BYTES);
+
+        let engine = WasmConfig {
+            memory_max_mb: Some(0),
+            ..Default::default()
+        };
+        let plain = manifest_with(None, vec![]);
+        let limits = resolve_limits_with_defaults(&plain, Some(&engine), 0);
+        assert_eq!(
+            limits.memory_max_bytes,
+            WASM_DEFAULT_MEMORY_MAX_MB * 1024 * 1024
+        );
+    }
+
+    #[test]
+    fn zero_call_timeout_disables_epoch_deadline() {
+        let m = manifest_with(
+            Some(WasmConfig {
+                call_timeout_ms: Some(0),
+                ..Default::default()
+            }),
+            vec![],
+        );
+        let limits = resolve_limits(&m, 10000);
+        assert_eq!(limits.call_timeout_ms, None);
+    }
+
+    #[test]
+    fn pool_size_defaults_to_disabled_and_clamps_overflow() {
         let m = manifest_with(None, vec![]);
-        assert_eq!(resolve_limits(&m, 100).expect("limits").pool_size, 0);
+        assert_eq!(resolve_limits(&m, 100).pool_size, 0);
 
         let m = manifest_with(
             Some(WasmConfig {
@@ -234,7 +338,7 @@ mod tests {
             }),
             vec![],
         );
-        assert_eq!(resolve_limits(&m, 100).expect("limits").pool_size, 0);
+        assert_eq!(resolve_limits(&m, 100).pool_size, 0);
 
         let m = manifest_with(
             Some(WasmConfig {
@@ -243,7 +347,7 @@ mod tests {
             }),
             vec![],
         );
-        assert_eq!(resolve_limits(&m, 100).expect("limits").pool_size, 4);
+        assert_eq!(resolve_limits(&m, 100).pool_size, 4);
 
         let m = manifest_with(
             Some(WasmConfig {
@@ -252,7 +356,7 @@ mod tests {
             }),
             vec![],
         );
-        assert!(resolve_limits(&m, 100).is_err());
+        assert_eq!(resolve_limits(&m, 100).pool_size, MAX_POOL_SIZE);
     }
 
     #[test]
@@ -265,7 +369,7 @@ mod tests {
             }),
             vec![],
         );
-        let limits = resolve_limits(&m, 10000).expect("limits");
+        let limits = resolve_limits(&m, 10000);
         assert_eq!(limits.fuel_limit, None);
         assert_eq!(limits.call_timeout_ms, Some(500));
     }

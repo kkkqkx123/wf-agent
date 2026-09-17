@@ -41,6 +41,11 @@ impl PluginEngine {
         sdk_version: &str,
     ) -> Self {
         let guard = PluginGuard::new(options.guard_timeout_ms);
+        if options.guard_timeout_ms == 0 {
+            tracing::warn!(
+                "plugin guard timeout is disabled; runaway hooks rely solely on backend limits"
+            );
+        }
         contribution_manager.set_override_policy(options.override_policy);
         let state_dir = options.paths.first().cloned().unwrap_or_default();
         Self {

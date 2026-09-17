@@ -38,9 +38,12 @@ fn load_native_plugin_at(
         }
     }
 
-    // libloading cannot provide sandbox isolation; this loader only enforces
-    // basic path containment. Future isolation should use wasm, not emulation
-    // of the lua sandbox.
+    // Native plugins run in the host process with no sandbox: the loaded
+    // library shares the address space and can do anything the host can.
+    // Only path containment is enforced here (plus ABI version and manifest
+    // identity in `NativePlugin::new`). Restrict this backend to fully
+    // trusted first-party libraries; untrusted code belongs in wasm, not in
+    // an emulated lua-style sandbox around `dlopen`.
     let lib = unsafe {
         libloading::Library::new(&lib_path)
             .map_err(|e| PluginError::LoadFailed(format!("cannot load {:?}: {}", lib_path, e)))?

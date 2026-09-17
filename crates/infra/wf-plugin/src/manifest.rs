@@ -3,6 +3,6 @@
 //! valid.
 
 pub use wf_plugin_sdk::manifest::{
-    PluginLlmProviderDefinition, PluginManifest, PluginModelDiscovery, PluginModelInfo,
-    PluginPermission, PluginType,
+    LuaConfig, PluginLlmProviderDefinition, PluginManifest, PluginModelDiscovery, PluginModelInfo,
+    PluginPermission, PluginType, WasmConfig,
 };

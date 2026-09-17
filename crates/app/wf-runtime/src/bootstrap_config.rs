@@ -112,6 +112,9 @@ pub struct PluginConfig {
     pub paths: Vec<std::path::PathBuf>,
     pub auto_activate: bool,
     pub guard_timeout_ms: u64,
+    pub lua_enabled: bool,
+    pub native_enabled: bool,
+    pub wasm_enabled: bool,
 }
 
 #[cfg(feature = "plugins")]
@@ -122,6 +125,9 @@ impl Default for PluginConfig {
             paths: vec![std::path::PathBuf::from("./plugins")],
             auto_activate: true,
             guard_timeout_ms: 10000,
+            lua_enabled: true,
+            native_enabled: true,
+            wasm_enabled: true,
         }
     }
 }

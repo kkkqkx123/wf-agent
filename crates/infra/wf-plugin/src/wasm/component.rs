@@ -1139,6 +1139,7 @@ mod tests {
             hooks: None,
             llm_providers: vec![],
             wasm: Some(wasm),
+            lua: None,
         }
     }
 
@@ -1151,7 +1152,7 @@ mod tests {
         guard_timeout_ms: u64,
     ) -> PluginResult<Arc<dyn PluginTrait>> {
         let manifest = test_manifest(id, wasm);
-        let limits = resolve_limits(&manifest, guard_timeout_ms).expect("limits");
+        let limits = resolve_limits(&manifest, guard_timeout_ms);
         let grants = resolve_grants(&manifest);
         load_component_plugin_at(&manifest, bytes, &limits, &grants).await
     }
@@ -1341,7 +1342,7 @@ mod tests {
         let linker = new_component_linker(&engine).expect("linker");
         let pre = linker.instantiate_pre(&component).expect("pre-instantiate");
         let manifest = test_manifest("comp-mw", Default::default());
-        let limits = resolve_limits(&manifest, 10_000).expect("limits");
+        let limits = resolve_limits(&manifest, 10_000);
         let grants = resolve_grants(&manifest);
         let stats = Arc::new(WasmStats::default());
         let pool = ComponentSessionPool::new("comp-mw", &engine, &pre, &grants, &limits, &stats);
@@ -1403,7 +1404,7 @@ mod tests {
         let linker = new_component_linker(&engine).expect("linker");
         let pre = linker.instantiate_pre(&component).expect("pre-instantiate");
         let manifest = test_manifest("comp-fuel", Default::default());
-        let limits = resolve_limits(&manifest, 10_000).expect("limits");
+        let limits = resolve_limits(&manifest, 10_000);
         let grants = resolve_grants(&manifest);
         let stats = Arc::new(WasmStats::default());
         let pool = ComponentSessionPool::new("comp-fuel", &engine, &pre, &grants, &limits, &stats);
@@ -1483,7 +1484,7 @@ mod tests {
                 ..Default::default()
             },
         );
-        let limits = resolve_limits(&manifest, 10_000).expect("limits");
+        let limits = resolve_limits(&manifest, 10_000);
         let grants = resolve_grants(&manifest);
         let stats = Arc::new(WasmStats::default());
         let pool = ComponentSessionPool::new("comp-pool", &engine, &pre, &grants, &limits, &stats);

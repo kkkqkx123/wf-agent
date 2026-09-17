@@ -4,13 +4,14 @@ use std::sync::Arc;
 use tokio::fs;
 
 use super::plugin::{fetch_declaration, WasmPlugin, WasmPluginInner};
-use super::policy::{resolve_grants, resolve_limits, validate_network_policy};
+use super::policy::{resolve_grants, resolve_limits_with_defaults, validate_network_policy};
 use super::pool::{self, SessionPool};
 use super::stats::WasmStats;
 use crate::error::{PluginError, PluginResult};
 use crate::manifest::PluginManifest;
 use crate::plugin::Plugin;
 use crate::signing::{enforce_signature, verify_file, TrustedKeys};
+use wf_plugin_sdk::manifest::WasmConfig;
 use wf_plugin_sdk::wasm::export;
 
 /// Fallback per-call timeout when the manifest sets none. Mirrors the
@@ -21,14 +22,26 @@ pub const DEFAULT_WASM_CALL_TIMEOUT_MS: u64 = 10_000;
 
 pub async fn load_wasm_plugin(manifest: &PluginManifest) -> PluginResult<Arc<dyn Plugin>> {
     let base_path = determine_base_path(manifest)?;
-    load_wasm_plugin_at(manifest, &base_path).await
+    load_wasm_plugin_at(manifest, &base_path, None, DEFAULT_WASM_CALL_TIMEOUT_MS).await
 }
 
 pub async fn load_wasm_plugin_with_base(
     manifest: &PluginManifest,
     base: &Path,
 ) -> PluginResult<Arc<dyn Plugin>> {
-    load_wasm_plugin_at(manifest, base).await
+    load_wasm_plugin_at(manifest, base, None, DEFAULT_WASM_CALL_TIMEOUT_MS).await
+}
+
+/// Engine path: applies engine-global wasm defaults and the engine guard
+/// timeout before the manifest values, so operators can tighten or loosen
+/// limits without editing every plugin manifest.
+pub async fn load_wasm_plugin_with_engine_config(
+    manifest: &PluginManifest,
+    base: &Path,
+    engine_defaults: Option<&WasmConfig>,
+    guard_timeout_ms: u64,
+) -> PluginResult<Arc<dyn Plugin>> {
+    load_wasm_plugin_at(manifest, base, engine_defaults, guard_timeout_ms).await
 }
 
 /// Load a wasm plugin with a point-in-time signature check on its
@@ -49,7 +62,7 @@ pub async fn load_wasm_plugin_verified_with_base(
     let module_path = resolve_module_path(manifest, base)?;
     let status = verify_file(&module_path, trust);
     enforce_signature(&manifest.id, &module_path, &status, trust, "loading")?;
-    load_wasm_plugin_at(manifest, base).await
+    load_wasm_plugin_at(manifest, base, None, DEFAULT_WASM_CALL_TIMEOUT_MS).await
 }
 
 /// Resolve the on-disk module path for a manifest, rejecting absolute
@@ -77,11 +90,13 @@ fn resolve_module_path(manifest: &PluginManifest, base_path: &Path) -> PluginRes
 async fn load_wasm_plugin_at(
     manifest: &PluginManifest,
     base_path: &Path,
+    engine_defaults: Option<&WasmConfig>,
+    guard_timeout_ms: u64,
 ) -> PluginResult<Arc<dyn Plugin>> {
     let id = &manifest.id;
     let module_path = resolve_module_path(manifest, base_path)?;
 
-    let limits = resolve_limits(manifest, DEFAULT_WASM_CALL_TIMEOUT_MS)?;
+    let limits = resolve_limits_with_defaults(manifest, engine_defaults, guard_timeout_ms);
     validate_network_policy(manifest)?;
     let bytes = fs::read(&module_path)
         .await
@@ -131,6 +146,20 @@ async fn load_wasm_plugin_at(
         grants.writable_dirs.len(),
         grants.env_vars.len(),
         grants.allow_network
+    );
+    tracing::info!(
+        "wasm plugin '{id}' limits: memory={}B fuel={} timeout={}ms module={}B pool={}",
+        limits.memory_max_bytes,
+        limits
+            .fuel_limit
+            .map(|f| f.to_string())
+            .unwrap_or_else(|| "off".into()),
+        limits
+            .call_timeout_ms
+            .map(|t| t.to_string())
+            .unwrap_or_else(|| "off".into()),
+        limits.max_module_bytes,
+        limits.pool_size,
     );
     // Pooling requires the guest heap-reset hook: without it, reusing a
     // store would corrupt the bump allocator. Probe the export once here
@@ -324,6 +353,7 @@ mod tests {
             hooks: None,
             llm_providers: vec![],
             wasm: None,
+            lua: None,
         }
     }
 
@@ -361,7 +391,7 @@ mod tests {
             max_module_bytes: Some(4),
             ..Default::default()
         });
-        let limits = resolve_limits(&m, 0).expect("limits");
+        let limits = super::super::policy::resolve_limits(&m, 0);
         assert_eq!(limits.max_module_bytes, 4);
     }
 

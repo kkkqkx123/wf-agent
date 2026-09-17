@@ -670,8 +670,9 @@ mod tests {
             hooks: None,
             llm_providers: vec![],
             wasm: None,
+            lua: None,
         };
-        let limits = resolve_limits(&manifest, 10_000).expect("limits");
+        let limits = resolve_limits(&manifest, 10_000);
         let engine_clone = engine.clone();
         let grants = WasiGrants::default();
         let stats = Arc::new(WasmStats::default());
@@ -761,8 +762,9 @@ mod tests {
                 store_pool_size: Some(pool_size),
                 ..Default::default()
             }),
+            lua: None,
         };
-        let limits = resolve_limits(&manifest, 10_000).expect("limits");
+        let limits = resolve_limits(&manifest, 10_000);
         let grants = WasiGrants::default();
         let stats = Arc::new(WasmStats::default());
         let pool = SessionPool::new(
@@ -930,8 +932,9 @@ mod tests {
             hooks: None,
             llm_providers: vec![],
             wasm: None,
+            lua: None,
         };
-        let limits = resolve_limits(&manifest, 10_000).expect("limits");
+        let limits = resolve_limits(&manifest, 10_000);
         let grants = WasiGrants::default();
         let mut session = pool::new_session(&engine, &pre, "abi-probe", &grants, &limits).await?;
         super::abi::negotiate_abi_version(&mut session, &engine, "abi-probe", &limits).await
@@ -1247,6 +1250,7 @@ mod tests {
             hooks: None,
             llm_providers: vec![],
             wasm: None,
+            lua: None,
         };
         let plugin = super::super::loader::load_wasm_plugin_with_base(&manifest, &dir)
             .await

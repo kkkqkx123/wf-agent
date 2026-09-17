@@ -39,7 +39,7 @@ impl LuaPlugin {
     }
 
     fn arm_hook(lua: &mlua::Lua, limits: super::pool::LuaExecutionLimits) -> PluginResult<()> {
-        let deadline = std::time::Instant::now() + limits.timeout;
+        let deadline = limits.timeout.map(|t| std::time::Instant::now() + t);
         let max_kb = limits.memory_limit_kb;
         super::pool::set_protection_hook(lua, deadline, max_kb)
             .map_err(|e| PluginError::LuaError(e.to_string()))

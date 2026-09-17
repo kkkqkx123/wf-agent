@@ -7,22 +7,32 @@ use super::plugin::LuaPlugin;
 use crate::error::{PluginError, PluginResult};
 use crate::manifest::PluginManifest;
 use crate::plugin::Plugin;
+use wf_plugin_sdk::manifest::LuaConfig;
 
 pub async fn load_lua_plugin(manifest: &PluginManifest) -> PluginResult<Arc<dyn Plugin>> {
     let base_path = determine_base_path(manifest)?;
-    load_lua_plugin_at(manifest, &base_path).await
+    load_lua_plugin_at(manifest, &base_path, None).await
 }
 
 pub async fn load_lua_plugin_with_base(
     manifest: &PluginManifest,
     base: &Path,
 ) -> PluginResult<Arc<dyn Plugin>> {
-    load_lua_plugin_at(manifest, base).await
+    load_lua_plugin_at(manifest, base, None).await
+}
+
+pub async fn load_lua_plugin_with_base_and_defaults(
+    manifest: &PluginManifest,
+    base: &Path,
+    engine_defaults: Option<&LuaConfig>,
+) -> PluginResult<Arc<dyn Plugin>> {
+    load_lua_plugin_at(manifest, base, engine_defaults).await
 }
 
 async fn load_lua_plugin_at(
     manifest: &PluginManifest,
     base_path: &Path,
+    engine_defaults: Option<&LuaConfig>,
 ) -> PluginResult<Arc<dyn Plugin>> {
     let entry_path = base_path.join(&manifest.entry_point);
     let script = fs::read_to_string(&entry_path)
@@ -33,6 +43,16 @@ async fn load_lua_plugin_at(
     }
 
     let lua = super::pool::create_state(&script)?;
+    let limits = super::pool::resolve_limits(manifest.lua.as_ref(), engine_defaults);
+    tracing::info!(
+        "lua plugin '{}' limits: timeout={} memory={}KB",
+        manifest.id,
+        limits
+            .timeout
+            .map(|t| format!("{}ms", t.as_millis()))
+            .unwrap_or_else(|| "off".into()),
+        limits.memory_limit_kb,
+    );
 
     {
         let plugin_value: mlua::Value = lua.globals().get("plugin").map_err(|e| {
@@ -49,11 +69,9 @@ async fn load_lua_plugin_at(
         validate_priority(&plugin_table)?;
     }
 
-    Ok(Arc::new(LuaPlugin::new(
-        manifest.clone(),
-        lua,
-        Arc::new(script),
-    )))
+    Ok(Arc::new(
+        LuaPlugin::new(manifest.clone(), lua, Arc::new(script)).with_limits(limits),
+    ))
 }
 
 fn validate_priority(plugin_table: &mlua::Table) -> PluginResult<()> {

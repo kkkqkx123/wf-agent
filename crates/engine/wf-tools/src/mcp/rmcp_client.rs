@@ -21,9 +21,8 @@ use std::time::Duration;
 
 use rmcp::model::{
     CallToolRequestParams, ClientCapabilities, ClientConfig, Implementation, JsonObject,
-    LoggingMessageNotificationParam, ProgressNotificationParam, ProtocolVersion,
-    ReadResourceRequestParams, Resource, ResourceContents, ResourceTemplate,
-    ResourceUpdatedNotificationParam, Tool,
+    ProgressNotificationParam, ProtocolVersion, ReadResourceRequestParams, Resource,
+    ResourceContents, ResourceTemplate, ResourceUpdatedNotificationParam, Tool,
 };
 use rmcp::service::{
     ClientLifecycleMode, NotificationContext, RoleClient, RunningService, ServiceError,
@@ -65,7 +64,6 @@ pub enum McpsNotification {
     ResourceListChanged,
     PromptListChanged,
     ResourceUpdated,
-    LoggingMessage,
     Progress,
 }
 
@@ -76,16 +74,12 @@ pub enum McpsNotification {
 /// [`RmcpClient`].
 #[derive(Clone)]
 pub struct WfClientHandler {
-    server_name: String,
     notify_tx: mpsc::Sender<McpsNotification>,
 }
 
 impl WfClientHandler {
-    fn new(server_name: impl Into<String>, notify_tx: mpsc::Sender<McpsNotification>) -> Self {
-        Self {
-            server_name: server_name.into(),
-            notify_tx,
-        }
+    fn new(notify_tx: mpsc::Sender<McpsNotification>) -> Self {
+        Self { notify_tx }
     }
 }
 
@@ -130,14 +124,6 @@ impl ClientHandler for WfClientHandler {
     ) {
         let _ = self.notify_tx.send(McpsNotification::Progress).await;
     }
-
-    async fn on_logging_message(
-        &self,
-        _params: LoggingMessageNotificationParam,
-        _ctx: NotificationContext<RoleClient>,
-    ) {
-        let _ = self.notify_tx.send(McpsNotification::LoggingMessage).await;
-    }
 }
 
 /// A live MCP connection backed by an rmcp `RunningService`.
@@ -160,7 +146,7 @@ impl RmcpClient {
     /// service. Returns an error if already connected or the handshake fails.
     pub async fn connect(&self, config: &McpServerConfig) -> ToolResult<()> {
         let (notify_tx, notify_rx) = mpsc::channel(64);
-        let handler = WfClientHandler::new(self.server_name.clone(), notify_tx);
+        let handler = WfClientHandler::new(notify_tx);
 
         let lifecycle = ClientLifecycleMode::Auto {
             preferred_versions: vec![ProtocolVersion::LATEST],

@@ -402,6 +402,7 @@ fn error_type(error: &ToolError) -> &'static str {
         ToolError::ExecutionFailed { .. } => "execution_failed",
         ToolError::ValidationFailed(_) => "validation_failed",
         ToolError::Timeout { .. } => "timeout",
+        ToolError::Cancelled { .. } => "cancelled",
         ToolError::RetryExhausted { .. } => "retry_exhausted",
         ToolError::McpError(_) => "mcp_error",
         ToolError::TransportError(_) => "transport_error",

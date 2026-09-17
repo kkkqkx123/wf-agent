@@ -14,6 +14,7 @@ wf-checkpoint = { path = "../../infra/wf-checkpoint" }
 
 async-trait.workspace = true
 tokio = { workspace = true, features = ["process", "io-util", "net"] }
+tokio-util.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

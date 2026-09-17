@@ -12,6 +12,7 @@ use wf_common::retry::{RetryBudget, RetryBudgetConfig, TimeBudgetMode};
 use wf_core::registry::MutableRegistry;
 use wf_execution_shared::context::ExecutorContext;
 use wf_execution_shared::hooks::types::HookDefinition;
+use wf_execution_shared::types::execution_entity::ExecutionEntity;
 use wf_execution_shared::types::execution_entity::ExecutionStatus;
 use wf_storage::adapter::base::BaseStorageAdapter;
 use wf_tools::callback::WorkflowOutput;
@@ -218,8 +219,26 @@ pub async fn stream(
 /// Pause a running workflow execution (checked between nodes).
 pub async fn pause(ctx: &ApiContext, execution_id: &str) -> crate::infra::error::ApiResult<()> {
     let entity = live_entity(ctx, execution_id)?;
-    entity.interruption().pause()?;
-    entity.state.write().await.pause()?;
+    entity.pause().await?;
+    // Pause expiry mirrors the agent loop: a detached timer stops an
+    // execution that stays paused past its configured budget. The timer
+    // re-checks on wake so a timely resume is never disturbed.
+    if let Some(max_pause) = execution_options(ctx, &entity).await.max_pause_duration {
+        if max_pause > 0 {
+            let watched = entity.clone();
+            tokio::spawn(async move {
+                tokio::time::sleep(std::time::Duration::from_millis(max_pause)).await;
+                if watched.state.read().await.status() == ExecutionStatus::Paused {
+                    tracing::warn!(
+                        execution_id = %watched.id(),
+                        max_pause_duration = max_pause,
+                        "Workflow execution pause timeout exceeded, stopping execution"
+                    );
+                    let _ = watched.stop().await;
+                }
+            });
+        }
+    }
     Ok(())
 }
 
@@ -245,6 +264,14 @@ pub async fn resume(
                 result,
             });
         }
+        return Err(ApiError::Validation(format!(
+            "execution {execution_id} already completed without output"
+        )));
+    }
+    if entity.state.read().await.status().is_terminal() {
+        return Err(ApiError::Validation(format!(
+            "execution {execution_id} is terminal and cannot resume; restore from checkpoint instead"
+        )));
     }
 
     let workflow_id = entity.workflow_id().to_string();
@@ -284,7 +311,7 @@ pub async fn resume(
     let snapshot = entity_resume_snapshot(&entity).await;
     coordinator.resume_from(&snapshot);
 
-    let _ = entity.state.write().await.resume();
+    entity.resume().await?;
 
     run_lifecycle_middleware(ctx, MiddlewarePhase::BeforeWorkflowExecution, &entity, None).await?;
 
@@ -455,8 +482,7 @@ pub async fn restore_and_resume(
 /// Cancel (stop) a running workflow execution.
 pub async fn cancel(ctx: &ApiContext, execution_id: &str) -> crate::infra::error::ApiResult<()> {
     let entity = live_entity(ctx, execution_id)?;
-    entity.interruption().stop()?;
-    let _ = entity.state.write().await.cancel();
+    entity.stop().await?;
     Ok(())
 }
 

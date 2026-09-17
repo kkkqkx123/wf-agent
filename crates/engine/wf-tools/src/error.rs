@@ -14,6 +14,9 @@ pub enum ToolError {
     #[error("Tool timeout: {tool_id} after {timeout_ms}ms")]
     Timeout { tool_id: String, timeout_ms: u64 },
 
+    #[error("Tool cancelled: {tool_id}")]
+    Cancelled { tool_id: String },
+
     #[error("Tool retry exhausted: {tool_id} after {retries} retries")]
     RetryExhausted { tool_id: String, retries: u32 },
 

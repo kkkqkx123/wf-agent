@@ -23,6 +23,10 @@ pub struct ToolExecutionContext {
     /// Per-execution checkpoint session injected by an upper layer.
     /// `None` keeps plain tool behavior with no file/shell effect recording.
     pub checkpoint_session: Option<wf_checkpoint::CheckpointSession>,
+    /// Abort signal of the owning execution; `None` keeps plain tool
+    /// behavior. Engines race tool execution against it so a stop lands
+    /// promptly instead of waiting out the tool.
+    pub cancellation: Option<tokio_util::sync::CancellationToken>,
 }
 
 impl std::fmt::Debug for ToolExecutionContext {
@@ -33,6 +37,7 @@ impl std::fmt::Debug for ToolExecutionContext {
             .field("metadata", &self.metadata)
             .field("general_invoker", &self.general_invoker.is_some())
             .field("checkpoint_session", &self.checkpoint_session.is_some())
+            .field("cancellation", &self.cancellation.is_some())
             .finish()
     }
 }
@@ -45,6 +50,7 @@ impl ToolExecutionContext {
             metadata: HashMap::new(),
             general_invoker: None,
             checkpoint_session: None,
+            cancellation: None,
         }
     }
 
@@ -69,6 +75,16 @@ impl ToolExecutionContext {
         session: Option<wf_checkpoint::CheckpointSession>,
     ) -> Self {
         self.checkpoint_session = session;
+        self
+    }
+
+    /// Inject the owning execution abort signal. `None` keeps plain tool
+    /// behavior with no cooperative cancellation.
+    pub fn with_cancellation(
+        mut self,
+        cancellation: Option<tokio_util::sync::CancellationToken>,
+    ) -> Self {
+        self.cancellation = cancellation;
         self
     }
 }

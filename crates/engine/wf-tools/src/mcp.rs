@@ -1,16 +1,10 @@
 pub mod analytics;
-pub mod approval_enhanced;
 pub mod connection;
 pub mod metadata;
 pub mod registration;
 pub mod rmcp_client;
 
 pub use analytics::{McpUsageAnalytics, ToolStats};
-pub use approval_enhanced::{
-    AccessControlRule, ApprovalResult, ApprovalRiskLevel, EnhancedMcpApprovalSystem, McpOperation,
-    ParameterApprovalRule, RateLimitingRule, ResourceAccessApprovalContext,
-    ToolCallApprovalContext,
-};
 pub use connection::{McpConnectionManager, McpServerEntry, McpServerRegistry};
 pub use metadata::{
     CachedServerMetadata, GeneratedMcpToolsContext, McpToolMetadataCache, McpToolsContextOptions,

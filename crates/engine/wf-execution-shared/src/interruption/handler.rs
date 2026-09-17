@@ -1,4 +1,4 @@
-use wf_core::interruption::InterruptionState;
+use wf_core::interruption::{InterruptionSignal, InterruptionState};
 
 use super::check::check_execution_interruption;
 use crate::error::{ExecutionSharedError, ExecutionSharedResult};
@@ -35,7 +35,25 @@ where
         }
     }
 
-    let result = f().await?;
+    let result = tokio::select! {
+        result = f() => result?,
+        _ = async {
+            let mut rx = state.subscribe();
+            loop {
+                if *rx.borrow() == InterruptionSignal::Stop {
+                    break;
+                }
+                if rx.changed().await.is_err() {
+                    break;
+                }
+            }
+        } => {
+            return Err(ExecutionSharedError::InterruptionError(format!(
+                "execution stopped at iteration {:?}",
+                current_iteration
+            )));
+        }
+    };
 
     match check_execution_interruption(state, current_iteration) {
         ExecutionInterruptionCheckResult::Continue => Ok(result),

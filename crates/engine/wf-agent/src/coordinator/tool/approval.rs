@@ -10,7 +10,7 @@ use wf_types::tool::file_permission::FilePermissionSettings;
 use crate::approval::{ToolApprovalHandler, ToolApprovalRequest};
 use crate::entity::AgentLoopEntity;
 
-use super::runner::risk_level_of;
+use super::runner::{risk_level_enum_of, risk_level_of, tool_description_of};
 use super::types::ApprovalOutcome;
 
 /// Approval engine adapter for a batch of tool calls.
@@ -65,15 +65,13 @@ impl ToolApprovalGate {
             .map(|tc| ToolApprovalRequestData {
                 tool_call_id: tc.id.clone(),
                 tool_name: tc.function.name.clone(),
-                tool_description: None,
+                tool_description: tool_description_of(registry, &tc.function.name),
                 parameters: serde_json::from_str(&tc.function.arguments).unwrap_or(Value::Null),
                 risk_level: risk_level_of(registry, &tc.function.name),
                 pending_queue: None,
                 batch_id: None,
                 tool_index: None,
                 total_tools: None,
-                timeout: None,
-                security_preset: None,
             })
             .collect();
 
@@ -82,15 +80,12 @@ impl ToolApprovalGate {
         let options = self.options.clone().unwrap_or_else(|| ToolApprovalOptions {
             auto_approval_enabled: Some(self.handler.is_none()),
             security_preset: None,
-            risk_threshold: None,
             auto_approve_patterns: None,
             categories: None,
-            workspace_boundary: None,
             file_permissions: Some(FilePermissionSettings::default_rules()),
             command: None,
             mcp: None,
             network: None,
-            interaction: None,
             allow_write_protected: None,
         });
 
@@ -138,6 +133,8 @@ impl ToolApprovalGate {
                         arguments: serde_json::from_str(&tc.function.arguments)
                             .unwrap_or(Value::Null),
                         interaction_id,
+                        risk_level: risk_level_of(registry, &tc.function.name),
+                        tool_description: tool_description_of(registry, &tc.function.name),
                         batch_id: Some(batch.batch_id.clone()),
                         tool_index: Some(*idx as u32),
                         total_tools: Some(tool_calls.len() as u32),
@@ -150,7 +147,10 @@ impl ToolApprovalGate {
                                         serde_json::from_str(&tool_calls[*p].function.arguments)
                                             .unwrap_or(Value::Null),
                                     ),
-                                    risk_level: None,
+                                    risk_level: risk_level_enum_of(
+                                        registry,
+                                        &tool_calls[*p].function.name,
+                                    ),
                                 })
                                 .collect(),
                         ),

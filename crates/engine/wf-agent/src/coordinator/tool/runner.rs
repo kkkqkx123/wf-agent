@@ -150,6 +150,9 @@ pub(crate) async fn run_tool(
         if let Some(cp_sess) = &ctx.checkpoint_session {
             tool_ctx = tool_ctx.with_checkpoint_session(Some(cp_sess.clone()));
         }
+        if let Some(token) = &ctx.cancellation {
+            tool_ctx = tool_ctx.with_cancellation(Some(token.clone()));
+        }
         tool_ctx
     };
     let options = ToolExecutionOptions {
@@ -162,12 +165,30 @@ pub(crate) async fn run_tool(
     let mut duration_ms;
     let result = loop {
         let start = wf_common::now();
-        let attempt = tokio::time::timeout(
-            tool_execution_deadline(timeout_ms),
-            ctx.registry
-                .execute_tool(&tid, &params, &options, &tool_ctx),
-        )
-        .await;
+        let attempt = match ctx.cancellation.clone() {
+            Some(token) => {
+                tokio::select! {
+                    attempt = tokio::time::timeout(
+                        tool_execution_deadline(timeout_ms),
+                        ctx.registry
+                            .execute_tool(&tid, &params, &options, &tool_ctx),
+                    ) => attempt,
+                    _ = token.cancelled() => {
+                        entity_state.write().await.finish_tool_call(&tc.id, None);
+                        emit_progress(&ctx.progress_tx, &tc.id, ToolProgressStatus::Failed, None);
+                        return Err(format!("Tool '{tool_name}' was cancelled"));
+                    }
+                }
+            }
+            None => {
+                tokio::time::timeout(
+                    tool_execution_deadline(timeout_ms),
+                    ctx.registry
+                        .execute_tool(&tid, &params, &options, &tool_ctx),
+                )
+                .await
+            }
+        };
         duration_ms = (wf_common::now() - start) as f64;
 
         if matches!(&attempt, Ok(Ok(r)) if r.success) {
@@ -452,8 +473,21 @@ pub(crate) fn find_tool_id_by_name(
         .map(|t| t.id)
 }
 
-/// Registry metadata risk level as a string, for approval request payloads.
-pub(crate) fn risk_level_of(
+/// Registry metadata risk level as an enum, for batch queue payloads.
+pub(crate) fn risk_level_enum_of(
+    registry: &wf_tools::registry::ToolRegistry,
+    name: &str,
+) -> Option<ToolRiskLevel> {
+    registry
+        .list_tools()
+        .into_iter()
+        .find(|t| t.name == name)
+        .and_then(|t| t.metadata)
+        .and_then(|m| m.risk_level)
+}
+
+/// Registry tool description, for approval request payloads.
+pub(crate) fn tool_description_of(
     registry: &wf_tools::registry::ToolRegistry,
     name: &str,
 ) -> Option<String> {
@@ -461,8 +495,15 @@ pub(crate) fn risk_level_of(
         .list_tools()
         .into_iter()
         .find(|t| t.name == name)
-        .and_then(|t| t.metadata)
-        .and_then(|m| m.risk_level)
+        .map(|t| t.description)
+}
+
+/// Registry metadata risk level as a string, for approval request payloads.
+pub(crate) fn risk_level_of(
+    registry: &wf_tools::registry::ToolRegistry,
+    name: &str,
+) -> Option<String> {
+    risk_level_enum_of(registry, name)
         .map(|level| match level {
             ToolRiskLevel::ReadOnly => "read_only",
             ToolRiskLevel::Write => "write",

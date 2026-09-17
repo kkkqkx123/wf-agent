@@ -135,6 +135,8 @@ fn approval_and_question_requests_render_views() {
         tool_name: "execute_command".to_string(),
         arguments: json!({ "command": "echo test" }),
         interaction_id: "ui-1".to_string(),
+        risk_level: None,
+        tool_description: None,
         batch_id: None,
         tool_index: None,
         total_tools: None,

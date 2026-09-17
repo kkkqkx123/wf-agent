@@ -222,6 +222,8 @@ mod tests {
             tool_name: tool.to_string(),
             arguments: json!({ "command": "rm -rf /tmp/x" }),
             interaction_id: "ui-1".to_string(),
+            risk_level: None,
+            tool_description: None,
             batch_id: None,
             tool_index: None,
             total_tools: None,

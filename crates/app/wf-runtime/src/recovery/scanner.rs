@@ -1,17 +1,29 @@
-use wf_storage::adapter::adapter_impls::WorkflowExecutionStorage;
+use wf_storage::adapter::adapter_impls::{AgentExecutionStorage, WorkflowExecutionStorage};
 use wf_storage::backend::StorageBackend;
 use wf_storage::domain::store::QueryFilter;
-use wf_types::WorkflowExecution;
+use wf_types::{AgentExecution, WorkflowExecution};
 
 use crate::error::{RuntimeError, RuntimeResult};
 
 pub struct RecoveryScanner {
     execution_storage: WorkflowExecutionStorage<StorageBackend>,
+    agent_execution_storage: Option<AgentExecutionStorage<StorageBackend>>,
 }
 
 impl RecoveryScanner {
     pub fn new(execution_storage: WorkflowExecutionStorage<StorageBackend>) -> Self {
-        Self { execution_storage }
+        Self {
+            execution_storage,
+            agent_execution_storage: None,
+        }
+    }
+
+    pub fn with_agent_store(
+        mut self,
+        agent_execution_storage: AgentExecutionStorage<StorageBackend>,
+    ) -> Self {
+        self.agent_execution_storage = Some(agent_execution_storage);
+        self
     }
 
     pub async fn scan_incomplete(&self) -> RuntimeResult<Vec<WorkflowExecution>> {
@@ -21,6 +33,25 @@ impl RecoveryScanner {
             let filter = QueryFilter::new().with_field("status", status);
             let mut executions = self
                 .execution_storage
+                .entity_store()
+                .list(Some(&filter))
+                .await
+                .map_err(RuntimeError::Storage)?;
+            results.append(&mut executions);
+        }
+
+        Ok(results)
+    }
+
+    pub async fn scan_incomplete_agent(&self) -> RuntimeResult<Vec<AgentExecution>> {
+        let Some(storage) = self.agent_execution_storage.as_ref() else {
+            return Ok(Vec::new());
+        };
+        let mut results = Vec::new();
+
+        for status in &["running", "paused", "created"] {
+            let filter = QueryFilter::new().with_field("status", status);
+            let mut executions = storage
                 .entity_store()
                 .list(Some(&filter))
                 .await

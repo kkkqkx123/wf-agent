@@ -10,7 +10,7 @@ use wf_execution_shared::context::{NodeExecutionContext, NodeExecutionResult};
 use wf_llm::LlmGateway;
 use wf_types::events::{BaseEvent, EventType};
 use wf_types::llm::{LlmRequest, MessageStreamEvent, ToolCallProtocolConfig};
-use wf_types::message::{Message, MessageContentValue, MessageRole};
+use wf_types::message::{LlmToolCall, Message, MessageContentValue, MessageRole};
 use wf_types::node::StaticNodeType;
 
 use crate::error::{WorkflowError, WorkflowResult};
@@ -502,6 +502,39 @@ async fn call_llm(
     }
 }
 
+/// Batch context for one LLM response's tool calls, mirroring the agent
+/// gate's batch semantics so parallel calls share one approval view.
+struct LlmToolCallBatch {
+    batch_id: String,
+    index: u32,
+    total: u32,
+    pending_queue: Vec<wf_types::interaction::tool_approval::PendingToolCallInfo>,
+}
+
+/// Pending-call queue for a response's tool calls, with registry risk levels
+/// attached so the approval view matches the agent path.
+fn pending_queue_for(
+    calls: &[LlmToolCall],
+    registry: Option<&Arc<wf_tools::registry::ToolRegistry>>,
+) -> Vec<wf_types::interaction::tool_approval::PendingToolCallInfo> {
+    calls
+        .iter()
+        .map(|call| {
+            let arguments = serde_json::from_str(&call.function.arguments).ok();
+            let risk_level = registry
+                .and_then(|registry| registry.get_tool(&call.function.name))
+                .and_then(|tool| tool.metadata)
+                .and_then(|m| m.risk_level);
+            wf_types::interaction::tool_approval::PendingToolCallInfo {
+                id: call.id.clone(),
+                name: call.function.name.clone(),
+                arguments,
+                risk_level,
+            }
+        })
+        .collect()
+}
+
 /// Execute one tool call through the registry, returning a Tool message.
 /// File-tool and shell writes are attributed to the same workflow-level
 /// actor the script nodes use (`resolve_actor(execution, parent)`), via the
@@ -511,6 +544,7 @@ async fn execute_tool_call(
     ctx: &NodeExecutionContext,
     call: &wf_types::message::LlmToolCall,
     file_checkpoint: Option<&wf_checkpoint::file::FileCheckpointManager>,
+    batch: Option<&LlmToolCallBatch>,
 ) -> Message {
     let tool_name = call.function.name.clone();
     let args: Value = serde_json::from_str(&call.function.arguments).unwrap_or(Value::Null);
@@ -532,7 +566,8 @@ async fn execute_tool_call(
 
     let mut tool_ctx =
         wf_tools::executor::trait_def::ToolExecutionContext::new(ctx.execution_id.clone())
-            .with_node_id(ctx.node_id.clone());
+            .with_node_id(ctx.node_id.clone())
+            .with_cancellation(ctx.cancellation.clone());
     if let Some(manager) = file_checkpoint {
         let parent = ctx.parent_execution_id.as_ref().map(|id| id.to_string());
         let session = wf_checkpoint::CheckpointSession::new(
@@ -550,70 +585,112 @@ async fn execute_tool_call(
         exponential_backoff: None,
     };
 
-    // Tool-level approval gate (pre-execution side-effect guard, aligned
-    // with the agent path): an external handler decides; otherwise the
-    // policy engine (auto-approval presets / patterns / risk rules) decides;
-    // with neither the call is auto-approved.
-    let approved = if let Some(handler) = &ctx.tool_approval_handler {
-        let interaction_id = format!("approval-{}-{}", wf_common::now(), call.id);
-        let request = wf_execution_shared::approval::ToolApprovalRequest {
-            tool_call_id: call.id.clone(),
-            tool_name: tool_name.clone(),
-            arguments: args.clone(),
-            interaction_id,
-            batch_id: None,
-            tool_index: None,
-            total_tools: None,
-            pending_queue: None,
-        };
-        let result = handler.request_approval(&request).await;
-        match result.approved {
-            true => Ok(result.edited_parameters),
-            false => Err(result
-                .rejection_reason
-                .unwrap_or_else(|| "Rejected by user".to_string())),
+    // Tool-level approval gate (pre-execution side-effect guard, mirroring
+    // the agent gate): the policy engine decides first; denials are final
+    // and never reach the handler; approvals execute; only `Ask` consults
+    // the external handler, failing closed when none is attached. With
+    // neither options nor handler the call is auto-approved (library
+    // opt-in default, same as the agent fast path).
+    let (risk_level, tool_description) = ctx
+        .tool_registry
+        .as_ref()
+        .and_then(|registry| registry.get_tool(&tool_name))
+        .map(|tool| {
+            let risk = tool
+                .metadata
+                .and_then(|m| m.risk_level)
+                .map(|level| serde_json::to_string(&level).unwrap_or_default())
+                .map(|s| s.trim_matches('"').to_string());
+            (risk, Some(tool.description))
+        })
+        .unwrap_or((None, None));
+    // A handler without explicit options falls back to ask-everything over
+    // the default sensitive-file rules, like the agent gate, so attaching
+    // a handler never silently weakens the baseline.
+    let effective_options: Option<wf_types::tool::approval::ToolApprovalOptions> = match &ctx
+        .tool_approval_options
+    {
+        Some(approval_options) => {
+            let mut approval_options = approval_options.clone();
+            if approval_options.file_permissions.is_none() {
+                approval_options.file_permissions =
+                    Some(wf_types::tool::file_permission::FilePermissionSettings::default_rules());
+            }
+            Some(approval_options)
         }
-    } else {
-        match &ctx.tool_approval_options {
-            Some(approval_options) => {
-                let risk_level = ctx
-                    .tool_registry
-                    .as_ref()
-                    .and_then(|registry| registry.get_tool(&tool_name))
-                    .and_then(|tool| tool.metadata)
-                    .and_then(|m| m.risk_level)
-                    .map(|level| serde_json::to_string(&level).unwrap_or_default());
-                let request = wf_types::interaction::tool_approval::ToolApprovalRequestData {
-                    tool_call_id: call.id.clone(),
-                    tool_name: tool_name.clone(),
-                    tool_description: None,
-                    parameters: args.clone(),
-                    risk_level: risk_level.map(|s| s.trim_matches('"').to_string()),
-                    pending_queue: None,
-                    batch_id: None,
-                    tool_index: None,
-                    total_tools: None,
-                    timeout: None,
+        None => {
+            if ctx.tool_approval_handler.is_some() {
+                Some(wf_types::tool::approval::ToolApprovalOptions {
+                    auto_approval_enabled: Some(false),
                     security_preset: None,
-                };
-                let mut approval_options = approval_options.clone();
-                if approval_options.file_permissions.is_none() {
-                    approval_options.file_permissions = Some(
+                    auto_approve_patterns: None,
+                    categories: None,
+                    file_permissions: Some(
                         wf_types::tool::file_permission::FilePermissionSettings::default_rules(),
-                    );
-                }
-                let coordinator =
-                    wf_tools::approval::ToolApprovalCoordinator::new(approval_options);
-                let batch = coordinator.process_batch(vec![request]);
-                if batch.auto_approved.contains(&0) {
-                    Ok(None)
-                } else {
-                    Err(format!(
-                        "No approval handler configured. Tool \"{tool_name}\" requires manual approval but no handler is registered."
-                    ))
+                    ),
+                    command: None,
+                    mcp: None,
+                    network: None,
+                    allow_write_protected: None,
+                })
+            } else {
+                None
+            }
+        }
+    };
+    let approved = match effective_options {
+        None => Ok(None),
+        Some(approval_options) => {
+            let request_data = wf_types::interaction::tool_approval::ToolApprovalRequestData {
+                tool_call_id: call.id.clone(),
+                tool_name: tool_name.clone(),
+                tool_description: tool_description.clone(),
+                parameters: args.clone(),
+                risk_level: risk_level.clone(),
+                pending_queue: batch.map(|b| b.pending_queue.clone()),
+                batch_id: batch.map(|b| b.batch_id.clone()),
+                tool_index: batch.map(|b| b.index),
+                total_tools: batch.map(|b| b.total),
+            };
+            let coordinator = wf_tools::approval::ToolApprovalCoordinator::new(approval_options);
+            let decision = coordinator
+                .evaluate(std::slice::from_ref(&request_data))
+                .remove(0);
+            match decision {
+                wf_tools::approval::ApprovalDecision::Approve => Ok(None),
+                wf_tools::approval::ApprovalDecision::Deny(reason) => Err(reason),
+                wf_tools::approval::ApprovalDecision::Ask => {
+                    match &ctx.tool_approval_handler {
+                        Some(handler) => {
+                            let interaction_id =
+                                format!("approval-{}-{}", wf_common::now(), call.id);
+                            let request =
+                                wf_execution_shared::approval::ToolApprovalRequest {
+                                    tool_call_id: call.id.clone(),
+                                    tool_name: tool_name.clone(),
+                                    arguments: args.clone(),
+                                    interaction_id,
+                                    risk_level: risk_level.clone(),
+                                    tool_description: tool_description.clone(),
+                                    batch_id: batch.map(|b| b.batch_id.clone()),
+                                    tool_index: batch.map(|b| b.index),
+                                    total_tools: batch.map(|b| b.total),
+                                    pending_queue: batch.map(|b| b.pending_queue.clone()),
+                                };
+                            let result = handler.request_approval(&request).await;
+                            match result.approved {
+                                true => Ok(result.edited_parameters),
+                                false => Err(result.rejection_reason.unwrap_or_else(|| {
+                                    "Rejected by user".to_string()
+                                })),
+                            }
+                        }
+                        None => Err(format!(
+                            "No approval handler configured. Tool \"{tool_name}\" requires manual approval but no handler is registered."
+                        )),
+                    }
                 }
             }
-            None => Ok(None),
         }
     };
 
@@ -630,11 +707,21 @@ async fn execute_tool_call(
     };
 
     let result = match &ctx.tool_registry {
-        Some(registry) => {
-            registry
-                .execute_tool(&tool_name, &effective_args, &options, &tool_ctx)
-                .await
-        }
+        Some(registry) => match ctx.cancellation.clone() {
+            Some(token) => {
+                tokio::select! {
+                    result = registry.execute_tool(&tool_name, &effective_args, &options, &tool_ctx) => result,
+                    _ = token.cancelled() => Err(wf_tools::error::ToolError::Cancelled {
+                        tool_id: tool_name.clone(),
+                    }),
+                }
+            }
+            None => {
+                registry
+                    .execute_tool(&tool_name, &effective_args, &options, &tool_ctx)
+                    .await
+            }
+        },
         None => Err(wf_tools::error::ToolError::NotFound(tool_name.clone())),
     };
 
@@ -1126,8 +1213,25 @@ impl LlmHandler {
 
             let calls = response.tool_calls.unwrap_or_default();
             let mut any_result = false;
-            for call in &calls {
-                let result_msg = execute_tool_call(ctx, call, self.file_checkpoint.as_ref()).await;
+            // One approval batch per response, mirroring the agent gate:
+            // parallel calls share the batch id and see each other in the
+            // pending queue instead of approving in isolation.
+            let pending_queue = pending_queue_for(&calls, ctx.tool_registry.as_ref());
+            let batch_id = if calls.len() > 1 {
+                Some(wf_common::generate_id())
+            } else {
+                None
+            };
+            for (idx, call) in calls.iter().enumerate() {
+                let batch = batch_id.as_ref().map(|batch_id| LlmToolCallBatch {
+                    batch_id: batch_id.clone(),
+                    index: idx as u32,
+                    total: calls.len() as u32,
+                    pending_queue: pending_queue.clone(),
+                });
+                let result_msg =
+                    execute_tool_call(ctx, call, self.file_checkpoint.as_ref(), batch.as_ref())
+                        .await;
                 let is_error = result_msg
                     .metadata
                     .as_ref()
@@ -1351,7 +1455,7 @@ mod tests {
                 arguments: "{}".to_string(),
             },
         };
-        let result = execute_tool_call(&ctx, &call, None).await;
+        let result = execute_tool_call(&ctx, &call, None, None).await;
         assert_eq!(result.role, MessageRole::Tool);
         assert_eq!(result.tool_call_id.as_deref(), Some("call-1"));
         let is_error = result
@@ -1425,7 +1529,7 @@ mod tests {
             },
         };
 
-        let ok = execute_tool_call(&ctx, &call, None).await;
+        let ok = execute_tool_call(&ctx, &call, None, None).await;
         let is_error = ok
             .metadata
             .as_ref()
@@ -1438,7 +1542,7 @@ mod tests {
             format!("{}{}", wf_agent::BLOCKED_VARIABLE_PREFIX, "echo_tool"),
             serde_json::json!(true),
         );
-        let blocked = execute_tool_call(&ctx, &call, None).await;
+        let blocked = execute_tool_call(&ctx, &call, None, None).await;
         assert!(
             matches!(&blocked.content, MessageContentValue::Text(t) if t.contains("not visible"))
         );

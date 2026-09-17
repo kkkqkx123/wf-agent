@@ -160,6 +160,12 @@ pub fn tool_error_analysis(e: &ToolError) -> ErrorAnalysis {
             true,
             RecoveryAction::Retry,
         ),
+        ToolError::Cancelled { .. } => (
+            ErrorKind::Execution,
+            ErrorType::ToolError,
+            false,
+            RecoveryAction::Abort,
+        ),
         _ => (
             ErrorKind::Tool,
             ErrorType::ToolError,

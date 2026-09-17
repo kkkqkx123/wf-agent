@@ -29,14 +29,6 @@ pub struct ApprovalCategories {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct WorkspaceBoundary {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub allow_read_only_outside_workspace: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub allow_write_outside_workspace: Option<bool>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct CommandApprovalSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub allowed_commands: Option<Vec<String>>,
@@ -53,25 +45,15 @@ pub struct NetworkApprovalSettings {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct InteractionApprovalSettings {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub followup_auto_approve_timeout_ms: Option<u64>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ToolApprovalOptions {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub auto_approval_enabled: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub security_preset: Option<SecurityPreset>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub risk_threshold: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub auto_approve_patterns: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub categories: Option<ApprovalCategories>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub workspace_boundary: Option<WorkspaceBoundary>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub file_permissions: Option<FilePermissionSettings>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -80,8 +62,6 @@ pub struct ToolApprovalOptions {
     pub mcp: Option<McpApprovalSettings>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub network: Option<NetworkApprovalSettings>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub interaction: Option<InteractionApprovalSettings>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub allow_write_protected: Option<bool>,
 }
@@ -92,15 +72,12 @@ impl ToolApprovalOptions {
         Self {
             auto_approval_enabled: None,
             security_preset: None,
-            risk_threshold: None,
             auto_approve_patterns: None,
             categories: None,
-            workspace_boundary: None,
             file_permissions: None,
             command: None,
             mcp: None,
             network: None,
-            interaction: None,
             allow_write_protected: None,
         }
     }

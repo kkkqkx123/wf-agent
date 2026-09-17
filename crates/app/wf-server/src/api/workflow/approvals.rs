@@ -1,9 +1,12 @@
 //! Approval and user interaction surface: blocking tool-approval flows and
 //! the persisted interaction records they produce.
 //!
-//! `/approvals/*` endpoints wait on a human responder without a wait
-//! bound. When no `UserInteractionHandler` is registered there is nobody
-//! to answer, so the endpoints fail fast instead of blocking forever.
+//! `/approvals/check` and `/approvals/execute-tool` evaluate the approval
+//! policy first (mirroring the engine gates): auto-approved and denied calls
+//! resolve without a handler, and only an `Ask` decision waits on a human
+//! responder. `/approvals/request` always needs a human. When an `Ask` (or
+//! explicit request) finds no `UserInteractionHandler` registered there is
+//! nobody to answer, so the endpoints fail fast instead of blocking forever.
 
 use axum::extract::{Path, Query, State};
 use axum::response::IntoResponse;
@@ -88,7 +91,19 @@ async fn handle_check_approval(
     State(state): State<ApiState>,
     Json(body): Json<ApprovalCheckBody>,
 ) -> impl IntoResponse {
-    if !wf_api::entity::user_interaction::has_handler(&state.ctx).await {
+    // Policy-first, mirroring the engine gates: auto-approved and denied
+    // calls resolve without a handler; only an `Ask` decision needs a human
+    // and fails fast when nobody can answer.
+    let options = body
+        .options
+        .clone()
+        .unwrap_or_else(wf_types::tool::ToolApprovalOptions::balanced_defaults);
+    let decision = wf_tools::approval::ToolApprovalCoordinator::new(options)
+        .evaluate(std::slice::from_ref(&body.request))
+        .remove(0);
+    if matches!(decision, wf_tools::approval::ApprovalDecision::Ask)
+        && !wf_api::entity::user_interaction::has_handler(&state.ctx).await
+    {
         return err::<Value>(ApiError::validation(
             "no user interaction handler is registered; cannot wait for approval",
         ))
@@ -120,7 +135,41 @@ async fn handle_execute_tool(
     State(state): State<ApiState>,
     Json(body): Json<ExecuteToolBody>,
 ) -> impl IntoResponse {
-    if !wf_api::entity::user_interaction::has_handler(&state.ctx).await {
+    // Policy-first like `handle_check_approval`: resolve the tool's risk
+    // from the registry and evaluate before requiring a handler, so
+    // auto-approved and denied tools behave the same with or without one.
+    let risk_level = state
+        .ctx
+        .tool_registry
+        .get_tool(&body.tool_id)
+        .and_then(|tool| tool.metadata)
+        .and_then(|m| m.risk_level)
+        .map(|level| {
+            serde_json::to_string(&level)
+                .map(|s| s.trim_matches('"').to_string())
+                .unwrap_or_default()
+        });
+    let policy_request = ToolApprovalRequestData {
+        tool_call_id: wf_common::generate_id(),
+        tool_name: body.tool_id.clone(),
+        tool_description: None,
+        parameters: body.parameters.clone(),
+        risk_level,
+        pending_queue: None,
+        batch_id: None,
+        tool_index: None,
+        total_tools: None,
+    };
+    let policy_options = body
+        .approval_options
+        .clone()
+        .unwrap_or_else(wf_types::tool::ToolApprovalOptions::balanced_defaults);
+    let decision = wf_tools::approval::ToolApprovalCoordinator::new(policy_options)
+        .evaluate(std::slice::from_ref(&policy_request))
+        .remove(0);
+    if matches!(decision, wf_tools::approval::ApprovalDecision::Ask)
+        && !wf_api::entity::user_interaction::has_handler(&state.ctx).await
+    {
         return err::<Value>(ApiError::validation(
             "no user interaction handler is registered; cannot wait for approval",
         ))

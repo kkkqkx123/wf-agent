@@ -406,15 +406,12 @@ async fn test_predefined_read_file_auto_approved_under_safe_preset() {
     let options = wf_types::tool::approval::ToolApprovalOptions {
         auto_approval_enabled: Some(true),
         security_preset: Some(wf_types::tool::approval::SecurityPreset::Safe),
-        risk_threshold: None,
         auto_approve_patterns: None,
         categories: None,
-        workspace_boundary: None,
         file_permissions: None,
         command: None,
         mcp: None,
         network: None,
-        interaction: None,
         allow_write_protected: None,
     };
     let coordinator = ToolExecutionCoordinator::new(registry).with_approval(Some(options), None);
@@ -763,6 +760,7 @@ fn general_ctx(registry: Arc<ToolRegistry>, entity: Arc<AgentLoopEntity>) -> Gen
         general_invoker: None,
         retry_budget: None,
         checkpoint_session: None,
+        cancellation: None,
     };
     GeneralToolContext::new(run_ctx, entity, None)
 }
@@ -981,6 +979,7 @@ async fn test_general_inner_call_faces_approval_like_direct() {
         general_invoker: None,
         retry_budget: None,
         checkpoint_session: None,
+        cancellation: None,
     };
     let ctx = GeneralToolContext::new(run_ctx, entity, None);
 
@@ -1066,6 +1065,7 @@ async fn test_general_blocked_tool_rejected_by_pipeline() {
         general_invoker: None,
         retry_budget: None,
         checkpoint_session: None,
+        cancellation: None,
     };
     let ctx = GeneralToolContext::new(run_ctx, entity, None);
 

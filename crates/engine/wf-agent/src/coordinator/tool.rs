@@ -283,6 +283,7 @@ impl ToolExecutionCoordinator {
             general_invoker: wf_common::lock::lock_ok(self.general_invoker.lock()).clone(),
             retry_budget: self.retry_budget.clone(),
             checkpoint_session: self.checkpoint_session.clone(),
+            cancellation: None,
         }
     }
 
@@ -518,7 +519,8 @@ impl ToolExecutionCoordinator {
             }
         }
         let mut messages: Vec<Option<Message>> = vec![None; tool_calls.len()];
-        let run_ctx = self.run_ctx();
+        let mut run_ctx = self.run_ctx();
+        run_ctx.cancellation = Some(self.batch_cancellation(entity));
         let batch_cancellation = self.batch_cancellation(entity);
 
         let mut set = tokio::task::JoinSet::new();
@@ -712,7 +714,8 @@ impl ToolExecutionCoordinator {
         entity: &AgentLoopEntity,
         tc: &LlmToolCall,
     ) -> AgentResult<Message> {
-        let ctx = self.run_ctx();
+        let mut ctx = self.run_ctx();
+        ctx.cancellation = Some(self.batch_cancellation(entity));
         Ok(run_tool(&ctx, tc, entity.id(), &entity.state)
             .await
             .unwrap_or_else(|reason| error_message(&reason, Some(&tc.id), Some(&tc.function.name))))

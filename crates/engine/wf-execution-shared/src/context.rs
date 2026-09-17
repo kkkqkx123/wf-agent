@@ -37,12 +37,15 @@ pub struct ExecutorContext {
     /// Shared hook handler registry; hook points and engine signals of this
     /// execution fire through it.
     pub hook_handler_registry: Option<Arc<HookHandlerRegistry>>,
-    /// Tool-level approval: external handler consulted before every tool call
-    /// (pre-execution side-effect guard). `None` falls back to
-    /// `tool_approval_options` (policy engine) and then to auto-approval.
+    /// Tool-level approval: external handler consulted for the tool calls
+    /// the policy engine routes to a human (its `Ask` decisions;
+    /// policy denials are final and never reach the handler).
+    /// `None` falls back to `tool_approval_options` (policy engine) and
+    /// then to auto-approval.
     pub tool_approval_handler: Option<Arc<dyn crate::approval::ToolApprovalHandler>>,
     /// Tool-level approval policy options (auto-approval presets / patterns /
-    /// risk rules). Ignored while a `tool_approval_handler` is attached.
+    /// risk rules). Evaluated first on every tool call; only `Ask` decisions
+    /// consult the `tool_approval_handler`.
     pub tool_approval_options: Option<wf_types::tool::approval::ToolApprovalOptions>,
     /// Names of variables declared `readonly` in the workflow definition.
     /// VARIABLE nodes targeting them are skipped; `None` = no declarations
@@ -228,11 +231,13 @@ pub struct NodeExecutionContext {
     /// Shared hook handler registry inherited from the parent execution.
     pub hook_handler_registry: Option<Arc<HookHandlerRegistry>>,
     /// Tool-level approval handler inherited from the parent execution
-    /// (pre-execution side-effect guard). `None` falls back to
-    /// `tool_approval_options` (policy engine) and then to auto-approval.
+    /// (consulted for the policy engine's `Ask` decisions; denials are
+    /// final). `None` falls back to `tool_approval_options` (policy engine)
+    /// and then to auto-approval.
     pub tool_approval_handler: Option<Arc<dyn crate::approval::ToolApprovalHandler>>,
     /// Tool-level approval policy options inherited from the parent
-    /// execution.
+    /// execution. Evaluated first on every tool call; only `Ask` decisions
+    /// consult the handler.
     pub tool_approval_options: Option<wf_types::tool::approval::ToolApprovalOptions>,
     /// Variables declared `readonly` in the workflow definition (inherited
     /// from the execution). VARIABLE nodes targeting them are skipped.

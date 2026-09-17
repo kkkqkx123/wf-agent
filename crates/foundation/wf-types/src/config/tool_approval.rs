@@ -42,15 +42,12 @@ impl ToolApprovalConfig {
         };
         user.auto_approval_enabled = user.auto_approval_enabled.or(base.auto_approval_enabled);
         user.security_preset = user.security_preset.or(base.security_preset);
-        user.risk_threshold = user.risk_threshold.or(base.risk_threshold);
         user.auto_approve_patterns = user.auto_approve_patterns.or(base.auto_approve_patterns);
         user.categories = user.categories.or(base.categories);
-        user.workspace_boundary = user.workspace_boundary.or(base.workspace_boundary);
         user.file_permissions = user.file_permissions.or(base.file_permissions);
         user.command = user.command.or(base.command);
         user.mcp = user.mcp.or(base.mcp);
         user.network = user.network.or(base.network);
-        user.interaction = user.interaction.or(base.interaction);
         user.allow_write_protected = user.allow_write_protected.or(base.allow_write_protected);
         user
     }
@@ -110,7 +107,6 @@ mod tests {
             options: Some(ToolApprovalOptions {
                 auto_approval_enabled: Some(true),
                 security_preset: Some(SecurityPreset::Permissive),
-                risk_threshold: Some("write".to_string()),
                 auto_approve_patterns: Some(vec!["web_*".to_string()]),
                 categories: Some(ApprovalCategories {
                     always_allow_read_only: Some(true),
@@ -124,8 +120,6 @@ mod tests {
                 command: None,
                 mcp: None,
                 network: None,
-                interaction: None,
-                workspace_boundary: None,
                 allow_write_protected: Some(true),
             }),
         };

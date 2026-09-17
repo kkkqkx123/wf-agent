@@ -51,15 +51,13 @@ impl ToolApprovalHandler for InteractionApprovalHandler {
         let request_data = ToolApprovalRequestData {
             tool_call_id: request.tool_call_id.clone(),
             tool_name: request.tool_name.clone(),
-            tool_description: None,
+            tool_description: request.tool_description.clone(),
             parameters: request.arguments.clone(),
-            risk_level: None,
+            risk_level: request.risk_level.clone(),
             pending_queue: request.pending_queue.clone(),
             batch_id: request.batch_id.clone(),
             tool_index: request.tool_index,
             total_tools: request.total_tools,
-            timeout: None,
-            security_preset: None,
         };
         match request_user_approval_in(&self.flow, &self.execution_id, &request_data).await {
             Ok((_interaction_id, response)) => {

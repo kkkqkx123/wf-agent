@@ -27,10 +27,6 @@ pub struct ToolApprovalRequestData {
     pub tool_index: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub total_tools: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub timeout: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub security_preset: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

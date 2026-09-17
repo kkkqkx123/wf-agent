@@ -546,8 +546,6 @@ mod tests {
             batch_id: None,
             tool_index: None,
             total_tools: None,
-            timeout: None,
-            security_preset: None,
         }
     }
 
@@ -562,8 +560,6 @@ mod tests {
             batch_id: None,
             tool_index: None,
             total_tools: None,
-            timeout: None,
-            security_preset: None,
         }
     }
 
@@ -571,7 +567,6 @@ mod tests {
         ToolApprovalOptions {
             auto_approval_enabled: Some(true),
             security_preset: Some(SecurityPreset::Balanced),
-            risk_threshold: None,
             auto_approve_patterns: None,
             categories: Some(ApprovalCategories {
                 always_allow_read_only: None,
@@ -581,12 +576,10 @@ mod tests {
                 always_allow_network: None,
                 always_allow_interaction: None,
             }),
-            workspace_boundary: None,
             file_permissions: None,
             command,
             mcp: None,
             network: None,
-            interaction: None,
             allow_write_protected: None,
         }
     }
@@ -672,15 +665,12 @@ mod tests {
         let coordinator = ToolApprovalCoordinator::new(ToolApprovalOptions {
             auto_approval_enabled: Some(true),
             security_preset: Some(SecurityPreset::Safe),
-            risk_threshold: None,
             auto_approve_patterns: None,
             categories: None,
-            workspace_boundary: None,
             file_permissions: None,
             command: None,
             mcp: None,
             network: None,
-            interaction: None,
             allow_write_protected: None,
         });
 
@@ -694,15 +684,12 @@ mod tests {
         let coordinator = ToolApprovalCoordinator::new(ToolApprovalOptions {
             auto_approval_enabled: Some(true),
             security_preset: Some(SecurityPreset::Safe),
-            risk_threshold: None,
             auto_approve_patterns: Some(vec!["read_*".to_string()]),
             categories: None,
-            workspace_boundary: None,
             file_permissions: None,
             command: None,
             mcp: None,
             network: None,
-            interaction: None,
             allow_write_protected: None,
         });
 
@@ -914,15 +901,12 @@ mod tests {
         let coordinator = ToolApprovalCoordinator::new(ToolApprovalOptions {
             auto_approval_enabled: Some(true),
             security_preset: Some(SecurityPreset::Permissive),
-            risk_threshold: None,
             auto_approve_patterns: None,
             categories: None,
-            workspace_boundary: None,
             file_permissions: None,
             command: None,
             mcp: None,
             network: None,
-            interaction: None,
             allow_write_protected: None,
         })
         .with_protect_controller(pc);

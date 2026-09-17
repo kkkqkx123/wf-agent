@@ -33,20 +33,24 @@ impl RecoveryOrchestrator {
 
     pub async fn recover_all(&self, ctx: &wf_api::ApiContext) -> RuntimeResult<RecoveryResult> {
         let incomplete = self.scanner.scan_incomplete().await?;
+        let incomplete_agents = self.scanner.scan_incomplete_agent().await?;
         let mut result = RecoveryResult::default();
 
-        if incomplete.is_empty() {
+        if incomplete.is_empty() && incomplete_agents.is_empty() {
             info!("No incomplete executions found; nothing to recover");
             return Ok(result);
         }
 
         let Some(executor) = &self.executor else {
             warn!(
-                count = incomplete.len(),
+                count = incomplete.len() + incomplete_agents.len(),
                 "Recovery executor not wired; executions are reported, not recovered"
             );
             for execution in &incomplete {
                 result.skipped.push(skip_item(execution));
+            }
+            for execution in &incomplete_agents {
+                result.skipped.push(skip_agent_item(execution));
             }
             return Ok(result);
         };
@@ -78,6 +82,16 @@ impl RecoveryOrchestrator {
             }
         }
 
+        for execution in &incomplete_agents {
+            let item = skip_agent_item(execution);
+            warn!(
+                execution_id = %item.execution_id,
+                note = %item.note.as_deref().unwrap_or("unknown"),
+                "Agent execution left un-recovered"
+            );
+            result.skipped.push(item);
+        }
+
         Ok(result)
     }
 }
@@ -89,6 +103,19 @@ fn skip_item(execution: &wf_types::WorkflowExecution) -> RecoveryItem {
         current_node_id: execution.current_node_id.clone(),
         recovered: false,
         note: Some("recovery executor not wired".to_string()),
+    }
+}
+
+fn skip_agent_item(execution: &wf_types::AgentExecution) -> RecoveryItem {
+    RecoveryItem {
+        execution_id: execution.id.to_string(),
+        status: format!("{:?}", execution.status),
+        current_node_id: None,
+        recovered: false,
+        note: Some(
+            "agent executions are not auto-recovered; resume explicitly from checkpoint with the loop config"
+                .to_string(),
+        ),
     }
 }
 

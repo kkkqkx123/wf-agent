@@ -158,6 +158,8 @@ mod tests {
             tool_name: tool_name.to_string(),
             arguments: serde_json::json!({}),
             interaction_id: "i1".to_string(),
+            risk_level: None,
+            tool_description: None,
             batch_id: None,
             tool_index: None,
             total_tools: None,

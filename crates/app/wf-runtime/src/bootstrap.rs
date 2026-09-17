@@ -766,6 +766,8 @@ impl Runtime {
     /// Recover incomplete (running/paused/created) workflow executions left
     /// by a previous process: scans the execution store and restores the
     /// latest checkpoint of each one through the API resume path.
+    /// Incomplete agent executions are reported as skipped: resuming them
+    /// needs the loop config, which checkpoints alone cannot rebuild.
     ///
     /// Without a persistent checkpoint store executions are reported as
     /// skipped, never as spuriously recovered.
@@ -778,7 +780,8 @@ impl Runtime {
         let Some(storage) = self.storage_manager.shared_context() else {
             return Err(crate::error::RuntimeError::NotInitialized);
         };
-        let scanner = RecoveryScanner::new(storage.workflow_execution.clone());
+        let scanner = RecoveryScanner::new(storage.workflow_execution.clone())
+            .with_agent_store(storage.agent_execution.clone());
         let ctx = self.api_context();
 
         RecoveryOrchestrator::new(scanner)

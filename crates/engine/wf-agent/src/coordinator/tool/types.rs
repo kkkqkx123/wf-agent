@@ -90,4 +90,7 @@ pub(crate) struct ToolRunCtx {
     /// from `checkpoint_handler` so callers cannot confuse execution-state
     /// snapshots with file-content checkpoints.
     pub(crate) checkpoint_session: Option<wf_checkpoint::CheckpointSession>,
+    /// Abort signal observed while a tool runs; `None` keeps plain tool
+    /// behavior. Set from the owning entity before dispatch.
+    pub(crate) cancellation: Option<tokio_util::sync::CancellationToken>,
 }

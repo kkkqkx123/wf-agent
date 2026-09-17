@@ -8,7 +8,7 @@ use std::time::Duration;
 
 use wf_api::{ToolApprovalHandler, ToolApprovalRequest, ToolApprovalResult};
 
-use wf_cli_shared::approval_policy::{ApprovalDecision, ApprovalPolicy};
+use wf_runtime::tool_approval::{ApprovalDecision, ApprovalPolicy};
 
 use crate::input::LineReader;
 use crate::output::diag_line;
@@ -71,9 +71,14 @@ impl NativeApprovalHandler {
         {
             let stderr = io::stderr();
             let mut err = stderr.lock();
+            let risk = request
+                .risk_level
+                .as_deref()
+                .map(|r| format!(" [{r}]"))
+                .unwrap_or_default();
             let _ = writeln!(
                 err,
-                "Allow tool '{}'? [y/N] (default N, {APPROVAL_TIMEOUT_SECS}s timeout)",
+                "Allow tool '{}{risk}'? [y/N] (default N, {APPROVAL_TIMEOUT_SECS}s timeout)",
                 request.tool_name
             );
             let _ = err.flush();

@@ -179,15 +179,6 @@ pub(crate) async fn request_user_approval_in(
     execution_id: &str,
     request: &ToolApprovalRequestData,
 ) -> ApiResult<(String, ToolApprovalResponseData)> {
-    // Fail fast instead of waiting forever when nobody can answer: without
-    // a registered notifier no response will ever arrive. Callers surface
-    // this as a rejection (engine handler) or a validation error (HTTP),
-    // never as an automatic approval.
-    if flow.user_interaction_handler.read().await.is_none() {
-        return Err(ApiError::execution(
-            "no user interaction handler is registered; cannot wait for approval".to_string(),
-        ));
-    }
     let interaction_id = wf_common::generate_id();
     let interaction = UserInteractionStorageMetadata {
         id: interaction_id.clone(),

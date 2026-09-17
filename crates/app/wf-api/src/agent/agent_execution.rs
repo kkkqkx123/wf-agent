@@ -35,20 +35,25 @@ pub struct RunAgentLoopParams {
     /// absent a fresh id is generated per run; presetting lets callers
     /// correlate diagnostics / control handles before the first event.
     pub agent_loop_id: Option<wf_types::Id>,
+    /// Optional engine policy evaluated before the handler: approvals run,
+    /// denials are terminal, only `Ask` reaches the handler. Caller-supplied
+    /// options take precedence over the host default; without either the
+    /// gate falls back to ask-everything when a handler is attached.
+    pub approval_options: Option<wf_types::tool::approval::ToolApprovalOptions>,
     /// Optional tool-approval handler routed into the loop coordinator.
-    /// With a handler registered every tool call is routed through it (the
-    /// engine falls back to ask-everything policy when no explicit
-    /// `ToolApprovalOptions` are set).
+    /// With a handler registered every tool call the policy routes to a
+    /// human is answered by it; policy denials never reach it.
     pub approval_handler: Option<Arc<dyn ToolApprovalHandler>>,
 }
 
 impl RunAgentLoopParams {
-    /// Parameters with generated id and no approval handler.
+    /// Parameters with generated id and no approval wiring.
     pub fn new(config: AgentLoopConfig, input: AgentLoopInput) -> Self {
         Self {
             config,
             input,
             agent_loop_id: None,
+            approval_options: None,
             approval_handler: None,
         }
     }
@@ -60,6 +65,7 @@ impl std::fmt::Debug for RunAgentLoopParams {
             .field("config", &self.config)
             .field("input", &self.input)
             .field("agent_loop_id", &self.agent_loop_id)
+            .field("approval_options", &self.approval_options.is_some())
             .field("approval_handler", &self.approval_handler.is_some())
             .finish()
     }
@@ -157,6 +163,11 @@ pub async fn pause(ctx: &ApiContext, agent_loop_id: &str) -> crate::infra::error
 /// Resume a paused agent loop.
 pub async fn resume(ctx: &ApiContext, agent_loop_id: &str) -> crate::infra::error::ApiResult<()> {
     let entity = live_entity(ctx, agent_loop_id)?;
+    if entity.is_completed() || entity.is_failed() || entity.is_cancelled() {
+        return Err(ApiError::Validation(format!(
+            "agent loop {agent_loop_id} is terminal and cannot resume; restore from checkpoint instead"
+        )));
+    }
     entity.resume().await?;
     Ok(())
 }
@@ -274,7 +285,7 @@ fn coordinator(ctx: &ApiContext) -> AgentLoopCoordinator {
 }
 
 /// Assemble the coordinator for a run/stream invocation, routing the
-/// caller-supplied approval handler (if any) into the loop. Without one,
+/// caller-supplied approval wiring (if any) into the loop. Without one,
 /// the host-default tool approval config (when enabled) attaches its
 /// effective policy together with an interaction-backed handler scoped to
 /// the execution id.
@@ -284,15 +295,26 @@ fn coordinator_for(
     execution_id: Option<&str>,
 ) -> AgentLoopCoordinator {
     let mut coordinator = coordinator(ctx);
+    if let Some(options) = params.approval_options.clone() {
+        coordinator = coordinator.with_approval_options(options);
+    }
     if let Some(handler) = params.approval_handler.clone() {
         coordinator = coordinator.with_approval_handler(handler);
-    } else if let Some(execution_id) = execution_id {
-        if let Some(wiring) =
-            crate::workflow::tool_approval_handler::host_tool_approval(ctx, execution_id)
-        {
-            coordinator = coordinator
-                .with_approval_options(wiring.options)
-                .with_approval_handler(wiring.handler);
+    }
+    // Host wiring only fills the pieces the caller left unset, so a
+    // caller-supplied policy is never overwritten by the host default.
+    if params.approval_options.is_none() || params.approval_handler.is_none() {
+        if let Some(execution_id) = execution_id {
+            if let Some(wiring) =
+                crate::workflow::tool_approval_handler::host_tool_approval(ctx, execution_id)
+            {
+                if params.approval_options.is_none() {
+                    coordinator = coordinator.with_approval_options(wiring.options);
+                }
+                if params.approval_handler.is_none() {
+                    coordinator = coordinator.with_approval_handler(wiring.handler);
+                }
+            }
         }
     }
     coordinator

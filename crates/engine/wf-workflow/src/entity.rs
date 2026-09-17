@@ -223,8 +223,8 @@ impl ExecutionEntity for WorkflowExecutionEntity {
     }
 
     async fn resume(&self) -> Result<(), wf_execution_shared::error::ExecutionSharedError> {
-        self.interruption.resume()?;
         self.state.write().await.resume()?;
+        self.interruption.resume()?;
         Ok(())
     }
 

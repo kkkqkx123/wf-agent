@@ -20,6 +20,7 @@ pub mod trigger_listener;
 
 pub mod approval_tool;
 pub mod checkpoint_event_bridge;
+pub mod tool_approval;
 
 pub mod wf_runtime;
 

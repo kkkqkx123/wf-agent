@@ -43,11 +43,13 @@ impl TurnParams {
     }
 }
 
-/// Build agent loop params from turn params with an optional approval
-/// handler. Centralizes the config assembly so future fields only change
-/// here.
+/// Build agent loop params from turn params with approval wiring. The
+/// engine evaluates `approval_options` first (denials are terminal) and
+/// routes only `Ask` decisions to `approval_handler`. Centralizes the
+/// config assembly so future fields only change here.
 pub fn build_agent_loop_params(
     params: &TurnParams,
+    approval_options: Option<wf_types::tool::approval::ToolApprovalOptions>,
     approval_handler: Option<Arc<dyn wf_api::ToolApprovalHandler>>,
 ) -> wf_api::agent::agent_execution::RunAgentLoopParams {
     let prompt = match &params.kind {
@@ -57,6 +59,7 @@ pub fn build_agent_loop_params(
     let sanitized = crate::sanitize::sanitize_user_text(&prompt);
     wf_api::agent::agent_execution::RunAgentLoopParams {
         agent_loop_id: Some(Id::from(wf_common::generate_id())),
+        approval_options,
         approval_handler,
         config: build_agent_loop_config(params.agent.clone(), params.model.clone()),
         input: AgentLoopInput {
@@ -71,9 +74,10 @@ pub fn build_agent_loop_params(
 pub async fn stream_agent_turn(
     ctx: &ApiContext,
     params: &TurnParams,
+    approval_options: Option<wf_types::tool::approval::ToolApprovalOptions>,
     approval_handler: Option<Arc<dyn wf_api::ToolApprovalHandler>>,
 ) -> Result<(String, ExecutionEventStream), ApiError> {
-    let run_params = build_agent_loop_params(params, approval_handler);
+    let run_params = build_agent_loop_params(params, approval_options, approval_handler);
     let execution_id = run_params
         .agent_loop_id
         .as_ref()
@@ -142,7 +146,7 @@ mod tests {
                 prompt: "hi".to_string(),
             },
         };
-        let run = build_agent_loop_params(&params, None);
+        let run = build_agent_loop_params(&params, None, None);
         assert_eq!(run.config.model, crate::config::DEFAULT_MODEL);
         assert_eq!(run.input.message, "hi");
         assert!(run.input.conversation.is_empty());
@@ -170,7 +174,7 @@ mod tests {
                 prompt: "follow-up".to_string(),
             },
         };
-        let run = build_agent_loop_params(&params, None);
+        let run = build_agent_loop_params(&params, None, None);
         assert_eq!(run.input.conversation.len(), 1);
         assert_eq!(run.input.message, "follow-up");
     }
@@ -186,7 +190,7 @@ mod tests {
                 prompt: "\x1b[31mhi\x1b[0m".to_string(),
             },
         };
-        let run = build_agent_loop_params(&params, None);
+        let run = build_agent_loop_params(&params, None, None);
         assert_eq!(run.input.message, "hi");
         assert_eq!(run.config.agent_id.to_string(), "ag");
         assert_eq!(run.config.model, "m");

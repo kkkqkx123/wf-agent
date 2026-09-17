@@ -31,6 +31,7 @@ wf-types = { path = "../../../foundation/wf-types" }
 wf-core = { path = "../../../foundation/wf-core" }
 wf-api = { path = "../../wf-api" }
 wf-cli-shared = { path = "../wf-cli-shared" }
+wf-runtime = { path = "../../wf-runtime" }
 
 [dev-dependencies]
 tempfile.workspace = true

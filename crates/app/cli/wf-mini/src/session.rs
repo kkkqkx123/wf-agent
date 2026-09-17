@@ -135,9 +135,7 @@ impl NativeSession {
             ));
         }
         if self.approval_llm {
-            output::diag_line(
-                "note: --approval llm is not supported in mini; using manual confirmation (use the full TUI for model-assisted approval)",
-            );
+            output::diag_line("note: --approval llm is not supported; using manual confirmation");
         }
         let mut quitter = QuitArmer::default();
         loop {
@@ -399,7 +397,17 @@ impl NativeSession {
                     Arc::clone(&self.lines),
                     self.cancel_tx.clone(),
                 ));
-                match stream_agent_turn(adapter.api_context(), &params, Some(handler)).await {
+                let options = wf_runtime::tool_approval::headless_approval_options(Some(
+                    adapter.api_context(),
+                ));
+                match stream_agent_turn(
+                    adapter.api_context(),
+                    &params,
+                    Some(options),
+                    Some(handler),
+                )
+                .await
+                {
                     Ok((execution_id, stream)) => {
                         // The embedded stream yields plain events; normalize
                         // to the shared pump's Result shape.

@@ -484,9 +484,13 @@ impl InteractiveController {
             kind: TurnKind::Agent { prompt },
         };
         let handler = Arc::new(TuiApprovalHandler::new(self.tx.clone()));
+        let options =
+            wf_runtime::tool_approval::headless_approval_options(Some(adapter.api_context()));
 
         let task = tokio::spawn(async move {
-            match stream_agent_turn(adapter.api_context(), &params, Some(handler)).await {
+            match stream_agent_turn(adapter.api_context(), &params, Some(options), Some(handler))
+                .await
+            {
                 Ok((_, mut stream)) => {
                     while let Some(event) = stream.next().await {
                         let terminal = matches!(

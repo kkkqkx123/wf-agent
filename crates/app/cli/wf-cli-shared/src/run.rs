@@ -20,21 +20,17 @@ use std::time::Instant;
 use futures::StreamExt;
 use serde_json::Value;
 
-use wf_api::agent::agent_execution;
-use wf_api::entity::user_interaction::{
-    register_handler, AgentUserInteractionEventRecord, UserInteractionHandler,
-};
-use wf_api::{ToolApprovalHandler, ToolApprovalRequest, ToolApprovalResult};
-
-#[cfg(test)]
-use crate::approval_policy::{default_low_risk_tools, default_sensitive_tools};
-use crate::approval_policy::{ApprovalDecision, ApprovalPolicy};
 use crate::config::DEFAULT_MODEL;
 use crate::domain::DomainAdapter;
 use crate::error::{CliError, CliResult};
 use crate::output::{OutputEnvelope, OutputFormat, OutputMessage, OutputSink};
 use crate::turn::{TurnKind, TurnParams};
+use wf_api::agent::agent_execution;
+use wf_api::entity::user_interaction::{
+    register_handler, AgentUserInteractionEventRecord, UserInteractionHandler,
+};
 use wf_api::infra::stream::ExecutionStreamEvent;
+use wf_runtime::tool_approval::{ApprovalPolicy, PolicyApprovalHandler};
 
 // ── diagnostics channel (stderr) ─────────────────────────────────────
 
@@ -116,36 +112,6 @@ impl DiagWriter {
     }
 }
 
-/// Approval handler carrying the headless policy into the agent loop.
-pub(crate) struct HeadlessApprovalHandler {
-    pub(crate) policy: ApprovalPolicy,
-    pub(crate) diag: Arc<Mutex<DiagWriter>>,
-}
-
-impl HeadlessApprovalHandler {
-    pub(crate) fn new(policy: ApprovalPolicy, diag: Arc<Mutex<DiagWriter>>) -> Self {
-        Self { policy, diag }
-    }
-}
-
-#[async_trait::async_trait]
-impl ToolApprovalHandler for HeadlessApprovalHandler {
-    async fn request_approval(&self, request: &ToolApprovalRequest) -> ToolApprovalResult {
-        let decision = self.policy.decide(&request.tool_name, &request.arguments);
-        let mut diag = wf_common::lock::lock_ok(self.diag.lock());
-        match decision {
-            ApprovalDecision::Allow { reason } => {
-                let _ = diag.ok(&format!("▲ {} ({reason})", request.tool_name));
-                ToolApprovalResult::approved(request.tool_call_id.clone())
-            }
-            ApprovalDecision::Deny { reason } => {
-                let _ = diag.err(&format!("✗ {}: {reason}", request.tool_name));
-                ToolApprovalResult::rejected(request.tool_call_id.clone(), reason)
-            }
-        }
-    }
-}
-
 // ── interaction guard (follow-up questions cannot be answered) ───────
 
 /// Records follow-up question requests; a headless session cannot answer
@@ -159,8 +125,8 @@ impl UserInteractionHandler for HeadlessInteractionGuard {
     fn on_interaction(&self, _record: &AgentUserInteractionEventRecord) {}
 
     fn on_tool_approval_requested(&self, _execution_id: &str, _request: &Value) {
-        // Tool approvals are decided synchronously by
-        // `HeadlessApprovalHandler`; nothing to ask the user here.
+        // Tool approvals are decided synchronously by the runtime policy
+        // handler; nothing to ask the user here.
     }
 
     fn on_followup_question_requested(&self, execution_id: &str, _request: &Value) {
@@ -691,16 +657,29 @@ pub async fn run_session(
     )
     .await;
 
-    // Headless approval degradation rides on the handler; the engine
-    // routes every tool call through it. Config assembly lives in
+    // Policy-first wiring shared with the server: the engine evaluates the
+    // baseline policy (denials terminal), the runtime policy handler answers
+    // only `Ask` decisions without interaction. Config assembly lives in
     // `turn::build_agent_loop_params` (single source with mini/TUI).
     let turn_params = opts.as_turn_params();
+    let diag_reporter = io.diag.clone();
+    let reporter: wf_runtime::tool_approval::DecisionReporter = Arc::new(move |report| {
+        let mut diag = wf_common::lock::lock_ok(diag_reporter.lock());
+        if report.allowed {
+            let _ = diag.ok(&format!("▲ {} ({})", report.tool_name, report.reason));
+        } else {
+            let _ = diag.err(&format!("✗ {}: {}", report.tool_name, report.reason));
+        }
+    });
     let mut params = crate::turn::build_agent_loop_params(
         &turn_params,
-        Some(Arc::new(HeadlessApprovalHandler::new(
-            ApprovalPolicy::new(opts.approve_prefixes.clone()),
-            io.diag.clone(),
+        Some(wf_runtime::tool_approval::headless_approval_options(Some(
+            ctx,
         ))),
+        Some(Arc::new(
+            PolicyApprovalHandler::new(ApprovalPolicy::new(opts.approve_prefixes.clone()))
+                .with_reporter(reporter),
+        )),
     );
     params.agent_loop_id = Some(wf_types::Id::from(execution_id.clone()));
 
@@ -1110,88 +1089,6 @@ mod tests {
 
     fn diag_text(diag: &Arc<Mutex<DiagWriter>>) -> String {
         wf_common::lock::lock_ok(diag.lock()).snapshot()
-    }
-
-    #[test]
-    fn sensitive_tools_are_denied_with_reason() {
-        let policy = ApprovalPolicy::new(vec![]);
-        for tool in default_sensitive_tools() {
-            let decision = policy.decide(tool, &serde_json::json!({}));
-            match decision {
-                ApprovalDecision::Deny { reason } => {
-                    assert!(reason.contains("sensitive"), "{tool}: {reason}");
-                    assert!(reason.contains(tool), "{tool}: {reason}");
-                }
-                other => panic!("{tool} should be denied, got {other:?}"),
-            }
-        }
-    }
-
-    #[test]
-    fn low_risk_tools_are_allowed() {
-        let policy = ApprovalPolicy::new(vec![]);
-        for tool in default_low_risk_tools() {
-            assert!(
-                matches!(
-                    policy.decide(tool, &serde_json::json!({})),
-                    ApprovalDecision::Allow { .. }
-                ),
-                "{tool} should be allowed"
-            );
-        }
-    }
-
-    #[test]
-    fn unknown_tools_are_denied_with_hint() {
-        let policy = ApprovalPolicy::new(vec![]);
-        match policy.decide("rm_rf_everything", &serde_json::json!({})) {
-            ApprovalDecision::Deny { reason } => {
-                assert!(reason.contains("--approve-prefix"), "{reason}")
-            }
-            other => panic!("unknown tool should be denied, got {other:?}"),
-        }
-    }
-
-    #[test]
-    fn approve_prefix_preauthorizes_tool_names_and_commands() {
-        let policy = ApprovalPolicy::new(vec!["git".to_string()]);
-        assert!(matches!(
-            policy.decide("git_status_custom", &serde_json::json!({})),
-            ApprovalDecision::Allow { .. }
-        ));
-        // The prefix explicitly consents to sensitive tools too: a `git`
-        // prefix authorizes `execute_command` running `git status`.
-        assert!(matches!(
-            policy.decide(
-                "execute_command",
-                &serde_json::json!({ "command": "git status" })
-            ),
-            ApprovalDecision::Allow { .. }
-        ));
-        // Prefixes are literal: "git" does not authorize unrelated commands.
-        assert!(matches!(
-            policy.decide(
-                "execute_command",
-                &serde_json::json!({ "command": "rm -rf /" })
-            ),
-            ApprovalDecision::Deny { .. }
-        ));
-        // Without any prefix the sensitive tool stays denied.
-        let strict = ApprovalPolicy::new(vec![]);
-        assert!(matches!(
-            policy.decide(
-                "execute_command",
-                &serde_json::json!({ "command": "git status" })
-            ),
-            ApprovalDecision::Allow { .. }
-        ));
-        assert!(matches!(
-            strict.decide(
-                "execute_command",
-                &serde_json::json!({ "command": "git status" })
-            ),
-            ApprovalDecision::Deny { .. }
-        ));
     }
 
     #[test]
@@ -1644,13 +1541,18 @@ mod tests {
             .await
             .unwrap();
 
-            // read_file sits on the low-risk allow-list: the approval
-            // decision is printed (allow reason) and the tool actually
-            // executes (✓ line), the session completes normally.
+            // read_file is ReadOnly: the engine policy auto-approves it
+            // without consulting the handler (no allow-list diag line), the
+            // tool actually executes (▲ start / ✓ done lines) and the
+            // session completes normally.
             let diag_text = wf_common::lock::lock_ok(diag.lock()).snapshot();
             assert!(diag_text.contains("▲ read_file"), "{diag_text}");
             assert!(diag_text.contains("✓ read_file"), "{diag_text}");
             assert!(!diag_text.contains("✗ read_file"), "{diag_text}");
+            assert!(
+                !diag_text.contains("allow-listed"),
+                "policy auto-approval must not consult the handler: {diag_text}"
+            );
             assert_eq!(outcome.iterations, 2, "tool turn + final answer turn");
 
             adapter.shutdown().await.unwrap();

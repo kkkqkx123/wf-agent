@@ -1,14 +1,15 @@
 //! Tool approval view for the interactive session: the pure view/state
 //! machine plus session-scoped remember state.
 //!
-//! [`ApprovalView`] renders the tool name, an arguments preview and the key
-//! hints, and maps a keymap action (y/a/d/n/c) onto a
-//! [`ToolApprovalResult`]. "Allow all" / "deny" are session-scoped
-//! remembers — the session event loop consults [`ApprovalRemembered`] to
-//! auto-answer later requests for the same tool. The domain-side approval
-//! handler lives with the interactive controller
-//! (`crate::interactive::TuiApprovalHandler`); the headless deny policy lives
-//! in `run.rs`. Each form registers its own handler and never mixes.
+//! [`ApprovalView`] renders the tool name, its risk level and description,
+//! the batch context, an arguments preview and the key hints, and maps a
+//! keymap action (y/a/d/n/c) onto a [`ToolApprovalResult`]. "Allow all" /
+//! "deny" are session-scoped remembers — the session event loop consults
+//! [`ApprovalRemembered`] to auto-answer later requests for the same tool.
+//! The domain-side approval handler lives with the interactive controller
+//! (`crate::interactive::TuiApprovalHandler`); the headless policy lives in
+//! `wf-runtime::tool_approval`. Each form registers its own handler and
+//! never mixes.
 
 use std::time::Duration;
 
@@ -121,6 +122,30 @@ impl ApprovalView {
         format!("approve tool call: {}", self.request.tool_name)
     }
 
+    /// Risk context lines: risk level, tool description and batch position.
+    /// Empty when the request carries none (older callers, tests).
+    pub fn context_lines(&self) -> Vec<String> {
+        let mut lines = Vec::new();
+        if let Some(risk) = self.request.risk_level.as_deref() {
+            lines.push(format!("risk: {risk}"));
+        }
+        if let Some(description) = self.request.tool_description.as_deref() {
+            lines.push(format!("tool: {description}"));
+        }
+        match (self.request.tool_index, self.request.total_tools) {
+            (Some(index), Some(total)) if total > 1 => {
+                lines.push(format!("batch: call {} of {total}", index + 1));
+            }
+            _ => {}
+        }
+        if let Some(queue) = self.request.pending_queue.as_ref() {
+            if queue.len() > 1 {
+                lines.push(format!("batch: {} calls awaiting decision", queue.len()));
+            }
+        }
+        lines
+    }
+
     /// Compact single-line arguments preview (pretty JSON truncated).
     pub fn arguments_preview(&self, width: usize) -> String {
         let pretty =
@@ -164,6 +189,13 @@ impl crate::renderable::Renderable for ApprovalView {
             Line::from(Span::raw(self.title())),
             Line::from(Span::raw("")),
         ];
+        let context = self.context_lines();
+        for line in &context {
+            lines.push(Line::from(Span::raw(line.clone())));
+        }
+        if !context.is_empty() {
+            lines.push(Line::from(Span::raw("")));
+        }
         let preview_rows = area.height.saturating_sub(4) as usize;
         let preview = self.arguments_preview(width.saturating_sub(2));
         let mut remaining = preview_rows;
@@ -192,7 +224,7 @@ impl crate::renderable::Renderable for ApprovalView {
     }
 
     fn desired_height(&self, _width: u16) -> u16 {
-        12
+        12 + self.context_lines().len() as u16
     }
 }
 fn truncate_graphemes(text: &str, width: usize) -> String {

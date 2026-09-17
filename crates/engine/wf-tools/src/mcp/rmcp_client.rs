@@ -21,8 +21,7 @@ use std::time::Duration;
 
 use rmcp::model::{
     CallToolRequestParams, ClientCapabilities, ClientConfig, Implementation, JsonObject,
-    ProgressNotificationParam, ProtocolVersion, ReadResourceRequestParams, Resource,
-    ResourceContents, ResourceTemplate, ResourceUpdatedNotificationParam, Tool,
+    ProtocolVersion, ReadResourceRequestParams, Resource, ResourceContents, ResourceTemplate, Tool,
 };
 use rmcp::service::{
     ClientLifecycleMode, NotificationContext, RoleClient, RunningService, ServiceError,
@@ -63,8 +62,6 @@ pub enum McpsNotification {
     ToolListChanged,
     ResourceListChanged,
     PromptListChanged,
-    ResourceUpdated,
-    Progress,
 }
 
 /// Client handler injected into the rmcp service.
@@ -107,22 +104,6 @@ impl ClientHandler for WfClientHandler {
             .notify_tx
             .send(McpsNotification::PromptListChanged)
             .await;
-    }
-
-    async fn on_resource_updated(
-        &self,
-        _params: ResourceUpdatedNotificationParam,
-        _ctx: NotificationContext<RoleClient>,
-    ) {
-        let _ = self.notify_tx.send(McpsNotification::ResourceUpdated).await;
-    }
-
-    async fn on_progress(
-        &self,
-        _params: ProgressNotificationParam,
-        _ctx: NotificationContext<RoleClient>,
-    ) {
-        let _ = self.notify_tx.send(McpsNotification::Progress).await;
     }
 }
 
@@ -318,7 +299,6 @@ impl RmcpClient {
                 | McpsNotification::PromptListChanged => {
                     on_changed(&self.server_name);
                 }
-                _ => {}
             }
         }
     }

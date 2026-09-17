@@ -446,6 +446,7 @@ mod e2e {
 
         let params = RunAgentLoopParams {
             agent_loop_id: Some(Id::from(execution_id.clone())),
+            approval_options: None,
             approval_handler: None,
             config: AgentLoopConfig {
                 agent_id: Id::from("cli"),

@@ -3,10 +3,11 @@ use std::collections::HashMap;
 use wf_common::retry::RetryBudget;
 use wf_core::EventBus;
 use wf_execution_shared::context::{NodeExecutionContext, NodeExecutionResult};
+use wf_execution_shared::error::ExecutionSharedError;
 use wf_execution_shared::hooks::fire::FireSummary;
 use wf_execution_shared::hooks::types::HookDefinition;
 use wf_execution_shared::hooks::{HookContext, HookHandlerRegistry};
-use wf_execution_shared::interruption::check_execution_interruption;
+use wf_execution_shared::interruption::execute_with_interruption_handling;
 use wf_types::events::{BaseEvent, EventType};
 
 use crate::entity::WorkflowExecutionEntity;
@@ -123,18 +124,25 @@ impl NodeCoordinator {
             .await;
         }
 
-        let check = check_execution_interruption(entity.interruption(), None);
-        if !matches!(
-            check,
-            wf_execution_shared::types::interruption::ExecutionInterruptionCheckResult::Continue
-        ) {
-            return Err(WorkflowError::CoordinatorError(format!(
-                "Execution interrupted before node {}: {:?}",
-                node_id, check
-            )));
-        }
-
-        let result = handler.execute(ctx).await;
+        // Operation-level assistance races `Stop` against handler execution
+        // so an arriving stop abandons the wait instead of blocking until
+        // the long operation finishes. Pause stays boundary-only to keep
+        // snapshot consistency.
+        let result: WorkflowResult<NodeExecutionResult> =
+            execute_with_interruption_handling(entity.interruption(), None, || {
+                handler.execute(ctx)
+            })
+            .await
+            .map_err(WorkflowError::from);
+        let result = match result {
+            Err(WorkflowError::SharedError(ExecutionSharedError::InterruptionError(detail))) => {
+                return Err(WorkflowError::CoordinatorError(format!(
+                    "Execution interrupted at node {}: {}",
+                    node_id, detail
+                )));
+            }
+            other => other,
+        };
 
         match &result {
             Ok(output) => {

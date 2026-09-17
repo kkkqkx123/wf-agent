@@ -47,6 +47,29 @@ fn json_size(value: &Value) -> u64 {
         .unwrap_or(0)
 }
 
+/// True when the error carries an interruption or cancellation signal rather
+/// than a genuine node failure. Such errors bypass the retry policy so a
+/// stop is never relaunched as a retried attempt.
+fn is_interruption_error(error: &WorkflowError) -> bool {
+    match error {
+        WorkflowError::CoordinatorError(message) => message.contains("interrupted"),
+        WorkflowError::SharedError(shared) => match shared {
+            wf_execution_shared::error::ExecutionSharedError::InterruptionError(_) => true,
+            wf_execution_shared::error::ExecutionSharedError::ToolError(tool) => {
+                matches!(tool, wf_tools::error::ToolError::Cancelled { .. })
+            }
+            _ => false,
+        },
+        WorkflowError::ToolError(tool) => {
+            matches!(tool, wf_tools::error::ToolError::Cancelled { .. })
+        }
+        WorkflowError::CoreError(core) => {
+            matches!(core, wf_core::error::CoreError::InterruptionError(_))
+        }
+        _ => false,
+    }
+}
+
 /// Identity of the node being executed in the coordinator loop: the execution
 /// entity it runs under plus the node's id and parsed type. Grouped so the
 /// execute / record / retry helpers stay small.
@@ -1353,6 +1376,13 @@ impl WorkflowCoordinator {
         let node_type_str = outcome.node_type_str;
         let node_metrics = outcome.metrics;
         let node_duration_ms = outcome.duration_ms;
+
+        // Interruption and cancellation never retry: a stop arriving
+        // mid-operation must propagate immediately instead of relaunching
+        // the node under the retry policy.
+        if is_interruption_error(&error) || entity.interruption().check().is_some() {
+            return Err(error);
+        }
 
         let handler =
             self.resolve_node_handler(node_type)

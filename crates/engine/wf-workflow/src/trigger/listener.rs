@@ -118,12 +118,30 @@ impl TriggerEventListener {
         self
     }
 
+    /// Build the event-bus fan-in synchronously on the calling thread.
+    ///
+    /// The broadcast receivers are created inside `EventFanIn::new`, so once
+    /// this returns the bus already counts the subscription: events published
+    /// before the loop task first polls stay buffered instead of being lost.
+    /// Prefer `run_with_fan_in` with this value over `run` when the spawn
+    /// window matters (runtime assembly, cold-start producers).
+    pub fn prepare_fan_in(&self) -> EventFanIn {
+        EventFanIn::new(&self.bus, &self.interested_types)
+    }
+
     /// Run the listener loop until shutdown is requested.
     ///
     /// Spawns a background dispatch loop that consumes matched templates from
     /// an internal channel. The main event loop stays responsive by offloading
     /// template matching to spawned tasks.
     pub async fn run(&self) {
+        let fan_in = self.prepare_fan_in();
+        self.run_with_fan_in(fan_in).await
+    }
+
+    /// Run the loop over an already-built fan-in (see `prepare_fan_in`).
+    /// Event/dispatch separation and best-effort semantics match `run`.
+    pub async fn run_with_fan_in(&self, mut fan_in: EventFanIn) {
         let (match_tx, mut match_rx) = mpsc::unbounded_channel::<Vec<TriggerMatch>>();
 
         // Background dispatch loop: consumes matched results and executes
@@ -150,11 +168,10 @@ impl TriggerEventListener {
             }
         });
 
-        // Fan-in event source: one forwarder per registered event type
-        // (typed channels), or the general channel when no template declares
-        // a parseable type. The main loop only receives events that at least
-        // one template can match, avoiding irrelevant-channel load.
-        let mut fan_in = EventFanIn::new(&self.bus, &self.interested_types);
+        // Fan-in event source: built by the caller via `prepare_fan_in` (one
+        // forwarder per registered event type, or the general channel when no
+        // template declares a parseable type). The main loop only receives
+        // events that at least one template can match.
 
         // Main event loop: receive events, spawn matching in background tasks.
         loop {
@@ -260,6 +277,11 @@ impl TriggerEventListener {
         // actions (candidate matching already filters, but templates can be
         // registered around validation).
         if event.execution_id.is_none() && !is_cold_start(&template) {
+            warn!(
+                "Trigger '{}' dropped execution-less event {} at dispatch: non-creation action needs an execution_id (validation was bypassed)",
+                template.name,
+                event.r#type.as_str(),
+            );
             return;
         }
         let scope_label = event
@@ -407,9 +429,12 @@ mod tests {
             runner,
             CancellationToken::new(),
         ));
+        // Mirror production wiring: the subscription is built synchronously
+        // before the loop task spawns, so the bus already counts receivers.
+        let fan_in = listener.prepare_fan_in();
         tokio::spawn({
             let listener = listener.clone();
-            async move { listener.run().await }
+            async move { listener.run_with_fan_in(fan_in).await }
         });
         listener
     }
@@ -459,6 +484,24 @@ mod tests {
 
     fn match_names(matches: &[TriggerMatch]) -> Vec<&str> {
         matches.iter().map(|m| m.template.name.as_str()).collect()
+    }
+
+    #[tokio::test]
+    async fn subscription_exists_before_loop_first_poll() {
+        let bus = Arc::new(EventBus::new(64));
+        let registry: Arc<dyn TriggerTemplateRegistry> =
+            Arc::new(StaticRegistry(vec![event_template(
+                "t1",
+                "NODE_COMPLETED",
+                0,
+            )]));
+        let runner = Arc::new(RecordingRunner::new());
+        start_listener(&bus, registry, runner);
+        assert!(
+            bus.total_receiver_count() >= 1,
+            "subscription must exist synchronously after start (got {})",
+            bus.total_receiver_count()
+        );
     }
 
     #[tokio::test]

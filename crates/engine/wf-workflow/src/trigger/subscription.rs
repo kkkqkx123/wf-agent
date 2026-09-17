@@ -76,7 +76,12 @@ impl EventStream for TypedSubscription {
 /// so the listener loop reads a single source regardless of how many event
 /// types are involved. Dropping the fan-in closes the channel and ends the
 /// forwarders.
-pub(crate) struct EventFanIn {
+///
+/// Build this on the calling thread before spawning the listener loop: the
+/// broadcast receivers are created synchronously inside `new`, so events
+/// published right after construction are buffered and never lost in the
+/// spawn window.
+pub struct EventFanIn {
     /// Held so the forwarders always have a live peer; the fan-in is closed
     /// by dropping the whole value.
     _sender: mpsc::UnboundedSender<BaseEvent>,

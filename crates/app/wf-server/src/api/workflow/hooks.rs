@@ -15,6 +15,11 @@
 //! Execution routing: a body field `execution_id` names a live execution
 //! (execution-scoped targets); without one only creation targets are served
 //! (published without `execution_id` for the cold-start actions).
+//!
+//! Caller idempotency: a body field `fire_id` (non-empty string) is reused as
+//! the trigger fire identifier, so retries resending the same body share the
+//! per-fire budget key and ledger trace. Without one the gateway stamps the
+//! arrival time, and every retry counts as a new fire.
 
 use std::collections::HashMap;
 
@@ -33,7 +38,7 @@ use crate::envelope::{err, ok, ApiError};
 use crate::router::ApiState;
 
 /// Body keys never copied into event metadata.
-const RESERVED_BODY_KEYS: [&str; 1] = ["execution_id"];
+const RESERVED_BODY_KEYS: [&str; 2] = ["execution_id", "fire_id"];
 
 pub(crate) fn routes() -> axum::Router<ApiState> {
     axum::Router::new().route("/hooks/{name}", post(handle_webhook_fire))
@@ -115,7 +120,12 @@ async fn handle_webhook_fire(
         (ScheduleTarget::Create { .. }, _) => None,
     };
 
-    let fire_id = format!("{}:{}", name, wf_common::now());
+    let fire_id = body
+        .get("fire_id")
+        .and_then(|value| value.as_str())
+        .filter(|id| !id.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| format!("{}:{}", name, wf_common::now()));
     let mut metadata: HashMap<String, serde_json::Value> = HashMap::from([
         (
             PRODUCER_SOURCE_METADATA_KEY.to_string(),

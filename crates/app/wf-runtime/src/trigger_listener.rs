@@ -453,9 +453,14 @@ fn spawn_listener(deps: ListenerDeps) -> TriggerListenerHandle {
                 DEFAULT_TRIGGER_ACTION_CONCURRENCY,
             ))),
     );
+    // Build the event-bus subscription on this thread before spawning: the
+    // broadcast receivers exist once `prepare_fan_in` returns, so scheduler
+    // ticks and early events published right after this function returns stay
+    // buffered instead of racing the loop task's first poll.
+    let fan_in = listener.prepare_fan_in();
     let handle = tokio::spawn({
         let listener = listener.clone();
-        async move { listener.run().await }
+        async move { listener.run_with_fan_in(fan_in).await }
     });
     // The scheduler shares the listener shutdown token and dies with it; no
     // separate handle is needed (stop_trigger_listener cancels the token).
@@ -1837,6 +1842,23 @@ mod tests {
         })
         .unwrap();
         tokio::time::sleep(Duration::from_millis(100)).await;
+
+        stop_trigger_listener(listener).await;
+    }
+
+    #[tokio::test]
+    async fn listener_subscription_exists_synchronously_after_start() {
+        let bus = Arc::new(EventBus::new(64));
+        let registries = Arc::new(ResourceRegistries::new());
+        let gateway = Arc::new(LlmGateway::new());
+        let contexts = Arc::new(ExecutionContextRegistry::new());
+        let listener =
+            start_trigger_listener(bus.clone(), registries.clone(), gateway, contexts.clone());
+        assert!(
+            bus.total_receiver_count() >= 1,
+            "subscription must exist synchronously after start (got {})",
+            bus.total_receiver_count()
+        );
 
         stop_trigger_listener(listener).await;
     }

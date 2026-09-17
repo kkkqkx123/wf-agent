@@ -40,6 +40,11 @@ pub(crate) fn candidates(templates: &[TriggerTemplate], event: &BaseEvent) -> Ve
             continue;
         };
         if !has_execution && !action.is_execution_creating() {
+            debug!(
+                "Trigger '{}' skipped for execution-less event {}: non-creation action needs an execution_id",
+                template.name,
+                event.r#type.as_str(),
+            );
             continue;
         }
         matched.push(template.clone());

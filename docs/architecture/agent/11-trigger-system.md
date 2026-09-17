@@ -94,9 +94,7 @@
 
 ## 6. 触发源
 
-仅事件驱动已实现。定时与 Webhook 为类型占位，使用时在加载期给出明确未实现提示，不做静默丢弃。
-
-未来生产者接入契约：调度器与外部事件网关只负责把外部信号翻译为已有事件类型，
+事件驱动、定时调度与 Webhook 入口均已实现。调度器与网关只负责把外部信号翻译为已有事件类型，
 翻译入口为 `TriggerSource::translate_schedule_to_condition` /
 `translate_webhook_to_condition`（统一译为 `NODE_CUSTOM_EVENT` 加二级判别名），
 复用现有竞争域键与集合校验，不新增竞争维度。
@@ -104,13 +102,20 @@
 职责边界（生产者只管信号，不管匹配与执行）：
 
 * 调度器拥有时间：cron 解析、tick 循环、misfire/追赶策略、随监听器关闭；
-* 网关拥有进入：HTTP 路由、鉴权、执行路由（定位已有执行或拒绝无归属进入）；
-* 双方都必须发布携带 `execution_id` 的执行域事件——监听器丢弃无执行标识的事件，
-  且每个触发动作都定位到 emitting execution。
+* 网关拥有进入：HTTP 路由、鉴权、执行路由（执行域目标定位已有执行，创建式目标发布无归属事件）；
+* 执行创建式调度已支持（`TriggerAction::ExecuteWorkflow` / `ExecuteAgent` 两个冷启动变体，
+  `is_execution_creating` 契约约束匹配与派发，`CreationRunner` / `AgentTriggerRunner::run_cold` 承接）。
 
-更深一层缺口：执行创建式调度（“每晚全新跑一次 W”）今天表达不了——它需要先新增
-创建式触发动作，现有动作全是“定位到 emitting execution”。可先装运的一步是
-执行域定时/进入（挂在某执行上的 timer 与 ingress），翻译契约已就绪，缺的只是生产者。
+已知局限：
+
+* 执行域定时需绑定：执行域 tick 经 `TimerBindingRegistry` 解析到存活执行后才发布，
+  无绑定时跳过（warn 级日志，模板名可见）。当前尚无引擎调用方自动写入绑定，
+  因此执行域定时在绑定前恒跳过；可用创建式目标作为替代。自动 bind/unbind 接线
+  （执行启动时绑定、结束时解绑）待“执行如何声明自己拥有的 schedule 名”配置面确定后另行立项。
+* 冷启动 ledger 无子执行关联：`CreationRunner` 与 `run_cold` 在 ledger 中记
+  `child_execution_id = None`，无归属事件本身也没有执行标识，
+  因此冷启动的 ledger 行无法关联到实际跑起来的子执行。要修需把
+  `SubworkflowRunner::run` 返回值扩展为携带执行标识，属 trait 级变更，本次不做。
 
 ## 7. 重试介入点
 

@@ -50,6 +50,12 @@ const MAX_CATCH_UP_FIRES: u32 = 10;
 /// the live execution the tick should name. Whoever owns a timed execution
 /// binds at start and unbinds at end; the scheduler joins the schedule
 /// definition with this table at fire time.
+///
+/// No engine caller writes bindings yet, so execution-scoped ticks are always
+/// skipped until bindings are wired (automatic bind/unbind on execution
+/// start/end is a follow-up pending the schedule-ownership config surface).
+/// Prefer a creation target (`ScheduleTarget::Create`) when the schedule must
+/// fire without a live execution.
 #[derive(Debug, Default)]
 pub struct TimerBindingRegistry {
     bindings: DashMap<String, String>,
@@ -266,8 +272,8 @@ async fn fire_due_entry(
             ScheduleTarget::ExecutionScoped => {
                 let bound = deps.bindings.bound_execution(&entry.name);
                 if bound.is_none() {
-                    debug!(
-                        "Schedule '{}' has no bound execution, skipping tick",
+                    warn!(
+                        "Schedule '{}' has no bound execution, skipping tick (bind the schedule to a live execution, or use a creation target)",
                         entry.name
                     );
                 }

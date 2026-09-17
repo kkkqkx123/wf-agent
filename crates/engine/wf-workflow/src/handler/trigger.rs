@@ -1,3 +1,14 @@
+//! In-graph synchronous trigger actions (message-node scope).
+//!
+//! This module has no relation to the event-driven trigger listener in
+//! `crate::trigger`: it runs a `TriggerAction` set synchronously inside a
+//! workflow node (message nodes consume trigger messages through this path).
+//! Rejected actions follow the shared `TriggerAction::supported_in` matrix:
+//! nested agent execution is refused because message nodes have no parent
+//! agent-loop session anchor for input snapshot or write-back, and
+//! cold-start actions (`ExecuteWorkflow` / `ExecuteAgent`) are refused because
+//! message nodes always run inside an execution and cannot start a fresh run.
+
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
@@ -72,6 +83,12 @@ impl ScriptRunner for SandboxScriptRunner {
     }
 }
 
+/// Synchronous in-node execution context for one trigger action set.
+///
+/// In-graph only: shares the `TriggerAction` type with the event-driven
+/// listener but never touches the `EventBus` async dispatch. Message nodes
+/// refuse nested agent execution and cold-start actions per the support
+/// matrix (no session anchor / no fresh run from inside an execution).
 #[derive(Clone)]
 pub struct TriggerContext {
     pub execution_id: Id,
@@ -171,6 +188,10 @@ impl TriggerContext {
     }
 }
 
+/// Synchronous in-graph executor for a `TriggerAction` set.
+///
+/// Runs inside the owning node and returns inline; unrelated to the
+/// event-driven `crate::trigger::TriggerEventListener` async side effects.
 pub struct TriggerCoordinator;
 
 /// Everything needed to run a triggered sub-workflow.

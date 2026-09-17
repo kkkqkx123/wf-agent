@@ -36,3 +36,4 @@ pub(crate) mod test_fixtures;
 pub use listener::TriggerEventListener;
 pub use ports::{SubworkflowRunner, TriggerActionRunner, TriggerTemplateRegistry};
 pub use states::{TriggerStateRecord, TriggerStateRegistry};
+pub use subscription::EventFanIn;

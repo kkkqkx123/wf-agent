@@ -28,3 +28,6 @@ rand.workspace = true
 num_cpus.workspace = true
 moka.workspace = true
 regex.workspace = true
+
+[dev-dependencies]
+wf-llm = { path = "../../infra/wf-llm", features = ["mock"] }

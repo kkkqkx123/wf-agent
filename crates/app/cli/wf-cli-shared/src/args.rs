@@ -1468,6 +1468,9 @@ pub enum ApprovalSub {
         /// Agent instance id.
         #[arg(value_name = "INSTANCE")]
         instance: String,
+        /// Optional human-readable rejection reason (logging only).
+        #[arg(long, value_name = "REASON")]
+        reason: Option<String>,
     },
 }
 

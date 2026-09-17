@@ -126,6 +126,7 @@ pub use template::agent_trigger_template::{
 pub use template::node_template::NodeTemplateSummary;
 pub use template::template_library::{TemplateFilter, TemplateKind, TemplateSummary};
 pub use trigger::validation::TriggerValidator;
+pub use wf_execution_shared::{SingleShotOutcome, SingleShotToolExecution};
 pub use workflow::approval::{ApprovalResult, ApprovalStatus};
 pub use workflow::draft::{
     delete_draft as delete_workflow_draft, get_draft as get_workflow_draft, hot_reload_to_draft,

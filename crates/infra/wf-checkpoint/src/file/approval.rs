@@ -72,13 +72,35 @@ impl FileCheckpointManager {
 
     /// Reject a pending approval: roll the actor's approval partition back to
     /// its baseline. Returns the baseline snapshot id (hex).
-    pub fn reject_changes(&self, entity_id: &str) -> Result<String, CheckpointError> {
+    ///
+    /// `reason` is an optional human-readable rejection reason used only for
+    /// logging and diagnostics; it never changes the rollback semantics and
+    /// is never persisted to storage.
+    pub fn reject_changes(
+        &self,
+        entity_id: &str,
+        reason: Option<&str>,
+    ) -> Result<String, CheckpointError> {
         let storage = self.storage_ref()?;
         let actor = self.actor_id_for(entity_id);
         let agent_id = actor.to_agent_instance_id();
         let baseline = layertwine::layered::approval::reject_approval(storage, &agent_id)
             .map_err(map_layertwine_error)?;
-        Ok(baseline.to_hex())
+        let baseline_hex = baseline.to_hex();
+        match reason.map(str::trim).filter(|r| !r.is_empty()) {
+            Some(reason) => tracing::info!(
+                entity = %entity_id,
+                baseline = %baseline_hex,
+                reason = %reason,
+                "rejected pending approval",
+            ),
+            None => tracing::info!(
+                entity = %entity_id,
+                baseline = %baseline_hex,
+                "rejected pending approval without a reason",
+            ),
+        }
+        Ok(baseline_hex)
     }
 
     /// Approve an actor's pending changes: merge them into the named feature

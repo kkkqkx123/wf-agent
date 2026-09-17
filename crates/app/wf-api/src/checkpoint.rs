@@ -7,7 +7,10 @@ pub mod file;
 pub mod provenance;
 pub mod record;
 
-pub use approval::{approve_changes, list_pending_approvals, reject_changes};
+pub use approval::{
+    approve_changes, list_pending_approvals, reject_changes, review_pending_approval,
+    ReviewOutcome, REVIEW_VERDICT_TOOL,
+};
 pub use file::{
     create_file_checkpoint, diff_actors, diff_against_staged, get_actor_workspace, list_conflicts,
     list_file_changes, list_partitions, restore_workspace_from_checkpoint, scan_workspace,

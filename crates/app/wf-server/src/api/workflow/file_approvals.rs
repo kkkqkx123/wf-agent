@@ -44,6 +44,14 @@ struct RejectResponse {
     baseline_snapshot_id: String,
 }
 
+#[derive(Debug, Deserialize)]
+struct RejectRequest {
+    /// Optional human-readable rejection reason, used for logging and
+    /// diagnostics only. Human rejection never requires a reason.
+    #[serde(default)]
+    reason: Option<String>,
+}
+
 async fn handle_list_pending_approvals(State(state): State<ApiState>) -> impl IntoResponse {
     match wf_api::checkpoint::approval::list_pending_approvals(&state.ctx) {
         Ok(approvals) => ok(approvals).into_response(),
@@ -66,8 +74,10 @@ async fn handle_approve_changes(
 async fn handle_reject_changes(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
+    body: Option<axum::extract::Json<RejectRequest>>,
 ) -> impl IntoResponse {
-    match wf_api::checkpoint::approval::reject_changes(&state.ctx, &path.id) {
+    let reason = body.and_then(|b| b.0.reason);
+    match wf_api::checkpoint::approval::reject_changes(&state.ctx, &path.id, reason.as_deref()) {
         Ok(baseline_snapshot_id) => ok(RejectResponse {
             baseline_snapshot_id,
         })

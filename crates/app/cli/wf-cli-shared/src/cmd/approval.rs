@@ -34,10 +34,9 @@ pub async fn run(cli: &Cli, sub: &ApprovalSub) -> CliResult<()> {
                 OutputEnvelope::success("approval-approve", data).with_entity(instance.clone()),
             )
         }
-        ApprovalSub::Reject { instance } => {
-            let snapshot = approval::reject_changes(ctx, instance)?;
-            let data =
-                serde_json::json!({"instance": instance, "rejected": true, "snapshot": snapshot});
+        ApprovalSub::Reject { instance, reason } => {
+            let snapshot = approval::reject_changes(ctx, instance, reason.as_deref())?;
+            let data = serde_json::json!({"instance": instance, "rejected": true, "snapshot": snapshot, "reason": reason});
             render_envelope(
                 cli.output,
                 OutputEnvelope::success("approval-reject", data).with_entity(instance.clone()),

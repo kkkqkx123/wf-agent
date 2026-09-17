@@ -12,6 +12,7 @@ pub mod hooks;
 pub mod interruption;
 pub mod message_ops;
 pub mod messaging_impl;
+pub mod single_shot;
 pub mod token_events;
 pub mod token_tracker;
 pub mod types;
@@ -41,6 +42,10 @@ pub use interruption::{
 // transport crate, which now only owns transport, config and estimation.
 pub use conversation_session::{ConversationSession, ConversationState, CONVERSATION_CONTEXT_ID};
 pub use message_ops::{apply as apply_message_operation, extract_by_role, is_agent_safe};
+pub use single_shot::{
+    generate_with_tools_once, SingleShotOutcome, SingleShotToolExecution,
+    MAX_SINGLE_SHOT_TOOL_CALLS,
+};
 pub use token_events::{
     build_context_compression_completed_event, build_context_compression_requested_event,
     build_conversation_writeback_completed_event, build_llm_failed_event,

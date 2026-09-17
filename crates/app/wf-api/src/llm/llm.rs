@@ -27,6 +27,36 @@ pub async fn generate(ctx: &ApiContext, request: &LlmRequest) -> ApiResult<LlmRe
         .map_err(Into::into)
 }
 
+/// Run a single LLM generation followed by one bounded round of tool
+/// executions (no second model round, no conversation persistence).
+/// Only tools on `allowed_tools` ever execute; anything else the model
+/// emits becomes an error. Backed by the shared single-shot primitive so
+/// engine and API callers share one semantics.
+pub async fn generate_with_tools_once(
+    ctx: &ApiContext,
+    request: &LlmRequest,
+    allowed_tools: &[String],
+    tool_options: Option<wf_types::tool::ToolExecutionOptions>,
+    execution_id: &str,
+) -> ApiResult<wf_execution_shared::SingleShotOutcome> {
+    if request.messages.is_empty() {
+        return Err(ApiError::Validation(
+            "LLM request must contain at least one message".into(),
+        ));
+    }
+    wf_execution_shared::generate_with_tools_once(
+        &ctx.llm_gateway,
+        &ctx.tool_registry,
+        request,
+        allowed_tools,
+        tool_options,
+        execution_id,
+        None,
+    )
+    .await
+    .map_err(ApiError::execution_with_source)
+}
+
 /// Run several LLM requests in parallel; fails fast on the first error.
 pub async fn generate_batch(
     ctx: &ApiContext,

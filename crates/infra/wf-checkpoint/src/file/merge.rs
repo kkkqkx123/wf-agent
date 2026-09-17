@@ -180,6 +180,7 @@ impl FileCheckpointManager {
         &self,
         retention: layertwine::checkpoint::GcRetention,
     ) -> Result<layertwine::checkpoint::GcStats, CheckpointError> {
+        let start = std::time::Instant::now();
         let storage = self.storage_ref()?;
         let persist: Box<dyn layertwine::storage::repository::CheckpointPersist> =
             Box::new(storage.share());
@@ -187,6 +188,13 @@ impl FileCheckpointManager {
             .map_err(map_layertwine_error)?;
         let stats = layertwine::checkpoint::gc::run_gc(&mut repo, retention)
             .map_err(map_layertwine_error)?;
+        if let Some(ref metrics) = self.checkpoint_metrics() {
+            metrics.record_cleanup(
+                stats.removed_checkpoints,
+                0,
+                start.elapsed().as_millis() as f64,
+            );
+        }
         if let Some(ref bus) = self.event_bus {
             bus.publish(CheckpointEventBus::gc_completed(stats.clone()));
         }

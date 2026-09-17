@@ -7,6 +7,7 @@
 use std::path::Path;
 
 use serde::de::DeserializeOwned;
+use wf_metrics::ConfigMetricsCollector;
 
 use crate::error::{ConfigError, ConfigResult};
 
@@ -35,6 +36,36 @@ pub fn merge_toml_values(base: &mut toml::Value, overlay: toml::Value) {
 /// Missing files are silently skipped. Returns an error if no files exist
 /// or if deserialization fails.
 pub fn load_layered_config_sync<T: DeserializeOwned>(paths: &[&Path]) -> ConfigResult<T> {
+    load_layered_config_sync_with_metrics(paths, None)
+}
+
+/// Load and merge TOML files, recording access, load duration and parse
+/// failures into the config collector. Absent collectors add zero overhead.
+pub fn load_layered_config_sync_with_metrics<T: DeserializeOwned>(
+    paths: &[&Path],
+    metrics: Option<&ConfigMetricsCollector>,
+) -> ConfigResult<T> {
+    if let Some(metrics) = metrics {
+        metrics.record_access();
+    }
+    let start = std::time::Instant::now();
+    let result = load_layered_config_sync_inner(paths);
+    match &result {
+        Ok(_) => {
+            if let Some(metrics) = metrics {
+                metrics.record_load_complete(start.elapsed().as_millis() as f64);
+            }
+        }
+        Err(_) => {
+            if let Some(metrics) = metrics {
+                metrics.record_validation_error();
+            }
+        }
+    }
+    result
+}
+
+fn load_layered_config_sync_inner<T: DeserializeOwned>(paths: &[&Path]) -> ConfigResult<T> {
     let mut base: Option<toml::Value> = None;
 
     for path in paths {
@@ -80,6 +111,35 @@ pub fn load_layered_config_sync<T: DeserializeOwned>(paths: &[&Path]) -> ConfigR
 
 /// Async version of [`load_layered_config_sync`].
 pub async fn load_layered_config<T: DeserializeOwned>(paths: &[&Path]) -> ConfigResult<T> {
+    load_layered_config_with_metrics(paths, None).await
+}
+
+/// Async version of [`load_layered_config_sync_with_metrics`].
+pub async fn load_layered_config_with_metrics<T: DeserializeOwned>(
+    paths: &[&Path],
+    metrics: Option<&ConfigMetricsCollector>,
+) -> ConfigResult<T> {
+    if let Some(metrics) = metrics {
+        metrics.record_access();
+    }
+    let start = std::time::Instant::now();
+    let result = load_layered_config_inner(paths).await;
+    match &result {
+        Ok(_) => {
+            if let Some(metrics) = metrics {
+                metrics.record_load_complete(start.elapsed().as_millis() as f64);
+            }
+        }
+        Err(_) => {
+            if let Some(metrics) = metrics {
+                metrics.record_validation_error();
+            }
+        }
+    }
+    result
+}
+
+async fn load_layered_config_inner<T: DeserializeOwned>(paths: &[&Path]) -> ConfigResult<T> {
     let mut base: Option<toml::Value> = None;
 
     for path in paths {

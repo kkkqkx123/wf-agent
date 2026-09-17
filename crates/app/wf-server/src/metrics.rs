@@ -19,7 +19,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::Router;
 
-use wf_metrics::{format_registry_prometheus, MetricsRegistry};
+use wf_metrics::{format_internal_prometheus, format_registry_prometheus, MetricsRegistry};
 
 use crate::api::resource::metrics::{self, RegistryState, PROMETHEUS_CONTENT_TYPE};
 use crate::server::{serve_with_router, ServeError, ServerHandle};
@@ -38,15 +38,18 @@ pub async fn serve(
     registry: Arc<MetricsRegistry>,
     addr: SocketAddr,
 ) -> Result<ServerHandle, ServeError> {
-    serve_with_router(router(registry), addr).await
+    let http = registry.http();
+    let router = crate::middleware::with_request_metrics(router(registry), Some(http));
+    serve_with_router(router, addr).await
 }
 
-/// `GET /metrics`: Prometheus text export, `text/plain`.
+/// `GET /metrics`: Prometheus text export, `text/plain`. Domain series are
+/// followed by the collector self-monitoring block so pipeline health
+/// (buffer pressure, drops, flush errors) is scraped together.
 async fn handle_metrics(State(state): State<RegistryState>) -> Response {
-    text_response(
-        PROMETHEUS_CONTENT_TYPE,
-        format_registry_prometheus(&state.registry),
-    )
+    let mut body = format_registry_prometheus(&state.registry);
+    body.push_str(&format_internal_prometheus(&state.registry));
+    text_response(PROMETHEUS_CONTENT_TYPE, body)
 }
 
 fn text_response(content_type: &str, body: String) -> Response {

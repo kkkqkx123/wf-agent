@@ -987,6 +987,9 @@ impl AgentLoopCoordinator {
         if let Some(duration) = self.max_pause_duration {
             entity = entity.with_max_pause_duration(duration);
         }
+        if let Some(ref metrics) = self.metrics {
+            entity = entity.with_timeout_metrics(metrics.timeout());
+        }
 
         if let Some(ref bus) = self.event_bus {
             entity.interruption().set_event_bus(bus.clone());

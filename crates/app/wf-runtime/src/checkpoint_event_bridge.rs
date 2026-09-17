@@ -40,7 +40,8 @@ pub fn spawn(
 /// Forward one checkpoint event onto the shared event bus (best-effort).
 fn forward(bus: &Arc<EventBus>, event: &CheckpointEvent) {
     let (event_type, metadata) = match event {
-        CheckpointEvent::FileChanged { data, summary, .. } => {            let mut metadata = HashMap::new();
+        CheckpointEvent::FileChanged { data, summary, .. } => {
+            let mut metadata = HashMap::new();
             if let Some(snapshot_id) = &data.checkpoint_id {
                 metadata.insert("snapshot_id".to_string(), serde_json::json!(snapshot_id));
             }

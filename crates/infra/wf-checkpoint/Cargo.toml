@@ -22,6 +22,7 @@ clap = { workspace = true }
 
 wf-types = { path = "../../foundation/wf-types" }
 wf-common = { path = "../../foundation/wf-common" }
+wf-metrics = { path = "../wf-metrics" }
 wf-storage = { path = "../../infra/wf-storage" }
 wf-core = { path = "../../foundation/wf-core" }
 layertwine = { path = "../layertwine" }

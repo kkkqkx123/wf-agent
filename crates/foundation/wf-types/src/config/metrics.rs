@@ -25,12 +25,16 @@ pub struct MetricCollectorConfig {
 /// Anomaly detection thresholds consumed by the report generator.
 ///
 /// `max_error_count` triggers an error-storm anomaly, `min_success_rate`
-/// (0..=1) triggers a workflow-success-degradation anomaly. Both are
+/// (0..=1) triggers a workflow-success-degradation anomaly,
+/// `max_tool_error_rate` (0..=1) triggers a tool-error-rate anomaly and
+/// `max_checkpoint_failures` triggers a checkpoint-failure anomaly. All are
 /// optional; missing values fall back to the defaults.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct AnomalyThresholdsConfig {
     pub max_error_count: Option<u64>,
     pub min_success_rate: Option<f64>,
+    pub max_tool_error_rate: Option<f64>,
+    pub max_checkpoint_failures: Option<u64>,
 }
 
 /// Global retention window (milliseconds) driving both the in-memory
@@ -52,6 +56,8 @@ pub struct MetricsConfig {
     pub template_metrics: Option<MetricCollectorConfig>,
     pub retry_budget_metrics: Option<MetricCollectorConfig>,
     pub timeout_metrics: Option<MetricCollectorConfig>,
+    pub checkpoint_metrics: Option<MetricCollectorConfig>,
+    pub http_metrics: Option<MetricCollectorConfig>,
     pub enable_periodic_reporting: Option<bool>,
     pub reporting_interval: Option<i64>,
     pub enabled: Option<bool>,

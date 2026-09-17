@@ -6,6 +6,7 @@ use wf_execution_shared::conversation_session::ConversationSession;
 use wf_execution_shared::error::ExecutionSharedError;
 use wf_execution_shared::hooks::types::HookDefinition;
 use wf_execution_shared::types::execution_entity::{ExecutionEntity, ExecutionStatus};
+use wf_metrics::TimeoutMetricsCollector;
 use wf_types::llm::ToolCallProtocolConfig;
 use wf_types::Id;
 
@@ -40,6 +41,7 @@ pub struct AgentLoopEntity {
     timeout_manager: AgentTimeoutManager,
     max_pause_duration: Option<u64>,
     pause_timeout_handle: std::sync::RwLock<Option<TimeoutHandle>>,
+    timeout_metrics: Option<Arc<TimeoutMetricsCollector>>,
     /// Depth of this execution in the agent hierarchy (0 = root). Populated
     /// when the run is linked to a parent execution.
     hierarchy_depth: u32,
@@ -81,6 +83,7 @@ impl AgentLoopEntity {
             timeout_manager: AgentTimeoutManager::new(),
             max_pause_duration: None,
             pause_timeout_handle: std::sync::RwLock::new(None),
+            timeout_metrics: None,
             hierarchy_depth: 0,
             root_execution_id: None,
             ancestors: Vec::new(),
@@ -164,6 +167,15 @@ impl AgentLoopEntity {
     pub fn with_max_pause_duration(mut self, duration_ms: u64) -> Self {
         self.max_pause_duration = Some(duration_ms);
         self
+    }
+
+    pub fn with_timeout_metrics(mut self, metrics: Arc<TimeoutMetricsCollector>) -> Self {
+        self.timeout_metrics = Some(metrics);
+        self
+    }
+
+    pub fn timeout_metrics(&self) -> Option<Arc<TimeoutMetricsCollector>> {
+        self.timeout_metrics.clone()
     }
 
     /// Record this execution's depth in the agent hierarchy (parent depth + 1).
@@ -436,9 +448,15 @@ impl AgentLoopEntity {
         if max_pause == 0 {
             return;
         }
-        self.cancel_pause_timeout();
+        self.clear_pause_timeout();
         let interruption = self.interruption.clone();
         let agent_loop_id = self.id.clone();
+        let execution_id = self.id.to_string();
+        let metrics = self.timeout_metrics.clone();
+        if let Some(ref metrics) = metrics {
+            metrics.record_registration("agent_pause", max_pause as f64, &execution_id);
+        }
+        let registered_at = std::time::Instant::now();
         let handle = self.timeout_manager.register(
             format!("pause-{}", self.id),
             std::time::Duration::from_millis(max_pause),
@@ -448,6 +466,13 @@ impl AgentLoopEntity {
                     max_pause_duration = max_pause,
                     "Agent loop pause timeout exceeded, stopping execution"
                 );
+                if let Some(ref metrics) = metrics {
+                    metrics.record_expiration(
+                        "agent_pause",
+                        registered_at.elapsed().as_millis() as f64,
+                        &execution_id,
+                    );
+                }
                 let _ = interruption.stop();
             },
         );
@@ -455,10 +480,20 @@ impl AgentLoopEntity {
     }
 
     fn cancel_pause_timeout(&self) {
-        if let Some(handle) = wf_common::lock::write_ok(self.pause_timeout_handle.write()).take() {
-            handle.cancel();
+        let had_handle = self.clear_pause_timeout();
+        if had_handle {
+            if let Some(ref metrics) = self.timeout_metrics {
+                metrics.record_cancellation("agent_pause", "resume", &self.id.to_string());
+            }
         }
+    }
+
+    fn clear_pause_timeout(&self) -> bool {
+        let had_handle = wf_common::lock::write_ok(self.pause_timeout_handle.write())
+            .take()
+            .is_some();
         self.timeout_manager.cancel(&format!("pause-{}", self.id));
+        had_handle
     }
 }
 

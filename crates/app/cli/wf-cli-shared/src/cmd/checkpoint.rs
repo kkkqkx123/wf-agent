@@ -27,20 +27,18 @@ pub async fn run(cli: &Cli, sub: &CheckpointSub) -> CliResult<()> {
             )
         }
         CheckpointSub::CreateAgent { id, name } => {
-            let created =
-                wf_api::agent::agent_checkpoint::create(ctx, id, name.clone()).await?;
-            let data =
-                serde_json::json!({"agentLoopId": id, "checkpointId": created.id});
+            let created = wf_api::agent::agent_checkpoint::create(ctx, id, name.clone()).await?;
+            let data = serde_json::json!({"agentLoopId": id, "checkpointId": created.id});
             render_envelope(
                 cli.output,
-                OutputEnvelope::success("checkpoint-create", data)
-                    .with_entity(created.id.clone()),
+                OutputEnvelope::success("checkpoint-create", data).with_entity(created.id.clone()),
             )
         }
         CheckpointSub::FileCreate { id, path } => {
             let manager = ctx.file_checkpoint_manager().ok_or_else(|| {
                 crate::error::CliError::Business(
-                    "file checkpointing is not enabled; set file_checkpoint.enabled=true".to_string(),
+                    "file checkpointing is not enabled; set file_checkpoint.enabled=true"
+                        .to_string(),
                 )
             })?;
             let summary = wf_api::checkpoint::file::create_file_checkpoint(
@@ -100,8 +98,7 @@ pub async fn run(cli: &Cli, sub: &CheckpointSub) -> CliResult<()> {
             }
         }
         CheckpointSub::RestoreAgent { id, checkpoint } => {
-            let restored =
-                wf_api::agent::agent_checkpoint::restore(ctx, id, checkpoint).await?;
+            let restored = wf_api::agent::agent_checkpoint::restore(ctx, id, checkpoint).await?;
             let data = serde_json::to_value(&restored)?;
             render_envelope(
                 cli.output,
@@ -118,8 +115,7 @@ pub async fn run(cli: &Cli, sub: &CheckpointSub) -> CliResult<()> {
             )
         }
         CheckpointSub::Chain { id, domain } => {
-            let chain =
-                checkpoint::chain_for_execution(ctx, id, domain_override(*domain)).await?;
+            let chain = checkpoint::chain_for_execution(ctx, id, domain_override(*domain)).await?;
             let data = serde_json::to_value(&chain)?;
             render_envelope(
                 cli.output,

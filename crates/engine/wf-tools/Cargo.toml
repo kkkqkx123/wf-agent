@@ -7,6 +7,7 @@ edition.workspace = true
 wf-core = { path = "../../foundation/wf-core" }
 wf-types = { path = "../../foundation/wf-types" }
 wf-common = { path = "../../foundation/wf-common" }
+wf-metrics = { path = "../../infra/wf-metrics" }
 wf-sandbox = { path = "../../infra/wf-sandbox" }
 wf-shell = { path = "../../infra/wf-shell" }
 wf-checkpoint = { path = "../../infra/wf-checkpoint" }

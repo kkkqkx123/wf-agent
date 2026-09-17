@@ -10,8 +10,8 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use crate::mcp::analytics::McpUsageAnalytics;
-use crate::mcp::rmcp_client::McpToolInfo;
 use crate::mcp::connection::{McpConnectionManager, McpServerEntry};
+use crate::mcp::rmcp_client::McpToolInfo;
 
 /// Default TTL for cached metadata (5 minutes).
 pub const DEFAULT_METADATA_TTL: Duration = Duration::from_secs(300);

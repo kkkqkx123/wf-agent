@@ -17,7 +17,9 @@ use tracing::warn;
 use crate::env::apply_env_overrides;
 use crate::error::{ConfigError, ConfigResult};
 use crate::layered;
-use crate::orchestrator_loader::{load_domain_config, normalize_camel_case, resolve_file_mapping};
+use crate::orchestrator_loader::{
+    load_domain_config_with_metrics, normalize_camel_case, resolve_file_mapping,
+};
 use crate::processor::file_checkpoint::merge_file_checkpoint_with_defaults;
 use crate::processor::infrastructure::{
     get_metrics_environment_defaults, get_output_environment_defaults,
@@ -187,6 +189,7 @@ pub struct ConfigOrchestratorBuilder {
     preset_name: Option<String>,
     default_paths: Option<InfrastructurePresetFiles>,
     runtime_env: RuntimeEnvironment,
+    config_metrics: Option<std::sync::Arc<wf_metrics::ConfigMetricsCollector>>,
 }
 
 impl ConfigOrchestratorBuilder {
@@ -196,7 +199,18 @@ impl ConfigOrchestratorBuilder {
             preset_name: None,
             default_paths: None,
             runtime_env: RuntimeEnvironment::Development,
+            config_metrics: None,
         }
+    }
+
+    /// Attach the config collector; assembly accesses, load durations and
+    /// validation failures are recorded into it.
+    pub fn with_config_metrics(
+        mut self,
+        metrics: std::sync::Arc<wf_metrics::ConfigMetricsCollector>,
+    ) -> Self {
+        self.config_metrics = Some(metrics);
+        self
     }
 
     /// Override the infrastructure config directory.
@@ -230,6 +244,7 @@ impl ConfigOrchestratorBuilder {
             preset_name: self.preset_name,
             default_paths: self.default_paths,
             runtime_env: self.runtime_env,
+            config_metrics: self.config_metrics,
         }
     }
 }
@@ -240,17 +255,44 @@ pub struct ConfigOrchestratorLoaded {
     preset_name: Option<String>,
     default_paths: Option<InfrastructurePresetFiles>,
     runtime_env: RuntimeEnvironment,
+    config_metrics: Option<std::sync::Arc<wf_metrics::ConfigMetricsCollector>>,
 }
 
 impl ConfigOrchestratorLoaded {
     pub fn assemble(self, overrides: Option<ConfigOverrides>) -> ConfigResult<AssembledConfig> {
+        let metrics = self.config_metrics.clone();
+        if let Some(ref metrics) = metrics {
+            metrics.record_access();
+        }
+        let start = std::time::Instant::now();
+        let result = self.assemble_inner(overrides);
+        match &result {
+            Ok(_) => {
+                if let Some(ref metrics) = metrics {
+                    metrics.record_load_complete(start.elapsed().as_millis() as f64);
+                }
+            }
+            Err(_) => {
+                if let Some(ref metrics) = metrics {
+                    metrics.record_validation_error();
+                }
+            }
+        }
+        result
+    }
+
+    fn assemble_inner(self, overrides: Option<ConfigOverrides>) -> ConfigResult<AssembledConfig> {
         let files = resolve_file_mapping(
             &self.infra_dir,
             self.preset_name.as_deref(),
             self.default_paths,
         );
-        let mut config =
-            Self::load_infrastructure_configs(&self.infra_dir, &files, self.runtime_env)?;
+        let mut config = Self::load_infrastructure_configs(
+            &self.infra_dir,
+            &files,
+            self.runtime_env,
+            self.config_metrics.as_deref(),
+        )?;
         Self::apply_env_overrides(&mut config)?;
         if let Some(o) = overrides {
             Self::apply_overrides(&mut config, o)?;
@@ -264,6 +306,7 @@ impl ConfigOrchestratorLoaded {
         infra_dir: &Path,
         files: &InfrastructurePresetFiles,
         runtime_env: RuntimeEnvironment,
+        metrics: Option<&wf_metrics::ConfigMetricsCollector>,
     ) -> ConfigResult<AssembledConfig> {
         let storage_path = infra_dir.join(&files.storage);
         let timeout_path = infra_dir.join(&files.timeout);
@@ -272,26 +315,40 @@ impl ConfigOrchestratorLoaded {
         let sandbox_path = infra_dir.join(&files.sandbox);
         let limits_path = infra_dir.join(&files.limits);
 
-        let storage: StorageConfig =
-            load_domain_config(&storage_path, get_storage_environment_defaults(runtime_env));
-        let timeout: TimeoutConfig =
-            load_domain_config(&timeout_path, get_timeout_environment_defaults(runtime_env));
-        let metrics: MetricsConfig =
-            load_domain_config(&metrics_path, get_metrics_environment_defaults(runtime_env));
-        let output: OutputConfig =
-            load_domain_config(&output_path, get_output_environment_defaults(runtime_env));
-        let limits: LimitsConfig = load_domain_config(&limits_path, LimitsConfig::default());
+        let storage: StorageConfig = load_domain_config_with_metrics(
+            &storage_path,
+            get_storage_environment_defaults(runtime_env),
+            metrics,
+        );
+        let timeout: TimeoutConfig = load_domain_config_with_metrics(
+            &timeout_path,
+            get_timeout_environment_defaults(runtime_env),
+            metrics,
+        );
+        let metrics_config: MetricsConfig = load_domain_config_with_metrics(
+            &metrics_path,
+            get_metrics_environment_defaults(runtime_env),
+            metrics,
+        );
+        let output: OutputConfig = load_domain_config_with_metrics(
+            &output_path,
+            get_output_environment_defaults(runtime_env),
+            metrics,
+        );
+        let limits: LimitsConfig =
+            load_domain_config_with_metrics(&limits_path, LimitsConfig::default(), metrics);
 
         // Sandbox config is fail-fast: a malformed sandbox.toml must reject
         // startup instead of silently running with the weaker defaults.
         let sandbox: Option<SandboxGlobalConfig> = if sandbox_path.exists() {
             let config: SandboxGlobalConfig =
-                layered::load_layered_config_sync(&[sandbox_path.as_path()]).map_err(|e| {
-                    ConfigError::Validation(format!(
-                        "Invalid sandbox global config in {}: {e}",
-                        sandbox_path.display()
-                    ))
-                })?;
+                layered::load_layered_config_sync_with_metrics(&[sandbox_path.as_path()], metrics)
+                    .map_err(|e| {
+                        ConfigError::Validation(format!(
+                            "Invalid sandbox global config in {}: {e}",
+                            sandbox_path.display()
+                        ))
+                    })?;
             validate_sandbox_global(&config)?;
             Some(config)
         } else {
@@ -301,32 +358,40 @@ impl ConfigOrchestratorLoaded {
         // File-checkpoint / tool-approval / presets / tools load leniently:
         // parse failures fall back to defaults (presets additionally fail
         // fast on validation errors).
-        let file_checkpoint = load_domain_config::<FileCheckpointConfig>(
+        let file_checkpoint = load_domain_config_with_metrics::<FileCheckpointConfig>(
             &infra_dir.join(&files.file_checkpoint),
             FileCheckpointConfig::default(),
+            metrics,
         );
-        let tool_approval = load_domain_config::<ToolApprovalConfig>(
+        let tool_approval = load_domain_config_with_metrics::<ToolApprovalConfig>(
             &infra_dir.join(&files.tool_approval),
             ToolApprovalConfig::default(),
+            metrics,
         );
-        let presets = transform_presets_config(load_domain_config::<PresetsConfig>(
+        let presets = transform_presets_config(load_domain_config_with_metrics::<PresetsConfig>(
             &infra_dir.join(&files.presets),
             get_presets_environment_defaults(runtime_env),
+            metrics,
         ))?;
         let tools = load_tool_configs(infra_dir, files);
 
         let storage = merge_storage_with_defaults(&storage);
         let timeout = merge_timeout_with_defaults(&timeout);
-        let metrics = merge_metrics_with_defaults(&metrics);
+        let metrics_config = merge_metrics_with_defaults(&metrics_config);
         let output = merge_output_with_defaults(&output);
         let file_checkpoint = merge_file_checkpoint_with_defaults(&file_checkpoint);
         let limits = merge_limits_with_defaults(&limits);
-        validate_limits_config(&limits)?;
+        if let Err(e) = validate_limits_config(&limits) {
+            if let Some(metrics) = metrics {
+                metrics.record_validation_error();
+            }
+            return Err(e);
+        }
 
         Ok(AssembledConfig {
             storage,
             timeout,
-            metrics,
+            metrics: metrics_config,
             output,
             sandbox,
             file_checkpoint,

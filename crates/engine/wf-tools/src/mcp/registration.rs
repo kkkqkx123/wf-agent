@@ -17,8 +17,8 @@ use wf_common::lock::lock_ok;
 use wf_types::tool::{Tool, ToolMetadata, ToolParameterSchema, ToolPropertySchema, ToolType};
 
 use crate::error::ToolResult;
-use crate::mcp::rmcp_client::McpToolInfo;
 use crate::mcp::connection::McpConnectionManager;
+use crate::mcp::rmcp_client::McpToolInfo;
 use crate::predefined::integration::USE_MCP;
 use crate::registry::ToolRegistry;
 

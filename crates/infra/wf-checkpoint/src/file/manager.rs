@@ -207,6 +207,10 @@ pub struct FileCheckpointManager {
     /// sessions). Owned here so every `CheckpointSession` clone routes to
     /// the same registry instead of isolated per-handle maps.
     pub(crate) session_scopes: Arc<crate::scope::SessionScopeRegistry>,
+    /// Unified checkpoint metrics collector. Clones share the same slot so
+    /// a collector attached after construction still observes every handle.
+    /// Absent collectors add zero overhead.
+    checkpoint_metrics: Arc<std::sync::Mutex<Option<Arc<wf_metrics::CheckpointMetricsCollector>>>>,
 }
 
 impl Clone for FileCheckpointManager {
@@ -220,6 +224,7 @@ impl Clone for FileCheckpointManager {
             workspace_root: self.workspace_root.clone(),
             actor_index: self.actor_index.clone(),
             session_scopes: self.session_scopes.clone(),
+            checkpoint_metrics: self.checkpoint_metrics.clone(),
         }
     }
 }
@@ -235,6 +240,7 @@ impl FileCheckpointManager {
             workspace_root: None,
             actor_index: ActorRegistry::new(),
             session_scopes: Arc::new(crate::scope::SessionScopeRegistry::default()),
+            checkpoint_metrics: Arc::new(std::sync::Mutex::new(None)),
         }
     }
 
@@ -250,6 +256,7 @@ impl FileCheckpointManager {
             workspace_root: None,
             actor_index: ActorRegistry::new(),
             session_scopes: Arc::new(crate::scope::SessionScopeRegistry::default()),
+            checkpoint_metrics: Arc::new(std::sync::Mutex::new(None)),
         }
     }
 
@@ -264,6 +271,18 @@ impl FileCheckpointManager {
     /// The attached change-event bus, if any.
     pub fn event_bus(&self) -> Option<&CheckpointEventBus> {
         self.event_bus.as_ref()
+    }
+
+    /// Attach the unified checkpoint metrics collector. Creation, restore
+    /// and cleanup paths record into it; absent collectors add zero
+    /// overhead. Shared across clones, so late attachment still observes
+    /// every handle.
+    pub fn set_checkpoint_metrics(&self, metrics: Arc<wf_metrics::CheckpointMetricsCollector>) {
+        *wf_common::lock::lock_ok(self.checkpoint_metrics.lock()) = Some(metrics);
+    }
+
+    pub(crate) fn checkpoint_metrics(&self) -> Option<Arc<wf_metrics::CheckpointMetricsCollector>> {
+        wf_common::lock::lock_ok(self.checkpoint_metrics.lock()).clone()
     }
 
     /// Open a manager from the file-checkpoint storage config (the
@@ -357,6 +376,7 @@ impl FileCheckpointManager {
             workspace_root: None,
             actor_index: ActorRegistry::new(),
             session_scopes: Arc::new(crate::scope::SessionScopeRegistry::default()),
+            checkpoint_metrics: Arc::new(std::sync::Mutex::new(None)),
         })
     }
 
@@ -702,9 +722,7 @@ mod tests {
     fn create_and_restore_checkpoint_with_content() {
         let manager = manager();
         let entries = vec![entry("a.txt", b"hello a"), entry("b.txt", b"hello b")];
-        let cp = manager
-            .create_checkpoint("exec-1", &entries)
-            .unwrap();
+        let cp = manager.create_checkpoint("exec-1", &entries).unwrap();
         assert_eq!(cp.files.len(), 2);
         assert_eq!(
             cp.files[0].hash,

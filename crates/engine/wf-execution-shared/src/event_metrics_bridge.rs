@@ -57,6 +57,11 @@ impl EventMetricsBridge {
             self.registry
                 .error()
                 .record_error(error_type, &source, event.execution_id.as_deref());
+            if let Some(ref execution_id) = event.execution_id {
+                self.registry
+                    .error()
+                    .record_affected_execution(execution_id);
+            }
         }
 
         self.registry.event().record_event(

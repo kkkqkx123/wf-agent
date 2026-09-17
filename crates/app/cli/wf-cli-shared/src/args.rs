@@ -1828,14 +1828,7 @@ mod tests {
         };
         assert!(matches!(sub, CheckpointSub::Create { .. }));
 
-        let cli = parse(&[
-            "checkpoint",
-            "create-agent",
-            "loop-1",
-            "--name",
-            "snap",
-        ])
-        .unwrap();
+        let cli = parse(&["checkpoint", "create-agent", "loop-1", "--name", "snap"]).unwrap();
         let Some(Command::Checkpoint { sub }) = cli.command else {
             panic!("expected checkpoint command");
         };

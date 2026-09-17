@@ -11,7 +11,6 @@ pub use approval_enhanced::{
     ParameterApprovalRule, RateLimitingRule, ResourceAccessApprovalContext,
     ToolCallApprovalContext,
 };
-pub use rmcp_client::{RmcpClient, McpToolInfo};
 pub use connection::{McpConnectionManager, McpServerEntry, McpServerRegistry};
 pub use metadata::{
     CachedServerMetadata, GeneratedMcpToolsContext, McpToolMetadataCache, McpToolsContextOptions,
@@ -21,3 +20,4 @@ pub use registration::{
     register_mcp_tools, register_use_mcp, sanitize_id_component, sanitized_mcp_tool_id,
     McpToolRegistrationOptions, McpToolsRegistrar,
 };
+pub use rmcp_client::{McpToolInfo, RmcpClient};

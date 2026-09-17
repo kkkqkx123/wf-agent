@@ -14,7 +14,10 @@ impl FileCheckpointManager {
     /// Returns the group id. The group is persisted immediately so it
     /// survives process restarts; deltas/snapshots are appended as the
     /// operation records them.
-    pub fn begin_edit_group(&self, label: Option<String>) -> Result<EditSessionId, CheckpointError> {
+    pub fn begin_edit_group(
+        &self,
+        label: Option<String>,
+    ) -> Result<EditSessionId, CheckpointError> {
         let storage = self.storage_ref()?;
         let session = EditSession::new(label);
         let id = session.id;

@@ -172,12 +172,19 @@ impl LlmGateway {
         }
 
         let prepared = self.prepare(request)?;
-        let result = prepared
-            .client
-            .generate(&prepared.effective, cancel)
-            .await?;
-        self.record_token_usage(&result, &prepared.profile);
-        Ok(result)
+        let start = std::time::Instant::now();
+        let result = prepared.client.generate(&prepared.effective, cancel).await;
+        let duration_ms = start.elapsed().as_millis() as f64;
+        match &result {
+            Ok(response) => {
+                self.record_token_usage(response, &prepared.profile);
+                self.record_request(duration_ms, true, None, &prepared.profile);
+            }
+            Err(error) => {
+                self.record_request(duration_ms, false, Some(error), &prepared.profile);
+            }
+        }
+        result
     }
 
     pub async fn generate_stream(
@@ -191,10 +198,17 @@ impl LlmGateway {
         }
 
         let prepared = self.prepare(request)?;
+        let start = std::time::Instant::now();
         let stream = prepared
             .client
             .generate_stream(&prepared.effective, cancel)
-            .await?;
+            .await;
+        let duration_ms = start.elapsed().as_millis() as f64;
+        match &stream {
+            Ok(_) => self.record_request(duration_ms, true, None, &prepared.profile),
+            Err(error) => self.record_request(duration_ms, false, Some(error), &prepared.profile),
+        }
+        let stream = stream?;
         Ok(Box::new(crate::token::stream::TokenRecordingStream::new(
             stream,
             self.token_metrics.clone(),
@@ -277,6 +291,44 @@ impl LlmGateway {
             usage.total_cost,
             Some(&profile.model),
         );
+    }
+
+    fn record_request(
+        &self,
+        duration_ms: f64,
+        success: bool,
+        error: Option<&crate::error::LlmError>,
+        profile: &LlmProfile,
+    ) {
+        let Some(collector) = self.token_metrics.as_ref() else {
+            return;
+        };
+        collector.record_request(
+            duration_ms,
+            success,
+            error.map(classify_error),
+            Some(&profile.model),
+        );
+    }
+}
+
+/// Low-cardinality error classifier for LLM request metrics.
+fn classify_error(error: &crate::error::LlmError) -> &'static str {
+    match error {
+        crate::error::LlmError::HttpError(_) => "http_error",
+        crate::error::LlmError::SerializationError(_) => "serialization_error",
+        crate::error::LlmError::ProviderError(_) => "provider_error",
+        crate::error::LlmError::ContextLengthExceeded(_) => "context_length_exceeded",
+        crate::error::LlmError::ConfigError(_) => "config_error",
+        crate::error::LlmError::StreamError(_) => "stream_error",
+        crate::error::LlmError::ProfileNotFound(_) => "profile_not_found",
+        crate::error::LlmError::UnsupportedFormat(_) => "unsupported_format",
+        crate::error::LlmError::CodecNotFound(_) => "codec_not_found",
+        crate::error::LlmError::Timeout(_) => "timeout",
+        crate::error::LlmError::AuthError(_) => "auth_error",
+        crate::error::LlmError::ToolNotFound(_) => "tool_not_found",
+        crate::error::LlmError::InvalidResponse(_) => "invalid_response",
+        crate::error::LlmError::Cancelled => "cancelled",
     }
 }
 

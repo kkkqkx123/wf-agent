@@ -169,6 +169,7 @@ fn render_general_description(
     general_enabled: bool,
     regs: Option<&wf_resource::ResourceRegistries>,
     tool_call_protocol: Option<&wf_types::llm::ToolCallProtocolConfig>,
+    template_metrics: Option<&wf_metrics::TemplateMetricsCollector>,
 ) -> Option<String> {
     if !general_enabled {
         return None;
@@ -183,13 +184,14 @@ fn render_general_description(
             .unwrap_or_else(|| "xml".to_string()),
     );
     variables.insert("invoke_example".to_string(), general_invoke_example(format));
-    wf_resource::render_template(
+    wf_resource::render_template_with_metrics(
         regs,
         wf_resource::GENERAL_DESCRIPTION_TEMPLATE_ID,
         &wf_resource::TemplateRenderOptions {
             variables,
             ..Default::default()
         },
+        template_metrics,
     )
 }
 
@@ -220,6 +222,7 @@ fn general_invoke_example(format: Option<&wf_types::llm::ToolCallProtocol>) -> S
 fn resolve_configured_system_prompt(
     agent_config: Option<&wf_types::agent::AgentConfig>,
     regs: Option<&wf_resource::ResourceRegistries>,
+    template_metrics: Option<&wf_metrics::TemplateMetricsCollector>,
 ) -> Option<String> {
     let config = agent_config?;
     if let Some(ref sp) = config.system_prompt {
@@ -237,13 +240,14 @@ fn resolve_configured_system_prompt(
             variables.insert(key.clone(), rendered);
         }
     }
-    wf_resource::render_template(
+    wf_resource::render_template_with_metrics(
         regs,
         template_id,
         &wf_resource::TemplateRenderOptions {
             variables,
             ..Default::default()
         },
+        template_metrics,
     )
 }
 
@@ -364,8 +368,12 @@ impl AgentLoopHandler {
         // environment / enabled skills / custom sections) is prepended
         // when enabled.
         let system_prompt = {
-            let base =
-                resolve_configured_system_prompt(agent_config, ctx.resource_registries.as_deref());
+            let template_metrics = ctx.metrics.as_ref().map(|m| m.template());
+            let base = resolve_configured_system_prompt(
+                agent_config,
+                ctx.resource_registries.as_deref(),
+                template_metrics.as_deref(),
+            );
             let dynamic = build_dynamic_system_context(agent_config, ctx.tool_registry.as_deref());
             match (base, dynamic) {
                 (Some(sp), Some(dynamic_block)) => Some(format!("{}\n\n{}", dynamic_block, sp)),
@@ -556,6 +564,7 @@ impl AgentLoopHandler {
         // copy, so the description follows custom resource overrides and the
         // tool call format. Executions without injected registries fall back
         // to the builtin static description (current behavior).
+        let template_metrics = ctx.metrics.as_ref().map(|m| m.template());
         let general_description = render_general_description(
             exposure_resolution
                 .as_ref()
@@ -563,6 +572,7 @@ impl AgentLoopHandler {
                 .unwrap_or(false),
             ctx.resource_registries.as_deref(),
             tool_call_protocol.as_ref(),
+            template_metrics.as_deref(),
         );
 
         // Discoverable tool metadata block (templateable): rendered at
@@ -586,13 +596,14 @@ impl AgentLoopHandler {
                 .resource_registries
                 .as_deref()
                 .and_then(|regs| {
-                    wf_resource::render_template(
+                    wf_resource::render_template_with_metrics(
                         regs,
                         wf_resource::DISCOVERABLE_METADATA_TEMPLATE_ID,
                         &wf_resource::TemplateRenderOptions {
                             variables: variables.clone(),
                             ..Default::default()
                         },
+                        template_metrics.as_deref(),
                     )
                 })
                 .unwrap_or_else(|| {
@@ -868,8 +879,8 @@ mod tests {
     #[test]
     fn general_description_follows_template_resource() {
         // No registries: falls back to None (builtin static description).
-        assert!(render_general_description(true, None, None).is_none());
-        assert!(render_general_description(false, None, None).is_none());
+        assert!(render_general_description(true, None, None, None).is_none());
+        assert!(render_general_description(false, None, None, None).is_none());
 
         // A custom template override wins and receives the format variable.
         let regs = wf_resource::ResourceRegistries::new();
@@ -899,17 +910,17 @@ mod tests {
             include_rules: None,
             additional_config: None,
         });
-        let rendered = render_general_description(true, Some(&regs), format.as_ref())
+        let rendered = render_general_description(true, Some(&regs), format.as_ref(), None)
             .expect("configured template must render");
         assert!(rendered.contains("format=xml"), "got: {}", rendered);
 
         // Disabled general: nothing is rendered even with registries.
-        assert!(render_general_description(false, Some(&regs), format.as_ref()).is_none());
+        assert!(render_general_description(false, Some(&regs), format.as_ref(), None).is_none());
 
         // Unregistered id fallback: the builtin default still renders.
         regs.templates
             .unregister(wf_resource::GENERAL_DESCRIPTION_TEMPLATE_ID);
-        let builtin = render_general_description(true, Some(&regs), format.as_ref())
+        let builtin = render_general_description(true, Some(&regs), format.as_ref(), None)
             .expect("builtin default must render");
         assert!(builtin.contains("<tool_use>"));
         assert!(builtin.contains("web_search"));
@@ -925,8 +936,9 @@ mod tests {
             include_rules: None,
             additional_config: None,
         });
-        let json_builtin = render_general_description(true, Some(&regs), json_format.as_ref())
-            .expect("builtin default must render");
+        let json_builtin =
+            render_general_description(true, Some(&regs), json_format.as_ref(), None)
+                .expect("builtin default must render");
         assert!(json_builtin.contains("\"tool\": \"general\""));
         assert!(
             !json_builtin.contains("<tool_use>"),

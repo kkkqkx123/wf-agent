@@ -34,6 +34,7 @@ pub struct ToolRegistry {
     builtin_callback: Arc<std::sync::Mutex<Option<Arc<dyn ExecutionCallback>>>>,
     skill_loader: Arc<std::sync::Mutex<Option<Arc<crate::skill::SkillLoader>>>>,
     mcp_manager: Arc<std::sync::Mutex<Option<Arc<McpConnectionManager>>>>,
+    tool_metrics: Arc<std::sync::Mutex<Option<Arc<wf_metrics::ToolMetricsCollector>>>>,
 }
 
 impl ToolRegistry {
@@ -64,6 +65,7 @@ impl ToolRegistry {
             builtin_callback,
             skill_loader,
             mcp_manager,
+            tool_metrics: Arc::new(std::sync::Mutex::new(None)),
         };
         registry.register_defaults_shared(sl_handlers, sl_async_handlers, sf_factories);
         registry
@@ -134,6 +136,17 @@ impl ToolRegistry {
 
     pub fn mcp_manager(&self) -> Option<Arc<McpConnectionManager>> {
         wf_common::lock::lock_ok(self.mcp_manager.lock()).clone()
+    }
+
+    /// Attach the unified tool metrics collector. Executions record call
+    /// start, completion and error into it; absent collectors add zero
+    /// overhead and keep every non-metrics path unchanged.
+    pub fn set_tool_metrics(&self, metrics: Arc<wf_metrics::ToolMetricsCollector>) {
+        *wf_common::lock::lock_ok(self.tool_metrics.lock()) = Some(metrics);
+    }
+
+    pub fn tool_metrics(&self) -> Option<Arc<wf_metrics::ToolMetricsCollector>> {
+        wf_common::lock::lock_ok(self.tool_metrics.lock()).clone()
     }
 
     fn register_defaults_shared(
@@ -246,21 +259,84 @@ impl ToolRegistry {
         options: &wf_types::tool::ToolExecutionOptions,
         context: &crate::executor::trait_def::ToolExecutionContext,
     ) -> ToolResult<wf_types::tool::ToolExecutionResult> {
+        let tool_metrics = self.tool_metrics();
+        let execution_id = context.execution_id.to_string();
+        let parameter_size = parameters.to_string().len() as u64;
+        if let Some(ref metrics) = tool_metrics {
+            metrics.record_tool_call_start(tool_id, &execution_id);
+        }
+        let start = std::time::Instant::now();
+
         let tool = self
             .get_tool(tool_id)
-            .ok_or_else(|| ToolError::NotFound(tool_id.to_string()))?;
+            .ok_or_else(|| ToolError::NotFound(tool_id.to_string()));
+        let tool = match tool {
+            Ok(tool) => tool,
+            Err(e) => {
+                if let Some(ref metrics) = tool_metrics {
+                    metrics.record_tool_call_error(tool_id, &execution_id, "not_found");
+                }
+                return Err(e);
+            }
+        };
 
         if tool.enabled == Some(false) {
+            if let Some(ref metrics) = tool_metrics {
+                metrics.record_tool_call_error(tool_id, &execution_id, "disabled");
+            }
             return Err(ToolError::ExecutionFailed {
                 tool_id: tool_id.to_string(),
                 reason: "Tool is disabled".into(),
             });
         }
 
-        let executor = self.get_executor(&tool)?;
-        executor
+        let executor = match self.get_executor(&tool) {
+            Ok(executor) => executor,
+            Err(e) => {
+                if let Some(ref metrics) = tool_metrics {
+                    metrics.record_tool_call_error(tool_id, &execution_id, "no_executor");
+                }
+                return Err(e);
+            }
+        };
+        let duration_ms = || start.elapsed().as_millis() as f64;
+        match executor
             .execute_with_timeout(&tool, parameters, options, context)
             .await
+        {
+            Ok(result) => {
+                if let Some(ref metrics) = tool_metrics {
+                    let result_size = result
+                        .result
+                        .as_ref()
+                        .map(|v| v.to_string().len() as u64)
+                        .unwrap_or(0);
+                    if result.success {
+                        metrics.record_tool_call_complete(
+                            tool_id,
+                            &execution_id,
+                            true,
+                            duration_ms(),
+                            parameter_size,
+                            result_size,
+                        );
+                    } else {
+                        metrics.record_tool_call_error(
+                            tool_id,
+                            &execution_id,
+                            result.error.as_deref().unwrap_or("failed"),
+                        );
+                    }
+                }
+                Ok(result)
+            }
+            Err(e) => {
+                if let Some(ref metrics) = tool_metrics {
+                    metrics.record_tool_call_error(tool_id, &execution_id, error_type(&e));
+                }
+                Err(e)
+            }
+        }
     }
 
     pub fn tool_count(&self) -> usize {
@@ -315,6 +391,28 @@ impl ToolRegistry {
 impl Default for ToolRegistry {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// Executor error classifier for tool metrics: maps each failure to a
+/// low-cardinality error type label.
+fn error_type(error: &ToolError) -> &'static str {
+    match error {
+        ToolError::NotFound(_) => "not_found",
+        ToolError::ExecutionFailed { .. } => "execution_failed",
+        ToolError::ValidationFailed(_) => "validation_failed",
+        ToolError::Timeout { .. } => "timeout",
+        ToolError::RetryExhausted { .. } => "retry_exhausted",
+        ToolError::McpError(_) => "mcp_error",
+        ToolError::TransportError(_) => "transport_error",
+        ToolError::ConnectionFailed { .. } => "connection_failed",
+        ToolError::RestError { .. } => "rest_error",
+        ToolError::HttpError(_) => "http_error",
+        ToolError::Serialization(_) => "serialization_error",
+        ToolError::Io(_) => "io_error",
+        ToolError::CallbackNotRegistered(_) => "callback_not_registered",
+        ToolError::Internal(_) => "internal_error",
+        ToolError::ExecutionError(_) => "execution_error",
     }
 }
 

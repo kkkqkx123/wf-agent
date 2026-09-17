@@ -9,7 +9,8 @@ use serde_json::Value;
 
 use wf_metrics::collectors::tool::ToolUsageStats;
 use wf_metrics::collectors::{
-    AgentUsageStats, ErrorStats, EventStats, NodeUsageStats, WorkflowUsageStats,
+    AgentUsageStats, CheckpointUsageStats, ConfigStats, ErrorStats, EventStats, HttpUsageStats,
+    NodeUsageStats, TemplateUsageStats, TimeoutStats, WorkflowUsageStats,
 };
 use wf_metrics::formatter::{format_registry_json, format_registry_prometheus};
 use wf_metrics::metric::LabelGroup;
@@ -45,6 +46,31 @@ pub fn error_stats(registry: &MetricsRegistry) -> ErrorStats {
 /// Aggregate event statistics by event type.
 pub fn event_stats(registry: &MetricsRegistry) -> EventStats {
     registry.event().stats()
+}
+
+/// Aggregate timeout registration/expiration statistics.
+pub fn timeout_stats(registry: &MetricsRegistry) -> TimeoutStats {
+    registry.timeout().stats()
+}
+
+/// Aggregate checkpoint creation/cleanup/load statistics.
+pub fn checkpoint_stats(registry: &MetricsRegistry) -> CheckpointUsageStats {
+    registry.checkpoint().usage_stats()
+}
+
+/// Aggregate template rendering statistics.
+pub fn template_stats(registry: &MetricsRegistry) -> TemplateUsageStats {
+    registry.template().usage_stats()
+}
+
+/// Aggregate configuration access/load statistics.
+pub fn config_stats(registry: &MetricsRegistry) -> ConfigStats {
+    registry.config().stats()
+}
+
+/// Aggregate HTTP request statistics.
+pub fn http_stats(registry: &MetricsRegistry) -> HttpUsageStats {
+    registry.http().usage_stats()
 }
 
 /// History-aware workflow statistics that merge persisted storage.

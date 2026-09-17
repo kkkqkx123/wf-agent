@@ -5,25 +5,30 @@ use wf_types::config::metrics::MetricsConfig;
 
 use crate::collector::{BaseMetricCollector, CollectorConfig};
 use crate::collectors::{
-    AgentLoopMetricsCollector, AgentMetricsCollector, ConfigMetricsCollector,
-    ErrorMetricsCollector, EventMetricsCollector, NodeMetricsCollector, ResourceMetricsCollector,
-    RetryBudgetMetricsCollector, SubgraphMetricsCollector, TemplateMetricsCollector,
-    TimeoutMetricsCollector, TokenMetricsCollector, ToolMetricsCollector, WorkflowMetricsCollector,
+    AgentLoopMetricsCollector, AgentMetricsCollector, CheckpointMetricsCollector,
+    ConfigMetricsCollector, ErrorMetricsCollector, EventMetricsCollector, HttpMetricsCollector,
+    NodeMetricsCollector, ResourceMetricsCollector, RetryBudgetMetricsCollector,
+    SubgraphMetricsCollector, TemplateMetricsCollector, TimeoutMetricsCollector,
+    TokenMetricsCollector, ToolMetricsCollector, WorkflowMetricsCollector,
 };
 use crate::constants::{
-    agent_loop_metrics, agent_metrics, config_metrics, node_metrics, retry_metrics,
-    subgraph_metrics, template_metrics, timeout_metrics, tool_metrics, workflow_metrics,
+    agent_loop_metrics, agent_metrics, checkpoint_metrics, config_metrics, node_metrics,
+    retry_metrics, subgraph_metrics, template_metrics, timeout_metrics, tool_metrics,
+    workflow_metrics,
 };
 use crate::report::{MetricReport, ReportCallback};
 use crate::sink::{MetricPoint, MetricsSink};
 
 /// Resolved anomaly detection thresholds (M6). Defaults follow the report
-/// rules: an error storm above 100 occurrences and a workflow success
-/// rate below 0.8 trigger anomalies.
+/// rules: an error storm above 100 occurrences, a workflow success
+/// rate below 0.8, a tool failure rate above 0.2 and checkpoint creation
+/// failures above 10 trigger anomalies.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct AnomalyThresholds {
     pub max_error_count: u64,
     pub min_success_rate: f64,
+    pub max_tool_error_rate: f64,
+    pub max_checkpoint_failures: u64,
 }
 
 impl Default for AnomalyThresholds {
@@ -31,6 +36,8 @@ impl Default for AnomalyThresholds {
         Self {
             max_error_count: 100,
             min_success_rate: 0.8,
+            max_tool_error_rate: 0.2,
+            max_checkpoint_failures: 10,
         }
     }
 }
@@ -56,6 +63,8 @@ pub struct MetricsRegistry {
     template: Arc<TemplateMetricsCollector>,
     retry_budget: Arc<RetryBudgetMetricsCollector>,
     timeout: Arc<TimeoutMetricsCollector>,
+    checkpoint: Arc<CheckpointMetricsCollector>,
+    http: Arc<HttpMetricsCollector>,
     subscribers: Mutex<Vec<(usize, ReportCallback)>>,
     next_subscription_id: AtomicUsize,
     anomaly_thresholds: AnomalyThresholds,
@@ -79,9 +88,7 @@ impl MetricsRegistry {
     pub fn with_config(config: &MetricsConfig) -> Self {
         let global_retention = config.retention_ms.unwrap_or(3_600_000);
         let resolve = |section: Option<&wf_types::config::metrics::MetricCollectorConfig>| {
-            let mut resolved = section
-                .map(CollectorConfig::from)
-                .unwrap_or_default();
+            let mut resolved = section.map(CollectorConfig::from).unwrap_or_default();
             if section.is_none_or(|c| c.retention_ms.is_none()) {
                 resolved.retention_ms = global_retention;
             }
@@ -130,6 +137,12 @@ impl MetricsRegistry {
             timeout: Arc::new(TimeoutMetricsCollector::new(resolve(
                 config.timeout_metrics.as_ref(),
             ))),
+            checkpoint: Arc::new(CheckpointMetricsCollector::new(resolve(
+                config.checkpoint_metrics.as_ref(),
+            ))),
+            http: Arc::new(HttpMetricsCollector::new(resolve(
+                config.http_metrics.as_ref(),
+            ))),
             subscribers: Mutex::new(Vec::new()),
             next_subscription_id: AtomicUsize::new(1),
             anomaly_thresholds: AnomalyThresholds {
@@ -143,6 +156,16 @@ impl MetricsRegistry {
                     .as_ref()
                     .and_then(|t| t.min_success_rate)
                     .unwrap_or(0.8),
+                max_tool_error_rate: config
+                    .anomaly_thresholds
+                    .as_ref()
+                    .and_then(|t| t.max_tool_error_rate)
+                    .unwrap_or(0.2),
+                max_checkpoint_failures: config
+                    .anomaly_thresholds
+                    .as_ref()
+                    .and_then(|t| t.max_checkpoint_failures)
+                    .unwrap_or(10),
             },
         }
     }
@@ -208,6 +231,46 @@ impl MetricsRegistry {
         self.timeout.clone()
     }
 
+    pub fn checkpoint(&self) -> Arc<CheckpointMetricsCollector> {
+        self.checkpoint.clone()
+    }
+
+    pub fn http(&self) -> Arc<HttpMetricsCollector> {
+        self.http.clone()
+    }
+
+    /// Collector names aligned with [`MetricsRegistry::collectors`] order,
+    /// used to label self-monitoring series.
+    pub fn collector_names() -> Vec<&'static str> {
+        vec![
+            "workflow",
+            "node",
+            "agent",
+            "agent_loop",
+            "event",
+            "tool",
+            "token",
+            "error",
+            "config",
+            "resource",
+            "subgraph",
+            "template",
+            "retry_budget",
+            "timeout",
+            "checkpoint",
+            "http",
+        ]
+    }
+
+    /// Self-monitoring snapshot per collector, in [`MetricsRegistry::collectors`]
+    /// order. Backs the internal export block scraped alongside domain metrics.
+    pub fn internal_metrics(&self) -> Vec<crate::collector::InternalMetrics> {
+        self.collectors()
+            .iter()
+            .map(|c| c.get_internal_metrics())
+            .collect()
+    }
+
     /// All domain collectors, for export and monitoring.
     pub fn collectors(&self) -> Vec<&BaseMetricCollector> {
         vec![
@@ -225,6 +288,8 @@ impl MetricsRegistry {
             self.template.collector(),
             self.retry_budget.collector(),
             self.timeout.collector(),
+            self.checkpoint.collector(),
+            self.http.collector(),
         ]
     }
 
@@ -362,6 +427,24 @@ impl MetricsRegistry {
             to,
         )
         .await;
+        restore(
+            self.checkpoint.collector(),
+            &[
+                checkpoint_metrics::CREATION_DURATION,
+                checkpoint_metrics::LOAD_DURATION,
+                checkpoint_metrics::CLEANUP_DURATION,
+            ],
+            from,
+            to,
+        )
+        .await;
+        restore(
+            self.http.collector(),
+            &[crate::constants::http_metrics::REQUEST_DURATION],
+            from,
+            to,
+        )
+        .await;
     }
 
     /// Clear all buffered metrics and state.
@@ -461,7 +544,7 @@ mod tests {
     #[test]
     fn registry_provides_all_collectors() {
         let registry = MetricsRegistry::new();
-        assert_eq!(registry.collectors().len(), 14);
+        assert_eq!(registry.collectors().len(), 16);
         registry.workflow().record_execution_start("wf-1");
         registry.node().record_execution_start("n1", "Llm");
         registry.event().record_event("NodeStarted", None, None);
@@ -484,6 +567,12 @@ mod tests {
         registry
             .timeout()
             .record_registration("tool", 1000.0, "exec-1");
+        registry
+            .checkpoint()
+            .record_creation("exec-1", 10.0, 1024, true);
+        registry
+            .http()
+            .record_request("GET", "/metrics", "2xx", 2.0);
         assert!(registry.workflow().usage_stats().total >= 1);
     }
 
@@ -564,6 +653,14 @@ mod tests {
                 buffer_size: Some(14),
                 ..Default::default()
             }),
+            checkpoint_metrics: Some(MetricCollectorConfig {
+                buffer_size: Some(15),
+                ..Default::default()
+            }),
+            http_metrics: Some(MetricCollectorConfig {
+                buffer_size: Some(16),
+                ..Default::default()
+            }),
             ..Default::default()
         };
         let registry = MetricsRegistry::with_config(&config);
@@ -581,6 +678,8 @@ mod tests {
         assert_eq!(registry.template().collector().config().buffer_size, 12);
         assert_eq!(registry.retry_budget().collector().config().buffer_size, 13);
         assert_eq!(registry.timeout().collector().config().buffer_size, 14);
+        assert_eq!(registry.checkpoint().collector().config().buffer_size, 15);
+        assert_eq!(registry.http().collector().config().buffer_size, 16);
     }
 
     #[test]
@@ -597,6 +696,7 @@ mod tests {
             anomaly_thresholds: Some(wf_types::config::metrics::AnomalyThresholdsConfig {
                 max_error_count: Some(5),
                 min_success_rate: Some(0.5),
+                ..Default::default()
             }),
             ..Default::default()
         };
@@ -682,10 +782,7 @@ mod tests {
             ..Default::default()
         };
         let registry = MetricsRegistry::with_config(&config);
-        assert_eq!(
-            registry.workflow().collector().config().retention_ms,
-            1000
-        );
+        assert_eq!(registry.workflow().collector().config().retention_ms, 1000);
         assert_eq!(registry.node().collector().config().retention_ms, 9000);
     }
 }

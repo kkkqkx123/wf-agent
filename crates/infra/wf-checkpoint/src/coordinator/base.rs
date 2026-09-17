@@ -320,7 +320,8 @@ pub async fn drain_persistence_handles(
 /// Shared by the agent-loop and workflow coordinators so both resolve the
 /// status field identically. Returns `None` when the payload carries no
 /// usable status string, letting the caller apply its own default.
-pub fn restored_status(value: &serde_json::Value) -> Option<ExecutionStatus> {    value
+pub fn restored_status(value: &serde_json::Value) -> Option<ExecutionStatus> {
+    value
         .get("status")
         .and_then(|status| status.as_str())
         .map(ExecutionStatus::from_wire)

@@ -145,8 +145,10 @@ impl FileCheckpointManager {
     }
 
     /// The branch head checkpoint id recorded for an execution entity, if
-    /// any. The head is written by checkpoint creation and read by consumers
-    /// that need the entity's latest commit without scanning partitions.
+    /// any. The head is written by checkpoint creation for explicitly
+    /// prepared execution branches and read by consumers that need the
+    /// entity's latest commit without scanning partitions. Root executions
+    /// have no branch, so this reports `None` for them.
     pub fn branch_head(&self, entity_id: &str) -> Result<Option<String>, CheckpointError> {
         self.store
             .branch_adapter
@@ -557,18 +559,15 @@ mod tests {
             .unwrap());
 
         // Idempotent: preparing the same child again keeps the branch set
-        // stable. The parent branch exists because every file checkpoint
-        // advances its entity branch head (single truth: DB row plus branch
-        // head authoritative, memory map only a cache).
+        // stable. The parent stays branchless: checkpoint creation only
+        // advances explicitly prepared execution branches and never
+        // implicitly registers one for root executions.
         manager
             .ensure_child_branch("child-1", Some("parent-1"))
             .await
             .unwrap();
         let branches = manager.store.branch_adapter.list_branches().await.unwrap();
-        assert_eq!(
-            branches,
-            vec![branch, execution_branch_name("execution", "parent-1"),]
-        );
+        assert_eq!(branches, vec![branch,]);
     }
 
     #[tokio::test]

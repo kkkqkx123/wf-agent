@@ -224,10 +224,12 @@ fn dominant_labels(groups: &[crate::metric::LabelGroup]) -> HashMap<String, Stri
 }
 
 /// Anomaly rules driven by the configured thresholds (M6): an error storm
-/// above `max_error_count` and workflow success degradation below
-/// `min_success_rate`. High severity applies when the success rate falls 30
-/// percentage points below the configured threshold (default 0.8 -> 0.5,
-/// preserving the legacy split).
+/// above `max_error_count`, workflow success degradation below
+/// `min_success_rate`, tool failure rate above `max_tool_error_rate` and
+/// checkpoint creation failures above `max_checkpoint_failures`. High
+/// severity applies when the success rate falls 30 percentage points below
+/// the configured threshold (default 0.8 -> 0.5, preserving the legacy
+/// split).
 fn detect_anomalies(registry: &MetricsRegistry) -> Vec<Anomaly> {
     let thresholds = registry.anomaly_thresholds();
     let mut anomalies = Vec::new();
@@ -254,6 +256,31 @@ fn detect_anomalies(registry: &MetricsRegistry) -> Vec<Anomaly> {
             } else {
                 Severity::Medium
             },
+        });
+    }
+
+    let tool_stats = registry.tool().usage_stats();
+    if tool_stats.total > 0 && (1.0 - tool_stats.success_rate) > thresholds.max_tool_error_rate {
+        anomalies.push(Anomaly {
+            metric_name: crate::constants::tool_metrics::ERROR_COUNT.to_string(),
+            description: format!(
+                "High tool error rate: {:.2}% over {} calls",
+                (1.0 - tool_stats.success_rate) * 100.0,
+                tool_stats.total
+            ),
+            severity: Severity::Medium,
+        });
+    }
+
+    let checkpoint_stats = registry.checkpoint().usage_stats();
+    if checkpoint_stats.creation_failures > thresholds.max_checkpoint_failures {
+        anomalies.push(Anomaly {
+            metric_name: crate::constants::checkpoint_metrics::CREATION_FAILURE_COUNT.to_string(),
+            description: format!(
+                "High checkpoint creation failures: {}",
+                checkpoint_stats.creation_failures
+            ),
+            severity: Severity::Medium,
         });
     }
 
@@ -487,6 +514,7 @@ mod tests {
             anomaly_thresholds: Some(AnomalyThresholdsConfig {
                 max_error_count: Some(3),
                 min_success_rate: Some(0.8),
+                ..Default::default()
             }),
             ..Default::default()
         });
@@ -532,6 +560,7 @@ mod tests {
             anomaly_thresholds: Some(AnomalyThresholdsConfig {
                 max_error_count: Some(100),
                 min_success_rate: Some(0.9),
+                ..Default::default()
             }),
             ..Default::default()
         });

@@ -190,6 +190,15 @@ pub fn validate_no_intersection(
 }
 
 pub fn validate_all(results: Vec<ConfigResult<()>>) -> ConfigResult<()> {
+    validate_all_with_metrics(results, None)
+}
+
+/// Aggregate validation results, counting failures into the config
+/// collector. Absent collectors add zero overhead.
+pub fn validate_all_with_metrics(
+    results: Vec<ConfigResult<()>>,
+    metrics: Option<&wf_metrics::ConfigMetricsCollector>,
+) -> ConfigResult<()> {
     let errors: Vec<String> = results
         .into_iter()
         .filter_map(|r| r.err())
@@ -198,6 +207,9 @@ pub fn validate_all(results: Vec<ConfigResult<()>>) -> ConfigResult<()> {
     if errors.is_empty() {
         Ok(())
     } else {
+        if let Some(metrics) = metrics {
+            metrics.record_validation_error();
+        }
         Err(ConfigError::Validation(errors.join("; ")))
     }
 }

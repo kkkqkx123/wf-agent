@@ -139,6 +139,7 @@ mod tests {
                 project_root: Some(repo_root.clone()),
                 ..Default::default()
             },
+            None,
         ));
         let config = config.unwrap();
 
@@ -173,6 +174,7 @@ mod tests {
                 project_root: Some(repo_root),
                 ..Default::default()
             },
+            None,
         ));
         let config = config.unwrap();
         assert_eq!(config.timeout.default, Some(11111));

@@ -368,6 +368,18 @@ impl WorkflowCoordinator {
 
         let signal_receiver = ctx.signal_bus.as_ref().map(|bus| bus.subscribe());
 
+        if let Some(max_execution_time) = ctx.options.max_execution_time {
+            if max_execution_time > 0 {
+                if let Some(ref metrics) = ctx.metrics {
+                    metrics.timeout().record_registration(
+                        "workflow_wall_clock",
+                        max_execution_time as f64,
+                        &ctx.execution_id.to_string(),
+                    );
+                }
+            }
+        }
+
         Ok(Self {
             ctx,
             entity: None,
@@ -939,6 +951,16 @@ impl WorkflowCoordinator {
                 )
                 .await;
                 {
+                    if let Some(ref metrics) = self.ctx.metrics {
+                        metrics.timeout().record_expiration(
+                            "workflow_wall_clock",
+                            (now() - self.start_time) as f64,
+                            &entity.id().to_string(),
+                        );
+                        metrics
+                            .workflow()
+                            .record_timeout(&entity.workflow_id().to_string());
+                    }
                     let mut state = entity.state.write().await;
                     state.increment_timeout_count();
                     state.record_interruption(serde_json::json!({
@@ -1122,12 +1144,41 @@ impl WorkflowCoordinator {
         );
 
         match timeout_dur {
-            Some(tout_dur) => tokio::time::timeout(tout_dur, fut).await.map_err(|_| {
-                WorkflowError::CoordinatorError(format!(
-                    "Node '{}' timed out after {:?}",
-                    node_id, tout_dur
-                ))
-            })?,
+            Some(tout_dur) => {
+                let timeout_metrics = self.ctx.metrics.as_ref().map(|m| m.timeout());
+                let execution_id = self.ctx.execution_id.to_string();
+                if let Some(ref metrics) = timeout_metrics {
+                    metrics.record_registration(
+                        "workflow_node",
+                        tout_dur.as_millis() as f64,
+                        &execution_id,
+                    );
+                }
+                let node_start = wf_common::now();
+                let result = tokio::time::timeout(tout_dur, fut).await.map_err(|_| {
+                    WorkflowError::CoordinatorError(format!(
+                        "Node '{}' timed out after {:?}",
+                        node_id, tout_dur
+                    ))
+                });
+                match &result {
+                    Err(_) => {
+                        if let Some(ref metrics) = timeout_metrics {
+                            metrics.record_expiration(
+                                "workflow_node",
+                                (wf_common::now() - node_start) as f64,
+                                &execution_id,
+                            );
+                        }
+                    }
+                    Ok(_) => {
+                        if let Some(ref metrics) = timeout_metrics {
+                            metrics.record_cancellation("workflow_node", "complete", &execution_id);
+                        }
+                    }
+                }
+                result?
+            }
             None => fut.await,
         }
     }

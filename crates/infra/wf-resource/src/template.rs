@@ -22,6 +22,7 @@
 use std::collections::HashMap;
 
 use wf_core::registry::Registry;
+use wf_metrics::TemplateMetricsCollector;
 use wf_types::tool_description::ToolDescriptionData;
 use wf_types::Template;
 
@@ -87,11 +88,29 @@ pub fn render_template(
     id: &str,
     opts: &TemplateRenderOptions,
 ) -> Option<String> {
+    render_template_with_metrics(regs, id, opts, None)
+}
+
+/// Render a template and record duration and unknown-id errors into the
+/// template collector. Absent collectors add zero overhead.
+pub fn render_template_with_metrics(
+    regs: &ResourceRegistries,
+    id: &str,
+    opts: &TemplateRenderOptions,
+    metrics: Option<&TemplateMetricsCollector>,
+) -> Option<String> {
+    let start = std::time::Instant::now();
     let template: Option<Template> = regs.templates.get(id).map(|t| t.as_ref().clone());
     let content = template
         .as_ref()
         .map(|t| t.content.clone())
-        .or_else(|| builtin_default(id).map(String::from))?;
+        .or_else(|| builtin_default(id).map(String::from));
+    let Some(content) = content else {
+        if let Some(metrics) = metrics {
+            metrics.record_error(id, "unknown_template", &[]);
+        }
+        return None;
+    };
 
     let mut rendered = content;
 
@@ -102,7 +121,11 @@ pub fn render_template(
         rendered = resolve_tool_descriptions(&rendered, opts);
     }
 
-    Some(apply_template_variables(&rendered, &opts.variables))
+    let output = apply_template_variables(&rendered, &opts.variables);
+    if let Some(metrics) = metrics {
+        metrics.record_render_complete(id, start.elapsed().as_millis() as f64, true, &[]);
+    }
+    Some(output)
 }
 
 /// Resolve the `{{fragments}}` pseudo variable (legacy `{fragments}`
@@ -160,6 +183,16 @@ pub fn render_visibility_message(
     fallback: &str,
     variables: &HashMap<String, String>,
 ) -> String {
+    render_visibility_message_with_metrics(regs, template_id, fallback, variables, None)
+}
+
+pub fn render_visibility_message_with_metrics(
+    regs: Option<&ResourceRegistries>,
+    template_id: &str,
+    fallback: &str,
+    variables: &HashMap<String, String>,
+    metrics: Option<&TemplateMetricsCollector>,
+) -> String {
     let Some(regs) = regs else {
         return fallback.to_string();
     };
@@ -167,7 +200,8 @@ pub fn render_visibility_message(
         variables: variables.clone(),
         ..Default::default()
     };
-    render_template(regs, template_id, &opts).unwrap_or_else(|| fallback.to_string())
+    render_template_with_metrics(regs, template_id, &opts, metrics)
+        .unwrap_or_else(|| fallback.to_string())
 }
 
 #[cfg(test)]

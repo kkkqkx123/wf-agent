@@ -44,6 +44,8 @@ pub mod token_metrics {
     pub const COMPLETION_TOKENS: &str = "token.usage.completion";
     pub const COST: &str = "token.cost.total";
     pub const REQUEST_COUNT: &str = "token.request.count";
+    pub const REQUEST_DURATION: &str = "token.request.duration";
+    pub const ERROR_COUNT: &str = "token.request.error.count";
 }
 
 pub mod error_metrics {
@@ -150,6 +152,26 @@ pub mod template_metrics {
     pub const ERROR_COUNT: &str = "template.error.count";
 }
 
+pub mod checkpoint_metrics {
+    pub const CREATION_COUNT: &str = "checkpoint.creation.count";
+    pub const CREATION_DURATION: &str = "checkpoint.creation.duration";
+    pub const CREATION_SIZE: &str = "checkpoint.creation.size_bytes";
+    pub const CREATION_FAILURE_COUNT: &str = "checkpoint.creation.failure.count";
+    pub const CLEANUP_COUNT: &str = "checkpoint.cleanup.count";
+    pub const CLEANUP_FREED_BYTES: &str = "checkpoint.cleanup.freed_bytes";
+    pub const CLEANUP_DURATION: &str = "checkpoint.cleanup.duration";
+    pub const LOAD_COUNT: &str = "checkpoint.load.count";
+    pub const LOAD_DURATION: &str = "checkpoint.load.duration";
+    pub const LOAD_FAILURE_COUNT: &str = "checkpoint.load.failure.count";
+    pub const CHAIN_LENGTH: &str = "checkpoint.chain.length";
+}
+
+pub mod http_metrics {
+    pub const REQUEST_COUNT: &str = "http.request.count";
+    pub const REQUEST_DURATION: &str = "http.request.duration";
+    pub const ERROR_COUNT: &str = "http.error.count";
+}
+
 pub mod timeout_metrics {
     pub const REGISTRATION_COUNT: &str = "timeout.registration.count";
     pub const DURATION_CONFIGURED: &str = "timeout.duration.configured";
@@ -202,6 +224,8 @@ mod tests {
             token_metrics::COMPLETION_TOKENS,
             token_metrics::COST,
             token_metrics::REQUEST_COUNT,
+            token_metrics::REQUEST_DURATION,
+            token_metrics::ERROR_COUNT,
             error_metrics::OCCURRENCE_COUNT,
             error_metrics::RECOVERY_RATE,
             error_metrics::AFFECTED_EXECUTIONS,
@@ -268,6 +292,20 @@ mod tests {
             timeout_metrics::CANCELLATION_COUNT,
             timeout_metrics::WARNING_COUNT,
             timeout_metrics::WARNING_REMAINING_TIME,
+            checkpoint_metrics::CREATION_COUNT,
+            checkpoint_metrics::CREATION_DURATION,
+            checkpoint_metrics::CREATION_SIZE,
+            checkpoint_metrics::CREATION_FAILURE_COUNT,
+            checkpoint_metrics::CLEANUP_COUNT,
+            checkpoint_metrics::CLEANUP_FREED_BYTES,
+            checkpoint_metrics::CLEANUP_DURATION,
+            checkpoint_metrics::LOAD_COUNT,
+            checkpoint_metrics::LOAD_DURATION,
+            checkpoint_metrics::LOAD_FAILURE_COUNT,
+            checkpoint_metrics::CHAIN_LENGTH,
+            http_metrics::REQUEST_COUNT,
+            http_metrics::REQUEST_DURATION,
+            http_metrics::ERROR_COUNT,
         ] {
             assert!(seen.insert(group), "duplicate metric name: {group}");
         }

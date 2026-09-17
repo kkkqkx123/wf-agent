@@ -335,9 +335,10 @@ async fn latest_checkpoint_variables(
     let state_manager = wf_checkpoint::state::workflow::WorkflowCheckpointStateManager::new(
         ctx.checkpoint_store.clone(),
     );
-    let Some(latest) = state_manager.get_latest(execution_id).await.map_err(|e| {
-        ApiError::execution(format!("checkpoint lookup failed: {e}"))
-    })?
+    let Some(latest) = state_manager
+        .get_latest(execution_id)
+        .await
+        .map_err(|e| ApiError::execution(format!("checkpoint lookup failed: {e}")))?
     else {
         return Ok(None);
     };

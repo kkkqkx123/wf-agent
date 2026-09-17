@@ -929,7 +929,6 @@ impl CheckpointCoordinator for AgentCheckpointCoordinator {
     async fn wait_for_persistence(&self) {
         crate::coordinator::base::drain_persistence_handles(&self.persistence_queue).await;
     }
-
 }
 
 impl AgentCheckpointCoordinator {

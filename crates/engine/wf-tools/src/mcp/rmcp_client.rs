@@ -32,7 +32,7 @@ use rmcp::transport::{
     streamable_http_client::StreamableHttpClientTransportConfig, ConfigureCommandExt,
     StreamableHttpClientTransport, TokioChildProcess,
 };
-use rmcp::{ClientHandler, serve_client_with_lifecycle};
+use rmcp::{serve_client_with_lifecycle, ClientHandler};
 use serde_json::Value;
 use tokio::process::Command;
 use tokio::sync::mpsc;
@@ -180,7 +180,8 @@ impl RmcpClient {
             McpServerConfig::StreamableHttp(c) => {
                 let client = build_http_client(c)?;
                 let transport_config = StreamableHttpClientTransportConfig::with_uri(c.url.clone());
-                let transport = StreamableHttpClientTransport::with_client(client, transport_config);
+                let transport =
+                    StreamableHttpClientTransport::with_client(client, transport_config);
                 serve_client_with_lifecycle(handler, transport, lifecycle)
                     .await
                     .map_err(|e| map_init_error(&self.server_name, e))?
@@ -206,10 +207,7 @@ impl RmcpClient {
     }
 
     pub fn is_connected(&self) -> bool {
-        self.service
-            .get()
-            .map(|s| !s.is_closed())
-            .unwrap_or(false)
+        self.service.get().map(|s| !s.is_closed()).unwrap_or(false)
     }
 
     /// Server instructions returned during `initialize` (if any).
@@ -227,10 +225,12 @@ impl RmcpClient {
         timeout_ms: u64,
     ) -> ToolResult<Value> {
         let service = self.require_connected()?;
-        let params = CallToolRequestParams::new(tool_name.to_string())
-            .with_arguments(serde_json::from_value::<JsonObject>(arguments.clone()).unwrap_or_default());
+        let params = CallToolRequestParams::new(tool_name.to_string()).with_arguments(
+            serde_json::from_value::<JsonObject>(arguments.clone()).unwrap_or_default(),
+        );
 
-        match tokio::time::timeout(Duration::from_millis(timeout_ms), service.call_tool(params)).await
+        match tokio::time::timeout(Duration::from_millis(timeout_ms), service.call_tool(params))
+            .await
         {
             Ok(Ok(result)) => Ok(serde_json::to_value(result)?),
             Ok(Err(e)) => Err(map_service_error(&self.server_name, e)),
@@ -243,7 +243,8 @@ impl RmcpClient {
 
     pub async fn list_tools(&self, timeout_ms: u64) -> ToolResult<Vec<McpToolInfo>> {
         let service = self.require_connected()?;
-        match tokio::time::timeout(Duration::from_millis(timeout_ms), service.list_all_tools()).await
+        match tokio::time::timeout(Duration::from_millis(timeout_ms), service.list_all_tools())
+            .await
         {
             Ok(Ok(tools)) => Ok(tools.into_iter().map(tool_to_info).collect()),
             Ok(Err(e)) => Err(map_service_error(&self.server_name, e)),
@@ -259,8 +260,11 @@ impl RmcpClient {
         timeout_ms: u64,
     ) -> ToolResult<Vec<wf_types::tool::McpResource>> {
         let service = self.require_connected()?;
-        match tokio::time::timeout(Duration::from_millis(timeout_ms), service.list_all_resources())
-            .await
+        match tokio::time::timeout(
+            Duration::from_millis(timeout_ms),
+            service.list_all_resources(),
+        )
+        .await
         {
             Ok(Ok(resources)) => Ok(resources.into_iter().map(resource_to_info).collect()),
             Ok(Err(e)) => Err(map_service_error(&self.server_name, e)),
@@ -298,8 +302,11 @@ impl RmcpClient {
     ) -> ToolResult<wf_types::tool::McpResourceReadResult> {
         let service = self.require_connected()?;
         let params = ReadResourceRequestParams::new(uri.to_string());
-        match tokio::time::timeout(Duration::from_millis(timeout_ms), service.read_resource(params))
-            .await
+        match tokio::time::timeout(
+            Duration::from_millis(timeout_ms),
+            service.read_resource(params),
+        )
+        .await
         {
             Ok(Ok(result)) => Ok(read_result_to_result(result)),
             Ok(Err(e)) => Err(map_service_error(&self.server_name, e)),
@@ -331,9 +338,9 @@ impl RmcpClient {
     }
 
     fn require_connected(&self) -> ToolResult<&Arc<RmcpService>> {
-        self.service
-            .get()
-            .ok_or_else(|| ToolError::McpError(format!("MCP server '{}' not connected", self.server_name)))
+        self.service.get().ok_or_else(|| {
+            ToolError::McpError(format!("MCP server '{}' not connected", self.server_name))
+        })
     }
 }
 
@@ -415,7 +422,9 @@ fn template_to_info(t: ResourceTemplate) -> wf_types::tool::McpResourceTemplate 
     }
 }
 
-fn read_result_to_result(r: rmcp::model::ReadResourceResult) -> wf_types::tool::McpResourceReadResult {
+fn read_result_to_result(
+    r: rmcp::model::ReadResourceResult,
+) -> wf_types::tool::McpResourceReadResult {
     wf_types::tool::McpResourceReadResult {
         contents: r
             .contents

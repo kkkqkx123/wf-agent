@@ -304,9 +304,8 @@ async fn agent_checkpoint_snapshot(
     use wf_checkpoint::coordinator::CheckpointCoordinator;
     use wf_checkpoint::state::CheckpointStateManager;
 
-    let state_manager = wf_checkpoint::state::agent::AgentCheckpointStateManager::new(
-        ctx.checkpoint_store.clone(),
-    );
+    let state_manager =
+        wf_checkpoint::state::agent::AgentCheckpointStateManager::new(ctx.checkpoint_store.clone());
     let Some(latest) = state_manager.get_latest(execution_id).await.map_err(|e| {
         crate::infra::error::ApiError::execution(format!("checkpoint lookup failed: {e}"))
     })?
@@ -518,14 +517,14 @@ fn checkpoint_node_view(
 async fn checkpoint_count(ctx: &ApiContext, execution_id: &str) -> ApiResult<usize> {
     use wf_checkpoint::state::CheckpointStateManager;
 
-    let lookup_failed =
-        |e: wf_checkpoint::CheckpointError| crate::infra::error::ApiError::execution(format!("checkpoint lookup failed: {e}"));
-    let agent = wf_checkpoint::state::agent::AgentCheckpointStateManager::new(
-        ctx.checkpoint_store.clone(),
-    )
-    .list_by_entity(execution_id)
-    .await
-    .map_err(lookup_failed)?;
+    let lookup_failed = |e: wf_checkpoint::CheckpointError| {
+        crate::infra::error::ApiError::execution(format!("checkpoint lookup failed: {e}"))
+    };
+    let agent =
+        wf_checkpoint::state::agent::AgentCheckpointStateManager::new(ctx.checkpoint_store.clone())
+            .list_by_entity(execution_id)
+            .await
+            .map_err(lookup_failed)?;
     let workflow = wf_checkpoint::state::workflow::WorkflowCheckpointStateManager::new(
         ctx.checkpoint_store.clone(),
     )
@@ -541,11 +540,7 @@ async fn checkpoint_count(ctx: &ApiContext, execution_id: &str) -> ApiResult<usi
 
 // ─── public API ────────────────────────────────────────────────────────────
 
-fn agent_summary(
-    execution_id: &str,
-    checkpoints: usize,
-    data: AgentAuditData,
-) -> AuditSummary {
+fn agent_summary(execution_id: &str, checkpoints: usize, data: AgentAuditData) -> AuditSummary {
     AuditSummary {
         execution_id: execution_id.to_string(),
         entity_kind: "agent_loop".to_string(),

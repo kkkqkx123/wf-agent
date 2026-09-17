@@ -208,6 +208,7 @@ pub async fn init_event_persistence(
 pub async fn resolve_infra_config(
     mut config: RuntimeConfig,
     infra: &InfraSourceConfig,
+    config_metrics: Option<&Arc<wf_metrics::ConfigMetricsCollector>>,
 ) -> RuntimeResult<RuntimeConfig> {
     let project_root = infra.project_root.clone().unwrap_or_default();
     let preset_name = infra
@@ -215,14 +216,18 @@ pub async fn resolve_infra_config(
         .clone()
         .unwrap_or_else(|| wf_config::orchestrator::DEFAULT_INFRA_PRESET.to_string());
 
-    let assembled = ConfigOrchestratorBuilder::new(&project_root)
+    let mut builder = ConfigOrchestratorBuilder::new(&project_root)
         .preset_name(Some(&preset_name))
         .default_paths(Some(default_infra_file_mapping()))
         .runtime_env(
             infra
                 .runtime_env
                 .unwrap_or(wf_config::processor::infrastructure::RuntimeEnvironment::Development),
-        )
+        );
+    if let Some(metrics) = config_metrics {
+        builder = builder.with_config_metrics(metrics.clone());
+    }
+    let assembled = builder
         .build()
         .assemble(Some(infra.overrides.clone()))
         .map_err(|e| {
@@ -504,15 +509,18 @@ pub async fn init_metrics_context(
     storage_manager: &crate::storage_manager::StorageManager,
     event_bus: &Arc<wf_core::event::EventBus>,
     agent_registry: &Arc<wf_agent::registry::AgentLoopRegistry>,
+    config_metrics: Option<Arc<wf_metrics::ConfigMetricsCollector>>,
 ) -> RuntimeResult<Option<Arc<crate::metrics::MetricsContext>>> {
     use wf_config::processor::infrastructure::merge_metrics_with_defaults;
 
     let Some(cfg) = config.as_ref() else {
         return Ok(None);
     };
-    let config_metrics = Arc::new(wf_metrics::ConfigMetricsCollector::new(
-        wf_metrics::CollectorConfig::default(),
-    ));
+    let config_metrics = config_metrics.unwrap_or_else(|| {
+        Arc::new(wf_metrics::ConfigMetricsCollector::new(
+            wf_metrics::CollectorConfig::default(),
+        ))
+    });
     let merged = merge_metrics_with_defaults(cfg);
     let ctx = crate::metrics::MetricsContext::start(
         &merged,

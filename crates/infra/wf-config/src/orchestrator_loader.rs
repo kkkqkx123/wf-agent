@@ -100,14 +100,20 @@ pub(crate) fn resolve_file_mapping(
 /// parsing failed). The orchestrator supplies an environment-specific
 /// default so dev/prod fallbacks differ without polluting field-level merge
 /// semantics.
-pub(crate) fn load_domain_config<T>(path: &Path, env_default: T) -> T
+/// Lenient per-domain load with config metrics. Parse failures fall back to
+/// defaults and count a validation error; missing files stay silent.
+pub(crate) fn load_domain_config_with_metrics<T>(
+    path: &Path,
+    env_default: T,
+    metrics: Option<&wf_metrics::ConfigMetricsCollector>,
+) -> T
 where
     T: serde::de::DeserializeOwned,
 {
     if !path.exists() {
         return env_default;
     }
-    match layered::load_layered_config_sync::<T>(&[path]) {
+    match layered::load_layered_config_sync_with_metrics::<T>(&[path], metrics) {
         Ok(config) => config,
         Err(e) => {
             warn!(

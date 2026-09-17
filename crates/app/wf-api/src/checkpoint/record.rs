@@ -166,6 +166,13 @@ pub struct CheckpointChainAnalysisView {
     pub time_range: CheckpointTimeRangeView,
 }
 
+/// Empty chain view for executions with no checkpoints. Read surfaces use
+/// this to degrade to an empty result for unknown executions instead of
+/// failing.
+pub fn empty_chain(execution_id: &str) -> CheckpointChainAnalysisView {
+    build_chain(execution_id, Vec::new())
+}
+
 fn build_chain(execution_id: &str, mut sorted: Vec<Checkpoint>) -> CheckpointChainAnalysisView {
     sorted.sort_by_key(|c| c.timestamp);
 
@@ -358,7 +365,7 @@ mod tests {
     fn make_checkpoint(id: &str, entity_id: &str, ts: i64) -> Checkpoint {
         Checkpoint {
             id: id.into(),
-            entity_type: "execution".into(),
+            entity_type: "checkpoint".into(),
             entity_id: entity_id.into(),
             checkpoint_type: CheckpointType::Full,
             timestamp: ts,
@@ -412,8 +419,9 @@ mod tests {
             .await
             .unwrap();
 
-        // The storage adapter filters checkpoints by their own record type
-        // (always "checkpoint"), combined with the checkpointed entity id.
+        // The storage adapter filters checkpoints by the record's own
+        // `entity_type` (here "checkpoint", the workflow domain), combined
+        // with the checkpointed entity id.
         let by_entity = list_checkpoints_by_entity(&ctx, "ex-1", "checkpoint")
             .await
             .unwrap();

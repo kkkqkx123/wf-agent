@@ -288,6 +288,7 @@ pub struct ResourceSampler {
     event_bus: Option<Arc<EventBus>>,
     storage: Option<Arc<StorageContext>>,
     agent_gate: Option<Arc<AgentCapacityGate>>,
+    last_storage_counts: std::sync::Mutex<std::collections::HashMap<String, u64>>,
 }
 
 impl ResourceSampler {
@@ -298,6 +299,7 @@ impl ResourceSampler {
             event_bus: None,
             storage: None,
             agent_gate: None,
+            last_storage_counts: std::sync::Mutex::new(std::collections::HashMap::new()),
         }
     }
 
@@ -334,10 +336,13 @@ impl ResourceSampler {
             let stats = gate.stats();
             stats.max_concurrent.saturating_sub(stats.available_permits) as u64
         });
+        // No queueing layer exists: the capacity gate rejects overflow
+        // immediately, so queued depth is definitionally zero. Recorded
+        // explicitly to keep the series present instead of missing.
         let sample = ResourceSample {
             memory_bytes: process_rss_bytes(),
             active_executions,
-            queued_tasks: None,
+            queued_tasks: Some(0),
             event_queue_length: self.event_bus.as_ref().map(|bus| bus.queue_len() as u64),
         };
         self.registry.resource().record_sample(&sample);
@@ -345,6 +350,7 @@ impl ResourceSampler {
         if let Some(storage) = &self.storage {
             let snapshot = storage.ops_snapshot();
             let resource = self.registry.resource();
+            let mut last = wf_common::lock::lock_ok(self.last_storage_counts.lock());
             for (op, metrics) in [
                 ("save", &snapshot.save),
                 ("load", &snapshot.load),
@@ -354,11 +360,21 @@ impl ResourceSampler {
                 ("clear", &snapshot.clear),
                 ("batch", &snapshot.batch),
             ] {
-                resource.collector().set_gauge(
-                    storage_metrics::OP_COUNT,
-                    metrics.count() as f64,
-                    labels(&[("op", op)]),
-                );
+                let count = metrics.count();
+                // Operation counts are cumulative in storage: export the
+                // per-tick delta as a counter so scraped values keep counter
+                // semantics. The first tick only establishes the baseline.
+                if let Some(previous) = last.get(op) {
+                    let delta = count.saturating_sub(*previous);
+                    if delta > 0 {
+                        resource.collector().increment_counter_by(
+                            storage_metrics::OP_COUNT,
+                            delta as f64,
+                            labels(&[("op", op)]),
+                        );
+                    }
+                }
+                last.insert(op.to_string(), count);
                 resource.collector().set_gauge(
                     storage_metrics::OP_AVG_TIME_MS,
                     metrics.avg_time_ms(),
@@ -402,6 +418,8 @@ fn flush_interval(config: &MetricsConfig) -> Duration {
         config.template_metrics.as_ref(),
         config.retry_budget_metrics.as_ref(),
         config.timeout_metrics.as_ref(),
+        config.checkpoint_metrics.as_ref(),
+        config.http_metrics.as_ref(),
     ];
     for collector in collectors.into_iter().flatten() {
         if let Some(interval) = collector.flush_interval {
@@ -585,6 +603,26 @@ mod tests {
             .unwrap_or(0.0);
         assert_eq!(event_len, 1.0);
 
+        // Operation counts export per-tick deltas as counters: the first
+        // tick only establishes the baseline, so drive a storage op and
+        // sample again before expecting the counter series.
+        let shared = storage.shared_context().expect("shared context");
+        shared
+            .metrics
+            .save_batch(&[wf_storage::adapter::metrics::MetricsDataPoint {
+                name: "test.op".into(),
+                metric_type: "counter".into(),
+                value: 1.0,
+                timestamp: wf_common::now(),
+                tags: None,
+                buckets: Vec::new(),
+                sum: 0.0,
+                count: 0,
+            }])
+            .await
+            .unwrap();
+        sampler.sample();
+
         let op_count = registry
             .resource()
             .collector()
@@ -596,6 +634,7 @@ mod tests {
             .into_iter()
             .find(|m| m.name == wf_metrics::storage_metrics::OP_COUNT);
         assert!(op_count.is_some());
+        assert!(op_count.map(|m| m.value).unwrap_or(0.0) >= 1.0);
     }
 
     #[test]

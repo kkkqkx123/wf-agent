@@ -146,6 +146,51 @@ where
 }
 
 // ---------------------------------------------------------------------------
+// Request metrics
+// ---------------------------------------------------------------------------
+
+/// Layer HTTP request metrics onto `router`. Must be applied as a route
+/// layer (inside routing) so the templated path is visible; raw paths with
+/// identifiers are never recorded.
+pub(crate) fn with_request_metrics<S>(
+    router: Router<S>,
+    http: Option<Arc<wf_metrics::HttpMetricsCollector>>,
+) -> Router<S>
+where
+    S: Clone + Send + Sync + 'static,
+{
+    let Some(http) = http else {
+        return router;
+    };
+    router.route_layer(axum::middleware::from_fn(move |req, next| {
+        request_metrics(http.clone(), req, next)
+    }))
+}
+
+async fn request_metrics(
+    http: Arc<wf_metrics::HttpMetricsCollector>,
+    req: Request<Body>,
+    next: Next,
+) -> Response {
+    let start = Instant::now();
+    let method = req.method().to_string();
+    let route = req
+        .extensions()
+        .get::<axum::extract::MatchedPath>()
+        .map(|matched| matched.as_str().to_owned())
+        .unwrap_or_else(|| "unmatched".to_string());
+    let response = next.run(req).await;
+    let class = match response.status().as_u16() {
+        200..=299 => "2xx",
+        400..=499 => "4xx",
+        500..=599 => "5xx",
+        _ => "other",
+    };
+    http.record_request(&method, &route, class, start.elapsed().as_millis() as f64);
+    response
+}
+
+// ---------------------------------------------------------------------------
 // Request logging
 // ---------------------------------------------------------------------------
 

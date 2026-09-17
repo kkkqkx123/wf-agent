@@ -8,6 +8,7 @@ wf-types = { path = "../../foundation/wf-types" }
 wf-common = { path = "../../foundation/wf-common" }
 wf-core = { path = "../../foundation/wf-core" }
 wf-tools = { path = "../../engine/wf-tools" }
+wf-metrics = { path = "../wf-metrics" }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

@@ -173,7 +173,10 @@ impl AgentCheckpointIntegration {
         if !self.strategy.is_enabled() {
             return false;
         }
-        if let Err(e) = self.create_checkpoint(entity, trigger.clone(), description).await {
+        if let Err(e) = self
+            .create_checkpoint(entity, trigger.clone(), description)
+            .await
+        {
             tracing::error!(
                 error = %e,
                 entity_id = %entity.id(),

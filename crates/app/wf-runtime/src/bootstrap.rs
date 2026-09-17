@@ -246,8 +246,11 @@ impl Runtime {
         // from the orchestrator-assembled config, plus the skill settings
         // chain. Programmatic values always win (file layer is the default
         // source only).
+        let config_metrics = std::sync::Arc::new(wf_metrics::ConfigMetricsCollector::new(
+            wf_metrics::CollectorConfig::default(),
+        ));
         if let Some(infra) = config.infra.clone() {
-            config = resolve_infra_config(config, &infra).await?;
+            config = resolve_infra_config(config, &infra, Some(&config_metrics)).await?;
         }
 
         let mode_info = detect_all(config.mode_override);
@@ -352,8 +355,13 @@ impl Runtime {
             &storage_manager,
             &event_bus,
             &agent_registry,
+            Some(config_metrics),
         )
         .await?;
+
+        if let Some(ref metrics) = metrics {
+            tool_registry.set_tool_metrics(metrics.registry().tool());
+        }
 
         let llm_gateway = create_llm_gateway(metrics.as_ref().map(|m| m.registry().as_ref()));
 
@@ -523,6 +531,10 @@ impl Runtime {
         // script handlers capture workspace changes.
         let (file_checkpoint_manager, checkpoint_event_bridge_handle) =
             init_file_checkpoint_manager(&config.file_checkpoint, event_bus.clone())?;
+        if let (Some(manager), Some(metrics)) = (file_checkpoint_manager.as_ref(), metrics.as_ref())
+        {
+            manager.set_checkpoint_metrics(metrics.registry().checkpoint());
+        }
         let manual_change_service =
             init_manual_change_service(&config.file_checkpoint, file_checkpoint_manager.as_ref())?;
         // Approval tool (policy `llm` / `manual`): an LLM node can call

@@ -1,5 +1,5 @@
-use wf_checkpoint::state::CheckpointStateManager;
 use wf_storage::adapter::base::BaseStorageAdapter;
+use wf_storage::adapter::checkpoint::CheckpointStorageAdapter;
 
 use crate::infra::context::ApiContext;
 use crate::infra::error::{ApiError, ApiResult};
@@ -43,7 +43,8 @@ impl std::fmt::Display for ExecutionDomain {
 
 /// Whether the id exists in the agent-loop domain, probed only when the
 /// cheaper layers (live registry, persisted record) found nothing: live
-/// registry, persisted record, then checkpoint partition.
+/// registry, persisted record, then the checkpoint record store filtered by
+/// the domain's `entity_type` (`agent_loop`).
 async fn agent_present(ctx: &ApiContext, id: &str) -> ApiResult<bool> {
     if ctx.agent_loop(id).is_some() {
         return Ok(true);
@@ -51,16 +52,17 @@ async fn agent_present(ctx: &ApiContext, id: &str) -> ApiResult<bool> {
     if ctx.storage.agent_execution.load(id).await?.is_some() {
         return Ok(true);
     }
-    let manager =
-        wf_checkpoint::state::agent::AgentCheckpointStateManager::new(ctx.checkpoint_store.clone());
-    let list = manager
-        .list_by_entity(id)
-        .await
-        .map_err(|e| ApiError::execution(format!("checkpoint lookup failed: {e}")))?;
+    let list = ctx
+        .storage
+        .checkpoint
+        .list_by_entity(id, ExecutionDomain::AgentLoop.checkpoint_entity_type())
+        .await?;
     Ok(!list.is_empty())
 }
 
-/// Workflow-domain counterpart of [`agent_present`], same cost order.
+/// Workflow-domain counterpart of [`agent_present`], same cost order. The
+/// checkpoint record store is filtered by the workflow `entity_type`
+/// (`checkpoint`) so an agent ghost never resolves as a workflow.
 async fn workflow_present(ctx: &ApiContext, id: &str) -> ApiResult<bool> {
     if ctx.workflow_execution(id).is_some() {
         return Ok(true);
@@ -68,20 +70,18 @@ async fn workflow_present(ctx: &ApiContext, id: &str) -> ApiResult<bool> {
     if ctx.storage.workflow_execution.load(id).await?.is_some() {
         return Ok(true);
     }
-    let manager = wf_checkpoint::state::workflow::WorkflowCheckpointStateManager::new(
-        ctx.checkpoint_store.clone(),
-    );
-    let list = manager
-        .list_by_entity(id)
-        .await
-        .map_err(|e| ApiError::execution(format!("checkpoint lookup failed: {e}")))?;
+    let list = ctx
+        .storage
+        .checkpoint
+        .list_by_entity(id, ExecutionDomain::Workflow.checkpoint_entity_type())
+        .await?;
     Ok(!list.is_empty())
 }
 
 /// Resolve a bare execution id to its domain.
 ///
 /// Lookup order is cost-ordered: the live agent loop registry is checked
-/// first, then persisted records and checkpoint partitions for both domains.
+/// first, then persisted records and checkpoint records for both domains.
 /// Both domains hit means the id is ambiguous and a `Conflict` is returned;
 /// neither hit means a unified `ExecutionNotFound`.
 pub async fn resolve_execution(ctx: &ApiContext, id: &str) -> ApiResult<ExecutionDomain> {
@@ -121,9 +121,9 @@ fn execution_verdict(
 ///
 /// Probing is layered by cost and short-circuits: (1) live registries for
 /// both domains are in-memory checks; (2) persisted execution records; (3)
-/// checkpoint partitions, probed only when layers 1-2 left both domains
+/// checkpoint records, probed only when layers 1-2 left both domains
 /// unresolved, since a conclusion already reached for one domain cannot be
-/// changed by the other domain's partition probe. Both domains hit means the
+/// changed by the other domain's record probe. Both domains hit means the
 /// id is ambiguous and a `Conflict` is returned; neither hit means a unified
 /// `ExecutionNotFound`.
 pub async fn resolve_execution_with_override(
@@ -139,10 +139,9 @@ pub async fn resolve_execution_with_override(
     }
 
     // Layer 2: persisted execution records.
-    let agent_persisted = !agent_registry
-        && ctx.storage.agent_execution.load(id).await?.is_some();
-    let workflow_persisted = !workflow_registry
-        && ctx.storage.workflow_execution.load(id).await?.is_some();
+    let agent_persisted = !agent_registry && ctx.storage.agent_execution.load(id).await?.is_some();
+    let workflow_persisted =
+        !workflow_registry && ctx.storage.workflow_execution.load(id).await?.is_some();
     let agent = agent_registry || agent_persisted;
     let workflow = workflow_registry || workflow_persisted;
     if agent || workflow {
@@ -151,7 +150,7 @@ pub async fn resolve_execution_with_override(
         return execution_verdict(id, agent, workflow, domain);
     }
 
-    // Layer 3: ghost ids visible only through checkpoint partitions.
+    // Layer 3: ghost ids visible only through checkpoint records.
     let agent = agent_present(ctx, id).await?;
     let workflow = workflow_present(ctx, id).await?;
     execution_verdict(id, agent, workflow, domain)
@@ -245,13 +244,9 @@ mod tests {
         let err = resolve_execution(&ctx, "exec-both").await.unwrap_err();
         assert!(matches!(err, ApiError::Conflict(_)));
         assert_eq!(
-            resolve_execution_with_override(
-                &ctx,
-                "exec-both",
-                Some(ExecutionDomain::Workflow)
-            )
-            .await
-            .unwrap(),
+            resolve_execution_with_override(&ctx, "exec-both", Some(ExecutionDomain::Workflow))
+                .await
+                .unwrap(),
             ExecutionDomain::Workflow
         );
     }

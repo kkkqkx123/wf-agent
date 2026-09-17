@@ -22,6 +22,7 @@ fn build_visibility_message(
     regs: Option<&wf_resource::ResourceRegistries>,
     action: &str,
     tools: &[String],
+    template_metrics: Option<&wf_metrics::TemplateMetricsCollector>,
 ) -> String {
     let list: Vec<String> = tools.iter().map(|t| format!("- {}", t)).collect();
     let fallback = match action {
@@ -53,7 +54,13 @@ fn build_visibility_message(
     if action == "unblock" {
         vars.insert("tool_names".to_string(), tools.join(", "));
     }
-    wf_resource::render_visibility_message(regs, template_id, &fallback, &vars)
+    wf_resource::render_visibility_message_with_metrics(
+        regs,
+        template_id,
+        &fallback,
+        &vars,
+        template_metrics,
+    )
 }
 
 fn emit_visibility_event(
@@ -178,7 +185,14 @@ impl ToolVisibilityHandler {
 
         // Record the change in the message context so agents/LLM nodes can
         // observe it in the conversation (tail system message).
-        let content = build_visibility_message(ctx.resource_registries.as_deref(), action, &tools);
+        let template_metrics = ctx.metrics.as_ref().map(|m| m.template());
+        let template_metrics_ref = template_metrics.as_deref();
+        let content = build_visibility_message(
+            ctx.resource_registries.as_deref(),
+            action,
+            &tools,
+            template_metrics_ref,
+        );
         message_context::append_context(
             &ctx.variables,
             message_context::DEFAULT_CONTEXT_ID,
@@ -225,12 +239,13 @@ mod tests {
             None,
             "block",
             &["file_read".to_string(), "shell".to_string()],
+            None,
         );
         assert!(msg.contains("file_read"));
         assert!(msg.contains("shell"));
         assert!(msg.contains("unavailable"));
 
-        let unblock = build_visibility_message(None, "unblock", &["shell".to_string()]);
+        let unblock = build_visibility_message(None, "unblock", &["shell".to_string()], None);
         assert!(unblock.contains("[Tool Activation]"));
         assert!(unblock.contains("now available"));
         assert!(unblock.contains("shell"));

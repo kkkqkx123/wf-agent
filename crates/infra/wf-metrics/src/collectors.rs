@@ -1,8 +1,10 @@
 pub mod agent;
 pub mod agent_loop;
+pub mod checkpoint;
 pub mod config;
 pub mod error;
 pub mod event;
+pub mod http;
 pub mod node;
 pub mod resource;
 pub mod retry_budget;
@@ -15,9 +17,11 @@ pub mod workflow;
 
 pub use agent::{AgentMetricsCollector, AgentUsageStats};
 pub use agent_loop::AgentLoopMetricsCollector;
-pub use config::ConfigMetricsCollector;
+pub use checkpoint::{CheckpointMetricsCollector, CheckpointUsageStats};
+pub use config::{ConfigMetricsCollector, ConfigStats};
 pub use error::{ErrorMetricsCollector, ErrorStats};
 pub use event::{EventMetricsCollector, EventStats};
+pub use http::{HttpMetricsCollector, HttpUsageStats};
 pub use node::{NodeExecutionRecord, NodeMetricsCollector, NodeUsageStats};
 pub use resource::{ResourceMetricsCollector, ResourceSample};
 pub use retry_budget::{

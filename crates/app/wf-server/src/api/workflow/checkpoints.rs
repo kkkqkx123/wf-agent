@@ -68,12 +68,9 @@ async fn handle_create_checkpoint(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
-    if let Err(e) = wf_api::ensure_execution_domain(
-        &state.ctx,
-        &path.id,
-        wf_api::ExecutionDomain::Workflow,
-    )
-    .await
+    if let Err(e) =
+        wf_api::ensure_execution_domain(&state.ctx, &path.id, wf_api::ExecutionDomain::Workflow)
+            .await
     {
         return error_response(e);
     }
@@ -87,13 +84,15 @@ async fn handle_checkpoint_chain(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
-    if let Err(e) = wf_api::ensure_execution_domain(
-        &state.ctx,
-        &path.id,
-        wf_api::ExecutionDomain::Workflow,
-    )
-    .await
+    // Read views degrade to empty results for unknown executions instead
+    // of failing; domain mismatches still surface as errors.
+    if let Err(e) =
+        wf_api::ensure_execution_domain(&state.ctx, &path.id, wf_api::ExecutionDomain::Workflow)
+            .await
     {
+        if matches!(e, wf_api::ApiError::ExecutionNotFound { .. }) {
+            return ok(wf_api::checkpoint::record::empty_chain(&path.id)).into_response();
+        }
         return error_response(e);
     }
     match wf_api::checkpoint::record::chain_for_execution(&state.ctx, &path.id, None).await {

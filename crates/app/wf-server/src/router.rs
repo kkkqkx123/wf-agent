@@ -66,7 +66,9 @@ pub(crate) fn api_router_with_config(
 
 /// Merge the metrics router and the API router under one listener.
 pub fn full_router(registry: Arc<wf_metrics::MetricsRegistry>, ctx: Arc<ApiContext>) -> Router {
-    metrics::router(registry).merge(api_router(ctx))
+    let http = registry.http();
+    let router = metrics::router(registry).merge(api_router(ctx));
+    middleware::with_request_metrics(router, Some(http))
 }
 
 /// Serve the `wf-api` surface on `addr` without blocking.
@@ -91,9 +93,7 @@ pub(crate) async fn serve_full_with_config(
     addr: SocketAddr,
     config: Arc<ServerMiddlewareConfig>,
 ) -> Result<ServerHandle, ServeError> {
-    serve_with_router(
-        metrics::router(registry).merge(api_router_with_config(ctx, config)),
-        addr,
-    )
-    .await
+    let http = registry.http();
+    let router = metrics::router(registry).merge(api_router_with_config(ctx, config));
+    serve_with_router(middleware::with_request_metrics(router, Some(http)), addr).await
 }

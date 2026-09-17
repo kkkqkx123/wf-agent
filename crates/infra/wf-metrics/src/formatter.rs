@@ -41,6 +41,67 @@ pub fn format_registry_json(registry: &crate::MetricsRegistry) -> Value {
     )
 }
 
+/// Prometheus text for collector self-monitoring: buffer pressure, drops
+/// and flush errors per collector. Scraped alongside domain metrics so
+/// pipeline health (full buffers, failing sinks) is externally visible.
+pub fn format_internal_prometheus(registry: &crate::MetricsRegistry) -> String {
+    let mut out = String::new();
+    let names = crate::MetricsRegistry::collector_names();
+    let snapshots = registry.internal_metrics();
+    let series = [
+        (
+            "wf_collector_buffer_size",
+            "Collector buffered metric count",
+        ),
+        (
+            "wf_collector_buffer_utilization",
+            "Collector buffer utilization ratio",
+        ),
+        (
+            "wf_collector_record_total",
+            "Collector lifetime recorded count",
+        ),
+        ("wf_collector_flush_total", "Collector lifetime flush count"),
+        ("wf_collector_drop_total", "Collector dropped metric count"),
+        (
+            "wf_collector_flush_error_total",
+            "Collector flush error count",
+        ),
+        (
+            "wf_collector_last_flush_duration_ms",
+            "Collector last flush duration milliseconds",
+        ),
+    ];
+    for (name, help) in series {
+        out.push_str(&format!("# HELP {name} {help}\n# TYPE {name} gauge\n"));
+    }
+    for (index, snapshot) in snapshots.iter().enumerate() {
+        let collector = names.get(index).copied().unwrap_or("unknown");
+        let values = [
+            ("wf_collector_buffer_size", snapshot.buffer_size as f64),
+            (
+                "wf_collector_buffer_utilization",
+                snapshot.buffer_utilization,
+            ),
+            ("wf_collector_record_total", snapshot.record_count as f64),
+            ("wf_collector_flush_total", snapshot.flush_count as f64),
+            ("wf_collector_drop_total", snapshot.drop_count as f64),
+            (
+                "wf_collector_flush_error_total",
+                snapshot.flush_error_count as f64,
+            ),
+            (
+                "wf_collector_last_flush_duration_ms",
+                snapshot.last_flush_duration_ms,
+            ),
+        ];
+        for (name, value) in values {
+            out.push_str(&format!("{name}{{collector=\"{collector}\"}} {value}\n"));
+        }
+    }
+    out
+}
+
 /// Render pre-collected snapshots as Prometheus text. Shared by the direct
 /// collector export and the render cache single-pass refresh.
 pub(crate) fn snapshots_prometheus(snapshots: &[Metric]) -> String {

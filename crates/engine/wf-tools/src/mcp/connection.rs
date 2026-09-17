@@ -18,7 +18,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crate::error::ToolResult;
-use crate::mcp::rmcp_client::{RmcpClient, McpToolInfo};
+use crate::mcp::rmcp_client::{McpToolInfo, RmcpClient};
 use wf_types::tool::mcp_connection::{McpServerConfig, McpServerLifecycle, McpServerStatus};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -339,8 +339,7 @@ impl McpConnectionManager {
                 .update_status(server_name, McpServerStatus::Disconnected);
             return Err(e);
         }
-        self.clients
-            .insert(server_name.to_string(), client.clone());
+        self.clients.insert(server_name.to_string(), client.clone());
         self.registry
             .update_status(server_name, McpServerStatus::Connected);
         self.record_activity(server_name);

@@ -166,6 +166,8 @@ pub fn merge_metrics_with_defaults(user: &MetricsConfig) -> MetricsConfig {
         template_metrics: merge_collector_with_defaults(user.template_metrics.as_ref()),
         retry_budget_metrics: merge_collector_with_defaults(user.retry_budget_metrics.as_ref()),
         timeout_metrics: merge_collector_with_defaults(user.timeout_metrics.as_ref()),
+        checkpoint_metrics: merge_collector_with_defaults(user.checkpoint_metrics.as_ref()),
+        http_metrics: merge_collector_with_defaults(user.http_metrics.as_ref()),
         http_addr: user.http_addr.clone(),
         retention_ms: user.retention_ms.or(Some(3_600_000)),
         anomaly_thresholds: Some(AnomalyThresholdsConfig {
@@ -179,6 +181,16 @@ pub fn merge_metrics_with_defaults(user: &MetricsConfig) -> MetricsConfig {
                 .as_ref()
                 .and_then(|t| t.min_success_rate)
                 .or(Some(0.8)),
+            max_tool_error_rate: user
+                .anomaly_thresholds
+                .as_ref()
+                .and_then(|t| t.max_tool_error_rate)
+                .or(Some(0.2)),
+            max_checkpoint_failures: user
+                .anomaly_thresholds
+                .as_ref()
+                .and_then(|t| t.max_checkpoint_failures)
+                .or(Some(10)),
         }),
     }
 }
@@ -321,6 +333,8 @@ mod tests {
             template_metrics: Some(MetricCollectorConfig::default()),
             retry_budget_metrics: Some(MetricCollectorConfig::default()),
             timeout_metrics: Some(MetricCollectorConfig::default()),
+            checkpoint_metrics: Some(MetricCollectorConfig::default()),
+            http_metrics: Some(MetricCollectorConfig::default()),
             enable_periodic_reporting: Some(true),
             reporting_interval: Some(42),
             enabled: Some(true),
@@ -329,6 +343,7 @@ mod tests {
             anomaly_thresholds: Some(AnomalyThresholdsConfig {
                 max_error_count: Some(7),
                 min_success_rate: Some(0.5),
+                ..Default::default()
             }),
         };
         let merged = merge_metrics_with_defaults(&user);
@@ -377,10 +392,7 @@ mod tests {
             merged.workflow_metrics.as_ref().unwrap().buffer_size,
             Some(7)
         );
-        assert_eq!(
-            merged.workflow_metrics.as_ref().unwrap().retention_ms,
-            None
-        );
+        assert_eq!(merged.workflow_metrics.as_ref().unwrap().retention_ms, None);
         assert_eq!(
             merged.workflow_metrics.as_ref().unwrap().enabled,
             Some(true)

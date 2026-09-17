@@ -887,7 +887,6 @@ impl CheckpointCoordinator for WorkflowCheckpointCoordinator {
     fn default_strategy(&self) -> Option<&dyn CheckpointStrategy> {
         self.strategy.as_ref().map(|s| s as &dyn CheckpointStrategy)
     }
-
 }
 
 impl WorkflowCheckpointCoordinator {

@@ -92,9 +92,16 @@ impl AgentExecutionCoordinator {
         // Wall-clock timeout: a background stop signal interrupts a slow
         // iteration as well. The timeout is paused during approval waits and
         // pauses.
+        let timeout_metrics = self.metrics.as_ref().map(|m| m.timeout());
         let timeout_handle = match max_execution_time {
             Some(max) if max > 0 => {
                 let interruption = entity.interruption().clone();
+                let execution_id = entity.id().to_string();
+                if let Some(ref metrics) = timeout_metrics {
+                    metrics.record_registration("agent_wall_clock", max as f64, &execution_id);
+                }
+                let registered_at = std::time::Instant::now();
+                let fire_metrics = timeout_metrics.clone();
                 Some(entity.timeout_manager().register(
                     format!("wall-clock-{}", entity.id()),
                     std::time::Duration::from_millis(max),
@@ -103,6 +110,13 @@ impl AgentExecutionCoordinator {
                             max_execution_time = max,
                             "Agent loop wall-clock timeout exceeded, stopping execution"
                         );
+                        if let Some(ref metrics) = fire_metrics {
+                            metrics.record_expiration(
+                                "agent_wall_clock",
+                                registered_at.elapsed().as_millis() as f64,
+                                &execution_id,
+                            );
+                        }
                         let _ = interruption.stop();
                     },
                 ))
@@ -116,6 +130,15 @@ impl AgentExecutionCoordinator {
 
         if let Some(handle) = timeout_handle {
             handle.cancel();
+            if outcome.is_ok() {
+                if let Some(ref metrics) = timeout_metrics {
+                    metrics.record_cancellation(
+                        "agent_wall_clock",
+                        "complete",
+                        &entity.id().to_string(),
+                    );
+                }
+            }
         }
         outcome
     }

@@ -165,8 +165,7 @@ async fn handle_create_checkpoint(
     if let Err(e) = ensure_agent_domain(&state.ctx, &path.id).await {
         return error_response(e);
     }
-    match wf_api::agent::agent_checkpoint::create(&state.ctx, &path.id, body.description).await
-    {
+    match wf_api::agent::agent_checkpoint::create(&state.ctx, &path.id, body.description).await {
         Ok(checkpoint) => ok(checkpoint).into_response(),
         Err(e) => error_response(e),
     }
@@ -192,9 +191,12 @@ async fn handle_restore_checkpoint(
     if let Err(e) = ensure_agent_domain(&state.ctx, &path.id).await {
         return error_response(e);
     }
-    if let Err(e) =
-        wf_api::checkpoint::ensure_checkpoint_domain(&state.ctx, &path.cid, wf_api::ExecutionDomain::AgentLoop)
-            .await
+    if let Err(e) = wf_api::checkpoint::ensure_checkpoint_domain(
+        &state.ctx,
+        &path.cid,
+        wf_api::ExecutionDomain::AgentLoop,
+    )
+    .await
     {
         return error_response(e);
     }
@@ -239,17 +241,25 @@ async fn handle_resume_checkpoint(
     Path(path): Path<crate::extract::IdCidPath>,
     Json(body): Json<ResumeCheckpointBody>,
 ) -> impl IntoResponse {
-    if let Err(e) = ensure_agent_domain(&state.ctx, &path.id).await {
-        return error_response(e);
-    }
-    if let Err(e) =
-        wf_api::checkpoint::ensure_checkpoint_domain(
-            &state.ctx,
-            &path.cid,
-            wf_api::ExecutionDomain::AgentLoop,
-        )
-        .await
+    // The checkpoint is validated first: resuming from a checkpoint that
+    // does not exist is an invalid request (400), never a routing failure.
+    // A checkpoint that exists but belongs to another domain stays a
+    // domain-mismatch error from the ownership check below.
+    if let Err(e) = wf_api::checkpoint::ensure_checkpoint_domain(
+        &state.ctx,
+        &path.cid,
+        wf_api::ExecutionDomain::AgentLoop,
+    )
+    .await
     {
+        return error_response(match e {
+            wf_api::ApiError::NotFound { .. } => {
+                wf_api::ApiError::Validation(format!("unknown checkpoint id [{}]", path.cid))
+            }
+            other => other,
+        });
+    }
+    if let Err(e) = ensure_agent_domain(&state.ctx, &path.id).await {
         return error_response(e);
     }
     let in_place = body.mode == ResumeCheckpointMode::InPlace;

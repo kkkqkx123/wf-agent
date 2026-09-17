@@ -506,12 +506,11 @@ mod tests {
             fork_join_aggregation_state: None,
             hook_execution_context: None,
         };
-        let coordinator =
-            wf_checkpoint::coordinator::workflow::WorkflowCheckpointCoordinator::new(
-                wf_checkpoint::state::workflow::WorkflowCheckpointStateManager::new(
-                    ctx.checkpoint_store.clone(),
-                ),
-            );
+        let coordinator = wf_checkpoint::coordinator::workflow::WorkflowCheckpointCoordinator::new(
+            wf_checkpoint::state::workflow::WorkflowCheckpointStateManager::new(
+                ctx.checkpoint_store.clone(),
+            ),
+        );
         coordinator
             .create_checkpoint(
                 wf_types::checkpoint::CheckpointTiming::Manual,

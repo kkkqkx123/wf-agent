@@ -89,7 +89,13 @@ impl Entity for wf_types::storage::checkpoint::CheckpointStorageMetadata {
     }
 
     fn metadata(&self) -> Self::Metadata {
+        // The record-level `entity_type` (`checkpoint` for workflow
+        // executions, `agent_loop` for agent loops) overrides the static
+        // adapter type: `EntityStore` merges record metadata over the base
+        // map, so domain filters (`list_by_entity`, `entity_type_filter`)
+        // match the owning domain instead of every checkpoint row.
         serde_json::json!({
+            "entityType": self.entity_type,
             "entityId": self.entity_id,
             "checkpointType": self.checkpoint_type,
             "timestamp": self.timestamp,

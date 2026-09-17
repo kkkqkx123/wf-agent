@@ -44,12 +44,22 @@ impl FileCheckpointManager {
         &self,
         entity_id: &str,
     ) -> Result<Option<Vec<FileState>>, CheckpointError> {
+        let start = std::time::Instant::now();
         let storage = self.storage_ref()?;
         let actor = self.actor_id_for(entity_id);
-        match self.latest_checkpoint_id(storage, &actor)? {
+        let result = match self.latest_checkpoint_id(storage, &actor)? {
             Some(id) => Ok(Some(self.restore_checkpoint(entity_id, &id)?)),
             None => Ok(None),
+        };
+        let duration_ms = start.elapsed().as_millis() as f64;
+        if let Some(ref metrics) = self.checkpoint_metrics() {
+            match &result {
+                Ok(Some(_)) => metrics.record_load(entity_id, duration_ms, true),
+                Ok(None) => {}
+                Err(_) => metrics.record_load(entity_id, duration_ms, false),
+            }
         }
+        result
     }
 
     /// Content-level rollback: write the files of `checkpoint_id` back to

@@ -25,6 +25,31 @@ impl FileCheckpointManager {
         entity_id: &str,
         entries: &[FileContentEntry],
     ) -> Result<FileCheckpoint, CheckpointError> {
+        let start = std::time::Instant::now();
+        let size_bytes: u64 = entries.iter().map(|e| e.content.len() as u64).sum();
+        let result = self.create_checkpoint_inner(entity_id, entries);
+        let duration_ms = start.elapsed().as_millis() as f64;
+        match &result {
+            Ok((_, chain_length, is_full)) => {
+                if let Some(metrics) = self.checkpoint_metrics() {
+                    metrics.record_creation(entity_id, duration_ms, size_bytes, *is_full);
+                    metrics.record_chain_length(entity_id, *chain_length);
+                }
+            }
+            Err(_) => {
+                if let Some(metrics) = self.checkpoint_metrics() {
+                    metrics.record_creation_failure(entity_id);
+                }
+            }
+        }
+        result.map(|(checkpoint, _, _)| checkpoint)
+    }
+
+    fn create_checkpoint_inner(
+        &self,
+        entity_id: &str,
+        entries: &[FileContentEntry],
+    ) -> Result<(FileCheckpoint, u64, bool), CheckpointError> {
         let storage = self.storage_ref()?;
         let actor = self.actor_id_for(entity_id);
         let agent_id = actor.to_agent_instance_id();
@@ -45,11 +70,13 @@ impl FileCheckpointManager {
             .get_partition(&agent::agent_partition_id(&agent_id))
             .map_err(|e| map_layertwine_error_with("create_checkpoint.get_partition", e))?;
         let baseline_snapshots = partition_latest_snapshot_ids(storage, &partition)?;
-        let parents = self
+        let parents: Vec<CheckpointId> = self
             .latest_checkpoint_id(storage, &actor)?
             .into_iter()
             .filter_map(|id| CheckpointId::from_hex(&id))
             .collect();
+        let chain_length = parents.len() as u64 + 1;
+        let is_full = parents.is_empty();
         let checkpoint = Checkpoint::new(
             baseline_snapshots,
             parents,
@@ -59,16 +86,20 @@ impl FileCheckpointManager {
             .branch_adapter
             .store_file_history_checkpoint(&checkpoint)?;
         // Single truth: DB row plus branch head are authoritative, the
-        // in-memory map is only a lookup cache. The branch head is always
-        // advanced so it never lags behind the cache.
+        // in-memory map is only a lookup cache. The branch head advances
+        // only for explicitly prepared execution branches (created by
+        // `ensure_child_branch`): checkpoint creation never implicitly
+        // registers a branch, so root executions stay branchless.
         self.store
             .latest_checkpoints
             .insert(actor.as_str().to_string(), checkpoint.id.to_hex());
         let branch_name = execution_branch_name("execution", entity_id);
-        self.store
-            .branch_adapter
-            .set_branch_head(&branch_name, &checkpoint.id.to_hex())?;
-        self.project(storage, &checkpoint)
+        if self.store.branch_adapter.branch_exists_now(&branch_name)? {
+            self.store
+                .branch_adapter
+                .set_branch_head(&branch_name, &checkpoint.id.to_hex())?;
+        }
+        Ok((self.project(storage, &checkpoint)?, chain_length, is_full))
     }
 
     /// Create a file checkpoint for an entity from the actor partition's
@@ -103,14 +134,18 @@ impl FileCheckpointManager {
             .branch_adapter
             .store_file_history_checkpoint(&checkpoint)?;
         // Single truth: DB row plus branch head are authoritative, the
-        // in-memory map is only a lookup cache.
+        // in-memory map is only a lookup cache. As in `create_checkpoint`,
+        // the head advances only for prepared execution branches; root
+        // executions never gain a branch implicitly.
         self.store
             .latest_checkpoints
             .insert(actor.as_str().to_string(), checkpoint.id.to_hex());
         let branch_name = execution_branch_name("execution", entity_id);
-        self.store
-            .branch_adapter
-            .set_branch_head(&branch_name, &checkpoint.id.to_hex())?;
+        if self.store.branch_adapter.branch_exists_now(&branch_name)? {
+            self.store
+                .branch_adapter
+                .set_branch_head(&branch_name, &checkpoint.id.to_hex())?;
+        }
         Ok(Some(self.project(storage, &checkpoint)?))
     }
 

@@ -39,6 +39,7 @@ pub use interruption::{
     check_execution_interruption, combine_cancellation_tokens, execute_with_interruption_handling,
     iterate_with_interruption_handling,
 };
+pub use types::{ExecutionInstance, ExecutionKind};
 // Conversation and token-usage engine contract: session state, message-array
 // operations, usage tracking and event builders relocated from the LLM
 // transport crate, which now only owns transport, config and estimation.

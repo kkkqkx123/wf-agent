@@ -390,6 +390,9 @@ impl ExecutionEntity for AgentLoopEntity {
     }
 
     async fn stop(&self) -> Result<(), wf_execution_shared::error::ExecutionSharedError> {
+        if self.status().is_terminal() {
+            return Ok(());
+        }
         AgentLoopStateTransitor::cancel_agent_loop(self, self.event_bus().as_deref())
             .await
             .map_err(|e| ExecutionSharedError::StateError(e.to_string()))?;
@@ -411,6 +414,9 @@ impl ExecutionEntity for AgentLoopEntity {
     }
 
     fn get_root_execution_id(&self) -> Option<Id> {
+        if let Some(root) = self.ancestors.first() {
+            return Some(root.clone());
+        }
         self.root_execution_id
             .clone()
             .or_else(|| Some(self.id.clone()))

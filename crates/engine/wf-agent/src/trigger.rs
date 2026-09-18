@@ -16,7 +16,9 @@ use crate::error::{AgentError, AgentResult};
 use crate::hook::AgentHookEmitter;
 use wf_core::EventBus;
 use wf_execution_shared::hooks::HookHandlerRegistry;
-use wf_execution_shared::types::execution_entity::ExecutionEntity;
+use wf_execution_shared::types::execution_entity::{
+    child_ancestors, child_depth, child_root, ExecutionEntity,
+};
 use wf_tools::callback::{AgentLoopConfig, AgentLoopInput, AgentLoopOutput};
 use wf_types::hook::{SUBAGENT_START, SUBAGENT_STOP};
 use wf_types::message::{Message, MessageContentValue, MessageRole};
@@ -162,13 +164,12 @@ impl TriggeredAgentExecutionManager {
         let child_execution_id = Id::from(wf_common::generate_id());
         // Seed the child's ancestor chain from the live parent so nested
         // triggered runs keep full ancestry (parent's chain + parent id).
-        let mut child_ancestors = parent.get_ancestors();
-        if child_ancestors.last() != Some(parent.id()) {
-            child_ancestors.push(parent.id().clone());
-        }
+        let parent_ref = parent.as_ref();
         let child_entity = AgentLoopEntity::new(child_execution_id)
             .with_parent_execution_id(parent.id().clone())
-            .with_ancestors(child_ancestors);
+            .with_hierarchy_depth(child_depth(parent_ref))
+            .with_root_execution_id(child_root(parent_ref))
+            .with_ancestors(child_ancestors(parent_ref));
         parent.register_child(child_entity.id().clone()).await;
 
         // SUBAGENT_START: child registered and about to run; mounted on the

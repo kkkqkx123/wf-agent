@@ -201,8 +201,8 @@ impl ExecutionEntity for WorkflowExecutionEntity {
     }
 
     async fn pause(&self) -> Result<(), wf_execution_shared::error::ExecutionSharedError> {
-        self.interruption.pause()?;
         self.state.write().await.pause()?;
+        self.interruption.pause()?;
         Ok(())
     }
 
@@ -213,12 +213,12 @@ impl ExecutionEntity for WorkflowExecutionEntity {
     }
 
     async fn stop(&self) -> Result<(), wf_execution_shared::error::ExecutionSharedError> {
-        self.interruption.stop()?;
-        self.cancellation.cancel();
         if self.state.read().await.status().is_terminal() {
             return Ok(());
         }
         self.state.write().await.cancel()?;
+        self.interruption.stop()?;
+        self.cancellation.cancel();
         Ok(())
     }
 
@@ -235,6 +235,12 @@ impl ExecutionEntity for WorkflowExecutionEntity {
     }
 
     fn get_root_execution_id(&self) -> Option<Id> {
+        if let Some(root) = self.ancestors.first() {
+            return Some(root.clone());
+        }
+        if let Some(parent) = &self.parent_execution_id {
+            return Some(parent.clone());
+        }
         Some(self.id.clone())
     }
 

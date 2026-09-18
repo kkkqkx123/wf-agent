@@ -11,7 +11,9 @@ use wf_execution_shared::conversation_session::ConversationSession;
 use wf_execution_shared::execution_state::ExecutionStateManager;
 use wf_execution_shared::hooks::types::HookDefinition;
 use wf_execution_shared::hooks::HookHandlerRegistry;
-use wf_execution_shared::types::execution_entity::{ExecutionEntity, ExecutionStatus};
+use wf_execution_shared::types::execution_entity::{
+    child_ancestors, child_depth, child_root, ExecutionEntity, ExecutionStatus,
+};
 use wf_execution_shared::types::state_manager::StateManager;
 use wf_llm::LlmGateway;
 use wf_metrics::MetricsRegistry;
@@ -928,16 +930,11 @@ impl AgentLoopCoordinator {
             // parent chain (root run keeps 0 / own id / empty).
             if let Some(ref registry) = self.entity_registry {
                 if let Some(parent) = registry.get(&parent_id) {
-                    let mut ancestors = parent.get_ancestors();
-                    if ancestors.last() != Some(&parent_id) {
-                        ancestors.push(parent_id.clone());
-                    }
+                    let parent_ref = parent.as_ref();
                     entity = entity
-                        .with_hierarchy_depth(parent.get_hierarchy_depth() + 1)
-                        .with_root_execution_id(
-                            parent.get_root_execution_id().unwrap_or(parent_id.clone()),
-                        )
-                        .with_ancestors(ancestors);
+                        .with_hierarchy_depth(child_depth(parent_ref))
+                        .with_root_execution_id(child_root(parent_ref))
+                        .with_ancestors(child_ancestors(parent_ref));
                 }
             }
         }

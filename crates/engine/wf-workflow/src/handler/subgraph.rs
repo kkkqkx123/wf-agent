@@ -88,6 +88,8 @@ pub(crate) async fn execute_subgraph(
     let sub_workflow_id = wf_common::generate_id();
 
     let entity = WorkflowExecutionEntity::new(execution_id.clone(), sub_workflow_id.clone())
+        .with_parent_execution_id(ctx.execution_id.clone())
+        .with_ancestors(vec![ctx.execution_id.clone()])
         .with_hierarchy_depth(ctx.depth + 1);
 
     let event_bus = ctx.event_bus.clone();

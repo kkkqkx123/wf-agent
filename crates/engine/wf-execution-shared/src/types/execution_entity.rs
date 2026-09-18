@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use async_trait::async_trait;
 
 use wf_types::Id;
@@ -82,5 +84,199 @@ pub trait ExecutionEntity: Send + Sync {
     /// build time; used to propagate deep-hierarchy ancestry to children.
     fn get_ancestors(&self) -> Vec<Id> {
         Vec::new()
+    }
+}
+
+/// Resolve the ancestor chain for a child of `parent`: the parent chain
+/// plus the parent id, deduplicated at the tail.
+pub fn child_ancestors(parent: &impl ExecutionEntity) -> Vec<Id> {
+    let mut ancestors = parent.get_ancestors();
+    let id = parent.id().clone();
+    if ancestors.last() != Some(&id) {
+        ancestors.push(id);
+    }
+    ancestors
+}
+
+/// Resolve the root id for a child of `parent`: the parent root when
+/// known, otherwise the parent id itself.
+pub fn child_root(parent: &impl ExecutionEntity) -> Id {
+    parent
+        .get_root_execution_id()
+        .unwrap_or_else(|| parent.id().clone())
+}
+
+/// Resolve the hierarchy depth for a child of `parent`.
+pub fn child_depth(parent: &impl ExecutionEntity) -> u32 {
+    parent.get_hierarchy_depth().saturating_add(1)
+}
+
+/// Shared ownership forwards the control plane to the inner entity so
+/// registries can store `Arc` handles without an extra wrapper type.
+#[async_trait]
+impl<T> ExecutionEntity for Arc<T>
+where
+    T: ExecutionEntity + ?Sized,
+    Arc<T>: Send + Sync,
+{
+    fn id(&self) -> &Id {
+        self.as_ref().id()
+    }
+
+    fn status(&self) -> ExecutionStatus {
+        self.as_ref().status()
+    }
+
+    fn is_running(&self) -> bool {
+        self.as_ref().is_running()
+    }
+
+    fn is_paused(&self) -> bool {
+        self.as_ref().is_paused()
+    }
+
+    fn is_completed(&self) -> bool {
+        self.as_ref().is_completed()
+    }
+
+    fn is_failed(&self) -> bool {
+        self.as_ref().is_failed()
+    }
+
+    fn is_cancelled(&self) -> bool {
+        self.as_ref().is_cancelled()
+    }
+
+    async fn pause(&self) -> Result<(), ExecutionSharedError> {
+        self.as_ref().pause().await
+    }
+
+    async fn resume(&self) -> Result<(), ExecutionSharedError> {
+        self.as_ref().resume().await
+    }
+
+    async fn stop(&self) -> Result<(), ExecutionSharedError> {
+        self.as_ref().stop().await
+    }
+
+    async fn abort(&self) {
+        self.as_ref().abort().await
+    }
+
+    fn get_abort_signal(&self) -> tokio_util::sync::CancellationToken {
+        self.as_ref().get_abort_signal()
+    }
+
+    fn get_hierarchy_depth(&self) -> u32 {
+        self.as_ref().get_hierarchy_depth()
+    }
+
+    fn get_root_execution_id(&self) -> Option<Id> {
+        self.as_ref().get_root_execution_id()
+    }
+
+    fn get_ancestors(&self) -> Vec<Id> {
+        self.as_ref().get_ancestors()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    struct StubEntity {
+        id: Id,
+        depth: u32,
+        ancestors: Vec<Id>,
+        root: Option<Id>,
+    }
+
+    #[async_trait]
+    impl ExecutionEntity for StubEntity {
+        fn id(&self) -> &Id {
+            &self.id
+        }
+
+        fn status(&self) -> ExecutionStatus {
+            ExecutionStatus::Running
+        }
+
+        fn is_running(&self) -> bool {
+            true
+        }
+
+        fn is_paused(&self) -> bool {
+            false
+        }
+
+        fn is_completed(&self) -> bool {
+            false
+        }
+
+        fn is_failed(&self) -> bool {
+            false
+        }
+
+        fn is_cancelled(&self) -> bool {
+            false
+        }
+
+        async fn pause(&self) -> Result<(), ExecutionSharedError> {
+            Ok(())
+        }
+
+        async fn resume(&self) -> Result<(), ExecutionSharedError> {
+            Ok(())
+        }
+
+        async fn stop(&self) -> Result<(), ExecutionSharedError> {
+            Ok(())
+        }
+
+        async fn abort(&self) {}
+
+        fn get_abort_signal(&self) -> tokio_util::sync::CancellationToken {
+            tokio_util::sync::CancellationToken::new()
+        }
+
+        fn get_hierarchy_depth(&self) -> u32 {
+            self.depth
+        }
+
+        fn get_root_execution_id(&self) -> Option<Id> {
+            self.root.clone()
+        }
+
+        fn get_ancestors(&self) -> Vec<Id> {
+            self.ancestors.clone()
+        }
+    }
+
+    fn stub(id: &str, depth: u32, ancestors: Vec<&str>, root: Option<&str>) -> StubEntity {
+        StubEntity {
+            id: Id::from(id.to_string()),
+            depth,
+            ancestors: ancestors
+                .into_iter()
+                .map(|a| Id::from(a.to_string()))
+                .collect(),
+            root: root.map(|r| Id::from(r.to_string())),
+        }
+    }
+
+    #[test]
+    fn child_link_helpers_extend_parent_chain() {
+        let parent = stub("p", 1, vec!["root"], Some("root"));
+        let ancestors = child_ancestors(&parent);
+        let ids: Vec<String> = ancestors.iter().map(|id| id.as_str().to_string()).collect();
+        assert_eq!(ids, vec!["root".to_string(), "p".to_string()]);
+        assert_eq!(child_depth(&parent), 2);
+        assert_eq!(child_root(&parent).as_str(), "root");
+    }
+
+    #[test]
+    fn child_root_falls_back_to_parent_id() {
+        let parent = stub("p", 0, vec![], None);
+        assert_eq!(child_root(&parent).as_str(), "p");
     }
 }

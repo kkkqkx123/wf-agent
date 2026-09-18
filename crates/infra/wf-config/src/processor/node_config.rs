@@ -115,9 +115,7 @@ mod tests {
         let errors = validate_node_config(
             "LLM",
             "n1",
-            Some(
-                &serde_json::json!({"profile_id": "mock", "max_tool_calls_per_request": 0}),
-            ),
+            Some(&serde_json::json!({"profile_id": "mock", "max_tool_calls_per_request": 0})),
         );
         assert_eq!(errors.len(), 1);
         assert!(errors[0].message.contains("max_tool_calls_per_request"));
@@ -137,7 +135,9 @@ mod tests {
             Some(&serde_json::json!({"profile_id": "mock", "max_interactions": "many"})),
         );
         assert!(
-            errors.iter().any(|e| e.message.contains("execution settings")),
+            errors
+                .iter()
+                .any(|e| e.message.contains("execution settings")),
             "non-integer budgets stay owned by the execution-settings type check"
         );
     }

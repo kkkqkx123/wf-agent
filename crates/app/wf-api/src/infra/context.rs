@@ -2,11 +2,14 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use dashmap::DashMap;
+use wf_agent::entity::AgentLoopEntity;
 use wf_agent::registry::AgentLoopRegistry;
-use wf_core::registry::{ConcurrentRegistry, Registry};
+use wf_core::registry::{ConcurrentRegistry, MutableRegistry, Registry};
 use wf_core::EventBus;
 use wf_execution_shared::execution_state::ExecutionStateManager;
 use wf_execution_shared::hooks::HookHandlerRegistry;
+use wf_execution_shared::types::execution_entity::{ExecutionEntity, ExecutionStatus};
+use wf_execution_shared::types::execution_instance::ExecutionInstance;
 use wf_llm::LlmGateway;
 use wf_metrics::MetricsRegistry;
 use wf_resource::registry::ResourceRegistries;
@@ -20,12 +23,19 @@ use wf_workflow::entity::WorkflowExecutionEntity;
 use wf_workflow::handler::NodeHandler;
 use wf_workflow::registry::WorkflowExecutionRegistry;
 
+use crate::infra::error::ApiError;
 use crate::infra::handler_chain::{
     NoopPluginHandlerSource, PluginHandlerSource, PluginNodeAdapter,
 };
 use crate::infra::persistence::{PersistenceLayer, StorePersistenceLayer};
 use crate::infra::tasks::ExecutionTaskRegistry;
 use crate::ApiResult;
+
+/// Live execution handle uniting both engines with concrete payloads.
+/// Static dispatch on both sides; the variant tag cannot lie because the
+/// payload types differ.
+pub type LiveExecutionInstance =
+    ExecutionInstance<Arc<AgentLoopEntity>, Arc<WorkflowExecutionEntity>>;
 
 /// Assembled application-facing API context.
 ///
@@ -380,6 +390,137 @@ impl ApiContext {
     /// Look up a live agent loop handle by id.
     pub fn agent_loop(&self, id: &str) -> Option<Arc<wf_agent::entity::AgentLoopEntity>> {
         self.agent_loops.get(&wf_types::Id::from(id.to_string()))
+    }
+
+    /// Look up any live execution (workflow first, then agent loop) behind
+    /// the unified control-plane handle. Engine internals keep using the
+    /// typed registries; shared surfaces (status, pause/resume/stop/cancel,
+    /// subtree, teardown) go through here instead of branching twice.
+    /// Snapshot and progress queries keep typed access because they need
+    /// engine-specific state. When one id exists in both registries the
+    /// workflow handle wins.
+    pub fn execution_instance(&self, id: &str) -> Option<LiveExecutionInstance> {
+        if let Some(entity) = self.workflow_executions.get(id) {
+            return Some(LiveExecutionInstance::workflow(entity));
+        }
+        self.agent_loop(id).map(LiveExecutionInstance::agent)
+    }
+
+    /// Live status of any execution behind the unified handle.
+    pub fn live_execution_status(&self, id: &str) -> ApiResult<ExecutionStatus> {
+        self.execution_instance(id)
+            .map(|handle| handle.status())
+            .ok_or_else(|| ApiError::execution_not_found(id))
+    }
+
+    /// Pause any live execution behind the unified handle.
+    pub async fn pause_execution(&self, id: &str) -> ApiResult<()> {
+        let handle = self
+            .execution_instance(id)
+            .ok_or_else(|| ApiError::execution_not_found(id))?;
+        handle
+            .pause()
+            .await
+            .map_err(|e| ApiError::execution(e.to_string()))
+    }
+
+    /// Resume any live execution behind the unified handle.
+    pub async fn resume_execution(&self, id: &str) -> ApiResult<()> {
+        let handle = self
+            .execution_instance(id)
+            .ok_or_else(|| ApiError::execution_not_found(id))?;
+        handle
+            .resume()
+            .await
+            .map_err(|e| ApiError::execution(e.to_string()))
+    }
+
+    /// Stop any live execution behind the unified handle. Idempotent:
+    /// stopping an already-terminal execution succeeds.
+    pub async fn stop_execution(&self, id: &str) -> ApiResult<()> {
+        let handle = self
+            .execution_instance(id)
+            .ok_or_else(|| ApiError::execution_not_found(id))?;
+        handle
+            .stop()
+            .await
+            .map_err(|e| ApiError::execution(e.to_string()))
+    }
+
+    /// Cancel any live execution: stop the entity and drop its background
+    /// driver task handle when one is tracked (agent task registry and the
+    /// shared driver task registry).
+    pub async fn cancel_execution(&self, id: &str) -> ApiResult<()> {
+        self.stop_execution(id).await?;
+        let key = wf_types::Id::from(id.to_string());
+        self.agent_loops.abort_task(&key);
+        self.execution_tasks.abort(id);
+        Ok(())
+    }
+
+    /// Every live execution in the hierarchy rooted at `root_id`, including
+    /// the root itself, ordered by id for stable output. Membership is
+    /// resolved through each execution's root link, falling back to the
+    /// ancestor chain so executions with a missing root link are still found.
+    pub fn execution_subtree(&self, root_id: &str) -> Vec<LiveExecutionInstance> {
+        fn in_subtree(handle: &LiveExecutionInstance, root_id: &str) -> bool {
+            if handle.id().as_str() == root_id {
+                return true;
+            }
+            if handle.get_root_execution_id().as_deref() == Some(root_id) {
+                return true;
+            }
+            handle
+                .get_ancestors()
+                .iter()
+                .any(|id| id.as_str() == root_id)
+        }
+        let mut matches = Vec::new();
+        for key in self.workflow_executions.list() {
+            if let Some(entity) = self.workflow_executions.get(&key) {
+                let handle = LiveExecutionInstance::workflow(entity);
+                if in_subtree(&handle, root_id) {
+                    matches.push(handle);
+                }
+            }
+        }
+        for id in self.agent_loops.get_all_ids() {
+            if let Some(entity) = self.agent_loops.get(&id) {
+                let handle = LiveExecutionInstance::agent(entity);
+                if in_subtree(&handle, root_id) {
+                    matches.push(handle);
+                }
+            }
+        }
+        matches.sort_by(|a, b| a.id().as_str().cmp(b.id().as_str()));
+        matches
+    }
+
+    /// Whether a child at `parent_depth` fits the shared nesting gate.
+    /// The gate is owned by the agent registry; workflow executions have no
+    /// independent quota yet and share this limit for cross-engine nesting.
+    pub fn child_depth_allowed(&self, parent_depth: u32) -> bool {
+        self.agent_loops.depth_allowed(parent_depth)
+    }
+
+    /// Remove terminated executions from both live registries (agent results
+    /// and task handles go with them). Termination is judged through the
+    /// unified handle so both engines share one terminal definition.
+    /// Returns the total removed.
+    pub async fn cleanup_terminated_executions(&self) -> usize {
+        let mut removed = self.agent_loops.cleanup_terminated().await;
+        for key in self.workflow_executions.list() {
+            let terminal = self
+                .workflow_executions
+                .get(&key)
+                .map(|entity| LiveExecutionInstance::workflow(entity).is_terminal())
+                .unwrap_or(true);
+            if terminal {
+                self.workflow_executions.unregister(&key);
+                removed += 1;
+            }
+        }
+        removed
     }
 
     /// Abort every tracked execution driver task (workflow `stream()`

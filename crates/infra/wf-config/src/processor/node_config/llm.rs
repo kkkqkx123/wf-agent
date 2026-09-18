@@ -5,8 +5,7 @@ use wf_types::llm::{
 };
 
 use super::common::{
-    field_path, require_string, validate_execution_settings, validate_typed_field,
-    NodeConfigIssue,
+    field_path, require_string, validate_execution_settings, validate_typed_field, NodeConfigIssue,
 };
 
 /// Reject an explicit zero interaction budget: zero rounds would run no
@@ -19,7 +18,10 @@ fn reject_zero_budget(
     config: &Value,
     field: &str,
 ) -> Option<NodeConfigIssue> {
-    let zero = config.get(field).and_then(|v| v.as_u64()).is_some_and(|n| n == 0);
+    let zero = config
+        .get(field)
+        .and_then(|v| v.as_u64())
+        .is_some_and(|n| n == 0);
     if !zero {
         return None;
     }
@@ -61,8 +63,7 @@ pub(crate) fn validate_llm_node(
         {
             errors.push(err);
         }
-        if let Some(err) = reject_zero_budget(node_id, node_type, &config, "max_interactions")
-        {
+        if let Some(err) = reject_zero_budget(node_id, node_type, &config, "max_interactions") {
             errors.push(err);
         }
         if let Some(err) =

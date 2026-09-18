@@ -48,6 +48,13 @@ impl Default for PacerConfig {
     }
 }
 
+/// Canonical reasoning-segment contract lives in the markdown crate so the
+/// pacer and the renderer share one sentinel and escape set.
+pub use tui_markdown::markdown::reasoning::{
+    escape_reasoning, mark_reasoning, reasoning_line_content, split_reasoning_marks,
+    REASONING_ESCAPES, REASONING_SENTINEL,
+};
+
 /// Arrival vs display decoupling: `buffer` holds every arrived byte while
 /// `released` marks the visible prefix length. `fed` is not stored here;
 /// callers track how much of the visible prefix they already consumed.
@@ -350,9 +357,7 @@ impl SegmentedPacer {
                     }
                     let take = (*len).min(avail);
                     let start = self.reasoning_taken;
-                    ops.push(PacerOp::Reasoning(
-                        visible[start..start + take].to_string(),
-                    ));
+                    ops.push(PacerOp::Reasoning(visible[start..start + take].to_string()));
                     self.reasoning_taken += take;
                     *len -= take;
                     if *len == 0 {
@@ -376,6 +381,33 @@ impl SegmentedPacer {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn reasoning_marks_round_trip_in_arrival_order() {
+        let marked = format!(
+            "answer {}thinking{} tail",
+            REASONING_SENTINEL, REASONING_SENTINEL
+        );
+        assert_eq!(
+            split_reasoning_marks(&marked),
+            vec![
+                (false, "answer ".to_string()),
+                (true, "thinking".to_string()),
+                (false, " tail".to_string()),
+            ]
+        );
+        assert_eq!(
+            mark_reasoning("thinking"),
+            format!("{s}thinking{s}", s = REASONING_SENTINEL)
+        );
+    }
+
+    #[test]
+    fn reasoning_escapes_keep_emphasis_adjacent() {
+        assert_eq!(escape_reasoning("a*b_c~d"), "a\\*b\\_c\\~d");
+        assert_eq!(escape_reasoning("plain"), "plain");
+        assert!(REASONING_ESCAPES.contains(&'*'));
+    }
 
     #[test]
     fn paced_frames_follow_the_rate_curve() {

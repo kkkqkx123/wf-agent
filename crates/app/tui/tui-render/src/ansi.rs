@@ -1,11 +1,16 @@
 //! Minimal ANSI escape → ratatui [`Line`] pipeline.
 //!
-//! We self-host a small SGR subset instead of pulling in the external
-//! `ansi-to-tui` crate: the CLI's tool output mainly uses
-//! 16/256-color and truecolor foreground/background, bold, dim, italic,
-//! underline and reverse. Everything else — other CSI sequences and OSC —
-//! is stripped. Tabs expand to 4 spaces and `\n` splits rows, matching how
-//! a real terminal would break the byte stream into visible lines.
+//! We self-host a single SGR parser instead of pulling in the external
+//! `ansi-to-tui` crate: the CLI's tool output mainly uses 16/256-color and
+//! truecolor foreground/background, bold, dim, italic, underline,
+//! strikethrough and reverse. Everything else — other CSI sequences
+//! (cursor movement, erase in line/display, scrolling) and OSC (including
+//! OSC 8 hyperlinks, window titles) — is stripped while preserving the
+//! visible text between sequences, so `ESC]8;;URI ST link ESC]8;; ST`
+//! yields `link` and `a ESC[2K b` yields `ab`. Tabs expand to 4 spaces and
+//! `\n` splits rows, matching how a real terminal breaks the byte stream
+//! into visible lines. This is the only ANSI parser in the workspace by
+//! design; OSC 10/11 color probing lives separately in `tui-terminal`.
 
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
@@ -20,6 +25,7 @@ pub struct SgrState {
     pub italic: bool,
     pub underline: bool,
     pub reversed: bool,
+    pub crossed_out: bool,
 }
 
 impl SgrState {
@@ -51,6 +57,9 @@ impl SgrState {
         }
         if self.reversed {
             s = s.add_modifier(Modifier::REVERSED);
+        }
+        if self.crossed_out {
+            s = s.add_modifier(Modifier::CROSSED_OUT);
         }
         s
     }
@@ -184,6 +193,7 @@ impl AnsiParser {
                 3 => self.state.italic = true,
                 4 => self.state.underline = true,
                 7 => self.state.reversed = true,
+                9 => self.state.crossed_out = true,
                 21 | 22 => {
                     self.state.bold = false;
                     self.state.dimmed = false;
@@ -191,6 +201,7 @@ impl AnsiParser {
                 23 => self.state.italic = false,
                 24 => self.state.underline = false,
                 27 => self.state.reversed = false,
+                29 => self.state.crossed_out = false,
                 // Standard fg 30..=37.
                 30..=37 => self.state.fg = Some(Color::Indexed((tokens[idx] - 30) as u8)),
                 38 => {
@@ -322,6 +333,34 @@ mod tests {
     fn strips_unknown_sequences() {
         let lines = parse("a\x1b[2;3H\x1b[1;1H\x1b]0;title\x07b\x1b(Bc");
         assert_eq!(plain_text(&lines), "abc");
+    }
+
+    #[test]
+    fn hyperlink_keeps_text_drops_uri() {
+        let lines = parse("\x1b]8;;https://example.com\x1b\\link\x1b]8;;\x1b\\");
+        assert_eq!(plain_text(&lines), "link");
+    }
+
+    #[test]
+    fn erase_sequences_are_stripped() {
+        assert_eq!(plain_text(&parse("a\x1b[Kb")), "ab");
+        assert_eq!(plain_text(&parse("a\x1b[2Kb")), "ab");
+        assert_eq!(plain_text(&parse("a\x1b[Jb")), "ab");
+        assert_eq!(plain_text(&parse("a\x1b[1Ab")), "ab");
+    }
+
+    #[test]
+    fn strikethrough_round_trips() {
+        let lines = parse("\x1b[9mX\x1b[29mY");
+        let spans = &lines[0].spans;
+        assert!(spans[0]
+            .style
+            .add_modifier
+            .contains(ratatui::style::Modifier::CROSSED_OUT));
+        assert!(!spans[1]
+            .style
+            .add_modifier
+            .contains(ratatui::style::Modifier::CROSSED_OUT));
     }
 
     #[test]

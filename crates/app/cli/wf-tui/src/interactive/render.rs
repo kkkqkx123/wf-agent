@@ -23,7 +23,10 @@ use crate::redraw::{decide_scope, AnimationArea, RedrawScope};
 use crate::theme::Theme;
 
 impl InteractiveController {
-    /// Render the session into the supplied area.
+    /// Render the session into the supplied area. The single submit point
+    /// branches on scope: full rebuilds everything, bottom-only reuses the
+    /// cached scrollback preparation and repaints footer/input, and
+    /// animation-only touches just the recorded animation cells.
     pub fn draw(&mut self, frame: &mut Frame, area: Rect, theme: &Theme) {
         self.footer.set_now(self.now_ms());
 
@@ -37,12 +40,25 @@ impl InteractiveController {
             ])
             .areas(area);
 
-        let snapshot = self.redraw_snapshot_for(scroll_area.width);
+        let snapshot = self.redraw_snapshot_for(scroll_area.width, scroll_area.height);
         let scope = decide_scope(self.last_snapshot(), snapshot);
         let scope = self.coerce_scope(scope);
-        self.draw_scrollback_scoped(frame, scroll_area, scope);
-        self.footer.draw(footer_area, frame.buffer_mut(), theme);
-        self.draw_input(frame, input_area);
+        match scope {
+            RedrawScope::Full => {
+                self.draw_scrollback_scoped(frame, scroll_area, scope);
+                self.footer.draw(footer_area, frame.buffer_mut(), theme);
+                self.draw_input(frame, input_area);
+            }
+            RedrawScope::BottomOnly => {
+                self.draw_scrollback_cached(frame, scroll_area);
+                self.footer.draw(footer_area, frame.buffer_mut(), theme);
+                self.draw_input(frame, input_area);
+            }
+            RedrawScope::AnimationOnly => {
+                self.draw_anim_cells_only(frame);
+            }
+            RedrawScope::None => {}
+        }
         self.record_anim_area(scroll_area, footer_area);
         self.set_last_snapshot(snapshot);
         if scope == RedrawScope::AnimationOnly {
@@ -77,6 +93,7 @@ impl InteractiveController {
 
         let width = inner.width;
         self.last_layout_width = width;
+        self.last_layout_height = inner.height;
         // Consume the preparation cache: width drift relays out fully while
         // version or length drift is repaired by the fallback path. Only the
         // visible window is cloned below; the cached rows stay shared.
@@ -149,11 +166,12 @@ impl InteractiveController {
         frame.render_widget(Paragraph::new(visible), inner);
     }
 
-    /// Snapshot variant pinned to the draw width so width drift grades full
-    /// before the layout key updates. The animation tick is bucketed so
-    /// spinner progress alone grades animation-only and never invalidates
-    /// the preparation cache inside a bucket.
-    fn redraw_snapshot_for(&self, width: u16) -> crate::redraw::RedrawSnapshot {
+    /// Snapshot variant pinned to the draw size so width or height drift
+    /// grades full before the layout key updates. The animation tick is
+    /// bucketed so spinner progress alone grades animation-only and never
+    /// invalidates the preparation cache inside a bucket. A pending approval
+    /// overlay forces full so the modal never paints over a reused frame.
+    fn redraw_snapshot_for(&self, width: u16, height: u16) -> crate::redraw::RedrawSnapshot {
         let now_ms = self.now_ms();
         let streaming_text = self.stream.streaming_text();
         crate::redraw::RedrawSnapshot {
@@ -162,14 +180,21 @@ impl InteractiveController {
             streaming_hash: crate::prep_keys::hash_prefix(streaming_text),
             footer_digest: crate::redraw::footer_digest(&self.footer.state),
             width,
+            height,
+            render_mode: 0,
             view_scroll: self.view_scroll,
             anim_tick: crate::clock::anim_bucket(now_ms),
-            force_full: false,
+            image_signature: self.image_signature,
+            expanded_version: self.expanded_version,
+            aspect_bucket: crate::layout::aspect_bucket(width, height),
+            force_full: self.approval_reply.is_some(),
         }
     }
 
     /// Record the animation cells an animation-only frame may touch: the
     /// streaming indicator cell and the statusline spinner cell while busy.
+    /// Stored as loop-held packed rectangles; animation-only frames repaint
+    /// exactly these cells.
     fn record_anim_area(&mut self, scroll_area: Rect, footer_area: Rect) {
         let streaming_cell = self.streaming.as_ref().map(|_| Rect {
             x: scroll_area.x,
@@ -189,10 +214,83 @@ impl InteractiveController {
                 height: 1,
             }
         });
-        self.anim_area = AnimationArea {
-            streaming_cell,
-            status_cell,
-        };
+        self.anim_area = AnimationArea::new(streaming_cell, status_cell);
+        self.anim_rows.record(self.anim_area);
+    }
+
+    /// Bottom-only path: reuse the cached preparation without relayout and
+    /// repaint the visible window. Footer/input are drawn by the caller.
+    fn draw_scrollback_cached(&mut self, frame: &mut Frame, area: Rect) {
+        if self.scrollback.is_empty() && self.streaming.is_none() {
+            frame.render_widget(
+                Paragraph::new("Type a prompt and press Enter to start an agent turn."),
+                area,
+            );
+            return;
+        }
+        let width = area.width;
+        self.last_layout_width = width;
+        self.last_layout_height = area.height;
+        self.scroll_cache_key = Some(self.prep.key());
+        let capacity = usize::from(area.height.max(1));
+        let cached_len = self.prep.total_rows();
+        let now_ms = self.now_ms();
+        let streaming_len = self
+            .streaming
+            .as_ref()
+            .map(|s| s.display_lines_at(width, now_ms).len())
+            .unwrap_or(0);
+        let total = cached_len + streaming_len;
+        let max_scroll = total.saturating_sub(capacity);
+        self.view_scroll = self.view_scroll.min(max_scroll);
+        let start = max_scroll - self.view_scroll;
+        let end = start.saturating_add(capacity).min(total);
+        let mut visible: Vec<Line<'static>> = Vec::with_capacity(end.saturating_sub(start));
+        if start < cached_len {
+            let cached_end = end.min(cached_len);
+            visible.extend(
+                self.prep
+                    .visible_range(start, cached_end - start)
+                    .iter()
+                    .cloned(),
+            );
+        }
+        if let Some(streaming) = &self.streaming {
+            let rows = streaming.display_lines_at(width, now_ms);
+            for index in start.max(cached_len)..end {
+                if let Some(row) = rows.get(index - cached_len) {
+                    visible.push(row.clone());
+                }
+            }
+        }
+        frame.render_widget(Paragraph::new(visible), area);
+    }
+
+    /// Animation-only path: repaint exactly the recorded animation cells.
+    /// The scrollback and input keep their previous buffer contents; only
+    /// the streaming indicator and spinner cells advance. Falls back to
+    /// nothing when no cells were recorded.
+    fn draw_anim_cells_only(&mut self, frame: &mut Frame) {
+        use ratatui::style::{Color, Modifier, Style};
+        if self.anim_rows.is_empty() {
+            return;
+        }
+        let now_ms = self.now_ms();
+        let spinner = self.animation.spinner_char_at(now_ms);
+        let style = Style::default()
+            .fg(Color::Cyan)
+            .add_modifier(Modifier::BOLD);
+        let buf = frame.buffer_mut();
+        if let Some(cell) = self.anim_area.streaming_cell() {
+            if self.anim_rows.covers(cell.y) {
+                buf.set_string(cell.x, cell.y, spinner, style);
+            }
+        }
+        if let Some(cell) = self.anim_area.status_cell() {
+            if self.anim_rows.covers(cell.y) {
+                buf.set_string(cell.x, cell.y, spinner, style);
+            }
+        }
     }
 
     fn draw_input(&self, frame: &mut Frame, area: Rect) {

@@ -1,20 +1,20 @@
-//! Theme detection: OSC 10/11 color probing, palette derivation, the
-//! last-known-good cache and the SIGUSR2 hot-reload signal
+//! Theme detection: palette derivation, last-known-good cache and user
+//! overrides over pure [`Theme`] data.
 //!
 //! The theme is pure data ([`Theme`]) consumed by the components that map
-//! roles to ratatui styles; this module never renders.
+//! roles to ratatui styles; this module never renders and never touches the
+//! terminal. Live OSC 10/11 probing lives in `tui-terminal::probe`; this
+//! module only turns injected probe results into a theme via
+//! [`resolve_theme`], so tests stay deterministic and the dependency points
+//! from style toward the terminal, never toward an async runtime.
 //!
-//! Probe pipeline (unix): open `/dev/tty` → temporarily enable raw mode →
-//! write the OSC 11 (background) and OSC 10 (foreground) queries → read
-//! responses with [`OSC_PROBE_TIMEOUT`] → restore the raw-mode state →
-//! derive the theme. Every failure mode (no `/dev/tty`, no response before
-//! the timeout, garbage bytes) degrades gracefully: last-known-good cache →
-//! built-in dark theme. [`probe_theme`] never panics and reports which
-//! source produced the theme.
+//! Resolution order: explicit user file → live OSC probe result (injected by
+//! the caller) → last-known-good cache → built-in dark theme, then user
+//! overrides. [`probe_theme`] keeps the legacy convenience path by probing
+//! through `tui-terminal` synchronously.
 
-use std::io::{Read, Write};
 use std::path::PathBuf;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
@@ -480,22 +480,22 @@ pub fn assistant_message_style() -> ratatui::style::Style {
 
 /// Style for tool call indicators.
 pub fn tool_call_style() -> ratatui::style::Style {
-    to_style(Rgb::new(0x22, 0xD3, 0xEE)) // cyan
+    Theme::dark_default().style_for_role(ColorRole::Accent)
 }
 
 /// Style for successful operations.
 pub fn success_style() -> ratatui::style::Style {
-    to_style(Rgb::new(0x4A, 0xDE, 0x80)) // green
+    Theme::dark_default().style_for_role(ColorRole::Add)
 }
 
 /// Style for failed operations.
 pub fn error_style() -> ratatui::style::Style {
-    to_style(Rgb::new(0xF8, 0x71, 0x71)) // red
+    Theme::dark_default().style_for_role(ColorRole::Error)
 }
 
 /// Style for warnings.
 pub fn warning_style() -> ratatui::style::Style {
-    to_style(Rgb::new(0xFA, 0xCC, 0x15)) // yellow
+    Theme::dark_default().style_for_role(ColorRole::Warning)
 }
 
 /// Style for muted/dimmed text.
@@ -515,6 +515,48 @@ pub fn highlight_style(_bg: Rgb) -> ratatui::style::Style {
 pub fn table_separator_style(fg: Rgb, bg: Rgb) -> ratatui::style::Style {
     let blended = blend_rgb(fg, bg, 0.20);
     to_dim_style(blended)
+}
+
+// ── literal compatibility ────────────────────────────────────────────
+
+/// Squared Euclidean distance between two colors.
+fn color_distance_sq(a: Rgb, b: Rgb) -> u32 {
+    let dr = a.r as i32 - b.r as i32;
+    let dg = a.g as i32 - b.g as i32;
+    let db = a.b as i32 - b.b as i32;
+    (dr * dr + dg * dg + db * db) as u32
+}
+
+/// Nearest semantic role for a historical literal color, measured against
+/// the dark-default palette (the palette every literal was picked from).
+/// Returns the role whose default color is closest to `literal`; exact ties
+/// resolve to the earlier role in palette order.
+pub fn nearest_role(literal: Rgb) -> ColorRole {
+    let defaults = Theme::dark_default();
+    let candidates = [
+        (ColorRole::Default, defaults.fg),
+        (ColorRole::Muted, defaults.muted),
+        (ColorRole::Accent, defaults.accent),
+        (ColorRole::Add, defaults.add),
+        (ColorRole::Remove, defaults.remove),
+        (ColorRole::Warning, defaults.warning),
+        (ColorRole::Error, defaults.error),
+        (ColorRole::Highlight, defaults.highlight),
+    ];
+    candidates
+        .into_iter()
+        .min_by_key(|(_, color)| color_distance_sq(literal, *color))
+        .map(|(role, _)| role)
+        .unwrap_or(ColorRole::Default)
+}
+
+/// Compatibility mapping for historical literal colors: resolve `literal`
+/// to its nearest semantic role, then return that role's color from
+/// `theme`. When the theme is untouched the result equals the historical
+/// value, so default output stays byte-identical; user overrides flow to
+/// every migrated call site without touching draw code.
+pub fn remap_literal(literal: Rgb, theme: &Theme) -> Rgb {
+    theme.rgb_for_role(nearest_role(literal))
 }
 
 // ── OSC response parsing (pure) ───────────────────────────────────────
@@ -692,7 +734,10 @@ pub fn save_theme_cache(theme: &Theme) {
             return;
         }
     }
-    let _ = std::fs::write(path, serde_json::to_vec_pretty(theme).unwrap_or_default());
+    let Ok(payload) = serde_json::to_vec_pretty(theme) else {
+        return;
+    };
+    let _ = std::fs::write(path, payload);
 }
 
 /// Load the last-known-good theme, marked [`ThemeSource::Cached`].
@@ -747,149 +792,62 @@ pub fn load_theme_overrides() -> Option<ThemeOverrides> {
 
 // ── live probing ──────────────────────────────────────────────────────
 
-/// Probe the terminal theme (OSC 11 background + OSC 10 foreground) with
-/// the default timeout; never panics — failures fall back to the cache /
-/// built-in dark theme.
+/// Pure resolution over already-loaded inputs. The caller supplies the file,
+/// live probe, cache and override values; no filesystem or terminal access
+/// happens here, so the full priority chain stays unit-testable.
+pub fn resolve_theme(
+    file: Option<Theme>,
+    probed_bg: Option<Rgb>,
+    probed_fg: Option<Rgb>,
+    cached: Option<Theme>,
+    overrides: Option<ThemeOverrides>,
+) -> Theme {
+    let mut theme = if let Some(theme) = file {
+        theme
+    } else if let Some(bg) = probed_bg {
+        let theme = derive_theme(bg, probed_fg);
+        save_theme_cache(&theme);
+        theme
+    } else if let Some(cached) = cached {
+        let mut cached = cached;
+        cached.source = ThemeSource::Cached;
+        cached
+    } else {
+        Theme::dark_default()
+    };
+    if let Some(overrides) = overrides {
+        theme = overrides.apply(theme);
+    }
+    theme
+}
+
+/// Probe the terminal theme with the default timeout; never panics —
+/// failures fall back to the cache / built-in dark theme. The live OSC
+/// query runs in `tui-terminal`; this crate only maps the result.
 pub fn probe_theme() -> Theme {
     probe_theme_with_timeout(OSC_PROBE_TIMEOUT)
 }
 
 /// [`probe_theme`] with an explicit timeout.
 pub fn probe_theme_with_timeout(timeout: Duration) -> Theme {
-    // Priority: explicit user file → live OSC probe → cache → built-in.
-    let mut theme = if let Some(theme) = load_theme_file() {
-        theme
+    let file = load_theme_file();
+    let (probed_bg, probed_fg) = if file.is_none() {
+        let (fg, bg) = tui_terminal::probe::probe_osc_colors(timeout);
+        (
+            bg.map(|c| Rgb::new(c.r, c.g, c.b)),
+            fg.map(|c| Rgb::new(c.r, c.g, c.b)),
+        )
     } else {
-        match probe_osc_colors(timeout) {
-            (Some(bg), fg) => {
-                let theme = derive_theme(bg, fg);
-                save_theme_cache(&theme);
-                theme
-            }
-            (None, _) => fallback_theme(),
-        }
+        (None, None)
     };
-
-    // Apply user overrides if present.
-    if let Some(overrides) = load_theme_overrides() {
-        theme = overrides.apply(theme);
-    }
-
-    theme
+    let cached = load_theme_cache();
+    let overrides = load_theme_overrides();
+    resolve_theme(file, probed_bg, probed_fg, cached, overrides)
 }
 
 /// Fallback chain: last-known-good cache → built-in dark theme.
 pub fn fallback_theme() -> Theme {
     load_theme_cache().unwrap_or_else(Theme::dark_default)
-}
-
-#[cfg(unix)]
-fn probe_osc_colors(timeout: Duration) -> (Option<Rgb>, Option<Rgb>) {
-    use std::os::unix::io::AsRawFd;
-
-    // A controlling terminal is required; containers/CI often lack one.
-    let Ok(mut tty) = std::fs::OpenOptions::new()
-        .read(true)
-        .write(true)
-        .open("/dev/tty")
-    else {
-        return (None, None);
-    };
-
-    let raw_was_enabled = crossterm::terminal::is_raw_mode_enabled().unwrap_or(false);
-    let raw_restorer = RawModeRestorer {
-        restore: raw_was_enabled,
-    };
-    if !raw_was_enabled && crossterm::terminal::enable_raw_mode().is_err() {
-        return (None, None);
-    }
-
-    // Both queries in one write; responses may arrive in any order.
-    const QUERIES: &[u8] = b"\x1b]11;?\x1b\\\x1b]10;?\x1b\\";
-    if tty.write_all(QUERIES).is_err() || tty.flush().is_err() {
-        drop(raw_restorer);
-        return (None, None);
-    }
-
-    let deadline = Instant::now() + timeout;
-    let mut parser = OscColorParser::new();
-    let mut chunk = [0u8; 256];
-    let fd = tty.as_raw_fd();
-    while !parser.is_complete() {
-        let remaining = deadline.saturating_duration_since(Instant::now());
-        if remaining.is_zero() {
-            break;
-        }
-        let mut pfd = libc::pollfd {
-            fd,
-            events: libc::POLLIN,
-            revents: 0,
-        };
-        // SAFETY: `pfd` is a valid, exclusively-owned pollfd.
-        let ready = unsafe {
-            libc::poll(
-                &mut pfd,
-                1,
-                remaining.as_millis().clamp(1, i32::MAX as u128) as i32,
-            )
-        };
-        if ready <= 0 {
-            break; // timeout or error
-        }
-        match tty.read(&mut chunk) {
-            Ok(0) => break, // EOF
-            Ok(n) => parser.feed(&chunk[..n]),
-            Err(_) => break,
-        }
-    }
-    drop(raw_restorer);
-    parser.finish()
-}
-
-#[cfg(not(unix))]
-fn probe_osc_colors(_timeout: Duration) -> (Option<Rgb>, Option<Rgb>) {
-    (None, None)
-}
-
-/// Restores the raw-mode state found before probing (RAII).
-struct RawModeRestorer {
-    restore: bool,
-}
-
-impl Drop for RawModeRestorer {
-    fn drop(&mut self) {
-        // When raw mode was already on the caller owns it; otherwise the
-        // probe enabled it and must turn it back off.
-        if !self.restore {
-            let _ = crossterm::terminal::disable_raw_mode();
-        }
-    }
-}
-
-// ── SIGUSR2 hot reload ────────────────────────────────────────────────
-
-/// Channel delivering one `()` per SIGUSR2 (theme hot-reload requests).
-/// Non-unix platforms get an immediately-closed channel.
-#[cfg(unix)]
-pub async fn theme_reload_signals() -> std::io::Result<tokio::sync::mpsc::Receiver<()>> {
-    use tokio::signal::unix::{signal, SignalKind};
-
-    let (tx, rx) = tokio::sync::mpsc::channel(8);
-    let mut stream = signal(SignalKind::user_defined2())?;
-    tokio::spawn(async move {
-        while stream.recv().await.is_some() {
-            if tx.send(()).await.is_err() {
-                break; // receiver dropped
-            }
-        }
-    });
-    Ok(rx)
-}
-
-#[cfg(not(unix))]
-pub async fn theme_reload_signals() -> std::io::Result<tokio::sync::mpsc::Receiver<()>> {
-    let (_tx, rx) = tokio::sync::mpsc::channel::<()>(8);
-    Ok(rx) // _tx dropped → closed channel
 }
 
 #[cfg(test)]
@@ -991,6 +949,51 @@ mod tests {
         let t = derive_theme(Rgb::new(0xFA, 0xFB, 0xFC), Some(Rgb::new(0x20, 0x20, 0x20)));
         assert_eq!(t.kind, ThemeKind::Light);
         assert_eq!(t.fg, Rgb::new(0x20, 0x20, 0x20));
+    }
+
+    #[test]
+    fn literal_helpers_match_their_roles() {
+        let defaults = Theme::dark_default();
+        assert_eq!(
+            tool_call_style(),
+            defaults.style_for_role(ColorRole::Accent)
+        );
+        assert_eq!(success_style(), defaults.style_for_role(ColorRole::Add));
+        assert_eq!(error_style(), defaults.style_for_role(ColorRole::Error));
+        assert_eq!(warning_style(), defaults.style_for_role(ColorRole::Warning));
+    }
+
+    #[test]
+    fn nearest_role_recovers_historical_literals() {
+        assert_eq!(nearest_role(Rgb::new(0x22, 0xD3, 0xEE)), ColorRole::Accent);
+        assert_eq!(nearest_role(Rgb::new(0x4A, 0xDE, 0x80)), ColorRole::Add);
+        // The historical red is shared by the remove and error roles; the
+        // tie resolves to the earlier role, whose color is identical.
+        assert_eq!(nearest_role(Rgb::new(0xF8, 0x71, 0x71)), ColorRole::Remove);
+        assert_eq!(nearest_role(Rgb::new(0xFA, 0xCC, 0x15)), ColorRole::Warning);
+    }
+
+    #[test]
+    fn remap_literal_is_identity_on_defaults() {
+        let defaults = Theme::dark_default();
+        for literal in [
+            Rgb::new(0x22, 0xD3, 0xEE),
+            Rgb::new(0x4A, 0xDE, 0x80),
+            Rgb::new(0xF8, 0x71, 0x71),
+            Rgb::new(0xE5, 0xE7, 0xEB),
+        ] {
+            assert_eq!(remap_literal(literal, &defaults), literal);
+        }
+    }
+
+    #[test]
+    fn remap_literal_follows_user_overrides() {
+        let mut custom = Theme::dark_default();
+        custom.accent = Rgb::new(0x11, 0x22, 0x33);
+        assert_eq!(
+            remap_literal(Rgb::new(0x22, 0xD3, 0xEE), &custom),
+            Rgb::new(0x11, 0x22, 0x33)
+        );
     }
 
     #[test]
@@ -1128,6 +1131,75 @@ mod tests {
         std::env::remove_var("XDG_CACHE_HOME");
     }
 
+    // ── resolution ──────────────────────────────────────────────────
+
+    #[test]
+    fn resolve_theme_prefers_file_over_probe_and_cache() {
+        let file = Theme::light_default();
+        let theme = resolve_theme(
+            Some(file.clone()),
+            Some(Rgb::new(0, 0, 0)),
+            None,
+            Some(Theme::dark_default()),
+            None,
+        );
+        assert_eq!(theme.bg, file.bg);
+    }
+
+    #[test]
+    fn resolve_theme_uses_probe_before_cache() {
+        let probed_bg = Rgb::new(0x10, 0x12, 0x14);
+        let theme = resolve_theme(
+            None,
+            Some(probed_bg),
+            None,
+            Some(Theme::light_default()),
+            None,
+        );
+        assert_eq!(theme.source, ThemeSource::Probed);
+        assert_eq!(theme.bg, probed_bg);
+    }
+
+    #[test]
+    fn resolve_theme_applies_overrides_last() {
+        let overrides = ThemeOverrides {
+            accent: Some(Rgb::new(0x11, 0x22, 0x33)),
+            ..ThemeOverrides::default()
+        };
+        let theme = resolve_theme(
+            None,
+            None,
+            None,
+            Some(Theme::dark_default()),
+            Some(overrides),
+        );
+        assert_eq!(theme.accent, Rgb::new(0x11, 0x22, 0x33));
+    }
+
+    #[test]
+    fn default_palette_snapshot_is_byte_stable() {
+        let dark = Theme::dark_default();
+        assert_eq!(dark.fg.hex(), "#e5e7eb");
+        assert_eq!(dark.bg.hex(), "#0f141a");
+        assert_eq!(dark.muted.hex(), "#8b939e");
+        assert_eq!(dark.accent.hex(), "#22d3ee");
+        assert_eq!(dark.add.hex(), "#4ade80");
+        assert_eq!(dark.remove.hex(), "#f87171");
+        assert_eq!(dark.warning.hex(), "#facc15");
+        assert_eq!(dark.error.hex(), "#f87171");
+        assert_eq!(dark.highlight.hex(), "#60a5fa");
+        let light = Theme::light_default();
+        assert_eq!(light.fg.hex(), "#1f2937");
+        assert_eq!(light.bg.hex(), "#fafbfc");
+        assert_eq!(light.muted.hex(), "#6b7280");
+        assert_eq!(light.accent.hex(), "#0e748c");
+        assert_eq!(light.add.hex(), "#15803d");
+        assert_eq!(light.remove.hex(), "#b42323");
+        assert_eq!(light.warning.hex(), "#a16207");
+        assert_eq!(light.error.hex(), "#b42323");
+        assert_eq!(light.highlight.hex(), "#1d4ed8");
+    }
+
     // ── probe degradation ─────────────────────────────────────────────
 
     #[test]
@@ -1142,21 +1214,5 @@ mod tests {
             "probe returned a valid theme kind"
         );
         assert!(!theme.bg.hex().is_empty(), "bg color must be set");
-    }
-
-    // ── SIGUSR2 ───────────────────────────────────────────────────────
-
-    #[cfg(unix)]
-    #[tokio::test]
-    async fn sigusr2_delivers_a_reload_signal() {
-        let mut rx = theme_reload_signals().await.unwrap();
-        // The handler is registered now; sending the signal is safe.
-        unsafe {
-            libc::kill(libc::getpid(), libc::SIGUSR2);
-        }
-        let received = tokio::time::timeout(Duration::from_secs(2), rx.recv())
-            .await
-            .expect("signal within 2s");
-        assert_eq!(received, Some(()));
     }
 }

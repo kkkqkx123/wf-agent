@@ -32,10 +32,10 @@ use crate::panels::{
     CommandPalette, MentionPanel, ModelPanel, QueuedPanel, SkillPanel, WorkflowPanel,
 };
 use crate::question_overlay::QuestionView;
+use crate::transcript::Role;
 use tui_core::reducer::Phase;
 use tui_core::status_line::FooterState;
 use tui_style::theme::Theme;
-use crate::transcript::Role;
 
 /// Fixed footer frame rows: top decoration + status line + bottom
 /// decoration. The main area is added on top of this.

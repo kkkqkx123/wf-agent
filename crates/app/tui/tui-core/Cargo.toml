@@ -17,6 +17,7 @@ futures = { workspace = true }
 wf-api = { workspace = true }
 serde_json = { workspace = true }
 unicode-width = { workspace = true }
+unicode-segmentation = { workspace = true }
 tui-clock = { path = "../tui-clock" }
 tui-style = { path = "../tui-style" }
 tui-markdown = { path = "../tui-markdown" }

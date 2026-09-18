@@ -82,6 +82,11 @@ pub struct HistoryLine {
     motion_mode: MotionMode,
     /// Start moment (injectable clock ms) for shimmer timing.
     animation_start_ms: Option<u64>,
+    /// Absolute prompt sequence number for history continuity checks.
+    /// `0` means unsequenced (ephemeral rows); real history assigns
+    /// monotonically increasing numbers so upper-splice paths can verify
+    /// that prepended pages continue the numbering without gaps.
+    seq_no: u64,
 }
 
 impl HistoryLine {
@@ -103,6 +108,7 @@ impl HistoryLine {
             text: Text::from(content.into()),
             motion_mode: MotionMode::default(),
             animation_start_ms: None,
+            seq_no: 0,
         }
     }
 
@@ -123,7 +129,24 @@ impl HistoryLine {
             } else {
                 None
             },
+            seq_no: 0,
         }
+    }
+
+    /// Absolute sequence number (0 when unsequenced).
+    pub fn seq_no(&self) -> u64 {
+        self.seq_no
+    }
+
+    /// Assign the absolute sequence number, returning the line for chaining.
+    pub fn with_seq_no(mut self, seq_no: u64) -> Self {
+        self.seq_no = seq_no;
+        self
+    }
+
+    /// Set the absolute sequence number in place.
+    pub fn set_seq_no(&mut self, seq_no: u64) {
+        self.seq_no = seq_no;
     }
 
     /// Set the motion mode for this line.
@@ -178,6 +201,29 @@ impl HistoryLine {
     /// Access the (ratatui) source text.
     pub fn text(&self) -> &Text<'static> {
         &self.text
+    }
+
+    /// Content identity for row-level caches: role and source text folded
+    /// into one hash. Line state is intentionally excluded so a streaming
+    /// line settling into its committed form hits the same cache entry
+    /// instead of re-laying out identical text; sequence numbers are
+    /// continuity metadata, not layout inputs, and stay out of the hash.
+    /// Two lines sharing an identity lay out to the same display rows at
+    /// the same width, so the preparation cache can reuse rows across
+    /// replace, append and settle cycles.
+    pub fn identity(&self) -> u64 {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+        let mut hasher = DefaultHasher::new();
+        std::mem::discriminant(&self.role).hash(&mut hasher);
+        for line in &self.text.lines {
+            for span in &line.spans {
+                span.content.as_ref().hash(&mut hasher);
+                hasher.write_u8(0xff);
+            }
+            hasher.write_u8(0xfe);
+        }
+        hasher.finish()
     }
 
     /// Reflow the source text to `width` columns. Always returns at least

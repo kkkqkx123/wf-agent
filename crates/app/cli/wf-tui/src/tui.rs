@@ -5,7 +5,6 @@
 //! stays synchronous. Screens never touch the domain layer: they only render
 //! what the cache hands them.
 
-use std::collections::HashMap;
 use std::io;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
@@ -33,8 +32,9 @@ use crate::interactive::{InteractiveAction, InteractiveController};
 use crate::keymap::{CKey, Key};
 use crate::modal::{ConfirmModal, HelpModal, ModalResult, ModalStack, ModelPicker};
 use crate::overlay::{Feedback, LoopAction, OverlayMode};
-use crate::screens::{ExecStatusFilter, ScreenData, ScreenKind, Screens};
+use crate::screens::{ExecStatusFilter, ScreenData, ScreenKind};
 use crate::size::{ResizeDebouncer, Size};
+use crate::state::AppState;
 use crate::terminal::{CrosstermControl, TerminalGuard, TerminalModes};
 use crate::theme::{self, Theme};
 
@@ -50,14 +50,37 @@ extern "C" fn sigtstp_handler(_sig: libc::c_int) {
     SUSPEND_PENDING.store(true, Ordering::SeqCst);
 }
 
+/// Channel delivering one `()` per SIGUSR2 theme hot-reload request.
+/// Non-unix platforms get an immediately-closed channel. Owned by the
+/// application shell so `tui-style` never depends on an async runtime.
+#[cfg(unix)]
+async fn theme_reload_signals() -> io::Result<mpsc::Receiver<()>> {
+    use tokio::signal::unix::{signal, SignalKind};
+
+    let (tx, rx) = mpsc::channel(8);
+    let mut stream = signal(SignalKind::user_defined2())?;
+    tokio::spawn(async move {
+        while stream.recv().await.is_some() {
+            if tx.send(()).await.is_err() {
+                break;
+            }
+        }
+    });
+    Ok(rx)
+}
+
+#[cfg(not(unix))]
+async fn theme_reload_signals() -> io::Result<mpsc::Receiver<()>> {
+    let (_tx, rx) = mpsc::channel::<()>(8);
+    Ok(rx)
+}
+
 /// Cached screen data is considered stale after this duration.
 const DATA_TTL: Duration = Duration::from_secs(5);
 /// A fetch that never reports back is retried after this duration.
 const FETCH_TIMEOUT: Duration = Duration::from_secs(30);
 /// Event poll interval; also the worst-case redraw latency.
 const POLL_INTERVAL: Duration = Duration::from_millis(100);
-/// How long a transient notice line stays visible.
-const NOTICE_TTL_MS: u64 = 6_000;
 
 /// Dashboard entry order: index `i` is what `1..=8` / `j-k` selects.
 const DASHBOARD_ENTRIES: &[ScreenKind] = &[
@@ -77,42 +100,31 @@ type DataResult = (ScreenKind, CliResult<ScreenData>);
 /// Dashboard entry order: index `i` is what `1..=8` / `j-k` selects.
 pub struct TuiApp {
     adapter: Arc<DomainAdapter>,
-    screens: Screens,
+    /// Unified application state: navigation data, interface notices and
+    /// client focus (see `state::AppState`). Session content itself lives in
+    /// the interactive controller.
+    app: crate::state::AppState,
     modals: ModalStack,
     /// Current overlay mode
     overlay: OverlayMode,
-    /// Last successfully fetched data per screen plus its fetch time.
-    data: HashMap<ScreenKind, (ScreenData, Instant)>,
-    /// Fetches currently in flight, keyed by screen.
-    inflight: HashMap<ScreenKind, Instant>,
     data_tx: mpsc::UnboundedSender<DataResult>,
     data_rx: mpsc::UnboundedReceiver<DataResult>,
     feedback_tx: mpsc::UnboundedSender<Feedback>,
     feedback_rx: mpsc::UnboundedReceiver<Feedback>,
     tasks: Vec<JoinHandle<()>>,
-    /// Draft query on the search screen (not yet submitted).
-    search_input: String,
-    /// Status filter applied to the executions screen.
-    exec_filter: ExecStatusFilter,
-    /// Transient status/error line rendered under the screen, with the
-    /// injectable clock value (ms) it was set at.
-    notice: Option<(String, u64)>,
     /// Live interactive controller shown on the Interactive screen.
     interactive: Option<InteractiveController>,
     /// Set by the interactive controller when the user wants to leave it (Ctrl-C twice).
     interactive_exit: bool,
     /// Execution id selected on the executions screen to replay in Session.
     pending_replay: Option<String>,
-    /// Monotonic origin for the injected frame clock (ms).
-    start: Instant,
     /// Frame scheduler: merges redraw requests and caps the rate (120 FPS).
     frame: FrameRequester,
-    /// Whether the next loop iteration must repaint. Cleared after a draw;
-    /// set on key / data / resize / theme changes and while the interactive controller streams.
-    dirty: bool,
     /// Merged redraw request graded by severity (Full > BottomOnly >
     /// AnimationOnly); animation-only frames additionally wait for the
-    /// animation frame rate.
+    /// animation frame rate. This is the single pending-range record: every
+    /// key / data / resize / theme change requests here, and the submit
+    /// point takes it exactly once per frame.
     pending_scope: crate::redraw::PendingScope,
     /// Last millisecond an animation-only frame was emitted.
     last_anim_ms: Option<u64>,
@@ -132,11 +144,24 @@ pub struct TuiApp {
     perf_policy: crate::perf::TuiPerfPolicy,
     /// Whether the terminal advertises synchronized-output support.
     sync_supported: bool,
-    /// Whether the client terminal currently holds focus. Starts focused;
-    /// any key / mouse / paste delivery re-asserts it (some compositors
-    /// drop the focus-gained report, which would otherwise wedge the
-    /// window in throttled background rendering).
-    focused: bool,
+    /// Deferred heavyweight frame work drained once per frame, plus the
+    /// finished-frame cleanup counter proving image cleanup ran.
+    deferred: crate::deferred::DeferredFrameWork,
+    finish_cleanups: usize,
+    /// Held remote session outliving any single attached renderer.
+    held_session: crate::session_holder::SessionHolder,
+    /// Orphan probe for detached clients.
+    liveness: crate::liveness::LivenessProbe,
+    /// External editor handoff state.
+    editor: crate::editor::EditorHandoff,
+    /// Production frame budget accounting: per-frame metrics plus
+    /// over-budget counters. Overruns only count and trace; the loop never
+    /// interrupts rendering for them.
+    prod_metrics: crate::frame_metrics::FrameMetrics,
+    /// Submitted frame sequence number feeding production metrics.
+    prod_frame_no: u64,
+    /// Frames exceeding the production time budget (count-only alarm).
+    over_budget_frames: u64,
 }
 
 impl TuiApp {
@@ -158,6 +183,12 @@ impl TuiApp {
             &caps,
             load_mouse_opt_in(),
         ));
+        // Fragile glyph caches (profile string or probed terminal type) drop
+        // decoration and clamp frame rates; the environment master switches
+        // (`WF_TUI_DISABLE_ANIMATION` / `NO_ANIMATION` / `NO_COLOR`) kill
+        // animation last so either path alone reproduces the same bytes.
+        perf_policy.apply_glyph_safety(crate::perf::fragile_glyph_cache_with_caps(&profile, &caps));
+        perf_policy.apply_env_overrides();
         let (theme, theme_mode, theme_explicit) =
             crate::theme_mode::resolve_render_theme(theme::probe_theme());
         // The frame ceiling follows the capability policy so constrained
@@ -166,26 +197,23 @@ impl TuiApp {
         frame.set_min_interval_ms(perf_policy.redraw_interval_ms());
         Self {
             adapter,
-            screens: Screens::new(),
+            app: AppState::new(),
             modals: ModalStack::new(),
             overlay: OverlayMode::None,
-            data: HashMap::new(),
-            inflight: HashMap::new(),
             data_tx,
             data_rx,
             feedback_tx,
             feedback_rx,
             tasks: Vec::new(),
-            search_input: String::new(),
-            exec_filter: ExecStatusFilter::All,
-            notice: None,
             interactive: None,
             interactive_exit: false,
             pending_replay: None,
-            start: Instant::now(),
             frame,
-            dirty: true,
-            pending_scope: crate::redraw::PendingScope::new(),
+            pending_scope: {
+                let mut pending = crate::redraw::PendingScope::new();
+                pending.request(crate::redraw::RedrawScope::Full);
+                pending
+            },
             last_anim_ms: None,
             last_active: Instant::now(),
             resize: ResizeDebouncer::default_window(),
@@ -195,7 +223,14 @@ impl TuiApp {
             perf_tier,
             perf_policy,
             sync_supported: caps.synchronized_output,
-            focused: true,
+            deferred: crate::deferred::DeferredFrameWork::new(),
+            finish_cleanups: 0,
+            held_session: crate::session_holder::SessionHolder::new(),
+            liveness: crate::liveness::LivenessProbe::new(),
+            editor: crate::editor::EditorHandoff::Idle,
+            prod_metrics: crate::frame_metrics::FrameMetrics::new(),
+            prod_frame_no: 0,
+            over_budget_frames: 0,
         }
     }
 
@@ -222,9 +257,11 @@ impl TuiApp {
             .map_err(|e| CliError::Configuration(format!("clear failed: {e}")))?;
 
         // Hot-reload the theme on SIGUSR2: re-probe and forward to the loop.
+        // The signal watcher lives in the application shell (tokio is an app
+        // dependency); `tui-style` stays free of async runtimes.
         let (theme_tx, mut theme_rx) = mpsc::unbounded_channel::<Theme>();
         tokio::spawn(async move {
-            if let Ok(mut rx) = theme::theme_reload_signals().await {
+            if let Ok(mut rx) = theme_reload_signals().await {
                 while rx.recv().await.is_some() {
                     let _ = theme_tx.send(theme::probe_theme());
                 }
@@ -280,22 +317,24 @@ impl TuiApp {
                 session.handle_events();
             }
             if self.drain_data() {
-                self.dirty = true;
+                self.pending_scope.request(crate::redraw::RedrawScope::Full);
             }
             self.ensure_interactive().await?;
-            self.request_data(self.screens.current_kind());
+            self.request_data(self.app.screen.navigation.current_kind());
 
             let now = self.now_ms();
             self.frame.set_now(now);
+            // Rebuild the frame timer only when the expected period changed.
+            self.refresh_frame_rate();
 
             // A live interactive controller streams, so it always wants a redraw; otherwise
-            // only redraw when something marked the state dirty.
+            // only redraw when a pending scope was requested.
             let interactive = self.interactive.is_some();
-            self.expire_notice();
-            if self.notice.is_some() {
+            self.app.notice.expire();
+            if self.app.notice.is_active() {
                 // Keep repainting while a transient notice is visible so it
                 // disappears on schedule.
-                self.dirty = true;
+                self.pending_scope.request(crate::redraw::RedrawScope::Full);
             }
             let scope = self.grade_frame();
             match scope {
@@ -308,14 +347,15 @@ impl TuiApp {
                     // An unfocused idle window skips decorative frames; live
                     // activity grades Full/BottomOnly and still paints. Reuses
                     // the existing animation rate, no new timer.
-                    if self.focused
+                    if self.app.focused
                         && crate::redraw::animation_frame_due_with(
                             now,
                             self.last_anim_ms,
                             self.perf_policy.animation_interval_ms(),
                         )
                     {
-                        self.pending_scope.request(scope);
+                        self.pending_scope
+                            .request_from(scope, crate::redraw::EventSource::Animation);
                         self.frame.request_scope(scope);
                     }
                 }
@@ -323,9 +363,9 @@ impl TuiApp {
             }
 
             // Poll until the next redraw is due (or a key arrives). Idle loops
-            // back off by idle time; a dirty / streaming loop waits at most the
-            // rate-limit floor so we never busy-spin.
-            let timeout = if self.dirty || interactive || self.pending_scope.is_pending() {
+            // back off by idle time; a pending / streaming loop waits at most
+            // the rate-limit floor so we never busy-spin.
+            let timeout = if interactive || self.pending_scope.is_pending() {
                 self.frame
                     .deadline()
                     .map(|d| Duration::from_millis(d.saturating_sub(now)))
@@ -355,7 +395,9 @@ impl TuiApp {
                                 if self.handle_key(map_key(key))? == LoopAction::Quit {
                                     break;
                                 }
-                                self.dirty = true;
+                                self.pending_scope.request(crate::redraw::RedrawScope::Full);
+                                self.pending_scope
+                                    .note_source(crate::redraw::EventSource::Input);
                                 self.apply_interactive_exit().await;
                                 self.apply_pending_replay().await?;
                             }
@@ -376,7 +418,9 @@ impl TuiApp {
                         let focus_flipped = self.mark_client_focused();
                         let landed = self.handle_paste(&text);
                         if focus_flipped || landed {
-                            self.dirty = true;
+                            self.pending_scope.request(crate::redraw::RedrawScope::Full);
+                            self.pending_scope
+                                .note_source(crate::redraw::EventSource::Input);
                             self.last_active = Instant::now();
                         }
                     }
@@ -388,7 +432,9 @@ impl TuiApp {
                             let focus_flipped = self.mark_client_focused();
                             let scrolled = self.handle_mouse(mouse);
                             if focus_flipped || scrolled {
-                                self.dirty = true;
+                                self.pending_scope.request(crate::redraw::RedrawScope::Full);
+                                self.pending_scope
+                                    .note_source(crate::redraw::EventSource::Input);
                                 self.last_active = Instant::now();
                             }
                         }
@@ -401,7 +447,9 @@ impl TuiApp {
 
             // Settle a debounced resize once the storm passes; force one reflow.
             if self.resize.settle_if_elapsed(self.now_ms()).is_some() {
-                self.dirty = true;
+                self.pending_scope.request(crate::redraw::RedrawScope::Full);
+                self.pending_scope
+                    .note_source(crate::redraw::EventSource::Input);
             }
 
             // Apply a hot-reloaded theme (SIGUSR2) and repaint. Explicit
@@ -412,18 +460,19 @@ impl TuiApp {
                 self.theme = theme;
                 self.theme_mode = mode;
                 self.theme_explicit = explicit;
-                self.dirty = true;
+                self.pending_scope.request(crate::redraw::RedrawScope::Full);
             }
 
             // Repaint when something changed and the rate limiter allows it.
+            // Single submit point: every redraw request funnels through
+            // pending_scope, so input, animation and background refreshes
+            // share one throttling decision.
             // The frame is exception-isolated (a failing widget degrades to
             // a recovered frame) and post-processed in fixed order; full and
             // bottom frames are wrapped in synchronized output when the
             // terminal supports it so streaming never tears.
             self.frame.set_now(self.now_ms());
-            if (self.dirty || interactive || self.pending_scope.is_pending())
-                && self.frame.deadline().is_none()
-            {
+            if (interactive || self.pending_scope.is_pending()) && self.frame.deadline().is_none() {
                 let data = self.current_data();
                 let sync_scope = self.grade_frame();
                 let sync = crate::perf::should_sync_output(
@@ -431,6 +480,7 @@ impl TuiApp {
                     self.sync_supported,
                     sync_scope,
                 );
+                let draw_start = Instant::now();
                 if sync {
                     use crossterm::execute;
                     use crossterm::terminal::{BeginSynchronizedUpdate, EndSynchronizedUpdate};
@@ -461,7 +511,7 @@ impl TuiApp {
                     }
                 }
                 self.frame.frame_done();
-                self.dirty = false;
+                self.record_prod_budget(draw_start.elapsed());
                 let submitted = self.pending_scope.take();
                 if submitted == crate::redraw::RedrawScope::AnimationOnly {
                     self.last_anim_ms = Some(self.now_ms());
@@ -475,30 +525,38 @@ impl TuiApp {
             if self.adapter.is_shutting_down() {
                 break;
             }
+            // Orphaned client with no live session exits instead of idling.
+            let sample = crate::liveness::LivenessSample {
+                input_eof: false,
+                control_tty_gone: false,
+                has_live_session: self.interactive.is_some(),
+            };
+            if self.liveness.poll(sample) {
+                break;
+            }
         }
         Ok(())
     }
 
-    /// Monotonic millisecond clock since the app started (drives the frame
-    /// scheduler). Serves the simulated clock while tests enable it.
+    /// Monotonic millisecond clock for frame scheduling. Delegates to the
+    /// injectable `tui-clock` so production and tests share one time source;
+    /// the per-instance `start` origin only seeds `last_active` instants.
     fn now_ms(&self) -> u64 {
-        if crate::clock::test_clock_enabled() {
-            return crate::clock::now_ms();
-        }
-        Instant::now().duration_since(self.start).as_millis() as u64
+        crate::clock::now_ms()
     }
 
-    /// Grade the pending frame: overlays, modals and dirty flags force a
-    /// full frame; otherwise the interactive snapshot decides between full,
-    /// bottom-only, animation-only or no frame.
+    /// Grade the pending frame: overlays and modals force a full frame;
+    /// otherwise the interactive snapshot decides between full, bottom-only,
+    /// animation-only or no frame. Explicit input requests already sit in
+    /// `pending_scope`, so grading never consults a separate dirty flag.
     fn grade_frame(&self) -> crate::redraw::RedrawScope {
         use crate::redraw::RedrawScope;
         if let Some(session) = &self.interactive {
-            if self.dirty || self.overlay != OverlayMode::None || !self.modals.is_empty() {
+            if self.overlay != OverlayMode::None || !self.modals.is_empty() {
                 return RedrawScope::Full;
             }
             session.grade_redraw()
-        } else if self.dirty {
+        } else if self.pending_scope.scope() == RedrawScope::Full {
             RedrawScope::Full
         } else {
             RedrawScope::None
@@ -519,15 +577,17 @@ impl TuiApp {
 
     /// Focus gained: reassert the terminal modes (terminals may clear them
     /// while backgrounded), mark focused, and request one differential
-    /// frame to catch up. Never invalidates the backend: the terminal still
-    /// holds the last frame, so no clear is needed.
+    /// catch-up frame. Never invalidates the backend: the terminal still
+    /// holds the last frame, so no clear is needed. The catch-up is
+    /// bottom-only (footer/input may have gone stale while backgrounded);
+    /// scrollback reuses its preparation key.
     fn on_focus_gained(&mut self, guard: &mut TerminalGuard<CrosstermControl<io::Stdout>>) {
         let _ = guard.reassert();
-        let (focused, frame) = focus_transition(self.focused, FocusInput::Gained);
-        self.focused = focused;
+        let (focused, frame) = focus_transition(self.app.focused, FocusInput::Gained);
+        self.app.focused = focused;
         if frame {
-            self.dirty = true;
-            self.pending_scope.request(crate::redraw::RedrawScope::Full);
+            self.pending_scope
+                .request(crate::redraw::RedrawScope::BottomOnly);
             self.last_active = Instant::now();
         }
     }
@@ -535,29 +595,73 @@ impl TuiApp {
     /// Focus lost: record the state only, no frame. Decorative redraws
     /// pause while unfocused; live activity still paints.
     fn on_focus_lost(&mut self) {
-        let (focused, _) = focus_transition(self.focused, FocusInput::Lost);
-        self.focused = focused;
+        let (focused, _) = focus_transition(self.app.focused, FocusInput::Lost);
+        self.app.focused = focused;
     }
 
     /// Compensation for dropped focus-gained reports: any key, mouse
     /// (non-move) or paste delivery proves the window is focused right now.
     /// Returns true when the state flipped and a catch-up frame is due.
     fn mark_client_focused(&mut self) -> bool {
-        let (focused, frame) = focus_transition(self.focused, FocusInput::Stream);
-        self.focused = focused;
+        let (focused, frame) = focus_transition(self.app.focused, FocusInput::Stream);
+        self.app.focused = focused;
         if frame {
-            self.dirty = true;
-            self.pending_scope.request(crate::redraw::RedrawScope::Full);
+            self.pending_scope
+                .request(crate::redraw::RedrawScope::BottomOnly);
             self.last_active = Instant::now();
         }
         frame
+    }
+
+    /// Reconcile the frame timer with the current policy. The loop calls this
+    /// every iteration: the expected period is derived from the live policy
+    /// (unfocused windows back off to the idle period), and the timer is
+    /// rebuilt only when the period actually changes, so steady states never
+    /// churn the scheduler.
+    fn refresh_frame_rate(&mut self) {
+        let mut expected = self.perf_policy.redraw_interval_ms();
+        if !self.app.focused {
+            expected = expected.max(crate::redraw::REDRAW_IDLE_MS);
+        }
+        if self.frame.min_interval_ms() != expected {
+            self.frame.set_min_interval_ms(expected);
+        }
+    }
+
+    /// Production frame budget accounting: record elapsed time and count
+    /// overruns. The budget is 50ms per frame; overruns trace a warning and
+    /// increment the counter without interrupting the loop.
+    fn record_prod_budget(&mut self, elapsed: std::time::Duration) {
+        const PROD_FRAME_BUDGET_MS: u64 = 50;
+        let elapsed_ms = u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX);
+        self.prod_frame_no = self.prod_frame_no.wrapping_add(1);
+        self.prod_metrics
+            .record(crate::frame_metrics::FrameMetric::new(
+                self.prod_frame_no,
+                0,
+                0,
+                elapsed_ms,
+                0,
+                0,
+            ));
+        if elapsed_ms > PROD_FRAME_BUDGET_MS {
+            self.over_budget_frames = self.over_budget_frames.wrapping_add(1);
+            tracing::warn!(
+                "tui: frame {} over budget: {elapsed_ms}ms > {PROD_FRAME_BUDGET_MS}ms (total overruns {})",
+                self.prod_frame_no,
+                self.over_budget_frames,
+            );
+        }
     }
 
     /// Route a bracketed-paste body to the currently focused input as one
     /// whole string: no shortcut semantics fire on pasted content. Returns
     /// whether the paste landed somewhere visible.
     fn handle_paste(&mut self, text: &str) -> bool {
-        match classify_paste(!self.modals.is_empty(), self.screens.current_kind()) {
+        match classify_paste(
+            !self.modals.is_empty(),
+            self.app.screen.navigation.current_kind(),
+        ) {
             PasteTarget::Swallowed | PasteTarget::Ignored => false,
             PasteTarget::Session => {
                 if let Some(session) = &mut self.interactive {
@@ -571,7 +675,7 @@ impl TuiApp {
                 if normalized.is_empty() {
                     return false;
                 }
-                self.search_input.push_str(&normalized);
+                self.app.screen.search_input.push_str(&normalized);
                 true
             }
         }
@@ -598,7 +702,7 @@ impl TuiApp {
 
     /// Apply one wheel notch to the content under the cursor.
     fn scroll_by_wheel(&mut self, up: bool) {
-        if self.screens.current_kind() == ScreenKind::Interactive {
+        if self.app.screen.navigation.current_kind() == ScreenKind::Interactive {
             if let Some(session) = &mut self.interactive {
                 if up {
                     session.scroll_history_up();
@@ -610,9 +714,9 @@ impl TuiApp {
         }
         let len = self.nav_len();
         if up {
-            self.screens.select_prev(len);
+            self.app.screen.navigation.select_prev(len);
         } else {
-            self.screens.select_next(len);
+            self.app.screen.navigation.select_next(len);
         }
     }
 
@@ -630,6 +734,7 @@ impl TuiApp {
         }
         // Restore the terminal so the shell below renders normally while we are
         // stopped.
+        self.editor = crate::editor::EditorHandoff::Suspended;
         guard.restore()?;
         // Stop with the default SIGTSTP disposition so the shell gains control;
         // SIGCONT (fg) resumes execution right after `raise`.
@@ -643,34 +748,38 @@ impl TuiApp {
         }
         // Resumed: re-apply the full TUI terminal modes.
         guard.enter(self.active_modes())?;
+        self.editor = crate::editor::EditorHandoff::Idle;
         // Force a fresh geometry query: the terminal may have been resized
         // while we were stopped.
         let (cols, rows) = size()?;
         terminal.resize(Rect::new(0, 0, cols, rows))?;
         terminal.clear()?;
-        self.dirty = true;
+        self.pending_scope.request(crate::redraw::RedrawScope::Full);
         Ok(())
     }
 
     /// Create or tear down the live interactive controller to match the current
-    /// screen.
+    /// screen. The holder keeps the session id across attach and detach so a
+    /// reconnecting client re-attaches without losing the session.
     async fn ensure_interactive(&mut self) -> CliResult<()> {
-        let on_interactive = self.screens.current_kind() == ScreenKind::Interactive;
+        let on_interactive = self.app.screen.navigation.current_kind() == ScreenKind::Interactive;
         match (on_interactive, self.interactive.is_some()) {
             (true, false) => {
-                let mut session = InteractiveController::start(
-                    Arc::clone(&self.adapter),
-                    wf_common::generate_id(),
-                )
-                .await;
+                let id = wf_common::generate_id();
+                self.held_session.hold(id.clone());
+                let mut session = InteractiveController::start(Arc::clone(&self.adapter), id).await;
                 session.set_perf_tier(self.perf_tier.marker());
                 session.apply_perf_policy(self.perf_policy);
                 self.interactive = Some(session);
+                self.held_session.attach();
             }
             (false, true) => {
                 if let Some(session) = self.interactive.take() {
                     session.shutdown().await;
                 }
+                self.held_session.detach();
+                self.held_session.release();
+                self.held_session.detach();
             }
             _ => {}
         }
@@ -702,38 +811,70 @@ impl TuiApp {
             // `load_replay` fetches asynchronously; the `ReplayLoaded` event
             // replaces the loading placeholder when the history lands.
             session.load_replay(&id);
-            self.dirty = true;
+            self.pending_scope.request(crate::redraw::RedrawScope::Full);
         }
         Ok(())
     }
 
     /// Draw one frame with unified post-processing: after every widget is
-    /// composed the finished buffer passes the fixed theme/palette order
-    /// exactly once.
+    /// composed the finished buffer passes the fixed theme, palette, emoji
+    /// and image-cleanup order exactly once through the shared pipeline.
+    /// Diagram geometry flows through [`crate::layout::split_panes`]: the
+    /// chat column draws the session while a granted diagram pane registers
+    /// deferred work and paints its placeholder. The frame tail flushes the
+    /// deferred queue unconditionally so the cleanup proof advances every
+    /// frame.
     fn draw_inner(&mut self, frame: &mut Frame, data: &ScreenData) {
         let area = frame.area();
+        let diagram_requested = self
+            .interactive
+            .as_ref()
+            .map(|s| s.diagram_requested())
+            .unwrap_or(0);
+        let panes = crate::layout::split_panes(
+            area,
+            diagram_requested,
+            crate::layout::DiagramPosition::Side,
+            0.4,
+        );
         // Reserve the bottom line for the transient notice, if any.
-        let notice = self.notice_text();
+        let notice = self.app.notice.current_text();
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([Constraint::Min(3), Constraint::Length(1)])
-            .split(area);
+            .split(panes.chat);
 
         // Interactive is always the primary interface
         if let Some(session) = &mut self.interactive {
             session.draw(frame, chunks[0], &self.theme);
         } else {
             // Fallback to screens if no interactive controller is active
-            self.screens.draw(frame, chunks[0], data, &self.theme);
+            self.app
+                .screen
+                .navigation
+                .draw(frame, chunks[0], data, &self.theme);
         }
 
-        // Draw overlay if active
+        if let Some(diagram) = panes.diagram {
+            self.deferred.defer_diagram("diagram");
+            frame.render_widget(
+                Paragraph::new("diagram").style(Style::default().fg(Color::DarkGray)),
+                diagram,
+            );
+        }
+
+        // Draw overlay if active. Management overlay drawing lives in the
+        // screen module; the shell only decides when it is active.
         match self.overlay {
             OverlayMode::Sidebar => {
-                self.draw_sidebar_overlay(frame, area);
+                crate::screen_draw::draw_sidebar_overlay(
+                    frame,
+                    area,
+                    self.app.screen.navigation.selected(),
+                );
             }
             OverlayMode::History => {
-                self.draw_transcript_overlay(frame, area);
+                crate::screen_draw::draw_transcript_overlay(frame, area);
             }
             OverlayMode::CommandPalette => {
                 // Command palette is handled by modals
@@ -752,10 +893,13 @@ impl TuiApp {
             self.modals.draw(frame, area, &self.theme);
         }
 
-        crate::theme_mode::post_process_buffer(
+        let _deferred = self.deferred.flush();
+        crate::post_process::finish_frame(
             frame.buffer_mut(),
             self.theme_mode,
             self.theme_explicit,
+            crate::post_process::EmojiPreference::Native,
+            &mut self.finish_cleanups,
         );
     }
 
@@ -771,78 +915,8 @@ impl TuiApp {
                 crate::render_model::draw_recovered_frame(frame.buffer_mut(), area);
             })
             .map_err(|e| CliError::Configuration(format!("recovered draw failed: {e}")))?;
-        self.dirty = true;
+        self.pending_scope.request(crate::redraw::RedrawScope::Full);
         Ok(())
-    }
-
-    fn draw_sidebar_overlay(&self, frame: &mut Frame, area: Rect) {
-        use ratatui::widgets::{Block, Borders, Clear};
-
-        // Sidebar takes up 30% of width on the left side
-        let sidebar_width = (area.width as f32 * 0.3) as u16;
-        let sidebar_area = Rect {
-            x: area.x,
-            y: area.y,
-            width: sidebar_width,
-            height: area.height - 1, // Leave room for notice
-        };
-
-        // Clear the area first
-        frame.render_widget(Clear, sidebar_area);
-
-        // Draw sidebar with list of screens
-        let block = Block::default()
-            .title(" Screens ")
-            .borders(Borders::ALL)
-            .style(Style::default().fg(Color::Cyan));
-
-        let screens = [
-            ("1. Workflow", ScreenKind::Workflow),
-            ("2. Executions", ScreenKind::Executions),
-            ("3. Checkpoints", ScreenKind::Checkpoints),
-            ("4. Search", ScreenKind::Search),
-            ("5. Settings", ScreenKind::Settings),
-            ("6. Dashboard", ScreenKind::Dashboard),
-            ("7. Help", ScreenKind::Help),
-        ];
-
-        let items: Vec<ratatui::widgets::ListItem> = screens
-            .iter()
-            .map(|(name, _)| ratatui::widgets::ListItem::new(*name))
-            .collect();
-
-        let list = ratatui::widgets::List::new(items)
-            .block(block)
-            .highlight_style(Style::default().fg(Color::Black).bg(Color::Cyan));
-
-        frame.render_widget(list, sidebar_area);
-    }
-
-    fn draw_transcript_overlay(&self, frame: &mut Frame, area: Rect) {
-        use ratatui::widgets::{Block, Borders, Clear};
-
-        // Full screen overlay
-        let overlay_area = Rect {
-            x: area.x,
-            y: area.y,
-            width: area.width,
-            height: area.height - 1, // Leave room for notice
-        };
-
-        // Clear the area first
-        frame.render_widget(Clear, overlay_area);
-
-        // Draw transcript with border
-        let block = Block::default()
-            .title(" History (Ctrl+T to close) ")
-            .borders(Borders::ALL)
-            .style(Style::default().fg(Color::Magenta));
-
-        // For now, show a placeholder - full history rendering would need
-        // access to the interactive controller's transcript history
-        let text = "History view - Press Ctrl+T to close";
-        let paragraph = Paragraph::new(text).block(block);
-        frame.render_widget(paragraph, overlay_area);
     }
 
     // -----------------------------------------------------------------------
@@ -854,27 +928,18 @@ impl TuiApp {
         if !kind.has_data() {
             return;
         }
-        let fresh = self
-            .data
-            .get(&kind)
-            .map(|(_, at)| at.elapsed() < DATA_TTL)
-            .unwrap_or(false);
-        if fresh {
+        if self.app.screen.is_fresh(kind, DATA_TTL) {
             return;
         }
-        if let Some(started) = self.inflight.get(&kind) {
-            if started.elapsed() < FETCH_TIMEOUT {
-                return;
-            }
-            // Stale fetch: allow a retry.
-            self.inflight.remove(&kind);
+        if self.app.screen.has_inflight(kind, FETCH_TIMEOUT) {
+            return;
         }
 
-        self.inflight.insert(kind, Instant::now());
+        self.app.screen.inflight.insert(kind, Instant::now());
         let adapter = Arc::clone(&self.adapter);
         let tx = self.data_tx.clone();
-        let query = self.search_input.clone();
-        let filter = self.exec_filter;
+        let query = self.app.screen.search_input.clone();
+        let filter = self.app.screen.exec_filter;
         let handle = tokio::spawn(async move {
             let ctx = adapter.api_context();
             let result = fetch_for(ctx, kind, &query, filter).await;
@@ -885,7 +950,7 @@ impl TuiApp {
 
     /// Drop cached data for `kind` so the next request refetches.
     fn invalidate(&mut self, kind: ScreenKind) {
-        self.data.remove(&kind);
+        self.app.screen.invalidate(kind);
     }
 
     /// Reap finished fetches and fold them into the cache. Returns whether the
@@ -893,21 +958,24 @@ impl TuiApp {
     fn drain_data(&mut self) -> bool {
         let mut changed = false;
         while let Ok((kind, result)) = self.data_rx.try_recv() {
-            self.inflight.remove(&kind);
+            self.app.screen.inflight.remove(&kind);
             match result {
                 Ok(data) => {
-                    self.data.insert(kind, (data, Instant::now()));
+                    self.app
+                        .screen
+                        .data_cache
+                        .insert(kind, (data, Instant::now()));
                     changed = true;
                 }
                 Err(err) => {
-                    self.set_notice(format!("{}: {err}", kind.title()));
+                    self.app.notice.set(format!("{}: {err}", kind.title()));
                     changed = true;
                 }
             }
         }
         while let Ok(msg) = self.feedback_rx.try_recv() {
             match msg {
-                Feedback::Notice(text) => self.set_notice(text),
+                Feedback::Notice(text) => self.app.notice.set(text),
                 Feedback::Refresh(kind) => self.invalidate(kind),
             }
             changed = true;
@@ -918,33 +986,7 @@ impl TuiApp {
     }
 
     fn current_data(&self) -> ScreenData {
-        self.data
-            .get(&self.screens.current_kind())
-            .map(|(data, _)| data.clone())
-            .unwrap_or(ScreenData::None)
-    }
-
-    fn set_notice(&mut self, text: impl Into<String>) {
-        self.notice = Some((text.into(), self.now_ms()));
-    }
-
-    fn notice_text(&self) -> Option<String> {
-        let (text, at) = self.notice.as_ref()?;
-        if self.now_ms().saturating_sub(*at) < NOTICE_TTL_MS {
-            Some(text.clone())
-        } else {
-            None
-        }
-    }
-
-    /// Drop an expired transient notice so the slot does not keep forcing
-    /// redraws after its TTL elapses.
-    fn expire_notice(&mut self) {
-        if let Some((_, at)) = &self.notice {
-            if self.now_ms().saturating_sub(*at) >= NOTICE_TTL_MS {
-                self.notice = None;
-            }
-        }
+        self.app.screen.current_data()
     }
 
     // -----------------------------------------------------------------------
@@ -963,7 +1005,7 @@ impl TuiApp {
         // Ctrl-C: quit if not in interactive, otherwise handled by interactive controller
         if key.ctrl
             && key.code == CKey::Char('c')
-            && self.screens.current_kind() != ScreenKind::Interactive
+            && self.app.screen.navigation.current_kind() != ScreenKind::Interactive
         {
             return Ok(LoopAction::Quit);
         }
@@ -984,31 +1026,31 @@ impl TuiApp {
             // Ctrl+T: Toggle history overlay
             CKey::Char('t') if key.ctrl => {
                 self.overlay = OverlayMode::History;
-                self.dirty = true;
+                self.pending_scope.request(crate::redraw::RedrawScope::Full);
                 return Ok(LoopAction::Continue);
             }
             // Ctrl+B: Toggle sidebar overlay
             CKey::Char('b') if key.ctrl => {
                 self.overlay = OverlayMode::Sidebar;
-                self.dirty = true;
+                self.pending_scope.request(crate::redraw::RedrawScope::Full);
                 return Ok(LoopAction::Continue);
             }
             // /: Open command palette (when in interactive)
             CKey::Char('/')
-                if self.screens.current_kind() == ScreenKind::Interactive
+                if self.app.screen.navigation.current_kind() == ScreenKind::Interactive
                     && !key.ctrl
                     && !key.alt =>
             {
                 // For now, show sidebar as a simple command palette
                 self.overlay = OverlayMode::Sidebar;
-                self.dirty = true;
+                self.pending_scope.request(crate::redraw::RedrawScope::Full);
                 return Ok(LoopAction::Continue);
             }
             _ => {}
         }
 
         // The interactive screen owns all keys while active.
-        if self.screens.current_kind() == ScreenKind::Interactive {
+        if self.app.screen.navigation.current_kind() == ScreenKind::Interactive {
             if let Some(session) = &mut self.interactive {
                 match session.handle_key(key) {
                     InteractiveAction::Continue => return Ok(LoopAction::Continue),
@@ -1021,7 +1063,7 @@ impl TuiApp {
         }
 
         // The search screen owns printable input.
-        if self.screens.current_kind() == ScreenKind::Search {
+        if self.app.screen.navigation.current_kind() == ScreenKind::Search {
             return Ok(self.handle_search_key(key));
         }
 
@@ -1041,22 +1083,27 @@ impl TuiApp {
             }
             CKey::Char('j') | CKey::Down => {
                 let len = self.nav_len();
-                self.screens.select_next(len);
+                self.app.screen.navigation.select_next(len);
             }
             CKey::Char('k') | CKey::Up => {
                 let len = self.nav_len();
-                self.screens.select_prev(len);
+                self.app.screen.navigation.select_prev(len);
             }
-            CKey::Enter => match self.screens.current_kind() {
+            CKey::Enter => match self.app.screen.navigation.current_kind() {
                 ScreenKind::Dashboard => {
-                    let idx = self.screens.selected();
+                    let idx = self.app.screen.navigation.selected();
                     if let Some(kind) = DASHBOARD_ENTRIES.get(idx).copied() {
                         self.goto(kind);
                     }
                 }
                 ScreenKind::Executions => {
                     if let ScreenData::Executions(rows) = self.current_data() {
-                        let idx = self.screens.selected().min(rows.len().saturating_sub(1));
+                        let idx = self
+                            .app
+                            .screen
+                            .navigation
+                            .selected()
+                            .min(rows.len().saturating_sub(1));
                         if let Some(row) = rows.get(idx) {
                             let id = row.id.clone();
                             self.goto(ScreenKind::Interactive);
@@ -1066,21 +1113,31 @@ impl TuiApp {
                 }
                 _ => {}
             },
-            CKey::Char('f') if self.screens.current_kind() == ScreenKind::Executions => {
-                self.exec_filter = next_filter(self.exec_filter);
+            CKey::Char('f')
+                if self.app.screen.navigation.current_kind() == ScreenKind::Executions =>
+            {
+                self.app.screen.exec_filter = next_filter(self.app.screen.exec_filter);
                 self.invalidate(ScreenKind::Executions);
-                self.set_notice(format!("Filter: {}", self.exec_filter.label()));
+                self.app
+                    .notice
+                    .set(format!("Filter: {}", self.app.screen.exec_filter.label()));
             }
             CKey::Char('r') => {
                 // Manual refresh of the current screen.
-                let kind = self.screens.current_kind();
+                let kind = self.app.screen.navigation.current_kind();
                 self.invalidate(kind);
-                self.set_notice(format!("Refreshing {}...", kind.title()));
+                self.app
+                    .notice
+                    .set(format!("Refreshing {}...", kind.title()));
             }
-            CKey::Char('d') if self.screens.current_kind() == ScreenKind::Workflow => {
+            CKey::Char('d')
+                if self.app.screen.navigation.current_kind() == ScreenKind::Workflow =>
+            {
                 self.delete_selected_workflow();
             }
-            CKey::Char('m') if self.screens.current_kind() == ScreenKind::Settings => {
+            CKey::Char('m')
+                if self.app.screen.navigation.current_kind() == ScreenKind::Settings =>
+            {
                 self.pick_default_model();
             }
             _ => {}
@@ -1093,19 +1150,19 @@ impl TuiApp {
             // Escape or q: close overlay
             CKey::Esc | CKey::Char('q') if !key.ctrl => {
                 self.overlay = OverlayMode::None;
-                self.dirty = true;
+                self.pending_scope.request(crate::redraw::RedrawScope::Full);
                 return Ok(LoopAction::Continue);
             }
             // Ctrl+T: close history overlay
             CKey::Char('t') if key.ctrl && self.overlay == OverlayMode::History => {
                 self.overlay = OverlayMode::None;
-                self.dirty = true;
+                self.pending_scope.request(crate::redraw::RedrawScope::Full);
                 return Ok(LoopAction::Continue);
             }
             // Ctrl+B: close sidebar overlay
             CKey::Char('b') if key.ctrl && self.overlay == OverlayMode::Sidebar => {
                 self.overlay = OverlayMode::None;
-                self.dirty = true;
+                self.pending_scope.request(crate::redraw::RedrawScope::Full);
                 return Ok(LoopAction::Continue);
             }
             // Number keys: navigate to screen (sidebar mode)
@@ -1113,30 +1170,30 @@ impl TuiApp {
                 if let Some(kind) = digit_to_screen(c) {
                     self.overlay = OverlayMode::None;
                     self.goto(kind);
-                    self.dirty = true;
+                    self.pending_scope.request(crate::redraw::RedrawScope::Full);
                     return Ok(LoopAction::Continue);
                 }
             }
             // j/k or arrows: navigate sidebar
             CKey::Char('j') | CKey::Down if self.overlay == OverlayMode::Sidebar => {
                 let len = DASHBOARD_ENTRIES.len();
-                self.screens.select_next(len);
-                self.dirty = true;
+                self.app.screen.navigation.select_next(len);
+                self.pending_scope.request(crate::redraw::RedrawScope::Full);
                 return Ok(LoopAction::Continue);
             }
             CKey::Char('k') | CKey::Up if self.overlay == OverlayMode::Sidebar => {
                 let len = DASHBOARD_ENTRIES.len();
-                self.screens.select_prev(len);
-                self.dirty = true;
+                self.app.screen.navigation.select_prev(len);
+                self.pending_scope.request(crate::redraw::RedrawScope::Full);
                 return Ok(LoopAction::Continue);
             }
             // Enter: select from sidebar
             CKey::Enter if self.overlay == OverlayMode::Sidebar => {
-                let idx = self.screens.selected();
+                let idx = self.app.screen.navigation.selected();
                 if let Some(kind) = DASHBOARD_ENTRIES.get(idx).copied() {
                     self.overlay = OverlayMode::None;
                     self.goto(kind);
-                    self.dirty = true;
+                    self.pending_scope.request(crate::redraw::RedrawScope::Full);
                     return Ok(LoopAction::Continue);
                 }
             }
@@ -1149,28 +1206,28 @@ impl TuiApp {
         match key.code {
             CKey::Esc | CKey::Char('q') if !key.ctrl => {
                 // `q` only leaves the screen when the draft is empty.
-                if key.code == CKey::Esc || self.search_input.is_empty() {
+                if key.code == CKey::Esc || self.app.screen.search_input.is_empty() {
                     if !self.go_back() {
                         return LoopAction::Quit;
                     }
                 } else {
-                    self.search_input.push('q');
+                    self.app.screen.search_input.push('q');
                 }
             }
             CKey::Enter => {
-                let query = self.search_input.trim().to_string();
+                let query = self.app.screen.search_input.trim().to_string();
                 if query.is_empty() {
-                    self.set_notice("Enter a query to search.");
+                    self.app.notice.set("Enter a query to search.");
                 } else {
                     self.invalidate(ScreenKind::Search);
-                    self.set_notice(format!("Searching for \"{query}\"..."));
+                    self.app.notice.set(format!("Searching for \"{query}\"..."));
                 }
             }
             CKey::Backspace => {
-                self.search_input.pop();
+                self.app.screen.search_input.pop();
             }
             CKey::Char(c) if !key.ctrl && !key.alt => {
-                self.search_input.push(c);
+                self.app.screen.search_input.push(c);
             }
             CKey::Char('?') => {
                 self.modals.push(Box::new(HelpModal));
@@ -1187,7 +1244,7 @@ impl TuiApp {
 
     /// Number of selectable rows on the current screen.
     fn nav_len(&self) -> usize {
-        match self.screens.current_kind() {
+        match self.app.screen.navigation.current_kind() {
             ScreenKind::Dashboard => DASHBOARD_ENTRIES.len(),
             ScreenKind::Help => 1,
             kind if kind.has_data() => self.current_data().row_count().max(1),
@@ -1201,7 +1258,12 @@ impl TuiApp {
             ScreenData::Workflow(rows) => rows,
             _ => return,
         };
-        let idx = self.screens.selected().min(rows.len().saturating_sub(1));
+        let idx = self
+            .app
+            .screen
+            .navigation
+            .selected()
+            .min(rows.len().saturating_sub(1));
         let Some(row) = rows.get(idx) else { return };
         let id = row.id.clone();
         let name = row.name.clone();
@@ -1243,7 +1305,9 @@ impl TuiApp {
             _ => return,
         };
         let idx = self
-            .screens
+            .app
+            .screen
+            .navigation
             .selected()
             .min(data.profiles.len().saturating_sub(1));
         let Some(_profile) = data.profiles.get(idx) else {
@@ -1290,13 +1354,13 @@ impl TuiApp {
     }
 
     fn goto(&mut self, kind: ScreenKind) {
-        self.screens.navigate_to(kind);
+        self.app.screen.navigation.navigate_to(kind);
         self.request_data(kind);
     }
 
     fn go_back(&mut self) -> bool {
-        if self.screens.go_back() {
-            let kind = self.screens.current_kind();
+        if self.app.screen.navigation.go_back() {
+            let kind = self.app.screen.navigation.current_kind();
             self.request_data(kind);
             true
         } else {
@@ -1427,12 +1491,15 @@ fn map_key(key: crossterm::event::KeyEvent) -> Key {
         KeyCode::PageDown => CKey::PageDown,
         _ => CKey::Char('?'),
     };
-    Key {
-        code,
-        ctrl,
-        alt,
-        shift,
-    }
+    crate::keymap::normalize_key(
+        Key {
+            code,
+            ctrl,
+            alt,
+            shift,
+        },
+        cfg!(target_os = "macos"),
+    )
 }
 
 fn digit_to_screen(c: char) -> Option<ScreenKind> {

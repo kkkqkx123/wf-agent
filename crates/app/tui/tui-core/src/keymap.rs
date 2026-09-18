@@ -59,6 +59,59 @@ impl Key {
     }
 }
 
+/// macOS Option-composed character mapped back to its ASCII base key.
+/// Terminal.app and similar terminals report e.g. `å` instead of Alt+A;
+/// without this mapping such chords never match their bindings.
+pub fn macos_option_char_to_ascii_key(ch: char) -> Option<char> {
+    Some(match ch {
+        'å' => 'a',
+        '∫' => 'b',
+        'ç' => 'c',
+        '∂' => 'd',
+        'ƒ' => 'f',
+        '©' => 'g',
+        '˙' => 'h',
+        '∆' => 'j',
+        '˚' => 'k',
+        '¬' => 'l',
+        'µ' => 'm',
+        'ø' => 'o',
+        'π' => 'p',
+        'œ' => 'q',
+        '®' => 'r',
+        'ß' => 's',
+        '†' => 't',
+        '¨' => 'u',
+        '√' => 'v',
+        '∑' => 'w',
+        '≈' => 'x',
+        '¥' => 'y',
+        'Ω' => 'z',
+        _ => return None,
+    })
+}
+
+/// Normalize a resolved key for platform quirks: on macOS an
+/// Option-composed character arriving without explicit modifiers is
+/// restored to its Alt+ASCII chord. Other platforms and already-modified
+/// keys pass through unchanged.
+pub fn normalize_key(key: Key, is_macos: bool) -> Key {
+    if !is_macos || key.ctrl || key.alt || key.shift {
+        return key;
+    }
+    if let CKey::Char(ch) = key.code {
+        if let Some(ascii) = macos_option_char_to_ascii_key(ch) {
+            return Key {
+                code: CKey::Char(ascii),
+                ctrl: false,
+                alt: true,
+                shift: false,
+            };
+        }
+    }
+    key
+}
+
 /// The abstract action a key may trigger.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum KeyAction {
@@ -459,5 +512,34 @@ mod tests {
             km.resolve(KeymapContext::Approval, Key::plain(CKey::Char('y'))),
             km.resolve(KeymapContext::Modal, Key::plain(CKey::Char('y')))
         );
+    }
+
+    #[test]
+    fn macos_option_chars_map_back_to_ascii() {
+        assert_eq!(macos_option_char_to_ascii_key('å'), Some('a'));
+        assert_eq!(macos_option_char_to_ascii_key('ß'), Some('s'));
+        assert_eq!(macos_option_char_to_ascii_key('∂'), Some('d'));
+        assert_eq!(macos_option_char_to_ascii_key('a'), Option::None);
+        assert_eq!(macos_option_char_to_ascii_key('1'), Option::None);
+    }
+
+    #[test]
+    fn normalize_restores_alt_chords_on_macos_only() {
+        let composed = Key::plain(CKey::Char('å'));
+        let normalized = normalize_key(composed, true);
+        assert_eq!(
+            normalized,
+            Key {
+                code: CKey::Char('a'),
+                ctrl: false,
+                alt: true,
+                shift: false,
+            }
+        );
+        assert_eq!(normalize_key(composed, false), composed);
+        let plain = Key::plain(CKey::Char('a'));
+        assert_eq!(normalize_key(plain, true), plain);
+        let modified = Key::ctrl(CKey::Char('å'));
+        assert_eq!(normalize_key(modified, true), modified);
     }
 }

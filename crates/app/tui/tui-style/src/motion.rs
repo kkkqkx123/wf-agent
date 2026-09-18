@@ -161,8 +161,9 @@ pub fn shimmer_text(text: &str, motion_mode: MotionMode) -> Vec<Span<'static>> {
 /// peak, fall, post-dim — at most five) instead of one span per character.
 /// Sweep period and bandwidth match the previous per-character version.
 fn shimmer_spans_at(text: &str, now_ms: u64) -> Vec<Span<'static>> {
-    let chars: Vec<char> = text.chars().collect();
-    let len = chars.len();
+    use unicode_segmentation::UnicodeSegmentation;
+    let graphemes: Vec<&str> = text.graphemes(true).collect();
+    let len = graphemes.len();
     if len == 0 {
         return Vec::new();
     }
@@ -178,7 +179,7 @@ fn shimmer_spans_at(text: &str, now_ms: u64) -> Vec<Span<'static>> {
     let edge = ratatui::style::Style::default().fg(ratatui::style::Color::Rgb(0xC0, 0xC0, 0xC0));
     let hot = ratatui::style::Style::default().fg(ratatui::style::Color::Rgb(0xFF, 0xFF, 0xFF));
 
-    // Segment boundaries in character indices, clamped to the text.
+    // Segment boundaries in grapheme indices, clamped to the text.
     let b0 = start.floor().max(0.0) as usize;
     let b1 = peak.min(len);
     let b2 = (peak + 1).min(len);
@@ -189,7 +190,7 @@ fn shimmer_spans_at(text: &str, now_ms: u64) -> Vec<Span<'static>> {
         if from >= to {
             return String::new();
         }
-        chars[from..to].iter().collect()
+        graphemes[from..to].concat()
     };
 
     let mut spans = Vec::with_capacity(5);
@@ -227,87 +228,94 @@ fn lerp(a: u8, b: u8, t: f32) -> u8 {
     (a + (b - a) * t).clamp(0.0, 255.0) as u8
 }
 
-/// Detect reduced motion preference from the environment.
-///
-/// Checks common environment variables and system settings to determine
-/// if the user prefers reduced motion. This is used for accessibility
-/// support to automatically adjust animation behavior.
-///
-/// # Environment Variables Checked
-///
-/// - `TERM_PROGRAM` with `iTerm` or `Apple_Terminal` on macOS
-/// - `COLORTERM` with `truecolor` for terminal capability detection
-/// - `TERM` for terminal type detection
-///
-/// # Returns
-///
-/// The detected [`MotionMode`] based on environment and system preferences.
-pub fn detect_motion_preference() -> MotionMode {
-    // Check for common reduced motion indicators
+/// Injected environment snapshot for motion detection. Upper layers build
+/// this from `std::env` and desktop settings; the pure
+/// [`detect_motion_preference_with`] consumes only these values, so unit
+/// tests never touch process state.
+#[derive(Debug, Clone, Default)]
+pub struct MotionEnv {
+    /// `NO_COLOR` present.
+    pub no_color: bool,
+    /// `TERM` value.
+    pub term: Option<String>,
+    /// GNOME `enable-animations` gsettings result (`None` when unknown).
+    pub gnome_animations: Option<bool>,
+    /// macOS `reduceMotion` defaults result (`None` when unknown).
+    pub macos_reduce_motion: Option<bool>,
+}
 
-    // macOS: System Preferences > Accessibility > Display > Reduce Motion
-    if cfg!(target_os = "macos") {
-        // On macOS, we can check for the reduce motion preference
-        // by looking at the NSUserDefaults through environment
-        if let Ok(output) = std::process::Command::new("defaults")
-            .args(["read", "com.apple.universalaccess", "reduceMotion"])
-            .output()
-        {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            if stdout.trim() == "1" {
-                return MotionMode::Reduced;
-            }
+impl MotionEnv {
+    /// Capture the live process environment (thin upper-layer adapter).
+    pub fn live() -> Self {
+        Self {
+            no_color: std::env::var("NO_COLOR").is_ok(),
+            term: std::env::var("TERM").ok(),
+            gnome_animations: gnome_animations_setting(),
+            macos_reduce_motion: macos_reduce_motion_setting(),
         }
     }
+}
 
-    // Linux: GNOME reduce motion setting
-    if cfg!(target_os = "linux") {
-        if let Ok(output) = std::process::Command::new("gsettings")
-            .args(["get", "org.gnome.desktop.interface", "enable-animations"])
-            .output()
-        {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            if stdout.trim() == "false" {
-                return MotionMode::Reduced;
-            }
-        }
+fn gnome_animations_setting() -> Option<bool> {
+    if !cfg!(target_os = "linux") {
+        return None;
     }
+    let output = std::process::Command::new("gsettings")
+        .args(["get", "org.gnome.desktop.interface", "enable-animations"])
+        .output()
+        .ok()?;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    match stdout.trim() {
+        "false" => Some(false),
+        "true" => Some(true),
+        _ => None,
+    }
+}
 
-    // Check for NO_COLOR environment variable (common convention)
-    if std::env::var("NO_COLOR").is_ok() {
+fn macos_reduce_motion_setting() -> Option<bool> {
+    if !cfg!(target_os = "macos") {
+        return None;
+    }
+    let output = std::process::Command::new("defaults")
+        .args(["read", "com.apple.universalaccess", "reduceMotion"])
+        .output()
+        .ok()?;
+    Some(String::from_utf8_lossy(&output.stdout).trim() == "1")
+}
+
+/// Pure motion preference over injected environment values.
+pub fn detect_motion_preference_with(env: &MotionEnv) -> MotionMode {
+    if env.macos_reduce_motion == Some(true) {
         return MotionMode::Reduced;
     }
-
-    // Check for specific terminal programs that may indicate CI/headless
-    if let Ok(term) = std::env::var("TERM") {
+    if env.gnome_animations == Some(false) {
+        return MotionMode::Reduced;
+    }
+    if env.no_color {
+        return MotionMode::Reduced;
+    }
+    if let Some(term) = env.term.as_deref() {
         if term == "dumb" || term == "linux" {
             return MotionMode::Reduced;
         }
     }
-
-    // Default to animated if no reduced motion indicators found
     MotionMode::Animated
 }
 
-/// Check if the terminal supports truecolor (24-bit color).
-///
-/// This is used to determine if high-quality shimmer effects can be
-/// rendered, or if fallback to simpler color models is needed.
-///
-/// # Returns
-///
-/// `true` if the terminal likely supports truecolor.
-pub fn supports_truecolor() -> bool {
-    // Check COLORTERM for truecolor support
-    if let Ok(colorterm) = std::env::var("COLORTERM") {
-        if colorterm.to_lowercase() == "truecolor" {
-            return true;
-        }
+/// Pure truecolor support over injected environment values.
+pub fn supports_truecolor_with(
+    colorterm: Option<&str>,
+    term_program: Option<&str>,
+    term: Option<&str>,
+) -> bool {
+    if colorterm
+        .map(|v| v.eq_ignore_ascii_case("truecolor"))
+        .unwrap_or(false)
+    {
+        return true;
     }
-
-    // Check specific terminal programs known to support truecolor
-    if let Ok(term_program) = std::env::var("TERM_PROGRAM") {
-        let program = term_program.to_lowercase();
+    if let Some(program) = term_program {
+        let program = program.to_ascii_lowercase();
         if program.contains("iterm")
             || program.contains("apple_terminal")
             || program.contains("vscode")
@@ -318,15 +326,29 @@ pub fn supports_truecolor() -> bool {
             return true;
         }
     }
-
-    // Check for common modern terminals
-    if let Ok(term) = std::env::var("TERM") {
+    if let Some(term) = term {
         if term.contains("256color") || term.contains("truecolor") {
             return true;
         }
     }
-
     false
+}
+
+/// Detect reduced motion preference from the live environment. Thin
+/// adapter over [`detect_motion_preference_with`]; policy code should prefer
+/// injecting [`MotionEnv`] so behavior stays testable.
+pub fn detect_motion_preference() -> MotionMode {
+    detect_motion_preference_with(&MotionEnv::live())
+}
+
+/// Check if the terminal supports truecolor (24-bit color). Thin adapter
+/// over [`supports_truecolor_with`].
+pub fn supports_truecolor() -> bool {
+    supports_truecolor_with(
+        std::env::var("COLORTERM").ok().as_deref(),
+        std::env::var("TERM_PROGRAM").ok().as_deref(),
+        std::env::var("TERM").ok().as_deref(),
+    )
 }
 
 /// Get the optimal motion mode considering environment and preferences.

@@ -152,3 +152,9 @@ tokio-tungstenite = { version = "0.27", default-features = false, features = ["c
 tempfile = "3"
 criterion = "0.5"
 insta = "1"
+
+[profile.dev.package.tui-style]
+opt-level = 3
+
+[profile.test.package.tui-style]
+opt-level = 3

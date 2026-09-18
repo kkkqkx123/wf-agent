@@ -75,12 +75,39 @@ pub struct RedrawSnapshot {
     pub footer_digest: u64,
     /// Layout width in columns.
     pub width: u16,
+    /// Viewport height in rows (frame identity only; body layout is
+    /// width-driven, but overlay and viewport geometry follow height).
+    pub height: u16,
+    /// Render mode bits (`crate::prep_keys::RENDER_MODE_*`).
+    pub render_mode: u8,
     /// Viewport scroll offset in display rows.
     pub view_scroll: usize,
     /// Discretized animation tick (spinner frame index).
     pub anim_tick: u64,
+    /// Image collection signature: inline image changes force a full frame.
+    pub image_signature: u64,
+    /// Expanded image level version.
+    pub expanded_version: u64,
+    /// Diagram aspect bucket from the unified layout entry point.
+    pub aspect_bucket: u8,
     /// Overlay, modal or notice-row visibility changed; forces full.
     pub force_full: bool,
+}
+
+/// Event source feeding a redraw request, ordered by interaction priority:
+/// input preempts animation, animation preempts periodic polling, and
+/// background refreshes never preempt anything.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
+pub enum EventSource {
+    /// Background data refresh (fetch completion, passive liveness).
+    #[default]
+    Background,
+    /// Periodic poll tick.
+    Periodic,
+    /// Animation-tick advance.
+    Animation,
+    /// User input (key, mouse, paste, resize).
+    Input,
 }
 
 /// Grade the transition from `prev` to `next` into a redraw scope.
@@ -96,10 +123,15 @@ pub fn decide_scope(prev: Option<RedrawSnapshot>, next: RedrawSnapshot) -> Redra
         return RedrawScope::Full;
     }
     if prev.width != next.width
+        || prev.height != next.height
+        || prev.render_mode != next.render_mode
         || prev.content_version != next.content_version
         || prev.view_scroll != next.view_scroll
         || prev.streaming_len != next.streaming_len
         || prev.streaming_hash != next.streaming_hash
+        || prev.image_signature != next.image_signature
+        || prev.expanded_version != next.expanded_version
+        || prev.aspect_bucket != next.aspect_bucket
     {
         return RedrawScope::Full;
     }
@@ -116,6 +148,8 @@ pub fn decide_scope(prev: Option<RedrawSnapshot>, next: RedrawSnapshot) -> Redra
 #[derive(Debug, Clone, Copy, Default)]
 pub struct PendingScope {
     scope: RedrawScope,
+    /// Highest-priority source among the merged requests.
+    source: EventSource,
 }
 
 impl PendingScope {
@@ -126,7 +160,25 @@ impl PendingScope {
 
     /// Merge a new request, keeping the most severe scope.
     pub fn request(&mut self, scope: RedrawScope) {
+        self.request_from(scope, EventSource::Background);
+    }
+
+    /// Merge a new request from `source`: severity still decides the scope,
+    /// while the highest-priority source is retained for scheduling.
+    pub fn request_from(&mut self, scope: RedrawScope, source: EventSource) {
         self.scope = self.scope.merge(scope);
+        self.note_source(source);
+    }
+
+    /// Retain `source` without changing the scope. Input and animation paths
+    /// call this when they mark state dirty outside grading, so the submit
+    /// point knows the highest-priority cause behind the pending frame.
+    /// `take` resets the record, so a retained source always postdates the
+    /// last submitted frame.
+    pub fn note_source(&mut self, source: EventSource) {
+        if source > self.source {
+            self.source = source;
+        }
     }
 
     /// Current pending scope.
@@ -134,9 +186,16 @@ impl PendingScope {
         self.scope
     }
 
+    /// Highest-priority source among the merged requests.
+    pub fn source(&self) -> EventSource {
+        self.source
+    }
+
     /// Take and clear the pending scope.
     pub fn take(&mut self) -> RedrawScope {
-        std::mem::replace(&mut self.scope, RedrawScope::None)
+        let scope = std::mem::replace(&mut self.scope, RedrawScope::None);
+        self.source = EventSource::Background;
+        scope
     }
 
     /// True when a frame is pending.
@@ -244,20 +303,90 @@ fn phase_tag(phase: crate::reducer::Phase) -> u8 {
     }
 }
 
+/// Packed rectangle in a single `u64` for loop-held animation geometry.
+/// Layout: `x:16 | y:16 | w:16 | h:16` from high to low bits. Zero means
+/// empty. Packing keeps the animation record copyable through the event loop
+/// without allocating or cloning `Rect`s per frame.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct PackedRect(pub u64);
+
+impl PackedRect {
+    /// Empty record.
+    pub const EMPTY: Self = Self(0);
+
+    /// Pack a `Rect` (saturating to 16 bits per lane).
+    pub fn pack(rect: Rect) -> Self {
+        let x = u64::from(rect.x);
+        let y = u64::from(rect.y);
+        let w = u64::from(rect.width);
+        let h = u64::from(rect.height);
+        Self((x << 48) | (y << 32) | (w << 16) | h)
+    }
+
+    /// Unpack to a `Rect` (`None` when empty).
+    pub fn unpack(self) -> Option<Rect> {
+        if self.0 == 0 {
+            return None;
+        }
+        Some(Rect {
+            x: (self.0 >> 48) as u16,
+            y: (self.0 >> 32) as u16,
+            width: (self.0 >> 16) as u16,
+            height: self.0 as u16,
+        })
+    }
+
+    /// Whether the record holds a rectangle.
+    pub fn is_empty(self) -> bool {
+        self.0 == 0
+    }
+}
+
 /// Recorded animation geometry: the only cells an animation-only frame may
-/// touch (streaming indicator cell plus statusline spinner cell).
+/// touch (streaming indicator cell plus statusline spinner cell). Stored as
+/// loop-held packed rectangles so the submit point copies a single `u64`
+/// per cell instead of cloning `Rect`s.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct AnimationArea {
-    /// Bounding cell of the streaming-line indicator, if streaming.
-    pub streaming_cell: Option<Rect>,
-    /// Bounding cell of the statusline spinner, when busy.
-    pub status_cell: Option<Rect>,
+    packed_streaming: u64,
+    packed_status: u64,
 }
 
 impl AnimationArea {
+    /// Record from live rectangles.
+    pub fn new(streaming_cell: Option<Rect>, status_cell: Option<Rect>) -> Self {
+        Self {
+            packed_streaming: streaming_cell
+                .map(PackedRect::pack)
+                .map(|p| p.0)
+                .unwrap_or(0),
+            packed_status: status_cell.map(PackedRect::pack).map(|p| p.0).unwrap_or(0),
+        }
+    }
+
+    /// Bounding cell of the streaming-line indicator, if streaming.
+    pub fn streaming_cell(&self) -> Option<Rect> {
+        PackedRect(self.packed_streaming).unpack()
+    }
+
+    /// Bounding cell of the statusline spinner, when busy.
+    pub fn status_cell(&self) -> Option<Rect> {
+        PackedRect(self.packed_status).unpack()
+    }
+
+    /// Packed streaming cell for loop-held copies (0 when empty).
+    pub fn packed_streaming(&self) -> u64 {
+        self.packed_streaming
+    }
+
+    /// Packed status cell for loop-held copies (0 when empty).
+    pub fn packed_status(&self) -> u64 {
+        self.packed_status
+    }
+
     /// Union bounding box of the recorded cells, if any.
     pub fn bounds(&self) -> Option<Rect> {
-        match (self.streaming_cell, self.status_cell) {
+        match (self.streaming_cell(), self.status_cell()) {
             (Some(a), Some(b)) => Some(union_rect(a, b)),
             (Some(a), None) => Some(a),
             (None, Some(b)) => Some(b),
@@ -279,6 +408,47 @@ fn union_rect(a: Rect, b: Rect) -> Rect {
     }
 }
 
+/// Row-level record of the last drawn animation cells. While
+/// [`AnimationArea`] keeps the two bounding cells, this set lists every
+/// display row an animation-only frame repainted, so tests and the submit
+/// path can assert that animation frames never touch other rows. A missing
+/// or empty record falls back to a full frame.
+#[derive(Debug, Clone, Default)]
+pub struct AnimRowRecord {
+    rows: Vec<u16>,
+}
+
+impl AnimRowRecord {
+    /// Empty record.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Record the rows covered by `area` (union bounds, row granularity).
+    pub fn record(&mut self, area: AnimationArea) {
+        self.rows.clear();
+        if let Some(bounds) = area.bounds() {
+            let end = bounds.y.saturating_add(bounds.height);
+            self.rows.extend(bounds.y..end);
+        }
+    }
+
+    /// Recorded rows, in ascending order.
+    pub fn rows(&self) -> &[u16] {
+        &self.rows
+    }
+
+    /// True when `row` may be repainted by an animation-only frame.
+    pub fn covers(&self, row: u16) -> bool {
+        self.rows.contains(&row)
+    }
+
+    /// True when no row was recorded.
+    pub fn is_empty(&self) -> bool {
+        self.rows.is_empty()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -290,8 +460,13 @@ mod tests {
             streaming_hash: 0,
             footer_digest: 7,
             width: 80,
+            height: 24,
+            render_mode: 0,
             view_scroll: 0,
             anim_tick: 3,
+            image_signature: 0,
+            expanded_version: 0,
+            aspect_bucket: 0,
             force_full: false,
         }
     }
@@ -336,6 +511,17 @@ mod tests {
     }
 
     #[test]
+    fn height_or_render_mode_change_is_full() {
+        let prev = snapshot();
+        let mut resized = prev;
+        resized.height = 30;
+        assert_eq!(decide_scope(Some(prev), resized), RedrawScope::Full);
+        let mut overlay = prev;
+        overlay.render_mode = crate::prep_keys::RENDER_MODE_OVERLAY;
+        assert_eq!(decide_scope(Some(prev), overlay), RedrawScope::Full);
+    }
+
+    #[test]
     fn footer_change_is_bottom_only() {
         let prev = snapshot();
         let mut next = prev;
@@ -362,6 +548,20 @@ mod tests {
     }
 
     #[test]
+    fn media_signals_force_full() {
+        let prev = snapshot();
+        let mut image = prev;
+        image.image_signature = 9;
+        assert_eq!(decide_scope(Some(prev), image), RedrawScope::Full);
+        let mut aspect = prev;
+        aspect.aspect_bucket = 2;
+        assert_eq!(decide_scope(Some(prev), aspect), RedrawScope::Full);
+        let mut expanded = prev;
+        expanded.expanded_version = 1;
+        assert_eq!(decide_scope(Some(prev), expanded), RedrawScope::Full);
+    }
+
+    #[test]
     fn pending_scope_merges_by_severity() {
         let mut pending = PendingScope::new();
         pending.request(RedrawScope::AnimationOnly);
@@ -372,6 +572,50 @@ mod tests {
         pending.request(RedrawScope::Full);
         assert_eq!(pending.take(), RedrawScope::Full);
         assert!(!pending.is_pending());
+    }
+
+    #[test]
+    fn pending_scope_tracks_highest_priority_source() {
+        let mut pending = PendingScope::new();
+        pending.request_from(RedrawScope::AnimationOnly, EventSource::Background);
+        assert_eq!(pending.source(), EventSource::Background);
+        pending.request_from(RedrawScope::AnimationOnly, EventSource::Input);
+        assert_eq!(pending.source(), EventSource::Input);
+        assert!(EventSource::Input > EventSource::Animation);
+        assert!(EventSource::Animation > EventSource::Periodic);
+        assert!(EventSource::Periodic > EventSource::Background);
+        assert_eq!(pending.take(), RedrawScope::AnimationOnly);
+        assert_eq!(pending.source(), EventSource::Background);
+    }
+
+    #[test]
+    fn bare_source_notes_survive_until_take() {
+        let mut pending = PendingScope::new();
+        pending.note_source(EventSource::Input);
+        assert_eq!(pending.source(), EventSource::Input);
+        pending.note_source(EventSource::Background);
+        assert_eq!(pending.source(), EventSource::Input);
+        pending.request(RedrawScope::BottomOnly);
+        assert_eq!(pending.source(), EventSource::Input);
+    }
+
+    #[test]
+    fn anim_row_record_covers_only_recorded_rows() {
+        let mut record = AnimRowRecord::new();
+        assert!(record.is_empty());
+        record.record(AnimationArea::new(
+            Some(Rect::new(0, 7, 4, 1)),
+            Some(Rect::new(0, 20, 2, 2)),
+        ));
+        assert!(record.covers(7));
+        assert!(record.covers(20));
+        assert!(record.covers(21));
+        // Union bounds span rows 7..22 at row granularity.
+        assert!(record.covers(8));
+        assert!(!record.covers(22));
+        assert!(!record.covers(0));
+        record.record(AnimationArea::default());
+        assert!(record.is_empty());
     }
 
     #[test]
@@ -402,11 +646,17 @@ mod tests {
     }
 
     #[test]
+    fn packed_rect_round_trips() {
+        let rect = Rect::new(3, 7, 4, 1);
+        let packed = PackedRect::pack(rect);
+        assert!(!packed.is_empty());
+        assert_eq!(packed.unpack(), Some(rect));
+        assert_eq!(PackedRect::EMPTY.unpack(), None);
+    }
+
+    #[test]
     fn animation_area_bounds_unions_cells() {
-        let area = AnimationArea {
-            streaming_cell: Some(Rect::new(0, 0, 2, 1)),
-            status_cell: Some(Rect::new(5, 3, 1, 1)),
-        };
+        let area = AnimationArea::new(Some(Rect::new(0, 0, 2, 1)), Some(Rect::new(5, 3, 1, 1)));
         let bounds = area.bounds().expect("union exists");
         assert_eq!(bounds.x, 0);
         assert_eq!(bounds.y, 0);

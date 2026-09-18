@@ -77,6 +77,12 @@ impl FrameRequester {
         self.limiter = FrameRateLimiter::new(min_interval_ms.max(1));
     }
 
+    /// Current rate floor in milliseconds, so the event loop can rebuild the
+    /// timer only when the expected period actually changes.
+    pub fn min_interval_ms(&self) -> u64 {
+        self.limiter.min_interval_ms
+    }
+
     pub fn now(&self) -> u64 {
         self.now
     }

@@ -155,32 +155,17 @@ impl TerminalType {
     }
 }
 
-/// Individual capability probe trait.
-pub trait CapabilityProbe {
-    /// Probe and populate the given capabilities.
-    fn probe(&self, capabilities: &mut TerminalCapabilities);
-    /// Probe name for debugging.
-    fn name(&self) -> &'static str;
-}
-
-/// Orchestrates multiple capability probes.
+/// Orchestrates capability detection with concrete probe functions. No
+/// dynamic dispatch: the four probes run in fixed order, so the startup path
+/// stays monomorphic and testable.
 pub struct TerminalProbe {
     capabilities: TerminalCapabilities,
-    probes: Vec<Box<dyn CapabilityProbe>>,
 }
 
 impl TerminalProbe {
     pub fn new() -> Self {
-        let probes: Vec<Box<dyn CapabilityProbe>> = vec![
-            Box::new(KeyboardEnhancementProbe),
-            Box::new(ColorDepthProbe),
-            Box::new(TerminalTypeProbe),
-            Box::new(FocusEventProbe),
-        ];
-
         Self {
             capabilities: TerminalCapabilities::default(),
-            probes,
         }
     }
 
@@ -189,7 +174,6 @@ impl TerminalProbe {
         if !std::io::stdout().is_terminal() {
             return Self {
                 capabilities: TerminalCapabilities::default(),
-                probes: Vec::new(),
             };
         }
 
@@ -198,11 +182,12 @@ impl TerminalProbe {
         probe
     }
 
-    /// Execute all registered probes.
+    /// Execute all probes in fixed order.
     pub fn run(&mut self) {
-        for probe in &self.probes {
-            probe.probe(&mut self.capabilities);
-        }
+        probe_keyboard_enhancement(&mut self.capabilities);
+        probe_color_depth(&mut self.capabilities);
+        probe_terminal_type(&mut self.capabilities);
+        probe_focus_events(&mut self.capabilities);
     }
 
     /// Get the detected capabilities.
@@ -222,60 +207,24 @@ impl Default for TerminalProbe {
     }
 }
 
-/// Probe keyboard enhancement support.
-struct KeyboardEnhancementProbe;
-
-impl CapabilityProbe for KeyboardEnhancementProbe {
-    fn probe(&self, caps: &mut TerminalCapabilities) {
-        let term_type = TerminalType::detect_from_env();
-        caps.kitty_keyboard =
-            term_type.supports_kitty_keyboard() || detect_keyboard_enhancement_heuristic();
-    }
-
-    fn name(&self) -> &'static str {
-        "keyboard_enhancement"
-    }
+fn probe_keyboard_enhancement(caps: &mut TerminalCapabilities) {
+    let term_type = TerminalType::detect_from_env();
+    caps.kitty_keyboard =
+        term_type.supports_kitty_keyboard() || detect_keyboard_enhancement_heuristic();
 }
 
-/// Probe color depth.
-struct ColorDepthProbe;
-
-impl CapabilityProbe for ColorDepthProbe {
-    fn probe(&self, caps: &mut TerminalCapabilities) {
-        caps.color_depth = ColorDepth::detect_from_env();
-        caps.true_color = matches!(caps.color_depth, ColorDepth::TrueColor);
-    }
-
-    fn name(&self) -> &'static str {
-        "color_depth"
-    }
+fn probe_color_depth(caps: &mut TerminalCapabilities) {
+    caps.color_depth = ColorDepth::detect_from_env();
+    caps.true_color = matches!(caps.color_depth, ColorDepth::TrueColor);
 }
 
-/// Probe terminal type.
-struct TerminalTypeProbe;
-
-impl CapabilityProbe for TerminalTypeProbe {
-    fn probe(&self, caps: &mut TerminalCapabilities) {
-        caps.terminal_type = TerminalType::detect_from_env();
-    }
-
-    fn name(&self) -> &'static str {
-        "terminal_type"
-    }
+fn probe_terminal_type(caps: &mut TerminalCapabilities) {
+    caps.terminal_type = TerminalType::detect_from_env();
 }
 
-/// Probe focus event support.
-struct FocusEventProbe;
-
-impl CapabilityProbe for FocusEventProbe {
-    fn probe(&self, caps: &mut TerminalCapabilities) {
-        let term_type = TerminalType::detect_from_env();
-        caps.focus_events = term_type.supports_focus_events();
-    }
-
-    fn name(&self) -> &'static str {
-        "focus_events"
-    }
+fn probe_focus_events(caps: &mut TerminalCapabilities) {
+    let term_type = TerminalType::detect_from_env();
+    caps.focus_events = term_type.supports_focus_events();
 }
 
 /// Heuristic keyboard enhancement detection via `TERM_PROGRAM` and version.

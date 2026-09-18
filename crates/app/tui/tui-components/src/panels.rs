@@ -11,9 +11,9 @@
 //! keymap actions (`MovePrev`/`MoveNext`/`Select`/`Delete`/`Edit`/`Clear`)
 //! into the panel and interprets the selected item's `data`.
 
-use tui_core::keymap::KeyAction;
 use crate::queue::QueuedPrompt;
 use crate::select::{Group, GroupItem, NavigateDir, SelectList};
+use tui_core::keymap::KeyAction;
 use wf_types::llm::LlmProfile;
 use wf_types::skill::SkillMetadata;
 

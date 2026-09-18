@@ -59,21 +59,13 @@ pub fn adapt_buffer_for_theme(buf: &mut Buffer, mode: ThemeMode, explicit: bool)
     }
 }
 
-/// Post-process a finished frame buffer in fixed order: theme brightness
-/// adaptation first (only as an fallback when nothing was explicitly
-/// configured), then the user palette pass. The palette pass is a hook for
-/// future user-color remapping; component styles already carry the active
-/// palette, so it is currently a no-op by design.
-pub fn post_process_buffer(buf: &mut Buffer, mode: ThemeMode, explicit: bool) {
-    adapt_buffer_for_theme(buf, mode, explicit);
-    apply_user_palette(buf);
-}
-
 /// Resolve which theme components render with and how the frame buffer is
 /// post-processed. An explicit user theme is used as-is with adaptation
 /// disabled. Otherwise components always render the dark palette and light
 /// terminals get a single buffer-level flip — never both, so colors cannot
-/// be adapted twice.
+/// be adapted twice. The user palette pass lives in
+/// `tui-render::post_process` as the single pipeline; component styles
+/// already carry the active palette resolved by `theme::resolve_theme`.
 pub fn resolve_render_theme(probed: crate::theme::Theme) -> (crate::theme::Theme, ThemeMode, bool) {
     if probed.source == crate::theme::ThemeSource::File {
         let mode = ThemeMode::from_kind(probed.kind);
@@ -88,9 +80,6 @@ pub fn resolve_render_theme(probed: crate::theme::Theme) -> (crate::theme::Theme
         }
     }
 }
-
-/// User-palette pass placeholder: reserved position after theme adaptation.
-fn apply_user_palette(_buf: &mut Buffer) {}
 
 /// Flip one color for light terminals, preserving hue.
 fn adapt_color(color: Color) -> Color {

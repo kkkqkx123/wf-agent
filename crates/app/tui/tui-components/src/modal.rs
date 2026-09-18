@@ -6,6 +6,13 @@
 //! await the user's answer while the event loop keeps drawing. Dropping the
 //! stack (on shutdown) drops the sender, so waiting tasks resolve with
 //! `RecvError` instead of hanging.
+//!
+//! Dynamic dispatch rationale: the modal stack is the single dynamic
+//! dispatch in the TUI. Modals are heterogeneous (confirm, help, picker,
+//! password, question) and open/close at runtime in any order, so a closed
+//! enum would force the shell to know every modal type. `Box<dyn Modal>`
+//! isolates that openness to one stack; every other view uses concrete
+//! types.
 
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::Style;

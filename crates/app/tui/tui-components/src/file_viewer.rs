@@ -5,8 +5,8 @@ use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
 use ratatui::Frame;
 
-use tui_core::keymap::{CKey, Key};
 use crate::modal::{area_rows, render_viewer, scroll_key, Modal, ModalAction, ModalResult, Scroll};
+use tui_core::keymap::{CKey, Key};
 use tui_style::theme::Theme;
 
 fn to_color(rgb: tui_style::theme::Rgb) -> Color {

@@ -119,70 +119,80 @@ mod tests {
     use super::*;
     use std::io::Write;
 
-    /// Serializes tests that redirect the process-wide fd 2.
+    /// Serializes every test that redirects the process-wide fd 2.
+    ///
+    /// Redirecting fd 2 is process-global, so all such tests must share one
+    /// lock: a second lock would still let two tests redirect concurrently,
+    /// sending writes to the wrong file and corrupting restore order.
     static STDERR_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
     #[test]
     fn suppressed_writes_land_in_the_file_and_restore_releases() {
-        let _lock = STDERR_LOCK.lock().unwrap();
-        let dir = tempfile::tempdir().unwrap();
+        let _lock = STDERR_LOCK.lock().expect("stderr lock is usable");
+        let dir = tempfile::tempdir().expect("tempdir is usable");
         let path = dir.path().join("stderr.log");
         let text = format!("suppressed-{}-line\n", std::process::id());
 
         {
-            let mut guard = TerminalStderrGuard::suppress_to(&path).unwrap();
+            let mut guard =
+                TerminalStderrGuard::suppress_to(&path).expect("suppress_to works on temp file");
             assert!(guard.is_suppressing());
             let mut err = io::stderr();
-            err.write_all(text.as_bytes()).unwrap();
-            err.flush().unwrap();
-            guard.restore().unwrap();
+            err.write_all(text.as_bytes())
+                .expect("write to suppressed stderr works");
+            err.flush().expect("flush works");
+            guard.restore().expect("restore works");
             assert!(!guard.is_suppressing());
         }
 
-        let content = std::fs::read_to_string(&path).unwrap();
+        let content = std::fs::read_to_string(&path).expect("log file is readable");
         assert!(content.contains(&text), "content was {content:?}");
     }
 
     #[cfg(unix)]
     mod unix_tests {
-        use super::*;
+        use super::super::*;
+        use super::STDERR_LOCK;
         use crate::terminal::{FakeControl, TerminalGuard, TerminalModes};
-
-        static STDERR_LOCK2: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
         #[test]
         fn with_restored_lifts_and_reapplies_stderr_suppression() {
-            let _lock = STDERR_LOCK2.lock().unwrap();
-            let dir = tempfile::tempdir().unwrap();
+            let _lock = STDERR_LOCK.lock().expect("stderr lock is usable");
+            let dir = tempfile::tempdir().expect("tempdir is usable");
             let path = dir.path().join("stderr-cycle.log");
-            let mut stderr_guard = TerminalStderrGuard::suppress_to(&path).unwrap();
+            let mut stderr_guard =
+                TerminalStderrGuard::suppress_to(&path).expect("suppress_to works on temp file");
             assert!(stderr_guard.is_suppressing());
 
             let mut guard = TerminalGuard::new(FakeControl::default());
-            guard.enter(TerminalModes::MINI).unwrap();
-            guard.with_restored(Some(&mut stderr_guard), || ()).unwrap();
+            guard.enter(TerminalModes::MINI).expect("enter works");
+            guard
+                .with_restored(Some(&mut stderr_guard), || ())
+                .expect("window works");
 
             // Suppression is active again after the window.
             assert!(stderr_guard.is_suppressing());
-            stderr_guard.restore().unwrap();
+            stderr_guard.restore().expect("restore works");
             assert!(!stderr_guard.is_suppressing());
         }
 
         #[test]
         fn drop_restores_stderr() {
-            let _lock = STDERR_LOCK2.lock().unwrap();
-            let dir = tempfile::tempdir().unwrap();
+            let _lock = STDERR_LOCK.lock().expect("stderr lock is usable");
+            let dir = tempfile::tempdir().expect("tempdir is usable");
             let path = dir.path().join("stderr-drop.log");
             {
-                let guard = TerminalStderrGuard::suppress_to(&path).unwrap();
+                let guard = TerminalStderrGuard::suppress_to(&path)
+                    .expect("suppress_to works on temp file");
                 assert!(guard.is_suppressing());
                 drop(guard);
             }
             // The guard is gone; a new one can suppress again (fd
             // bookkeeping stayed balanced).
-            let mut guard = TerminalStderrGuard::suppress_to(&path).unwrap();
+            let mut guard =
+                TerminalStderrGuard::suppress_to(&path).expect("suppress_to works on temp file");
             assert!(guard.is_suppressing());
-            guard.restore().unwrap();
+            guard.restore().expect("restore works");
         }
     }
 }

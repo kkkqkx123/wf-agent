@@ -5,18 +5,13 @@ edition.workspace = true
 description = "Low-level TUI implementation crate (tui-style)"
 
 [dependencies]
-wf-common = { workspace = true }
-wf-types = { workspace = true }
-wf-core = { workspace = true }
 ratatui = { workspace = true }
 serde = { workspace = true }
-thiserror = { workspace = true }
-tracing = { workspace = true }
-crossterm = { workspace = true }
-libc = { workspace = true }
 serde_json = { workspace = true }
-tokio = { workspace = true }
+unicode-width = { workspace = true }
+unicode-segmentation = { workspace = true }
 tui-clock = { path = "../tui-clock" }
+tui-terminal = { path = "../tui-terminal" }
 
 [features]
 default = []

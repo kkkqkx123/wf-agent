@@ -4,11 +4,12 @@
 //! it into a ratatui frame area. These are called from
 //! [`Screens::draw`](wf_tui::screens::Screens::draw).
 
-use ratatui::layout::{Constraint, Direction, Layout, Rect};
+use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph};
 use ratatui::Frame;
 
+use super::layout::split_management;
 use tui_core::screen_data::{short_id, ScreenData};
 use tui_style::theme::{ColorRole, Theme};
 
@@ -136,17 +137,14 @@ pub fn draw_executions(
         _ => Vec::new(),
     };
 
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Length(3), Constraint::Min(3)])
-        .split(area);
+    let (header_area, body_area) = split_management(area, 3);
 
     let header = Paragraph::new("f cycle status filter · Enter inspect · Esc back")
         .block(titled_block("Filter", ColorRole::Warning, theme));
-    frame.render_widget(header, chunks[0]);
+    frame.render_widget(header, header_area);
 
     let block = titled_block("Executions", ColorRole::Warning, theme);
-    render_rows(frame, chunks[1], block, &rows, selected, theme);
+    render_rows(frame, body_area, block, &rows, selected, theme);
 }
 
 pub fn draw_checkpoints(
@@ -204,16 +202,13 @@ pub fn draw_search(frame: &mut Frame, area: Rect, data: &ScreenData, theme: &The
         ),
     };
 
-    let chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Length(3), Constraint::Min(3)])
-        .split(area);
+    let (input_area, results_area) = split_management(area, 3);
     let input_block = titled_block("Search (Enter run, Esc back)", ColorRole::Accent, theme);
     let input = Paragraph::new(format!("> {query}")).block(input_block);
-    frame.render_widget(input, chunks[0]);
+    frame.render_widget(input, input_area);
     frame.render_widget(
         Paragraph::new(text).block(titled_block("Results", ColorRole::Accent, theme)),
-        chunks[1],
+        results_area,
     );
 }
 
@@ -247,4 +242,58 @@ pub fn draw_help(frame: &mut Frame, area: Rect, theme: &Theme) {
     let text = "Help - Key Bindings\n\n  q / Esc    - quit / back\n  1-8        - switch screens\n  j/k / Up/Down - navigate\n  Enter      - select / push screen\n  f          - cycle execution status filter\n  d          - delete selected workflow\n  r          - restore selected checkpoint\n  ?          - toggle help overlay\n\nScreens: Dashboard, Workflows, Executions, Session, Checkpoints, Search, Settings, Help";
     let block = titled_block("Help", ColorRole::Warning, theme);
     frame.render_widget(Paragraph::new(text).block(block), area);
+}
+
+/// Sidebar overlay: screen list taking 30% of the width. Moved here from the
+/// application shell so management drawing lives in the screen module; the
+/// shell only decides when the overlay is active.
+pub fn draw_sidebar_overlay(frame: &mut Frame, area: Rect, selected: usize) {
+    use ratatui::widgets::Clear;
+    let sidebar_width = (f32::from(area.width) * 0.3) as u16;
+    let sidebar_area = Rect {
+        x: area.x,
+        y: area.y,
+        width: sidebar_width,
+        height: area.height.saturating_sub(1),
+    };
+    frame.render_widget(Clear, sidebar_area);
+    let block = Block::default()
+        .title(" Screens ")
+        .borders(Borders::ALL)
+        .style(Style::default().fg(Color::Cyan));
+    let screens = [
+        "1. Workflow",
+        "2. Executions",
+        "3. Checkpoints",
+        "4. Search",
+        "5. Settings",
+        "6. Dashboard",
+        "7. Help",
+    ];
+    let items: Vec<ListItem> = screens.iter().map(|name| ListItem::new(*name)).collect();
+    let mut state = ListState::default();
+    state.select(Some(selected.min(screens.len().saturating_sub(1))));
+    let list = List::new(items)
+        .block(block)
+        .highlight_style(Style::default().fg(Color::Black).bg(Color::Cyan));
+    frame.render_stateful_widget(list, sidebar_area, &mut state);
+}
+
+/// Transcript history overlay: full-screen history view. Moved here from the
+/// application shell for the same reason as above.
+pub fn draw_transcript_overlay(frame: &mut Frame, area: Rect) {
+    use ratatui::widgets::Clear;
+    let overlay_area = Rect {
+        x: area.x,
+        y: area.y,
+        width: area.width,
+        height: area.height.saturating_sub(1),
+    };
+    frame.render_widget(Clear, overlay_area);
+    let block = Block::default()
+        .title(" History (Ctrl+T to close) ")
+        .borders(Borders::ALL)
+        .style(Style::default().fg(Color::Magenta));
+    let paragraph = Paragraph::new("History view - Press Ctrl+T to close").block(block);
+    frame.render_widget(paragraph, overlay_area);
 }

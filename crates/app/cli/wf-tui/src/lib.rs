@@ -14,30 +14,31 @@ pub use wf_cli_shared::{
 // TUI-specific modules now live in dedicated low-level crates under `crates/app/tui/`.
 // Re-export them so existing `crate::<module>` paths and `wf_tui::<module>`
 // external references keep working after the split.
-pub use tui_terminal::{capabilities, probe, sigint, stderr, terminal};
-pub use tui_style::{animation, motion, theme, theme_mode};
-pub use tui_markdown::markdown;
 pub use tui_clock::clock;
-pub use tui_core::{
-    event_dispatch, events, frame_metrics, framer, keymap, perf, prep_keys, redraw, reducer,
-    render_model, renderable, screen_data, status_line, stream_pacer,
-};
 pub use tui_components::{
     approval_overlay, bottom_pane, composer, confirm_modal, file_selection, file_viewer, footer,
-    help_modal, mention, modal, model_picker, overlay, panels, password_modal,
-    question_overlay, queue, select, transcript,
+    help_modal, mention, modal, model_picker, overlay, panels, password_modal, question_overlay,
+    queue, select, transcript,
 };
-pub use tui_render::{ansi, prep_cache, screen_draw};
+pub use tui_core::{
+    anchor, event_dispatch, events, frame_metrics, framer, keymap, perf, prep_keys, redraw,
+    reducer, render_model, renderable, screen_data, status_line, stream_pacer, width,
+};
 pub use tui_debug::tui_debug;
+pub use tui_markdown::markdown;
+pub use tui_render::{ansi, deferred, layout, post_process, prep_cache, screen_cache, screen_draw};
+pub use tui_style::{anim_core, animation, motion, theme, theme_mode};
+pub use tui_terminal::{capabilities, editor, liveness, probe, sigint, stderr, terminal};
 
 // Facade-only modules (application shell) remain in this crate.
-pub mod tui;
-pub mod interactive;
-pub mod state;
-pub mod screens;
 pub mod fetch;
+pub mod interactive;
 pub mod replay;
+pub mod screens;
+pub mod session_holder;
 pub mod size;
+pub mod state;
+pub mod tui;
 
 use std::sync::Arc;
 

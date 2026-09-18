@@ -1,6 +1,6 @@
 //! Markdown rendering for the TUI.
 //!
-//! This module groups four responsibilities, each in its own submodule:
+//! This module groups six responsibilities, each in its own submodule:
 //!
 //! * [`stream`] — the incremental streaming state machine ([`MarkdownStream`],
 //!   [`MarkdownFrame`], [`ParseMetrics`]) that splits a growing source into a
@@ -10,12 +10,17 @@
 //! * [`plain`] — whole-source Markdown → plain text ([`render_plain_text`]).
 //! * [`styled`] — whole-source Markdown → styled ratatui `Line`s
 //!   ([`render_styled_lines`], [`render_styled_lines_animated`]).
+//! * [`document`] — backend-neutral semantic model ([`Document`],
+//!   [`StyleRole`], [`StyledSpan`]) shared by every frontend.
+//! * [`reasoning`] — shared reasoning-segment contract (sentinel and escapes).
 //!
 //! The public surface is re-exported here so consumers only ever name
 //! `crate::markdown::*`.
 
 pub mod blocks;
+pub mod document;
 pub mod plain;
+pub mod reasoning;
 pub mod stream;
 pub mod styled;
 

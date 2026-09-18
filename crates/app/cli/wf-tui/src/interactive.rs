@@ -27,7 +27,6 @@ use pager::ReplayPager;
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::Instant;
 
 use futures::StreamExt;
 use serde_json::Value;
@@ -111,6 +110,8 @@ pub struct InteractiveController {
     prep: PreparedScrollback,
     /// Width used for the last preparation; resize is detected at draw time.
     last_layout_width: u16,
+    /// Height used for the last frame identity; resize is detected at draw time.
+    last_layout_height: u16,
     /// In-flight streaming line held back from the scrollback (rendered in
     /// the scrollback area until it settles — the "streaming tail line" rule).
     streaming: Option<HistoryLine>,
@@ -120,12 +121,6 @@ pub struct InteractiveController {
     scroll_cover: usize,
     tool_started_at: HashMap<String, u64>,
     exit_tracker: DoublePressTracker,
-    /// Monotonic origin for the injected clock. `now_ms` reports elapsed
-    /// milliseconds since here so notice expiry, spinner rotation and the
-    /// exit double-press all observe a real increasing timestamp. The old
-    /// per-frame `last_frame` delta collapsed to ~0 between draws, breaking
-    /// those timers.
-    origin: Instant,
     /// Pagination state machine for replay-history loading (see `load_replay`).
     pager: ReplayPager,
     /// Viewport scrolled up from the bottom of the scrollback (display rows).
@@ -155,6 +150,9 @@ pub struct InteractiveController {
     last_snapshot: Option<crate::redraw::RedrawSnapshot>,
     /// Recorded animation geometry for animation-only frames.
     anim_area: crate::redraw::AnimationArea,
+    /// Row-level record of the last drawn animation cells; animation-only
+    /// frames must not touch other rows.
+    anim_rows: crate::redraw::AnimRowRecord,
     /// Preparation key backing the last frame; partial scopes reuse the
     /// cached preparation only under the same key.
     scroll_cache_key: Option<crate::prep_keys::ScrollPrepKey>,
@@ -169,6 +167,19 @@ pub struct InteractiveController {
     turn_text: String,
     /// Prompt of the current turn; paired with `turn_text` on completion.
     turn_prompt: String,
+    /// Next absolute sequence number for scrollback rows. Every committed
+    /// row gets a monotonically increasing number so prepended history pages
+    /// can verify continuity; 0 stays reserved for unsequenced placeholders.
+    next_seq: u64,
+    /// Requested diagram width in columns (0 means no diagram pane). Flows
+    /// into the unified layout split and the redraw snapshot aspect bucket.
+    diagram_requested: u16,
+    /// Inline image collection signature: bumping it forces a full frame and
+    /// invalidates the body preparation, so image set changes never reuse
+    /// stale rows.
+    image_signature: u64,
+    /// Expanded image level version: same invalidation contract as above.
+    expanded_version: u64,
 }
 
 impl InteractiveController {
@@ -199,15 +210,50 @@ impl InteractiveController {
         self.content_version
     }
 
-    /// Elapsed milliseconds since the controller was created, feeding every
-    /// injected clock (spinner rotation, notice expiry, exit double-press).
-    /// While the simulated clock is enabled the test value is served
-    /// directly so frames and expiry become deterministic.
-    pub(super) fn now_ms(&self) -> u64 {
-        if crate::clock::test_clock_enabled() {
-            return crate::clock::now_ms();
+    /// Stamp absolute sequence numbers onto freshly committed rows.
+    fn assign_seq(&mut self, lines: &mut [HistoryLine]) {
+        for line in lines {
+            if line.seq_no() == 0 {
+                line.set_seq_no(self.next_seq);
+                self.next_seq = self.next_seq.wrapping_add(1).max(1);
+            } else {
+                self.next_seq = self.next_seq.max(line.seq_no().wrapping_add(1).max(1));
+            }
         }
-        Instant::now().duration_since(self.origin).as_millis() as u64
+    }
+
+    /// Requested diagram width for the unified layout split (0 = none).
+    pub fn diagram_requested(&self) -> u16 {
+        self.diagram_requested
+    }
+
+    /// Set the requested diagram width; the next frame splits the chat
+    /// column and the redraw snapshot aspect bucket follows the geometry.
+    pub fn set_diagram_requested(&mut self, requested: u16) {
+        self.diagram_requested = requested;
+    }
+
+    /// Note an inline image collection change: bumps the signature and the
+    /// scrollback version so the body preparation invalidates and the next
+    /// frame grades full.
+    pub fn note_image_collection_changed(&mut self) {
+        self.image_signature = self.image_signature.wrapping_add(1).max(1);
+        self.bump_version();
+    }
+
+    /// Set the expanded image level; same invalidation contract as above.
+    pub fn set_expanded_version(&mut self, version: u64) {
+        if version != self.expanded_version {
+            self.expanded_version = version;
+            self.bump_version();
+        }
+    }
+
+    /// Injected clock for spinner rotation, notice expiry and exit
+    /// double-press. Delegates to `tui-clock` so the controller, the shell
+    /// and tests share one time source.
+    pub(super) fn now_ms(&self) -> u64 {
+        crate::clock::now_ms()
     }
 
     /// Register the interaction handler and prepare an empty session.
@@ -236,6 +282,7 @@ impl InteractiveController {
             content_version: 0,
             prep: PreparedScrollback::new(),
             last_layout_width: 80,
+            last_layout_height: 24,
             streaming: None,
             turn_task: None,
             approval_reply: None,
@@ -243,7 +290,6 @@ impl InteractiveController {
             scroll_cover: 0,
             tool_started_at: HashMap::new(),
             exit_tracker: DoublePressTracker::new(SIGINT_DOUBLE_PRESS_WINDOW),
-            origin: Instant::now(),
             pager: ReplayPager::default(),
             view_scroll: 0,
             scroll_at_top: false,
@@ -254,11 +300,16 @@ impl InteractiveController {
             simplified_render: false,
             last_snapshot: None,
             anim_area: crate::redraw::AnimationArea::default(),
+            anim_rows: crate::redraw::AnimRowRecord::new(),
             scroll_cache_key: None,
             last_anim_ms: None,
             history: Vec::new(),
             turn_text: String::new(),
             turn_prompt: String::new(),
+            next_seq: 1,
+            diagram_requested: 0,
+            image_signature: 0,
+            expanded_version: 0,
         }
     }
 
@@ -461,7 +512,7 @@ impl InteractiveController {
                 }
                 InteractiveEvent::TurnEvent(event) => self.handle_turn_event(event),
                 InteractiveEvent::ReplayLoaded {
-                    lines,
+                    mut lines,
                     has_more,
                     next_before,
                     failed,
@@ -471,6 +522,8 @@ impl InteractiveController {
                     } else {
                         self.pager.land_initial(has_more, next_before);
                     }
+                    self.next_seq = 1;
+                    self.assign_seq(&mut lines);
                     self.scrollback = lines;
                     let version = self.bump_version();
                     let width = self.last_layout_width;
@@ -481,7 +534,7 @@ impl InteractiveController {
                     self.scroll_at_top = false;
                 }
                 InteractiveEvent::ReplayEarlier {
-                    lines,
+                    mut lines,
                     has_more,
                     next_before,
                     failed,
@@ -495,6 +548,32 @@ impl InteractiveController {
                     }
                     if !lines.is_empty() {
                         let added = lines.len();
+                        let first_seq = self.scrollback.first().map(|l| l.seq_no()).unwrap_or(0);
+                        if first_seq > added as u64 {
+                            let base = first_seq - added as u64;
+                            for (idx, line) in lines.iter_mut().enumerate() {
+                                line.set_seq_no(base + idx as u64);
+                            }
+                        } else {
+                            self.next_seq = 1;
+                            self.assign_seq(&mut lines);
+                            let shift_fix = lines
+                                .last()
+                                .map(|l| l.seq_no())
+                                .unwrap_or(0)
+                                .wrapping_add(1)
+                                .max(1);
+                            for line in &mut self.scrollback {
+                                if line.seq_no() != 0 {
+                                    line.set_seq_no(line.seq_no().wrapping_add(shift_fix).max(1));
+                                }
+                            }
+                            self.next_seq = self
+                                .scrollback
+                                .last()
+                                .map(|l| l.seq_no().wrapping_add(1).max(1))
+                                .unwrap_or(shift_fix);
+                        }
                         let mut merged = lines;
                         merged.extend(std::mem::take(&mut self.scrollback));
                         self.scrollback = merged;
@@ -741,7 +820,9 @@ impl InteractiveController {
     fn settle_scrollback(&mut self) {
         const MAX_SCROLLBACK: usize = 10_000;
         if !self.pending_scroll.is_empty() {
-            self.scrollback.append(&mut self.pending_scroll);
+            let mut pending = std::mem::take(&mut self.pending_scroll);
+            self.assign_seq(&mut pending);
+            self.scrollback.append(&mut pending);
             let version = self.bump_version();
             let width = self.last_layout_width;
             let scrollback = std::mem::take(&mut self.scrollback);
@@ -768,9 +849,17 @@ impl InteractiveController {
             streaming_hash: crate::prep_keys::hash_prefix(streaming_text),
             footer_digest: crate::redraw::footer_digest(&self.footer.state),
             width: self.last_layout_width,
+            height: self.last_layout_height,
+            render_mode: 0,
             view_scroll: self.view_scroll,
             anim_tick: crate::clock::anim_bucket(now_ms),
-            force_full: false,
+            image_signature: self.image_signature,
+            expanded_version: self.expanded_version,
+            aspect_bucket: crate::layout::aspect_bucket(
+                self.last_layout_width,
+                self.last_layout_height,
+            ),
+            force_full: self.approval_reply.is_some(),
         }
     }
 
@@ -792,6 +881,11 @@ impl InteractiveController {
     /// Recorded animation geometry for animation-only frames.
     pub fn anim_area(&self) -> crate::redraw::AnimationArea {
         self.anim_area
+    }
+
+    /// Row-level record of the last drawn animation cells.
+    pub fn anim_rows(&self) -> &crate::redraw::AnimRowRecord {
+        &self.anim_rows
     }
 
     /// Last millisecond an animation-only frame was emitted.
@@ -842,6 +936,8 @@ impl InteractiveController {
         view.version = self.content_version;
         view.streaming = self.stream.streaming_text().to_string();
         view.scroll = self.view_scroll;
+        view.height = self.last_layout_height.max(1);
+        view.overlay = self.approval_reply.is_some();
         view.now_ms = self.now_ms();
         view.footer = crate::redraw::footer_digest(&self.footer.state);
         view
@@ -860,6 +956,84 @@ impl InteractiveController {
     /// Visible answer-text prefix length in bytes.
     pub fn pacer_visible_len(&self) -> usize {
         self.pacer.text_visible_len()
+    }
+}
+
+impl crate::render_model::TranscriptView for InteractiveController {
+    fn content_version(&self) -> u64 {
+        self.content_version
+    }
+    fn history_count(&self) -> usize {
+        self.scrollback.len()
+    }
+    fn history_line(&self, _index: usize) -> Option<&str> {
+        None
+    }
+    fn streaming_text(&self) -> &str {
+        self.stream.streaming_text()
+    }
+    fn image_signature(&self) -> u64 {
+        self.image_signature
+    }
+}
+
+impl crate::render_model::InputView for InteractiveController {
+    fn input_text(&self) -> &str {
+        self.footer.composer.content()
+    }
+    fn input_cursor(&self) -> usize {
+        self.footer.composer.content().len()
+    }
+    fn is_processing(&self) -> bool {
+        self.footer.state.phase == crate::reducer::Phase::Streaming
+    }
+    fn queued_count(&self) -> usize {
+        0
+    }
+}
+
+impl crate::render_model::ScrollView for InteractiveController {
+    fn view_scroll(&self) -> usize {
+        self.view_scroll
+    }
+    fn auto_scroll_paused(&self) -> bool {
+        self.view_scroll > 0
+    }
+}
+
+impl crate::render_model::LayoutView for InteractiveController {
+    fn width(&self) -> u16 {
+        self.last_layout_width
+    }
+    fn height(&self) -> u16 {
+        self.last_layout_height
+    }
+    fn overlay_active(&self) -> bool {
+        self.approval_reply.is_some()
+    }
+    fn side_panel_visible(&self) -> bool {
+        false
+    }
+    fn diagram_visible(&self) -> bool {
+        self.diagram_requested > 0
+    }
+}
+
+impl crate::render_model::ThemeView for InteractiveController {
+    fn theme_mode(&self) -> tui_style::theme_mode::ThemeMode {
+        tui_style::theme_mode::ThemeMode::Dark
+    }
+}
+
+impl crate::render_model::PerfView for InteractiveController {
+    fn anim_tick(&self) -> u64 {
+        crate::clock::anim_bucket(self.now_ms())
+    }
+    fn footer_digest(&self) -> u64 {
+        crate::redraw::footer_digest(&self.footer.state)
+    }
+    fn perf_marker(&self) -> &str {
+        "perf:full"
     }
 }
 

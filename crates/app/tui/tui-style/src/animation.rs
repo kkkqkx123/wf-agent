@@ -240,18 +240,19 @@ impl AnimationController {
     }
 
     /// Shared cycle math: whole cycles elapsed since start, sped up, modulo
-    /// the frame count. Matches the previous per-method computation.
+    /// the frame count. Delegates to the deterministic numeric core so table
+    /// and inline paths stay bit-identical.
     fn frame_at(&self, now_ms: u64, cycle_ms: u64, frame_count: usize) -> usize {
-        if !self.config.enabled || frame_count == 0 {
+        if !self.config.enabled {
             return 0;
         }
-        let elapsed = now_ms.saturating_sub(self.start_ms);
-        let cycle = (f64::from(cycle_ms as u32) / f64::from(self.config.speed.max(f32::EPSILON)))
-            .round() as u64;
-        if cycle == 0 {
-            return 0;
-        }
-        (elapsed / cycle.max(1)) as usize % frame_count
+        super::anim_core::cycle_frame(
+            now_ms,
+            self.start_ms,
+            cycle_ms,
+            self.config.speed,
+            frame_count,
+        )
     }
 
     /// Get the spinner character for the current frame.
@@ -262,6 +263,13 @@ impl AnimationController {
     /// Spinner glyph for an explicit clock value (deterministic).
     pub fn spinner_char_at(&self, now_ms: u64) -> &'static str {
         SPINNER_CHARS[self.spinner_frame_at(now_ms) % SPINNER_CHARS.len()]
+    }
+
+    /// Spinner glyph for a discretized animation tick: pure table lookup
+    /// with no controller state, so headless tests assert exact frames from
+    /// the tick alone. Tick 0 shows the first frame.
+    pub fn spinner_char_for_tick(tick: u64) -> &'static str {
+        SPINNER_CHARS[(tick as usize) % SPINNER_CHARS.len()]
     }
 
     /// Get the pulse character for the current frame.
@@ -335,6 +343,22 @@ mod tests {
         assert_eq!(controller.mode(), AnimationMode::Reduced);
         assert!(!controller.is_enabled());
         assert_eq!(controller.spinner_frame(), 0);
+    }
+
+    #[test]
+    fn spinner_tick_lookup_is_deterministic() {
+        assert_eq!(
+            AnimationController::spinner_char_for_tick(0),
+            SPINNER_CHARS[0]
+        );
+        assert_eq!(
+            AnimationController::spinner_char_for_tick(8),
+            SPINNER_CHARS[0]
+        );
+        assert_eq!(
+            AnimationController::spinner_char_for_tick(3),
+            SPINNER_CHARS[3]
+        );
     }
 
     #[test]

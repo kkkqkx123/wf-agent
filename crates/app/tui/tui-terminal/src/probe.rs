@@ -138,6 +138,124 @@ fn detect_default_colors() -> Option<ColorSet> {
     parse_osc_color_response(&response)
 }
 
+/// Query the terminal for OSC 10 (foreground) and OSC 11 (background)
+/// colors with an explicit timeout. Opens `/dev/tty`, briefly enables raw
+/// mode, writes both queries, and parses responses. Every failure degrades
+/// to `(None, None)`; never panics.
+pub fn probe_osc_colors(timeout: Duration) -> (Option<ColorSet>, Option<ColorSet>) {
+    use std::io::Read;
+    use std::io::Write;
+
+    let Ok(mut tty) = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open("/dev/tty")
+    else {
+        return (None, None);
+    };
+
+    let raw_was_enabled = crossterm::terminal::is_raw_mode_enabled().unwrap_or(false);
+    let restorer = RawModeRestorer {
+        restore: raw_was_enabled,
+    };
+    if !raw_was_enabled && crossterm::terminal::enable_raw_mode().is_err() {
+        return (None, None);
+    }
+
+    const QUERIES: &[u8] = b"\x1b]11;?\x1b\\\x1b]10;?\x1b\\";
+    if tty.write_all(QUERIES).is_err() || tty.flush().is_err() {
+        drop(restorer);
+        return (None, None);
+    }
+
+    let deadline = Instant::now() + timeout;
+    let mut buf: Vec<u8> = Vec::new();
+    let mut chunk = [0u8; 256];
+    #[cfg(unix)]
+    use std::os::unix::io::AsRawFd;
+    #[cfg(unix)]
+    let fd = tty.as_raw_fd();
+    while buf.len() < 4096 {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            break;
+        }
+        #[cfg(unix)]
+        {
+            let mut pfd = libc::pollfd {
+                fd,
+                events: libc::POLLIN,
+                revents: 0,
+            };
+            // SAFETY: `pfd` is a valid, exclusively-owned pollfd.
+            let ready = unsafe {
+                libc::poll(
+                    &mut pfd,
+                    1,
+                    remaining.as_millis().clamp(1, i32::MAX as u128) as i32,
+                )
+            };
+            if ready <= 0 {
+                break;
+            }
+        }
+        #[cfg(not(unix))]
+        {
+            if !crossterm::event::poll(remaining).unwrap_or(false) {
+                break;
+            }
+        }
+        match tty.read(&mut chunk) {
+            Ok(0) => break,
+            Ok(n) => {
+                buf.extend_from_slice(&chunk[..n]);
+                if parse_osc_pair(&buf).0.is_some() && parse_osc_pair(&buf).1.is_some() {
+                    break;
+                }
+            }
+            Err(_) => break,
+        }
+    }
+    drop(restorer);
+    parse_osc_pair(&buf)
+}
+
+/// Parse interleaved OSC 10/11 responses from a byte buffer.
+/// Returns `(foreground, background)`.
+fn parse_osc_pair(buf: &[u8]) -> (Option<ColorSet>, Option<ColorSet>) {
+    let text = String::from_utf8_lossy(buf);
+    let mut fg: Option<ColorSet> = None;
+    let mut bg: Option<ColorSet> = None;
+    let mut rest = text.as_ref();
+    while let Some(start) = rest.find("\x1b]") {
+        let chunk = &rest[start..];
+        if let Some(color) = parse_osc_color_response(chunk) {
+            if chunk.starts_with("\x1b]10;") && fg.is_none() {
+                fg = Some(color);
+            } else if chunk.starts_with("\x1b]11;") && bg.is_none() {
+                bg = Some(color);
+            }
+        }
+        rest = &chunk[2.min(chunk.len())..];
+        if rest.is_empty() {
+            break;
+        }
+    }
+    (fg, bg)
+}
+
+/// Restores the raw-mode state found before probing (RAII).
+struct RawModeRestorer {
+    restore: bool,
+}
+
+impl Drop for RawModeRestorer {
+    fn drop(&mut self) {
+        if !self.restore {
+            let _ = crossterm::terminal::disable_raw_mode();
+        }
+    }
+}
 /// Parse an OSC color response like `ESC ] 11 ; rgb:RRRR/GGGG/BBBB ESC \`
 /// or `ESC ] 11 ; rgb:RR/GG/BB ST`.
 fn parse_osc_color_response(response: &str) -> Option<ColorSet> {

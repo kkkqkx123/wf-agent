@@ -667,6 +667,27 @@ impl<C: TerminalControl> Drop for TerminalGuard<C> {
     }
 }
 
+/// True when a controlling terminal is reachable via `/dev/tty`.
+pub fn has_controlling_terminal() -> bool {
+    std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open("/dev/tty")
+        .is_ok()
+}
+
+/// Orphan rule: stdin hit EOF and no controlling terminal remains, so no
+/// input will ever arrive again and the loop should exit instead of
+/// spinning on background tasks.
+pub fn client_orphaned_with(stdin_eof: bool, has_terminal: bool) -> bool {
+    stdin_eof && !has_terminal
+}
+
+/// Live orphan check against the real `/dev/tty`.
+pub fn client_orphaned(stdin_eof: bool) -> bool {
+    client_orphaned_with(stdin_eof, has_controlling_terminal())
+}
+
 /// Install a process-wide panic hook that restores the *real* terminal
 /// (disable paste / focus / mouse / alternate scroll, keyboard pop plus
 /// strong reset, show cursor, reset colors, leave alt screen, disable raw
@@ -1141,5 +1162,13 @@ mod tests {
         let mut off = Vec::new();
         write_reassert_sequences(&mut off, TerminalModes::TUI).unwrap();
         assert_eq!(String::from_utf8(off).unwrap(), "\x1b[?2004h");
+    }
+
+    #[test]
+    fn orphan_rule_needs_eof_without_controlling_terminal() {
+        assert!(client_orphaned_with(true, false));
+        assert!(!client_orphaned_with(true, true));
+        assert!(!client_orphaned_with(false, false));
+        assert!(!client_orphaned_with(false, true));
     }
 }

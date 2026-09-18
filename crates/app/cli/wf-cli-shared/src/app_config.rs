@@ -58,6 +58,11 @@ pub struct BehaviorConfig {
     pub history_size: usize,
     /// Scrollback line limit.
     pub scrollback_limit: usize,
+    /// Explicit opt-in for terminal mouse capture. Defaults to off so the
+    /// terminal keeps native text selection; the wheel still works through
+    /// alternate scroll without capture.
+    #[serde(default)]
+    pub mouse_capture: bool,
 }
 
 impl Default for BehaviorConfig {
@@ -67,6 +72,7 @@ impl Default for BehaviorConfig {
             confirm_exit: false,
             history_size: 200,
             scrollback_limit: 10_000,
+            mouse_capture: false,
         }
     }
 }

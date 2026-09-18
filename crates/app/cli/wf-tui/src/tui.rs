@@ -13,7 +13,9 @@ use std::time::{Duration, Instant};
 
 use libc;
 
-use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
+use crossterm::event::{
+    self, Event, KeyCode, KeyEventKind, KeyModifiers, MouseEvent, MouseEventKind,
+};
 use crossterm::terminal::size;
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
@@ -130,6 +132,11 @@ pub struct TuiApp {
     perf_policy: crate::perf::TuiPerfPolicy,
     /// Whether the terminal advertises synchronized-output support.
     sync_supported: bool,
+    /// Whether the client terminal currently holds focus. Starts focused;
+    /// any key / mouse / paste delivery re-asserts it (some compositors
+    /// drop the focus-gained report, which would otherwise wedge the
+    /// window in throttled background rendering).
+    focused: bool,
 }
 
 impl TuiApp {
@@ -142,7 +149,15 @@ impl TuiApp {
         let caps = crate::capabilities::TerminalProbe::detect().into_capabilities();
         let profile = crate::perf::SystemProfile::detect();
         let perf_tier = crate::perf::select_tier(&profile, &caps);
-        let perf_policy = crate::perf::TuiPerfPolicy::for_tier(perf_tier);
+        let mut perf_policy = crate::perf::TuiPerfPolicy::for_tier(perf_tier);
+        // Input capabilities are gated by the environment, not the tier:
+        // mouse needs explicit user opt-in, focus and keyboard need probe
+        // support on reliable terminal combinations.
+        perf_policy.apply_input_gates(&crate::perf::detect_input_gates(
+            &profile,
+            &caps,
+            load_mouse_opt_in(),
+        ));
         let (theme, theme_mode, theme_explicit) =
             crate::theme_mode::resolve_render_theme(theme::probe_theme());
         // The frame ceiling follows the capability policy so constrained
@@ -180,12 +195,14 @@ impl TuiApp {
             perf_tier,
             perf_policy,
             sync_supported: caps.synchronized_output,
+            focused: true,
         }
     }
 
     pub async fn run(mut self) -> CliResult<()> {
+        crate::terminal::install_panic_hook();
         let mut guard = TerminalGuard::new(CrosstermControl::new(io::stdout()));
-        guard.enter(TerminalModes::TUI)?;
+        guard.enter(self.active_modes())?;
 
         // Suspend support (Ctrl-Z): the handler only records the request; the
         // restore / SIGSTOP cycle runs in the event loop.
@@ -288,11 +305,16 @@ impl TuiApp {
                     self.last_active = Instant::now();
                 }
                 crate::redraw::RedrawScope::AnimationOnly => {
-                    if crate::redraw::animation_frame_due_with(
-                        now,
-                        self.last_anim_ms,
-                        self.perf_policy.animation_interval_ms(),
-                    ) {
+                    // An unfocused idle window skips decorative frames; live
+                    // activity grades Full/BottomOnly and still paints. Reuses
+                    // the existing animation rate, no new timer.
+                    if self.focused
+                        && crate::redraw::animation_frame_due_with(
+                            now,
+                            self.last_anim_ms,
+                            self.perf_policy.animation_interval_ms(),
+                        )
+                    {
                         self.pending_scope.request(scope);
                         self.frame.request_frame();
                     }
@@ -320,14 +342,23 @@ impl TuiApp {
                     .map_err(|e| CliError::Configuration(format!("event read failed: {e}")))?;
                 match ev {
                     Event::Key(key) => {
-                        if key.kind != KeyEventKind::Press {
+                        match key.kind {
                             // A release event is not input; keep current state.
-                        } else if self.handle_key(map_key(key))? == LoopAction::Quit {
-                            break;
-                        } else {
-                            self.dirty = true;
-                            self.apply_interactive_exit().await;
-                            self.apply_pending_replay().await?;
+                            KeyEventKind::Release => {}
+                            // Held keys repeat: treat repeats as input so
+                            // editing keys keep working while held.
+                            KeyEventKind::Press | KeyEventKind::Repeat => {
+                                // Delivery proves the window is focused right
+                                // now (focus-gained reports get dropped by
+                                // some compositors/multiplexers).
+                                self.mark_client_focused();
+                                if self.handle_key(map_key(key))? == LoopAction::Quit {
+                                    break;
+                                }
+                                self.dirty = true;
+                                self.apply_interactive_exit().await;
+                                self.apply_pending_replay().await?;
+                            }
                         }
                     }
                     Event::Resize(w, h) => {
@@ -335,7 +366,33 @@ impl TuiApp {
                         // (after the drag storm) triggers the actual reflow.
                         self.resize.push(Size::new(w, h), self.now_ms());
                     }
-                    _ => {}
+                    Event::FocusGained => {
+                        self.on_focus_gained(guard);
+                    }
+                    Event::FocusLost => {
+                        self.on_focus_lost();
+                    }
+                    Event::Paste(text) => {
+                        let focus_flipped = self.mark_client_focused();
+                        let landed = self.handle_paste(&text);
+                        if focus_flipped || landed {
+                            self.dirty = true;
+                            self.last_active = Instant::now();
+                        }
+                    }
+                    Event::Mouse(mouse) => {
+                        if mouse.kind == MouseEventKind::Moved {
+                            // Motion without buttons is never input: no
+                            // focus mark, no interaction, no frame.
+                        } else {
+                            let focus_flipped = self.mark_client_focused();
+                            let scrolled = self.handle_mouse(mouse);
+                            if focus_flipped || scrolled {
+                                self.dirty = true;
+                                self.last_active = Instant::now();
+                            }
+                        }
+                    }
                 }
             }
 
@@ -448,6 +505,117 @@ impl TuiApp {
         }
     }
 
+    /// Terminal modes for this session: the TUI baseline layered with the
+    /// policy input switches. Every enter / resume path reads the policy;
+    /// nothing hardcodes sequences at the call site.
+    fn active_modes(&self) -> TerminalModes {
+        TerminalModes::TUI.with_input_modes(
+            self.perf_policy.enable_focus_change,
+            self.perf_policy.enable_mouse_capture,
+            self.perf_policy.enable_alternate_scroll,
+            self.perf_policy.enable_keyboard_enhancement,
+        )
+    }
+
+    /// Focus gained: reassert the terminal modes (terminals may clear them
+    /// while backgrounded), mark focused, and request one differential
+    /// frame to catch up. Never invalidates the backend: the terminal still
+    /// holds the last frame, so no clear is needed.
+    fn on_focus_gained(&mut self, guard: &mut TerminalGuard<CrosstermControl<io::Stdout>>) {
+        let _ = guard.reassert();
+        let (focused, frame) = focus_transition(self.focused, FocusInput::Gained);
+        self.focused = focused;
+        if frame {
+            self.dirty = true;
+            self.pending_scope.request(crate::redraw::RedrawScope::Full);
+            self.last_active = Instant::now();
+        }
+    }
+
+    /// Focus lost: record the state only, no frame. Decorative redraws
+    /// pause while unfocused; live activity still paints.
+    fn on_focus_lost(&mut self) {
+        let (focused, _) = focus_transition(self.focused, FocusInput::Lost);
+        self.focused = focused;
+    }
+
+    /// Compensation for dropped focus-gained reports: any key, mouse
+    /// (non-move) or paste delivery proves the window is focused right now.
+    /// Returns true when the state flipped and a catch-up frame is due.
+    fn mark_client_focused(&mut self) -> bool {
+        let (focused, frame) = focus_transition(self.focused, FocusInput::Stream);
+        self.focused = focused;
+        if frame {
+            self.dirty = true;
+            self.pending_scope.request(crate::redraw::RedrawScope::Full);
+            self.last_active = Instant::now();
+        }
+        frame
+    }
+
+    /// Route a bracketed-paste body to the currently focused input as one
+    /// whole string: no shortcut semantics fire on pasted content. Returns
+    /// whether the paste landed somewhere visible.
+    fn handle_paste(&mut self, text: &str) -> bool {
+        match classify_paste(!self.modals.is_empty(), self.screens.current_kind()) {
+            PasteTarget::Swallowed | PasteTarget::Ignored => false,
+            PasteTarget::Session => {
+                if let Some(session) = &mut self.interactive {
+                    session.insert_paste(text)
+                } else {
+                    false
+                }
+            }
+            PasteTarget::Search => {
+                let normalized = crate::interactive::keys::normalize_paste(text);
+                if normalized.is_empty() {
+                    return false;
+                }
+                self.search_input.push_str(&normalized);
+                true
+            }
+        }
+    }
+
+    /// Handle a non-move mouse event. Motion is filtered by the caller.
+    /// Wheel scrolls the scrollback on the session screen (reusing the
+    /// pager-aware scroll methods) or moves the selection elsewhere.
+    /// Press, release and drag are ignored in this version so terminal
+    /// native selection keeps working. Returns whether a frame is due.
+    fn handle_mouse(&mut self, mouse: MouseEvent) -> bool {
+        match classify_mouse(mouse.kind) {
+            MouseAction::ScrollUp => {
+                self.scroll_by_wheel(true);
+                true
+            }
+            MouseAction::ScrollDown => {
+                self.scroll_by_wheel(false);
+                true
+            }
+            MouseAction::IgnoredButton => false,
+        }
+    }
+
+    /// Apply one wheel notch to the content under the cursor.
+    fn scroll_by_wheel(&mut self, up: bool) {
+        if self.screens.current_kind() == ScreenKind::Interactive {
+            if let Some(session) = &mut self.interactive {
+                if up {
+                    session.scroll_history_up();
+                } else {
+                    session.scroll_history_down();
+                }
+                return;
+            }
+        }
+        let len = self.nav_len();
+        if up {
+            self.screens.select_prev(len);
+        } else {
+            self.screens.select_next(len);
+        }
+    }
+
     /// When a SIGTSTP (Ctrl-Z) arrived since the last tick, run the suspend /
     /// resume cycle: restore the terminal so the shell below renders normally,
     /// stop the process with the default disposition, then re-apply the TUI
@@ -474,7 +642,7 @@ impl TuiApp {
             );
         }
         // Resumed: re-apply the full TUI terminal modes.
-        guard.enter(TerminalModes::TUI)?;
+        guard.enter(self.active_modes())?;
         // Force a fresh geometry query: the terminal may have been resized
         // while we were stopped.
         let (cols, rows) = size()?;
@@ -1141,6 +1309,102 @@ impl TuiApp {
 // Key mapping
 // ---------------------------------------------------------------------------
 
+/// Focus input driving the focus state machine.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FocusInput {
+    /// Terminal focus-gained report.
+    Gained,
+    /// Terminal focus-lost report.
+    Lost,
+    /// Any key / mouse (non-move) / paste delivery, which proves the
+    /// window is focused right now.
+    Stream,
+}
+
+/// Pure focus transition returning the focused state after the input and
+/// whether a catch-up frame is due. Gained always repaints (differential
+/// catch-up, no backend clear); lost never paints; a stream event repaints
+/// only when it flips a stuck-unfocused window back.
+fn focus_transition(focused: bool, input: FocusInput) -> (bool, bool) {
+    match input {
+        FocusInput::Gained => (true, true),
+        FocusInput::Lost => (false, false),
+        FocusInput::Stream => {
+            if focused {
+                (true, false)
+            } else {
+                (true, true)
+            }
+        }
+    }
+}
+
+/// Where a bracketed-paste body lands.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PasteTarget {
+    /// An open modal swallows the paste.
+    Swallowed,
+    /// The session screen composer.
+    Session,
+    /// The search screen draft.
+    Search,
+    /// No text entry on this screen; the paste is dropped.
+    Ignored,
+}
+
+/// Route a paste body: modals swallow everything, the session screen feeds
+/// the composer, the search screen feeds the draft, other screens drop it.
+fn classify_paste(modal_open: bool, screen: ScreenKind) -> PasteTarget {
+    if modal_open {
+        return PasteTarget::Swallowed;
+    }
+    match screen {
+        ScreenKind::Interactive => PasteTarget::Session,
+        ScreenKind::Search => PasteTarget::Search,
+        _ => PasteTarget::Ignored,
+    }
+}
+
+/// How a mouse event kind is consumed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MouseAction {
+    /// Wheel up: scroll the content up.
+    ScrollUp,
+    /// Wheel down: scroll the content down.
+    ScrollDown,
+    /// Press, release and drag: ignored so native selection keeps working.
+    IgnoredButton,
+}
+
+/// Classify a mouse event kind. Motion never reaches this function: the
+/// event loop filters it out before any focus mark or frame request.
+fn classify_mouse(kind: MouseEventKind) -> MouseAction {
+    match kind {
+        MouseEventKind::ScrollUp => MouseAction::ScrollUp,
+        MouseEventKind::ScrollDown => MouseAction::ScrollDown,
+        MouseEventKind::Down(_)
+        | MouseEventKind::Up(_)
+        | MouseEventKind::Drag(_)
+        | MouseEventKind::Moved
+        | MouseEventKind::ScrollLeft
+        | MouseEventKind::ScrollRight => MouseAction::IgnoredButton,
+    }
+}
+
+/// Best-effort mouse opt-in from the user config file. A missing or
+/// unreadable config means off: mouse capture stays disabled and the
+/// terminal keeps native text selection.
+fn load_mouse_opt_in() -> bool {
+    let path = match crate::app_config::config_file_path() {
+        Some(path) => path,
+        None => return false,
+    };
+    match crate::app_config::ConfigManager::load(&path) {
+        Ok(manager) => manager.config().behavior.mouse_capture,
+        Err(_) => false,
+    }
+}
+
 fn map_key(key: crossterm::event::KeyEvent) -> Key {
     let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
     let alt = key.modifiers.contains(KeyModifiers::ALT);
@@ -1227,5 +1491,74 @@ mod tests {
         for kind in ScreenKind::all() {
             assert!(DASHBOARD_ENTRIES.contains(kind));
         }
+    }
+
+    #[test]
+    fn paste_routes_to_session_search_or_swallow() {
+        // Modals swallow every paste regardless of the screen.
+        for screen in ScreenKind::all() {
+            assert_eq!(classify_paste(true, *screen), PasteTarget::Swallowed);
+        }
+        assert_eq!(
+            classify_paste(false, ScreenKind::Interactive),
+            PasteTarget::Session
+        );
+        assert_eq!(
+            classify_paste(false, ScreenKind::Search),
+            PasteTarget::Search
+        );
+        // Screens without text entry drop the paste.
+        for screen in [
+            ScreenKind::Dashboard,
+            ScreenKind::Workflow,
+            ScreenKind::Executions,
+            ScreenKind::Checkpoints,
+            ScreenKind::Settings,
+            ScreenKind::Help,
+        ] {
+            assert_eq!(classify_paste(false, screen), PasteTarget::Ignored);
+        }
+    }
+
+    #[test]
+    fn mouse_kinds_classify_to_scroll_or_ignore() {
+        use crossterm::event::MouseButton;
+        assert_eq!(
+            classify_mouse(MouseEventKind::ScrollUp),
+            MouseAction::ScrollUp
+        );
+        assert_eq!(
+            classify_mouse(MouseEventKind::ScrollDown),
+            MouseAction::ScrollDown
+        );
+        // Buttons never drive frames or selection in this version.
+        for kind in [
+            MouseEventKind::Down(MouseButton::Left),
+            MouseEventKind::Up(MouseButton::Left),
+            MouseEventKind::Drag(MouseButton::Left),
+            MouseEventKind::Moved,
+            MouseEventKind::ScrollLeft,
+            MouseEventKind::ScrollRight,
+        ] {
+            assert_eq!(classify_mouse(kind), MouseAction::IgnoredButton);
+        }
+    }
+
+    #[test]
+    fn focus_truth_table_covers_gained_lost_and_compensation() {
+        // Gained always marks focused with a catch-up frame; lost only
+        // records the state; any input stream re-asserts focus.
+        let gained = focus_transition(true, FocusInput::Gained);
+        assert_eq!(gained, (true, true));
+        let regained = focus_transition(false, FocusInput::Gained);
+        assert_eq!(regained, (true, true));
+        let lost = focus_transition(true, FocusInput::Lost);
+        assert_eq!(lost, (false, false));
+        let already_lost = focus_transition(false, FocusInput::Lost);
+        assert_eq!(already_lost, (false, false));
+        let compensated = focus_transition(false, FocusInput::Stream);
+        assert_eq!(compensated, (true, true));
+        let steady = focus_transition(true, FocusInput::Stream);
+        assert_eq!(steady, (true, false));
     }
 }

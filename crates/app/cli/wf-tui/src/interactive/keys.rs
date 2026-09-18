@@ -43,7 +43,7 @@ impl InteractiveController {
                 return InteractiveAction::Continue;
             }
             CKey::PageDown => {
-                self.view_scroll = self.view_scroll.saturating_sub(10);
+                self.scroll_history_down();
                 return InteractiveAction::Continue;
             }
             _ => {}
@@ -60,7 +60,7 @@ impl InteractiveController {
     /// already pinned to the oldest loaded row and the replay is `Partial`,
     /// request the next (older) page instead: the only way to reveal history
     /// behind the loaded window is to load it.
-    fn scroll_history_up(&mut self) {
+    pub fn scroll_history_up(&mut self) {
         if self.scroll_at_top {
             if self.pager.is_partial() {
                 self.request_earlier_page();
@@ -68,6 +68,29 @@ impl InteractiveController {
             return;
         }
         self.view_scroll = self.view_scroll.saturating_add(10);
+    }
+
+    /// Scroll the scrollback viewport down by one page towards the live tail.
+    pub fn scroll_history_down(&mut self) {
+        self.view_scroll = self.view_scroll.saturating_sub(10);
+    }
+
+    /// Insert a bracketed-paste body into the prompt composer as one whole
+    /// string. Only the prompt composer accepts pastes: approval and
+    /// question views own their keys, and panel routes show selection lists
+    /// with no text entry. Returns whether the paste landed.
+    pub fn insert_paste(&mut self, text: &str) -> bool {
+        if self.footer.view != FooterView::Prompt
+            || self.footer.route != crate::footer::FooterRoute::Composer
+        {
+            return false;
+        }
+        let normalized = normalize_paste(text);
+        if normalized.is_empty() {
+            return false;
+        }
+        self.footer.composer.insert_text(&normalized);
+        true
     }
 
     fn handle_approval_key(&mut self, key: Key) -> InteractiveAction {
@@ -161,6 +184,14 @@ impl InteractiveController {
     fn handle_prompt_key(&mut self, key: Key) -> InteractiveAction {
         match key.code {
             CKey::Enter => {
+                // Shift+Enter inserts a newline inside the input; plain Enter
+                // and Ctrl+Enter submit. Without keyboard enhancement the
+                // terminal never reports the shift modifier, so behavior
+                // falls back to plain submit automatically.
+                if key.shift && !key.ctrl && !key.alt {
+                    self.footer.composer.insert_text("\n");
+                    return InteractiveAction::Continue;
+                }
                 let text = self.footer.composer.submit().unwrap_or_default();
                 if !text.trim().is_empty() {
                     self.pending_scroll
@@ -181,8 +212,15 @@ impl InteractiveController {
     }
 }
 
+/// Normalize a bracketed-paste body for insertion: terminals wrap lines as
+/// CRLF, and the composer treats LF as the row separator.
+pub(crate) fn normalize_paste(text: &str) -> String {
+    text.replace("\r\n", "\n").replace('\r', "\n")
+}
+
 #[cfg(test)]
 mod tests {
+    use super::normalize_paste;
     use crate::approval_overlay::ApprovalChoice;
     use crate::keymap::{CKey, Key};
 
@@ -193,5 +231,12 @@ mod tests {
             Some(ApprovalChoice::Approve)
         );
         assert!(Key::ctrl(CKey::Char('c')).ctrl);
+    }
+
+    #[test]
+    fn paste_normalization_folds_carriage_returns() {
+        assert_eq!(normalize_paste("a\r\nb\rc"), "a\nb\nc");
+        assert_eq!(normalize_paste("plain"), "plain");
+        assert_eq!(normalize_paste(""), "");
     }
 }

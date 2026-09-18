@@ -104,10 +104,13 @@ pub struct TuiPerfPolicy {
     pub keep_spinner: bool,
     /// Focus-change event reporting enabled.
     pub enable_focus_change: bool,
-    /// Mouse capture enabled.
+    /// Mouse capture enabled (explicit user opt-in only).
     pub enable_mouse_capture: bool,
     /// Kitty keyboard enhancement enabled.
     pub enable_keyboard_enhancement: bool,
+    /// Alternate scroll (1007) enabled: the wheel arrives as up/down keys
+    /// without capturing the mouse, so native selection keeps working.
+    pub enable_alternate_scroll: bool,
     /// Synchronized output eligible (still requires terminal support).
     pub sync_output: bool,
     /// Simplified transcript rendering (fewer styles, no shimmer).
@@ -115,7 +118,10 @@ pub struct TuiPerfPolicy {
 }
 
 impl TuiPerfPolicy {
-    /// Policy for a tier.
+    /// Policy for a tier. The tier only clamps frame rates, animation rates
+    /// and decorative animation; input capabilities default to on (except
+    /// mouse capture, which defaults to off pending explicit opt-in) and
+    /// are refined by [`TuiPerfPolicy::apply_input_gates`].
     pub fn for_tier(tier: PerformanceTier) -> Self {
         match tier {
             PerformanceTier::Full => Self {
@@ -124,8 +130,9 @@ impl TuiPerfPolicy {
                 decorative_animations: true,
                 keep_spinner: true,
                 enable_focus_change: true,
-                enable_mouse_capture: true,
+                enable_mouse_capture: false,
                 enable_keyboard_enhancement: true,
+                enable_alternate_scroll: true,
                 sync_output: true,
                 simplified_render: false,
             },
@@ -137,6 +144,7 @@ impl TuiPerfPolicy {
                 enable_focus_change: true,
                 enable_mouse_capture: false,
                 enable_keyboard_enhancement: true,
+                enable_alternate_scroll: true,
                 sync_output: true,
                 simplified_render: false,
             },
@@ -145,13 +153,25 @@ impl TuiPerfPolicy {
                 animation_fps: 2,
                 decorative_animations: false,
                 keep_spinner: false,
-                enable_focus_change: false,
+                enable_focus_change: true,
                 enable_mouse_capture: false,
-                enable_keyboard_enhancement: false,
+                enable_keyboard_enhancement: true,
+                enable_alternate_scroll: true,
                 sync_output: false,
                 simplified_render: true,
             },
         }
+    }
+
+    /// Refine the input-capability switches with the environment gates. The
+    /// tier never turns inputs off by itself; each gate can only disable, so
+    /// fixing a policy switch to off rolls the corresponding stage back.
+    pub fn apply_input_gates(&mut self, gates: &InputGates) {
+        self.enable_mouse_capture = gates.mouse_opt_in;
+        self.enable_focus_change = gates.focus_supported && !gates.unreliable_focus_terminal;
+        self.enable_keyboard_enhancement = gates.keyboard_supported
+            && !gates.keyboard_env_disabled
+            && !gates.blocked_keyboard_combination;
     }
 
     /// Minimum full-frame interval in milliseconds.
@@ -163,6 +183,91 @@ impl TuiPerfPolicy {
     pub fn animation_interval_ms(self) -> u64 {
         1_000 / self.animation_fps.max(1)
     }
+}
+
+/// Input-capability gates feeding [`TuiPerfPolicy::apply_input_gates`].
+/// Mouse comes from the user config, focus and keyboard default to on and
+/// turn off on probe, environment or terminal-matrix evidence.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct InputGates {
+    /// User config opt-in for mouse capture (default off).
+    pub mouse_opt_in: bool,
+    /// Capability probe reports focus-event support.
+    pub focus_supported: bool,
+    /// Capability probe reports kitty keyboard enhancement support.
+    pub keyboard_supported: bool,
+    /// Environment master switch disabled keyboard enhancement.
+    pub keyboard_env_disabled: bool,
+    /// Terminal identity is on the unreliable-focus list.
+    pub unreliable_focus_terminal: bool,
+    /// Terminal combination known to misreport enhanced keys.
+    pub blocked_keyboard_combination: bool,
+}
+
+impl InputGates {
+    /// All capabilities on: unit-test baseline, never used in production.
+    pub fn all_on() -> Self {
+        Self {
+            mouse_opt_in: true,
+            focus_supported: true,
+            keyboard_supported: true,
+            keyboard_env_disabled: false,
+            unreliable_focus_terminal: false,
+            blocked_keyboard_combination: false,
+        }
+    }
+}
+
+/// Build the input gates from the live environment: explicit user opt-in
+/// for the mouse, probe results for focus and keyboard, the environment
+/// master switch and the unreliable-terminal matrix for the rest.
+pub fn detect_input_gates(
+    profile: &SystemProfile,
+    caps: &TerminalCapabilities,
+    mouse_opt_in: bool,
+) -> InputGates {
+    InputGates {
+        mouse_opt_in,
+        focus_supported: caps.focus_events,
+        keyboard_supported: caps.kitty_keyboard,
+        keyboard_env_disabled: crate::terminal::keyboard_enhancement_env_disabled(),
+        unreliable_focus_terminal: unreliable_focus_terminal(profile.terminal.as_deref()),
+        blocked_keyboard_combination: blocked_keyboard_combination(),
+    }
+}
+
+/// True for terminal identities whose focus events are unreliable: the
+/// Windows Terminal family stays off even when the probe reports support.
+pub fn unreliable_focus_terminal(terminal: Option<&str>) -> bool {
+    if std::env::var("WT_SESSION").is_ok() {
+        return true;
+    }
+    let term = terminal.unwrap_or("").to_ascii_lowercase();
+    term.contains("windows") || term.contains("mintty") || term.contains("conhost")
+}
+
+/// True for terminal combinations known to misreport enhanced keys: a WSL
+/// shell hosted by the VS Code terminal hides the real terminal identity
+/// from the Linux environment.
+pub fn blocked_keyboard_combination() -> bool {
+    is_wsl() && is_vscode_terminal()
+}
+
+/// True inside Windows Subsystem for Linux.
+pub fn is_wsl() -> bool {
+    if std::env::var("WSL_DISTRO_NAME").is_ok() || std::env::var("WSL_INTEROP").is_ok() {
+        return true;
+    }
+    std::fs::read_to_string("/proc/version")
+        .map(|version| version.to_ascii_lowercase().contains("microsoft"))
+        .unwrap_or(false)
+}
+
+/// True when the Linux-side terminal identity claims VS Code.
+pub fn is_vscode_terminal() -> bool {
+    std::env::var("TERM_PROGRAM")
+        .map(|value| value.eq_ignore_ascii_case("vscode"))
+        .unwrap_or(false)
 }
 
 /// Select a tier from the system profile and probed capabilities.
@@ -216,10 +321,13 @@ mod tests {
     }
 
     #[test]
-    fn full_tier_keeps_everything() {
+    fn full_tier_keeps_everything_except_mouse_opt_in() {
         let policy = TuiPerfPolicy::for_tier(PerformanceTier::Full);
         assert!(policy.decorative_animations);
-        assert!(policy.enable_mouse_capture);
+        assert!(policy.enable_focus_change);
+        assert!(policy.enable_keyboard_enhancement);
+        assert!(policy.enable_alternate_scroll);
+        assert!(!policy.enable_mouse_capture);
         assert!(policy.sync_output);
         assert!(!policy.simplified_render);
         assert_eq!(policy.redraw_interval_ms(), 8);
@@ -232,15 +340,90 @@ mod tests {
         assert!(policy.keep_spinner);
         assert!(!policy.enable_mouse_capture);
         assert!(policy.enable_keyboard_enhancement);
+        assert!(policy.enable_focus_change);
     }
 
     #[test]
-    fn minimal_tier_drops_input_and_simplifies() {
+    fn minimal_tier_only_clamps_rates_and_rendering() {
+        // The tier never decides input capabilities: focus and keyboard
+        // stay on until the environment gates turn them off.
         let policy = TuiPerfPolicy::for_tier(PerformanceTier::Minimal);
-        assert!(!policy.enable_focus_change);
-        assert!(!policy.enable_keyboard_enhancement);
+        assert!(policy.enable_focus_change);
+        assert!(policy.enable_keyboard_enhancement);
+        assert!(!policy.enable_mouse_capture);
         assert!(!policy.sync_output);
         assert!(policy.simplified_render);
+    }
+
+    #[test]
+    fn input_gates_enable_everything_when_evidence_allows() {
+        let mut policy = TuiPerfPolicy::for_tier(PerformanceTier::Minimal);
+        policy.apply_input_gates(&InputGates::all_on());
+        assert!(policy.enable_focus_change);
+        assert!(policy.enable_mouse_capture);
+        assert!(policy.enable_keyboard_enhancement);
+    }
+
+    #[test]
+    fn mouse_needs_explicit_opt_in() {
+        let mut policy = TuiPerfPolicy::for_tier(PerformanceTier::Full);
+        let mut gates = InputGates::all_on();
+        gates.mouse_opt_in = false;
+        policy.apply_input_gates(&gates);
+        assert!(!policy.enable_mouse_capture);
+        assert!(policy.enable_focus_change);
+        assert!(policy.enable_keyboard_enhancement);
+    }
+
+    #[test]
+    fn focus_turns_off_on_probe_or_unreliable_terminal() {
+        let mut policy = TuiPerfPolicy::for_tier(PerformanceTier::Full);
+        let mut gates = InputGates::all_on();
+        gates.focus_supported = false;
+        policy.apply_input_gates(&gates);
+        assert!(!policy.enable_focus_change);
+
+        let mut gates = InputGates::all_on();
+        gates.unreliable_focus_terminal = true;
+        policy.apply_input_gates(&gates);
+        assert!(!policy.enable_focus_change);
+    }
+
+    #[test]
+    fn keyboard_triple_gate_any_denial_turns_it_off() {
+        for blocked in [
+            InputGates {
+                keyboard_supported: false,
+                ..InputGates::all_on()
+            },
+            InputGates {
+                keyboard_env_disabled: true,
+                ..InputGates::all_on()
+            },
+            InputGates {
+                blocked_keyboard_combination: true,
+                ..InputGates::all_on()
+            },
+        ] {
+            let mut policy = TuiPerfPolicy::for_tier(PerformanceTier::Full);
+            policy.apply_input_gates(&blocked);
+            assert!(!policy.enable_keyboard_enhancement);
+        }
+    }
+
+    #[test]
+    fn unreliable_focus_matrix_covers_windows_terminal_family() {
+        let saved = std::env::var("WT_SESSION").ok();
+        std::env::remove_var("WT_SESSION");
+        assert!(unreliable_focus_terminal(Some("windows-terminal")));
+        assert!(unreliable_focus_terminal(Some("mintty-3.6")));
+        assert!(unreliable_focus_terminal(Some("conhost")));
+        assert!(!unreliable_focus_terminal(Some("kitty")));
+        assert!(!unreliable_focus_terminal(Some("xterm-256color")));
+        assert!(!unreliable_focus_terminal(None));
+        if let Some(value) = saved {
+            std::env::set_var("WT_SESSION", value);
+        }
     }
 
     #[test]

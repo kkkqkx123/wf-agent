@@ -18,7 +18,7 @@
 //! turn/streaming settlement that feeds the scrollback.
 
 pub mod handlers;
-mod keys;
+pub(crate) mod keys;
 mod pager;
 mod render;
 

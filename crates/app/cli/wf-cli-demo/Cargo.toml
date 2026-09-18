@@ -8,6 +8,9 @@ description = "Demo examples for wf-agent CLI implementations (headless, mini, f
 crossterm.workspace = true
 ratatui.workspace = true
 wf-tui = { path = "../wf-tui" }
+wf-api = { path = "../../wf-api" }
+wf-types = { workspace = true }
+serde_json.workspace = true
 wf-cli-shared = { path = "../wf-cli-shared" }
 
 [features]

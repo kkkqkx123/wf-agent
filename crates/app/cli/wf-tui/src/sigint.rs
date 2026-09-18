@@ -1,14 +1,10 @@
 //! SIGINT double-press state machine: tracks two Ctrl+C presses within a
 //! time window.
 
-use std::sync::OnceLock;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 /// Window within which a second Ctrl+C counts as "interrupt".
 pub const SIGINT_DOUBLE_PRESS_WINDOW: Duration = Duration::from_secs(5);
-
-/// Monotonic origin for the real-clock press helper.
-static PRESS_CLOCK_ORIGIN: OnceLock<Instant> = OnceLock::new();
 
 /// Outcome of recording a press.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -66,10 +62,9 @@ impl DoublePressTracker {
         self.last_press_ms = None;
     }
 
-    /// Record a press using the real monotonic clock (process origin).
+    /// Record a press using the injectable clock (deterministic in tests).
     pub fn press_now(&mut self) -> PressOutcome {
-        let origin = PRESS_CLOCK_ORIGIN.get_or_init(Instant::now);
-        self.press(Instant::now().duration_since(*origin).as_millis() as u64)
+        self.press(crate::clock::now_ms())
     }
 }
 

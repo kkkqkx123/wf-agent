@@ -55,7 +55,7 @@ const FETCH_TIMEOUT: Duration = Duration::from_secs(30);
 /// Event poll interval; also the worst-case redraw latency.
 const POLL_INTERVAL: Duration = Duration::from_millis(100);
 /// How long a transient notice line stays visible.
-const NOTICE_TTL: Duration = Duration::from_secs(6);
+const NOTICE_TTL_MS: u64 = 6_000;
 
 /// Dashboard entry order: index `i` is what `1..=8` / `j-k` selects.
 const DASHBOARD_ENTRIES: &[ScreenKind] = &[
@@ -92,8 +92,9 @@ pub struct TuiApp {
     search_input: String,
     /// Status filter applied to the executions screen.
     exec_filter: ExecStatusFilter,
-    /// Transient status/error line rendered under the screen.
-    notice: Option<(String, Instant)>,
+    /// Transient status/error line rendered under the screen, with the
+    /// injectable clock value (ms) it was set at.
+    notice: Option<(String, u64)>,
     /// Live interactive controller shown on the Interactive screen.
     interactive: Option<InteractiveController>,
     /// Set by the interactive controller when the user wants to leave it (Ctrl-C twice).
@@ -107,16 +108,42 @@ pub struct TuiApp {
     /// Whether the next loop iteration must repaint. Cleared after a draw;
     /// set on key / data / resize / theme changes and while the interactive controller streams.
     dirty: bool,
+    /// Merged redraw request graded by severity (Full > BottomOnly >
+    /// AnimationOnly); animation-only frames additionally wait for the
+    /// animation frame rate.
+    pending_scope: crate::redraw::PendingScope,
+    /// Last millisecond an animation-only frame was emitted.
+    last_anim_ms: Option<u64>,
+    /// Last moment real activity landed; drives the idle poll backoff.
+    last_active: Instant,
     /// Debouncer collapsing a burst of `Event::Resize` into one final size.
     resize: ResizeDebouncer,
     /// Live theme; refreshed on SIGUSR2 via the event loop.
     theme: Theme,
+    /// Buffer-level theme adaptation mode for the finished frame.
+    theme_mode: crate::theme_mode::ThemeMode,
+    /// True when an explicit user theme disables buffer adaptation.
+    theme_explicit: bool,
+    /// Active performance tier driving downgrade behavior.
+    perf_tier: crate::perf::PerformanceTier,
+    /// Runtime policy derived from the tier at startup.
+    perf_policy: crate::perf::TuiPerfPolicy,
+    /// Whether the terminal advertises synchronized-output support.
+    sync_supported: bool,
 }
 
 impl TuiApp {
     pub fn new(adapter: Arc<DomainAdapter>) -> Self {
         let (data_tx, data_rx) = mpsc::unbounded_channel();
         let (feedback_tx, feedback_rx) = mpsc::unbounded_channel();
+        // Capability-driven policy, built once: components render the
+        // resolved theme while the policy downgrades animation rates and
+        // input capabilities on constrained terminals.
+        let caps = crate::capabilities::TerminalProbe::detect().into_capabilities();
+        let profile = crate::perf::SystemProfile::detect();
+        let perf_tier = crate::perf::select_tier(&profile, &caps);
+        let (theme, theme_mode, theme_explicit) =
+            crate::theme_mode::resolve_render_theme(theme::probe_theme());
         Self {
             adapter,
             screens: Screens::new(),
@@ -138,8 +165,16 @@ impl TuiApp {
             start: Instant::now(),
             frame: FrameRequester::new(0),
             dirty: true,
+            pending_scope: crate::redraw::PendingScope::new(),
+            last_anim_ms: None,
+            last_active: Instant::now(),
             resize: ResizeDebouncer::default_window(),
-            theme: theme::probe_theme(),
+            theme,
+            theme_mode,
+            theme_explicit,
+            perf_tier,
+            perf_policy: crate::perf::TuiPerfPolicy::for_tier(perf_tier),
+            sync_supported: caps.synchronized_output,
         }
     }
 
@@ -240,20 +275,33 @@ impl TuiApp {
                 // disappears on schedule.
                 self.dirty = true;
             }
-            if self.dirty || interactive {
-                self.frame.request_frame();
+            let scope = self.grade_frame();
+            match scope {
+                crate::redraw::RedrawScope::Full | crate::redraw::RedrawScope::BottomOnly => {
+                    self.pending_scope.request(scope);
+                    self.frame.request_frame();
+                    self.last_active = Instant::now();
+                }
+                crate::redraw::RedrawScope::AnimationOnly => {
+                    if crate::redraw::animation_frame_due(now, self.last_anim_ms) {
+                        self.pending_scope.request(scope);
+                        self.frame.request_frame();
+                    }
+                }
+                crate::redraw::RedrawScope::None => {}
             }
 
             // Poll until the next redraw is due (or a key arrives). Idle loops
-            // wait the full interval; a dirty / streaming loop waits at most the
+            // back off by idle time; a dirty / streaming loop waits at most the
             // rate-limit floor so we never busy-spin.
-            let timeout = if self.dirty || interactive {
+            let timeout = if self.dirty || interactive || self.pending_scope.is_pending() {
                 self.frame
                     .deadline()
                     .map(|d| Duration::from_millis(d.saturating_sub(now)))
                     .unwrap_or(POLL_INTERVAL)
             } else {
-                POLL_INTERVAL
+                let idle_ms = self.last_active.elapsed().as_millis() as u64;
+                crate::redraw::idle_poll_interval(idle_ms)
             };
 
             if event::poll(timeout)
@@ -290,21 +338,71 @@ impl TuiApp {
                 self.dirty = true;
             }
 
-            // Apply a hot-reloaded theme (SIGUSR2) and repaint.
-            while let Ok(theme) = theme_rx.try_recv() {
+            // Apply a hot-reloaded theme (SIGUSR2) and repaint. Explicit
+            // themes stay as-is; probed themes re-resolve the render theme
+            // so the buffer adaptation never stacks on configured colors.
+            while let Ok(probed) = theme_rx.try_recv() {
+                let (theme, mode, explicit) = crate::theme_mode::resolve_render_theme(probed);
                 self.theme = theme;
+                self.theme_mode = mode;
+                self.theme_explicit = explicit;
                 self.dirty = true;
             }
 
             // Repaint when something changed and the rate limiter allows it.
+            // The frame is exception-isolated (a failing widget degrades to
+            // a recovered frame) and post-processed in fixed order; full and
+            // bottom frames are wrapped in synchronized output when the
+            // terminal supports it so streaming never tears.
             self.frame.set_now(self.now_ms());
-            if (self.dirty || interactive) && self.frame.deadline().is_none() {
+            if (self.dirty || interactive || self.pending_scope.is_pending())
+                && self.frame.deadline().is_none()
+            {
                 let data = self.current_data();
-                terminal
-                    .draw(|frame| self.draw(frame, &data))
-                    .map_err(|e| CliError::Configuration(format!("draw failed: {e}")))?;
+                let sync_scope = self.grade_frame();
+                let sync = crate::perf::should_sync_output(
+                    self.perf_policy,
+                    self.sync_supported,
+                    sync_scope,
+                );
+                if sync {
+                    use crossterm::execute;
+                    use crossterm::terminal::{BeginSynchronizedUpdate, EndSynchronizedUpdate};
+                    let _ = execute!(std::io::stdout(), BeginSynchronizedUpdate);
+                    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        terminal
+                            .draw(|frame| self.draw_inner(frame, &data))
+                            .map(|_| ())
+                            .map_err(|e| CliError::Configuration(format!("draw failed: {e}")))
+                    }));
+                    let _ = execute!(std::io::stdout(), EndSynchronizedUpdate);
+                    match outcome {
+                        Ok(Ok(())) => {}
+                        Ok(Err(e)) => return Err(e),
+                        Err(_) => self.draw_recovered(terminal)?,
+                    }
+                } else {
+                    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        terminal
+                            .draw(|frame| self.draw_inner(frame, &data))
+                            .map(|_| ())
+                            .map_err(|e| CliError::Configuration(format!("draw failed: {e}")))
+                    }));
+                    match outcome {
+                        Ok(Ok(())) => {}
+                        Ok(Err(e)) => return Err(e),
+                        Err(_) => self.draw_recovered(terminal)?,
+                    }
+                }
                 self.frame.frame_done();
                 self.dirty = false;
+                let submitted = self.pending_scope.take();
+                if submitted == crate::redraw::RedrawScope::AnimationOnly {
+                    self.last_anim_ms = Some(self.now_ms());
+                }
+                if self.interactive.is_some() {
+                    self.last_active = Instant::now();
+                }
             }
 
             // External signal (SIGINT/SIGTERM) routed through the runtime.
@@ -316,9 +414,29 @@ impl TuiApp {
     }
 
     /// Monotonic millisecond clock since the app started (drives the frame
-    /// scheduler).
+    /// scheduler). Serves the simulated clock while tests enable it.
     fn now_ms(&self) -> u64 {
+        if crate::clock::test_clock_enabled() {
+            return crate::clock::now_ms();
+        }
         Instant::now().duration_since(self.start).as_millis() as u64
+    }
+
+    /// Grade the pending frame: overlays, modals and dirty flags force a
+    /// full frame; otherwise the interactive snapshot decides between full,
+    /// bottom-only, animation-only or no frame.
+    fn grade_frame(&self) -> crate::redraw::RedrawScope {
+        use crate::redraw::RedrawScope;
+        if let Some(session) = &self.interactive {
+            if self.dirty || self.overlay != OverlayMode::None || !self.modals.is_empty() {
+                return RedrawScope::Full;
+            }
+            session.grade_redraw()
+        } else if self.dirty {
+            RedrawScope::Full
+        } else {
+            RedrawScope::None
+        }
     }
 
     /// When a SIGTSTP (Ctrl-Z) arrived since the last tick, run the suspend /
@@ -363,11 +481,12 @@ impl TuiApp {
         let on_interactive = self.screens.current_kind() == ScreenKind::Interactive;
         match (on_interactive, self.interactive.is_some()) {
             (true, false) => {
-                let session = InteractiveController::start(
+                let mut session = InteractiveController::start(
                     Arc::clone(&self.adapter),
                     wf_common::generate_id(),
                 )
                 .await;
+                session.set_perf_tier(self.perf_tier.marker());
                 self.interactive = Some(session);
             }
             (false, true) => {
@@ -410,7 +529,10 @@ impl TuiApp {
         Ok(())
     }
 
-    fn draw(&mut self, frame: &mut Frame, data: &ScreenData) {
+    /// Draw one frame with unified post-processing: after every widget is
+    /// composed the finished buffer passes the fixed theme/palette order
+    /// exactly once.
+    fn draw_inner(&mut self, frame: &mut Frame, data: &ScreenData) {
         let area = frame.area();
         // Reserve the bottom line for the transient notice, if any.
         let notice = self.notice_text();
@@ -451,6 +573,28 @@ impl TuiApp {
         if !self.modals.is_empty() {
             self.modals.draw(frame, area, &self.theme);
         }
+
+        crate::theme_mode::post_process_buffer(
+            frame.buffer_mut(),
+            self.theme_mode,
+            self.theme_explicit,
+        );
+    }
+
+    /// Render the panic fallback after a draw panic: the loop survives and
+    /// the next frame paints normally again.
+    fn draw_recovered(
+        &mut self,
+        terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    ) -> CliResult<()> {
+        terminal
+            .draw(|frame| {
+                let area = frame.area();
+                crate::render_model::draw_recovered_frame(frame.buffer_mut(), area);
+            })
+            .map_err(|e| CliError::Configuration(format!("recovered draw failed: {e}")))?;
+        self.dirty = true;
+        Ok(())
     }
 
     fn draw_sidebar_overlay(&self, frame: &mut Frame, area: Rect) {
@@ -603,12 +747,12 @@ impl TuiApp {
     }
 
     fn set_notice(&mut self, text: impl Into<String>) {
-        self.notice = Some((text.into(), Instant::now()));
+        self.notice = Some((text.into(), self.now_ms()));
     }
 
     fn notice_text(&self) -> Option<String> {
         let (text, at) = self.notice.as_ref()?;
-        if at.elapsed() < NOTICE_TTL {
+        if self.now_ms().saturating_sub(*at) < NOTICE_TTL_MS {
             Some(text.clone())
         } else {
             None
@@ -619,7 +763,7 @@ impl TuiApp {
     /// redraws after its TTL elapses.
     fn expire_notice(&mut self) {
         if let Some((_, at)) = &self.notice {
-            if at.elapsed() >= NOTICE_TTL {
+            if self.now_ms().saturating_sub(*at) >= NOTICE_TTL_MS {
                 self.notice = None;
             }
         }

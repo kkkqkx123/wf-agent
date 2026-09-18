@@ -202,30 +202,31 @@ pub enum FocusTarget {
     Overlay,
 }
 
-/// A queue of transient notice messages with TTL.
+/// A queue of transient notice messages with TTL, driven by the injectable
+/// clock so expiry is deterministic in tests.
 #[derive(Debug)]
 pub struct NoticeQueue {
-    current: Option<(String, Instant)>,
-    ttl: Duration,
+    current: Option<(String, u64)>,
+    ttl_ms: u64,
 }
 
 impl NoticeQueue {
     pub fn new() -> Self {
         Self {
             current: None,
-            ttl: Duration::from_secs(6),
+            ttl_ms: Duration::from_secs(6).as_millis() as u64,
         }
     }
 
     /// Set a notice (replaces any active notice).
     pub fn set(&mut self, text: impl Into<String>) {
-        self.current = Some((text.into(), Instant::now()));
+        self.current = Some((text.into(), crate::clock::now_ms()));
     }
 
     /// Get the current notice text if not expired.
     pub fn current_text(&self) -> Option<String> {
         let (text, at) = self.current.as_ref()?;
-        if at.elapsed() < self.ttl {
+        if crate::clock::now_ms().saturating_sub(*at) < self.ttl_ms {
             Some(text.clone())
         } else {
             None
@@ -236,7 +237,7 @@ impl NoticeQueue {
     /// is needed.
     pub fn expire(&mut self) -> bool {
         if let Some((_, at)) = &self.current {
-            if at.elapsed() >= self.ttl {
+            if crate::clock::now_ms().saturating_sub(*at) >= self.ttl_ms {
                 self.current = None;
                 return true;
             }

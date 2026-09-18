@@ -38,7 +38,10 @@ fn styled_lines(src: &str, width: u16, motion_mode: MotionMode) -> Vec<Line<'sta
         match event {
             Event::Start(tag) => match tag {
                 Tag::Heading { level, .. } => {
-                    current_line.push(Span::styled("#".repeat(level as usize) + " ", heading_style(level)));
+                    current_line.push(Span::styled(
+                        "#".repeat(level as usize) + " ",
+                        heading_style(level),
+                    ));
                 }
                 Tag::CodeBlock(_) => {
                     in_code_block = true;

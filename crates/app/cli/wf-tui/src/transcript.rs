@@ -12,8 +12,6 @@
 //! [`Line`]s into a ratatui [`Buffer`] with a scroll offset; it never
 //! wraps, because wrapping happens in [`HistoryLine::display_lines`].
 
-use std::time::Instant;
-
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::Style;
@@ -82,8 +80,8 @@ pub struct HistoryLine {
     pub role: Role,
     text: Text<'static>,
     motion_mode: MotionMode,
-    /// Start time for animation timing (used for shimmer effects).
-    animation_start: Option<Instant>,
+    /// Start moment (injectable clock ms) for shimmer timing.
+    animation_start_ms: Option<u64>,
 }
 
 impl HistoryLine {
@@ -104,7 +102,7 @@ impl HistoryLine {
             role,
             text: Text::from(content.into()),
             motion_mode: MotionMode::default(),
-            animation_start: None,
+            animation_start_ms: None,
         }
     }
 
@@ -120,8 +118,8 @@ impl HistoryLine {
             role,
             text: Text::from(content.into()),
             motion_mode,
-            animation_start: if state == LineState::Streaming {
-                Some(Instant::now())
+            animation_start_ms: if state == LineState::Streaming {
+                Some(crate::clock::now_ms())
             } else {
                 None
             },
@@ -141,26 +139,25 @@ impl HistoryLine {
     /// Start animation for streaming content.
     pub fn start_animation(&mut self) {
         if self.state == LineState::Streaming {
-            self.animation_start = Some(Instant::now());
+            self.animation_start_ms = Some(crate::clock::now_ms());
         }
     }
 
     /// Stop animation (e.g., when line is committed).
     pub fn stop_animation(&mut self) {
-        self.animation_start = None;
+        self.animation_start_ms = None;
     }
 
     /// Check if animation is active.
     pub fn is_animating(&self) -> bool {
-        self.animation_start.is_some() && self.motion_mode.should_animate()
+        self.animation_start_ms.is_some() && self.motion_mode.should_animate()
     }
 
-    /// Get animation tick for cache invalidation.
+    /// Get animation tick for cache invalidation, discretized into buckets
+    /// so the tick only changes the cache key once per bucket.
     pub fn animation_tick(&self) -> Option<u64> {
         if self.is_animating() {
-            let start = self.animation_start?;
-            let tick = start.elapsed().as_millis() / 100;
-            Some(tick as u64)
+            Some(crate::clock::anim_bucket(crate::clock::now_ms()))
         } else {
             None
         }

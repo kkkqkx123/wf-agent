@@ -126,6 +126,8 @@ pub struct Footer {
     pub question: Option<QuestionView>,
     /// Injected millisecond clock (spinner / notice expiry).
     now_ms: u64,
+    /// Performance tier marker shown in the status line (no digest impact).
+    tier_label: Option<&'static str>,
 }
 
 impl Default for Footer {
@@ -139,6 +141,7 @@ impl Default for Footer {
             approval: None,
             question: None,
             now_ms: 0,
+            tier_label: None,
         }
     }
 }
@@ -152,6 +155,11 @@ impl Footer {
     /// Inject the current clock (ms); call before `draw` / `show_notice`.
     pub fn set_now(&mut self, now_ms: u64) {
         self.now_ms = now_ms;
+    }
+
+    /// Show the active performance tier marker in the status line.
+    pub fn set_perf_tier(&mut self, label: &'static str) {
+        self.tier_label = Some(label);
     }
 
     /// Switch the view (permission / question / back to prompt) and reset
@@ -349,6 +357,13 @@ impl Footer {
                     theme_style(theme, Role::Muted),
                 ));
             }
+        }
+
+        if let Some(tier) = self.tier_label {
+            spans.push(Span::styled(
+                format!(" [{tier}]"),
+                theme_style(theme, Role::Muted),
+            ));
         }
 
         render_line_into(area, buf, &Line::from(spans));

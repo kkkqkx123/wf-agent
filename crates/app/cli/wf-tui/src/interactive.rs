@@ -44,6 +44,7 @@ use crate::footer::{Footer, FooterView};
 use crate::prep_cache::PreparedScrollback;
 use crate::question_overlay::QuestionView;
 use crate::reducer::{Phase, SessionReducer};
+use crate::stream_pacer::StreamPacer;
 use crate::terminal::{DoublePressTracker, SIGINT_DOUBLE_PRESS_WINDOW};
 use crate::transcript::{HistoryLine, LineState, Role};
 use crate::turn::{stream_agent_turn, TurnKind, TurnParams};
@@ -117,7 +118,7 @@ pub struct InteractiveController {
     approval_reply: Option<oneshot::Sender<ToolApprovalResult>>,
     remembered: ApprovalRemembered,
     scroll_cover: usize,
-    tool_started_at: HashMap<String, Instant>,
+    tool_started_at: HashMap<String, u64>,
     exit_tracker: DoublePressTracker,
     /// Monotonic origin for the injected clock. `now_ms` reports elapsed
     /// milliseconds since here so notice expiry, spinner rotation and the
@@ -140,6 +141,27 @@ pub struct InteractiveController {
     graceful: bool,
     /// Animation controller for UI animations.
     animation: AnimationController,
+    /// Arrival vs display decoupling for bursty deltas. Deltas queue here;
+    /// the frame preparation stage advances the visible prefix into the
+    /// markdown stream. Completion and interrupt paths drain it so settled
+    /// content never waits on the limiter. Reasoning deltas stay direct
+    /// until the segmented queue lands.
+    pacer: StreamPacer,
+    /// Visible pacer bytes already fed into the markdown stream.
+    pacer_fed: usize,
+    /// Merged redraw request by severity (Full > BottomOnly > AnimationOnly).
+    pending_scope: crate::redraw::PendingScope,
+    /// Snapshot graded on the previous frame; drives scope decisions.
+    last_snapshot: Option<crate::redraw::RedrawSnapshot>,
+    /// Recorded animation geometry for animation-only frames.
+    anim_area: crate::redraw::AnimationArea,
+    /// Cached scrollback display rows (without the streaming tail) keyed by
+    /// content version and width; bottom/animation frames reuse it.
+    scroll_rows_cache: Vec<ratatui::text::Line<'static>>,
+    /// Key for `scroll_rows_cache`.
+    scroll_cache_key: Option<(u64, u16)>,
+    /// Last millisecond an animation-only frame was emitted.
+    last_anim_ms: Option<u64>,
     /// Full session memory seeding every turn: prior user/assistant texts,
     /// oldest first. Never truncated here; the engine owns all budget and
     /// compression decisions. Only completed turns are recorded.
@@ -181,7 +203,12 @@ impl InteractiveController {
 
     /// Elapsed milliseconds since the controller was created, feeding every
     /// injected clock (spinner rotation, notice expiry, exit double-press).
+    /// While the simulated clock is enabled the test value is served
+    /// directly so frames and expiry become deterministic.
     pub(super) fn now_ms(&self) -> u64 {
+        if crate::clock::test_clock_enabled() {
+            return crate::clock::now_ms();
+        }
         Instant::now().duration_since(self.origin).as_millis() as u64
     }
 
@@ -224,6 +251,14 @@ impl InteractiveController {
             scroll_at_top: false,
             graceful: false,
             animation: AnimationController::default_enabled(),
+            pacer: StreamPacer::default(),
+            pacer_fed: 0,
+            pending_scope: crate::redraw::PendingScope::new(),
+            last_snapshot: None,
+            anim_area: crate::redraw::AnimationArea::default(),
+            scroll_rows_cache: Vec::new(),
+            scroll_cache_key: None,
+            last_anim_ms: None,
             history: Vec::new(),
             turn_text: String::new(),
             turn_prompt: String::new(),
@@ -353,6 +388,8 @@ impl InteractiveController {
         self.scroll_cover = 0;
         self.turn_text.clear();
         self.turn_prompt = prompt.clone();
+        self.pacer.clear();
+        self.pacer_fed = 0;
 
         let tx = self.tx.clone();
         let adapter = Arc::clone(&self.adapter);
@@ -524,12 +561,11 @@ impl InteractiveController {
             }
             ExecutionStreamEvent::LlmDelta { content } => {
                 self.turn_text.push_str(content);
-                // Arrival only accumulates; the frame preparation stage parses
-                // at most once per frame. Over-limit input reports
-                // synchronously and is applied immediately.
-                if let Some(frame) = self.stream.push_throttled(content) {
-                    self.apply_stream_frame(frame);
-                }
+                // Arrival only queues into the pacer; the frame preparation
+                // stage advances the visible prefix into the markdown stream
+                // at a bounded rate. Over-limit input still reports
+                // synchronously through the stream path on the next poll.
+                self.pacer.push(content);
             }
             ExecutionStreamEvent::IterationStart { .. }
             | ExecutionStreamEvent::IterationEnd { .. } => {
@@ -541,7 +577,7 @@ impl InteractiveController {
             } => {
                 self.flush_stream_tail();
                 self.tool_started_at
-                    .insert(tool_call_id.clone(), Instant::now());
+                    .insert(tool_call_id.clone(), self.now_ms());
                 self.pending_scroll
                     .push(HistoryLine::new_role(format!("▲ {tool_name}"), Role::Muted));
             }
@@ -552,12 +588,12 @@ impl InteractiveController {
                 ..
             } => {
                 self.flush_stream_tail();
-                let elapsed = self
+                let elapsed_ms = self
                     .tool_started_at
                     .remove(tool_call_id)
-                    .map(|s| s.elapsed());
-                let line = match (success, elapsed) {
-                    (true, Some(d)) => format!("✓ {tool_name} ({}ms)", d.as_millis()),
+                    .map(|s| self.now_ms().saturating_sub(s));
+                let line = match (success, elapsed_ms) {
+                    (true, Some(d)) => format!("✓ {tool_name} ({d}ms)"),
                     (true, None) => format!("✓ {tool_name}"),
                     (false, _) => format!("✗ {tool_name}"),
                 };
@@ -620,14 +656,35 @@ impl InteractiveController {
         }
     }
 
-    /// Frame preparation stage: the only throttled parse trigger besides the
-    /// synchronous over-limit path. Coalesces all dirty deltas into one parse
-    /// per call; completion paths force a drain so no byte waits on the
-    /// interval.
+    /// Frame preparation stage: advance the pacer into the markdown stream,
+    /// then run the only throttled parse trigger besides the synchronous
+    /// over-limit path. Coalesces all dirty deltas into one parse per call;
+    /// completion paths force a drain so no byte waits on either limiter.
     fn poll_stream_frame(&mut self, force: bool) {
         let now_ms = self.now_ms();
+        self.feed_pacer_visible(now_ms, force);
         if let Some(frame) = self.stream.prepare_frame(now_ms, force) {
             self.apply_stream_frame(frame);
+        }
+    }
+
+    /// Move newly visible pacer bytes into the markdown stream. Forced polls
+    /// drain the backlog first so settlement never waits on pacing.
+    fn feed_pacer_visible(&mut self, now_ms: u64, force: bool) {
+        if force {
+            self.pacer.drain();
+        } else {
+            self.pacer.advance(now_ms);
+        }
+        let visible_len = self.pacer.visible_len();
+        if visible_len > self.pacer_fed {
+            let delta = self.pacer.visible()[self.pacer_fed.min(visible_len)..].to_string();
+            self.pacer_fed = visible_len;
+            if !delta.is_empty() {
+                if let Some(frame) = self.stream.push_throttled(&delta) {
+                    self.apply_stream_frame(frame);
+                }
+            }
         }
     }
 
@@ -644,6 +701,8 @@ impl InteractiveController {
         let _ = self.stream.finish();
         self.scroll_cover = 0;
         self.streaming = None;
+        self.pacer.clear();
+        self.pacer_fed = 0;
     }
 
     fn finish_turn(&mut self) {
@@ -691,6 +750,79 @@ impl InteractiveController {
                 self.prep.sync_trim(drop, version);
             }
         }
+    }
+
+    /// Current redraw snapshot for scope grading. The animation tick is
+    /// bucketed so spinner progress alone grades animation-only and never
+    /// invalidates the preparation cache inside a bucket.
+    pub fn redraw_snapshot(&self) -> crate::redraw::RedrawSnapshot {
+        let now_ms = self.now_ms();
+        let streaming_text = self.stream.streaming_text();
+        crate::redraw::RedrawSnapshot {
+            content_version: self.content_version,
+            streaming_len: streaming_text.len(),
+            streaming_hash: crate::prep_keys::hash_prefix(streaming_text),
+            footer_digest: crate::redraw::footer_digest(&self.footer.state),
+            width: self.last_layout_width,
+            view_scroll: self.view_scroll,
+            anim_tick: crate::clock::anim_bucket(now_ms),
+            force_full: false,
+        }
+    }
+
+    /// Grade the current state against the previous frame.
+    pub fn grade_redraw(&self) -> crate::redraw::RedrawScope {
+        crate::redraw::decide_scope(self.last_snapshot, self.redraw_snapshot())
+    }
+
+    /// Queue a redraw request merged by severity.
+    pub fn request_scope(&mut self, scope: crate::redraw::RedrawScope) {
+        self.pending_scope.request(scope);
+    }
+
+    /// Take and clear the merged pending scope.
+    pub fn take_pending_scope(&mut self) -> crate::redraw::RedrawScope {
+        self.pending_scope.take()
+    }
+
+    /// Snapshot graded on the previous frame.
+    pub fn last_snapshot(&self) -> Option<crate::redraw::RedrawSnapshot> {
+        self.last_snapshot
+    }
+
+    /// Record the snapshot a frame was submitted for.
+    pub(crate) fn set_last_snapshot(&mut self, snapshot: crate::redraw::RedrawSnapshot) {
+        self.last_snapshot = Some(snapshot);
+    }
+
+    /// Recorded animation geometry for animation-only frames.
+    pub fn anim_area(&self) -> crate::redraw::AnimationArea {
+        self.anim_area
+    }
+
+    /// Last millisecond an animation-only frame was emitted.
+    pub fn last_anim_ms(&self) -> Option<u64> {
+        self.last_anim_ms
+    }
+
+    /// Show the active performance tier marker in the footer status line.
+    pub fn set_perf_tier(&mut self, label: &'static str) {
+        self.footer.set_perf_tier(label);
+    }
+
+    /// Queued but not yet visible pacer bytes.
+    pub fn pacer_pending_len(&self) -> usize {
+        self.pacer.pending_len()
+    }
+
+    /// Disable pacing while keeping the interface (rollback escape hatch).
+    pub fn set_pacer_bypass(&mut self, bypass: bool) {
+        self.pacer.set_bypass(bypass);
+    }
+
+    /// Visible pacer prefix length in bytes.
+    pub fn pacer_visible_len(&self) -> usize {
+        self.pacer.visible_len()
     }
 }
 

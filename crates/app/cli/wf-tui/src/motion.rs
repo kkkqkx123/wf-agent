@@ -12,11 +12,18 @@
 //! characters, similar to the Codex implementation. In reduced motion mode,
 //! animations are replaced with static indicators or hidden entirely.
 
-use std::time::Instant;
-
 use ratatui::text::Span;
 
 use crate::animation::AnimationMode;
+
+/// Braille spinner frames indexed by quarter-phase; shared with the footer
+/// spinner so both indicators step through the same sequence.
+pub const BRAILLE_FRAMES: [&str; 4] = ["⣾", "⣽", "⣻", "⢿"];
+
+/// Shimmer sweep period in milliseconds.
+pub const SHIMMER_PERIOD_MS: u64 = 2_000;
+/// Shimmer highlight half-width as a fraction of the text length.
+pub const SHIMMER_HALF_WIDTH_FRAC: f64 = 0.1;
 
 /// Motion mode for controlling animation behavior.
 ///
@@ -80,29 +87,25 @@ pub enum ReducedMotionIndicator {
 ///
 /// # Arguments
 ///
-/// * `start_time` - The time when the activity started
+/// * `start_ms` - Clock value (ms) when the activity started
+/// * `now_ms` - Current clock value (ms); callers pass the injectable clock
 /// * `motion_mode` - The current motion mode
 /// * `indicator` - What to show when animation is disabled
 ///
 /// # Returns
 ///
 /// An optional styled span for the activity indicator.
-pub fn activity_indicator(
-    start_time: Instant,
+pub fn activity_indicator_at(
+    start_ms: u64,
+    now_ms: u64,
     motion_mode: MotionMode,
     indicator: ReducedMotionIndicator,
 ) -> Option<Span<'static>> {
     match motion_mode {
         MotionMode::Animated => {
-            let elapsed = start_time.elapsed().as_millis();
-            let phase = (elapsed / 200) % 4;
-            let ch = match phase {
-                0 => "⣾",
-                1 => "⣽",
-                2 => "⣻",
-                3 => "⢿",
-                _ => "⣾",
-            };
+            let elapsed = now_ms.saturating_sub(start_ms);
+            let phase = (elapsed / 200) % BRAILLE_FRAMES.len() as u64;
+            let ch = BRAILLE_FRAMES[phase as usize % BRAILLE_FRAMES.len()];
             Some(Span::raw(ch.to_string()))
         }
         MotionMode::Reduced | MotionMode::Static => match indicator {
@@ -110,6 +113,16 @@ pub fn activity_indicator(
             ReducedMotionIndicator::StaticBullet => Some(Span::raw("●".to_string())),
         },
     }
+}
+
+/// Legacy wrapper stamping the activity start at the current injectable
+/// clock value.
+pub fn activity_indicator(
+    start_ms: u64,
+    motion_mode: MotionMode,
+    indicator: ReducedMotionIndicator,
+) -> Option<Span<'static>> {
+    activity_indicator_at(start_ms, crate::clock::now_ms(), motion_mode, indicator)
 }
 
 /// Apply a shimmer effect to text spans.
@@ -124,69 +137,90 @@ pub fn activity_indicator(
 ///
 /// * `text` - The text to apply shimmer to
 /// * `motion_mode` - The current motion mode
+/// * `now_ms` - Current clock value (ms) driving the sweep position
 ///
 /// # Returns
 ///
 /// A vector of styled spans representing the shimmered text.
-pub fn shimmer_text(text: &str, motion_mode: MotionMode) -> Vec<Span<'static>> {
+pub fn shimmer_text_at(text: &str, motion_mode: MotionMode, now_ms: u64) -> Vec<Span<'static>> {
     match motion_mode {
-        MotionMode::Animated => shimmer_spans(text),
+        MotionMode::Animated => shimmer_spans_at(text, now_ms),
         MotionMode::Reduced | MotionMode::Static => vec![Span::raw(text.to_string())],
     }
 }
 
+/// Wrapper reading the sweep position from the injectable clock.
+pub fn shimmer_text(text: &str, motion_mode: MotionMode) -> Vec<Span<'static>> {
+    shimmer_text_at(text, motion_mode, crate::clock::now_ms())
+}
+
 /// Create shimmer spans for text with time-based color animation.
 ///
-/// This function creates a sweeping highlight effect across the text
-/// characters. The effect uses a 2-second sweep period and creates
-/// a wave-like highlight that moves from left to right.
-///
-/// # Arguments
-///
-/// * `text` - The text to shimmer
-///
-/// # Returns
-///
-/// A vector of styled spans with the shimmer effect applied.
-fn shimmer_spans(text: &str) -> Vec<Span<'static>> {
-    let start = Instant::now();
-    let mut spans = Vec::new();
+/// The highlight band keeps a fixed fractional width while the text grows,
+/// so allocation stays constant: one span per segment (pre-dim, rise,
+/// peak, fall, post-dim — at most five) instead of one span per character.
+/// Sweep period and bandwidth match the previous per-character version.
+fn shimmer_spans_at(text: &str, now_ms: u64) -> Vec<Span<'static>> {
     let chars: Vec<char> = text.chars().collect();
     let len = chars.len();
-
     if len == 0 {
-        return spans;
+        return Vec::new();
     }
 
-    let elapsed = start.elapsed().as_secs_f64();
-    let sweep_period = 2.0; // 2-second sweep
-    let sweep_pos = (elapsed % sweep_period) / sweep_period; // 0.0 to 1.0
+    let sweep = (now_ms % SHIMMER_PERIOD_MS) as f64 / SHIMMER_PERIOD_MS as f64;
+    let center = sweep * len as f64;
+    let half = (len as f64 * SHIMMER_HALF_WIDTH_FRAC).max(1.0);
+    let start = center - half;
+    let end = center + half;
+    let peak = center.round() as usize;
 
-    for (i, ch) in chars.iter().enumerate() {
-        let pos = i as f64 / len as f64; // 0.0 to 1.0 position in text
-        let distance = (pos - sweep_pos).abs();
-        let highlight = if distance < 0.1 {
-            // Peak highlight region
-            let intensity = 1.0 - (distance / 0.1);
-            let r = lerp(0x80, 0xFF, intensity as f32);
-            let g = lerp(0x80, 0xFF, intensity as f32);
-            let b = lerp(0x80, 0xFF, intensity as f32);
-            ratatui::style::Color::Rgb(r, g, b)
-        } else {
-            // Dim region
-            ratatui::style::Color::Rgb(0x60, 0x60, 0x60)
-        };
+    let dim = ratatui::style::Style::default().fg(ratatui::style::Color::Rgb(0x60, 0x60, 0x60));
+    let edge = ratatui::style::Style::default().fg(ratatui::style::Color::Rgb(0xC0, 0xC0, 0xC0));
+    let hot = ratatui::style::Style::default().fg(ratatui::style::Color::Rgb(0xFF, 0xFF, 0xFF));
 
-        spans.push(Span::styled(
-            ch.to_string(),
-            ratatui::style::Style::default().fg(highlight),
-        ));
+    // Segment boundaries in character indices, clamped to the text.
+    let b0 = start.floor().max(0.0) as usize;
+    let b1 = peak.min(len);
+    let b2 = (peak + 1).min(len);
+    let b3 = end.ceil().clamp(0.0, len as f64) as usize;
+
+    let collect = |from: usize, to: usize| -> String {
+        let (from, to) = (from.min(len), to.min(len));
+        if from >= to {
+            return String::new();
+        }
+        chars[from..to].iter().collect()
+    };
+
+    let mut spans = Vec::with_capacity(5);
+    let pre = collect(0, b0);
+    if !pre.is_empty() {
+        spans.push(Span::styled(pre, dim));
     }
-
+    let rise = collect(b0, b1);
+    if !rise.is_empty() {
+        spans.push(Span::styled(rise, edge));
+    }
+    let top = collect(b1, b2);
+    if !top.is_empty() {
+        spans.push(Span::styled(top, hot));
+    }
+    let fall = collect(b2, b3.max(b2));
+    if !fall.is_empty() {
+        spans.push(Span::styled(fall, edge));
+    }
+    let post = collect(b3.max(b2), len);
+    if !post.is_empty() {
+        spans.push(Span::styled(post, dim));
+    }
+    if spans.is_empty() {
+        spans.push(Span::raw(text.to_string()));
+    }
     spans
 }
 
 /// Linear interpolation between two values.
+#[cfg(test)]
 fn lerp(a: u8, b: u8, t: f32) -> u8 {
     let a = a as f32;
     let b = b as f32;
@@ -320,6 +354,10 @@ pub fn get_optimal_motion_mode(explicit_mode: Option<MotionMode>) -> MotionMode 
 mod tests {
     use super::*;
 
+    fn span_texts(spans: &[ratatui::text::Span<'_>]) -> Vec<String> {
+        spans.iter().map(|s| s.content.to_string()).collect()
+    }
+
     #[test]
     fn motion_mode_from_animation_mode() {
         assert_eq!(
@@ -351,40 +389,67 @@ mod tests {
 
     #[test]
     fn activity_indicator_animated_mode() {
-        let start = Instant::now();
         let indicator =
-            activity_indicator(start, MotionMode::Animated, ReducedMotionIndicator::Hidden);
+            activity_indicator_at(0, 0, MotionMode::Animated, ReducedMotionIndicator::Hidden);
         assert!(indicator.is_some());
-        let span = indicator.unwrap();
+        let span = indicator.expect("animated indicator renders");
         assert!(!span.content.is_empty());
     }
 
     #[test]
+    fn activity_indicator_steps_through_lookup_frames() {
+        let at = |now| {
+            activity_indicator_at(0, now, MotionMode::Animated, ReducedMotionIndicator::Hidden)
+                .expect("animated indicator renders")
+                .content
+                .into_owned()
+        };
+        assert_eq!(at(0), BRAILLE_FRAMES[0]);
+        assert_eq!(at(200), BRAILLE_FRAMES[1]);
+        assert_eq!(at(800), BRAILLE_FRAMES[0]);
+    }
+
+    #[test]
     fn activity_indicator_reduced_mode_hidden() {
-        let start = Instant::now();
         let indicator =
-            activity_indicator(start, MotionMode::Reduced, ReducedMotionIndicator::Hidden);
+            activity_indicator_at(0, 500, MotionMode::Reduced, ReducedMotionIndicator::Hidden);
         assert!(indicator.is_none());
     }
 
     #[test]
     fn activity_indicator_reduced_mode_bullet() {
-        let start = Instant::now();
-        let indicator = activity_indicator(
-            start,
+        let indicator = activity_indicator_at(
+            0,
+            500,
             MotionMode::Reduced,
             ReducedMotionIndicator::StaticBullet,
         );
         assert!(indicator.is_some());
-        let span = indicator.unwrap();
+        let span = indicator.expect("reduced bullet renders");
         assert_eq!(span.content.as_ref(), "●");
     }
 
     #[test]
-    fn shimmer_text_animated_mode() {
-        let spans = shimmer_text("hello", MotionMode::Animated);
-        assert_eq!(spans.len(), 5); // One span per character
-        assert_eq!(spans[0].content.as_ref(), "h");
+    fn shimmer_text_is_constant_allocation_and_lossless() {
+        let long: String = "x".repeat(500);
+        let spans = shimmer_text_at(&long, MotionMode::Animated, 750);
+        assert!(
+            spans.len() <= 5,
+            "segments stay constant, got {}",
+            spans.len()
+        );
+        let joined: String = spans.iter().map(|s| s.content.as_ref()).collect();
+        assert_eq!(joined, long);
+    }
+
+    #[test]
+    fn shimmer_text_sweep_is_deterministic() {
+        let first = shimmer_text_at("hello world", MotionMode::Animated, 100);
+        let second = shimmer_text_at("hello world", MotionMode::Animated, 100);
+        assert_eq!(span_texts(&first), span_texts(&second));
+        let moved = shimmer_text_at("hello world", MotionMode::Animated, 1_100);
+        let joined: String = moved.iter().map(|s| s.content.as_ref()).collect();
+        assert_eq!(joined, "hello world");
     }
 
     #[test]

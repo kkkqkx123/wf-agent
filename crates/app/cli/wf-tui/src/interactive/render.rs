@@ -6,6 +6,11 @@
 //! bottom prompt echo. It only reads controller state (aside from the
 //! viewport clamp it refreshes each frame); input and event draining live in
 //! the sibling modules.
+//!
+//! Redraw grading: each frame is graded into full, bottom-only or
+//! animation-only scope. Full frames rebuild the scrollback rows and refresh
+//! the cache; bottom and animation frames reuse the cached rows and only
+//! repaint the footer/input rows and the recorded animation cells.
 
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::text::Line;
@@ -13,6 +18,7 @@ use ratatui::widgets::Paragraph;
 use ratatui::Frame;
 
 use crate::interactive::InteractiveController;
+use crate::redraw::{decide_scope, AnimationArea, RedrawScope};
 use crate::theme::Theme;
 
 impl InteractiveController {
@@ -30,13 +36,35 @@ impl InteractiveController {
             ])
             .areas(area);
 
-        self.draw_scrollback(frame, scroll_area);
+        let snapshot = self.redraw_snapshot_for(scroll_area.width);
+        let scope = decide_scope(self.last_snapshot(), snapshot);
+        let scope = self.coerce_scope(scope);
+        self.draw_scrollback_scoped(frame, scroll_area, scope);
         self.footer.draw(footer_area, frame.buffer_mut(), theme);
         self.draw_input(frame, input_area);
+        self.record_anim_area(scroll_area, footer_area);
+        self.set_last_snapshot(snapshot);
+        if scope == RedrawScope::AnimationOnly {
+            self.last_anim_ms = Some(self.now_ms());
+        }
     }
 
-    fn draw_scrollback(&mut self, frame: &mut Frame, area: Rect) {
-        // No border - Session is now the full-screen primary interface
+    /// Scope actually honored for this frame: partial scopes require a warm
+    /// scrollback cache under the same key, otherwise fall back to full so a
+    /// missing seed never leaves stale cells behind.
+    fn coerce_scope(&self, scope: RedrawScope) -> RedrawScope {
+        if !scope.reuses_scrollback() {
+            return scope;
+        }
+        let key = (self.content_version, self.last_layout_width);
+        if self.scroll_cache_key == Some(key) {
+            scope
+        } else {
+            RedrawScope::Full
+        }
+    }
+
+    fn draw_scrollback_scoped(&mut self, frame: &mut Frame, area: Rect, scope: RedrawScope) {
         let inner = area;
 
         if self.scrollback.is_empty() && self.streaming.is_none() {
@@ -53,10 +81,17 @@ impl InteractiveController {
         // version or length drift is repaired by the fallback path.
         self.prep
             .ensure_for_draw(&self.scrollback, width, self.content_version);
-        let mut lines: Vec<Line<'static>> = self.prep.rows().to_vec();
+        if scope == RedrawScope::Full
+            || self.scroll_cache_key != Some((self.content_version, width))
+        {
+            self.scroll_rows_cache = self.prep.rows().to_vec();
+            self.scroll_cache_key = Some((self.content_version, width));
+        }
+        let mut lines: Vec<Line<'static>> = self.scroll_rows_cache.clone();
         if let Some(streaming) = &self.streaming {
-            // Show spinner animation while streaming
-            let spinner_char = self.animation.spinner_char();
+            // Show spinner animation while streaming; the frame comes from
+            // the injected clock so tests assert the exact glyph.
+            let spinner_char = self.animation.spinner_char_at(self.now_ms());
             let mut streaming_lines = streaming.display_lines(width);
             if let Some(first_line) = streaming_lines.first_mut() {
                 // Prepend spinner to the first line
@@ -83,6 +118,52 @@ impl InteractiveController {
         let start = max_scroll - self.view_scroll;
         let visible: Vec<Line<'static>> = lines.into_iter().skip(start).collect();
         frame.render_widget(Paragraph::new(visible), inner);
+    }
+
+    /// Snapshot variant pinned to the draw width so width drift grades full
+    /// before the layout key updates. The animation tick is bucketed so
+    /// spinner progress alone grades animation-only and never invalidates
+    /// the preparation cache inside a bucket.
+    fn redraw_snapshot_for(&self, width: u16) -> crate::redraw::RedrawSnapshot {
+        let now_ms = self.now_ms();
+        let streaming_text = self.stream.streaming_text();
+        crate::redraw::RedrawSnapshot {
+            content_version: self.content_version,
+            streaming_len: streaming_text.len(),
+            streaming_hash: crate::prep_keys::hash_prefix(streaming_text),
+            footer_digest: crate::redraw::footer_digest(&self.footer.state),
+            width,
+            view_scroll: self.view_scroll,
+            anim_tick: crate::clock::anim_bucket(now_ms),
+            force_full: false,
+        }
+    }
+
+    /// Record the animation cells an animation-only frame may touch: the
+    /// streaming indicator cell and the statusline spinner cell while busy.
+    fn record_anim_area(&mut self, scroll_area: Rect, footer_area: Rect) {
+        let streaming_cell = self.streaming.as_ref().map(|_| Rect {
+            x: scroll_area.x,
+            y: scroll_area
+                .y
+                .saturating_add(scroll_area.height.saturating_sub(1)),
+            width: 1,
+            height: 1,
+        });
+        let busy = self.footer.state.phase == crate::reducer::Phase::Streaming;
+        let status_cell = busy.then(|| {
+            let height = self.footer.apply_height().min(footer_area.height);
+            Rect {
+                x: footer_area.x,
+                y: footer_area.y.saturating_add(height.saturating_sub(2)),
+                width: 1,
+                height: 1,
+            }
+        });
+        self.anim_area = AnimationArea {
+            streaming_cell,
+            status_cell,
+        };
     }
 
     fn draw_input(&self, frame: &mut Frame, area: Rect) {

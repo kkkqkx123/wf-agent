@@ -194,10 +194,8 @@ impl HistoryCell for AssistantMessageCell {
 
     fn animation_tick(&self) -> Option<u64> {
         if self.motion_mode.should_animate() {
-            // Return a tick that changes every 100ms for animation updates
-            let now = std::time::Instant::now();
-            let tick = now.elapsed().as_millis() / 100;
-            Some(tick as u64)
+            // Discretized tick: static content keeps its cache key inside a bucket.
+            Some(crate::clock::anim_bucket(crate::clock::now_ms()))
         } else {
             None
         }

@@ -87,36 +87,59 @@ impl InteractiveController {
             self.scroll_rows_cache = self.prep.rows().to_vec();
             self.scroll_cache_key = Some((self.content_version, width));
         }
-        let mut lines: Vec<Line<'static>> = self.scroll_rows_cache.clone();
+        // Streaming tail renders every frame by design (it is excluded from
+        // the preparation cache); local scopes still skip the scrollback
+        // relayout above and only clone the visible window below.
+        let now_ms = self.now_ms();
+        let mut streaming_lines: Vec<Line<'static>> = Vec::new();
         if let Some(streaming) = &self.streaming {
-            // Show spinner animation while streaming; the frame comes from
-            // the injected clock so tests assert the exact glyph.
-            let spinner_char = self.animation.spinner_char_at(self.now_ms());
-            let mut streaming_lines = streaming.display_lines(width);
-            if let Some(first_line) = streaming_lines.first_mut() {
-                // Prepend spinner to the first line
-                let spinner_span = ratatui::text::Span::styled(
-                    format!("{} ", spinner_char),
-                    ratatui::style::Style::default()
-                        .fg(ratatui::style::Color::Cyan)
-                        .add_modifier(ratatui::style::Modifier::BOLD),
-                );
-                first_line.spans.insert(0, spinner_span);
+            let mut rows = if self.simplified_render {
+                let mut plain = streaming.clone();
+                plain.set_motion_mode(crate::motion::MotionMode::Static);
+                plain.display_lines_at(width, now_ms)
+            } else {
+                streaming.display_lines_at(width, now_ms)
+            };
+            if self.spinner_enabled {
+                // Show spinner animation while streaming; the frame comes from
+                // the injected clock so tests assert the exact glyph.
+                let spinner_char = self.animation.spinner_char_at(now_ms);
+                if let Some(first_line) = rows.first_mut() {
+                    // Prepend spinner to the first line
+                    let spinner_span = ratatui::text::Span::styled(
+                        format!("{} ", spinner_char),
+                        ratatui::style::Style::default()
+                            .fg(ratatui::style::Color::Cyan)
+                            .add_modifier(ratatui::style::Modifier::BOLD),
+                    );
+                    first_line.spans.insert(0, spinner_span);
+                }
             }
-            lines.extend(streaming_lines);
+            streaming_lines = rows;
         }
 
         // Anchor to the bottom (tail follow) unless the user scrolled up.
         // `view_scroll` counts display rows above the tail; the oldest loaded
         // row is reached when it equals the surplus over the viewport. The
         // scroll pin is refreshed here so key handling (which cannot know the
-        // terminal size) can decide whether another page is reachable.
+        // terminal size) can decide whether another page is reachable. Only
+        // the visible window is cloned; the cached rows stay shared.
         let capacity = usize::from(inner.height.max(1));
-        let max_scroll = lines.len().saturating_sub(capacity);
+        let total = self.scroll_rows_cache.len() + streaming_lines.len();
+        let max_scroll = total.saturating_sub(capacity);
         self.view_scroll = self.view_scroll.min(max_scroll);
         self.scroll_at_top = self.view_scroll >= max_scroll;
         let start = max_scroll - self.view_scroll;
-        let visible: Vec<Line<'static>> = lines.into_iter().skip(start).collect();
+        let end = start.saturating_add(capacity).min(total);
+        let cached_len = self.scroll_rows_cache.len();
+        let mut visible: Vec<Line<'static>> = Vec::with_capacity(end.saturating_sub(start));
+        for index in start..end {
+            if index < cached_len {
+                visible.push(self.scroll_rows_cache[index].clone());
+            } else if let Some(row) = streaming_lines.get(index - cached_len) {
+                visible.push(row.clone());
+            }
+        }
         frame.render_widget(Paragraph::new(visible), inner);
     }
 

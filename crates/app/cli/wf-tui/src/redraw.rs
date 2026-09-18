@@ -172,9 +172,15 @@ pub fn idle_poll_interval(idle_ms: u64) -> Duration {
 
 /// True when an animation-only frame is due under the animation frame rate.
 pub fn animation_frame_due(now_ms: u64, last_anim_ms: Option<u64>) -> bool {
+    animation_frame_due_with(now_ms, last_anim_ms, ANIMATION_FRAME_INTERVAL_MS)
+}
+
+/// True when an animation-only frame is due under an explicit interval so a
+/// capability policy can slow animation frames on constrained terminals.
+pub fn animation_frame_due_with(now_ms: u64, last_anim_ms: Option<u64>, interval_ms: u64) -> bool {
     match last_anim_ms {
         None => true,
-        Some(last) => now_ms.saturating_sub(last) >= ANIMATION_FRAME_INTERVAL_MS,
+        Some(last) => now_ms.saturating_sub(last) >= interval_ms.max(1),
     }
 }
 

@@ -15,6 +15,7 @@ use ratatui::layout::Rect;
 use ratatui::style::Style;
 use serde::{Deserialize, Serialize};
 
+use crate::frame_metrics::{FrameMetric, FrameMetrics};
 use crate::theme_mode::ThemeMode;
 
 /// Read-only rendering source. Every method has a default so test doubles
@@ -168,6 +169,22 @@ pub fn render_headless(model: &impl RenderView, width: u16, height: usize) -> Ve
     }
     let (start, end) = viewport_window(rows.len(), height, model.view_scroll());
     rows[start..end].to_vec()
+}
+
+/// Replay a fixed model sequence headlessly and collect per-frame metrics.
+/// Each frame lays out the visible rows and samples the streaming bytes as
+/// the parse signal, so the returned report is a deterministic baseline for
+/// optimization comparisons: rerun the same sequence after a change and
+/// diff the reports.
+pub fn replay_baseline(models: &[TestRenderModel], width: u16, height: usize) -> FrameMetrics {
+    let mut metrics = FrameMetrics::new();
+    for (frame, model) in models.iter().enumerate() {
+        let rows = render_headless(model, width, height);
+        let parsed = model.streaming_text().len()
+            + model.history.iter().map(|line| line.len()).sum::<usize>();
+        metrics.record(FrameMetric::new(frame as u64, 0, 0, 0, rows.len(), parsed));
+    }
+    metrics
 }
 
 /// Key rectangles a headless test can assert without pixel comparison.
@@ -375,5 +392,23 @@ mod tests {
         );
         assert_eq!(player.next_event(), Some(&RecordedEvent::Tick(100)));
         assert!(player.exhausted());
+    }
+
+    #[test]
+    fn baseline_replay_is_deterministic() {
+        let mut first = TestRenderModel::new(20);
+        first.push_history("alpha line one");
+        first.push_history("beta line two");
+        let mut second = first.clone();
+        second.set_streaming("live tail");
+        let mut third = second.clone();
+        third.scroll = 1;
+        let models = [first, second, third];
+        let once = replay_baseline(&models, 20, 4);
+        let twice = replay_baseline(&models, 20, 4);
+        assert_eq!(once.len(), 3);
+        assert_eq!(once.report(), twice.report());
+        assert!(once.report().contains("frames=3"));
+        assert!(once.steady_layout_within(4));
     }
 }

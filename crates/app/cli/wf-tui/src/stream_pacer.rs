@@ -7,6 +7,12 @@
 //! frame reveals a bounded run of characters and an idle backlog naturally
 //! catches up. Completion and interrupt paths drain the backlog so the
 //! settled content never waits on the rate limiter.
+//!
+//! [`SegmentedPacer`] layers an arrival-ordered queue over two pacers so
+//! answer text and reasoning deltas share one release order with a
+//! zero-width reasoning-close barrier.
+
+use std::collections::VecDeque;
 
 /// Baseline reveal rate (chars per second).
 pub const BASE_REVEAL_CPS: f64 = 180.0;
@@ -190,6 +196,171 @@ fn next_char_boundary(text: &str, from: usize) -> usize {
     end.min(text.len())
 }
 
+/// One arrival-ordered queue entry for the segmented pacer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum QueueEntry {
+    /// Answer-text chunk of `len` bytes appended to the text pacer.
+    Text(usize),
+    /// Reasoning chunk of `len` bytes appended to the reasoning pacer.
+    Reasoning(usize),
+    /// Zero-width reasoning-close barrier preserving arrival order.
+    CloseReasoning,
+}
+
+/// Visible operation released by the segmented pacer in arrival order.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PacerOp {
+    /// Newly visible answer text since the previous take.
+    Text(String),
+    /// Newly visible reasoning text since the previous take.
+    Reasoning(String),
+    /// Reasoning stream closed; carries no bytes.
+    CloseReasoning,
+}
+
+/// Arrival-ordered pacer over answer text and reasoning deltas.
+///
+/// Both segments advance under the same caller-supplied clock at the
+/// configured rate, but release follows the arrival queue: a text burst at
+/// the head blocks later reasoning until its bytes turn visible, and vice
+/// versa. Completion paths drain both pacers so settlement never waits on
+/// the limiter. Direct single-stream use stays on [`StreamPacer`].
+#[derive(Debug)]
+pub struct SegmentedPacer {
+    text: StreamPacer,
+    reasoning: StreamPacer,
+    order: VecDeque<QueueEntry>,
+    text_taken: usize,
+    reasoning_taken: usize,
+}
+
+impl Default for SegmentedPacer {
+    fn default() -> Self {
+        Self::new(PacerConfig::default())
+    }
+}
+
+impl SegmentedPacer {
+    /// New segmented pacer sharing one rate configuration across segments.
+    pub fn new(config: PacerConfig) -> Self {
+        Self {
+            text: StreamPacer::new(config),
+            reasoning: StreamPacer::new(config),
+            order: VecDeque::new(),
+            text_taken: 0,
+            reasoning_taken: 0,
+        }
+    }
+
+    /// Direct pass-through mode keeps the interface while disabling pacing.
+    pub fn set_bypass(&mut self, bypass: bool) {
+        self.text.set_bypass(bypass);
+        self.reasoning.set_bypass(bypass);
+    }
+
+    /// True when pacing is disabled and arrival equals visibility.
+    pub fn is_bypass(&self) -> bool {
+        self.text.is_bypass()
+    }
+
+    /// Queue answer-text arrival without making it visible yet.
+    pub fn push_text(&mut self, delta: &str) {
+        if delta.is_empty() {
+            return;
+        }
+        self.text.push(delta);
+        self.order.push_back(QueueEntry::Text(delta.len()));
+    }
+
+    /// Queue reasoning arrival without making it visible yet.
+    pub fn push_reasoning(&mut self, delta: &str) {
+        if delta.is_empty() {
+            return;
+        }
+        self.reasoning.push(delta);
+        self.order.push_back(QueueEntry::Reasoning(delta.len()));
+    }
+
+    /// Queue a zero-width reasoning-close barrier in arrival position.
+    pub fn push_close_reasoning(&mut self) {
+        self.order.push_back(QueueEntry::CloseReasoning);
+    }
+
+    /// Advance both segments toward `now_ms`.
+    pub fn advance(&mut self, now_ms: u64) {
+        self.text.advance(now_ms);
+        self.reasoning.advance(now_ms);
+    }
+
+    /// Release everything immediately on both segments.
+    pub fn drain(&mut self) {
+        self.text.drain();
+        self.reasoning.drain();
+    }
+
+    /// Queued but not yet visible bytes across both segments.
+    pub fn pending_len(&self) -> usize {
+        self.text.pending_len() + self.reasoning.pending_len()
+    }
+
+    /// Visible answer-text prefix length in bytes.
+    pub fn text_visible_len(&self) -> usize {
+        self.text.visible_len()
+    }
+
+    /// Reset for a new turn.
+    pub fn clear(&mut self) {
+        self.text.clear();
+        self.reasoning.clear();
+        self.order.clear();
+        self.text_taken = 0;
+        self.reasoning_taken = 0;
+    }
+
+    /// Take newly visible operations in arrival order. Entries are emitted
+    /// only once their segment's released cursor covers them, so interleaved
+    /// text and reasoning keep the arrival sequence. Consumed prefixes are
+    /// compacted so long streams stay bounded.
+    pub fn take_visible_ops(&mut self) -> Vec<PacerOp> {
+        let mut ops = Vec::new();
+        while let Some(entry) = self.order.front().copied() {
+            match entry {
+                QueueEntry::Text(len) => {
+                    if self.text.visible_len() < self.text_taken.saturating_add(len) {
+                        break;
+                    }
+                    let visible = self.text.visible().to_string();
+                    let end = self.text_taken.saturating_add(len).min(visible.len());
+                    ops.push(PacerOp::Text(visible[self.text_taken..end].to_string()));
+                    self.text_taken = end;
+                    self.order.pop_front();
+                }
+                QueueEntry::Reasoning(len) => {
+                    if self.reasoning.visible_len() < self.reasoning_taken.saturating_add(len) {
+                        break;
+                    }
+                    let visible = self.reasoning.visible().to_string();
+                    let end = self.reasoning_taken.saturating_add(len).min(visible.len());
+                    ops.push(PacerOp::Reasoning(
+                        visible[self.reasoning_taken..end].to_string(),
+                    ));
+                    self.reasoning_taken = end;
+                    self.order.pop_front();
+                }
+                QueueEntry::CloseReasoning => {
+                    ops.push(PacerOp::CloseReasoning);
+                    self.order.pop_front();
+                }
+            }
+        }
+        self.text.compact(self.text_taken);
+        self.text_taken = 0;
+        self.reasoning.compact(self.reasoning_taken);
+        self.reasoning_taken = 0;
+        ops
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -333,5 +504,62 @@ mod tests {
         paced_text.push_str(&paced.finish().new_committed);
         assert_eq!(paced_text, direct_text);
         assert_eq!(pacer.visible(), chunks.concat());
+    }
+
+    #[test]
+    fn segmented_pacer_keeps_arrival_order_across_kinds() {
+        use super::PacerOp;
+        let mut pacer = super::SegmentedPacer::default();
+        pacer.push_text("answer one ");
+        pacer.push_reasoning("thinking...");
+        pacer.push_text("answer two");
+        pacer.push_close_reasoning();
+        pacer.drain();
+        let ops = pacer.take_visible_ops();
+        assert_eq!(
+            ops,
+            vec![
+                PacerOp::Text("answer one ".to_string()),
+                PacerOp::Reasoning("thinking...".to_string()),
+                PacerOp::Text("answer two".to_string()),
+                PacerOp::CloseReasoning,
+            ]
+        );
+        assert_eq!(pacer.pending_len(), 0);
+    }
+
+    #[test]
+    fn segmented_pacer_bounds_each_frame_and_converges() {
+        let mut pacer = super::SegmentedPacer::default();
+        pacer.push_text(&"x".repeat(400));
+        pacer.push_reasoning(&"y".repeat(200));
+        pacer.advance(0);
+        for step in 1..60u64 {
+            pacer.advance(step * 50);
+            let ops = pacer.take_visible_ops();
+            let newly: usize = ops
+                .iter()
+                .map(|op| match op {
+                    super::PacerOp::Text(s) | super::PacerOp::Reasoning(s) => s.len(),
+                    super::PacerOp::CloseReasoning => 0,
+                })
+                .sum();
+            assert!(newly <= 130, "per-frame bound holds, got {newly}");
+            if pacer.pending_len() == 0 {
+                break;
+            }
+        }
+        assert_eq!(pacer.pending_len(), 0);
+    }
+
+    #[test]
+    fn segmented_bypass_passes_everything_through() {
+        let mut pacer = super::SegmentedPacer::default();
+        pacer.set_bypass(true);
+        pacer.push_text("abc");
+        pacer.push_reasoning("def");
+        let ops = pacer.take_visible_ops();
+        assert_eq!(ops.len(), 2);
+        assert_eq!(pacer.pending_len(), 0);
     }
 }

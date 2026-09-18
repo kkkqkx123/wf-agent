@@ -142,8 +142,13 @@ impl TuiApp {
         let caps = crate::capabilities::TerminalProbe::detect().into_capabilities();
         let profile = crate::perf::SystemProfile::detect();
         let perf_tier = crate::perf::select_tier(&profile, &caps);
+        let perf_policy = crate::perf::TuiPerfPolicy::for_tier(perf_tier);
         let (theme, theme_mode, theme_explicit) =
             crate::theme_mode::resolve_render_theme(theme::probe_theme());
+        // The frame ceiling follows the capability policy so constrained
+        // terminals never spin at the full rate.
+        let mut frame = FrameRequester::new(0);
+        frame.set_min_interval_ms(perf_policy.redraw_interval_ms());
         Self {
             adapter,
             screens: Screens::new(),
@@ -163,7 +168,7 @@ impl TuiApp {
             interactive_exit: false,
             pending_replay: None,
             start: Instant::now(),
-            frame: FrameRequester::new(0),
+            frame,
             dirty: true,
             pending_scope: crate::redraw::PendingScope::new(),
             last_anim_ms: None,
@@ -173,7 +178,7 @@ impl TuiApp {
             theme_mode,
             theme_explicit,
             perf_tier,
-            perf_policy: crate::perf::TuiPerfPolicy::for_tier(perf_tier),
+            perf_policy,
             sync_supported: caps.synchronized_output,
         }
     }
@@ -283,7 +288,11 @@ impl TuiApp {
                     self.last_active = Instant::now();
                 }
                 crate::redraw::RedrawScope::AnimationOnly => {
-                    if crate::redraw::animation_frame_due(now, self.last_anim_ms) {
+                    if crate::redraw::animation_frame_due_with(
+                        now,
+                        self.last_anim_ms,
+                        self.perf_policy.animation_interval_ms(),
+                    ) {
                         self.pending_scope.request(scope);
                         self.frame.request_frame();
                     }
@@ -487,6 +496,7 @@ impl TuiApp {
                 )
                 .await;
                 session.set_perf_tier(self.perf_tier.marker());
+                session.apply_perf_policy(self.perf_policy);
                 self.interactive = Some(session);
             }
             (false, true) => {

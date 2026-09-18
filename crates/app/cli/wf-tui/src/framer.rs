@@ -71,6 +71,12 @@ impl FrameRequester {
         self.now = now;
     }
 
+    /// Override the rate floor (ms) so a capability policy can lower the
+    /// frame ceiling on constrained terminals. Defaults to the 120 FPS floor.
+    pub fn set_min_interval_ms(&mut self, min_interval_ms: u64) {
+        self.limiter = FrameRateLimiter::new(min_interval_ms.max(1));
+    }
+
     pub fn now(&self) -> u64 {
         self.now
     }

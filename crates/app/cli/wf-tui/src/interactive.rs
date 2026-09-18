@@ -44,7 +44,7 @@ use crate::footer::{Footer, FooterView};
 use crate::prep_cache::PreparedScrollback;
 use crate::question_overlay::QuestionView;
 use crate::reducer::{Phase, SessionReducer};
-use crate::stream_pacer::StreamPacer;
+use crate::stream_pacer::{PacerOp, SegmentedPacer};
 use crate::terminal::{DoublePressTracker, SIGINT_DOUBLE_PRESS_WINDOW};
 use crate::transcript::{HistoryLine, LineState, Role};
 use crate::turn::{stream_agent_turn, TurnKind, TurnParams};
@@ -141,14 +141,16 @@ pub struct InteractiveController {
     graceful: bool,
     /// Animation controller for UI animations.
     animation: AnimationController,
-    /// Arrival vs display decoupling for bursty deltas. Deltas queue here;
-    /// the frame preparation stage advances the visible prefix into the
-    /// markdown stream. Completion and interrupt paths drain it so settled
-    /// content never waits on the limiter. Reasoning deltas stay direct
-    /// until the segmented queue lands.
-    pacer: StreamPacer,
-    /// Visible pacer bytes already fed into the markdown stream.
-    pacer_fed: usize,
+    /// Arrival vs display decoupling for bursty deltas. Answer text and
+    /// reasoning deltas queue here in arrival order; the frame preparation
+    /// stage advances the visible prefix into the markdown stream or the
+    /// scrollback. Completion and interrupt paths drain it so settled
+    /// content never waits on the limiter.
+    pacer: SegmentedPacer,
+    /// False on minimal performance tiers: the streaming spinner is skipped.
+    spinner_enabled: bool,
+    /// True on minimal performance tiers: shimmer and spinner are skipped.
+    simplified_render: bool,
     /// Merged redraw request by severity (Full > BottomOnly > AnimationOnly).
     pending_scope: crate::redraw::PendingScope,
     /// Snapshot graded on the previous frame; drives scope decisions.
@@ -251,8 +253,9 @@ impl InteractiveController {
             scroll_at_top: false,
             graceful: false,
             animation: AnimationController::default_enabled(),
-            pacer: StreamPacer::default(),
-            pacer_fed: 0,
+            pacer: SegmentedPacer::default(),
+            spinner_enabled: true,
+            simplified_render: false,
             pending_scope: crate::redraw::PendingScope::new(),
             last_snapshot: None,
             anim_area: crate::redraw::AnimationArea::default(),
@@ -389,7 +392,6 @@ impl InteractiveController {
         self.turn_text.clear();
         self.turn_prompt = prompt.clone();
         self.pacer.clear();
-        self.pacer_fed = 0;
 
         let tx = self.tx.clone();
         let adapter = Arc::clone(&self.adapter);
@@ -565,7 +567,7 @@ impl InteractiveController {
                 // stage advances the visible prefix into the markdown stream
                 // at a bounded rate. Over-limit input still reports
                 // synchronously through the stream path on the next poll.
-                self.pacer.push(content);
+                self.pacer.push_text(content);
             }
             ExecutionStreamEvent::IterationStart { .. }
             | ExecutionStreamEvent::IterationEnd { .. } => {
@@ -601,8 +603,7 @@ impl InteractiveController {
                 self.pending_scroll.push(HistoryLine::new_role(line, role));
             }
             ExecutionStreamEvent::ReasoningDelta { content } => {
-                self.pending_scroll
-                    .push(HistoryLine::new_role(format!("💭 {content}"), Role::Muted));
+                self.pacer.push_reasoning(content);
             }
             ExecutionStreamEvent::Usage { .. } => {}
             ExecutionStreamEvent::SubAgentStarted { name, .. } => {
@@ -668,22 +669,32 @@ impl InteractiveController {
         }
     }
 
-    /// Move newly visible pacer bytes into the markdown stream. Forced polls
-    /// drain the backlog first so settlement never waits on pacing.
+    /// Move newly visible pacer operations into their consumers in arrival
+    /// order. Forced polls drain the backlog first so settlement never waits
+    /// on pacing. Answer text enters the markdown stream; reasoning enters
+    /// the scrollback; the close marker only preserves ordering.
     fn feed_pacer_visible(&mut self, now_ms: u64, force: bool) {
         if force {
             self.pacer.drain();
         } else {
             self.pacer.advance(now_ms);
         }
-        let visible_len = self.pacer.visible_len();
-        if visible_len > self.pacer_fed {
-            let delta = self.pacer.visible()[self.pacer_fed.min(visible_len)..].to_string();
-            self.pacer_fed = visible_len;
-            if !delta.is_empty() {
-                if let Some(frame) = self.stream.push_throttled(&delta) {
-                    self.apply_stream_frame(frame);
+        for op in self.pacer.take_visible_ops() {
+            match op {
+                PacerOp::Text(delta) => {
+                    if !delta.is_empty() {
+                        if let Some(frame) = self.stream.push_throttled(&delta) {
+                            self.apply_stream_frame(frame);
+                        }
+                    }
                 }
+                PacerOp::Reasoning(delta) => {
+                    if !delta.is_empty() {
+                        self.pending_scroll
+                            .push(HistoryLine::new_role(format!("💭 {delta}"), Role::Muted));
+                    }
+                }
+                PacerOp::CloseReasoning => {}
             }
         }
     }
@@ -702,7 +713,6 @@ impl InteractiveController {
         self.scroll_cover = 0;
         self.streaming = None;
         self.pacer.clear();
-        self.pacer_fed = 0;
     }
 
     fn finish_turn(&mut self) {
@@ -810,6 +820,49 @@ impl InteractiveController {
         self.footer.set_perf_tier(label);
     }
 
+    /// Apply a capability policy: minimal tiers drop the spinner and shimmer,
+    /// reduced tiers keep the spinner but lose decorative shimmer.
+    pub fn apply_perf_policy(&mut self, policy: crate::perf::TuiPerfPolicy) {
+        self.simplified_render = policy.simplified_render;
+        self.spinner_enabled = policy.keep_spinner;
+        let mode = if policy.decorative_animations {
+            crate::motion::MotionMode::Animated
+        } else if policy.keep_spinner {
+            crate::motion::MotionMode::Reduced
+        } else {
+            crate::motion::MotionMode::Static
+        };
+        for line in &mut self.scrollback {
+            line.set_motion_mode(mode);
+        }
+        if let Some(streaming) = &mut self.streaming {
+            streaming.set_motion_mode(mode);
+        }
+    }
+
+    /// Owned read-only snapshot of the render state for headless replay and
+    /// baseline reports. The production draw path still owns the cache; this
+    /// is the convergence step toward drawing from the view alone.
+    pub fn snapshot_view(&self) -> crate::render_model::TestRenderModel {
+        let mut view = crate::render_model::TestRenderModel::new(self.last_layout_width.max(1));
+        for line in &self.scrollback {
+            let text: String = line
+                .text()
+                .lines
+                .iter()
+                .flat_map(|row| row.spans.iter().map(|span| span.content.as_ref()))
+                .collect::<Vec<_>>()
+                .join("\n");
+            view.history.push(text);
+        }
+        view.version = self.content_version;
+        view.streaming = self.stream.streaming_text().to_string();
+        view.scroll = self.view_scroll;
+        view.now_ms = self.now_ms();
+        view.footer = crate::redraw::footer_digest(&self.footer.state);
+        view
+    }
+
     /// Queued but not yet visible pacer bytes.
     pub fn pacer_pending_len(&self) -> usize {
         self.pacer.pending_len()
@@ -820,9 +873,9 @@ impl InteractiveController {
         self.pacer.set_bypass(bypass);
     }
 
-    /// Visible pacer prefix length in bytes.
+    /// Visible answer-text prefix length in bytes.
     pub fn pacer_visible_len(&self) -> usize {
-        self.pacer.visible_len()
+        self.pacer.text_visible_len()
     }
 }
 

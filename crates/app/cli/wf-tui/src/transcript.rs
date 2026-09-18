@@ -150,14 +150,26 @@ impl HistoryLine {
 
     /// Check if animation is active.
     pub fn is_animating(&self) -> bool {
+        self.is_animating_at(crate::clock::now_ms())
+    }
+
+    /// Check if animation is active at an explicit clock value. The state
+    /// itself is clock-free; the instant is accepted so callers thread the
+    /// injectable time source explicitly and stay deterministic.
+    pub fn is_animating_at(&self, _now_ms: u64) -> bool {
         self.animation_start_ms.is_some() && self.motion_mode.should_animate()
     }
 
     /// Get animation tick for cache invalidation, discretized into buckets
     /// so the tick only changes the cache key once per bucket.
     pub fn animation_tick(&self) -> Option<u64> {
-        if self.is_animating() {
-            Some(crate::clock::anim_bucket(crate::clock::now_ms()))
+        self.animation_tick_at(crate::clock::now_ms())
+    }
+
+    /// Animation tick for an explicit clock value (deterministic).
+    pub fn animation_tick_at(&self, now_ms: u64) -> Option<u64> {
+        if self.is_animating_at(now_ms) {
+            Some(crate::clock::anim_bucket(now_ms))
         } else {
             None
         }
@@ -174,35 +186,41 @@ impl HistoryLine {
     /// When animation is active for streaming content, applies shimmer
     /// effects to the rendered lines.
     pub fn display_lines(&self, width: u16) -> Vec<Line<'static>> {
+        self.display_lines_at(width, crate::clock::now_ms())
+    }
+
+    /// Reflow for an explicit clock value so animation frames stay
+    /// deterministic under the injectable clock.
+    pub fn display_lines_at(&self, width: u16, now_ms: u64) -> Vec<Line<'static>> {
         let w = usize::from(width.max(1));
         let mut out = Vec::new();
 
         for line in &self.text.lines {
             if line.width() <= w {
-                if self.is_animating() {
+                if self.is_animating_at(now_ms) {
                     // Apply shimmer animation to streaming content
                     let plain_text: String =
                         line.spans.iter().map(|s| s.content.as_ref()).collect();
-                    let spans = crate::motion::shimmer_text(&plain_text, self.motion_mode);
+                    let spans =
+                        crate::motion::shimmer_text_at(&plain_text, self.motion_mode, now_ms);
                     out.push(Line::from(spans));
                 } else {
                     out.push(own_line(line));
                 }
-            } else {
-                if self.is_animating() {
-                    // Apply shimmer to wrapped lines
-                    for wrapped_line in wrap_line(line, w) {
-                        let plain_text: String = wrapped_line
-                            .spans
-                            .iter()
-                            .map(|s| s.content.as_ref())
-                            .collect();
-                        let spans = crate::motion::shimmer_text(&plain_text, self.motion_mode);
-                        out.push(Line::from(spans));
-                    }
-                } else {
-                    out.extend(wrap_line(line, w));
+            } else if self.is_animating_at(now_ms) {
+                // Apply shimmer to wrapped lines
+                for wrapped_line in wrap_line(line, w) {
+                    let plain_text: String = wrapped_line
+                        .spans
+                        .iter()
+                        .map(|s| s.content.as_ref())
+                        .collect();
+                    let spans =
+                        crate::motion::shimmer_text_at(&plain_text, self.motion_mode, now_ms);
+                    out.push(Line::from(spans));
                 }
+            } else {
+                out.extend(wrap_line(line, w));
             }
         }
 

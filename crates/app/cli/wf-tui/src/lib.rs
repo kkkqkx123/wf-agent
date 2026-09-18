@@ -37,6 +37,8 @@ pub mod motion;
 pub mod overlay;
 pub mod panels;
 pub mod password_modal;
+pub mod prep_cache;
+pub mod prep_keys;
 pub mod probe;
 pub mod question_overlay;
 pub mod queue;

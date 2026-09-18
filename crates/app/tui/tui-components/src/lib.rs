@@ -8,7 +8,6 @@ pub mod file_selection;
 pub mod file_viewer;
 pub mod footer;
 pub mod help_modal;
-pub mod history_cell;
 pub mod mention;
 pub mod modal;
 pub mod model_picker;

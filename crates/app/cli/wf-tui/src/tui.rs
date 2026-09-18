@@ -301,7 +301,7 @@ impl TuiApp {
             match scope {
                 crate::redraw::RedrawScope::Full | crate::redraw::RedrawScope::BottomOnly => {
                     self.pending_scope.request(scope);
-                    self.frame.request_frame();
+                    self.frame.request_scope(scope);
                     self.last_active = Instant::now();
                 }
                 crate::redraw::RedrawScope::AnimationOnly => {
@@ -316,7 +316,7 @@ impl TuiApp {
                         )
                     {
                         self.pending_scope.request(scope);
-                        self.frame.request_frame();
+                        self.frame.request_scope(scope);
                     }
                 }
                 crate::redraw::RedrawScope::None => {}

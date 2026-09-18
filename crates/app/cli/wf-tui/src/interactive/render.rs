@@ -8,9 +8,10 @@
 //! the sibling modules.
 //!
 //! Redraw grading: each frame is graded into full, bottom-only or
-//! animation-only scope. Full frames rebuild the scrollback rows and refresh
-//! the cache; bottom and animation frames reuse the cached rows and only
-//! repaint the footer/input rows and the recorded animation cells.
+//! animation-only scope. Full frames refresh the preparation cache key;
+//! bottom and animation frames reuse the cached preparation and only
+//! repaint the footer/input rows and the recorded animation cells. Only the
+//! visible window is ever cloned out of the preparation cache.
 
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::text::Line;
@@ -50,21 +51,20 @@ impl InteractiveController {
     }
 
     /// Scope actually honored for this frame: partial scopes require a warm
-    /// scrollback cache under the same key, otherwise fall back to full so a
+    /// preparation under the same key, otherwise fall back to full so a
     /// missing seed never leaves stale cells behind.
     fn coerce_scope(&self, scope: RedrawScope) -> RedrawScope {
         if !scope.reuses_scrollback() {
             return scope;
         }
-        let key = (self.content_version, self.last_layout_width);
-        if self.scroll_cache_key == Some(key) {
+        if self.scroll_cache_key == Some(self.prep.key()) {
             scope
         } else {
             RedrawScope::Full
         }
     }
 
-    fn draw_scrollback_scoped(&mut self, frame: &mut Frame, area: Rect, scope: RedrawScope) {
+    fn draw_scrollback_scoped(&mut self, frame: &mut Frame, area: Rect, _scope: RedrawScope) {
         let inner = area;
 
         if self.scrollback.is_empty() && self.streaming.is_none() {
@@ -78,18 +78,17 @@ impl InteractiveController {
         let width = inner.width;
         self.last_layout_width = width;
         // Consume the preparation cache: width drift relays out fully while
-        // version or length drift is repaired by the fallback path.
+        // version or length drift is repaired by the fallback path. Only the
+        // visible window is cloned below; the cached rows stay shared.
+        // Oversize content runs degraded (single entry, see `is_degraded`)
+        // but still draws from the same cache.
+        let _degraded = self.prep.is_degraded();
         self.prep
             .ensure_for_draw(&self.scrollback, width, self.content_version);
-        if scope == RedrawScope::Full
-            || self.scroll_cache_key != Some((self.content_version, width))
-        {
-            self.scroll_rows_cache = self.prep.rows().to_vec();
-            self.scroll_cache_key = Some((self.content_version, width));
-        }
+        self.scroll_cache_key = Some(self.prep.key());
         // Streaming tail renders every frame by design (it is excluded from
-        // the preparation cache); local scopes still skip the scrollback
-        // relayout above and only clone the visible window below.
+        // the preparation cache); local scopes reuse the same preparation
+        // and only clone the visible window below.
         let now_ms = self.now_ms();
         let mut streaming_lines: Vec<Line<'static>> = Vec::new();
         if let Some(streaming) = &self.streaming {
@@ -125,18 +124,25 @@ impl InteractiveController {
         // terminal size) can decide whether another page is reachable. Only
         // the visible window is cloned; the cached rows stay shared.
         let capacity = usize::from(inner.height.max(1));
-        let total = self.scroll_rows_cache.len() + streaming_lines.len();
+        let cached_len = self.prep.total_rows();
+        let total = cached_len + streaming_lines.len();
         let max_scroll = total.saturating_sub(capacity);
         self.view_scroll = self.view_scroll.min(max_scroll);
         self.scroll_at_top = self.view_scroll >= max_scroll;
         let start = max_scroll - self.view_scroll;
         let end = start.saturating_add(capacity).min(total);
-        let cached_len = self.scroll_rows_cache.len();
         let mut visible: Vec<Line<'static>> = Vec::with_capacity(end.saturating_sub(start));
-        for index in start..end {
-            if index < cached_len {
-                visible.push(self.scroll_rows_cache[index].clone());
-            } else if let Some(row) = streaming_lines.get(index - cached_len) {
+        if start < cached_len {
+            let cached_end = end.min(cached_len);
+            visible.extend(
+                self.prep
+                    .visible_range(start, cached_end - start)
+                    .iter()
+                    .cloned(),
+            );
+        }
+        for index in start.max(cached_len)..end {
+            if let Some(row) = streaming_lines.get(index - cached_len) {
                 visible.push(row.clone());
             }
         }

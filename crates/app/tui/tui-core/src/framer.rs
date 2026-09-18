@@ -86,6 +86,17 @@ impl FrameRequester {
         self.pending = Some(self.pending.map_or(self.now, |p| p.min(self.now)));
     }
 
+    /// Ask for a frame graded by redraw scope. Severity merging stays with
+    /// `PendingScope`; this only translates the graded scope into a rate
+    /// limit request, so callers pair one `PendingScope::request` with one
+    /// `request_scope` instead of guessing which one to call.
+    pub fn request_scope(&mut self, scope: crate::redraw::RedrawScope) {
+        if scope == crate::redraw::RedrawScope::None {
+            return;
+        }
+        self.request_frame();
+    }
+
     /// Ask for a frame no earlier than `dur` from the current clock.
     pub fn request_frame_in(&mut self, dur: Duration) {
         let d = self
@@ -176,6 +187,16 @@ mod tests {
         assert!(!f.pending());
         // No new request: the only pending deadline is the rate-limit floor.
         assert_eq!(f.deadline(), Some(9));
+    }
+
+    #[test]
+    fn scope_request_maps_to_frame_request() {
+        use crate::redraw::RedrawScope;
+        let mut f = FrameRequester::new(10);
+        f.request_scope(RedrawScope::None);
+        assert!(!f.pending());
+        f.request_scope(RedrawScope::AnimationOnly);
+        assert!(f.pending());
     }
 
     #[test]

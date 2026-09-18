@@ -3,7 +3,9 @@
 //! The prepared scrollback (see `prep_cache`) is keyed by terminal width and
 //! a private content version. Width changes invalidate the layout while
 //! content changes advance through incremental append/prepend paths. Theme
-//! and animation changes never invalidate the layout.
+//! and animation changes never invalidate the layout: the discretized
+//! animation tick lives in the redraw snapshot and the render view, not in
+//! this key.
 
 /// Key identifying one prepared scrollback revision.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -14,24 +16,10 @@ pub struct ScrollPrepKey {
     pub version: u64,
 }
 
-/// Key identifying one prepared frame (scrollback plus streaming identity).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct FramePrepKey {
-    /// Scrollback revision this frame was built from.
-    pub scroll: ScrollPrepKey,
-    /// Length of the visible streaming prefix.
-    pub streaming_len: usize,
-    /// Hash of the visible streaming prefix.
-    pub streaming_hash: u64,
-}
-
-/// Maximum retained prepared revisions for oversize bypass bookkeeping.
-pub const PREP_CACHE_MAX_ENTRIES: usize = 4;
-/// Soft byte budget for the cached display rows.
+/// Soft byte budget for the cached display rows. Oversize content keeps its
+/// single cache entry and reports degraded mode via `is_oversize` instead of
+/// growing additional entries.
 pub const PREP_CACHE_MAX_BYTES: usize = 24 * 1024 * 1024;
-/// Oversize content keeps at most one cached entry and bypasses caching
-/// beyond it, degrading to direct computation.
-pub const OVERSIZE_SINGLE_ENTRY: usize = 1;
 
 /// Rough byte estimate for one display row (cells plus style overhead).
 pub const BYTES_PER_ROW_ESTIMATE: usize = 256;
@@ -46,7 +34,8 @@ pub fn should_cache(rows: usize) -> bool {
     estimate_bytes(rows) <= PREP_CACHE_MAX_BYTES
 }
 
-/// True when the content is oversize and must degrade to direct computation.
+/// True when the content is oversize and runs degraded on its single cache
+/// entry instead of growing additional entries.
 pub fn is_oversize(rows: usize) -> bool {
     !should_cache(rows)
 }

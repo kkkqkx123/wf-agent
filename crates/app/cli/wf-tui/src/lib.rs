@@ -24,7 +24,7 @@ pub use tui_core::{
 };
 pub use tui_components::{
     approval_overlay, bottom_pane, composer, confirm_modal, file_selection, file_viewer, footer,
-    help_modal, history_cell, mention, modal, model_picker, overlay, panels, password_modal,
+    help_modal, mention, modal, model_picker, overlay, panels, password_modal,
     question_overlay, queue, select, transcript,
 };
 pub use tui_render::{ansi, prep_cache, screen_draw};

@@ -152,6 +152,11 @@ pub fn viewport_window(total_rows: usize, height: usize, scroll: usize) -> (usiz
 /// Lay out a view without a terminal: wrap history plus the streaming tail
 /// to `width` and return the visible rows for a `height`-tall viewport.
 /// Wrapping is grapheme-safe and mirrors the scrollback tail-follow rule.
+///
+/// This is a layout probe, not the event-summary kernel in
+/// [`crate::headless::HeadlessRenderer`]: that kernel turns execution events
+/// into stdout/diag text, while this function only wraps committed rows for
+/// geometry and budget assertions.
 pub fn render_headless(model: &impl RenderView, width: u16, height: usize) -> Vec<String> {
     let w = usize::from(width.max(1));
     let mut rows: Vec<String> = Vec::new();
@@ -215,6 +220,13 @@ impl FrameGeometry {
             viewport,
             anim_bounds: None,
         }
+    }
+
+    /// Attach the recorded animation bounds so animation-only frames can
+    /// assert the exact cells they may touch.
+    pub fn with_anim_bounds(mut self, area: crate::redraw::AnimationArea) -> Self {
+        self.anim_bounds = area.bounds();
+        self
     }
 }
 
@@ -364,6 +376,20 @@ mod tests {
         assert_eq!(viewport_window(10, 4, 2), (4, 8));
         assert_eq!(viewport_window(10, 4, 99), (0, 4));
         assert_eq!(viewport_window(2, 4, 0), (0, 2));
+    }
+
+    #[test]
+    fn geometry_carries_animation_bounds() {
+        use crate::redraw::AnimationArea;
+        let area = AnimationArea {
+            streaming_cell: Some(Rect::new(0, 7, 1, 1)),
+            status_cell: None,
+        };
+        let geometry = FrameGeometry::split(Rect::new(0, 0, 80, 24), 4, 1).with_anim_bounds(area);
+        assert_eq!(geometry.anim_bounds, Some(Rect::new(0, 7, 1, 1)));
+        let empty = FrameGeometry::split(Rect::new(0, 0, 80, 24), 4, 1)
+            .with_anim_bounds(AnimationArea::default());
+        assert_eq!(empty.anim_bounds, None);
     }
 
     #[test]

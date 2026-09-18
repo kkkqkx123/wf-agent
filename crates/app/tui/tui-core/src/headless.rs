@@ -1,5 +1,10 @@
 //! Headless summary renderer: `ExecutionStreamEvent` → plain text.
 //!
+//! This is the event-summary kernel shared by plain-text displays, distinct
+//! from the layout probe [`crate::render_model::render_headless`]: that
+//! probe wraps committed rows for geometry assertions, while this renderer
+//! consumes the live event stream.
+//!
 //! [`HeadlessRenderer`] composes [`SessionReducer`] (footer state + the
 //! reducer product used by the TUI inline scrollback) and [`MarkdownStream`]
 //! (streaming markdown) into a headless summary renderer that turns the

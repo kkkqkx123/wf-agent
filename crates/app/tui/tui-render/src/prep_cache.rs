@@ -148,16 +148,24 @@ impl PreparedScrollback {
     }
 
     /// Prepend path: lay out the new head then splice it in front, shifting
-    /// existing intervals so the visual anchor stays stable.
-    pub fn sync_prepend(&mut self, full: &[HistoryLine], added: usize, width: u16, version: u64) {
+    /// existing intervals so the visual anchor stays stable. Returns the
+    /// number of new display rows so callers can compensate viewport offsets
+    /// in display-row units.
+    pub fn sync_prepend(
+        &mut self,
+        full: &[HistoryLine],
+        added: usize,
+        width: u16,
+        version: u64,
+    ) -> usize {
         if width != self.width {
             self.relayout_all(full, width, version);
-            return;
+            return self.head_display_rows(added);
         }
         let added = added.min(full.len());
         if self.source_len + added != full.len() {
             self.relayout_all(full, width, version);
-            return;
+            return self.head_display_rows(added);
         }
         let mut head_rows: Vec<Line<'static>> = Vec::new();
         let mut head_index: Vec<RowRange> = Vec::with_capacity(added);
@@ -183,6 +191,7 @@ impl PreparedScrollback {
         self.version = version;
         self.last_layout_source_lines = added;
         self.last_layout_rows = laid_rows;
+        laid_rows
     }
 
     /// Trim path: drop the head intervals without relaying out the rest.
@@ -226,6 +235,12 @@ impl PreparedScrollback {
             return true;
         }
         false
+    }
+
+    /// Display rows contributed by the first `added` source lines under the
+    /// current index. Used to report prepend shifts after fallback relayouts.
+    fn head_display_rows(&self, added: usize) -> usize {
+        self.index.iter().take(added).map(|range| range.len).sum()
     }
 
     /// Full relayout used for replace, width change, and correctness fallback.
@@ -315,8 +330,9 @@ mod tests {
         let old_start = cache.source_row_start(0).unwrap_or(0);
         let mut full = vec![line("head line newcomer")];
         full.extend(tail.clone());
-        cache.sync_prepend(&full, 1, 10, 2);
+        let shift = cache.sync_prepend(&full, 1, 10, 2);
         assert_eq!(cache.last_layout_count(), 1);
+        assert_eq!(shift, cache.source_row_start(1).unwrap_or(0));
         assert_eq!(cached_text(&cache), full_layout(&full, 10));
         assert_index_consistent(&cache);
         let shifted = cache.source_row_start(1).unwrap_or(0);

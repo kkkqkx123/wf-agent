@@ -151,17 +151,13 @@ pub struct InteractiveController {
     spinner_enabled: bool,
     /// True on minimal performance tiers: shimmer and spinner are skipped.
     simplified_render: bool,
-    /// Merged redraw request by severity (Full > BottomOnly > AnimationOnly).
-    pending_scope: crate::redraw::PendingScope,
     /// Snapshot graded on the previous frame; drives scope decisions.
     last_snapshot: Option<crate::redraw::RedrawSnapshot>,
     /// Recorded animation geometry for animation-only frames.
     anim_area: crate::redraw::AnimationArea,
-    /// Cached scrollback display rows (without the streaming tail) keyed by
-    /// content version and width; bottom/animation frames reuse it.
-    scroll_rows_cache: Vec<ratatui::text::Line<'static>>,
-    /// Key for `scroll_rows_cache`.
-    scroll_cache_key: Option<(u64, u16)>,
+    /// Preparation key backing the last frame; partial scopes reuse the
+    /// cached preparation only under the same key.
+    scroll_cache_key: Option<crate::prep_keys::ScrollPrepKey>,
     /// Last millisecond an animation-only frame was emitted.
     last_anim_ms: Option<u64>,
     /// Full session memory seeding every turn: prior user/assistant texts,
@@ -256,10 +252,8 @@ impl InteractiveController {
             pacer: SegmentedPacer::default(),
             spinner_enabled: true,
             simplified_render: false,
-            pending_scope: crate::redraw::PendingScope::new(),
             last_snapshot: None,
             anim_area: crate::redraw::AnimationArea::default(),
-            scroll_rows_cache: Vec::new(),
             scroll_cache_key: None,
             last_anim_ms: None,
             history: Vec::new(),
@@ -507,14 +501,14 @@ impl InteractiveController {
                         let version = self.bump_version();
                         let width = self.last_layout_width;
                         let scrollback = std::mem::take(&mut self.scrollback);
-                        self.prep.sync_prepend(&scrollback, added, width, version);
+                        let shift = self.prep.sync_prepend(&scrollback, added, width, version);
                         self.scrollback = scrollback;
                         // Keep the viewport anchored on the same content: the
-                        // older rows pushed it upward, so adjust the scroll to
-                        // compensate (only relevant while scrolled into
-                        // history; the next draw re-clamps).
+                        // older rows pushed it upward, so adjust the scroll by
+                        // the new display rows (only relevant while scrolled
+                        // into history; the next draw re-clamps).
                         if self.view_scroll > 0 {
-                            self.view_scroll = self.view_scroll.saturating_add(added);
+                            self.view_scroll = self.view_scroll.saturating_add(shift);
                         }
                         self.scroll_at_top = false;
                     }
@@ -783,16 +777,6 @@ impl InteractiveController {
     /// Grade the current state against the previous frame.
     pub fn grade_redraw(&self) -> crate::redraw::RedrawScope {
         crate::redraw::decide_scope(self.last_snapshot, self.redraw_snapshot())
-    }
-
-    /// Queue a redraw request merged by severity.
-    pub fn request_scope(&mut self, scope: crate::redraw::RedrawScope) {
-        self.pending_scope.request(scope);
-    }
-
-    /// Take and clear the merged pending scope.
-    pub fn take_pending_scope(&mut self) -> crate::redraw::RedrawScope {
-        self.pending_scope.take()
     }
 
     /// Snapshot graded on the previous frame.

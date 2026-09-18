@@ -14,6 +14,9 @@ use tui_terminal::capabilities::TerminalCapabilities;
 /// Runtime capability tier: full keeps every effect, reduced drops
 /// decoration, minimal additionally drops costly input capabilities and
 /// uses simplified rendering.
+///
+/// This is the TUI capability tier, unrelated to the analysis grading in
+/// `wf_api::analysis` which shares only the name.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PerformanceTier {
     /// All animations, input capabilities and synchronized output.

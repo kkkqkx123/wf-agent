@@ -11,61 +11,33 @@ pub use wf_cli_shared::{
 };
 
 // TUI-specific modules (ratatui-dependent).
-pub mod animation;
-pub mod ansi;
-pub mod approval_overlay;
-pub mod bottom_pane;
-pub mod capabilities;
-pub mod clock;
-pub mod composer;
-pub mod confirm_modal;
-pub mod event_dispatch;
-pub mod events;
-pub mod fetch;
-pub mod file_selection;
-pub mod file_viewer;
-pub mod footer;
-pub mod frame_metrics;
-pub mod framer;
-pub mod help_modal;
-pub mod history_cell;
-pub mod interactive;
-pub mod keymap;
-pub mod markdown;
-pub mod mention;
-pub mod modal;
-pub mod model_picker;
-pub mod motion;
-pub mod overlay;
-pub mod panels;
-pub mod password_modal;
-pub mod perf;
-pub mod prep_cache;
-pub mod prep_keys;
-pub mod probe;
-pub mod question_overlay;
-pub mod queue;
-pub mod redraw;
-pub mod reducer;
-pub mod render;
-pub mod render_model;
-pub mod renderable;
-pub mod replay;
-pub mod screen_draw;
-pub mod screens;
-pub mod select;
-pub mod sigint;
-pub mod size;
-pub mod state;
-pub mod status_line;
-pub mod stderr;
-pub mod stream_pacer;
-pub mod terminal;
-pub mod theme;
-pub mod theme_mode;
-pub mod transcript;
+// TUI-specific modules now live in dedicated low-level crates under `crates/app/tui/`.
+// Re-export them so existing `crate::<module>` paths and `wf_tui::<module>`
+// external references keep working after the split.
+pub use tui_terminal::{capabilities, probe, sigint, stderr, terminal};
+pub use tui_style::{animation, motion, theme, theme_mode};
+pub use tui_markdown::markdown;
+pub use tui_clock::clock;
+pub use tui_core::{
+    event_dispatch, events, frame_metrics, framer, keymap, perf, prep_keys, redraw, reducer,
+    render_model, renderable, screen_data, status_line, stream_pacer,
+};
+pub use tui_components::{
+    approval_overlay, bottom_pane, composer, confirm_modal, file_selection, file_viewer, footer,
+    help_modal, history_cell, mention, modal, model_picker, overlay, panels, password_modal,
+    question_overlay, queue, select, transcript,
+};
+pub use tui_render::{ansi, prep_cache, screen_draw};
+pub use tui_debug::tui_debug;
+
+// Facade-only modules (application shell) remain in this crate.
 pub mod tui;
-pub mod tui_debug;
+pub mod interactive;
+pub mod state;
+pub mod screens;
+pub mod fetch;
+pub mod replay;
+pub mod size;
 
 use std::sync::Arc;
 

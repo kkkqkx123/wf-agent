@@ -33,6 +33,15 @@ members = [
     "crates/app/cli/wf-mini",
     "crates/app/cli/wf-tui",
     "crates/app/cli/wf-cli-demo",
+    # tui low-level implementation crates (sibling of cli/, no wf- prefix)
+    "crates/app/tui/tui-clock",
+    "crates/app/tui/tui-terminal",
+    "crates/app/tui/tui-style",
+    "crates/app/tui/tui-markdown",
+    "crates/app/tui/tui-core",
+    "crates/app/tui/tui-components",
+    "crates/app/tui/tui-render",
+    "crates/app/tui/tui-debug",
 ]
 
 [workspace.package]
@@ -41,6 +50,10 @@ edition = "2021"
 rust-version = "1.88"
 
 [workspace.dependencies]
+wf-common = { path = "crates/foundation/wf-common" }
+wf-types = { path = "crates/foundation/wf-types" }
+wf-core = { path = "crates/foundation/wf-core" }
+wf-api = { path = "crates/app/wf-api" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 chrono = { version = "0.4", features = ["serde"] }

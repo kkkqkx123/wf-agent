@@ -1,0 +1,32 @@
+[package]
+name = "tui-components"
+version.workspace = true
+edition.workspace = true
+description = "Low-level TUI implementation crate (tui-components)"
+
+[dependencies]
+wf-common = { workspace = true }
+wf-types = { workspace = true }
+wf-core = { workspace = true }
+wf-api = { workspace = true }
+ratatui = { workspace = true }
+serde_json = { workspace = true }
+unicode-width = { workspace = true }
+unicode-segmentation = { workspace = true }
+regex = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tokio = { workspace = true }
+futures = { workspace = true }
+tui-core = { path = "../tui-core" }
+tui-style = { path = "../tui-style" }
+tui-markdown = { path = "../tui-markdown" }
+tui-clock = { path = "../tui-clock" }
+
+[features]
+default = []
+
+[dev-dependencies]
+tempfile = { workspace = true }
+insta = { workspace = true }

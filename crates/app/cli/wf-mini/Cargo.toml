@@ -15,6 +15,10 @@ wf-types = { path = "../../../foundation/wf-types" }
 wf-api = { path = "../../wf-api" }
 wf-cli-shared = { path = "../wf-cli-shared" }
 wf-runtime = { path = "../../wf-runtime" }
+# Low-level TUI implementation crates can be referenced by the lightweight
+# frontends too (e.g. terminal backend + clock), keeping `cli/` lean.
+tui-terminal = { path = "../../tui/tui-terminal" }
+tui-clock = { path = "../../tui/tui-clock" }
 
 [features]
 default = ["embedded"]

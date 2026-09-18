@@ -1,0 +1,24 @@
+[package]
+name = "tui-terminal"
+version.workspace = true
+edition.workspace = true
+description = "Low-level TUI implementation crate (tui-terminal)"
+
+[dependencies]
+wf-common = { workspace = true }
+wf-types = { workspace = true }
+wf-core = { workspace = true }
+wf-cli-shared = { path = "../../cli/wf-cli-shared" }
+crossterm = { workspace = true }
+libc = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+ratatui = { workspace = true }
+tui-clock = { path = "../tui-clock" }
+
+[features]
+default = []
+
+[dev-dependencies]
+tempfile = { workspace = true }
+insta = { workspace = true }

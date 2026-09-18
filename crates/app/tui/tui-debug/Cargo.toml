@@ -1,0 +1,18 @@
+[package]
+name = "tui-debug"
+version.workspace = true
+edition.workspace = true
+description = "Low-level TUI implementation crate (tui-debug)"
+
+[dependencies]
+wf-common = { workspace = true }
+wf-types = { workspace = true }
+wf-core = { workspace = true }
+ratatui = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tui-core = { path = "../tui-core" }
+
+[features]
+default = []
+diff-record = []

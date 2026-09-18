@@ -19,71 +19,43 @@ A modular agent framework that unifies graph-based workflow orchestration with a
 
 ## Code Architecture
 
-```
-wf-agent/
-├── apps/               # Application modules (TS)
-│   ├── vscode-app/
-│   └── web-app/
-├── Cargo.toml           # Workspace definition
-├── rust-toolchain.toml  # Rust toolchain config
-├── crates/              # Rust crates (migration target)
-│   ├── foundation/      # Pure types and utilities, no business logic
-│   │   ├── wf-types/    # Type definitions (serde)
-│   │   ├── wf-common/   # Common utilities
-│   │   └── wf-core/     # EventBus, StateMachine, Registry
-│   ├── infra/           # Single-purpose infrastructure services
-│   │   ├── wf-metrics/  # Metrics collection
-│   │   ├── wf-config/   # Configuration processing
-│   │   ├── wf-storage/  # Storage implementations
-│   │   ├── wf-llm/      # LLM client abstraction
-│   │   ├── wf-script/   # Script expression evaluation
-│   │   ├── wf-sandbox/  # Script sandbox
-│   │   ├── wf-shell/    # Shell/terminal engine (PTY, sessions, detector)
-│   │   ├── wf-plugin/   # Plugin system (Lua/Native)
-│   │   ├── wf-resource/ # Resource management
-│   │   ├── wf-checkpoint/  # Checkpoint system (state + file history policy)
-│   │   └── layertwine/  # File-edit history storage engine (used only by wf-checkpoint)
-│   ├── engine/          # Execution engines
-│   │   ├── wf-tools/    # Tool registry, executors, MCP
-│   │   ├── wf-execution-shared/  # Shared execution infrastructure
-│   │   ├── wf-agent/    # Agent loop execution engine
-│   │   └── wf-workflow/ # Workflow graph execution engine
-│   ├── app/             # Application facade and entry points
-│   │   ├── wf-api/      # Application-facing API facade
-│   │   ├── wf-server/   # HTTP transport layer
-│   │   ├── wf-runtime/  # Runtime bootstrap
-│   │   └── cli/         # CLI frontends (peer of a future desktop app)
-│   │       ├── wf-cli-shared/  # Shared CLI logic (zero TUI deps)
-│   │       ├── wf-headless/    # Headless CLI binary
-│   │       ├── wf-mini/        # Lightweight crossterm TUI binary
-│   │       ├── wf-tui/         # Full ratatui TUI library + wf binary
-│   │       └── wf-cli-demo/    # Demo examples for all CLI forms
-├── package.json
-├── pnpm-workspace.yaml
-└── turbo.json
-```
+Top level contains `apps/`, `Cargo.toml`, `rust-toolchain.toml`, `crates/`, `package.json`, `pnpm-workspace.yaml`, `turbo.json`.
+
+`apps/` contains `vscode-app`, `web-app`.
+
+`crates/` contains four layers: `foundation/`, `infra/`, `engine/`, `app/`.
+
+foundation layer: `wf-types`, `wf-common`, `wf-core`
+
+infra layer: `wf-metrics`, `wf-config`, `wf-storage`, `wf-llm`, `wf-script`, `wf-sandbox`, `wf-shell`, `wf-plugin` (Lua/Native plugin system), `wf-resource` (resource management), `wf-checkpoint` (checkpoint system: state + file history policy), `layertwine` (file-edit history storage engine, used only by `wf-checkpoint`)
+
+engine layer: `wf-tools` (tool registry, executors, MCP), `wf-execution-shared` (shared execution infrastructure), `wf-agent` (agent loop execution engine), `wf-workflow` (workflow graph execution engine)
+
+app layer: `wf-api` (application-facing API facade), `wf-server` (HTTP transport layer), `wf-runtime` (runtime bootstrap), `cli/` (CLI frontends, peer of a future desktop app), `tui/` (low-level TUI building blocks, no `wf-` prefix)
+
+cli layer: `wf-cli-shared` (TUI-free shared logic), `wf-headless` (headless CLI binary), `wf-mini` (lightweight crossterm TUI binary), `wf-tui` (full ratatui TUI facade: library + `wf` binary), `wf-cli-demo` (runnable examples for all CLI forms)
+
+tui layer: `tui-clock` (monotonic clock helper, leaf), `tui-terminal` (terminal backend, capabilities, sigint, stderr guard), `tui-style` (theme, animation, motion), `tui-markdown` (Markdown streaming + render), `tui-core` (reducer, events, pacing, screen data, headless summary kernel), `tui-components` (widgets / overlays), `tui-render` (frame render + screen draw), `tui-debug` (diff recorder / debug views)
 
 ### Rust Crate Dependency DAG
 
-```
-foundation:  wf-types  ←  wf-common  ←  wf-core
-                   ↑           ↑
-infra:  wf-metrics  wf-storage  wf-config  wf-script
-        wf-llm  wf-sandbox  wf-shell  wf-plugin  wf-resource
-        wf-checkpoint  ←  layertwine (storage engine, checkpoint-only consumer)
-                   ↑
-engine:  wf-tools  wf-execution-shared  wf-agent  wf-workflow
-                   ↑
-app:  wf-api  wf-server  wf-runtime
-      └── cli/:  wf-cli-shared  ←  wf-headless / wf-mini / wf-tui  ←  wf-cli-demo
-```
+foundation: wf-types ← wf-common ← wf-core
 
-`app/cli/` groups every CLI frontend under one submodule so a future desktop
-app can sit as a peer (`app/desktop/`) instead of mixing frontend crates with
-the core app facade (`wf-api` / `wf-server` / `wf-runtime`). `wf-cli-shared`
-holds the TUI-free logic shared by all three frontends; `wf-tui` is the full
-ratatui TUI product; `wf-cli-demo` is a demo-only package with runnable
-examples for every CLI form.
+infra: wf-metrics wf-storage wf-config wf-script wf-llm wf-sandbox wf-shell wf-plugin wf-resource wf-checkpoint ← layertwine
+
+engine: wf-tools wf-execution-shared wf-agent wf-workflow
+
+app: wf-api wf-server wf-runtime
+
+cli: wf-cli-shared ← wf-headless / wf-mini / wf-tui ← wf-cli-demo
+
+tui: tui-clock (leaf); tui-terminal (→ wf-cli-shared); tui-style (→ tui-clock); tui-markdown (→ tui-style); tui-core (→ tui-clock/tui-style/tui-markdown/tui-terminal/wf-api); tui-components (→ tui-core/tui-style/tui-markdown); tui-render (→ tui-components/tui-core/tui-style); tui-debug (→ tui-core)
+
+`wf-tui` is a thin facade that re-exports every `tui/*` crate and keeps the application shell (`tui/interactive/state/screens/fetch/replay/size`). `wf-mini` may depend directly on low-level `tui/*` crates (e.g. `tui-terminal`, `tui-clock`) without the `wf-` prefix.
+
+`app/cli/` groups every CLI frontend under one submodule so a future desktop app can sit as a peer (`app/desktop/`) instead of mixing frontend crates with the core app facade (`wf-api` / `wf-server` / `wf-runtime`).
+
+`app/tui/` holds the low-level TUI building blocks split out of the former monolithic `wf-tui` crate. These crates carry no `wf-` prefix so both `wf-tui` and `wf-mini` can depend on them directly without implying they are top-level application products. The `tui/*` crates form their own strict DAG (leaf: `tui-clock`; `tui-terminal` may depend on `wf-cli-shared` for the shared `CliResult`/`CliError` types, which does not create a cycle because `wf-cli-shared` has no TUI dependencies).
 
 ## Rust Development Conventions
 

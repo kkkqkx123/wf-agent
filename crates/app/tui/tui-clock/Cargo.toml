@@ -1,0 +1,10 @@
+[package]
+name = "tui-clock"
+version.workspace = true
+edition.workspace = true
+description = "Injectable millisecond clock shared across TUI crates"
+
+[dependencies]
+
+[features]
+default = []

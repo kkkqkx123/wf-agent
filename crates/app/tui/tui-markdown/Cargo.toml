@@ -1,0 +1,20 @@
+[package]
+name = "tui-markdown"
+version.workspace = true
+edition.workspace = true
+description = "Low-level TUI implementation crate (tui-markdown)"
+
+[dependencies]
+wf-common = { workspace = true }
+wf-types = { workspace = true }
+wf-core = { workspace = true }
+ratatui = { workspace = true }
+pulldown-cmark = { workspace = true }
+unicode-width = { workspace = true }
+unicode-segmentation = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+tui-style = { path = "../tui-style" }
+
+[features]
+default = []

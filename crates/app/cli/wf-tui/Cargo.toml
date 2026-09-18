@@ -32,6 +32,16 @@ wf-core = { path = "../../../foundation/wf-core" }
 wf-api = { path = "../../wf-api" }
 wf-cli-shared = { path = "../wf-cli-shared" }
 wf-runtime = { path = "../../wf-runtime" }
+# Low-level TUI implementation crates (crates/app/tui/). The `wf-tui` facade
+# depends on them; `wf-mini` may also depend on them directly.
+tui-clock = { path = "../../tui/tui-clock" }
+tui-terminal = { path = "../../tui/tui-terminal" }
+tui-style = { path = "../../tui/tui-style" }
+tui-markdown = { path = "../../tui/tui-markdown" }
+tui-core = { path = "../../tui/tui-core" }
+tui-components = { path = "../../tui/tui-components" }
+tui-render = { path = "../../tui/tui-render" }
+tui-debug = { path = "../../tui/tui-debug" }
 
 [dev-dependencies]
 tempfile.workspace = true
@@ -46,7 +56,7 @@ embedded = ["wf-cli-shared/embedded"]
 remote = ["reqwest/json", "reqwest/stream", "wf-cli-shared/remote"]
 lua = ["wf-cli-shared/lua"]
 native = ["wf-cli-shared/native"]
-diff-record = []
+diff-record = ["tui-core/diff-record", "tui-debug/diff-record"]
 
 [[bin]]
 name = "wf"

@@ -1,0 +1,27 @@
+[package]
+name = "tui-core"
+version.workspace = true
+edition.workspace = true
+description = "Low-level TUI implementation crate (tui-core)"
+
+[dependencies]
+wf-common = { workspace = true }
+wf-types = { workspace = true }
+wf-core = { workspace = true }
+ratatui = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+tokio = { workspace = true }
+futures = { workspace = true }
+wf-api = { workspace = true }
+serde_json = { workspace = true }
+unicode-width = { workspace = true }
+tui-clock = { path = "../tui-clock" }
+tui-style = { path = "../tui-style" }
+tui-markdown = { path = "../tui-markdown" }
+tui-terminal = { path = "../tui-terminal" }
+
+[features]
+default = []
+diff-record = []

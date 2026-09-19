@@ -4,7 +4,7 @@ use std::marker::PhantomData;
 use serde_json::Value;
 
 use crate::domain::entity::Entity;
-use crate::domain::store::{BatchItem, BatchStore, QueryFilter, Store, StoreExt};
+use crate::domain::store::{BatchItem, QueryFilter, Store, StoreExt};
 use crate::error::StorageError;
 use crate::util::compression::{maybe_compress_with_threshold, maybe_decompress};
 use crate::util::hash::compute_hash;
@@ -92,8 +92,8 @@ where
 
     /// List entities matching `filter`, returning the deserialized entities and
     /// the number of records that failed deserialization. Failed records are
-    /// logged at warn level and marked with `status = "corrupted"` in their
-    /// metadata when the backend supports `update_status`.
+    /// skipped, logged at warn level and counted; no status marker is written
+    /// back, so callers observe corruption through the returned count.
     pub async fn list_with_corruption(
         &self,
         filter: Option<&QueryFilter>,
@@ -151,10 +151,10 @@ where
         }
     }
 
-    /// Read-modify-write of an entity by id, guarded by a per-id lock so
-    /// concurrent mutations of the same record cannot lose updates (e.g. an
-    /// atomic enable/disable toggle). Returns `Ok(None)` when no record with
-    /// the id exists; otherwise applies `f` and persists the mutated entity.
+    /// Read-modify-write of an entity by id without locking: the current
+    /// record is loaded, `f` mutates it in memory, and the result is saved
+    /// back. Concurrent mutations of the same id must be serialized by the
+    /// caller. Returns `Ok(None)` when no record with the id exists.
     pub async fn mutate(
         &self,
         id: &str,
@@ -177,15 +177,9 @@ where
 {
     /// Count records grouped by a metadata field (delegates to the backend).
     pub async fn count_by_field(&self, field: &str) -> Result<HashMap<String, u64>, StorageError> {
-        self.storage.count_by_metadata_field(field).await
+        self.storage.count_by_field(field).await
     }
-}
 
-impl<S, T> EntityStore<S, T>
-where
-    S: Store + BatchStore,
-    T: Entity,
-{
     pub async fn save_batch(&self, entities: &[T]) -> Result<(), StorageError> {
         let items: Result<Vec<BatchItem>, StorageError> = entities
             .iter()

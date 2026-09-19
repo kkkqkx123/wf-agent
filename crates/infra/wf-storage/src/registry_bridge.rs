@@ -53,12 +53,11 @@ impl<S: Store> wf_core::registry::PersistableStorage for StorePersistable<S> {
 
     async fn delete(&self, key: &str) -> wf_core::registry::RegistryResult<()> {
         let prefixed = self.prefixed_key(key);
-        self.store
-            .delete(&prefixed)
-            .await
-            .map_err(|e| wf_core::registry::RegistryError::StorageError {
+        self.store.delete(&prefixed).await.map_err(|e| {
+            wf_core::registry::RegistryError::StorageError {
                 message: e.to_string(),
-            })
+            }
+        })
     }
 
     async fn list(&self, prefix: &str) -> wf_core::registry::RegistryResult<Vec<String>> {
@@ -68,10 +67,10 @@ impl<S: Store> wf_core::registry::PersistableStorage for StorePersistable<S> {
                 message: e.to_string(),
             }
         })?;
-        let prefix_len = self.key_prefix.len() + 1; // "prefix:"
+        let full_prefix = format!("{}:", self.key_prefix);
         Ok(entries
             .into_iter()
-            .map(|(id, _)| id[prefix_len..].to_string())
+            .filter_map(|(id, _)| id.strip_prefix(&full_prefix).map(str::to_string))
             .collect())
     }
 }

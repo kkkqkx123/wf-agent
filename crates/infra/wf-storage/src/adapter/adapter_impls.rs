@@ -24,7 +24,7 @@ use crate::adapter::user_interaction::{UserInteractionListOptions, UserInteracti
 use crate::adapter::variable::{VariableListOptions, VariableStorageAdapter};
 use crate::adapter::workflow::{WorkflowListOptions, WorkflowStorageAdapter};
 use crate::adapter::workflow_draft::{WorkflowDraftListOptions, WorkflowDraftStorageAdapter};
-use crate::domain::store::{BatchStore, QueryFilter, Store, StoreExt};
+use crate::domain::store::{QueryFilter, Store, StoreExt};
 use crate::error::StorageError;
 use crate::make_base_adapter;
 use crate::store::entity_store::EntityStore;
@@ -249,10 +249,13 @@ impl<S: Store + StoreExt> CheckpointStorageAdapter for CheckpointStorage<S> {
         entity_id: &str,
         entity_type: &str,
     ) -> Result<u64, StorageError> {
-        let entries = self.list_by_entity(entity_id, entity_type).await?;
+        let filter = QueryFilter::new()
+            .with_field("entityId", entity_id)
+            .with_entity_type(entity_type);
+        let entries = self.entity_store.list_metadata(Some(&filter)).await?;
         let count = entries.len() as u64;
-        for entry in &entries {
-            self.entity_store.delete(&entry.id).await?;
+        for (id, _) in &entries {
+            self.entity_store.delete(id).await?;
         }
         Ok(count)
     }
@@ -298,10 +301,10 @@ impl<S: Store + StoreExt> TaskStorageAdapter for TaskStorage<S> {
 
     async fn cleanup(&self, older_than: i64) -> Result<u64, StorageError> {
         let filter = QueryFilter::new().with_field_lt("createdAt", older_than);
-        let all = self.entity_store.list(Some(&filter)).await?;
+        let entries = self.entity_store.list_metadata(Some(&filter)).await?;
         let mut deleted = 0u64;
-        for task in &all {
-            self.entity_store.delete(&task.id).await?;
+        for (id, _) in &entries {
+            self.entity_store.delete(id).await?;
             deleted += 1;
         }
         Ok(deleted)
@@ -496,10 +499,14 @@ impl<S: Store + StoreExt> TriggerExecutionStorageAdapter for TriggerExecutionSto
     }
 
     async fn get_stats(&self) -> Result<HashMap<String, u64>, StorageError> {
-        let all = self.entity_store.list(None).await?;
+        let entries = self.entity_store.list_metadata(None).await?;
         let mut stats = HashMap::new();
-        for entry in &all {
-            let key = if entry.success {
+        for (_, meta) in &entries {
+            let succeeded = meta
+                .get("success")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            let key = if succeeded {
                 "success".to_string()
             } else {
                 "failed".to_string()
@@ -511,10 +518,10 @@ impl<S: Store + StoreExt> TriggerExecutionStorageAdapter for TriggerExecutionSto
 
     async fn cleanup(&self, older_than: i64) -> Result<u64, StorageError> {
         let filter = QueryFilter::new().with_field_lt("triggeredAt", older_than);
-        let all = self.entity_store.list(Some(&filter)).await?;
+        let entries = self.entity_store.list_metadata(Some(&filter)).await?;
         let mut deleted = 0u64;
-        for entry in &all {
-            self.entity_store.delete(&entry.id).await?;
+        for (id, _) in &entries {
+            self.entity_store.delete(id).await?;
             deleted += 1;
         }
         Ok(deleted)
@@ -556,15 +563,15 @@ impl<S: Store + StoreExt> MessageStorageAdapter for MessageStorage<S> {
         // a session anchor, then reduce to the anchor with the newest
         // timestamp. Doing the reduction here keeps the "find the resumable
         // session" policy out of every CLI frontend.
-        let all = self
-            .entity_store
-            .list(None)
-            .await?
-            .into_iter()
-            .filter_map(|record| {
-                let anchor = record.agent_loop_id.clone()?;
-                Some((record.message.timestamp, anchor))
-            });
+        let entries = self.entity_store.list_metadata(None).await?;
+        let all = entries.into_iter().filter_map(|(_, meta)| {
+            let anchor = meta
+                .get("agentLoopId")
+                .and_then(|v| v.as_str())
+                .map(str::to_string)?;
+            let timestamp = meta.get("timestamp").and_then(|v| v.as_i64())?;
+            Some((timestamp, anchor))
+        });
         let mut latest: Option<(i64, String)> = None;
         for (timestamp, anchor) in all {
             if latest.as_ref().is_none_or(|(ts, _)| timestamp > *ts) {
@@ -612,10 +619,10 @@ impl<S: Store + StoreExt> VariableStorageAdapter for VariableStorage<S> {
 
     async fn delete_by_execution(&self, execution_id: &str) -> Result<u64, StorageError> {
         let filter = QueryFilter::new().with_field("executionId", execution_id);
-        let all = self.entity_store.list(Some(&filter)).await?;
+        let entries = self.entity_store.list_metadata(Some(&filter)).await?;
         let mut deleted = 0u64;
-        for record in &all {
-            self.entity_store.delete(&record.id).await?;
+        for (id, _) in &entries {
+            self.entity_store.delete(id).await?;
             deleted += 1;
         }
         Ok(deleted)
@@ -659,9 +666,13 @@ impl<S: Store> MetricsStorage<S> {
     pub fn inner(&self) -> &S {
         self.entity_store.inner()
     }
+
+    pub fn store(&self) -> &S {
+        self.entity_store.inner()
+    }
 }
 
-impl<S: Store + BatchStore> MetricsStorageAdapter for MetricsStorage<S> {
+impl<S: Store + StoreExt> MetricsStorageAdapter for MetricsStorage<S> {
     async fn save_batch(&self, points: &[MetricsDataPoint]) -> Result<(), StorageError> {
         let records: Vec<MetricRecord> = points
             .iter()
@@ -687,10 +698,10 @@ impl<S: Store + BatchStore> MetricsStorageAdapter for MetricsStorage<S> {
 
     async fn delete_old(&self, older_than: i64) -> Result<u64, StorageError> {
         let filter = QueryFilter::new().with_field_lt("timestamp", older_than);
-        let records = self.entity_store.list(Some(&filter)).await?;
+        let entries = self.entity_store.list_metadata(Some(&filter)).await?;
         let mut deleted = 0u64;
-        for record in &records {
-            self.entity_store.delete(&record.id).await?;
+        for (id, _) in &entries {
+            self.entity_store.delete(id).await?;
             deleted += 1;
         }
         Ok(deleted)

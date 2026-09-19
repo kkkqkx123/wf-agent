@@ -8,7 +8,7 @@ use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 
 use wf_storage::backend::StorageBackend;
-use wf_storage::domain::store::{BatchStore, Maintainable, QueryFilter, Store};
+use wf_storage::domain::store::{Maintainable, QueryFilter, Store, StoreExt};
 use wf_types::events::BaseEvent;
 
 use crate::infra::error::ApiResult;

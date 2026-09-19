@@ -4,8 +4,9 @@ use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use sqlx::SqlitePool;
 use std::str::FromStr;
 
+use crate::domain::keys::{schema_version_key, SCHEMA_VERSION_EXCLUDE_PATTERN};
 use crate::domain::store::{
-    BatchItem, BatchStore, FilterOp, Maintainable, QueryFilter, Store, StoreExt, StoreOperation,
+    BatchItem, FilterCondition, Maintainable, QueryFilter, Store, StoreExt, StoreOperation,
 };
 use crate::error::StorageError;
 
@@ -59,34 +60,35 @@ fn is_numeric_expr(key: &str) -> String {
 
 /// Translates a QueryFilter into a complete SELECT statement.
 /// Field names come from a fixed metadata schema, so interpolation is safe.
+/// The filter is first normalized through the shared compiled plan; only
+/// placeholder style and JSON operators are Sqlite-specific. Mirror any
+/// semantic change in the PostgreSQL renderer.
 fn build_select_sql(
     filter: Option<&QueryFilter>,
     table_name: &str,
     select_columns: &str,
 ) -> (String, Vec<BindValue>) {
+    let plan = filter.map(|f| f.compile());
     let mut sql = format!("SELECT {} FROM {}", select_columns, table_name);
     let mut conditions: Vec<String> = Vec::new();
     let mut params: Vec<BindValue> = Vec::new();
-    let mut order_by: Option<(String, bool)> = None;
-    let mut offset: Option<u64> = None;
-    let mut limit: Option<u64> = None;
 
     // Exclude internal schema version records from application queries.
-    conditions.push("id NOT LIKE '__schema_version__:%'".into());
+    conditions.push(format!("id NOT LIKE '{}'", SCHEMA_VERSION_EXCLUDE_PATTERN));
 
-    if let Some(f) = filter {
-        for op in &f.ops {
+    if let Some(p) = plan.as_ref() {
+        for op in &p.conditions {
             match op {
-                FilterOp::Eq(key, value) => {
+                FilterCondition::Eq(key, value) => {
                     conditions.push(format!("{} = ?", metadata_text_expr(key)));
                     params.push(BindValue::S(value.clone()));
                 }
-                FilterOp::IdPrefix(prefix) => {
+                FilterCondition::IdPrefix(prefix) => {
                     conditions.push("substr(id, 1, length(?)) = ?".into());
                     params.push(BindValue::S(prefix.clone()));
                     params.push(BindValue::S(prefix.clone()));
                 }
-                FilterOp::Prefix(key, prefix) => {
+                FilterCondition::Prefix(key, prefix) => {
                     conditions.push(format!(
                         "substr({}, 1, length(?)) = ?",
                         metadata_text_expr(key)
@@ -94,7 +96,7 @@ fn build_select_sql(
                     params.push(BindValue::S(prefix.clone()));
                     params.push(BindValue::S(prefix.clone()));
                 }
-                FilterOp::Lt(key, value) => {
+                FilterCondition::Lt(key, value) => {
                     conditions.push(format!(
                         "({} AND json_extract(metadata, '$.{}') < ?)",
                         is_numeric_expr(key),
@@ -102,7 +104,7 @@ fn build_select_sql(
                     ));
                     params.push(BindValue::I(*value));
                 }
-                FilterOp::Gt(key, value) => {
+                FilterCondition::Gt(key, value) => {
                     conditions.push(format!(
                         "({} AND json_extract(metadata, '$.{}') > ?)",
                         is_numeric_expr(key),
@@ -110,7 +112,7 @@ fn build_select_sql(
                     ));
                     params.push(BindValue::I(*value));
                 }
-                FilterOp::Between(key, start, end) => {
+                FilterCondition::Between(key, start, end) => {
                     conditions.push(format!(
                         "({} AND json_extract(metadata, '$.{}') >= ? AND json_extract(metadata, '$.{}') <= ?)",
                         is_numeric_expr(key),
@@ -120,7 +122,7 @@ fn build_select_sql(
                     params.push(BindValue::I(*start));
                     params.push(BindValue::I(*end));
                 }
-                FilterOp::In(key, values) => {
+                FilterCondition::In(key, values) => {
                     if values.is_empty() {
                         conditions.push("0 = 1".into());
                     } else {
@@ -134,11 +136,6 @@ fn build_select_sql(
                         params.extend(values.iter().cloned().map(BindValue::S));
                     }
                 }
-                FilterOp::OrderBy(key, descending) => {
-                    order_by = Some((key.clone(), *descending));
-                }
-                FilterOp::Offset(o) => offset = Some(*o),
-                FilterOp::Limit(l) => limit = Some(*l),
             }
         }
     }
@@ -147,7 +144,7 @@ fn build_select_sql(
         sql.push_str(" WHERE ");
         sql.push_str(&conditions.join(" AND "));
     }
-    if let Some((key, descending)) = order_by {
+    if let Some((key, descending)) = plan.as_ref().and_then(|p| p.order_by.clone()) {
         // Numeric-aware ordering matching PostgreSQL: numeric values sort by
         // their numeric value and always come first, everything else (missing
         // keys and non-numeric values) sorts last in both directions. The
@@ -159,10 +156,10 @@ fn build_select_sql(
             if descending { "DESC" } else { "ASC" }
         ));
     }
-    if let Some(limit) = limit {
+    if let Some(limit) = plan.as_ref().and_then(|p| p.limit) {
         sql.push_str(&format!(" LIMIT {}", limit));
     }
-    if let Some(offset) = offset {
+    if let Some(offset) = plan.as_ref().and_then(|p| p.offset) {
         sql.push_str(&format!(" OFFSET {}", offset));
     }
 
@@ -177,6 +174,11 @@ pub struct SqliteStorage {
 
 impl SqliteStorage {
     pub async fn new(path: &str, table_name: &str) -> Result<Self, StorageError> {
+        let pool = Self::create_pool(path).await?;
+        Self::with_pool(pool, table_name).await
+    }
+
+    pub async fn create_pool(path: &str) -> Result<SqlitePool, StorageError> {
         let url = to_sqlite_url(path);
 
         // sqlx 0.8 defaults `create_if_missing` to false, which makes
@@ -213,7 +215,10 @@ impl SqliteStorage {
             .execute(&pool)
             .await
             .ok();
+        Ok(pool)
+    }
 
+    pub async fn with_pool(pool: SqlitePool, table_name: &str) -> Result<Self, StorageError> {
         let create_sql = format!(
             "CREATE TABLE IF NOT EXISTS {} (
                 id TEXT PRIMARY KEY,
@@ -248,11 +253,8 @@ impl SqliteStorage {
         sqlx::query(&idx2).execute(&pool).await.ok();
 
         // Schema version check: insert on first open, reject on mismatch.
-        let version_key = format!("__schema_version__:{}", table_name);
-        let check_sql = format!(
-            "SELECT metadata FROM {} WHERE id = ?1",
-            table_name
-        );
+        let version_key = schema_version_key(table_name);
+        let check_sql = format!("SELECT metadata FROM {} WHERE id = ?1", table_name);
         let existing: Option<(String,)> = sqlx::query_as(&check_sql)
             .bind(&version_key)
             .fetch_optional(&pool)
@@ -264,16 +266,15 @@ impl SqliteStorage {
             })?;
         match existing {
             Some((meta_str,)) => {
-                let meta: Value = serde_json::from_str(&meta_str).map_err(|e| {
-                    StorageError::Initialization {
+                let meta: Value =
+                    serde_json::from_str(&meta_str).map_err(|e| StorageError::Initialization {
                         backend: "sqlite".into(),
                         message: format!(
                             "Failed to parse schema version metadata for '{}'",
                             table_name
                         ),
                         source: Some(Box::new(e)),
-                    }
-                })?;
+                    })?;
                 let stored = meta.get("version").and_then(|v| v.as_i64()).unwrap_or(0);
                 if stored != SCHEMA_VERSION {
                     return Err(StorageError::StateError {
@@ -305,10 +306,7 @@ impl SqliteStorage {
                     .await
                     .map_err(|e| StorageError::Initialization {
                         backend: "sqlite".into(),
-                        message: format!(
-                            "Failed to write schema version for '{}'",
-                            table_name
-                        ),
+                        message: format!("Failed to write schema version for '{}'", table_name),
                         source: Some(Box::new(e)),
                     })?;
             }
@@ -345,6 +343,80 @@ impl SqliteStorage {
                 message: e.to_string(),
                 source: Some(Box::new(e)),
             })?;
+        Ok(())
+    }
+
+    /// Apply operations targeting several tables inside one transaction.
+    /// Tables come from the storage context registry, never from external
+    /// input. Crate-visible only; cache invalidation is the caller's job.
+    pub(crate) async fn apply_cross_table(
+        pool: &SqlitePool,
+        operations: &[crate::domain::store::CrossTableOperation<'_>],
+    ) -> Result<(), StorageError> {
+        if operations.is_empty() {
+            return Ok(());
+        }
+        let mut tx = pool.begin().await.map_err(|e| StorageError::General {
+            operation: "apply_cross_table".into(),
+            message: e.to_string(),
+            source: Some(Box::new(e)),
+        })?;
+
+        let now = chrono::Utc::now().timestamp_millis();
+        for operation in operations {
+            match operation.operation {
+                StoreOperation::Save(item) => {
+                    exec_save(&mut *tx, operation.table, item, now).await?;
+                }
+                StoreOperation::Delete(id) => {
+                    exec_delete(&mut *tx, operation.table, id).await?;
+                }
+            }
+        }
+
+        tx.commit().await.map_err(|e| StorageError::General {
+            operation: "apply_cross_table".into(),
+            message: e.to_string(),
+            source: Some(Box::new(e)),
+        })?;
+        Ok(())
+    }
+
+    /// Delete every row of the given tables inside one transaction. Tables
+    /// come from the storage context registry, never from external input.
+    /// The internal schema version rows are removed as well, matching the
+    /// per-table `clear` semantics. Crate-visible only; cache invalidation
+    /// is the caller's job.
+    pub(crate) async fn clear_cross_table(
+        pool: &SqlitePool,
+        tables: &[&str],
+    ) -> Result<(), StorageError> {
+        if tables.is_empty() {
+            return Ok(());
+        }
+        let mut tx = pool.begin().await.map_err(|e| StorageError::General {
+            operation: "clear_cross_table".into(),
+            message: e.to_string(),
+            source: Some(Box::new(e)),
+        })?;
+
+        for table in tables {
+            let sql = format!("DELETE FROM {}", table);
+            sqlx::query(&sql)
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| StorageError::General {
+                    operation: "clear_cross_table".into(),
+                    message: e.to_string(),
+                    source: Some(Box::new(e)),
+                })?;
+        }
+
+        tx.commit().await.map_err(|e| StorageError::General {
+            operation: "clear_cross_table".into(),
+            message: e.to_string(),
+            source: Some(Box::new(e)),
+        })?;
         Ok(())
     }
 }
@@ -541,13 +613,82 @@ impl Store for SqliteStorage {
     }
 }
 
+/// Execute one upsert inside a transaction or pool executor. Shared by the
+/// single-table batch and the cross-table atomic batch so both paths write
+/// identical rows.
+async fn exec_save<'e, E>(
+    executor: E,
+    table: &str,
+    item: &BatchItem,
+    now: i64,
+) -> Result<(), StorageError>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
+{
+    let hash = crate::util::hash::compute_hash(&item.data);
+    let data_size = item.data.len() as i64;
+    let metadata_str = serde_json::to_string(&item.metadata)?;
+    let compressed = item
+        .metadata
+        .get("compressed")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let sql = format!(
+        "INSERT INTO {} (id, data, metadata, hash, data_size, compressed, created_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+         ON CONFLICT (id) DO UPDATE SET
+            data = excluded.data,
+            metadata = excluded.metadata,
+            hash = excluded.hash,
+            data_size = excluded.data_size,
+            compressed = excluded.compressed,
+            updated_at = excluded.updated_at",
+        table
+    );
+    sqlx::query(&sql)
+        .bind(&item.id)
+        .bind(&item.data)
+        .bind(&metadata_str)
+        .bind(&hash)
+        .bind(data_size)
+        .bind(compressed)
+        .bind(now)
+        .bind(now)
+        .execute(executor)
+        .await
+        .map_err(|e| StorageError::General {
+            operation: "apply_batch.save".into(),
+            message: e.to_string(),
+            source: Some(Box::new(e)),
+        })?;
+    Ok(())
+}
+
+/// Execute one delete inside a transaction or pool executor (see `exec_save`).
+async fn exec_delete<'e, E>(executor: E, table: &str, id: &str) -> Result<(), StorageError>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
+{
+    let sql = format!("DELETE FROM {} WHERE id = ?1", table);
+    sqlx::query(&sql)
+        .bind(id)
+        .execute(executor)
+        .await
+        .map_err(|e| StorageError::General {
+            operation: "apply_batch.delete".into(),
+            message: e.to_string(),
+            source: Some(Box::new(e)),
+        })?;
+    Ok(())
+}
+
 #[async_trait]
 impl StoreExt for SqliteStorage {
     async fn update_status(&self, id: &str, status: &str) -> Result<(), StorageError> {
         SqliteStorage::update_status(self, id, status).await
     }
 
-    async fn count_by_metadata_field(
+    async fn count_by_field(
         &self,
         field: &str,
     ) -> Result<std::collections::HashMap<String, u64>, StorageError> {
@@ -559,7 +700,7 @@ impl StoreExt for SqliteStorage {
             .fetch_all(&self.pool)
             .await
             .map_err(|e| StorageError::General {
-                operation: "count_by_metadata_field".into(),
+                operation: "count_by_field".into(),
                 message: e.to_string(),
                 source: Some(Box::new(e)),
             })?;
@@ -583,54 +724,10 @@ impl StoreExt for SqliteStorage {
         for operation in operations {
             match operation {
                 StoreOperation::Save(item) => {
-                    let hash = crate::util::hash::compute_hash(&item.data);
-                    let data_size = item.data.len() as i64;
-                    let metadata_str = serde_json::to_string(&item.metadata)?;
-                    let compressed = item
-                        .metadata
-                        .get("compressed")
-                        .and_then(|v| v.as_bool())
-                        .unwrap_or(false);
-                    let sql = format!(
-                        "INSERT INTO {} (id, data, metadata, hash, data_size, compressed, created_at, updated_at)
-                         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
-                         ON CONFLICT (id) DO UPDATE SET
-                            data = excluded.data,
-                            metadata = excluded.metadata,
-                            hash = excluded.hash,
-                            data_size = excluded.data_size,
-                            compressed = excluded.compressed,
-                            updated_at = excluded.updated_at",
-                        self.table_name
-                    );
-                    sqlx::query(&sql)
-                        .bind(&item.id)
-                        .bind(&item.data)
-                        .bind(&metadata_str)
-                        .bind(&hash)
-                        .bind(data_size)
-                        .bind(compressed)
-                        .bind(now)
-                        .bind(now)
-                        .execute(&mut *tx)
-                        .await
-                        .map_err(|e| StorageError::General {
-                            operation: "apply_batch.save".into(),
-                            message: e.to_string(),
-                            source: Some(Box::new(e)),
-                        })?;
+                    exec_save(&mut *tx, &self.table_name, item, now).await?;
                 }
                 StoreOperation::Delete(id) => {
-                    let sql = format!("DELETE FROM {} WHERE id = ?1", self.table_name);
-                    sqlx::query(&sql)
-                        .bind(id)
-                        .execute(&mut *tx)
-                        .await
-                        .map_err(|e| StorageError::General {
-                            operation: "apply_batch.delete".into(),
-                            message: e.to_string(),
-                            source: Some(Box::new(e)),
-                        })?;
+                    exec_delete(&mut *tx, &self.table_name, id).await?;
                 }
             }
         }
@@ -642,10 +739,7 @@ impl StoreExt for SqliteStorage {
         })?;
         Ok(())
     }
-}
 
-#[async_trait]
-impl BatchStore for SqliteStorage {
     async fn load_batch(
         &self,
         ids: &[String],
@@ -797,12 +891,12 @@ impl Maintainable for SqliteStorage {
         Ok(())
     }
 
-    async fn checkpoint(&self) -> Result<(), StorageError> {
+    async fn wal_checkpoint(&self) -> Result<(), StorageError> {
         sqlx::query("PRAGMA wal_checkpoint(TRUNCATE)")
             .execute(&self.pool)
             .await
             .map_err(|e| StorageError::General {
-                operation: "checkpoint".into(),
+                operation: "wal_checkpoint".into(),
                 message: e.to_string(),
                 source: Some(Box::new(e)),
             })?;
@@ -825,7 +919,7 @@ impl Maintainable for SqliteStorage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::store::BatchStore;
+    use crate::domain::store::StoreExt;
 
     #[tokio::test]
     async fn test_sqlite_save_load() {
@@ -900,7 +994,7 @@ mod tests {
         let results = store.list(Some(&filter)).await.unwrap();
         assert_eq!(results.len(), 3);
 
-        let counts = store.count_by_metadata_field("entityType").await.unwrap();
+        let counts = store.count_by_field("entityType").await.unwrap();
         assert_eq!(*counts.get("workflow").unwrap(), 5);
     }
 
@@ -1034,6 +1128,41 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_sqlite_cross_table_rolls_back_on_failure() {
+        use crate::domain::store::CrossTableOperation;
+
+        let pool = SqliteStorage::create_pool(":memory:").await.unwrap();
+        let first = SqliteStorage::with_pool(pool.clone(), "rollback_a")
+            .await
+            .unwrap();
+        let _second = SqliteStorage::with_pool(pool.clone(), "rollback_b")
+            .await
+            .unwrap();
+
+        let save = StoreOperation::Save(BatchItem::new(
+            "id1",
+            b"data".to_vec(),
+            serde_json::json!({"entityType": "test"}),
+        ));
+        let delete_missing_table = StoreOperation::Delete("id1".into());
+        let operations = vec![
+            CrossTableOperation {
+                table: "rollback_a",
+                operation: &save,
+            },
+            CrossTableOperation {
+                table: "no_such_table",
+                operation: &delete_missing_table,
+            },
+        ];
+        let result = SqliteStorage::apply_cross_table(&pool, &operations).await;
+        assert!(result.is_err());
+        // The first write must not survive the failed batch: list hides the
+        // internal schema version row, so empty means fully rolled back.
+        assert!(first.list(None).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
     async fn test_sqlite_save_preserves_created_at() {
         let store = SqliteStorage::new(":memory:", "test").await.unwrap();
         store
@@ -1102,8 +1231,9 @@ mod tests {
             assert!(created > 0);
         }
         let all: Vec<(String, Vec<u8>)> = sqlx::query_as(&format!(
-            "SELECT id, data FROM {} WHERE id NOT LIKE '__schema_version__:%'",
-            store.table_name()
+            "SELECT id, data FROM {} WHERE id NOT LIKE '{}'",
+            store.table_name(),
+            SCHEMA_VERSION_EXCLUDE_PATTERN
         ))
         .fetch_all(store.pool())
         .await

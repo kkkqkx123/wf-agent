@@ -4,7 +4,7 @@ use serde_json::Value;
 use crate::decorator::cache::{CacheConfig, CachingStore};
 use crate::decorator::instrumented::{InstrumentedStore, StorageMetrics};
 use crate::domain::store::{
-    BatchItem, BatchStore, Maintainable, QueryFilter, Store, StoreExt, StoreOperation,
+    BatchItem, Maintainable, QueryFilter, Store, StoreExt, StoreOperation,
 };
 use crate::error::StorageError;
 #[cfg(feature = "memory")]
@@ -14,14 +14,34 @@ use crate::store::postgres::PostgresStorage;
 #[cfg(feature = "sqlite")]
 use crate::store::sqlite::SqliteStorage;
 
+/// Forward a call to the inner store of whichever backend variant is held.
+/// All variants implement the same store traits; only the concrete wrapper
+/// types differ, so a macro keeps the forwarding in one place instead of
+/// repeating one match block per trait method.
+macro_rules! dispatch {
+    ($this:expr, |$inner:ident| $call:expr) => {
+        match $this {
+            #[cfg(feature = "memory")]
+            Self::Memory($inner) => $call,
+            #[cfg(feature = "sqlite")]
+            Self::Sqlite($inner) => $call,
+            #[cfg(feature = "postgres")]
+            Self::Postgres($inner) => $call,
+        }
+    };
+}
+
 /// Store backend with per-operation instrumentation: every variant counts
 /// save/load/delete/list/exists/clear/batch calls, latency and bytes so the
 /// runtime can export storage load as metrics.
 ///
-/// The Sqlite variant additionally layers an entity cache (`CachingStore`)
-/// over the pool — the durable backend benefits most from read caching and
-/// every write path invalidates the affected ids, so the cache cannot serve
-/// stale data.
+/// The Sqlite and PostgreSQL variants layer an entity cache (`CachingStore`)
+/// over the pool — durable backends benefit most from read caching and every
+/// write path invalidates the affected ids, so the cache cannot serve stale
+/// data. The memory variant deliberately has no cache layer: it already lives
+/// in memory, so a second cache would only add a copy without benefit. The
+/// variant-special-cased methods below follow the same reasoning and are not
+/// a candidate for flattening.
 #[derive(Debug, Clone)]
 pub enum StorageBackend {
     #[cfg(feature = "memory")]
@@ -52,13 +72,45 @@ impl StorageBackend {
     /// Operation counters for this backend (the instrumentation wrapper is
     /// always present).
     pub fn op_metrics(&self) -> &StorageMetrics {
+        dispatch!(self, |s| s.metrics())
+    }
+
+    /// Drop one cached record without touching durable storage, used after a
+    /// cross-table atomic batch that bypasses the per-backend write path.
+    /// No-op for backends without a cache layer.
+    pub fn invalidate_cached(&self, id: &str) {
         match self {
             #[cfg(feature = "memory")]
-            Self::Memory(s) => s.metrics(),
+            Self::Memory(_) => {}
             #[cfg(feature = "sqlite")]
-            Self::Sqlite(s) => s.metrics(),
+            Self::Sqlite(s) => s.inner().cache().invalidate(id),
             #[cfg(feature = "postgres")]
-            Self::Postgres(s) => s.metrics(),
+            Self::Postgres(s) => s.inner().cache().invalidate(id),
+        }
+    }
+
+    /// Drop every cached record without touching durable storage, used after
+    /// a full cleanup that bypasses the per-backend clear path. No-op for
+    /// backends without a cache layer.
+    pub fn invalidate_all_cached(&self) {
+        match self {
+            #[cfg(feature = "memory")]
+            Self::Memory(_) => {}
+            #[cfg(feature = "sqlite")]
+            Self::Sqlite(s) => s.inner().cache().clear(),
+            #[cfg(feature = "postgres")]
+            Self::Postgres(s) => s.inner().cache().clear(),
+        }
+    }
+
+    /// Borrow the memory store behind this backend, if it is one. Used by
+    /// the cross-entity atomic batch coordinator.
+    #[cfg(feature = "memory")]
+    pub fn memory_storage(&self) -> Option<&MemoryStorage> {
+        match self {
+            Self::Memory(s) => Some(s.inner()),
+            #[cfg(any(feature = "sqlite", feature = "postgres"))]
+            _ => None,
         }
     }
 
@@ -79,210 +131,88 @@ impl StorageBackend {
 #[async_trait]
 impl Store for StorageBackend {
     async fn save(&self, id: &str, data: &[u8], metadata: &Value) -> Result<(), StorageError> {
-        match self {
-            #[cfg(feature = "memory")]
-            Self::Memory(s) => s.save(id, data, metadata).await,
-            #[cfg(feature = "sqlite")]
-            Self::Sqlite(s) => s.save(id, data, metadata).await,
-            #[cfg(feature = "postgres")]
-            Self::Postgres(s) => s.save(id, data, metadata).await,
-        }
+        dispatch!(self, |s| s.save(id, data, metadata).await)
     }
 
     async fn load(&self, id: &str) -> Result<Option<(Vec<u8>, Value)>, StorageError> {
-        match self {
-            #[cfg(feature = "memory")]
-            Self::Memory(s) => s.load(id).await,
-            #[cfg(feature = "sqlite")]
-            Self::Sqlite(s) => s.load(id).await,
-            #[cfg(feature = "postgres")]
-            Self::Postgres(s) => s.load(id).await,
-        }
+        dispatch!(self, |s| s.load(id).await)
     }
 
     async fn delete(&self, id: &str) -> Result<(), StorageError> {
-        match self {
-            #[cfg(feature = "memory")]
-            Self::Memory(s) => s.delete(id).await,
-            #[cfg(feature = "sqlite")]
-            Self::Sqlite(s) => s.delete(id).await,
-            #[cfg(feature = "postgres")]
-            Self::Postgres(s) => s.delete(id).await,
-        }
+        dispatch!(self, |s| s.delete(id).await)
     }
 
     async fn list(
         &self,
         filter: Option<&QueryFilter>,
     ) -> Result<Vec<(String, Value)>, StorageError> {
-        match self {
-            #[cfg(feature = "memory")]
-            Self::Memory(s) => s.list(filter).await,
-            #[cfg(feature = "sqlite")]
-            Self::Sqlite(s) => s.list(filter).await,
-            #[cfg(feature = "postgres")]
-            Self::Postgres(s) => s.list(filter).await,
-        }
+        dispatch!(self, |s| s.list(filter).await)
     }
 
     async fn list_data(
         &self,
         filter: Option<&QueryFilter>,
     ) -> Result<Vec<(Vec<u8>, Value)>, StorageError> {
-        match self {
-            #[cfg(feature = "memory")]
-            Self::Memory(s) => s.list_data(filter).await,
-            #[cfg(feature = "sqlite")]
-            Self::Sqlite(s) => s.list_data(filter).await,
-            #[cfg(feature = "postgres")]
-            Self::Postgres(s) => s.list_data(filter).await,
-        }
+        dispatch!(self, |s| s.list_data(filter).await)
     }
 
     async fn exists(&self, id: &str) -> Result<bool, StorageError> {
-        match self {
-            #[cfg(feature = "memory")]
-            Self::Memory(s) => s.exists(id).await,
-            #[cfg(feature = "sqlite")]
-            Self::Sqlite(s) => s.exists(id).await,
-            #[cfg(feature = "postgres")]
-            Self::Postgres(s) => s.exists(id).await,
-        }
+        dispatch!(self, |s| s.exists(id).await)
     }
 
     async fn count(&self, filter: Option<&QueryFilter>) -> Result<u64, StorageError> {
-        match self {
-            #[cfg(feature = "memory")]
-            Self::Memory(s) => s.count(filter).await,
-            #[cfg(feature = "sqlite")]
-            Self::Sqlite(s) => s.count(filter).await,
-            #[cfg(feature = "postgres")]
-            Self::Postgres(s) => s.count(filter).await,
-        }
+        dispatch!(self, |s| s.count(filter).await)
     }
 
     async fn clear(&self) -> Result<(), StorageError> {
-        match self {
-            #[cfg(feature = "memory")]
-            Self::Memory(s) => s.clear().await,
-            #[cfg(feature = "sqlite")]
-            Self::Sqlite(s) => s.clear().await,
-            #[cfg(feature = "postgres")]
-            Self::Postgres(s) => s.clear().await,
-        }
+        dispatch!(self, |s| s.clear().await)
     }
 }
 
 #[async_trait]
 impl StoreExt for StorageBackend {
     async fn update_status(&self, id: &str, status: &str) -> Result<(), StorageError> {
-        match self {
-            #[cfg(feature = "memory")]
-            Self::Memory(s) => s.update_status(id, status).await,
-            #[cfg(feature = "sqlite")]
-            Self::Sqlite(s) => s.update_status(id, status).await,
-            #[cfg(feature = "postgres")]
-            Self::Postgres(s) => s.update_status(id, status).await,
-        }
+        dispatch!(self, |s| s.update_status(id, status).await)
     }
 
     async fn apply_batch(&self, operations: &[StoreOperation]) -> Result<(), StorageError> {
-        match self {
-            #[cfg(feature = "memory")]
-            Self::Memory(s) => s.apply_batch(operations).await,
-            #[cfg(feature = "sqlite")]
-            Self::Sqlite(s) => s.apply_batch(operations).await,
-            #[cfg(feature = "postgres")]
-            Self::Postgres(s) => s.apply_batch(operations).await,
-        }
+        dispatch!(self, |s| s.apply_batch(operations).await)
     }
 
-    async fn count_by_metadata_field(
+    async fn count_by_field(
         &self,
         field: &str,
     ) -> Result<std::collections::HashMap<String, u64>, StorageError> {
-        match self {
-            #[cfg(feature = "memory")]
-            Self::Memory(s) => s.count_by_metadata_field(field).await,
-            #[cfg(feature = "sqlite")]
-            Self::Sqlite(s) => s.count_by_metadata_field(field).await,
-            #[cfg(feature = "postgres")]
-            Self::Postgres(s) => s.count_by_metadata_field(field).await,
-        }
+        dispatch!(self, |s| s.count_by_field(field).await)
     }
-}
 
-#[async_trait]
-impl BatchStore for StorageBackend {
     async fn save_batch(&self, items: &[BatchItem]) -> Result<(), StorageError> {
-        match self {
-            #[cfg(feature = "memory")]
-            Self::Memory(s) => s.save_batch(items).await,
-            #[cfg(feature = "sqlite")]
-            Self::Sqlite(s) => s.save_batch(items).await,
-            #[cfg(feature = "postgres")]
-            Self::Postgres(s) => s.save_batch(items).await,
-        }
+        dispatch!(self, |s| s.save_batch(items).await)
     }
 
     async fn load_batch(
         &self,
         ids: &[String],
     ) -> Result<Vec<(String, Vec<u8>, Value)>, StorageError> {
-        match self {
-            #[cfg(feature = "memory")]
-            Self::Memory(s) => s.load_batch(ids).await,
-            #[cfg(feature = "sqlite")]
-            Self::Sqlite(s) => s.load_batch(ids).await,
-            #[cfg(feature = "postgres")]
-            Self::Postgres(s) => s.load_batch(ids).await,
-        }
+        dispatch!(self, |s| s.load_batch(ids).await)
     }
 
     async fn delete_batch(&self, ids: &[String]) -> Result<(), StorageError> {
-        match self {
-            #[cfg(feature = "memory")]
-            Self::Memory(s) => s.delete_batch(ids).await,
-            #[cfg(feature = "sqlite")]
-            Self::Sqlite(s) => s.delete_batch(ids).await,
-            #[cfg(feature = "postgres")]
-            Self::Postgres(s) => s.delete_batch(ids).await,
-        }
+        dispatch!(self, |s| s.delete_batch(ids).await)
     }
 }
 
 #[async_trait]
 impl Maintainable for StorageBackend {
     async fn vacuum(&self) -> Result<(), StorageError> {
-        match self {
-            #[cfg(feature = "memory")]
-            Self::Memory(s) => s.vacuum().await,
-            #[cfg(feature = "sqlite")]
-            Self::Sqlite(s) => s.vacuum().await,
-            #[cfg(feature = "postgres")]
-            Self::Postgres(s) => s.vacuum().await,
-        }
+        dispatch!(self, |s| s.vacuum().await)
     }
 
-    async fn checkpoint(&self) -> Result<(), StorageError> {
-        match self {
-            #[cfg(feature = "memory")]
-            Self::Memory(s) => s.checkpoint().await,
-            #[cfg(feature = "sqlite")]
-            Self::Sqlite(s) => s.checkpoint().await,
-            #[cfg(feature = "postgres")]
-            Self::Postgres(s) => s.checkpoint().await,
-        }
+    async fn wal_checkpoint(&self) -> Result<(), StorageError> {
+        dispatch!(self, |s| s.wal_checkpoint().await)
     }
 
     async fn sync(&self) -> Result<(), StorageError> {
-        match self {
-            #[cfg(feature = "memory")]
-            Self::Memory(s) => s.sync().await,
-            #[cfg(feature = "sqlite")]
-            Self::Sqlite(s) => s.sync().await,
-            #[cfg(feature = "postgres")]
-            Self::Postgres(s) => s.sync().await,
-        }
+        dispatch!(self, |s| s.sync().await)
     }
 }

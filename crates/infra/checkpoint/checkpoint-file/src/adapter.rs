@@ -937,7 +937,10 @@ mod tests {
             .create_branch("execution/main", None)
             .await
             .unwrap_err();
-        assert!(matches!(err, checkpoint_base::error::CheckpointError::Branch(_)));
+        assert!(matches!(
+            err,
+            checkpoint_base::error::CheckpointError::Branch(_)
+        ));
     }
 
     #[tokio::test]

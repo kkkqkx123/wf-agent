@@ -31,14 +31,20 @@ impl InnerStore {
 
 #[derive(Debug, Clone)]
 pub struct MemoryStorage {
+    name: String,
     inner: Arc<RwLock<InnerStore>>,
 }
 
 impl MemoryStorage {
-    pub fn new(_name: &str) -> Self {
+    pub fn new(name: &str) -> Self {
         Self {
+            name: name.to_string(),
             inner: Arc::new(RwLock::new(InnerStore::new())),
         }
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
     }
 
     /// Test support: flip one byte of a stored record's payload without
@@ -54,6 +60,64 @@ impl MemoryStorage {
             }
         }
         false
+    }
+
+    /// Atomically apply operation groups across several memory stores.
+    /// Groups must arrive in a globally deterministic order (the coordinator
+    /// sorts by store identity) so concurrent cross-store batches acquire
+    /// the write locks in the same order and cannot deadlock. No lock is
+    /// held across an await while mutating, and planning is infallible, so
+    /// either every group lands or none does.
+    pub(crate) async fn apply_cross_store(
+        groups: &[(&MemoryStorage, &[StoreOperation])],
+    ) -> Result<(), StorageError> {
+        let mut guards = Vec::with_capacity(groups.len());
+        for (store, _) in groups {
+            guards.push(store.inner.write().await);
+        }
+        let now = current_timestamp();
+        for (mut guard, (_, operations)) in guards.into_iter().zip(groups.iter()) {
+            for operation in *operations {
+                match operation {
+                    StoreOperation::Save(item) => {
+                        let created_at = guard
+                            .records
+                            .get(&item.id)
+                            .map(|r| r.created_at)
+                            .unwrap_or(now);
+                        guard.records.insert(
+                            item.id.clone(),
+                            StoredRecord {
+                                data: item.data.clone(),
+                                metadata: item.metadata.clone(),
+                                hash: crate::util::hash::compute_hash(&item.data),
+                                created_at,
+                            },
+                        );
+                    }
+                    StoreOperation::Delete(id) => {
+                        guard.records.remove(id);
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Clear several memory stores atomically. Stores must arrive in the
+    /// same globally deterministic order as `apply_cross_store` so
+    /// concurrent cross-store operations acquire the write locks in one
+    /// order and cannot deadlock. Clearing is infallible, so either every
+    /// store is emptied or none is.
+    pub(crate) async fn clear_cross_store(stores: &[&MemoryStorage]) -> Result<(), StorageError> {
+        let mut guards = Vec::with_capacity(stores.len());
+        for store in stores {
+            guards.push(store.inner.write().await);
+        }
+        for mut guard in guards {
+            guard.records.clear();
+        }
+        Ok(())
     }
 }
 
@@ -365,10 +429,7 @@ impl StoreExt for MemoryStorage {
         }
         Ok(())
     }
-}
 
-#[async_trait]
-impl crate::domain::store::BatchStore for MemoryStorage {
     async fn save_batch(&self, items: &[BatchItem]) -> Result<(), StorageError> {
         let mut store = self.inner.write().await;
         let now = current_timestamp();
@@ -422,7 +483,7 @@ impl Maintainable for MemoryStorage {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::store::{BatchStore, StoreExt};
+    use crate::domain::store::StoreExt;
 
     #[tokio::test]
     async fn test_save_load_roundtrip() {

@@ -114,6 +114,72 @@ impl QueryFilter {
         self.ops.push(FilterOp::Limit(limit));
         self
     }
+
+    /// Normalize the operation sequence into a dialect-agnostic plan.
+    /// Conditions keep their declaration order; repeated ordering and
+    /// pagination operations resolve to the last occurrence, matching the
+    /// historical behavior of every SQL backend.
+    pub fn compile(&self) -> CompiledFilter {
+        let mut plan = CompiledFilter::default();
+        for op in &self.ops {
+            match op {
+                FilterOp::Eq(key, value) => plan.conditions.push(FilterCondition::Eq(
+                    key.clone(),
+                    value.clone(),
+                )),
+                FilterOp::IdPrefix(prefix) => plan
+                    .conditions
+                    .push(FilterCondition::IdPrefix(prefix.clone())),
+                FilterOp::Prefix(key, prefix) => plan.conditions.push(FilterCondition::Prefix(
+                    key.clone(),
+                    prefix.clone(),
+                )),
+                FilterOp::Lt(key, value) => plan
+                    .conditions
+                    .push(FilterCondition::Lt(key.clone(), *value)),
+                FilterOp::Gt(key, value) => plan
+                    .conditions
+                    .push(FilterCondition::Gt(key.clone(), *value)),
+                FilterOp::Between(key, start, end) => plan.conditions.push(
+                    FilterCondition::Between(key.clone(), *start, *end),
+                ),
+                FilterOp::In(key, values) => plan
+                    .conditions
+                    .push(FilterCondition::In(key.clone(), values.clone())),
+                FilterOp::OrderBy(key, descending) => {
+                    plan.order_by = Some((key.clone(), *descending));
+                }
+                FilterOp::Offset(offset) => plan.offset = Some(*offset),
+                FilterOp::Limit(limit) => plan.limit = Some(*limit),
+            }
+        }
+        plan
+    }
+}
+
+/// One filter condition of a compiled plan, free of ordering and pagination.
+/// SQL backends render these with their own placeholder style and JSON
+/// operators; the condition structure and parameter order are shared.
+#[derive(Debug, Clone, PartialEq)]
+pub enum FilterCondition {
+    Eq(String, String),
+    IdPrefix(String),
+    Prefix(String, String),
+    Lt(String, i64),
+    Gt(String, i64),
+    Between(String, i64, i64),
+    In(String, Vec<String>),
+}
+
+/// Dialect-agnostic form of a [`QueryFilter`]: ordered conditions plus the
+/// resolved ordering and pagination. Both SQL backends consume this so the
+/// interpretation of an operation sequence exists exactly once.
+#[derive(Debug, Clone, Default)]
+pub struct CompiledFilter {
+    pub conditions: Vec<FilterCondition>,
+    pub order_by: Option<(String, bool)>,
+    pub offset: Option<u64>,
+    pub limit: Option<u64>,
 }
 
 #[derive(Debug, Clone)]
@@ -140,11 +206,20 @@ pub enum StoreOperation {
     Delete(String),
 }
 
-/// Core key-value store abstraction.
-///
-/// Defines the minimal contract every storage backend must implement:
-/// save, load, delete, list, exists, and clear. Extended operations
-/// (atomic batch, status update, field counting) live on [`StoreExt`].
+/// One operation of a cross-table atomic batch: the target physical table
+/// plus the save/delete to run inside the shared transaction. Table names
+/// are built from a fixed registry by the batch coordinator, never from
+/// external input, so interpolating them into SQL is safe.
+#[derive(Debug)]
+pub struct CrossTableOperation<'a> {
+    pub table: &'a str,
+    pub operation: &'a StoreOperation,
+}
+
+/// Core key-value store abstraction: single-key reads and writes plus
+/// filtered metadata queries. Multi-record data operations (mixed atomic
+/// batches, homogeneous bulk transfers, grouped counting) live on
+/// [`StoreExt`], and node maintenance lives on [`Maintainable`].
 #[async_trait]
 pub trait Store: Send + Sync {
     async fn save(&self, id: &str, data: &[u8], metadata: &Value) -> Result<(), StorageError>;
@@ -158,6 +233,8 @@ pub trait Store: Send + Sync {
         &self,
         filter: Option<&QueryFilter>,
     ) -> Result<Vec<(Vec<u8>, Value)>, StorageError> {
+        // Default fallback issues one load per listed id. Backends with a
+        // native query language override this with a single batch read.
         let entries = self.list(filter).await?;
         let mut results = Vec::with_capacity(entries.len());
         for (id, _) in entries {
@@ -180,20 +257,16 @@ pub trait Store: Send + Sync {
     async fn clear(&self) -> Result<(), StorageError>;
 }
 
-/// Extended store operations that are not part of the minimal [`Store`] contract.
-///
-/// Atomic batch operations, lightweight metadata-only status updates, and
-/// field-based aggregation are separated here so new backends only need to
-/// implement the core [`Store`] methods. Backends that offer native SQL
-/// implementations override the defaults for better performance.
+/// Extended store operations: mixed atomic batches, homogeneous bulk
+/// transfers, metadata-only status updates, and grouped counting. Backends
+/// with native SQL implementations override the defaults for transactional
+/// or grouped execution.
 #[async_trait]
 pub trait StoreExt: Store {
-    /// Apply a batch of mixed save/delete operations atomically where the
-    /// backend supports transactions (Sqlite / PostgreSQL `BEGIN`/`COMMIT`).
-    /// The default implementation applies the operations sequentially; the
-    /// in-memory backend relies on its single write lock. Used by the
-    /// checkpoint cleanup watermark (deletes + watermark write must land or
-    /// fail together).
+    /// Apply mixed save/delete operations atomically where the backend
+    /// supports transactions. Unlike the homogeneous `save_batch`, which
+    /// transfers many saves of one shape, this batch mixes both shapes so
+    /// related writes and tombstones land together.
     async fn apply_batch(&self, operations: &[StoreOperation]) -> Result<(), StorageError> {
         for operation in operations {
             match operation {
@@ -208,38 +281,9 @@ pub trait StoreExt: Store {
         Ok(())
     }
 
-    /// Update the `status` field of a record's metadata without touching its
-    /// data payload. Used to mark corrupt records (`corrupted`) so they are
-    /// visible to queries and skipped by recovery. The default implementation
-    /// is a no-op; backends with native metadata updates override it.
-    async fn update_status(&self, id: &str, status: &str) -> Result<(), StorageError> {
-        let _ = (id, status);
-        Ok(())
-    }
-
-    /// Count records grouped by a string metadata field.
-    /// Backends may override with an aggregate query (e.g. GROUP BY).
-    async fn count_by_metadata_field(
-        &self,
-        field: &str,
-    ) -> Result<HashMap<String, u64>, StorageError> {
-        let entries = self.list(None).await?;
-        let mut counts = HashMap::new();
-        for (_, meta) in entries {
-            let key = match meta.get(field) {
-                Some(Value::String(s)) => s.clone(),
-                Some(Value::Bool(b)) => b.to_string(),
-                Some(Value::Number(n)) => n.to_string(),
-                _ => continue,
-            };
-            *counts.entry(key).or_insert(0) += 1;
-        }
-        Ok(counts)
-    }
-}
-
-#[async_trait]
-pub trait BatchStore: Store {
+    /// Save homogeneous records in bulk. Database backends execute this in
+    /// one transaction; it differs from `apply_batch` only in operation
+    /// shape (saves only versus mixed saves and deletes).
     async fn save_batch(&self, items: &[BatchItem]) -> Result<(), StorageError> {
         for item in items {
             self.save(&item.id, &item.data, &item.metadata).await?;
@@ -266,8 +310,39 @@ pub trait BatchStore: Store {
         }
         Ok(())
     }
+
+    /// Update the `status` field of a record's metadata without touching its
+    /// data payload. Used to mark corrupt records (`corrupted`) so they are
+    /// visible to queries and skipped by recovery. Backends with native
+    /// metadata updates override this; the default rejects the call so a
+    /// missing override surfaces instead of silently dropping the update.
+    async fn update_status(&self, id: &str, status: &str) -> Result<(), StorageError> {
+        Err(StorageError::InvalidQuery(format!(
+            "update_status not supported by this backend (id={id}, status={status})"
+        )))
+    }
+
+    /// Count records grouped by a metadata field. Shares its name with the
+    /// entity-level counting so both layers expose one vocabulary.
+    /// Backends may override with an aggregate query (e.g. GROUP BY).
+    async fn count_by_field(&self, field: &str) -> Result<HashMap<String, u64>, StorageError> {
+        let entries = self.list(None).await?;
+        let mut counts = HashMap::new();
+        for (_, meta) in entries {
+            let key = match meta.get(field) {
+                Some(Value::String(s)) => s.clone(),
+                Some(Value::Bool(b)) => b.to_string(),
+                Some(Value::Number(n)) => n.to_string(),
+                _ => continue,
+            };
+            *counts.entry(key).or_insert(0) += 1;
+        }
+        Ok(counts)
+    }
 }
 
+/// Backend maintenance operations. Kept separate from data access so
+/// backends without maintenance needs keep the default no-op behavior.
 #[async_trait]
 pub trait Maintainable: Store {
     async fn vacuum(&self) -> Result<(), StorageError> {
@@ -278,7 +353,7 @@ pub trait Maintainable: Store {
     /// For PostgreSQL this is a no-op: the CHECKPOINT command requires
     /// superuser privileges and applies cluster-wide, and WAL advancement is
     /// handled internally by the server.
-    async fn checkpoint(&self) -> Result<(), StorageError> {
+    async fn wal_checkpoint(&self) -> Result<(), StorageError> {
         Ok(())
     }
     /// Flush pending writes to durable storage.

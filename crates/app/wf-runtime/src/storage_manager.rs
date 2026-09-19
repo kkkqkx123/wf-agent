@@ -4,6 +4,7 @@ use std::sync::Arc;
 use tracing::{info, warn};
 
 use wf_storage::context::StorageContext;
+use wf_storage::decorator::CacheConfig;
 use wf_storage::domain::Store;
 
 use crate::error::{RuntimeError, RuntimeResult};
@@ -90,7 +91,7 @@ impl StorageManager {
                         .unwrap_or_else(|| PathBuf::from(format!("./storage/{}.db", app_name)));
                     let path_str = db_path.to_string_lossy();
                     info!("Initializing Sqlite storage at {:?}", db_path);
-                    StorageContext::new_sqlite(&path_str).await?
+                    StorageContext::new_sqlite(&path_str, CacheConfig::default()).await?
                 }
                 #[cfg(not(feature = "sqlite"))]
                 {
@@ -106,7 +107,7 @@ impl StorageManager {
                         RuntimeError::Config("PostgreSQL storage config is missing".into())
                     })?;
                     info!("Initializing PostgreSQL storage");
-                    StorageContext::new_postgres(&pg_config.host).await?
+                    StorageContext::new_postgres(&pg_config.host, CacheConfig::default()).await?
                 }
                 #[cfg(not(feature = "postgres"))]
                 {
@@ -147,17 +148,7 @@ impl StorageManager {
 
     pub async fn clear(&mut self) -> RuntimeResult<()> {
         let ctx = self.context.as_mut().ok_or(RuntimeError::NotInitialized)?;
-        ctx.workflow.store().clear().await.ok();
-        ctx.workflow_execution.store().clear().await.ok();
-        ctx.checkpoint.store().clear().await.ok();
-        ctx.task.store().clear().await.ok();
-        ctx.agent_loop.store().clear().await.ok();
-        ctx.metrics.inner().clear().await.ok();
-        ctx.tool.store().clear().await.ok();
-        ctx.script.store().clear().await.ok();
-        ctx.node_template.store().clear().await.ok();
-        ctx.agent_profile.store().clear().await.ok();
-        ctx.trigger_template.store().clear().await.ok();
+        ctx.clear_all().await?;
         info!("StorageManager cleared");
         Ok(())
     }

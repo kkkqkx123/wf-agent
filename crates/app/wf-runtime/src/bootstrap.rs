@@ -266,12 +266,20 @@ impl Runtime {
         // or postgres storage, or a failed open) keeps events in memory only.
         let event_persistence = init_event_persistence(&config.storage).await;
 
-        // Durable checkpoint store backend: shares the storage backend
-        // so execution checkpoints survive restarts.
-        let checkpoint_store = init_checkpoint_store(&config.storage).await;
-
         let mut storage_manager = StorageManager::new(config.storage);
         storage_manager.initialize().await?;
+
+        // Durable checkpoint store backend: reuse the checkpoint table of the
+        // shared storage context so execution checkpoints survive restarts
+        // without opening a second pool on the same file/table.
+        let checkpoint_store = Arc::new(
+            storage_manager
+                .shared_context()
+                .expect("storage initialized")
+                .checkpoint
+                .store()
+                .clone(),
+        );
 
         let registries = Arc::new(ResourceRegistries::new());
         let bundles = Arc::new(ResourcePluginRegistry::new());
@@ -623,10 +631,9 @@ impl Runtime {
     /// callers.
     fn ensure_api_context(&self) -> &std::sync::Arc<wf_api::ApiContext> {
         self.api_ctx.get_or_init(|| {
-            let storage = self
-                .storage_manager
-                .shared_context()
-                .expect("storage not configured; set storage type to sqlite or postgres in storage.toml");
+            let storage = self.storage_manager.shared_context().expect(
+                "storage not configured; set storage type to sqlite or postgres in storage.toml",
+            );
             #[allow(unused_mut)]
             let mut ctx = wf_api::ApiContext::from_runtime_parts(
                 storage,

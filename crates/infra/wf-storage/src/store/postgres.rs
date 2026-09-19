@@ -2,8 +2,9 @@ use async_trait::async_trait;
 use serde_json::Value;
 use sqlx::PgPool;
 
+use crate::domain::keys::{schema_version_key, SCHEMA_VERSION_EXCLUDE_PATTERN};
 use crate::domain::store::{
-    BatchItem, BatchStore, FilterOp, Maintainable, QueryFilter, Store, StoreExt, StoreOperation,
+    BatchItem, FilterCondition, Maintainable, QueryFilter, Store, StoreExt, StoreOperation,
 };
 use crate::error::StorageError;
 use crate::util::pool::create_pg_pool;
@@ -71,11 +72,8 @@ impl PostgresStorage {
         }
 
         // Schema version check: insert on first open, reject on mismatch.
-        let version_key = format!("__schema_version__:{}", table_name);
-        let check_sql = format!(
-            "SELECT metadata FROM {} WHERE id = $1",
-            table_name
-        );
+        let version_key = schema_version_key(table_name);
+        let check_sql = format!("SELECT metadata FROM {} WHERE id = $1", table_name);
         let existing: Option<(Value,)> = sqlx::query_as(&check_sql)
             .bind(&version_key)
             .fetch_optional(&pool)
@@ -117,10 +115,7 @@ impl PostgresStorage {
                     .await
                     .map_err(|e| StorageError::Initialization {
                         backend: "postgres".into(),
-                        message: format!(
-                            "Failed to write schema version for '{}'",
-                            table_name
-                        ),
+                        message: format!("Failed to write schema version for '{}'", table_name),
                         source: Some(Box::new(e)),
                     })?;
             }
@@ -159,6 +154,80 @@ impl PostgresStorage {
             })?;
         Ok(())
     }
+
+    /// Apply operations targeting several tables inside one transaction.
+    /// Tables come from the storage context registry, never from external
+    /// input. Crate-visible only; cache invalidation is the caller's job.
+    pub(crate) async fn apply_cross_table(
+        pool: &PgPool,
+        operations: &[crate::domain::store::CrossTableOperation<'_>],
+    ) -> Result<(), StorageError> {
+        if operations.is_empty() {
+            return Ok(());
+        }
+        let mut tx = pool.begin().await.map_err(|e| StorageError::General {
+            operation: "apply_cross_table".into(),
+            message: e.to_string(),
+            source: Some(Box::new(e)),
+        })?;
+
+        let now = chrono::Utc::now().timestamp_millis();
+        for operation in operations {
+            match operation.operation {
+                StoreOperation::Save(item) => {
+                    exec_save(&mut *tx, operation.table, item, now).await?;
+                }
+                StoreOperation::Delete(id) => {
+                    exec_delete(&mut *tx, operation.table, id).await?;
+                }
+            }
+        }
+
+        tx.commit().await.map_err(|e| StorageError::General {
+            operation: "apply_cross_table".into(),
+            message: e.to_string(),
+            source: Some(Box::new(e)),
+        })?;
+        Ok(())
+    }
+
+    /// Truncate the given tables inside one transaction. Tables come from
+    /// the storage context registry, never from external input. The internal
+    /// schema version rows are removed as well, matching the per-table
+    /// `clear` semantics. Crate-visible only; cache invalidation is the
+    /// caller's job.
+    pub(crate) async fn clear_cross_table(
+        pool: &PgPool,
+        tables: &[&str],
+    ) -> Result<(), StorageError> {
+        if tables.is_empty() {
+            return Ok(());
+        }
+        let mut tx = pool.begin().await.map_err(|e| StorageError::General {
+            operation: "clear_cross_table".into(),
+            message: e.to_string(),
+            source: Some(Box::new(e)),
+        })?;
+
+        for table in tables {
+            let sql = format!("TRUNCATE TABLE {}", table);
+            sqlx::query(&sql)
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| StorageError::General {
+                    operation: "clear_cross_table".into(),
+                    message: e.to_string(),
+                    source: Some(Box::new(e)),
+                })?;
+        }
+
+        tx.commit().await.map_err(|e| StorageError::General {
+            operation: "clear_cross_table".into(),
+            message: e.to_string(),
+            source: Some(Box::new(e)),
+        })?;
+        Ok(())
+    }
 }
 
 enum BindValue {
@@ -168,29 +237,30 @@ enum BindValue {
 
 /// Translates a QueryFilter into a complete SELECT statement.
 /// Field names come from a fixed metadata schema, so interpolation is safe.
+/// The filter is first normalized through the shared compiled plan; only
+/// placeholder style and JSON operators are PostgreSQL-specific. Mirror any
+/// semantic change in the Sqlite renderer.
 fn build_select_sql(
     filter: Option<&QueryFilter>,
     table_name: &str,
     select_columns: &str,
 ) -> (String, Vec<BindValue>) {
+    let plan = filter.map(|f| f.compile());
     let mut sql = format!("SELECT {} FROM {}", select_columns, table_name);
     let mut conditions: Vec<String> = Vec::new();
     let mut params: Vec<BindValue> = Vec::new();
-    let mut order_by: Option<(String, bool)> = None;
-    let mut offset: Option<u64> = None;
-    let mut limit: Option<u64> = None;
 
     // Exclude internal schema version records from application queries.
-    conditions.push("id NOT LIKE '__schema_version__:%'".into());
+    conditions.push(format!("id NOT LIKE '{}'", SCHEMA_VERSION_EXCLUDE_PATTERN));
 
-    if let Some(f) = filter {
-        for op in &f.ops {
+    if let Some(p) = plan.as_ref() {
+        for op in &p.conditions {
             match op {
-                FilterOp::Eq(key, value) => {
+                FilterCondition::Eq(key, value) => {
                     conditions.push(format!("metadata->>'{}' = ${}", key, params.len() + 1));
                     params.push(BindValue::S(value.clone()));
                 }
-                FilterOp::IdPrefix(prefix) => {
+                FilterCondition::IdPrefix(prefix) => {
                     conditions.push(format!(
                         "substr(id, 1, ${}) = ${}",
                         params.len() + 1,
@@ -199,7 +269,7 @@ fn build_select_sql(
                     params.push(BindValue::S(prefix.clone()));
                     params.push(BindValue::S(prefix.clone()));
                 }
-                FilterOp::Prefix(key, prefix) => {
+                FilterCondition::Prefix(key, prefix) => {
                     conditions.push(format!(
                         "substr(metadata->>'{}', 1, ${}) = ${}",
                         key,
@@ -209,7 +279,7 @@ fn build_select_sql(
                     params.push(BindValue::S(prefix.clone()));
                     params.push(BindValue::S(prefix.clone()));
                 }
-                FilterOp::Lt(key, value) => {
+                FilterCondition::Lt(key, value) => {
                     conditions.push(format!(
                         "(jsonb_typeof(metadata->'{}') = 'number' AND (metadata->>'{}')::bigint < ${})",
                         key,
@@ -218,7 +288,7 @@ fn build_select_sql(
                     ));
                     params.push(BindValue::I(*value));
                 }
-                FilterOp::Gt(key, value) => {
+                FilterCondition::Gt(key, value) => {
                     conditions.push(format!(
                         "(jsonb_typeof(metadata->'{}') = 'number' AND (metadata->>'{}')::bigint > ${})",
                         key,
@@ -227,7 +297,7 @@ fn build_select_sql(
                     ));
                     params.push(BindValue::I(*value));
                 }
-                FilterOp::Between(key, start, end) => {
+                FilterCondition::Between(key, start, end) => {
                     conditions.push(format!(
                         "(jsonb_typeof(metadata->'{}') = 'number' AND (metadata->>'{}')::bigint >= ${} AND (metadata->>'{}')::bigint <= ${})",
                         key,
@@ -239,7 +309,7 @@ fn build_select_sql(
                     params.push(BindValue::I(*start));
                     params.push(BindValue::I(*end));
                 }
-                FilterOp::In(key, values) => {
+                FilterCondition::In(key, values) => {
                     if values.is_empty() {
                         conditions.push("false".into());
                     } else {
@@ -254,11 +324,6 @@ fn build_select_sql(
                         params.extend(values.iter().cloned().map(BindValue::S));
                     }
                 }
-                FilterOp::OrderBy(key, descending) => {
-                    order_by = Some((key.clone(), *descending));
-                }
-                FilterOp::Offset(o) => offset = Some(*o),
-                FilterOp::Limit(l) => limit = Some(*l),
             }
         }
     }
@@ -267,7 +332,7 @@ fn build_select_sql(
         sql.push_str(" WHERE ");
         sql.push_str(&conditions.join(" AND "));
     }
-    if let Some((key, descending)) = order_by {
+    if let Some((key, descending)) = plan.as_ref().and_then(|p| p.order_by.clone()) {
         // Numeric-aware ordering: numeric metadata values sort by their
         // numeric value, everything else falls back to NULL (excluded from
         // numeric comparison) so a cast can never fail the query. NULLS LAST
@@ -279,10 +344,10 @@ fn build_select_sql(
             if descending { "DESC" } else { "ASC" }
         ));
     }
-    if let Some(limit) = limit {
+    if let Some(limit) = plan.as_ref().and_then(|p| p.limit) {
         sql.push_str(&format!(" LIMIT {}", limit));
     }
-    if let Some(offset) = offset {
+    if let Some(offset) = plan.as_ref().and_then(|p| p.offset) {
         sql.push_str(&format!(" OFFSET {}", offset));
     }
 
@@ -473,13 +538,81 @@ impl Store for PostgresStorage {
     }
 }
 
+/// Execute one upsert inside a transaction or pool executor. Shared by the
+/// single-table batch and the cross-table atomic batch so both paths write
+/// identical rows.
+async fn exec_save<'e, E>(
+    executor: E,
+    table: &str,
+    item: &BatchItem,
+    now: i64,
+) -> Result<(), StorageError>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
+    let hash = crate::util::hash::compute_hash(&item.data);
+    let data_size = item.data.len() as i64;
+    let compressed = item
+        .metadata
+        .get("compressed")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let sql = format!(
+        "INSERT INTO {} (id, data, metadata, hash, data_size, compressed, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         ON CONFLICT (id) DO UPDATE SET
+            data = EXCLUDED.data,
+            metadata = EXCLUDED.metadata,
+            hash = EXCLUDED.hash,
+            data_size = EXCLUDED.data_size,
+            compressed = EXCLUDED.compressed,
+            updated_at = EXCLUDED.updated_at",
+        table
+    );
+    sqlx::query(&sql)
+        .bind(&item.id)
+        .bind(&item.data)
+        .bind(&item.metadata)
+        .bind(&hash)
+        .bind(data_size)
+        .bind(compressed)
+        .bind(now)
+        .bind(now)
+        .execute(executor)
+        .await
+        .map_err(|e| StorageError::General {
+            operation: "apply_batch.save".into(),
+            message: e.to_string(),
+            source: Some(Box::new(e)),
+        })?;
+    Ok(())
+}
+
+/// Execute one delete inside a transaction or pool executor (see `exec_save`).
+async fn exec_delete<'e, E>(executor: E, table: &str, id: &str) -> Result<(), StorageError>
+where
+    E: sqlx::Executor<'e, Database = sqlx::Postgres>,
+{
+    let sql = format!("DELETE FROM {} WHERE id = $1", table);
+    sqlx::query(&sql)
+        .bind(id)
+        .execute(executor)
+        .await
+        .map_err(|e| StorageError::General {
+            operation: "apply_batch.delete".into(),
+            message: e.to_string(),
+            source: Some(Box::new(e)),
+        })?;
+    Ok(())
+}
+
 #[async_trait]
 impl StoreExt for PostgresStorage {
     async fn update_status(&self, id: &str, status: &str) -> Result<(), StorageError> {
         PostgresStorage::update_status(self, id, status).await
     }
 
-    async fn count_by_metadata_field(
+    async fn count_by_field(
         &self,
         field: &str,
     ) -> Result<std::collections::HashMap<String, u64>, StorageError> {
@@ -491,7 +624,7 @@ impl StoreExt for PostgresStorage {
             .fetch_all(&self.pool)
             .await
             .map_err(|e| StorageError::General {
-                operation: "count_by_metadata_field".into(),
+                operation: "count_by_field".into(),
                 message: e.to_string(),
                 source: Some(Box::new(e)),
             })?;
@@ -515,53 +648,10 @@ impl StoreExt for PostgresStorage {
         for operation in operations {
             match operation {
                 StoreOperation::Save(item) => {
-                    let hash = crate::util::hash::compute_hash(&item.data);
-                    let data_size = item.data.len() as i64;
-                    let compressed = item
-                        .metadata
-                        .get("compressed")
-                        .and_then(|v| v.as_bool())
-                        .unwrap_or(false);
-                    let sql = format!(
-                        "INSERT INTO {} (id, data, metadata, hash, data_size, compressed, created_at, updated_at)
-                         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-                         ON CONFLICT (id) DO UPDATE SET
-                            data = EXCLUDED.data,
-                            metadata = EXCLUDED.metadata,
-                            hash = EXCLUDED.hash,
-                            data_size = EXCLUDED.data_size,
-                            compressed = EXCLUDED.compressed,
-                            updated_at = EXCLUDED.updated_at",
-                        self.table_name
-                    );
-                    sqlx::query(&sql)
-                        .bind(&item.id)
-                        .bind(&item.data)
-                        .bind(&item.metadata)
-                        .bind(&hash)
-                        .bind(data_size)
-                        .bind(compressed)
-                        .bind(now)
-                        .bind(now)
-                        .execute(&mut *tx)
-                        .await
-                        .map_err(|e| StorageError::General {
-                            operation: "apply_batch.save".into(),
-                            message: e.to_string(),
-                            source: Some(Box::new(e)),
-                        })?;
+                    exec_save(&mut *tx, &self.table_name, item, now).await?;
                 }
                 StoreOperation::Delete(id) => {
-                    let sql = format!("DELETE FROM {} WHERE id = $1", self.table_name);
-                    sqlx::query(&sql)
-                        .bind(id)
-                        .execute(&mut *tx)
-                        .await
-                        .map_err(|e| StorageError::General {
-                            operation: "apply_batch.delete".into(),
-                            message: e.to_string(),
-                            source: Some(Box::new(e)),
-                        })?;
+                    exec_delete(&mut *tx, &self.table_name, id).await?;
                 }
             }
         }
@@ -573,10 +663,7 @@ impl StoreExt for PostgresStorage {
         })?;
         Ok(())
     }
-}
 
-#[async_trait]
-impl BatchStore for PostgresStorage {
     async fn load_batch(
         &self,
         ids: &[String],
@@ -681,7 +768,7 @@ impl Maintainable for PostgresStorage {
     // the CHECKPOINT command requires superuser privileges and applies to
     // the whole cluster. WAL advancement is handled internally by the
     // server, so this is a no-op like `sync`.
-    async fn checkpoint(&self) -> Result<(), StorageError> {
+    async fn wal_checkpoint(&self) -> Result<(), StorageError> {
         Ok(())
     }
 

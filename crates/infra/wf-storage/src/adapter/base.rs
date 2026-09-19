@@ -102,13 +102,22 @@ where
         }
     }
 
-    /// Update the status metadata field of a record. Default is a no-op.
+    /// Update the status metadata field of a record through the raw string
+    /// channel. Domain adapters expose typed `update_status` methods where
+    /// available; this raw entry point keeps a distinct name because Rust
+    /// has no method overloading. No silent fallback: adapters without
+    /// native support must surface an error so a missing override cannot
+    /// be mistaken for a successful write.
     fn set_status<'a>(
         &'a self,
-        _id: &'a str,
-        _status: &'a str,
+        id: &'a str,
+        status: &'a str,
     ) -> impl Future<Output = Result<(), StorageError>> + Send + 'a {
-        async move { Ok(()) }
+        async move {
+            Err(StorageError::InvalidQuery(format!(
+                "set_status not supported by this adapter (id={id}, status={status})"
+            )))
+        }
     }
 }
 

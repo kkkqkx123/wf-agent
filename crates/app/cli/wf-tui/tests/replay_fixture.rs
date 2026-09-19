@@ -14,6 +14,7 @@ use wf_api::BaseStorageAdapter;
 use wf_resource::registry::ResourceRegistries;
 use wf_resource::resource_plugin::ResourcePluginRegistry;
 use wf_storage::context::StorageContext;
+use wf_storage::decorator::CacheConfig;
 use wf_tui::replay::replay_scrollack;
 use wf_types::message::{Message, MessageContentValue, MessageRole};
 
@@ -35,9 +36,10 @@ fn make_message(id: &str, role: MessageRole, text: &str, ts: i64) -> Message {
 }
 
 async fn make_sqlite_ctx(db_path: &std::path::Path) -> Arc<ApiContext> {
-    let storage = StorageContext::new_sqlite(db_path.to_str().unwrap())
-        .await
-        .unwrap();
+    let storage =
+        StorageContext::new_sqlite(db_path.to_str().unwrap(), CacheConfig::default())
+            .await
+            .unwrap();
     Arc::new(ApiContext::new(
         storage,
         Arc::new(ResourceRegistries::new()),

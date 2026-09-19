@@ -8,12 +8,6 @@ pub enum StorageError {
         source: Option<Box<dyn std::error::Error + Send + Sync>>,
     },
 
-    #[error("Entity not found: type={entity_type}, id={entity_id}")]
-    NotFound {
-        entity_type: String,
-        entity_id: String,
-    },
-
     #[error("Storage quota exceeded: required={required}, available={available}")]
     QuotaExceeded { required: u64, available: u64 },
 
@@ -63,23 +57,16 @@ impl From<serde_json::Error> for StorageError {
     }
 }
 
+/// All sqlx failures map to one general error carrying the original source.
+/// Row absence is not an error at this layer: callers use `fetch_optional`
+/// and receive `Ok(None)` for missing records.
 #[cfg(any(feature = "sqlite", feature = "postgres"))]
 impl From<sqlx::Error> for StorageError {
     fn from(e: sqlx::Error) -> Self {
-        match e {
-            // RowNotFound with empty entity fields loses diagnostic context;
-            // callers that need "not found" semantics use fetch_optional (Ok(None))
-            // rather than this conversion path.
-            sqlx::Error::RowNotFound => StorageError::General {
-                operation: "sqlx".into(),
-                message: e.to_string(),
-                source: Some(Box::new(e)),
-            },
-            _ => StorageError::General {
-                operation: "sqlx".into(),
-                message: e.to_string(),
-                source: Some(Box::new(e)),
-            },
+        StorageError::General {
+            operation: "sqlx".into(),
+            message: e.to_string(),
+            source: Some(Box::new(e)),
         }
     }
 }

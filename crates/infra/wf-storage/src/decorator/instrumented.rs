@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use serde_json::Value;
 
 use crate::domain::store::{
-    BatchItem, BatchStore, Maintainable, QueryFilter, Store, StoreExt, StoreOperation,
+    BatchItem, Maintainable, QueryFilter, Store, StoreExt, StoreOperation,
 };
 use crate::error::StorageError;
 
@@ -107,6 +107,10 @@ impl<S: Store> InstrumentedStore<S> {
         &self.metrics
     }
 
+    pub fn inner(&self) -> &S {
+        &self.inner
+    }
+
     pub fn into_inner(self) -> S {
         self.inner
     }
@@ -167,6 +171,24 @@ impl<S: Store> Store for InstrumentedStore<S> {
         self.inner.count(filter).await
     }
 
+    /// Delegate to the inner single-query implementation instead of the
+    /// trait default (list + one load per record), so SQL backends keep
+    /// their one-round-trip behavior behind this wrapper.
+    async fn list_data(
+        &self,
+        filter: Option<&QueryFilter>,
+    ) -> Result<Vec<(Vec<u8>, Value)>, StorageError> {
+        let start = Instant::now();
+        let result = self.inner.list_data(filter).await;
+        let elapsed = start.elapsed().as_millis() as u64;
+        let bytes = match &result {
+            Ok(items) => items.iter().map(|(d, _)| d.len() as u64).sum(),
+            Err(_) => 0,
+        };
+        self.metrics.list.record(elapsed, bytes);
+        result
+    }
+
     async fn exists(&self, id: &str) -> Result<bool, StorageError> {
         let start = Instant::now();
         let result = self.inner.exists(id).await;
@@ -205,16 +227,13 @@ impl<S: Store + StoreExt> StoreExt for InstrumentedStore<S> {
         result
     }
 
-    async fn count_by_metadata_field(
+    async fn count_by_field(
         &self,
         field: &str,
     ) -> Result<std::collections::HashMap<String, u64>, StorageError> {
-        self.inner.count_by_metadata_field(field).await
+        self.inner.count_by_field(field).await
     }
-}
 
-#[async_trait]
-impl<S: Store + BatchStore> BatchStore for InstrumentedStore<S> {
     async fn save_batch(&self, items: &[BatchItem]) -> Result<(), StorageError> {
         let start = Instant::now();
         let result = self.inner.save_batch(items).await;
@@ -258,11 +277,38 @@ impl<S: Store + Maintainable> Maintainable for InstrumentedStore<S> {
         self.inner.vacuum().await
     }
 
-    async fn checkpoint(&self) -> Result<(), StorageError> {
-        self.inner.checkpoint().await
+    async fn wal_checkpoint(&self) -> Result<(), StorageError> {
+        self.inner.wal_checkpoint().await
     }
 
     async fn sync(&self) -> Result<(), StorageError> {
         self.inner.sync().await
+    }
+}
+
+#[cfg(all(test, feature = "memory"))]
+mod tests {
+    use super::*;
+    use crate::store::memory::MemoryStorage;
+
+    #[tokio::test]
+    async fn test_list_data_delegates_single_query() {
+        let store = InstrumentedStore::new(MemoryStorage::new("test"));
+        for i in 0..3 {
+            store
+                .save(
+                    &format!("id{}", i),
+                    b"data",
+                    &serde_json::json!({"index": i}),
+                )
+                .await
+                .unwrap();
+        }
+        let rows = store.list_data(None).await.unwrap();
+        assert_eq!(rows.len(), 3);
+        // One list observation, zero per-record loads: the inner
+        // single-pass implementation ran instead of the N+1 default.
+        assert_eq!(store.metrics().list.count(), 1);
+        assert_eq!(store.metrics().load.count(), 0);
     }
 }

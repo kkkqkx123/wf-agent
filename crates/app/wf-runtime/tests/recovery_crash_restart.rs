@@ -16,6 +16,7 @@ use wf_storage::adapter::base::BaseStorageAdapter;
 use wf_storage::adapter::execution::WorkflowExecutionStorageAdapter;
 use wf_storage::backend::StorageBackend;
 use wf_storage::context::StorageContext;
+use wf_storage::decorator::CacheConfig;
 use wf_types::node::{BaseStaticNode, StaticNodeType};
 use wf_types::workflow::edge::EdgeType;
 use wf_types::workflow::WorkflowDefinition;
@@ -139,7 +140,9 @@ async fn kill_restart_recover_drives_crashed_execution_to_completion() {
 
     // ---- Process 1: run a workflow partway, then "crash" ----
     let execution_id = {
-        let storage = StorageContext::new_sqlite(db).await.unwrap();
+        let storage = StorageContext::new_sqlite(db, CacheConfig::default())
+            .await
+            .unwrap();
         storage
             .workflow
             .save(&make_multi_step_definition("wf-kill"))
@@ -173,7 +176,9 @@ async fn kill_restart_recover_drives_crashed_execution_to_completion() {
     // Simulated crash: everything (contexts, pools) is dropped here.
 
     // ---- Process 2: restart over the same store ----
-    let storage = StorageContext::new_sqlite(db).await.unwrap();
+    let storage = StorageContext::new_sqlite(db, CacheConfig::default())
+            .await
+            .unwrap();
 
     // The crashed execution's persisted record still claims it is running.
     storage
@@ -228,7 +233,9 @@ async fn kill_restart_without_checkpoint_is_skipped() {
 
     // Process 1: an execution record stuck in Running, no checkpoints.
     {
-        let storage = StorageContext::new_sqlite(db).await.unwrap();
+        let storage = StorageContext::new_sqlite(db, CacheConfig::default())
+            .await
+            .unwrap();
         storage
             .workflow_execution
             .save(&WorkflowExecution {
@@ -255,7 +262,9 @@ async fn kill_restart_without_checkpoint_is_skipped() {
     }
 
     // Process 2: restart and scan.
-    let storage = StorageContext::new_sqlite(db).await.unwrap();
+    let storage = StorageContext::new_sqlite(db, CacheConfig::default())
+            .await
+            .unwrap();
     let api_ctx = make_api_ctx(storage, db).await;
     let orchestrator = RecoveryOrchestrator::new(RecoveryScanner::new(
         api_ctx.storage.workflow_execution.clone(),

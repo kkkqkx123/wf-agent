@@ -6,10 +6,11 @@ use moka::sync::Cache;
 use serde_json::Value;
 
 use crate::domain::store::{
-    BatchItem, BatchStore, Maintainable, QueryFilter, Store, StoreExt, StoreOperation,
+    BatchItem, Maintainable, QueryFilter, Store, StoreExt, StoreOperation,
 };
 use crate::error::StorageError;
 
+#[derive(Debug, Clone, Copy)]
 pub struct CacheConfig {
     pub max_capacity: u64,
     pub ttl_seconds: u64,
@@ -61,6 +62,10 @@ impl EntityCache {
                 None
             }
         }
+    }
+
+    pub fn contains(&self, id: &str) -> bool {
+        self.cache.contains_key(id)
     }
 
     pub fn insert(&self, id: String, data: Vec<u8>, metadata: Value) {
@@ -169,7 +174,7 @@ impl<S: Store> Store for CachingStore<S> {
     }
 
     async fn exists(&self, id: &str) -> Result<bool, StorageError> {
-        if self.cache.get(id).is_some() {
+        if self.cache.contains(id) {
             return Ok(true);
         }
         self.inner.exists(id).await
@@ -201,16 +206,13 @@ impl<S: Store + StoreExt> StoreExt for CachingStore<S> {
         Ok(())
     }
 
-    async fn count_by_metadata_field(
+    async fn count_by_field(
         &self,
         field: &str,
     ) -> Result<std::collections::HashMap<String, u64>, StorageError> {
-        self.inner.count_by_metadata_field(field).await
+        self.inner.count_by_field(field).await
     }
-}
 
-#[async_trait]
-impl<S: Store + BatchStore> BatchStore for CachingStore<S> {
     async fn save_batch(&self, items: &[BatchItem]) -> Result<(), StorageError> {
         self.inner.save_batch(items).await?;
         for item in items {
@@ -241,8 +243,8 @@ impl<S: Store + Maintainable> Maintainable for CachingStore<S> {
         self.inner.vacuum().await
     }
 
-    async fn checkpoint(&self) -> Result<(), StorageError> {
-        self.inner.checkpoint().await
+    async fn wal_checkpoint(&self) -> Result<(), StorageError> {
+        self.inner.wal_checkpoint().await
     }
 
     async fn sync(&self) -> Result<(), StorageError> {

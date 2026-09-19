@@ -11,6 +11,7 @@ use wf_api::ApiContext;
 use wf_resource::registry::ResourceRegistries;
 use wf_resource::resource_plugin::ResourcePluginRegistry;
 use wf_storage::context::StorageContext;
+use wf_storage::decorator::CacheConfig;
 use wf_storage::domain::Store;
 use wf_types::checkpoint::base::{CheckpointStatus, CheckpointType};
 use wf_types::node::{BaseStaticNode, StaticNodeType};
@@ -164,7 +165,9 @@ async fn checkpoint_command_roundtrip_on_sqlite_store() {
     // Checkpoint commands only take effect for a persistent store; wire a
     // Sqlite backend into the shared context and verify the create -> restore
     // round-trip through the wf-checkpoint coordinator.
-    let storage = StorageContext::new_sqlite(":memory:").await.unwrap();
+    let storage = StorageContext::new_sqlite(":memory:", CacheConfig::default())
+        .await
+        .unwrap();
     let mut ctx = ApiContext::new(
         storage,
         Arc::new(ResourceRegistries::new()),
@@ -225,7 +228,9 @@ async fn checkpoint_chain_respects_node_config_via_api() {
     // Node-level checkpoint config overrides the workflow strategy through
     // the full API pipeline: v1 opts out, so no snapshot in the persisted
     // chain may be anchored at v1 while other nodes still checkpoint.
-    let storage = StorageContext::new_sqlite(":memory:").await.unwrap();
+    let storage = StorageContext::new_sqlite(":memory:", CacheConfig::default())
+        .await
+        .unwrap();
     let mut ctx = ApiContext::new(
         storage,
         Arc::new(ResourceRegistries::new()),

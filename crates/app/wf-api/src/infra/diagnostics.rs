@@ -3,8 +3,9 @@ use std::sync::Arc;
 
 use serde::Serialize;
 
-use wf_storage::adapter::base::BaseStorageAdapter;
+use wf_storage::backend::StorageBackend;
 use wf_storage::context::StorageContext;
+use wf_storage::domain::store::Store;
 
 use crate::infra::context::ApiContext;
 use crate::infra::error::ApiResult;
@@ -28,8 +29,10 @@ pub struct StorageDiagnosticReport {
     pub healthy: bool,
 }
 
-/// Storage diagnostics: probe every adapter in the shared `StorageContext`
-/// for availability and entry counts.
+/// Storage diagnostics: probe every backend registered in the shared
+/// `StorageContext` for availability and entry counts. The probed set comes
+/// from the context registry itself, so newly added entities are covered
+/// without touching this module.
 ///
 /// A probe failure (e.g. a broken backend) degrades that store to
 /// `healthy: false` with the error text instead of failing the whole report.
@@ -42,30 +45,12 @@ async fn health_for(storage: &Arc<StorageContext>) -> ApiResult<StorageDiagnosti
     let mut total_entries = 0u64;
     let mut healthy = true;
 
-    macro_rules! probe {
-        ($name:literal, $store:expr) => {{
-            let diagnostic = probe_store($name, $store).await;
-            total_entries += diagnostic.entries;
-            healthy &= diagnostic.healthy;
-            stores.push(diagnostic);
-        }};
+    for (id, backend) in storage.named_backends() {
+        let diagnostic = probe_backend(id.name(), backend).await;
+        total_entries += diagnostic.entries;
+        healthy &= diagnostic.healthy;
+        stores.push(diagnostic);
     }
-
-    probe!("workflow", &storage.workflow);
-    probe!("workflow_execution", &storage.workflow_execution);
-    probe!("checkpoint", &storage.checkpoint);
-    probe!("task", &storage.task);
-    probe!("agent_loop", &storage.agent_loop);
-    probe!("agent_execution", &storage.agent_execution);
-    probe!("agent_profile", &storage.agent_profile);
-    probe!("trigger_template", &storage.trigger_template);
-    probe!("trigger_execution", &storage.trigger_execution);
-    probe!("user_interaction", &storage.user_interaction);
-    probe!("tool", &storage.tool);
-    probe!("script", &storage.script);
-    probe!("node_template", &storage.node_template);
-    probe!("message", &storage.message);
-    probe!("variable", &storage.variable);
 
     Ok(StorageDiagnosticReport {
         stores,
@@ -74,16 +59,11 @@ async fn health_for(storage: &Arc<StorageContext>) -> ApiResult<StorageDiagnosti
     })
 }
 
-async fn probe_store<E, F, A>(name: &'static str, adapter: &A) -> StoreDiagnostic
-where
-    A: BaseStorageAdapter<E, F> + Sync,
-    E: Send + Sync,
-    F: Send + Sync,
-{
-    match adapter.list(None).await {
+async fn probe_backend(name: &'static str, backend: &StorageBackend) -> StoreDiagnostic {
+    match backend.count(None).await {
         Ok(entries) => StoreDiagnostic {
             name,
-            entries: entries.len() as u64,
+            entries,
             healthy: true,
             error: None,
         },
@@ -141,6 +121,7 @@ mod tests {
     use super::*;
     use wf_resource::registry::ResourceRegistries;
     use wf_resource::resource_plugin::ResourcePluginRegistry;
+    use wf_storage::adapter::base::BaseStorageAdapter;
     use wf_storage::context::StorageContext;
 
     fn make_ctx() -> Arc<ApiContext> {
@@ -157,7 +138,7 @@ mod tests {
         let report = health(&ctx).await.unwrap();
         assert!(report.healthy);
         assert_eq!(report.total_entries, 0);
-        assert_eq!(report.stores.len(), 15);
+        assert_eq!(report.stores.len(), 20);
         assert!(report.stores.iter().all(|s| s.healthy));
     }
 

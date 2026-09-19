@@ -9,6 +9,10 @@ use crate::domain::store::{
 };
 use crate::error::StorageError;
 
+/// Current storage schema version. Bump when table structure or metadata
+/// semantics change; startup rejects databases with a different version.
+const SCHEMA_VERSION: i64 = 1;
+
 fn to_sqlite_url(path: &str) -> String {
     if path.starts_with("sqlite:") {
         path.to_string()
@@ -66,6 +70,9 @@ fn build_select_sql(
     let mut order_by: Option<(String, bool)> = None;
     let mut offset: Option<u64> = None;
     let mut limit: Option<u64> = None;
+
+    // Exclude internal schema version records from application queries.
+    conditions.push("id NOT LIKE '__schema_version__:%'".into());
 
     if let Some(f) = filter {
         for op in &f.ops {
@@ -239,6 +246,73 @@ impl SqliteStorage {
             table_name, table_name
         );
         sqlx::query(&idx2).execute(&pool).await.ok();
+
+        // Schema version check: insert on first open, reject on mismatch.
+        let version_key = format!("__schema_version__:{}", table_name);
+        let check_sql = format!(
+            "SELECT metadata FROM {} WHERE id = ?1",
+            table_name
+        );
+        let existing: Option<(String,)> = sqlx::query_as(&check_sql)
+            .bind(&version_key)
+            .fetch_optional(&pool)
+            .await
+            .map_err(|e| StorageError::Initialization {
+                backend: "sqlite".into(),
+                message: format!("Failed to check schema version for '{}'", table_name),
+                source: Some(Box::new(e)),
+            })?;
+        match existing {
+            Some((meta_str,)) => {
+                let meta: Value = serde_json::from_str(&meta_str).map_err(|e| {
+                    StorageError::Initialization {
+                        backend: "sqlite".into(),
+                        message: format!(
+                            "Failed to parse schema version metadata for '{}'",
+                            table_name
+                        ),
+                        source: Some(Box::new(e)),
+                    }
+                })?;
+                let stored = meta.get("version").and_then(|v| v.as_i64()).unwrap_or(0);
+                if stored != SCHEMA_VERSION {
+                    return Err(StorageError::StateError {
+                        expected: format!("schema v{}", SCHEMA_VERSION),
+                        actual: format!("schema v{}", stored),
+                    });
+                }
+            }
+            None => {
+                let now = chrono::Utc::now().timestamp_millis();
+                let insert_sql = format!(
+                    "INSERT INTO {} (id, data, metadata, hash, data_size, compressed, created_at, updated_at)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                    table_name
+                );
+                let version_meta = serde_json::json!({"version": SCHEMA_VERSION});
+                let meta_str = serde_json::to_string(&version_meta)?;
+                let empty_hash = crate::util::hash::compute_hash(b"");
+                sqlx::query(&insert_sql)
+                    .bind(&version_key)
+                    .bind(b"" as &[u8])
+                    .bind(&meta_str)
+                    .bind(&empty_hash)
+                    .bind(0i64)
+                    .bind(false)
+                    .bind(now)
+                    .bind(now)
+                    .execute(&pool)
+                    .await
+                    .map_err(|e| StorageError::Initialization {
+                        backend: "sqlite".into(),
+                        message: format!(
+                            "Failed to write schema version for '{}'",
+                            table_name
+                        ),
+                        source: Some(Box::new(e)),
+                    })?;
+            }
+        }
 
         Ok(Self {
             pool,
@@ -1024,11 +1098,13 @@ mod tests {
                 .unwrap();
             assert!(created > 0);
         }
-        let all: Vec<(String, Vec<u8>)> =
-            sqlx::query_as(&format!("SELECT id, data FROM {}", store.table_name()))
-                .fetch_all(store.pool())
-                .await
-                .unwrap();
+        let all: Vec<(String, Vec<u8>)> = sqlx::query_as(&format!(
+            "SELECT id, data FROM {} WHERE id NOT LIKE '__schema_version__:%'",
+            store.table_name()
+        ))
+        .fetch_all(store.pool())
+        .await
+        .unwrap();
         assert_eq!(all.len(), 3);
         assert!(all.iter().all(|(_, data)| data == &vec![0xAA; 10]));
     }

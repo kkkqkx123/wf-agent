@@ -112,6 +112,7 @@ impl<S: Store> InstrumentedStore<S> {
     }
 }
 
+#[cfg(feature = "memory")]
 impl InstrumentedStore<crate::store::memory::MemoryStorage> {
     /// Test support: corrupt one payload byte without touching the hash
     /// (see [`crate::store::memory::MemoryStorage::corrupt_payload`]).

@@ -626,7 +626,7 @@ impl Runtime {
             let storage = self
                 .storage_manager
                 .shared_context()
-                .unwrap_or_else(|| Arc::new(wf_storage::context::StorageContext::new_memory()));
+                .expect("storage not configured; set storage type to sqlite or postgres in storage.toml");
             #[allow(unused_mut)]
             let mut ctx = wf_api::ApiContext::from_runtime_parts(
                 storage,

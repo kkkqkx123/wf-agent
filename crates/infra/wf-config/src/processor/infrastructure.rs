@@ -47,13 +47,9 @@ pub fn get_metrics_environment_defaults(env: RuntimeEnvironment) -> MetricsConfi
 /// `getStorageEnvironmentDefaults`).
 pub fn get_storage_environment_defaults(env: RuntimeEnvironment) -> StorageConfig {
     use wf_types::config::storage::AutoVacuum;
-    // Note: storage_type is intentionally left as StorageConfig::default()
-    // (Memory) so that projects without an explicit storage.toml or
-    // WF_STORAGE_TYPE env var stay in-process. Sqlite path defaults are
-    // still populated so that picking Sqlite later (via file/env) gets
-    // sensible runtime-appropriate values out of the box.
     match env {
         RuntimeEnvironment::Development => StorageConfig {
+            storage_type: wf_types::config::storage::StorageType::Sqlite,
             sqlite: Some(wf_types::config::storage::SqliteStorageConfig {
                 db_path: "./dev-storage/wf-agent.db".to_string(),
                 ..Default::default()
@@ -61,6 +57,7 @@ pub fn get_storage_environment_defaults(env: RuntimeEnvironment) -> StorageConfi
             ..Default::default()
         },
         RuntimeEnvironment::Production => StorageConfig {
+            storage_type: wf_types::config::storage::StorageType::Sqlite,
             sqlite: Some(wf_types::config::storage::SqliteStorageConfig {
                 db_path: "./data/wf-agent.db".to_string(),
                 enable_wal: true,

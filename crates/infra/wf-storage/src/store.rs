@@ -1,4 +1,5 @@
 pub mod entity_store;
+#[cfg(feature = "memory")]
 pub mod memory;
 #[cfg(feature = "postgres")]
 pub mod postgres;
@@ -6,6 +7,7 @@ pub mod postgres;
 pub mod sqlite;
 
 pub use entity_store::EntityStore;
+#[cfg(feature = "memory")]
 pub use memory::MemoryStorage;
 #[cfg(feature = "postgres")]
 pub use postgres::PostgresStorage;

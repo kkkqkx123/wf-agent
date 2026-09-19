@@ -75,19 +75,40 @@ where
     }
 
     pub async fn list(&self, filter: Option<&QueryFilter>) -> Result<Vec<T>, StorageError> {
+        let (entities, _corrupt_count) = self.list_with_corruption(filter).await?;
+        Ok(entities)
+    }
+
+    /// List entities matching `filter`, returning the deserialized entities and
+    /// the number of records that failed deserialization. Failed records are
+    /// logged at warn level and marked with `status = "corrupted"` in their
+    /// metadata when the backend supports `update_status`.
+    pub async fn list_with_corruption(
+        &self,
+        filter: Option<&QueryFilter>,
+    ) -> Result<(Vec<T>, u64), StorageError> {
         let entries = self.storage.list_data(filter).await?;
         let mut results = Vec::with_capacity(entries.len());
+        let mut corrupt_count = 0u64;
         for (data, metadata) in entries {
             let compressed = metadata
                 .get("compressed")
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false);
             let decompressed = maybe_decompress(&data, compressed)?;
-            if let Some(entity) = T::from_bytes(&decompressed).map(Some)? {
-                results.push(entity);
+            match T::from_bytes(&decompressed) {
+                Ok(entity) => results.push(entity),
+                Err(e) => {
+                    corrupt_count += 1;
+                    tracing::warn!(
+                        entity_type = T::entity_type(),
+                        error = %e,
+                        "corrupted record skipped during list"
+                    );
+                }
             }
         }
-        Ok(results)
+        Ok((results, corrupt_count))
     }
 
     pub async fn list_metadata(

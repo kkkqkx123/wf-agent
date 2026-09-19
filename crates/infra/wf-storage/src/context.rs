@@ -6,9 +6,11 @@ use crate::adapter::adapter_impls::{
     WorkflowExecutionStorage, WorkflowStorage,
 };
 use crate::backend::StorageBackend;
+use crate::decorator::cache::{CacheConfig, CachingStore};
 use crate::decorator::instrumented::{InstrumentedStore, StorageMetrics};
 #[cfg(any(feature = "sqlite", feature = "postgres"))]
 use crate::error::StorageError;
+#[cfg(feature = "memory")]
 use crate::store::memory::MemoryStorage;
 #[cfg(feature = "postgres")]
 use crate::store::postgres::PostgresStorage;
@@ -36,6 +38,7 @@ pub struct StorageContext {
     pub variable: VariableStorage<StorageBackend>,
 }
 
+#[cfg(feature = "memory")]
 macro_rules! make_backend {
     ($variant:ident, $name:expr) => {
         StorageBackend::$variant(InstrumentedStore::new(MemoryStorage::new($name)))
@@ -43,6 +46,7 @@ macro_rules! make_backend {
 }
 
 impl StorageContext {
+    #[cfg(feature = "memory")]
     pub fn new_memory() -> Self {
         Self {
             workflow: WorkflowStorage::new(make_backend!(Memory, "workflow")),
@@ -75,6 +79,18 @@ impl StorageContext {
             message: MessageStorage::new(make_backend!(Memory, "message")),
             variable: VariableStorage::new(make_backend!(Memory, "variable")),
         }
+    }
+
+    /// Create a temporary Sqlite-backed storage context for tests.
+    /// Returns the context and the database file path; the caller should
+    /// delete the file when done.
+    #[cfg(feature = "sqlite")]
+    pub async fn new_test_sqlite() -> Result<(Self, std::path::PathBuf), StorageError> {
+        let dir = std::env::temp_dir();
+        let path = dir.join(format!("wf-test-{}.db", uuid::Uuid::new_v4()));
+        let path_str = path.to_string_lossy().to_string();
+        let ctx = Self::new_sqlite(&path_str).await?;
+        Ok((ctx, path))
     }
 
     #[cfg(feature = "sqlite")]
@@ -112,9 +128,10 @@ impl StorageContext {
     pub async fn new_postgres(connection_string: &str) -> Result<Self, StorageError> {
         macro_rules! pg_backend {
             ($table:expr) => {
-                StorageBackend::Postgres(InstrumentedStore::new(
+                StorageBackend::Postgres(InstrumentedStore::new(CachingStore::new(
                     PostgresStorage::new(connection_string, $table).await?,
-                ))
+                    CacheConfig::default(),
+                )))
             };
         }
         Ok(Self {

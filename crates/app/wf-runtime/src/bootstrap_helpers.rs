@@ -156,7 +156,12 @@ pub async fn init_checkpoint_store(
                 .map(|c| c.host.as_str())
                 .unwrap_or_default();
             match wf_storage::store::postgres::PostgresStorage::new(conn, "checkpoint").await {
-                Ok(store) => StorageBackend::Postgres(InstrumentedStore::new(store)),
+                Ok(store) => StorageBackend::Postgres(InstrumentedStore::new(
+                    wf_storage::decorator::cache::CachingStore::new(
+                        store,
+                        wf_storage::decorator::cache::CacheConfig::default(),
+                    ),
+                )),
                 Err(err) => {
                     warn!(error = %err, "failed to open checkpoint store backend; checkpoints stay in memory");
                     StorageBackend::new_memory()

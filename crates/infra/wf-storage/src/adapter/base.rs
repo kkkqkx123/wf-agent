@@ -101,6 +101,15 @@ where
             Ok(count)
         }
     }
+
+    /// Update the status metadata field of a record. Default is a no-op.
+    fn set_status<'a>(
+        &'a self,
+        _id: &'a str,
+        _status: &'a str,
+    ) -> impl Future<Output = Result<(), StorageError>> + Send + 'a {
+        async move { Ok(()) }
+    }
 }
 
 #[derive(Debug, Clone, Default)]

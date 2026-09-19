@@ -289,6 +289,22 @@ impl Store for MemoryStorage {
         Ok(apply_filter(&store.records, filter).len() as u64)
     }
 
+    async fn list_data(
+        &self,
+        filter: Option<&QueryFilter>,
+    ) -> Result<Vec<(Vec<u8>, Value)>, StorageError> {
+        let store = self.inner.read().await;
+        let ids = apply_filter(&store.records, filter);
+        let mut results = Vec::with_capacity(ids.len());
+        for (id, _) in ids {
+            if let Some(rec) = store.records.get(&id) {
+                crate::util::hash::verify_integrity(&id, &rec.data, &rec.hash)?;
+                results.push((rec.data.clone(), rec.metadata.clone()));
+            }
+        }
+        Ok(results)
+    }
+
     async fn exists(&self, id: &str) -> Result<bool, StorageError> {
         let store = self.inner.read().await;
         Ok(store.records.contains_key(id))
@@ -304,11 +320,10 @@ impl Store for MemoryStorage {
         if operations.is_empty() {
             return Ok(());
         }
-        // Atomicity under the single write lock: every operation is planned
-        // (created_at preserved for overwritten records) before any mutation,
-        // and the plan itself is infallible, so a batch either applies fully
-        // or not at all — mirroring the transaction semantics of Sqlite and
-        // PostgreSQL backends (checkpoint cleanup watermark).
+        // Atomicity: the entire plan (clone + compute hash) is infallible, and
+        // mutations execute under a single exclusive write lock. No intermediate
+        // state is visible to other tasks, matching Sqlite/PG transaction
+        // semantics (checkpoint cleanup watermark).
         let mut store = self.inner.write().await;
         let now = current_timestamp();
         let mut plan: Vec<(String, Option<StoredRecord>)> = Vec::with_capacity(operations.len());

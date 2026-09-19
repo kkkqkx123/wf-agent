@@ -131,7 +131,7 @@ fn test_assemble_defaults_when_no_files() {
 
     let config = ConfigOrchestrator::assemble(&dir, None).unwrap();
 
-    assert_eq!(config.storage.storage_type, StorageType::Memory);
+    assert_eq!(config.storage.storage_type, StorageType::Sqlite);
     assert_eq!(config.timeout.default, Some(30000));
 
     let _ = std::fs::remove_dir_all(&dir);
@@ -272,7 +272,7 @@ fn test_assemble_with_preset_falls_back_on_missing_preset() {
         None,
     )
     .unwrap();
-    assert_eq!(config.storage.storage_type, StorageType::Memory);
+    assert_eq!(config.storage.storage_type, StorageType::Sqlite);
 
     let _ = std::fs::remove_dir_all(&dir);
 }

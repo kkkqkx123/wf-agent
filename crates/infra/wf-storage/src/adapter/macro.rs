@@ -77,6 +77,14 @@ macro_rules! make_base_adapter {
             ) -> Result<std::collections::HashMap<String, u64>, $crate::error::StorageError> {
                 self.entity_store.count_by_field(field).await
             }
+
+            async fn set_status(
+                &self,
+                id: &str,
+                status: &str,
+            ) -> Result<(), $crate::error::StorageError> {
+                self.entity_store.inner().update_status(id, status).await
+            }
         }
     };
 }

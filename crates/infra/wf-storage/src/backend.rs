@@ -7,6 +7,7 @@ use crate::domain::store::{
     BatchItem, BatchStore, Maintainable, QueryFilter, Store, StoreOperation,
 };
 use crate::error::StorageError;
+#[cfg(feature = "memory")]
 use crate::store::memory::MemoryStorage;
 #[cfg(feature = "postgres")]
 use crate::store::postgres::PostgresStorage;
@@ -23,14 +24,16 @@ use crate::store::sqlite::SqliteStorage;
 /// stale data.
 #[derive(Debug, Clone)]
 pub enum StorageBackend {
+    #[cfg(feature = "memory")]
     Memory(InstrumentedStore<MemoryStorage>),
     #[cfg(feature = "sqlite")]
     Sqlite(InstrumentedStore<CachingStore<SqliteStorage>>),
     #[cfg(feature = "postgres")]
-    Postgres(InstrumentedStore<PostgresStorage>),
+    Postgres(InstrumentedStore<CachingStore<PostgresStorage>>),
 }
 
 impl StorageBackend {
+    #[cfg(feature = "memory")]
     pub fn new_memory() -> Self {
         Self::Memory(InstrumentedStore::new(MemoryStorage::new("default")))
     }
@@ -50,6 +53,7 @@ impl StorageBackend {
     /// always present).
     pub fn op_metrics(&self) -> &StorageMetrics {
         match self {
+            #[cfg(feature = "memory")]
             Self::Memory(s) => s.metrics(),
             #[cfg(feature = "sqlite")]
             Self::Sqlite(s) => s.metrics(),
@@ -64,6 +68,7 @@ impl StorageBackend {
     #[doc(hidden)]
     pub async fn corrupt_payload(&self, id: &str, offset: usize, value: u8) -> bool {
         match self {
+            #[cfg(feature = "memory")]
             Self::Memory(s) => s.corrupt_payload(id, offset, value).await,
             #[cfg(any(feature = "sqlite", feature = "postgres"))]
             _ => false,
@@ -75,6 +80,7 @@ impl StorageBackend {
 impl Store for StorageBackend {
     async fn save(&self, id: &str, data: &[u8], metadata: &Value) -> Result<(), StorageError> {
         match self {
+            #[cfg(feature = "memory")]
             Self::Memory(s) => s.save(id, data, metadata).await,
             #[cfg(feature = "sqlite")]
             Self::Sqlite(s) => s.save(id, data, metadata).await,
@@ -85,6 +91,7 @@ impl Store for StorageBackend {
 
     async fn load(&self, id: &str) -> Result<Option<(Vec<u8>, Value)>, StorageError> {
         match self {
+            #[cfg(feature = "memory")]
             Self::Memory(s) => s.load(id).await,
             #[cfg(feature = "sqlite")]
             Self::Sqlite(s) => s.load(id).await,
@@ -95,6 +102,7 @@ impl Store for StorageBackend {
 
     async fn delete(&self, id: &str) -> Result<(), StorageError> {
         match self {
+            #[cfg(feature = "memory")]
             Self::Memory(s) => s.delete(id).await,
             #[cfg(feature = "sqlite")]
             Self::Sqlite(s) => s.delete(id).await,
@@ -108,6 +116,7 @@ impl Store for StorageBackend {
         filter: Option<&QueryFilter>,
     ) -> Result<Vec<(String, Value)>, StorageError> {
         match self {
+            #[cfg(feature = "memory")]
             Self::Memory(s) => s.list(filter).await,
             #[cfg(feature = "sqlite")]
             Self::Sqlite(s) => s.list(filter).await,
@@ -121,6 +130,7 @@ impl Store for StorageBackend {
         filter: Option<&QueryFilter>,
     ) -> Result<Vec<(Vec<u8>, Value)>, StorageError> {
         match self {
+            #[cfg(feature = "memory")]
             Self::Memory(s) => s.list_data(filter).await,
             #[cfg(feature = "sqlite")]
             Self::Sqlite(s) => s.list_data(filter).await,
@@ -131,6 +141,7 @@ impl Store for StorageBackend {
 
     async fn exists(&self, id: &str) -> Result<bool, StorageError> {
         match self {
+            #[cfg(feature = "memory")]
             Self::Memory(s) => s.exists(id).await,
             #[cfg(feature = "sqlite")]
             Self::Sqlite(s) => s.exists(id).await,
@@ -141,6 +152,7 @@ impl Store for StorageBackend {
 
     async fn count(&self, filter: Option<&QueryFilter>) -> Result<u64, StorageError> {
         match self {
+            #[cfg(feature = "memory")]
             Self::Memory(s) => s.count(filter).await,
             #[cfg(feature = "sqlite")]
             Self::Sqlite(s) => s.count(filter).await,
@@ -151,6 +163,7 @@ impl Store for StorageBackend {
 
     async fn update_status(&self, id: &str, status: &str) -> Result<(), StorageError> {
         match self {
+            #[cfg(feature = "memory")]
             Self::Memory(s) => s.update_status(id, status).await,
             #[cfg(feature = "sqlite")]
             Self::Sqlite(s) => s.update_status(id, status).await,
@@ -161,6 +174,7 @@ impl Store for StorageBackend {
 
     async fn apply_batch(&self, operations: &[StoreOperation]) -> Result<(), StorageError> {
         match self {
+            #[cfg(feature = "memory")]
             Self::Memory(s) => s.apply_batch(operations).await,
             #[cfg(feature = "sqlite")]
             Self::Sqlite(s) => s.apply_batch(operations).await,
@@ -171,6 +185,7 @@ impl Store for StorageBackend {
 
     async fn clear(&self) -> Result<(), StorageError> {
         match self {
+            #[cfg(feature = "memory")]
             Self::Memory(s) => s.clear().await,
             #[cfg(feature = "sqlite")]
             Self::Sqlite(s) => s.clear().await,
@@ -184,6 +199,7 @@ impl Store for StorageBackend {
 impl BatchStore for StorageBackend {
     async fn save_batch(&self, items: &[BatchItem]) -> Result<(), StorageError> {
         match self {
+            #[cfg(feature = "memory")]
             Self::Memory(s) => s.save_batch(items).await,
             #[cfg(feature = "sqlite")]
             Self::Sqlite(s) => s.save_batch(items).await,
@@ -197,6 +213,7 @@ impl BatchStore for StorageBackend {
         ids: &[String],
     ) -> Result<Vec<(String, Vec<u8>, Value)>, StorageError> {
         match self {
+            #[cfg(feature = "memory")]
             Self::Memory(s) => s.load_batch(ids).await,
             #[cfg(feature = "sqlite")]
             Self::Sqlite(s) => s.load_batch(ids).await,
@@ -207,6 +224,7 @@ impl BatchStore for StorageBackend {
 
     async fn delete_batch(&self, ids: &[String]) -> Result<(), StorageError> {
         match self {
+            #[cfg(feature = "memory")]
             Self::Memory(s) => s.delete_batch(ids).await,
             #[cfg(feature = "sqlite")]
             Self::Sqlite(s) => s.delete_batch(ids).await,
@@ -220,6 +238,7 @@ impl BatchStore for StorageBackend {
 impl Maintainable for StorageBackend {
     async fn vacuum(&self) -> Result<(), StorageError> {
         match self {
+            #[cfg(feature = "memory")]
             Self::Memory(s) => s.vacuum().await,
             #[cfg(feature = "sqlite")]
             Self::Sqlite(s) => s.vacuum().await,
@@ -230,6 +249,7 @@ impl Maintainable for StorageBackend {
 
     async fn checkpoint(&self) -> Result<(), StorageError> {
         match self {
+            #[cfg(feature = "memory")]
             Self::Memory(s) => s.checkpoint().await,
             #[cfg(feature = "sqlite")]
             Self::Sqlite(s) => s.checkpoint().await,
@@ -240,6 +260,7 @@ impl Maintainable for StorageBackend {
 
     async fn sync(&self) -> Result<(), StorageError> {
         match self {
+            #[cfg(feature = "memory")]
             Self::Memory(s) => s.sync().await,
             #[cfg(feature = "sqlite")]
             Self::Sqlite(s) => s.sync().await,

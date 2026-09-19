@@ -67,9 +67,13 @@ impl From<serde_json::Error> for StorageError {
 impl From<sqlx::Error> for StorageError {
     fn from(e: sqlx::Error) -> Self {
         match e {
-            sqlx::Error::RowNotFound => StorageError::NotFound {
-                entity_type: String::new(),
-                entity_id: String::new(),
+            // RowNotFound with empty entity fields loses diagnostic context;
+            // callers that need "not found" semantics use fetch_optional (Ok(None))
+            // rather than this conversion path.
+            sqlx::Error::RowNotFound => StorageError::General {
+                operation: "sqlx".into(),
+                message: e.to_string(),
+                source: Some(Box::new(e)),
             },
             _ => StorageError::General {
                 operation: "sqlx".into(),

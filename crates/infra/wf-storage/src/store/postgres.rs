@@ -8,6 +8,10 @@ use crate::domain::store::{
 use crate::error::StorageError;
 use crate::util::pool::create_pg_pool;
 
+/// Current storage schema version. Bump when table structure or metadata
+/// semantics change; startup rejects databases with a different version.
+const SCHEMA_VERSION: i64 = 1;
+
 #[derive(Debug, Clone)]
 pub struct PostgresStorage {
     pool: PgPool,
@@ -46,13 +50,81 @@ impl PostgresStorage {
             "CREATE INDEX IF NOT EXISTS idx_{}_entity_type ON {}((metadata->>'entityType'))",
             table_name, table_name
         );
-        sqlx::query(&idx1).execute(&pool).await.ok();
+        if let Err(e) = sqlx::query(&idx1).execute(&pool).await {
+            tracing::warn!(
+                table = table_name,
+                error = %e,
+                "failed to create entityType index (table functional without it)"
+            );
+        }
 
         let idx2 = format!(
             "CREATE INDEX IF NOT EXISTS idx_{}_status ON {}((metadata->>'status'))",
             table_name, table_name
         );
-        sqlx::query(&idx2).execute(&pool).await.ok();
+        if let Err(e) = sqlx::query(&idx2).execute(&pool).await {
+            tracing::warn!(
+                table = table_name,
+                error = %e,
+                "failed to create status index (table functional without it)"
+            );
+        }
+
+        // Schema version check: insert on first open, reject on mismatch.
+        let version_key = format!("__schema_version__:{}", table_name);
+        let check_sql = format!(
+            "SELECT metadata FROM {} WHERE id = $1",
+            table_name
+        );
+        let existing: Option<(Value,)> = sqlx::query_as(&check_sql)
+            .bind(&version_key)
+            .fetch_optional(&pool)
+            .await
+            .map_err(|e| StorageError::Initialization {
+                backend: "postgres".into(),
+                message: format!("Failed to check schema version for '{}'", table_name),
+                source: Some(Box::new(e)),
+            })?;
+        match existing {
+            Some((meta,)) => {
+                let stored = meta.get("version").and_then(|v| v.as_i64()).unwrap_or(0);
+                if stored != SCHEMA_VERSION {
+                    return Err(StorageError::StateError {
+                        expected: format!("schema v{}", SCHEMA_VERSION),
+                        actual: format!("schema v{}", stored),
+                    });
+                }
+            }
+            None => {
+                let now = chrono::Utc::now().timestamp_millis();
+                let version_meta = serde_json::json!({"version": SCHEMA_VERSION});
+                let empty_hash = crate::util::hash::compute_hash(b"");
+                let insert_sql = format!(
+                    "INSERT INTO {} (id, data, metadata, hash, data_size, compressed, created_at, updated_at)
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+                    table_name
+                );
+                sqlx::query(&insert_sql)
+                    .bind(&version_key)
+                    .bind(b"" as &[u8])
+                    .bind(&version_meta)
+                    .bind(&empty_hash)
+                    .bind(0i64)
+                    .bind(false)
+                    .bind(now)
+                    .bind(now)
+                    .execute(&pool)
+                    .await
+                    .map_err(|e| StorageError::Initialization {
+                        backend: "postgres".into(),
+                        message: format!(
+                            "Failed to write schema version for '{}'",
+                            table_name
+                        ),
+                        source: Some(Box::new(e)),
+                    })?;
+            }
+        }
 
         Ok(Self {
             pool,
@@ -107,6 +179,9 @@ fn build_select_sql(
     let mut order_by: Option<(String, bool)> = None;
     let mut offset: Option<u64> = None;
     let mut limit: Option<u64> = None;
+
+    // Exclude internal schema version records from application queries.
+    conditions.push("id NOT LIKE '__schema_version__:%'".into());
 
     if let Some(f) = filter {
         for op in &f.ops {

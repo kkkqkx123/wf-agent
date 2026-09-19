@@ -11,8 +11,6 @@ pub mod staged;
 pub mod transition;
 
 use crate::core::types::SnapshotId;
-use crate::storage::repository::{AtomicOps, CheckpointPersist, PartitionStore};
-use std::sync::Arc;
 
 /// Merge result shared by all layer merge operations
 ///
@@ -50,53 +48,5 @@ impl MergeResult {
             result.push('\n');
         }
         result
-    }
-}
-
-/// Hierarchical State Machine - Unified Operations Portal
-///
-/// Minimal handle over the storage backend kept for `wf-checkpoint`
-/// compatibility. All workflow logic lives in the `layered::*` free
-/// functions; branch switching and transactions are owned by
-/// `wf-checkpoint`, not by this engine.
-pub struct StateMachine<S> {
-    storage: Arc<S>,
-}
-
-impl<S> StateMachine<S>
-where
-    S: PartitionStore + CheckpointPersist + AtomicOps,
-{
-    /// Creating a new state machine instance
-    pub fn new(storage: Arc<S>) -> Self {
-        StateMachine { storage }
-    }
-
-    /// Getting Storage Layer References
-    pub fn storage(&self) -> &S {
-        &self.storage
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::test_utils::setup_storage_full;
-    use std::sync::Arc;
-
-    #[test]
-    fn test_state_machine_new() {
-        let storage = Arc::new(setup_storage_full());
-        let sm = StateMachine::new(storage);
-        assert!(sm.storage().list_partitions().is_ok());
-    }
-
-    #[test]
-    fn test_state_machine_storage_accessor() {
-        let storage = Arc::new(setup_storage_full());
-        let sm = StateMachine::new(storage.clone());
-        let retrieved = sm.storage();
-        let partitions = retrieved.list_partitions();
-        assert!(partitions.is_ok());
     }
 }

@@ -51,6 +51,8 @@ struct ScriptExecuteBody {
     working_directory: Option<String>,
     environment: Option<std::collections::HashMap<String, String>>,
     timeout_ms: Option<u64>,
+    max_output_bytes: Option<u64>,
+    output_spill_dir: Option<String>,
 }
 
 impl ScriptExecuteBody {
@@ -65,6 +67,8 @@ impl ScriptExecuteBody {
             working_directory: self.working_directory,
             environment: self.environment,
             timeout_ms: self.timeout_ms,
+            max_output_bytes: self.max_output_bytes,
+            output_spill_dir: self.output_spill_dir,
         }
     }
 }

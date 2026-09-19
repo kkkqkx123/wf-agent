@@ -10,7 +10,7 @@ use crate::error::CheckpointError;
 use crate::file::util::map_layertwine_error;
 use wf_common::gate::ConcurrencyGate;
 
-pub trait GitCheckpointAdapter: Send + Sync {
+pub trait CheckpointBackend: Send + Sync {
     fn save_checkpoint(
         &self,
         checkpoint_id: &str,
@@ -44,7 +44,7 @@ pub trait GitCheckpointAdapter: Send + Sync {
 /// `branch_id` columns). Execution branch heads live in layertwine's native
 /// `branches` table; a branch created without a resolvable base head starts
 /// at the genesis sentinel (reported as `None` until its first checkpoint).
-pub struct LayertwineGitAdapter {
+pub struct LayertwineBackend {
     storage: SqliteStorage,
 }
 
@@ -59,7 +59,7 @@ fn is_genesis(head: &layertwine::core::types::CheckpointId) -> bool {
     *head == genesis_head()
 }
 
-impl LayertwineGitAdapter {
+impl LayertwineBackend {
     pub fn new_in_memory() -> Result<Self, CheckpointError> {
         let storage = SqliteStorage::new_full_in_memory().map_err(map_layertwine_error)?;
         Ok(Self { storage })
@@ -130,7 +130,7 @@ impl LayertwineGitAdapter {
     }
 }
 
-impl GitCheckpointAdapter for LayertwineGitAdapter {
+impl CheckpointBackend for LayertwineBackend {
     async fn save_checkpoint(
         &self,
         checkpoint_id: &str,
@@ -189,7 +189,7 @@ impl GitCheckpointAdapter for LayertwineGitAdapter {
     }
 }
 
-impl LayertwineGitAdapter {
+impl LayertwineBackend {
     /// Storage accessor for tests and diagnostics.
     pub fn storage(&self) -> &SqliteStorage {
         &self.storage
@@ -271,7 +271,7 @@ impl LayertwineGitAdapter {
 /// live only in the native `branches` table. A new branch inherits the base
 /// branch's real head when available, otherwise starts at the genesis
 /// sentinel (reported as `None` until its first checkpoint).
-impl BranchStorageAdapter for LayertwineGitAdapter {
+impl BranchStorageAdapter for LayertwineBackend {
     async fn create_branch(&self, name: &str, base: Option<&str>) -> Result<(), CheckpointError> {
         use layertwine::storage::repository::CheckpointPersist;
 
@@ -374,100 +374,15 @@ impl BranchStorageAdapter for LayertwineGitAdapter {
     }
 }
 
-pub struct InMemoryGitAdapter {
-    branches: tokio::sync::RwLock<HashMap<String, Vec<u8>>>,
-    metadata: tokio::sync::RwLock<HashMap<String, HashMap<String, String>>>,
+/// Validation/serialization facade over the real layertwine backend.
+/// The former generic parameter only ever materialized as the in-memory
+/// test double, which now lives in the test module.
+pub struct LayertwineCheckpointBridge {
+    adapter: Arc<LayertwineBackend>,
 }
 
-impl InMemoryGitAdapter {
-    pub fn new() -> Self {
-        Self {
-            branches: tokio::sync::RwLock::new(HashMap::new()),
-            metadata: tokio::sync::RwLock::new(HashMap::new()),
-        }
-    }
-}
-
-impl Default for InMemoryGitAdapter {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl GitCheckpointAdapter for InMemoryGitAdapter {
-    async fn save_checkpoint(
-        &self,
-        checkpoint_id: &str,
-        data: &[u8],
-        meta: &HashMap<String, String>,
-    ) -> Result<(), CheckpointError> {
-        let mut branches = self.branches.write().await;
-        branches.insert(checkpoint_id.to_string(), data.to_vec());
-        let mut metadata = self.metadata.write().await;
-        metadata.insert(checkpoint_id.to_string(), meta.clone());
-        Ok(())
-    }
-
-    async fn get_checkpoint(
-        &self,
-        checkpoint_id: &str,
-    ) -> Result<Option<Vec<u8>>, CheckpointError> {
-        let branches = self.branches.read().await;
-        Ok(branches.get(checkpoint_id).cloned())
-    }
-
-    async fn list_checkpoints(
-        &self,
-        parent_id: Option<&str>,
-    ) -> Result<Vec<String>, CheckpointError> {
-        let branches = self.branches.read().await;
-        let metadata = self.metadata.read().await;
-        let mut ids: Vec<String> = branches
-            .keys()
-            .filter(|id| match parent_id {
-                Some(parent) => metadata
-                    .get(*id)
-                    .and_then(|m| m.get("parentId"))
-                    .map(|p| p == parent)
-                    .unwrap_or(false),
-                None => true,
-            })
-            .cloned()
-            .collect();
-        ids.sort();
-        Ok(ids)
-    }
-
-    async fn delete_checkpoint(&self, checkpoint_id: &str) -> Result<bool, CheckpointError> {
-        let mut branches = self.branches.write().await;
-        let mut metadata = self.metadata.write().await;
-        let removed = branches.remove(checkpoint_id).is_some();
-        metadata.remove(checkpoint_id);
-        Ok(removed)
-    }
-
-    async fn batch_save(
-        &self,
-        items: &[(String, Vec<u8>, HashMap<String, String>)],
-    ) -> Result<(), CheckpointError> {
-        let mut branches = self.branches.write().await;
-        let mut metadata = self.metadata.write().await;
-
-        for (id, data, meta) in items {
-            branches.insert(id.clone(), data.clone());
-            metadata.insert(id.clone(), meta.clone());
-        }
-
-        Ok(())
-    }
-}
-
-pub struct LayertwineCheckpointBridge<T: GitCheckpointAdapter> {
-    adapter: Arc<T>,
-}
-
-impl<T: GitCheckpointAdapter> LayertwineCheckpointBridge<T> {
-    pub fn new(adapter: Arc<T>) -> Self {
+impl LayertwineCheckpointBridge {
+    pub fn new(adapter: Arc<LayertwineBackend>) -> Self {
         Self { adapter }
     }
 
@@ -530,10 +445,7 @@ impl<T: GitCheckpointAdapter> LayertwineCheckpointBridge<T> {
 
     /// Batch load with bounded concurrency (batches of 10); per-item
     /// failures yield `None` instead of failing the whole batch.
-    pub async fn batch_load(&self, ids: &[String]) -> Result<Vec<Option<Vec<u8>>>, CheckpointError>
-    where
-        T: 'static,
-    {
+    pub async fn batch_load(&self, ids: &[String]) -> Result<Vec<Option<Vec<u8>>>, CheckpointError> {
         const BATCH_CONCURRENCY: usize = 10;
         let gate = Arc::new(ConcurrencyGate::new(BATCH_CONCURRENCY));
         let mut handles = Vec::new();
@@ -667,7 +579,7 @@ mod tests {
 
     #[tokio::test]
     async fn save_and_load_checkpoint() {
-        let adapter = Arc::new(InMemoryGitAdapter::new());
+        let adapter = Arc::new(make_real_adapter());
         let bridge = LayertwineCheckpointBridge::new(adapter);
 
         bridge
@@ -681,7 +593,7 @@ mod tests {
 
     #[tokio::test]
     async fn save_rejects_invalid_checkpoint_structure() {
-        let adapter = Arc::new(InMemoryGitAdapter::new());
+        let adapter = Arc::new(make_real_adapter());
         let bridge = LayertwineCheckpointBridge::new(adapter);
 
         let err = bridge
@@ -699,7 +611,7 @@ mod tests {
 
     #[tokio::test]
     async fn load_missing_checkpoint() {
-        let adapter = Arc::new(InMemoryGitAdapter::new());
+        let adapter = Arc::new(make_real_adapter());
         let bridge = LayertwineCheckpointBridge::new(adapter);
 
         let data = bridge.load("nonexistent").await.unwrap();
@@ -708,7 +620,7 @@ mod tests {
 
     #[tokio::test]
     async fn list_checkpoints() {
-        let adapter = Arc::new(InMemoryGitAdapter::new());
+        let adapter = Arc::new(make_real_adapter());
         let bridge = LayertwineCheckpointBridge::new(adapter);
 
         bridge
@@ -726,7 +638,7 @@ mod tests {
 
     #[tokio::test]
     async fn list_by_parent_filters() {
-        let adapter = Arc::new(InMemoryGitAdapter::new());
+        let adapter = Arc::new(make_real_adapter());
         let bridge = LayertwineCheckpointBridge::new(adapter);
 
         bridge
@@ -744,7 +656,7 @@ mod tests {
 
     #[tokio::test]
     async fn delete_removes_checkpoint() {
-        let adapter = Arc::new(InMemoryGitAdapter::new());
+        let adapter = Arc::new(make_real_adapter());
         let bridge = LayertwineCheckpointBridge::new(adapter);
 
         bridge
@@ -759,7 +671,7 @@ mod tests {
 
     #[tokio::test]
     async fn bridge_batch_save_and_load() {
-        let adapter = Arc::new(InMemoryGitAdapter::new());
+        let adapter = Arc::new(make_real_adapter());
         let bridge = LayertwineCheckpointBridge::new(adapter);
 
         let items = vec![
@@ -805,7 +717,7 @@ mod tests {
         .to_string()
         .into_bytes();
         let warnings =
-            LayertwineCheckpointBridge::<InMemoryGitAdapter>::validate_checkpoint_structure_soft(
+            LayertwineCheckpointBridge::validate_checkpoint_structure_soft(
                 &delta,
             );
         assert!(
@@ -819,7 +731,7 @@ mod tests {
 
         let full = make_blob("cp-2", "FULL");
         let warnings =
-            LayertwineCheckpointBridge::<InMemoryGitAdapter>::validate_checkpoint_structure_soft(
+            LayertwineCheckpointBridge::validate_checkpoint_structure_soft(
                 &full,
             );
         assert!(warnings.is_empty());
@@ -827,7 +739,7 @@ mod tests {
 
     #[tokio::test]
     async fn batch_save() {
-        let adapter = Arc::new(InMemoryGitAdapter::new());
+        let adapter = Arc::new(make_real_adapter());
 
         let items = vec![
             (
@@ -850,8 +762,8 @@ mod tests {
 
     // ---- Real layertwine backend integration tests ----
 
-    fn make_real_adapter() -> LayertwineGitAdapter {
-        LayertwineGitAdapter::new_in_memory().unwrap()
+    fn make_real_adapter() -> LayertwineBackend {
+        LayertwineBackend::new_in_memory().unwrap()
     }
 
     #[tokio::test]
@@ -963,7 +875,7 @@ mod tests {
         let path = dir.path().join("checkpoints.db");
 
         {
-            let adapter = LayertwineGitAdapter::new(&path).unwrap();
+            let adapter = LayertwineBackend::new(&path).unwrap();
             let meta = HashMap::new();
             adapter
                 .save_checkpoint("cp-1", b"persisted", &meta)
@@ -971,7 +883,7 @@ mod tests {
                 .unwrap();
         }
 
-        let adapter = LayertwineGitAdapter::new(&path).unwrap();
+        let adapter = LayertwineBackend::new(&path).unwrap();
         let data = adapter.get_checkpoint("cp-1").await.unwrap();
         assert_eq!(data, Some(b"persisted".to_vec()));
     }

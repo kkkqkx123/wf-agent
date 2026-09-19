@@ -14,13 +14,13 @@ use wf_types::config::file_checkpoint::ConflictBehavior;
 
 use crate::error::CheckpointError;
 use crate::file::util::map_layertwine_error;
-use crate::layertwine::LayertwineGitAdapter;
+use crate::adapter::LayertwineBackend;
 use crate::scan::ScanConfig;
 
 /// Persistence handles shared by every file-checkpoint operation.
 pub(crate) struct ManagerStore {
     pub(crate) storage: Option<Arc<SqliteStorage>>,
-    pub(crate) branch_adapter: Arc<LayertwineGitAdapter>,
+    pub(crate) branch_adapter: Arc<LayertwineBackend>,
     /// Actor id -> latest checkpoint id (in-memory mirror, DB authoritative).
     pub(crate) latest_checkpoints: Arc<DashMap<String, String>>,
 }
@@ -32,7 +32,7 @@ impl ManagerStore {
     }
 
     pub(crate) fn with_sqlite(storage: Arc<SqliteStorage>) -> Self {
-        let branch_adapter = Arc::new(LayertwineGitAdapter::from_shared(storage.clone()));
+        let branch_adapter = Arc::new(LayertwineBackend::from_shared(storage.clone()));
         Self {
             storage: Some(storage),
             branch_adapter,
@@ -42,7 +42,7 @@ impl ManagerStore {
 
     pub(crate) fn without_storage() -> Self {
         let branch_adapter = Arc::new(
-            LayertwineGitAdapter::new_in_memory().expect("in-memory adapter should not fail"),
+            LayertwineBackend::new_in_memory().expect("in-memory adapter should not fail"),
         );
         Self {
             storage: None,

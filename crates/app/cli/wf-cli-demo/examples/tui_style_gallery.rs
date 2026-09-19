@@ -141,7 +141,7 @@ fn draw_role_swatches(f: &mut ratatui::Frame, theme: &Theme, area: Rect) {
         let rgb = theme.rgb_for_role(role);
         let hex = rgb.hex();
         lines.push(Line::from(vec![
-            Span::styled(format!("{sample}"), style),
+            Span::styled(sample.to_string(), style),
             Span::styled(format!(" rgb={hex}"), Style::default()),
         ]));
     }

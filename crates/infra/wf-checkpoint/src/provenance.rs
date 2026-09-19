@@ -1204,10 +1204,10 @@ mod tests {
             !provenance_src.contains(&provenance_needle),
             "duplicate error mapper must not be reintroduced in provenance.rs"
         );
-        let adapter_src = include_str!("layertwine.rs");
+        let adapter_src = include_str!("adapter.rs");
         assert!(
             !adapter_src.contains(&adapter_needle),
-            "duplicate error mapper must not be reintroduced in layertwine.rs"
+            "duplicate error mapper must not be reintroduced in adapter.rs"
         );
     }
 }

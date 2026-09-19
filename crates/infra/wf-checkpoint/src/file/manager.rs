@@ -3,7 +3,6 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use dashmap::DashMap;
-use layertwine::layered::StateMachine;
 use layertwine::storage::repository::{MetadataStore, PartitionStore, SnapshotStore};
 use layertwine::storage::sqlite::SqliteStorage;
 pub use wf_types::config::file_checkpoint::ApprovalPolicy;
@@ -173,8 +172,8 @@ pub struct WorkspaceRestoreResult {
 }
 
 /// File checkpoint engine rebuilt on top of layertwine's layered state
-/// machine (authoritative model). The manager drives
-/// `layertwine::layered::StateMachine<SqliteStorage>`: agent partitions hold
+/// machine (authoritative model). The manager drives layertwine's layered
+/// free functions directly: agent partitions hold
 /// per-actor file edits (`apply_agent_edit`), checkpoint creation snapshots
 /// the partition state into layertwine `Checkpoint`s, and restore goes
 /// through `transition::reconstruct_text`. `FileCheckpoint` / `FileState`
@@ -389,17 +388,6 @@ impl FileCheckpointManager {
     /// Configured full-snapshot threshold threaded into layertwine edits.
     pub fn full_snapshot_threshold(&self) -> f64 {
         self.policy.full_snapshot_threshold
-    }
-
-    /// Build a layered state machine over the attached storage on demand.
-    /// Previous `Option<StateMachine>` field was dead weight (most paths use
-    /// `storage_ref()` directly and constructors disagreed on `Some`/`None`);
-    /// constructing on demand removes the Clone inconsistency.
-    pub fn state_machine(&self) -> Option<StateMachine<SqliteStorage>> {
-        self.store
-            .storage
-            .as_ref()
-            .map(|storage| StateMachine::new(storage.clone()))
     }
 
     pub fn storage(&self) -> Option<&Arc<SqliteStorage>> {

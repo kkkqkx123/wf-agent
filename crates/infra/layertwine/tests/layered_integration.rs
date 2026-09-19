@@ -518,14 +518,11 @@ fn test_edit_after_forward() {
 }
 
 // ---------------------------------------------------------------------------
-// Test: State machine integration (StateMachine handle + atomic storage ops)
+// Test: Layered flow integration (atomic storage ops end-to-end)
 // ---------------------------------------------------------------------------
 #[test]
 fn test_state_machine_integration() {
-    use layertwine::layered::StateMachine;
-
     let storage = Arc::new(setup_storage());
-    let sm = StateMachine::new(storage.clone());
     let s: &SqliteStorage = &storage; // deref Arc for non-Arc calls
 
     // Create initial snapshot and partitions
@@ -553,7 +550,6 @@ fn test_state_machine_integration() {
     let staged_pid = layertwine::layered::staged::staged_partition_id();
     let part = s.get_partition(&staged_pid).unwrap();
     assert_eq!(part.current_snapshot, sid);
-    let _ = sm.storage();
 
     // Verify the state machine can still enumerate partitions after the flow
     let partitions = s.list_partitions().unwrap();

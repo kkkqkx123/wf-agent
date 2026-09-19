@@ -36,22 +36,16 @@ pub struct ConflictView {
 }
 
 impl ConflictView {
-    /// Git-style marker block of the conflict (layertwine
-    /// `MergeConflict::to_conflict_marker`).
+    /// Git-style marker block of the conflict, delegated to the single
+    /// renderer in layertwine (`MergeConflict::to_conflict_marker`).
     pub fn to_conflict_marker(&self) -> String {
-        let mut buf = String::new();
-        buf.push_str("<<<<<<< ours\n");
-        for line in &self.ours {
-            buf.push_str(line);
-            buf.push('\n');
+        LayertwineMergeConflict {
+            start_line: self.start_line,
+            base: self.base.clone(),
+            ours: self.ours.clone(),
+            theirs: self.theirs.clone(),
         }
-        buf.push_str("=======\n");
-        for line in &self.theirs {
-            buf.push_str(line);
-            buf.push('\n');
-        }
-        buf.push_str(">>>>>>> theirs\n");
-        buf
+        .to_conflict_marker()
     }
 }
 

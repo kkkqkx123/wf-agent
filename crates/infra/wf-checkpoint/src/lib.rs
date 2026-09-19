@@ -13,7 +13,7 @@ pub mod error_handling;
 pub mod event;
 pub mod execution_events;
 pub mod file;
-pub mod layertwine;
+pub mod adapter;
 pub mod manager_store;
 pub mod metadata;
 pub mod precise;

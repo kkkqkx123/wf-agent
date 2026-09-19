@@ -4,14 +4,18 @@ use std::marker::PhantomData;
 use serde_json::Value;
 
 use crate::domain::entity::Entity;
-use crate::domain::store::{BatchItem, BatchStore, QueryFilter, Store};
+use crate::domain::store::{BatchItem, BatchStore, QueryFilter, Store, StoreExt};
 use crate::error::StorageError;
-use crate::util::compression::{maybe_compress, maybe_decompress};
+use crate::util::compression::{maybe_compress_with_threshold, maybe_decompress};
 use crate::util::hash::compute_hash;
+
+/// Default compression threshold: payloads smaller than this are stored as-is.
+const DEFAULT_COMPRESSION_THRESHOLD: usize = 1024;
 
 #[derive(Clone)]
 pub struct EntityStore<S, T> {
     storage: S,
+    compression_threshold: usize,
     _marker: PhantomData<T>,
 }
 
@@ -23,8 +27,14 @@ where
     pub fn new(storage: S) -> Self {
         Self {
             storage,
+            compression_threshold: DEFAULT_COMPRESSION_THRESHOLD,
             _marker: PhantomData,
         }
+    }
+
+    pub fn with_compression_threshold(mut self, threshold: usize) -> Self {
+        self.compression_threshold = threshold;
+        self
     }
 
     pub fn into_inner(self) -> S {
@@ -39,7 +49,8 @@ where
         let id = entity.entity_id().to_string();
         let metadata_json = serde_json::to_value(entity.metadata())?;
         let data = entity.to_bytes()?;
-        let (compressed, was_compressed) = maybe_compress(&data)?;
+        let (compressed, was_compressed) =
+            maybe_compress_with_threshold(&data, self.compression_threshold)?;
 
         let mut full_metadata = serde_json::json!({
             "entityType": T::entity_type(),
@@ -140,11 +151,6 @@ where
         }
     }
 
-    /// Count records grouped by a metadata field (delegates to the backend).
-    pub async fn count_by_field(&self, field: &str) -> Result<HashMap<String, u64>, StorageError> {
-        self.storage.count_by_metadata_field(field).await
-    }
-
     /// Read-modify-write of an entity by id, guarded by a per-id lock so
     /// concurrent mutations of the same record cannot lose updates (e.g. an
     /// atomic enable/disable toggle). Returns `Ok(None)` when no record with
@@ -166,6 +172,17 @@ where
 
 impl<S, T> EntityStore<S, T>
 where
+    S: Store + StoreExt,
+    T: Entity,
+{
+    /// Count records grouped by a metadata field (delegates to the backend).
+    pub async fn count_by_field(&self, field: &str) -> Result<HashMap<String, u64>, StorageError> {
+        self.storage.count_by_metadata_field(field).await
+    }
+}
+
+impl<S, T> EntityStore<S, T>
+where
     S: Store + BatchStore,
     T: Entity,
 {
@@ -175,7 +192,8 @@ where
             .map(|e| {
                 let metadata_json = serde_json::to_value(e.metadata())?;
                 let data = e.to_bytes()?;
-                let (compressed, was_compressed) = maybe_compress(&data)?;
+                let (compressed, was_compressed) =
+                    maybe_compress_with_threshold(&data, self.compression_threshold)?;
 
                 let mut full_metadata = serde_json::json!({
                     "entityType": T::entity_type(),

@@ -6,7 +6,7 @@ use moka::sync::Cache;
 use serde_json::Value;
 
 use crate::domain::store::{
-    BatchItem, BatchStore, Maintainable, QueryFilter, Store, StoreOperation,
+    BatchItem, BatchStore, Maintainable, QueryFilter, Store, StoreExt, StoreOperation,
 };
 use crate::error::StorageError;
 
@@ -168,13 +168,6 @@ impl<S: Store> Store for CachingStore<S> {
         self.inner.count(filter).await
     }
 
-    async fn count_by_metadata_field(
-        &self,
-        field: &str,
-    ) -> Result<std::collections::HashMap<String, u64>, StorageError> {
-        self.inner.count_by_metadata_field(field).await
-    }
-
     async fn exists(&self, id: &str) -> Result<bool, StorageError> {
         if self.cache.get(id).is_some() {
             return Ok(true);
@@ -187,7 +180,10 @@ impl<S: Store> Store for CachingStore<S> {
         self.cache.clear();
         Ok(())
     }
+}
 
+#[async_trait]
+impl<S: Store + StoreExt> StoreExt for CachingStore<S> {
     async fn update_status(&self, id: &str, status: &str) -> Result<(), StorageError> {
         self.inner.update_status(id, status).await?;
         self.cache.invalidate(id);
@@ -203,6 +199,13 @@ impl<S: Store> Store for CachingStore<S> {
             }
         }
         Ok(())
+    }
+
+    async fn count_by_metadata_field(
+        &self,
+        field: &str,
+    ) -> Result<std::collections::HashMap<String, u64>, StorageError> {
+        self.inner.count_by_metadata_field(field).await
     }
 }
 
@@ -250,6 +253,7 @@ impl<S: Store + Maintainable> Maintainable for CachingStore<S> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::StoreExt;
     use crate::store::memory::MemoryStorage;
 
     fn make_store() -> CachingStore<MemoryStorage> {

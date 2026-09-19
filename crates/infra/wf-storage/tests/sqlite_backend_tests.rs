@@ -1,6 +1,6 @@
 #![cfg(feature = "sqlite")]
 
-use wf_storage::domain::store::{BatchItem, QueryFilter, Store, StoreOperation};
+use wf_storage::domain::store::{BatchItem, QueryFilter, Store, StoreExt, StoreOperation};
 use wf_storage::store::sqlite::SqliteStorage;
 
 async fn make_store() -> SqliteStorage {

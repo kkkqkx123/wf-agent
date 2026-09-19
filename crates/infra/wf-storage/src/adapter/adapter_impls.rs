@@ -24,7 +24,7 @@ use crate::adapter::user_interaction::{UserInteractionListOptions, UserInteracti
 use crate::adapter::variable::{VariableListOptions, VariableStorageAdapter};
 use crate::adapter::workflow::{WorkflowListOptions, WorkflowStorageAdapter};
 use crate::adapter::workflow_draft::{WorkflowDraftListOptions, WorkflowDraftStorageAdapter};
-use crate::domain::store::{BatchStore, QueryFilter, Store};
+use crate::domain::store::{BatchStore, QueryFilter, Store, StoreExt};
 use crate::error::StorageError;
 use crate::make_base_adapter;
 use crate::store::entity_store::EntityStore;
@@ -121,7 +121,7 @@ make_base_adapter!(
 
 // ─── WorkflowStorageAdapter ───
 
-impl<S: Store> WorkflowStorageAdapter for WorkflowStorage<S> {
+impl<S: Store + StoreExt> WorkflowStorageAdapter for WorkflowStorage<S> {
     async fn update_metadata(
         &self,
         id: &str,
@@ -185,7 +185,7 @@ impl<S: Store> WorkflowStorageAdapter for WorkflowStorage<S> {
 
 // ─── WorkflowExecutionStorageAdapter ───
 
-impl<S: Store> WorkflowExecutionStorageAdapter for WorkflowExecutionStorage<S> {
+impl<S: Store + StoreExt> WorkflowExecutionStorageAdapter for WorkflowExecutionStorage<S> {
     async fn update_status(
         &self,
         id: &str,
@@ -201,7 +201,7 @@ impl<S: Store> WorkflowExecutionStorageAdapter for WorkflowExecutionStorage<S> {
 
 // ─── CheckpointStorageAdapter ───
 
-impl<S: Store> CheckpointStorageAdapter for CheckpointStorage<S> {
+impl<S: Store + StoreExt> CheckpointStorageAdapter for CheckpointStorage<S> {
     async fn list_by_entities_with_metadata(
         &self,
         entity_ids: &[String],
@@ -291,7 +291,7 @@ impl<S: Store> CheckpointStorageAdapter for CheckpointStorage<S> {
 
 // ─── TaskStorageAdapter ───
 
-impl<S: Store> TaskStorageAdapter for TaskStorage<S> {
+impl<S: Store + StoreExt> TaskStorageAdapter for TaskStorage<S> {
     async fn get_stats(&self) -> Result<HashMap<String, u64>, StorageError> {
         self.count_by_field("status").await
     }
@@ -310,7 +310,7 @@ impl<S: Store> TaskStorageAdapter for TaskStorage<S> {
 
 // ─── AgentExecutionStorageAdapter ───
 
-impl<S: Store> AgentExecutionStorageAdapter for AgentExecutionStorage<S> {
+impl<S: Store + StoreExt> AgentExecutionStorageAdapter for AgentExecutionStorage<S> {
     async fn list_by_definition(
         &self,
         definition_id: &str,
@@ -334,7 +334,7 @@ impl<S: Store> AgentExecutionStorageAdapter for AgentExecutionStorage<S> {
 
 // ─── AgentLoopStorageAdapter ───
 
-impl<S: Store> AgentLoopStorageAdapter for AgentLoopStorage<S> {
+impl<S: Store + StoreExt> AgentLoopStorageAdapter for AgentLoopStorage<S> {
     async fn update_status(&self, id: &str, status: &str) -> Result<(), StorageError> {
         if let Some(mut entity) = self.entity_store.load(id).await? {
             entity.status = status.to_string();
@@ -358,7 +358,7 @@ impl<S: Store> AgentLoopStorageAdapter for AgentLoopStorage<S> {
 
 // ─── ToolStorageAdapter ───
 
-impl<S: Store> ToolStorageAdapter for ToolStorage<S> {
+impl<S: Store + StoreExt> ToolStorageAdapter for ToolStorage<S> {
     async fn get_stats(&self) -> Result<HashMap<String, u64>, StorageError> {
         self.count_by_field("toolType").await
     }
@@ -380,7 +380,7 @@ impl<S: Store> ToolStorageAdapter for ToolStorage<S> {
 
 // ─── ToolDefinitionStorageAdapter ───
 
-impl<S: Store> ToolDefinitionStorageAdapter for ToolDefinitionStorage<S> {
+impl<S: Store + StoreExt> ToolDefinitionStorageAdapter for ToolDefinitionStorage<S> {
     async fn list_by_tool_type(
         &self,
         tool_type: &str,
@@ -392,7 +392,7 @@ impl<S: Store> ToolDefinitionStorageAdapter for ToolDefinitionStorage<S> {
 
 // ─── ScriptStorageAdapter ───
 
-impl<S: Store> ScriptStorageAdapter for ScriptStorage<S> {
+impl<S: Store + StoreExt> ScriptStorageAdapter for ScriptStorage<S> {
     async fn list_by_language(
         &self,
         language: &str,
@@ -418,7 +418,7 @@ impl<S: Store> ScriptStorageAdapter for ScriptStorage<S> {
 
 // ─── NodeTemplateStorageAdapter ───
 
-impl<S: Store> NodeTemplateStorageAdapter for NodeTemplateStorage<S> {
+impl<S: Store + StoreExt> NodeTemplateStorageAdapter for NodeTemplateStorage<S> {
     async fn list_by_node_type(
         &self,
         node_type: &str,
@@ -430,7 +430,7 @@ impl<S: Store> NodeTemplateStorageAdapter for NodeTemplateStorage<S> {
 
 // ─── AgentProfileStorageAdapter ───
 
-impl<S: Store> AgentProfileStorageAdapter for AgentProfileStorage<S> {
+impl<S: Store + StoreExt> AgentProfileStorageAdapter for AgentProfileStorage<S> {
     async fn get_first(
         &self,
     ) -> Result<Option<wf_types::AgentProfileStorageMetadata>, StorageError> {
@@ -446,7 +446,7 @@ impl<S: Store> AgentProfileStorageAdapter for AgentProfileStorage<S> {
 
 // ─── UserInteractionStorageAdapter ───
 
-impl<S: Store> UserInteractionStorageAdapter for UserInteractionStorage<S> {
+impl<S: Store + StoreExt> UserInteractionStorageAdapter for UserInteractionStorage<S> {
     async fn list_by_execution(
         &self,
         execution_id: &str,
@@ -470,7 +470,7 @@ impl<S: Store> UserInteractionStorageAdapter for UserInteractionStorage<S> {
 
 // ─── TriggerExecutionStorageAdapter ───
 
-impl<S: Store> TriggerExecutionStorageAdapter for TriggerExecutionStorage<S> {
+impl<S: Store + StoreExt> TriggerExecutionStorageAdapter for TriggerExecutionStorage<S> {
     async fn list_by_trigger(
         &self,
         trigger_name: &str,
@@ -523,7 +523,7 @@ impl<S: Store> TriggerExecutionStorageAdapter for TriggerExecutionStorage<S> {
 
 // ─── MessageStorageAdapter ───
 
-impl<S: Store> MessageStorageAdapter for MessageStorage<S> {
+impl<S: Store + StoreExt> MessageStorageAdapter for MessageStorage<S> {
     async fn list_by_execution(
         &self,
         execution_id: &str,
@@ -577,7 +577,7 @@ impl<S: Store> MessageStorageAdapter for MessageStorage<S> {
 
 // ─── VariableStorageAdapter ───
 
-impl<S: Store> VariableStorageAdapter for VariableStorage<S> {
+impl<S: Store + StoreExt> VariableStorageAdapter for VariableStorage<S> {
     async fn get_by_scope(
         &self,
         execution_id: Option<&str>,
@@ -624,7 +624,7 @@ impl<S: Store> VariableStorageAdapter for VariableStorage<S> {
 
 // ─── TriggerTemplateStorageAdapter ───
 
-impl<S: Store> TriggerTemplateStorageAdapter for TriggerTemplateStorage<S> {
+impl<S: Store + StoreExt> TriggerTemplateStorageAdapter for TriggerTemplateStorage<S> {
     async fn list_by_trigger_type(
         &self,
         trigger_type: &str,
@@ -699,8 +699,8 @@ impl<S: Store + BatchStore> MetricsStorageAdapter for MetricsStorage<S> {
 
 // ─── Draft / Template storage adapters ───
 
-impl<S: Store> WorkflowDraftStorageAdapter for WorkflowDraftStorage<S> {}
+impl<S: Store + StoreExt> WorkflowDraftStorageAdapter for WorkflowDraftStorage<S> {}
 
-impl<S: Store> AgentDraftStorageAdapter for AgentDraftStorage<S> {}
+impl<S: Store + StoreExt> AgentDraftStorageAdapter for AgentDraftStorage<S> {}
 
-impl<S: Store> AgentTemplateStorageAdapter for AgentTemplateStorage<S> {}
+impl<S: Store + StoreExt> AgentTemplateStorageAdapter for AgentTemplateStorage<S> {}

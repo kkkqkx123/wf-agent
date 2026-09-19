@@ -10,7 +10,7 @@ use std::sync::Arc;
 use std::time::Instant;
 use wf_metrics::CheckpointMetricsCollector;
 use wf_storage::backend::StorageBackend;
-use wf_storage::domain::store::{BatchItem, QueryFilter, Store, StoreOperation};
+use wf_storage::domain::store::{BatchItem, QueryFilter, Store, StoreExt, StoreOperation};
 use wf_storage::error::StorageError;
 use wf_types::checkpoint::CheckpointType;
 use wf_types::checkpoint::CompressionStrategy;

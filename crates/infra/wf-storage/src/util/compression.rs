@@ -46,7 +46,14 @@ pub fn is_gzip(data: &[u8]) -> bool {
 }
 
 pub fn maybe_compress(data: &[u8]) -> Result<(Vec<u8>, bool), StorageError> {
-    if data.len() < 1024 {
+    maybe_compress_with_threshold(data, 1024)
+}
+
+pub fn maybe_compress_with_threshold(
+    data: &[u8],
+    threshold: usize,
+) -> Result<(Vec<u8>, bool), StorageError> {
+    if data.len() < threshold {
         return Ok((data.to_vec(), false));
     }
     let compressed = compress(data)?;

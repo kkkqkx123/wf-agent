@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use serde_json::Value;
 use tokio::sync::RwLock;
 
-use crate::domain::store::{BatchItem, FilterOp, QueryFilter, Store, StoreOperation};
+use crate::domain::store::{BatchItem, FilterOp, QueryFilter, Store, StoreExt, StoreOperation};
 use crate::error::StorageError;
 
 #[derive(Debug, Clone)]
@@ -232,16 +232,6 @@ fn apply_filter(
 
 #[async_trait]
 impl Store for MemoryStorage {
-    async fn update_status(&self, id: &str, status: &str) -> Result<(), StorageError> {
-        let mut store = self.inner.write().await;
-        if let Some(rec) = store.records.get_mut(id) {
-            if let Some(obj) = rec.metadata.as_object_mut() {
-                obj.insert("status".to_string(), Value::String(status.to_string()));
-            }
-        }
-        Ok(())
-    }
-
     async fn save(&self, id: &str, data: &[u8], metadata: &Value) -> Result<(), StorageError> {
         let mut store = self.inner.write().await;
         let now = current_timestamp();
@@ -313,6 +303,19 @@ impl Store for MemoryStorage {
     async fn clear(&self) -> Result<(), StorageError> {
         let mut store = self.inner.write().await;
         store.records.clear();
+        Ok(())
+    }
+}
+
+#[async_trait]
+impl StoreExt for MemoryStorage {
+    async fn update_status(&self, id: &str, status: &str) -> Result<(), StorageError> {
+        let mut store = self.inner.write().await;
+        if let Some(rec) = store.records.get_mut(id) {
+            if let Some(obj) = rec.metadata.as_object_mut() {
+                obj.insert("status".to_string(), Value::String(status.to_string()));
+            }
+        }
         Ok(())
     }
 
@@ -419,7 +422,7 @@ impl Maintainable for MemoryStorage {}
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::store::BatchStore;
+    use crate::domain::store::{BatchStore, StoreExt};
 
     #[tokio::test]
     async fn test_save_load_roundtrip() {

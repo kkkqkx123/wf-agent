@@ -30,7 +30,8 @@ macro_rules! make_base_adapter {
             }
         }
 
-        impl<S: $crate::domain::Store> $crate::adapter::base::BaseStorageAdapter<$entity, $list_ty>
+        impl<S: $crate::domain::Store + $crate::domain::StoreExt>
+            $crate::adapter::base::BaseStorageAdapter<$entity, $list_ty>
             for $name<S>
         {
             async fn initialize(&self) -> Result<(), $crate::error::StorageError> {

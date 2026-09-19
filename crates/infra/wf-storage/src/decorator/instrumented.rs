@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use serde_json::Value;
 
 use crate::domain::store::{
-    BatchItem, BatchStore, Maintainable, QueryFilter, Store, StoreOperation,
+    BatchItem, BatchStore, Maintainable, QueryFilter, Store, StoreExt, StoreOperation,
 };
 use crate::error::StorageError;
 
@@ -175,16 +175,19 @@ impl<S: Store> Store for InstrumentedStore<S> {
         result
     }
 
-    async fn update_status(&self, id: &str, status: &str) -> Result<(), StorageError> {
-        self.inner.update_status(id, status).await
-    }
-
     async fn clear(&self) -> Result<(), StorageError> {
         let start = Instant::now();
         let result = self.inner.clear().await;
         let elapsed = start.elapsed().as_millis() as u64;
         self.metrics.clear.record(elapsed, 0);
         result
+    }
+}
+
+#[async_trait]
+impl<S: Store + StoreExt> StoreExt for InstrumentedStore<S> {
+    async fn update_status(&self, id: &str, status: &str) -> Result<(), StorageError> {
+        self.inner.update_status(id, status).await
     }
 
     async fn apply_batch(&self, operations: &[StoreOperation]) -> Result<(), StorageError> {
@@ -200,6 +203,13 @@ impl<S: Store> Store for InstrumentedStore<S> {
             .sum();
         self.metrics.batch.record(elapsed, total_bytes);
         result
+    }
+
+    async fn count_by_metadata_field(
+        &self,
+        field: &str,
+    ) -> Result<std::collections::HashMap<String, u64>, StorageError> {
+        self.inner.count_by_metadata_field(field).await
     }
 }
 

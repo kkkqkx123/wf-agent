@@ -3,7 +3,7 @@ use serde_json::Value;
 use sqlx::PgPool;
 
 use crate::domain::store::{
-    BatchItem, BatchStore, FilterOp, Maintainable, QueryFilter, Store, StoreOperation,
+    BatchItem, BatchStore, FilterOp, Maintainable, QueryFilter, Store, StoreExt, StoreOperation,
 };
 use crate::error::StorageError;
 use crate::util::pool::create_pg_pool;
@@ -291,10 +291,6 @@ fn build_select_sql(
 
 #[async_trait]
 impl Store for PostgresStorage {
-    async fn update_status(&self, id: &str, status: &str) -> Result<(), StorageError> {
-        PostgresStorage::update_status(self, id, status).await
-    }
-
     async fn save(&self, id: &str, data: &[u8], metadata: &Value) -> Result<(), StorageError> {
         let now = chrono::Utc::now().timestamp_millis();
         let hash = crate::util::hash::compute_hash(data);
@@ -428,28 +424,6 @@ impl Store for PostgresStorage {
             .collect()
     }
 
-    async fn count_by_metadata_field(
-        &self,
-        field: &str,
-    ) -> Result<std::collections::HashMap<String, u64>, StorageError> {
-        let sql = format!(
-            "SELECT metadata->>'{}' AS k, COUNT(*) AS c FROM {} GROUP BY k",
-            field, self.table_name
-        );
-        let rows: Vec<(Option<String>, i64)> = sqlx::query_as(&sql)
-            .fetch_all(&self.pool)
-            .await
-            .map_err(|e| StorageError::General {
-                operation: "count_by_metadata_field".into(),
-                message: e.to_string(),
-                source: Some(Box::new(e)),
-            })?;
-        Ok(rows
-            .into_iter()
-            .filter_map(|(key, count)| key.map(|k| (k, count as u64)))
-            .collect())
-    }
-
     async fn count(&self, filter: Option<&QueryFilter>) -> Result<u64, StorageError> {
         let (sql, params) = build_select_sql(filter, &self.table_name, "1");
         let sql = format!("SELECT COUNT(*) FROM ({}) AS filtered", sql);
@@ -496,6 +470,35 @@ impl Store for PostgresStorage {
                 source: Some(Box::new(e)),
             })?;
         Ok(())
+    }
+}
+
+#[async_trait]
+impl StoreExt for PostgresStorage {
+    async fn update_status(&self, id: &str, status: &str) -> Result<(), StorageError> {
+        PostgresStorage::update_status(self, id, status).await
+    }
+
+    async fn count_by_metadata_field(
+        &self,
+        field: &str,
+    ) -> Result<std::collections::HashMap<String, u64>, StorageError> {
+        let sql = format!(
+            "SELECT metadata->>'{}' AS k, COUNT(*) AS c FROM {} GROUP BY k",
+            field, self.table_name
+        );
+        let rows: Vec<(Option<String>, i64)> = sqlx::query_as(&sql)
+            .fetch_all(&self.pool)
+            .await
+            .map_err(|e| StorageError::General {
+                operation: "count_by_metadata_field".into(),
+                message: e.to_string(),
+                source: Some(Box::new(e)),
+            })?;
+        Ok(rows
+            .into_iter()
+            .filter_map(|(key, count)| key.map(|k| (k, count as u64)))
+            .collect())
     }
 
     async fn apply_batch(&self, operations: &[StoreOperation]) -> Result<(), StorageError> {

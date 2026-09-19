@@ -133,13 +133,18 @@ impl BatchItem {
     }
 }
 
-/// One operation of an atomic batch (`Store::apply_batch`).
+/// One operation of an atomic batch (`StoreExt::apply_batch`).
 #[derive(Debug, Clone)]
 pub enum StoreOperation {
     Save(BatchItem),
     Delete(String),
 }
 
+/// Core key-value store abstraction.
+///
+/// Defines the minimal contract every storage backend must implement:
+/// save, load, delete, list, exists, and clear. Extended operations
+/// (atomic batch, status update, field counting) live on [`StoreExt`].
 #[async_trait]
 pub trait Store: Send + Sync {
     async fn save(&self, id: &str, data: &[u8], metadata: &Value) -> Result<(), StorageError>;
@@ -173,7 +178,16 @@ pub trait Store: Send + Sync {
     }
 
     async fn clear(&self) -> Result<(), StorageError>;
+}
 
+/// Extended store operations that are not part of the minimal [`Store`] contract.
+///
+/// Atomic batch operations, lightweight metadata-only status updates, and
+/// field-based aggregation are separated here so new backends only need to
+/// implement the core [`Store`] methods. Backends that offer native SQL
+/// implementations override the defaults for better performance.
+#[async_trait]
+pub trait StoreExt: Store {
     /// Apply a batch of mixed save/delete operations atomically where the
     /// backend supports transactions (Sqlite / PostgreSQL `BEGIN`/`COMMIT`).
     /// The default implementation applies the operations sequentially; the

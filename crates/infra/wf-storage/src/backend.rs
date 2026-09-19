@@ -4,7 +4,7 @@ use serde_json::Value;
 use crate::decorator::cache::{CacheConfig, CachingStore};
 use crate::decorator::instrumented::{InstrumentedStore, StorageMetrics};
 use crate::domain::store::{
-    BatchItem, BatchStore, Maintainable, QueryFilter, Store, StoreOperation,
+    BatchItem, BatchStore, Maintainable, QueryFilter, Store, StoreExt, StoreOperation,
 };
 use crate::error::StorageError;
 #[cfg(feature = "memory")]
@@ -161,6 +161,20 @@ impl Store for StorageBackend {
         }
     }
 
+    async fn clear(&self) -> Result<(), StorageError> {
+        match self {
+            #[cfg(feature = "memory")]
+            Self::Memory(s) => s.clear().await,
+            #[cfg(feature = "sqlite")]
+            Self::Sqlite(s) => s.clear().await,
+            #[cfg(feature = "postgres")]
+            Self::Postgres(s) => s.clear().await,
+        }
+    }
+}
+
+#[async_trait]
+impl StoreExt for StorageBackend {
     async fn update_status(&self, id: &str, status: &str) -> Result<(), StorageError> {
         match self {
             #[cfg(feature = "memory")]
@@ -183,14 +197,17 @@ impl Store for StorageBackend {
         }
     }
 
-    async fn clear(&self) -> Result<(), StorageError> {
+    async fn count_by_metadata_field(
+        &self,
+        field: &str,
+    ) -> Result<std::collections::HashMap<String, u64>, StorageError> {
         match self {
             #[cfg(feature = "memory")]
-            Self::Memory(s) => s.clear().await,
+            Self::Memory(s) => s.count_by_metadata_field(field).await,
             #[cfg(feature = "sqlite")]
-            Self::Sqlite(s) => s.clear().await,
+            Self::Sqlite(s) => s.count_by_metadata_field(field).await,
             #[cfg(feature = "postgres")]
-            Self::Postgres(s) => s.clear().await,
+            Self::Postgres(s) => s.count_by_metadata_field(field).await,
         }
     }
 }

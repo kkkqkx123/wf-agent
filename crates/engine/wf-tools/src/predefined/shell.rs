@@ -17,6 +17,7 @@ pub mod shell_kill;
 pub mod shell_output;
 pub mod shell_resize;
 pub mod shell_send_input;
+pub mod shell_wait;
 
 pub use backend_shell::BACKEND_SHELL;
 pub use execute_command::EXECUTE_COMMAND;
@@ -27,6 +28,7 @@ pub use shell_kill::SHELL_KILL;
 pub use shell_output::SHELL_OUTPUT;
 pub use shell_resize::SHELL_RESIZE;
 pub use shell_send_input::SHELL_SEND_INPUT;
+pub use shell_wait::SHELL_WAIT;
 
 use std::sync::Arc;
 
@@ -41,6 +43,7 @@ pub const ALL: &[&ToolDefinition] = &[
     &EXECUTE_COMMAND,
     &BACKEND_SHELL,
     &SHELL_OUTPUT,
+    &SHELL_WAIT,
     &SHELL_KILL,
     &SHELL_SEND_INPUT,
     &SHELL_RESIZE,
@@ -67,6 +70,7 @@ pub fn register(registry: &ToolRegistry, config: &ShellToolConfig) -> ToolResult
     let store = Arc::new(BackgroundShellStore::from_config(&store_config));
     backend_shell::register(registry, &store, &forwarder)?;
     shell_output::register(registry, &store)?;
+    shell_wait::register(registry, &store)?;
     shell_kill::register(registry, &store, &forwarder)?;
     shell_send_input::register(registry, &store)?;
     shell_resize::register(registry, &store)?;
@@ -300,6 +304,7 @@ mod tests {
             EXECUTE_COMMAND.tool_def(),
             BACKEND_SHELL.tool_def(),
             SHELL_OUTPUT.tool_def(),
+            SHELL_WAIT.tool_def(),
             SHELL_KILL.tool_def(),
             SHELL_SEND_INPUT.tool_def(),
             SHELL_RESIZE.tool_def(),
@@ -1193,6 +1198,65 @@ mod tests {
                 task_id.unwrap_or("")
             ));
         }
+    }
+
+    #[tokio::test]
+    async fn test_shell_wait_completion_and_pattern() {
+        let registry = shell_registry(&ShellToolConfig::default());
+        registry.register_tool(SHELL_WAIT.tool_def());
+        let ctx = ToolExecutionContext::new("exec-wait".into());
+        let options = make_options();
+
+        let session_id = spawn_session(
+            &registry,
+            &serde_json::json!({ "command": "printf 'waiting\\n'; sleep 0.3; printf 'done-marker\\n'" }),
+            &ctx,
+        )
+        .await;
+
+        let matched = registry
+            .execute_tool(
+                "shell_wait",
+                &serde_json::json!({ "session_id": session_id, "pattern": "done-marker", "timeout": 8000 }),
+                &options,
+                &ctx,
+            )
+            .await
+            .unwrap();
+        let matched_value = matched.result.unwrap();
+        assert_eq!(matched_value["matched"], serde_json::json!(true));
+        assert_eq!(matched_value["timed_out"], serde_json::json!(false));
+
+        let completed = registry
+            .execute_tool(
+                "shell_wait",
+                &serde_json::json!({ "session_id": session_id, "timeout": 8000 }),
+                &options,
+                &ctx,
+            )
+            .await
+            .unwrap();
+        let completed_value = completed.result.unwrap();
+        assert_eq!(completed_value["timed_out"], serde_json::json!(false));
+
+        let missing = registry
+            .execute_tool(
+                "shell_wait",
+                &serde_json::json!({ "session_id": "nope", "timeout": 100 }),
+                &options,
+                &ctx,
+            )
+            .await;
+        assert!(missing.is_err());
+
+        let _ = registry
+            .execute_tool(
+                "shell_kill",
+                &serde_json::json!({ "session_id": session_id }),
+                &options,
+                &ctx,
+            )
+            .await;
     }
 
     #[tokio::test]

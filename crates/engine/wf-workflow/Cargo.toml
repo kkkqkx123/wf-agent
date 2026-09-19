@@ -15,6 +15,8 @@ wf-config = { path = "../../infra/wf-config" }
 wf-metrics = { path = "../../infra/wf-metrics" }
 wf-agent = { path = "../wf-agent" }
 wf-sandbox = { path = "../../infra/wf-sandbox" }
+wf-script = { path = "../../infra/wf-script" }
+wf-shell = { path = "../../infra/wf-shell" }
 wf-storage = { path = "../../infra/wf-storage" }
 wf-resource = { path = "../../infra/wf-resource" }
 
@@ -27,6 +29,7 @@ dashmap.workspace = true
 thiserror.workspace = true
 futures.workspace = true
 tokio-util.workspace = true
+regex.workspace = true
 
 [features]
 lua = ["wf-sandbox/lua"]

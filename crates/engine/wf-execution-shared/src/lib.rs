@@ -13,6 +13,7 @@ pub mod hooks;
 pub mod interruption;
 pub mod message_ops;
 pub mod messaging_impl;
+pub mod script_router;
 pub mod single_shot;
 pub mod token_events;
 pub mod token_tracker;
@@ -45,6 +46,7 @@ pub use types::{ExecutionInstance, ExecutionKind};
 // transport crate, which now only owns transport, config and estimation.
 pub use conversation_session::{ConversationSession, ConversationState, CONVERSATION_CONTEXT_ID};
 pub use message_ops::{apply as apply_message_operation, extract_by_role, is_agent_safe};
+pub use script_router::{RoutedScriptResult, ScriptRouter};
 pub use single_shot::{
     generate_text_once, generate_with_tools_once, SingleShotOutcome, SingleShotToolExecution,
     MAX_SINGLE_SHOT_TOOL_CALLS,

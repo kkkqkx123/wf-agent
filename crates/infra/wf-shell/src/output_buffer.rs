@@ -206,6 +206,35 @@ impl OutputBuffer {
         self.collect_from(start - self.trimmed, self.written - start)
     }
 
+    /// Window of the buffer starting at the absolute position `start`, capped
+    /// at `max_bytes` of retained content. A start inside the dropped prefix
+    /// yields the truncation marker plus the capped head of the retained
+    /// content; positions and the dropped-prefix size are reported through
+    /// the returned tuple `(text, window_end, trimmed, prefix_dropped)`.
+    pub(crate) fn window_from(
+        &self,
+        start: usize,
+        max_bytes: usize,
+    ) -> (String, usize, usize, bool) {
+        if start >= self.written || max_bytes == 0 {
+            return (String::new(), start.min(self.written), self.trimmed, false);
+        }
+        if start < self.trimmed {
+            let marker = self.marker();
+            let budget = max_bytes.saturating_sub(marker.len());
+            let text = format!(
+                "{marker}{}",
+                self.collect_from(0, budget.min(self.live_len()))
+            );
+            return (text, self.written, self.trimmed, true);
+        }
+        let rel = start - self.trimmed;
+        let available = self.live_len().saturating_sub(rel);
+        let take = available.min(max_bytes);
+        let text = self.collect_from(rel, take);
+        (text, start.saturating_add(take), self.trimmed, false)
+    }
+
     /// Return output since the last call and advance the cursor.
     pub(crate) fn read_new(&mut self) -> String {
         if self.last_read >= self.written {
@@ -280,6 +309,20 @@ mod tests {
         assert_eq!(buf.tail_from(1), "bc");
         assert_eq!(buf.tail_from(3), "");
         assert_eq!(buf.tail_from(99), "");
+    }
+
+    #[test]
+    fn test_output_buffer_window_from_pages() {
+        let mut buf = OutputBuffer::default();
+        buf.append("0123456789");
+        let (text, end, trimmed, dropped) = buf.window_from(2, 4);
+        assert_eq!(text, "2345");
+        assert_eq!(end, 6);
+        assert_eq!(trimmed, 0);
+        assert!(!dropped);
+        let (rest, end, _, _) = buf.window_from(end, 100);
+        assert_eq!(rest, "6789");
+        assert_eq!(end, 10);
     }
 
     #[test]

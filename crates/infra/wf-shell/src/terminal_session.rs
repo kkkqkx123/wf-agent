@@ -251,6 +251,30 @@ impl TerminalSession {
         wf_common::lock::lock_ok(self.output.lock()).peek_new()
     }
 
+    /// Paged window of the session output for large-payload reads: at most
+    /// `max_bytes` of retained output starting at the absolute position
+    /// `start` (a previous response's `window_end` continues the stream).
+    /// Positions stay valid across ring truncation; a window that starts in
+    /// the dropped prefix reports `prefix_dropped` with the truncation
+    /// marker prepended.
+    pub fn output_window(&self, start: usize, max_bytes: usize) -> Value {
+        let output = wf_common::lock::lock_ok(self.output.lock());
+        let (text, window_end, trimmed, prefix_dropped) = output.window_from(start, max_bytes);
+        let status = self.status();
+        let exit_code = *wf_common::lock::lock_ok(self.last_exit_code.lock());
+        serde_json::json!({
+            "session_id": self.session_id,
+            "status": status.as_str(),
+            "exit_code": exit_code,
+            "output": text,
+            "window_start": start.min(output.written()),
+            "window_end": window_end,
+            "total_written": output.written(),
+            "trimmed_bytes": trimmed,
+            "prefix_dropped": prefix_dropped,
+        })
+    }
+
     /// Snapshot of the session for the shell_output tool.
     pub fn snapshot(&self) -> Value {
         let status = self.status();

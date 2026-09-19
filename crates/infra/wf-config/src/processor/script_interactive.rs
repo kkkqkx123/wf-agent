@@ -1,14 +1,26 @@
 use std::collections::HashMap;
 
-use crate::error::ConfigResult;
+use regex::Regex;
+
+use crate::error::{ConfigError, ConfigResult};
 use crate::processor::substitute::substitute_in_struct;
 use crate::validator::validate_min;
 
-use wf_types::script::interactive::InteractiveScriptConfig;
+use wf_script::InteractiveScriptConfig;
 
 pub fn validate_interactive_script(config: &InteractiveScriptConfig) -> ConfigResult<()> {
-    if let Some(timeout) = config.timeout_seconds {
-        validate_min(timeout, 1, "timeout_seconds")?;
+    if let Some(max_rounds) = config.max_rounds {
+        validate_min(max_rounds, 1, "max_rounds")?;
+    }
+    if let Some(timeout) = config.round_timeout {
+        validate_min(timeout, 1, "round_timeout")?;
+    }
+    if let Some(patterns) = &config.prompt_patterns {
+        for pattern in patterns {
+            Regex::new(pattern).map_err(|e| {
+                ConfigError::Validation(format!("invalid prompt pattern '{pattern}': {e}"))
+            })?;
+        }
     }
     Ok(())
 }
@@ -29,12 +41,15 @@ pub fn export_interactive_script(config: InteractiveScriptConfig) -> Interactive
 #[cfg(test)]
 mod tests {
     use super::*;
+    use wf_script::InteractionMode;
 
     fn make_config() -> InteractiveScriptConfig {
         InteractiveScriptConfig {
-            enabled: true,
-            timeout_seconds: Some(60),
-            allow_user_input: Some(true),
+            mode: InteractionMode::Blocking,
+            max_rounds: Some(10),
+            interaction_points: None,
+            prompt_patterns: None,
+            round_timeout: Some(30_000),
         }
     }
 
@@ -45,9 +60,16 @@ mod tests {
     }
 
     #[test]
-    fn test_zero_timeout() {
+    fn test_zero_rounds() {
         let mut config = make_config();
-        config.timeout_seconds = Some(0);
+        config.max_rounds = Some(0);
+        assert!(validate_interactive_script(&config).is_err());
+    }
+
+    #[test]
+    fn test_invalid_prompt_pattern() {
+        let mut config = make_config();
+        config.prompt_patterns = Some(vec!["(unclosed".to_string()]);
         assert!(validate_interactive_script(&config).is_err());
     }
 
@@ -58,13 +80,13 @@ mod tests {
         params.insert("prompt".to_string(), "Enter value".to_string());
 
         let result = transform_interactive_script(&config, &params).unwrap();
-        assert!(result.enabled);
+        assert_eq!(result.max_rounds, Some(10));
     }
 
     #[test]
     fn test_export_interactive_script() {
         let config = make_config();
         let exported = export_interactive_script(config.clone());
-        assert_eq!(exported.enabled, config.enabled);
+        assert_eq!(exported.max_rounds, config.max_rounds);
     }
 }

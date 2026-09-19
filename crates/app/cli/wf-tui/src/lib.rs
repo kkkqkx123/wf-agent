@@ -26,7 +26,7 @@ pub use tui_core::{
 };
 pub use tui_debug::tui_debug;
 pub use tui_markdown::markdown;
-pub use tui_render::{ansi, deferred, layout, post_process, prep_cache, screen_cache, screen_draw};
+pub use tui_render::{ansi, deferred, layout, post_process, prep_cache, screen_draw};
 pub use tui_style::{anim_core, animation, motion, theme, theme_mode};
 pub use tui_terminal::{capabilities, editor, liveness, probe, sigint, stderr, terminal};
 

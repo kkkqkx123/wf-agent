@@ -11,6 +11,8 @@ wf-llm = { path = "../../infra/wf-llm" }
 wf-tools = { path = "../wf-tools" }
 wf-resource = { path = "../../infra/wf-resource" }
 wf-script = { path = "../../infra/wf-script" }
+wf-shell = { path = "../../infra/wf-shell" }
+wf-sandbox = { path = "../../infra/wf-sandbox" }
 wf-metrics = { path = "../../infra/wf-metrics" }
 wf-storage = { path = "../../infra/wf-storage" }
 

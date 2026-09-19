@@ -1,25 +1,23 @@
 use std::sync::Arc;
 
 use wf_core::registry::{ConcurrentRegistry, MutableRegistry, Registry, RegistryResult};
+use wf_script::ScriptFlow;
 use wf_types::workflow_execution::WorkflowGraphStructure;
 
 use crate::entity::WorkflowExecutionEntity;
 
 pub type WorkflowGraphRegistry = ConcurrentRegistry<WorkflowGraphStructure>;
 pub type WorkflowExecutionRegistry = ConcurrentRegistry<WorkflowExecutionEntity>;
+pub type WorkflowScriptFlowRegistry = ConcurrentRegistry<ScriptFlow>;
 
-/// A named script that can be executed from trigger actions.
-#[derive(Debug, Clone)]
-pub struct ScriptDefinition {
-    pub language: String,
-    pub code: String,
-}
+pub use wf_script::ScriptDefinition;
 
 /// Thread-safe registry of named scripts.
 ///
-/// A local instance can be injected into a `TriggerContext` for isolation
-/// (unit tests) instead of the process-wide default used by production
-/// wiring, so tests never share or clobber script names.
+/// Scripts are stored as full blueprint definitions (template, argument
+/// declarations, security policy), so every execution path renders and
+/// validates through the same definition. The language-plus-code entry
+/// point only builds the ad-hoc shape of the same definition.
 pub struct ScriptRegistry {
     scripts: dashmap::DashMap<String, ScriptDefinition>,
 }
@@ -36,10 +34,23 @@ impl ScriptRegistry {
         self.scripts.insert(
             name.to_string(),
             ScriptDefinition {
-                language: language.to_string(),
-                code: code.to_string(),
+                name: name.to_string(),
+                content: Some(code.to_string()),
+                template: None,
+                arguments: None,
+                language: Some(language.to_string()),
+                executor_mode: None,
+                interactive: None,
+                security_policy: None,
+                description: None,
+                enabled: None,
             },
         );
+    }
+
+    /// Register a full blueprint definition under its own name.
+    pub fn register_definition(&self, definition: ScriptDefinition) {
+        self.scripts.insert(definition.name.clone(), definition);
     }
 
     pub fn get(&self, name: &str) -> Option<ScriptDefinition> {
@@ -117,6 +128,7 @@ impl MutableRegistry<ScriptDefinition> for ScriptRegistry {
 pub struct WorkflowRegistry {
     graphs: WorkflowGraphRegistry,
     scripts: ScriptRegistry,
+    flows: WorkflowScriptFlowRegistry,
 }
 
 impl WorkflowRegistry {
@@ -124,6 +136,7 @@ impl WorkflowRegistry {
         Self {
             graphs: ConcurrentRegistry::new(),
             scripts: ScriptRegistry::new(),
+            flows: ConcurrentRegistry::new(),
         }
     }
 
@@ -160,9 +173,26 @@ impl WorkflowRegistry {
         self.scripts.register_script(name, language, code);
     }
 
+    /// Register a full blueprint definition.
+    pub fn register_definition(&self, definition: ScriptDefinition) {
+        self.scripts.register_definition(definition);
+    }
+
     /// Look up a previously registered script by name.
     pub fn lookup_script(&self, name: &str) -> Option<ScriptDefinition> {
         self.scripts.get(name)
+    }
+
+    /// Register a named script flow for `flow_id` references.
+    pub fn register_flow(&self, flow: ScriptFlow) {
+        let _ = self
+            .flows
+            .register_or_replace(flow.name.clone(), Arc::new(flow));
+    }
+
+    /// Look up a previously registered script flow by name.
+    pub fn lookup_flow(&self, name: &str) -> Option<ScriptFlow> {
+        self.flows.get(name).map(|flow| flow.as_ref().clone())
     }
 }
 
@@ -188,9 +218,24 @@ pub fn register_script(name: &str, language: &str, code: &str) {
     WorkflowRegistry::global().register_script(name, language, code);
 }
 
+/// Register a full blueprint definition (process-wide default).
+pub fn register_definition(definition: ScriptDefinition) {
+    WorkflowRegistry::global().register_definition(definition);
+}
+
 /// Look up a previously registered script by name (process-wide default).
 pub fn lookup_script(name: &str) -> Option<ScriptDefinition> {
     WorkflowRegistry::global().lookup_script(name)
+}
+
+/// Register a named script flow (process-wide default).
+pub fn register_flow(flow: ScriptFlow) {
+    WorkflowRegistry::global().register_flow(flow);
+}
+
+/// Look up a previously registered script flow (process-wide default).
+pub fn lookup_flow(name: &str) -> Option<ScriptFlow> {
+    WorkflowRegistry::global().lookup_flow(name)
 }
 
 pub fn create_graph_registry() -> WorkflowGraphRegistry {

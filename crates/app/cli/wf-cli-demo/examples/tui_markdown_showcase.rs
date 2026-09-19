@@ -77,10 +77,29 @@ const ANSWER_SAMPLE: &str = "and here is the visible answer.";
 
 /// Simulated stream chunks (word-ish pieces, includes a code fence split).
 const STREAM_CHUNKS: &[&str] = &[
-    "# Streaming ", "Doc\n\n", "A paragraph with ", "**bold**", " and ",
-    "`inline`", " code.\n\n", "```rust\n", "fn ", "demo", "() {}\n", "```\n\n",
-    "- item ", "one\n", "- item ", "two\n\n", "> quote\n", "\n---\n\n",
-    "Done. ", "The streaming ", "render should ", "match the ", "left panel.",
+    "# Streaming ",
+    "Doc\n\n",
+    "A paragraph with ",
+    "**bold**",
+    " and ",
+    "`inline`",
+    " code.\n\n",
+    "```rust\n",
+    "fn ",
+    "demo",
+    "() {}\n",
+    "```\n\n",
+    "- item ",
+    "one\n",
+    "- item ",
+    "two\n\n",
+    "> quote\n",
+    "\n---\n\n",
+    "Done. ",
+    "The streaming ",
+    "render should ",
+    "match the ",
+    "left panel.",
 ];
 
 struct DemoState {
@@ -190,7 +209,11 @@ fn draw(f: &mut ratatui::Frame, state: &DemoState) {
     let whole = render_styled_lines(SAMPLE_DOC, cols[0].width.saturating_sub(2));
     let left: Vec<Line<'static>> = whole;
     let left = Paragraph::new(left)
-        .block(Block::default().borders(Borders::ALL).title(" styled (whole source) "))
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title(" styled (whole source) "),
+        )
         .wrap(Wrap { trim: false })
         .scroll((state.scroll, 0));
     f.render_widget(left, cols[0]);
@@ -211,9 +234,16 @@ fn draw(f: &mut ratatui::Frame, state: &DemoState) {
     f.render_widget(right, cols[1]);
 
     // Bottom: plain text / raw source / reasoning contract.
-    let bottom_title = if state.show_raw { " raw source " } else { " plain text " };
+    let bottom_title = if state.show_raw {
+        " raw source "
+    } else {
+        " plain text "
+    };
     let bottom_lines: Vec<Line<'static>> = if state.show_raw {
-        SAMPLE_DOC.lines().map(|l| Line::raw(l.to_string())).collect()
+        SAMPLE_DOC
+            .lines()
+            .map(|l| Line::raw(l.to_string()))
+            .collect()
     } else {
         reasoning_lines()
     };
@@ -232,7 +262,12 @@ fn draw(f: &mut ratatui::Frame, state: &DemoState) {
 /// Render the reasoning sample through the shared reasoning contract:
 /// marked text splits into a hidden (reasoning) part and a visible part.
 fn reasoning_lines() -> Vec<Line<'static>> {
-    let marked = format!("{}{}{}", mark_reasoning(REASONING_SAMPLE), '\n', ANSWER_SAMPLE);
+    let marked = format!(
+        "{}{}{}",
+        mark_reasoning(REASONING_SAMPLE),
+        '\n',
+        ANSWER_SAMPLE
+    );
     split_reasoning_marks(&marked)
         .into_iter()
         .map(|(is_reasoning, text)| {

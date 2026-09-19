@@ -33,7 +33,7 @@ pub use wf_config::processor::node_config::{
 pub use wf_config::processor::node_template::validate_node_template;
 pub use wf_config::processor::prompt::validate_prompt_template;
 pub use wf_config::processor::sandbox_global::validate_sandbox_global;
-pub use wf_config::processor::script::validate_script_executor;
+pub use wf_config::processor::script::validate_script_definition;
 pub use wf_config::processor::script_flow::validate_script_flow;
 pub use wf_config::processor::script_interactive::validate_interactive_script;
 pub use wf_config::processor::trigger::validate_trigger_template;

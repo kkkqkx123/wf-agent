@@ -33,6 +33,7 @@ use crate::registry::{lookup_graph, lookup_script, ScriptRegistry};
 use crate::trigger::internal;
 use crate::WorkflowExecutionEntity;
 use wf_execution_shared::context::ExecutorContext;
+use wf_execution_shared::script_router::ScriptRouter;
 use wf_tools::registry::ToolRegistry;
 use wf_types::script::sandbox::{SandboxConfig, ScriptExecutionResult};
 use wf_types::workflow_execution::WorkflowExecutionOptions;
@@ -103,6 +104,7 @@ pub struct TriggerContext {
     pub metrics: Option<Arc<MetricsRegistry>>,
     pub script_runner: Option<Arc<dyn ScriptRunner>>,
     pub script_registry: Option<Arc<ScriptRegistry>>,
+    pub script_router: Option<Arc<ScriptRouter>>,
     /// Abort signal of the owning execution; background triggered
     /// sub-workflows race against it so a cancelled parent stops them.
     pub cancellation: Option<CancellationToken>,
@@ -125,6 +127,7 @@ impl TriggerContext {
             metrics: None,
             script_runner: None,
             script_registry: None,
+            script_router: None,
             cancellation: None,
             session_cache: None,
         }
@@ -166,6 +169,11 @@ impl TriggerContext {
 
     pub fn with_script_runner(mut self, runner: Arc<dyn ScriptRunner>) -> Self {
         self.script_runner = Some(runner);
+        self
+    }
+
+    pub fn with_script_router(mut self, router: Arc<ScriptRouter>) -> Self {
+        self.script_router = Some(router);
         self
     }
 
@@ -767,53 +775,60 @@ impl TriggerCoordinator {
         )
         .await;
 
-        let mut code = String::new();
-        if let Some(params) = parameters {
-            let serialized = serde_json::to_string(&params).unwrap_or_else(|_| "null".to_string());
-            code.push_str(&format!("const parameters = {};\n", serialized));
-        }
-        code.push_str(&script.code);
-
-        let sandbox_config = SandboxConfig {
-            mode: Some(wf_types::script::sandbox::SandboxMode::Strict),
-            policy: None,
-            shell_strategy: None,
-            python_strategy: None,
-            javascript_strategy: None,
-            lua_strategy: None,
-            vfs: None,
-            workdir: None,
-            env: None,
-            legacy_type: None,
-            resource_limits: None,
-            skip_gate_check: None,
-        };
-        let runner = ctx
-            .script_runner
-            .clone()
-            .unwrap_or_else(|| Arc::new(SandboxScriptRunner::new()) as Arc<dyn ScriptRunner>);
-        let execution = runner.execute(&script.language, &code, &sandbox_config);
-
-        let execution_result = if timeout > 0 {
-            match tokio::time::timeout(std::time::Duration::from_millis(timeout), execution).await {
-                Ok(result) => result,
-                Err(_) => {
-                    Self::emit(
-                        ctx,
-                        EventType::ScriptFailed,
-                        &format!("trigger_script_failed:{}", script_name),
-                    )
-                    .await;
-                    return Err(WorkflowError::TriggerError(format!(
-                        "Script '{}' timed out after {}ms",
-                        script_name, timeout
-                    )));
-                }
+        let language = script.language.clone().unwrap_or_else(|| "javascript".to_string());
+        let context_variables = ctx
+            .variables
+            .iter()
+            .map(|entry| (entry.key().clone(), entry.value().clone()))
+            .collect::<HashMap<String, Value>>();
+        let provided: HashMap<String, Value> = match &parameters {
+            Some(Value::Object(map)) => {
+                map.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
             }
-        } else {
-            execution.await
+            _ => HashMap::new(),
         };
 
+        if let Some(runner) = ctx.script_runner.clone() {
+            let execution_result = Self::execute_legacy(
+                ctx,
+                &script,
+                &script_name,
+                &language,
+                parameters,
+                &provided,
+                &context_variables,
+                timeout,
+                &runner,
+            )
+            .await?;
+            return Self::finish_script_execution(ctx, &script_name, execution_result, ignore_error).await;
+        }
+
+        let router = ctx
+            .script_router
+            .clone()
+            .unwrap_or_else(|| Arc::new(ScriptRouter::new()));
+        let execution_result = Self::execute_routed(
+            &router,
+            &script,
+            &script_name,
+            &language,
+            &provided,
+            &context_variables,
+            parameters.as_ref(),
+            timeout,
+        )
+        .await?;
+        Self::finish_script_execution(ctx, &script_name, execution_result, ignore_error).await
+
+    }
+
+    async fn finish_script_execution(
+        ctx: &TriggerContext,
+        script_name: &str,
+        execution_result: ScriptExecutionResult,
+        ignore_error: bool,
+    ) -> WorkflowResult<Value> {
         if !execution_result.success {
             let stderr = execution_result
                 .stderr
@@ -884,6 +899,210 @@ impl TriggerCoordinator {
             "script_name": script_name,
             "execution_time": execution_result.execution_time,
         }))
+    }
+
+    fn is_js_language(language: &str) -> bool {
+        matches!(language.to_lowercase().as_str(), "javascript" | "js")
+    }
+
+    fn trigger_sandbox_config() -> SandboxConfig {
+        SandboxConfig {
+            mode: Some(wf_types::script::sandbox::SandboxMode::Strict),
+            policy: None,
+            shell_strategy: None,
+            python_strategy: None,
+            javascript_strategy: None,
+            lua_strategy: None,
+            vfs: None,
+            workdir: None,
+            env: None,
+            legacy_type: None,
+            resource_limits: None,
+            skip_gate_check: None,
+        }
+    }
+
+    fn forced_trigger_mode(
+        language: &str,
+        declared: Option<wf_script::ExecutorMode>,
+    ) -> WorkflowResult<wf_script::ExecutorMode> {
+        match declared {
+            Some(
+                mode @ (wf_script::ExecutorMode::SandboxShell
+                | wf_script::ExecutorMode::SandboxPython
+                | wf_script::ExecutorMode::SandboxJavaScript),
+            ) => Ok(mode),
+            Some(other) => Err(WorkflowError::TriggerError(format!(
+                "Script trigger only runs sandboxed modes, got '{other:?}'; declare a sandbox mode instead"
+            ))),
+            None => Ok(match language.to_lowercase().as_str() {
+                "python" => wf_script::ExecutorMode::SandboxPython,
+                "javascript" | "js" => wf_script::ExecutorMode::SandboxJavaScript,
+                _ => wf_script::ExecutorMode::SandboxShell,
+            }),
+        }
+    }
+
+    fn trigger_effective_content(
+        script: &wf_script::ScriptDefinition,
+        language: &str,
+        parameters: &Option<Value>,
+    ) -> String {
+        let mut code = String::new();
+        if Self::is_js_language(language) {
+            if let Some(params) = parameters {
+                let serialized =
+                    serde_json::to_string(params).unwrap_or_else(|_| "null".to_string());
+                code.push_str(&format!("const parameters = {};\n", serialized));
+            }
+        }
+        code.push_str(script.content.as_deref().unwrap_or_default());
+        code
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn execute_legacy(
+        ctx: &TriggerContext,
+        script: &wf_script::ScriptDefinition,
+        script_name: &str,
+        language: &str,
+        parameters: Option<Value>,
+        provided: &HashMap<String, Value>,
+        context_variables: &HashMap<String, Value>,
+        timeout: u64,
+        runner: &Arc<dyn ScriptRunner>,
+    ) -> WorkflowResult<ScriptExecutionResult> {
+        wf_script::ScriptEngine::validate_definition_shape(script)
+            .map_err(|e| WorkflowError::TriggerError(e.to_string()))?;
+        if script.interactive.is_some() {
+            return Err(WorkflowError::TriggerError(format!(
+                "Script '{script_name}' declares interactive input: run it through the interactive session driver instead of the trigger path"
+            )));
+        }
+        if let Some(policy) = script.security_policy.as_ref() {
+            wf_script::ScriptEngine::check_security_policy(script, policy)
+                .map_err(|e| WorkflowError::TriggerError(e.to_string()))?;
+        }
+        let mut code = String::new();
+        if let Some(template) = script.template.clone() {
+            let declarations = script.arguments.clone().unwrap_or_default();
+            let rendered = wf_script::ScriptTemplateEngine::render_command(
+                &template,
+                &declarations,
+                provided,
+                context_variables,
+                None,
+            )
+            .map_err(|e| WorkflowError::TriggerError(e.to_string()))?;
+            code.push_str(&rendered);
+        } else {
+            code.push_str(&Self::trigger_effective_content(
+                script,
+                language,
+                &parameters,
+            ));
+        }
+        if let Some(policy) = script.security_policy.as_ref() {
+            wf_script::ScriptEngine::check_final_command(script_name, &code, policy)
+                .map_err(|e| WorkflowError::TriggerError(e.to_string()))?;
+        }
+        let sandbox_config = Self::trigger_sandbox_config();
+        let execution = runner.execute(language, &code, &sandbox_config);
+        if timeout > 0 {
+            match tokio::time::timeout(std::time::Duration::from_millis(timeout), execution).await
+            {
+                Ok(result) => Ok(result),
+                Err(_) => {
+                    Self::emit(
+                        ctx,
+                        EventType::ScriptFailed,
+                        &format!("trigger_script_failed:{script_name}"),
+                    )
+                    .await;
+                    Err(WorkflowError::TriggerError(format!(
+                        "Script '{script_name}' timed out after {timeout}ms"
+                    )))
+                }
+            }
+        } else {
+            Ok(execution.await)
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn execute_routed(
+        router: &Arc<ScriptRouter>,
+        script: &wf_script::ScriptDefinition,
+        script_name: &str,
+        language: &str,
+        provided: &HashMap<String, Value>,
+        context_variables: &HashMap<String, Value>,
+        parameters: Option<&Value>,
+        timeout: u64,
+    ) -> WorkflowResult<ScriptExecutionResult> {
+        let mut definition = script.clone();
+        definition.name = script_name.to_string();
+        if definition.template.is_none() {
+            definition.content = Some(Self::trigger_effective_content(
+                &definition,
+                language,
+                &parameters.cloned(),
+            ));
+            definition.arguments = None;
+        }
+        if definition.language.is_none() {
+            definition.language = Some(language.to_string());
+        }
+        let mode = Self::forced_trigger_mode(language, definition.executor_mode.clone())?;
+        definition.executor_mode = Some(mode);
+        let options = wf_script::ScriptExecutionOptions {
+            executor_mode: definition.executor_mode.clone(),
+            working_directory: None,
+            environment: None,
+            timeout_ms: if timeout > 0 { Some(timeout) } else { None },
+            retries: None,
+            retry_delay_ms: None,
+            exponential_backoff: None,
+            interactive: None,
+            security_policy: None,
+            input_files: None,
+            stdin: None,
+            stdin_file: None,
+            max_output_bytes: None,
+            output_spill_dir: None,
+        };
+        let engine_options = wf_script::ScriptEngineOptions {
+            args: provided.clone(),
+            context_variables: context_variables.clone(),
+        };
+        let routed = router
+            .run(
+                &definition,
+                Some(&options),
+                &engine_options,
+                Some(Self::trigger_sandbox_config()),
+            )
+            .await;
+        if routed.result.requires_review {
+            return Err(WorkflowError::TriggerError(
+                routed
+                    .result
+                    .error
+                    .unwrap_or_else(|| format!("Script '{script_name}' requires human review")),
+            ));
+        }
+        Ok(ScriptExecutionResult {
+            success: routed.result.success,
+            script_name: routed.result.script_name,
+            stdout: routed.result.stdout,
+            stderr: routed.result.stderr,
+            exit_code: routed.result.exit_code,
+            execution_time: routed.result.execution_time_ms,
+            error: routed.result.error,
+            sandbox_mode: routed.sandbox_mode,
+            strategy_id: routed.strategy_id,
+            violations: None,
+        })
     }
 
     async fn emit(ctx: &TriggerContext, event_type: EventType, message: &str) {
@@ -1146,6 +1365,119 @@ mod tests {
         .await;
         assert!(!result.success, "timeout must fail the trigger");
         assert!(result.error.unwrap().contains("timed out after 50ms"));
+    }
+
+    fn router_context(registry: &Arc<ScriptRegistry>) -> TriggerContext {
+        TriggerContext::new(Id::new(), Id::new()).with_script_registry(registry.clone())
+    }
+
+    #[tokio::test]
+    async fn test_trigger_routed_executes_shell_blueprint() {
+        let registry = Arc::new(ScriptRegistry::new());
+        registry.register_definition(wf_script::ScriptDefinition {
+            name: "routed-hello".to_string(),
+            content: Some("echo routed-hello".to_string()),
+            template: None,
+            arguments: None,
+            language: Some("shell".to_string()),
+            executor_mode: None,
+            interactive: None,
+            security_policy: None,
+            description: None,
+            enabled: None,
+        });
+        let ctx = router_context(&registry);
+        let result = TriggerCoordinator::execute(
+            &TriggerAction::ExecuteScript {
+                script_name: "routed-hello".to_string(),
+                parameters: None,
+                timeout: Some(5000),
+                ignore_error: Some(false),
+            },
+            "t1",
+            &ctx,
+        )
+        .await;
+        assert!(result.success, "router path should succeed: {:?}", result.error);
+        assert!(
+            result.result.unwrap().to_string().contains("routed-hello"),
+            "output should carry the echo marker"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_trigger_routed_renders_template() {
+        let registry = Arc::new(ScriptRegistry::new());
+        registry.register_definition(wf_script::ScriptDefinition {
+            name: "routed-tmpl".to_string(),
+            content: None,
+            template: Some("echo {{greeting}}".to_string()),
+            arguments: Some(vec![wf_script::ScriptArgument {
+                key: "greeting".to_string(),
+                r#type: None,
+                label: None,
+                required: Some(true),
+                default: None,
+                source: None,
+                description: None,
+                options: None,
+                pattern: None,
+            }]),
+            language: Some("shell".to_string()),
+            executor_mode: None,
+            interactive: None,
+            security_policy: None,
+            description: None,
+            enabled: None,
+        });
+        let ctx = router_context(&registry);
+        let result = TriggerCoordinator::execute(
+            &TriggerAction::ExecuteScript {
+                script_name: "routed-tmpl".to_string(),
+                parameters: Some(serde_json::json!({"greeting": "hi-router"})),
+                timeout: Some(5000),
+                ignore_error: Some(false),
+            },
+            "t1",
+            &ctx,
+        )
+        .await;
+        assert!(result.success, "router path should succeed: {:?}", result.error);
+        assert!(
+            result.result.unwrap().to_string().contains("hi-router"),
+            "rendered argument should reach the command"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_trigger_routed_rejects_non_sandbox_mode() {
+        let registry = Arc::new(ScriptRegistry::new());
+        registry.register_definition(wf_script::ScriptDefinition {
+            name: "routed-direct".to_string(),
+            content: Some("echo no".to_string()),
+            template: None,
+            arguments: None,
+            language: Some("shell".to_string()),
+            executor_mode: Some(wf_script::ExecutorMode::Direct),
+            interactive: None,
+            security_policy: None,
+            description: None,
+            enabled: None,
+        });
+        let ctx = router_context(&registry);
+        let result = TriggerCoordinator::execute(
+            &TriggerAction::ExecuteScript {
+                script_name: "routed-direct".to_string(),
+                parameters: None,
+                timeout: Some(5000),
+                ignore_error: Some(false),
+            },
+            "t1",
+            &ctx,
+        )
+        .await;
+        assert!(!result.success, "direct mode must be rejected");
+        assert!(result.error.unwrap().contains("sandboxed"));
     }
 
     #[tokio::test]

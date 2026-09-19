@@ -20,14 +20,14 @@ impl ScriptFlowEngine {
 
     pub async fn execute<F, Fut>(&self, flow: &ScriptFlow, execute_module: F) -> FlowExecutionResult
     where
-        F: Fn(&str, &str) -> Fut,
+        F: Fn(String, String, Option<HashMap<String, serde_json::Value>>) -> Fut + Sync,
         Fut: std::future::Future<Output = ScriptResult<String>>,
     {
         let start = std::time::Instant::now();
-        let mut branches = HashMap::new();
+        let mut branches: HashMap<String, BranchExecutionResult> = HashMap::new();
 
-        let order = match self.topological_sort(flow) {
-            Ok(o) => o,
+        let levels = match self.topological_levels(flow) {
+            Ok(levels) => levels,
             Err(e) => {
                 return FlowExecutionResult {
                     success: false,
@@ -37,45 +37,57 @@ impl ScriptFlowEngine {
                 };
             }
         };
+        let branch_map: HashMap<&str, &FlowBranch> =
+            flow.branches.iter().map(|b| (b.key.as_str(), b)).collect();
 
-        for branch_key in &order {
-            let Some(branch) = flow.branches.iter().find(|b| b.key == *branch_key) else {
-                continue;
-            };
-
-            let branch_start = std::time::Instant::now();
-            let mut module_results = Vec::new();
-
-            for module_ref in &branch.modules {
-                let result = match execute_module(&module_ref.key, branch_key).await {
-                    Ok(output) => FlowBranchExecutionResult {
-                        success: true,
-                        module_key: module_ref.key.clone(),
-                        output: Some(output),
-                        error: None,
-                        execution_time_ms: branch_start.elapsed().as_millis() as u64,
-                    },
-                    Err(e) => FlowBranchExecutionResult {
-                        success: false,
-                        module_key: module_ref.key.clone(),
-                        output: None,
-                        error: Some(e.to_string()),
-                        execution_time_ms: branch_start.elapsed().as_millis() as u64,
-                    },
+        for level in levels {
+            let mut runnable: Vec<&FlowBranch> = Vec::new();
+            for branch_key in &level {
+                let Some(branch) = branch_map.get(branch_key.as_str()).copied() else {
+                    continue;
                 };
-                module_results.push(result);
+                let failed_dep = branch
+                    .depends_on
+                    .as_deref()
+                    .unwrap_or_default()
+                    .iter()
+                    .find(|dep| {
+                        branches
+                            .get(*dep)
+                            .is_some_and(|r: &BranchExecutionResult| !r.success)
+                    });
+                if let Some(dep) = failed_dep {
+                    branches.insert(
+                        branch_key.clone(),
+                        BranchExecutionResult {
+                            success: false,
+                            modules: vec![FlowBranchExecutionResult {
+                                success: false,
+                                module_key: String::new(),
+                                output: None,
+                                error: Some(format!(
+                                    "Branch '{branch_key}' skipped: dependency '{dep}' failed"
+                                )),
+                                execution_time_ms: 0,
+                            }],
+                            execution_time_ms: 0,
+                        },
+                    );
+                } else {
+                    runnable.push(branch);
+                }
             }
-
-            let branch_success = module_results.iter().all(|r| r.success);
-
-            branches.insert(
-                branch_key.clone(),
-                BranchExecutionResult {
-                    success: branch_success,
-                    modules: module_results,
-                    execution_time_ms: branch_start.elapsed().as_millis() as u64,
-                },
-            );
+            if runnable.is_empty() {
+                continue;
+            }
+            let futures = runnable
+                .iter()
+                .map(|branch| Self::run_branch(branch, &execute_module));
+            let results: Vec<(String, BranchExecutionResult)> =
+                futures::future::join_all(futures).await;
+            for (key, result) in results {
+                branches.insert(key, result);
+            }
         }
 
         let all_success = branches.values().all(|b| b.success);
@@ -86,6 +98,80 @@ impl ScriptFlowEngine {
             total_execution_time_ms: start.elapsed().as_millis() as u64,
             error: None,
         }
+    }
+
+    async fn run_branch<F, Fut>(
+        branch: &FlowBranch,
+        execute_module: &F,
+    ) -> (String, BranchExecutionResult)
+    where
+        F: Fn(String, String, Option<HashMap<String, serde_json::Value>>) -> Fut + Sync,
+        Fut: std::future::Future<Output = ScriptResult<String>>,
+    {
+        let branch_start = std::time::Instant::now();
+        let mut module_results = Vec::new();
+        for module_ref in &branch.modules {
+            let module_start = std::time::Instant::now();
+            let result = match execute_module(
+                module_ref.key.clone(),
+                branch.key.clone(),
+                module_ref.args.clone(),
+            )
+            .await
+            {
+                Ok(output) => FlowBranchExecutionResult {
+                    success: true,
+                    module_key: module_ref.key.clone(),
+                    output: Some(output),
+                    error: None,
+                    execution_time_ms: module_start.elapsed().as_millis() as u64,
+                },
+                Err(e) => FlowBranchExecutionResult {
+                    success: false,
+                    module_key: module_ref.key.clone(),
+                    output: None,
+                    error: Some(e.to_string()),
+                    execution_time_ms: module_start.elapsed().as_millis() as u64,
+                },
+            };
+            module_results.push(result);
+        }
+        let branch_success = module_results.iter().all(|r| r.success);
+        (
+            branch.key.clone(),
+            BranchExecutionResult {
+                success: branch_success,
+                modules: module_results,
+                execution_time_ms: branch_start.elapsed().as_millis() as u64,
+            },
+        )
+    }
+
+    fn topological_levels(&self, flow: &ScriptFlow) -> Result<Vec<Vec<String>>, String> {
+        let order = self.topological_sort(flow)?;
+        let branch_map: HashMap<&str, &FlowBranch> =
+            flow.branches.iter().map(|b| (b.key.as_str(), b)).collect();
+        let mut depths: HashMap<String, usize> = HashMap::new();
+        for key in &order {
+            let depth = match branch_map.get(key.as_str()).and_then(|b| b.depends_on.as_ref()) {
+                None => 0,
+                Some(deps) => {
+                    deps.iter()
+                        .map(|dep| depths.get(dep).copied().unwrap_or(0) + 1)
+                        .max()
+                        .unwrap_or(0)
+                }
+            };
+            depths.insert(key.clone(), depth);
+        }
+        let max_depth = depths.values().copied().max().unwrap_or(0);
+        let mut levels: Vec<Vec<String>> = vec![Vec::new(); max_depth + 1];
+        for key in order {
+            let depth = depths.get(&key).copied().unwrap_or(0);
+            levels[depth].push(key);
+        }
+        levels.retain(|level| !level.is_empty());
+        Ok(levels)
     }
 
     fn topological_sort(&self, flow: &ScriptFlow) -> Result<Vec<String>, String> {
@@ -218,5 +304,41 @@ mod tests {
         let result = engine.topological_sort(&flow);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("unknown branch"));
+    }
+
+    #[tokio::test]
+    async fn test_execute_passes_module_args() {
+        use std::collections::HashMap;
+
+        let mut args = HashMap::new();
+        args.insert("env".to_string(), serde_json::json!("prod"));
+        let flow = ScriptFlow {
+            name: "args".to_string(),
+            branches: vec![FlowBranch {
+                key: "build".to_string(),
+                depends_on: None,
+                modules: vec![crate::ModuleRef {
+                    key: "compile".to_string(),
+                    args: Some(args),
+                }],
+            }],
+        };
+
+        let engine = ScriptFlowEngine::new();
+        let result = engine
+            .execute(&flow, |module, branch, module_args| async move {
+                assert_eq!(module, "compile");
+                assert_eq!(branch, "build");
+                let env = module_args
+                    .as_ref()
+                    .and_then(|m| m.get("env"))
+                    .expect("module args are forwarded");
+                assert_eq!(env, &serde_json::json!("prod"));
+                Ok("ok".to_string())
+            })
+            .await;
+
+        assert!(result.success);
+        assert!(result.branches["build"].success);
     }
 }

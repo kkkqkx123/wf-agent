@@ -32,9 +32,7 @@ use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::Terminal;
 
 use wf_tui::animation::{AnimationController, AnimationMode, FADE_OPACITIES};
-use wf_tui::motion::{
-    activity_indicator_at, shimmer_text_at, MotionMode, ReducedMotionIndicator,
-};
+use wf_tui::motion::{activity_indicator_at, shimmer_text_at, MotionMode, ReducedMotionIndicator};
 use wf_tui::theme::{ColorRole, Theme};
 use wf_tui::theme_mode::ThemeMode;
 
@@ -144,10 +142,7 @@ fn draw_role_swatches(f: &mut ratatui::Frame, theme: &Theme, area: Rect) {
         let hex = rgb.hex();
         lines.push(Line::from(vec![
             Span::styled(format!("{sample}"), style),
-            Span::styled(
-                format!(" rgb={hex}"),
-                Style::default(),
-            ),
+            Span::styled(format!(" rgb={hex}"), Style::default()),
         ]));
     }
 
@@ -196,15 +191,24 @@ fn draw_animation_frames(
     };
 
     f.render_widget(
-        cell(" spinner ", vec![Line::raw(format!("  {spinner}  |  /  -  \\"))]),
+        cell(
+            " spinner ",
+            vec![Line::raw(format!("  {spinner}  |  /  -  \\"))],
+        ),
         rows[0],
     );
     f.render_widget(
-        cell(" pulse ", vec![Line::raw(format!("  ● ◉ ● ○   now: {pulse}"))]),
+        cell(
+            " pulse ",
+            vec![Line::raw(format!("  ● ◉ ● ○   now: {pulse}"))],
+        ),
         rows[1],
     );
     f.render_widget(
-        cell(" bounce ", vec![Line::raw(format!("  _ - =     now: {bounce}"))]),
+        cell(
+            " bounce ",
+            vec![Line::raw(format!("  _ - =     now: {bounce}"))],
+        ),
         rows[2],
     );
     f.render_widget(

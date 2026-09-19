@@ -376,10 +376,9 @@ fn load_node_template(path: &Path) -> ConfigResult<serde_json::Value> {
 
 fn load_script(path: &Path) -> ConfigResult<serde_json::Value> {
     let value = crate::parser::parse_config_file::<serde_json::Value>(path)?;
-    let script: wf_types::script::executor::ScriptExecutorConfig =
-        serde_json::from_value(value.clone())
-            .map_err(|e| ConfigError::Parse(format!("invalid script: {e}")))?;
-    crate::processor::script::validate_script_executor(&script)?;
+    let script: wf_script::ScriptDefinition = serde_json::from_value(value.clone())
+        .map_err(|e| ConfigError::Parse(format!("invalid script: {e}")))?;
+    crate::processor::script::validate_script_definition(&script)?;
     Ok(value)
 }
 

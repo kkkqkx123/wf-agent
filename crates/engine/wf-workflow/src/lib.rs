@@ -14,6 +14,7 @@ pub mod graph;
 pub mod handler;
 pub mod hook;
 pub mod interaction;
+pub mod interactive_script_session;
 pub mod loop_state;
 pub mod message_context;
 pub mod node_validation;
@@ -88,9 +89,9 @@ pub use message_context::{
 pub use persistence::build_workflow_execution;
 pub use reference_closure::{ReferenceClosureReport, ReferenceContext, MAX_REFERENCE_DEPTH};
 pub use registry::{
-    create_execution_registry, create_graph_registry, lookup_graph, lookup_script, register_graph,
-    register_script, ScriptDefinition, ScriptRegistry, WorkflowExecutionRegistry,
-    WorkflowGraphRegistry,
+    create_execution_registry, create_graph_registry, lookup_flow, lookup_graph, lookup_script,
+    register_definition, register_flow, register_graph, register_script, ScriptDefinition,
+    ScriptRegistry, WorkflowExecutionRegistry, WorkflowGraphRegistry, WorkflowScriptFlowRegistry,
 };
 pub use state::{
     NodeExecutionRecord, WorkflowExecutionState, WorkflowExecutionStateSnapshot,

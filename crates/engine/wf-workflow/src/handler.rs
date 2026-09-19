@@ -128,10 +128,12 @@ impl HandlerRegistry {
         self.register(Box::new(context_processor::ContextProcessorHandler));
         self.register(Box::new(
             script::ScriptHandler::with_sandbox_opt(sandbox.clone())
-                .with_file_checkpoint_opt(file_checkpoint),
+                .with_file_checkpoint_opt(file_checkpoint.clone()),
         ));
         self.register(Box::new(
-            interactive_script::InteractiveScriptHandler::with_sandbox_opt(sandbox),
+            interactive_script::InteractiveScriptHandler::with_sandbox_opt(sandbox)
+                .with_llm_gateway_opt(Some(gateway.clone()))
+                .with_file_checkpoint_opt(file_checkpoint),
         ));
         self.register(Box::new(agent_loop::AgentLoopHandler::new(gateway)));
         self.register(Box::new(tool_visibility::ToolVisibilityHandler));

@@ -284,9 +284,9 @@ pub use wf_workflow::reference_closure::{
     ReferenceClosureReport, ReferenceContext, MAX_REFERENCE_DEPTH,
 };
 pub use wf_workflow::registry::{
-    create_execution_registry, create_graph_registry, lookup_graph, lookup_script, register_graph,
-    register_script, ScriptDefinition, ScriptRegistry, WorkflowExecutionRegistry,
-    WorkflowGraphRegistry,
+    create_execution_registry, create_graph_registry, lookup_flow, lookup_graph, lookup_script,
+    register_definition, register_flow, register_graph, register_script, ScriptDefinition,
+    ScriptRegistry, WorkflowExecutionRegistry, WorkflowGraphRegistry, WorkflowScriptFlowRegistry,
 };
 pub use wf_workflow::state::WorkflowExecutionState;
 pub use wf_workflow::trigger::TriggerEventListener;

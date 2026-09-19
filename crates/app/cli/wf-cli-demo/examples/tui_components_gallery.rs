@@ -27,6 +27,8 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::Terminal;
 
+use serde_json::json;
+use wf_api::ToolApprovalRequest;
 use wf_tui::keymap::{CKey, Key};
 use wf_tui::modal::{
     centered_rect, ConfirmModal, DiffRow, DiffSign, DiffViewer, FileEntry, FileSelectionDialog,
@@ -35,8 +37,6 @@ use wf_tui::modal::{
 use wf_tui::panels::CommandPalette;
 use wf_tui::question_overlay::QuestionView;
 use wf_tui::theme::Theme;
-use serde_json::json;
-use wf_api::ToolApprovalRequest;
 
 /// Menu entry describing one demo component.
 struct Entry {
@@ -45,16 +45,46 @@ struct Entry {
 }
 
 const ENTRIES: [Entry; 10] = [
-    Entry { hint: "1", name: "ConfirmModal" },
-    Entry { hint: "2", name: "PasswordModal" },
-    Entry { hint: "3", name: "HelpModal" },
-    Entry { hint: "4", name: "ModelPicker" },
-    Entry { hint: "5", name: "SessionPicker" },
-    Entry { hint: "6", name: "FileSelectionDialog" },
-    Entry { hint: "7", name: "FileViewer" },
-    Entry { hint: "8", name: "DiffViewer" },
-    Entry { hint: "9", name: "ApprovalView" },
-    Entry { hint: "0", name: "QuestionView" },
+    Entry {
+        hint: "1",
+        name: "ConfirmModal",
+    },
+    Entry {
+        hint: "2",
+        name: "PasswordModal",
+    },
+    Entry {
+        hint: "3",
+        name: "HelpModal",
+    },
+    Entry {
+        hint: "4",
+        name: "ModelPicker",
+    },
+    Entry {
+        hint: "5",
+        name: "SessionPicker",
+    },
+    Entry {
+        hint: "6",
+        name: "FileSelectionDialog",
+    },
+    Entry {
+        hint: "7",
+        name: "FileViewer",
+    },
+    Entry {
+        hint: "8",
+        name: "DiffViewer",
+    },
+    Entry {
+        hint: "9",
+        name: "ApprovalView",
+    },
+    Entry {
+        hint: "0",
+        name: "QuestionView",
+    },
 ];
 
 fn main() -> io::Result<()> {
@@ -124,8 +154,14 @@ fn main() -> io::Result<()> {
                     CKey::Char('6') => {
                         let mut dlg = FileSelectionDialog::new("Pick a file", ".");
                         dlg.set_entries(vec![
-                            FileEntry { name: "src/".into(), is_dir: true },
-                            FileEntry { name: "Cargo.toml".into(), is_dir: false },
+                            FileEntry {
+                                name: "src/".into(),
+                                is_dir: true,
+                            },
+                            FileEntry {
+                                name: "Cargo.toml".into(),
+                                is_dir: false,
+                            },
                         ]);
                         stack.push(Box::new(dlg));
                     }
@@ -135,19 +171,36 @@ fn main() -> io::Result<()> {
                     ))),
                     CKey::Char('8') => {
                         let rows = vec![
-                            DiffRow { sign: DiffSign::Context, text: "fn main() {".into() },
-                            DiffRow { sign: DiffSign::Remove, text: "    println!(\"old\");".into() },
-                            DiffRow { sign: DiffSign::Add, text: "    println!(\"new\");".into() },
-                            DiffRow { sign: DiffSign::Add, text: "    println!(\"extra\");".into() },
-                            DiffRow { sign: DiffSign::Context, text: "}".into() },
+                            DiffRow {
+                                sign: DiffSign::Context,
+                                text: "fn main() {".into(),
+                            },
+                            DiffRow {
+                                sign: DiffSign::Remove,
+                                text: "    println!(\"old\");".into(),
+                            },
+                            DiffRow {
+                                sign: DiffSign::Add,
+                                text: "    println!(\"new\");".into(),
+                            },
+                            DiffRow {
+                                sign: DiffSign::Add,
+                                text: "    println!(\"extra\");".into(),
+                            },
+                            DiffRow {
+                                sign: DiffSign::Context,
+                                text: "}".into(),
+                            },
                         ];
                         stack.push(Box::new(DiffViewer::new("diff of demo.rs", rows)));
                     }
                     CKey::Char('9') => {
-                        last_result = Some("ApprovalView is rendered on the right (state-only demo)".into());
+                        last_result =
+                            Some("ApprovalView is rendered on the right (state-only demo)".into());
                     }
                     CKey::Char('0') => {
-                        last_result = Some("QuestionView is rendered on the right (state-only demo)".into());
+                        last_result =
+                            Some("QuestionView is rendered on the right (state-only demo)".into());
                     }
                     CKey::Char('p') => palette_open = true,
                     CKey::Char('q') | CKey::Esc => break,
@@ -271,10 +324,7 @@ fn draw_stateful_previews(
         Style::default().add_modifier(Modifier::BOLD),
     )));
     lines.push(Line::raw(format!("  title: {}", view.title())));
-    lines.push(Line::raw(format!(
-        "  args: {}",
-        view.arguments_preview(60)
-    )));
+    lines.push(Line::raw(format!("  args: {}", view.arguments_preview(60))));
     lines.push(Line::raw(format!("  hints: {}", view.hints())));
     lines.push(Line::raw(String::new()));
 
@@ -295,10 +345,7 @@ fn draw_stateful_previews(
     lines.extend(q.render_lines(60).into_iter().map(|l| {
         let mut owned: Vec<Span<'static>> = Vec::new();
         for s in l.spans {
-            owned.push(Span::styled(
-                format!("  {s}"),
-                s.style,
-            ));
+            owned.push(Span::styled(format!("  {s}"), s.style));
         }
         Line::from(owned)
     }));
@@ -371,4 +418,3 @@ fn draw_palette(f: &mut ratatui::Frame, palette: &CommandPalette, area: Rect) {
         rect,
     );
 }
-

@@ -14,6 +14,7 @@ toml.workspace = true
 regex.workspace = true
 glob.workspace = true
 wf-types = { path = "../../foundation/wf-types" }
+wf-script = { path = "../wf-script" }
 wf-common = { path = "../../foundation/wf-common" }
 wf-core = { path = "../../foundation/wf-core" }
 wf-metrics = { path = "../wf-metrics" }

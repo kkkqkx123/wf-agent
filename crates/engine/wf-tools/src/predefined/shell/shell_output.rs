@@ -23,6 +23,8 @@ pub static SHELL_OUTPUT: ToolDefinition = ToolDefinition {
         ToolParameter { name: "session_id", r#type: "string", required: true, description: "The session ID returned by backend_shell", default_json: None, constraints: None },
         ToolParameter { name: "all", r#type: "boolean", required: false, description: "Return the full output buffer (default true); false returns only new output since the last read", default_json: Some("true"), constraints: None },
         ToolParameter { name: "filter", r#type: "string", required: false, description: "Regex; only matching lines are returned (invalid regexes are ignored)", default_json: None, constraints: None },
+        ToolParameter { name: "start", r#type: "number", required: false, description: "Absolute byte position to read from (a previous windowed response's 'window_end' continues the stream)", default_json: None, constraints: None },
+        ToolParameter { name: "max_bytes", r#type: "number", required: false, description: "Cap the returned window at this many bytes; positions stay valid across ring truncation", default_json: None, constraints: None },
     ],
     tips: None,
     examples: Some(&["shell_output(\"abc123\")", "shell_output(\"abc123\", all=false)", "shell_output(\"abc123\", filter=\"error\")"]),
@@ -44,10 +46,28 @@ impl StatefulInstance for ShellOutputInstance {
             })?;
         let all = params.get("all").and_then(|v| v.as_bool()).unwrap_or(true);
         let filter = params.get("filter").and_then(|v| v.as_str());
+        let start = params
+            .get("start")
+            .and_then(|v| v.as_u64())
+            .map(|v| v as usize);
+        let max_bytes = params
+            .get("max_bytes")
+            .and_then(|v| v.as_u64())
+            .map(|v| v as usize);
 
         let session = self.store.get(session_id).ok_or_else(|| {
             ToolError::NotFound(format!("No background shell session '{}'", session_id))
         })?;
+
+        if let Some(cap) = max_bytes {
+            let mut value = session.output_window(start.unwrap_or(0), cap);
+            if let Some(pattern) = filter {
+                if let Some(output) = value["output"].as_str() {
+                    value["output"] = Value::String(apply_line_filter(output, pattern));
+                }
+            }
+            return Ok(value);
+        }
 
         if all {
             let mut value = session.snapshot();

@@ -5,8 +5,11 @@ use std::collections::HashMap;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ExecutorMode {
+    /// Isolated one-shot execution with no session reuse.
     Direct,
+    /// Reusable cwd-keyed shell session; one command at a time.
     Shared,
+    /// PTY-backed session for prompt-driven commands; one command at a time.
     Pty,
     SandboxShell,
     SandboxPython,
@@ -30,7 +33,8 @@ pub enum ArgumentValueSource {
     Static,
     /// Resolved from context variables at runtime.
     Variable,
-    /// Resolved from a dynamic expression at runtime.
+    /// Dollar-sign reference interpolated against the runtime context.
+    /// This is plain reference interpolation, not a general expression language.
     Expression,
 }
 
@@ -43,6 +47,18 @@ pub enum ScriptRiskLevel {
     Medium,
     High,
     Critical,
+}
+
+impl ScriptRiskLevel {
+    pub fn rank(&self) -> u8 {
+        match self {
+            ScriptRiskLevel::Safe => 0,
+            ScriptRiskLevel::Low => 1,
+            ScriptRiskLevel::Medium => 2,
+            ScriptRiskLevel::High => 3,
+            ScriptRiskLevel::Critical => 4,
+        }
+    }
 }
 
 /// Script Security Policy — controls which scripts are allowed to run.
@@ -198,6 +214,48 @@ pub struct ScriptExecutionOptions {
     /// Security policy (overrides script-level policy).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub security_policy: Option<ScriptSecurityPolicy>,
+    /// Large-payload inputs passed by reference: logical name to file path.
+    /// Each entry is validated (must exist, must stay inside
+    /// `working_directory` when set) and exported to the command environment
+    /// as `WF_INPUT_<NAME>` so commands read bytes from disk instead of
+    /// receiving them inline through variables or the command string.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub input_files: Option<HashMap<String, String>>,
+    /// Standard input text for the command. Only the direct transport
+    /// consumes it; session and sandbox transports reject it explicitly.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stdin: Option<String>,
+    /// Read standard input from this file instead of `stdin`. Materialized
+    /// and size-checked by the engine before transport selection.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stdin_file: Option<String>,
+    /// Cap captured stdout/stderr at this many bytes each (tail-kept).
+    /// `None` keeps the historical unbounded behavior.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_output_bytes: Option<u64>,
+    /// When output is truncated, spill the full stream to this directory
+    /// (`<script>-stdout.txt` / `<script>-stderr.txt`) and report the paths
+    /// on the result. `None` discards the dropped head.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output_spill_dir: Option<String>,
+}
+
+impl ScriptExecutionOptions {
+    /// Reject output cap combinations that would silently misbehave:
+    /// a zero cap drops everything, and a spill directory without a cap
+    /// never spills.
+    pub fn validate_output_cap(&self) -> Result<(), String> {
+        if self.max_output_bytes == Some(0) {
+            return Err("max_output_bytes must be greater than zero".to_string());
+        }
+        if self.output_spill_dir.is_some() && self.max_output_bytes.is_none() {
+            return Err(
+                "output_spill_dir requires max_output_bytes: set a cap or remove the spill directory"
+                    .to_string(),
+            );
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -213,6 +271,21 @@ pub struct ScriptExecutionResult {
     pub execution_time_ms: u64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    #[serde(default)]
+    pub requires_review: bool,
+    /// True when stdout/stderr were cut at `max_output_bytes`. The kept
+    /// portion is the tail; `output_bytes` reports the full size.
+    #[serde(default)]
+    pub truncated: bool,
+    /// Full stdout byte size before truncation, when known.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output_bytes: Option<u64>,
+    /// Full spilled stdout path, set only when truncated with spill dir.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stdout_path: Option<String>,
+    /// Full spilled stderr path, set only when truncated with spill dir.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stderr_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -236,7 +309,7 @@ pub struct ScriptFlow {
     pub branches: Vec<FlowBranch>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct FlowBranchExecutionResult {
     pub success: bool,
     pub module_key: String,
@@ -245,14 +318,14 @@ pub struct FlowBranchExecutionResult {
     pub execution_time_ms: u64,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct BranchExecutionResult {
     pub success: bool,
     pub modules: Vec<FlowBranchExecutionResult>,
     pub execution_time_ms: u64,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct FlowExecutionResult {
     pub success: bool,
     pub branches: HashMap<String, BranchExecutionResult>,

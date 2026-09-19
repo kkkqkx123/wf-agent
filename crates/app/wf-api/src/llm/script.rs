@@ -52,6 +52,10 @@ pub struct ScriptExecuteParams {
     /// Environment variables passed to the sandbox strategy.
     pub environment: Option<HashMap<String, String>>,
     pub timeout_ms: Option<u64>,
+    /// Cap captured stdout/stderr at this many bytes each (tail-kept).
+    pub max_output_bytes: Option<u64>,
+    /// When output is truncated, spill the full stream to this directory.
+    pub output_spill_dir: Option<String>,
 }
 
 /// Parse a script language from its canonical string; `None` for unknown
@@ -95,7 +99,18 @@ pub async fn execute(
             Some(default_arguments(params)),
         )
     } else if let Some(registered) = wf_workflow::lookup_script(&params.name) {
-        (Some(registered.code), None, None)
+        let arguments = registered.arguments.clone().or_else(|| {
+            if params.args.is_empty() {
+                None
+            } else {
+                Some(default_arguments(params))
+            }
+        });
+        (
+            registered.content.clone(),
+            registered.template.clone(),
+            arguments,
+        )
     } else {
         return Err(ApiError::Validation(format!(
             "script '{}' has no inline code or template and is not registered",
@@ -126,7 +141,15 @@ pub async fn execute(
         exponential_backoff: None,
         interactive: None,
         security_policy: None,
+        input_files: None,
+        stdin: None,
+        stdin_file: None,
+        max_output_bytes: params.max_output_bytes,
+        output_spill_dir: params.output_spill_dir.clone(),
     };
+    if let Err(reason) = options.validate_output_cap() {
+        return Err(ApiError::Validation(reason));
+    }
     let engine_options = ScriptEngineOptions {
         args: params.args.clone(),
         context_variables: HashMap::new(),
@@ -188,8 +211,9 @@ pub async fn execute(
                 let sandbox_config = sandbox_config.clone();
                 let language = language_for_exec.as_str();
                 let script_name = script_name.clone();
-                let env = options.and_then(|o| o.environment.clone());
-                let workdir = options.and_then(|o| o.working_directory.clone());
+                let sandbox_result_sink = sandbox_result_sink.clone();
+                let env = options.as_ref().and_then(|o| o.environment.clone());
+                let workdir = options.as_ref().and_then(|o| o.working_directory.clone());
                 async move {
                     let mut config = sandbox_config;
                     if env.is_some() {
@@ -251,8 +275,70 @@ pub async fn execute(
         return Err(ApiError::execution(error));
     }
 
-    let output = sandbox_result.get().cloned();
-    output.ok_or_else(|| ApiError::execution("sandbox produced no result"))
+    let mut output = sandbox_result
+        .get()
+        .cloned()
+        .ok_or_else(|| ApiError::execution("sandbox produced no result"))?;
+    output = apply_output_cap(&params.name, output, params.max_output_bytes, params.output_spill_dir.as_deref());
+    Ok(output)
+}
+
+/// Bound a direct sandbox result to the requested output cap so ad-hoc
+/// executions share the router truncation semantics without changing the
+/// shared result shape: streams keep their tails, full content spills to
+/// disk when requested, and truncation details join the error note.
+fn apply_output_cap(
+    script_name: &str,
+    mut result: ScriptExecutionResult,
+    max_bytes: Option<u64>,
+    spill_dir: Option<&str>,
+) -> ScriptExecutionResult {
+    if max_bytes.is_none() {
+        return result;
+    }
+    let capped_out = wf_script::cap_stream(
+        result.stdout.clone(),
+        max_bytes,
+        spill_dir,
+        &format!("{script_name}-stdout"),
+    );
+    let capped_err = wf_script::cap_stream(
+        result.stderr.clone(),
+        max_bytes,
+        spill_dir,
+        &format!("{script_name}-stderr"),
+    );
+    result.stdout = capped_out.text;
+    result.stderr = capped_err.text;
+    let mut notes: Vec<String> = Vec::new();
+    if capped_out.truncated || capped_err.truncated {
+        notes.push(format!(
+            "output truncated to last {} bytes per stream ({} stdout + {} stderr bytes total)",
+            max_bytes.unwrap_or(0),
+            capped_out.total_bytes,
+            capped_err.total_bytes
+        ));
+    }
+    for path in [capped_out.spilled_path, capped_err.spilled_path]
+        .into_iter()
+        .flatten()
+    {
+        notes.push(format!("full output spilled to {path}"));
+    }
+    for note in [capped_out.spill_error, capped_err.spill_error]
+        .into_iter()
+        .flatten()
+    {
+        notes.push(note);
+    }
+    if !notes.is_empty() {
+        let suffix = notes.join("; ");
+        result.error = Some(match result.error.take() {
+            Some(prev) => format!("{prev}; {suffix}"),
+            None => suffix,
+        });
+    }
+    result
 }
 
 /// The workspace root of the attached file-checkpoint manager, if any.
@@ -279,6 +365,23 @@ pub async fn validate(
     if let Some(template) = &params.template {
         if template.trim().is_empty() {
             errors.push("Script template must not be empty".into());
+        }
+    }
+    if params.code.is_some() || params.template.is_some() {
+        let shape = wf_script::ScriptDefinition {
+            name: params.name.clone(),
+            content: params.code.clone(),
+            template: params.template.clone(),
+            arguments: None,
+            language: None,
+            executor_mode: None,
+            interactive: None,
+            security_policy: None,
+            description: None,
+            enabled: None,
+        };
+        if let Err(e) = wf_script::ScriptEngine::validate_definition_shape(&shape) {
+            errors.push(e.to_string());
         }
     }
     if let Some(config) = &params.sandbox {
@@ -363,7 +466,7 @@ fn default_sandbox_config(language: ScriptLanguage) -> SandboxConfig {
 }
 
 fn lookup_registered_language(name: &str) -> Option<String> {
-    wf_workflow::lookup_script(name).map(|s| s.language)
+    wf_workflow::lookup_script(name).and_then(|s| s.language)
 }
 
 fn to_script_result(result: ScriptExecutionResult) -> wf_script::ScriptExecutionResult {
@@ -375,6 +478,11 @@ fn to_script_result(result: ScriptExecutionResult) -> wf_script::ScriptExecution
         exit_code: result.exit_code,
         execution_time_ms: result.execution_time,
         error: result.error,
+        requires_review: false,
+        truncated: false,
+        output_bytes: None,
+        stdout_path: None,
+        stderr_path: None,
     }
 }
 

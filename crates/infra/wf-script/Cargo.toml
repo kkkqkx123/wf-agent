@@ -9,5 +9,6 @@ wf-types = { path = "../../foundation/wf-types" }
 serde.workspace = true
 serde_json.workspace = true
 regex.workspace = true
-tokio.workspace = true
+tokio = { workspace = true, features = ["fs"] }
+futures.workspace = true
 thiserror.workspace = true

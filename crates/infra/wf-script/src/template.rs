@@ -1,8 +1,20 @@
 use std::collections::HashMap;
+use std::sync::LazyLock;
 
 use regex::Regex;
 
 use crate::error::{ScriptError, ScriptResult};
+use crate::resolver::{
+    resolve_value_path, value_to_string, ArgumentResolver, DynamicResolver,
+};
+
+/// Template placeholder matcher, built once. Dollar references are resolved
+/// earlier inside argument values; this stage only renders `{{path}}`
+/// placeholders against the already interpolated argument map.
+static TEMPLATE_RE: LazyLock<Regex> = LazyLock::new(|| {
+    Regex::new(r"\{\{\s*([A-Za-z_][\w]*(?:\.[\w]+)*)\s*\}\}")
+        .expect("invariant: regex literal is a fixed pattern and must compile")
+});
 
 pub struct TemplateRenderResult {
     pub command: String,
@@ -13,7 +25,30 @@ pub struct TemplateRenderResult {
 pub struct ScriptTemplateEngine;
 
 impl ScriptTemplateEngine {
-    pub fn render(
+    /// Single rendering pipeline shared by every execution path: argument
+    /// resolution, file argument confinement, dynamic reference interpolation,
+    /// template rendering and unresolved placeholder detection.
+    pub fn render_command(
+        template: &str,
+        declarations: &[crate::types::ScriptArgument],
+        provided: &HashMap<String, serde_json::Value>,
+        context: &HashMap<String, serde_json::Value>,
+        workdir: Option<&str>,
+    ) -> ScriptResult<String> {
+        let resolved = ArgumentResolver::resolve(declarations, provided, context)?;
+        crate::resolver::validate_file_args(declarations, &resolved, workdir)?;
+        let dynamic_args = DynamicResolver::resolve_map(&resolved, context);
+        let rendered = Self::render(template, &dynamic_args)?;
+        if !rendered.resolved {
+            return Err(ScriptError::UnresolvedTemplate(format!(
+                "Unresolved template placeholders: [{}]",
+                rendered.unresolved_placeholders.join(", ")
+            )));
+        }
+        Ok(rendered.command)
+    }
+
+    pub(crate) fn render(
         template: &str,
         variables: &HashMap<String, serde_json::Value>,
     ) -> ScriptResult<TemplateRenderResult> {
@@ -25,19 +60,17 @@ impl ScriptTemplateEngine {
             });
         }
 
-        let re = Regex::new(r"\{\{(\w+)\}\}")
-            .map_err(|e| ScriptError::Internal(format!("Invalid template regex: {}", e)))?;
-
         let mut command = template.to_string();
         let mut unresolved = Vec::new();
 
-        for cap in re.captures_iter(template) {
+        for cap in TEMPLATE_RE.captures_iter(template) {
             let placeholder = cap
                 .get(1)
                 .expect(
                     "invariant: capture group 1 is always present for a matched template pattern",
                 )
                 .as_str()
+                .trim()
                 .to_string();
             let full_match = cap
                 .get(0)
@@ -45,9 +78,9 @@ impl ScriptTemplateEngine {
                 .as_str()
                 .to_string();
 
-            match variables.get(&placeholder) {
+            match resolve_value_path(&placeholder, variables) {
                 Some(value) => {
-                    let replacement = value_as_string(value);
+                    let replacement = value_to_string(&value);
                     command = command.replace(&full_match, &replacement);
                 }
                 None => {
@@ -63,16 +96,6 @@ impl ScriptTemplateEngine {
             resolved,
             unresolved_placeholders: unresolved,
         })
-    }
-}
-
-fn value_as_string(value: &serde_json::Value) -> String {
-    match value {
-        serde_json::Value::String(s) => s.clone(),
-        serde_json::Value::Number(n) => n.to_string(),
-        serde_json::Value::Bool(b) => b.to_string(),
-        serde_json::Value::Null => String::new(),
-        other => other.to_string(),
     }
 }
 
@@ -115,5 +138,29 @@ mod tests {
 
         let result = ScriptTemplateEngine::render("{{a}}-{{b}}", &vars).unwrap();
         assert_eq!(result.command, "foo-42");
+    }
+
+    #[test]
+    fn test_dotted_path() {
+        let mut vars = HashMap::new();
+        vars.insert(
+            "input".to_string(),
+            json!({"name": "deploy", "env": "prod"}),
+        );
+
+        let result =
+            ScriptTemplateEngine::render("echo {{input.name}} {{input.env}}", &vars).unwrap();
+        assert!(result.resolved);
+        assert_eq!(result.command, "echo deploy prod");
+    }
+
+    #[test]
+    fn test_dotted_path_missing() {
+        let mut vars = HashMap::new();
+        vars.insert("input".to_string(), json!({"name": "deploy"}));
+
+        let result = ScriptTemplateEngine::render("echo {{input.missing}}", &vars).unwrap();
+        assert!(!result.resolved);
+        assert_eq!(result.unresolved_placeholders, vec!["input.missing"]);
     }
 }

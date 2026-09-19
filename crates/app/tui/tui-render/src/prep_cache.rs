@@ -223,6 +223,9 @@ pub struct PreparedScrollback {
     header_len: usize,
     rows: Vec<Line<'static>>,
     index: Vec<RowRange>,
+    /// Per-source-line identity fingerprints parallel to `index`; lets
+    /// `sync_body_edit` find the first changed line without string compares.
+    identities: Vec<u64>,
     last_layout_source_lines: usize,
     last_layout_rows: usize,
     row_cache: RowCache,
@@ -241,6 +244,7 @@ impl PreparedScrollback {
             header_len: 0,
             rows: Vec::new(),
             index: Vec::new(),
+            identities: Vec::new(),
             last_layout_source_lines: 0,
             last_layout_rows: 0,
             row_cache: RowCache::new(),
@@ -436,6 +440,7 @@ impl PreparedScrollback {
             let len = laid.len();
             self.rows.extend(laid);
             self.index.push(RowRange { start, len });
+            self.identities.push(source.identity());
         }
         self.source_len = full.len();
         self.version = version;
@@ -460,34 +465,12 @@ impl PreparedScrollback {
         let header_len = self.header_len.min(full.len());
         let mut first_changed = full.len();
         for (idx, source) in full.iter().enumerate() {
-            let key = AuxMapKey::new(source.identity(), width);
-            let matches = self
-                .row_cache
-                .get(key)
-                .map(|cached| {
-                    let start = self.index.get(idx).map(|r| r.start).unwrap_or(usize::MAX);
-                    let len = self.index.get(idx).map(|r| r.len).unwrap_or(0);
-                    start + len <= self.rows.len()
-                        && self.rows[start..start + len]
-                            .iter()
-                            .map(|row| {
-                                row.spans
-                                    .iter()
-                                    .map(|s| s.content.as_ref())
-                                    .collect::<String>()
-                            })
-                            .collect::<Vec<_>>()
-                            == cached
-                                .iter()
-                                .map(|row| {
-                                    row.spans
-                                        .iter()
-                                        .map(|s| s.content.as_ref())
-                                        .collect::<String>()
-                                })
-                                .collect::<Vec<_>>()
-                })
-                .unwrap_or(false);
+            // Identity fingerprints are the cheap row-equivalence signal: two
+            // lines with the same identity at the same width lay out to the
+            // same rows, so a fingerprint match means the cached rows are
+            // reusable without comparing rendered text.
+            let matches = self.identities.get(idx) == Some(&source.identity())
+                && idx < self.index.len();
             if !matches {
                 first_changed = idx;
                 break;
@@ -507,6 +490,7 @@ impl PreparedScrollback {
         let base = self.index[first_changed].start;
         self.rows.truncate(base);
         self.index.truncate(first_changed);
+        self.identities.truncate(first_changed);
         let mut laid_rows = 0usize;
         let mut misses = 0usize;
         for source in &full[first_changed..] {
@@ -517,6 +501,7 @@ impl PreparedScrollback {
             let len = laid.len();
             self.rows.extend(laid);
             self.index.push(RowRange { start, len });
+            self.identities.push(source.identity());
         }
         self.version = version;
         self.hidden = hidden;
@@ -575,6 +560,7 @@ impl PreparedScrollback {
         }
         let mut head_rows: Vec<Line<'static>> = Vec::new();
         let mut head_index: Vec<RowRange> = Vec::with_capacity(added);
+        let mut head_identities: Vec<u64> = Vec::with_capacity(added);
         let mut misses = 0usize;
         for source in &full[..added] {
             let start = head_rows.len();
@@ -583,18 +569,22 @@ impl PreparedScrollback {
             let len = laid.len();
             head_rows.extend(laid);
             head_index.push(RowRange { start, len });
+            head_identities.push(source.identity());
         }
         let shift = head_rows.len();
         let mut rows = std::mem::take(&mut self.rows);
         let mut index = std::mem::take(&mut self.index);
+        let mut identities = std::mem::take(&mut self.identities);
         for range in &mut index {
             range.start += shift;
         }
         head_rows.append(&mut rows);
         head_index.append(&mut index);
+        head_identities.append(&mut identities);
         let laid_rows = shift;
         self.rows = head_rows;
         self.index = head_index;
+        self.identities = head_identities;
         self.source_len = full.len();
         self.version = version;
         self.hidden = hidden;
@@ -615,6 +605,7 @@ impl PreparedScrollback {
         if dropped_sources >= self.source_len {
             self.rows.clear();
             self.index.clear();
+            self.identities.clear();
             self.source_len = 0;
             self.header_len = 0;
             self.version = version;
@@ -629,6 +620,7 @@ impl PreparedScrollback {
         };
         self.rows.drain(0..dropped_rows);
         self.index.drain(0..dropped_sources);
+        self.identities.drain(0..dropped_sources);
         for range in &mut self.index {
             range.start -= dropped_rows;
         }
@@ -690,6 +682,7 @@ impl PreparedScrollback {
         }
         let mut rows: Vec<Line<'static>> = Vec::new();
         let mut index: Vec<RowRange> = Vec::with_capacity(full.len());
+        let mut identities: Vec<u64> = Vec::with_capacity(full.len());
         let mut misses = 0usize;
         for source in full {
             let start = rows.len();
@@ -698,11 +691,13 @@ impl PreparedScrollback {
             let len = laid.len();
             rows.extend(laid);
             index.push(RowRange { start, len });
+            identities.push(source.identity());
         }
         self.last_layout_source_lines = misses;
         self.last_layout_rows = rows.len();
         self.rows = rows;
         self.index = index;
+        self.identities = identities;
         self.width = width;
         self.version = version;
         self.hidden = hidden;

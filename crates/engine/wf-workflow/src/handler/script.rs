@@ -380,12 +380,15 @@ impl ScriptHandler {
                 ))
             })?,
             None => {
-                let flow_id = config.get("flow_id").and_then(|v| v.as_str()).ok_or_else(|| {
-                    WorkflowError::Internal(format!(
-                        "Script node '{node}': needs 'flow' or 'flow_id'",
-                        node = ctx.node_id,
-                    ))
-                })?;
+                let flow_id = config
+                    .get("flow_id")
+                    .and_then(|v| v.as_str())
+                    .ok_or_else(|| {
+                        WorkflowError::Internal(format!(
+                            "Script node '{node}': needs 'flow' or 'flow_id'",
+                            node = ctx.node_id,
+                        ))
+                    })?;
                 crate::registry::lookup_flow(flow_id).ok_or_else(|| {
                     WorkflowError::Internal(format!(
                         "Script node '{node}': unknown flow '{flow_id}'",
@@ -525,14 +528,8 @@ pub(crate) fn render_blueprint_command(
     provided: &std::collections::HashMap<String, Value>,
     context_variables: &std::collections::HashMap<String, Value>,
 ) -> WorkflowResult<String> {
-    ScriptTemplateEngine::render_command(
-        template,
-        declarations,
-        provided,
-        context_variables,
-        None,
-    )
-    .map_err(|e| WorkflowError::Internal(format!("{what}: {e}")))
+    ScriptTemplateEngine::render_command(template, declarations, provided, context_variables, None)
+        .map_err(|e| WorkflowError::Internal(format!("{what}: {e}")))
 }
 
 /// Build the full execution options from a script node config. Every field
@@ -612,19 +609,21 @@ pub(crate) fn script_execution_options_from_config(
     let security_policy = match config.get("security_policy") {
         None | Some(Value::Null) => None,
         Some(v) => Some(
-            serde_json::from_value::<ScriptSecurityPolicy>(v.clone())
-                .map_err(|e| WorkflowError::Internal(format!(
+            serde_json::from_value::<ScriptSecurityPolicy>(v.clone()).map_err(|e| {
+                WorkflowError::Internal(format!(
                     "Script node '{node_id}': invalid 'security_policy': {e}"
-                )))?,
+                ))
+            })?,
         ),
     };
     let interactive = match config.get("interactive") {
         None | Some(Value::Null) => None,
         Some(v) => Some(
-            serde_json::from_value::<InteractiveScriptConfig>(v.clone())
-                .map_err(|e| WorkflowError::Internal(format!(
+            serde_json::from_value::<InteractiveScriptConfig>(v.clone()).map_err(|e| {
+                WorkflowError::Internal(format!(
                     "Script node '{node_id}': invalid 'interactive': {e}"
-                )))?,
+                ))
+            })?,
         ),
     };
     Ok(wf_script::ScriptExecutionOptions {
@@ -646,7 +645,9 @@ pub(crate) fn script_execution_options_from_config(
 }
 
 /// Snapshot the workflow variables for template argument resolution.
-pub(crate) fn snapshot_variables(ctx: &NodeExecutionContext) -> std::collections::HashMap<String, Value> {
+pub(crate) fn snapshot_variables(
+    ctx: &NodeExecutionContext,
+) -> std::collections::HashMap<String, Value> {
     ctx.variables
         .iter()
         .map(|entry| (entry.key().clone(), entry.value().clone()))

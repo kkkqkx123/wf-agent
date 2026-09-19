@@ -279,7 +279,12 @@ pub async fn execute(
         .get()
         .cloned()
         .ok_or_else(|| ApiError::execution("sandbox produced no result"))?;
-    output = apply_output_cap(&params.name, output, params.max_output_bytes, params.output_spill_dir.as_deref());
+    output = apply_output_cap(
+        &params.name,
+        output,
+        params.max_output_bytes,
+        params.output_spill_dir.as_deref(),
+    );
     Ok(output)
 }
 

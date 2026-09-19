@@ -775,16 +775,17 @@ impl TriggerCoordinator {
         )
         .await;
 
-        let language = script.language.clone().unwrap_or_else(|| "javascript".to_string());
+        let language = script
+            .language
+            .clone()
+            .unwrap_or_else(|| "javascript".to_string());
         let context_variables = ctx
             .variables
             .iter()
             .map(|entry| (entry.key().clone(), entry.value().clone()))
             .collect::<HashMap<String, Value>>();
         let provided: HashMap<String, Value> = match &parameters {
-            Some(Value::Object(map)) => {
-                map.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
-            }
+            Some(Value::Object(map)) => map.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
             _ => HashMap::new(),
         };
 
@@ -801,7 +802,13 @@ impl TriggerCoordinator {
                 &runner,
             )
             .await?;
-            return Self::finish_script_execution(ctx, &script_name, execution_result, ignore_error).await;
+            return Self::finish_script_execution(
+                ctx,
+                &script_name,
+                execution_result,
+                ignore_error,
+            )
+            .await;
         }
 
         let router = ctx
@@ -820,7 +827,6 @@ impl TriggerCoordinator {
         )
         .await?;
         Self::finish_script_execution(ctx, &script_name, execution_result, ignore_error).await
-
     }
 
     async fn finish_script_execution(
@@ -1009,8 +1015,7 @@ impl TriggerCoordinator {
         let sandbox_config = Self::trigger_sandbox_config();
         let execution = runner.execute(language, &code, &sandbox_config);
         if timeout > 0 {
-            match tokio::time::timeout(std::time::Duration::from_millis(timeout), execution).await
-            {
+            match tokio::time::timeout(std::time::Duration::from_millis(timeout), execution).await {
                 Ok(result) => Ok(result),
                 Err(_) => {
                     Self::emit(
@@ -1398,7 +1403,11 @@ mod tests {
             &ctx,
         )
         .await;
-        assert!(result.success, "router path should succeed: {:?}", result.error);
+        assert!(
+            result.success,
+            "router path should succeed: {:?}",
+            result.error
+        );
         assert!(
             result.result.unwrap().to_string().contains("routed-hello"),
             "output should carry the echo marker"
@@ -1442,7 +1451,11 @@ mod tests {
             &ctx,
         )
         .await;
-        assert!(result.success, "router path should succeed: {:?}", result.error);
+        assert!(
+            result.success,
+            "router path should succeed: {:?}",
+            result.error
+        );
         assert!(
             result.result.unwrap().to_string().contains("hi-router"),
             "rendered argument should reach the command"

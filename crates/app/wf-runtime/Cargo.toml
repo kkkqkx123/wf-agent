@@ -23,7 +23,7 @@ wf-metrics = { path = "../../infra/wf-metrics" }
 wf-resource = { path = "../../infra/wf-resource" }
 wf-config = { path = "../../infra/wf-config" }
 wf-llm = { path = "../../infra/wf-llm" }
-wf-checkpoint = { path = "../../infra/wf-checkpoint" }
+wf-checkpoint = { path = "../../infra/checkpoint/wf-checkpoint" }
 wf-plugin = { path = "../../infra/wf-plugin", optional = true }
 wf-agent = { path = "../../engine/wf-agent" }
 wf-workflow = { path = "../../engine/wf-workflow" }

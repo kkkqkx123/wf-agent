@@ -1,0 +1,27 @@
+[package]
+name = "checkpoint-state"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+async-trait.workspace = true
+
+dashmap = { workspace = true }
+futures = { workspace = true }
+
+wf-types = { path = "../../../foundation/wf-types" }
+wf-common = { path = "../../../foundation/wf-common" }
+wf-core = { path = "../../../foundation/wf-core" }
+wf-metrics = { path = "../../wf-metrics" }
+wf-storage = { path = "../../wf-storage" }
+layertwine = { path = "../layertwine" }
+checkpoint-base = { path = "../checkpoint-base" }
+
+[dev-dependencies]
+tempfile.workspace = true

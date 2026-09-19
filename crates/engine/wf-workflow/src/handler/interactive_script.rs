@@ -155,8 +155,7 @@ impl InteractiveScriptHandler {
                     .collect::<std::collections::HashMap<String, Value>>()
             })
             .unwrap_or_default();
-        let context_variables =
-            crate::handler::script::snapshot_variables(ctx);
+        let context_variables = crate::handler::script::snapshot_variables(ctx);
         let command = match definition.template.clone() {
             Some(template) => crate::handler::script::render_blueprint_command(
                 &format!("InteractiveScript node '{}'", ctx.node_id),
@@ -195,10 +194,7 @@ impl InteractiveScriptHandler {
                 enabled: None,
             };
             ScriptEngine::check_security_policy(&gate, &policy).map_err(|e| {
-                WorkflowError::Internal(format!(
-                    "InteractiveScript node '{}': {e}",
-                    ctx.node_id
-                ))
+                WorkflowError::Internal(format!("InteractiveScript node '{}': {e}", ctx.node_id))
             })?;
         }
 
@@ -461,10 +457,8 @@ impl InteractiveScriptHandler {
             description: None,
             enabled: None,
         };
-        let mut options = crate::handler::script::script_execution_options_from_config(
-            config,
-            &ctx.node_id,
-        )?;
+        let mut options =
+            crate::handler::script::script_execution_options_from_config(config, &ctx.node_id)?;
         options.executor_mode = Some(executor_mode);
         let provided = config
             .get("arguments")

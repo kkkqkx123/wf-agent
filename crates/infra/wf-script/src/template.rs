@@ -4,9 +4,7 @@ use std::sync::LazyLock;
 use regex::Regex;
 
 use crate::error::{ScriptError, ScriptResult};
-use crate::resolver::{
-    resolve_value_path, value_to_string, ArgumentResolver, DynamicResolver,
-};
+use crate::resolver::{resolve_value_path, value_to_string, ArgumentResolver, DynamicResolver};
 
 /// Template placeholder matcher, built once. Dollar references are resolved
 /// earlier inside argument values; this stage only renders `{{path}}`

@@ -469,8 +469,8 @@ impl PreparedScrollback {
             // lines with the same identity at the same width lay out to the
             // same rows, so a fingerprint match means the cached rows are
             // reusable without comparing rendered text.
-            let matches = self.identities.get(idx) == Some(&source.identity())
-                && idx < self.index.len();
+            let matches =
+                self.identities.get(idx) == Some(&source.identity()) && idx < self.index.len();
             if !matches {
                 first_changed = idx;
                 break;

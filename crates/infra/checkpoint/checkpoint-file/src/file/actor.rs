@@ -1,0 +1,636 @@
+use std::path::PathBuf;
+use std::sync::Arc;
+
+use layertwine::core::file_node::FileNode;
+use layertwine::core::snapshot::{Snapshot, SnapshotContent};
+use layertwine::layered::agent;
+use layertwine::storage::repository::{PartitionStore, SnapshotStore};
+
+use crate::branch::{execution_branch_name, manager::BranchStorageAdapter};
+use crate::event::CheckpointEventBus;
+use crate::file::util::{map_layertwine_error, seed_initial_snapshot, sha256_hex};
+use crate::file::FileCheckpointManager;
+pub use crate::precise::{PreciseApplyStats, PreciseFileEvent, PreciseFileEventKind};
+use crate::provenance::DeltaSummary;
+use checkpoint_base::actor::id::{ActorId, ActorKind};
+use checkpoint_base::error::CheckpointError;
+use checkpoint_base::recent_agent_writes::RecentAgentWrites;
+
+use std::collections::HashSet;
+
+/// Actor-partition facade for `FileCheckpointManager`.
+// Partition lifecycle and edit primitives live here; precise event types
+// are defined in `crate::precise` and re-exported above for compatibility.
+impl FileCheckpointManager {
+    /// Resolve the actor partition for a child execution: full `ActorId`
+    /// strings parse as-is; otherwise a child actor is derived from the
+    /// given parent (`parent.child(execution_id)`) so nested executions are
+    /// isolated in their own partition.
+    pub fn actor_id_for_child(
+        &self,
+        entity_id: &str,
+        parent: Option<&ActorId>,
+    ) -> Result<ActorId, CheckpointError> {
+        if let Some(actor) = self.actor_index.get(entity_id) {
+            return Ok(actor.clone());
+        }
+        if let Ok(actor) = ActorId::parse(entity_id) {
+            self.actor_index
+                .insert(entity_id.to_string(), actor.clone());
+            return Ok(actor);
+        }
+        let child_id = wf_types::Id::from(entity_id.to_string());
+        let actor = match parent {
+            Some(parent) => parent
+                .child(&child_id)
+                .map_err(|e| CheckpointError::Validation {
+                    reason: format!("invalid child actor for '{entity_id}': {e}"),
+                }),
+            None => ActorId::new(ActorKind::Agent, &[child_id]).map_err(|e| {
+                CheckpointError::Validation {
+                    reason: format!("invalid actor for '{entity_id}': {e}"),
+                }
+            }),
+        }?;
+        self.actor_index
+            .insert(entity_id.to_string(), actor.clone());
+        Ok(actor)
+    }
+
+    /// Resolve the actor for an execution entity id. Full `ActorId` strings
+    /// (e.g. `agent:{loop_id}` / `wf:{workflow_id}/child:{subgraph_id}`)
+    /// parse as-is; bare execution ids map to a root agent actor. A
+    /// previously resolved hierarchical actor (via [`Self::resolve_actor`])
+    /// takes precedence so later calls keep the same partition.
+    pub fn actor_id_for(&self, entity_id: &str) -> ActorId {
+        if let Some(actor) = self.actor_index.get(entity_id) {
+            return actor.clone();
+        }
+        let actor = match ActorId::parse(entity_id) {
+            Ok(actor) => actor,
+            Err(_) => crate::file::util::root_actor(wf_types::Id::from(entity_id.to_string())),
+        };
+        self.actor_index
+            .insert(entity_id.to_string(), actor.clone());
+        actor
+    }
+
+    /// Resolve the actor for an execution with an optional immediate parent
+    /// (sub-execution isolation). A child execution whose parent is
+    /// already in the actor index is encoded as `parent.child(execution_id)`
+    /// (`{kind}:{parent}/child:{child}`), keeping nested executions in their
+    /// own hierarchical partition. Falls back to a root actor when the
+    /// parent is unknown.
+    pub fn resolve_actor(&self, entity_id: &str, parent_execution_id: Option<&str>) -> ActorId {
+        if let Some(actor) = self.actor_index.get(entity_id) {
+            return actor.clone();
+        }
+        if let Ok(actor) = ActorId::parse(entity_id) {
+            self.actor_index
+                .insert(entity_id.to_string(), actor.clone());
+            return actor;
+        }
+        let child_id = wf_types::Id::from(entity_id.to_string());
+        let actor = match parent_execution_id {
+            Some(parent) if parent != entity_id => match self.actor_index.get(parent) {
+                Some(parent_actor) => parent_actor
+                    .child(&child_id)
+                    .unwrap_or_else(|_| crate::file::util::root_actor(child_id.clone())),
+                None => crate::file::util::root_actor(child_id.clone()),
+            },
+            _ => crate::file::util::root_actor(child_id.clone()),
+        };
+        self.actor_index
+            .insert(entity_id.to_string(), actor.clone());
+        actor
+    }
+
+    /// The resolved actor of an entity, if it was resolved earlier.
+    pub fn resolved_actor(&self, entity_id: &str) -> Option<ActorId> {
+        self.actor_index.get(entity_id)
+    }
+
+    /// Ensure the child execution's branch has been created. Called by
+    /// `prepare_with_parent` to set up the branch isolation before any
+    /// checkpoint activity. No-op when the entity has no parent or is the
+    /// parent itself.
+    pub async fn ensure_child_branch(
+        &self,
+        entity_id: &str,
+        parent_execution_id: Option<&str>,
+    ) -> Result<(), CheckpointError> {
+        let Some(parent) = parent_execution_id else {
+            return Ok(());
+        };
+        if parent == entity_id {
+            return Ok(());
+        }
+        let branch_name = execution_branch_name("execution", entity_id);
+        if self
+            .store
+            .branch_adapter
+            .branch_exists(&branch_name)
+            .await?
+        {
+            return Ok(());
+        }
+        let parent_actor = self.actor_id_for(parent);
+        let storage = self.storage_ref()?;
+        let base = self.latest_checkpoint_id(storage, &parent_actor)?;
+        self.store
+            .branch_adapter
+            .create_branch(&branch_name, base.as_deref())
+            .await?;
+        Ok(())
+    }
+
+    /// The branch head checkpoint id recorded for an execution entity, if
+    /// any. The head is written by checkpoint creation for explicitly
+    /// prepared execution branches and read by consumers that need the
+    /// entity's latest commit without scanning partitions. Root executions
+    /// have no branch, so this reports `None` for them.
+    pub fn branch_head(&self, entity_id: &str) -> Result<Option<String>, CheckpointError> {
+        self.store
+            .branch_adapter
+            .get_branch_head(&execution_branch_name("execution", entity_id))
+    }
+
+    // ── actor partition primitives ──────────────────────────────────
+
+    /// Ensure the actor's agent partition exists, seeding it with an empty
+    /// baseline snapshot on first use.
+    pub fn ensure_agent_partition(&self, actor: &ActorId) -> Result<(), CheckpointError> {
+        let storage = self.storage_ref()?;
+        let agent_id = actor.to_agent_instance_id();
+        let pid = agent::agent_partition_id(&agent_id);
+        if storage.get_partition(&pid).is_ok() {
+            return Ok(());
+        }
+        let initial = seed_initial_snapshot(storage, &agent_id)?;
+        agent::ensure_agent_partition(storage, &agent_id, initial).map_err(map_layertwine_error)?;
+        Ok(())
+    }
+
+    /// Record one file edit for an actor: text goes through layertwine's
+    /// line-diff `apply_agent_edit`; binary content is snapshotted verbatim
+    /// via `SnapshotContent::FileContent` (no line diff). Returns the new
+    /// snapshot id (hex).
+    pub fn apply_agent_edit(
+        &self,
+        actor: &ActorId,
+        path: &str,
+        content: &[u8],
+    ) -> Result<String, CheckpointError> {
+        self.apply_agent_edit_with_hash(actor, path, content, None)
+    }
+
+    /// Hash-aware edit entry: when the caller already hashed `content`
+    /// (e.g. the tool layer read the file to report the mutation), the hash
+    /// is reused for the write registry instead of hashing twice.
+    pub fn apply_agent_edit_with_hash(
+        &self,
+        actor: &ActorId,
+        path: &str,
+        content: &[u8],
+        expected_hash: Option<&str>,
+    ) -> Result<String, CheckpointError> {
+        let path = crate::file::util::validate_workspace_relative_path(path)?;
+        let storage = self.storage_ref()?;
+        let agent_id = actor.to_agent_instance_id();
+        self.ensure_agent_partition(actor)?;
+        let threshold = self.policy.full_snapshot_threshold;
+        let snapshot_id = if let Ok(text) = std::str::from_utf8(content) {
+            agent::apply_agent_edit_full(storage, &agent_id, &path, text, None, threshold)
+                .map_err(map_layertwine_error)?
+        } else {
+            let file_node = FileNode::new(PathBuf::from(&path), content);
+            let snapshot = Snapshot::new_with_content(
+                file_node,
+                SnapshotContent::FileContent(content.to_vec()),
+                format!("file://{}", path),
+                format!("agent/{}", agent_id),
+                vec![
+                    storage
+                        .get_partition(&agent::agent_partition_id(&agent_id))
+                        .map_err(map_layertwine_error)?
+                        .current_snapshot,
+                ],
+                vec![],
+            );
+            storage
+                .store_snapshot(&snapshot, content)
+                .map_err(map_layertwine_error)?;
+            let pid = agent::agent_partition_id(&agent_id);
+            storage
+                .update_pointer(&pid, &snapshot.id)
+                .map_err(map_layertwine_error)?;
+            snapshot.id
+        };
+        // A fresh edit invalidates the redo branch: clear the persisted redo
+        // stack so undo → edit → redo cannot resurrect stale states.
+        {
+            let pid = agent::agent_partition_id(&agent_id);
+            let _ = storage.update_redo_stack(&pid, &[]);
+        }
+        // Clear any earlier deletion marker for this path (the file exists
+        // again); register the write for the manual watcher. The registry is
+        // keyed by both the (workspace-relative) edit path and the absolute
+        // path — watcher events always carry absolute paths.
+        if !content.is_empty() {
+            if let Some(mut deleted) = self.deleted_files.get_mut(actor.as_str()) {
+                deleted.remove(&path);
+            }
+        }
+        let write_hash = expected_hash
+            .map(str::to_string)
+            .unwrap_or_else(|| sha256_hex(content));
+        self.recent_agent_writes
+            .register(PathBuf::from(&path), write_hash.clone());
+        if let Some(root) = &self.workspace_root {
+            self.recent_agent_writes.register(
+                crate::watcher::normalize_absolute_path(&root.join(&path)),
+                write_hash.clone(),
+            );
+        }
+        if let Some(ref bus) = self.event_bus {
+            bus.publish(CheckpointEventBus::file_changed_with_summary(
+                snapshot_id.to_hex(),
+                &path,
+                actor.as_str(),
+                Some(DeltaSummary {
+                    file: path.to_string(),
+                    source: actor.as_str().to_string(),
+                    timestamp: wf_common::now(),
+                    snapshot_id: snapshot_id.to_hex(),
+                    hash: write_hash.clone(),
+                    message: None,
+                }),
+            ));
+        }
+        Ok(snapshot_id.to_hex())
+    }
+
+    /// Record one file deletion for an actor (explicit deletion semantics):
+    /// advance the layertwine agent partition with a
+    /// `SnapshotContent::Deleted`-marked snapshot, register the deletion
+    /// projection marker, and notify the manual watcher (the resulting
+    /// filesystem event is the agent's own write and must be skipped).
+    /// Returns the new snapshot id (hex).
+    pub fn apply_agent_delete(
+        &self,
+        actor: &ActorId,
+        path: &str,
+    ) -> Result<String, CheckpointError> {
+        let path = crate::file::util::validate_workspace_relative_path(path)?;
+        let storage = self.storage_ref()?;
+        let agent_id = actor.to_agent_instance_id();
+        self.ensure_agent_partition(actor)?;
+        let snapshot_id =
+            agent::apply_agent_delete(storage, &agent_id, &path).map_err(map_layertwine_error)?;
+        {
+            let pid = agent::agent_partition_id(&agent_id);
+            let _ = storage.update_redo_stack(&pid, &[]);
+        }
+        self.deleted_files
+            .entry(actor.as_str().to_string())
+            .or_default()
+            .insert(path.clone());
+        self.recent_agent_writes
+            .register_delete(PathBuf::from(&path));
+        if let Some(root) = &self.workspace_root {
+            self.recent_agent_writes
+                .register_delete(crate::watcher::normalize_absolute_path(&root.join(&path)));
+        }
+        let write_hash = sha256_hex(b"");
+        if let Some(ref bus) = self.event_bus {
+            bus.publish(CheckpointEventBus::file_changed_with_summary(
+                snapshot_id.to_hex(),
+                &path,
+                actor.as_str(),
+                Some(DeltaSummary {
+                    file: path.to_string(),
+                    source: actor.as_str().to_string(),
+                    timestamp: wf_common::now(),
+                    snapshot_id: snapshot_id.to_hex(),
+                    hash: write_hash.clone(),
+                    message: None,
+                }),
+            ));
+        }
+        Ok(snapshot_id.to_hex())
+    }
+
+    /// Record a manual (human/IDE) edit into the global manual partition,
+    /// bypassing any actor. Text content goes through layertwine's line-diff
+    /// `apply_manual_edit`; binary content is snapshotted verbatim via
+    /// `SnapshotContent::FileContent`. Returns the new snapshot id (hex).
+    pub fn apply_manual_edit(&self, path: &str, content: &[u8]) -> Result<String, CheckpointError> {
+        let path = crate::file::util::validate_workspace_relative_path(path)?;
+        let storage = self.storage_ref()?;
+        let ws = self.workspace_key();
+        let manual_pid = match ws.as_deref() {
+            Some(key) => layertwine::layered::manual::manual_partition_id_for(key),
+            None => layertwine::layered::manual::manual_partition_id(),
+        };
+        if storage.get_partition(&manual_pid).is_err() {
+            let seed = seed_initial_snapshot(
+                storage,
+                &layertwine::core::types::AgentInstanceId("manual".into()),
+            )?;
+            layertwine::layered::manual::ensure_manual_partition(storage, seed, ws.as_deref())
+                .map_err(map_layertwine_error)?;
+        }
+        let threshold = self.policy.full_snapshot_threshold;
+        let snapshot_id = if let Ok(text) = std::str::from_utf8(content) {
+            layertwine::layered::manual::apply_manual_edit_full(
+                storage,
+                &path,
+                text,
+                ws.as_deref(),
+                None,
+                threshold,
+            )
+            .map_err(map_layertwine_error)?
+        } else {
+            let file_node = FileNode::new(PathBuf::from(&path), content);
+            let snapshot = Snapshot::new_with_content(
+                file_node,
+                SnapshotContent::FileContent(content.to_vec()),
+                format!("file://{}", path),
+                "manual".to_string(),
+                vec![
+                    storage
+                        .get_partition(&manual_pid)
+                        .map_err(map_layertwine_error)?
+                        .current_snapshot,
+                ],
+                vec![],
+            );
+            storage
+                .store_snapshot(&snapshot, content)
+                .map_err(map_layertwine_error)?;
+            storage
+                .update_pointer(&manual_pid, &snapshot.id)
+                .map_err(map_layertwine_error)?;
+            snapshot.id
+        };
+        {
+            let _ = storage.update_redo_stack(&manual_pid, &[]);
+        }
+        if let Some(ref bus) = self.event_bus {
+            let write_hash = sha256_hex(content);
+            bus.publish(CheckpointEventBus::file_changed_with_summary(
+                snapshot_id.to_hex(),
+                &path,
+                "manual",
+                Some(DeltaSummary {
+                    file: path.to_string(),
+                    source: "manual".to_string(),
+                    timestamp: wf_common::now(),
+                    snapshot_id: snapshot_id.to_hex(),
+                    hash: write_hash,
+                    message: None,
+                }),
+            ));
+        }
+        Ok(snapshot_id.to_hex())
+    }
+
+    /// Record a manual (human/IDE) file deletion into the global manual
+    /// partition (explicit deletion semantics via
+    /// `SnapshotContent::Deleted`). Returns the new snapshot id (hex).
+    pub fn apply_manual_delete(&self, path: &str) -> Result<String, CheckpointError> {
+        let path = crate::file::util::validate_workspace_relative_path(path)?;
+        let storage = self.storage_ref()?;
+        let ws = self.workspace_key();
+        let manual_pid = match ws.as_deref() {
+            Some(key) => layertwine::layered::manual::manual_partition_id_for(key),
+            None => layertwine::layered::manual::manual_partition_id(),
+        };
+        if storage.get_partition(&manual_pid).is_err() {
+            let seed = seed_initial_snapshot(
+                storage,
+                &layertwine::core::types::AgentInstanceId("manual".into()),
+            )?;
+            layertwine::layered::manual::ensure_manual_partition(storage, seed, ws.as_deref())
+                .map_err(map_layertwine_error)?;
+        }
+        let snapshot_id =
+            layertwine::layered::manual::apply_manual_delete(storage, &path, ws.as_deref())
+                .map_err(map_layertwine_error)?;
+        {
+            let _ = storage.update_redo_stack(&manual_pid, &[]);
+        }
+        if let Some(ref bus) = self.event_bus {
+            let write_hash = sha256_hex(b"");
+            bus.publish(CheckpointEventBus::file_changed_with_summary(
+                snapshot_id.to_hex(),
+                &path,
+                "manual",
+                Some(DeltaSummary {
+                    file: path.to_string(),
+                    source: "manual".to_string(),
+                    timestamp: wf_common::now(),
+                    snapshot_id: snapshot_id.to_hex(),
+                    hash: write_hash,
+                    message: None,
+                }),
+            ));
+        }
+        Ok(snapshot_id.to_hex())
+    }
+
+    /// Discard an execution's file changes: revert the actor partition
+    /// pointer to its parent (best-effort), delete the actor partition
+    /// entirely (partition + history rows), and drop the in-memory
+    /// projection index. Snapshots/deltas remain as immutable history
+    /// (INSERT-ONLY, GC'd separately). No-op when the actor has no
+    /// partition.
+    pub fn discard_execution(&self, entity_id: &str) -> Result<(), CheckpointError> {
+        let storage = self.storage_ref()?;
+        let actor = self.actor_id_for(entity_id);
+        let agent_id = actor.to_agent_instance_id();
+        let pid = agent::agent_partition_id(&agent_id);
+        if storage.get_partition(&pid).is_err() {
+            return Ok(());
+        }
+        // Best-effort pointer revert; there is nothing to revert when the
+        // partition has no parent (the seed snapshot), and the partition is
+        // deleted right after anyway.
+        let _ = agent::discard_agent_edit(storage, &agent_id);
+        storage
+            .delete_partition(&pid)
+            .map_err(map_layertwine_error)?;
+        self.store.latest_checkpoints.remove(actor.as_str());
+        self.deleted_files.remove(actor.as_str());
+        Ok(())
+    }
+
+    /// Shared registry of recent agent writes (the manual watcher reads it).
+    pub fn recent_agent_writes(&self) -> &Arc<RecentAgentWrites> {
+        &self.recent_agent_writes
+    }
+
+    /// File paths currently marked deleted for the actor (keyed by the
+    /// actor id string, e.g. `checkpoint.metadata.author`).
+    pub fn deleted_files(&self, author: &str) -> HashSet<String> {
+        self.deleted_files
+            .get(author)
+            .map(|set| set.clone())
+            .unwrap_or_default()
+    }
+
+    /// Record a file move/rename operation in the file_moves table. This
+    /// enables `file_timeline` to trace the full history of a file across
+    /// renames. The `source` parameter identifies who performed the move
+    /// (e.g. "manual", "agent:loop-1").
+    pub fn track_file_move(
+        &self,
+        from_path: &str,
+        to_path: &str,
+        source: &str,
+    ) -> Result<(), checkpoint_base::error::CheckpointError> {
+        use layertwine::core::file_move::FileMove;
+        use layertwine::storage::repository::FileMoveStore;
+
+        let from = crate::file::util::validate_workspace_relative_path(from_path)?;
+        let to = crate::file::util::validate_workspace_relative_path(to_path)?;
+        let storage = self.storage_ref()?;
+        let file_move = FileMove::new(from, to, source.to_string());
+        storage
+            .store_file_move(&file_move)
+            .map_err(crate::file::util::map_layertwine_error)
+    }
+
+    /// Explicit rename entry point: validate both sides, record the move
+    /// linkage, delete the old path and write the new path content for an
+    /// actor. Returns the new snapshot id (hex) for the created path.
+    pub fn rename_file(
+        &self,
+        actor: &ActorId,
+        from_path: &str,
+        to_path: &str,
+        content: &[u8],
+    ) -> Result<String, checkpoint_base::error::CheckpointError> {
+        let from = crate::file::util::validate_workspace_relative_path(from_path)?;
+        let to = crate::file::util::validate_workspace_relative_path(to_path)?;
+        self.track_file_move(&from, &to, actor.as_str())?;
+        let _ = self.apply_agent_delete(actor, &from);
+        self.apply_agent_edit(actor, &to, content)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::file::FileContentEntry;
+
+    fn entry(path: &str, content: &[u8]) -> FileContentEntry {
+        FileContentEntry::new(path, content.to_vec())
+    }
+
+    #[tokio::test]
+    async fn child_execution_creates_branch() {
+        let manager = FileCheckpointManager::new_in_memory().unwrap();
+        manager
+            .create_checkpoint("parent-1", &[entry("a.txt", b"base")])
+            .unwrap();
+
+        let branch = execution_branch_name("execution", "child-1");
+        assert!(
+            !manager
+                .store
+                .branch_adapter
+                .branch_exists(&branch)
+                .await
+                .unwrap(),
+            "branch must not exist before the child is prepared"
+        );
+
+        manager
+            .ensure_child_branch("child-1", Some("parent-1"))
+            .await
+            .unwrap();
+        assert!(manager
+            .store
+            .branch_adapter
+            .branch_exists(&branch)
+            .await
+            .unwrap());
+
+        // Idempotent: preparing the same child again keeps the branch set
+        // stable. The parent stays branchless: checkpoint creation only
+        // advances explicitly prepared execution branches and never
+        // implicitly registers one for root executions.
+        manager
+            .ensure_child_branch("child-1", Some("parent-1"))
+            .await
+            .unwrap();
+        let branches = manager.store.branch_adapter.list_branches().await.unwrap();
+        assert_eq!(branches, vec![branch,]);
+    }
+
+    #[tokio::test]
+    async fn ensure_child_branch_ignores_roots_and_self_parent() {
+        let manager = FileCheckpointManager::new_in_memory().unwrap();
+
+        // No parent (root execution) and self-parent are no-ops.
+        manager.ensure_child_branch("solo", None).await.unwrap();
+        manager
+            .ensure_child_branch("same", Some("same"))
+            .await
+            .unwrap();
+
+        let branches = manager.store.branch_adapter.list_branches().await.unwrap();
+        assert!(
+            branches.is_empty(),
+            "no branch may be created: {branches:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn child_branch_starts_headless_after_fork() {
+        let manager = FileCheckpointManager::new_in_memory().unwrap();
+        let parent_cp = manager
+            .create_checkpoint("parent-1", &[entry("a.txt", b"base")])
+            .unwrap();
+
+        manager
+            .ensure_child_branch("child-1", Some("parent-1"))
+            .await
+            .unwrap();
+
+        // The forked branch exists natively but stays headless until its own
+        // first checkpoint; the parent base remains readable as the fork
+        // point without a KV registry entry.
+        let branch = execution_branch_name("execution", "child-1");
+        assert!(
+            manager
+                .store
+                .branch_adapter
+                .branch_exists(&branch)
+                .await
+                .unwrap(),
+            "forked branch must exist"
+        );
+        assert_eq!(
+            manager
+                .store
+                .branch_adapter
+                .get_branch_head(&branch)
+                .unwrap(),
+            None,
+            "forked branch stays headless until its own checkpoint"
+        );
+        let parent_actor = manager.actor_id_for("parent-1");
+        let storage = manager.storage().unwrap();
+        assert_eq!(
+            manager
+                .latest_checkpoint_id(storage, &parent_actor)
+                .unwrap()
+                .as_deref(),
+            Some(parent_cp.id.as_str()),
+            "parent base stays readable as the fork point"
+        );
+    }
+}

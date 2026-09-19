@@ -16,9 +16,14 @@ members = [
     "crates/infra/wf-shell",
     "crates/infra/wf-plugin",
     "crates/infra/wf-resource",
-    "crates/infra/wf-checkpoint",
-    # file-edit history storage engine (used only by wf-checkpoint)
-    "crates/infra/layertwine",
+    # checkpoint subsystem (crates/infra/checkpoint/): internal crates carry
+    # no wf- prefix (tui-style); only the facade keeps wf- prefix.
+    "crates/infra/checkpoint/checkpoint-base",
+    "crates/infra/checkpoint/checkpoint-state",
+    "crates/infra/checkpoint/checkpoint-file",
+    "crates/infra/checkpoint/wf-checkpoint",
+    # file-edit history storage engine (used only by checkpoint-file / wf-checkpoint)
+    "crates/infra/checkpoint/layertwine",
     # engine
     "crates/engine/wf-tools",
     "crates/engine/wf-execution-shared",

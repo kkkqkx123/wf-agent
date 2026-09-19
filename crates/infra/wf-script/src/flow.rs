@@ -153,14 +153,16 @@ impl ScriptFlowEngine {
             flow.branches.iter().map(|b| (b.key.as_str(), b)).collect();
         let mut depths: HashMap<String, usize> = HashMap::new();
         for key in &order {
-            let depth = match branch_map.get(key.as_str()).and_then(|b| b.depends_on.as_ref()) {
+            let depth = match branch_map
+                .get(key.as_str())
+                .and_then(|b| b.depends_on.as_ref())
+            {
                 None => 0,
-                Some(deps) => {
-                    deps.iter()
-                        .map(|dep| depths.get(dep).copied().unwrap_or(0) + 1)
-                        .max()
-                        .unwrap_or(0)
-                }
+                Some(deps) => deps
+                    .iter()
+                    .map(|dep| depths.get(dep).copied().unwrap_or(0) + 1)
+                    .max()
+                    .unwrap_or(0),
             };
             depths.insert(key.clone(), depth);
         }

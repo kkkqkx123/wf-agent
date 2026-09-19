@@ -1,0 +1,1213 @@
+//! Provenance queries over layertwine partitions.
+//!
+//! Queries are actor-partition centered and only use the layertwine
+//! `Repository` traits (`PartitionStore` / `SnapshotStore` / `DeltaStore` /
+//! `FileNodeStore`) — no direct SQL. Three query dimensions are supported:
+//!
+//! - by actor: `list_changes_by_actor` walks the actor partition history.
+//! - by path: `list_changes_by_path` scans every partition's history.
+//! - by time: window filters over `Delta.timestamp` / `Snapshot.created_at`.
+//!
+//! Plus workspace state (`get_actor_workspace`) and difference queries
+//! (`diff_actors` /.
+
+use std::collections::{HashMap, HashSet};
+
+use layertwine::core::delta::Delta;
+use layertwine::core::partition::Partition;
+use layertwine::core::snapshot::Snapshot;
+use layertwine::core::types::{AgentInstanceId, DeltaId, PartitionType, SnapshotId, SourceType};
+use layertwine::engine::merge::merge_texts;
+use layertwine::storage::repository::{DeltaStore, PartitionStore, SnapshotStore};
+use layertwine::storage::sqlite::SqliteStorage;
+
+use crate::approval::{to_conflict_views, ConflictView};
+use crate::file::util::{map_layertwine_error, sha256_hex};
+use crate::file::FileContentEntry;
+use checkpoint_base::actor::id::ActorId;
+use checkpoint_base::common::diff::{diff_stats_for_text, unified_diff_text};
+use checkpoint_base::error::CheckpointError;
+
+/// Seed path of the synthetic initial snapshot; excluded from provenance.
+const SEED_PATH: &str = ".wf-checkpoint-seed";
+
+/// Resolve the staged partition id for a workspace key (`None` = legacy
+/// single-workspace fixed id).
+pub(crate) fn staged_pid(workspace_key: Option<&str>) -> layertwine::core::types::PartitionId {
+    match workspace_key {
+        Some(key) => layertwine::layered::staged::staged_partition_id_for(key),
+        None => layertwine::layered::staged::staged_partition_id(),
+    }
+}
+
+/// One recorded change of a partition history entry.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct DeltaSummary {
+    /// Relative file path.
+    pub file: String,
+    /// Origin: `agent:{actor}` / `manual` / `backup` (layertwine `SourceType`).
+    pub source: String,
+    /// Change time (Unix milliseconds).
+    pub timestamp: i64,
+    /// Snapshot id (hex).
+    pub snapshot_id: String,
+    /// Content hash (SHA-256 hex) of the resulting file bytes.
+    pub hash: String,
+    /// Optional human-readable description of the edit intent.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+}
+
+/// Read view of a partition.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct PartitionView {
+    pub partition_id: String,
+    pub name: String,
+    /// `manual` | `agent` | `approval` | `integrated` | `unified` | `staged`.
+    pub kind: String,
+    /// Actor id for per-actor partitions (agent/approval), `None` otherwise.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub actor: Option<String>,
+    /// Snapshot id (hex) of the partition pointer.
+    pub current_snapshot: String,
+    /// Number of history entries (INSERT-ONLY retention).
+    pub history_len: usize,
+    /// Creation time of the first history snapshot.
+    pub created_at: i64,
+    /// Time of the last history snapshot.
+    pub updated_at: i64,
+}
+
+/// File content of an actor workspace at its current partition state
+/// (`get_actor_workspace`).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct WorkspaceFile {
+    pub path: String,
+    pub content: Vec<u8>,
+    pub hash: String,
+    pub timestamp: i64,
+}
+
+/// Kind of a per-file difference between two workspace states.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FileDiffKind {
+    Added,
+    Modified,
+    Deleted,
+    Unchanged,
+}
+
+/// Per-file difference view (`diff_actors` /.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct FileDiffView {
+    pub path: String,
+    pub kind: FileDiffKind,
+    /// Unified diff (text files only); `None` for binary content.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub diff: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub additions: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub deletions: Option<usize>,
+}
+
+/// Whether a path matches the optional filter (plain substring match).
+fn path_matches(path: &str, filter: Option<&str>) -> bool {
+    match filter {
+        Some(filter) if !filter.is_empty() => path.contains(filter),
+        _ => true,
+    }
+}
+
+/// The file path a snapshot applies to (chain head delta or own file node).
+pub fn snapshot_file_path(
+    storage: &SqliteStorage,
+    snapshot: &Snapshot,
+) -> Result<String, CheckpointError> {
+    if let Some(delta_id) = snapshot.deltas.last() {
+        let delta = storage.get_delta(delta_id).map_err(map_layertwine_error)?;
+        Ok(delta.file.path_str().to_string())
+    } else {
+        Ok(snapshot.file.path_str().to_string())
+    }
+}
+
+/// The delta of a snapshot chain (the last entry carries the edit that
+/// produced the snapshot).
+fn snapshot_last_delta(
+    storage: &SqliteStorage,
+    snapshot: &Snapshot,
+) -> Result<Option<Delta>, CheckpointError> {
+    let Some(delta_id) = snapshot.deltas.last() else {
+        return Ok(None);
+    };
+    storage
+        .get_delta(delta_id)
+        .map(Some)
+        .map_err(map_layertwine_error)
+}
+
+/// The byte content of a snapshot (verbatim content for binary, otherwise
+/// line-diff reconstruction). Single implementation lives in `file_util`;
+/// this wrapper keeps provenance call sites local.
+fn snapshot_content_bytes(
+    storage: &SqliteStorage,
+    snapshot: &Snapshot,
+) -> Result<Vec<u8>, CheckpointError> {
+    crate::file::util::snapshot_content_bytes(storage, snapshot)
+}
+
+/// Batch-load the chain-head delta of many snapshots with a single SQL
+/// query instead of N+1 round trips. Callers build the map once and reuse
+/// it for both path resolution (`batch_snapshot_paths_from_map`) and
+/// source/message lookup.
+fn chain_head_delta_map(
+    storage: &SqliteStorage,
+    snapshots: &HashMap<SnapshotId, Snapshot>,
+) -> HashMap<DeltaId, Delta> {
+    let delta_ids: Vec<DeltaId> = snapshots
+        .values()
+        .filter_map(|s| s.deltas.last().copied())
+        .collect();
+    storage
+        .get_deltas(&delta_ids)
+        .map(|deltas| deltas.into_iter().map(|d| (d.id, d)).collect())
+        .unwrap_or_default()
+}
+
+/// Resolve the file path of many snapshots from a preloaded chain-head
+/// delta map (pure, no I/O). Snapshots without a resolvable path are
+/// skipped by the caller.
+fn batch_snapshot_paths_from_map(
+    snapshots: &HashMap<SnapshotId, Snapshot>,
+    delta_map: &HashMap<DeltaId, Delta>,
+) -> HashMap<SnapshotId, String> {
+    snapshots
+        .iter()
+        .map(|(id, snapshot)| {
+            let path = snapshot
+                .deltas
+                .last()
+                .and_then(|delta_id| delta_map.get(delta_id))
+                .map(|d| d.file.path_str().to_string())
+                .unwrap_or_else(|| snapshot.file.path_str().to_string());
+            (*id, path)
+        })
+        .collect()
+}
+
+/// Batch-resolve the file path of many snapshots with two SQL queries
+/// (one snapshot batch + one delta batch) instead of N+1 round trips.
+/// Snapshots without a resolvable path are skipped.
+fn batch_snapshot_paths(
+    storage: &SqliteStorage,
+    snapshots: &HashMap<SnapshotId, Snapshot>,
+) -> HashMap<SnapshotId, String> {
+    let delta_map = chain_head_delta_map(storage, snapshots);
+    batch_snapshot_paths_from_map(snapshots, &delta_map)
+}
+
+/// Resolve the last snapshot per file path from a partition history, in
+/// history order (last occurrence wins). Seed snapshots are excluded.
+/// Snapshots are loaded with a single batched SQL query.
+fn latest_snapshots_per_path(
+    storage: &SqliteStorage,
+    partition: &Partition,
+) -> Result<Vec<(String, Snapshot)>, CheckpointError> {
+    let snap_map = storage
+        .get_snapshots_map(&partition.history)
+        .map_err(map_layertwine_error)?;
+    let path_map = batch_snapshot_paths(storage, &snap_map);
+    let mut order: Vec<String> = Vec::new();
+    let mut last_per_path: HashMap<String, Snapshot> = HashMap::new();
+    for snapshot_id in &partition.history {
+        let Some(snapshot) = snap_map.get(snapshot_id) else {
+            continue;
+        };
+        let Some(path) = path_map.get(snapshot_id) else {
+            continue;
+        };
+        if *path == SEED_PATH {
+            continue;
+        }
+        if !last_per_path.contains_key(path) {
+            order.push(path.clone());
+        }
+        last_per_path.insert(path.clone(), snapshot.clone());
+    }
+    Ok(order
+        .into_iter()
+        .filter_map(|path| last_per_path.remove(&path).map(|snap| (path, snap)))
+        .collect())
+}
+
+/// All partitions ordered by name (stable for tests). Snapshot timestamps
+/// are loaded with a single batched SQL query across all partitions.
+pub fn list_partitions(storage: &SqliteStorage) -> Result<Vec<PartitionView>, CheckpointError> {
+    let mut partitions = storage.list_partitions().map_err(map_layertwine_error)?;
+    partitions.sort_by(|a, b| a.name.cmp(&b.name));
+    let all_ids: Vec<SnapshotId> = partitions
+        .iter()
+        .flat_map(|p| p.history.iter().copied())
+        .collect();
+    let snap_map = storage
+        .get_snapshots_map(&all_ids)
+        .map_err(map_layertwine_error)?;
+    let mut views = Vec::with_capacity(partitions.len());
+    for partition in partitions {
+        let (kind, actor) = match &partition.partition_type {
+            PartitionType::Manual => ("manual", None),
+            PartitionType::Agent(id) => ("agent", Some(id.0.clone())),
+            PartitionType::Approval(id) => ("approval", Some(id.0.clone())),
+            PartitionType::Integrated(name) => ("integrated", Some(name.clone())),
+            PartitionType::Staged => ("staged", None),
+        };
+        let mut created_at = 0;
+        let mut updated_at = 0;
+        for snapshot_id in &partition.history {
+            if let Some(snapshot) = snap_map.get(snapshot_id) {
+                if created_at == 0 {
+                    created_at = snapshot.created_at;
+                }
+                updated_at = snapshot.created_at;
+            }
+        }
+        views.push(PartitionView {
+            partition_id: partition.id.to_string(),
+            name: partition.name.clone(),
+            kind: kind.to_string(),
+            actor,
+            current_snapshot: partition.current_snapshot.to_hex(),
+            history_len: partition.history.len(),
+            created_at,
+            updated_at,
+        });
+    }
+    Ok(views)
+}
+
+/// Changes recorded in an actor partition history, in chronological order
+///.
+///
+/// `path_filter` is a plain substring match; `time_range` is
+/// `[start, end]` milliseconds (inclusive), `None` = unbounded.
+pub fn list_changes_by_actor(
+    storage: &SqliteStorage,
+    actor: &str,
+    path_filter: Option<&str>,
+    time_range: Option<(i64, i64)>,
+) -> Result<Vec<DeltaSummary>, CheckpointError> {
+    let partition = actor_partition(storage, actor)?;
+    // Single batched snapshot load; path/time filters apply before any
+    // per-snapshot content reconstruction, and single-sided ranges are
+    // normalized by the caller (HTTP layer maps missing ends to MIN/MAX).
+    let snap_map = storage
+        .get_snapshots_map(&partition.history)
+        .map_err(map_layertwine_error)?;
+    let delta_map = chain_head_delta_map(storage, &snap_map);
+    let path_map = batch_snapshot_paths_from_map(&snap_map, &delta_map);
+    let mut changes = Vec::new();
+    for snapshot_id in &partition.history {
+        let Some(snapshot) = snap_map.get(snapshot_id) else {
+            continue;
+        };
+        let Some(path) = path_map.get(snapshot_id) else {
+            continue;
+        };
+        if *path == SEED_PATH || !path_matches(path, path_filter) {
+            continue;
+        }
+        if let Some((start, end)) = time_range {
+            if snapshot.created_at < start || snapshot.created_at > end {
+                continue;
+            }
+        }
+        let last_delta = snapshot
+            .deltas
+            .last()
+            .and_then(|delta_id| delta_map.get(delta_id));
+        let source = last_delta
+            .as_ref()
+            .map(|d| source_label(&d.source))
+            .unwrap_or_else(|| "agent".to_string());
+        let message = last_delta.and_then(|d| d.message.clone());
+        let content = snapshot_content_bytes(storage, snapshot)?;
+        changes.push(DeltaSummary {
+            file: path.clone(),
+            source,
+            timestamp: snapshot.created_at,
+            snapshot_id: snapshot.id.to_hex(),
+            hash: sha256_hex(&content),
+            message,
+        });
+    }
+    Ok(changes)
+}
+
+/// Candidate snapshot ids touching `path` that are referenced by some
+/// partition history, in deterministic order.
+///
+/// A delta-chain snapshot's own file node is its base (see layertwine
+/// `Snapshot::from_parent`), so the edited path is only visible through the
+/// chain-head delta. Candidates are therefore the union of:
+/// (a) history snapshots whose chain head is a delta recorded for `path`
+///     (SQL-indexed via `idx_deltas_file_timestamp`), and
+/// (b) history snapshots stored directly under `path` that carry no delta
+///     (full-content snapshots).
+/// Time filtering stays on `Snapshot.created_at` in memory: delta and
+/// snapshot timestamps are distinct clocks and must not be mixed.
+fn candidate_snapshot_ids_for_path(
+    storage: &SqliteStorage,
+    path: &str,
+) -> Result<Vec<SnapshotId>, CheckpointError> {
+    let partitions = storage.list_partitions().map_err(map_layertwine_error)?;
+    let history_ids: Vec<SnapshotId> = partitions
+        .iter()
+        .flat_map(|p| p.history.iter().copied())
+        .collect();
+    let head_by_snapshot: HashMap<SnapshotId, Option<DeltaId>> = storage
+        .snapshot_chain_heads(&history_ids)
+        .map_err(map_layertwine_error)?
+        .into_iter()
+        .collect();
+    let delta_hits: HashSet<DeltaId> = storage
+        .find_deltas_by_file_and_time(path, None)
+        .map_err(map_layertwine_error)?
+        .into_iter()
+        .map(|d| d.id)
+        .collect();
+    let mut seen: HashSet<SnapshotId> = HashSet::new();
+    let mut ordered: Vec<SnapshotId> = Vec::new();
+    for id in history_ids {
+        let matches_path =
+            matches!(head_by_snapshot.get(&id), Some(Some(head)) if delta_hits.contains(head));
+        if matches_path && seen.insert(id) {
+            ordered.push(id);
+        }
+    }
+    // Full-content snapshots (empty delta chain) are stored under the edited
+    // path directly; the chain-head join above cannot see them.
+    let direct = storage
+        .find_snapshots_by_file(path)
+        .map_err(map_layertwine_error)?;
+    for snapshot in direct {
+        if snapshot.deltas.is_empty() && seen.insert(snapshot.id) {
+            ordered.push(snapshot.id);
+        }
+    }
+    Ok(ordered)
+}
+
+/// Changes touching `path` across every partition (`list_changes_by_path`).
+/// `time_range` (inclusive `(start, end)` timestamps) narrows the window.
+pub fn list_changes_by_path(
+    storage: &SqliteStorage,
+    path: &str,
+    time_range: Option<(i64, i64)>,
+) -> Result<Vec<DeltaSummary>, CheckpointError> {
+    // SQL-indexed candidate prefilter (delta path match + full-content
+    // match): only snapshots that can resolve to `path` are loaded, instead
+    // of every partition's full history.
+    let ordered_ids = candidate_snapshot_ids_for_path(storage, path)?;
+    let snap_map = storage
+        .get_snapshots_map(&ordered_ids)
+        .map_err(map_layertwine_error)?;
+    let delta_map = chain_head_delta_map(storage, &snap_map);
+    let path_map = batch_snapshot_paths_from_map(&snap_map, &delta_map);
+    let mut changes = Vec::new();
+    for snapshot_id in &ordered_ids {
+        let Some(snapshot) = snap_map.get(snapshot_id) else {
+            continue;
+        };
+        let Some(snapshot_path) = path_map.get(snapshot_id) else {
+            continue;
+        };
+        // Path is re-resolved through the chain-head delta (a snapshot's own
+        // file node is its base, which may differ for merges); the SQL
+        // prefilter is only a candidate set.
+        if *snapshot_path == SEED_PATH || *snapshot_path != path {
+            continue;
+        }
+        if let Some((start, end)) = time_range {
+            if snapshot.created_at < start || snapshot.created_at > end {
+                continue;
+            }
+        }
+        let last_delta = snapshot
+            .deltas
+            .last()
+            .and_then(|delta_id| delta_map.get(delta_id));
+        let source = last_delta
+            .as_ref()
+            .map(|d| source_label(&d.source))
+            .unwrap_or_else(|| "agent".to_string());
+        let message = last_delta.and_then(|d| d.message.clone());
+        let content = snapshot_content_bytes(storage, snapshot)?;
+        changes.push(DeltaSummary {
+            file: snapshot_path.clone(),
+            source,
+            timestamp: snapshot.created_at,
+            snapshot_id: snapshot.id.to_hex(),
+            hash: sha256_hex(&content),
+            message,
+        });
+    }
+    changes.sort_by_key(|c| c.timestamp);
+    Ok(changes)
+}
+
+/// Reconstructed file set of an actor partition
+/// `get_actor_workspace`).
+pub fn get_actor_workspace(
+    storage: &SqliteStorage,
+    actor: &str,
+) -> Result<Vec<WorkspaceFile>, CheckpointError> {
+    let partition = actor_partition(storage, actor)?;
+    let mut files = Vec::new();
+    for (path, snapshot) in latest_snapshots_per_path(storage, &partition)? {
+        // Deleted snapshots carry the explicit deletion marker: the path is
+        // missing from the workspace rather than cleared.
+        if snapshot.is_deleted() {
+            continue;
+        }
+        let content = snapshot_content_bytes(storage, &snapshot)?;
+        let hash = sha256_hex(&content);
+        files.push(WorkspaceFile {
+            path,
+            content,
+            hash,
+            timestamp: snapshot.created_at,
+        });
+    }
+    files.sort_by(|a, b| a.path.cmp(&b.path));
+    Ok(files)
+}
+
+/// The staged partition's reconstructed file set (`diff_against_staged`
+/// base). `workspace_key` selects the workspace-scoped staged partition
+/// (`None` = legacy single-workspace fixed partition).
+pub fn get_staged_workspace(
+    storage: &SqliteStorage,
+    workspace_key: Option<&str>,
+) -> Result<Vec<WorkspaceFile>, CheckpointError> {
+    let pid = staged_pid(workspace_key);
+    let partition = storage.get_partition(&pid).map_err(map_layertwine_error)?;
+    let mut files = Vec::new();
+    for (path, snapshot) in latest_snapshots_per_path(storage, &partition)? {
+        // Deleted snapshots carry the explicit deletion marker: the path is
+        // missing from the staged workspace rather than cleared.
+        if snapshot.is_deleted() {
+            continue;
+        }
+        let content = snapshot_content_bytes(storage, &snapshot)?;
+        let hash = sha256_hex(&content);
+        files.push(WorkspaceFile {
+            path,
+            content,
+            hash,
+            timestamp: snapshot.created_at,
+        });
+    }
+    files.sort_by(|a, b| a.path.cmp(&b.path));
+    Ok(files)
+}
+
+/// A file whose merge snapshot carries the unresolved-conflict flag.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ConflictFile {
+    /// Relative file path.
+    pub path: String,
+    /// Snapshot id (hex) of the conflicted merge snapshot.
+    pub snapshot_id: String,
+    /// Partition the conflict lives in (`staged` / `integrated/<feature>`).
+    pub partition: String,
+    /// Re-derived conflict regions (best effort; empty when the merge
+    /// inputs cannot be reconstructed from storage).
+    pub conflicts: Vec<ConflictView>,
+}
+
+/// List files with unresolved merge conflicts across the staged and all
+/// feature (integrated) partitions. Only the latest snapshot of each path
+/// is considered (an older conflicted snapshot that was superseded by a
+/// resolution no longer counts); the `MergeConflict` regions are re-derived
+/// by replaying the merge over the snapshot's parents (best effort — old
+/// snapshots whose inputs are gone report the path with an empty conflict
+/// list).
+pub fn list_conflicts(
+    storage: &SqliteStorage,
+    workspace_key: Option<&str>,
+) -> Result<Vec<ConflictFile>, CheckpointError> {
+    let mut partitions: Vec<Partition> = Vec::new();
+    let staged_pid = staged_pid(workspace_key);
+    if let Ok(partition) = storage.get_partition(&staged_pid) {
+        partitions.push(partition);
+    }
+    for partition in storage.list_partitions().map_err(map_layertwine_error)? {
+        if matches!(partition.partition_type, PartitionType::Integrated(_)) {
+            partitions.push(partition);
+        }
+    }
+
+    let mut out = Vec::new();
+    for partition in partitions {
+        for (path, snapshot) in latest_snapshots_per_path(storage, &partition)? {
+            if !snapshot.has_conflicts {
+                continue;
+            }
+            let conflicts = rederive_conflicts(storage, &snapshot)?;
+            out.push(ConflictFile {
+                path,
+                snapshot_id: snapshot.id.to_hex(),
+                partition: partition.name.clone(),
+                conflicts,
+            });
+        }
+    }
+    out.sort_by(|a, b| a.path.cmp(&b.path));
+    Ok(out)
+}
+
+/// Replay the three-way merge that produced a conflicted snapshot and
+/// return the conflict regions as read views. The role of each parent is
+/// derived from the snapshot's partition type and parent count, following
+/// the `Snapshot::merge` conventions in layertwine. Returns an empty list
+/// when the merge inputs cannot be reconstructed.
+fn rederive_conflicts(
+    storage: &SqliteStorage,
+    snapshot: &Snapshot,
+) -> Result<Vec<ConflictView>, CheckpointError> {
+    let pt = &snapshot.partition_type;
+    let parents = &snapshot.parents;
+
+    // (base, ours, theirs) snapshot ids, when the merge shape is known.
+    let roles: Option<(SnapshotId, SnapshotId, SnapshotId)> = if pt == "staged" {
+        // merge_feature_to_staged: parents = [staged, feature]; base is the
+        // feature partition's baseline (history[0]).
+        if parents.len() >= 2 {
+            let feature_snap = storage
+                .get_snapshot(&parents[1])
+                .map_err(map_layertwine_error)?;
+            let name = feature_snap.partition_type.strip_prefix("integrated/");
+            match name {
+                Some(name) => {
+                    let fpid = layertwine::layered::integrated::integrated_partition_id(name);
+                    let base = storage
+                        .get_partition(&fpid)
+                        .ok()
+                        .and_then(|p| p.history.first().copied());
+                    base.map(|base| (base, parents[0], parents[1]))
+                }
+                None => None,
+            }
+        } else {
+            None
+        }
+    } else if pt.starts_with("integrated/") {
+        // merge_agent_to_feature: parents = [integrated, approval, baseline];
+        // merge_texts(base=baseline, ours=approval, theirs=integrated).
+        if parents.len() >= 3 {
+            Some((parents[2], parents[1], parents[0]))
+        } else {
+            None
+        }
+    } else if pt.starts_with("approval/") {
+        // move_agent_to_approval: parents = [approval, agent]; base is the
+        // approval partition's baseline (history[0]).
+        if parents.len() >= 2 {
+            let agent = pt.strip_prefix("approval/");
+            match agent {
+                Some(agent) => {
+                    let agent_id = AgentInstanceId(agent.to_string());
+                    let pid = layertwine::layered::approval::approval_agent_partition_id(&agent_id);
+                    let base = storage
+                        .get_partition(&pid)
+                        .ok()
+                        .and_then(|p| p.history.first().copied());
+                    base.map(|base| (base, parents[0], parents[1]))
+                }
+                None => None,
+            }
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
+    let Some((base_id, ours_id, theirs_id)) = roles else {
+        return Ok(vec![]);
+    };
+    let base = storage
+        .get_snapshot(&base_id)
+        .map_err(map_layertwine_error)?;
+    let ours = storage
+        .get_snapshot(&ours_id)
+        .map_err(map_layertwine_error)?;
+    let theirs = storage
+        .get_snapshot(&theirs_id)
+        .map_err(map_layertwine_error)?;
+    let base_text = layertwine::layered::transition::reconstruct_text(storage, &base)
+        .map_err(map_layertwine_error)?
+        .unwrap_or_default();
+    let ours_text = layertwine::layered::transition::reconstruct_text(storage, &ours)
+        .map_err(map_layertwine_error)?
+        .unwrap_or_default();
+    let theirs_text = layertwine::layered::transition::reconstruct_text(storage, &theirs)
+        .map_err(map_layertwine_error)?
+        .unwrap_or_default();
+    let (_, conflicts) = merge_texts(&base_text, &ours_text, &theirs_text);
+    let path = snapshot_file_path(storage, snapshot)?;
+    Ok(to_conflict_views(&path, &conflicts))
+}
+
+/// Per-file diff between two workspace states
+///. Binary files report `Modified` without a diff.
+pub fn diff_workspaces(a: &[WorkspaceFile], b: &[WorkspaceFile]) -> Vec<FileDiffView> {
+    let a_map: HashMap<&str, &WorkspaceFile> = a.iter().map(|f| (f.path.as_str(), f)).collect();
+    let b_map: HashMap<&str, &WorkspaceFile> = b.iter().map(|f| (f.path.as_str(), f)).collect();
+
+    let mut paths: Vec<&str> = a_map
+        .keys()
+        .chain(b_map.keys())
+        .copied()
+        .collect::<std::collections::HashSet<_>>()
+        .into_iter()
+        .collect();
+    paths.sort_unstable();
+
+    let mut views = Vec::new();
+    for path in paths {
+        match (a_map.get(path), b_map.get(path)) {
+            (None, Some(_bf)) => views.push(FileDiffView {
+                path: path.to_string(),
+                kind: FileDiffKind::Added,
+                diff: None,
+                additions: None,
+                deletions: None,
+            }),
+            (Some(_af), None) => views.push(FileDiffView {
+                path: path.to_string(),
+                kind: FileDiffKind::Deleted,
+                diff: None,
+                additions: None,
+                deletions: None,
+            }),
+            (None, None) => {} // unreachable: paths are the key union
+            (Some(af), Some(bf)) => {
+                if af.hash == bf.hash {
+                    views.push(FileDiffView {
+                        path: path.to_string(),
+                        kind: FileDiffKind::Unchanged,
+                        diff: None,
+                        additions: None,
+                        deletions: None,
+                    });
+                    continue;
+                }
+                let (diff, additions, deletions) = text_diff(&af.content, &bf.content);
+                views.push(FileDiffView {
+                    path: path.to_string(),
+                    kind: FileDiffKind::Modified,
+                    diff,
+                    additions,
+                    deletions,
+                });
+            }
+        }
+    }
+    views
+}
+
+/// Build a unified diff when both contents are valid UTF-8 text, otherwise
+/// `(None, None, None)` (binary).
+fn text_diff(before: &[u8], after: &[u8]) -> (Option<String>, Option<usize>, Option<usize>) {
+    let (Ok(before), Ok(after)) = (std::str::from_utf8(before), std::str::from_utf8(after)) else {
+        return (None, None, None);
+    };
+    let diff = unified_diff_text(before, after, 3, None, None);
+    let stats = diff_stats_for_text(before, after);
+    (
+        Some(diff),
+        Some(stats.added_lines),
+        Some(stats.removed_lines),
+    )
+}
+
+/// Diff between two actor workspaces.
+pub fn diff_actors(
+    storage: &SqliteStorage,
+    actor_a: &str,
+    actor_b: &str,
+) -> Result<Vec<FileDiffView>, CheckpointError> {
+    let a = get_actor_workspace(storage, actor_a)?;
+    let b = get_actor_workspace(storage, actor_b)?;
+    Ok(diff_workspaces(&a, &b))
+}
+
+/// Diff between an actor workspace and the staged partition
+///.
+pub fn diff_against_staged(
+    storage: &SqliteStorage,
+    actor: &str,
+    workspace_key: Option<&str>,
+) -> Result<Vec<FileDiffView>, CheckpointError> {
+    let actor_files = get_actor_workspace(storage, actor)?;
+    let staged_files = get_staged_workspace(storage, workspace_key)?;
+    Ok(diff_workspaces(&actor_files, &staged_files))
+}
+
+/// Read-only provenance service borrowing the store.
+///
+/// Splits query ownership out of `FileCheckpointManager`: orchestration code
+/// builds a reader from the manager's storage + workspace key, while the
+/// manager's own query methods delegate here to keep one implementation.
+pub struct ProvenanceReader<'a> {
+    storage: &'a SqliteStorage,
+    workspace_key: Option<String>,
+}
+
+impl<'a> ProvenanceReader<'a> {
+    pub fn new(storage: &'a SqliteStorage, workspace_key: Option<String>) -> Self {
+        Self {
+            storage,
+            workspace_key,
+        }
+    }
+
+    pub fn list_partitions(&self) -> Result<Vec<PartitionView>, CheckpointError> {
+        list_partitions(self.storage)
+    }
+
+    pub fn list_changes_by_actor(
+        &self,
+        actor: &str,
+        path_filter: Option<&str>,
+        time_range: Option<(i64, i64)>,
+    ) -> Result<Vec<DeltaSummary>, CheckpointError> {
+        list_changes_by_actor(self.storage, actor, path_filter, time_range)
+    }
+
+    pub fn list_changes_by_path(
+        &self,
+        path: &str,
+        time_range: Option<(i64, i64)>,
+    ) -> Result<Vec<DeltaSummary>, CheckpointError> {
+        list_changes_by_path(self.storage, path, time_range)
+    }
+
+    pub fn get_actor_workspace(&self, actor: &str) -> Result<Vec<WorkspaceFile>, CheckpointError> {
+        get_actor_workspace(self.storage, actor)
+    }
+
+    pub fn diff_actors(
+        &self,
+        actor_a: &str,
+        actor_b: &str,
+    ) -> Result<Vec<FileDiffView>, CheckpointError> {
+        diff_actors(self.storage, actor_a, actor_b)
+    }
+
+    pub fn diff_against_staged(&self, actor: &str) -> Result<Vec<FileDiffView>, CheckpointError> {
+        diff_against_staged(self.storage, actor, self.workspace_key.as_deref())
+    }
+
+    pub fn list_conflicts(&self) -> Result<Vec<ConflictFile>, CheckpointError> {
+        list_conflicts(self.storage, self.workspace_key.as_deref())
+    }
+}
+
+/// Convert a workspace file set into content entries (used by restore
+/// callers / API projections).
+pub fn workspace_entries(files: &[WorkspaceFile]) -> Vec<FileContentEntry> {
+    files
+        .iter()
+        .map(|f| FileContentEntry::new(f.path.clone(), f.content.clone()))
+        .collect()
+}
+
+/// Resolve the actor partition of an actor id string (full `ActorId` or bare
+/// execution id, mirroring `FileCheckpointManager::actor_id_for`).
+fn actor_partition(storage: &SqliteStorage, actor: &str) -> Result<Partition, CheckpointError> {
+    let actor = match ActorId::parse(actor) {
+        Ok(parsed) => parsed,
+        Err(_) => ActorId::new(
+            checkpoint_base::actor::id::ActorKind::Agent,
+            &[wf_types::Id::from(actor.to_string())],
+        )
+        .map_err(|e| CheckpointError::Validation {
+            reason: format!("invalid actor id '{actor}': {e}"),
+        })?,
+    };
+    let agent_id = actor.to_agent_instance_id();
+    let pid = layertwine::layered::agent::agent_partition_id(&agent_id);
+    storage
+        .get_partition(&pid)
+        .map_err(|_| CheckpointError::NotFound {
+            id: format!("actor partition for '{actor}'"),
+        })
+}
+
+/// Actor id of a delta source (provenance display).
+fn source_label(source: &SourceType) -> String {
+    match source {
+        SourceType::Manual => "manual".to_string(),
+        SourceType::Agent(id) => id.0.clone(),
+        SourceType::Backup => "backup".to_string(),
+    }
+}
+
+impl DeltaSummary {
+    /// Map a snapshot chain to its change summary.
+    pub fn from_snapshot(
+        storage: &SqliteStorage,
+        snapshot: &Snapshot,
+    ) -> Result<Option<DeltaSummary>, CheckpointError> {
+        let path = snapshot_file_path(storage, snapshot)?;
+        if path == SEED_PATH {
+            return Ok(None);
+        }
+        let last_delta = snapshot_last_delta(storage, snapshot)?;
+        let source = last_delta
+            .as_ref()
+            .map(|d| source_label(&d.source))
+            .unwrap_or_else(|| "agent".to_string());
+        let message = last_delta.and_then(|d| d.message.clone());
+        let content = snapshot_content_bytes(storage, snapshot)?;
+        Ok(Some(DeltaSummary {
+            file: path,
+            source,
+            timestamp: snapshot.created_at,
+            snapshot_id: snapshot.id.to_hex(),
+            hash: sha256_hex(&content),
+            message,
+        }))
+    }
+}
+
+/// A single entry in a file's version timeline, including optional move context.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct FileTimelineEntry {
+    /// File path at this point in time.
+    pub path: String,
+    /// Snapshot id (hex).
+    pub snapshot_id: String,
+    /// Content hash (SHA-256 hex) of the resulting file bytes.
+    pub content_hash: String,
+    /// Change time (Unix milliseconds).
+    pub timestamp: i64,
+    /// Origin label (e.g. "manual", "agent:loop-1").
+    pub source: String,
+    /// If this entry follows a rename, the previous path.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub moved_from: Option<String>,
+}
+
+/// Complete timeline for a file, including renames/moves.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct FileTimeline {
+    /// Original path (the first path this file was known at).
+    pub original_path: String,
+    /// All versions in chronological order.
+    pub entries: Vec<FileTimelineEntry>,
+}
+
+/// Build the complete version timeline for a file path, including
+/// rename/move tracing. The timeline walks backwards through file_moves to find
+/// the original path, then collects all snapshots that touched any path in
+/// the rename chain, and returns them in chronological order.
+pub fn file_timeline(storage: &SqliteStorage, path: &str) -> Result<FileTimeline, CheckpointError> {
+    use layertwine::storage::repository::FileMoveStore;
+
+    // Trace the rename chain to find the original path
+    let rename_chain = storage
+        .trace_rename_chain(path)
+        .map_err(map_layertwine_error)?;
+
+    // Collect all paths in the rename chain (including the current path)
+    let mut all_paths: Vec<String> = Vec::new();
+    for m in &rename_chain {
+        if !all_paths.contains(&m.from_path) {
+            all_paths.push(m.from_path.clone());
+        }
+    }
+    if !all_paths.contains(&path.to_string()) {
+        all_paths.push(path.to_string());
+    }
+
+    // Build a map of path -> moved_from for quick lookup
+    let mut moved_from_map: std::collections::HashMap<String, String> =
+        std::collections::HashMap::new();
+    for m in &rename_chain {
+        moved_from_map.insert(m.to_path.clone(), m.from_path.clone());
+    }
+
+    // Collect snapshots touching any of these paths via SQL-indexed
+    // candidate lookup per path (delta path match + full-content match)
+    // instead of loading every partition's full history.
+    let mut seen: HashSet<SnapshotId> = HashSet::new();
+    let mut ordered_ids: Vec<SnapshotId> = Vec::new();
+    for candidate_path in &all_paths {
+        for id in candidate_snapshot_ids_for_path(storage, candidate_path)? {
+            if seen.insert(id) {
+                ordered_ids.push(id);
+            }
+        }
+    }
+    let snap_map = storage
+        .get_snapshots_map(&ordered_ids)
+        .map_err(map_layertwine_error)?;
+    let delta_map = chain_head_delta_map(storage, &snap_map);
+    let path_map = batch_snapshot_paths_from_map(&snap_map, &delta_map);
+    let mut entries: Vec<FileTimelineEntry> = Vec::new();
+
+    for snapshot_id in &ordered_ids {
+        let Some(snapshot) = snap_map.get(snapshot_id) else {
+            continue;
+        };
+        let Some(snapshot_path) = path_map.get(snapshot_id) else {
+            continue;
+        };
+        if *snapshot_path == SEED_PATH || !all_paths.contains(snapshot_path) {
+            continue;
+        }
+        let source = snapshot
+            .deltas
+            .last()
+            .and_then(|delta_id| delta_map.get(delta_id))
+            .map(|d| source_label(&d.source))
+            .unwrap_or_else(|| "agent".to_string());
+        let content = snapshot_content_bytes(storage, snapshot)?;
+        let moved_from = moved_from_map.get(snapshot_path).cloned();
+        entries.push(FileTimelineEntry {
+            path: snapshot_path.clone(),
+            snapshot_id: snapshot.id.to_hex(),
+            content_hash: sha256_hex(&content),
+            timestamp: snapshot.created_at,
+            source,
+            moved_from,
+        });
+    }
+
+    entries.sort_by_key(|e| e.timestamp);
+
+    // The original path is the first path in the rename chain, or the given path
+    let original_path = rename_chain
+        .first()
+        .map(|m| m.from_path.clone())
+        .unwrap_or_else(|| path.to_string());
+
+    Ok(FileTimeline {
+        original_path,
+        entries,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::file::FileCheckpointManager;
+    use checkpoint_base::actor::id::{ActorId, ActorKind};
+    use wf_types::Id;
+
+    fn actor(kind: ActorKind, id: &str) -> ActorId {
+        ActorId::new(kind, &[Id::from(id.to_string())]).unwrap()
+    }
+
+    #[test]
+    fn list_changes_by_actor_reports_edits_in_order() {
+        let manager = FileCheckpointManager::new_in_memory().unwrap();
+        let a = actor(ActorKind::Agent, "loop-1");
+        manager.apply_agent_edit(&a, "src/a.txt", b"one\n").unwrap();
+        manager
+            .apply_agent_edit(&a, "src/a.txt", b"one\ntwo\n")
+            .unwrap();
+        manager
+            .apply_agent_edit(&a, "bin.dat", b"\x00\x01\x02")
+            .unwrap();
+
+        let storage = manager.storage().unwrap();
+        let changes = list_changes_by_actor(storage, a.as_str(), None, None).unwrap();
+        assert_eq!(changes.len(), 3);
+        assert_eq!(changes[0].file, "src/a.txt");
+        assert_eq!(changes[0].source, a.as_str());
+        assert!(changes[1].timestamp >= changes[0].timestamp);
+        assert_eq!(changes[2].file, "bin.dat");
+    }
+
+    #[test]
+    fn list_changes_filters_by_path_and_time() {
+        let manager = FileCheckpointManager::new_in_memory().unwrap();
+        let a = actor(ActorKind::Agent, "loop-1");
+        manager.apply_agent_edit(&a, "src/a.txt", b"x\n").unwrap();
+        manager
+            .apply_agent_edit(&a, "docs/readme.md", b"y\n")
+            .unwrap();
+
+        let storage = manager.storage().unwrap();
+        let filtered = list_changes_by_actor(storage, a.as_str(), Some("docs"), None).unwrap();
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0].file, "docs/readme.md");
+
+        let changes = list_changes_by_actor(storage, a.as_str(), None, None).unwrap();
+        let first_ts = changes[0].timestamp;
+        let empty = list_changes_by_actor(
+            storage,
+            a.as_str(),
+            None,
+            Some((first_ts - 1, first_ts - 1)),
+        )
+        .unwrap();
+        assert!(empty.is_empty());
+    }
+
+    #[test]
+    fn list_changes_by_path_scans_all_partitions() {
+        let manager = FileCheckpointManager::new_in_memory().unwrap();
+        let a = actor(ActorKind::Agent, "loop-1");
+        let b = actor(ActorKind::Agent, "loop-2");
+        manager.apply_agent_edit(&a, "shared.txt", b"a\n").unwrap();
+        manager.apply_agent_edit(&b, "shared.txt", b"b\n").unwrap();
+        manager.apply_agent_edit(&a, "other.txt", b"c\n").unwrap();
+
+        let storage = manager.storage().unwrap();
+        let changes = list_changes_by_path(storage, "shared.txt", None).unwrap();
+        assert_eq!(changes.len(), 2);
+        assert!(changes.iter().all(|c| c.file == "shared.txt"));
+    }
+
+    #[test]
+    fn get_actor_workspace_reconstructs_latest_state() {
+        let manager = FileCheckpointManager::new_in_memory().unwrap();
+        let a = actor(ActorKind::Agent, "loop-1");
+        manager.apply_agent_edit(&a, "a.txt", b"v1\n").unwrap();
+        manager.apply_agent_edit(&a, "a.txt", b"v1\nv2\n").unwrap();
+        manager.apply_agent_edit(&a, "b.txt", b"data").unwrap();
+
+        let storage = manager.storage().unwrap();
+        let workspace = get_actor_workspace(storage, a.as_str()).unwrap();
+        assert_eq!(workspace.len(), 2);
+        let a_txt = workspace.iter().find(|f| f.path == "a.txt").unwrap();
+        assert_eq!(a_txt.content, b"v1\nv2\n");
+    }
+
+    #[test]
+    fn diff_workspaces_reports_add_remove_modify() {
+        let manager = FileCheckpointManager::new_in_memory().unwrap();
+        let a = actor(ActorKind::Agent, "loop-1");
+        let b = actor(ActorKind::Agent, "loop-2");
+        manager.apply_agent_edit(&a, "same.txt", b"x\n").unwrap();
+        manager.apply_agent_edit(&a, "only-a.txt", b"a\n").unwrap();
+        manager
+            .apply_agent_edit(&a, "changed.txt", b"one\n")
+            .unwrap();
+        manager.apply_agent_edit(&b, "same.txt", b"x\n").unwrap();
+        manager.apply_agent_edit(&b, "only-b.txt", b"b\n").unwrap();
+        manager
+            .apply_agent_edit(&b, "changed.txt", b"one\ntwo\n")
+            .unwrap();
+
+        let storage = manager.storage().unwrap();
+        let diffs = diff_actors(storage, a.as_str(), b.as_str()).unwrap();
+        let kinds: HashMap<&str, FileDiffKind> =
+            diffs.iter().map(|d| (d.path.as_str(), d.kind)).collect();
+        assert_eq!(kinds.get("same.txt"), Some(&FileDiffKind::Unchanged));
+        assert_eq!(kinds.get("only-a.txt"), Some(&FileDiffKind::Deleted));
+        assert_eq!(kinds.get("only-b.txt"), Some(&FileDiffKind::Added));
+        assert_eq!(kinds.get("changed.txt"), Some(&FileDiffKind::Modified));
+        let changed = diffs.iter().find(|d| d.path == "changed.txt").unwrap();
+        assert!(changed.diff.as_ref().unwrap().contains("+two"));
+    }
+
+    #[test]
+    fn list_partitions_views_actor_and_kind() {
+        let manager = FileCheckpointManager::new_in_memory().unwrap();
+        let a = actor(ActorKind::Agent, "loop-1");
+        manager.apply_agent_edit(&a, "a.txt", b"x\n").unwrap();
+
+        let storage = manager.storage().unwrap();
+        let views = list_partitions(storage).unwrap();
+        let agent_view = views.iter().find(|v| v.kind == "agent").unwrap();
+        assert_eq!(agent_view.actor.as_deref(), Some(a.as_str()));
+        assert!(agent_view.history_len >= 2);
+        assert!(agent_view.created_at > 0);
+        assert!(agent_view.updated_at >= agent_view.created_at);
+    }
+
+    #[test]
+    fn nested_actor_partitions_are_isolated() {
+        let manager = FileCheckpointManager::new_in_memory().unwrap();
+        let parent = actor(ActorKind::Wf, "wf-1");
+        let child1 = parent.child(&Id::from("sub-1".to_string())).unwrap();
+        let child2 = parent.child(&Id::from("sub-2".to_string())).unwrap();
+
+        manager
+            .apply_agent_edit(&child1, "a.txt", b"child1\n")
+            .unwrap();
+        manager
+            .apply_agent_edit(&child2, "a.txt", b"child2\n")
+            .unwrap();
+
+        let storage = manager.storage().unwrap();
+        let ws1 = get_actor_workspace(storage, child1.as_str()).unwrap();
+        let ws2 = get_actor_workspace(storage, child2.as_str()).unwrap();
+        assert_eq!(ws1[0].content, b"child1\n");
+        assert_eq!(ws2[0].content, b"child2\n");
+        assert_ne!(ws1[0].hash, ws2[0].hash);
+    }
+
+    #[test]
+    fn workspace_entries_convert_to_content_entries() {
+        let files = vec![WorkspaceFile {
+            path: "a.txt".to_string(),
+            content: b"x".to_vec(),
+            hash: "h".to_string(),
+            timestamp: 1,
+        }];
+        let entries = workspace_entries(&files);
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].path, "a.txt");
+        assert_eq!(entries[0].content, b"x");
+    }
+
+    #[test]
+    fn missing_actor_partition_reports_not_found() {
+        let manager = FileCheckpointManager::new_in_memory().unwrap();
+        let storage = manager.storage().unwrap();
+        let err = get_actor_workspace(storage, "agent:ghost").unwrap_err();
+        assert!(matches!(err, CheckpointError::NotFound { .. }));
+    }
+
+    #[test]
+    fn binary_content_is_snapshotted_verbatim() {
+        let manager = FileCheckpointManager::new_in_memory().unwrap();
+        let a = actor(ActorKind::Agent, "loop-bin");
+        manager
+            .apply_agent_edit(&a, "img.bin", b"\x00\xFF\x10")
+            .unwrap();
+
+        let storage = manager.storage().unwrap();
+        let ws = get_actor_workspace(storage, a.as_str()).unwrap();
+        assert_eq!(ws[0].content, b"\x00\xFF\x10");
+    }
+
+    #[test]
+    fn no_map_storage_remnants() {
+        // Layertwine failures flow exclusively through
+        // `crate::file::util::map_layertwine_error`; the historical duplicate
+        // helpers must stay deleted. Needles are assembled from fragments so
+        // this test's own source cannot match them.
+        let provenance_needle = ["fn map_", "storage"].concat();
+        let adapter_needle = ["fn map_", "storage_", "result"].concat();
+        let provenance_src = include_str!("provenance.rs");
+        assert!(
+            !provenance_src.contains(&provenance_needle),
+            "duplicate error mapper must not be reintroduced in provenance.rs"
+        );
+        let adapter_src = include_str!("adapter.rs");
+        assert!(
+            !adapter_src.contains(&adapter_needle),
+            "duplicate error mapper must not be reintroduced in adapter.rs"
+        );
+    }
+}

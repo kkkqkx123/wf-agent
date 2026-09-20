@@ -110,10 +110,15 @@ pub async fn publish_forced_compression(ctx: &NodeExecutionContext, request: &Ll
     let tokens_used = u64::from(wf_llm::estimate_request_tokens(request));
     let message_count = request.messages.len();
     let array_version = message_context::array_version(&ctx.variables, &target);
+    let context_limit = if let Some(ref tracker) = ctx.token_tracker {
+        tracker.lock().await.context_limit()
+    } else {
+        0
+    };
     let compression_request = wf_execution_shared::context_store::compression_request(
         &target,
         tokens_used,
-        u64::MAX,
+        context_limit,
         message_count,
         array_version,
         true,

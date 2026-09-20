@@ -1014,6 +1014,19 @@ impl AgentLoopCoordinator {
                     .await
                     .set_token_limit(token_limit);
             }
+            // Context budget comes from the model window only, never from
+            // the task token limit: single-request input size is a model
+            // capability, task length is a separate concern.
+            let window = self
+                .gateway
+                .profile_registry()
+                .get(&config.model)
+                .and_then(|p| p.context_window_size);
+            entity
+                .conversation()
+                .write()
+                .await
+                .set_context_limit(wf_execution_shared::context_budget_from_window(window));
         }
 
         if !input.message.is_empty() {

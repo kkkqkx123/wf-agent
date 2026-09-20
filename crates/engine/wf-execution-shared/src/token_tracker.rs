@@ -97,6 +97,19 @@ impl RequestUsage {
 /// Default cap for the per-request usage history.
 pub const DEFAULT_HISTORY_LIMIT: usize = 100;
 
+/// Share of a model's context window usable for a single request input.
+/// The remainder reserves headroom for the model output and local
+/// estimation error. Single source for every context-budget derivation.
+pub const CONTEXT_BUDGET_PERCENT: u64 = 85;
+
+/// Derive the per-request context budget from a model window size.
+/// Returns 0 (compression disabled) when the window is absent.
+pub fn context_budget_from_window(window: Option<u32>) -> u64 {
+    window
+        .map(|w| u64::from(w) * CONTEXT_BUDGET_PERCENT / 100)
+        .unwrap_or(0)
+}
+
 /// Serialized state of a [`TokenUsageTracker`] for checkpointing.
 ///
 /// New fields are `#[serde(default)]`: checkpoints written before the
@@ -119,6 +132,10 @@ pub struct TokenTrackerState {
     /// Highest limit-exceeded tier already reported (decision track).
     #[serde(default)]
     pub last_limit_tier: u32,
+    /// Per-request context budget derived from the model window
+    /// (compression denominator; 0 disables compression decisions).
+    #[serde(default)]
+    pub context_limit: u64,
     /// Compressed-context ids the agent/execution consumed a write-back for
     /// (ledger reset bookkeeping, informational).
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
@@ -134,6 +151,9 @@ pub struct TokenTrackerState {
 pub struct TokenUsageTracker {
     /// 0 disables limit checks and percentage warnings.
     token_limit: u64,
+    /// Per-request context budget from the model window; 0 disables
+    /// preflight and compression decisions (task warnings still apply).
+    context_limit: u64,
     /// Cost track: finalized real usage (accounting only).
     cumulative: RequestUsage,
     /// Cost track: non-reversible total.
@@ -168,6 +188,7 @@ impl TokenUsageTracker {
     pub fn new(token_limit: u64) -> Self {
         Self {
             token_limit,
+            context_limit: 0,
             cumulative: RequestUsage::default(),
             lifetime: RequestUsage::default(),
             current_request: RequestUsage::default(),
@@ -188,6 +209,14 @@ impl TokenUsageTracker {
 
     pub fn token_limit(&self) -> u64 {
         self.token_limit
+    }
+
+    pub fn set_context_limit(&mut self, context_limit: u64) {
+        self.context_limit = context_limit;
+    }
+
+    pub fn context_limit(&self) -> u64 {
+        self.context_limit
     }
 
     /// Merge API-reported usage into the current in-flight request (cost
@@ -388,6 +417,7 @@ impl TokenUsageTracker {
             preflight_warning_emitted: self.preflight_warning_emitted,
             estimated_cumulative: self.estimated_cumulative,
             last_limit_tier: self.last_limit_tier,
+            context_limit: self.context_limit,
             compressed_contexts: HashMap::new(),
         }
     }
@@ -402,6 +432,7 @@ impl TokenUsageTracker {
         self.preflight_warning_emitted = state.preflight_warning_emitted;
         self.estimated_cumulative = state.estimated_cumulative;
         self.last_limit_tier = state.last_limit_tier;
+        self.context_limit = state.context_limit;
     }
 }
 
@@ -652,5 +683,25 @@ mod tests {
         assert_eq!(restored.estimated_total(), 0);
         assert_eq!(restored.cumulative_usage().total_tokens, 15);
         assert!(restored.state().preflight_warning_emitted);
+    }
+
+    #[test]
+    fn test_context_budget_derives_from_window_only() {
+        assert_eq!(context_budget_from_window(None), 0);
+        assert_eq!(
+            context_budget_from_window(Some(128_000)),
+            128_000 * CONTEXT_BUDGET_PERCENT / 100
+        );
+        let mut tracker = TokenUsageTracker::new(150);
+        tracker.set_context_limit(context_budget_from_window(Some(1_000)));
+        tracker.update_estimated_usage(800, 100);
+        tracker.finalize_current_request();
+        // Task budget intact: 900 cumulative vs 150 task limit.
+        assert!(tracker.is_estimated_limit_exceeded());
+        assert_eq!(tracker.context_limit(), 850);
+        let state = tracker.state();
+        let mut restored = TokenUsageTracker::new(0);
+        restored.restore(state);
+        assert_eq!(restored.context_limit(), 850);
     }
 }

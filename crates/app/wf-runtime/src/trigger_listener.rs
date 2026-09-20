@@ -6,7 +6,7 @@
 //! - [`ResourceTriggerRegistry`]: user trigger templates from the wf-resource
 //!   registrar;
 //! - [`WorkflowRunner`]: triggered sub-workflows executed through the
-//!   `WorkflowCoordinator` (predefined `llm_summary_workflow`);
+//!   `WorkflowCoordinator` (predefined `@standard/llm-summary`);
 //! - [`SubworkflowActionRunner`]: the user-template sub-workflow action —
 //!   parse the triggering event, run the summary workflow over its message
 //!   snapshot, write the compressed array back through the
@@ -979,7 +979,7 @@ mod tests {
         wf_resource::predefined::workflow::register(&registries, &opts);
 
         // 2. Mock LLM: "main" for the emitting node, "DEFAULT" for the
-        // llm_summary_workflow node.
+        // @standard/llm-summary node.
         let gateway = Arc::new(LlmGateway::new());
         let main_mock = Arc::new(MockLlmClient::new());
         main_mock.default(LlmResponseSpec::text("main answer").with_usage(100, 20));
@@ -987,6 +987,37 @@ mod tests {
         let summary_mock = Arc::new(MockLlmClient::new());
         summary_mock.default(LlmResponseSpec::text("compressed summary").with_usage(50, 30));
         gateway.register_mock("DEFAULT", summary_mock.clone());
+        // Context budgets derive from the model window only: the emitting
+        // node resolves its budget from the "main" profile window.
+        for (id, window) in [("main", 2000u32), ("DEFAULT", 200_000u32)] {
+            gateway
+                .profile_registry()
+                .register(wf_types::llm::LlmProfile {
+                    id: id.to_string(),
+                    name: id.to_string(),
+                    format: wf_types::llm::LlmFormat::OpenaiChat,
+                    provider_id: None,
+                    model: "mock-model".to_string(),
+                    api_key: None,
+                    base_url: None,
+                    parameters: None,
+                    generation: None,
+                    timeout: None,
+                    max_retries: None,
+                    retry_delay: None,
+                    headers: None,
+                    metadata: None,
+                    tool_call_protocol: None,
+                    auth_type: None,
+                    custom_headers: None,
+                    custom_body: None,
+                    custom_body_enabled: None,
+                    query_params: None,
+                    stream_options: None,
+                    context_window_size: Some(window),
+                })
+                .expect("test profile registers");
+        }
 
         // 3. Wire the hook registry with the builtin compression handler:
         // the LLM handler fires the compression signal synchronously
@@ -1283,6 +1314,35 @@ mod tests {
         let summary_mock = Arc::new(MockLlmClient::new());
         summary_mock.default(LlmResponseSpec::text("compressed summary"));
         gateway.register_mock("DEFAULT", summary_mock.clone());
+        for (id, window) in [("main", 2000u32), ("DEFAULT", 200_000u32)] {
+            gateway
+                .profile_registry()
+                .register(wf_types::llm::LlmProfile {
+                    id: id.to_string(),
+                    name: id.to_string(),
+                    format: wf_types::llm::LlmFormat::OpenaiChat,
+                    provider_id: None,
+                    model: "mock-model".to_string(),
+                    api_key: None,
+                    base_url: None,
+                    parameters: None,
+                    generation: None,
+                    timeout: None,
+                    max_retries: None,
+                    retry_delay: None,
+                    headers: None,
+                    metadata: None,
+                    tool_call_protocol: None,
+                    auth_type: None,
+                    custom_headers: None,
+                    custom_body: None,
+                    custom_body_enabled: None,
+                    query_params: None,
+                    stream_options: None,
+                    context_window_size: Some(window),
+                })
+                .expect("test profile registers");
+        }
 
         let contexts = Arc::new(ExecutionContextRegistry::new());
         let hook_handler_registry = Arc::new(HookHandlerRegistry::new());

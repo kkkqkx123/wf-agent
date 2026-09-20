@@ -66,4 +66,7 @@ pub use token_events::{
     KEY_TOOL_COUNT, KEY_USAGE_PERCENTAGE, KEY_WRITEBACK_OPERATION, WRITEBACK_OPERATION_APPEND,
     WRITEBACK_OPERATION_REPLACE,
 };
-pub use token_tracker::{RequestUsage, TokenTrackerState, TokenUsageTracker};
+pub use token_tracker::{
+    context_budget_from_window, RequestUsage, TokenTrackerState, TokenUsageTracker,
+    CONTEXT_BUDGET_PERCENT,
+};

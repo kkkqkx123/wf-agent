@@ -428,8 +428,37 @@ async fn token_events_emitted_when_limit_crossed() {
     let bus = Arc::new(wf_core::EventBus::new(64));
     let mut sub = bus.subscribe();
 
-    let coordinator = AgentLoopCoordinator::new(gateway_with(mock.clone()), registry_with_echo())
-        .with_event_bus(bus);
+    let gateway = gateway_with(mock.clone());
+    // Context budget derives from the model window only: register the mock
+    // profile with a small window so the long input exceeds it.
+    gateway
+        .profile_registry()
+        .register(wf_types::llm::LlmProfile {
+            id: "mock".to_string(),
+            name: "mock".to_string(),
+            format: wf_types::llm::LlmFormat::OpenaiChat,
+            provider_id: None,
+            model: "mock-model".to_string(),
+            api_key: None,
+            base_url: None,
+            parameters: None,
+            generation: None,
+            timeout: None,
+            max_retries: None,
+            retry_delay: None,
+            headers: None,
+            metadata: None,
+            tool_call_protocol: None,
+            auth_type: None,
+            custom_headers: None,
+            custom_body: None,
+            custom_body_enabled: None,
+            query_params: None,
+            stream_options: None,
+            context_window_size: Some(1000),
+        })
+        .expect("mock profile registers");
+    let coordinator = AgentLoopCoordinator::new(gateway, registry_with_echo()).with_event_bus(bus);
     let mut config = config(5);
     config.token_limit = Some(150);
     config.token_warning_threshold = Some(70);

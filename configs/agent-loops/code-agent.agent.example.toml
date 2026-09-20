@@ -59,7 +59,7 @@ max_iterations = 50
 stream = true
 
 # Tool call serialization format.
-tool_call_protocol = "json_wrapped"
+tool_call_protocol = "native"
 
 # Initial messages to seed the conversation history.
 # [[config.initial_messages]]
@@ -69,13 +69,13 @@ tool_call_protocol = "json_wrapped"
 # --- Available Tools ---
 [config.available_tools]
 # Tools that can be selected.
-available = ["readFile", "writeFile", "editFile", "bash", "glob", "grep", "listFiles", "searchCodebase"]
+available = ["read_file", "write_file", "edit_file", "execute_command", "glob_search", "grep_search", "list_files"]
 
 # Tools initially loaded (subset of available).
-initial = ["readFile", "grep", "glob", "listFiles"]
+initial = ["read_file", "grep_search", "glob_search", "list_files"]
 
 # Tools the agent can discover at runtime.
-discoverable = ["bash", "writeFile", "editFile", "searchCodebase"]
+discoverable = ["execute_command", "write_file", "edit_file"]
 
 # Tools hidden from the agent but usable programmatically.
 # hidden = []

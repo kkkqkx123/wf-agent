@@ -249,16 +249,10 @@ pub async fn build_reference_context(ctx: &ApiContext) -> ValidationContext {
 
     for id in ctx.registries.agent_templates.list() {
         val_ctx.agent_ids.insert(id.clone());
-        if let Some(template) = ctx.registries.agent_templates.get(&id) {
-            val_ctx.agent_ids.insert(template.definition.id.to_string());
-            val_ctx.agent_ids.insert(template.name.clone());
-        }
     }
     if let Ok(stored) = ctx.storage.agent_template.list(None).await {
         for template in &stored {
             val_ctx.agent_ids.insert(template.id.to_string());
-            val_ctx.agent_ids.insert(template.definition.id.to_string());
-            val_ctx.agent_ids.insert(template.name.clone());
         }
     }
 
@@ -270,7 +264,6 @@ pub async fn build_reference_context(ctx: &ApiContext) -> ValidationContext {
     }
     if let Ok(stored) = ctx.storage.trigger_template.list(None).await {
         for meta in &stored {
-            val_ctx.trigger_ids.insert(meta.id.to_string());
             val_ctx.trigger_ids.insert(meta.name.clone());
             if let (Some(condition_val), Some(action_val)) = (&meta.condition, &meta.action_config)
             {

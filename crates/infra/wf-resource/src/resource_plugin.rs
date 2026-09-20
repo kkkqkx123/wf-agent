@@ -324,7 +324,6 @@ fn unregister_item<T: Send + Sync>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::predefined::agent_templates::builtin_agent_templates;
 
     struct TestResourcePlugin;
 
@@ -344,8 +343,13 @@ mod tests {
         }
 
         fn assemble(&self, _config: &Value) -> Result<ResourceBundle, String> {
+            // Fixed bundle (not `builtin_agent_templates()`): the test must
+            // not depend on how many built-in templates exist.
             let mut bundle = ResourceBundle::new();
-            bundle.agent_templates = builtin_agent_templates();
+            bundle.agent_templates = vec![
+                crate::predefined::agent_templates::goal_review_executor(),
+                crate::predefined::agent_templates::goal_review_reviewer(),
+            ];
             bundle.prompts.push(Template {
                 id: "test.prompt".into(),
                 name: "Test Prompt".into(),

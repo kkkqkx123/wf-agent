@@ -6,10 +6,15 @@ use crate::registry::{
 use crate::result::Summary;
 
 use super::executor::goal_review_executor;
+use super::main_agent::main_agent_template;
 use super::reviewer::goal_review_reviewer;
 
 pub fn builtin_agent_templates() -> Vec<AgentTemplate> {
-    vec![goal_review_executor(), goal_review_reviewer()]
+    vec![
+        main_agent_template(),
+        goal_review_executor(),
+        goal_review_reviewer(),
+    ]
 }
 
 pub fn register(regs: &ResourceRegistries, opts: &RegisterOptions) -> Summary {

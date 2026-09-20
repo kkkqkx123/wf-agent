@@ -77,7 +77,12 @@ pub async fn stream_agent_turn(
     approval_options: Option<wf_types::tool::approval::ToolApprovalOptions>,
     approval_handler: Option<Arc<dyn wf_api::ToolApprovalHandler>>,
 ) -> Result<(String, ExecutionEventStream), ApiError> {
-    let run_params = build_agent_loop_params(params, approval_options, approval_handler);
+    // Composition boundary: resolve the agent template (built-in
+    // `@standard/main` default, user overrides first) before execution.
+    let run_params = wf_api::agent::agent_template_resolve::resolve_run_params(
+        &ctx.registries,
+        build_agent_loop_params(params, approval_options, approval_handler),
+    )?;
     let execution_id = run_params
         .agent_loop_id
         .as_ref()

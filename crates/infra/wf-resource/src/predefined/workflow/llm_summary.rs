@@ -7,7 +7,7 @@ use wf_types::workflow::{
     WorkflowTemplate,
 };
 
-pub const LLM_SUMMARY_WORKFLOW_ID: &str = "llm_summary_workflow";
+pub const LLM_SUMMARY_WORKFLOW_ID: &str = "@standard/llm-summary";
 pub const DEFAULT_LLM_SUMMARY_PROMPT: &str = "Please provide a compressed summary of the following history of the conversation.\n\nRequirements:\n1. retain all significant facts, decisions, and action items\n2. retain requirements or constraints explicitly specified by the user\n3. remove redundant greetings, transition statements and repetitive information\n4. if code snippets exist, retain the description of their function and purpose, and may omit implementation details\n5. limit the length of the summary to 20% of the original length\n6. tool calls in history may appear either as direct calls or wrapped in a generic proxy call: always record the logical tool name and its arguments, never the proxy wrapper shape, since the wrapper may differ in later turns\n\nPlease output the summary directly without any prefixes or explanations.";
 
 fn now_ms() -> i64 {

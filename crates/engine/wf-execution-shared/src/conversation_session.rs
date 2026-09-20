@@ -268,6 +268,17 @@ impl ConversationSession {
         self.tracker.token_limit()
     }
 
+    /// Configure the per-request context budget from the model window;
+    /// 0 disables preflight and compression decisions.
+    pub fn set_context_limit(&mut self, context_limit: u64) {
+        self.tracker.set_context_limit(context_limit);
+    }
+
+    /// Configured per-request context budget (0 = disabled).
+    pub fn context_limit(&self) -> u64 {
+        self.tracker.context_limit()
+    }
+
     /// Merge API-reported usage into the current in-flight request (cost
     /// track).
     pub fn update_token_usage(&mut self, usage: &TokenUsageStats) {
@@ -363,7 +374,9 @@ impl ConversationSession {
         self.state.next_seq = 0;
         self.state.active_view = MessageView::Full;
         self.state.ledger = TokenLedger::default();
-        self.tracker = TokenUsageTracker::new(self.tracker.token_limit());
+        let mut tracker = TokenUsageTracker::new(self.tracker.token_limit());
+        tracker.set_context_limit(self.tracker.context_limit());
+        self.tracker = tracker;
         self.state.token_usage = 0;
         self.state.tracker = None;
     }
@@ -393,7 +406,9 @@ impl ConversationSession {
         if let Some(tracker_state) = state.tracker {
             self.tracker.restore(tracker_state);
         } else {
-            self.tracker = TokenUsageTracker::new(self.tracker.token_limit());
+            let mut tracker = TokenUsageTracker::new(self.tracker.token_limit());
+            tracker.set_context_limit(self.tracker.context_limit());
+            self.tracker = tracker;
         }
         self.state.token_usage = self.tracker.cumulative_usage().total_tokens as u64;
         self.state.tracker = Some(self.tracker.state());

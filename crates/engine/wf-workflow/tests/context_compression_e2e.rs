@@ -49,7 +49,7 @@ fn text_message(role: MessageRole, text: &str) -> Message {
     }
 }
 
-/// Runs the `llm_summary_workflow` equivalent: a 3-node chain
+/// Runs the `@standard/llm-summary` equivalent: a 3-node chain
 /// (START_FROM_MESSAGE → LLM → CONTINUE_FROM_MESSAGE) over the input
 /// `{conversationHistory: messages}` whose final output is the compressed
 /// message array.
@@ -381,9 +381,9 @@ async fn over_limit_named_array_flows_through_compression_chain() {
     .with_node_config(llm_node_config(50, Some("chat")));
     ctx.event_bus = Some(bus.clone());
     ctx.hook_handler_registry = Some(hook_handlers.clone());
-    ctx.token_tracker = Some(Arc::new(tokio::sync::Mutex::new(TokenUsageTracker::new(
-        50,
-    ))));
+    let tracker = Arc::new(tokio::sync::Mutex::new(TokenUsageTracker::new(50)));
+    tracker.lock().await.set_context_limit(50);
+    ctx.token_tracker = Some(tracker);
 
     let result = handler.execute(&mut ctx).await.unwrap();
     assert_eq!(result.output, serde_json::json!("ok"));
@@ -516,9 +516,9 @@ async fn under_limit_array_does_not_emit_request() {
     )
     .with_node_config(llm_node_config(100_000, Some("chat")));
     ctx.event_bus = Some(bus.clone());
-    ctx.token_tracker = Some(Arc::new(tokio::sync::Mutex::new(TokenUsageTracker::new(
-        100_000,
-    ))));
+    let tracker = Arc::new(tokio::sync::Mutex::new(TokenUsageTracker::new(100_000)));
+    tracker.lock().await.set_context_limit(100_000);
+    ctx.token_tracker = Some(tracker);
 
     handler.execute(&mut ctx).await.unwrap();
 

@@ -417,22 +417,24 @@ impl AgentIterationCoordinator {
         )
         .await?;
 
-        // Pre-request token budget check: the estimate is approximate, so this
-        // is a warning only (never blocks the request); the provider's real
-        // count takes precedence. Fires at most once per session.
+        // Pre-request context budget check: the estimate is approximate,
+        // so this is a warning only (never blocks the request); the
+        // provider's real count takes precedence. Compares the single
+        // request estimate against the model-window context budget.
+        // Fires at most once per session.
         if self.token_tracking_enabled {
             if let Some(ref bus) = self.event_bus {
                 let mut conversation = entity.conversation().write().await;
-                let token_limit = conversation.token_limit();
-                if token_limit > 0 {
+                let context_limit = conversation.context_limit();
+                if context_limit > 0 {
                     let estimated = u64::from(wf_llm::estimate_request_tokens(&request));
-                    if estimated > token_limit && conversation.consume_preflight_warning() {
+                    if estimated > context_limit && conversation.consume_preflight_warning() {
                         let _ = bus.publish(wf_execution_shared::build_token_usage_warning_event(
                             &execution_id,
                             Some(entity.id()),
                             estimated,
-                            token_limit,
-                            estimated as f64 / token_limit as f64 * 100.0,
+                            context_limit,
+                            estimated as f64 / context_limit as f64 * 100.0,
                         ));
                     }
                 }
@@ -558,10 +560,10 @@ impl AgentIterationCoordinator {
             }
             conversation.finalize_current_request();
 
-            // Emit token usage events (decision track only): a single-shot
-            // warning at the threshold crossing, then limit exceeded once per
-            // 50% tier band, then compression requested when the projected
-            // view (the actual LLM input) exceeds the limit. The view
+            // Emit token usage events (decision track only): task warnings
+            // compare the cumulative estimate against the task token limit,
+            // while compression compares the projected view (the actual LLM
+            // input) against the model-window context budget. The view
             // estimate shrinks after compression even though the history
             // keeps growing, so history-based estimates would re-trigger
             // compression immediately.
@@ -587,9 +589,12 @@ impl AgentIterationCoordinator {
                             token_limit,
                         ));
                     }
+                }
+                let context_limit = conversation.context_limit();
+                if context_limit > 0 {
                     let estimated = conversation.estimated_view_tokens();
                     let version = conversation.conversation_version();
-                    if wf_execution_shared::context_store::over_budget(estimated, token_limit)
+                    if wf_execution_shared::context_store::over_budget(estimated, context_limit)
                         && conversation.should_emit_compression(version)
                     {
                         // The summary workflow needs the full history for
@@ -600,7 +605,7 @@ impl AgentIterationCoordinator {
                         let request = wf_execution_shared::context_store::compression_request(
                             wf_execution_shared::CONVERSATION_CONTEXT_ID,
                             estimated,
-                            token_limit,
+                            context_limit,
                             message_count,
                             version,
                             false,
@@ -843,13 +848,13 @@ impl AgentIterationCoordinator {
         };
         let conversation = entity.conversation().write().await;
         let version = conversation.conversation_version();
-        let token_limit = conversation.token_limit();
+        let context_limit = conversation.context_limit();
         let tokens_used = u64::from(wf_llm::estimate_request_tokens(request));
         let messages = request.messages.clone();
         let compression_request = wf_execution_shared::context_store::compression_request(
             wf_execution_shared::CONVERSATION_CONTEXT_ID,
             tokens_used,
-            token_limit,
+            context_limit,
             request.messages.len(),
             version,
             true,

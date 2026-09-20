@@ -28,8 +28,8 @@ pub fn goal_review_reviewer() -> AgentTemplate {
                 available_tools: Some(AvailableTools {
                     available: vec![
                         "read_file".into(),
-                        "glob".into(),
-                        "grep".into(),
+                        "glob_search".into(),
+                        "grep_search".into(),
                         "attempt_completion".into(),
                     ],
                     initial: None,

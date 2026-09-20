@@ -11,7 +11,7 @@ api_key = "${ANTHROPIC_API_KEY}"
 base_url = "https://api.anthropic.com/v1"
 auth_type = "native"
 [tool_call_protocol]
-format = "json_wrapped"
+format = "native"
 context_window_size = 200000
 
 timeout = 30000

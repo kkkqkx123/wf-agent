@@ -379,7 +379,7 @@ mod tests {
         assert!(runtime
             .registries()
             .templates
-            .has("@standard/goal-review-planner"));
+            .has("prompt.goal-review.planner"));
 
         // The assembled workflow is structurally valid (loop pairs, edges,
         // reachability) so it can be executed by the workflow engine.
@@ -419,7 +419,7 @@ mod tests {
         assert!(!runtime
             .registries()
             .templates
-            .has("@standard/goal-review-planner"));
+            .has("prompt.goal-review.planner"));
 
         runtime.shutdown().await.unwrap();
         clear_env_vars();
@@ -714,7 +714,7 @@ mod tests {
 
         register_workflow_tools(&runtime);
 
-        // The llm_summary_workflow LLM node uses the DEFAULT profile.
+        // The @standard/llm-summary LLM node uses the DEFAULT profile.
         let mock = Arc::new(wf_llm::mock::MockLlmClient::new());
         mock.default(wf_llm::mock::LlmResponseSpec::text("compressed").with_usage(50, 30));
         runtime.llm_gateway().register_mock("DEFAULT", mock);
@@ -737,7 +737,7 @@ mod tests {
             .execute_tool(
                 "execute_workflow",
                 &serde_json::json!({
-                    "workflow_id": "llm_summary_workflow",
+                    "workflow_id": "@standard/llm-summary",
                     "input": {
                         "conversationHistory": [
                             serde_json::to_value(&message).unwrap()

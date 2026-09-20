@@ -44,12 +44,14 @@ pub fn persist_tracker_state(
 
 /// Emit token usage events (v2 dual-track semantics):
 ///
-/// - warning: decision track (estimated cumulative), single-shot guard;
-/// - limit exceeded: decision track, one emission per 50% tier band
+/// - warning: task budget (estimated cumulative vs task limit),
+///   single-shot guard;
+/// - limit exceeded: task budget, one emission per 50% tier band
 ///   (100%, 150%, 200%, ...);
 /// - compression requested: per declared named array, driven by the
-///   incremental ledger estimate + transform-context injections, guarded by
-///   the array version (single-shot per version, checkpointed in the ledger).
+///   incremental ledger estimate + transform-context injections compared
+///   against the model-window context budget, guarded by the array version
+///   (single-shot per version, checkpointed in the ledger).
 ///
 /// No provider usage participates in any of these decisions.
 pub async fn emit_token_usage_events(ctx: &NodeExecutionContext, warning_threshold: u64) {
@@ -58,11 +60,12 @@ pub async fn emit_token_usage_events(ctx: &NodeExecutionContext, warning_thresho
     };
     let mut tracker = tracker.lock().await;
     let token_limit = tracker.token_limit();
-    if token_limit == 0 {
+    let context_limit = tracker.context_limit();
+    if token_limit == 0 && context_limit == 0 {
         return;
     }
     let tokens_used = tracker.estimated_total();
-    if tracker.consume_warning(warning_threshold as f64) {
+    if token_limit > 0 && tracker.consume_warning(warning_threshold as f64) {
         let percentage = tracker.estimated_usage_percentage().unwrap_or(0.0);
         bus.publish_logged(
             wf_execution_shared::build_token_usage_warning_event(
@@ -79,7 +82,7 @@ pub async fn emit_token_usage_events(ctx: &NodeExecutionContext, warning_thresho
         )
         .ok();
     }
-    if tracker.consume_limit_exceeded_tier().is_some() {
+    if token_limit > 0 && tracker.consume_limit_exceeded_tier().is_some() {
         bus.publish_logged(
             wf_execution_shared::build_token_limit_exceeded_event(
                 &ctx.execution_id,
@@ -93,6 +96,9 @@ pub async fn emit_token_usage_events(ctx: &NodeExecutionContext, warning_thresho
             ),
         )
         .ok();
+    }
+    if context_limit == 0 {
+        return;
     }
 
     let config = ctx.node_config.as_ref().unwrap_or(&Value::Null);
@@ -110,13 +116,13 @@ pub async fn emit_token_usage_events(ctx: &NodeExecutionContext, warning_thresho
         let estimated = message_context::ledger_estimated_tokens(&ctx.variables, &context_id)
             + injected_estimate;
         let version = message_context::array_version(&ctx.variables, &context_id);
-        if wf_execution_shared::context_store::over_budget(estimated, token_limit)
+        if wf_execution_shared::context_store::over_budget(estimated, context_limit)
             && message_context::should_emit_compression(&ctx.variables, &context_id, version)
         {
             let compression_request = wf_execution_shared::context_store::compression_request(
                 &context_id,
                 estimated,
-                token_limit,
+                context_limit,
                 context_messages.len(),
                 version,
                 false,
@@ -151,13 +157,14 @@ pub async fn emit_token_usage_events(ctx: &NodeExecutionContext, warning_thresho
     }
 }
 
-/// Initialize the execution-scoped tracker limit from the node config and
-/// restore checkpointed guards. Single lock acquisition covers both setup
-/// and restore.
+/// Initialize the execution-scoped tracker limits from the node config
+/// (task budget) and the model window (context budget), then restore
+/// checkpointed guards. Single lock acquisition covers setup and restore.
 pub async fn setup_token_tracker(
     ctx: &NodeExecutionContext,
     exec_config: &wf_types::llm::LlmExecutionConfig,
     enabled: bool,
+    context_budget: u64,
 ) {
     if !enabled {
         return;
@@ -169,15 +176,19 @@ pub async fn setup_token_tracker(
                 tracker.set_token_limit(token_limit);
             }
         }
+        if tracker.context_limit() == 0 && context_budget > 0 {
+            tracker.set_context_limit(context_budget);
+        }
         restore_tracker_from_variables(ctx, &mut tracker);
     }
 }
 
-/// Pre-request token budget check: the whole-request estimate (and, near the
-/// threshold, the provider count-tokens API as a higher-precision estimate)
-/// is compared against the limit. Estimation is approximate, so this is a
-/// warning only (never blocks the request); the warning carries per-array
-/// budget details so listeners can route per-array strategies.
+/// Pre-request context budget check: the whole-request estimate (and, near
+/// the threshold, the provider count-tokens API as a higher-precision
+/// estimate) is compared against the model-window context budget.
+/// Estimation is approximate, so this is a warning only (never blocks the
+/// request); the warning carries per-array budget details so listeners can
+/// route per-array strategies.
 pub async fn check_preflight_budget(
     ctx: &NodeExecutionContext,
     gateway: &LlmGateway,
@@ -190,15 +201,15 @@ pub async fn check_preflight_budget(
     let Some(ref tracker) = ctx.token_tracker else {
         return;
     };
-    let token_limit = {
+    let context_limit = {
         let tracker = tracker.lock().await;
-        tracker.token_limit()
+        tracker.context_limit()
     };
-    if token_limit == 0 {
+    if context_limit == 0 {
         return;
     }
     let mut estimated = u64::from(wf_llm::estimate_request_tokens(request));
-    if estimated as f64 > token_limit as f64 * 0.8 {
+    if estimated as f64 > context_limit as f64 * 0.8 {
         if let Ok(count) = gateway
             .count_tokens(request, ctx.cancellation.clone())
             .await
@@ -207,14 +218,14 @@ pub async fn check_preflight_budget(
         }
     }
     let mut tracker = tracker.lock().await;
-    if estimated > token_limit && tracker.consume_preflight_warning() {
+    if estimated > context_limit && tracker.consume_preflight_warning() {
         if let Some(ref bus) = ctx.event_bus {
             let mut event = wf_execution_shared::build_token_usage_warning_event(
                 &ctx.execution_id,
                 Some(&ctx.node_id),
                 estimated,
-                token_limit,
-                estimated as f64 / token_limit as f64 * 100.0,
+                context_limit,
+                estimated as f64 / context_limit as f64 * 100.0,
             );
             let config = ctx.node_config.as_ref().unwrap_or(&Value::Null);
             let array_details: Vec<Value> = declared_contexts(config)

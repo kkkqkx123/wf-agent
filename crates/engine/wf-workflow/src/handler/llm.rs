@@ -112,7 +112,19 @@ impl LlmHandler {
     ) -> WorkflowResult<NodeExecutionResult> {
         let node_config = ctx.node_config.as_ref().unwrap_or(&Value::Null).clone();
         let cfg = parse_llm_node_config(ctx)?;
-        setup_token_tracker(ctx, &cfg.exec_config, cfg.token_tracking_enabled).await;
+        let context_budget = wf_execution_shared::context_budget_from_window(
+            self.gateway
+                .profile_registry()
+                .get(&cfg.profile_id)
+                .and_then(|p| p.context_window_size),
+        );
+        setup_token_tracker(
+            ctx,
+            &cfg.exec_config,
+            cfg.token_tracking_enabled,
+            context_budget,
+        )
+        .await;
 
         let mut messages = build_messages(ctx)?;
         let tools = resolve_tools(ctx)?;

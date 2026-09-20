@@ -20,7 +20,7 @@ use std::time::Instant;
 use futures::StreamExt;
 use serde_json::Value;
 
-use crate::config::DEFAULT_MODEL;
+use crate::config::{DEFAULT_AGENT, DEFAULT_MODEL};
 use crate::domain::DomainAdapter;
 use crate::error::{CliError, CliResult};
 use crate::output::{OutputEnvelope, OutputFormat, OutputMessage, OutputSink};
@@ -782,7 +782,7 @@ fn write_summary(p: SummaryParams<'_>) -> CliResult<()> {
                 "durationMs": p.duration_ms,
                 "hadOutput": p.had_output,
                 "model": p.opts.model.clone().unwrap_or_else(|| DEFAULT_MODEL.to_string()),
-                "agentId": p.opts.agent_id.clone().unwrap_or_else(|| "cli".to_string()),
+                "agentId": p.opts.agent_id.clone().unwrap_or_else(|| DEFAULT_AGENT.to_string()),
             });
             if let Some(res) = p.result {
                 data.as_object_mut()

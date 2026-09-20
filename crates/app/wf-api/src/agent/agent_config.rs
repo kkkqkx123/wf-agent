@@ -1,7 +1,7 @@
 use wf_tools::callback::AgentLoopConfig;
 use wf_types::Id;
 
-pub const DEFAULT_AGENT: &str = "cli";
+pub const DEFAULT_AGENT: &str = "@standard/main";
 pub const DEFAULT_MODEL: &str = "default";
 pub const DEFAULT_MAX_ITERATIONS: u32 = 50;
 

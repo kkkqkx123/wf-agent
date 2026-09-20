@@ -232,8 +232,9 @@ pub struct RunAgentLoopBody {
 }
 
 pub(crate) fn params_from_body(
+    state: &ApiState,
     body: RunAgentLoopBody,
-) -> wf_api::agent::agent_execution::RunAgentLoopParams {
+) -> Result<wf_api::agent::agent_execution::RunAgentLoopParams, wf_api::ApiError> {
     let config = AgentLoopConfig {
         agent_id: wf_types::Id::from(body.agent_id),
         model: body.model,
@@ -265,7 +266,12 @@ pub(crate) fn params_from_body(
         context: body.context,
         conversation: body.conversation.unwrap_or_default(),
     };
-    wf_api::agent::agent_execution::RunAgentLoopParams::new(config, input)
+    // Composition boundary: resolve the agent template (built-in
+    // `@standard/main` default, user overrides first) into a fully-resolved
+    // config before the request reaches the execution APIs.
+    wf_api::agent::agent_template_resolve::resolve_run_params(&state.ctx.registries, {
+        wf_api::agent::agent_execution::RunAgentLoopParams::new(config, input)
+    })
 }
 
 #[derive(Serialize)]
@@ -279,7 +285,15 @@ async fn handle_run_loop(
     State(state): State<ApiState>,
     Json(body): Json<RunAgentLoopBody>,
 ) -> impl IntoResponse {
-    match wf_api::agent::agent_execution::run(&state.ctx, params_from_body(body)).await {
+    match wf_api::agent::agent_execution::run(
+        &state.ctx,
+        match params_from_body(&state, body) {
+            Ok(params) => params,
+            Err(e) => return error_response(e),
+        },
+    )
+    .await
+    {
         Ok(output) => ok(AgentRunView {
             agent_loop_id: output.agent_loop_id.to_string(),
             result: output.result,
@@ -294,7 +308,15 @@ async fn handle_stream_loop(
     State(state): State<ApiState>,
     Json(body): Json<RunAgentLoopBody>,
 ) -> Response {
-    match wf_api::agent::agent_execution::stream(&state.ctx, params_from_body(body)).await {
+    match wf_api::agent::agent_execution::stream(
+        &state.ctx,
+        match params_from_body(&state, body) {
+            Ok(params) => params,
+            Err(e) => return error_response(e),
+        },
+    )
+    .await
+    {
         Ok(stream) => {
             let events = futures::stream::unfold(stream, |mut stream| async move {
                 match stream.next().await {
@@ -491,6 +513,13 @@ mod tests {
         ))
     }
 
+    fn test_state() -> crate::router::ApiState {
+        crate::router::ApiState {
+            ctx: make_ctx(),
+            config: Arc::new(crate::middleware::ServerMiddlewareConfig::default()),
+        }
+    }
+
     async fn send(ctx: Arc<ApiContext>, uri: &str) -> Response {
         crate::router::api_router(ctx)
             .oneshot(Request::builder().uri(uri).body(AxBody::empty()).unwrap())
@@ -498,11 +527,13 @@ mod tests {
             .unwrap()
     }
 
-    #[test]
-    fn run_body_forwards_checkpoint_message_interval() {
+    #[tokio::test]
+    async fn run_body_forwards_checkpoint_message_interval() {
         // REST backstop wiring: `checkpoint_message_interval` must reach
         // `AgentLoopConfig`; a zero value disables instead of passing
         // through (the engine treats `> 0` as enabled).
+        // Async context required: `params_from_body` builds an `ApiContext`,
+        // whose constructor spawns background tasks on the current runtime.
         let body = serde_json::from_value::<RunAgentLoopBody>(serde_json::json!({
             "agent_id": "agent1",
             "model": "mock",
@@ -511,7 +542,10 @@ mod tests {
         }))
         .unwrap();
         assert_eq!(
-            params_from_body(body).config.checkpoint_message_interval,
+            params_from_body(&test_state(), body)
+                .expect("resolve params")
+                .config
+                .checkpoint_message_interval,
             Some(5)
         );
 
@@ -523,7 +557,10 @@ mod tests {
         }))
         .unwrap();
         assert_eq!(
-            params_from_body(zero).config.checkpoint_message_interval,
+            params_from_body(&test_state(), zero)
+                .expect("resolve params")
+                .config
+                .checkpoint_message_interval,
             None
         );
 
@@ -534,7 +571,10 @@ mod tests {
         }))
         .unwrap();
         assert_eq!(
-            params_from_body(absent).config.checkpoint_message_interval,
+            params_from_body(&test_state(), absent)
+                .expect("resolve params")
+                .config
+                .checkpoint_message_interval,
             None
         );
     }

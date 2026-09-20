@@ -89,7 +89,6 @@ pub async fn build_validation_context(ctx: &ApiContext) -> ValidationContext {
     }
     if let Ok(stored) = ctx.storage.trigger_template.list(None).await {
         for meta in &stored {
-            trigger_ids.insert(meta.id.to_string());
             trigger_ids.insert(meta.name.clone());
         }
     }
@@ -97,16 +96,10 @@ pub async fn build_validation_context(ctx: &ApiContext) -> ValidationContext {
     let mut agent_ids = std::collections::HashSet::new();
     for id in ctx.registries.agent_templates.list() {
         agent_ids.insert(id.clone());
-        if let Some(template) = ctx.registries.agent_templates.get(&id) {
-            agent_ids.insert(template.definition.id.to_string());
-            agent_ids.insert(template.name.clone());
-        }
     }
     if let Ok(stored) = ctx.storage.agent_template.list(None).await {
         for template in &stored {
             agent_ids.insert(template.id.to_string());
-            agent_ids.insert(template.definition.id.to_string());
-            agent_ids.insert(template.name.clone());
         }
     }
 

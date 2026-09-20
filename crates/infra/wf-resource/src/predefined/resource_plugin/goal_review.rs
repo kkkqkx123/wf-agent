@@ -12,7 +12,7 @@ use super::workflow::{build_planner_prompt, build_workflow};
 
 pub const GOAL_REVIEW_RESOURCE_PLUGIN_ID: &str = "@standard/goal-review-agent";
 pub const GOAL_REVIEW_WORKFLOW_ID: &str = "@standard/goal-review-agent-workflow";
-pub const GOAL_REVIEW_PLANNER_PROMPT_ID: &str = "@standard/goal-review-planner";
+pub const GOAL_REVIEW_PLANNER_PROMPT_ID: &str = "prompt.goal-review.planner";
 
 pub use crate::predefined::agent_templates::{
     GOAL_REVIEW_EXECUTOR_TEMPLATE_ID, GOAL_REVIEW_REVIEWER_TEMPLATE_ID,
@@ -345,7 +345,7 @@ mod tests {
 
         assert_eq!(bundle.workflows.len(), 1);
         assert_eq!(bundle.prompts.len(), 1);
-        assert_eq!(bundle.prompts[0].id, "@standard/goal-review-planner");
+        assert_eq!(bundle.prompts[0].id, "prompt.goal-review.planner");
 
         let wf = &bundle.workflows[0];
         assert_eq!(wf.id, "@standard/goal-review-agent-workflow");

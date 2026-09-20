@@ -21,9 +21,9 @@ base_url = "https://api.openai.com/v1"
 auth_type = "native"
 
 # Format to use for tool call serialization.
-# Options: "json_wrapped" (default) | "json_unwrapped" | "json_schema" | "strict_json_schema" | "native"
+# Options: "native" (default) | "json_wrapped" | "json_unwrapped" | "json_schema" | "strict_json_schema"
 [tool_call_protocol]
-format = "json_wrapped"
+format = "native"
 
 # Model's maximum input context window (tokens).
 context_window_size = 128000

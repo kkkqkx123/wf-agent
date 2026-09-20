@@ -808,7 +808,6 @@ mod tests {
     use std::sync::Arc;
     use wf_common::error_chain::ErrorRecord;
     use wf_resource::registry::ResourceRegistries;
-    use wf_resource::resource_plugin::ResourcePluginRegistry;
     use wf_storage::context::StorageContext;
     use wf_types::errors::{ErrorCause, ErrorType};
     use wf_types::events::BaseEvent;
@@ -817,7 +816,6 @@ mod tests {
         Arc::new(ApiContext::new(
             StorageContext::new_memory(),
             Arc::new(ResourceRegistries::new()),
-            Arc::new(ResourcePluginRegistry::new()),
         ))
     }
 

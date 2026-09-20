@@ -755,7 +755,6 @@ mod tests {
         Arc::new(crate::ApiContext::new(
             StorageContext::new_memory(),
             Arc::new(wf_resource::registry::ResourceRegistries::new()),
-            Arc::new(wf_resource::resource_plugin::ResourcePluginRegistry::new()),
         ))
     }
 

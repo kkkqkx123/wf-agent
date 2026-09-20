@@ -10,7 +10,6 @@ use std::sync::Arc;
 
 use wf_api::ApiContext;
 use wf_resource::registry::ResourceRegistries;
-use wf_resource::resource_plugin::ResourcePluginRegistry;
 use wf_runtime::recovery::{ApiRecoveryExecutor, RecoveryOrchestrator, RecoveryScanner};
 use wf_storage::adapter::base::BaseStorageAdapter;
 use wf_storage::adapter::execution::WorkflowExecutionStorageAdapter;
@@ -124,12 +123,8 @@ fn make_multi_step_definition(id: &str) -> WorkflowDefinition {
 }
 
 async fn make_api_ctx(storage: StorageContext, db: &str) -> ApiContext {
-    ApiContext::new(
-        storage,
-        Arc::new(ResourceRegistries::new()),
-        Arc::new(ResourcePluginRegistry::new()),
-    )
-    .with_checkpoint_store(Arc::new(sqlite_checkpoint_backend(db).await))
+    ApiContext::new(storage, Arc::new(ResourceRegistries::new()))
+        .with_checkpoint_store(Arc::new(sqlite_checkpoint_backend(db).await))
 }
 
 #[tokio::test]

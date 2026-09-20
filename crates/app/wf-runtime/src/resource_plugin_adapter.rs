@@ -11,9 +11,11 @@
 //!   register the bundle items as declarative contributions →
 //!   `on_after_install(bundle)`. The contribution bridge then lands them in
 //!   `ResourceRegistries` / `ToolRegistry` on activation.
-//! - `on_deactivate` → `on_after_uninstall` (the bridge has already removed
-//!   the plugin's resources by then). `on_before_uninstall` has no clean
-//!   call site in the engine flow and is intentionally not invoked.
+//! - `on_deactivate` → `on_before_uninstall` → `on_after_uninstall` (the
+//!   bridge has already removed the plugin's resources by then, which
+//!   differs from the legacy order where `on_before_uninstall` runs before
+//!   removal; the hook is still invoked so plugins observe the full
+//!   lifecycle).
 
 use std::sync::Arc;
 
@@ -54,6 +56,7 @@ impl ResourcePluginAdapter {
             contributions: vec![
                 "workflow".into(),
                 "prompt".into(),
+                "fragment".into(),
                 "agent-template".into(),
                 "node-template".into(),
                 "trigger".into(),
@@ -105,6 +108,9 @@ impl Plugin for ResourcePluginAdapter {
         for t in &bundle.prompts {
             registrar.register_prompt(&t.id, t.clone())?;
         }
+        for f in &bundle.fragments {
+            registrar.register_fragment(&f.id, f.clone())?;
+        }
         for a in &bundle.agent_templates {
             registrar.register_agent_template(&a.id, a.clone())?;
         }
@@ -113,6 +119,9 @@ impl Plugin for ResourcePluginAdapter {
         }
         for t in &bundle.triggers {
             registrar.register_trigger(&t.name, t.clone())?;
+        }
+        for d in &bundle.tool_descriptions {
+            registrar.register_tool_description(&d.id, d.clone())?;
         }
         for tool in &bundle.tools {
             registrar.register_tool(&tool.id, tool.clone())?;
@@ -135,6 +144,13 @@ impl Plugin for ResourcePluginAdapter {
     }
 
     async fn on_deactivate(&self, _ctx: &PluginContext) -> PluginResult<()> {
+        if let Err(e) = self.inner.on_before_uninstall() {
+            tracing::error!(
+                "resource plugin '{}' on_before_uninstall failed: {}",
+                self.manifest.id,
+                e
+            );
+        }
         if let Err(e) = self.inner.on_after_uninstall() {
             tracing::error!(
                 "resource plugin '{}' on_after_uninstall failed: {}",

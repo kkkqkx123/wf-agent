@@ -164,7 +164,6 @@ mod tests {
         let api_ctx = wf_api::ApiContext::new(
             wf_storage::context::StorageContext::new_memory(),
             std::sync::Arc::new(wf_resource::registry::ResourceRegistries::new()),
-            std::sync::Arc::new(wf_resource::resource_plugin::ResourcePluginRegistry::new()),
         );
         let result = orchestrator.recover_all(&api_ctx).await.unwrap();
 
@@ -219,7 +218,6 @@ mod tests {
         let api_ctx = wf_api::ApiContext::new(
             wf_storage::context::StorageContext::new_memory(),
             std::sync::Arc::new(wf_resource::registry::ResourceRegistries::new()),
-            std::sync::Arc::new(wf_resource::resource_plugin::ResourcePluginRegistry::new()),
         );
         let result = orchestrator.recover_all(&api_ctx).await.unwrap();
 
@@ -262,7 +260,6 @@ mod tests {
         let api_ctx = wf_api::ApiContext::new(
             wf_storage::context::StorageContext::new_memory(),
             std::sync::Arc::new(wf_resource::registry::ResourceRegistries::new()),
-            std::sync::Arc::new(wf_resource::resource_plugin::ResourcePluginRegistry::new()),
         );
         let result = orchestrator.recover_all(&api_ctx).await.unwrap();
 
@@ -288,7 +285,6 @@ mod tests {
         let api_ctx = wf_api::ApiContext::new(
             wf_storage::context::StorageContext::new_memory(),
             std::sync::Arc::new(wf_resource::registry::ResourceRegistries::new()),
-            std::sync::Arc::new(wf_resource::resource_plugin::ResourcePluginRegistry::new()),
         );
         let result = orchestrator.recover_all(&api_ctx).await.unwrap();
         assert!(result.is_empty());

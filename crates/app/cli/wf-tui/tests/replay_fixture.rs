@@ -12,7 +12,6 @@ use std::sync::Arc;
 use wf_api::infra::context::ApiContext;
 use wf_api::BaseStorageAdapter;
 use wf_resource::registry::ResourceRegistries;
-use wf_resource::resource_plugin::ResourcePluginRegistry;
 use wf_storage::context::StorageContext;
 use wf_storage::decorator::CacheConfig;
 use wf_tui::replay::replay_scrollack;
@@ -42,7 +41,6 @@ async fn make_sqlite_ctx(db_path: &std::path::Path) -> Arc<ApiContext> {
     Arc::new(ApiContext::new(
         storage,
         Arc::new(ResourceRegistries::new()),
-        Arc::new(ResourcePluginRegistry::new()),
     ))
 }
 

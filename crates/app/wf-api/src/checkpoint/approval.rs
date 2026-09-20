@@ -267,7 +267,6 @@ mod tests {
     use wf_checkpoint::file::{FileCheckpointManager, FileContentEntry};
     use wf_llm::{LlmResponseSpec, MockLlmClient};
     use wf_resource::registry::ResourceRegistries;
-    use wf_resource::resource_plugin::ResourcePluginRegistry;
     use wf_storage::context::StorageContext;
     use wf_types::llm::LlmFormat;
     use wf_types::message::{LlmFunctionCall, LlmToolCall};
@@ -277,7 +276,6 @@ mod tests {
             ApiContext::new(
                 StorageContext::new_memory(),
                 Arc::new(ResourceRegistries::new()),
-                Arc::new(ResourcePluginRegistry::new()),
             )
             .with_file_checkpoint_manager(manager),
         );

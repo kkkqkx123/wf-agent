@@ -707,7 +707,6 @@ impl EmptyGraph for WorkflowGraphStructure {
 mod tests {
     use super::*;
     use wf_resource::registry::ResourceRegistries;
-    use wf_resource::resource_plugin::ResourcePluginRegistry;
     use wf_storage::context::StorageContext;
     use wf_types::workflow::edge::EdgeType;
     use wf_types::workflow_execution::{WorkflowEdge, WorkflowNode};
@@ -789,7 +788,6 @@ mod tests {
         let ctx = Arc::new(ApiContext::new(
             StorageContext::new_memory(),
             Arc::new(ResourceRegistries::new()),
-            Arc::new(ResourcePluginRegistry::new()),
         ));
         // No live entity and no persisted record: empty analysis, no error.
         let analysis = analyze(&ctx, "missing-exec").await.unwrap();
@@ -878,7 +876,6 @@ mod tests {
         let ctx = Arc::new(ApiContext::new(
             StorageContext::new_memory(),
             Arc::new(ResourceRegistries::new()),
-            Arc::new(ResourcePluginRegistry::new()),
         ));
         persist(&ctx, "exec-g", "wf-g").await;
 
@@ -912,7 +909,6 @@ mod tests {
         let ctx = Arc::new(ApiContext::new(
             StorageContext::new_memory(),
             Arc::new(ResourceRegistries::new()),
-            Arc::new(ResourcePluginRegistry::new()),
         ));
         persist(&ctx, "exec-eff", "wf-eff").await;
 
@@ -939,7 +935,6 @@ mod tests {
         let ctx = Arc::new(ApiContext::new(
             StorageContext::new_memory(),
             Arc::new(ResourceRegistries::new()),
-            Arc::new(ResourcePluginRegistry::new()),
         ));
         persist(&ctx, "exec-prob", "wf-prob").await;
 

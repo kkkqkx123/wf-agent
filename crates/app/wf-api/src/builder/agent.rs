@@ -734,7 +734,6 @@ mod tests {
     use super::*;
     use wf_core::registry::Registry;
     use wf_resource::registry::ResourceRegistries;
-    use wf_resource::resource_plugin::ResourcePluginRegistry;
     use wf_storage::context::StorageContext;
 
     #[test]
@@ -851,7 +850,6 @@ mod tests {
         let ctx = Arc::new(ApiContext::new(
             StorageContext::new_memory(),
             Arc::new(ResourceRegistries::new()),
-            Arc::new(ResourcePluginRegistry::new()),
         ));
         AgentDefinitionBuilder::new("agent-reg")
             .name("Registered Agent")

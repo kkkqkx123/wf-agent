@@ -14,7 +14,6 @@ use wf_core::registry::{MutableRegistry, Registry};
 use wf_execution_shared::hooks::HookHandlerRegistry;
 use wf_llm::LlmGateway;
 use wf_resource::registry::ResourceRegistries;
-use wf_resource::resource_plugin::ResourcePluginRegistry;
 use wf_storage::adapter::base::BaseStorageAdapter;
 
 use crate::error::RuntimeResult;
@@ -33,7 +32,6 @@ pub use bootstrap_config::PluginConfig;
 pub use bootstrap_config::{
     InfraSourceConfig, LlmConfig, McpRuntimeConfig, ResourceConfig, RuntimeConfig,
 };
-pub use bootstrap_helpers::activate_builtin_resource_plugins_legacy;
 #[cfg(feature = "plugins")]
 pub use bootstrap_helpers::init_plugins;
 pub use bootstrap_helpers::{
@@ -52,7 +50,6 @@ pub struct Runtime {
     pub shutdown_handle: ShutdownHandle,
     pub _shutdown_waiter: ShutdownWaiter,
     pub registries: Arc<ResourceRegistries>,
-    pub bundles: Arc<ResourcePluginRegistry>,
     pub skill_loader: Arc<wf_tools::SkillLoader>,
     /// Shared tool registry (builtin handlers + skill loader + MCP tools);
     /// injected into every execution through the trigger listener.
@@ -282,7 +279,6 @@ impl Runtime {
         );
 
         let registries = Arc::new(ResourceRegistries::new());
-        let bundles = Arc::new(ResourcePluginRegistry::new());
 
         let skill_loader = Arc::new(wf_tools::SkillLoader::new(config.skills));
         let skill_count = skill_loader.list_skills().len();
@@ -383,7 +379,6 @@ impl Runtime {
         .await?;
         config.resource.apply_custom_source();
         init_plugins_and_resources(
-            &bundles,
             &config.resource.options,
             &registries,
             &tool_registry,
@@ -566,7 +561,6 @@ impl Runtime {
             shutdown_handle,
             _shutdown_waiter,
             registries,
-            bundles,
             skill_loader,
             tool_registry,
             mcp_manager,
@@ -605,10 +599,6 @@ impl Runtime {
         self.file_checkpoint_manager.as_ref()
     }
 
-    pub fn bundles(&self) -> &ResourcePluginRegistry {
-        &self.bundles
-    }
-
     /// Shared skill loader; skills are scanned from configured paths at bootstrap.
     pub fn skill_loader(&self) -> &Arc<wf_tools::SkillLoader> {
         &self.skill_loader
@@ -639,7 +629,6 @@ impl Runtime {
             let mut ctx = wf_api::ApiContext::from_runtime_parts(
                 storage,
                 self.registries.clone(),
-                self.bundles.clone(),
                 self.event_bus.clone(),
                 self.llm_gateway.clone(),
                 self.tool_registry.clone(),

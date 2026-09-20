@@ -147,14 +147,12 @@ mod tests {
     use std::sync::Arc;
     use wf_metrics::MetricsRegistry;
     use wf_resource::registry::ResourceRegistries;
-    use wf_resource::resource_plugin::ResourcePluginRegistry;
     use wf_storage::context::StorageContext;
 
     fn make_ctx(with_metrics: bool) -> Arc<ApiContext> {
         let mut ctx = ApiContext::new(
             StorageContext::new_memory(),
             Arc::new(ResourceRegistries::new()),
-            Arc::new(ResourcePluginRegistry::new()),
         );
         if with_metrics {
             ctx = ctx.with_metrics(Arc::new(MetricsRegistry::new()));

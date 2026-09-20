@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use wf_core::registry::{ConcurrentRegistry, MutableRegistry, Registry};
@@ -269,6 +270,64 @@ pub fn register_fragment(
     } else {
         register_item_strict(&regs.fragments, id, fragment)
     }
+}
+
+/// Validate and register trigger candidates in two phases like custom
+/// resources: single-template validation first, then competition-scope
+/// validation of the merged set against the live registry. Incoming members
+/// of a violated scope fail with the scope message; the rest registers.
+/// Shared by the legacy `ResourcePluginRegistry` activation path and the
+/// plugin-engine contribution bridge so both land triggers under identical
+/// rules.
+pub fn register_trigger_candidates(
+    regs: &ResourceRegistries,
+    candidates: Vec<TriggerTemplate>,
+    skip_if_exists: bool,
+) -> Summary {
+    let mut total = Summary::new();
+    let mut valid: Vec<TriggerTemplate> = Vec::new();
+    for trigger in &candidates {
+        let key = trigger.name.clone();
+        if let Err(e) = wf_config::processor::trigger::validate_trigger_template(trigger) {
+            total.merge(Summary::err(&key, e.to_string()));
+            continue;
+        }
+        valid.push(trigger.clone());
+    }
+    let existing: Vec<TriggerTemplate> = regs
+        .trigger_templates
+        .list()
+        .iter()
+        .filter_map(|key| regs.trigger_templates.get(key).map(|t| t.as_ref().clone()))
+        .collect();
+    let reports = wf_config::processor::trigger::check_trigger_scopes(&existing, &valid);
+    let mut rejected: HashMap<String, String> = HashMap::new();
+    for report in &reports {
+        if report.incoming_names.is_empty() {
+            tracing::warn!(
+                "pre-existing trigger scope violation without incoming subscriber: {}",
+                report.message,
+            );
+            continue;
+        }
+        for name in &report.incoming_names {
+            rejected
+                .entry(name.clone())
+                .or_insert_with(|| report.message.clone());
+        }
+    }
+    for trigger in valid {
+        if let Some(message) = rejected.remove(&trigger.name) {
+            total.merge(Summary::err(&trigger.name, message));
+            continue;
+        }
+        total.merge(if skip_if_exists {
+            register_item_skip(&regs.trigger_templates, trigger.name.clone(), trigger)
+        } else {
+            register_item_strict(&regs.trigger_templates, trigger.name.clone(), trigger)
+        });
+    }
+    total
 }
 
 /// Template ids whose declared fragment list references `fragment_id`

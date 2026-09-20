@@ -197,7 +197,6 @@ mod tests {
     use std::sync::Arc;
     use wf_agent::entity::AgentLoopEntity;
     use wf_resource::registry::ResourceRegistries;
-    use wf_resource::resource_plugin::ResourcePluginRegistry;
     use wf_storage::context::StorageContext;
     use wf_types::Id;
 
@@ -205,7 +204,6 @@ mod tests {
         Arc::new(ApiContext::new(
             StorageContext::new_memory(),
             Arc::new(ResourceRegistries::new()),
-            Arc::new(ResourcePluginRegistry::new()),
         ))
     }
 

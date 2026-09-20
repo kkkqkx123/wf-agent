@@ -167,7 +167,6 @@ mod tests {
     use super::*;
     use std::sync::Arc;
     use wf_resource::registry::{register_item_skip, ResourceRegistries};
-    use wf_resource::resource_plugin::ResourcePluginRegistry;
     use wf_storage::context::StorageContext;
     use wf_types::agent::{AgentConfig, AgentDefinition, AgentMetadata};
 
@@ -231,11 +230,7 @@ mod tests {
             "agent-b".into(),
             agent_template("agent-b", "writing", "profile-claude"),
         );
-        Arc::new(ApiContext::new(
-            StorageContext::new_memory(),
-            registries,
-            Arc::new(ResourcePluginRegistry::new()),
-        ))
+        Arc::new(ApiContext::new(StorageContext::new_memory(), registries))
     }
 
     #[tokio::test]

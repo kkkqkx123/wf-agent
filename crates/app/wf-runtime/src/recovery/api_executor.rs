@@ -71,7 +71,6 @@ mod tests {
     use super::*;
     use wf_api::ApiContext;
     use wf_resource::registry::ResourceRegistries;
-    use wf_resource::resource_plugin::ResourcePluginRegistry;
     use wf_storage::adapter::base::BaseStorageAdapter;
     use wf_storage::adapter::execution::WorkflowExecutionStorageAdapter;
     use wf_storage::context::StorageContext;
@@ -84,7 +83,6 @@ mod tests {
         Arc::new(ApiContext::new(
             StorageContext::new_memory(),
             Arc::new(ResourceRegistries::new()),
-            Arc::new(ResourcePluginRegistry::new()),
         ))
     }
 

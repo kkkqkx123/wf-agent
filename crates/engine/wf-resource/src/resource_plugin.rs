@@ -7,11 +7,14 @@ use wf_core::registry::{ConcurrentRegistry, MutableRegistry, Registry};
 use wf_tools::registry::ToolRegistry;
 use wf_types::agent::AgentTemplate;
 use wf_types::tool::Tool as ToolDef;
+use wf_types::tool_description::ToolDescriptionData;
 use wf_types::trigger::TriggerTemplate;
 use wf_types::workflow::{NodeTemplate, WorkflowTemplate};
-use wf_types::Template;
+use wf_types::{SystemPromptFragment, Template};
 
-use crate::registry::{register_item_skip, register_item_strict, ResourceRegistries};
+use crate::registry::{
+    register_fragment, register_item_skip, register_item_strict, ResourceRegistries,
+};
 use crate::result::Summary;
 
 #[derive(Debug, Clone)]
@@ -20,6 +23,8 @@ pub struct ResourceBundle {
     pub tools: Vec<ToolDef>,
     pub triggers: Vec<TriggerTemplate>,
     pub prompts: Vec<Template>,
+    pub fragments: Vec<SystemPromptFragment>,
+    pub tool_descriptions: Vec<ToolDescriptionData>,
     pub node_templates: Vec<NodeTemplate>,
     pub agent_templates: Vec<AgentTemplate>,
 }
@@ -31,6 +36,8 @@ impl ResourceBundle {
             tools: Vec::new(),
             triggers: Vec::new(),
             prompts: Vec::new(),
+            fragments: Vec::new(),
+            tool_descriptions: Vec::new(),
             node_templates: Vec::new(),
             agent_templates: Vec::new(),
         }
@@ -174,63 +181,32 @@ impl ResourcePluginRegistry {
             tool_registry.register_tool(tool.clone());
             total.merge(Summary::ok(&key));
         }
-        // Triggers register in two phases like custom resources: single
-        // validation first, then competition-scope validation of the merged
-        // set against the live registry. Incoming members of a violated
-        // scope fail with the scope message; the rest registers.
-        let mut candidates: Vec<TriggerTemplate> = Vec::new();
-        for trigger in &bundle.triggers {
-            let key = trigger.name.clone();
-            if let Err(e) = wf_config::processor::trigger::validate_trigger_template(trigger) {
-                total.merge(Summary::err(&key, e.to_string()));
-                continue;
-            }
-            candidates.push(trigger.clone());
-        }
-        let existing: Vec<TriggerTemplate> = registries
-            .trigger_templates
-            .list()
-            .iter()
-            .filter_map(|key| {
-                registries
-                    .trigger_templates
-                    .get(key)
-                    .map(|t| t.as_ref().clone())
-            })
-            .collect();
-        let reports = wf_config::processor::trigger::check_trigger_scopes(&existing, &candidates);
-        let mut rejected: HashMap<String, String> = HashMap::new();
-        for report in &reports {
-            if report.incoming_names.is_empty() {
-                tracing::warn!(
-                    "pre-existing trigger scope violation without incoming subscriber: {}",
-                    report.message,
-                );
-                continue;
-            }
-            for name in &report.incoming_names {
-                rejected
-                    .entry(name.clone())
-                    .or_insert_with(|| report.message.clone());
-            }
-        }
-        for trigger in candidates {
-            if let Some(message) = rejected.remove(&trigger.name) {
-                total.merge(Summary::err(&trigger.name, message));
-                continue;
-            }
-            total.merge(if skip_if_exists {
-                register_item_skip(&registries.trigger_templates, trigger.name.clone(), trigger)
-            } else {
-                register_item_strict(&registries.trigger_templates, trigger.name.clone(), trigger)
-            });
-        }
+        total.merge(crate::registry::register_trigger_candidates(
+            registries,
+            bundle.triggers.clone(),
+            skip_if_exists,
+        ));
         for prompt in &bundle.prompts {
             let key = prompt.id.clone();
             total.merge(if skip_if_exists {
                 register_item_skip(&registries.templates, key, prompt.clone())
             } else {
                 register_item_strict(&registries.templates, key, prompt.clone())
+            });
+        }
+        for fragment in &bundle.fragments {
+            total.merge(register_fragment(
+                registries,
+                fragment.clone(),
+                skip_if_exists,
+            ));
+        }
+        for description in &bundle.tool_descriptions {
+            let key = description.id.clone();
+            total.merge(if skip_if_exists {
+                register_item_skip(&registries.tool_descriptions, key, description.clone())
+            } else {
+                register_item_strict(&registries.tool_descriptions, key, description.clone())
             });
         }
         for node_tmpl in &bundle.node_templates {
@@ -289,6 +265,12 @@ impl ResourcePluginRegistry {
             }
             for prompt in &bundle.prompts {
                 unregister_item(&registries.templates, &prompt.id, &mut total);
+            }
+            for fragment in &bundle.fragments {
+                unregister_item(&registries.fragments, &fragment.id, &mut total);
+            }
+            for description in &bundle.tool_descriptions {
+                unregister_item(&registries.tool_descriptions, &description.id, &mut total);
             }
             for node_tmpl in &bundle.node_templates {
                 unregister_item(&registries.node_templates, &node_tmpl.id, &mut total);

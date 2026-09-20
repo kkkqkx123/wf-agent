@@ -415,12 +415,12 @@ pub async fn init_mcp(
     Some(manager)
 }
 
-pub fn activate_builtin_resource_plugins_legacy(
-    bundles: &wf_resource::resource_plugin::ResourcePluginRegistry,
+pub(crate) fn activate_builtin_resource_plugins_legacy(
     opts: &wf_resource::registry::RegisterOptions,
     registries: &wf_resource::registry::ResourceRegistries,
     tool_registry: &wf_tools::registry::ToolRegistry,
 ) -> RuntimeResult<()> {
+    let bundles = wf_resource::resource_plugin::ResourcePluginRegistry::new();
     for plugin in wf_resource::predefined::resource_plugin::builtin_resource_plugins() {
         bundles.register(plugin).map_err(|e| {
             crate::error::RuntimeError::Config(format!(
@@ -576,7 +576,6 @@ pub async fn init_metrics_context(
 }
 
 pub async fn init_plugins_and_resources(
-    bundles: &wf_resource::resource_plugin::ResourcePluginRegistry,
     opts: &wf_resource::registry::RegisterOptions,
     registries: &wf_resource::registry::ResourceRegistries,
     tool_registry: &wf_tools::registry::ToolRegistry,
@@ -591,11 +590,11 @@ pub async fn init_plugins_and_resources(
             .await?;
         }
         None => {
-            activate_builtin_resource_plugins_legacy(bundles, opts, registries, tool_registry)?;
+            activate_builtin_resource_plugins_legacy(opts, registries, tool_registry)?;
         }
     };
     #[cfg(not(feature = "plugins"))]
-    activate_builtin_resource_plugins_legacy(bundles, opts, registries, tool_registry)?;
+    activate_builtin_resource_plugins_legacy(opts, registries, tool_registry)?;
 
     let resource_result = wf_resource::register_all(registries, tool_registry, opts);
     info!(

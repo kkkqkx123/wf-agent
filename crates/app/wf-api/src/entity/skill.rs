@@ -260,7 +260,6 @@ mod tests {
     use super::*;
     use std::path::PathBuf;
     use wf_resource::registry::ResourceRegistries;
-    use wf_resource::resource_plugin::ResourcePluginRegistry;
     use wf_storage::context::StorageContext;
     use wf_types::skill::SkillConfig;
 
@@ -285,7 +284,6 @@ mod tests {
         let ctx = ApiContext::new(
             StorageContext::new_memory(),
             Arc::new(ResourceRegistries::new()),
-            Arc::new(ResourcePluginRegistry::new()),
         );
         ctx.tool_registry.set_skill_loader(loader);
         Arc::new(ctx)
@@ -375,7 +373,6 @@ mod tests {
         let ctx = Arc::new(ApiContext::new(
             StorageContext::new_memory(),
             Arc::new(ResourceRegistries::new()),
-            Arc::new(ResourcePluginRegistry::new()),
         ));
         assert!(!is_available(&ctx));
         assert!(list_skills(&ctx).unwrap().is_empty());

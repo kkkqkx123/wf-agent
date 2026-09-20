@@ -307,7 +307,6 @@ mod tests {
     use super::*;
     use std::sync::Arc;
     use wf_resource::registry::ResourceRegistries;
-    use wf_resource::resource_plugin::ResourcePluginRegistry;
     use wf_storage::context::StorageContext;
 
     use crate::workflow::save_workflow;
@@ -316,7 +315,6 @@ mod tests {
         let ctx = Arc::new(ApiContext::new(
             StorageContext::new_memory(),
             Arc::new(ResourceRegistries::new()),
-            Arc::new(ResourcePluginRegistry::new()),
         ));
         let profile = wf_types::llm::LlmProfile {
             id: "default".into(),

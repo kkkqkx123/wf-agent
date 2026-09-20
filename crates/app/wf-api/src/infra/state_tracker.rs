@@ -232,7 +232,6 @@ mod tests {
     use super::*;
     use std::sync::Arc;
     use wf_resource::registry::ResourceRegistries;
-    use wf_resource::resource_plugin::ResourcePluginRegistry;
     use wf_storage::context::StorageContext;
 
     use serde_json::json;
@@ -262,7 +261,6 @@ mod tests {
         Arc::new(ApiContext::new(
             StorageContext::new_memory(),
             Arc::new(ResourceRegistries::new()),
-            Arc::new(ResourcePluginRegistry::new()),
         ))
     }
 

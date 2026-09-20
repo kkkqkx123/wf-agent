@@ -201,16 +201,33 @@ impl ContributionBridge for WfPluginBridge {
                 }
             }
         }
-        for (id, owner) in manager.all_triggers() {
-            if owner == plugin_id {
-                if let Some(t) = manager.get_trigger(&id) {
-                    wf_resource::register_item_skip(
-                        &self.registries.trigger_templates,
-                        t.name.clone(),
-                        (*t).clone(),
-                    );
-                    tracing::debug!("  trigger: {}", t.name);
-                }
+        // Triggers land through the shared two-phase validation helper
+        // (single-template validation + competition-scope check), the same
+        // rule the legacy `ResourcePluginRegistry` activation path uses.
+        // Rejections are reported loudly but do not fail activation, matching
+        // the legacy `Ok(Summary)` semantics.
+        let owned_triggers: Vec<_> = manager
+            .all_triggers()
+            .into_iter()
+            .filter(|(_, owner)| owner == plugin_id)
+            .filter_map(|(id, _)| manager.get_trigger(&id).map(|t| (*t).clone()))
+            .collect();
+        if !owned_triggers.is_empty() {
+            let summary = wf_resource::registry::register_trigger_candidates(
+                &self.registries,
+                owned_triggers,
+                true,
+            );
+            for id in &summary.succeeded {
+                tracing::debug!("  trigger: {}", id);
+            }
+            for fail in &summary.failed {
+                tracing::warn!(
+                    plugin_id,
+                    trigger = %fail.id,
+                    "plugin trigger registration failed: {}",
+                    fail.error
+                );
             }
         }
         for (id, owner) in manager.all_tool_descriptions() {

@@ -373,7 +373,6 @@ fn summary_from_agent(template: AgentTemplate, usage_count: u64) -> TemplateSumm
 mod tests {
     use super::*;
     use wf_resource::registry::{register_item_skip, ResourceRegistries};
-    use wf_resource::resource_plugin::ResourcePluginRegistry;
     use wf_storage::context::StorageContext;
     use wf_types::agent::{AgentDefinition, AgentMetadata};
     use wf_types::workflow::{WorkflowDefinition, WorkflowMetadata};
@@ -458,11 +457,7 @@ mod tests {
             "agent-a".into(),
             agent_template("agent-a", "analytics"),
         );
-        Arc::new(ApiContext::new(
-            StorageContext::new_memory(),
-            registries,
-            Arc::new(ResourcePluginRegistry::new()),
-        ))
+        Arc::new(ApiContext::new(StorageContext::new_memory(), registries))
     }
 
     #[tokio::test]

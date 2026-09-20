@@ -96,14 +96,12 @@ mod tests {
     use wf_common;
     use wf_core::registry::Registry;
     use wf_resource::registry::ResourceRegistries;
-    use wf_resource::resource_plugin::ResourcePluginRegistry;
     use wf_storage::context::StorageContext;
 
     fn make_ctx() -> ApiContext {
         let storage = StorageContext::new_memory();
         let registries = Arc::new(ResourceRegistries::new());
-        let bundles = Arc::new(ResourcePluginRegistry::new());
-        ApiContext::new(storage, registries, bundles)
+        ApiContext::new(storage, registries)
     }
 
     fn make_workflow(id: &str) -> WorkflowDefinition {

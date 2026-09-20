@@ -9,7 +9,6 @@ use wf_api::checkpoint::record::{get_checkpoint, list_checkpoints, save_checkpoi
 use wf_api::workflow::workflow_execution::ExecuteWorkflowParams;
 use wf_api::ApiContext;
 use wf_resource::registry::ResourceRegistries;
-use wf_resource::resource_plugin::ResourcePluginRegistry;
 use wf_storage::context::StorageContext;
 use wf_storage::decorator::CacheConfig;
 use wf_storage::domain::Store;
@@ -94,7 +93,6 @@ fn make_ctx() -> Arc<ApiContext> {
     Arc::new(ApiContext::new(
         StorageContext::new_memory(),
         Arc::new(ResourceRegistries::new()),
-        Arc::new(ResourcePluginRegistry::new()),
     ))
 }
 
@@ -168,11 +166,7 @@ async fn checkpoint_command_roundtrip_on_sqlite_store() {
     let storage = StorageContext::new_sqlite(":memory:", CacheConfig::default())
         .await
         .unwrap();
-    let mut ctx = ApiContext::new(
-        storage,
-        Arc::new(ResourceRegistries::new()),
-        Arc::new(ResourcePluginRegistry::new()),
-    );
+    let mut ctx = ApiContext::new(storage, Arc::new(ResourceRegistries::new()));
     ctx = ctx.with_checkpoint_store(Arc::new(
         wf_storage::backend::StorageBackend::new_sqlite(":memory:", "checkpoint_store")
             .await
@@ -231,11 +225,7 @@ async fn checkpoint_chain_respects_node_config_via_api() {
     let storage = StorageContext::new_sqlite(":memory:", CacheConfig::default())
         .await
         .unwrap();
-    let mut ctx = ApiContext::new(
-        storage,
-        Arc::new(ResourceRegistries::new()),
-        Arc::new(ResourcePluginRegistry::new()),
-    );
+    let mut ctx = ApiContext::new(storage, Arc::new(ResourceRegistries::new()));
     ctx = ctx.with_checkpoint_store(Arc::new(
         wf_storage::backend::StorageBackend::new_sqlite(":memory:", "checkpoint_store")
             .await

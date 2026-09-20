@@ -13,7 +13,6 @@ use wf_execution_shared::types::execution_instance::ExecutionInstance;
 use wf_llm::LlmGateway;
 use wf_metrics::MetricsRegistry;
 use wf_resource::registry::ResourceRegistries;
-use wf_resource::resource_plugin::ResourcePluginRegistry;
 use wf_storage::backend::StorageBackend;
 use wf_storage::context::StorageContext;
 use wf_tools::registry::ToolRegistry;
@@ -46,7 +45,6 @@ pub type LiveExecutionInstance =
 pub struct ApiContext {
     pub storage: Arc<StorageContext>,
     pub registries: Arc<ResourceRegistries>,
-    pub bundles: Arc<ResourcePluginRegistry>,
     /// Shared event bus; workflow/agent engines publish lifecycle events here
     /// and `ExecutionEventStream` subscribes to them.
     pub event_bus: Arc<EventBus>,
@@ -117,11 +115,7 @@ pub struct ApiContext {
 }
 
 impl ApiContext {
-    pub fn new(
-        storage: StorageContext,
-        registries: Arc<ResourceRegistries>,
-        bundles: Arc<ResourcePluginRegistry>,
-    ) -> Self {
+    pub fn new(storage: StorageContext, registries: Arc<ResourceRegistries>) -> Self {
         let storage = Arc::new(storage);
         let event_bus = Arc::new(EventBus::new(1024));
         let llm_gateway = Arc::new(LlmGateway::new());
@@ -129,7 +123,6 @@ impl ApiContext {
         let ctx = Self {
             storage: storage.clone(),
             registries,
-            bundles,
             event_bus,
             metrics: None,
             llm_gateway,
@@ -165,7 +158,6 @@ impl ApiContext {
     pub fn from_runtime_parts(
         storage: Arc<StorageContext>,
         registries: Arc<ResourceRegistries>,
-        bundles: Arc<ResourcePluginRegistry>,
         event_bus: Arc<EventBus>,
         llm_gateway: Arc<LlmGateway>,
         tool_registry: Arc<ToolRegistry>,
@@ -175,7 +167,6 @@ impl ApiContext {
         let ctx = Self {
             storage: storage.clone(),
             registries,
-            bundles,
             event_bus,
             metrics,
             llm_gateway,

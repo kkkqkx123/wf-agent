@@ -357,14 +357,12 @@ mod tests {
     use super::*;
     use std::sync::Arc;
     use wf_resource::registry::ResourceRegistries;
-    use wf_resource::resource_plugin::ResourcePluginRegistry;
     use wf_storage::context::StorageContext;
 
     fn make_ctx() -> Arc<ApiContext> {
         let mut ctx = ApiContext::new(
             StorageContext::new_memory(),
             Arc::new(ResourceRegistries::new()),
-            Arc::new(ResourcePluginRegistry::new()),
         );
         ctx =
             ctx.with_checkpoint_store(Arc::new(wf_storage::backend::StorageBackend::new_memory()));

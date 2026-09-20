@@ -412,17 +412,12 @@ mod tests {
     use super::*;
     use std::sync::Arc;
     use wf_resource::registry::{RegisterOptions as ResourceOptions, ResourceRegistries};
-    use wf_resource::resource_plugin::ResourcePluginRegistry;
     use wf_storage::context::StorageContext;
     use wf_types::events::{BaseEvent, EventType};
     use wf_types::workflow::{WorkflowDefinition, WorkflowMetadata, WorkflowTemplate};
     use wf_types::ExecutionStatus;
 
-    fn make_ctx() -> (
-        Arc<ResourceRegistries>,
-        Arc<ResourcePluginRegistry>,
-        Arc<ApiContext>,
-    ) {
+    fn make_ctx() -> (Arc<ResourceRegistries>, Arc<ApiContext>) {
         let storage = StorageContext::new_memory();
         let registries = Arc::new(ResourceRegistries::new());
         wf_resource::register_all(
@@ -430,17 +425,12 @@ mod tests {
             &Arc::new(wf_tools::registry::ToolRegistry::new()),
             &ResourceOptions::default(),
         );
-        let bundles = Arc::new(ResourcePluginRegistry::new());
-        let ctx = Arc::new(ApiContext::new(
-            storage,
-            registries.clone(),
-            bundles.clone(),
-        ));
-        (registries, bundles, ctx)
+        let ctx = Arc::new(ApiContext::new(storage, registries.clone()));
+        (registries, ctx)
     }
 
     fn ctx_only() -> Arc<ApiContext> {
-        let (_, _, ctx) = make_ctx();
+        let (_, ctx) = make_ctx();
         ctx
     }
 
@@ -510,7 +500,7 @@ mod tests {
     async fn test_search_finds_workflows_and_executions() {
         use wf_core::registry::MutableRegistry;
 
-        let (registries, _, ctx) = make_ctx();
+        let (registries, ctx) = make_ctx();
         registries
             .workflows
             .register(
@@ -539,7 +529,7 @@ mod tests {
     async fn test_search_filters_by_type() {
         use wf_core::registry::MutableRegistry;
 
-        let (registries, _, ctx) = make_ctx();
+        let (registries, ctx) = make_ctx();
         registries
             .workflows
             .register(
@@ -573,7 +563,7 @@ mod tests {
     async fn test_search_matches_description_and_tags() {
         use wf_core::registry::MutableRegistry;
 
-        let (registries, _, ctx) = make_ctx();
+        let (registries, ctx) = make_ctx();
         registries
             .workflows
             .register(
@@ -678,7 +668,7 @@ mod tests {
     async fn test_search_results_are_deterministic() {
         use wf_core::registry::MutableRegistry;
 
-        let (registries, _, ctx) = make_ctx();
+        let (registries, ctx) = make_ctx();
         for i in 0..10 {
             registries
                 .workflows

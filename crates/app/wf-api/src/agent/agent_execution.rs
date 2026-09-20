@@ -436,7 +436,6 @@ mod tests {
     use super::*;
     use wf_llm::{LlmGateway, LlmResponseSpec, MockLlmClient};
     use wf_resource::registry::ResourceRegistries;
-    use wf_resource::resource_plugin::ResourcePluginRegistry;
     use wf_storage::context::StorageContext;
 
     fn gateway_with(mock: Arc<MockLlmClient>) -> Arc<LlmGateway> {
@@ -451,7 +450,6 @@ mod tests {
         let mut ctx = ApiContext::from_runtime_parts(
             Arc::new(StorageContext::new_memory()),
             Arc::new(ResourceRegistries::new()),
-            Arc::new(ResourcePluginRegistry::new()),
             Arc::new(wf_core::EventBus::new(64)),
             gateway_with(mock),
             Arc::new(wf_tools::create_default_tool_registry()),
@@ -536,7 +534,6 @@ mod tests {
         let mut ctx1 = ApiContext::from_runtime_parts(
             storage.clone(),
             Arc::new(ResourceRegistries::new()),
-            Arc::new(ResourcePluginRegistry::new()),
             Arc::new(wf_core::EventBus::new(64)),
             gateway.clone(),
             Arc::new(wf_tools::create_default_tool_registry()),
@@ -585,7 +582,6 @@ mod tests {
         let ctx2 = Arc::new(ApiContext::from_runtime_parts(
             storage,
             Arc::new(ResourceRegistries::new()),
-            Arc::new(ResourcePluginRegistry::new()),
             Arc::new(wf_core::EventBus::new(64)),
             gateway,
             Arc::new(wf_tools::create_default_tool_registry()),

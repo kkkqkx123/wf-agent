@@ -27,3 +27,4 @@ level = "high"
 
 [metadata]
 tags = ["openai", "o1", "reasoning", "deep", "complex"]
+context_budget_percent = 85

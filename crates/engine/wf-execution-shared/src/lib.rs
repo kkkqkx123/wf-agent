@@ -67,6 +67,7 @@ pub use token_events::{
     WRITEBACK_OPERATION_REPLACE,
 };
 pub use token_tracker::{
-    context_budget_from_window, RequestUsage, TokenTrackerState, TokenUsageTracker,
-    CONTEXT_BUDGET_PERCENT,
+    context_budget_from_profile, context_budget_from_window,
+    context_budget_from_window_with_percent, context_budget_percent_from_metadata, RequestUsage,
+    TokenTrackerState, TokenUsageTracker, CONTEXT_BUDGET_METADATA_KEY, CONTEXT_BUDGET_PERCENT,
 };

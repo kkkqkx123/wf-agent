@@ -421,21 +421,37 @@ impl AgentIterationCoordinator {
         // so this is a warning only (never blocks the request); the
         // provider's real count takes precedence. Compares the single
         // request estimate against the model-window context budget.
-        // Fires at most once per session.
+        // Near the threshold the provider count-tokens API refines the
+        // estimate, mirroring the workflow preflight. The conversation
+        // lock is never held across the network call.
+        // Fires at most once per session until a compression write-back
+        // re-arms it.
         if self.token_tracking_enabled {
             if let Some(ref bus) = self.event_bus {
-                let mut conversation = entity.conversation().write().await;
-                let context_limit = conversation.context_limit();
+                let context_limit = entity.conversation().read().await.context_limit();
                 if context_limit > 0 {
-                    let estimated = u64::from(wf_llm::estimate_request_tokens(&request));
-                    if estimated > context_limit && conversation.consume_preflight_warning() {
-                        let _ = bus.publish(wf_execution_shared::build_token_usage_warning_event(
-                            &execution_id,
-                            Some(entity.id()),
-                            estimated,
-                            context_limit,
-                            estimated as f64 / context_limit as f64 * 100.0,
-                        ));
+                    let mut estimated = u64::from(wf_llm::estimate_request_tokens(&request));
+                    if estimated as f64 > context_limit as f64 * 0.8 {
+                        if let Ok(count) = self
+                            .gateway
+                            .count_tokens(&request, Some(entity.get_abort_signal()))
+                            .await
+                        {
+                            estimated = u64::from(count.input_tokens);
+                        }
+                    }
+                    if estimated > context_limit {
+                        let mut conversation = entity.conversation().write().await;
+                        if conversation.consume_preflight_warning() {
+                            let _ =
+                                bus.publish(wf_execution_shared::build_token_usage_warning_event(
+                                    &execution_id,
+                                    Some(entity.id()),
+                                    estimated,
+                                    context_limit,
+                                    estimated as f64 / context_limit as f64 * 100.0,
+                                ));
+                        }
                     }
                 }
             }
@@ -841,28 +857,43 @@ impl AgentIterationCoordinator {
 
     /// Safety-net path: emit a forced CONTEXT_COMPRESSION_REQUESTED over
     /// the actual request messages when the provider rejected them with a
-    /// context-length-exceeded error.
+    /// context-length-exceeded error. Skipped when a regular compression
+    /// signal for the same version already fired (the summary is in flight).
     async fn publish_forced_compression(&self, entity: &AgentLoopEntity, request: &LlmRequest) {
         let Some(ref bus) = self.event_bus else {
             return;
         };
-        let conversation = entity.conversation().write().await;
-        let version = conversation.conversation_version();
-        let context_limit = conversation.context_limit();
+        let (version, context_limit, may_emit) = {
+            let conversation = entity.conversation().read().await;
+            let version = conversation.conversation_version();
+            let may_emit = conversation.should_emit_compression(version);
+            (version, conversation.context_limit(), may_emit)
+        };
+        if !may_emit {
+            return;
+        }
         let tokens_used = u64::from(wf_llm::estimate_request_tokens(request));
+        // With no model window the budget is unknown: report the estimate
+        // itself so the audit event carries a meaningful ratio.
+        let effective_limit = if context_limit > 0 {
+            context_limit
+        } else {
+            tracing::warn!(
+                entity_id = %entity.id(),
+                "forced compression with unknown context budget"
+            );
+            tokens_used.max(1)
+        };
         let messages = request.messages.clone();
         let compression_request = wf_execution_shared::context_store::compression_request(
             wf_execution_shared::CONVERSATION_CONTEXT_ID,
             tokens_used,
-            context_limit,
+            effective_limit,
             request.messages.len(),
             version,
             true,
             &messages,
         );
-        // Release the session lock: the pre-compression checkpoint below
-        // reads the session back.
-        drop(conversation);
         // Snapshot the pre-compression state before the safety-net summary
         // workflow runs; the compressed view is checkpointed on write-back.
         self.boundary_checkpoint(

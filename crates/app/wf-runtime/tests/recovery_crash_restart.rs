@@ -177,8 +177,8 @@ async fn kill_restart_recover_drives_crashed_execution_to_completion() {
 
     // ---- Process 2: restart over the same store ----
     let storage = StorageContext::new_sqlite(db, CacheConfig::default())
-            .await
-            .unwrap();
+        .await
+        .unwrap();
 
     // The crashed execution's persisted record still claims it is running.
     storage
@@ -263,8 +263,8 @@ async fn kill_restart_without_checkpoint_is_skipped() {
 
     // Process 2: restart and scan.
     let storage = StorageContext::new_sqlite(db, CacheConfig::default())
-            .await
-            .unwrap();
+        .await
+        .unwrap();
     let api_ctx = make_api_ctx(storage, db).await;
     let orchestrator = RecoveryOrchestrator::new(RecoveryScanner::new(
         api_ctx.storage.workflow_execution.clone(),

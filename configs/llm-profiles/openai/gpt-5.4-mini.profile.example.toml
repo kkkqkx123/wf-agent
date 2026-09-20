@@ -27,3 +27,4 @@ level = "medium"
 
 [metadata]
 tags = ["openai", "gpt-4o-mini", "fast", "cheap"]
+context_budget_percent = 85

@@ -42,9 +42,12 @@ async fn assert_atomic_behavior(ctx: &StorageContext) {
 
     // The cross-table path invalidates the cached rows it touches: a record
     // loaded before the batch must not be served from cache after deletion.
-    ctx.apply_atomic(&[AtomicOperation::new(EntityStoreId::Task, save_op("task-cached"))])
-        .await
-        .unwrap();
+    ctx.apply_atomic(&[AtomicOperation::new(
+        EntityStoreId::Task,
+        save_op("task-cached"),
+    )])
+    .await
+    .unwrap();
     let _ = ctx.task.store().load("task-cached").await.unwrap();
     let cross = vec![
         AtomicOperation::new(
@@ -54,7 +57,13 @@ async fn assert_atomic_behavior(ctx: &StorageContext) {
         AtomicOperation::new(EntityStoreId::Checkpoint, save_op("cp-cached")),
     ];
     ctx.apply_atomic(&cross).await.unwrap();
-    assert!(ctx.task.store().load("task-cached").await.unwrap().is_none());
+    assert!(ctx
+        .task
+        .store()
+        .load("task-cached")
+        .await
+        .unwrap()
+        .is_none());
     assert!(ctx.checkpoint.store().exists("cp-cached").await.unwrap());
 }
 

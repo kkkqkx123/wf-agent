@@ -45,3 +45,4 @@ include_usage = true
 
 [metadata]
 tags = ["openai", "gpt-4o", "fast", "cheap"]
+context_budget_percent = 85

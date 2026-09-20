@@ -3,9 +3,7 @@ use serde_json::Value;
 
 use crate::decorator::cache::{CacheConfig, CachingStore};
 use crate::decorator::instrumented::{InstrumentedStore, StorageMetrics};
-use crate::domain::store::{
-    BatchItem, Maintainable, QueryFilter, Store, StoreExt, StoreOperation,
-};
+use crate::domain::store::{BatchItem, Maintainable, QueryFilter, Store, StoreExt, StoreOperation};
 use crate::error::StorageError;
 use crate::store::memory::MemoryStorage;
 use crate::store::postgres::PostgresStorage;

@@ -92,7 +92,10 @@ impl ConversationSession {
 
     /// Compression with tail retention: keep the last `tail_keep` pre-existing
     /// messages visible alongside the summary. Multi-level summaries compose
-    /// naturally since the previous summary stays in history.
+    /// naturally since the previous summary stays in history. A successful
+    /// write-back re-arms the pre-request budget warning: the remediation
+    /// for the reported pressure landed, so the next over-budget request
+    /// warns again instead of staying silent for the rest of the session.
     pub fn compress_with_tail(&mut self, summary_messages: Vec<Message>, tail_keep: usize) {
         if summary_messages.is_empty() {
             return;
@@ -107,6 +110,7 @@ impl ConversationSession {
             summary,
             tail_begin,
         };
+        self.tracker.reset_preflight_warning();
     }
 
     /// Drop the compressed projection and show the whole history again.
@@ -341,9 +345,15 @@ impl ConversationSession {
     }
 
     /// Consume the single-shot pre-request budget warning (estimated request
-    /// exceeds the limit); returns true exactly once per session.
+    /// exceeds the limit); re-armed by every compression write-back.
     pub fn consume_preflight_warning(&mut self) -> bool {
         self.tracker.consume_preflight_warning()
+    }
+
+    /// Re-arm the pre-request budget warning (called by compression
+    /// write-back; exposed for checkpoint repair paths).
+    pub fn reset_preflight_warning(&mut self) {
+        self.tracker.reset_preflight_warning();
     }
 
     /// Decision track: tier-based limit exceeded guard (100%/150%/200% ...).

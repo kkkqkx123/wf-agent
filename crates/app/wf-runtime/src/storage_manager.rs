@@ -87,7 +87,8 @@ impl StorageManager {
                     RuntimeError::Config("PostgreSQL storage config is missing".into())
                 })?;
                 info!("Initializing PostgreSQL storage");
-                let conn = crate::bootstrap::bootstrap_helpers::postgres_connection_string(pg_config);
+                let conn =
+                    crate::bootstrap::bootstrap_helpers::postgres_connection_string(pg_config);
                 StorageContext::new_postgres(&conn, CacheConfig::default()).await?
             }
         };

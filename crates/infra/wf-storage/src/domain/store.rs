@@ -182,26 +182,24 @@ impl QueryFilter {
         let mut plan = CompiledFilter::default();
         for op in &self.ops {
             match op {
-                FilterOp::Eq(key, value) => plan.conditions.push(FilterCondition::Eq(
-                    key.clone(),
-                    value.clone(),
-                )),
+                FilterOp::Eq(key, value) => plan
+                    .conditions
+                    .push(FilterCondition::Eq(key.clone(), value.clone())),
                 FilterOp::IdPrefix(prefix) => plan
                     .conditions
                     .push(FilterCondition::IdPrefix(prefix.clone())),
-                FilterOp::Prefix(key, prefix) => plan.conditions.push(FilterCondition::Prefix(
-                    key.clone(),
-                    prefix.clone(),
-                )),
+                FilterOp::Prefix(key, prefix) => plan
+                    .conditions
+                    .push(FilterCondition::Prefix(key.clone(), prefix.clone())),
                 FilterOp::Lt(key, value) => plan
                     .conditions
                     .push(FilterCondition::Lt(key.clone(), *value)),
                 FilterOp::Gt(key, value) => plan
                     .conditions
                     .push(FilterCondition::Gt(key.clone(), *value)),
-                FilterOp::Between(key, start, end) => plan.conditions.push(
-                    FilterCondition::Between(key.clone(), *start, *end),
-                ),
+                FilterOp::Between(key, start, end) => plan
+                    .conditions
+                    .push(FilterCondition::Between(key.clone(), *start, *end)),
                 FilterOp::In(key, values) => plan
                     .conditions
                     .push(FilterCondition::In(key.clone(), values.clone())),
@@ -288,7 +286,9 @@ mod tests {
             .with_limit(10);
         let stripped = filter.stripped_for_count();
         assert_eq!(stripped.ops.len(), 1);
-        assert!(matches!(&stripped.ops[0], FilterOp::Eq(k, v) if k == "entityType" && v == "workflow"));
+        assert!(
+            matches!(&stripped.ops[0], FilterOp::Eq(k, v) if k == "entityType" && v == "workflow")
+        );
     }
 
     #[test]
@@ -299,11 +299,7 @@ mod tests {
 
     #[test]
     fn batch_item_row_helpers_agree_with_metadata() {
-        let item = BatchItem::new(
-            "id",
-            vec![1, 2, 3],
-            serde_json::json!({"compressed": true}),
-        );
+        let item = BatchItem::new("id", vec![1, 2, 3], serde_json::json!({"compressed": true}));
         assert!(item.compressed());
         assert_eq!(item.data_size(), 3);
         assert!(item.metadata_json().unwrap().contains("compressed"));

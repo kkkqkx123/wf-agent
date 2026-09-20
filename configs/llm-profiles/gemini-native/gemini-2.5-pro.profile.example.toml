@@ -34,3 +34,4 @@ key = "${GEMINI_API_KEY}"
 
 [metadata]
 tags = ["gemini", "gemini-pro", "capable", "production"]
+context_budget_percent = 85

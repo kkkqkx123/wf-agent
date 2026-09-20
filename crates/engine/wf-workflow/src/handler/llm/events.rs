@@ -110,15 +110,31 @@ pub async fn publish_forced_compression(ctx: &NodeExecutionContext, request: &Ll
     let tokens_used = u64::from(wf_llm::estimate_request_tokens(request));
     let message_count = request.messages.len();
     let array_version = message_context::array_version(&ctx.variables, &target);
+    // Dedup: a regular compression signal for this version already fired.
+    if !message_context::should_emit_compression(&ctx.variables, &target, array_version) {
+        return;
+    }
     let context_limit = if let Some(ref tracker) = ctx.token_tracker {
         tracker.lock().await.context_limit()
     } else {
         0
     };
+    // With no model window the budget is unknown: report the estimate
+    // itself so the audit event carries a meaningful ratio.
+    let effective_limit = if context_limit > 0 {
+        context_limit
+    } else {
+        tracing::warn!(
+            execution_id = %ctx.execution_id,
+            node_id = %ctx.node_id,
+            "forced compression with unknown context budget"
+        );
+        tokens_used.max(1)
+    };
     let compression_request = wf_execution_shared::context_store::compression_request(
         &target,
         tokens_used,
-        context_limit,
+        effective_limit,
         message_count,
         array_version,
         true,
@@ -137,6 +153,7 @@ pub async fn publish_forced_compression(ctx: &NodeExecutionContext, request: &Ll
     )
     .ok();
     dispatch_compression_signal(ctx, &compression_request).await;
+    message_context::mark_compression_emitted(&ctx.variables, &target, array_version);
 }
 
 /// Dispatch the `CONTEXT_COMPRESSION_REQUESTED` engine signal through the

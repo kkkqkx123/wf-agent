@@ -1016,17 +1016,24 @@ impl AgentLoopCoordinator {
             }
             // Context budget comes from the model window only, never from
             // the task token limit: single-request input size is a model
-            // capability, task length is a separate concern.
-            let window = self
-                .gateway
-                .profile_registry()
-                .get(&config.model)
-                .and_then(|p| p.context_window_size);
+            // capability, task length is a separate concern. A per-model
+            // percent override lives in the profile metadata map.
+            let profile = self.gateway.profile_registry().get(&config.model);
+            let context_budget = wf_execution_shared::context_budget_from_profile(
+                profile.as_ref().and_then(|p| p.context_window_size),
+                profile.as_ref().and_then(|p| p.metadata.as_ref()),
+            );
+            if context_budget == 0 {
+                tracing::warn!(
+                    model = %config.model,
+                    "no context window for model: compression and preflight checks disabled"
+                );
+            }
             entity
                 .conversation()
                 .write()
                 .await
-                .set_context_limit(wf_execution_shared::context_budget_from_window(window));
+                .set_context_limit(context_budget);
         }
 
         if !input.message.is_empty() {

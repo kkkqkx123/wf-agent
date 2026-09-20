@@ -156,6 +156,32 @@ pub(crate) async fn record_trigger_execution(
     }
 }
 
+/// Re-arm the persisted pre-request budget warning after a workflow
+/// compression write-back lands. The execution-scoped tracker state is
+/// checkpointed in the variable map; flipping the guard there lets the next
+/// over-budget request warn again. Best-effort: missing or unparsable state
+/// is left untouched.
+fn reset_persisted_preflight_warning(contexts: &Arc<ExecutionContextRegistry>, execution_id: &str) {
+    use wf_workflow::handler::llm::token_budget::TRACKER_STATE_KEY;
+    let Some(variables) = contexts.variables_for(execution_id) else {
+        return;
+    };
+    let Some(value) = variables.get(TRACKER_STATE_KEY).map(|entry| entry.clone()) else {
+        return;
+    };
+    let mut state: wf_execution_shared::TokenTrackerState = match serde_json::from_value(value) {
+        Ok(state) => state,
+        Err(_) => return,
+    };
+    if !state.preflight_warning_emitted {
+        return;
+    }
+    state.preflight_warning_emitted = false;
+    if let Ok(value) = serde_json::to_value(state) {
+        variables.insert(TRACKER_STATE_KEY.to_string(), value);
+    }
+}
+
 /// Write the compressed output back to the emitting execution and publish
 /// the CONTEXT_COMPRESSION_COMPLETED event.
 pub(crate) async fn handle_subworkflow_output(
@@ -178,7 +204,7 @@ pub(crate) async fn handle_subworkflow_output(
     // only workflow variable-map targets are written back through the
     // registry.
     if agent_loop_id.is_none() {
-        if let Err(error) = contexts
+        match contexts
             .write_context(
                 execution_id,
                 target_context_id,
@@ -187,10 +213,16 @@ pub(crate) async fn handle_subworkflow_output(
             )
             .await
         {
-            warn!(
-                "Context write-back failed for execution {} context {}: {}",
-                execution_id, target_context_id, error
-            );
+            // The remediation landed: re-arm the persisted pre-request
+            // budget warning so the next over-budget request warns again
+            // instead of staying silent for the rest of the execution.
+            Ok(()) => reset_persisted_preflight_warning(contexts, execution_id),
+            Err(error) => {
+                warn!(
+                    "Context write-back failed for execution {} context {}: {}",
+                    execution_id, target_context_id, error
+                );
+            }
         }
     }
     let completed = build_compression_completed_event(

@@ -100,14 +100,45 @@ pub const DEFAULT_HISTORY_LIMIT: usize = 100;
 /// Share of a model's context window usable for a single request input.
 /// The remainder reserves headroom for the model output and local
 /// estimation error. Single source for every context-budget derivation.
+/// Per-profile overrides live in the profile metadata map under
+/// [`CONTEXT_BUDGET_METADATA_KEY`] so no struct change is needed.
 pub const CONTEXT_BUDGET_PERCENT: u64 = 85;
+
+/// Profile metadata key carrying a per-model budget percent override
+/// (integer 1-100). Values outside the range fall back to the default.
+pub const CONTEXT_BUDGET_METADATA_KEY: &str = "context_budget_percent";
+
+/// Resolve the effective budget percent from a profile metadata map.
+pub fn context_budget_percent_from_metadata(
+    metadata: Option<&std::collections::HashMap<String, serde_json::Value>>,
+) -> u64 {
+    metadata
+        .and_then(|m| m.get(CONTEXT_BUDGET_METADATA_KEY))
+        .and_then(|v| v.as_u64())
+        .filter(|p| (1..=100).contains(p))
+        .unwrap_or(CONTEXT_BUDGET_PERCENT)
+}
 
 /// Derive the per-request context budget from a model window size.
 /// Returns 0 (compression disabled) when the window is absent.
 pub fn context_budget_from_window(window: Option<u32>) -> u64 {
-    window
-        .map(|w| u64::from(w) * CONTEXT_BUDGET_PERCENT / 100)
-        .unwrap_or(0)
+    context_budget_from_window_with_percent(window, CONTEXT_BUDGET_PERCENT)
+}
+
+/// Derive the per-request context budget with an explicit percent.
+/// Returns 0 (compression disabled) when the window is absent.
+pub fn context_budget_from_window_with_percent(window: Option<u32>, percent: u64) -> u64 {
+    let percent = percent.clamp(1, 100);
+    window.map(|w| u64::from(w) * percent / 100).unwrap_or(0)
+}
+
+/// Derive the per-request context budget from a window plus an optional
+/// profile metadata map (per-model percent override).
+pub fn context_budget_from_profile(
+    window: Option<u32>,
+    metadata: Option<&std::collections::HashMap<String, serde_json::Value>>,
+) -> u64 {
+    context_budget_from_window_with_percent(window, context_budget_percent_from_metadata(metadata))
 }
 
 /// Serialized state of a [`TokenUsageTracker`] for checkpointing.
@@ -365,8 +396,9 @@ impl TokenUsageTracker {
     }
 
     /// Consume the single-shot pre-request budget warning: returns true
-    /// exactly once per session regardless of the cumulative percentage
-    /// (the estimated upcoming request alone may exceed the limit).
+    /// at most once until [`Self::reset_preflight_warning`] re-arms it
+    /// (compression write-back calls the reset, so each new pressure wave
+    /// warns again instead of staying silent for the rest of the session).
     pub fn consume_preflight_warning(&mut self) -> bool {
         if self.preflight_warning_emitted {
             return false;
@@ -400,6 +432,13 @@ impl TokenUsageTracker {
 
     pub fn reset_warning(&mut self) {
         self.warning_emitted = false;
+    }
+
+    /// Re-arm the pre-request budget warning so the next over-budget
+    /// request warns again. Called when a compression write-back lands
+    /// (the remediation for the pressure the warning reported).
+    pub fn reset_preflight_warning(&mut self) {
+        self.preflight_warning_emitted = false;
     }
 
     pub fn history(&self) -> &[TokenUsageHistory] {
@@ -703,5 +742,39 @@ mod tests {
         let mut restored = TokenUsageTracker::new(0);
         restored.restore(state);
         assert_eq!(restored.context_limit(), 850);
+    }
+
+    #[test]
+    fn test_budget_percent_override_from_metadata() {
+        assert_eq!(
+            context_budget_percent_from_metadata(None),
+            CONTEXT_BUDGET_PERCENT
+        );
+        let mut meta = std::collections::HashMap::new();
+        meta.insert(
+            CONTEXT_BUDGET_METADATA_KEY.to_string(),
+            serde_json::json!(50),
+        );
+        assert_eq!(context_budget_percent_from_metadata(Some(&meta)), 50);
+        assert_eq!(context_budget_from_profile(Some(1_000), Some(&meta)), 500);
+        meta.insert(
+            CONTEXT_BUDGET_METADATA_KEY.to_string(),
+            serde_json::json!(0),
+        );
+        assert_eq!(
+            context_budget_percent_from_metadata(Some(&meta)),
+            CONTEXT_BUDGET_PERCENT,
+            "out-of-range override falls back to the default"
+        );
+        assert_eq!(context_budget_from_profile(None, Some(&meta)), 0);
+    }
+
+    #[test]
+    fn test_preflight_warning_rearms_after_reset() {
+        let mut tracker = TokenUsageTracker::new(100);
+        assert!(tracker.consume_preflight_warning());
+        assert!(!tracker.consume_preflight_warning());
+        tracker.reset_preflight_warning();
+        assert!(tracker.consume_preflight_warning());
     }
 }

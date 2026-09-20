@@ -36,10 +36,9 @@ fn make_message(id: &str, role: MessageRole, text: &str, ts: i64) -> Message {
 }
 
 async fn make_sqlite_ctx(db_path: &std::path::Path) -> Arc<ApiContext> {
-    let storage =
-        StorageContext::new_sqlite(db_path.to_str().unwrap(), CacheConfig::default())
-            .await
-            .unwrap();
+    let storage = StorageContext::new_sqlite(db_path.to_str().unwrap(), CacheConfig::default())
+        .await
+        .unwrap();
     Arc::new(ApiContext::new(
         storage,
         Arc::new(ResourceRegistries::new()),

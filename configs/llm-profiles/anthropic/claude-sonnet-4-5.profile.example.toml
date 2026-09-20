@@ -39,3 +39,4 @@ max_tokens = 12800
 
 [metadata]
 tags = ["anthropic", "claude-sonnet", "balanced", "production"]
+context_budget_percent = 85

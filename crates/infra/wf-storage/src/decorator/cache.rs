@@ -5,9 +5,7 @@ use async_trait::async_trait;
 use moka::sync::Cache;
 use serde_json::Value;
 
-use crate::domain::store::{
-    BatchItem, Maintainable, QueryFilter, Store, StoreExt, StoreOperation,
-};
+use crate::domain::store::{BatchItem, Maintainable, QueryFilter, Store, StoreExt, StoreOperation};
 use crate::error::StorageError;
 
 #[derive(Debug, Clone, Copy)]

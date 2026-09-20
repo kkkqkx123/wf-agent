@@ -24,7 +24,10 @@ mod tests {
 
     #[test]
     fn schema_version_key_uses_shared_prefix() {
-        assert_eq!(schema_version_key("workflow"), "__schema_version__:workflow");
+        assert_eq!(
+            schema_version_key("workflow"),
+            "__schema_version__:workflow"
+        );
         assert!(schema_version_key("workflow").starts_with(SCHEMA_VERSION_KEY_PREFIX));
     }
 

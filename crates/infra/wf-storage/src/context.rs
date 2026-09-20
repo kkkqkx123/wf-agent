@@ -7,9 +7,7 @@ use crate::adapter::adapter_impls::{
 };
 use crate::backend::StorageBackend;
 use crate::decorator::cache::{CacheConfig, CachingStore};
-use crate::decorator::instrumented::{
-    InstrumentedStore, StorageMetrics, StorageMetricsSnapshot,
-};
+use crate::decorator::instrumented::{InstrumentedStore, StorageMetrics, StorageMetricsSnapshot};
 use crate::domain::store::{CrossTableOperation, StoreExt, StoreOperation};
 use crate::error::StorageError;
 use crate::store::memory::MemoryStorage;
@@ -225,26 +223,86 @@ macro_rules! define_storage_entities {
 }
 
 define_storage_entities!(
-    Workflow, workflow, "workflow", WorkflowStorage,
-    WorkflowDraft, workflow_draft, "workflow_draft", WorkflowDraftStorage,
-    WorkflowExecution, workflow_execution, "execution", WorkflowExecutionStorage,
-    Checkpoint, checkpoint, "checkpoint", CheckpointStorage,
-    Task, task, "task", TaskStorage,
-    AgentLoop, agent_loop, "agent_loop", AgentLoopStorage,
-    AgentExecution, agent_execution, "agent_execution", AgentExecutionStorage,
-    AgentProfile, agent_profile, "agent_profile", AgentProfileStorage,
-    AgentTemplate, agent_template, "agent_template", AgentTemplateStorage,
-    AgentDraft, agent_draft, "agent_draft", AgentDraftStorage,
-    TriggerTemplate, trigger_template, "trigger_template", TriggerTemplateStorage,
-    TriggerExecution, trigger_execution, "trigger_execution", TriggerExecutionStorage,
-    UserInteraction, user_interaction, "user_interaction", UserInteractionStorage,
-    Tool, tool, "tool", ToolStorage,
-    ToolDefinition, tool_definition, "tool_definition", ToolDefinitionStorage,
-    Script, script, "script", ScriptStorage,
-    NodeTemplate, node_template, "node_template", NodeTemplateStorage,
-    Metrics, metrics, "metrics", MetricsStorage,
-    Message, message, "message", MessageStorage,
-    Variable, variable, "variable", VariableStorage,
+    Workflow,
+    workflow,
+    "workflow",
+    WorkflowStorage,
+    WorkflowDraft,
+    workflow_draft,
+    "workflow_draft",
+    WorkflowDraftStorage,
+    WorkflowExecution,
+    workflow_execution,
+    "execution",
+    WorkflowExecutionStorage,
+    Checkpoint,
+    checkpoint,
+    "checkpoint",
+    CheckpointStorage,
+    Task,
+    task,
+    "task",
+    TaskStorage,
+    AgentLoop,
+    agent_loop,
+    "agent_loop",
+    AgentLoopStorage,
+    AgentExecution,
+    agent_execution,
+    "agent_execution",
+    AgentExecutionStorage,
+    AgentProfile,
+    agent_profile,
+    "agent_profile",
+    AgentProfileStorage,
+    AgentTemplate,
+    agent_template,
+    "agent_template",
+    AgentTemplateStorage,
+    AgentDraft,
+    agent_draft,
+    "agent_draft",
+    AgentDraftStorage,
+    TriggerTemplate,
+    trigger_template,
+    "trigger_template",
+    TriggerTemplateStorage,
+    TriggerExecution,
+    trigger_execution,
+    "trigger_execution",
+    TriggerExecutionStorage,
+    UserInteraction,
+    user_interaction,
+    "user_interaction",
+    UserInteractionStorage,
+    Tool,
+    tool,
+    "tool",
+    ToolStorage,
+    ToolDefinition,
+    tool_definition,
+    "tool_definition",
+    ToolDefinitionStorage,
+    Script,
+    script,
+    "script",
+    ScriptStorage,
+    NodeTemplate,
+    node_template,
+    "node_template",
+    NodeTemplateStorage,
+    Metrics,
+    metrics,
+    "metrics",
+    MetricsStorage,
+    Message,
+    message,
+    "message",
+    MessageStorage,
+    Variable,
+    variable,
+    "variable",
+    VariableStorage,
 );
 
 /// One operation of a cross-entity atomic batch: which entity store it
@@ -393,7 +451,11 @@ mod tests {
         for (id, backend) in ctx.named_backends() {
             let seed = seed_id(id);
             backend
-                .save(&seed, b"payload", &serde_json::json!({"entityType": "test"}))
+                .save(
+                    &seed,
+                    b"payload",
+                    &serde_json::json!({"entityType": "test"}),
+                )
                 .await
                 .unwrap();
             // Populate the entity cache where one exists so a missed

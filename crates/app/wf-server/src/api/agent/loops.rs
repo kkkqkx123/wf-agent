@@ -206,6 +206,7 @@ async fn handle_cleanup_completed(State(state): State<ApiState>) -> impl IntoRes
 /// `AgentLoopConfig` fields plus the loop input.
 #[derive(Deserialize)]
 pub struct RunAgentLoopBody {
+    #[serde(default)]
     agent_id: String,
     model: String,
     message: String,
@@ -235,8 +236,16 @@ pub(crate) fn params_from_body(
     state: &ApiState,
     body: RunAgentLoopBody,
 ) -> Result<wf_api::agent::agent_execution::RunAgentLoopParams, wf_api::ApiError> {
+    // Empty ids fall back to the built-in main agent, matching the CLI
+    // composition path (`build_agent_loop_config` defaults `None` the same
+    // way); the template resolver still rejects unregistered built-ins.
+    let agent_id = if body.agent_id.trim().is_empty() {
+        wf_api::DEFAULT_AGENT.to_string()
+    } else {
+        body.agent_id
+    };
     let config = AgentLoopConfig {
-        agent_id: wf_types::Id::from(body.agent_id),
+        agent_id: wf_types::Id::from(agent_id),
         model: body.model,
         max_iterations: body.max_iterations,
         max_execution_time: body.max_execution_time,

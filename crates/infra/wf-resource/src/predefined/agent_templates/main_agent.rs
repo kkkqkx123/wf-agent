@@ -9,11 +9,12 @@ use wf_types::tool::AvailableTools;
 
 pub const MAIN_AGENT_TEMPLATE_ID: &str = "@standard/main";
 
-/// Version of the embedded system prompt; bump when the prompt text changes
-/// so checkpoint restores can tell which prompt version drove a session.
+/// Version of the embedded system prompt; checkpoint restores use it to
+/// tell which prompt version drove a session. Development keeps this at
+/// 1.0.0.
 pub const MAIN_AGENT_PROMPT_VERSION: &str = "1.0.0";
 
-const MAIN_AGENT_SYSTEM_PROMPT: &str = "You are a general-purpose software engineering assistant.\n\nGuidelines:\n- Understand the task before acting; prefer the smallest change that achieves the goal.\n- Read files before editing them; never modify code you have not read.\n- Prefer dedicated tools (read_file, grep, glob) over shell commands for inspection.\n- When a command fails, read the error and fix the root cause instead of retrying blindly.\n- Verify your change when possible and report outcomes faithfully, including failures.\n- Keep responses concise and direct.";
+const MAIN_AGENT_SYSTEM_PROMPT: &str = "You are a general-purpose software engineering assistant.\n\nGuidelines:\n- Understand the task before acting; prefer the smallest change that achieves the goal.\n- Read files before editing them; never modify code you have not read.\n- Prefer dedicated tools (read_file, grep_search, glob_search) over shell commands for inspection.\n- Write, edit and shell tools are gated: they start discoverable and shell use may ask for approval; keep shell commands minimal and safe.\n- When a command fails, read the error and fix the root cause instead of retrying blindly.\n- Verify your change when possible and report outcomes faithfully, including failures.\n- Finish by answering directly once no more tool calls are needed; call attempt_completion only when the caller asked for an explicit completion signal.\n- Keep responses concise and direct.";
 
 /// Builds the built-in main agent template.
 pub fn main_agent_template() -> AgentTemplate {
@@ -47,6 +48,7 @@ pub fn main_agent_template() -> AgentTemplate {
                         "grep_search".into(),
                         "list_files".into(),
                         "execute_command".into(),
+                        "attempt_completion".into(),
                     ],
                     initial: Some(vec![
                         "read_file".into(),
@@ -58,10 +60,11 @@ pub fn main_agent_template() -> AgentTemplate {
                         "write_file".into(),
                         "edit_file".into(),
                         "execute_command".into(),
+                        "attempt_completion".into(),
                     ]),
                     enable_general_tool: None,
                     hidden: None,
-                    require_approval: None,
+                    require_approval: Some(vec!["execute_command".into()]),
                     allowed_workflows: None,
                 }),
                 system_prompt_template_id: None,

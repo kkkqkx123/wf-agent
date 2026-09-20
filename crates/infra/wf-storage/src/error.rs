@@ -68,9 +68,7 @@ impl From<sqlx::Error> for StorageError {
                 backend: "sqlx".into(),
                 message: "connection pool unavailable".into(),
             },
-            sqlx::Error::RowNotFound => {
-                StorageError::InvalidQuery("row not found".into())
-            }
+            sqlx::Error::RowNotFound => StorageError::InvalidQuery("row not found".into()),
             sqlx::Error::Io(io) => StorageError::Io(io),
             sqlx::Error::Database(db) => StorageError::General {
                 operation: "database".into(),

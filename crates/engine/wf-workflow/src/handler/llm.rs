@@ -112,12 +112,17 @@ impl LlmHandler {
     ) -> WorkflowResult<NodeExecutionResult> {
         let node_config = ctx.node_config.as_ref().unwrap_or(&Value::Null).clone();
         let cfg = parse_llm_node_config(ctx)?;
-        let context_budget = wf_execution_shared::context_budget_from_window(
-            self.gateway
-                .profile_registry()
-                .get(&cfg.profile_id)
-                .and_then(|p| p.context_window_size),
+        let profile = self.gateway.profile_registry().get(&cfg.profile_id);
+        let context_budget = wf_execution_shared::context_budget_from_profile(
+            profile.as_ref().and_then(|p| p.context_window_size),
+            profile.as_ref().and_then(|p| p.metadata.as_ref()),
         );
+        if context_budget == 0 {
+            tracing::warn!(
+                profile_id = %cfg.profile_id,
+                "no context window for profile: compression and preflight checks disabled"
+            );
+        }
         setup_token_tracker(
             ctx,
             &cfg.exec_config,

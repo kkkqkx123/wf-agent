@@ -30,3 +30,4 @@ key = "${GEMINI_API_KEY}"
 
 [metadata]
 tags = ["gemini", "gemini-flash", "fast", "cheap"]
+context_budget_percent = 85

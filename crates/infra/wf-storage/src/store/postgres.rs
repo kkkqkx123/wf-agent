@@ -2,16 +2,13 @@ use async_trait::async_trait;
 use serde_json::Value;
 use sqlx::PgPool;
 
-use crate::domain::keys::{schema_version_key, SCHEMA_VERSION_EXCLUDE_PATTERN};
+use crate::domain::keys::{schema_version_key, SCHEMA_VERSION, SCHEMA_VERSION_EXCLUDE_PATTERN};
 use crate::domain::store::{
-    BatchItem, FilterCondition, Maintainable, QueryFilter, Store, StoreExt, StoreOperation,
+    prefix_like_pattern, BatchItem, FilterBindValue, FilterCondition, Maintainable, QueryFilter,
+    Store, StoreExt, StoreOperation,
 };
 use crate::error::StorageError;
 use crate::util::pool::create_pg_pool;
-
-/// Current storage schema version. Bump when table structure or metadata
-/// semantics change; startup rejects databases with a different version.
-const SCHEMA_VERSION: i64 = 1;
 
 #[derive(Debug, Clone)]
 pub struct PostgresStorage {
@@ -92,6 +89,18 @@ impl PostgresStorage {
                 table = table_name,
                 error = %e,
                 "failed to create entityId index (table functional without it)"
+            );
+        }
+
+        let idx_ts = format!(
+            "CREATE INDEX IF NOT EXISTS idx_{}_timestamp ON {}(((metadata->>'timestamp')::float8))",
+            table_name, table_name
+        );
+        if let Err(e) = sqlx::query(&idx_ts).execute(&pool).await {
+            tracing::warn!(
+                table = table_name,
+                error = %e,
+                "failed to create timestamp index (table functional without it)"
             );
         }
 
@@ -254,11 +263,6 @@ impl PostgresStorage {
     }
 }
 
-enum BindValue {
-    S(String),
-    I(i64),
-}
-
 /// Translates a QueryFilter into a complete SELECT statement.
 /// Field names come from a fixed metadata schema, so interpolation is safe.
 /// The filter is first normalized through the shared compiled plan; only
@@ -268,11 +272,11 @@ fn build_select_sql(
     filter: Option<&QueryFilter>,
     table_name: &str,
     select_columns: &str,
-) -> (String, Vec<BindValue>) {
+) -> (String, Vec<FilterBindValue>) {
     let plan = filter.map(|f| f.compile());
     let mut sql = format!("SELECT {} FROM {}", select_columns, table_name);
     let mut conditions: Vec<String> = Vec::new();
-    let mut params: Vec<BindValue> = Vec::new();
+    let mut params: Vec<FilterBindValue> = Vec::new();
 
     // Exclude internal schema version records from application queries.
     conditions.push(format!("id NOT LIKE '{}'", SCHEMA_VERSION_EXCLUDE_PATTERN));
@@ -282,56 +286,49 @@ fn build_select_sql(
             match op {
                 FilterCondition::Eq(key, value) => {
                     conditions.push(format!("metadata->>'{}' = ${}", key, params.len() + 1));
-                    params.push(BindValue::S(value.clone()));
+                    params.push(FilterBindValue::S(value.clone()));
                 }
                 FilterCondition::IdPrefix(prefix) => {
-                    conditions.push(format!(
-                        "substr(id, 1, ${}) = ${}",
-                        params.len() + 1,
-                        params.len() + 2
-                    ));
-                    params.push(BindValue::S(prefix.clone()));
-                    params.push(BindValue::S(prefix.clone()));
+                    conditions.push(format!("id LIKE ${} ESCAPE '\\'", params.len() + 1));
+                    params.push(FilterBindValue::S(prefix_like_pattern(prefix)));
                 }
                 FilterCondition::Prefix(key, prefix) => {
                     conditions.push(format!(
-                        "substr(metadata->>'{}', 1, ${}) = ${}",
+                        "metadata->>'{}' LIKE ${} ESCAPE '\\'",
                         key,
-                        params.len() + 1,
-                        params.len() + 2
+                        params.len() + 1
                     ));
-                    params.push(BindValue::S(prefix.clone()));
-                    params.push(BindValue::S(prefix.clone()));
+                    params.push(FilterBindValue::S(prefix_like_pattern(prefix)));
                 }
                 FilterCondition::Lt(key, value) => {
                     conditions.push(format!(
-                        "(jsonb_typeof(metadata->'{}') = 'number' AND (metadata->>'{}')::bigint < ${})",
+                        "(jsonb_typeof(metadata->'{}') = 'number' AND (metadata->>'{}')::float8 < ${})",
                         key,
                         key,
                         params.len() + 1
                     ));
-                    params.push(BindValue::I(*value));
+                    params.push(FilterBindValue::I(*value));
                 }
                 FilterCondition::Gt(key, value) => {
                     conditions.push(format!(
-                        "(jsonb_typeof(metadata->'{}') = 'number' AND (metadata->>'{}')::bigint > ${})",
+                        "(jsonb_typeof(metadata->'{}') = 'number' AND (metadata->>'{}')::float8 > ${})",
                         key,
                         key,
                         params.len() + 1
                     ));
-                    params.push(BindValue::I(*value));
+                    params.push(FilterBindValue::I(*value));
                 }
                 FilterCondition::Between(key, start, end) => {
                     conditions.push(format!(
-                        "(jsonb_typeof(metadata->'{}') = 'number' AND (metadata->>'{}')::bigint >= ${} AND (metadata->>'{}')::bigint <= ${})",
+                        "(jsonb_typeof(metadata->'{}') = 'number' AND (metadata->>'{}')::float8 >= ${} AND (metadata->>'{}')::float8 <= ${})",
                         key,
                         key,
                         params.len() + 1,
                         key,
                         params.len() + 2
                     ));
-                    params.push(BindValue::I(*start));
-                    params.push(BindValue::I(*end));
+                    params.push(FilterBindValue::I(*start));
+                    params.push(FilterBindValue::I(*end));
                 }
                 FilterCondition::In(key, values) => {
                     if values.is_empty() {
@@ -345,7 +342,7 @@ fn build_select_sql(
                             key,
                             placeholders.join(", ")
                         ));
-                        params.extend(values.iter().cloned().map(BindValue::S));
+                        params.extend(values.iter().cloned().map(FilterBindValue::S));
                     }
                 }
             }
@@ -360,9 +357,10 @@ fn build_select_sql(
         // Numeric-aware ordering: numeric metadata values sort by their
         // numeric value, everything else falls back to NULL (excluded from
         // numeric comparison) so a cast can never fail the query. NULLS LAST
-        // keeps the direction predictable for both ASC and DESC.
+        // keeps the direction predictable for both ASC and DESC; the trailing
+        // id keeps pagination deterministic on ties.
         sql.push_str(&format!(
-            " ORDER BY (CASE WHEN jsonb_typeof(metadata->'{}') = 'number' THEN (metadata->>'{}')::bigint END) {} NULLS LAST",
+            " ORDER BY (CASE WHEN jsonb_typeof(metadata->'{}') = 'number' THEN (metadata->>'{}')::float8 END) {} NULLS LAST, id ASC",
             key,
             key,
             if descending { "DESC" } else { "ASC" }
@@ -384,10 +382,7 @@ impl Store for PostgresStorage {
         let now = chrono::Utc::now().timestamp_millis();
         let hash = crate::util::hash::compute_hash(data);
         let data_size = data.len() as i64;
-        let compressed = metadata
-            .get("compressed")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
+        let compressed = crate::domain::store::metadata_compressed(metadata);
 
         let sql = format!(
             "INSERT INTO {} (id, data, metadata, hash, data_size, compressed, created_at, updated_at)
@@ -466,8 +461,8 @@ impl Store for PostgresStorage {
         let mut query = sqlx::query_as::<_, (String, Value)>(&sql);
         for param in &params {
             match param {
-                BindValue::S(s) => query = query.bind(s),
-                BindValue::I(i) => query = query.bind(*i),
+                FilterBindValue::S(s) => query = query.bind(s),
+                FilterBindValue::I(i) => query = query.bind(*i),
             }
         }
 
@@ -491,8 +486,8 @@ impl Store for PostgresStorage {
         let mut query = sqlx::query_as::<_, (String, Vec<u8>, Value, String)>(&sql);
         for param in &params {
             match param {
-                BindValue::S(s) => query = query.bind(s),
-                BindValue::I(i) => query = query.bind(*i),
+                FilterBindValue::S(s) => query = query.bind(s),
+                FilterBindValue::I(i) => query = query.bind(*i),
             }
         }
 
@@ -514,13 +509,16 @@ impl Store for PostgresStorage {
     }
 
     async fn count(&self, filter: Option<&QueryFilter>) -> Result<u64, StorageError> {
-        let (sql, params) = build_select_sql(filter, &self.table_name, "1");
+        // Counting reports total matches: ordering and pagination are
+        // stripped so a page-sized filter still counts the whole set.
+        let stripped = filter.map(|f| f.stripped_for_count());
+        let (sql, params) = build_select_sql(stripped.as_ref(), &self.table_name, "1");
         let sql = format!("SELECT COUNT(*) FROM ({}) AS filtered", sql);
         let mut query = sqlx::query_scalar::<_, i64>(&sql);
         for param in &params {
             match param {
-                BindValue::S(s) => query = query.bind(s),
-                BindValue::I(i) => query = query.bind(*i),
+                FilterBindValue::S(s) => query = query.bind(s),
+                FilterBindValue::I(i) => query = query.bind(*i),
             }
         }
         let count = query
@@ -575,12 +573,8 @@ where
     E: sqlx::Executor<'e, Database = sqlx::Postgres>,
 {
     let hash = crate::util::hash::compute_hash(&item.data);
-    let data_size = item.data.len() as i64;
-    let compressed = item
-        .metadata
-        .get("compressed")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
+    let data_size = item.data_size();
+    let compressed = item.compressed();
     let sql = format!(
         "INSERT INTO {} (id, data, metadata, hash, data_size, compressed, created_at, updated_at)
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
@@ -640,9 +634,11 @@ impl StoreExt for PostgresStorage {
         &self,
         field: &str,
     ) -> Result<std::collections::HashMap<String, u64>, StorageError> {
+        // Internal schema version rows are excluded like in every other
+        // application query.
         let sql = format!(
-            "SELECT metadata->>'{}' AS k, COUNT(*) AS c FROM {} GROUP BY k",
-            field, self.table_name
+            "SELECT metadata->>'{}' AS k, COUNT(*) AS c FROM {} WHERE id NOT LIKE '{}' GROUP BY k",
+            field, self.table_name, SCHEMA_VERSION_EXCLUDE_PATTERN
         );
         let rows: Vec<(Option<String>, i64)> = sqlx::query_as(&sql)
             .fetch_all(&self.pool)
@@ -717,61 +713,72 @@ impl StoreExt for PostgresStorage {
     }
 
     async fn save_batch(&self, items: &[BatchItem]) -> Result<(), StorageError> {
+        if items.is_empty() {
+            return Ok(());
+        }
+        // Chunked UNNEST transfers inside one transaction: the batch stays
+        // atomic however large it grows.
+        let mut tx = self.pool.begin().await.map_err(|e| StorageError::General {
+            operation: "save_batch".into(),
+            message: e.to_string(),
+            source: Some(Box::new(e)),
+        })?;
         let now = chrono::Utc::now().timestamp_millis();
+        for chunk in items.chunks(1000) {
+            let ids: Vec<&str> = chunk.iter().map(|i| i.id.as_str()).collect();
+            let datas: Vec<&[u8]> = chunk.iter().map(|i| i.data.as_slice()).collect();
+            let metadatas: Vec<&Value> = chunk.iter().map(|i| &i.metadata).collect();
+            let hashes: Vec<String> = chunk
+                .iter()
+                .map(|i| crate::util::hash::compute_hash(&i.data))
+                .collect();
+            let hashes_ref: Vec<&str> = hashes.iter().map(|h| h.as_str()).collect();
+            let sizes: Vec<i64> = chunk.iter().map(|i| i.data_size()).collect();
+            let compresseds: Vec<bool> = chunk.iter().map(|i| i.compressed()).collect();
+            let nows: Vec<i64> = (0..chunk.len()).map(|_| now).collect();
 
-        let ids: Vec<&str> = items.iter().map(|i| i.id.as_str()).collect();
-        let datas: Vec<&[u8]> = items.iter().map(|i| i.data.as_slice()).collect();
-        let metadatas: Vec<&Value> = items.iter().map(|i| &i.metadata).collect();
-        let hashes: Vec<String> = items
-            .iter()
-            .map(|i| crate::util::hash::compute_hash(&i.data))
-            .collect();
-        let hashes_ref: Vec<&str> = hashes.iter().map(|h| h.as_str()).collect();
-        let sizes: Vec<i64> = items.iter().map(|i| i.data.len() as i64).collect();
-        let compresseds: Vec<bool> = items
-            .iter()
-            .map(|i| {
-                i.metadata
-                    .get("compressed")
-                    .and_then(|v| v.as_bool())
-                    .unwrap_or(false)
-            })
-            .collect();
-        let nows: Vec<i64> = (0..items.len()).map(|_| now).collect();
+            let sql = format!(
+                "INSERT INTO {} (id, data, metadata, hash, data_size, compressed, created_at, updated_at)
+                 SELECT * FROM UNNEST($1::text[], $2::bytea[], $3::jsonb[], $4::text[], $5::int8[], $6::boolean[], $7::bigint[], $8::bigint[])
+                 ON CONFLICT (id) DO UPDATE SET
+                    data = EXCLUDED.data,
+                    metadata = EXCLUDED.metadata,
+                    hash = EXCLUDED.hash,
+                    data_size = EXCLUDED.data_size,
+                    compressed = EXCLUDED.compressed,
+                    updated_at = EXCLUDED.updated_at",
+                self.table_name
+            );
 
-        let sql = format!(
-            "INSERT INTO {} (id, data, metadata, hash, data_size, compressed, created_at, updated_at)
-             SELECT * FROM UNNEST($1::text[], $2::bytea[], $3::jsonb[], $4::text[], $5::int8[], $6::boolean[], $7::bigint[], $8::bigint[])
-             ON CONFLICT (id) DO UPDATE SET
-                data = EXCLUDED.data,
-                metadata = EXCLUDED.metadata,
-                hash = EXCLUDED.hash,
-                data_size = EXCLUDED.data_size,
-                compressed = EXCLUDED.compressed,
-                updated_at = EXCLUDED.updated_at",
-            self.table_name
-        );
-
-        sqlx::query(&sql)
-            .bind(&ids)
-            .bind(&datas)
-            .bind(&metadatas)
-            .bind(&hashes_ref)
-            .bind(&sizes)
-            .bind(&compresseds)
-            .bind(&nows)
-            .bind(&nows)
-            .execute(&self.pool)
-            .await
-            .map_err(|e| StorageError::General {
-                operation: "save_batch".into(),
-                message: e.to_string(),
-                source: Some(Box::new(e)),
-            })?;
+            sqlx::query(&sql)
+                .bind(&ids)
+                .bind(&datas)
+                .bind(&metadatas)
+                .bind(&hashes_ref)
+                .bind(&sizes)
+                .bind(&compresseds)
+                .bind(&nows)
+                .bind(&nows)
+                .execute(&mut *tx)
+                .await
+                .map_err(|e| StorageError::General {
+                    operation: "save_batch".into(),
+                    message: e.to_string(),
+                    source: Some(Box::new(e)),
+                })?;
+        }
+        tx.commit().await.map_err(|e| StorageError::General {
+            operation: "save_batch".into(),
+            message: e.to_string(),
+            source: Some(Box::new(e)),
+        })?;
         Ok(())
     }
 
     async fn delete_batch(&self, ids: &[String]) -> Result<(), StorageError> {
+        if ids.is_empty() {
+            return Ok(());
+        }
         let sql = format!("DELETE FROM {} WHERE id = ANY($1)", self.table_name);
         sqlx::query(&sql)
             .bind(ids)
@@ -797,7 +804,11 @@ impl Maintainable for PostgresStorage {
     }
 
     async fn vacuum(&self) -> Result<(), StorageError> {
-        sqlx::query("VACUUM ANALYZE")
+        // Per-table vacuum: a bare VACUUM ANALYZE would process every table
+        // in the database. The table name comes from the entity registry,
+        // never from external input, so interpolation is safe.
+        let sql = format!("VACUUM (ANALYZE) {}", self.table_name);
+        sqlx::query(&sql)
             .execute(&self.pool)
             .await
             .map_err(|e| StorageError::General {
@@ -844,14 +855,41 @@ mod tests {
 
         // Numeric predicates must not fail on non-numeric values.
         assert!(sql.contains("jsonb_typeof(metadata->'timestamp') = 'number'"));
-        // Ordering must fall back safely instead of casting to bigint blindly.
+        // float8 keeps integer and floating-point metadata comparable.
+        assert!(sql.contains("::float8 <"));
+        assert!(!sql.contains("::bigint"));
+        // Ordering must fall back safely instead of casting blindly.
         assert!(sql.contains("CASE WHEN jsonb_typeof"));
         assert!(sql.contains("NULLS LAST"));
+        // The id tie-break keeps pagination deterministic on ties.
+        assert!(sql.contains(", id ASC"));
         assert_eq!(params.len(), 1);
 
         let filter = QueryFilter::new().with_field_in("entityId", vec!["a".into()]);
         let (sql, params) = build_select_sql(Some(&filter), "checkpoint", "id, metadata");
         assert!(sql.contains("metadata->>'entityId' IN"));
         assert_eq!(params.len(), 1);
+    }
+
+    #[test]
+    fn test_build_select_sql_prefix_uses_like() {
+        let filter = QueryFilter::new().with_id_prefix("wf-");
+        let (sql, params) = build_select_sql(Some(&filter), "checkpoint", "id, metadata");
+        assert!(sql.contains("id LIKE $1 ESCAPE"));
+        assert!(!sql.contains("substr"));
+        assert_eq!(params.len(), 1);
+        assert_eq!(
+            params[0],
+            crate::domain::store::FilterBindValue::S("wf-%".into())
+        );
+
+        let filter = QueryFilter::new().with_field_prefix("name", "100%");
+        let (sql, params) = build_select_sql(Some(&filter), "checkpoint", "id, metadata");
+        assert!(sql.contains("metadata->>'name' LIKE $1 ESCAPE"));
+        assert_eq!(params.len(), 1);
+        assert_eq!(
+            params[0],
+            crate::domain::store::FilterBindValue::S("100\\%%".into())
+        );
     }
 }

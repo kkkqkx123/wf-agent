@@ -45,8 +45,11 @@ where
         &self.storage
     }
 
-    pub async fn save(&self, entity: &T) -> Result<(), StorageError> {
-        let id = entity.entity_id().to_string();
+    /// Serialize one entity into its storage row: compressed payload plus
+    /// metadata merged with the entity-type marker and compression flag.
+    /// Shared by single saves and batch saves so both paths encode rows
+    /// identically.
+    fn encode_item(&self, entity: &T) -> Result<BatchItem, StorageError> {
         let metadata_json = serde_json::to_value(entity.metadata())?;
         let data = entity.to_bytes()?;
         let (compressed, was_compressed) =
@@ -64,7 +67,18 @@ where
             full_metadata = Value::Object(map);
         }
 
-        self.storage.save(&id, &compressed, &full_metadata).await
+        Ok(BatchItem::new(
+            entity.entity_id().to_string(),
+            compressed,
+            full_metadata,
+        ))
+    }
+
+    pub async fn save(&self, entity: &T) -> Result<(), StorageError> {
+        let item = self.encode_item(entity)?;
+        self.storage
+            .save(&item.id, &item.data, &item.metadata)
+            .await
     }
 
     pub async fn load(&self, id: &str) -> Result<Option<T>, StorageError> {
@@ -190,33 +204,8 @@ where
     }
 
     pub async fn save_batch(&self, entities: &[T]) -> Result<(), StorageError> {
-        let items: Result<Vec<BatchItem>, StorageError> = entities
-            .iter()
-            .map(|e| {
-                let metadata_json = serde_json::to_value(e.metadata())?;
-                let data = e.to_bytes()?;
-                let (compressed, was_compressed) =
-                    maybe_compress_with_threshold(&data, self.compression_threshold)?;
-
-                let mut full_metadata = serde_json::json!({
-                    "entityType": T::entity_type(),
-                    "compressed": was_compressed,
-                });
-
-                if let Value::Object(mut map) = full_metadata {
-                    if let Value::Object(meta_map) = metadata_json {
-                        map.extend(meta_map);
-                    }
-                    full_metadata = Value::Object(map);
-                }
-
-                Ok(BatchItem::new(
-                    e.entity_id().to_string(),
-                    compressed,
-                    full_metadata,
-                ))
-            })
-            .collect();
+        let items: Result<Vec<BatchItem>, StorageError> =
+            entities.iter().map(|e| self.encode_item(e)).collect();
         self.storage.save_batch(&items?).await
     }
 

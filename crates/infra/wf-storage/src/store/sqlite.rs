@@ -2,28 +2,26 @@ use async_trait::async_trait;
 use serde_json::Value;
 use sqlx::SqlitePool;
 
-use crate::domain::keys::{schema_version_key, SCHEMA_VERSION_EXCLUDE_PATTERN};
+use crate::domain::keys::{schema_version_key, SCHEMA_VERSION, SCHEMA_VERSION_EXCLUDE_PATTERN};
 use crate::domain::store::{
-    BatchItem, FilterCondition, Maintainable, QueryFilter, Store, StoreExt, StoreOperation,
+    prefix_like_pattern, BatchItem, FilterBindValue, FilterCondition, Maintainable, QueryFilter,
+    Store, StoreExt, StoreOperation,
 };
 use crate::error::StorageError;
 
-/// Current storage schema version. Bump when table structure or metadata
-/// semantics change; startup rejects databases with a different version.
-const SCHEMA_VERSION: i64 = 1;
-
-enum BindValue {
-    S(String),
-    I(i64),
-}
-
 /// Normalizes a metadata value to its text representation, mirroring
-/// PostgreSQL's `metadata->>'key'` operator so that string equality is
-/// based on the value text (numbers match their canonical decimal form).
-/// Sqlite's JSON1 stores booleans as 1/0, so they cannot match 'true' /
-/// 'false' the way PostgreSQL or the in-memory backend do.
+/// PostgreSQL's `metadata->>'key'` operator: strings as-is, numbers in
+/// canonical decimal form, booleans as 'true' / 'false'. Sqlite's
+/// `json_extract` yields 1/0 for booleans, but `json_type` still reports
+/// 'true' / 'false', so the boolean arms restore the text form while every
+/// other type keeps the plain cast.
 fn metadata_text_expr(key: &str) -> String {
-    format!("CAST(json_extract(metadata, '$.{}') AS TEXT)", key)
+    format!(
+        "(CASE WHEN json_type(metadata, '$.{0}') = 'true' THEN 'true' \
+         WHEN json_type(metadata, '$.{0}') = 'false' THEN 'false' \
+         ELSE CAST(json_extract(metadata, '$.{0}') AS TEXT) END)",
+        key
+    )
 }
 
 /// True when the metadata value is a JSON number, mirroring PostgreSQL's
@@ -42,11 +40,11 @@ fn build_select_sql(
     filter: Option<&QueryFilter>,
     table_name: &str,
     select_columns: &str,
-) -> (String, Vec<BindValue>) {
+) -> (String, Vec<FilterBindValue>) {
     let plan = filter.map(|f| f.compile());
     let mut sql = format!("SELECT {} FROM {}", select_columns, table_name);
     let mut conditions: Vec<String> = Vec::new();
-    let mut params: Vec<BindValue> = Vec::new();
+    let mut params: Vec<FilterBindValue> = Vec::new();
 
     // Exclude internal schema version records from application queries.
     conditions.push(format!("id NOT LIKE '{}'", SCHEMA_VERSION_EXCLUDE_PATTERN));
@@ -56,20 +54,15 @@ fn build_select_sql(
             match op {
                 FilterCondition::Eq(key, value) => {
                     conditions.push(format!("{} = ?", metadata_text_expr(key)));
-                    params.push(BindValue::S(value.clone()));
+                    params.push(FilterBindValue::S(value.clone()));
                 }
                 FilterCondition::IdPrefix(prefix) => {
-                    conditions.push("substr(id, 1, length(?)) = ?".into());
-                    params.push(BindValue::S(prefix.clone()));
-                    params.push(BindValue::S(prefix.clone()));
+                    conditions.push("id LIKE ? ESCAPE '\\'".into());
+                    params.push(FilterBindValue::S(prefix_like_pattern(prefix)));
                 }
                 FilterCondition::Prefix(key, prefix) => {
-                    conditions.push(format!(
-                        "substr({}, 1, length(?)) = ?",
-                        metadata_text_expr(key)
-                    ));
-                    params.push(BindValue::S(prefix.clone()));
-                    params.push(BindValue::S(prefix.clone()));
+                    conditions.push(format!("{} LIKE ? ESCAPE '\\'", metadata_text_expr(key)));
+                    params.push(FilterBindValue::S(prefix_like_pattern(prefix)));
                 }
                 FilterCondition::Lt(key, value) => {
                     conditions.push(format!(
@@ -77,7 +70,7 @@ fn build_select_sql(
                         is_numeric_expr(key),
                         key
                     ));
-                    params.push(BindValue::I(*value));
+                    params.push(FilterBindValue::I(*value));
                 }
                 FilterCondition::Gt(key, value) => {
                     conditions.push(format!(
@@ -85,7 +78,7 @@ fn build_select_sql(
                         is_numeric_expr(key),
                         key
                     ));
-                    params.push(BindValue::I(*value));
+                    params.push(FilterBindValue::I(*value));
                 }
                 FilterCondition::Between(key, start, end) => {
                     conditions.push(format!(
@@ -94,8 +87,8 @@ fn build_select_sql(
                         key,
                         key
                     ));
-                    params.push(BindValue::I(*start));
-                    params.push(BindValue::I(*end));
+                    params.push(FilterBindValue::I(*start));
+                    params.push(FilterBindValue::I(*end));
                 }
                 FilterCondition::In(key, values) => {
                     if values.is_empty() {
@@ -108,7 +101,7 @@ fn build_select_sql(
                             metadata_text_expr(key),
                             placeholders.join(", ")
                         ));
-                        params.extend(values.iter().cloned().map(BindValue::S));
+                        params.extend(values.iter().cloned().map(FilterBindValue::S));
                     }
                 }
             }
@@ -123,9 +116,10 @@ fn build_select_sql(
         // Numeric-aware ordering matching PostgreSQL: numeric values sort by
         // their numeric value and always come first, everything else (missing
         // keys and non-numeric values) sorts last in both directions. The
-        // leading flag column emulates PostgreSQL's `NULLS LAST`.
+        // leading flag column emulates PostgreSQL's `NULLS LAST`; the
+        // trailing id keeps pagination deterministic on ties.
         sql.push_str(&format!(
-            " ORDER BY (CASE WHEN {} THEN 0 ELSE 1 END) ASC, json_extract(metadata, '$.{}') {}",
+            " ORDER BY (CASE WHEN {} THEN 0 ELSE 1 END) ASC, json_extract(metadata, '$.{}') {}, id ASC",
             is_numeric_expr(&key),
             key,
             if descending { "DESC" } else { "ASC" }
@@ -179,29 +173,53 @@ impl SqliteStorage {
             }
         })?;
 
-        let idx1 = format!(
-            "CREATE INDEX IF NOT EXISTS idx_{}_entity_type ON {}(CAST(json_extract(metadata, '$.entityType') AS TEXT))",
-            table_name, table_name
-        );
-        sqlx::query(&idx1).execute(&pool).await.ok();
+        // Metadata text indexes use the same boolean-normalized expression as
+        // the query renderer so the planner can match them. Databases created
+        // before the normalization carry the plain CAST version under the same
+        // name; drop the stale definition once so it is rebuilt below.
+        for (suffix, key) in [
+            ("entity_type", "entityType"),
+            ("status", "status"),
+            ("execution", "executionId"),
+            ("entity", "entityId"),
+        ] {
+            let name = format!("idx_{}_{}", table_name, suffix);
+            let check: Option<(Option<String>,)> =
+                sqlx::query_as("SELECT sql FROM sqlite_master WHERE type = 'index' AND name = ?1")
+                    .bind(&name)
+                    .fetch_optional(&pool)
+                    .await
+                    .map_err(|e| StorageError::Initialization {
+                        backend: "sqlite".into(),
+                        message: format!("Failed to inspect index '{}'", name),
+                        source: Some(Box::new(e)),
+                    })?;
+            if let Some((Some(sql),)) = check {
+                if !sql.contains("CASE WHEN") {
+                    sqlx::query(&format!("DROP INDEX {}", name))
+                        .execute(&pool)
+                        .await
+                        .map_err(|e| StorageError::Initialization {
+                            backend: "sqlite".into(),
+                            message: format!("Failed to drop stale index '{}'", name),
+                            source: Some(Box::new(e)),
+                        })?;
+                }
+            }
+            let create = format!(
+                "CREATE INDEX IF NOT EXISTS {} ON {}({})",
+                name,
+                table_name,
+                metadata_text_expr(key)
+            );
+            sqlx::query(&create).execute(&pool).await.ok();
+        }
 
-        let idx2 = format!(
-            "CREATE INDEX IF NOT EXISTS idx_{}_status ON {}(CAST(json_extract(metadata, '$.status') AS TEXT))",
+        let idx_ts = format!(
+            "CREATE INDEX IF NOT EXISTS idx_{}_timestamp ON {}(json_extract(metadata, '$.timestamp'))",
             table_name, table_name
         );
-        sqlx::query(&idx2).execute(&pool).await.ok();
-
-        let idx3 = format!(
-            "CREATE INDEX IF NOT EXISTS idx_{}_execution ON {}(CAST(json_extract(metadata, '$.executionId') AS TEXT))",
-            table_name, table_name
-        );
-        sqlx::query(&idx3).execute(&pool).await.ok();
-
-        let idx4 = format!(
-            "CREATE INDEX IF NOT EXISTS idx_{}_entity ON {}(CAST(json_extract(metadata, '$.entityId') AS TEXT))",
-            table_name, table_name
-        );
-        sqlx::query(&idx4).execute(&pool).await.ok();
+        sqlx::query(&idx_ts).execute(&pool).await.ok();
 
         // Schema version check: insert on first open, reject on mismatch.
         let version_key = schema_version_key(table_name);
@@ -379,10 +397,7 @@ impl Store for SqliteStorage {
         let hash = crate::util::hash::compute_hash(data);
         let data_size = data.len() as i64;
         let metadata_str = serde_json::to_string(metadata)?;
-        let compressed = metadata
-            .get("compressed")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
+        let compressed = crate::domain::store::metadata_compressed(metadata);
 
         let sql = format!(
             "INSERT INTO {} (id, data, metadata, hash, data_size, compressed, created_at, updated_at)
@@ -462,8 +477,8 @@ impl Store for SqliteStorage {
         let mut query = sqlx::query_as::<_, (String, String)>(&sql);
         for param in &params {
             match param {
-                BindValue::S(s) => query = query.bind(s),
-                BindValue::I(i) => query = query.bind(*i),
+                FilterBindValue::S(s) => query = query.bind(s),
+                FilterBindValue::I(i) => query = query.bind(*i),
             }
         }
 
@@ -492,8 +507,8 @@ impl Store for SqliteStorage {
         let mut query = sqlx::query_as::<_, (String, Vec<u8>, String, String)>(&sql);
         for param in &params {
             match param {
-                BindValue::S(s) => query = query.bind(s),
-                BindValue::I(i) => query = query.bind(*i),
+                FilterBindValue::S(s) => query = query.bind(s),
+                FilterBindValue::I(i) => query = query.bind(*i),
             }
         }
 
@@ -516,13 +531,16 @@ impl Store for SqliteStorage {
     }
 
     async fn count(&self, filter: Option<&QueryFilter>) -> Result<u64, StorageError> {
-        let (sql, params) = build_select_sql(filter, &self.table_name, "1");
+        // Counting reports total matches: ordering and pagination are
+        // stripped so a page-sized filter still counts the whole set.
+        let stripped = filter.map(|f| f.stripped_for_count());
+        let (sql, params) = build_select_sql(stripped.as_ref(), &self.table_name, "1");
         let sql = format!("SELECT COUNT(*) FROM ({}) AS filtered", sql);
         let mut query = sqlx::query_scalar::<_, i64>(&sql);
         for param in &params {
             match param {
-                BindValue::S(s) => query = query.bind(s),
-                BindValue::I(i) => query = query.bind(*i),
+                FilterBindValue::S(s) => query = query.bind(s),
+                FilterBindValue::I(i) => query = query.bind(*i),
             }
         }
         let count = query
@@ -577,13 +595,9 @@ where
     E: sqlx::Executor<'e, Database = sqlx::Sqlite>,
 {
     let hash = crate::util::hash::compute_hash(&item.data);
-    let data_size = item.data.len() as i64;
-    let metadata_str = serde_json::to_string(&item.metadata)?;
-    let compressed = item
-        .metadata
-        .get("compressed")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
+    let data_size = item.data_size();
+    let metadata_str = item.metadata_json()?;
+    let compressed = item.compressed();
     let sql = format!(
         "INSERT INTO {} (id, data, metadata, hash, data_size, compressed, created_at, updated_at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
@@ -643,9 +657,14 @@ impl StoreExt for SqliteStorage {
         &self,
         field: &str,
     ) -> Result<std::collections::HashMap<String, u64>, StorageError> {
+        // Internal schema version rows are excluded like in every other
+        // application query; the boolean-normalized text expression keeps
+        // grouped keys identical to the Eq filter vocabulary.
         let sql = format!(
-            "SELECT CAST(json_extract(metadata, '$.{}') AS TEXT) AS k, COUNT(*) AS c FROM {} GROUP BY k",
-            field, self.table_name
+            "SELECT {} AS k, COUNT(*) AS c FROM {} WHERE id NOT LIKE '{}' GROUP BY k",
+            metadata_text_expr(field),
+            self.table_name,
+            SCHEMA_VERSION_EXCLUDE_PATTERN
         );
         let rows: Vec<(Option<String>, i64)> = sqlx::query_as(&sql)
             .fetch_all(&self.pool)
@@ -698,41 +717,49 @@ impl StoreExt for SqliteStorage {
         if ids.is_empty() {
             return Ok(Vec::new());
         }
-        let placeholders: Vec<String> = (0..ids.len()).map(|_| "?".to_string()).collect();
-        let sql = format!(
-            "SELECT id, data, metadata, hash FROM {} WHERE id IN ({})",
-            self.table_name,
-            placeholders.join(", ")
-        );
-        let mut query = sqlx::query_as::<_, (String, Vec<u8>, String, String)>(&sql);
-        for id in ids {
-            query = query.bind(id);
-        }
-        let rows = query
-            .fetch_all(&self.pool)
-            .await
-            .map_err(|e| StorageError::General {
-                operation: "load_batch".into(),
-                message: e.to_string(),
-                source: Some(Box::new(e)),
-            })?;
-        rows.into_iter()
-            .map(|(id, data, metadata_str, hash)| {
+        // Chunked so large id sets stay under the SQLite variable limit.
+        let mut results = Vec::new();
+        for chunk in ids.chunks(500) {
+            let placeholders: Vec<String> = (0..chunk.len()).map(|_| "?".to_string()).collect();
+            let sql = format!(
+                "SELECT id, data, metadata, hash FROM {} WHERE id IN ({})",
+                self.table_name,
+                placeholders.join(", ")
+            );
+            let mut query = sqlx::query_as::<_, (String, Vec<u8>, String, String)>(&sql);
+            for id in chunk {
+                query = query.bind(id);
+            }
+            let rows = query
+                .fetch_all(&self.pool)
+                .await
+                .map_err(|e| StorageError::General {
+                    operation: "load_batch".into(),
+                    message: e.to_string(),
+                    source: Some(Box::new(e)),
+                })?;
+            for (id, data, metadata_str, hash) in rows {
                 crate::util::hash::verify_integrity(&id, &data, &hash)?;
                 let metadata: Value = serde_json::from_str(&metadata_str)?;
-                Ok((id, data, metadata))
-            })
-            .collect()
+                results.push((id, data, metadata));
+            }
+        }
+        Ok(results)
     }
 
     async fn save_batch(&self, items: &[BatchItem]) -> Result<(), StorageError> {
+        if items.is_empty() {
+            return Ok(());
+        }
         let mut tx = self.pool.begin().await.map_err(|e| StorageError::General {
             operation: "save_batch".into(),
             message: e.to_string(),
             source: Some(Box::new(e)),
         })?;
 
-        for chunk in items.chunks(500) {
+        // Eight bound values per row: chunks of 100 stay under the SQLite
+        // variable limit with margin.
+        for chunk in items.chunks(100) {
             let mut sql = format!(
                 "INSERT INTO {} (id, data, metadata, hash, data_size, compressed, created_at, updated_at) VALUES ",
                 self.table_name
@@ -755,13 +782,9 @@ impl StoreExt for SqliteStorage {
             let mut query = sqlx::query(&sql);
             for item in chunk {
                 let hash = crate::util::hash::compute_hash(&item.data);
-                let metadata_str = serde_json::to_string(&item.metadata)?;
-                let compressed = item
-                    .metadata
-                    .get("compressed")
-                    .and_then(|v| v.as_bool())
-                    .unwrap_or(false);
-                let data_size = item.data.len() as i64;
+                let metadata_str = item.metadata_json()?;
+                let compressed = item.compressed();
+                let data_size = item.data_size();
                 let id = item.id.clone();
                 query = query
                     .bind(id)
@@ -792,6 +815,9 @@ impl StoreExt for SqliteStorage {
     }
 
     async fn delete_batch(&self, ids: &[String]) -> Result<(), StorageError> {
+        if ids.is_empty() {
+            return Ok(());
+        }
         let mut tx = self.pool.begin().await.map_err(|e| StorageError::General {
             operation: "delete_batch".into(),
             message: e.to_string(),
@@ -972,7 +998,7 @@ mod tests {
             .save(
                 "n1",
                 b"data",
-                &serde_json::json!({"entityType": "wf", "timestamp": 1000}),
+                &serde_json::json!({"entityType": "wf", "timestamp": 1000, "flag": true}),
             )
             .await
             .unwrap();
@@ -980,7 +1006,7 @@ mod tests {
             .save(
                 "s1",
                 b"data",
-                &serde_json::json!({"entityType": "wf", "timestamp": "abc"}),
+                &serde_json::json!({"entityType": "wf", "timestamp": "abc", "flag": false}),
             )
             .await
             .unwrap();
@@ -1003,6 +1029,21 @@ mod tests {
         let filter = QueryFilter::new().with_field("timestamp", "1e3");
         assert!(store.list(Some(&filter)).await.unwrap().is_empty());
 
+        // Booleans match their 'true' / 'false' text form like on the other
+        // backends; the integer-looking strings '1' / '0' must not match.
+        let filter = QueryFilter::new().with_field("flag", "true");
+        let results = store.list(Some(&filter)).await.unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].0, "n1");
+
+        let filter = QueryFilter::new().with_field("flag", "false");
+        let results = store.list(Some(&filter)).await.unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].0, "s1");
+
+        let filter = QueryFilter::new().with_field("flag", "1");
+        assert!(store.list(Some(&filter)).await.unwrap().is_empty());
+
         // Numeric predicates only match JSON numbers: the numeric-looking
         // string "500" must be excluded just like "abc".
         let filter = QueryFilter::new().with_field_lt("timestamp", 1000);
@@ -1017,6 +1058,95 @@ mod tests {
         let filter = QueryFilter::new().with_order_by("timestamp", false);
         let results = store.list(Some(&filter)).await.unwrap();
         assert_eq!(results[0].0, "n1");
+    }
+
+    #[tokio::test]
+    async fn test_sqlite_prefix_like_matches_literal_percent() {
+        let store = SqliteStorage::new(":memory:", "test").await.unwrap();
+        for id in ["wf-1", "wf-2", "other-1", "100%-x"] {
+            store
+                .save(id, b"data", &serde_json::json!({"entityType": "wf"}))
+                .await
+                .unwrap();
+        }
+
+        let filter = QueryFilter::new().with_id_prefix("wf-");
+        let results = store.list(Some(&filter)).await.unwrap();
+        assert_eq!(results.len(), 2);
+
+        // A '%' inside the prefix stays literal instead of wildcarding.
+        let filter = QueryFilter::new().with_id_prefix("100%");
+        let results = store.list(Some(&filter)).await.unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].0, "100%-x");
+    }
+
+    #[tokio::test]
+    async fn test_sqlite_count_ignores_pagination() {
+        let store = SqliteStorage::new(":memory:", "test").await.unwrap();
+        for i in 0..5 {
+            store
+                .save(
+                    &format!("id-{}", i),
+                    b"data",
+                    &serde_json::json!({"entityType": "wf", "timestamp": i}),
+                )
+                .await
+                .unwrap();
+        }
+
+        let filter = QueryFilter::new()
+            .with_field("entityType", "wf")
+            .with_order_by("timestamp", true)
+            .with_offset(1)
+            .with_limit(2);
+        assert_eq!(store.list(Some(&filter)).await.unwrap().len(), 2);
+        assert_eq!(store.count(Some(&filter)).await.unwrap(), 5);
+    }
+
+    #[tokio::test]
+    async fn test_sqlite_count_by_field_excludes_version_row() {
+        let store = SqliteStorage::new(":memory:", "test").await.unwrap();
+        store
+            .save("id1", b"data", &serde_json::json!({"kind": "a"}))
+            .await
+            .unwrap();
+        let counts = store.count_by_field("kind").await.unwrap();
+        assert_eq!(*counts.get("a").unwrap(), 1);
+        assert!(counts.keys().all(|k| !k.contains("__schema")));
+
+        let version_counts = store.count_by_field("version").await.unwrap();
+        assert!(version_counts.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_sqlite_large_and_empty_batches() {
+        let store = SqliteStorage::new(":memory:", "test").await.unwrap();
+        // 250 rows exceed the old single-statement variable budget; chunking
+        // must absorb them.
+        let items: Vec<BatchItem> = (0..250)
+            .map(|i| {
+                BatchItem::new(
+                    format!("bulk-{}", i),
+                    vec![i as u8; 10],
+                    serde_json::json!({"index": i}),
+                )
+            })
+            .collect();
+        store.save_batch(&items).await.unwrap();
+        assert_eq!(store.count(None).await.unwrap(), 250);
+
+        let ids: Vec<String> = (0..250).map(|i| format!("bulk-{}", i)).collect();
+        assert_eq!(store.load_batch(&ids).await.unwrap().len(), 250);
+
+        // Empty batches are no-ops without opening a transaction.
+        store.save_batch(&[]).await.unwrap();
+        store.load_batch(&[]).await.unwrap();
+        store.delete_batch(&[]).await.unwrap();
+        assert_eq!(store.count(None).await.unwrap(), 250);
+
+        store.delete_batch(&ids).await.unwrap();
+        assert_eq!(store.count(None).await.unwrap(), 0);
     }
 
     #[tokio::test]

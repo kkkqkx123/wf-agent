@@ -38,9 +38,20 @@ async fn test_eq_matches_text_representation() {
     assert_eq!(results.len(), 1);
     assert_eq!(results[0].0, "n1");
 
-    // Sqlite stores booleans as 1/0, so Eq("flag", "true") does not match.
-    // This is a documented cross-backend difference; boolean Eq tests are
-    // only valid on Memory and Postgres backends.
+    // Booleans match their 'true' / 'false' text form like on the Memory
+    // and Postgres backends; the integer strings '1' / '0' must not match.
+    let filter = QueryFilter::new().with_field("flag", "true");
+    let results = store.list(Some(&filter)).await.unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].0, "n1");
+
+    let filter = QueryFilter::new().with_field("flag", "false");
+    let results = store.list(Some(&filter)).await.unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0].0, "s1");
+
+    let filter = QueryFilter::new().with_field("flag", "1");
+    assert!(store.list(Some(&filter)).await.unwrap().is_empty());
 
     // Numeric variants like '1e3' must not match text equality.
     let filter = QueryFilter::new().with_field("timestamp", "1e3");

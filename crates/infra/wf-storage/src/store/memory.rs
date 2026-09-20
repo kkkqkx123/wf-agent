@@ -5,7 +5,9 @@ use async_trait::async_trait;
 use serde_json::Value;
 use tokio::sync::RwLock;
 
-use crate::domain::store::{BatchItem, FilterOp, QueryFilter, Store, StoreExt, StoreOperation};
+use crate::domain::store::{
+    BatchItem, CompiledFilter, FilterCondition, QueryFilter, Store, StoreExt, StoreOperation,
+};
 use crate::error::StorageError;
 
 #[derive(Debug, Clone)]
@@ -146,11 +148,12 @@ fn value_text(value: &Value) -> Option<String> {
     }
 }
 
-/// Numeric value truncated like PostgreSQL's `::bigint` cast, so numeric
-/// predicates only ever see numbers and match non-numeric values never.
-fn value_numeric_int(value: &Value) -> Option<i64> {
+/// Numeric value as float, mirroring PostgreSQL's `::float8` comparison so
+/// integer and floating-point metadata stay comparable while non-numeric
+/// values never match.
+fn value_numeric(value: &Value) -> Option<f64> {
     match value {
-        Value::Number(n) => n.as_i64().or_else(|| n.as_f64().map(|f| f as i64)),
+        Value::Number(n) => n.as_f64(),
         _ => None,
     }
 }
@@ -166,16 +169,16 @@ fn matches_meta_str(metadata: &Value, key: &str, expected: &str) -> bool {
 fn matches_meta_lt(metadata: &Value, key: &str, value: i64) -> bool {
     metadata
         .get(key)
-        .and_then(value_numeric_int)
-        .map(|v| v < value)
+        .and_then(value_numeric)
+        .map(|v| v < value as f64)
         .unwrap_or(false)
 }
 
 fn matches_meta_gt(metadata: &Value, key: &str, value: i64) -> bool {
     metadata
         .get(key)
-        .and_then(value_numeric_int)
-        .map(|v| v > value)
+        .and_then(value_numeric)
+        .map(|v| v > value as f64)
         .unwrap_or(false)
 }
 
@@ -195,20 +198,19 @@ fn matches_meta_in(metadata: &Value, key: &str, values: &[String]) -> bool {
         .unwrap_or(false)
 }
 
-fn matches_record(metadata: &Value, id: &str, op: &FilterOp) -> bool {
-    match op {
-        FilterOp::Eq(key, value) => matches_meta_str(metadata, key, value),
-        FilterOp::IdPrefix(prefix) => id.starts_with(prefix),
-        FilterOp::Prefix(key, prefix) => matches_meta_prefix(metadata, key, prefix),
-        FilterOp::Lt(key, value) => matches_meta_lt(metadata, key, *value),
-        FilterOp::Gt(key, value) => matches_meta_gt(metadata, key, *value),
-        FilterOp::Between(key, start, end) => metadata
+fn matches_condition(metadata: &Value, id: &str, cond: &FilterCondition) -> bool {
+    match cond {
+        FilterCondition::Eq(key, value) => matches_meta_str(metadata, key, value),
+        FilterCondition::IdPrefix(prefix) => id.starts_with(prefix),
+        FilterCondition::Prefix(key, prefix) => matches_meta_prefix(metadata, key, prefix),
+        FilterCondition::Lt(key, value) => matches_meta_lt(metadata, key, *value),
+        FilterCondition::Gt(key, value) => matches_meta_gt(metadata, key, *value),
+        FilterCondition::Between(key, start, end) => metadata
             .get(key)
-            .and_then(value_numeric_int)
-            .map(|ts| ts >= *start && ts <= *end)
+            .and_then(value_numeric)
+            .map(|ts| ts >= *start as f64 && ts <= *end as f64)
             .unwrap_or(false),
-        FilterOp::In(key, values) => matches_meta_in(metadata, key, values),
-        FilterOp::OrderBy(_, _) | FilterOp::Offset(_) | FilterOp::Limit(_) => true,
+        FilterCondition::In(key, values) => matches_meta_in(metadata, key, values),
     }
 }
 
@@ -225,73 +227,79 @@ fn meta_numeric_cmp(a: &Value, b: &Value) -> std::cmp::Ordering {
     a.partial_cmp(&b).unwrap_or(std::cmp::Ordering::Equal)
 }
 
+/// Ids matching a compiled plan, in result order. Only ids are collected
+/// here so `count` never clones payloads; callers project the columns they
+/// need afterwards. The plan comes from `QueryFilter::compile`, so repeated
+/// ordering and pagination resolve to the last occurrence exactly like the
+/// SQL backends. An id tie-break mirrors the `, id ASC` SQL ordering.
+fn matched_ids(
+    records: &HashMap<String, StoredRecord>,
+    plan: Option<&CompiledFilter>,
+) -> Vec<String> {
+    let mut ids: Vec<&String> = records
+        .iter()
+        .filter(|(id, rec)| {
+            plan.map(|p| {
+                p.conditions
+                    .iter()
+                    .all(|cond| matches_condition(&rec.metadata, id, cond))
+            })
+            .unwrap_or(true)
+        })
+        .map(|(id, _)| id)
+        .collect();
+
+    if let Some(p) = plan {
+        if let Some((key, descending)) = p.order_by.clone() {
+            ids.sort_by(|a, b| {
+                let ra = &records[*a];
+                let rb = &records[*b];
+                let va = ra.metadata.get(&key).unwrap_or(&Value::Null);
+                let vb = rb.metadata.get(&key).unwrap_or(&Value::Null);
+                let primary = match (is_numeric_value(va), is_numeric_value(vb)) {
+                    // Numeric values always sort before non-numeric ones,
+                    // matching PostgreSQL's `NULLS LAST` in both directions.
+                    (true, false) => std::cmp::Ordering::Less,
+                    (false, true) => std::cmp::Ordering::Greater,
+                    (true, true) => {
+                        let cmp = meta_numeric_cmp(va, vb);
+                        if descending {
+                            cmp.reverse()
+                        } else {
+                            cmp
+                        }
+                    }
+                    (false, false) => {
+                        let cmp = value_text(va)
+                            .unwrap_or_default()
+                            .cmp(&value_text(vb).unwrap_or_default());
+                        if descending {
+                            cmp.reverse()
+                        } else {
+                            cmp
+                        }
+                    }
+                };
+                primary.then_with(|| a.cmp(b))
+            });
+        }
+        let offset = p.offset.unwrap_or(0) as usize;
+        let limit = p.limit.unwrap_or(u64::MAX) as usize;
+        ids = ids.into_iter().skip(offset).take(limit).collect();
+    }
+
+    ids.into_iter().cloned().collect()
+}
+
 fn apply_filter(
     records: &HashMap<String, StoredRecord>,
     filter: Option<&QueryFilter>,
 ) -> Vec<(String, Value)> {
-    let mut results: Vec<(String, Value)> = records
-        .iter()
-        .filter(|(id, rec)| {
-            if let Some(f) = filter {
-                for op in &f.ops {
-                    if !matches_record(&rec.metadata, id, op) {
-                        return false;
-                    }
-                }
-            }
-            true
-        })
-        .map(|(id, rec)| (id.clone(), rec.metadata.clone()))
-        .collect();
-
-    if let Some(f) = filter {
-        for op in &f.ops {
-            if let FilterOp::OrderBy(key, descending) = op {
-                let descending = *descending;
-                results.sort_by(|a, b| {
-                    let va = a.1.get(key).unwrap_or(&Value::Null);
-                    let vb = b.1.get(key).unwrap_or(&Value::Null);
-                    match (is_numeric_value(va), is_numeric_value(vb)) {
-                        // Numeric values always sort before non-numeric ones,
-                        // matching PostgreSQL's `NULLS LAST` in both directions.
-                        (true, false) => std::cmp::Ordering::Less,
-                        (false, true) => std::cmp::Ordering::Greater,
-                        (true, true) => {
-                            let cmp = meta_numeric_cmp(va, vb);
-                            if descending {
-                                cmp.reverse()
-                            } else {
-                                cmp
-                            }
-                        }
-                        (false, false) => {
-                            let cmp = value_text(va)
-                                .unwrap_or_default()
-                                .cmp(&value_text(vb).unwrap_or_default());
-                            if descending {
-                                cmp.reverse()
-                            } else {
-                                cmp
-                            }
-                        }
-                    }
-                });
-            }
-        }
-
-        let mut offset = 0usize;
-        let mut limit = usize::MAX;
-        for op in &f.ops {
-            match op {
-                FilterOp::Offset(o) => offset = *o as usize,
-                FilterOp::Limit(l) => limit = *l as usize,
-                _ => {}
-            }
-        }
-        results = results.into_iter().skip(offset).take(limit).collect();
-    }
-
-    results
+    let plan = filter.map(|f| f.compile());
+    matched_ids(records, plan.as_ref())
+        .into_iter()
+        .filter_map(|id| records.get(&id).map(|rec| (id, rec.metadata.clone())))
+        .collect()
 }
 
 #[async_trait]
@@ -339,18 +347,26 @@ impl Store for MemoryStorage {
     }
 
     async fn count(&self, filter: Option<&QueryFilter>) -> Result<u64, StorageError> {
+        // Counting reports total matches without cloning payloads and
+        // without applying pagination, matching the SQL backends.
+        let plan = filter.map(|f| f.compile());
+        let mut plan = plan.unwrap_or_default();
+        plan.order_by = None;
+        plan.offset = None;
+        plan.limit = None;
         let store = self.inner.read().await;
-        Ok(apply_filter(&store.records, filter).len() as u64)
+        Ok(matched_ids(&store.records, Some(&plan)).len() as u64)
     }
 
     async fn list_data(
         &self,
         filter: Option<&QueryFilter>,
     ) -> Result<Vec<(Vec<u8>, Value)>, StorageError> {
+        let plan = filter.map(|f| f.compile());
         let store = self.inner.read().await;
-        let ids = apply_filter(&store.records, filter);
+        let ids = matched_ids(&store.records, plan.as_ref());
         let mut results = Vec::with_capacity(ids.len());
-        for (id, _) in ids {
+        for id in ids {
             if let Some(rec) = store.records.get(&id) {
                 crate::util::hash::verify_integrity(&id, &rec.data, &rec.hash)?;
                 results.push((rec.data.clone(), rec.metadata.clone()));
@@ -712,5 +728,73 @@ mod tests {
         let store = MemoryStorage::new("test");
         store.apply_batch(&[]).await.unwrap();
         assert!(store.list(None).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_count_ignores_pagination() {
+        let store = MemoryStorage::new("test");
+        for i in 0..5 {
+            store
+                .save(
+                    &format!("id-{}", i),
+                    b"data",
+                    &serde_json::json!({"entityType": "wf", "timestamp": i}),
+                )
+                .await
+                .unwrap();
+        }
+        let filter = QueryFilter::new()
+            .with_field("entityType", "wf")
+            .with_order_by("timestamp", true)
+            .with_offset(1)
+            .with_limit(2);
+        assert_eq!(store.list(Some(&filter)).await.unwrap().len(), 2);
+        assert_eq!(store.count(Some(&filter)).await.unwrap(), 5);
+    }
+
+    #[tokio::test]
+    async fn test_repeated_order_by_resolves_to_last() {
+        let store = MemoryStorage::new("test");
+        store
+            .save("a", b"data", &serde_json::json!({"x": 1, "y": 30}))
+            .await
+            .unwrap();
+        store
+            .save("b", b"data", &serde_json::json!({"x": 2, "y": 10}))
+            .await
+            .unwrap();
+        store
+            .save("c", b"data", &serde_json::json!({"x": 3, "y": 20}))
+            .await
+            .unwrap();
+        // Two orderings: only the last one takes effect, like the SQL
+        // backends' compiled plan.
+        let mut filter = QueryFilter::new().with_order_by("x", false);
+        filter.add_op(crate::domain::store::FilterOp::OrderBy("y".into(), false));
+        let results = store.list(Some(&filter)).await.unwrap();
+        let ids: Vec<&str> = results.iter().map(|(id, _)| id.as_str()).collect();
+        assert_eq!(ids, vec!["b", "c", "a"]);
+    }
+
+    #[tokio::test]
+    async fn test_float_metadata_comparable() {
+        let store = MemoryStorage::new("test");
+        store
+            .save("f1", b"data", &serde_json::json!({"score": 1.5}))
+            .await
+            .unwrap();
+        store
+            .save("f2", b"data", &serde_json::json!({"score": "high"}))
+            .await
+            .unwrap();
+        let filter = QueryFilter::new().with_field_gt("score", 1);
+        let results = store.list(Some(&filter)).await.unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].0, "f1");
+
+        let filter = QueryFilter::new().with_order_by("score", false);
+        let results = store.list(Some(&filter)).await.unwrap();
+        assert_eq!(results[0].0, "f1");
+        assert_eq!(results.len(), 2);
     }
 }

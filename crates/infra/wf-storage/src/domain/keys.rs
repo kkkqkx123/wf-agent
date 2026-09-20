@@ -12,6 +12,12 @@ pub fn schema_version_key(table_name: &str) -> String {
     format!("{}{}", SCHEMA_VERSION_KEY_PREFIX, table_name)
 }
 
+/// Current storage schema version shared by every SQL backend. Bump when
+/// table structure or metadata semantics change; startup rejects databases
+/// with a different version. Lives here so Sqlite and PostgreSQL can never
+/// drift apart.
+pub const SCHEMA_VERSION: i64 = 1;
+
 #[cfg(test)]
 mod tests {
     use super::*;

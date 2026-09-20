@@ -44,9 +44,68 @@ pub struct QueryFilter {
     pub ops: Vec<FilterOp>,
 }
 
+/// Escape a literal for use inside a SQL `LIKE ... ESCAPE '\'` pattern.
+fn escape_like_literal(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for ch in value.chars() {
+        if ch == '\\' || ch == '%' || ch == '_' {
+            out.push('\\');
+        }
+        out.push(ch);
+    }
+    out
+}
+
+/// Build a `LIKE` pattern matching ids or metadata text with the given
+/// prefix. The prefix is escaped so `%` and `_` inside it stay literal, and
+/// the trailing `%` keeps the match sargable for index use. Shared by both
+/// SQL backends so prefix semantics exist exactly once.
+pub fn prefix_like_pattern(prefix: &str) -> String {
+    format!("{}%", escape_like_literal(prefix))
+}
+
+/// Placeholder-style-agnostic bind value for SQL filter rendering. Both SQL
+/// backends collect parameters in declaration order through this type; only
+/// the placeholder syntax (`?` vs `$n`) is dialect-specific.
+#[derive(Debug, Clone, PartialEq)]
+pub enum FilterBindValue {
+    S(String),
+    I(i64),
+}
+
+/// Value of the `compressed` metadata flag. Every SQL write path derives the
+/// `compressed` column from this so the column can never disagree with the
+/// stored metadata.
+pub fn metadata_compressed(metadata: &Value) -> bool {
+    metadata
+        .get("compressed")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+}
+
 impl QueryFilter {
     pub fn new() -> Self {
         Self::default()
+    }
+
+    /// Copy of this filter without ordering and pagination, for `count`
+    /// operations that must report the total number of matches rather than
+    /// the size of one page. All backends apply it so counting never depends
+    /// on `OrderBy` / `Offset` / `Limit`.
+    pub fn stripped_for_count(&self) -> Self {
+        Self {
+            ops: self
+                .ops
+                .iter()
+                .filter(|op| {
+                    !matches!(
+                        op,
+                        FilterOp::OrderBy(..) | FilterOp::Offset(_) | FilterOp::Limit(_)
+                    )
+                })
+                .cloned()
+                .collect(),
+        }
     }
 
     pub fn add_op(&mut self, op: FilterOp) {
@@ -196,6 +255,60 @@ impl BatchItem {
             data,
             metadata,
         }
+    }
+
+    /// Value of the `compressed` metadata flag. Every SQL write path derives
+    /// the `compressed` column from this so the column can never disagree
+    /// with the stored metadata.
+    pub fn compressed(&self) -> bool {
+        metadata_compressed(&self.metadata)
+    }
+
+    /// Payload length as stored in the `data_size` column.
+    pub fn data_size(&self) -> i64 {
+        self.data.len() as i64
+    }
+
+    /// Metadata serialized for the `metadata` column.
+    pub fn metadata_json(&self) -> Result<String, StorageError> {
+        serde_json::to_string(&self.metadata).map_err(StorageError::from)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn stripped_for_count_drops_order_and_pagination() {
+        let filter = QueryFilter::new()
+            .with_field("entityType", "workflow")
+            .with_order_by("timestamp", true)
+            .with_offset(5)
+            .with_limit(10);
+        let stripped = filter.stripped_for_count();
+        assert_eq!(stripped.ops.len(), 1);
+        assert!(matches!(&stripped.ops[0], FilterOp::Eq(k, v) if k == "entityType" && v == "workflow"));
+    }
+
+    #[test]
+    fn prefix_like_pattern_escapes_wildcards() {
+        assert_eq!(prefix_like_pattern("wf-"), "wf-%");
+        assert_eq!(prefix_like_pattern("a%b_c\\"), "a\\%b\\_c\\\\%");
+    }
+
+    #[test]
+    fn batch_item_row_helpers_agree_with_metadata() {
+        let item = BatchItem::new(
+            "id",
+            vec![1, 2, 3],
+            serde_json::json!({"compressed": true}),
+        );
+        assert!(item.compressed());
+        assert_eq!(item.data_size(), 3);
+        assert!(item.metadata_json().unwrap().contains("compressed"));
+        let plain = BatchItem::new("id", vec![], serde_json::json!({}));
+        assert!(!plain.compressed());
     }
 }
 

@@ -228,7 +228,34 @@ impl<S: Store + StoreExt> StoreExt for CachingStore<S> {
         &self,
         ids: &[String],
     ) -> Result<Vec<(String, Vec<u8>, Value)>, StorageError> {
-        self.inner.load_batch(ids).await
+        // Serve cached rows from memory and fetch only the misses, then
+        // return rows in input order so callers see one deterministic order
+        // on every backend.
+        let mut rows: std::collections::HashMap<String, (Vec<u8>, Value)> =
+            std::collections::HashMap::with_capacity(ids.len());
+        let mut missing: Vec<String> = Vec::new();
+        for id in ids {
+            match self.cache.get(id) {
+                Some((data, metadata)) => {
+                    rows.insert(id.clone(), (data, metadata));
+                }
+                None => missing.push(id.clone()),
+            }
+        }
+        if !missing.is_empty() {
+            for (id, data, metadata) in self.inner.load_batch(&missing).await? {
+                self.cache
+                    .insert(id.clone(), data.clone(), metadata.clone());
+                rows.insert(id, (data, metadata));
+            }
+        }
+        Ok(ids
+            .iter()
+            .filter_map(|id| {
+                rows.remove(id)
+                    .map(|(data, metadata)| (id.clone(), data, metadata))
+            })
+            .collect())
     }
 
     async fn delete_batch(&self, ids: &[String]) -> Result<(), StorageError> {
@@ -321,5 +348,34 @@ mod tests {
         let _ = store.load("id1").await.unwrap();
         store.delete("id1").await.unwrap();
         assert!(store.load("id1").await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn test_load_batch_serves_cache_in_input_order() {
+        let store = make_store();
+        for id in ["id1", "id2", "id3"] {
+            store
+                .save(id, id.as_bytes(), &serde_json::json!({"v": id}))
+                .await
+                .unwrap();
+        }
+        // Prime the cache for one row only.
+        let _ = store.load("id2").await.unwrap();
+        let misses_before = store.cache().misses();
+        let rows = store
+            .load_batch(&["id3".to_string(), "id2".to_string(), "missing".to_string()])
+            .await
+            .unwrap();
+        let ids: Vec<&str> = rows.iter().map(|(id, _, _)| id.as_str()).collect();
+        assert_eq!(ids, vec!["id3", "id2"]);
+        // id2 came from cache, so exactly two new misses (id3, missing).
+        assert_eq!(store.cache().misses(), misses_before + 2);
+        // A second call is fully cached.
+        let rows = store
+            .load_batch(&["id3".to_string(), "id2".to_string()])
+            .await
+            .unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(store.cache().misses(), misses_before + 2);
     }
 }

@@ -205,7 +205,12 @@ impl<S: Store> Store for InstrumentedStore<S> {
     }
 
     async fn count(&self, filter: Option<&QueryFilter>) -> Result<u64, StorageError> {
-        self.inner.count(filter).await
+        // Counted under list: both are metadata-only read queries.
+        let start = Instant::now();
+        let result = self.inner.count(filter).await;
+        let elapsed = start.elapsed().as_millis() as u64;
+        self.metrics.list.record(elapsed, 0);
+        result
     }
 
     /// Delegate to the inner single-query implementation instead of the
@@ -246,7 +251,12 @@ impl<S: Store> Store for InstrumentedStore<S> {
 #[async_trait]
 impl<S: Store + StoreExt> StoreExt for InstrumentedStore<S> {
     async fn update_status(&self, id: &str, status: &str) -> Result<(), StorageError> {
-        self.inner.update_status(id, status).await
+        // Counted under save: a single-key metadata write.
+        let start = Instant::now();
+        let result = self.inner.update_status(id, status).await;
+        let elapsed = start.elapsed().as_millis() as u64;
+        self.metrics.save.record(elapsed, 0);
+        result
     }
 
     async fn apply_batch(&self, operations: &[StoreOperation]) -> Result<(), StorageError> {
@@ -268,7 +278,12 @@ impl<S: Store + StoreExt> StoreExt for InstrumentedStore<S> {
         &self,
         field: &str,
     ) -> Result<std::collections::HashMap<String, u64>, StorageError> {
-        self.inner.count_by_field(field).await
+        // Counted under list: an aggregate metadata read query.
+        let start = Instant::now();
+        let result = self.inner.count_by_field(field).await;
+        let elapsed = start.elapsed().as_millis() as u64;
+        self.metrics.list.record(elapsed, 0);
+        result
     }
 
     async fn save_batch(&self, items: &[BatchItem]) -> Result<(), StorageError> {
@@ -299,11 +314,7 @@ impl<S: Store + StoreExt> StoreExt for InstrumentedStore<S> {
         let start = Instant::now();
         let result = self.inner.delete_batch(ids).await;
         let elapsed = start.elapsed().as_millis() as u64;
-        self.metrics.delete.count.fetch_add(1, Ordering::Relaxed);
-        self.metrics
-            .delete
-            .total_time_ms
-            .fetch_add(elapsed, Ordering::Relaxed);
+        self.metrics.delete.record(elapsed, 0);
         result
     }
 }

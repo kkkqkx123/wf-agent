@@ -261,6 +261,19 @@ impl AtomicOperation {
     }
 }
 
+/// View atomic operations as cross-table operations against physical table
+/// names. Shared by the Sqlite and PostgreSQL coordinators so the mapping
+/// from entity stores to tables exists exactly once.
+fn cross_operations(operations: &[AtomicOperation]) -> Vec<CrossTableOperation<'_>> {
+    operations
+        .iter()
+        .map(|op| CrossTableOperation {
+            table: op.target.table(),
+            operation: &op.operation,
+        })
+        .collect()
+}
+
 impl StorageContext {
     /// Apply operations spanning several entity stores atomically: every
     /// operation lands or none does. Sqlite and PostgreSQL run the whole
@@ -280,13 +293,7 @@ impl StorageContext {
         }
 
         if let Some(pool) = self.sqlite_pool.as_ref() {
-            let cross: Vec<CrossTableOperation> = operations
-                .iter()
-                .map(|op| CrossTableOperation {
-                    table: op.target.table(),
-                    operation: &op.operation,
-                })
-                .collect();
+            let cross = cross_operations(operations);
             let start = std::time::Instant::now();
             let result = SqliteStorage::apply_cross_table(pool, &cross).await;
             self.record_atomic_metrics(operations, start.elapsed().as_millis() as u64);
@@ -296,13 +303,7 @@ impl StorageContext {
         }
 
         if let Some(pool) = self.pg_pool.as_ref() {
-            let cross: Vec<CrossTableOperation> = operations
-                .iter()
-                .map(|op| CrossTableOperation {
-                    table: op.target.table(),
-                    operation: &op.operation,
-                })
-                .collect();
+            let cross = cross_operations(operations);
             let start = std::time::Instant::now();
             let result = PostgresStorage::apply_cross_table(pool, &cross).await;
             self.record_atomic_metrics(operations, start.elapsed().as_millis() as u64);
@@ -334,7 +335,7 @@ impl StorageContext {
             let start = std::time::Instant::now();
             let result = MemoryStorage::apply_cross_store(&groups).await;
             self.record_atomic_metrics(operations, start.elapsed().as_millis() as u64);
-            return result;
+            result
         }
     }
 

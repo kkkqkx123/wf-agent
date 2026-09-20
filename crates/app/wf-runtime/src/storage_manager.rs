@@ -5,7 +5,7 @@ use tracing::{info, warn};
 
 use wf_storage::context::StorageContext;
 use wf_storage::decorator::CacheConfig;
-use wf_storage::domain::Store;
+use wf_storage::domain::{Maintainable, Store};
 
 use crate::error::{RuntimeError, RuntimeResult};
 
@@ -78,43 +78,25 @@ impl StorageManager {
                 StorageContext::new_memory()
             }
             StorageBackendType::Sqlite => {
-                #[cfg(feature = "sqlite")]
-                {
-                    let app_name = self.config.app_name.as_deref().unwrap_or("app");
-                    let db_path = self
-                        .config
-                        .sqlite
-                        .as_ref()
-                        .map(|c| c.db_path.as_str())
-                        .filter(|s| !s.is_empty())
-                        .map(PathBuf::from)
-                        .unwrap_or_else(|| PathBuf::from(format!("./storage/{}.db", app_name)));
-                    let path_str = db_path.to_string_lossy();
-                    info!("Initializing Sqlite storage at {:?}", db_path);
-                    StorageContext::new_sqlite(&path_str, CacheConfig::default()).await?
-                }
-                #[cfg(not(feature = "sqlite"))]
-                {
-                    return Err(RuntimeError::Config(
-                        "Sqlite backend not available: enable the 'sqlite' feature".into(),
-                    ));
-                }
+                let app_name = self.config.app_name.as_deref().unwrap_or("app");
+                let db_path = self
+                    .config
+                    .sqlite
+                    .as_ref()
+                    .map(|c| c.db_path.as_str())
+                    .filter(|s| !s.is_empty())
+                    .map(PathBuf::from)
+                    .unwrap_or_else(|| PathBuf::from(format!("./storage/{}.db", app_name)));
+                let path_str = db_path.to_string_lossy();
+                info!("Initializing Sqlite storage at {:?}", db_path);
+                StorageContext::new_sqlite(&path_str, CacheConfig::default()).await?
             }
             StorageBackendType::Postgres => {
-                #[cfg(feature = "postgres")]
-                {
-                    let pg_config = self.config.postgres.as_ref().ok_or_else(|| {
-                        RuntimeError::Config("PostgreSQL storage config is missing".into())
-                    })?;
-                    info!("Initializing PostgreSQL storage");
-                    StorageContext::new_postgres(&pg_config.host, CacheConfig::default()).await?
-                }
-                #[cfg(not(feature = "postgres"))]
-                {
-                    return Err(RuntimeError::Config(
-                        "Postgres backend not available: enable the 'postgres' feature".into(),
-                    ));
-                }
+                let pg_config = self.config.postgres.as_ref().ok_or_else(|| {
+                    RuntimeError::Config("PostgreSQL storage config is missing".into())
+                })?;
+                info!("Initializing PostgreSQL storage");
+                StorageContext::new_postgres(&pg_config.host, CacheConfig::default()).await?
             }
         };
 
@@ -139,6 +121,13 @@ impl StorageManager {
     pub async fn close(&mut self) -> RuntimeResult<()> {
         if !self.initialized {
             return Ok(());
+        }
+        if let Some(ctx) = self.context.as_ref() {
+            for (id, backend) in ctx.named_backends() {
+                if let Err(err) = backend.sync().await {
+                    warn!(store = id.name(), error = %err, "storage sync before close failed");
+                }
+            }
         }
         self.context = None;
         self.initialized = false;

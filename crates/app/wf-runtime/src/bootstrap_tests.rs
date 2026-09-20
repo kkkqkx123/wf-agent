@@ -233,7 +233,6 @@ mod tests {
         ));
     }
 
-    #[cfg(feature = "sqlite")]
     #[tokio::test]
     async fn test_init_checkpoint_store_sqlite_roundtrip() {
         use wf_storage::domain::Store;
@@ -262,7 +261,6 @@ mod tests {
         assert_eq!(loaded.0, data);
     }
 
-    #[cfg(feature = "sqlite")]
     #[tokio::test]
     async fn test_init_checkpoint_store_sqlite_fallback_on_error() {
         let config = StorageConfig {

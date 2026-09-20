@@ -1,8 +1,6 @@
 use async_trait::async_trait;
 use serde_json::Value;
-use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use sqlx::SqlitePool;
-use std::str::FromStr;
 
 use crate::domain::keys::{schema_version_key, SCHEMA_VERSION_EXCLUDE_PATTERN};
 use crate::domain::store::{
@@ -13,29 +11,6 @@ use crate::error::StorageError;
 /// Current storage schema version. Bump when table structure or metadata
 /// semantics change; startup rejects databases with a different version.
 const SCHEMA_VERSION: i64 = 1;
-
-fn to_sqlite_url(path: &str) -> String {
-    if path.starts_with("sqlite:") {
-        path.to_string()
-    } else if path == ":memory:" || path == "file::memory:" {
-        "sqlite::memory:".to_string()
-    } else if path.starts_with('/') {
-        format!("sqlite://{}", path)
-    } else {
-        format!("sqlite:{}", path)
-    }
-}
-
-fn sanitize_url(url: &str) -> String {
-    if url.starts_with("sqlite::memory:") {
-        url.to_string()
-    } else if let Some(pos) = url.find("://") {
-        let scheme = &url[..pos];
-        format!("{}://<path>", scheme)
-    } else {
-        url.to_string()
-    }
-}
 
 enum BindValue {
     S(String),
@@ -179,43 +154,7 @@ impl SqliteStorage {
     }
 
     pub async fn create_pool(path: &str) -> Result<SqlitePool, StorageError> {
-        let url = to_sqlite_url(path);
-
-        // sqlx 0.8 defaults `create_if_missing` to false, which makes
-        // connecting to a not-yet-existing database file fail with
-        // "unable to open database file". Storage opens always create the
-        // file when missing.
-        let options = SqliteConnectOptions::from_str(&url)
-            .map_err(|e| StorageError::Initialization {
-                backend: "sqlite".into(),
-                message: format!("Failed to parse URL: {}", sanitize_url(&url)),
-                source: Some(Box::new(e)),
-            })?
-            .create_if_missing(true);
-
-        let pool = SqlitePoolOptions::new()
-            .max_connections(8)
-            .connect_with(options)
-            .await
-            .map_err(|e| StorageError::Initialization {
-                backend: "sqlite".into(),
-                message: format!("Failed to connect: {}", sanitize_url(&url)),
-                source: Some(Box::new(e)),
-            })?;
-
-        sqlx::query("PRAGMA journal_mode = WAL;")
-            .execute(&pool)
-            .await
-            .ok();
-        sqlx::query("PRAGMA synchronous = NORMAL;")
-            .execute(&pool)
-            .await
-            .ok();
-        sqlx::query("PRAGMA busy_timeout = 5000;")
-            .execute(&pool)
-            .await
-            .ok();
-        Ok(pool)
+        crate::util::pool::create_sqlite_pool(path).await
     }
 
     pub async fn with_pool(pool: SqlitePool, table_name: &str) -> Result<Self, StorageError> {
@@ -251,6 +190,18 @@ impl SqliteStorage {
             table_name, table_name
         );
         sqlx::query(&idx2).execute(&pool).await.ok();
+
+        let idx3 = format!(
+            "CREATE INDEX IF NOT EXISTS idx_{}_execution ON {}(CAST(json_extract(metadata, '$.executionId') AS TEXT))",
+            table_name, table_name
+        );
+        sqlx::query(&idx3).execute(&pool).await.ok();
+
+        let idx4 = format!(
+            "CREATE INDEX IF NOT EXISTS idx_{}_entity ON {}(CAST(json_extract(metadata, '$.entityId') AS TEXT))",
+            table_name, table_name
+        );
+        sqlx::query(&idx4).execute(&pool).await.ok();
 
         // Schema version check: insert on first open, reject on mismatch.
         let version_key = schema_version_key(table_name);

@@ -214,8 +214,7 @@ impl StorePersistenceLayer {
         }
     }
 
-    /// Sqlite-backed layer; enabled with the `sqlite` feature.
-    #[cfg(feature = "sqlite")]
+    /// Sqlite-backed layer sharing the configured database file.
     pub async fn sqlite(path: &str) -> ApiResult<Self> {
         let store = wf_storage::backend::StorageBackend::new_sqlite(path, "persistence").await?;
         Ok(Self {

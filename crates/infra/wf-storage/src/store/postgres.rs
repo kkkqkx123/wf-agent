@@ -71,6 +71,30 @@ impl PostgresStorage {
             );
         }
 
+        let idx3 = format!(
+            "CREATE INDEX IF NOT EXISTS idx_{}_execution ON {}((metadata->>'executionId'))",
+            table_name, table_name
+        );
+        if let Err(e) = sqlx::query(&idx3).execute(&pool).await {
+            tracing::warn!(
+                table = table_name,
+                error = %e,
+                "failed to create executionId index (table functional without it)"
+            );
+        }
+
+        let idx4 = format!(
+            "CREATE INDEX IF NOT EXISTS idx_{}_entity ON {}((metadata->>'entityId'))",
+            table_name, table_name
+        );
+        if let Err(e) = sqlx::query(&idx4).execute(&pool).await {
+            tracing::warn!(
+                table = table_name,
+                error = %e,
+                "failed to create entityId index (table functional without it)"
+            );
+        }
+
         // Schema version check: insert on first open, reject on mismatch.
         let version_key = schema_version_key(table_name);
         let check_sql = format!("SELECT metadata FROM {} WHERE id = $1", table_name);

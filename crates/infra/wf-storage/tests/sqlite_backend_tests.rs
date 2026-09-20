@@ -1,5 +1,3 @@
-#![cfg(feature = "sqlite")]
-
 use wf_storage::domain::store::{BatchItem, QueryFilter, Store, StoreExt, StoreOperation};
 use wf_storage::store::sqlite::SqliteStorage;
 

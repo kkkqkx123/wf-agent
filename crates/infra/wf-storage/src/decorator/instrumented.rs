@@ -64,6 +64,32 @@ impl OperationMetrics {
         self.total_time_ms.fetch_add(elapsed_ms, Ordering::Relaxed);
         self.total_bytes.fetch_add(bytes, Ordering::Relaxed);
     }
+
+    pub fn snapshot(&self) -> OperationMetricsSnapshot {
+        OperationMetricsSnapshot {
+            count: self.count(),
+            total_time_ms: self.total_time_ms(),
+            total_bytes: self.total_bytes(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct OperationMetricsSnapshot {
+    pub count: u64,
+    pub total_time_ms: u64,
+    pub total_bytes: u64,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+pub struct StorageMetricsSnapshot {
+    pub save: OperationMetricsSnapshot,
+    pub load: OperationMetricsSnapshot,
+    pub delete: OperationMetricsSnapshot,
+    pub list: OperationMetricsSnapshot,
+    pub exists: OperationMetricsSnapshot,
+    pub clear: OperationMetricsSnapshot,
+    pub batch: OperationMetricsSnapshot,
 }
 
 impl StorageMetrics {
@@ -85,6 +111,18 @@ impl StorageMetrics {
             exists: combine(&self.exists, &other.exists),
             clear: combine(&self.clear, &other.clear),
             batch: combine(&self.batch, &other.batch),
+        }
+    }
+
+    pub fn snapshot(&self) -> StorageMetricsSnapshot {
+        StorageMetricsSnapshot {
+            save: self.save.snapshot(),
+            load: self.load.snapshot(),
+            delete: self.delete.snapshot(),
+            list: self.list.snapshot(),
+            exists: self.exists.snapshot(),
+            clear: self.clear.snapshot(),
+            batch: self.batch.snapshot(),
         }
     }
 }
@@ -116,7 +154,6 @@ impl<S: Store> InstrumentedStore<S> {
     }
 }
 
-#[cfg(feature = "memory")]
 impl InstrumentedStore<crate::store::memory::MemoryStorage> {
     /// Test support: corrupt one payload byte without touching the hash
     /// (see [`crate::store::memory::MemoryStorage::corrupt_payload`]).
@@ -286,7 +323,7 @@ impl<S: Store + Maintainable> Maintainable for InstrumentedStore<S> {
     }
 }
 
-#[cfg(all(test, feature = "memory"))]
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::store::memory::MemoryStorage;

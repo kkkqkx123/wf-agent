@@ -1,5 +1,3 @@
-#![cfg(all(feature = "memory", feature = "sqlite"))]
-
 use wf_storage::context::{AtomicOperation, EntityStoreId, StorageContext};
 use wf_storage::domain::store::{BatchItem, Store, StoreOperation};
 

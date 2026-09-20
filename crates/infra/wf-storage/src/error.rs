@@ -57,16 +57,54 @@ impl From<serde_json::Error> for StorageError {
     }
 }
 
-/// All sqlx failures map to one general error carrying the original source.
-/// Row absence is not an error at this layer: callers use `fetch_optional`
-/// and receive `Ok(None)` for missing records.
-#[cfg(any(feature = "sqlite", feature = "postgres"))]
+/// Driver failures are classified so callers can separate retryable pool
+/// faults from configuration faults and malformed queries. Row absence is
+/// not an error at this layer: callers use `fetch_optional` and receive
+/// `Ok(None)` for missing records.
 impl From<sqlx::Error> for StorageError {
     fn from(e: sqlx::Error) -> Self {
-        StorageError::General {
-            operation: "sqlx".into(),
-            message: e.to_string(),
-            source: Some(Box::new(e)),
+        match e {
+            sqlx::Error::PoolTimedOut | sqlx::Error::PoolClosed => StorageError::Pool {
+                backend: "sqlx".into(),
+                message: "connection pool unavailable".into(),
+            },
+            sqlx::Error::RowNotFound => {
+                StorageError::InvalidQuery("row not found".into())
+            }
+            sqlx::Error::Io(io) => StorageError::Io(io),
+            sqlx::Error::Database(db) => StorageError::General {
+                operation: "database".into(),
+                message: format!("{} ({})", db.message(), db.code().unwrap_or_default()),
+                source: None,
+            },
+            other => {
+                let text = other.to_string();
+                let lower = text.to_lowercase();
+                if lower.contains("connect")
+                    || lower.contains("tls")
+                    || lower.contains("protocol")
+                    || lower.contains("parse")
+                {
+                    StorageError::Initialization {
+                        backend: "sqlx".into(),
+                        message: text,
+                        source: None,
+                    }
+                } else if lower.contains("column")
+                    || lower.contains("row ")
+                    || lower.contains("decode")
+                    || lower.contains("type")
+                    || lower.contains("argument")
+                {
+                    StorageError::InvalidQuery(text)
+                } else {
+                    StorageError::General {
+                        operation: "sqlx".into(),
+                        message: text,
+                        source: None,
+                    }
+                }
+            }
         }
     }
 }

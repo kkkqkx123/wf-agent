@@ -7,21 +7,17 @@ use crate::adapter::adapter_impls::{
 };
 use crate::backend::StorageBackend;
 use crate::decorator::cache::{CacheConfig, CachingStore};
-use crate::decorator::instrumented::{InstrumentedStore, StorageMetrics};
+use crate::decorator::instrumented::{
+    InstrumentedStore, StorageMetrics, StorageMetricsSnapshot,
+};
 use crate::domain::store::{CrossTableOperation, Store, StoreExt, StoreOperation};
 use crate::error::StorageError;
-#[cfg(feature = "memory")]
 use crate::store::memory::MemoryStorage;
-#[cfg(feature = "postgres")]
 use crate::store::postgres::PostgresStorage;
-#[cfg(feature = "sqlite")]
 use crate::store::sqlite::SqliteStorage;
-#[cfg(feature = "postgres")]
 use sqlx::PgPool;
-#[cfg(feature = "sqlite")]
 use sqlx::SqlitePool;
 
-#[cfg(feature = "memory")]
 macro_rules! make_backend {
     ($variant:ident, $name:expr) => {
         StorageBackend::$variant(InstrumentedStore::new(MemoryStorage::new($name)))
@@ -64,20 +60,15 @@ macro_rules! define_storage_entities {
 
         pub struct StorageContext {
             $(pub $field: $adapter<StorageBackend>),*,
-            #[cfg(feature = "sqlite")]
             sqlite_pool: Option<SqlitePool>,
-            #[cfg(feature = "postgres")]
             pg_pool: Option<PgPool>,
         }
 
         impl StorageContext {
-            #[cfg(feature = "memory")]
             pub fn new_memory() -> Self {
                 Self {
                     $($field: $adapter::new(make_backend!(Memory, $table))),*,
-                    #[cfg(feature = "sqlite")]
                     sqlite_pool: None,
-                    #[cfg(feature = "postgres")]
                     pg_pool: None,
                 }
             }
@@ -85,7 +76,6 @@ macro_rules! define_storage_entities {
             /// Create a temporary Sqlite-backed storage context for tests.
             /// Returns the context and the database file path; the caller should
             /// delete the file when done.
-            #[cfg(feature = "sqlite")]
             pub async fn new_test_sqlite() -> Result<(Self, std::path::PathBuf), StorageError> {
                 let dir = std::env::temp_dir();
                 let path = dir.join(format!("wf-test-{}.db", uuid::Uuid::new_v4()));
@@ -98,7 +88,6 @@ macro_rules! define_storage_entities {
             /// connection pool and wraps its storage in an entity cache built
             /// from `cache`. Callers that do not tune the cache pass
             /// `CacheConfig::default()`.
-            #[cfg(feature = "sqlite")]
             pub async fn new_sqlite(
                 path: &str,
                 cache: CacheConfig,
@@ -112,7 +101,6 @@ macro_rules! define_storage_entities {
                         ),
                     )))),*,
                     sqlite_pool: Some(pool),
-                    #[cfg(feature = "postgres")]
                     pg_pool: None,
                 })
             }
@@ -121,7 +109,6 @@ macro_rules! define_storage_entities {
             /// connection pool and wraps its storage in an entity cache built
             /// from `cache`. Callers that do not tune the cache pass
             /// `CacheConfig::default()`.
-            #[cfg(feature = "postgres")]
             pub async fn new_postgres(
                 connection_string: &str,
                 cache: CacheConfig,
@@ -134,7 +121,6 @@ macro_rules! define_storage_entities {
                             cache,
                         ),
                     )))),*,
-                    #[cfg(feature = "sqlite")]
                     sqlite_pool: None,
                     pg_pool: Some(pool),
                 })
@@ -172,6 +158,16 @@ macro_rules! define_storage_entities {
                 total
             }
 
+            /// Per-entity operation snapshots in declaration order, for
+            /// diagnostics that must locate load per store instead of only a
+            /// context-wide total.
+            pub fn ops_snapshot_by_entity(&self) -> Vec<(EntityStoreId, StorageMetricsSnapshot)> {
+                self.named_backends()
+                    .iter()
+                    .map(|(id, backend)| (*id, backend.op_metrics().snapshot()))
+                    .collect()
+            }
+
             /// Clear every entity store in the context. Used for test reset and
             /// runtime teardown so newly added entities cannot be missed by callers
             /// clearing stores one by one.
@@ -184,7 +180,6 @@ macro_rules! define_storage_entities {
             /// per-table `clear` does, so a fresh version row is written on the
             /// next open.
             pub async fn clear_all(&self) -> Result<(), StorageError> {
-                #[cfg(feature = "sqlite")]
                 if let Some(pool) = self.sqlite_pool.as_ref() {
                     let tables: Vec<&str> = self
                         .named_backends()
@@ -196,7 +191,6 @@ macro_rules! define_storage_entities {
                     return Ok(());
                 }
 
-                #[cfg(feature = "postgres")]
                 if let Some(pool) = self.pg_pool.as_ref() {
                     let tables: Vec<&str> = self
                         .named_backends()
@@ -208,7 +202,6 @@ macro_rules! define_storage_entities {
                     return Ok(());
                 }
 
-                #[cfg(feature = "memory")]
                 {
                     let stores: Vec<&MemoryStorage> = self
                         .named_backends()
@@ -216,12 +209,6 @@ macro_rules! define_storage_entities {
                         .filter_map(|(_, backend)| backend.memory_storage())
                         .collect();
                     return MemoryStorage::clear_cross_store(&stores).await;
-                }
-
-                #[allow(unreachable_code)]
-                {
-                    $(self.$field.store().clear().await?;)*
-                    Ok(())
                 }
             }
 
@@ -292,7 +279,6 @@ impl StorageContext {
             return self.backend_of(first).apply_batch(&single).await;
         }
 
-        #[cfg(feature = "sqlite")]
         if let Some(pool) = self.sqlite_pool.as_ref() {
             let cross: Vec<CrossTableOperation> = operations
                 .iter()
@@ -309,7 +295,6 @@ impl StorageContext {
             return Ok(());
         }
 
-        #[cfg(feature = "postgres")]
         if let Some(pool) = self.pg_pool.as_ref() {
             let cross: Vec<CrossTableOperation> = operations
                 .iter()
@@ -326,7 +311,6 @@ impl StorageContext {
             return Ok(());
         }
 
-        #[cfg(feature = "memory")]
         {
             use std::collections::BTreeMap;
             let mut grouped: BTreeMap<EntityStoreId, Vec<StoreOperation>> = BTreeMap::new();
@@ -352,13 +336,6 @@ impl StorageContext {
             self.record_atomic_metrics(operations, start.elapsed().as_millis() as u64);
             return result;
         }
-
-        #[allow(unreachable_code)]
-        Err(StorageError::General {
-            operation: "apply_atomic".into(),
-            message: "no shared pool available for cross-entity batch".into(),
-            source: None,
-        })
     }
 
     /// Record one batch observation per involved backend, mirroring the
@@ -438,7 +415,6 @@ mod tests {
         }
     }
 
-    #[cfg(feature = "memory")]
     #[tokio::test]
     async fn test_memory_clear_all_empties_every_store() {
         let ctx = StorageContext::new_memory();
@@ -447,7 +423,6 @@ mod tests {
         assert_all_empty(&ctx).await;
     }
 
-    #[cfg(feature = "sqlite")]
     #[tokio::test]
     async fn test_sqlite_clear_all_empties_every_store() {
         let (ctx, path) = StorageContext::new_test_sqlite().await.unwrap();

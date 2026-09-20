@@ -38,9 +38,7 @@ wf-llm = { path = "../../infra/wf-llm", features = ["mock"] }
 tempfile.workspace = true
 
 [features]
-default = ["sqlite", "postgres"]
-sqlite = ["wf-storage/sqlite", "wf-api/sqlite"]
-postgres = ["wf-storage/postgres"]
+default = []
 plugins = ["wf-plugin/lua"]
 lua = ["wf-sandbox/lua", "wf-plugin/lua"]
 native = ["wf-plugin/native"]

@@ -15,16 +15,10 @@ wf-types = { path = "../../foundation/wf-types" }
 wf-core = { path = "../../foundation/wf-core" }
 uuid.workspace = true
 
-sqlx = { workspace = true, optional = true }
+sqlx.workspace = true
 
 moka.workspace = true
 sha2.workspace = true
 flate2.workspace = true
 url.workspace = true
 tokio-util.workspace = true
-
-[features]
-default = ["sqlite", "postgres", "memory"]
-sqlite = ["dep:sqlx"]
-postgres = ["dep:sqlx"]
-memory = []

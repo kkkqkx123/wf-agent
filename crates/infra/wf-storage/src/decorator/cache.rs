@@ -104,12 +104,15 @@ impl EntityCache {
     }
 }
 
+/// Single-key read cache: `load` and `exists` may be served from memory
+/// while `list`, `list_data` and `count` always pass through to durable
+/// storage. Write paths invalidate the affected ids so cached reads never
+/// serve stale data after a committed write.
 #[derive(Debug, Clone)]
 pub struct CachingStore<S> {
     inner: S,
     cache: Arc<EntityCache>,
 }
-
 impl<S: Store> CachingStore<S> {
     pub fn new(inner: S, cache_config: CacheConfig) -> Self {
         Self {

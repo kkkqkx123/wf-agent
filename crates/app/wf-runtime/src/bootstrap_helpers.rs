@@ -124,15 +124,17 @@ pub fn init_gc_timer(
     }))
 }
 
+/// Standalone checkpoint backend used by engine coordinators. It shares the
+/// configured database file with the entity tables but owns a separate pool
+/// and table, so it never joins cross-entity atomic batches owned by
+/// `StorageContext`.
 pub async fn init_checkpoint_store(
     config: &StorageConfig,
 ) -> Arc<wf_storage::backend::StorageBackend> {
     use wf_storage::backend::StorageBackend;
-    use wf_storage::decorator::instrumented::InstrumentedStore;
 
     let backend = match config.storage_type {
         StorageType::Memory => StorageBackend::new_memory(),
-        #[cfg(feature = "sqlite")]
         StorageType::Sqlite => {
             let path = storage_db_path(config);
             match StorageBackend::new_sqlite(&path.to_string_lossy(), "checkpoint").await {
@@ -143,41 +145,27 @@ pub async fn init_checkpoint_store(
                 }
             }
         }
-        #[cfg(not(feature = "sqlite"))]
-        StorageType::Sqlite => {
-            warn!("Sqlite checkpoint store unavailable: enable the 'sqlite' feature");
-            StorageBackend::new_memory()
-        }
-        #[cfg(feature = "postgres")]
         StorageType::Postgres => {
             let conn = config
                 .postgres
                 .as_ref()
                 .map(|c| c.host.as_str())
                 .unwrap_or_default();
-            match wf_storage::store::postgres::PostgresStorage::new(conn, "checkpoint").await {
-                Ok(store) => StorageBackend::Postgres(InstrumentedStore::new(
-                    wf_storage::decorator::cache::CachingStore::new(
-                        store,
-                        wf_storage::decorator::cache::CacheConfig::default(),
-                    ),
-                )),
+            match StorageBackend::new_postgres(conn, "checkpoint").await {
+                Ok(store) => store,
                 Err(err) => {
                     warn!(error = %err, "failed to open checkpoint store backend; checkpoints stay in memory");
                     StorageBackend::new_memory()
                 }
             }
         }
-        #[cfg(not(feature = "postgres"))]
-        StorageType::Postgres => {
-            warn!("PostgreSQL checkpoint store unavailable: enable the 'postgres' feature");
-            StorageBackend::new_memory()
-        }
     };
     Arc::new(backend)
 }
 
-#[cfg(feature = "sqlite")]
+/// Event log persistence sharing the configured database file with entity and
+/// checkpoint tables. The table is disjoint from both, so event writes never
+/// contend with entity transactions; event loss never blocks execution.
 pub async fn init_event_persistence(
     config: &StorageConfig,
 ) -> Option<Arc<dyn wf_api::PersistenceLayer>> {
@@ -201,13 +189,6 @@ pub async fn init_event_persistence(
     }
     info!("Event persistence enabled: sqlite at {:?}", db_path);
     Some(layer as Arc<dyn ApiPersistenceLayer>)
-}
-
-#[cfg(not(feature = "sqlite"))]
-pub async fn init_event_persistence(
-    _config: &StorageConfig,
-) -> Option<Arc<dyn wf_api::PersistenceLayer>> {
-    None
 }
 
 pub async fn resolve_infra_config(

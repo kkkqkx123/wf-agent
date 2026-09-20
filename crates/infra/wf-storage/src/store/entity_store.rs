@@ -86,7 +86,14 @@ where
     }
 
     pub async fn list(&self, filter: Option<&QueryFilter>) -> Result<Vec<T>, StorageError> {
-        let (entities, _corrupt_count) = self.list_with_corruption(filter).await?;
+        let (entities, corrupt_count) = self.list_with_corruption(filter).await?;
+        if corrupt_count > 0 {
+            tracing::warn!(
+                entity_type = T::entity_type(),
+                corrupt_count,
+                "list skipped corrupted records"
+            );
+        }
         Ok(entities)
     }
 
@@ -154,7 +161,9 @@ where
     /// Read-modify-write of an entity by id without locking: the current
     /// record is loaded, `f` mutates it in memory, and the result is saved
     /// back. Concurrent mutations of the same id must be serialized by the
-    /// caller. Returns `Ok(None)` when no record with the id exists.
+    /// caller. Only low-contention management updates may use this helper;
+    /// high-contention entities must serialize callers or use an atomic batch
+    /// instead. Returns `Ok(None)` when no record with the id exists.
     pub async fn mutate(
         &self,
         id: &str,

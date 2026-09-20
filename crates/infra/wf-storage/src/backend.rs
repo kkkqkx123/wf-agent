@@ -7,11 +7,8 @@ use crate::domain::store::{
     BatchItem, Maintainable, QueryFilter, Store, StoreExt, StoreOperation,
 };
 use crate::error::StorageError;
-#[cfg(feature = "memory")]
 use crate::store::memory::MemoryStorage;
-#[cfg(feature = "postgres")]
 use crate::store::postgres::PostgresStorage;
-#[cfg(feature = "sqlite")]
 use crate::store::sqlite::SqliteStorage;
 
 /// Forward a call to the inner store of whichever backend variant is held.
@@ -21,11 +18,8 @@ use crate::store::sqlite::SqliteStorage;
 macro_rules! dispatch {
     ($this:expr, |$inner:ident| $call:expr) => {
         match $this {
-            #[cfg(feature = "memory")]
             Self::Memory($inner) => $call,
-            #[cfg(feature = "sqlite")]
             Self::Sqlite($inner) => $call,
-            #[cfg(feature = "postgres")]
             Self::Postgres($inner) => $call,
         }
     };
@@ -42,28 +36,44 @@ macro_rules! dispatch {
 /// in memory, so a second cache would only add a copy without benefit. The
 /// variant-special-cased methods below follow the same reasoning and are not
 /// a candidate for flattening.
+///
+/// A backend holds one table only. Entity tables owned by a `StorageContext`
+/// share one pool and participate in cross-entity atomic batches; a backend
+/// built here stands alone and never joins those batches.
 #[derive(Debug, Clone)]
 pub enum StorageBackend {
-    #[cfg(feature = "memory")]
     Memory(InstrumentedStore<MemoryStorage>),
-    #[cfg(feature = "sqlite")]
     Sqlite(InstrumentedStore<CachingStore<SqliteStorage>>),
-    #[cfg(feature = "postgres")]
     Postgres(InstrumentedStore<CachingStore<PostgresStorage>>),
 }
 
 impl StorageBackend {
-    #[cfg(feature = "memory")]
     pub fn new_memory() -> Self {
         Self::Memory(InstrumentedStore::new(MemoryStorage::new("default")))
     }
 
     /// Open a Sqlite backend with the entity cache enabled (default cache
-    /// configuration: 1000 entries / 300s TTL).
-    #[cfg(feature = "sqlite")]
+    /// configuration: 1000 entries / 300s TTL). The backend owns its pool and
+    /// serves one table; entity tables should use `StorageContext` instead so
+    /// they share a pool and join atomic batches.
     pub async fn new_sqlite(path: &str, table_name: &str) -> Result<Self, StorageError> {
         let store = SqliteStorage::new(path, table_name).await?;
         Ok(Self::Sqlite(InstrumentedStore::new(CachingStore::new(
+            store,
+            CacheConfig::default(),
+        ))))
+    }
+
+    /// Open a PostgreSQL backend with the entity cache enabled, mirroring
+    /// `new_sqlite`. The backend owns its pool and serves one table; entity
+    /// tables should use `StorageContext` instead so they share a pool and
+    /// join atomic batches.
+    pub async fn new_postgres(
+        connection_string: &str,
+        table_name: &str,
+    ) -> Result<Self, StorageError> {
+        let store = PostgresStorage::new(connection_string, table_name).await?;
+        Ok(Self::Postgres(InstrumentedStore::new(CachingStore::new(
             store,
             CacheConfig::default(),
         ))))
@@ -80,11 +90,8 @@ impl StorageBackend {
     /// No-op for backends without a cache layer.
     pub fn invalidate_cached(&self, id: &str) {
         match self {
-            #[cfg(feature = "memory")]
             Self::Memory(_) => {}
-            #[cfg(feature = "sqlite")]
             Self::Sqlite(s) => s.inner().cache().invalidate(id),
-            #[cfg(feature = "postgres")]
             Self::Postgres(s) => s.inner().cache().invalidate(id),
         }
     }
@@ -94,22 +101,17 @@ impl StorageBackend {
     /// backends without a cache layer.
     pub fn invalidate_all_cached(&self) {
         match self {
-            #[cfg(feature = "memory")]
             Self::Memory(_) => {}
-            #[cfg(feature = "sqlite")]
             Self::Sqlite(s) => s.inner().cache().clear(),
-            #[cfg(feature = "postgres")]
             Self::Postgres(s) => s.inner().cache().clear(),
         }
     }
 
     /// Borrow the memory store behind this backend, if it is one. Used by
     /// the cross-entity atomic batch coordinator.
-    #[cfg(feature = "memory")]
     pub fn memory_storage(&self) -> Option<&MemoryStorage> {
         match self {
             Self::Memory(s) => Some(s.inner()),
-            #[cfg(any(feature = "sqlite", feature = "postgres"))]
             _ => None,
         }
     }
@@ -120,9 +122,7 @@ impl StorageBackend {
     #[doc(hidden)]
     pub async fn corrupt_payload(&self, id: &str, offset: usize, value: u8) -> bool {
         match self {
-            #[cfg(feature = "memory")]
             Self::Memory(s) => s.corrupt_payload(id, offset, value).await,
-            #[cfg(any(feature = "sqlite", feature = "postgres"))]
             _ => false,
         }
     }

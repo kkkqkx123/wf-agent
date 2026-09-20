@@ -1,20 +1,14 @@
-#[cfg(any(feature = "sqlite", feature = "postgres"))]
 use std::time::Duration;
 
-#[cfg(feature = "postgres")]
 use sqlx::PgPool;
-#[cfg(feature = "sqlite")]
 use sqlx::SqlitePool;
-#[cfg(any(feature = "sqlite", feature = "postgres"))]
 use tokio_util::sync::CancellationToken;
 
-#[cfg(any(feature = "sqlite", feature = "postgres"))]
 use crate::error::StorageError;
 
 pub struct MaintenanceService;
 
 impl MaintenanceService {
-    #[cfg(feature = "sqlite")]
     pub async fn sqlite_maintenance_loop(
         pool: SqlitePool,
         interval: Duration,
@@ -33,7 +27,6 @@ impl MaintenanceService {
         }
     }
 
-    #[cfg(feature = "postgres")]
     pub async fn postgres_maintenance_loop(
         pool: PgPool,
         interval: Duration,
@@ -53,7 +46,6 @@ impl MaintenanceService {
     }
 }
 
-#[cfg(feature = "sqlite")]
 async fn run_sqlite_maintenance(pool: &SqlitePool) -> Result<(), StorageError> {
     sqlx::query("PRAGMA optimize")
         .execute(pool)
@@ -66,7 +58,6 @@ async fn run_sqlite_maintenance(pool: &SqlitePool) -> Result<(), StorageError> {
     Ok(())
 }
 
-#[cfg(feature = "postgres")]
 async fn run_postgres_maintenance(pool: &PgPool) -> Result<(), StorageError> {
     sqlx::query("ANALYZE")
         .execute(pool)

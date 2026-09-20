@@ -1,5 +1,5 @@
 //! Predefined integration tools: definitions only. `use_mcp` is executed by
-//! the McpExecutor.
+//! the McpExecutor, so there is no `register` function.
 
 pub mod use_mcp;
 

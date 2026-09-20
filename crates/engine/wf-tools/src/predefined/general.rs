@@ -4,17 +4,21 @@
 //! schema (discoverable tools). The schema is deliberately minimal and
 //! fixed: a single string parameter with no inner schema constraints, so
 //! the LLM-facing schema never changes when the discoverable set changes
-//! (KV-cache friendly).
+//! (KV-cache friendly). `register` installs its always-available
+//! definition; exposure is decided by the assembly layer.
 
 use wf_types::tool::{ToolRiskLevel, ToolType};
 
+use crate::error::ToolResult;
+use crate::general::GENERAL_TOOL_NAME;
 use crate::predefined::schema::{ToolDefinition, ToolParameter};
+use crate::registry::ToolRegistry;
 
 /// All general-category tool definitions in registration order.
 pub const ALL: &[&ToolDefinition] = &[&GENERAL];
 
 pub static GENERAL: ToolDefinition = ToolDefinition {
-    id: "general",
+    id: GENERAL_TOOL_NAME,
     tool_type: ToolType::BuiltIn,
     // Shell-only risk: `ReadOnly` describes the proxy transport, never the
     // inner tool. Approval is re-evaluated per inner tool and name
@@ -45,3 +49,10 @@ pub static GENERAL: ToolDefinition = ToolDefinition {
     tips: None,
     examples: None,
 };
+
+/// Register the `general` definition. There is no handler to wire here:
+/// the proxy executes through the engine-provided invoker.
+pub fn register(registry: &ToolRegistry) -> ToolResult<()> {
+    registry.register_tool(GENERAL.tool_def());
+    Ok(())
+}

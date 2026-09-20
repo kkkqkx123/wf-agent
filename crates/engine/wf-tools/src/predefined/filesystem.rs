@@ -42,7 +42,7 @@ pub const ALL: &[&ToolDefinition] = &[
 
 /// Register the filesystem tool handlers (including apply_patch and
 /// apply_diff) into the registry.
-pub fn register_handlers(registry: &ToolRegistry, handlers: &FsToolHandlers) -> ToolResult<()> {
+pub fn register(registry: &ToolRegistry, handlers: &FsToolHandlers) -> ToolResult<()> {
     for def in ALL {
         let handler = handlers.handler(def.id)?;
         registry.register_stateless_handler(def.id, handler);

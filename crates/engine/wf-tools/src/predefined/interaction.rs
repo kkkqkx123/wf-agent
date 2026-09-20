@@ -1,5 +1,6 @@
 //! Predefined interaction tools (builtin type): definitions only. These
-//! signal the agent loop to pause for user input or to complete the task.
+//! signal the agent loop to pause for user input or to complete the task,
+//! so there is no `register` function.
 
 pub mod ask_followup_question;
 pub mod attempt_completion;

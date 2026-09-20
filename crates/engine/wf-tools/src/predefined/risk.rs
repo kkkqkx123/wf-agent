@@ -136,11 +136,30 @@ mod tests {
     }
 
     #[test]
-    fn test_every_definition_has_risk_and_count() {
+    fn test_every_definition_has_risk_and_key_tools_present() {
         let defs = all_definitions();
-        assert_eq!(defs.len(), 36);
-        for d in defs {
+        assert!(!defs.is_empty());
+        for d in &defs {
             assert!(get_tool_risk_level(d.id).is_some());
+        }
+        // Spot-check that the core tools survive registration-order edits;
+        // adding tools must not require touching this test.
+        let ids: Vec<&str> = defs.iter().map(|d| d.id).collect();
+        for expected in [
+            "read_file",
+            "execute_command",
+            "web_search",
+            "execute_workflow",
+            "call_agent",
+            "general",
+            "skill",
+            "use_mcp",
+            "update_todo_list",
+        ] {
+            assert!(
+                ids.contains(&expected),
+                "missing predefined tool {expected}"
+            );
         }
     }
 

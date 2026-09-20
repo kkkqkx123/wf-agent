@@ -5,6 +5,14 @@
 //! [`builtin_tool_descriptions`] derive both the registry-facing tool
 //! definitions and the LLM-facing description data from the same source,
 //! keeping them in sync.
+//!
+//! Category contract: every category module exposes `ALL` in registration
+//! order. Categories that own execution logic additionally expose a
+//! `register` function wiring their handlers or always-available
+//! definitions into the registry (filesystem, shell, memory, utility,
+//! web, knowledge, general). Categories executed through the shared
+//! builtin/MCP executors expose definitions only and have no `register`
+//! function (agent, workflow, interaction, integration).
 
 pub mod agent;
 pub mod filesystem;

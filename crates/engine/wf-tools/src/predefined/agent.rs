@@ -1,5 +1,6 @@
 //! Predefined agent tools (builtin type): definitions only. Execution is
-//! handled by the BuiltinExecutor through the registered ExecutionCallback.
+//! handled by the BuiltinExecutor through the registered ExecutionCallback,
+//! so there is no `register` function.
 
 pub mod call_agent;
 

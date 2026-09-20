@@ -27,8 +27,9 @@ pub fn create_default_tool_registry() -> ToolRegistry {
 /// (read_file/write_file/edit_file/apply_patch/apply_diff/list_files/
 /// grep_search/glob_search), shell (execute_command + background shell
 /// sessions), memory (session notes + long-term memory), utility
-/// (update_todo_list) and web (web_search/web_fetch). The tool definitions
-/// are registered by wf-resource; this wires the actual execution logic into
+/// (update_todo_list), web (web_search/web_fetch) and the always-available
+/// `skill`/`general` definitions. The remaining tool definitions are
+/// registered by wf-resource; this wires the actual execution logic into
 /// the tool registry.
 pub fn register_builtin_handlers(
     registry: &ToolRegistry,
@@ -44,20 +45,14 @@ pub fn register_builtin_handlers(
         Some(protect) => handlers.with_protect(protect),
         None => handlers,
     };
-    predefined::filesystem::register_handlers(registry, &handlers)?;
+    predefined::filesystem::register(registry, &handlers)?;
 
     predefined::shell::register(registry, &config.shell)?;
     predefined::memory::register(registry)?;
     predefined::utility::register(registry)?;
     predefined::web::register(registry, &config.web)?;
-
-    // The `skill` builtin tool is always available; content loading is
-    // served by the skill loader injected via ToolRegistry::set_skill_loader.
-    registry.register_tool(predefined::knowledge::SKILL.tool_def());
-
-    // The `general` builtin tool is always registered; exposure is decided
-    // by the assembly layer (exposed iff the discoverable list is non-empty).
-    registry.register_tool(predefined::general::GENERAL.tool_def());
+    predefined::knowledge::register(registry)?;
+    predefined::general::register(registry)?;
 
     Ok(())
 }

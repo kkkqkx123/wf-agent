@@ -46,12 +46,13 @@ pub struct ResourcePluginActivation {
 #[derive(Debug, Clone)]
 pub struct RegisterOptions {
     pub skip_if_exists: bool,
-    pub allow_list: Option<Vec<String>>,
-    pub block_list: Option<Vec<String>>,
     /// Already loaded custom resources. File location and parsing stay at
     /// the bootstrap edge; registration only consumes the loaded data.
     pub custom_resources: Option<crate::custom::types::CustomResources>,
     pub custom_validation_level: crate::custom::types::CustomValidationLevel,
+    /// Built-in resource plugins requested for activation. Activation itself
+    /// runs in the runtime (legacy registry path or plugin-engine bridge),
+    /// not in `register_all`.
     pub resource_plugin_activation: Vec<ResourcePluginActivation>,
 }
 
@@ -59,8 +60,6 @@ impl Default for RegisterOptions {
     fn default() -> Self {
         Self {
             skip_if_exists: true,
-            allow_list: None,
-            block_list: None,
             custom_resources: None,
             custom_validation_level: crate::custom::types::CustomValidationLevel::default(),
             resource_plugin_activation: Vec::new(),
@@ -186,23 +185,6 @@ impl Default for ResourceRegistries {
     fn default() -> Self {
         Self::new()
     }
-}
-
-/// Register an item into a registry, skipping if the key already exists.
-///
-/// When `skip_if_exists` is true, existing keys are silently skipped (no-op).
-/// When `skip_if_exists` is false, duplicate keys are reported as failures.
-#[deprecated(
-    since = "0.1.0",
-    note = "use `register_item` without skip_if_exists, or call `registry.has()` first"
-)]
-pub fn register_item<T: Send + Sync>(
-    registry: &ConcurrentRegistry<T>,
-    key: String,
-    item: T,
-    skip_if_exists: bool,
-) -> Summary {
-    register_item_inner(registry, key, item, skip_if_exists)
 }
 
 /// Register an item into a registry. Fails if the key already exists.
@@ -376,10 +358,11 @@ pub fn list_fragments_by_category(regs: &ResourceRegistries, category: &str) -> 
 /// Register the predefined and config-driven custom resources into the
 /// runtime registries.
 ///
-/// Built-in resource plugins are **not activated here**: the runtime's
-/// plugin engine registers them as `wf-plugin` plugins and activates them
-/// through the contribution bridge, so the whole plugin system shares one
-/// activation chain. The legacy `ResourcePluginRegistry` path remains
+/// Built-in resource plugins are **not activated here**: the runtime
+/// activates the entries listed in
+/// `RegisterOptions::resource_plugin_activation` (legacy registry path or
+/// plugin-engine bridge), so the whole plugin system shares one activation
+/// chain. The legacy `ResourcePluginRegistry` path remains
 /// available for engine-disabled fallbacks.
 pub fn register_all(
     regs: &ResourceRegistries,
@@ -413,16 +396,6 @@ pub fn register_all(
 }
 
 // ── helpers ──────────────────────────────────────────────
-
-pub fn is_resource_disabled(id: &str, opts: &RegisterOptions) -> bool {
-    if let Some(ref allow) = opts.allow_list {
-        return !allow.contains(&id.to_string());
-    }
-    if let Some(ref block) = opts.block_list {
-        return block.contains(&id.to_string());
-    }
-    false
-}
 
 pub fn are_fragments_registered(regs: &ResourceRegistries) -> bool {
     PREDEFINED_FRAGMENT_IDS

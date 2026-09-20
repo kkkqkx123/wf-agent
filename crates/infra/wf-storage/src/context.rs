@@ -10,7 +10,7 @@ use crate::decorator::cache::{CacheConfig, CachingStore};
 use crate::decorator::instrumented::{
     InstrumentedStore, StorageMetrics, StorageMetricsSnapshot,
 };
-use crate::domain::store::{CrossTableOperation, Store, StoreExt, StoreOperation};
+use crate::domain::store::{CrossTableOperation, StoreExt, StoreOperation};
 use crate::error::StorageError;
 use crate::store::memory::MemoryStorage;
 use crate::store::postgres::PostgresStorage;
@@ -382,6 +382,7 @@ impl StorageContext {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::store::Store;
 
     fn seed_id(id: EntityStoreId) -> String {
         format!("seed-{}", id.table())

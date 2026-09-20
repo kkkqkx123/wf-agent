@@ -223,6 +223,17 @@ impl StorePersistenceLayer {
         })
     }
 
+    /// PostgreSQL-backed layer sharing the configured database.
+    pub async fn postgres(connection_string: &str) -> ApiResult<Self> {
+        let store =
+            wf_storage::backend::StorageBackend::new_postgres(connection_string, "persistence")
+                .await?;
+        Ok(Self {
+            store,
+            name: "postgres".into(),
+        })
+    }
+
     fn event_key(id: &str) -> String {
         format!("{EVENT_KEY_PREFIX}{id}")
     }

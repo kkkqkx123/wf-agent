@@ -1,4 +1,3 @@
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use tracing::{info, warn};
@@ -78,15 +77,7 @@ impl StorageManager {
                 StorageContext::new_memory()
             }
             StorageBackendType::Sqlite => {
-                let app_name = self.config.app_name.as_deref().unwrap_or("app");
-                let db_path = self
-                    .config
-                    .sqlite
-                    .as_ref()
-                    .map(|c| c.db_path.as_str())
-                    .filter(|s| !s.is_empty())
-                    .map(PathBuf::from)
-                    .unwrap_or_else(|| PathBuf::from(format!("./storage/{}.db", app_name)));
+                let db_path = crate::bootstrap::bootstrap_helpers::storage_db_path(&self.config);
                 let path_str = db_path.to_string_lossy();
                 info!("Initializing Sqlite storage at {:?}", db_path);
                 StorageContext::new_sqlite(&path_str, CacheConfig::default()).await?
@@ -96,7 +87,8 @@ impl StorageManager {
                     RuntimeError::Config("PostgreSQL storage config is missing".into())
                 })?;
                 info!("Initializing PostgreSQL storage");
-                StorageContext::new_postgres(&pg_config.host, CacheConfig::default()).await?
+                let conn = crate::bootstrap::bootstrap_helpers::postgres_connection_string(pg_config);
+                StorageContext::new_postgres(&conn, CacheConfig::default()).await?
             }
         };
 

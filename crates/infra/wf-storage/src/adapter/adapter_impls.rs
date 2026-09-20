@@ -371,6 +371,8 @@ impl<S: Store + StoreExt> ToolStorageAdapter for ToolStorage<S> {
         id: &str,
         enabled: bool,
     ) -> Result<Option<wf_types::ToolStorageMetadata>, StorageError> {
+        // Low-contention management toggle: at most one operator flips a tool
+        // at a time, so the unlocked read-modify-write helper applies.
         self.entity_store
             .mutate(id, |tool| {
                 tool.enabled = enabled;
@@ -409,6 +411,8 @@ impl<S: Store + StoreExt> ScriptStorageAdapter for ScriptStorage<S> {
         id: &str,
         enabled: bool,
     ) -> Result<Option<wf_types::ScriptStorageMetadata>, StorageError> {
+        // Low-contention management toggle: same single-writer assumption as
+        // the tool switch above.
         self.entity_store
             .mutate(id, |script| {
                 script.enabled = enabled;

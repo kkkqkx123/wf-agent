@@ -28,6 +28,35 @@ pub fn storage_db_path(config: &StorageConfig) -> PathBuf {
         .unwrap_or_else(|| PathBuf::from(format!("./storage/{}.db", app_name)))
 }
 
+/// Connection string for PostgreSQL backends. The structured config keeps a
+/// full URL in `host` when the value comes from CLI parsing (`postgres://...`
+/// or `postgres:<suffix>`); file-based configs fill the discrete fields
+/// instead, in which case a URL is assembled here so every runtime switch
+/// site shares one construction rule.
+pub fn postgres_connection_string(
+    config: &wf_types::config::storage::PostgresStorageConfig,
+) -> String {
+    if config.host.contains("://") {
+        return config.host.clone();
+    }
+    if config.username.is_empty() && config.database.is_empty() {
+        return config.host.clone();
+    }
+    let auth = if config.username.is_empty() {
+        String::new()
+    } else if config.password.is_empty() {
+        format!("{}@", config.username)
+    } else {
+        format!("{}:{}@", config.username, config.password)
+    };
+    let db = if config.database.is_empty() {
+        String::new()
+    } else {
+        format!("/{}", config.database)
+    };
+    format!("postgres://{}{}:{}{}", auth, config.host, config.port, db)
+}
+
 pub fn init_file_checkpoint_manager(
     config: &FileCheckpointConfig,
     event_bus: Arc<wf_core::event::EventBus>,
@@ -149,9 +178,9 @@ pub async fn init_checkpoint_store(
             let conn = config
                 .postgres
                 .as_ref()
-                .map(|c| c.host.as_str())
+                .map(postgres_connection_string)
                 .unwrap_or_default();
-            match StorageBackend::new_postgres(conn, "checkpoint").await {
+            match StorageBackend::new_postgres(&conn, "checkpoint").await {
                 Ok(store) => store,
                 Err(err) => {
                     warn!(error = %err, "failed to open checkpoint store backend; checkpoints stay in memory");
@@ -163,16 +192,40 @@ pub async fn init_checkpoint_store(
     Arc::new(backend)
 }
 
-/// Event log persistence sharing the configured database file with entity and
+/// Event log persistence sharing the configured backend with entity and
 /// checkpoint tables. The table is disjoint from both, so event writes never
 /// contend with entity transactions; event loss never blocks execution.
+/// Memory keeps events in the bounded bus window (`None`); Sqlite and
+/// PostgreSQL each persist to their own backend with best-effort fallback.
 pub async fn init_event_persistence(
     config: &StorageConfig,
 ) -> Option<Arc<dyn wf_api::PersistenceLayer>> {
     use wf_api::PersistenceLayer as ApiPersistenceLayer;
 
-    if config.storage_type != StorageType::Sqlite {
-        return None;
+    match config.storage_type {
+        StorageType::Memory => return None,
+        StorageType::Sqlite => {}
+        StorageType::Postgres => {}
+    }
+    if config.storage_type == StorageType::Postgres {
+        let conn = config
+            .postgres
+            .as_ref()
+            .map(postgres_connection_string)
+            .unwrap_or_default();
+        let layer = match wf_api::StorePersistenceLayer::postgres(&conn).await {
+            Ok(store) => Arc::new(wf_api::BufferedPersistenceLayer::new(Arc::new(store))),
+            Err(err) => {
+                warn!(error = %err, "failed to open postgres event persistence backend; events stay in memory");
+                return None;
+            }
+        };
+        if let Err(err) = layer.initialize().await {
+            warn!(error = %err, "failed to initialize event persistence backend; events stay in memory");
+            return None;
+        }
+        info!("Event persistence enabled: postgres");
+        return Some(layer as Arc<dyn ApiPersistenceLayer>);
     }
     let db_path = storage_db_path(config);
 

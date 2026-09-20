@@ -1,7 +1,7 @@
 #[path = "bootstrap_config.rs"]
 mod bootstrap_config;
 #[path = "bootstrap_helpers.rs"]
-mod bootstrap_helpers;
+pub(crate) mod bootstrap_helpers;
 
 use std::sync::Arc;
 
@@ -263,7 +263,7 @@ impl Runtime {
         // Durable event persistence backend: engine events published
         // on the shared bus are buffered and flushed to the same backend as
         // the runtime storage, so history survives restarts. `None` (memory
-        // or postgres storage, or a failed open) keeps events in memory only.
+        // storage, or a failed open) keeps events in memory only.
         let event_persistence = init_event_persistence(&config.storage).await;
 
         let mut storage_manager = StorageManager::new(config.storage);

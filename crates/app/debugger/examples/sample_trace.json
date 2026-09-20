@@ -1,0 +1,102 @@
+{
+  "schema": "wf-debug-trace/v1",
+  "kind": "workflow",
+  "graph_ref": "sample-route-graph",
+  "initial_variables": {
+    "x": 2
+  },
+  "trigger_templates": [
+    {
+      "name": "on-node-completed",
+      "enabled": true,
+      "event_type": "NODE_COMPLETED",
+      "expression": "eq(x, 2)"
+    }
+  ],
+  "steps": [
+    {
+      "index": 0,
+      "node_id": "route-1",
+      "node_name": "choose",
+      "node_type": "ROUTE",
+      "input": { "x": 2 },
+      "result": { "target": "b" },
+      "success": true,
+      "route_target": "b",
+      "start_time": 1000,
+      "end_time": 1005,
+      "variable_before": { "x": 2 },
+      "variable_after": { "x": 2 },
+      "messages_before": {},
+      "messages_after": {
+        "main": [
+          { "id": "m1", "role": "user", "content": "hi" }
+        ]
+      },
+      "tool_calls": [],
+      "llm_calls": [],
+      "hooks_fired": [
+        {
+          "hook_type": "BEFORE_EXECUTE",
+          "hook_id": "h1",
+          "enabled": true,
+          "outcome": "continue",
+          "gate": true
+        }
+      ],
+      "triggers_seen": [
+        {
+          "template_name": "on-node-completed",
+          "event_type": "NODE_COMPLETED",
+          "matched": true,
+          "permit": "Granted",
+          "status": "completed"
+        }
+      ]
+    },
+    {
+      "index": 1,
+      "node_id": "script-b",
+      "node_name": "branch-b",
+      "node_type": "SCRIPT",
+      "input": { "x": 2 },
+      "result": 2,
+      "success": true,
+      "branch_id": "b",
+      "start_time": 1006,
+      "end_time": 1010,
+      "variable_before": { "x": 2 },
+      "variable_after": { "x": 3 },
+      "messages_before": {
+        "main": [
+          { "id": "m1", "role": "user", "content": "hi" }
+        ]
+      },
+      "messages_after": {
+        "main": [
+          { "id": "m1", "role": "user", "content": "hi" },
+          { "id": "m2", "role": "assistant", "content": "done" }
+        ]
+      },
+      "tool_calls": [
+        {
+          "name": "calc",
+          "call_id": "c1",
+          "arguments": { "x": 2 },
+          "result": 3,
+          "success": true
+        }
+      ],
+      "llm_calls": [],
+      "checkpoint": { "timing": "ToolAfter" },
+      "hooks_fired": [],
+      "triggers_seen": []
+    }
+  ],
+  "assertions": [
+    { "type": "step_success", "step": 0 },
+    { "type": "variable", "step": 1, "key": "x", "expected": 3 },
+    { "type": "route", "step": 0, "expected_target": "b" },
+    { "type": "trigger_matched", "template": "on-node-completed", "expected": true }
+  ]
+}

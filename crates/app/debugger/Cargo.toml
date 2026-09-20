@@ -1,0 +1,26 @@
+[package]
+name = "wf-debugger"
+version.workspace = true
+edition.workspace = true
+description = "Offline workflow and agent execution debugger (mock trace replay, diffs, hook and trigger explanation, assertions)"
+
+[lib]
+name = "wf_debugger"
+path = "src/lib.rs"
+
+[[bin]]
+name = "wf-debug"
+path = "src/main.rs"
+
+[dependencies]
+wf-types = { workspace = true }
+wf-common = { workspace = true }
+wf-core = { workspace = true }
+serde.workspace = true
+serde_json.workspace = true
+clap.workspace = true
+anyhow.workspace = true
+similar.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

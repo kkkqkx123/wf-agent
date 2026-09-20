@@ -79,7 +79,7 @@ pub async fn stream_agent_turn(
 ) -> Result<(String, ExecutionEventStream), ApiError> {
     // Composition boundary: resolve the agent template (built-in
     // `@standard/main` default, user overrides first) before execution.
-    let run_params = wf_api::agent::agent_template_resolve::resolve_run_params(
+    let run_params = wf_api::composition::agent::resolve_run_params(
         &ctx.registries,
         build_agent_loop_params(params, approval_options, approval_handler),
     )?;

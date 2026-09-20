@@ -63,6 +63,17 @@ impl HookConfig {
             checkpoint_description: spec.checkpoint_description.clone(),
         }
     }
+
+    /// Build from a static agent definition hook through the canonical spec.
+    pub fn from_agent_hook(hook: &wf_types::agent::AgentHookConfig) -> Self {
+        Self::from_canonical(&wf_types::hook::CanonicalHookSpec::from_agent(hook))
+    }
+}
+
+impl From<&wf_types::agent::AgentHookConfig> for HookConfig {
+    fn from(hook: &wf_types::agent::AgentHookConfig) -> Self {
+        Self::from_agent_hook(hook)
+    }
 }
 #[derive(Debug, Clone)]
 pub struct AgentLoopConfig {

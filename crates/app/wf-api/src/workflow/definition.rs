@@ -6,7 +6,6 @@ use std::sync::Arc;
 use serde_json::Value;
 
 use wf_common;
-use wf_core::registry::{MutableRegistry, Registry};
 use wf_resource::registry::ResourceRegistries;
 use wf_storage::adapter::base::BaseStorageAdapter;
 use wf_storage::adapter::execution::WorkflowExecutionListOptions;
@@ -104,7 +103,7 @@ pub async fn clone_workflow(
         .update_metadata(&cloned_id, &provenance)
         .await
     {
-        ctx.registries.workflows.unregister(&cloned_id);
+        ctx.registries.remove_workflow_template(&cloned_id);
         let _ = ctx.storage.workflow.delete(&cloned_id).await;
         return Err(err.into());
     }
@@ -130,7 +129,7 @@ pub async fn rollback_workflow(ctx: &ApiContext, id: &str, version: &str) -> cra
 
 /// Delete a workflow and cascade its dependent records.
 pub async fn delete_workflow(ctx: &ApiContext, id: &str) -> crate::ApiResult<bool> {
-    ctx.registries.workflows.unregister(id);
+    ctx.registries.remove_workflow_template(id);
     ctx.clear_stale(id);
     let _ = ctx.storage.workflow_draft.delete(id).await;
 
@@ -232,13 +231,9 @@ pub(super) fn upsert_workflow_registry(
         is_public: None,
         enabled: Some(true),
     };
-    if registries.workflows.has(&workflow.id) {
-        registries.workflows.unregister(&workflow.id);
-    }
     registries
-        .workflows
-        .register(workflow.id.clone(), Arc::new(template))
-        .map_err(|err| crate::ApiError::Conflict(err.to_string()))
+        .upsert_workflow_template(template)
+        .map_err(crate::ApiError::Conflict)
 }
 
 #[cfg(test)]

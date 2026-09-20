@@ -1,12 +1,13 @@
 //! Agent template resolution at the composition boundary.
 //!
-//! This module is a factory for fully-resolved [`RunAgentLoopParams`]: it
-//! turns a caller's intent ("run agent X with these overrides") into a
-//! complete loop config by applying the registered agent template's
-//! [`AgentConfig`] defaults under the caller's explicit fields. Callers are
-//! the composition entry points (HTTP handlers, CLI frontends); the
-//! execution APIs (`agent_execution::run` / `stream` / `resume_from_checkpoint`)
-//! stay pure executors and never consult templates.
+//! Canonical home of the agent resolve logic. This module
+//! is a factory for fully-resolved [`RunAgentLoopParams`]: it turns a
+//! caller's intent ("run agent X with these overrides") into a complete loop
+//! config by applying the registered agent template's [`AgentConfig`]
+//! defaults under the caller's explicit fields. Callers are the composition
+//! entry points (HTTP handlers, CLI frontends); the execution APIs
+//! (`agent_execution::run` / `stream` / `resume_from_checkpoint`) stay pure
+//! executors and never consult templates.
 //!
 //! Resolution semantics (exact match only, no fallback or alias):
 //! - the built-in id `@standard/main`: the built-in main agent template
@@ -25,6 +26,7 @@ use wf_types::agent::{AgentConfig, AgentTemplate};
 use wf_types::message::{Message, MessageContentValue, MessageRole};
 use wf_types::tool::AvailableTools;
 
+use crate::agent::agent_config::{DEFAULT_MAX_ITERATIONS, DEFAULT_MODEL};
 use crate::agent::agent_execution::RunAgentLoopParams;
 use crate::infra::error::ApiError;
 
@@ -69,11 +71,17 @@ pub fn apply_template_defaults(
         return config;
     };
     apply_agent_config_defaults(&mut config, cfg);
+    seed_initial_messages(&mut input.conversation, cfg);
     seed_system_prompt(&mut input.conversation, cfg);
     config
 }
 
 fn apply_agent_config_defaults(config: &mut AgentLoopConfig, cfg: &AgentConfig) {
+    if config.model == DEFAULT_MODEL || config.model.is_empty() {
+        if let Some(profile_id) = cfg.profile_id.as_ref() {
+            config.model = profile_id.clone();
+        }
+    }
     if config.max_iterations.is_none() {
         config.max_iterations = cfg.max_iterations;
     }
@@ -95,24 +103,19 @@ fn apply_agent_config_defaults(config: &mut AgentLoopConfig, cfg: &AgentConfig) 
             .as_deref()
             .and_then(wf_types::llm::tool_call_protocol::ToolCallProtocolConfig::from_protocol_str);
     }
+    if config.checkpoint_message_interval.is_none() {
+        if let Some(interval) = cfg.checkpoint.as_ref().and_then(|c| c.message_interval) {
+            if interval > 0 {
+                config.checkpoint_message_interval = Some(interval);
+            }
+        }
+    }
     if let Some(tools) = cfg.available_tools.as_ref() {
         apply_tool_defaults(config, tools);
     }
     if config.hooks.is_empty() {
         if let Some(hooks) = cfg.hooks.as_ref() {
-            config.hooks = hooks
-                .iter()
-                .map(|h| wf_tools::callback::HookConfig {
-                    hook_type: h.hook_type_name().to_string(),
-                    condition: h.condition.clone(),
-                    enabled: h.enabled.unwrap_or(true),
-                    priority: h.priority.unwrap_or_default(),
-                    payload: h.event_payload.clone(),
-                    handler: h.handler.clone(),
-                    create_checkpoint: h.create_checkpoint,
-                    checkpoint_description: h.checkpoint_description.clone(),
-                })
-                .collect();
+            config.hooks = super::hook::agent_hooks_to_loop(hooks);
         }
     }
 }
@@ -127,6 +130,27 @@ fn apply_tool_defaults(config: &mut AgentLoopConfig, tools: &AvailableTools) {
     if config.discoverable_tool_names.is_empty() {
         config.discoverable_tool_names = tools.discoverable.clone().unwrap_or_default();
     }
+    if config.hidden_tool_names.is_empty() {
+        if let Some(hidden) = tools.hidden.clone() {
+            config.hidden_tool_names = hidden;
+        }
+    }
+    if config.enable_general_tool.is_none() {
+        config.enable_general_tool = tools.enable_general_tool;
+    }
+}
+
+/// Seed template initial messages when the imported conversation is empty.
+/// Runs before system prompt seeding so a system message inside the initial
+/// set suppresses the separate system prompt seed.
+fn seed_initial_messages(conversation: &mut Vec<Message>, cfg: &AgentConfig) {
+    let Some(initial) = cfg.initial_messages.as_ref() else {
+        return;
+    };
+    if !conversation.is_empty() || initial.is_empty() {
+        return;
+    }
+    conversation.extend(initial.iter().cloned());
 }
 
 /// Seed the template system prompt as the first system message when the
@@ -175,10 +199,20 @@ pub fn resolve_and_apply(
                 MAIN_AGENT_TEMPLATE_ID,
             ));
         }
-        return Ok((config, input));
+        return Ok((apply_final_defaults(config), input));
     };
     let applied = apply_template_defaults(config, &template, &mut input);
-    Ok((applied, input))
+    Ok((apply_final_defaults(applied), input))
+}
+
+/// Final fallback after template defaults: caller-built configs leave
+/// `max_iterations` unset so templates can win; when neither side sets it
+/// the shared `DEFAULT_MAX_ITERATIONS` applies.
+fn apply_final_defaults(mut config: AgentLoopConfig) -> AgentLoopConfig {
+    if config.max_iterations.is_none() {
+        config.max_iterations = Some(DEFAULT_MAX_ITERATIONS);
+    }
+    config
 }
 
 /// Composition-boundary factory: resolve the params' agent template and

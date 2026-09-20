@@ -7,15 +7,15 @@ edition.workspace = true
 wf-types = { path = "../../foundation/wf-types" }
 wf-common = { path = "../../foundation/wf-common" }
 wf-core = { path = "../../foundation/wf-core" }
-wf-tools = { path = "../../engine/wf-tools" }
-wf-metrics = { path = "../wf-metrics" }
+wf-tools = { path = "../wf-tools" }
+wf-metrics = { path = "../../infra/wf-metrics" }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 dashmap.workspace = true
 tracing.workspace = true
 chrono.workspace = true
-wf-config = { path = "../wf-config" }
+wf-config = { path = "../../infra/wf-config" }
 
 [dev-dependencies]
 tempfile.workspace = true

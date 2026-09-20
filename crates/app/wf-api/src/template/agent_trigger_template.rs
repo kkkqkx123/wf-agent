@@ -1,10 +1,7 @@
 //! Trigger template registry.
 
-use std::sync::Arc;
-
 use serde::Serialize;
 
-use wf_core::registry::MutableRegistry;
 use wf_storage::adapter::base::BaseStorageAdapter;
 use wf_storage::adapter::trigger_template::TriggerTemplateListOptions;
 use wf_types::trigger::TriggerTemplate;
@@ -213,9 +210,7 @@ pub async fn save(ctx: &ApiContext, template: &TriggerTemplateStorageMetadata) -
     }
     ctx.storage.trigger_template.save(template).await?;
     let trigger_template = incoming;
-    ctx.registries
-        .trigger_templates
-        .register_or_replace(template.name.clone(), Arc::new(trigger_template));
+    ctx.registries.upsert_trigger_template(trigger_template);
     Ok(())
 }
 

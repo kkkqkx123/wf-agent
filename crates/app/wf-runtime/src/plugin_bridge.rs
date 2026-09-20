@@ -9,7 +9,7 @@ use wf_types::enums::MiddlewarePhase;
 use wf_api::infra::handler_chain::{
     PluginHandlerSource, PluginMiddlewareBridge, PluginNodeExecutor,
 };
-use wf_core::registry::{MutableRegistry, Registry};
+use wf_core::registry::Registry;
 use wf_plugin::{ContributionBridge, ContributionManager, PluginError, PluginResult};
 use wf_resource::registry::ResourceRegistries;
 use wf_tools::error::ToolResult;
@@ -253,39 +253,39 @@ impl ContributionBridge for WfPluginBridge {
 
         for (id, owner) in manager.all_workflows() {
             if owner == plugin_id {
-                self.registries.workflows.unregister(&id);
+                self.registries.remove_workflow_template(&id);
             }
         }
         for (id, owner) in manager.all_prompts() {
             if owner == plugin_id {
-                self.registries.templates.unregister(&id);
+                self.registries.remove_prompt_template(&id);
             }
         }
         for (id, owner) in manager.all_fragments() {
             if owner == plugin_id {
-                self.registries.fragments.unregister(&id);
+                self.registries.remove_fragment(&id);
             }
         }
         for (id, owner) in manager.all_agent_templates() {
             if owner == plugin_id {
-                self.registries.agent_templates.unregister(&id);
+                self.registries.remove_agent_template(&id);
             }
         }
         for (id, owner) in manager.all_node_templates() {
             if owner == plugin_id {
-                self.registries.node_templates.unregister(&id);
+                self.registries.remove_node_template(&id);
             }
         }
         for (id, owner) in manager.all_triggers() {
             if owner == plugin_id {
                 if let Some(t) = manager.get_trigger(&id) {
-                    self.registries.trigger_templates.unregister(&t.name);
+                    self.registries.remove_trigger_template(&t.name);
                 }
             }
         }
         for (id, owner) in manager.all_tool_descriptions() {
             if owner == plugin_id {
-                self.registries.tool_descriptions.unregister(&id);
+                self.registries.remove_tool_description(&id);
             }
         }
         for (id, owner) in manager.all_tools() {

@@ -1,4 +1,4 @@
-pub use wf_api::{AgentLoopConfig, DEFAULT_AGENT, DEFAULT_MAX_ITERATIONS, DEFAULT_MODEL};
+pub use wf_api::{AgentLoopConfig, DEFAULT_AGENT, DEFAULT_MODEL};
 
 pub fn build_agent_loop_config(agent_id: Option<String>, model: Option<String>) -> AgentLoopConfig {
     wf_api::build_agent_loop_config(agent_id, model)
@@ -13,7 +13,7 @@ mod tests {
         let cfg = build_agent_loop_config(None, None);
         assert_eq!(cfg.agent_id.to_string(), DEFAULT_AGENT);
         assert_eq!(cfg.model, DEFAULT_MODEL);
-        assert_eq!(cfg.max_iterations, Some(DEFAULT_MAX_ITERATIONS));
+        assert_eq!(cfg.max_iterations, None);
     }
 
     #[test]

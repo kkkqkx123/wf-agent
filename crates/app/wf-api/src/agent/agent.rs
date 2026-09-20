@@ -1,4 +1,4 @@
-use wf_core::registry::{MutableRegistry, Registry};
+use wf_core::registry::Registry;
 use wf_storage::adapter::agent_execution::{
     AgentExecutionListOptions, AgentExecutionStorageAdapter,
 };
@@ -183,14 +183,8 @@ pub async fn save_agent_template(
         .save(&template)
         .await
         .map_err(crate::ApiError::from)?;
-    if ctx.registries.agent_templates.has(&template.id.to_string()) {
-        ctx.registries
-            .agent_templates
-            .unregister(&template.id.to_string());
-    }
     ctx.registries
-        .agent_templates
-        .register(template.id.to_string(), std::sync::Arc::new(template))
-        .map_err(|e| crate::ApiError::Conflict(e.to_string()))?;
+        .upsert_agent_template(template)
+        .map_err(crate::ApiError::Conflict)?;
     Ok(warnings)
 }

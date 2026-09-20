@@ -27,8 +27,8 @@ pub struct AuthConfig {
     pub excluded_paths: Vec<String>,
 }
 
-impl Default for AuthConfig {
-    fn default() -> Self {
+impl AuthConfig {
+    pub fn from_env() -> Self {
         Self {
             enabled: std::env::var("AUTH_ENABLED").as_deref() == Ok("true"),
             api_keys: std::env::var("API_KEYS")
@@ -40,6 +40,16 @@ impl Default for AuthConfig {
                         .collect()
                 })
                 .unwrap_or_default(),
+            ..Self::default()
+        }
+    }
+}
+
+impl Default for AuthConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            api_keys: Vec::new(),
             header_name: "x-api-key".to_string(),
             allow_query_param: true,
             query_param_name: "api_key".to_string(),
@@ -62,8 +72,8 @@ pub struct RateLimitConfig {
     pub excluded_paths: Vec<String>,
 }
 
-impl Default for RateLimitConfig {
-    fn default() -> Self {
+impl RateLimitConfig {
+    pub fn from_env() -> Self {
         Self {
             enabled: std::env::var("RATE_LIMIT_ENABLED").as_deref() == Ok("true"),
             window_ms: std::env::var("RATE_LIMIT_WINDOW_MS")
@@ -74,6 +84,17 @@ impl Default for RateLimitConfig {
                 .ok()
                 .and_then(|v| v.parse().ok())
                 .unwrap_or(100),
+            ..Self::default()
+        }
+    }
+}
+
+impl Default for RateLimitConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            window_ms: 60_000,
+            max_requests: 100,
             excluded_paths: vec![
                 "/health".to_string(),
                 "/api/v1/info".to_string(),
@@ -115,9 +136,21 @@ pub struct ServerMiddlewareConfig {
     pub cors: CorsConfig,
 }
 
-/// Env-driven default configuration shared by the API router.
+impl ServerMiddlewareConfig {
+    pub fn from_env() -> Self {
+        Self {
+            auth: AuthConfig::from_env(),
+            rate_limit: RateLimitConfig::from_env(),
+            cors: CorsConfig::default(),
+        }
+    }
+}
+
+/// Env-driven configuration shared by the API router. Explicit env edge:
+/// tests and injected deployments use `ServerMiddlewareConfig::default()`
+/// or `api_router_with_config` instead.
 pub(crate) fn default_config() -> Arc<ServerMiddlewareConfig> {
-    Arc::new(ServerMiddlewareConfig::default())
+    Arc::new(ServerMiddlewareConfig::from_env())
 }
 
 // ---------------------------------------------------------------------------

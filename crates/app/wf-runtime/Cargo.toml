@@ -20,7 +20,7 @@ wf-common = { path = "../../foundation/wf-common" }
 wf-storage = { path = "../../infra/wf-storage" }
 wf-core = { path = "../../foundation/wf-core" }
 wf-metrics = { path = "../../infra/wf-metrics" }
-wf-resource = { path = "../../infra/wf-resource" }
+wf-resource = { path = "../../engine/wf-resource" }
 wf-config = { path = "../../infra/wf-config" }
 wf-llm = { path = "../../infra/wf-llm" }
 wf-checkpoint = { path = "../../infra/checkpoint/wf-checkpoint" }

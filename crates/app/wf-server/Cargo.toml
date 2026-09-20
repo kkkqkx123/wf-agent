@@ -31,5 +31,5 @@ tower = { workspace = true }
 tokio = { workspace = true, features = ["io-util"] }
 tokio-tungstenite.workspace = true
 wf-common = { path = "../../foundation/wf-common" }
-wf-resource = { path = "../../infra/wf-resource" }
+wf-resource = { path = "../../engine/wf-resource" }
 wf-storage = { path = "../../infra/wf-storage" }

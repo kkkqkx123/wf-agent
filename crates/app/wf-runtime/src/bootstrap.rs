@@ -381,6 +381,7 @@ impl Runtime {
             llm_gateway.clone(),
         )
         .await?;
+        config.resource.apply_custom_source();
         init_plugins_and_resources(
             &bundles,
             &config.resource.options,

@@ -27,9 +27,9 @@ Top level contains `apps/`, `Cargo.toml`, `rust-toolchain.toml`, `crates/`, `pac
 
 foundation layer: `wf-types`, `wf-common`, `wf-core`
 
-infra layer: `wf-metrics`, `wf-config`, `wf-storage`, `wf-llm`, `wf-script`, `wf-sandbox`, `wf-shell`, `wf-plugin` (Lua/Native plugin system), `wf-resource` (resource management), `checkpoint/` (checkpoint subsystem: state + file history policy + storage engine)
+infra layer: `wf-metrics`, `wf-config`, `wf-storage`, `wf-llm`, `wf-script`, `wf-sandbox`, `wf-shell`, `wf-plugin` (Lua/Native plugin system), `checkpoint/` (checkpoint subsystem: state + file history policy + storage engine)
 
-engine layer: `wf-tools` (tool registry, executors, MCP), `wf-execution-shared` (shared execution infrastructure), `wf-agent` (agent loop execution engine), `wf-workflow` (workflow graph execution engine)
+engine layer: `wf-tools` (tool registry, executors, MCP), `wf-resource` (resource management: registries, rendering, custom resources), `wf-execution-shared` (shared execution infrastructure), `wf-agent` (agent loop execution engine), `wf-workflow` (workflow graph execution engine)
 
 app layer: `wf-api` (application-facing API facade), `wf-server` (HTTP transport layer), `wf-runtime` (runtime bootstrap), `cli/` (CLI frontends, peer of a future desktop app), `tui/` (low-level TUI building blocks, no `wf-` prefix)
 
@@ -41,11 +41,11 @@ tui layer: `tui-clock` (monotonic clock helper, leaf), `tui-terminal` (terminal 
 
 foundation: wf-types ← wf-common ← wf-core
 
-infra: wf-metrics wf-storage wf-config wf-script wf-llm wf-sandbox wf-shell wf-plugin wf-resource checkpoint/
+infra: wf-metrics wf-storage wf-config wf-script wf-llm wf-sandbox wf-shell wf-plugin checkpoint/
 
 checkpoint: checkpoint-base (leaf: errors, actors, policies, deltas); checkpoint-state (→ checkpoint-base: execution snapshots, restore); checkpoint-file (→ checkpoint-base: file history, observe, branches); wf-checkpoint (facade → checkpoint-base/checkpoint-state/checkpoint-file: coordinators + re-exports); layertwine (leaf storage engine, used only by checkpoint-file / wf-checkpoint)
 
-engine: wf-tools wf-execution-shared wf-agent wf-workflow
+engine: wf-tools ← wf-resource ← wf-execution-shared ← wf-agent ← wf-workflow
 
 app: wf-api wf-server wf-runtime
 

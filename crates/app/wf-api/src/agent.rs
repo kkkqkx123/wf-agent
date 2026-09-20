@@ -13,7 +13,6 @@ pub mod agent_graph;
 pub mod agent_loop_registry;
 pub mod agent_message;
 pub mod agent_performance;
-pub mod agent_template_resolve;
 pub mod agent_user_interaction;
 pub mod agent_variable;
 pub mod validation;

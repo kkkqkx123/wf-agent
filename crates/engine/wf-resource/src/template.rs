@@ -175,6 +175,16 @@ fn resolve_tool_descriptions(content: &str, opts: &TemplateRenderOptions) -> Str
         .replace("{tool_descriptions}", &rendered)
 }
 
+/// Render the built-in visibility text for a template id with variables
+/// applied. Single source for the fallback wording used when no registry
+/// is injected.
+pub fn render_builtin_visibility_fallback(
+    template_id: &str,
+    variables: &HashMap<String, String>,
+) -> Option<String> {
+    builtin_default(template_id).map(|content| apply_template_variables(content, variables))
+}
+
 /// Render an activation/block announcement, falling back to the legacy
 /// text when neither the template nor the fallback applies.
 pub fn render_visibility_message(

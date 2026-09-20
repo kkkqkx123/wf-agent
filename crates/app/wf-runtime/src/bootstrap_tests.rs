@@ -349,6 +349,7 @@ mod tests {
                     }],
                     ..Default::default()
                 },
+                custom_source: None,
             },
             metrics: None,
             ..Default::default()

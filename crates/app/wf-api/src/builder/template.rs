@@ -5,11 +5,9 @@
 //! adapter and the shared resource registry so the template is immediately
 //! executable.
 
-use std::sync::Arc;
-
 use serde_json::Value;
 
-use wf_core::registry::{MutableRegistry, Registry};
+use wf_core::registry::Registry;
 use wf_storage::adapter::base::BaseStorageAdapter;
 use wf_types::trigger::{TriggerAction, TriggerCondition, TriggerTemplate};
 use wf_types::workflow::node_template::NodeTemplate;
@@ -83,9 +81,8 @@ impl NodeTemplateBuilder {
         };
         ctx.storage.node_template.save(&metadata).await?;
         ctx.registries
-            .node_templates
-            .register(template.id.clone(), Arc::new(template))
-            .map_err(|e| crate::ApiError::Conflict(e.to_string()))?;
+            .register_node_template(template)
+            .map_err(crate::ApiError::Conflict)?;
         Ok(())
     }
 }
@@ -302,9 +299,8 @@ impl TriggerTemplateBuilder {
         };
         ctx.storage.trigger_template.save(&metadata).await?;
         ctx.registries
-            .trigger_templates
-            .register(template.name.clone(), Arc::new(template))
-            .map_err(|e| crate::ApiError::Conflict(e.to_string()))?;
+            .register_trigger_template(template)
+            .map_err(crate::ApiError::Conflict)?;
         Ok(())
     }
 }
@@ -312,6 +308,7 @@ impl TriggerTemplateBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
     use wf_core::registry::Registry;
     use wf_resource::registry::ResourceRegistries;
     use wf_resource::resource_plugin::ResourcePluginRegistry;

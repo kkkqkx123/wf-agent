@@ -3,6 +3,7 @@ pub mod analysis;
 pub mod audit;
 pub mod builder;
 pub mod checkpoint;
+pub mod composition;
 pub mod entity;
 pub mod infra;
 pub mod llm;

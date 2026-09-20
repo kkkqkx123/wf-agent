@@ -90,12 +90,13 @@ pub async fn resolve_graph(
             "workflow is marked stale after an upstream update; revalidation runs before execution"
         );
     }
-    let definition = ctx
+    let mut definition = ctx
         .storage
         .workflow
         .load(workflow_id)
         .await?
         .ok_or_else(|| not_found("workflow", workflow_id))?;
+    crate::composition::node::apply_templates_to_definition(&mut definition, &ctx.registries);
     let graph = definition_to_graph(&definition);
     let val_ctx = crate::workflow::validation::build_reference_context(ctx).await;
     let ref_ctx = crate::workflow::validation::val_ctx_to_reference_context(&val_ctx);
@@ -151,8 +152,15 @@ pub async fn execute(
 ) -> crate::infra::error::ApiResult<WorkflowOutput> {
     let graph = resolve_graph(ctx, &params.workflow_id).await?;
     let hooks = resolve_hooks(ctx, &params.workflow_id).await?;
+    let definition = ctx.storage.workflow.load(&params.workflow_id).await?;
     let entity = spawn_entity(ctx, &params.workflow_id);
-    let options = resolve_options(ctx, &entity, params.input, params.options);
+    let options = resolve_options(
+        ctx,
+        &entity,
+        definition.as_ref(),
+        params.input,
+        params.options,
+    );
     let timeout_ms = options.timeout.unwrap_or(DEFAULT_EXECUTION_TIMEOUT_MS);
     let result = crate::infra::error::with_timeout(
         Duration::from_millis(timeout_ms),
@@ -180,11 +188,18 @@ pub async fn stream(
 ) -> crate::infra::error::ApiResult<(Id, ExecutionEventStream)> {
     let graph = resolve_graph(&ctx, &params.workflow_id).await?;
     let hooks = resolve_hooks(&ctx, &params.workflow_id).await?;
+    let definition = ctx.storage.workflow.load(&params.workflow_id).await?;
     let entity = spawn_entity(&ctx, &params.workflow_id);
     let execution_id = entity.id().clone();
     let (stream, sink) =
         spawn_execution_stream(Some(ctx.event_bus.clone()), execution_id.to_string());
-    let options = resolve_options(&ctx, &entity, params.input, params.options);
+    let options = resolve_options(
+        &ctx,
+        &entity,
+        definition.as_ref(),
+        params.input,
+        params.options,
+    );
     let timeout_ms = options.timeout.unwrap_or(DEFAULT_EXECUTION_TIMEOUT_MS);
     let execution_key = execution_id.to_string();
     let driver_ctx = ctx.clone();
@@ -515,23 +530,25 @@ fn spawn_entity(ctx: &ApiContext, workflow_id: &str) -> Arc<WorkflowExecutionEnt
     entity
 }
 
+pub use crate::composition::workflow::{
+    apply_workflow_config_defaults, empty_options, resolve_options as merge_workflow_options,
+};
+
 /// Resolve the effective execution options, storing them on the entity so
 /// a later `resume` rebuilds the same input/options.
 fn resolve_options(
     ctx: &ApiContext,
     entity: &WorkflowExecutionEntity,
+    definition: Option<&wf_types::workflow::WorkflowDefinition>,
     input: Option<Value>,
     options: Option<WorkflowExecutionOptions>,
 ) -> WorkflowExecutionOptions {
     let _ = ctx;
-    let mut options = options.unwrap_or_else(default_options);
-    if options.input.is_none() {
-        options.input = input;
-    }
-    if let Ok(value) = serde_json::to_value(&options) {
+    let merged = crate::composition::workflow::resolve_options(definition, input, options);
+    if let Ok(value) = serde_json::to_value(&merged) {
         entity.set_variable(EXECUTION_OPTIONS_VAR, value);
     }
-    options
+    merged
 }
 
 /// Reconstruct the execution options captured at `execute` time.

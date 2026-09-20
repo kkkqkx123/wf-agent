@@ -15,7 +15,6 @@ members = [
     "crates/infra/wf-sandbox",
     "crates/infra/wf-shell",
     "crates/infra/wf-plugin",
-    "crates/infra/wf-resource",
     # checkpoint subsystem (crates/infra/checkpoint/): internal crates carry
     # no wf- prefix (tui-style); only the facade keeps wf- prefix.
     "crates/infra/checkpoint/checkpoint-base",
@@ -26,6 +25,7 @@ members = [
     "crates/infra/checkpoint/layertwine",
     # engine
     "crates/engine/wf-tools",
+    "crates/engine/wf-resource",
     "crates/engine/wf-execution-shared",
     "crates/engine/wf-agent",
     "crates/engine/wf-workflow",

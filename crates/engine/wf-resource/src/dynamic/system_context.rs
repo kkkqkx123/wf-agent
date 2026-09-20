@@ -1,8 +1,3 @@
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
-use std::sync::Mutex;
-use std::time::{SystemTime, UNIX_EPOCH};
-
 use wf_types::tool_description::ToolDescriptionData;
 
 use crate::predefined::render::{render_tool_descriptions, ToolFormat};
@@ -15,7 +10,6 @@ pub struct SystemConfig {
     pub include_skills: bool,
     pub include_workflows: bool,
     pub timezone: Option<String>,
-    pub cache_ttl_ms: u64,
     pub tool_descriptions: Vec<ToolDescriptionData>,
     pub skills: Vec<String>,
     pub workflows: Vec<String>,
@@ -31,76 +25,11 @@ impl Default for SystemConfig {
             include_skills: false,
             include_workflows: false,
             timezone: None,
-            cache_ttl_ms: 60_000,
             tool_descriptions: Vec::new(),
             skills: Vec::new(),
             workflows: Vec::new(),
             custom_sections: Vec::new(),
         }
-    }
-}
-
-struct CacheEntry {
-    key: u64,
-    value: String,
-    expiry: i64,
-}
-
-/// Cache key over the FULL config (flags + dynamic payload). The previous
-/// key hashed only the boolean flags, so different tool/skill/workflow
-/// payloads collided onto one cached value.
-fn cache_key(cfg: &SystemConfig) -> u64 {
-    let mut hasher = DefaultHasher::new();
-    cfg.include_time.hash(&mut hasher);
-    cfg.include_env.hash(&mut hasher);
-    cfg.include_tool_descriptions.hash(&mut hasher);
-    cfg.include_skills.hash(&mut hasher);
-    cfg.include_workflows.hash(&mut hasher);
-    cfg.timezone.hash(&mut hasher);
-    cfg.cache_ttl_ms.hash(&mut hasher);
-    for tool in &cfg.tool_descriptions {
-        format!("{:?}", tool).hash(&mut hasher);
-    }
-    for skill in &cfg.skills {
-        skill.hash(&mut hasher);
-    }
-    for workflow in &cfg.workflows {
-        workflow.hash(&mut hasher);
-    }
-    for (title, content) in &cfg.custom_sections {
-        title.hash(&mut hasher);
-        content.hash(&mut hasher);
-    }
-    hasher.finish()
-}
-
-static CACHE: Mutex<Option<CacheEntry>> = Mutex::new(None);
-
-fn get_cached(cfg: &SystemConfig) -> Option<String> {
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .ok()?
-        .as_millis() as i64;
-    let current_key = cache_key(cfg);
-    let cache = CACHE.lock().ok()?;
-    if let Some(ref entry) = *cache {
-        if entry.key == current_key && now < entry.expiry {
-            return Some(entry.value.clone());
-        }
-    }
-    None
-}
-
-fn set_cache(cfg: &SystemConfig, value: String) {
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .ok()
-        .map(|d| d.as_millis() as i64)
-        .unwrap_or(0);
-    let expiry = now + cfg.cache_ttl_ms as i64;
-    let key = cache_key(cfg);
-    if let Ok(mut cache) = CACHE.lock() {
-        *cache = Some(CacheEntry { key, value, expiry });
     }
 }
 
@@ -130,10 +59,6 @@ pub fn cleanup_empty_lines(text: &str) -> String {
 }
 
 pub fn build_system_context(cfg: &SystemConfig) -> String {
-    if let Some(cached) = get_cached(cfg) {
-        return cached;
-    }
-
     let mut sections: Vec<String> = Vec::new();
 
     if cfg.include_time {
@@ -175,10 +100,7 @@ pub fn build_system_context(cfg: &SystemConfig) -> String {
     }
 
     let result = sections.join("\n\n");
-    let result = cleanup_empty_lines(&result);
-
-    set_cache(cfg, result.clone());
-    result
+    cleanup_empty_lines(&result)
 }
 
 #[cfg(test)]
@@ -194,7 +116,6 @@ mod tests {
             include_skills: false,
             include_workflows: false,
             timezone: None,
-            cache_ttl_ms: 60_000,
             tool_descriptions: Vec::new(),
             skills: Vec::new(),
             workflows: Vec::new(),
@@ -213,7 +134,6 @@ mod tests {
             include_skills: false,
             include_workflows: false,
             timezone: None,
-            cache_ttl_ms: 60_000,
             tool_descriptions: Vec::new(),
             skills: Vec::new(),
             workflows: Vec::new(),
@@ -221,14 +141,6 @@ mod tests {
         };
         let ctx = build_system_context(&cfg);
         assert!(ctx.contains("environment"));
-    }
-
-    #[test]
-    fn test_system_context_uses_cache() {
-        let cfg = SystemConfig::default();
-        let first = build_system_context(&cfg);
-        let second = build_system_context(&cfg);
-        assert_eq!(first, second);
     }
 
     #[test]

@@ -638,16 +638,7 @@ impl<S> AgentLoopConfigBuilder<S> {
 
     /// Add a hook built through [`AgentHookBuilder`].
     pub fn add_hook(mut self, hook: AgentHookConfig) -> Self {
-        self.hooks.push(HookConfig {
-            hook_type: hook.hook_type_name().to_string(),
-            condition: hook.condition,
-            enabled: hook.enabled.unwrap_or(true),
-            priority: hook.priority.unwrap_or(0),
-            payload: hook.event_payload,
-            handler: hook.handler,
-            create_checkpoint: hook.create_checkpoint,
-            checkpoint_description: hook.checkpoint_description,
-        });
+        self.hooks.push(HookConfig::from_agent_hook(&hook));
         self
     }
 }
@@ -715,6 +706,9 @@ impl AgentExecutionBuilder {
     }
 
     /// Run the loop to completion through [`crate::agent::agent_execution::run`].
+    ///
+    /// Composition boundary: the template is resolved before execution so
+    /// builder-driven runs share the HTTP/CLI defaults.
     pub async fn execute(
         self,
         ctx: &Arc<ApiContext>,
@@ -724,11 +718,11 @@ impl AgentExecutionBuilder {
             context: self.context,
             conversation: Vec::new(),
         };
-        let output = crate::agent::agent_execution::run(
-            ctx,
+        let params = crate::composition::agent::resolve_run_params(
+            &ctx.registries,
             RunAgentLoopParams::new(self.config.clone(), input),
-        )
-        .await?;
+        )?;
+        let output = crate::agent::agent_execution::run(ctx, params).await?;
         if let Some(callback) = &self.on_completed {
             callback(&output.agent_loop_id.to_string());
         }

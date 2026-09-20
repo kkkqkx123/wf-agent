@@ -278,7 +278,7 @@ pub(crate) fn params_from_body(
     // Composition boundary: resolve the agent template (built-in
     // `@standard/main` default, user overrides first) into a fully-resolved
     // config before the request reaches the execution APIs.
-    wf_api::agent::agent_template_resolve::resolve_run_params(&state.ctx.registries, {
+    wf_api::composition::agent::resolve_run_params(&state.ctx.registries, {
         wf_api::agent::agent_execution::RunAgentLoopParams::new(config, input)
     })
 }

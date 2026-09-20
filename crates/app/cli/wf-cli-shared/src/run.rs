@@ -682,6 +682,10 @@ pub async fn run_session(
         )),
     );
     params.agent_loop_id = Some(wf_types::Id::from(execution_id.clone()));
+    // Composition boundary: resolve the agent template before execution so
+    // headless runs share the TUI/server defaults.
+    let params = wf_api::composition::agent::resolve_run_params(&ctx.registries, params)
+        .map_err(CliError::from)?;
 
     // Echo the user message through the sink (text line / JSON record).
     if !io.format.is_silent() {

@@ -24,36 +24,26 @@ fn build_visibility_message(
     tools: &[String],
     template_metrics: Option<&wf_metrics::TemplateMetricsCollector>,
 ) -> String {
-    let list: Vec<String> = tools.iter().map(|t| format!("- {}", t)).collect();
-    let fallback = match action {
-        "block" => format!(
-            "The following tools are now unavailable:\n{}",
-            list.join("\n")
-        ),
-        "unblock" => format!(
-            "[Tool Activation] The following tools are now available: {}.\n\
-             You can call them directly or via the general tool.",
-            tools.join(", ")
-        ),
-        _ => format!("Tool visibility changed ({}):\n{}", action, list.join("\n")),
-    };
     let template_id = match action {
         "block" => wf_resource::BLOCK_TEMPLATE_ID,
         "unblock" => wf_resource::ACTIVATION_TEMPLATE_ID,
-        _ => return fallback,
+        _ => {
+            let list: Vec<String> = tools.iter().map(|t| format!("- {}", t)).collect();
+            return format!("Tool visibility changed ({}):\n{}", action, list.join("\n"));
+        }
     };
-    let mut vars = std::collections::HashMap::new();
-    vars.insert(
-        "tool_names".to_string(),
+    let tool_names = if action == "unblock" {
+        tools.join(", ")
+    } else {
         tools
             .iter()
             .map(|t| format!("- {}", t))
             .collect::<Vec<_>>()
-            .join("\n"),
-    );
-    if action == "unblock" {
-        vars.insert("tool_names".to_string(), tools.join(", "));
-    }
+            .join("\n")
+    };
+    let vars = std::collections::HashMap::from([("tool_names".to_string(), tool_names)]);
+    let fallback = wf_resource::render_builtin_visibility_fallback(template_id, &vars)
+        .unwrap_or_else(|| format!("Tool visibility changed ({}): {}", action, tools.join(", ")));
     wf_resource::render_visibility_message_with_metrics(
         regs,
         template_id,

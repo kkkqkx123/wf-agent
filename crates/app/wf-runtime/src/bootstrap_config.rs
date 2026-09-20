@@ -14,9 +14,27 @@ use wf_types::skill::SkillConfig;
 use crate::logger::LogConfig;
 use crate::mode::ExecutionMode;
 
+#[derive(Debug, Clone)]
+pub struct CustomResourceSource {
+    pub preset: wf_resource::CustomResourcesPresetConfig,
+    pub base_dir: std::path::PathBuf,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct ResourceConfig {
     pub options: wf_resource::registry::RegisterOptions,
+    pub custom_source: Option<CustomResourceSource>,
+}
+
+impl ResourceConfig {
+    pub fn apply_custom_source(&mut self) {
+        let Some(source) = self.custom_source.clone() else {
+            return;
+        };
+        let resources = wf_resource::load_custom_resources(&source.preset, &source.base_dir);
+        let level = source.preset.validation_level.unwrap_or_default();
+        self.options = std::mem::take(&mut self.options).with_custom_resources(resources, level);
+    }
 }
 
 /// MCP settings sources used at bootstrap. When both are provided, settings

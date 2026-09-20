@@ -9,7 +9,7 @@ wf-common = { path = "../../foundation/wf-common" }
 wf-core = { path = "../../foundation/wf-core" }
 wf-llm = { path = "../../infra/wf-llm" }
 wf-tools = { path = "../wf-tools" }
-wf-resource = { path = "../../infra/wf-resource" }
+wf-resource = { path = "../wf-resource" }
 wf-script = { path = "../../infra/wf-script" }
 wf-shell = { path = "../../infra/wf-shell" }
 wf-sandbox = { path = "../../infra/wf-sandbox" }

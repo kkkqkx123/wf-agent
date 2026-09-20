@@ -153,7 +153,7 @@ pub struct CustomPromptVariable {
     pub default_value: Option<Value>,
 }
 
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct CustomResources {
     pub tools: Vec<CustomToolDefinition>,
     pub triggers: Vec<CustomTriggerDefinition>,

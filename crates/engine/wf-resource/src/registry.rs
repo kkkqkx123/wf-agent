@@ -1,7 +1,5 @@
 use std::sync::Arc;
 
-use std::path::Path;
-
 use wf_core::registry::{ConcurrentRegistry, MutableRegistry, Registry};
 use wf_tools::registry::ToolRegistry;
 use wf_types::agent::AgentTemplate;
@@ -50,8 +48,10 @@ pub struct RegisterOptions {
     pub skip_if_exists: bool,
     pub allow_list: Option<Vec<String>>,
     pub block_list: Option<Vec<String>>,
-    pub custom_resources: Option<crate::custom::types::CustomResourcesPresetConfig>,
-    pub custom_base_dir: Option<String>,
+    /// Already loaded custom resources. File location and parsing stay at
+    /// the bootstrap edge; registration only consumes the loaded data.
+    pub custom_resources: Option<crate::custom::types::CustomResources>,
+    pub custom_validation_level: crate::custom::types::CustomValidationLevel,
     pub resource_plugin_activation: Vec<ResourcePluginActivation>,
 }
 
@@ -62,9 +62,21 @@ impl Default for RegisterOptions {
             allow_list: None,
             block_list: None,
             custom_resources: None,
-            custom_base_dir: None,
+            custom_validation_level: crate::custom::types::CustomValidationLevel::default(),
             resource_plugin_activation: Vec::new(),
         }
+    }
+}
+
+impl RegisterOptions {
+    pub fn with_custom_resources(
+        mut self,
+        resources: crate::custom::types::CustomResources,
+        level: crate::custom::types::CustomValidationLevel,
+    ) -> Self {
+        self.custom_resources = Some(resources);
+        self.custom_validation_level = level;
+        self
     }
 }
 
@@ -92,6 +104,81 @@ impl ResourceRegistries {
             node_templates: ConcurrentRegistry::new(),
             agent_templates: ConcurrentRegistry::new(),
         }
+    }
+
+    /// Controlled write entry points. External crates must use these instead
+    /// of touching the registry fields directly for writes. Reads through
+    /// the fields stay allowed.
+    pub fn upsert_workflow_template(&self, template: WorkflowTemplate) -> Result<(), String> {
+        let id = template.id.clone();
+        if self.workflows.has(&id) {
+            self.workflows.unregister(&id);
+        }
+        self.workflows
+            .register(id, Arc::new(template))
+            .map_err(|e| e.to_string())
+    }
+
+    pub fn remove_workflow_template(&self, id: &str) -> bool {
+        self.workflows.unregister(id).is_some()
+    }
+
+    pub fn upsert_agent_template(&self, template: AgentTemplate) -> Result<(), String> {
+        let id = template.id.to_string();
+        if self.agent_templates.has(&id) {
+            self.agent_templates.unregister(&id);
+        }
+        self.agent_templates
+            .register(id, Arc::new(template))
+            .map_err(|e| e.to_string())
+    }
+
+    pub fn remove_agent_template(&self, id: &str) -> bool {
+        self.agent_templates.unregister(id).is_some()
+    }
+
+    pub fn register_node_template(&self, template: NodeTemplate) -> Result<(), String> {
+        let id = template.id.clone();
+        self.node_templates
+            .register(id, Arc::new(template))
+            .map_err(|e| e.to_string())
+    }
+
+    pub fn upsert_node_template(&self, template: NodeTemplate) {
+        self.node_templates
+            .register_or_replace(template.id.clone(), Arc::new(template));
+    }
+
+    pub fn remove_node_template(&self, id: &str) -> bool {
+        self.node_templates.unregister(id).is_some()
+    }
+
+    pub fn register_trigger_template(&self, template: TriggerTemplate) -> Result<(), String> {
+        let name = template.name.clone();
+        self.trigger_templates
+            .register(name, Arc::new(template))
+            .map_err(|e| e.to_string())
+    }
+
+    pub fn upsert_trigger_template(&self, template: TriggerTemplate) {
+        self.trigger_templates
+            .register_or_replace(template.name.clone(), Arc::new(template));
+    }
+
+    pub fn remove_trigger_template(&self, name: &str) -> bool {
+        self.trigger_templates.unregister(name).is_some()
+    }
+
+    pub fn remove_prompt_template(&self, id: &str) -> bool {
+        self.templates.unregister(id).is_some()
+    }
+
+    pub fn remove_fragment(&self, id: &str) -> bool {
+        self.fragments.unregister(id).is_some()
+    }
+
+    pub fn remove_tool_description(&self, id: &str) -> bool {
+        self.tool_descriptions.unregister(id).is_some()
     }
 }
 
@@ -310,18 +397,15 @@ pub fn register_all(
     total.merge(predefined::workflow::register(regs, opts));
     total.merge(predefined::tool_visibility::register(regs, opts));
 
-    // Custom resources (from config)
-    if let Some(ref custom_config) = opts.custom_resources {
-        let base_dir_str = opts.custom_base_dir.as_deref().unwrap_or(".");
-        let base_dir = Path::new(base_dir_str);
-        let resources = custom::loader::load_custom_resources(custom_config, base_dir);
-        let validation_level = custom_config.validation_level.unwrap_or_default();
+    // Custom resources arrive already loaded; file location stays at the
+    // bootstrap edge.
+    if let Some(ref resources) = opts.custom_resources {
         total.merge(custom::register::register_custom_resources(
             regs,
             tool_registry,
-            resources,
+            resources.clone(),
             opts.skip_if_exists,
-            validation_level,
+            opts.custom_validation_level,
         ));
     }
 

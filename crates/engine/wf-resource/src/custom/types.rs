@@ -158,6 +158,11 @@ pub struct CustomResources {
     pub tools: Vec<CustomToolDefinition>,
     pub triggers: Vec<CustomTriggerDefinition>,
     pub prompts: Vec<CustomPromptDefinition>,
+    pub workflows: Vec<wf_types::workflow::WorkflowTemplate>,
+    pub agent_templates: Vec<wf_types::agent::AgentTemplate>,
+    pub node_templates: Vec<wf_types::workflow::NodeTemplate>,
+    pub fragments: Vec<wf_types::SystemPromptFragment>,
+    pub tool_descriptions: Vec<wf_types::tool_description::ToolDescriptionData>,
     pub errors: Vec<String>,
 }
 
@@ -178,5 +183,10 @@ pub struct CustomResourcesPresetConfig {
     pub tools_path: Option<String>,
     pub triggers_path: Option<String>,
     pub prompts_path: Option<String>,
+    pub workflows_path: Option<String>,
+    pub agent_templates_path: Option<String>,
+    pub node_templates_path: Option<String>,
+    pub fragments_path: Option<String>,
+    pub tool_descriptions_path: Option<String>,
     pub validation_level: Option<CustomValidationLevel>,
 }

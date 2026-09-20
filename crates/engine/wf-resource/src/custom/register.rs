@@ -9,7 +9,9 @@ pub use triggers::register_custom_triggers;
 use wf_tools::registry::ToolRegistry;
 
 use crate::custom::types::{CustomResources, CustomValidationLevel};
-use crate::registry::ResourceRegistries;
+use crate::registry::{
+    register_fragment, register_item_skip, register_item_strict, ResourceRegistries,
+};
 use crate::result::Summary;
 
 pub fn register_custom_resources(
@@ -44,6 +46,62 @@ pub fn register_custom_resources(
     let r = register_custom_prompts(regs, resources.prompts, skip_if_exists);
     total.merge(r);
 
+    for template in resources.workflows {
+        let id = template.id.clone();
+        if let Err(e) =
+            wf_config::processor::workflow::validate_workflow_definition(&template.definition)
+        {
+            total.merge(Summary::err(&id, e.to_string()));
+            continue;
+        }
+        total.merge(if skip_if_exists {
+            register_item_skip(&regs.workflows, id, template)
+        } else {
+            register_item_strict(&regs.workflows, id, template)
+        });
+    }
+
+    for template in resources.agent_templates {
+        let id = template.id.to_string();
+        if let Err(e) =
+            wf_config::processor::agent_loop::validate_agent_definition(&template.definition)
+        {
+            total.merge(Summary::err(&id, e.to_string()));
+            continue;
+        }
+        total.merge(if skip_if_exists {
+            register_item_skip(&regs.agent_templates, id, template)
+        } else {
+            register_item_strict(&regs.agent_templates, id, template)
+        });
+    }
+
+    for template in resources.node_templates {
+        let id = template.id.clone();
+        if let Err(e) = wf_config::processor::node_template::validate_node_template(&template) {
+            total.merge(Summary::err(&id, e.to_string()));
+            continue;
+        }
+        total.merge(if skip_if_exists {
+            register_item_skip(&regs.node_templates, id, template)
+        } else {
+            register_item_strict(&regs.node_templates, id, template)
+        });
+    }
+
+    for fragment in resources.fragments {
+        total.merge(register_fragment(regs, fragment, skip_if_exists));
+    }
+
+    for description in resources.tool_descriptions {
+        let id = description.id.clone();
+        total.merge(if skip_if_exists {
+            register_item_skip(&regs.tool_descriptions, id, description)
+        } else {
+            register_item_strict(&regs.tool_descriptions, id, description)
+        });
+    }
+
     total
 }
 
@@ -68,6 +126,7 @@ mod tests {
             triggers: vec![],
             prompts: vec![],
             errors: vec!["cannot read tools.json: parse error".into()],
+            ..Default::default()
         }
     }
 

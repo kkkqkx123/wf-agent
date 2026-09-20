@@ -5,10 +5,8 @@
 //! block, the `general` tool description). Consumers only know template ids;
 //! the data source (predefined / custom / hot-reloaded) is transparent.
 //!
-//! Template content uses the `{{name}}` placeholder syntax; legacy
-//! single-brace `{name}` templates keep rendering for
-//! backwards compatibility. Two pseudo variables are resolved by the engine
-//! rather than substituted verbatim:
+//! Template content uses the `{{name}}` placeholder syntax. Two pseudo
+//! variables are resolved by the engine rather than substituted verbatim:
 //!
 //! - `{{fragments}}`: the template's declared fragment list, composed in
 //!   declaration order (missing fragments are skipped);
@@ -36,7 +34,7 @@ use crate::registry::ResourceRegistries;
 /// Options for one template render.
 #[derive(Debug, Clone, Default)]
 pub struct TemplateRenderOptions<'a> {
-    /// `{{name}}` placeholder values (legacy `{name}` also rendered).
+    /// `{{name}}` placeholder values.
     pub variables: HashMap<String, String>,
     /// Tool descriptions resolved for the `{{tool_descriptions}}` pseudo
     /// variable; the placeholder stays empty when absent.
@@ -46,17 +44,15 @@ pub struct TemplateRenderOptions<'a> {
     pub tool_format: Option<ToolFormat>,
 }
 
-/// Substitute `{{name}}` (canonical) and legacy `{name}` placeholders.
-///
-/// Double-brace placeholders are replaced first so a canonical token never
-/// leaves stray braces behind; unresolvable placeholders are kept verbatim.
-/// Shared by the template engine, the fragment composer and call sites that
-/// pre-render fragment content.
+/// Substitute `{{name}}` placeholders; unresolvable placeholders are kept
+/// verbatim. Single braces are never treated as placeholders, so literal
+/// JSON such as `{"tool": "x"}` passes through untouched. Shared by the
+/// template engine, the fragment composer and call sites that pre-render
+/// fragment content.
 pub fn apply_template_variables(content: &str, variables: &HashMap<String, String>) -> String {
     let mut rendered = content.to_string();
     for (key, value) in variables {
         rendered = rendered.replace(&format!("{{{{{}}}}}", key), value);
-        rendered = rendered.replace(&format!("{{{}}}", key), value);
     }
     rendered
 }
@@ -128,17 +124,15 @@ pub fn render_template_with_metrics(
     Some(output)
 }
 
-/// Resolve the `{{fragments}}` pseudo variable (legacy `{fragments}`
-/// accepted) by composing the template's declared fragments (each with the
-/// render variables applied).
+/// Resolve the `{{fragments}}` pseudo variable by composing the template's
+/// declared fragments (each with the render variables applied).
 fn resolve_fragments(
     regs: &ResourceRegistries,
     content: &str,
     template: &Template,
     variables: &HashMap<String, String>,
 ) -> String {
-    let has_pseudo = content.contains("{{fragments}}") || content.contains("{fragments}");
-    if !has_pseudo {
+    if !content.contains("{{fragments}}") {
         return content.to_string();
     }
     let composed = match template.fragments.as_ref() {
@@ -150,17 +144,13 @@ fn resolve_fragments(
             .collect::<Vec<_>>()
             .join("\n\n"),
     };
-    content
-        .replace("{{fragments}}", &composed)
-        .replace("{fragments}", &composed)
+    content.replace("{{fragments}}", &composed)
 }
 
-/// Resolve the `{{tool_descriptions}}` pseudo variable (legacy form
-/// accepted; empty when no tool description set is supplied).
+/// Resolve the `{{tool_descriptions}}` pseudo variable (empty when no tool
+/// description set is supplied).
 fn resolve_tool_descriptions(content: &str, opts: &TemplateRenderOptions) -> String {
-    let has_pseudo =
-        content.contains("{{tool_descriptions}}") || content.contains("{tool_descriptions}");
-    if !has_pseudo {
+    if !content.contains("{{tool_descriptions}}") {
         return content.to_string();
     }
     let rendered = match opts.tool_descriptions {
@@ -170,9 +160,7 @@ fn resolve_tool_descriptions(content: &str, opts: &TemplateRenderOptions) -> Str
         }
         _ => String::new(),
     };
-    content
-        .replace("{{tool_descriptions}}", &rendered)
-        .replace("{tool_descriptions}", &rendered)
+    content.replace("{{tool_descriptions}}", &rendered)
 }
 
 /// Render the built-in visibility text for a template id with variables
@@ -185,8 +173,8 @@ pub fn render_builtin_visibility_fallback(
     builtin_default(template_id).map(|content| apply_template_variables(content, variables))
 }
 
-/// Render an activation/block announcement, falling back to the legacy
-/// text when neither the template nor the fallback applies.
+/// Render an activation/block announcement, falling back to the
+/// caller-supplied fallback when the template is not registered.
 pub fn render_visibility_message(
     regs: Option<&ResourceRegistries>,
     template_id: &str,
@@ -258,7 +246,7 @@ mod tests {
 
     #[test]
     fn configured_templates_win_over_defaults() {
-        let regs = regs_with_template(ACTIVATION_TEMPLATE_ID, "Custom: {tool_names}", None);
+        let regs = regs_with_template(ACTIVATION_TEMPLATE_ID, "Custom: {{tool_names}}", None);
         let opts = TemplateRenderOptions {
             variables: HashMap::from([("tool_names".to_string(), "shell".to_string())]),
             ..Default::default()
@@ -303,7 +291,7 @@ mod tests {
                     name: "test".into(),
                     description: None,
                     category: "system".into(),
-                    content: "HEADER\n{fragments}".into(),
+                    content: "HEADER\n{{fragments}}".into(),
                     variables: None,
                     fragments: Some(vec![
                         "fragments.role.assistant".into(),
@@ -318,7 +306,7 @@ mod tests {
         assert!(text.contains("HEADER"));
         assert!(text.contains("You are a helpful assistant."));
         assert!(text.contains("Be kind."));
-        assert!(!text.contains("{fragments}"));
+        assert!(!text.contains("{{fragments}}"));
 
         // A fragment-less template renders the placeholder empty.
         regs.templates
@@ -329,7 +317,7 @@ mod tests {
                     name: "empty".into(),
                     description: None,
                     category: "system".into(),
-                    content: "{fragments}".into(),
+                    content: "{{fragments}}".into(),
                     variables: None,
                     fragments: None,
                 }),
@@ -343,7 +331,7 @@ mod tests {
 
     #[test]
     fn tool_descriptions_pseudo_variable_renders_supplied_tools() {
-        let regs = regs_with_template("system.tools", "{tool_descriptions}", None);
+        let regs = regs_with_template("system.tools", "{{tool_descriptions}}", None);
         let tools = vec![ToolDescriptionData {
             id: "web_search".into(),
             r#type: "function".into(),
@@ -360,7 +348,7 @@ mod tests {
         };
         let text = render_template(&regs, "system.tools", &opts).expect("rendered");
         assert!(text.contains("web_search"));
-        assert!(!text.contains("{tool_descriptions}"));
+        assert!(!text.contains("{{tool_descriptions}}"));
 
         // Without tool descriptions the placeholder resolves to empty.
         let empty = render_template(&regs, "system.tools", &Default::default()).expect("rendered");
@@ -399,8 +387,7 @@ mod tests {
     }
 
     #[test]
-    fn canonical_double_brace_syntax_renders_and_legacy_still_works() {
-        // Canonical `{{name}}` in a configured template.
+    fn canonical_double_brace_syntax_renders() {
         let regs = regs_with_template("t.canonical", "Hi {{who}}!", None);
         let opts = TemplateRenderOptions {
             variables: HashMap::from([("who".to_string(), "dev".to_string())]),
@@ -411,11 +398,11 @@ mod tests {
             "Hi dev!"
         );
 
-        // Legacy single-brace templates keep rendering.
-        let regs_legacy = regs_with_template("t.legacy", "Hi {who}!", None);
+        // Single braces are not placeholders and stay verbatim.
+        let regs_single = regs_with_template("t.single", "Hi {who}!", None);
         assert_eq!(
-            render_template(&regs_legacy, "t.legacy", &opts).unwrap(),
-            "Hi dev!"
+            render_template(&regs_single, "t.single", &opts).unwrap(),
+            "Hi {who}!"
         );
 
         // Unresolved placeholders are kept verbatim.
@@ -428,13 +415,13 @@ mod tests {
 
     #[test]
     fn visibility_message_falls_back_without_registries() {
-        let fallback = "legacy text";
+        let fallback = "fallback text";
         let msg = render_visibility_message(
             None,
             ACTIVATION_TEMPLATE_ID,
             fallback,
             &HashMap::from([("tool_names".to_string(), "shell".to_string())]),
         );
-        assert_eq!(msg, "legacy text");
+        assert_eq!(msg, "fallback text");
     }
 }

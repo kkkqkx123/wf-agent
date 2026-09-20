@@ -9,7 +9,6 @@ use wf_types::enums::MiddlewarePhase;
 use wf_api::infra::handler_chain::{
     PluginHandlerSource, PluginMiddlewareBridge, PluginNodeExecutor,
 };
-use wf_core::registry::Registry;
 use wf_plugin::{ContributionBridge, ContributionManager, PluginError, PluginResult};
 use wf_resource::registry::ResourceRegistries;
 use wf_tools::error::ToolResult;
@@ -148,109 +147,84 @@ impl ContributionBridge for WfPluginBridge {
             }
         }
 
-        // Declarative resource contribution placement (skip-existing, idempotent)
+        // Declarative resources land through the single `install_bundle`
+        // helper shared with direct installation, so validation and
+        // skip-existing semantics stay identical. Rejections are reported
+        // loudly but do not fail activation, matching the `Ok(Summary)`
+        // semantics.
+        let mut bundle = wf_resource::resource_plugin::ResourceBundle::new();
         for (id, owner) in manager.all_workflows() {
             if owner == plugin_id {
                 if let Some(wf) = manager.get_workflow(&id) {
-                    wf_resource::register_item_skip(
-                        &self.registries.workflows,
-                        id.clone(),
-                        (*wf).clone(),
-                    );
-                    tracing::debug!("  workflow: {}", id);
+                    bundle.workflows.push((*wf).clone());
                 }
             }
         }
         for (id, owner) in manager.all_prompts() {
             if owner == plugin_id {
                 if let Some(t) = manager.get_prompt(&id) {
-                    wf_resource::register_template(&self.registries, (*t).clone(), true);
-                    tracing::debug!("  prompt: {}", id);
+                    bundle.prompts.push((*t).clone());
                 }
             }
         }
         for (id, owner) in manager.all_fragments() {
             if owner == plugin_id {
                 if let Some(f) = manager.get_fragment(&id) {
-                    wf_resource::register_fragment(&self.registries, (*f).clone(), true);
-                    tracing::debug!("  fragment: {}", id);
+                    bundle.fragments.push((*f).clone());
                 }
             }
         }
         for (id, owner) in manager.all_agent_templates() {
             if owner == plugin_id {
                 if let Some(a) = manager.get_agent_template(&id) {
-                    wf_resource::register_item_skip(
-                        &self.registries.agent_templates,
-                        id.clone(),
-                        (*a).clone(),
-                    );
-                    tracing::debug!("  agent-template: {}", id);
+                    bundle.agent_templates.push((*a).clone());
                 }
             }
         }
         for (id, owner) in manager.all_node_templates() {
             if owner == plugin_id {
                 if let Some(n) = manager.get_node_template(&id) {
-                    wf_resource::register_item_skip(
-                        &self.registries.node_templates,
-                        id.clone(),
-                        (*n).clone(),
-                    );
-                    tracing::debug!("  node-template: {}", id);
+                    bundle.node_templates.push((*n).clone());
                 }
             }
         }
-        // Triggers land through the shared two-phase validation helper
-        // (single-template validation + competition-scope check), the same
-        // rule the legacy `ResourcePluginRegistry` activation path uses.
-        // Rejections are reported loudly but do not fail activation, matching
-        // the legacy `Ok(Summary)` semantics.
-        let owned_triggers: Vec<_> = manager
-            .all_triggers()
-            .into_iter()
-            .filter(|(_, owner)| owner == plugin_id)
-            .filter_map(|(id, _)| manager.get_trigger(&id).map(|t| (*t).clone()))
-            .collect();
-        if !owned_triggers.is_empty() {
-            let summary = wf_resource::registry::register_trigger_candidates(
-                &self.registries,
-                owned_triggers,
-                true,
-            );
-            for id in &summary.succeeded {
-                tracing::debug!("  trigger: {}", id);
-            }
-            for fail in &summary.failed {
-                tracing::warn!(
-                    plugin_id,
-                    trigger = %fail.id,
-                    "plugin trigger registration failed: {}",
-                    fail.error
-                );
+        for (id, owner) in manager.all_triggers() {
+            if owner == plugin_id {
+                if let Some(t) = manager.get_trigger(&id) {
+                    bundle.triggers.push((*t).clone());
+                }
             }
         }
         for (id, owner) in manager.all_tool_descriptions() {
             if owner == plugin_id {
                 if let Some(d) = manager.get_tool_description(&id) {
-                    wf_resource::register_item_skip(
-                        &self.registries.tool_descriptions,
-                        id.clone(),
-                        (*d).clone(),
-                    );
-                    tracing::debug!("  tool-description: {}", id);
+                    bundle.tool_descriptions.push((*d).clone());
                 }
             }
         }
         for (id, owner) in manager.all_tools() {
             if owner == plugin_id {
                 if let Some(tool) = manager.get_tool(&id) {
-                    if !self.tool_registry.has(&tool.id) {
-                        self.tool_registry.register_tool((*tool).clone());
-                        tracing::debug!("  tool: {}", tool.id);
-                    }
+                    bundle.tools.push((*tool).clone());
                 }
             }
+        }
+        let summary = wf_resource::resource_plugin::install_bundle(
+            &self.registries,
+            &self.tool_registry,
+            &bundle,
+            true,
+        );
+        for id in &summary.succeeded {
+            tracing::debug!("  resource: {}", id);
+        }
+        for fail in &summary.failed {
+            tracing::warn!(
+                plugin_id,
+                resource = %fail.id,
+                "plugin resource registration failed: {}",
+                fail.error
+            );
         }
 
         // LLM formats and providers land in the gateway last so a codec
@@ -268,50 +242,75 @@ impl ContributionBridge for WfPluginBridge {
         // entries (mirrors the tail of `sync_all`).
         self.unsync_llm(plugin_id, manager);
 
+        // Symmetric teardown of `sync_all` through the shared
+        // `uninstall_bundle` helper.
+        let mut bundle = wf_resource::resource_plugin::ResourceBundle::new();
         for (id, owner) in manager.all_workflows() {
             if owner == plugin_id {
-                self.registries.remove_workflow_template(&id);
+                if let Some(wf) = manager.get_workflow(&id) {
+                    bundle.workflows.push((*wf).clone());
+                }
             }
         }
         for (id, owner) in manager.all_prompts() {
             if owner == plugin_id {
-                self.registries.remove_prompt_template(&id);
+                if let Some(t) = manager.get_prompt(&id) {
+                    bundle.prompts.push((*t).clone());
+                }
             }
         }
         for (id, owner) in manager.all_fragments() {
             if owner == plugin_id {
-                self.registries.remove_fragment(&id);
+                if let Some(f) = manager.get_fragment(&id) {
+                    bundle.fragments.push((*f).clone());
+                }
             }
         }
         for (id, owner) in manager.all_agent_templates() {
             if owner == plugin_id {
-                self.registries.remove_agent_template(&id);
+                if let Some(a) = manager.get_agent_template(&id) {
+                    bundle.agent_templates.push((*a).clone());
+                }
             }
         }
         for (id, owner) in manager.all_node_templates() {
             if owner == plugin_id {
-                self.registries.remove_node_template(&id);
+                if let Some(n) = manager.get_node_template(&id) {
+                    bundle.node_templates.push((*n).clone());
+                }
             }
         }
         for (id, owner) in manager.all_triggers() {
             if owner == plugin_id {
                 if let Some(t) = manager.get_trigger(&id) {
-                    self.registries.remove_trigger_template(&t.name);
+                    bundle.triggers.push((*t).clone());
                 }
             }
         }
         for (id, owner) in manager.all_tool_descriptions() {
             if owner == plugin_id {
-                self.registries.remove_tool_description(&id);
+                if let Some(d) = manager.get_tool_description(&id) {
+                    bundle.tool_descriptions.push((*d).clone());
+                }
             }
         }
         for (id, owner) in manager.all_tools() {
             if owner == plugin_id {
-                self.tool_registry.remove_tool(&id);
-                // Symmetric teardown of the tool-type handler installed by
-                // `sync_all` (see the tool-type bridge comment there).
-                self.tool_registry.unregister_stateless_handler(&id);
+                if let Some(tool) = manager.get_tool(&id) {
+                    bundle.tools.push((*tool).clone());
+                }
             }
+        }
+        wf_resource::resource_plugin::uninstall_bundle(
+            &self.registries,
+            &self.tool_registry,
+            &bundle,
+        );
+        for tool in &bundle.tools {
+            // Symmetric teardown of the tool-type handler installed by
+            // `sync_all` (see the tool-type bridge comment there).
+            self.tool_registry
+                .unregister_stateless_handler(&tool.id);
         }
 
         Ok(())
@@ -440,6 +439,7 @@ impl PluginMiddlewareBridge for WfPluginMiddlewareRunner {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use wf_core::registry::Registry;
     use wf_plugin::{
         ContributionRegistrar, PluginToolContext, PluginToolExecutor, PluginToolResult,
     };

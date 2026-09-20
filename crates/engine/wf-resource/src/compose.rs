@@ -69,7 +69,7 @@ mod tests {
             std::sync::Arc::new(SystemPromptFragment {
                 id: "fragments.role.assistant".into(),
                 category: "role".into(),
-                content: "You are {name}.".into(),
+                content: "You are {{name}}.".into(),
                 description: None,
                 variables: None,
             }),

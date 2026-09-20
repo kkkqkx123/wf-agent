@@ -415,34 +415,59 @@ pub async fn init_mcp(
     Some(manager)
 }
 
+/// Direct fallback for builds without the plugin engine: assemble each
+/// requested built-in bundle and land it through the shared
+/// `install_bundle` helper. Item-level rejections are reported loudly but
+/// do not fail bootstrap, matching the engine bridge semantics; hook
+/// failures fail loudly.
 pub(crate) fn activate_builtin_resource_plugins_legacy(
     opts: &wf_resource::registry::RegisterOptions,
     registries: &wf_resource::registry::ResourceRegistries,
     tool_registry: &wf_tools::registry::ToolRegistry,
 ) -> RuntimeResult<()> {
-    let bundles = wf_resource::resource_plugin::ResourcePluginRegistry::new();
     for plugin in wf_resource::predefined::resource_plugin::builtin_resource_plugins() {
-        bundles.register(plugin).map_err(|e| {
-            crate::error::RuntimeError::Config(format!(
-                "failed to register built-in resource plugin: {e}"
-            ))
-        })?;
-    }
-    for sa in &opts.resource_plugin_activation {
-        bundles
-            .activate(
-                &sa.id,
-                &sa.config,
-                registries,
-                tool_registry,
-                opts.skip_if_exists,
-            )
+        let meta = plugin.metadata();
+        let Some(requested) = opts
+            .resource_plugin_activation
+            .iter()
+            .find(|sa| sa.id == meta.id)
+        else {
+            continue;
+        };
+        plugin
+            .on_before_assemble(&requested.config)
             .map_err(|e| {
                 crate::error::RuntimeError::Config(format!(
                     "failed to activate resource plugin '{}': {e}",
-                    sa.id
+                    meta.id
                 ))
             })?;
+        let bundle = plugin.assemble(&requested.config).map_err(|e| {
+            crate::error::RuntimeError::Config(format!(
+                "failed to activate resource plugin '{}': {e}",
+                meta.id
+            ))
+        })?;
+        let summary = wf_resource::resource_plugin::install_bundle(
+            registries,
+            tool_registry,
+            &bundle,
+            opts.skip_if_exists,
+        );
+        for fail in &summary.failed {
+            tracing::warn!(
+                plugin_id = %meta.id,
+                resource = %fail.id,
+                "resource plugin item registration failed: {}",
+                fail.error
+            );
+        }
+        plugin.on_after_install(&bundle).map_err(|e| {
+            crate::error::RuntimeError::Config(format!(
+                "failed to activate resource plugin '{}': {e}",
+                meta.id
+            ))
+        })?;
     }
     Ok(())
 }
@@ -575,6 +600,11 @@ pub async fn init_metrics_context(
     Ok(ctx)
 }
 
+/// Bootstrap order is intentional: resource bundle assemblers activate
+/// first so their output wins under skip-existing semantics, then the
+/// predefined/custom batch fills the remaining ids. Both sides land through
+/// the shared `install_bundle` helper, keeping direct installation and the
+/// plugin-engine bridge identical.
 pub async fn init_plugins_and_resources(
     opts: &wf_resource::registry::RegisterOptions,
     registries: &wf_resource::registry::ResourceRegistries,

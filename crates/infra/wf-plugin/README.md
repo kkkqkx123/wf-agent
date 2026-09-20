@@ -20,7 +20,7 @@
 
 ## 门控与调优分离
 
-只有门控能阻断加载：清单合法性、权限黑名单、SDK 版本、签名、路径收敛，以及三后端启用开关（`PluginSystemConfig` 的 `lua_enabled`、`native_enabled`、`wasm_enabled`，运行时经 `PluginConfig` 同名透传，默认全开）。想停掉一类后端就关开关，不要用限额零值去表达开关语义。
+只有门控能阻断加载：清单合法性、权限黑名单、SDK 版本、签名、路径收敛，以及三后端启用开关（`PluginSystemConfig` 的 `lua_enabled`、`native_enabled`、`wasm_enabled`，运行时经 `PluginConfig` 同名透传；Lua 与 Wasm 默认开启，Native 无沙箱默认关闭）。想停掉一类后端就关开关，不要用限额零值去表达开关语义。
 
 ## 资源限制
 

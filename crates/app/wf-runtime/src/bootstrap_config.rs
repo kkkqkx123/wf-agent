@@ -144,7 +144,7 @@ impl Default for PluginConfig {
             auto_activate: true,
             guard_timeout_ms: 10000,
             lua_enabled: true,
-            native_enabled: true,
+            native_enabled: false,
             wasm_enabled: true,
         }
     }

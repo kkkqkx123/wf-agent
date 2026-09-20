@@ -6,16 +6,19 @@
 //! `wf-resource` must stay free of a `wf-plugin` dependency, so the glue
 //! between the two plugin systems lives where both crates are visible.
 //!
-//! Lifecycle mapping:
+//! Lifecycle mapping (mirrors the direct-install order):
 //! - `register_contributions` → `on_before_assemble` → `assemble(config)` →
 //!   register the bundle items as declarative contributions →
-//!   `on_after_install(bundle)`. The contribution bridge then lands them in
-//!   `ResourceRegistries` / `ToolRegistry` on activation.
+//!   `on_after_install(bundle)`. Every hook failure fails activation loudly
+//!   via `ActivationFailed`, matching the direct-install `Err(String)`
+//!   behavior. The contribution bridge then lands them in
+//!   `ResourceRegistries` / `ToolRegistry` on activation through the shared
+//!   `install_bundle` helper.
 //! - `on_deactivate` → `on_before_uninstall` → `on_after_uninstall` (the
 //!   bridge has already removed the plugin's resources by then, which
-//!   differs from the legacy order where `on_before_uninstall` runs before
-//!   removal; the hook is still invoked so plugins observe the full
-//!   lifecycle).
+//!   differs from the direct-install order where `on_before_uninstall` runs
+//!   before removal; the hook is still invoked so plugins observe the full
+//!   lifecycle). Hook failures fail deactivation via `DeactivationFailed`.
 
 use std::sync::Arc;
 
@@ -127,13 +130,12 @@ impl Plugin for ResourcePluginAdapter {
             registrar.register_tool(&tool.id, tool.clone())?;
         }
 
-        if let Err(e) = self.inner.on_after_install(&bundle) {
-            tracing::error!(
-                "resource plugin '{}' on_after_install failed: {}",
+        self.inner.on_after_install(&bundle).map_err(|e| {
+            wf_plugin::PluginError::ActivationFailed(format!(
+                "resource plugin '{}' on_after_install failed: {e}",
                 self.manifest.id,
-                e
-            );
-        }
+            ))
+        })?;
         Ok(())
     }
 
@@ -144,20 +146,18 @@ impl Plugin for ResourcePluginAdapter {
     }
 
     async fn on_deactivate(&self, _ctx: &PluginContext) -> PluginResult<()> {
-        if let Err(e) = self.inner.on_before_uninstall() {
-            tracing::error!(
-                "resource plugin '{}' on_before_uninstall failed: {}",
+        self.inner.on_before_uninstall().map_err(|e| {
+            wf_plugin::PluginError::DeactivationFailed(format!(
+                "resource plugin '{}' on_before_uninstall failed: {e}",
                 self.manifest.id,
-                e
-            );
-        }
-        if let Err(e) = self.inner.on_after_uninstall() {
-            tracing::error!(
-                "resource plugin '{}' on_after_uninstall failed: {}",
+            ))
+        })?;
+        self.inner.on_after_uninstall().map_err(|e| {
+            wf_plugin::PluginError::DeactivationFailed(format!(
+                "resource plugin '{}' on_after_uninstall failed: {e}",
                 self.manifest.id,
-                e
-            );
-        }
+            ))
+        })?;
         Ok(())
     }
 }

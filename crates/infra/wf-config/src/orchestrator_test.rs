@@ -256,7 +256,7 @@ fn test_assemble_with_preset_hits_preset() {
 }
 
 #[test]
-fn test_assemble_with_preset_falls_back_on_missing_preset() {
+fn test_assemble_with_preset_fails_on_missing_preset() {
     let _lock = ENV_LOCK.lock().unwrap();
     clear_wf_env_vars();
 
@@ -264,15 +264,15 @@ fn test_assemble_with_preset_falls_back_on_missing_preset() {
     let _ = std::fs::remove_dir_all(&dir);
     setup_preset_project(&dir);
 
-    // Preset name does not exist in the index: fall back to default paths.
-    let config = ConfigOrchestrator::assemble_with_preset(
+    // An explicitly requested preset that cannot be resolved fails instead
+    // of silently falling back to unrelated files.
+    let result = ConfigOrchestrator::assemble_with_preset(
         &dir,
         Some("nonexistent"),
         Some(default_infra_file_mapping()),
         None,
-    )
-    .unwrap();
-    assert_eq!(config.storage.storage_type, StorageType::Sqlite);
+    );
+    assert!(result.is_err());
 
     let _ = std::fs::remove_dir_all(&dir);
 }

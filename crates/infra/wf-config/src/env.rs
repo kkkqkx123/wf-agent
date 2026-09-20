@@ -3,8 +3,15 @@
 //! Provides a declarative mapping from env var names to typed values.
 //! Used by the orchestrator to apply `WF_*` overrides to infrastructure
 //! config.
+//!
+//! File-level interpolation (`${VAR}` / `${VAR:default}`) is the single
+//! env expansion applied to file content before parsing. Only uppercase
+//! names match so workflow expressions (`${input.a}`) stay untouched.
+//! `WF_*` typed overrides apply at assembly time on top of interpolated
+//! files. `{{parameters.*}}` substitution lives at workflow execution time.
 
 use std::collections::HashMap;
+use std::sync::LazyLock;
 
 use crate::error::{ConfigError, ConfigResult};
 
@@ -96,6 +103,32 @@ pub fn to_env_name(prefix: &str, key: &str) -> String {
         }
     }
     result
+}
+
+static ENV_INTERPOLATION_REGEX: LazyLock<regex::Regex> = LazyLock::new(|| {
+    regex::Regex::new(r"\$\{([A-Z_][A-Z0-9_]*)(?::-([^}]*)|:([^}]*))?\}")
+        .expect("invariant: env interpolation pattern is fixed and must compile")
+});
+
+/// Expand `${VAR}` and `${VAR:default}` placeholders in raw file content.
+///
+/// A set non-empty variable wins; otherwise the declared default wins;
+/// without either the placeholder is left unchanged so missing secrets stay
+/// visible instead of silently becoming empty strings.
+pub fn expand_env_vars(content: &str) -> String {
+    ENV_INTERPOLATION_REGEX
+        .replace_all(content, |caps: &regex::Captures| {
+            let name = &caps[1];
+            let default = caps
+                .get(2)
+                .or_else(|| caps.get(3))
+                .map(|m| m.as_str());
+            match std::env::var(name) {
+                Ok(value) if !value.is_empty() => value,
+                _ => default.unwrap_or(&caps[0]).to_string(),
+            }
+        })
+        .to_string()
 }
 
 pub struct EnvMappingEntry {
@@ -284,5 +317,28 @@ mod tests {
         assert!(mapping.contains_key("name"));
         assert!(mapping.contains_key("count"));
         assert!(mapping.contains_key("debug"));
+    }
+
+    #[test]
+    fn test_expand_env_vars_with_default_and_literal() {
+        std::env::set_var("WF_TEST_EXPAND_SET", "secret");
+        std::env::remove_var("WF_TEST_EXPAND_MISSING");
+        assert_eq!(
+            expand_env_vars("pw=${WF_TEST_EXPAND_SET}"),
+            "pw=secret"
+        );
+        assert_eq!(
+            expand_env_vars("pw=${WF_TEST_EXPAND_MISSING:postgres}"),
+            "pw=postgres"
+        );
+        assert_eq!(
+            expand_env_vars("pw=${WF_TEST_EXPAND_MISSING}"),
+            "pw=${WF_TEST_EXPAND_MISSING}"
+        );
+        assert_eq!(
+            expand_env_vars("expr=${input.a}"),
+            "expr=${input.a}"
+        );
+        std::env::remove_var("WF_TEST_EXPAND_SET");
     }
 }

@@ -295,9 +295,10 @@ mod tests {
     }
 
     #[test]
-    fn backend_gates_default_to_enabled() {
+    fn backend_gates_default_to_expected() {
         let options = PluginSystemConfig::default();
-        assert!(options.lua_enabled && options.native_enabled && options.wasm_enabled);
+        assert!(options.lua_enabled && options.wasm_enabled);
+        assert!(!options.native_enabled);
     }
 
     #[test]

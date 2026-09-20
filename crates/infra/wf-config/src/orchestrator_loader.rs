@@ -13,7 +13,6 @@ use crate::orchestrator::InfrastructurePresetFiles;
 use crate::preset::{
     find_preset_by_name, load_single_file_preset, resolve_preset_index, INDEX_FILE_NAME,
 };
-use tracing::warn;
 
 pub fn load_infrastructure_preset(
     infra_dir: &Path,
@@ -65,15 +64,14 @@ pub fn load_infrastructure_preset(
 }
 
 /// Resolve the file mapping for each domain:
-/// 1. no `index.json` -> default paths (or fixed filenames when absent);
-/// 2. preset name given and found -> the preset's `files` mapping;
-/// 3. otherwise -> default paths (or fixed filenames when absent).
+/// without an index file or preset name the default paths apply; an
+/// explicitly requested preset that cannot be resolved fails instead of
+/// silently falling back to unrelated files.
 pub(crate) fn resolve_file_mapping(
     infra_dir: &Path,
     preset_name: Option<&str>,
     default_paths: Option<InfrastructurePresetFiles>,
-) -> InfrastructurePresetFiles {
-    // Legacy fallback (no explicit default paths): fixed default filenames.
+) -> ConfigResult<InfrastructurePresetFiles> {
     let fallback = || {
         default_paths
             .clone()
@@ -81,73 +79,38 @@ pub(crate) fn resolve_file_mapping(
     };
     let index_path = infra_dir.join(INDEX_FILE_NAME);
     if !index_path.exists() {
-        return fallback();
+        return Ok(fallback());
     }
     match preset_name {
-        Some(name) => match load_infrastructure_preset(infra_dir, name) {
-            Ok(files) => files,
-            Err(e) => {
-                warn!(error = %e, "failed to resolve infrastructure preset '{name}'; falling back to default file mapping");
-                fallback()
-            }
-        },
-        None => fallback(),
+        Some(name) => load_infrastructure_preset(infra_dir, name).map_err(|e| {
+            ConfigError::NotFound(format!(
+                "infrastructure preset '{name}' cannot be resolved: {e}"
+            ))
+        }),
+        None => Ok(fallback()),
     }
 }
 
-/// Load a single config domain file leniently. On a missing or unparseable
-/// file the caller-provided `env_default` is returned (with a warning when
-/// parsing failed). The orchestrator supplies an environment-specific
-/// default so dev/prod fallbacks differ without polluting field-level merge
-/// semantics.
-/// Lenient per-domain load with config metrics. Parse failures fall back to
-/// defaults and count a validation error; missing files stay silent.
+/// Load a single config domain file. A missing file yields the
+/// caller-provided default; a present but unparseable file fails so typos
+/// cannot silently run with defaults.
 pub(crate) fn load_domain_config_with_metrics<T>(
     path: &Path,
     env_default: T,
     metrics: Option<&wf_metrics::ConfigMetricsCollector>,
-) -> T
+) -> ConfigResult<T>
 where
     T: serde::de::DeserializeOwned,
 {
     if !path.exists() {
-        return env_default;
+        return Ok(env_default);
     }
     match layered::load_layered_config_sync_with_metrics::<T>(&[path], metrics) {
-        Ok(config) => config,
-        Err(e) => {
-            warn!(
-                error = %e,
-                "failed to parse config file {}; falling back to defaults",
-                path.display()
-            );
-            env_default
-        }
-    }
-}
-
-/// Convert camelCase keys to snake_case recursively (tools.toml may use
-/// either casing, e.g. `maxResults` or `max_results`).
-pub(crate) fn normalize_camel_case(value: serde_json::Value) -> serde_json::Value {
-    match value {
-        serde_json::Value::Object(map) => {
-            let mut out = serde_json::Map::new();
-            for (key, val) in map {
-                let mut snake = String::new();
-                for (i, c) in key.chars().enumerate() {
-                    if c.is_uppercase() {
-                        if i > 0 {
-                            snake.push('_');
-                        }
-                        snake.push(c.to_ascii_lowercase());
-                    } else {
-                        snake.push(c);
-                    }
-                }
-                out.insert(snake, normalize_camel_case(val));
-            }
-            serde_json::Value::Object(out)
-        }
-        other => other,
+        Ok(config) => Ok(config),
+        Err(ConfigError::NotFound(_)) => Ok(env_default),
+        Err(e) => Err(ConfigError::Parse(format!(
+            "invalid config file {}: {e}",
+            path.display()
+        ))),
     }
 }

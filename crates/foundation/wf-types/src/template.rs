@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-/// Definition of one template variable (`{name}` placeholder).
+/// Definition of one template variable (`{{name}}` placeholder).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct TemplateVariableDefinition {
     pub name: String,
@@ -43,10 +43,10 @@ pub fn is_valid_template_category(category: &str) -> bool {
 /// tool-visibility prompt texts (activation/block announcements,
 /// discoverable metadata block, general description). Registered as a
 /// loadable resource so operators can adjust the texts without code
-/// changes. Variables use the `{{name}}` placeholder syntax (legacy
-/// `{name}` is still rendered); `{{fragments}}` and
-/// `{{tool_descriptions}}` are renderer pseudo-variables (composed by the
-/// render engine, not substituted verbatim).
+/// changes. Variables use the `{{name}}` placeholder syntax;
+/// `{{fragments}}` and `{{tool_descriptions}}` are renderer
+/// pseudo-variables (composed by the render engine, not substituted
+/// verbatim).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Template {
     pub id: String,
@@ -57,7 +57,7 @@ pub struct Template {
     pub content: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub variables: Option<Vec<TemplateVariableDefinition>>,
-    /// Fragment ids composed into the `{fragments}` pseudo-variable.
+    /// Fragment ids composed into the `{{fragments}}` pseudo-variable.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub fragments: Option<Vec<String>>,
 }

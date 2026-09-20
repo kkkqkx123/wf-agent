@@ -20,12 +20,11 @@ pub fn validate_prompt_template(template: &Template) -> ConfigResult<()> {
     if let Some(variables) = template.variables.as_ref() {
         for variable in variables {
             validate_required(&variable.name, "variable.name")?;
-            // A declared variable must actually appear in the content
-            // (canonical `{{name}}` or legacy `{name}`), otherwise the
-            // declaration is stale and hides render-time bugs.
+            // A declared variable must actually appear in the content as a
+            // `{{name}}` placeholder, otherwise the declaration is stale
+            // and hides render-time bugs.
             let canonical = format!("{{{{{}}}}}", variable.name);
-            let legacy = format!("{{{}}}", variable.name);
-            if !template.content.contains(&canonical) && !template.content.contains(&legacy) {
+            if !template.content.contains(&canonical) {
                 return Err(ConfigError::Validation(format!(
                     "template '{}' declares variable '{}' but the content never uses it",
                     template.id, variable.name
@@ -195,7 +194,7 @@ mod tests {
     }
 
     #[test]
-    fn test_declared_legacy_placeholder_accepted() {
+    fn test_declared_single_brace_placeholder_rejected() {
         let mut template = make_template();
         template.content = "Review this code: {code}".to_string();
         template.variables = Some(vec![wf_types::TemplateVariableDefinition {
@@ -205,7 +204,8 @@ mod tests {
             description: None,
             default_value: None,
         }]);
-        assert!(validate_prompt_template(&template).is_ok());
+        let err = validate_prompt_template(&template).unwrap_err();
+        assert!(err.to_string().contains("never uses it"));
     }
 
     fn make_default_template() -> Template {

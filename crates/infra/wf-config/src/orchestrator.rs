@@ -12,14 +12,10 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use tracing::warn;
-
 use crate::env::apply_env_overrides;
 use crate::error::{ConfigError, ConfigResult};
 use crate::layered;
-use crate::orchestrator_loader::{
-    load_domain_config_with_metrics, normalize_camel_case, resolve_file_mapping,
-};
+use crate::orchestrator_loader::{load_domain_config_with_metrics, resolve_file_mapping};
 use crate::processor::file_checkpoint::merge_file_checkpoint_with_defaults;
 use crate::processor::infrastructure::{
     get_metrics_environment_defaults, get_output_environment_defaults,
@@ -286,7 +282,7 @@ impl ConfigOrchestratorLoaded {
             &self.infra_dir,
             self.preset_name.as_deref(),
             self.default_paths,
-        );
+        )?;
         let mut config = Self::load_infrastructure_configs(
             &self.infra_dir,
             &files,
@@ -301,7 +297,8 @@ impl ConfigOrchestratorLoaded {
     }
 
     /// Load all infrastructure config domains using the resolved file mapping.
-    /// Missing/unparseable files fall back to `runtime_env`-optimized defaults.
+    /// Missing files fall back to `runtime_env`-optimized defaults; present
+    /// but invalid files fail.
     fn load_infrastructure_configs(
         infra_dir: &Path,
         files: &InfrastructurePresetFiles,
@@ -319,24 +316,24 @@ impl ConfigOrchestratorLoaded {
             &storage_path,
             get_storage_environment_defaults(runtime_env),
             metrics,
-        );
+        )?;
         let timeout: TimeoutConfig = load_domain_config_with_metrics(
             &timeout_path,
             get_timeout_environment_defaults(runtime_env),
             metrics,
-        );
+        )?;
         let metrics_config: MetricsConfig = load_domain_config_with_metrics(
             &metrics_path,
             get_metrics_environment_defaults(runtime_env),
             metrics,
-        );
+        )?;
         let output: OutputConfig = load_domain_config_with_metrics(
             &output_path,
             get_output_environment_defaults(runtime_env),
             metrics,
-        );
+        )?;
         let limits: LimitsConfig =
-            load_domain_config_with_metrics(&limits_path, LimitsConfig::default(), metrics);
+            load_domain_config_with_metrics(&limits_path, LimitsConfig::default(), metrics)?;
 
         // Sandbox config is fail-fast: a malformed sandbox.toml must reject
         // startup instead of silently running with the weaker defaults.
@@ -355,25 +352,24 @@ impl ConfigOrchestratorLoaded {
             None
         };
 
-        // File-checkpoint / tool-approval / presets / tools load leniently:
-        // parse failures fall back to defaults (presets additionally fail
-        // fast on validation errors).
+        // Missing domain files fall back to defaults; present but invalid
+        // files fail.
         let file_checkpoint = load_domain_config_with_metrics::<FileCheckpointConfig>(
             &infra_dir.join(&files.file_checkpoint),
             FileCheckpointConfig::default(),
             metrics,
-        );
+        )?;
         let tool_approval = load_domain_config_with_metrics::<ToolApprovalConfig>(
             &infra_dir.join(&files.tool_approval),
             ToolApprovalConfig::default(),
             metrics,
-        );
+        )?;
         let presets = transform_presets_config(load_domain_config_with_metrics::<PresetsConfig>(
             &infra_dir.join(&files.presets),
             get_presets_environment_defaults(runtime_env),
             metrics,
-        ))?;
-        let tools = load_tool_configs(infra_dir, files);
+        )?)?;
+        let tools = load_tool_configs(infra_dir, files)?;
 
         let storage = merge_storage_with_defaults(&storage);
         let timeout = merge_timeout_with_defaults(&timeout);
@@ -604,71 +600,83 @@ fn set_exec_default(
     update(entry);
 }
 
-/// Load a single-file preset definition (JSON) and extract its `files`
-/// mapping, resolving relative paths against the preset file's directory.
-pub fn load_tool_configs(infra_dir: &Path, files: &InfrastructurePresetFiles) -> ToolConfigs {
+/// Load tool-specific sections from the tools domain file. A missing file
+/// yields defaults; a present file with invalid sections fails. Unknown
+/// sections are kept verbatim but must be tables so mistyped scalars cannot
+/// hide as opaque tool config.
+pub fn load_tool_configs(
+    infra_dir: &Path,
+    files: &InfrastructurePresetFiles,
+) -> ConfigResult<ToolConfigs> {
     let path = infra_dir.join(&files.tools);
     let mut tools = ToolConfigs::default();
     if !path.exists() {
-        return tools;
+        return Ok(tools);
     }
-    let value: toml::Value = match layered::load_layered_config_sync(&[path.as_path()]) {
-        Ok(value) => value,
-        Err(e) => {
-            warn!(
-                error = %e,
-                "failed to parse tool configs {}; falling back to defaults",
-                path.display()
-            );
-            return tools;
-        }
-    };
+    let value: toml::Value = layered::load_layered_config_sync(&[path.as_path()]).map_err(|e| {
+        ConfigError::Parse(format!(
+            "invalid tool configs {}: {e}",
+            path.display()
+        ))
+    })?;
     let Some(table) = value.as_table() else {
-        return tools;
+        return Err(ConfigError::Validation(format!(
+            "invalid tool configs {}: top-level must be a table",
+            path.display()
+        )));
     };
     for (section, section_value) in table {
-        let json = serde_json::to_value(section_value).unwrap_or(serde_json::Value::Null);
+        let json = serde_json::to_value(section_value).map_err(ConfigError::from)?;
         match section.as_str() {
-            "read_file" | "readFile" => {
-                let input = normalize_camel_case(json);
-                match serde_json::from_value::<ReadFileConfigInput>(input)
+            "read_file" => {
+                let config = serde_json::from_value::<ReadFileConfigInput>(json)
                     .map_err(ConfigError::from)
                     .and_then(transform_read_file_config)
-                {
-                    Ok(config) => tools.read_file = Some(config),
-                    Err(e) => {
-                        warn!(error = %e, "invalid [read_file] section in {}", path.display())
-                    }
-                }
+                    .map_err(|e| {
+                        ConfigError::Validation(format!(
+                            "invalid [read_file] section in {}: {e}",
+                            path.display()
+                        ))
+                    })?;
+                tools.read_file = Some(config);
             }
             "glob" => {
-                let input = normalize_camel_case(json);
-                match serde_json::from_value::<GlobConfigInput>(input)
+                let config = serde_json::from_value::<GlobConfigInput>(json)
                     .map_err(ConfigError::from)
                     .and_then(transform_glob_config)
-                {
-                    Ok(config) => tools.glob = Some(config),
-                    Err(e) => warn!(error = %e, "invalid [glob] section in {}", path.display()),
-                }
+                    .map_err(|e| {
+                        ConfigError::Validation(format!(
+                            "invalid [glob] section in {}: {e}",
+                            path.display()
+                        ))
+                    })?;
+                tools.glob = Some(config);
             }
-            "list_files" | "listFiles" => {
-                let input = normalize_camel_case(json);
-                match serde_json::from_value::<ListFilesConfigInput>(input)
+            "list_files" => {
+                let config = serde_json::from_value::<ListFilesConfigInput>(json)
                     .map_err(ConfigError::from)
                     .and_then(transform_list_files_config)
-                {
-                    Ok(config) => tools.list_files = Some(config),
-                    Err(e) => {
-                        warn!(error = %e, "invalid [list_files] section in {}", path.display())
-                    }
-                }
+                    .map_err(|e| {
+                        ConfigError::Validation(format!(
+                            "invalid [list_files] section in {}: {e}",
+                            path.display()
+                        ))
+                    })?;
+                tools.list_files = Some(config);
             }
             _ => {
+                if !json.is_object() {
+                    return Err(ConfigError::Validation(format!(
+                        "invalid [{}] section in {}: passthrough tool config must be a table",
+                        section,
+                        path.display()
+                    )));
+                }
                 tools.passthrough.insert(section.clone(), json);
             }
         }
     }
-    tools
+    Ok(tools)
 }
 
 /// Load infrastructure configs using the default preset

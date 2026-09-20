@@ -38,9 +38,8 @@ pub struct PluginSystemConfig {
     /// Engine-wide wasm limit defaults applied when a manifest sets no
     /// `wasm` values. `None` keeps the built-in defaults.
     pub wasm_defaults: Option<WasmConfig>,
-    /// How to treat an unparseable `sdk_version` requirement (or host
-    /// version): `false` (default) keeps the historical fail-open skip,
-    /// `true` rejects the plugin with `InvalidManifest` instead.
+    /// How to treat an unparseable `sdk_version` requirement (or host version).
+    /// `true` (default) rejects the plugin; `false` keeps the fail-open skip.
     pub strict_sdk_version: bool,
     pub signing: TrustedKeys,
 }
@@ -56,13 +55,13 @@ impl Default for PluginSystemConfig {
             allow_list: vec![],
             block_list: vec![],
             lua_enabled: true,
-            native_enabled: true,
+            native_enabled: false,
             wasm_enabled: true,
             required_permissions_blocklist: vec![],
             config: std::collections::HashMap::new(),
             lua_defaults: None,
             wasm_defaults: None,
-            strict_sdk_version: false,
+            strict_sdk_version: true,
             signing: TrustedKeys::default(),
         }
     }

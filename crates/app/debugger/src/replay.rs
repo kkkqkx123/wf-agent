@@ -41,8 +41,10 @@ pub struct ReplayOutcome {
 
 pub fn replay_trace(trace: &Trace) -> ReplayOutcome {
     let mut steps = Vec::new();
-    let mut summary = ReplaySummary::default();
-    summary.steps = trace.steps.len();
+    let mut summary = ReplaySummary {
+        steps: trace.steps.len(),
+        ..Default::default()
+    };
 
     for step in &trace.steps {
         let variable_diffs = variable_diffs(&step.variable_before, &step.variable_after);

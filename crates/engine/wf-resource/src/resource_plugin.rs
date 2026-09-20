@@ -1,9 +1,18 @@
+//! Declarative resource bundles assembled from config.
+//!
+//! A `ResourcePlugin` here is a config-to-bundle assembler, not a
+//! `wf-plugin::Plugin`. It has no isolation, no manifest, and no execution
+//! hooks. This module only builds `ResourceBundle` values and lands them
+//! into `ResourceRegistries` / `ToolRegistry` through `install_bundle` /
+//! `uninstall_bundle`. Activation state is owned by the plugin engine
+//! (`wf-runtime` bridges assemblers into it); builds without the plugin
+//! engine assemble requested bundles directly.
+
 use std::collections::HashMap;
-use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use wf_core::registry::{ConcurrentRegistry, MutableRegistry, Registry};
+use wf_core::Registry;
 use wf_tools::registry::ToolRegistry;
 use wf_types::agent::AgentTemplate;
 use wf_types::tool::Tool as ToolDef;
@@ -13,7 +22,8 @@ use wf_types::workflow::{NodeTemplate, WorkflowTemplate};
 use wf_types::{SystemPromptFragment, Template};
 
 use crate::registry::{
-    register_fragment, register_item_skip, register_item_strict, ResourceRegistries,
+    register_fragment, register_item_skip, register_item_strict, register_template,
+    ResourceRegistries,
 };
 use crate::result::Summary;
 
@@ -109,240 +119,157 @@ pub trait ResourcePlugin: Send + Sync {
     }
 }
 
-pub struct ResourcePluginRegistry {
-    resource_plugins: ConcurrentRegistry<Box<dyn ResourcePlugin>>,
-    active_bundles: ConcurrentRegistry<ResourceBundle>,
-}
+/// Single landing point for a `ResourceBundle`.
+///
+/// Both direct installation (builds without the plugin engine) and the
+/// plugin-engine bridge land bundles through this helper so validation and
+/// skip-existing semantics stay identical. Prompts, fragments, and triggers
+/// go through their validated registration helpers; the remaining kinds
+/// have no extra validation and use strict/skip item registration.
+pub fn install_bundle(
+    registries: &ResourceRegistries,
+    tool_registry: &ToolRegistry,
+    bundle: &ResourceBundle,
+    skip_if_exists: bool,
+) -> Summary {
+    let mut total = Summary::new();
 
-impl ResourcePluginRegistry {
-    pub fn new() -> Self {
-        Self {
-            resource_plugins: ConcurrentRegistry::new(),
-            active_bundles: ConcurrentRegistry::new(),
-        }
+    for wf in &bundle.workflows {
+        let key = wf.id.clone();
+        total.merge(if skip_if_exists {
+            register_item_skip(&registries.workflows, key, wf.clone())
+        } else {
+            register_item_strict(&registries.workflows, key, wf.clone())
+        });
     }
-
-    pub fn register(&self, plugin: Box<dyn ResourcePlugin>) -> Result<(), String> {
-        let id = plugin.metadata().id;
-        let item = Arc::new(plugin);
-        self.resource_plugins
-            .register(id.clone(), item)
-            .map_err(|e| e.to_string())
-    }
-
-    pub fn unregister(&self, id: &str) {
-        self.resource_plugins.unregister(id);
-    }
-
-    pub fn get(&self, id: &str) -> Option<Arc<Box<dyn ResourcePlugin>>> {
-        self.resource_plugins.get(id)
-    }
-
-    pub fn list(&self) -> Vec<String> {
-        self.resource_plugins.list()
-    }
-
-    pub fn is_active(&self, id: &str) -> bool {
-        self.active_bundles.has(id)
-    }
-
-    pub fn activate(
-        &self,
-        id: &str,
-        config: &Value,
-        registries: &ResourceRegistries,
-        tool_registry: &ToolRegistry,
-        skip_if_exists: bool,
-    ) -> Result<Summary, String> {
-        let plugin = self
-            .resource_plugins
-            .get(id)
-            .ok_or_else(|| format!("ResourcePlugin \"{id}\" not found"))?;
-
-        plugin.on_before_assemble(config)?;
-
-        let bundle = plugin.assemble(config)?;
-        let mut total = Summary::new();
-
-        for wf in &bundle.workflows {
-            let key = wf.id.clone();
-            total.merge(if skip_if_exists {
-                register_item_skip(&registries.workflows, key, wf.clone())
-            } else {
-                register_item_strict(&registries.workflows, key, wf.clone())
-            });
-        }
-        for tool in &bundle.tools {
-            let key = tool.id.clone();
-            if skip_if_exists && tool_registry.has(&key) {
-                total.merge(Summary::ok(&key));
-                continue;
-            }
-            tool_registry.register_tool(tool.clone());
+    for tool in &bundle.tools {
+        let key = tool.id.clone();
+        if skip_if_exists && tool_registry.has(&key) {
             total.merge(Summary::ok(&key));
+            continue;
         }
-        total.merge(crate::registry::register_trigger_candidates(
+        tool_registry.register_tool(tool.clone());
+        total.merge(Summary::ok(&key));
+    }
+    total.merge(crate::registry::register_trigger_candidates(
+        registries,
+        bundle.triggers.clone(),
+        skip_if_exists,
+    ));
+    for prompt in &bundle.prompts {
+        total.merge(register_template(registries, prompt.clone(), skip_if_exists));
+    }
+    for fragment in &bundle.fragments {
+        total.merge(register_fragment(
             registries,
-            bundle.triggers.clone(),
+            fragment.clone(),
             skip_if_exists,
         ));
-        for prompt in &bundle.prompts {
-            let key = prompt.id.clone();
-            total.merge(if skip_if_exists {
-                register_item_skip(&registries.templates, key, prompt.clone())
-            } else {
-                register_item_strict(&registries.templates, key, prompt.clone())
-            });
-        }
-        for fragment in &bundle.fragments {
-            total.merge(register_fragment(
-                registries,
-                fragment.clone(),
-                skip_if_exists,
-            ));
-        }
-        for description in &bundle.tool_descriptions {
-            let key = description.id.clone();
-            total.merge(if skip_if_exists {
-                register_item_skip(&registries.tool_descriptions, key, description.clone())
-            } else {
-                register_item_strict(&registries.tool_descriptions, key, description.clone())
-            });
-        }
-        for node_tmpl in &bundle.node_templates {
-            let key = node_tmpl.id.clone();
-            total.merge(if skip_if_exists {
-                register_item_skip(&registries.node_templates, key, node_tmpl.clone())
-            } else {
-                register_item_strict(&registries.node_templates, key, node_tmpl.clone())
-            });
-        }
-        for agent_tmpl in &bundle.agent_templates {
-            let key = agent_tmpl.id.clone();
-            total.merge(if skip_if_exists {
-                register_item_skip(&registries.agent_templates, key, agent_tmpl.clone())
-            } else {
-                register_item_strict(&registries.agent_templates, key, agent_tmpl.clone())
-            });
-        }
-
-        plugin.on_after_install(&bundle)?;
-
-        // Re-activation replaces the tracked bundle.
-        self.active_bundles.unregister(id);
-        self.active_bundles
-            .register(id.to_string(), Arc::new(bundle))
-            .map_err(|e| e.to_string())?;
-
-        Ok(total)
+    }
+    for description in &bundle.tool_descriptions {
+        let key = description.id.clone();
+        total.merge(if skip_if_exists {
+            register_item_skip(&registries.tool_descriptions, key, description.clone())
+        } else {
+            register_item_strict(&registries.tool_descriptions, key, description.clone())
+        });
+    }
+    for node_tmpl in &bundle.node_templates {
+        let key = node_tmpl.id.clone();
+        total.merge(if skip_if_exists {
+            register_item_skip(&registries.node_templates, key, node_tmpl.clone())
+        } else {
+            register_item_strict(&registries.node_templates, key, node_tmpl.clone())
+        });
+    }
+    for agent_tmpl in &bundle.agent_templates {
+        let key = agent_tmpl.id.clone();
+        total.merge(if skip_if_exists {
+            register_item_skip(&registries.agent_templates, key, agent_tmpl.clone())
+        } else {
+            register_item_strict(&registries.agent_templates, key, agent_tmpl.clone())
+        });
     }
 
-    pub fn deactivate(
-        &self,
-        id: &str,
-        registries: &ResourceRegistries,
-        tool_registry: &ToolRegistry,
-    ) -> Result<Summary, String> {
-        let plugin = self
-            .resource_plugins
-            .get(id)
-            .ok_or_else(|| format!("ResourcePlugin \"{id}\" not found"))?;
-
-        plugin.on_before_uninstall()?;
-
-        let mut total = Summary::new();
-        if let Some(bundle) = self.active_bundles.get(id) {
-            for wf in &bundle.workflows {
-                unregister_item(&registries.workflows, &wf.id, &mut total);
-            }
-            for tool in &bundle.tools {
-                if tool_registry.remove_tool(&tool.id).is_some() {
-                    total.merge(Summary::ok(&tool.id));
-                }
-            }
-            for trigger in &bundle.triggers {
-                unregister_item(&registries.trigger_templates, &trigger.name, &mut total);
-            }
-            for prompt in &bundle.prompts {
-                unregister_item(&registries.templates, &prompt.id, &mut total);
-            }
-            for fragment in &bundle.fragments {
-                unregister_item(&registries.fragments, &fragment.id, &mut total);
-            }
-            for description in &bundle.tool_descriptions {
-                unregister_item(&registries.tool_descriptions, &description.id, &mut total);
-            }
-            for node_tmpl in &bundle.node_templates {
-                unregister_item(&registries.node_templates, &node_tmpl.id, &mut total);
-            }
-            for agent_tmpl in &bundle.agent_templates {
-                unregister_item(&registries.agent_templates, &agent_tmpl.id, &mut total);
-            }
-            self.active_bundles.unregister(id);
-        }
-
-        plugin.on_after_uninstall()?;
-
-        Ok(total)
-    }
+    total
 }
 
-impl Default for ResourcePluginRegistry {
-    fn default() -> Self {
-        Self::new()
-    }
-}
+/// Symmetric teardown of `install_bundle` through the controlled
+/// `ResourceRegistries` removal entry points.
+pub fn uninstall_bundle(
+    registries: &ResourceRegistries,
+    tool_registry: &ToolRegistry,
+    bundle: &ResourceBundle,
+) -> Summary {
+    let mut total = Summary::new();
 
-fn unregister_item<T: Send + Sync>(
-    registry: &ConcurrentRegistry<T>,
-    key: &str,
-    total: &mut Summary,
-) {
-    if registry.unregister(key).is_some() {
-        total.merge(Summary::ok(key));
+    for wf in &bundle.workflows {
+        if registries.remove_workflow_template(&wf.id) {
+            total.merge(Summary::ok(&wf.id));
+        }
     }
+    for tool in &bundle.tools {
+        if tool_registry.remove_tool(&tool.id).is_some() {
+            total.merge(Summary::ok(&tool.id));
+        }
+    }
+    for trigger in &bundle.triggers {
+        if registries.remove_trigger_template(&trigger.name) {
+            total.merge(Summary::ok(&trigger.name));
+        }
+    }
+    for prompt in &bundle.prompts {
+        if registries.remove_prompt_template(&prompt.id) {
+            total.merge(Summary::ok(&prompt.id));
+        }
+    }
+    for fragment in &bundle.fragments {
+        if registries.remove_fragment(&fragment.id) {
+            total.merge(Summary::ok(&fragment.id));
+        }
+    }
+    for description in &bundle.tool_descriptions {
+        if registries.remove_tool_description(&description.id) {
+            total.merge(Summary::ok(&description.id));
+        }
+    }
+    for node_tmpl in &bundle.node_templates {
+        if registries.remove_node_template(&node_tmpl.id) {
+            total.merge(Summary::ok(&node_tmpl.id));
+        }
+    }
+    for agent_tmpl in &bundle.agent_templates {
+        if registries.remove_agent_template(&agent_tmpl.id) {
+            total.merge(Summary::ok(&agent_tmpl.id));
+        }
+    }
+
+    total
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use wf_core::registry::Registry;
 
-    struct TestResourcePlugin;
-
-    impl ResourcePlugin for TestResourcePlugin {
-        fn metadata(&self) -> ResourcePluginMetadata {
-            ResourcePluginMetadata {
-                id: "test-resource-plugin".into(),
-                name: "Test ResourcePlugin".into(),
-                version: "1.0.0".into(),
-                description: "Test resource plugin".into(),
-                author: None,
-                tags: None,
-                category: None,
-                dependencies: None,
-                configurable: None,
-            }
-        }
-
-        fn assemble(&self, _config: &Value) -> Result<ResourceBundle, String> {
-            // Fixed bundle (not `builtin_agent_templates()`): the test must
-            // not depend on how many built-in templates exist.
-            let mut bundle = ResourceBundle::new();
-            bundle.agent_templates = vec![
-                crate::predefined::agent_templates::goal_review_executor(),
-                crate::predefined::agent_templates::goal_review_reviewer(),
-            ];
-            bundle.prompts.push(Template {
-                id: "test.prompt".into(),
-                name: "Test Prompt".into(),
-                description: Some("Test".into()),
-                category: "system".into(),
-                content: "hello".into(),
-                variables: None,
-                fragments: None,
-            });
-            Ok(bundle)
-        }
+    fn bundle() -> ResourceBundle {
+        // Fixed bundle (not `builtin_agent_templates()`): the test must
+        // not depend on how many built-in templates exist.
+        let mut bundle = ResourceBundle::new();
+        bundle.agent_templates = vec![
+            crate::predefined::agent_templates::goal_review_executor(),
+            crate::predefined::agent_templates::goal_review_reviewer(),
+        ];
+        bundle.prompts.push(Template {
+            id: "test.prompt".into(),
+            name: "Test Prompt".into(),
+            description: Some("Test".into()),
+            category: "system".into(),
+            content: "hello".into(),
+            variables: None,
+            fragments: None,
+        });
+        bundle
     }
 
     fn trigger(name: &str) -> TriggerTemplate {
@@ -372,134 +299,80 @@ mod tests {
         }
     }
 
-    struct ConflictingTriggerPlugin;
-
-    impl ResourcePlugin for ConflictingTriggerPlugin {
-        fn metadata(&self) -> ResourcePluginMetadata {
-            ResourcePluginMetadata {
-                id: "conflicting-trigger-plugin".into(),
-                name: "Conflicting Trigger Plugin".into(),
-                version: "1.0.0".into(),
-                description: "Two triggers in one unique scope".into(),
-                author: None,
-                tags: None,
-                category: None,
-                dependencies: None,
-                configurable: None,
-            }
-        }
-
-        fn assemble(&self, _config: &Value) -> Result<ResourceBundle, String> {
-            let mut bundle = ResourceBundle::new();
-            bundle.triggers = vec![trigger("plugin-a"), trigger("plugin-b")];
-            Ok(bundle)
-        }
-    }
-
     #[test]
-    fn register_duplicate_rejected() {
-        let registry = ResourcePluginRegistry::new();
-        registry.register(Box::new(TestResourcePlugin)).unwrap();
-        let err = registry.register(Box::new(TestResourcePlugin)).unwrap_err();
-        assert!(err.contains("already"));
-    }
-
-    #[test]
-    fn conflicting_bundle_triggers_are_rejected() {
-        use wf_core::registry::Registry;
-        let registry = ResourcePluginRegistry::new();
-        registry
-            .register(Box::new(ConflictingTriggerPlugin))
-            .unwrap();
+    fn install_and_uninstall_roundtrip() {
         let regs = ResourceRegistries::new();
         let tool_registry = ToolRegistry::new();
-        let summary = registry
-            .activate(
-                "conflicting-trigger-plugin",
-                &Value::Null,
-                &regs,
-                &tool_registry,
-                false,
-            )
-            .unwrap();
-        assert!(summary.failed.iter().any(|f| f.id == "plugin-a"));
-        assert!(summary.failed.iter().any(|f| f.id == "plugin-b"));
-        assert!(!regs.trigger_templates.has("plugin-a"));
-        assert!(!regs.trigger_templates.has("plugin-b"));
-    }
+        let bundle = bundle();
 
-    #[test]
-    fn activate_unknown_resource_plugin_errors() {
-        let registry = ResourcePluginRegistry::new();
-        let regs = ResourceRegistries::new();
-        let tool_registry = ToolRegistry::new();
-        let err = registry
-            .activate("missing", &Value::Null, &regs, &tool_registry, true)
-            .unwrap_err();
-        assert!(err.contains("not found"));
-    }
-
-    #[test]
-    fn activate_and_deactivate_roundtrip() {
-        let registry = ResourcePluginRegistry::new();
-        registry.register(Box::new(TestResourcePlugin)).unwrap();
-
-        let regs = ResourceRegistries::new();
-        let tool_registry = ToolRegistry::new();
-        let summary = registry
-            .activate(
-                "test-resource-plugin",
-                &Value::Null,
-                &regs,
-                &tool_registry,
-                true,
-            )
-            .unwrap();
+        let summary = install_bundle(&regs, &tool_registry, &bundle, true);
         assert!(summary.is_ok());
-        assert!(registry.is_active("test-resource-plugin"));
 
         // Every bundle item is registered.
         assert!(regs.agent_templates.has("@standard/goal-review-executor"));
         assert!(regs.agent_templates.has("@standard/goal-review-reviewer"));
         assert!(regs.templates.has("test.prompt"));
 
-        // Duplicate activation with skip_if_exists stays consistent.
-        let again = registry
-            .activate(
-                "test-resource-plugin",
-                &Value::Null,
-                &regs,
-                &tool_registry,
-                true,
-            )
-            .unwrap();
+        // Re-installing with skip_if_exists stays consistent.
+        let again = install_bundle(&regs, &tool_registry, &bundle, true);
         assert!(again.is_ok());
 
-        // Deactivation removes every registered item and clears the tracking.
-        let removed = registry
-            .deactivate("test-resource-plugin", &regs, &tool_registry)
-            .unwrap();
+        // Uninstall removes every installed item.
+        let removed = uninstall_bundle(&regs, &tool_registry, &bundle);
         assert_eq!(removed.succeeded.len(), 3);
         assert!(!regs.agent_templates.has("@standard/goal-review-executor"));
         assert!(!regs.agent_templates.has("@standard/goal-review-reviewer"));
         assert!(!regs.templates.has("test.prompt"));
-        assert!(!registry.is_active("test-resource-plugin"));
 
-        // Deactivating twice is a no-op, not an error.
-        let again = registry
-            .deactivate("test-resource-plugin", &regs, &tool_registry)
-            .unwrap();
+        // Uninstalling twice is a no-op.
+        let again = uninstall_bundle(&regs, &tool_registry, &bundle);
         assert!(again.succeeded.is_empty());
     }
 
     #[test]
-    fn deactivate_unknown_resource_plugin_errors() {
-        let registry = ResourcePluginRegistry::new();
+    fn install_strict_reports_duplicates() {
         let regs = ResourceRegistries::new();
         let tool_registry = ToolRegistry::new();
-        let err = registry
-            .deactivate("missing", &regs, &tool_registry)
-            .unwrap_err();
-        assert!(err.contains("not found"));
+        let bundle = bundle();
+
+        let first = install_bundle(&regs, &tool_registry, &bundle, false);
+        assert!(first.is_ok());
+        let second = install_bundle(&regs, &tool_registry, &bundle, false);
+        assert!(!second.is_ok());
+        assert_eq!(second.failed.len(), 3);
+    }
+
+    #[test]
+    fn install_rejects_invalid_prompt() {
+        let regs = ResourceRegistries::new();
+        let tool_registry = ToolRegistry::new();
+        let mut bundle = ResourceBundle::new();
+        bundle.prompts.push(Template {
+            id: "test.bad".into(),
+            name: "Bad".into(),
+            description: None,
+            category: "nope".into(),
+            content: "hello".into(),
+            variables: None,
+            fragments: None,
+        });
+
+        let summary = install_bundle(&regs, &tool_registry, &bundle, false);
+        assert!(summary.failed.iter().any(|f| f.id == "test.bad"));
+        assert!(!regs.templates.has("test.bad"));
+    }
+
+    #[test]
+    fn install_rejects_conflicting_triggers() {
+        let regs = ResourceRegistries::new();
+        let tool_registry = ToolRegistry::new();
+        let mut bundle = ResourceBundle::new();
+        bundle.triggers = vec![trigger("plugin-a"), trigger("plugin-b")];
+
+        let summary = install_bundle(&regs, &tool_registry, &bundle, false);
+        assert!(summary.failed.iter().any(|f| f.id == "plugin-a"));
+        assert!(summary.failed.iter().any(|f| f.id == "plugin-b"));
+        assert!(!regs.trigger_templates.has("plugin-a"));
+        assert!(!regs.trigger_templates.has("plugin-b"));
     }
 }

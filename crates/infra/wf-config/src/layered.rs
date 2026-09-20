@@ -79,6 +79,7 @@ fn load_layered_config_sync_inner<T: DeserializeOwned>(paths: &[&Path]) -> Confi
                 e
             )))
         })?;
+        let content = crate::env::expand_env_vars(&content);
         let overlay: toml::Value = toml::from_str(&content).map_err(|e| {
             ConfigError::Parse(format!("failed to parse {}: {}", path.display(), e))
         })?;
@@ -153,6 +154,7 @@ async fn load_layered_config_inner<T: DeserializeOwned>(paths: &[&Path]) -> Conf
                 e
             )))
         })?;
+        let content = crate::env::expand_env_vars(&content);
         let overlay: toml::Value = toml::from_str(&content).map_err(|e| {
             ConfigError::Parse(format!("failed to parse {}: {}", path.display(), e))
         })?;

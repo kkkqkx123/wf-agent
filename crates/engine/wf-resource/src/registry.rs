@@ -51,9 +51,13 @@ pub struct RegisterOptions {
     /// the bootstrap edge; registration only consumes the loaded data.
     pub custom_resources: Option<crate::custom::types::CustomResources>,
     pub custom_validation_level: crate::custom::types::CustomValidationLevel,
-    /// Built-in resource plugins requested for activation. Activation itself
-    /// runs in the runtime (legacy registry path or plugin-engine bridge),
-    /// not in `register_all`.
+    /// Built-in resource bundle assemblers requested for activation.
+    /// Activation itself runs in the runtime (plugin-engine bridge, or
+    /// direct assemble plus `install_bundle` when the engine is disabled),
+    /// not in `register_all`. The runtime activates these before the
+    /// predefined/custom batch below so assembler output wins under
+    /// skip-existing semantics; all paths land through the shared
+    /// `install_bundle` helper.
     pub resource_plugin_activation: Vec<ResourcePluginActivation>,
 }
 
@@ -276,9 +280,8 @@ pub fn register_fragment(
 /// resources: single-template validation first, then competition-scope
 /// validation of the merged set against the live registry. Incoming members
 /// of a violated scope fail with the scope message; the rest registers.
-/// Shared by the legacy `ResourcePluginRegistry` activation path and the
-/// plugin-engine contribution bridge so both land triggers under identical
-/// rules.
+/// Shared by direct bundle installation and the plugin-engine
+/// contribution bridge so both land triggers under identical rules.
 pub fn register_trigger_candidates(
     regs: &ResourceRegistries,
     candidates: Vec<TriggerTemplate>,
@@ -417,12 +420,13 @@ pub fn list_fragments_by_category(regs: &ResourceRegistries, category: &str) -> 
 /// Register the predefined and config-driven custom resources into the
 /// runtime registries.
 ///
-/// Built-in resource plugins are **not activated here**: the runtime
-/// activates the entries listed in
-/// `RegisterOptions::resource_plugin_activation` (legacy registry path or
-/// plugin-engine bridge), so the whole plugin system shares one activation
-/// chain. The legacy `ResourcePluginRegistry` path remains
-/// available for engine-disabled fallbacks.
+/// Built-in resource bundle assemblers are **not activated here**: the
+/// runtime activates the entries listed in
+/// `RegisterOptions::resource_plugin_activation` before calling this
+/// function (plugin-engine bridge, or direct assemble plus `install_bundle`
+/// when the engine is disabled), so assembler output wins under
+/// skip-existing semantics and every path lands through the shared
+/// `install_bundle` helper.
 pub fn register_all(
     regs: &ResourceRegistries,
     tool_registry: &ToolRegistry,

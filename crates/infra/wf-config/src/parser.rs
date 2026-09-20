@@ -20,11 +20,13 @@ pub fn config_format_from_path(path: &Path) -> ConfigResult<ConfigFormat> {
 }
 
 pub fn parse_toml<T: serde::de::DeserializeOwned>(content: &str) -> ConfigResult<T> {
-    toml::from_str(content).map_err(|e| ConfigError::Parse(format!("TOML parse error: {e}")))
+    let content = crate::env::expand_env_vars(content);
+    toml::from_str(&content).map_err(|e| ConfigError::Parse(format!("TOML parse error: {e}")))
 }
 
 pub fn parse_json<T: serde::de::DeserializeOwned>(content: &str) -> ConfigResult<T> {
-    serde_json::from_str(content).map_err(|e| ConfigError::Parse(format!("JSON parse error: {e}")))
+    let content = crate::env::expand_env_vars(content);
+    serde_json::from_str(&content).map_err(|e| ConfigError::Parse(format!("JSON parse error: {e}")))
 }
 
 pub fn parse_config<T: serde::de::DeserializeOwned>(

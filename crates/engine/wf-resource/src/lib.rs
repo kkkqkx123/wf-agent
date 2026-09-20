@@ -9,9 +9,11 @@ pub mod template;
 
 pub use compose::Config as PromptComposition;
 pub use custom::{
-    load_custom_prompts, load_custom_resources, load_custom_tools, load_custom_triggers,
-    register_custom_prompts, register_custom_resources, register_custom_tools,
-    register_custom_triggers, CustomResources, CustomResourcesPresetConfig, CustomValidationLevel,
+    load_custom_agent_templates, load_custom_fragments, load_custom_node_templates,
+    load_custom_prompts, load_custom_resources, load_custom_tool_descriptions, load_custom_tools,
+    load_custom_triggers, load_custom_workflows, register_custom_prompts, register_custom_resources,
+    register_custom_tools, register_custom_triggers, CustomResources, CustomResourcesPresetConfig,
+    CustomValidationLevel,
 };
 pub use dynamic::{build_system_context, build_user_context, SystemConfig, UserInput};
 pub use predefined::builder::{
@@ -31,8 +33,8 @@ pub use registry::{
     unregister_template, RegisterOptions, ResourcePluginActivation, ResourceRegistries,
 };
 pub use resource_plugin::{
-    ResourceBundle, ResourcePlugin, ResourcePluginConfigField, ResourcePluginConfigFieldType,
-    ResourcePluginMetadata, ResourcePluginRegistry,
+    install_bundle, uninstall_bundle, ResourceBundle, ResourcePlugin,
+    ResourcePluginConfigField, ResourcePluginConfigFieldType, ResourcePluginMetadata,
 };
 pub use result::Summary;
 pub use template::{

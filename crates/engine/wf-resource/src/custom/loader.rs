@@ -65,6 +65,81 @@ pub fn load_custom_prompts(
     }
 }
 
+pub fn load_custom_workflows(
+    path: &Path,
+    _base_dir: &Path,
+) -> Result<Vec<wf_types::workflow::WorkflowTemplate>, Vec<String>> {
+    #[derive(serde::Deserialize)]
+    struct WorkflowsFile {
+        workflows: Vec<wf_types::workflow::WorkflowTemplate>,
+    }
+
+    match load_json::<WorkflowsFile>(path) {
+        Ok(file) => Ok(file.workflows),
+        Err(e) => Err(vec![e]),
+    }
+}
+
+pub fn load_custom_agent_templates(
+    path: &Path,
+    _base_dir: &Path,
+) -> Result<Vec<wf_types::agent::AgentTemplate>, Vec<String>> {
+    #[derive(serde::Deserialize)]
+    struct AgentTemplatesFile {
+        agent_templates: Vec<wf_types::agent::AgentTemplate>,
+    }
+
+    match load_json::<AgentTemplatesFile>(path) {
+        Ok(file) => Ok(file.agent_templates),
+        Err(e) => Err(vec![e]),
+    }
+}
+
+pub fn load_custom_node_templates(
+    path: &Path,
+    _base_dir: &Path,
+) -> Result<Vec<wf_types::workflow::NodeTemplate>, Vec<String>> {
+    #[derive(serde::Deserialize)]
+    struct NodeTemplatesFile {
+        node_templates: Vec<wf_types::workflow::NodeTemplate>,
+    }
+
+    match load_json::<NodeTemplatesFile>(path) {
+        Ok(file) => Ok(file.node_templates),
+        Err(e) => Err(vec![e]),
+    }
+}
+
+pub fn load_custom_fragments(
+    path: &Path,
+    _base_dir: &Path,
+) -> Result<Vec<wf_types::SystemPromptFragment>, Vec<String>> {
+    #[derive(serde::Deserialize)]
+    struct FragmentsFile {
+        fragments: Vec<wf_types::SystemPromptFragment>,
+    }
+
+    match load_json::<FragmentsFile>(path) {
+        Ok(file) => Ok(file.fragments),
+        Err(e) => Err(vec![e]),
+    }
+}
+
+pub fn load_custom_tool_descriptions(
+    path: &Path,
+    _base_dir: &Path,
+) -> Result<Vec<wf_types::tool_description::ToolDescriptionData>, Vec<String>> {
+    #[derive(serde::Deserialize)]
+    struct ToolDescriptionsFile {
+        tool_descriptions: Vec<wf_types::tool_description::ToolDescriptionData>,
+    }
+
+    match load_json::<ToolDescriptionsFile>(path) {
+        Ok(file) => Ok(file.tool_descriptions),
+        Err(e) => Err(vec![e]),
+    }
+}
+
 pub fn load_custom_resources(
     config: &CustomResourcesPresetConfig,
     base_dir: &Path,
@@ -100,6 +175,56 @@ pub fn load_custom_resources(
         if path.exists() {
             match load_custom_prompts(&path, base_dir) {
                 Ok(prompts) => resources.prompts = prompts,
+                Err(errors) => resources.errors.extend(errors),
+            }
+        }
+    }
+
+    if let Some(ref workflows_path) = config.workflows_path {
+        let path = resolve_path(workflows_path, base_dir);
+        if path.exists() {
+            match load_custom_workflows(&path, base_dir) {
+                Ok(workflows) => resources.workflows = workflows,
+                Err(errors) => resources.errors.extend(errors),
+            }
+        }
+    }
+
+    if let Some(ref agent_templates_path) = config.agent_templates_path {
+        let path = resolve_path(agent_templates_path, base_dir);
+        if path.exists() {
+            match load_custom_agent_templates(&path, base_dir) {
+                Ok(templates) => resources.agent_templates = templates,
+                Err(errors) => resources.errors.extend(errors),
+            }
+        }
+    }
+
+    if let Some(ref node_templates_path) = config.node_templates_path {
+        let path = resolve_path(node_templates_path, base_dir);
+        if path.exists() {
+            match load_custom_node_templates(&path, base_dir) {
+                Ok(templates) => resources.node_templates = templates,
+                Err(errors) => resources.errors.extend(errors),
+            }
+        }
+    }
+
+    if let Some(ref fragments_path) = config.fragments_path {
+        let path = resolve_path(fragments_path, base_dir);
+        if path.exists() {
+            match load_custom_fragments(&path, base_dir) {
+                Ok(fragments) => resources.fragments = fragments,
+                Err(errors) => resources.errors.extend(errors),
+            }
+        }
+    }
+
+    if let Some(ref tool_descriptions_path) = config.tool_descriptions_path {
+        let path = resolve_path(tool_descriptions_path, base_dir);
+        if path.exists() {
+            match load_custom_tool_descriptions(&path, base_dir) {
+                Ok(descriptions) => resources.tool_descriptions = descriptions,
                 Err(errors) => resources.errors.extend(errors),
             }
         }

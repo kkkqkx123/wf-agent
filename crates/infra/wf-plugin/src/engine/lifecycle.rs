@@ -34,26 +34,22 @@ impl PluginEngine {
             .into_iter()
             .map(|i| i.manifest)
             .collect();
-        let resolved = resolve_dependencies(&manifests);
-        if let Ok(ref graph) = resolved {
-            if !graph.cycles.is_empty() {
-                tracing::warn!("plugin dependency cycles detected: {:?}", graph.cycles);
-            }
-            if !graph.version_mismatches.is_empty() {
-                for m in &graph.version_mismatches {
-                    tracing::warn!("plugin version mismatch: {}", m);
-                }
-            }
+        let graph = resolve_dependencies(&manifests)?;
+        if !graph.cycles.is_empty() {
+            return Err(PluginError::CircularDependency);
+        }
+        for m in &graph.version_mismatches {
+            tracing::warn!("plugin version mismatch: {}", m);
         }
 
         let count = self.registry.len();
         tracing::info!("discovered {} plugin(s)", count);
 
         if self.options.auto_activate {
-            for info in self.registry.all() {
-                match self.activate(&info.manifest.id).await {
-                    Ok(_) => tracing::info!("activated plugin: {}", info.manifest.id),
-                    Err(e) => tracing::error!("failed to activate '{}': {}", info.manifest.id, e),
+            for plugin_id in &graph.load_order {
+                match self.activate(plugin_id).await {
+                    Ok(_) => tracing::info!("activated plugin: {}", plugin_id),
+                    Err(e) => tracing::error!("failed to activate '{}': {}", plugin_id, e),
                 }
             }
             let active = self.registry.list_by_status(PluginStatus::Active).len();

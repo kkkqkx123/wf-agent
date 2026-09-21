@@ -209,7 +209,7 @@ fn template_full_pipeline_combines_args_context_and_file_confinement() {
             r#type: Some(ScriptArgumentType::String),
             label: None,
             required: None,
-            default: Some(json!("$salutation.text")),
+            default: Some(json!("${salutation.text}")),
             source: None,
             description: None,
             options: None,
@@ -233,7 +233,7 @@ fn template_full_pipeline_combines_args_context_and_file_confinement() {
     let mut context = HashMap::new();
     context.insert("salutation".to_string(), json!({"text": "hello"}));
 
-    let command = ScriptTemplateEngine::render_command(
+    let command = ScriptTemplateEngine::render_command_braced_only(
         "say {{greeting}} to {{who}} with {{asset}}",
         &declarations,
         &provided,
@@ -252,7 +252,7 @@ fn template_full_pipeline_combines_args_context_and_file_confinement() {
     };
     let mut escaped = provided.clone();
     escaped.insert("asset".to_string(), json!(escape_asset));
-    let confined = ScriptTemplateEngine::render_command(
+    let confined = ScriptTemplateEngine::render_command_braced_only(
         "say {{greeting}} to {{who}} with {{asset}}",
         &declarations,
         &escaped,
@@ -264,7 +264,7 @@ fn template_full_pipeline_combines_args_context_and_file_confinement() {
 
 #[test]
 fn template_reports_all_unresolved_placeholders() {
-    let err = ScriptTemplateEngine::render_command(
+    let err = ScriptTemplateEngine::render_command_braced_only(
         "echo {{first}} {{second}}",
         &[],
         &HashMap::new(),

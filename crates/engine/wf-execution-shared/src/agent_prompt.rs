@@ -151,11 +151,7 @@ pub fn build_stable_header(
         (Some(sp), None) => Some(sp),
         (None, block) => block,
     }?;
-    Some(enrich_system_prompt(
-        env,
-        &prompt,
-        available_tool_names,
-    ))
+    Some(enrich_system_prompt(env, &prompt, available_tool_names))
 }
 
 fn resolve_configured_system_prompt(
@@ -174,10 +170,11 @@ fn resolve_configured_system_prompt(
 }
 
 /// Shared system prompt resolution with agent-loop priority: inline text
-/// wins, otherwise the template reference renders through the shared
-/// registry. Model-bound primary entry: structured values render with shape
-/// checks and unresolved placeholders denied, so partial prompts never
-/// reach the model. Single home for both the agent assembly and the
+/// wins without rendering, otherwise the template reference renders through
+/// the shared registry. Model-bound entry with shape checks and residual
+/// denial, so partial prompts never reach the model. Inline text carrying
+/// placeholder shapes stays literal by design; interpolation needs a
+/// template reference. Single home for both the agent assembly and the
 /// lightweight model node so the two entries cannot drift.
 pub fn resolve_system_prompt_text(
     system_prompt: Option<&str>,
@@ -192,19 +189,18 @@ pub fn resolve_system_prompt_text(
                 "both inline system_prompt and system_prompt_template_id are set; inline text wins and the template reference is ignored"
             );
         }
+        if sp.contains("{{") {
+            tracing::warn!(
+                "inline system_prompt contains placeholder shapes but inline text is never rendered; use system_prompt_template_id for interpolation"
+            );
+        }
         return Some(sp.to_string());
     }
     let template_id = template_id?;
     let regs = regs?;
     let empty = HashMap::new();
     let variables = variables.unwrap_or(&empty);
-    wf_resource::render_template_with_json_variables(
-        regs,
-        template_id,
-        variables,
-        true,
-        template_metrics,
-    )
+    wf_resource::render_template_for_model(regs, template_id, variables, template_metrics)
 }
 
 fn build_dynamic_system_context(
@@ -382,7 +378,9 @@ pub fn build_volatile_tail(
                 }
             }
             None => {
-                tracing::warn!("pinned_files requested but no pinned_files variable is set; skipped")
+                tracing::warn!(
+                    "pinned_files requested but no pinned_files variable is set; skipped"
+                )
             }
         }
     }
@@ -391,7 +389,9 @@ pub fn build_volatile_tail(
             Some(Value::String(tree)) => input.tree = Some(tree),
             Some(_) => tracing::warn!("workspace_file_tree variable is not a string; skipped"),
             None => {
-                tracing::warn!("workspace files requested but no workspace_file_tree variable is set; skipped")
+                tracing::warn!(
+                    "workspace files requested but no workspace_file_tree variable is set; skipped"
+                )
             }
         }
     }
@@ -666,17 +666,15 @@ pub fn build_exposure_artifacts(
             &resolution.discoverable,
             &metadata_options,
         );
-        let variables = HashMap::from([("tool_list".to_string(), entries.join("\n"))]);
+        let variables =
+            HashMap::from([("tool_list".to_string(), Value::String(entries.join("\n")))]);
         let block = env
             .resource_registries
             .and_then(|regs| {
-                wf_resource::render_template_with_metrics(
+                wf_resource::render_template_for_model(
                     regs,
                     wf_resource::DISCOVERABLE_METADATA_TEMPLATE_ID,
-                    &wf_resource::TemplateRenderOptions {
-                        variables: variables.clone(),
-                        deny_unresolved: true,
-                    },
+                    &variables,
                     template_metrics.as_deref(),
                 )
             })
@@ -706,24 +704,24 @@ fn render_general_description(
     }
     let regs = regs?;
     let format = tool_call_protocol.map(|f| &f.format);
-    let mut variables = HashMap::new();
-    variables.insert(
-        "tool_call_protocol".to_string(),
-        format
-            .map(|f| f.to_string())
-            .unwrap_or_else(|| "xml".to_string()),
-    );
-    variables.insert(
-        "invoke_example".to_string(),
-        general_invoke_example(format),
-    );
-    wf_resource::render_template_with_metrics(
+    let variables = HashMap::from([
+        (
+            "tool_call_protocol".to_string(),
+            Value::String(
+                format
+                    .map(|f| f.to_string())
+                    .unwrap_or_else(|| "xml".to_string()),
+            ),
+        ),
+        (
+            "invoke_example".to_string(),
+            Value::String(general_invoke_example(format)),
+        ),
+    ]);
+    wf_resource::render_template_for_model(
         regs,
         wf_resource::GENERAL_DESCRIPTION_TEMPLATE_ID,
-        &wf_resource::TemplateRenderOptions {
-            variables,
-            deny_unresolved: true,
-        },
+        &variables,
         template_metrics,
     )
 }

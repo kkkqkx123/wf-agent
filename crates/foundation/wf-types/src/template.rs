@@ -80,7 +80,10 @@ pub fn template_value_to_display_string(value: &serde_json::Value) -> String {
 }
 
 /// Whether the JSON value matches the declared variable shape.
-pub fn variable_value_matches(template_type: &TemplateVariableType, value: &serde_json::Value) -> bool {
+pub fn variable_value_matches(
+    template_type: &TemplateVariableType,
+    value: &serde_json::Value,
+) -> bool {
     match template_type {
         TemplateVariableType::String => value.is_string(),
         TemplateVariableType::Number => value.is_number(),

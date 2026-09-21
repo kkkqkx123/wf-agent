@@ -120,7 +120,9 @@ fn validate_hook_template_string(template: &str) -> Result<(), String> {
             return Err("payload contains empty template expression".to_string());
         }
         if let Some(reason) = validate_hook_template_path(path) {
-            return Err(format!("payload contains invalid template path '{path}': {reason}"));
+            return Err(format!(
+                "payload contains invalid template path '{path}': {reason}"
+            ));
         }
         rest = &after[end + 2..];
     }

@@ -116,14 +116,8 @@ fn resolve_llm_system_prompt(config: &Value, ctx: &NodeExecutionContext) -> Opti
 /// cannot reach the model literally. Warnings are emitted earlier at the
 /// source; this is the misuse-resistant guarantee on the final text.
 fn strip_unserved_anchors(text: &str) -> String {
-    text.replace(
-        wf_tools::skill::SKILLS_METADATA_PLACEHOLDER,
-        "",
-    )
-    .replace(
-        wf_tools::DISCOVERABLE_TOOLS_METADATA_PLACEHOLDER,
-        "",
-    )
+    text.replace(wf_tools::skill::SKILLS_METADATA_PLACEHOLDER, "")
+        .replace(wf_tools::DISCOVERABLE_TOOLS_METADATA_PLACEHOLDER, "")
 }
 
 /// Warn for post-render anchors a lightweight prompt can never resolve:

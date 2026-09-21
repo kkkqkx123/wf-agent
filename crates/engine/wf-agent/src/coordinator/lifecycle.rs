@@ -857,9 +857,7 @@ impl AgentLoopCoordinator {
             return Vec::new();
         }
         let (filtered, trailing) =
-            wf_execution_shared::agent_prompt::split_trailing_dynamic_tail(
-                conversation.to_vec(),
-            );
+            wf_execution_shared::agent_prompt::split_trailing_dynamic_tail(conversation.to_vec());
         let activated_tools: std::collections::HashSet<String> =
             config.activated_tool_names.iter().cloned().collect();
         // Exposure overrides are intentionally empty here, matching the per-turn

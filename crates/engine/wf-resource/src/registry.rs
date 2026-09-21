@@ -237,10 +237,13 @@ pub fn register_template(
     skip_if_exists: bool,
 ) -> Summary {
     let id = template.id.clone();
-    if let Err(e) = wf_config::processor::prompt::validate_prompt_template_with_fragments(
-        &template,
-        |fid| regs.fragments.has(fid),
-    ) {
+    if let Err(e) =
+        wf_config::processor::prompt::validate_prompt_template_with_fragments(&template, |fid| {
+            regs.fragments
+                .get(fid)
+                .map(|fragment| fragment.variables.clone().unwrap_or_default())
+        })
+    {
         return Summary::err(&id, e.to_string());
     }
     if skip_if_exists {

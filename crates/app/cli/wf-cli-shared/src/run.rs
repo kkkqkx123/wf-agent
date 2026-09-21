@@ -689,8 +689,8 @@ pub async fn run_session(
         Some(ctx.tool_registry.as_ref()),
         ctx.metrics.as_deref(),
     );
-    let params = wf_api::composition::agent::resolve_run_params(&env, params)
-        .map_err(CliError::from)?;
+    let params =
+        wf_api::composition::agent::resolve_run_params(&env, params).map_err(CliError::from)?;
 
     // Echo the user message through the sink (text line / JSON record).
     if !io.format.is_silent() {

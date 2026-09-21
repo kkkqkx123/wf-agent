@@ -9,11 +9,13 @@ pub mod template;
 pub use custom::{
     load_custom_agent_templates, load_custom_fragments, load_custom_node_templates,
     load_custom_prompts, load_custom_resources, load_custom_tool_descriptions, load_custom_tools,
-    load_custom_triggers, load_custom_workflows, register_custom_prompts, register_custom_resources,
-    register_custom_tools, register_custom_triggers, CustomResources, CustomResourcesPresetConfig,
-    CustomValidationLevel,
+    load_custom_triggers, load_custom_workflows, register_custom_prompts,
+    register_custom_resources, register_custom_tools, register_custom_triggers, CustomResources,
+    CustomResourcesPresetConfig, CustomValidationLevel,
 };
-pub use dynamic::{build_system_context, build_user_context, current_time_text, SystemConfig, UserInput};
+pub use dynamic::{
+    build_system_context, build_user_context, current_time_text, SystemConfig, UserInput,
+};
 pub use predefined::resource_plugin::{GoalReviewConfig, GoalReviewResourcePlugin};
 pub use predefined::tool_visibility::{
     builtin_tool_visibility_templates, ACTIVATION_TEMPLATE_ID, BLOCK_TEMPLATE_ID,
@@ -27,12 +29,14 @@ pub use registry::{
     unregister_template, RegisterOptions, ResourcePluginActivation, ResourceRegistries,
 };
 pub use resource_plugin::{
-    install_bundle, uninstall_bundle, ResourceBundle, ResourcePlugin,
-    ResourcePluginConfigField, ResourcePluginConfigFieldType, ResourcePluginMetadata,
+    install_bundle, uninstall_bundle, ResourceBundle, ResourcePlugin, ResourcePluginConfigField,
+    ResourcePluginConfigFieldType, ResourcePluginMetadata,
 };
 pub use result::Summary;
 pub use template::{
-    apply_template_variables, builtin_default, render_builtin_visibility_fallback, render_template,
-    render_template_with_json_variables, render_template_with_metrics, render_visibility_message,
-    render_visibility_message_with_metrics, TemplateRenderOptions,
+    builtin_default, render_builtin_visibility_fallback, render_template,
+    render_template_for_display, render_template_for_model,
+    render_template_with_json_for_display, render_template_with_json_variables,
+    render_template_with_metrics, render_visibility_message, render_visibility_message_with_metrics,
+    TemplateRenderOptions,
 };

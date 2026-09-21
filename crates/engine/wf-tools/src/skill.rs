@@ -522,12 +522,10 @@ fn resource_type_dir_name(resource_type: &SkillResourceType) -> &'static str {
     }
 }
 
-/// Replace `{{name}}` placeholders with the given values. Display-layer
-/// flat matching only: keys compare by exact match, dotted paths are not
-/// split here. Non-string values render with display coercion
-/// (null becomes empty). Delegates to the shared foundation substitution
-/// so skill rendering and resource template rendering share one
-/// single-pass verbatim semantic.
+/// Replace `{{path}}` placeholders with the given values. Flat exact
+/// matches win; otherwise spans resolve as dotted paths against the same
+/// table, matching the resource model-bound engine. Non-string values
+/// render with display coercion. Single-pass verbatim without rescanning.
 pub fn substitute_variables(content: &str, variables: &HashMap<String, Value>) -> String {
     let mapped: HashMap<String, String> = variables
         .iter()
@@ -538,7 +536,9 @@ pub fn substitute_variables(content: &str, variables: &HashMap<String, Value>) -
             )
         })
         .collect();
-    wf_common::template::apply_template_variables(content, &mapped)
+    wf_common::template::apply_template_variables_with_structured_context(
+        content, &mapped, variables,
+    )
 }
 
 /// Placeholder replaced by [`inject_skill_metadata`]. Canonical text lives

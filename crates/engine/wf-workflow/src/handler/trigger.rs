@@ -992,7 +992,7 @@ impl TriggerCoordinator {
         let mut code = String::new();
         if let Some(template) = script.template.clone() {
             let declarations = script.arguments.clone().unwrap_or_default();
-            let rendered = wf_script::ScriptTemplateEngine::render_command(
+            let rendered = wf_script::ScriptTemplateEngine::render_command_braced_only(
                 &template,
                 &declarations,
                 provided,

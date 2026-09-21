@@ -27,11 +27,10 @@ pub fn resolve_payload_template(
 ) -> ExecutionSharedResult<Value> {
     match payload {
         Value::String(s) => {
-            let resolved = resolve_template_string(s, context)?;
-            match serde_json::from_str::<Value>(&resolved) {
-                Ok(parsed) => Ok(parsed),
-                Err(_) => Ok(Value::String(resolved)),
+            if let Some(preserved) = resolve_single_placeholder_value(s, context)? {
+                return Ok(preserved);
             }
+            Ok(Value::String(resolve_template_string(s, context)?))
         }
         Value::Object(map) => {
             let mut result = serde_json::Map::new();
@@ -51,54 +50,79 @@ pub fn resolve_payload_template(
     }
 }
 
+/// Whole-string single-placeholder passthrough: the exact text `{{path}}`
+/// with no surrounding content preserves the resolved value type instead of
+/// coercing through display text. Embedded or multi-placeholder strings
+/// always render to text. Returns `None` when the payload is not a single
+/// placeholder; failures inside a single placeholder are errors.
+fn resolve_single_placeholder_value(
+    template: &str,
+    context: &HashMap<String, Value>,
+) -> ExecutionSharedResult<Option<Value>> {
+    let spans = wf_common::template::scan_template_spans(template);
+    if spans.len() != 1 {
+        return Ok(None);
+    }
+    let span = &spans[0];
+    if !span.closed || span.start != 0 || span.end != template.len() {
+        return Ok(None);
+    }
+    let path = span.name.as_str();
+    if let Some(reason) = wf_common::template::validate_template_path(path) {
+        return Err(ExecutionSharedError::HookError(format!(
+            "template variable '{path}' is invalid: {reason}"
+        )));
+    }
+    let value = resolve_path(path, context).cloned().ok_or_else(|| {
+        ExecutionSharedError::HookError(format!("template variable '{path}' not found in context"))
+    })?;
+    Ok(Some(value))
+}
+
 fn resolve_template_string(
     template: &str,
     context: &HashMap<String, Value>,
 ) -> ExecutionSharedResult<String> {
-    let mut result = String::with_capacity(template.len());
-    let mut chars = template.chars().peekable();
-
-    while let Some(ch) = chars.next() {
-        if ch == '{' && chars.peek() == Some(&'{') {
-            chars.next();
-            let mut path = String::new();
-            let mut found_close = false;
-
-            while let Some(c) = chars.next() {
-                if c == '}' && chars.peek() == Some(&'}') {
-                    chars.next();
-                    found_close = true;
-                    break;
+    let spans = wf_common::template::scan_template_spans(template);
+    if spans.is_empty() {
+        if template.contains("{{") {
+            for span in wf_common::template::scan_template_spans(template) {
+                if !span.closed {
+                    return Err(ExecutionSharedError::HookError(format!(
+                        "unclosed template expression: {{{{{}}}",
+                        span.name
+                    )));
                 }
-                path.push(c);
             }
-
-            if !found_close {
-                return Err(ExecutionSharedError::HookError(format!(
-                    "unclosed template expression: {{{{{}",
-                    path
-                )));
-            }
-
-            let path = path.trim();
-            if let Some(reason) = wf_common::template::validate_template_path(path) {
-                return Err(ExecutionSharedError::HookError(format!(
-                    "template variable '{path}' is invalid: {reason}"
-                )));
-            }
-            let value = resolve_path(path, context).ok_or_else(|| {
-                ExecutionSharedError::HookError(format!(
-                    "template variable '{}' not found in context",
-                    path
-                ))
-            })?;
-
-            result.push_str(&wf_common::template::value_to_display_string(value));
-        } else {
-            result.push(ch);
         }
+        return Ok(template.to_string());
     }
-
+    let mut result = String::with_capacity(template.len());
+    let mut cursor = 0;
+    for span in spans {
+        result.push_str(&template[cursor..span.start]);
+        if !span.closed {
+            return Err(ExecutionSharedError::HookError(format!(
+                "unclosed template expression: {{{{{}}}",
+                span.name
+            )));
+        }
+        let path = span.name.as_str();
+        if let Some(reason) = wf_common::template::validate_template_path(path) {
+            return Err(ExecutionSharedError::HookError(format!(
+                "template variable '{path}' is invalid: {reason}"
+            )));
+        }
+        let value = resolve_path(path, context).ok_or_else(|| {
+            ExecutionSharedError::HookError(format!(
+                "template variable '{}' not found in context",
+                path
+            ))
+        })?;
+        result.push_str(&wf_common::template::value_to_display_string(value));
+        cursor = span.end;
+    }
+    result.push_str(&template[cursor..]);
     Ok(result)
 }
 
@@ -210,10 +234,7 @@ mod tests {
     #[test]
     fn test_array_index_path() {
         let mut ctx = HashMap::new();
-        ctx.insert(
-            "items".to_string(),
-            serde_json::json!(["a", "b"]),
-        );
+        ctx.insert("items".to_string(), serde_json::json!(["a", "b"]));
 
         let payload = Value::String("second={{items.1}}".to_string());
         let result = resolve_payload_template(&payload, &ctx).unwrap();

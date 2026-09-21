@@ -434,14 +434,12 @@ pub(crate) fn activate_builtin_resource_plugins_legacy(
         else {
             continue;
         };
-        plugin
-            .on_before_assemble(&requested.config)
-            .map_err(|e| {
-                crate::error::RuntimeError::Config(format!(
-                    "failed to activate resource plugin '{}': {e}",
-                    meta.id
-                ))
-            })?;
+        plugin.on_before_assemble(&requested.config).map_err(|e| {
+            crate::error::RuntimeError::Config(format!(
+                "failed to activate resource plugin '{}': {e}",
+                meta.id
+            ))
+        })?;
         let bundle = plugin.assemble(&requested.config).map_err(|e| {
             crate::error::RuntimeError::Config(format!(
                 "failed to activate resource plugin '{}': {e}",

@@ -343,27 +343,7 @@ impl<'a> ExprEvaluator<'a> {
         }
 
         if b == b'$' && self.input.get(self.pos + 1) == Some(&b'{') {
-            self.pos += 2;
-            let mut name = String::new();
-            while let Some(c) = self.peek() {
-                if c == b'}' {
-                    self.pos += 1;
-                    return VariableResolver::lookup_variable(&name, self.variables).ok_or_else(
-                        || {
-                            ExpressionError::new(
-                                String::from_utf8_lossy(self.input),
-                                format!("variable '{}' not found", name),
-                            )
-                        },
-                    );
-                }
-                name.push(c as char);
-                self.pos += 1;
-            }
-            return Err(ExpressionError::new(
-                String::from_utf8_lossy(self.input),
-                "unterminated variable reference",
-            ));
+            return self.resolve_braced_span();
         }
 
         // Identifier / keyword: true / false / null / variable name.
@@ -396,6 +376,32 @@ impl<'a> ExprEvaluator<'a> {
             String::from_utf8_lossy(self.input),
             format!("unexpected character '{}'", b as char),
         ))
+    }
+
+    fn resolve_braced_span(&mut self) -> Result<Value, ExpressionError> {
+        let rest = std::str::from_utf8(&self.input[self.pos..]).unwrap_or_default();
+        let mut spans = wf_common::template::scan_variable_spans(rest);
+        if spans.is_empty() || spans[0].start != 0 {
+            return Err(ExpressionError::new(
+                String::from_utf8_lossy(self.input),
+                "unterminated variable reference",
+            ));
+        }
+        let span = spans.remove(0);
+        if !span.closed {
+            return Err(ExpressionError::new(
+                String::from_utf8_lossy(self.input),
+                "unterminated variable reference",
+            ));
+        }
+        let name = span.path;
+        self.pos += span.end;
+        VariableResolver::lookup_variable(&name, self.variables).ok_or_else(|| {
+            ExpressionError::new(
+                String::from_utf8_lossy(self.input),
+                format!("variable '{}' not found", name),
+            )
+        })
     }
 }
 
@@ -562,7 +568,8 @@ impl VariableResolver {
     /// A whole-string single reference preserves the value type;
     /// embedded references coerce with display semantics for text transport.
     /// Condition literals and prompt display each own their converters.
-    pub fn resolve(input: &Value, variables: &VariableStore) -> Value {        match input {
+    pub fn resolve(input: &Value, variables: &VariableStore) -> Value {
+        match input {
             Value::String(s) => Self::resolve_str(s, variables),
             Value::Object(map) => {
                 let resolved: serde_json::Map<String, Value> = map
@@ -581,32 +588,44 @@ impl VariableResolver {
     }
 
     pub fn resolve_str(input: &str, variables: &VariableStore) -> Value {
-        if input.starts_with("${") && input.ends_with("}") {
-            let var_name = input[2..input.len() - 1].trim();
-            if let Some(v) = Self::lookup_variable(var_name, variables) {
+        let spans = wf_common::template::scan_variable_spans(input);
+        if spans.len() == 1
+            && spans[0].closed
+            && spans[0].start == 0
+            && spans[0].end == input.len()
+            && !spans[0].path.is_empty()
+        {
+            if let Some(v) = Self::lookup_variable(&spans[0].path, variables) {
                 return v;
             }
         }
 
-        let mut result = input.to_string();
-        let mut start = 0;
-
-        while let Some(pos) = result[start..].find("${") {
-            let abs_pos = start + pos;
-            if let Some(end) = result[abs_pos..].find('}') {
-                let abs_end = abs_pos + end;
-                let var_name = result[abs_pos + 2..abs_end].trim();
-                if let Some(v) = Self::lookup_variable(var_name, variables) {
-                    let replacement = wf_common::template::value_to_display_string(&v);
-                    result.replace_range(abs_pos..=abs_end, &replacement);
-                    start = abs_pos + replacement.len();
-                } else {
-                    start = abs_end + 1;
-                }
-            } else {
+        if spans.is_empty() {
+            return Value::String(input.to_string());
+        }
+        let mut result = String::with_capacity(input.len());
+        let mut cursor = 0;
+        for span in spans {
+            result.push_str(&input[cursor..span.start]);
+            if !span.closed {
+                result.push_str(&input[span.start..]);
+                cursor = input.len();
                 break;
             }
+            if span.path.is_empty() {
+                result.push_str(&input[span.start..span.end]);
+            } else if let Some(v) = Self::lookup_variable(&span.path, variables) {
+                result.push_str(&wf_common::template::value_to_display_string(&v));
+            } else {
+                tracing::debug!(
+                    variable = span.path.as_str(),
+                    "assembly variable missing; leaving reference verbatim"
+                );
+                result.push_str(&input[span.start..span.end]);
+            }
+            cursor = span.end;
         }
+        result.push_str(&input[cursor..]);
 
         Value::String(result)
     }
@@ -641,9 +660,8 @@ impl VariableResolver {
 }
 
 /// Evaluate an expression string against the variable store. Falls back to
-/// plain variable interpolation (the legacy `VariableResolver` behaviour)
-/// when the expression contains no expression operators, so existing
-/// `${var}` configs keep working.
+/// plain variable interpolation when the expression contains no expression
+/// operators, so `${var}` configs keep working.
 pub fn evaluate_expression(
     expression: &str,
     variables: &VariableStore,
@@ -698,7 +716,9 @@ fn looks_like_expression(s: &str) -> bool {
 
 /// Convert a value to the declared `variableType` (number/string/boolean/
 /// array/object). Conversion failures surface as explicit errors rather than
-/// silent coercion.
+/// silent coercion. Empty text never stands in for a missing value: whether
+/// empty is allowed is expressed by the caller through presence and defaults,
+/// not by coercing empty into a typed value here.
 pub fn convert_variable_type(
     variable_name: &str,
     value: Value,
@@ -735,7 +755,7 @@ pub fn convert_variable_type(
         ("boolean", Value::Bool(b)) => Value::Bool(*b),
         ("boolean", Value::String(s)) => match s.trim().to_lowercase().as_str() {
             "true" | "1" => Value::Bool(true),
-            "false" | "0" | "" => Value::Bool(false),
+            "false" | "0" => Value::Bool(false),
             other => {
                 return Err(crate::error::WorkflowError::VariableError(format!(
                     "Cannot convert value '{}' of variable '{}' to boolean",
@@ -745,6 +765,7 @@ pub fn convert_variable_type(
         },
         ("boolean", Value::Number(n)) => Value::Bool(n.as_f64().unwrap_or(0.0) != 0.0),
         ("array", Value::Array(a)) => Value::Array(a.clone()),
+        ("array", Value::String(s)) if s.trim().is_empty() => Value::Array(Vec::new()),
         ("array", Value::String(s)) => Value::Array(
             s.split(',')
                 .map(|part| Value::String(part.trim().to_string()))
@@ -951,5 +972,12 @@ mod tests {
         let err = convert_variable_type("v", Value::String("nope".to_string()), Some("boolean"))
             .unwrap_err();
         assert!(matches!(err, WorkflowError::VariableError(_)));
+        let err =
+            convert_variable_type("v", Value::String(String::new()), Some("boolean")).unwrap_err();
+        assert!(matches!(err, WorkflowError::VariableError(_)));
+        assert_eq!(
+            convert_variable_type("v", Value::String(String::new()), Some("array")).unwrap(),
+            Value::Array(Vec::new())
+        );
     }
 }

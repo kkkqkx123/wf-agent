@@ -23,22 +23,9 @@ pub struct TemplateRenderResult {
 pub struct ScriptTemplateEngine;
 
 impl ScriptTemplateEngine {
-    /// Single rendering pipeline shared by every execution path: argument
-    /// resolution, file argument confinement, dynamic reference interpolation,
-    /// template rendering and unresolved placeholder detection.
-    pub fn render_command(
-        template: &str,
-        declarations: &[crate::types::ScriptArgument],
-        provided: &HashMap<String, serde_json::Value>,
-        context: &HashMap<String, serde_json::Value>,
-        workdir: Option<&str>,
-    ) -> ScriptResult<String> {
-        Self::render_command_with_dollar_mode(template, declarations, provided, context, workdir, true)
-    }
-
     /// Shell-safe pipeline: only `${path}` references interpolate inside
     /// argument values, bare `$name` spans stay untouched for shell-native
-    /// variables. Command `{{path}}` handling stays strict in both modes.
+    /// variables. Command `{{path}}` handling stays strict.
     pub fn render_command_braced_only(
         template: &str,
         declarations: &[crate::types::ScriptArgument],
@@ -46,41 +33,9 @@ impl ScriptTemplateEngine {
         context: &HashMap<String, serde_json::Value>,
         workdir: Option<&str>,
     ) -> ScriptResult<String> {
-        Self::render_command_with_dollar_mode(
-            template,
-            declarations,
-            provided,
-            context,
-            workdir,
-            false,
-        )
-    }
-
-    /// Dollar references present in the text but absent from the context.
-    /// The pipelines keep such spans verbatim, so strict callers use this
-    /// query for explicit checks without changing default behavior.
-    pub fn find_unresolved_dollar_refs(
-        value: &str,
-        context: &HashMap<String, serde_json::Value>,
-    ) -> Vec<String> {
-        DynamicResolver::find_unresolved_refs(value, context)
-    }
-
-    fn render_command_with_dollar_mode(
-        template: &str,
-        declarations: &[crate::types::ScriptArgument],
-        provided: &HashMap<String, serde_json::Value>,
-        context: &HashMap<String, serde_json::Value>,
-        workdir: Option<&str>,
-        allow_bare_dollar: bool,
-    ) -> ScriptResult<String> {
         let resolved = ArgumentResolver::resolve(declarations, provided, context)?;
-        crate::resolver::validate_file_args(declarations, &resolved, workdir)?;
-        let dynamic_args = if allow_bare_dollar {
-            DynamicResolver::resolve_map(&resolved, context)
-        } else {
-            DynamicResolver::resolve_map_braced(&resolved, context)
-        };
+        let dynamic_args = DynamicResolver::resolve_map_braced(&resolved, context);
+        crate::resolver::validate_file_args(declarations, &dynamic_args, workdir)?;
         let rendered = Self::render(template, &dynamic_args)?;
         if !rendered.resolved {
             return Err(ScriptError::UnresolvedTemplate(format!(
@@ -89,6 +44,16 @@ impl ScriptTemplateEngine {
             )));
         }
         Ok(rendered.command)
+    }
+
+    /// Dollar references present in the text but absent from the context.
+    /// The pipeline keeps such spans verbatim, so strict callers use this
+    /// query for explicit checks without changing default behavior.
+    pub fn find_unresolved_dollar_refs(
+        value: &str,
+        context: &HashMap<String, serde_json::Value>,
+    ) -> Vec<String> {
+        DynamicResolver::find_unresolved_refs(value, context)
     }
 
     pub(crate) fn render(
@@ -105,32 +70,36 @@ impl ScriptTemplateEngine {
 
         let mut command = String::with_capacity(template.len());
         let mut unresolved: Vec<String> = Vec::new();
-        let mut rest = template;
-        while let Some(start) = rest.find("{{") {
-            let after = &rest[start + 2..];
-            let Some(end) = after.find("}}") else {
-                command.push_str(rest);
-                for span in wf_common::template::find_malformed_template_spans(rest) {
-                    let label = if span.is_empty() {
-                        "unclosed placeholder".to_string()
-                    } else {
-                        format!("unclosed placeholder '{{{{{span}'")
-                    };
-                    if !unresolved.iter().any(|existing| existing == &label) {
-                        unresolved.push(label);
-                    }
+        let mut cursor = 0;
+        for span in wf_common::template::scan_template_spans(template) {
+            command.push_str(&template[cursor..span.start]);
+            if !span.closed {
+                command.push_str(&template[span.start..]);
+                let label = if span.name.is_empty() {
+                    "unclosed placeholder".to_string()
+                } else {
+                    format!("unclosed placeholder '{{{{{}}}'", span.name)
+                };
+                if !unresolved.iter().any(|existing| existing == &label) {
+                    unresolved.push(label);
                 }
-                rest = "";
+                cursor = template.len();
                 break;
-            };
-            let placeholder = after[..end].trim().to_string();
-            command.push_str(&rest[..start]);
-            if placeholder.is_empty()
-                || wf_common::template::validate_template_path(&placeholder).is_some()
+            }
+            let placeholder = span.name.clone();
+            if placeholder.is_empty() {
+                command.push_str(&template[span.start..span.end]);
+                let label = "empty placeholder".to_string();
+                if !unresolved.iter().any(|existing| existing == &label) {
+                    unresolved.push(label);
+                }
+            } else if let Some(reason) =
+                wf_common::template::validate_template_path(&placeholder)
             {
-                command.push_str(&rest[start..start + 2 + end + 2]);
-                if !unresolved.iter().any(|existing| existing == &placeholder) {
-                    unresolved.push(placeholder);
+                command.push_str(&template[span.start..span.end]);
+                let label = format!("invalid path '{placeholder}': {reason}");
+                if !unresolved.iter().any(|existing| existing == &label) {
+                    unresolved.push(label);
                 }
             } else {
                 match resolve_value_path(&placeholder, variables) {
@@ -138,16 +107,16 @@ impl ScriptTemplateEngine {
                         command.push_str(&value_to_string(&value));
                     }
                     None => {
-                        command.push_str(&rest[start..start + 2 + end + 2]);
+                        command.push_str(&template[span.start..span.end]);
                         if !unresolved.iter().any(|existing| existing == &placeholder) {
                             unresolved.push(placeholder);
                         }
                     }
                 }
             }
-            rest = &after[end + 2..];
+            cursor = span.end;
         }
-        command.push_str(rest);
+        command.push_str(&template[cursor..]);
 
         let resolved = unresolved.is_empty();
 
@@ -229,7 +198,19 @@ mod tests {
         let vars = HashMap::new();
         let result = ScriptTemplateEngine::render("echo {{9bad}}", &vars).unwrap();
         assert!(!result.resolved);
-        assert_eq!(result.unresolved_placeholders, vec!["9bad"]);
+        assert_eq!(result.unresolved_placeholders.len(), 1);
+        assert!(
+            result.unresolved_placeholders[0].contains("invalid path")
+                && result.unresolved_placeholders[0].contains("9bad")
+        );
+    }
+
+    #[test]
+    fn test_empty_placeholder_is_unresolved() {
+        let vars = HashMap::new();
+        let result = ScriptTemplateEngine::render("echo {{}}", &vars).unwrap();
+        assert!(!result.resolved);
+        assert_eq!(result.unresolved_placeholders, vec!["empty placeholder"]);
     }
 
     #[test]
@@ -248,14 +229,18 @@ mod tests {
         assert!(!result.resolved);
         assert!(!result.unresolved_placeholders.is_empty());
         assert!(
-            result.unresolved_placeholders.iter().any(|s| s.contains("unclosed")),
+            result
+                .unresolved_placeholders
+                .iter()
+                .any(|s| s.contains("unclosed")),
             "{:?}",
             result.unresolved_placeholders
         );
     }
 
     #[test]
-    fn test_braced_only_command_keeps_shell_vars() {        let context = HashMap::from([("user".to_string(), json!("alice"))]);
+    fn test_braced_only_command_keeps_shell_vars() {
+        let context = HashMap::from([("user".to_string(), json!("alice"))]);
         let declarations = vec![crate::types::ScriptArgument {
             key: "greeting".to_string(),
             r#type: None,
@@ -268,15 +253,6 @@ mod tests {
             pattern: None,
         }];
         let provided = HashMap::from([("greeting".to_string(), json!("hi $user"))]);
-        let default_command = ScriptTemplateEngine::render_command(
-            "echo $HOME {{greeting}}",
-            &declarations,
-            &provided,
-            &context,
-            None,
-        )
-        .unwrap();
-        assert_eq!(default_command, "echo $HOME hi alice");
         let braced_command = ScriptTemplateEngine::render_command_braced_only(
             "echo $HOME {{greeting}}",
             &declarations,
@@ -286,5 +262,67 @@ mod tests {
         )
         .unwrap();
         assert_eq!(braced_command, "echo $HOME hi $user");
+        let interpolated = HashMap::from([("greeting".to_string(), json!("hi ${user}"))]);
+        let resolved = ScriptTemplateEngine::render_command_braced_only(
+            "echo $HOME {{greeting}}",
+            &declarations,
+            &interpolated,
+            &context,
+            None,
+        )
+        .unwrap();
+        assert_eq!(resolved, "echo $HOME hi alice");
+    }
+
+    #[test]
+    fn test_file_arg_validated_after_dollar_interpolation() {
+        let dir =
+            std::env::temp_dir().join(format!("wf-script-file-interp-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let inner = dir.join("inner.txt");
+        std::fs::write(&inner, "data").unwrap();
+        let root = dir.to_string_lossy().to_string();
+        let declarations = vec![crate::types::ScriptArgument {
+            key: "input".to_string(),
+            r#type: Some(crate::types::ScriptArgumentType::File),
+            label: None,
+            required: Some(true),
+            default: None,
+            source: None,
+            description: None,
+            options: None,
+            pattern: None,
+        }];
+        let provided = HashMap::from([("input".to_string(), json!("${dir}/inner.txt"))]);
+        let context = HashMap::from([("dir".to_string(), json!(root))]);
+        let command = ScriptTemplateEngine::render_command_braced_only(
+            "cat {{input}}",
+            &declarations,
+            &provided,
+            &context,
+            Some(&root),
+        )
+        .unwrap();
+        assert!(command.contains("inner.txt"));
+        let braced_provided = HashMap::from([("input".to_string(), json!("${dir}/inner.txt"))]);
+        let braced_command = ScriptTemplateEngine::render_command_braced_only(
+            "cat {{input}}",
+            &declarations,
+            &braced_provided,
+            &context,
+            Some(&root),
+        )
+        .unwrap();
+        assert!(braced_command.contains("inner.txt"));
+        let outside = HashMap::from([("dir".to_string(), json!("/etc"))]);
+        assert!(ScriptTemplateEngine::render_command_braced_only(
+            "cat {{input}}",
+            &declarations,
+            &provided,
+            &outside,
+            Some(&root),
+        )
+        .is_err());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

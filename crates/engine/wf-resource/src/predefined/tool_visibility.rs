@@ -8,7 +8,7 @@
 
 use wf_types::Template;
 
-use crate::registry::{RegisterOptions, ResourceRegistries, register_template};
+use crate::registry::{register_template, RegisterOptions, ResourceRegistries};
 use crate::result::Summary;
 
 /// Ids of the four built-in tool visibility templates.

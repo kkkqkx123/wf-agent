@@ -1,5 +1,109 @@
 use std::collections::HashMap;
 
+/// One located double-brace span. Single owner for placeholder locating so
+/// every renderer shares byte offsets, trimming and malformed handling.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TemplateSpan {
+    /// Byte offset of the `{{` opener.
+    pub start: usize,
+    /// Exclusive byte offset past the `}}` closer when closed, otherwise the
+    /// length of the scanned text.
+    pub end: usize,
+    /// Trimmed inner text when closed, trimmed remainder when malformed.
+    pub name: String,
+    /// False when no later `}}` exists.
+    pub closed: bool,
+}
+
+/// Locate every double-brace span in left-to-right order. Closed spans carry
+/// the trimmed placeholder name, malformed spans carry the trimmed remainder.
+/// Single braces never produce spans. Values are never inspected here.
+pub fn scan_template_spans(content: &str) -> Vec<TemplateSpan> {
+    let mut out = Vec::new();
+    let mut offset = 0;
+    let mut rest = content;
+    while let Some(start) = rest.find("{{") {
+        let abs_start = offset + start;
+        let after = &rest[start + 2..];
+        match after.find("}}") {
+            Some(end) => {
+                let name = after[..end].trim().to_string();
+                let abs_end = abs_start + 2 + end + 2;
+                out.push(TemplateSpan {
+                    start: abs_start,
+                    end: abs_end,
+                    name,
+                    closed: true,
+                });
+                offset = abs_end;
+                rest = &content[offset..];
+            }
+            None => {
+                out.push(TemplateSpan {
+                    start: abs_start,
+                    end: content.len(),
+                    name: after.trim().to_string(),
+                    closed: false,
+                });
+                break;
+            }
+        }
+    }
+    out
+}
+
+/// One located dollar-brace span. Locating only; escaping and resolution
+/// stay with the caller so braced interpolation shares offsets while bare
+/// dollar text stays untouched for shell use.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VariableSpan {
+    /// Byte offset of the `${` opener.
+    pub start: usize,
+    /// Exclusive byte offset past the `}` closer when closed, otherwise the
+    /// length of the scanned text.
+    pub end: usize,
+    /// Trimmed inner path when closed, trimmed remainder when malformed.
+    pub path: String,
+    /// False when no later `}` exists.
+    pub closed: bool,
+}
+
+/// Locate every `${path}` span in left-to-right order. Mirrors the template
+/// scan above with the assembly-layer delimiters.
+pub fn scan_variable_spans(content: &str) -> Vec<VariableSpan> {
+    let mut out = Vec::new();
+    let mut offset = 0;
+    let mut rest = content;
+    while let Some(start) = rest.find("${") {
+        let abs_start = offset + start;
+        let after = &rest[start + 2..];
+        match after.find('}') {
+            Some(end) => {
+                let path = after[..end].trim().to_string();
+                let abs_end = abs_start + 2 + end + 1;
+                out.push(VariableSpan {
+                    start: abs_start,
+                    end: abs_end,
+                    path,
+                    closed: true,
+                });
+                offset = abs_end;
+                rest = &content[offset..];
+            }
+            None => {
+                out.push(VariableSpan {
+                    start: abs_start,
+                    end: content.len(),
+                    path: after.trim().to_string(),
+                    closed: false,
+                });
+                break;
+            }
+        }
+    }
+    out
+}
+
 /// Substitute `{{name}}` placeholders in a single left-to-right pass.
 /// Display-layer flat matching only: the key is the trimmed span compared
 /// by exact match against the string table. Dotted paths need the
@@ -11,24 +115,29 @@ pub fn apply_template_variables(content: &str, variables: &HashMap<String, Strin
     if variables.is_empty() || !content.contains("{{") {
         return content.to_string();
     }
+    let spans = scan_template_spans(content);
+    if spans.is_empty() {
+        return content.to_string();
+    }
     let mut rendered = String::with_capacity(content.len());
-    let mut rest = content;
-    while let Some(start) = rest.find("{{") {
-        let after = &rest[start + 2..];
-        let Some(end) = after.find("}}") else {
+    let mut cursor = 0;
+    for span in spans {
+        rendered.push_str(&content[cursor..span.start]);
+        if !span.closed {
+            rendered.push_str(&content[span.start..]);
+            cursor = content.len();
             break;
-        };
-        let raw = &after[..end];
-        let name = raw.trim();
-        if let Some(value) = variables.get(name) {
-            rendered.push_str(&rest[..start]);
+        }
+        if span.name.is_empty() {
+            rendered.push_str(&content[span.start..span.end]);
+        } else if let Some(value) = variables.get(&span.name) {
             rendered.push_str(value);
         } else {
-            rendered.push_str(&rest[..start + 2 + end + 2]);
+            rendered.push_str(&content[span.start..span.end]);
         }
-        rest = &after[end + 2..];
+        cursor = span.end;
     }
-    rendered.push_str(rest);
+    rendered.push_str(&content[cursor..]);
     rendered
 }
 
@@ -64,24 +173,33 @@ pub fn is_prompt_anchor(placeholder: &str) -> bool {
 /// first-seen order.
 pub fn extract_placeholder_names(content: &str) -> Vec<String> {
     let mut out = Vec::new();
-    let mut rest = content;
-    while let Some(start) = rest.find("{{") {
-        let after = &rest[start + 2..];
-        let Some(end) = after.find("}}") else {
-            break;
-        };
-        let name = after[..end].trim();
-        if !name.is_empty() && !out.iter().any(|existing: &String| existing == name) {
-            out.push(name.to_string());
+    for span in scan_template_spans(content) {
+        if !span.closed || span.name.is_empty() {
+            continue;
         }
-        rest = &after[end + 2..];
+        if !out.iter().any(|existing: &String| existing == &span.name) {
+            out.push(span.name.clone());
+        }
     }
     out
 }
 
-/// Whether rendered text still carries `{{name}}` placeholders.
+/// Whether rendered text still carries template syntax: a closed
+/// `{{name}}` placeholder, an empty `{{}}` span, or an unclosed opener.
+/// Single source for residual checks so lenient and strict engines agree.
 pub fn has_unresolved_placeholders(content: &str) -> bool {
     !extract_placeholder_names(content).is_empty()
+        || !find_malformed_template_spans(content).is_empty()
+        || has_empty_template_placeholder(content)
+}
+
+/// Whether text contains an empty `{{}}` span with only whitespace inside.
+/// The placeholder extractor ignores such spans, so residual checks consult
+/// this query instead of losing the failure cause.
+pub fn has_empty_template_placeholder(content: &str) -> bool {
+    scan_template_spans(content)
+        .iter()
+        .any(|span| span.closed && span.name.is_empty())
 }
 
 /// Collect trailing malformed spans: a `{{` opener without a later `}}`.
@@ -91,20 +209,12 @@ pub fn has_unresolved_placeholders(content: &str) -> bool {
 /// means the text ends right after the opener.
 pub fn find_malformed_template_spans(content: &str) -> Vec<String> {
     let mut out = Vec::new();
-    let mut rest = content;
-    while let Some(start) = rest.find("{{") {
-        let after = &rest[start + 2..];
-        match after.find("}}") {
-            Some(end) => {
-                rest = &after[end + 2..];
-            }
-            None => {
-                let span = after.trim().to_string();
-                if !out.iter().any(|existing: &String| existing == &span) {
-                    out.push(span);
-                }
-                break;
-            }
+    for span in scan_template_spans(content) {
+        if span.closed {
+            continue;
+        }
+        if !out.iter().any(|existing: &String| existing == &span.name) {
+            out.push(span.name.clone());
         }
     }
     out
@@ -124,33 +234,37 @@ pub fn apply_template_variables_with_structured_context(
     if !content.contains("{{") {
         return content.to_string();
     }
+    let spans = scan_template_spans(content);
+    if spans.is_empty() {
+        return content.to_string();
+    }
     let mut rendered = String::with_capacity(content.len());
-    let mut rest = content;
-    while let Some(start) = rest.find("{{") {
-        let after = &rest[start + 2..];
-        let Some(end) = after.find("}}") else {
+    let mut cursor = 0;
+    for span in spans {
+        rendered.push_str(&content[cursor..span.start]);
+        if !span.closed {
+            rendered.push_str(&content[span.start..]);
+            cursor = content.len();
             break;
-        };
-        let name = after[..end].trim();
+        }
+        let name = span.name.as_str();
         if let Some(value) = flat.get(name) {
-            rendered.push_str(&rest[..start]);
             rendered.push_str(value);
         } else if !name.is_empty() && validate_template_path(name).is_none() {
             match resolve_value_path_ref(name, context) {
                 Some(resolved) => {
-                    rendered.push_str(&rest[..start]);
                     rendered.push_str(&value_to_display_string(resolved));
                 }
                 None => {
-                    rendered.push_str(&rest[..start + 2 + end + 2]);
+                    rendered.push_str(&content[span.start..span.end]);
                 }
             }
         } else {
-            rendered.push_str(&rest[..start + 2 + end + 2]);
+            rendered.push_str(&content[span.start..span.end]);
         }
-        rest = &after[end + 2..];
+        cursor = span.end;
     }
-    rendered.push_str(rest);
+    rendered.push_str(&content[cursor..]);
     rendered
 }
 
@@ -246,22 +360,14 @@ mod tests {
             value_to_display_string(&serde_json::Value::String("hi".into())),
             "hi"
         );
-        assert_eq!(
-            value_to_display_string(&serde_json::Value::Null),
-            ""
-        );
-        assert_eq!(
-            value_to_display_string(&serde_json::json!(42)),
-            "42"
-        );
+        assert_eq!(value_to_display_string(&serde_json::Value::Null), "");
+        assert_eq!(value_to_display_string(&serde_json::json!(42)), "42");
     }
 
     #[test]
     fn prompt_anchors_are_registered() {
         assert!(is_prompt_anchor(SKILLS_METADATA_PLACEHOLDER));
-        assert!(is_prompt_anchor(
-            DISCOVERABLE_TOOLS_METADATA_PLACEHOLDER
-        ));
+        assert!(is_prompt_anchor(DISCOVERABLE_TOOLS_METADATA_PLACEHOLDER));
         assert!(!is_prompt_anchor("{UNKNOWN_ANCHOR}"));
         assert_eq!(PROMPT_ANCHORS.len(), 2);
     }
@@ -299,8 +405,14 @@ mod tests {
     fn malformed_spans_report_unclosed_openers() {
         assert!(find_malformed_template_spans("Hi {{who}}!").is_empty());
         assert!(find_malformed_template_spans("no braces").is_empty());
-        assert_eq!(find_malformed_template_spans("Hi {{who"), vec!["who".to_string()]);
-        assert_eq!(find_malformed_template_spans("Hi {{!?"), vec!["!?".to_string()]);
+        assert_eq!(
+            find_malformed_template_spans("Hi {{who"),
+            vec!["who".to_string()]
+        );
+        assert_eq!(
+            find_malformed_template_spans("Hi {{!?"),
+            vec!["!?".to_string()]
+        );
         assert_eq!(
             find_malformed_template_spans("ok {{a}} then {{b"),
             vec!["b".to_string()]
@@ -326,5 +438,27 @@ mod tests {
             apply_template_variables_with_structured_context("Hi {{missing}}!", &flat, &context),
             "Hi {{missing}}!"
         );
+    }
+
+    #[test]
+    fn unified_scanner_shares_offsets_with_rendering() {
+        let spans = scan_template_spans("Hi {{ who }} and {{}} then {{open");
+        assert_eq!(spans.len(), 3);
+        assert!(spans[0].closed);
+        assert_eq!(spans[0].name, "who");
+        assert!(spans[1].closed);
+        assert_eq!(spans[1].name, "");
+        assert!(!spans[2].closed);
+        assert_eq!(spans[2].name, "open");
+        assert_eq!(
+            &"Hi {{ who }} and {{}} then {{open"[spans[0].start..spans[0].end],
+            "{{ who }}"
+        );
+
+        let vars = scan_variable_spans("hello ${name} and ${open");
+        assert_eq!(vars.len(), 2);
+        assert!(vars[0].closed);
+        assert_eq!(vars[0].path, "name");
+        assert!(!vars[1].closed);
     }
 }

@@ -1,22 +1,23 @@
-use std::collections::HashMap;
-
 use crate::error::{ConfigError, ConfigResult};
 use crate::validator::validate_required;
 
 use wf_types::Template;
 
 pub fn validate_prompt_template(template: &Template) -> ConfigResult<()> {
-    validate_prompt_template_with_fragments(template, |_| true)
+    validate_prompt_template_with_fragments(template, |_| Some(Vec::new()))
 }
 
 /// Validate a template, optionally checking that declared fragments exist.
 /// The fragment callback keeps this config crate free of engine registry
-/// types: resource registration passes a lookup, pure shape checks pass a
-/// permissive closure. Dotted placeholders match by root prefix so object
-/// declarations used through paths do not trip stale-declaration errors.
+/// types: it returns variable declarations for an existing fragment and
+/// `None` for a missing one; pure shape checks pass a permissive closure.
+/// Same-name template and fragment declarations always resolve with the
+/// template winning, matching the render-time union, so shape conflicts
+/// never fail validation. Dotted placeholders match by root prefix so
+/// object declarations used through paths do not trip stale errors.
 pub fn validate_prompt_template_with_fragments(
     template: &Template,
-    has_fragment: impl Fn(&str) -> bool,
+    resolve_fragment: impl Fn(&str) -> Option<Vec<wf_types::TemplateVariableDefinition>>,
 ) -> ConfigResult<()> {
     validate_required(&template.id, "id")?;
     validate_required(&template.name, "name")?;
@@ -97,11 +98,12 @@ pub fn validate_prompt_template_with_fragments(
         }
     }
     if let Some(fragment_ids) = template.fragments.as_ref() {
-        let missing: Vec<&str> = fragment_ids
-            .iter()
-            .filter(|id| !has_fragment(id.as_str()))
-            .map(String::as_str)
-            .collect();
+        let mut missing: Vec<&str> = Vec::new();
+        for id in fragment_ids {
+            if resolve_fragment(id.as_str()).is_none() {
+                missing.push(id.as_str());
+            }
+        }
         if !missing.is_empty() {
             return Err(ConfigError::Validation(format!(
                 "template '{}' references unregistered fragments: {}",
@@ -113,17 +115,15 @@ pub fn validate_prompt_template_with_fragments(
     Ok(())
 }
 
-/// Whether a declaration covers a placeholder use: exact match or one side
-/// is the dotted root of the other, so object declarations consumed through
-/// paths validate cleanly in both directions.
+/// Whether a declaration covers a placeholder use: exact match or the use
+/// is a dotted path under the declared root, so object declarations
+/// consumed through paths validate cleanly. The reverse direction is
+/// rejected so a dotted declaration cannot be satisfied by a root-only use.
 fn template_names_match(declared: &str, used: &str) -> bool {
     if declared == used {
         return true;
     }
     if used.starts_with(&format!("{declared}.")) {
-        return true;
-    }
-    if declared.starts_with(&format!("{used}.")) {
         return true;
     }
     false
@@ -153,112 +153,7 @@ pub fn extract_template_placeholders(content: &str) -> Vec<String> {
     wf_common::template::extract_placeholder_names(content)
 }
 
-pub fn merge_prompt_template_config(
-    default_template: &Template,
-    app_config: &Template,
-) -> ConfigResult<Template> {
-    if app_config.id != default_template.id {
-        return Err(ConfigError::Validation(format!(
-            "configuration ID mismatch: app config ID '{}', default template ID '{}'",
-            app_config.id, default_template.id
-        )));
-    }
 
-    Ok(Template {
-        id: default_template.id.clone(),
-        name: if !app_config.name.is_empty() {
-            app_config.name.clone()
-        } else {
-            default_template.name.clone()
-        },
-        description: match (&app_config.description, &default_template.description) {
-            (Some(app), _) if !app.is_empty() => Some(app.clone()),
-            _ => default_template.description.clone(),
-        },
-        category: if !app_config.category.is_empty() {
-            app_config.category.clone()
-        } else {
-            default_template.category.clone()
-        },
-        content: if !app_config.content.is_empty() {
-            app_config.content.clone()
-        } else {
-            default_template.content.clone()
-        },
-        variables: merge_variables(
-            default_template.variables.as_ref(),
-            app_config.variables.as_ref(),
-        ),
-        fragments: merge_fragments(
-            default_template.fragments.as_ref(),
-            app_config.fragments.as_ref(),
-        ),
-    })
-}
-
-fn merge_variables(
-    default: Option<&Vec<wf_types::TemplateVariableDefinition>>,
-    app: Option<&Vec<wf_types::TemplateVariableDefinition>>,
-) -> Option<Vec<wf_types::TemplateVariableDefinition>> {
-    match (default, app) {
-        (None, None) => None,
-        (Some(d), None) => Some(d.clone()),
-        (None, Some(a)) => Some(a.clone()),
-        (Some(d), Some(a)) => {
-            if a.is_empty() {
-                return Some(d.clone());
-            }
-            if d.is_empty() {
-                return Some(a.clone());
-            }
-            let mut map: HashMap<String, wf_types::TemplateVariableDefinition> = HashMap::new();
-            for v in d {
-                map.insert(v.name.clone(), v.clone());
-            }
-            for v in a {
-                map.insert(v.name.clone(), v.clone());
-            }
-            Some(map.into_values().collect())
-        }
-    }
-}
-
-fn merge_fragments(
-    default: Option<&Vec<String>>,
-    app: Option<&Vec<String>>,
-) -> Option<Vec<String>> {
-    match (default, app) {
-        (None, None) => None,
-        (Some(d), None) => Some(d.clone()),
-        (None, Some(a)) => Some(a.clone()),
-        (Some(d), Some(a)) => {
-            if a.is_empty() {
-                return Some(d.clone());
-            }
-            if d.is_empty() {
-                return Some(a.clone());
-            }
-            let mut combined = d.clone();
-            for item in a {
-                if !combined.contains(item) {
-                    combined.push(item.clone());
-                }
-            }
-            Some(combined)
-        }
-    }
-}
-
-pub fn transform_prompt_template(
-    template: &Template,
-    default_template: &Template,
-) -> ConfigResult<Template> {
-    merge_prompt_template_config(default_template, template)
-}
-
-pub fn export_prompt_template(template: Template) -> Template {
-    template
-}
 
 #[cfg(test)]
 mod tests {
@@ -367,78 +262,6 @@ mod tests {
         assert!(err.to_string().contains("incompatible JSON type"));
     }
 
-    fn make_default_template() -> Template {
-        Template {
-            id: "prompt-1".to_string(),
-            name: "Default Code Review".to_string(),
-            description: Some("Default description".to_string()),
-            category: "system".to_string(),
-            content: "Default content: {{code}}".to_string(),
-            variables: Some(vec![wf_types::TemplateVariableDefinition {
-                name: "code".to_string(),
-                r#type: wf_types::TemplateVariableType::String,
-                required: true,
-                description: None,
-                default_value: None,
-            }]),
-            fragments: Some(vec!["header".to_string()]),
-        }
-    }
-
-    #[test]
-    fn test_merge_prompt_template_config() {
-        let default = make_default_template();
-        let app = make_template();
-
-        let merged = merge_prompt_template_config(&default, &app).unwrap();
-        assert_eq!(merged.id, "prompt-1");
-        assert_eq!(merged.name, "Code Review");
-        assert_eq!(merged.content, "Review this code: {{code}}");
-    }
-
-    #[test]
-    fn test_merge_prompt_template_config_id_mismatch() {
-        let default = make_default_template();
-        let mut app = make_template();
-        app.id = "different-id".to_string();
-
-        assert!(merge_prompt_template_config(&default, &app).is_err());
-    }
-
-    #[test]
-    fn test_merge_variables() {
-        let default = make_default_template();
-        let mut app = make_template();
-        app.variables = Some(vec![
-            wf_types::TemplateVariableDefinition {
-                name: "code".to_string(),
-                r#type: wf_types::TemplateVariableType::String,
-                required: false,
-                description: Some("override".to_string()),
-                default_value: None,
-            },
-            wf_types::TemplateVariableDefinition {
-                name: "language".to_string(),
-                r#type: wf_types::TemplateVariableType::String,
-                required: true,
-                description: None,
-                default_value: None,
-            },
-        ]);
-
-        let merged = merge_prompt_template_config(&default, &app).unwrap();
-        let vars = merged.variables.unwrap();
-        assert_eq!(vars.len(), 2);
-    }
-
-    #[test]
-    fn test_export_prompt_template() {
-        let template = make_template();
-        let exported = export_prompt_template(template.clone());
-        assert_eq!(exported.id, template.id);
-        assert_eq!(exported.content, template.content);
-    }
-
     #[test]
     fn test_dotted_placeholder_matches_object_declaration() {
         let mut template = make_template();
@@ -474,10 +297,52 @@ mod tests {
         template.fragments = Some(vec!["f.missing".to_string()]);
         template.variables = None;
         let err =
-            validate_prompt_template_with_fragments(&template, |_| false).unwrap_err();
+            validate_prompt_template_with_fragments(&template, |_| None).unwrap_err();
         assert!(err.to_string().contains("unregistered fragments"));
         assert!(
-            validate_prompt_template_with_fragments(&template, |_| true).is_ok()
+            validate_prompt_template_with_fragments(&template, |_| Some(Vec::new())).is_ok()
         );
+    }
+
+    #[test]
+    fn test_fragment_shape_conflict_template_wins() {
+        let mut template = make_template();
+        template.content = "HEADER\n{{fragments}}".to_string();
+        template.fragments = Some(vec!["f.conflict".to_string()]);
+        template.variables = Some(vec![wf_types::TemplateVariableDefinition {
+            name: "tone".to_string(),
+            r#type: wf_types::TemplateVariableType::String,
+            required: false,
+            description: None,
+            default_value: None,
+        }]);
+        let fragment_vars = vec![wf_types::TemplateVariableDefinition {
+            name: "tone".to_string(),
+            r#type: wf_types::TemplateVariableType::Number,
+            required: false,
+            description: None,
+            default_value: None,
+        }];
+        assert!(
+            validate_prompt_template_with_fragments(&template, |_| Some(
+                fragment_vars.clone()
+            ))
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn test_dotted_declaration_does_not_cover_root_use() {
+        let mut template = make_template();
+        template.content = "Hi {{user}}!".to_string();
+        template.variables = Some(vec![wf_types::TemplateVariableDefinition {
+            name: "user.name".to_string(),
+            r#type: wf_types::TemplateVariableType::String,
+            required: false,
+            description: None,
+            default_value: None,
+        }]);
+        let err = validate_prompt_template(&template).unwrap_err();
+        assert!(err.to_string().contains("never uses it"));
     }
 }

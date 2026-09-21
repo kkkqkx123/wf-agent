@@ -42,11 +42,14 @@ pub fn register_custom_prompts(
             fragments: p.fragments,
         };
 
-        if let Err(e) =
-            wf_config::processor::prompt::validate_prompt_template_with_fragments(&template, |fid| {
-                regs.fragments.has(fid)
-            })
-        {
+        if let Err(e) = wf_config::processor::prompt::validate_prompt_template_with_fragments(
+            &template,
+            |fid| {
+                regs.fragments
+                    .get(fid)
+                    .map(|fragment| fragment.variables.clone().unwrap_or_default())
+            },
+        ) {
             total.merge(Summary::err(&p.id, e.to_string()));
             continue;
         }

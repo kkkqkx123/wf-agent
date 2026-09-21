@@ -1,23 +1,50 @@
 use std::collections::HashMap;
-use std::sync::LazyLock;
 
 use crate::error::{ConfigError, ConfigResult};
 
-static PARAM_REGEX: LazyLock<regex::Regex> = LazyLock::new(|| {
-    regex::Regex::new(r"\{\{parameters\.([a-zA-Z0-9_.-]+)\}\}")
-        .expect("invariant: regex literal is a fixed pattern and must compile")
-});
+fn strict_parameters_name(span_name: &str) -> Option<&str> {
+    let rest = span_name.strip_prefix("parameters.")?;
+    if rest.is_empty() {
+        return None;
+    }
+    if rest
+        .bytes()
+        .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'.' || b == b'-')
+    {
+        Some(rest)
+    } else {
+        None
+    }
+}
 
 pub fn substitute_string(input: &str, parameters: &HashMap<String, String>) -> String {
-    PARAM_REGEX
-        .replace_all(input, |caps: &regex::Captures| {
-            let param_name = &caps[1];
-            match parameters.get(param_name) {
-                Some(value) => value.clone(),
-                None => caps[0].to_string(),
-            }
-        })
-        .to_string()
+    if !input.contains("{{") {
+        return input.to_string();
+    }
+    let spans = wf_common::template::scan_template_spans(input);
+    if spans.is_empty() {
+        return input.to_string();
+    }
+    let mut rendered = String::with_capacity(input.len());
+    let mut cursor = 0;
+    for span in spans {
+        rendered.push_str(&input[cursor..span.start]);
+        if !span.closed {
+            rendered.push_str(&input[span.start..]);
+            cursor = input.len();
+            break;
+        }
+        match strict_parameters_name(span.name.as_str()) {
+            Some(param_name) => match parameters.get(param_name) {
+                Some(value) => rendered.push_str(value),
+                None => rendered.push_str(&input[span.start..span.end]),
+            },
+            None => rendered.push_str(&input[span.start..span.end]),
+        }
+        cursor = span.end;
+    }
+    rendered.push_str(&input[cursor..]);
+    rendered
 }
 
 pub fn substitute_parameters_in_value(
@@ -42,6 +69,10 @@ pub fn substitute_parameters_in_value(
     }
 }
 
+/// Assembly-time string-only substitution over serializable configs.
+/// Only string fields are rewritten; typed fields keep their shapes unless a
+/// placeholder leaks into them, in which case deserialization fails as a
+/// validation error naming the type mismatch instead of a generic failure.
 pub fn substitute_in_struct<T>(
     value: &mut T,
     parameters: &HashMap<String, String>,
@@ -57,7 +88,9 @@ where
     })?;
     substitute_parameters_in_value(&mut json_value, parameters);
     *value = serde_json::from_value(json_value).map_err(|e| {
-        ConfigError::Serialization(format!("failed to deserialize after substitution: {e}"))
+        ConfigError::Validation(format!(
+            "substituted config no longer matches its declared shape (a placeholder likely landed in a typed field): {e}"
+        ))
     })?;
     Ok(())
 }
@@ -65,30 +98,77 @@ where
 /// Collect `{{parameters.name}}` placeholder names in first-seen order.
 pub fn extract_parameter_names(input: &str) -> Vec<String> {
     let mut out = Vec::new();
-    for caps in PARAM_REGEX.captures_iter(input) {
-        let name = caps
-            .get(1)
-            .expect("invariant: capture group 1 is always present for a matched pattern")
-            .as_str()
-            .to_string();
-        if !out.contains(&name) {
-            out.push(name);
+    for span in wf_common::template::scan_template_spans(input) {
+        if !span.closed {
+            continue;
+        }
+        if let Some(name) = strict_parameters_name(span.name.as_str()) {
+            let name = name.to_string();
+            if !out.contains(&name) {
+                out.push(name);
+            }
         }
     }
     out
 }
 
+/// Spans that look like assembly parameters but miss the strict shape, so
+/// the shared foundation scan would see them while this assembler leaves
+/// them verbatim. Reporting them as unresolved keeps extraction and
+/// rendering from drifting apart.
+pub fn find_malformed_parameter_spans(input: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut push = |label: String| {
+        if !out.contains(&label) {
+            out.push(label);
+        }
+    };
+    for span in wf_common::template::scan_template_spans(input) {
+        if !span.closed {
+            if is_parameters_like(span.name.trim()) {
+                push(span.name.trim().to_string());
+            }
+            continue;
+        }
+        let trimmed = span.name.trim();
+        if !is_parameters_like(trimmed) {
+            continue;
+        }
+        if strict_parameters_name(trimmed).is_none() {
+            push(span.name.clone());
+        }
+    }
+    out
+}
+
+fn is_parameters_like(trimmed: &str) -> bool {
+    trimmed == "parameters"
+        || trimmed.starts_with("parameters.")
+        || trimmed.starts_with("parameters ")
+        || trimmed.starts_with("parameters\t")
+        || trimmed.starts_with("parameters\n")
+        || trimmed.starts_with("parameters\r")
+}
+
 /// Placeholders present in the text but absent from the parameter map.
 /// The default substitution keeps such spans verbatim, so callers use
 /// this query for explicit startup checks without changing that behavior.
+/// Malformed assembly spans are included so strict checks fail instead of
+/// leaving silent partial text behind.
 pub fn find_unresolved_parameters(
     input: &str,
     parameters: &HashMap<String, String>,
 ) -> Vec<String> {
-    extract_parameter_names(input)
+    let mut out: Vec<String> = extract_parameter_names(input)
         .into_iter()
         .filter(|name| !parameters.contains_key(name))
-        .collect()
+        .collect();
+    for malformed in find_malformed_parameter_spans(input) {
+        if !out.contains(&malformed) {
+            out.push(malformed);
+        }
+    }
+    out
 }
 
 /// Fail when any `{{parameters.name}}` placeholder lacks a value.
@@ -229,5 +309,21 @@ mod tests {
             find_unresolved_parameters_in_value(&value, &params),
             vec!["missing".to_string()]
         );
+    }
+
+    #[test]
+    fn test_malformed_parameter_spans_are_unresolved() {
+        let params = HashMap::new();
+        let malformed = find_unresolved_parameters("Hi {{parameters.foo bar}}!", &params);
+        assert!(
+            malformed.iter().any(|s| s.contains("parameters")),
+            "spaced parameter span must be reported: {malformed:?}"
+        );
+        let unclosed = find_unresolved_parameters("Hi {{parameters.foo", &params);
+        assert!(
+            unclosed.iter().any(|s| s.contains("parameters")),
+            "unclosed parameter span must be reported: {unclosed:?}"
+        );
+        assert!(find_unresolved_parameters("Hi {{other}}!", &params).is_empty());
     }
 }

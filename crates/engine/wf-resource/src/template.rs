@@ -39,32 +39,22 @@ use crate::predefined::tool_visibility::{
 };
 use crate::registry::ResourceRegistries;
 
-/// Options for one template render.
+/// Options for one display-template render.
+/// Display use only and always lenient: approval hints, visibility
+/// fallbacks, previews. Unresolved placeholders stay verbatim with a
+/// warning and a metric. Model-bound callers must use
+/// [`render_template_for_model`] so declared shapes are checked and
+/// residuals fail closed. The flat entry refuses templates declaring
+/// non-string shapes so shape errors cannot slip through stringified values.
 #[derive(Debug, Clone, Default)]
 pub struct TemplateRenderOptions {
     /// `{{name}}` placeholder values.
     pub variables: HashMap<String, String>,
-    /// When true, any leftover `{{name}}` placeholder fails the render as
-    /// `None` instead of returning partial text. Preview paths keep the
-    /// default lenient behavior; model-bound paths opt into denial.
-    pub deny_unresolved: bool,
 }
 
-/// Substitute `{{name}}` placeholders in a single left-to-right pass;
-/// Display-layer flat matching only. Dotted paths need the structured
-/// rendering entry; this function never splits on dots. Unresolvable
-/// placeholders are kept verbatim. Single braces are never
-/// treated as placeholders, so literal JSON such as `{"tool": "x"}`
-/// passes through untouched. Values are inserted as opaque text and never
-/// rescanned, so a value containing placeholder shapes cannot expand
-/// again. Shared by the template engine and call
-/// sites that pre-render fragment content. Delegates to the shared
-/// foundation implementation so resource rendering and message injection
-/// stay byte-identical.
-pub fn apply_template_variables(content: &str, variables: &HashMap<String, String>) -> String {
-    wf_common::template::apply_template_variables(content, variables)
-}
-
+/// Substitute `{{name}}` placeholders in a single left-to-right pass.
+/// Display-layer flat matching only for hint and preview text; dotted
+/// paths need the structured model-bound entry and never split here.
 /// Built-in fallback texts used when a template is not configured. The texts
 /// reference the predefined visibility constants so injected and fallback
 /// deployments are indistinguishable by construction.
@@ -78,9 +68,12 @@ pub fn builtin_default(id: &str) -> Option<&'static str> {
     }
 }
 
-/// Render a template with the given options. Configured templates win;
-/// unconfigured ids fall back to [`builtin_default`]. Unknown ids return
-/// `None`.
+/// Render a display template with the given options. Configured templates
+/// win; unconfigured ids fall back to [`builtin_default`]. Unknown ids
+/// return `None`. Display use only without shape checks and always lenient
+/// on residuals; model-bound text must use [`render_template_for_model`].
+/// Templates declaring non-string shapes are refused here so callers cannot
+/// bypass typed rendering through stringified values.
 pub fn render_template(
     regs: &ResourceRegistries,
     id: &str,
@@ -89,11 +82,29 @@ pub fn render_template(
     render_template_with_metrics(regs, id, opts, None)
 }
 
-/// Render a template and record duration and unknown-id errors into the
+/// Explicit lenient display entry. Records duration and errors into the
 /// template collector. Absent collectors add zero overhead. Missing
+/// required variables, shape refusals, missing fragments and unknown ids
+/// fail as `None`; residual placeholders stay verbatim with a warning so
+/// previews never interrupt. Model-bound callers use the strict structured
+/// entry so residuals fail closed.
+pub fn render_template_for_display(
+    regs: &ResourceRegistries,
+    id: &str,
+    opts: &TemplateRenderOptions,
+    metrics: Option<&TemplateMetricsCollector>,
+) -> Option<String> {
+    render_template_with_metrics(regs, id, opts, metrics)
+}
+
+/// Render a display template and record duration and unknown-id errors into
+/// the template collector. Absent collectors add zero overhead. Missing
 /// required variables fail the render as `None` plus a metric so partial
 /// prompts never reach the model, while strict command execution keeps
-/// returning `Result`.
+/// returning `Result`. Display use only and always lenient on residuals;
+/// model-bound callers use the strict entry so shape mismatches fail before
+/// stringification. Templates declaring non-string shapes are refused here
+/// for the same reason.
 pub fn render_template_with_metrics(
     regs: &ResourceRegistries,
     id: &str,
@@ -125,6 +136,16 @@ pub fn render_template_with_metrics(
     // Pseudo variable (only meaningful for configured templates; the
     // built-in fallbacks carry no fragments).
     if let Some(ref template) = template {
+        if let Some(offender) = flat_entry_typed_offender(regs, template) {
+            if let Some(metrics) = metrics {
+                metrics.record_error(id, "variable_type_mismatch", &[]);
+                metrics.record_render_complete(id, start.elapsed().as_millis() as f64, false, &[]);
+            }
+            tracing::warn!(
+                "template '{id}' declares non-string variable '{offender}'; use the structured JSON entry so shapes are checked before stringification"
+            );
+            return None;
+        }
         let mut effective_variables = opts.variables.clone();
         apply_default_values(regs, template, &mut effective_variables);
         if let Some(missing) = missing_required_variables(regs, template, &effective_variables) {
@@ -135,8 +156,15 @@ pub fn render_template_with_metrics(
             tracing::warn!("template '{id}' missing required variable '{missing}'");
             return None;
         }
-        let Some(resolved) =
-            resolve_fragments(regs, &rendered, template, &effective_variables)
+        if fragments_ignored(template, &rendered) {
+            if let Some(metrics) = metrics {
+                metrics.record_error(id, "fragments_ignored", &[]);
+            }
+            tracing::warn!(
+                "template '{id}' declares fragments but the content never uses '{{fragments}}'"
+            );
+        }
+        let Some(resolved) = resolve_fragments(regs, &rendered, template, &effective_variables)
         else {
             if let Some(metrics) = metrics {
                 metrics.record_error(id, "missing_fragment", &[]);
@@ -145,24 +173,14 @@ pub fn render_template_with_metrics(
             return None;
         };
         rendered = resolved;
-        let output = apply_template_variables(&rendered, &effective_variables);
+        let output =
+            wf_common::template::apply_template_variables(&rendered, &effective_variables);
         if has_unresolved_placeholders(&output) {
+            let kind = unresolved_error_kind(&output);
             if let Some(metrics) = metrics {
-                metrics.record_error(id, "unresolved_placeholder", &[]);
+                metrics.record_error(id, kind, &[]);
             }
-            if opts.deny_unresolved {
-                if let Some(metrics) = metrics {
-                    metrics.record_render_complete(
-                        id,
-                        start.elapsed().as_millis() as f64,
-                        false,
-                        &[],
-                    );
-                }
-                tracing::warn!("template '{id}' denied: unresolved placeholders remain");
-                return None;
-            }
-            tracing::warn!("template '{id}' rendered with unresolved placeholders");
+            tracing::warn!("template '{id}' rendered with unresolved placeholders ({kind})");
         }
         if let Some(metrics) = metrics {
             metrics.record_render_complete(id, start.elapsed().as_millis() as f64, true, &[]);
@@ -170,19 +188,13 @@ pub fn render_template_with_metrics(
         return Some(output);
     }
 
-    let output = apply_template_variables(&rendered, &opts.variables);
+    let output = wf_common::template::apply_template_variables(&rendered, &opts.variables);
     if has_unresolved_placeholders(&output) {
+        let kind = unresolved_error_kind(&output);
         if let Some(metrics) = metrics {
-            metrics.record_error(id, "unresolved_placeholder", &[]);
+            metrics.record_error(id, kind, &[]);
         }
-        if opts.deny_unresolved {
-            if let Some(metrics) = metrics {
-                metrics.record_render_complete(id, start.elapsed().as_millis() as f64, false, &[]);
-            }
-            tracing::warn!("template '{id}' denied: unresolved placeholders remain");
-            return None;
-        }
-        tracing::warn!("template '{id}' rendered with unresolved placeholders");
+        tracing::warn!("template '{id}' rendered with unresolved placeholders ({kind})");
     }
     if let Some(metrics) = metrics {
         metrics.record_render_complete(id, start.elapsed().as_millis() as f64, true, &[]);
@@ -190,19 +202,60 @@ pub fn render_template_with_metrics(
     Some(output)
 }
 
+fn unresolved_error_kind(output: &str) -> &'static str {
+    if !wf_common::template::find_malformed_template_spans(output).is_empty() {
+        return "malformed_template";
+    }
+    if wf_common::template::has_empty_template_placeholder(output) {
+        return "empty_placeholder";
+    }
+    for name in wf_common::template::extract_placeholder_names(output) {
+        if wf_common::template::validate_template_path(&name).is_some() {
+            return "invalid_path";
+        }
+    }
+    "missing_variable"
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ResidualPolicy {
+    Lenient,
+    Deny,
+}
+
 /// Render a template from structured values, checking each provided value
-/// against its declared shape before stringification. Model-bound primary
-/// entry: callers sending text to the model use this function so shape
-/// mismatches fail here. A shape mismatch fails the render as `None` so
-/// type errors surface at render time rather than inside the model.
-/// Undeclared values pass through as display text. Dotted placeholders
-/// resolve as paths against the structured table, matching script and hook
-/// engines; flat names match exactly first.
+/// against its declared shape before stringification. Explicit lenient
+/// display entry: residuals stay verbatim with a warning. Model-bound
+/// callers must use [`render_template_for_model`]. A shape mismatch fails
+/// the render as `None` so type errors surface at render time rather than
+/// inside the model. Undeclared values pass through as display text.
+/// Dotted placeholders resolve as paths against the structured table,
+/// matching script and hook engines; flat names match exactly first.
+/// Explicit lenient structured display entry. Residuals stay verbatim;
+/// use only for previews, never for model requests.
+pub fn render_template_with_json_for_display(
+    regs: &ResourceRegistries,
+    id: &str,
+    variables: &HashMap<String, serde_json::Value>,
+    metrics: Option<&TemplateMetricsCollector>,
+) -> Option<String> {
+    render_template_with_json_inner(regs, id, variables, ResidualPolicy::Lenient, metrics)
+}
+
 pub fn render_template_with_json_variables(
     regs: &ResourceRegistries,
     id: &str,
     variables: &HashMap<String, serde_json::Value>,
-    deny_unresolved: bool,
+    metrics: Option<&TemplateMetricsCollector>,
+) -> Option<String> {
+    render_template_with_json_for_display(regs, id, variables, metrics)
+}
+
+fn render_template_with_json_inner(
+    regs: &ResourceRegistries,
+    id: &str,
+    variables: &HashMap<String, serde_json::Value>,
+    policy: ResidualPolicy,
     metrics: Option<&TemplateMetricsCollector>,
 ) -> Option<String> {
     let template: Option<Template> = regs.templates.get(id).map(|t| t.as_ref().clone());
@@ -254,26 +307,41 @@ pub fn render_template_with_json_variables(
     }
     let string_variables: HashMap<String, String> = structured
         .iter()
-        .map(|(k, v)| {
-            (
-                k.clone(),
-                wf_common::template::value_to_display_string(v),
-            )
-        })
+        .map(|(k, v)| (k.clone(), wf_common::template::value_to_display_string(v)))
         .collect();
-    render_template_with_structured_context(regs, id, &string_variables, &structured, deny_unresolved, metrics)
+    render_template_with_structured_context(
+        regs,
+        id,
+        &string_variables,
+        &structured,
+        policy,
+        metrics,
+    )
+}
+
+/// Model-bound strict render with residual placeholders denied. Single home
+/// for text sent to the model. Missing, illegal, empty and malformed
+/// residuals fail as `None` with a classified metric.
+pub fn render_template_for_model(
+    regs: &ResourceRegistries,
+    id: &str,
+    variables: &HashMap<String, serde_json::Value>,
+    metrics: Option<&TemplateMetricsCollector>,
+) -> Option<String> {
+    render_template_with_json_inner(regs, id, variables, ResidualPolicy::Deny, metrics)
 }
 
 /// Render with both a flat display table and a structured path table.
 /// Flat exact matches win; otherwise spans resolve as dotted paths.
-/// Internal primary for model-bound rendering; the flat-only public entry
-/// stays for pure display callers such as approval hints.
+/// Internal primary shared by the explicit lenient display and strict model
+/// entries; the flat-only public entry stays for pure display callers such
+/// as approval hints.
 fn render_template_with_structured_context(
     regs: &ResourceRegistries,
     id: &str,
     flat: &HashMap<String, String>,
     structured: &HashMap<String, serde_json::Value>,
-    deny_unresolved: bool,
+    policy: ResidualPolicy,
     metrics: Option<&TemplateMetricsCollector>,
 ) -> Option<String> {
     let start = std::time::Instant::now();
@@ -305,9 +373,12 @@ fn render_template_with_structured_context(
                 .entry(k.clone())
                 .or_insert_with(|| wf_common::template::value_to_display_string(v));
         }
-        if let Some(missing) =
-            missing_required_variables_structured(regs, template, &effective_flat, &effective_structured)
-        {
+        if let Some(missing) = missing_required_variables_structured(
+            regs,
+            template,
+            &effective_flat,
+            &effective_structured,
+        ) {
             if let Some(metrics) = metrics {
                 metrics.record_error(id, "missing_required_variable", &[]);
                 metrics.record_render_complete(id, start.elapsed().as_millis() as f64, false, &[]);
@@ -315,9 +386,21 @@ fn render_template_with_structured_context(
             tracing::warn!("template '{id}' missing required variable '{missing}'");
             return None;
         }
-        let Some(resolved) =
-            resolve_fragments_with_structured(regs, &content, template, &effective_flat, &effective_structured)
-        else {
+        if fragments_ignored(template, &content) {
+            if let Some(metrics) = metrics {
+                metrics.record_error(id, "fragments_ignored", &[]);
+            }
+            tracing::warn!(
+                "template '{id}' declares fragments but the content never uses '{{fragments}}'"
+            );
+        }
+        let Some(resolved) = resolve_fragments_with_structured(
+            regs,
+            &content,
+            template,
+            &effective_flat,
+            &effective_structured,
+        ) else {
             if let Some(metrics) = metrics {
                 metrics.record_error(id, "missing_fragment", &[]);
                 metrics.record_render_complete(id, start.elapsed().as_millis() as f64, false, &[]);
@@ -329,13 +412,12 @@ fn render_template_with_structured_context(
             &effective_flat,
             &effective_structured,
         );
-        if has_unresolved_placeholders(&output)
-            || !wf_common::template::find_malformed_template_spans(&output).is_empty()
-        {
+        if has_unresolved_placeholders(&output) {
+            let kind = unresolved_error_kind(&output);
             if let Some(metrics) = metrics {
-                metrics.record_error(id, "unresolved_placeholder", &[]);
+                metrics.record_error(id, kind, &[]);
             }
-            if deny_unresolved {
+            if policy == ResidualPolicy::Deny {
                 if let Some(metrics) = metrics {
                     metrics.record_render_complete(
                         id,
@@ -344,32 +426,32 @@ fn render_template_with_structured_context(
                         &[],
                     );
                 }
-                tracing::warn!("template '{id}' denied: unresolved placeholders remain");
+                tracing::warn!("template '{id}' denied: residual {kind} remains");
                 return None;
             }
-            tracing::warn!("template '{id}' rendered with unresolved placeholders");
+            tracing::warn!("template '{id}' rendered with unresolved placeholders ({kind})");
         }
         if let Some(metrics) = metrics {
             metrics.record_render_complete(id, start.elapsed().as_millis() as f64, true, &[]);
         }
         return Some(output);
     }
-    let output =
-        wf_common::template::apply_template_variables_with_structured_context(&content, flat, structured);
-    if has_unresolved_placeholders(&output)
-        || !wf_common::template::find_malformed_template_spans(&output).is_empty()
-    {
+    let output = wf_common::template::apply_template_variables_with_structured_context(
+        &content, flat, structured,
+    );
+    if has_unresolved_placeholders(&output) {
+        let kind = unresolved_error_kind(&output);
         if let Some(metrics) = metrics {
-            metrics.record_error(id, "unresolved_placeholder", &[]);
+            metrics.record_error(id, kind, &[]);
         }
-        if deny_unresolved {
+        if policy == ResidualPolicy::Deny {
             if let Some(metrics) = metrics {
                 metrics.record_render_complete(id, start.elapsed().as_millis() as f64, false, &[]);
             }
-            tracing::warn!("template '{id}' denied: unresolved placeholders remain");
+            tracing::warn!("template '{id}' denied: residual {kind} remains");
             return None;
         }
-        tracing::warn!("template '{id}' rendered with unresolved placeholders");
+        tracing::warn!("template '{id}' rendered with unresolved placeholders ({kind})");
     }
     if let Some(metrics) = metrics {
         metrics.record_render_complete(id, start.elapsed().as_millis() as f64, true, &[]);
@@ -389,7 +471,8 @@ fn collect_variable_definitions(
             if let Some(fragment) = regs.fragments.get(fragment_id) {
                 if let Some(vars) = fragment.variables.as_ref() {
                     for variable in vars {
-                        map.entry(variable.name.clone()).or_insert_with(|| variable.clone());
+                        map.entry(variable.name.clone())
+                            .or_insert_with(|| variable.clone());
                     }
                 }
             }
@@ -403,15 +486,35 @@ fn collect_variable_definitions(
     map
 }
 
+/// First variable declaring a non-string shape, if any. The flat display
+/// entry carries only strings and cannot validate such shapes, so its
+/// presence means the caller must use the structured JSON entry.
+fn flat_entry_typed_offender(regs: &ResourceRegistries, template: &Template) -> Option<String> {
+    let mut names: Vec<String> = collect_variable_definitions(regs, template)
+        .into_iter()
+        .filter(|(_, definition)| {
+            !matches!(definition.r#type, wf_types::TemplateVariableType::String)
+        })
+        .map(|(name, _)| name)
+        .collect();
+    names.sort();
+    names.into_iter().next()
+}
+
 /// Fill missing variables from declared default values.
 /// Presence wins: a declared default fills the slot even when its display
 /// text is empty, so empty-string defaults satisfy required variables.
+/// Dotted declarations never materialize as flat keys here; they resolve
+/// through the structured table so flat exact matches cannot shadow paths.
 fn apply_default_values(
     regs: &ResourceRegistries,
     template: &Template,
     variables: &mut HashMap<String, String>,
 ) {
     for (name, definition) in collect_variable_definitions(regs, template) {
+        if name.contains('.') {
+            continue;
+        }
         if let std::collections::hash_map::Entry::Vacant(entry) = variables.entry(name) {
             if let Some(default_value) = definition.default_value.as_ref() {
                 let text = wf_common::template::value_to_display_string(default_value);
@@ -484,13 +587,11 @@ fn missing_required_variables_structured(
     None
 }
 
-/// Whether rendered text still carries `{{name}}` placeholders or unclosed
-/// openers. Used only for observability; rendering keeps the verbatim
-/// behavior. Delegates to the shared foundation queries so validation and
-/// observability share one scan.
+/// Whether rendered text still carries template syntax. Used only for
+/// observability; rendering keeps the verbatim behavior. Delegates to the
+/// shared foundation check so closed, empty, and unclosed spans agree.
 fn has_unresolved_placeholders(rendered: &str) -> bool {
     wf_common::template::has_unresolved_placeholders(rendered)
-        || !wf_common::template::find_malformed_template_spans(rendered).is_empty()
 }
 
 /// Replace every `{{name}}` span whose trimmed placeholder name matches the
@@ -498,25 +599,45 @@ fn has_unresolved_placeholders(rendered: &str) -> bool {
 /// foundation substitution scan. Returns the rewritten text plus whether
 /// any span matched.
 fn replace_pseudo_variable(content: &str, name: &str, replacement: &str) -> (String, bool) {
+    let spans = wf_common::template::scan_template_spans(content);
+    if spans.is_empty() {
+        return (content.to_string(), false);
+    }
     let mut rendered = String::with_capacity(content.len());
-    let mut rest = content;
+    let mut cursor = 0;
     let mut matched = false;
-    while let Some(start) = rest.find("{{") {
-        let after = &rest[start + 2..];
-        let Some(end) = after.find("}}") else {
+    for span in spans {
+        rendered.push_str(&content[cursor..span.start]);
+        if !span.closed {
+            rendered.push_str(&content[span.start..]);
+            cursor = content.len();
             break;
-        };
-        if after[..end].trim() == name {
-            rendered.push_str(&rest[..start]);
+        }
+        if span.name == name {
             rendered.push_str(replacement);
             matched = true;
         } else {
-            rendered.push_str(&rest[..start + 2 + end + 2]);
+            rendered.push_str(&content[span.start..span.end]);
         }
-        rest = &after[end + 2..];
+        cursor = span.end;
     }
-    rendered.push_str(rest);
+    rendered.push_str(&content[cursor..]);
     (rendered, matched)
+}
+
+/// Whether a template declares fragments that the content never consumes.
+/// The render keeps the historical ignore behavior, but callers deserve a
+/// warning so a misconfigured list does not look like composition.
+fn fragments_ignored(template: &Template, content: &str) -> bool {
+    let Some(ids) = template.fragments.as_ref() else {
+        return false;
+    };
+    if ids.is_empty() {
+        return false;
+    }
+    !wf_common::template::extract_placeholder_names(content)
+        .iter()
+        .any(|name| name == "fragments")
 }
 
 /// Resolve the `{{fragments}}` pseudo variable by composing the template's
@@ -544,7 +665,10 @@ fn resolve_fragments(
     for id in fragment_ids {
         match regs.fragments.get(id) {
             Some(fragment) => {
-                parts.push(apply_template_variables(&fragment.content, variables));
+                parts.push(wf_common::template::apply_template_variables(
+                    &fragment.content,
+                    variables,
+                ));
             }
             None => missing.push(id.as_str()),
         }
@@ -613,7 +737,8 @@ pub fn render_builtin_visibility_fallback(
     template_id: &str,
     variables: &HashMap<String, String>,
 ) -> Option<String> {
-    builtin_default(template_id).map(|content| apply_template_variables(content, variables))
+    builtin_default(template_id)
+        .map(|content| wf_common::template::apply_template_variables(content, variables))
 }
 
 /// Render an activation/block announcement, falling back to the
@@ -637,11 +762,11 @@ pub fn render_visibility_message_with_metrics(
     let Some(regs) = regs else {
         return fallback.to_string();
     };
-    let opts = TemplateRenderOptions {
-        variables: variables.clone(),
-        deny_unresolved: true,
-    };
-    render_template_with_metrics(regs, template_id, &opts, metrics)
+    let structured: HashMap<String, serde_json::Value> = variables
+        .iter()
+        .map(|(k, v)| (k.clone(), serde_json::Value::String(v.clone())))
+        .collect();
+    render_template_for_model(regs, template_id, &structured, metrics)
         .unwrap_or_else(|| fallback.to_string())
 }
 
@@ -779,10 +904,9 @@ mod tests {
             .expect("rendered");
         assert_eq!(text, "A {{tool_descriptions}} B");
 
-        let spaced =
-            regs_with_template("system.spaced-tools", "A {{ tool_descriptions }} B", None);
-        let spaced_text = render_template(&spaced, "system.spaced-tools", &Default::default())
-            .expect("rendered");
+        let spaced = regs_with_template("system.spaced-tools", "A {{ tool_descriptions }} B", None);
+        let spaced_text =
+            render_template(&spaced, "system.spaced-tools", &Default::default()).expect("rendered");
         assert_eq!(spaced_text, "A {{ tool_descriptions }} B");
     }
 
@@ -964,14 +1088,20 @@ mod tests {
     }
 
     #[test]
-    fn deny_unresolved_fails_closed() {
+    fn explicit_entries_separate_lenient_and_strict() {
         let regs = regs_with_template("t.deny", "Hi {{who}}!", None);
-        let opts = TemplateRenderOptions {
-            variables: HashMap::new(),
-            deny_unresolved: true,
-        };
-        assert!(render_template(&regs, "t.deny", &opts).is_none());
-        assert!(render_template(&regs, "t.deny", &Default::default()).is_some());
+        assert_eq!(
+            render_template(&regs, "t.deny", &Default::default()).unwrap(),
+            "Hi {{who}}!"
+        );
+        let empty: HashMap<String, serde_json::Value> = HashMap::new();
+        assert!(render_template_for_model(&regs, "t.deny", &empty, None).is_none());
+        let filled =
+            HashMap::from([("who".to_string(), serde_json::json!("dev"))]);
+        assert_eq!(
+            render_template_for_model(&regs, "t.deny", &filled, None).unwrap(),
+            "Hi dev!"
+        );
     }
 
     #[test]
@@ -998,11 +1128,12 @@ mod tests {
             )
             .unwrap();
         let bad = HashMap::from([("count".to_string(), serde_json::json!("not-a-number"))]);
-        assert!(render_template_with_json_variables(&regs, "system.typed", &bad, false, None).is_none());
+        assert!(
+            render_template_with_json_variables(&regs, "system.typed", &bad, None).is_none()
+        );
         let good = HashMap::from([("count".to_string(), serde_json::json!(7))]);
-        let text =
-            render_template_with_json_variables(&regs, "system.typed", &good, false, None)
-                .expect("typed render");
+        let text = render_template_with_json_variables(&regs, "system.typed", &good, None)
+            .expect("typed render");
         assert_eq!(text, "Count 7");
     }
 
@@ -1057,18 +1188,13 @@ mod tests {
                 }),
             )
             .unwrap();
-        let vars = HashMap::from([(
-            "user".to_string(),
-            serde_json::json!({"name": "ada"}),
-        )]);
-        let text =
-            render_template_with_json_variables(&regs, "system.dotted", &vars, false, None)
-                .expect("dotted resolves");
+        let vars = HashMap::from([("user".to_string(), serde_json::json!({"name": "ada"}))]);
+        let text = render_template_with_json_variables(&regs, "system.dotted", &vars, None)
+            .expect("dotted resolves");
         assert_eq!(text, "Hi ada!");
-        let missing = HashMap::new();
+        let missing: HashMap<String, serde_json::Value> = HashMap::new();
         assert!(
-            render_template_with_json_variables(&regs, "system.dotted", &missing, true, None)
-                .is_none()
+            render_template_for_model(&regs, "system.dotted", &missing, None).is_none()
         );
     }
 
@@ -1076,10 +1202,76 @@ mod tests {
     fn unclosed_placeholders_count_as_unresolved() {
         let regs = regs_with_template("t.unclosed", "Hi {{who", None);
         assert!(has_unresolved_placeholders("Hi {{who"));
+        assert_eq!(
+            unresolved_error_kind("Hi {{who"),
+            "malformed_template"
+        );
+        assert!(render_template(&regs, "t.unclosed", &Default::default()).is_some());
+        let empty: HashMap<String, serde_json::Value> = HashMap::new();
+        assert!(render_template_for_model(&regs, "t.unclosed", &empty, None).is_none());
+    }
+
+    #[test]
+    fn flat_entry_refuses_typed_declarations() {
+        let regs = ResourceRegistries::new();
+        regs.templates
+            .register(
+                "system.typed-flat".into(),
+                std::sync::Arc::new(Template {
+                    id: "system.typed-flat".into(),
+                    name: "typed-flat".into(),
+                    description: None,
+                    category: "system".into(),
+                    content: "Count {{count}}".into(),
+                    variables: Some(vec![wf_types::TemplateVariableDefinition {
+                        name: "count".into(),
+                        r#type: wf_types::TemplateVariableType::Number,
+                        required: true,
+                        description: None,
+                        default_value: None,
+                    }]),
+                    fragments: None,
+                }),
+            )
+            .unwrap();
         let opts = TemplateRenderOptions {
-            variables: HashMap::new(),
-            deny_unresolved: true,
+            variables: HashMap::from([("count".to_string(), "7".to_string())]),
+            ..Default::default()
         };
-        assert!(render_template(&regs, "t.unclosed", &opts).is_none());
+        assert!(render_template(&regs, "system.typed-flat", &opts).is_none());
+        let typed = HashMap::from([("count".to_string(), serde_json::json!(7))]);
+        assert_eq!(
+            render_template_with_json_variables(&regs, "system.typed-flat", &typed, None)
+                .expect("typed entry renders"),
+            "Count 7"
+        );
+    }
+
+    #[test]
+    fn dotted_default_does_not_shadow_structured_path() {
+        let regs = ResourceRegistries::new();
+        regs.templates
+            .register(
+                "system.dotted-default".into(),
+                std::sync::Arc::new(Template {
+                    id: "system.dotted-default".into(),
+                    name: "dotted-default".into(),
+                    description: None,
+                    category: "system".into(),
+                    content: "Hi {{user.name}}!".into(),
+                    variables: Some(vec![wf_types::TemplateVariableDefinition {
+                        name: "user.name".into(),
+                        r#type: wf_types::TemplateVariableType::String,
+                        required: false,
+                        description: None,
+                        default_value: Some(serde_json::Value::String("fallback".into())),
+                    }]),
+                    fragments: None,
+                }),
+            )
+            .unwrap();
+        let text = render_template(&regs, "system.dotted-default", &Default::default())
+            .expect("flat renders leniently");
+        assert_eq!(text, "Hi {{user.name}}!");
     }
 }

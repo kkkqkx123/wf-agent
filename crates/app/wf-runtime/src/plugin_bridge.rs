@@ -309,8 +309,7 @@ impl ContributionBridge for WfPluginBridge {
         for tool in &bundle.tools {
             // Symmetric teardown of the tool-type handler installed by
             // `sync_all` (see the tool-type bridge comment there).
-            self.tool_registry
-                .unregister_stateless_handler(&tool.id);
+            self.tool_registry.unregister_stateless_handler(&tool.id);
         }
 
         Ok(())

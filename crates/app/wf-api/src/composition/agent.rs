@@ -155,10 +155,7 @@ fn seed_initial_messages(conversation: &mut Vec<Message>, cfg: &AgentConfig) {
 /// Render tool exposure blocks from the resolved buckets. Runs for both
 /// templated and untemplated configs so the direct path never falls back to
 /// the builtin generation while the workflow path uses custom resources.
-fn attach_exposure_artifacts(
-    env: &PromptEnvironment,
-    config: &mut AgentLoopConfig,
-) {
+fn attach_exposure_artifacts(env: &PromptEnvironment, config: &mut AgentLoopConfig) {
     let artifacts = wf_execution_shared::agent_prompt::build_exposure_artifacts(
         env,
         config.tool_call_protocol.as_ref(),
@@ -410,12 +407,9 @@ mod tests {
             main_template(),
         );
         let env = env_for(&regs);
-        let (_, input) = resolve_and_apply(
-            &env,
-            empty_config(MAIN_AGENT_TEMPLATE_ID),
-            input_with("hi"),
-        )
-        .expect("apply template");
+        let (_, input) =
+            resolve_and_apply(&env, empty_config(MAIN_AGENT_TEMPLATE_ID), input_with("hi"))
+                .expect("apply template");
         assert!(input.conversation.iter().any(|m| m.role == MessageRole::System
             && matches!(&m.content, MessageContentValue::Text(t) if t.contains("software engineering assistant"))));
     }
@@ -459,20 +453,15 @@ mod tests {
     fn missing_builtin_main_agent_errors() {
         let regs = ResourceRegistries::new();
         let env = env_for(&regs);
-        let err = resolve_and_apply(
-            &env,
-            empty_config(MAIN_AGENT_TEMPLATE_ID),
-            input_with("hi"),
-        )
-        .expect_err("builtin requested but absent");
+        let err = resolve_and_apply(&env, empty_config(MAIN_AGENT_TEMPLATE_ID), input_with("hi"))
+            .expect_err("builtin requested but absent");
         assert!(matches!(err, ApiError::NotFound { .. }));
     }
 
     fn template_with_config(id: &str, config: serde_json::Value) -> AgentTemplate {
         let mut template = main_template();
         template.id = id.into();
-        template.definition.config =
-            Some(serde_json::from_value(config).expect("agent config"));
+        template.definition.config = Some(serde_json::from_value(config).expect("agent config"));
         template
     }
 
@@ -540,8 +529,7 @@ mod tests {
             "todo_list".to_string(),
             serde_json::json!([{"content": "write code", "status": "pending"}]),
         );
-        let (_, input) =
-            resolve_and_apply(&env, empty_config("agent-tail"), input).expect("apply");
+        let (_, input) = resolve_and_apply(&env, empty_config("agent-tail"), input).expect("apply");
         assert_eq!(input.message, "do work");
         assert_eq!(input.conversation.len(), 2);
         assert_eq!(input.conversation[0].role, MessageRole::System);

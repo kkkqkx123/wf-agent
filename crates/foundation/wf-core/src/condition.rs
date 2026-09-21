@@ -209,34 +209,20 @@ fn check_balanced(condition: &str) -> Result<(), String> {
 }
 
 fn check_braces_balanced(condition: &str) -> Result<(), String> {
-    if condition.contains("${") {
-        let mut search = condition;
-        while let Some(start) = search.find("${") {
-            let rest = &search[start + 2..];
-            match rest.find('}') {
-                Some(pos) => search = &rest[pos + 1..],
-                None => {
-                    return Err(format!(
-                        "Invalid condition expression '{}': unterminated '${{...}}' reference",
-                        condition
-                    ));
-                }
-            }
+    for span in wf_common::template::scan_variable_spans(condition) {
+        if !span.closed {
+            return Err(format!(
+                "Invalid condition expression '{}': unterminated '${{...}}' reference",
+                condition
+            ));
         }
     }
-    if condition.contains("{{") {
-        let mut search = condition;
-        while let Some(start) = search.find("{{") {
-            let rest = &search[start + 2..];
-            match rest.find("}}") {
-                Some(end) => search = &rest[end + 2..],
-                None => {
-                    return Err(format!(
-                        "Invalid condition expression '{}': unterminated '{{{{...}}}}' reference",
-                        condition
-                    ));
-                }
-            }
+    for span in wf_common::template::scan_template_spans(condition) {
+        if !span.closed {
+            return Err(format!(
+                "Invalid condition expression '{}': unterminated '{{{{...}}}}' reference",
+                condition
+            ));
         }
     }
     Ok(())
@@ -406,41 +392,85 @@ impl ConditionEvaluator {
     }
 
     /// Replace `${path}` / `{{path}}` occurrences with condition literals
-    /// from the context. Unresolved paths are left as-is.
+    /// from the context. Unresolved paths are left as-is with a warning so
+    /// typos surface as observability instead of silent false comparisons.
     /// Condition use only: values convert with quoting semantics, unlike
     /// display coercion used by prompt and command rendering.
+    /// Assembly references resolve first, then text placeholders, matching
+    /// the pipeline order shared by workflow and script engines.
     fn interpolate(condition: &str, context: &HashMap<String, Value>) -> String {
-        let mut result = String::with_capacity(condition.len());
-        let bytes = condition.as_bytes();
-        let mut i = 0;
-        while i < bytes.len() {
-            if bytes[i] == b'$' && i + 1 < bytes.len() && bytes[i + 1] == b'{' {
-                if let Some(end) = condition[i + 2..].find('}') {
-                    let path = &condition[i + 2..i + 2 + end];
-                    if let Some(value) = Self::lookup_variable(path, context) {
-                        result.push_str(&Self::value_to_condition_literal(&value));
-                        i += 2 + end + 1;
-                        continue;
-                    }
-                }
-            }
-            if bytes[i] == b'{' && i + 1 < bytes.len() && bytes[i + 1] == b'{' {
-                if let Some(end) = condition[i + 2..].find("}}") {
-                    let path = &condition[i + 2..i + 2 + end];
-                    if let Some(value) = Self::lookup_variable(path, context) {
-                        result.push_str(&Self::value_to_condition_literal(&value));
-                        i += 2 + end + 2;
-                        continue;
-                    }
-                }
-            }
-            let ch = condition[i..]
-                .chars()
-                .next()
-                .expect("invariant: loop index always stays at a char boundary");
-            result.push(ch);
-            i += ch.len_utf8();
+        let after_assembly = Self::interpolate_variable_spans(condition, context);
+        Self::interpolate_template_spans(&after_assembly, context)
+    }
+
+    fn interpolate_variable_spans(condition: &str, context: &HashMap<String, Value>) -> String {
+        if !condition.contains("${") {
+            return condition.to_string();
         }
+        let spans = wf_common::template::scan_variable_spans(condition);
+        if spans.is_empty() {
+            return condition.to_string();
+        }
+        let mut result = String::with_capacity(condition.len());
+        let mut cursor = 0;
+        for span in spans {
+            result.push_str(&condition[cursor..span.start]);
+            if !span.closed {
+                result.push_str(&condition[span.start..]);
+                cursor = condition.len();
+                break;
+            }
+            match Self::lookup_variable(span.path.as_str(), context) {
+                Some(value) => result.push_str(&Self::value_to_condition_literal(&value)),
+                None => {
+                    tracing::warn!(
+                        "condition reference '${{{}}}' not found; leaving verbatim for evaluation",
+                        span.path.trim()
+                    );
+                    result.push_str(&condition[span.start..span.end]);
+                }
+            }
+            cursor = span.end;
+        }
+        result.push_str(&condition[cursor..]);
+        result
+    }
+
+    fn interpolate_template_spans(condition: &str, context: &HashMap<String, Value>) -> String {
+        if !condition.contains("{{") {
+            return condition.to_string();
+        }
+        let spans = wf_common::template::scan_template_spans(condition);
+        if spans.is_empty() {
+            return condition.to_string();
+        }
+        let mut result = String::with_capacity(condition.len());
+        let mut cursor = 0;
+        for span in spans {
+            result.push_str(&condition[cursor..span.start]);
+            if !span.closed {
+                result.push_str(&condition[span.start..]);
+                cursor = condition.len();
+                break;
+            }
+            if span.name.is_empty() {
+                result.push_str(&condition[span.start..span.end]);
+                cursor = span.end;
+                continue;
+            }
+            match Self::lookup_variable(span.name.as_str(), context) {
+                Some(value) => result.push_str(&Self::value_to_condition_literal(&value)),
+                None => {
+                    tracing::warn!(
+                        "condition reference '{{{{{}}}}}' not found; leaving verbatim for evaluation",
+                        span.name.trim()
+                    );
+                    result.push_str(&condition[span.start..span.end]);
+                }
+            }
+            cursor = span.end;
+        }
+        result.push_str(&condition[cursor..]);
         result
     }
 

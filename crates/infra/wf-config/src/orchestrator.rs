@@ -613,12 +613,8 @@ pub fn load_tool_configs(
     if !path.exists() {
         return Ok(tools);
     }
-    let value: toml::Value = layered::load_layered_config_sync(&[path.as_path()]).map_err(|e| {
-        ConfigError::Parse(format!(
-            "invalid tool configs {}: {e}",
-            path.display()
-        ))
-    })?;
+    let value: toml::Value = layered::load_layered_config_sync(&[path.as_path()])
+        .map_err(|e| ConfigError::Parse(format!("invalid tool configs {}: {e}", path.display())))?;
     let Some(table) = value.as_table() else {
         return Err(ConfigError::Validation(format!(
             "invalid tool configs {}: top-level must be a table",

@@ -519,8 +519,9 @@ impl ScriptHandler {
 }
 
 /// Render a registered blueprint template with module/node arguments.
-/// Used by the flow, trigger and interactive paths so every template goes
-/// through argument resolution, dynamic binding and unresolved detection.
+/// Shell-safe braced-only binding so `$HOME` style shell variables survive;
+/// only `${path}` references interpolate. Every template goes through
+/// argument resolution, dynamic binding and unresolved detection.
 pub(crate) fn render_blueprint_command(
     what: &str,
     template: &str,
@@ -528,8 +529,14 @@ pub(crate) fn render_blueprint_command(
     provided: &std::collections::HashMap<String, Value>,
     context_variables: &std::collections::HashMap<String, Value>,
 ) -> WorkflowResult<String> {
-    ScriptTemplateEngine::render_command(template, declarations, provided, context_variables, None)
-        .map_err(|e| WorkflowError::Internal(format!("{what}: {e}")))
+    ScriptTemplateEngine::render_command_braced_only(
+        template,
+        declarations,
+        provided,
+        context_variables,
+        None,
+    )
+    .map_err(|e| WorkflowError::Internal(format!("{what}: {e}")))
 }
 
 /// Build the full execution options from a script node config. Every field

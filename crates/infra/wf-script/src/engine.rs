@@ -381,7 +381,7 @@ impl ScriptEngine {
     ) -> ScriptResult<String> {
         if let Some(ref template) = script.template {
             let args = script.arguments.as_deref().unwrap_or_default();
-            ScriptTemplateEngine::render_command(
+            ScriptTemplateEngine::render_command_braced_only(
                 template,
                 args,
                 &engine_options.args,

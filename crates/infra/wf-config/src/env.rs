@@ -119,10 +119,7 @@ pub fn expand_env_vars(content: &str) -> String {
     ENV_INTERPOLATION_REGEX
         .replace_all(content, |caps: &regex::Captures| {
             let name = &caps[1];
-            let default = caps
-                .get(2)
-                .or_else(|| caps.get(3))
-                .map(|m| m.as_str());
+            let default = caps.get(2).or_else(|| caps.get(3)).map(|m| m.as_str());
             match std::env::var(name) {
                 Ok(value) if !value.is_empty() => value,
                 _ => default.unwrap_or(&caps[0]).to_string(),
@@ -376,10 +373,7 @@ mod tests {
     fn test_expand_env_vars_with_default_and_literal() {
         std::env::set_var("WF_TEST_EXPAND_SET", "secret");
         std::env::remove_var("WF_TEST_EXPAND_MISSING");
-        assert_eq!(
-            expand_env_vars("pw=${WF_TEST_EXPAND_SET}"),
-            "pw=secret"
-        );
+        assert_eq!(expand_env_vars("pw=${WF_TEST_EXPAND_SET}"), "pw=secret");
         assert_eq!(
             expand_env_vars("pw=${WF_TEST_EXPAND_MISSING:postgres}"),
             "pw=postgres"
@@ -388,10 +382,7 @@ mod tests {
             expand_env_vars("pw=${WF_TEST_EXPAND_MISSING}"),
             "pw=${WF_TEST_EXPAND_MISSING}"
         );
-        assert_eq!(
-            expand_env_vars("expr=${input.a}"),
-            "expr=${input.a}"
-        );
+        assert_eq!(expand_env_vars("expr=${input.a}"), "expr=${input.a}");
         std::env::remove_var("WF_TEST_EXPAND_SET");
     }
 

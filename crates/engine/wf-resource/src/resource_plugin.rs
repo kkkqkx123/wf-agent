@@ -157,7 +157,11 @@ pub fn install_bundle(
         skip_if_exists,
     ));
     for prompt in &bundle.prompts {
-        total.merge(register_template(registries, prompt.clone(), skip_if_exists));
+        total.merge(register_template(
+            registries,
+            prompt.clone(),
+            skip_if_exists,
+        ));
     }
     for fragment in &bundle.fragments {
         total.merge(register_fragment(

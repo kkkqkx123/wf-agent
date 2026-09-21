@@ -38,7 +38,10 @@ pub fn load_infrastructure_preset(
     })?;
 
     let base_dir = entry.file_path.parent().unwrap_or(infra_dir);
-    let mut mapping = InfrastructurePresetFiles::default();
+    // Domains the preset does not map keep the fixed default filenames, so a
+    // partial `files` mapping cannot produce empty paths that resolve to the
+    // infra directory itself.
+    let mut mapping = InfrastructurePresetFiles::default_filenames();
     for (key, target) in files {
         let target = target.as_str().ok_or_else(|| {
             ConfigError::Validation(format!(

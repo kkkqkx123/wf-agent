@@ -44,13 +44,13 @@ pub use wf_config::validator::{
     validate_range, validate_required, validate_url,
 };
 
+pub use wf_config::env::{ensure_no_unresolved_env_vars, find_unresolved_env_vars};
 /// Transform: canonical node/edge conversion and parameter substitution.
 pub use wf_config::processor::substitute::{
     ensure_no_unresolved_parameters_in_value, find_unresolved_parameters,
     find_unresolved_parameters_in_value, substitute_in_struct, substitute_in_struct_strict,
     substitute_parameters_in_value, substitute_string,
 };
-pub use wf_config::env::{ensure_no_unresolved_env_vars, find_unresolved_env_vars};
 pub use wf_config::processor::workflow::{
     transform_edges, transform_nodes, WorkflowEdgeConfig, WorkflowNodeConfig,
 };
@@ -59,7 +59,6 @@ pub use wf_config::processor::workflow::{
 pub use wf_config::processor::agent_loop::export_agent_loop_config;
 pub use wf_config::processor::llm_profile::export_llm_profile;
 pub use wf_config::processor::node_template::export_node_template;
-pub use wf_config::processor::prompt::export_prompt_template;
 pub use wf_config::processor::sandbox_global::export_sandbox_global;
 pub use wf_config::processor::script_flow::export_script_flow;
 pub use wf_config::processor::script_interactive::export_interactive_script;

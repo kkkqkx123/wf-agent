@@ -1,101 +1,23 @@
 use serde::{Deserialize, Serialize};
 
 use crate::model::{ToolCallView, Trace};
+use crate::policy::{
+    NOT_ACTIVATED, NOT_CALLABLE, NOT_IN_AVAILABLE_SET, VIA_GENERAL, BuiltinAgentPolicy,
+    builtin_policy,
+};
 
-pub const MAIN_AGENT_TEMPLATE_ID: &str = "@standard/main";
-pub const EXPLORER_AGENT_TEMPLATE_ID: &str = "@standard/explorer";
-pub const WORKER_AGENT_TEMPLATE_ID: &str = "@standard/worker";
-
-/// Expected denial text families, mirroring the engine exposure gate.
-/// Denials carrying these fragments come from the policy layer; anything
-/// else on a denied call is an incidental failure worth flagging.
-pub const NOT_IN_AVAILABLE_SET: &str = "is not in the available tool set";
-pub const NOT_CALLABLE: &str = "is not callable in this execution";
-pub const NOT_ACTIVATED: &str = "is not activated yet";
-pub const VIA_GENERAL: &str = "must be invoked through the general tool";
+pub use crate::policy::{snapshot_meta, POLICY_SNAPSHOT_VERSION};
 
 pub const VIOLATION_UNEXPECTED_SUCCESS: &str = "unexpected_success";
 pub const VIOLATION_UNEXPECTED_DENIAL_TEXT: &str = "unexpected_denial_text";
 pub const VIOLATION_MISSING_APPROVAL: &str = "missing_approval";
 pub const VIOLATION_VISIBILITY_MISMATCH: &str = "visibility_mismatch";
 
-/// Static mirror of a builtin agent template's tool contract. Kept as
-/// plain data (no engine dependency) so the debugger stays lightweight;
-/// update it alongside the template definitions when they change.
-pub struct BuiltinAgentPolicy {
-    pub template_id: &'static str,
-    pub available: &'static [&'static str],
-    pub discoverable: &'static [&'static str],
-    pub require_approval: &'static [&'static str],
-}
-
-const MAIN_POLICY: BuiltinAgentPolicy = BuiltinAgentPolicy {
-    template_id: MAIN_AGENT_TEMPLATE_ID,
-    available: &[
-        "read_file",
-        "write_file",
-        "edit_file",
-        "glob_search",
-        "grep_search",
-        "list_files",
-        "execute_command",
-        "attempt_completion",
-    ],
-    discoverable: &[
-        "write_file",
-        "edit_file",
-        "execute_command",
-        "attempt_completion",
-    ],
-    require_approval: &["execute_command"],
-};
-
-const EXPLORER_POLICY: BuiltinAgentPolicy = BuiltinAgentPolicy {
-    template_id: EXPLORER_AGENT_TEMPLATE_ID,
-    available: &[
-        "read_file",
-        "glob_search",
-        "grep_search",
-        "list_files",
-        "attempt_completion",
-    ],
-    discoverable: &[],
-    require_approval: &[],
-};
-
-const WORKER_POLICY: BuiltinAgentPolicy = BuiltinAgentPolicy {
-    template_id: WORKER_AGENT_TEMPLATE_ID,
-    available: &[
-        "read_file",
-        "write_file",
-        "edit_file",
-        "glob_search",
-        "grep_search",
-        "list_files",
-        "execute_command",
-        "attempt_completion",
-    ],
-    discoverable: &[
-        "write_file",
-        "edit_file",
-        "execute_command",
-        "attempt_completion",
-    ],
-    require_approval: &["execute_command"],
-};
-
-pub fn builtin_policy(template_id: &str) -> Option<&'static BuiltinAgentPolicy> {
-    match template_id {
-        MAIN_AGENT_TEMPLATE_ID => Some(&MAIN_POLICY),
-        EXPLORER_AGENT_TEMPLATE_ID => Some(&EXPLORER_POLICY),
-        WORKER_AGENT_TEMPLATE_ID => Some(&WORKER_POLICY),
-        _ => None,
-    }
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct AgentViolation {
-    pub step: usize,
+    /// Walk path of the offending step, unique within the trace.
+    #[serde(default)]
+    pub path: String,
     pub tool: String,
     pub kind: String,
     pub detail: String,
@@ -137,19 +59,20 @@ pub fn analyze_agent_trace(trace: &Trace, template_override: Option<&str>) -> Ag
         known_template: true,
         ..Default::default()
     };
-    for step in &trace.steps {
+    for visit in crate::traverse::walk(trace) {
+        let step = visit.step;
         for call in &step.tool_calls {
             analysis.tool_calls += 1;
-            check_call(policy, step.index, call, &mut analysis);
+            check_call(policy, &visit.path, call, &mut analysis);
         }
-        check_approvals(policy, step, &mut analysis);
+        check_approvals(policy, &visit.path, step, &mut analysis);
     }
     analysis
 }
 
 fn check_call(
     policy: &BuiltinAgentPolicy,
-    step_index: usize,
+    path: &str,
     call: &ToolCallView,
     analysis: &mut AgentAnalysis,
 ) {
@@ -158,7 +81,7 @@ fn check_call(
         if call.success {
             violate(
                 analysis,
-                step_index,
+                path,
                 tool,
                 VIOLATION_UNEXPECTED_SUCCESS,
                 &format!(
@@ -171,7 +94,7 @@ fn check_call(
         } else {
             violate(
                 analysis,
-                step_index,
+                path,
                 tool,
                 VIOLATION_UNEXPECTED_DENIAL_TEXT,
                 &format!(
@@ -186,7 +109,7 @@ fn check_call(
         if call.success {
             violate(
                 analysis,
-                step_index,
+                path,
                 tool,
                 VIOLATION_UNEXPECTED_SUCCESS,
                 &format!(
@@ -198,7 +121,7 @@ fn check_call(
         } else {
             violate(
                 analysis,
-                step_index,
+                path,
                 tool,
                 VIOLATION_UNEXPECTED_DENIAL_TEXT,
                 &format!(
@@ -212,6 +135,7 @@ fn check_call(
 
 fn check_approvals(
     policy: &BuiltinAgentPolicy,
+    path: &str,
     step: &crate::model::StepRecord,
     analysis: &mut AgentAnalysis,
 ) {
@@ -225,7 +149,7 @@ fn check_approvals(
         if !approved {
             violate(
                 analysis,
-                step.index,
+                path,
                 &call.name,
                 VIOLATION_MISSING_APPROVAL,
                 &format!(
@@ -235,11 +159,12 @@ fn check_approvals(
             );
         }
     }
-    check_visibility(policy, step, analysis);
+    check_visibility(policy, path, step, analysis);
 }
 
 fn check_visibility(
     policy: &BuiltinAgentPolicy,
+    path: &str,
     step: &crate::model::StepRecord,
     analysis: &mut AgentAnalysis,
 ) {
@@ -261,7 +186,7 @@ fn check_visibility(
         if !visibility.visible.contains(&call.name) {
             violate(
                 analysis,
-                step.index,
+                path,
                 &call.name,
                 VIOLATION_VISIBILITY_MISMATCH,
                 &format!(
@@ -290,9 +215,9 @@ fn is_approval_decision(decision: &str) -> bool {
     normalized.starts_with("approv") || normalized == "allow" || normalized.starts_with("auto")
 }
 
-fn violate(analysis: &mut AgentAnalysis, step: usize, tool: &str, kind: &str, detail: &str) {
+fn violate(analysis: &mut AgentAnalysis, path: &str, tool: &str, kind: &str, detail: &str) {
     analysis.violations.push(AgentViolation {
-        step,
+        path: path.to_string(),
         tool: tool.to_string(),
         kind: kind.to_string(),
         detail: detail.to_string(),
@@ -303,6 +228,9 @@ fn violate(analysis: &mut AgentAnalysis, step: usize, tool: &str, kind: &str, de
 mod tests {
     use super::*;
     use crate::model::{ApprovalView, StepRecord, TraceKind, VisibilityView};
+    use crate::policy::{
+        EXPLORER_AGENT_TEMPLATE_ID, MAIN_AGENT_TEMPLATE_ID, WORKER_AGENT_TEMPLATE_ID,
+    };
     use std::collections::HashMap;
 
     fn step_with(index: usize, tool_calls: Vec<ToolCallView>) -> StepRecord {
@@ -337,6 +265,15 @@ mod tests {
             interaction: None,
             hooks_fired: vec![],
             triggers_seen: vec![],
+            exec_id: None,
+            parent_exec_id: None,
+            root_exec_id: None,
+            depth: None,
+            result_var: None,
+            wait_for_child: None,
+            child_timeout_ms: None,
+            dialog_anchor: None,
+            writeback: None,
             children: vec![],
         }
     }
@@ -363,6 +300,7 @@ mod tests {
             steps,
             assertions: vec![],
             trigger_templates: vec![],
+            budget: None,
         }
     }
 

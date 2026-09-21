@@ -1,0 +1,252 @@
+{
+  "schema": "wf-debug-trace/v1",
+  "kind": "workflow",
+  "graph_ref": "multidim-graph",
+  "initial_variables": {
+    "items": [1, 2],
+    "approved": true
+  },
+  "budget": {
+    "source": "test-budget",
+    "limit_tokens": 100000,
+    "limit_cost": 1.0,
+    "warn_at": 0.8
+  },
+  "trigger_templates": [],
+  "steps": [
+    {
+      "index": 0,
+      "node_id": "loop-node",
+      "node_name": "iterate",
+      "node_type": "LOOP",
+      "input": { "items": [1, 2] },
+      "result": { "round": 0 },
+      "success": true,
+      "start_time": 1000,
+      "end_time": 1004,
+      "variable_before": { "items": [1, 2] },
+      "variable_after": { "items": [1, 2] },
+      "messages_before": {},
+      "messages_after": {},
+      "tool_calls": [],
+      "llm_calls": [],
+      "loop_round": {
+        "loop_id": "loop-1",
+        "round": 0,
+        "item": 1,
+        "failed": false,
+        "iteration": 0,
+        "max_iterations": 5,
+        "failures": 0,
+        "policy": "continue",
+        "resumed": false,
+        "completed_nodes": ["loop-node"],
+        "iterable_kind": "items"
+      },
+      "hooks_fired": [],
+      "triggers_seen": []
+    },
+    {
+      "index": 1,
+      "node_id": "loop-node",
+      "node_name": "iterate",
+      "node_type": "LOOP",
+      "input": { "items": [1, 2] },
+      "result": { "round": 1 },
+      "success": true,
+      "error": "item rejected",
+      "start_time": 1005,
+      "end_time": 1009,
+      "variable_before": { "items": [1, 2] },
+      "variable_after": { "items": [1, 2] },
+      "messages_before": {},
+      "messages_after": {},
+      "tool_calls": [],
+      "llm_calls": [],
+      "loop_round": {
+        "loop_id": "loop-1",
+        "round": 1,
+        "item": 2,
+        "failed": true,
+        "iteration": 1,
+        "max_iterations": 5,
+        "failures": 1,
+        "policy": "continue",
+        "resumed": false,
+        "completed_nodes": [],
+        "iterable_kind": "items"
+      },
+      "hooks_fired": [],
+      "triggers_seen": []
+    },
+    {
+      "index": 2,
+      "node_id": "join-1",
+      "node_name": "join",
+      "node_type": "JOIN",
+      "input": {},
+      "result": { "outcome": "success" },
+      "success": true,
+      "start_time": 1010,
+      "end_time": 1012,
+      "variable_before": {},
+      "variable_after": { "joined": true },
+      "messages_before": {},
+      "messages_after": {},
+      "tool_calls": [],
+      "llm_calls": [],
+      "merge": {
+        "join_node_id": "join-1",
+        "branch_count": 2,
+        "failures_absorbed": 0,
+        "summary": { "ok": 2 },
+        "outcome": "success",
+        "policy": "fail_fast",
+        "branches": [
+          { "branch_id": "a", "success": true, "output": 1, "variables": { "x": 1 } },
+          { "branch_id": "b", "success": true, "output": 2, "variables": { "x": 2 } }
+        ]
+      },
+      "hooks_fired": [],
+      "triggers_seen": []
+    },
+    {
+      "index": 3,
+      "node_id": "script-1",
+      "node_name": "work",
+      "node_type": "SCRIPT",
+      "input": {},
+      "result": 1,
+      "success": true,
+      "start_time": 1013,
+      "end_time": 1020,
+      "variable_before": {},
+      "variable_after": {},
+      "messages_before": {},
+      "messages_after": {},
+      "tool_calls": [],
+      "llm_calls": [],
+      "interruption": {
+        "type": "pause",
+        "recovered": true,
+        "detail": "operator pause",
+        "duration_ms": 40
+      },
+      "checkpoint": {
+        "timing": "after_node",
+        "checkpoint_id": "cp-9",
+        "source": "policy"
+      },
+      "hooks_fired": [],
+      "triggers_seen": []
+    },
+    {
+      "index": 4,
+      "node_id": "ask-1",
+      "node_name": "ask",
+      "node_type": "INTERACT",
+      "input": {},
+      "result": "yes",
+      "success": true,
+      "start_time": 1021,
+      "end_time": 1030,
+      "variable_before": {},
+      "variable_after": { "approved": true },
+      "messages_before": {},
+      "messages_after": {},
+      "tool_calls": [],
+      "llm_calls": [
+        {
+          "profile_id": "default",
+          "model": "test-model",
+          "prompt_tokens": 100,
+          "completion_tokens": 50,
+          "reasoning_tokens": 10,
+          "cache_read_tokens": 20,
+          "cache_write_tokens": 5,
+          "total_cost": 0.003,
+          "estimated": false,
+          "tool_call_count": 0
+        }
+      ],
+      "interaction": {
+        "interaction_id": "i-1",
+        "prompt": "approve?",
+        "pending": false,
+        "response": "yes",
+        "timed_out": false,
+        "wait_ms": 120,
+        "dropped": false
+      },
+      "hooks_fired": [],
+      "triggers_seen": []
+    },
+    {
+      "index": 5,
+      "node_id": "agent-1",
+      "node_name": "helper",
+      "node_type": "AGENT",
+      "input": {},
+      "result": { "child_out": 7 },
+      "success": true,
+      "start_time": 1031,
+      "end_time": 1040,
+      "variable_before": {},
+      "variable_after": { "child_out": 7 },
+      "messages_before": {},
+      "messages_after": {},
+      "tool_calls": [
+        {
+          "name": "read_file",
+          "call_id": "c1",
+          "arguments": { "path": "a.txt" },
+          "result": "content",
+          "success": true
+        }
+      ],
+      "llm_calls": [],
+      "exec_id": "exec-root",
+      "root_exec_id": "exec-root",
+      "depth": 0,
+      "result_var": "child_out",
+      "wait_for_child": true,
+      "dialog_anchor": "head",
+      "writeback": "child_out",
+      "hooks_fired": [],
+      "triggers_seen": [],
+      "children": [
+        {
+          "index": 0,
+          "node_id": "agent-child",
+          "node_name": "sub",
+          "node_type": "AGENT",
+          "input": {},
+          "result": 7,
+          "success": true,
+          "variable_before": {},
+          "variable_after": {},
+          "messages_before": {},
+          "messages_after": {},
+          "tool_calls": [],
+          "llm_calls": [],
+          "exec_id": "exec-child",
+          "parent_exec_id": "exec-root",
+          "root_exec_id": "exec-root",
+          "depth": 1,
+          "dialog_anchor": "head",
+          "hooks_fired": [],
+          "triggers_seen": [],
+          "children": []
+        }
+      ]
+    }
+  ],
+  "assertions": [
+    { "type": "loop_rounds", "loop_id": "loop-1", "expected_rounds": 2 },
+    { "type": "merge_outcome", "step": 2, "expected": "success" },
+    { "type": "interruption_count", "kind": "timeout", "expected": 0 },
+    { "type": "checkpoint_present", "step": 3, "expected": true },
+    { "type": "interaction_settled", "interaction_id": "i-1" },
+    { "type": "token_budget", "max_total_tokens": 100000 }
+  ]
+}

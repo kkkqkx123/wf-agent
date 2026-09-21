@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 
 use crate::model::Trace;
+use crate::traverse::{find_step, walk};
+use crate::views::InterruptionKind;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -38,6 +40,32 @@ pub enum Assertion {
     ToolDeniedWith {
         tool: String,
         contains: String,
+    },
+    LoopRounds {
+        loop_id: String,
+        expected_rounds: usize,
+    },
+    MergeOutcome {
+        step: usize,
+        expected: String,
+    },
+    InterruptionCount {
+        #[serde(default)]
+        kind: Option<InterruptionKind>,
+        expected: usize,
+    },
+    CheckpointPresent {
+        step: usize,
+        expected: bool,
+    },
+    InteractionSettled {
+        interaction_id: String,
+    },
+    TokenBudget {
+        max_total_tokens: u64,
+    },
+    CostBudget {
+        max_cost: f64,
     },
 }
 
@@ -84,7 +112,7 @@ fn evaluate_one(trace: &Trace, position: usize, assertion: &Assertion) -> Assert
     let name = format!("assert-{position}");
     match assertion {
         Assertion::StepSuccess { step } => {
-            let Some(record) = trace.steps.iter().find(|s| s.index == *step) else {
+            let Some(record) = find_step(trace, *step) else {
                 return fail(name, None, None, "step not found");
             };
             if record.success {
@@ -103,7 +131,7 @@ fn evaluate_one(trace: &Trace, position: usize, assertion: &Assertion) -> Assert
             }
         }
         Assertion::StepResult { step, expected } => {
-            let Some(record) = trace.steps.iter().find(|s| s.index == *step) else {
+            let Some(record) = find_step(trace, *step) else {
                 return fail(name, None, None, "step not found");
             };
             if &record.result == expected {
@@ -122,7 +150,7 @@ fn evaluate_one(trace: &Trace, position: usize, assertion: &Assertion) -> Assert
             key,
             expected,
         } => {
-            let Some(record) = trace.steps.iter().find(|s| s.index == *step) else {
+            let Some(record) = find_step(trace, *step) else {
                 return fail(name, None, None, "step not found");
             };
             let actual = record.variable_after.get(key);
@@ -141,7 +169,7 @@ fn evaluate_one(trace: &Trace, position: usize, assertion: &Assertion) -> Assert
             step,
             expected_target,
         } => {
-            let Some(record) = trace.steps.iter().find(|s| s.index == *step) else {
+            let Some(record) = find_step(trace, *step) else {
                 return fail(name, None, None, "step not found");
             };
             if record.route_target.as_deref() == Some(expected_target.as_str()) {
@@ -163,13 +191,18 @@ fn evaluate_one(trace: &Trace, position: usize, assertion: &Assertion) -> Assert
             hook_type,
             expected_veto,
         } => {
-            let vetoes = trace
-                .steps
-                .iter()
-                .flat_map(|s| s.hooks_fired.iter())
-                .filter(|h| &h.hook_type == hook_type)
-                .filter(|h| h.veto_reason.is_some() || h.outcome == "veto")
-                .count();
+            let vetoes: usize = walk(trace)
+                .into_iter()
+                .map(|visit| {
+                    visit
+                        .step
+                        .hooks_fired
+                        .iter()
+                        .filter(|hook| &hook.hook_type == hook_type)
+                        .filter(|hook| hook.veto_reason.is_some() || hook.outcome == "veto")
+                        .count()
+                })
+                .sum::<usize>();
             let actual_veto = vetoes > 0;
             if &actual_veto == expected_veto {
                 pass(name)
@@ -183,12 +216,18 @@ fn evaluate_one(trace: &Trace, position: usize, assertion: &Assertion) -> Assert
             }
         }
         Assertion::TriggerMatched { template, expected } => {
-            let actual = trace
-                .steps
-                .iter()
-                .flat_map(|s| s.triggers_seen.iter())
-                .find(|t| &t.template_name == template)
-                .map(|t| t.matched);
+            let mut actual = None;
+            for visit in walk(trace) {
+                if let Some(event) = visit
+                    .step
+                    .triggers_seen
+                    .iter()
+                    .find(|event| event.template_name == *template)
+                {
+                    actual = Some(event.matched);
+                    break;
+                }
+            }
             match actual {
                 Some(matched) if &matched == expected => pass(name),
                 Some(matched) => fail(
@@ -263,16 +302,167 @@ fn evaluate_one(trace: &Trace, position: usize, assertion: &Assertion) -> Assert
                 )
             }
         }
+        Assertion::LoopRounds {
+            loop_id,
+            expected_rounds,
+        } => {
+            let actual = walk(trace)
+                .into_iter()
+                .filter(|visit| {
+                    visit
+                        .step
+                        .loop_round
+                        .as_ref()
+                        .is_some_and(|round| &round.loop_id == loop_id)
+                })
+                .count();
+            if &actual == expected_rounds {
+                pass(name)
+            } else {
+                fail(
+                    name,
+                    Some(serde_json::Value::from(*expected_rounds)),
+                    Some(serde_json::Value::from(actual)),
+                    &format!("loop {loop_id} round count mismatch"),
+                )
+            }
+        }
+        Assertion::MergeOutcome { step, expected } => {
+            let Some(record) = find_step(trace, *step) else {
+                return fail(name, None, None, "step not found");
+            };
+            let Some(merge) = record.merge.as_ref() else {
+                return fail(name, None, None, "step has no merge record");
+            };
+            let actual = merge
+                .outcome
+                .clone()
+                .unwrap_or_else(|| "unknown".to_string());
+            if &actual == expected {
+                pass(name)
+            } else {
+                fail(
+                    name,
+                    Some(serde_json::Value::String(expected.clone())),
+                    Some(serde_json::Value::String(actual)),
+                    "merge outcome mismatch",
+                )
+            }
+        }
+        Assertion::InterruptionCount { kind, expected } => {
+            let actual = walk(trace)
+                .into_iter()
+                .filter(|visit| {
+                    visit
+                        .step
+                        .interruption
+                        .as_ref()
+                        .is_some_and(|interruption| {
+                            kind.is_none_or(|want| interruption.kind == want)
+                        })
+                })
+                .count();
+            if &actual == expected {
+                pass(name)
+            } else {
+                fail(
+                    name,
+                    Some(serde_json::Value::from(*expected)),
+                    Some(serde_json::Value::from(actual)),
+                    "interruption count mismatch",
+                )
+            }
+        }
+        Assertion::CheckpointPresent { step, expected } => {
+            let Some(record) = find_step(trace, *step) else {
+                return fail(name, None, None, "step not found");
+            };
+            let actual = record.checkpoint.is_some();
+            if &actual == expected {
+                pass(name)
+            } else {
+                fail(
+                    name,
+                    Some(serde_json::Value::Bool(*expected)),
+                    Some(serde_json::Value::Bool(actual)),
+                    "checkpoint presence mismatch",
+                )
+            }
+        }
+        Assertion::InteractionSettled { interaction_id } => {
+            let settled = walk(trace).into_iter().any(|visit| {
+                visit.step.interaction.as_ref().is_some_and(|interaction| {
+                    &interaction.interaction_id == interaction_id && !interaction.pending
+                })
+            });
+            if settled {
+                pass(name)
+            } else {
+                fail(
+                    name,
+                    Some(serde_json::Value::Bool(true)),
+                    Some(serde_json::Value::Bool(false)),
+                    &format!("interaction {interaction_id} is not settled"),
+                )
+            }
+        }
+        Assertion::TokenBudget { max_total_tokens } => {
+            let actual: u64 = walk(trace)
+                .into_iter()
+                .flat_map(|visit| {
+                    visit
+                        .step
+                        .llm_calls
+                        .iter()
+                        .map(|call| call.effective_total())
+                })
+                .sum();
+            if actual <= *max_total_tokens {
+                pass(name)
+            } else {
+                fail(
+                    name,
+                    Some(serde_json::Value::from(*max_total_tokens)),
+                    Some(serde_json::Value::from(actual)),
+                    "token budget exceeded",
+                )
+            }
+        }
+        Assertion::CostBudget { max_cost } => {
+            let actual: f64 = walk(trace)
+                .into_iter()
+                .flat_map(|visit| {
+                    visit
+                        .step
+                        .llm_calls
+                        .iter()
+                        .filter(|call| !call.estimated)
+                        .filter_map(|call| call.total_cost)
+                })
+                .sum();
+            if actual <= *max_cost {
+                pass(name)
+            } else {
+                fail(
+                    name,
+                    Some(serde_json::json!(max_cost)),
+                    Some(serde_json::json!(actual)),
+                    "cost budget exceeded",
+                )
+            }
+        }
     }
 }
 
 fn tool_calls<'a>(trace: &'a Trace, tool: &str) -> Vec<&'a crate::model::ToolCallView> {
-    trace
-        .steps
-        .iter()
-        .flat_map(|s| s.tool_calls.iter())
-        .filter(|c| c.name == tool)
-        .collect()
+    let mut out = Vec::new();
+    for visit in walk(trace) {
+        let step = visit.step;
+        for call in step.tool_calls.iter().filter(|call| call.name == tool) {
+            out.push(call);
+        }
+    }
+    out
 }
 
 fn pass(name: String) -> AssertionResult {
@@ -338,6 +528,15 @@ mod tests {
             interaction: None,
             hooks_fired: vec![],
             triggers_seen: vec![],
+            exec_id: None,
+            parent_exec_id: None,
+            root_exec_id: None,
+            depth: None,
+            result_var: None,
+            wait_for_child: None,
+            child_timeout_ms: None,
+            dialog_anchor: None,
+            writeback: None,
             children: vec![],
         }
     }
@@ -356,6 +555,7 @@ mod tests {
                 expected: serde_json::json!(2),
             }],
             trigger_templates: vec![],
+            budget: None,
         };
         let outcome = run_assertions(&trace);
         assert_eq!(outcome.failed, 1);
@@ -390,6 +590,7 @@ mod tests {
             steps,
             assertions,
             trigger_templates: vec![],
+            budget: None,
         }
     }
 
@@ -433,5 +634,63 @@ mod tests {
         );
         let outcome = run_assertions(&trace);
         assert_eq!(outcome.failed, 0);
+    }
+
+    #[test]
+    fn loop_rounds_counts_nested_rounds() {
+        let mut parent = empty_step(0);
+        let mut child = empty_step(1);
+        child.loop_round = Some(crate::model::LoopRoundView {
+            loop_id: "l1".to_string(),
+            round: 0,
+            item: None,
+            failed: false,
+            iteration: Some(0),
+            max_iterations: None,
+            failures: 0,
+            policy: None,
+            resumed: false,
+            completed_nodes: vec![],
+            iterable_kind: None,
+        });
+        parent.children = vec![child];
+        let trace = trace_with_assertions(
+            vec![parent],
+            vec![Assertion::LoopRounds {
+                loop_id: "l1".to_string(),
+                expected_rounds: 1,
+            }],
+        );
+        let outcome = run_assertions(&trace);
+        assert_eq!(outcome.failed, 0);
+    }
+
+    #[test]
+    fn token_budget_sums_nested_calls() {
+        let mut parent = empty_step(0);
+        parent.llm_calls = vec![crate::model::LlmCallView {
+            profile_id: "p".to_string(),
+            model: None,
+            prompt_tokens: 60,
+            completion_tokens: 50,
+            total_tokens: 0,
+            reasoning_tokens: None,
+            cache_read_tokens: None,
+            cache_write_tokens: None,
+            total_cost: None,
+            estimated: false,
+            content_preview: None,
+            tool_call_count: 0,
+            error: None,
+        }];
+        let trace = trace_with_assertions(
+            vec![parent],
+            vec![Assertion::TokenBudget {
+                max_total_tokens: 100,
+            }],
+        );
+        let outcome = run_assertions(&trace);
+        assert_eq!(outcome.failed, 1);
+        assert_eq!(outcome.results[0].actual, Some(serde_json::json!(110)));
     }
 }

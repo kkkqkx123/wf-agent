@@ -52,6 +52,7 @@ fn empty_steps_replay_cleanly() {
         steps: Vec::new(),
         assertions: Vec::new(),
         trigger_templates: Vec::new(),
+        budget: None,
     };
     let outcome = wf_debugger::replay_trace(&trace);
     assert_eq!(outcome.summary.steps, 0);

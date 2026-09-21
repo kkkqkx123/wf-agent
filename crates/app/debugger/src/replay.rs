@@ -2,9 +2,16 @@ use serde::{Deserialize, Serialize};
 
 use crate::model::Trace;
 use crate::observe::{all_message_diffs, variable_diffs, MessageDiff, VariableDiff};
+use crate::traverse::walk;
+use crate::views::InterruptionKind;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct StepOutcome {
+    /// Walk path of the step, unique within the trace.
+    #[serde(default)]
+    pub path: String,
+    #[serde(default)]
+    pub depth: usize,
     pub index: usize,
     pub node_id: String,
     pub node_type: String,
@@ -31,6 +38,20 @@ pub struct ReplaySummary {
     pub trigger_matches: usize,
     pub pending_interactions: usize,
     pub timeouts: usize,
+    #[serde(default)]
+    pub loop_rounds: usize,
+    #[serde(default)]
+    pub merges: usize,
+    #[serde(default)]
+    pub checkpoints: usize,
+    #[serde(default)]
+    pub llm_calls: usize,
+    #[serde(default)]
+    pub prompt_tokens: u64,
+    #[serde(default)]
+    pub completion_tokens: u64,
+    #[serde(default)]
+    pub total_tokens: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -41,12 +62,10 @@ pub struct ReplayOutcome {
 
 pub fn replay_trace(trace: &Trace) -> ReplayOutcome {
     let mut steps = Vec::new();
-    let mut summary = ReplaySummary {
-        steps: trace.steps.len(),
-        ..Default::default()
-    };
+    let mut summary = ReplaySummary::default();
 
-    for step in &trace.steps {
+    for visit in walk(trace) {
+        let step = visit.step;
         let variable_diffs = variable_diffs(&step.variable_before, &step.variable_after);
         let message_diffs = all_message_diffs(&step.messages_before, &step.messages_after);
         let tool_failures = step.tool_calls.iter().filter(|t| !t.success).count();
@@ -60,6 +79,7 @@ pub fn replay_trace(trace: &Trace) -> ReplayOutcome {
             (Some(start), Some(end)) => Some(end - start),
             _ => None,
         };
+        summary.steps += 1;
         if !step.success {
             summary.failures += 1;
         }
@@ -73,18 +93,28 @@ pub fn replay_trace(trace: &Trace) -> ReplayOutcome {
         if step
             .interruption
             .as_ref()
-            .is_some_and(|i| i.interruption_type == "timeout" || i.interruption_type == "Timeout")
+            .is_some_and(|i| i.kind == InterruptionKind::Timeout)
         {
             summary.timeouts += 1;
         }
-        for child in &step.children {
-            summary.steps += 1;
-            summary.tool_calls += child.tool_calls.len();
-            if !child.success {
-                summary.failures += 1;
-            }
+        if step.loop_round.is_some() {
+            summary.loop_rounds += 1;
+        }
+        if step.merge.is_some() {
+            summary.merges += 1;
+        }
+        if step.checkpoint.is_some() {
+            summary.checkpoints += 1;
+        }
+        summary.llm_calls += step.llm_calls.len();
+        for call in &step.llm_calls {
+            summary.prompt_tokens += u64::from(call.prompt_tokens);
+            summary.completion_tokens += u64::from(call.completion_tokens);
+            summary.total_tokens += call.effective_total();
         }
         steps.push(StepOutcome {
+            path: visit.path,
+            depth: visit.depth,
             index: step.index,
             node_id: step.node_id.clone(),
             node_type: step.node_type.clone(),
@@ -156,14 +186,25 @@ mod tests {
                 interaction: None,
                 hooks_fired: vec![],
                 triggers_seen: vec![],
+                exec_id: None,
+                parent_exec_id: None,
+                root_exec_id: None,
+                depth: None,
+                result_var: None,
+                wait_for_child: None,
+                child_timeout_ms: None,
+                dialog_anchor: None,
+                writeback: None,
                 children: vec![],
             }],
             assertions: vec![],
             trigger_templates: vec![],
+            budget: None,
         };
         let outcome = replay_trace(&trace);
         assert_eq!(outcome.summary.failures, 1);
         assert_eq!(outcome.summary.tool_failures, 1);
         assert_eq!(outcome.steps[0].duration_ms, Some(3));
+        assert_eq!(outcome.steps[0].path, "0");
     }
 }

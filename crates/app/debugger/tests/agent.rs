@@ -1,6 +1,5 @@
-use wf_debugger::agent_dbg::{
-    analyze_agent_trace, EXPLORER_AGENT_TEMPLATE_ID, VIOLATION_UNEXPECTED_SUCCESS,
-};
+use wf_debugger::agent_dbg::{analyze_agent_trace, VIOLATION_UNEXPECTED_SUCCESS};
+use wf_debugger::policy::EXPLORER_AGENT_TEMPLATE_ID;
 
 fn explorer_trace() -> wf_debugger::model::Trace {
     let text =

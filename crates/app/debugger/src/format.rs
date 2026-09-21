@@ -1,17 +1,23 @@
+use crate::assert::AssertOutcome;
 use crate::model::{cap_payload_text, Trace};
 use crate::replay::ReplayOutcome;
+use crate::traverse::walk;
 
 pub fn format_text(trace: &Trace, outcome: &ReplayOutcome, no_color: bool) -> String {
     let mut buf = String::new();
     buf.push_str(&format!(
-        "trace kind={:?} steps={} failures={} tools={}/{}\n",
+        "trace kind={:?} steps={} failures={} tools={}/{} llm_calls={} tokens={}\n",
         trace.kind,
         outcome.summary.steps,
         outcome.summary.failures,
         outcome.summary.tool_failures,
         outcome.summary.tool_calls,
+        outcome.summary.llm_calls,
+        outcome.summary.total_tokens,
     ));
-    for (step, record) in outcome.steps.iter().zip(trace.steps.iter()) {
+    let visits = walk(trace);
+    for (step, visit) in outcome.steps.iter().zip(visits.iter()) {
+        let record = visit.step;
         let status = if step.success { "ok" } else { "FAIL" };
         let decorated = if step.success || no_color {
             status.to_string()
@@ -20,7 +26,7 @@ pub fn format_text(trace: &Trace, outcome: &ReplayOutcome, no_color: bool) -> St
         };
         buf.push_str(&format!(
             "[step {}] {} {} ({}) {decorated}",
-            step.index, step.node_type, record.node_name, step.node_id
+            visit.path, step.node_type, record.node_name, step.node_id
         ));
         if let Some(duration) = step.duration_ms {
             buf.push_str(&format!(" {duration}ms"));
@@ -61,29 +67,75 @@ pub fn format_text(trace: &Trace, outcome: &ReplayOutcome, no_color: bool) -> St
             }
             buf.push('\n');
         }
+        for call in &record.llm_calls {
+            buf.push_str(&format!(
+                "  llm {} tokens={} cost={}\n",
+                call.model
+                    .clone()
+                    .unwrap_or_else(|| call.profile_id.clone()),
+                call.effective_total(),
+                call.total_cost
+                    .map(|cost| format!("{cost:.4}"))
+                    .unwrap_or_else(|| "-".to_string()),
+            ));
+        }
+        if let Some(round) = record.loop_round.as_ref() {
+            buf.push_str(&format!(
+                "  loop '{}' round {}{}\n",
+                round.loop_id,
+                round.round,
+                if round.failed { " FAILED" } else { "" },
+            ));
+        }
+        if let Some(merge) = record.merge.as_ref() {
+            buf.push_str(&format!(
+                "  merge '{}' outcome={} branches={}\n",
+                merge.join_node_id,
+                merge.outcome.clone().unwrap_or_else(|| "?".to_string()),
+                merge.branches.len(),
+            ));
+        }
         if step.hook_vetoes > 0 {
             buf.push_str(&format!("  hooks: {} veto(es)\n", step.hook_vetoes));
         }
         if let Some(interruption) = record.interruption.as_ref() {
             buf.push_str(&format!(
-                "  interruption: {}\n",
-                interruption.interruption_type
+                "  interruption: {} recovered={}\n",
+                interruption.kind.label(),
+                interruption.recovered,
             ));
         }
         if let Some(checkpoint) = record.checkpoint.as_ref() {
-            buf.push_str(&format!("  checkpoint: {}\n", checkpoint.timing));
+            buf.push_str(&format!(
+                "  checkpoint: {}{}\n",
+                checkpoint.timing.label(),
+                checkpoint
+                    .checkpoint_id
+                    .as_deref()
+                    .map(|id| format!(" id={id}"))
+                    .unwrap_or_default(),
+            ));
+        }
+        if let Some(interaction) = record.interaction.as_ref() {
+            buf.push_str(&format!(
+                "  interaction '{}' pending={} timed_out={}\n",
+                interaction.interaction_id, interaction.pending, interaction.timed_out,
+            ));
         }
     }
     buf
 }
 
-pub fn format_json(trace: &Trace, outcome: &ReplayOutcome) -> String {
+pub fn format_json(trace: &Trace, outcome: &ReplayOutcome, assertions: &AssertOutcome) -> String {
     let payload = serde_json::json!({
         "schema": trace.schema,
         "kind": trace.kind,
         "summary": outcome.summary,
         "steps": outcome.steps,
         "assertions": trace.assertions,
+        "assertion_results": assertions.results,
+        "assertions_passed": assertions.passed,
+        "assertions_failed": assertions.failed,
     });
     serde_json::to_string_pretty(&payload).unwrap_or_else(|_| String::from("{}"))
 }
@@ -117,6 +169,7 @@ mod tests {
             steps: vec![],
             assertions: vec![],
             trigger_templates: vec![],
+            budget: None,
         };
         let outcome = ReplayOutcome {
             steps: vec![],
@@ -124,5 +177,30 @@ mod tests {
         };
         let text = format_text(&trace, &outcome, true);
         assert!(text.contains("steps=0"));
+    }
+
+    #[test]
+    fn json_carries_assertion_results() {
+        let trace = Trace {
+            schema: crate::model::TRACE_SCHEMA_V1.to_string(),
+            kind: crate::model::TraceKind::Workflow,
+            graph_ref: String::new(),
+            agent_template: String::new(),
+            initial_variables: Default::default(),
+            steps: vec![],
+            assertions: vec![],
+            trigger_templates: vec![],
+            budget: None,
+        };
+        let outcome = ReplayOutcome {
+            steps: vec![],
+            summary: Default::default(),
+        };
+        let assertions = AssertOutcome::default();
+        let payload: serde_json::Value =
+            serde_json::from_str(&format_json(&trace, &outcome, &assertions))
+                .expect("json renders");
+        assert!(payload.get("assertion_results").is_some());
+        assert!(payload.get("steps").is_some());
     }
 }

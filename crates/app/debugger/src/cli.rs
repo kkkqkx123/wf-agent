@@ -3,8 +3,6 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 
-use crate::model::Trace;
-
 #[derive(Debug, Parser)]
 #[command(name = "wf-debug", about = "Offline workflow and agent debugger")]
 pub struct DebuggerCli {
@@ -15,18 +13,32 @@ pub struct DebuggerCli {
 #[derive(Debug, Subcommand)]
 pub enum DebuggerCommand {
     Replay(ReplayArgs),
+    Check(CheckArgs),
     Branches(BranchesArgs),
     Hooks(HooksArgs),
     Triggers(TriggersArgs),
     Assert(AssertArgs),
     Timeline(TimelineArgs),
     Agents(AgentsArgs),
+    Import(ImportArgs),
 }
 
 #[derive(Debug, clap::Args)]
 pub struct ReplayArgs {
     #[arg(long)]
     pub trace: PathBuf,
+    #[arg(long, default_value_t = false)]
+    pub json: bool,
+    #[arg(long, default_value_t = false)]
+    pub no_color: bool,
+}
+
+#[derive(Debug, clap::Args)]
+pub struct CheckArgs {
+    #[arg(long)]
+    pub trace: PathBuf,
+    #[arg(long)]
+    pub agent: Option<String>,
     #[arg(long, default_value_t = false)]
     pub json: bool,
     #[arg(long, default_value_t = false)]
@@ -91,55 +103,47 @@ pub struct AgentsArgs {
     pub json: bool,
 }
 
-pub fn load_trace(path: &std::path::Path) -> Result<Trace> {
-    let text =
-        std::fs::read_to_string(path).with_context(|| format!("read trace {}", path.display()))?;
-    serde_json::from_str(&text).with_context(|| "parse trace JSON")
-}
-
-pub fn load_variables(
-    path: Option<&std::path::Path>,
-) -> Result<std::collections::HashMap<String, serde_json::Value>> {
-    let Some(path) = path else {
-        return Ok(Default::default());
-    };
-    let text = std::fs::read_to_string(path)
-        .with_context(|| format!("read variables {}", path.display()))?;
-    serde_json::from_str(&text).with_context(|| "parse variables JSON")
+#[derive(Debug, clap::Args)]
+pub struct ImportArgs {
+    #[arg(long)]
+    pub snapshot: PathBuf,
+    /// Write the normalized trace here; prints to stdout when absent.
+    #[arg(long)]
+    pub out: Option<PathBuf>,
 }
 
 pub fn run(cli: DebuggerCli) -> Result<i32> {
     match cli.command {
         DebuggerCommand::Replay(args) => cmd_replay(args),
+        DebuggerCommand::Check(args) => cmd_check(args),
         DebuggerCommand::Branches(args) => cmd_branches(args),
         DebuggerCommand::Hooks(args) => cmd_hooks(args),
         DebuggerCommand::Triggers(args) => cmd_triggers(args),
         DebuggerCommand::Assert(args) => cmd_assert(args),
         DebuggerCommand::Timeline(args) => cmd_timeline(args),
         DebuggerCommand::Agents(args) => cmd_agents(args),
+        DebuggerCommand::Import(args) => cmd_import(args),
     }
 }
 
 fn cmd_replay(args: ReplayArgs) -> Result<i32> {
-    let trace = load_trace(&args.trace)?;
-    let outcome = crate::replay_trace(&trace);
-    if args.json {
-        println!("{}", crate::format::format_json(&trace, &outcome));
-    } else {
-        print!(
-            "{}",
-            crate::format::format_text(&trace, &outcome, args.no_color)
-        );
-    }
-    Ok(0)
+    let trace = crate::input::load_trace(&args.trace)?;
+    let (text, code) = crate::runner::render_replay(&trace, args.json, args.no_color);
+    print!("{text}");
+    Ok(code)
+}
+
+fn cmd_check(args: CheckArgs) -> Result<i32> {
+    let trace = crate::input::load_trace(&args.trace)?;
+    let (text, code) =
+        crate::runner::render_check(&trace, args.agent.as_deref(), args.json, args.no_color);
+    print!("{text}");
+    Ok(code)
 }
 
 fn cmd_branches(args: BranchesArgs) -> Result<i32> {
-    let text = std::fs::read_to_string(&args.decision)
-        .with_context(|| format!("read decision {}", args.decision.display()))?;
-    let point: crate::model::RouteDecisionPoint =
-        serde_json::from_str(&text).with_context(|| "parse decision JSON")?;
-    let variables = load_variables(args.variables.as_deref())?;
+    let point = crate::input::load_decision(&args.decision)?;
+    let variables = crate::input::load_variables(args.variables.as_deref())?;
     let verdict = crate::branches::evaluate_decision(&point, &variables);
     let summary = crate::branches::summarize_verdicts(std::slice::from_ref(&verdict));
     if args.json {
@@ -173,7 +177,7 @@ fn cmd_branches(args: BranchesArgs) -> Result<i32> {
 }
 
 fn cmd_hooks(args: HooksArgs) -> Result<i32> {
-    let trace = load_trace(&args.trace)?;
+    let trace = crate::input::load_trace(&args.trace)?;
     let reports = crate::hook_dbg::collect_hook_points(&trace);
     if args.json {
         println!(
@@ -196,7 +200,7 @@ fn cmd_hooks(args: HooksArgs) -> Result<i32> {
 }
 
 fn cmd_triggers(args: TriggersArgs) -> Result<i32> {
-    let trace = load_trace(&args.trace)?;
+    let trace = crate::input::load_trace(&args.trace)?;
     if let Some(event_type) = args.event_type.as_deref() {
         let run = crate::trigger_dbg::dry_run(
             &trace.trigger_templates,
@@ -216,10 +220,10 @@ fn cmd_triggers(args: TriggersArgs) -> Result<i32> {
     }
     let mut matched = 0;
     let mut total = 0;
-    for step in &trace.steps {
-        let (step_matched, _) = crate::trigger_dbg::summarize_seen(&step.triggers_seen);
+    for visit in crate::traverse::walk(&trace) {
+        let (step_matched, _) = crate::trigger_dbg::summarize_seen(&visit.step.triggers_seen);
         matched += step_matched;
-        total += step.triggers_seen.len();
+        total += visit.step.triggers_seen.len();
     }
     if args.json {
         println!(
@@ -237,7 +241,7 @@ fn cmd_triggers(args: TriggersArgs) -> Result<i32> {
 }
 
 fn cmd_assert(args: AssertArgs) -> Result<i32> {
-    let trace = load_trace(&args.trace)?;
+    let trace = crate::input::load_trace(&args.trace)?;
     let outcome = crate::assert::run_assertions(&trace);
     if args.json {
         println!(
@@ -262,7 +266,7 @@ fn cmd_assert(args: AssertArgs) -> Result<i32> {
 }
 
 fn cmd_timeline(args: TimelineArgs) -> Result<i32> {
-    let trace = load_trace(&args.trace)?;
+    let trace = crate::input::load_trace(&args.trace)?;
     let entries = crate::timeline::build_timeline(&trace);
     if args.json {
         println!(
@@ -278,7 +282,7 @@ fn cmd_timeline(args: TimelineArgs) -> Result<i32> {
 }
 
 fn cmd_agents(args: AgentsArgs) -> Result<i32> {
-    let trace = load_trace(&args.trace)?;
+    let trace = crate::input::load_trace(&args.trace)?;
     let analysis = crate::agent_dbg::analyze_agent_trace(&trace, args.agent.as_deref());
     if args.json {
         println!(
@@ -297,10 +301,24 @@ fn cmd_agents(args: AgentsArgs) -> Result<i32> {
         );
         for violation in &analysis.violations {
             println!(
-                "  [step {}] {} {}: {}",
-                violation.step, violation.tool, violation.kind, violation.detail
+                "  [step-{}] {} {}: {}",
+                violation.path, violation.tool, violation.kind, violation.detail
             );
         }
     }
     Ok(if analysis.violations.is_empty() { 0 } else { 1 })
+}
+
+fn cmd_import(args: ImportArgs) -> Result<i32> {
+    let text = std::fs::read_to_string(&args.snapshot)
+        .with_context(|| format!("read snapshot {}", args.snapshot.display()))?;
+    let trace = crate::import::import_snapshot_text(&text)?;
+    let rendered = serde_json::to_string_pretty(&trace).unwrap_or_default();
+    if let Some(out) = args.out.as_deref() {
+        std::fs::write(out, format!("{rendered}\n"))
+            .with_context(|| format!("write trace {}", out.display()))?;
+    } else {
+        println!("{rendered}");
+    }
+    Ok(0)
 }

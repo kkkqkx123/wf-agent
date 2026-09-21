@@ -41,8 +41,10 @@ impl Default for DiscoverableMetadataOptions {
 }
 
 /// Placeholder replaced by [`inject_tool_metadata_block`], mirroring
-/// the skill metadata `{SKILLS_METADATA}` mechanism.
-pub const DISCOVERABLE_TOOLS_METADATA_PLACEHOLDER: &str = "{DISCOVERABLE_TOOLS_METADATA}";
+/// the skill metadata anchor mechanism. Canonical text lives in the
+/// shared template module so every injection stage references one spelling.
+pub const DISCOVERABLE_TOOLS_METADATA_PLACEHOLDER: &str =
+    wf_common::template::DISCOVERABLE_TOOLS_METADATA_PLACEHOLDER;
 
 /// Style-aware generator for the metadata prompt of discoverable tools:
 /// name + one-line description + typed parameter list
@@ -130,20 +132,16 @@ fn render_parameter_list(
 /// anchor. Shared by the skill and discoverable-tools injection paths so the
 /// two can never drift apart: an empty block strips the anchor, a present
 /// anchor is replaced, and a missing anchor appends the block with a
-/// warning.
-///
-/// Reserved-marker registry: post-render anchors use single braces with
-/// all-caps underscore names so the double-brace template renderer (which
-/// runs earlier) never touches them. Exactly two markers exist:
-/// `{SKILLS_METADATA}` (skill layer, injected at prompt-assembly time into
-/// the stable header) and `{DISCOVERABLE_TOOLS_METADATA}` (this module,
-/// injected per request into the first system message, after the skill
-/// anchor). A new marker must reuse this helper and be listed here.
+/// warning. Only registered anchors may use this helper.
 pub(crate) fn inject_placeholder_block(
     system_prompt: &str,
     placeholder: &str,
     block: &str,
 ) -> String {
+    if !wf_common::template::is_prompt_anchor(placeholder) {
+        tracing::warn!("unregistered prompt anchor '{placeholder}'; left untouched");
+        return system_prompt.to_string();
+    }
     if block.is_empty() {
         return system_prompt.replace(placeholder, "");
     }

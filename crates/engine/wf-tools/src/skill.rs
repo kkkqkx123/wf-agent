@@ -539,10 +539,9 @@ pub fn substitute_variables(content: &str, variables: &HashMap<String, Value>) -
     wf_common::template::apply_template_variables(content, &mapped)
 }
 
-/// Placeholder replaced by [`inject_skill_metadata`]. Single braces keep
-/// this stage disjoint from the double-brace template renderer, which runs
-/// earlier and never touches single-brace text.
-pub const SKILLS_METADATA_PLACEHOLDER: &str = "{SKILLS_METADATA}";
+/// Placeholder replaced by [`inject_skill_metadata`]. Canonical text lives
+/// in the shared template module so every injection stage references one spelling.
+pub const SKILLS_METADATA_PLACEHOLDER: &str = wf_common::template::SKILLS_METADATA_PLACEHOLDER;
 
 /// Generate the metadata prompt listing all enabled skills
 /// (progressive disclosure level 1).

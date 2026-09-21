@@ -41,6 +41,22 @@ pub fn value_to_display_string(value: &serde_json::Value) -> String {
     }
 }
 
+/// Single-brace post-render anchors resolved after double-brace rendering.
+/// Single braces keep these stages disjoint from the template renderer.
+pub const SKILLS_METADATA_PLACEHOLDER: &str = "{SKILLS_METADATA}";
+pub const DISCOVERABLE_TOOLS_METADATA_PLACEHOLDER: &str = "{DISCOVERABLE_TOOLS_METADATA}";
+
+/// Every registered post-render anchor. New markers must extend this list.
+pub const PROMPT_ANCHORS: &[&str] = &[
+    SKILLS_METADATA_PLACEHOLDER,
+    DISCOVERABLE_TOOLS_METADATA_PLACEHOLDER,
+];
+
+/// Whether a placeholder text is a registered post-render anchor.
+pub fn is_prompt_anchor(placeholder: &str) -> bool {
+    PROMPT_ANCHORS.contains(&placeholder)
+}
+
 /// Collect placeholder names a render pass would attempt to resolve.
 /// Mirrors the substitution scan above so validation and observability
 /// never drift from rendering: any trimmed non-empty span between the
@@ -112,5 +128,15 @@ mod tests {
             value_to_display_string(&serde_json::json!(42)),
             "42"
         );
+    }
+
+    #[test]
+    fn prompt_anchors_are_registered() {
+        assert!(is_prompt_anchor(SKILLS_METADATA_PLACEHOLDER));
+        assert!(is_prompt_anchor(
+            DISCOVERABLE_TOOLS_METADATA_PLACEHOLDER
+        ));
+        assert!(!is_prompt_anchor("{UNKNOWN_ANCHOR}"));
+        assert_eq!(PROMPT_ANCHORS.len(), 2);
     }
 }

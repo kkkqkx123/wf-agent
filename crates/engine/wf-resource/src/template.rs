@@ -12,8 +12,10 @@
 //!   declaration order (a missing fragment fails the render).
 //!
 //! Any other `{{name}}` placeholder (including the removed
-//! `{{tool_descriptions}}`) is substituted from the render variables and
-//! otherwise kept verbatim with an unresolved-placeholder warning.
+//! `{{tool_descriptions}}`) is substituted from the render variables.
+//! Declared default values fill missing entries first; a still-missing
+//! required variable fails the render, while an optional one stays verbatim
+//! with an unresolved-placeholder warning.
 //!
 //! Two-stage pipeline: this engine only resolves double-brace placeholders.
 //! Post-render injection anchors (single-brace uppercase markers resolved by
@@ -21,8 +23,8 @@
 //! as template variables.
 //!
 //! When no template is registered for an id, the built-in default text is
-//! used, so unconfigured deployments keep the previous behavior. Unknown
-//! ids render to `None`.
+//! used with a fallback metric so unconfigured deployments stay visible.
+//! Unknown ids render to `None`.
 
 use std::collections::HashMap;
 
@@ -82,9 +84,10 @@ pub fn render_template(
 }
 
 /// Render a template and record duration and unknown-id errors into the
-/// template collector. Absent collectors add zero overhead. This is
-/// best-effort text rendering: failures surface as `None` plus a metric,
-/// while strict command execution keeps returning `Result`.
+/// template collector. Absent collectors add zero overhead. Missing
+/// required variables fail the render as `None` plus a metric so partial
+/// prompts never reach the model, while strict command execution keeps
+/// returning `Result`.
 pub fn render_template_with_metrics(
     regs: &ResourceRegistries,
     id: &str,
@@ -93,6 +96,7 @@ pub fn render_template_with_metrics(
 ) -> Option<String> {
     let start = std::time::Instant::now();
     let template: Option<Template> = regs.templates.get(id).map(|t| t.as_ref().clone());
+    let using_builtin_fallback = template.is_none();
     let content = template
         .as_ref()
         .map(|t| t.content.clone())
@@ -103,48 +107,31 @@ pub fn render_template_with_metrics(
         }
         return None;
     };
+    if using_builtin_fallback {
+        if let Some(metrics) = metrics {
+            metrics.record_error(id, "builtin_fallback", &[]);
+        }
+        tracing::warn!("template '{id}' is not registered; using built-in default text");
+    }
 
     let mut rendered = content;
 
     // Pseudo variable (only meaningful for configured templates; the
     // built-in fallbacks carry no fragments).
     if let Some(ref template) = template {
-        // Required variables are the union of the template declaration and
-        // its fragments' declarations: fragment content renders with the
-        // same variable map, so a missing fragment variable degrades the
-        // same way as a missing template variable.
-        {
-            let mut required_names: Vec<String> = Vec::new();
-            if let Some(declared) = template.variables.as_ref() {
-                for variable in declared.iter().filter(|v| v.required) {
-                    if !required_names.iter().any(|name| name == &variable.name) {
-                        required_names.push(variable.name.clone());
-                    }
-                }
+        let mut effective_variables = opts.variables.clone();
+        apply_default_values(regs, template, &mut effective_variables);
+        if let Some(missing) = missing_required_variables(regs, template, &effective_variables) {
+            if let Some(metrics) = metrics {
+                metrics.record_error(id, "missing_required_variable", &[]);
+                metrics.record_render_complete(id, start.elapsed().as_millis() as f64, false, &[]);
             }
-            if let Some(fragment_ids) = template.fragments.as_ref() {
-                for fragment_id in fragment_ids {
-                    if let Some(fragment) = regs.fragments.get(fragment_id) {
-                        if let Some(vars) = fragment.variables.as_ref() {
-                            for variable in vars.iter().filter(|v| v.required) {
-                                if !required_names.iter().any(|name| name == &variable.name) {
-                                    required_names.push(variable.name.clone());
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            for name in &required_names {
-                if !opts.variables.contains_key(name) {
-                    if let Some(metrics) = metrics {
-                        metrics.record_error(id, "missing_required_variable", &[]);
-                    }
-                    tracing::warn!("template '{id}' missing required variable '{name}'");
-                }
-            }
+            tracing::warn!("template '{id}' missing required variable '{missing}'");
+            return None;
         }
-        let Some(resolved) = resolve_fragments(regs, &rendered, template, &opts.variables) else {
+        let Some(resolved) =
+            resolve_fragments(regs, &rendered, template, &effective_variables)
+        else {
             if let Some(metrics) = metrics {
                 metrics.record_error(id, "missing_fragment", &[]);
                 metrics.record_render_complete(id, start.elapsed().as_millis() as f64, false, &[]);
@@ -152,6 +139,17 @@ pub fn render_template_with_metrics(
             return None;
         };
         rendered = resolved;
+        let output = apply_template_variables(&rendered, &effective_variables);
+        if let Some(metrics) = metrics {
+            if has_unresolved_placeholders(&output) {
+                metrics.record_error(id, "unresolved_placeholder", &[]);
+                tracing::warn!("template '{id}' rendered with unresolved placeholders");
+            }
+            metrics.record_render_complete(id, start.elapsed().as_millis() as f64, true, &[]);
+        } else if has_unresolved_placeholders(&output) {
+            tracing::warn!("template '{id}' rendered with unresolved placeholders");
+        }
+        return Some(output);
     }
 
     let output = apply_template_variables(&rendered, &opts.variables);
@@ -165,6 +163,64 @@ pub fn render_template_with_metrics(
         tracing::warn!("template '{id}' rendered with unresolved placeholders");
     }
     Some(output)
+}
+
+/// Collect variable declarations from a template and its fragments.
+/// Template declarations win on name collision.
+fn collect_variable_definitions(
+    regs: &ResourceRegistries,
+    template: &Template,
+) -> HashMap<String, wf_types::TemplateVariableDefinition> {
+    let mut map: HashMap<String, wf_types::TemplateVariableDefinition> = HashMap::new();
+    if let Some(fragment_ids) = template.fragments.as_ref() {
+        for fragment_id in fragment_ids {
+            if let Some(fragment) = regs.fragments.get(fragment_id) {
+                if let Some(vars) = fragment.variables.as_ref() {
+                    for variable in vars {
+                        map.entry(variable.name.clone()).or_insert_with(|| variable.clone());
+                    }
+                }
+            }
+        }
+    }
+    if let Some(declared) = template.variables.as_ref() {
+        for variable in declared {
+            map.insert(variable.name.clone(), variable.clone());
+        }
+    }
+    map
+}
+
+/// Fill missing variables from declared default values.
+fn apply_default_values(
+    regs: &ResourceRegistries,
+    template: &Template,
+    variables: &mut HashMap<String, String>,
+) {
+    for (name, definition) in collect_variable_definitions(regs, template) {
+        if let std::collections::hash_map::Entry::Vacant(entry) = variables.entry(name) {
+            if let Some(default_value) = definition.default_value.as_ref() {
+                let text = wf_common::template::value_to_display_string(default_value);
+                if !text.trim().is_empty() {
+                    entry.insert(text);
+                }
+            }
+        }
+    }
+}
+
+/// First required variable still missing after defaults, if any.
+fn missing_required_variables(
+    regs: &ResourceRegistries,
+    template: &Template,
+    variables: &HashMap<String, String>,
+) -> Option<String> {
+    for (name, definition) in collect_variable_definitions(regs, template) {
+        if definition.required && !variables.contains_key(&name) {
+            return Some(name);
+        }
+    }
+    None
 }
 
 /// Whether rendered text still carries `{{name}}` placeholders. Used only
@@ -534,5 +590,67 @@ mod tests {
                 fragment.id
             );
         }
+    }
+
+    #[test]
+    fn missing_required_variable_fails_closed() {
+        let regs = ResourceRegistries::new();
+        regs.templates
+            .register(
+                "system.required".into(),
+                std::sync::Arc::new(Template {
+                    id: "system.required".into(),
+                    name: "required".into(),
+                    description: None,
+                    category: "system".into(),
+                    content: "Hello {{who}}".into(),
+                    variables: Some(vec![wf_types::TemplateVariableDefinition {
+                        name: "who".into(),
+                        r#type: "string".into(),
+                        required: true,
+                        description: None,
+                        default_value: None,
+                    }]),
+                    fragments: None,
+                }),
+            )
+            .unwrap();
+        assert!(render_template(&regs, "system.required", &Default::default()).is_none());
+        let opts = TemplateRenderOptions {
+            variables: HashMap::from([("who".to_string(), "dev".to_string())]),
+            ..Default::default()
+        };
+        assert_eq!(
+            render_template(&regs, "system.required", &opts).expect("rendered"),
+            "Hello dev"
+        );
+    }
+
+    #[test]
+    fn declared_default_value_fills_missing_variable() {
+        let regs = ResourceRegistries::new();
+        regs.templates
+            .register(
+                "system.defaulted".into(),
+                std::sync::Arc::new(Template {
+                    id: "system.defaulted".into(),
+                    name: "defaulted".into(),
+                    description: None,
+                    category: "system".into(),
+                    content: "Hello {{who}}".into(),
+                    variables: Some(vec![wf_types::TemplateVariableDefinition {
+                        name: "who".into(),
+                        r#type: "string".into(),
+                        required: true,
+                        description: None,
+                        default_value: Some(serde_json::Value::String("fallback".into())),
+                    }]),
+                    fragments: None,
+                }),
+            )
+            .unwrap();
+        let text =
+            render_template(&regs, "system.defaulted", &Default::default()).expect("default fills");
+        assert_eq!(text, "Hello fallback");
     }
 }

@@ -352,7 +352,9 @@ pub fn build_volatile_tail(
     let wants_todo = dyn_cfg.include_todo_list.unwrap_or(false);
     let wants_workspace = dyn_cfg.include_workspace_files.unwrap_or(false);
     let wants_pinned = dyn_cfg.include_pinned_files.unwrap_or(false);
-    let wants_custom = vars.get_variable("custom_data").is_some();
+    let wants_custom = vars
+        .get_variable(wf_types::dynamic_context::CUSTOM_DATA_VARIABLE)
+        .is_some();
     if !wants_time && !wants_todo && !wants_workspace && !wants_pinned && !wants_custom {
         return None;
     }
@@ -362,7 +364,7 @@ pub fn build_volatile_tail(
         input.current_time = Some(wf_resource::current_time_text());
     }
     if wants_todo {
-        match vars.get_variable("todo_list") {
+        match vars.get_variable(wf_types::dynamic_context::TODO_LIST_VARIABLE) {
             Some(value) => match parse_todo_items(value) {
                 Some(items) => input.todos = items,
                 None => tracing::warn!("todo_list variable has an unsupported shape; skipped"),
@@ -371,7 +373,7 @@ pub fn build_volatile_tail(
         }
     }
     if wants_pinned {
-        match vars.get_variable("pinned_files") {
+        match vars.get_variable(wf_types::dynamic_context::PINNED_FILES_VARIABLE) {
             Some(value) => {
                 if let Ok(items) =
                     serde_json::from_value::<Vec<wf_types::PinnedFileItem>>(value.clone())
@@ -392,7 +394,7 @@ pub fn build_volatile_tail(
         }
     }
     if wants_workspace {
-        match vars.get_variable("workspace_file_tree") {
+        match vars.get_variable(wf_types::dynamic_context::WORKSPACE_FILE_TREE_VARIABLE) {
             Some(Value::String(tree)) => input.tree = Some(tree),
             Some(_) => tracing::warn!("workspace_file_tree variable is not a string; skipped"),
             None => {
@@ -400,7 +402,7 @@ pub fn build_volatile_tail(
             }
         }
     }
-    if let Some(value) = vars.get_variable("custom_data") {
+    if let Some(value) = vars.get_variable(wf_types::dynamic_context::CUSTOM_DATA_VARIABLE) {
         match parse_custom_data(value) {
             Some(map) if !map.is_empty() => input.custom_data = Some(map),
             Some(_) => {}

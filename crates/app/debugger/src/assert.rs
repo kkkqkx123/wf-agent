@@ -29,6 +29,16 @@ pub enum Assertion {
         template: String,
         expected: bool,
     },
+    ToolNeverCalled {
+        tool: String,
+    },
+    ToolNeverSucceeded {
+        tool: String,
+    },
+    ToolDeniedWith {
+        tool: String,
+        contains: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -190,7 +200,79 @@ fn evaluate_one(trace: &Trace, position: usize, assertion: &Assertion) -> Assert
                 None => fail(name, None, None, "trigger template not seen"),
             }
         }
+        Assertion::ToolNeverCalled { tool } => {
+            let calls = tool_calls(trace, tool);
+            if calls.is_empty() {
+                pass(name)
+            } else {
+                fail(
+                    name,
+                    Some(serde_json::Value::Bool(false)),
+                    Some(serde_json::Value::Bool(true)),
+                    &format!("tool {tool} was called {} time(s)", calls.len()),
+                )
+            }
+        }
+        Assertion::ToolNeverSucceeded { tool } => {
+            let succeeded = tool_calls(trace, tool).iter().filter(|c| c.success).count();
+            if succeeded == 0 {
+                pass(name)
+            } else {
+                fail(
+                    name,
+                    Some(serde_json::Value::from(0)),
+                    Some(serde_json::Value::from(succeeded)),
+                    &format!("tool {tool} succeeded unexpectedly"),
+                )
+            }
+        }
+        Assertion::ToolDeniedWith { tool, contains } => {
+            let calls = tool_calls(trace, tool);
+            if calls.is_empty() {
+                return fail(name, None, None, &format!("tool {tool} was never called"));
+            }
+            let denied: Vec<&crate::model::ToolCallView> =
+                calls.iter().filter(|c| !c.success).copied().collect();
+            if denied.is_empty() {
+                return fail(
+                    name,
+                    Some(serde_json::Value::Bool(false)),
+                    Some(serde_json::Value::Bool(true)),
+                    &format!("tool {tool} was called but never denied"),
+                );
+            }
+            let matched = denied.iter().any(|c| {
+                c.error
+                    .as_deref()
+                    .is_some_and(|error| error.contains(contains.as_str()))
+            });
+            if matched {
+                pass(name)
+            } else {
+                let actual = denied
+                    .iter()
+                    .filter_map(|c| c.error.clone())
+                    .next()
+                    .map(serde_json::Value::String)
+                    .or(Some(serde_json::Value::Null));
+                fail(
+                    name,
+                    Some(serde_json::Value::String(contains.clone())),
+                    actual,
+                    &format!("tool {tool} denial text mismatch"),
+                )
+            }
+        }
     }
+}
+
+fn tool_calls<'a>(trace: &'a Trace, tool: &str) -> Vec<&'a crate::model::ToolCallView> {
+    trace
+        .steps
+        .iter()
+        .flat_map(|s| s.tool_calls.iter())
+        .filter(|c| c.name == tool)
+        .collect()
 }
 
 fn pass(name: String) -> AssertionResult {
@@ -266,6 +348,7 @@ mod tests {
             schema: crate::model::TRACE_SCHEMA_V1.to_string(),
             kind: TraceKind::Workflow,
             graph_ref: String::new(),
+            agent_template: String::new(),
             initial_variables: HashMap::new(),
             steps: vec![empty_step(0)],
             assertions: vec![Assertion::StepResult {
@@ -277,5 +360,78 @@ mod tests {
         let outcome = run_assertions(&trace);
         assert_eq!(outcome.failed, 1);
         assert_eq!(outcome.results[0].actual, Some(serde_json::json!(1)));
+    }
+
+    fn step_with_tool_call(call: crate::model::ToolCallView) -> StepRecord {
+        let mut step = empty_step(0);
+        step.tool_calls = vec![call];
+        step
+    }
+
+    fn denied_call(name: &str, error: &str) -> crate::model::ToolCallView {
+        crate::model::ToolCallView {
+            name: name.to_string(),
+            call_id: "c1".to_string(),
+            arguments: serde_json::Value::Null,
+            result: None,
+            error: Some(error.to_string()),
+            duration_ms: None,
+            success: false,
+        }
+    }
+
+    fn trace_with_assertions(steps: Vec<StepRecord>, assertions: Vec<Assertion>) -> Trace {
+        Trace {
+            schema: crate::model::TRACE_SCHEMA_V1.to_string(),
+            kind: TraceKind::Workflow,
+            graph_ref: String::new(),
+            agent_template: String::new(),
+            initial_variables: HashMap::new(),
+            steps,
+            assertions,
+            trigger_templates: vec![],
+        }
+    }
+
+    #[test]
+    fn tool_never_called_fails_when_called() {
+        let trace = trace_with_assertions(
+            vec![step_with_tool_call(denied_call("write_file", "denied"))],
+            vec![Assertion::ToolNeverCalled {
+                tool: "write_file".to_string(),
+            }],
+        );
+        let outcome = run_assertions(&trace);
+        assert_eq!(outcome.failed, 1);
+    }
+
+    #[test]
+    fn tool_denied_with_fails_when_never_called() {
+        let trace = trace_with_assertions(
+            vec![empty_step(0)],
+            vec![Assertion::ToolDeniedWith {
+                tool: "write_file".to_string(),
+                contains: "denied".to_string(),
+            }],
+        );
+        let outcome = run_assertions(&trace);
+        assert_eq!(outcome.failed, 1);
+        assert!(outcome.results[0].message.contains("never called"));
+    }
+
+    #[test]
+    fn tool_denied_with_passes_on_matching_denial() {
+        let trace = trace_with_assertions(
+            vec![step_with_tool_call(denied_call(
+                "write_file",
+                "Tool 'write_file' is not in the available tool set",
+            ))],
+            vec![Assertion::ToolDeniedWith {
+                tool: "write_file".to_string(),
+                contains: "not in the available tool set".to_string(),
+            }],
+        );
+        let outcome = run_assertions(&trace);
+        assert_eq!(outcome.failed, 0);
     }
 }

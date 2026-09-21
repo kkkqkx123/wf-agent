@@ -47,6 +47,7 @@ fn empty_steps_replay_cleanly() {
         schema: wf_debugger::model::TRACE_SCHEMA_V1.to_string(),
         kind: TraceKind::Workflow,
         graph_ref: String::new(),
+        agent_template: String::new(),
         initial_variables: HashMap::new(),
         steps: Vec::new(),
         assertions: Vec::new(),

@@ -1,3 +1,4 @@
+pub mod agent_dbg;
 pub mod assert;
 pub mod branches;
 pub mod cli;

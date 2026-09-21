@@ -20,6 +20,7 @@ pub enum DebuggerCommand {
     Triggers(TriggersArgs),
     Assert(AssertArgs),
     Timeline(TimelineArgs),
+    Agents(AgentsArgs),
 }
 
 #[derive(Debug, clap::Args)]
@@ -78,6 +79,18 @@ pub struct TimelineArgs {
     pub json: bool,
 }
 
+#[derive(Debug, clap::Args)]
+pub struct AgentsArgs {
+    #[arg(long)]
+    pub trace: PathBuf,
+    /// Builtin agent template to check against (for example
+    /// `@standard/explorer`). Overrides the trace identity when set.
+    #[arg(long)]
+    pub agent: Option<String>,
+    #[arg(long, default_value_t = false)]
+    pub json: bool,
+}
+
 pub fn load_trace(path: &std::path::Path) -> Result<Trace> {
     let text =
         std::fs::read_to_string(path).with_context(|| format!("read trace {}", path.display()))?;
@@ -103,6 +116,7 @@ pub fn run(cli: DebuggerCli) -> Result<i32> {
         DebuggerCommand::Triggers(args) => cmd_triggers(args),
         DebuggerCommand::Assert(args) => cmd_assert(args),
         DebuggerCommand::Timeline(args) => cmd_timeline(args),
+        DebuggerCommand::Agents(args) => cmd_agents(args),
     }
 }
 
@@ -261,4 +275,32 @@ fn cmd_timeline(args: TimelineArgs) -> Result<i32> {
         }
     }
     Ok(0)
+}
+
+fn cmd_agents(args: AgentsArgs) -> Result<i32> {
+    let trace = load_trace(&args.trace)?;
+    let analysis = crate::agent_dbg::analyze_agent_trace(&trace, args.agent.as_deref());
+    if args.json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&analysis).unwrap_or_default()
+        );
+    } else if !analysis.known_template {
+        println!("unknown agent template '{}'", analysis.template_id);
+    } else {
+        println!(
+            "agent {} calls={} expected_denials={} violations={}",
+            analysis.template_id,
+            analysis.tool_calls,
+            analysis.expected_denials,
+            analysis.violations.len()
+        );
+        for violation in &analysis.violations {
+            println!(
+                "  [step {}] {} {}: {}",
+                violation.step, violation.tool, violation.kind, violation.detail
+            );
+        }
+    }
+    Ok(if analysis.violations.is_empty() { 0 } else { 1 })
 }

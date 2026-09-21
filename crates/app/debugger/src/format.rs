@@ -112,6 +112,7 @@ mod tests {
             schema: crate::model::TRACE_SCHEMA_V1.to_string(),
             kind: crate::model::TraceKind::Workflow,
             graph_ref: String::new(),
+            agent_template: String::new(),
             initial_variables: Default::default(),
             steps: vec![],
             assertions: vec![],

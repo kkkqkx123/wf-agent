@@ -19,6 +19,11 @@ pub struct Trace {
     pub kind: TraceKind,
     #[serde(default)]
     pub graph_ref: String,
+    /// Id of the agent template that produced this trace (for example
+    /// `@standard/explorer`). Empty means the source agent is unknown and
+    /// builtin policy analysis is skipped.
+    #[serde(default)]
+    pub agent_template: String,
     #[serde(default)]
     pub initial_variables: HashMap<String, serde_json::Value>,
     #[serde(default)]

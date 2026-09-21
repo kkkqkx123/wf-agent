@@ -1,3 +1,17 @@
+//! Workflow assembly-layer variables: the `${...}` syntax.
+//!
+//! Dollar-brace references belong to variable transport (moving values
+//! between nodes, plus expression evaluation in `ExprEvaluator`), while
+//! double-brace `{{...}}` placeholders belong to the text render layer
+//! (`wf_common::template` via the resource template engine). The two layers
+//! run in order on purpose: `${...}` first, then `{{...}}`. A template that
+//! legitimately carries both (for example script node templates) is not a
+//! syntax mix-up, so no field-level cross-syntax rejection exists.
+//!
+//! Field ownership cheatsheet: user-interaction `prompt` fields resolve
+//! here (`${...}`); message `content_template` fields render later through
+//! the `{{input}}` substitution.
+
 use dashmap::DashMap;
 use serde_json::Value;
 use std::sync::Arc;

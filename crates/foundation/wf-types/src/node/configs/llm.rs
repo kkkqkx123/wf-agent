@@ -1,5 +1,9 @@
 use serde::{Deserialize, Serialize};
 
+/// Lightweight single-shot model call: system prompt (inline or template)
+/// plus context messages go out as one request. This node never exposes
+/// tools, never enriches skills and never assembles dynamic context; a
+/// scenario needing any of those must use an `AGENT_LOOP` node.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct LlmNodeConfig {
     pub profile_id: String,

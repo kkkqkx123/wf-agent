@@ -11,6 +11,10 @@
 //! custom sections) prepend, then skill metadata and MCP summary enrich.
 //! Time, todo, pinned and workspace content never enter here.
 //!
+//! The static skills section is skipped when the `skill` tool is available:
+//! progressive disclosure then owns skill presentation through the injected
+//! skill metadata block, so skills are never announced twice.
+//!
 //! Volatile tail: current time plus todo, pinned, workspace tree and custom
 //! data read through [`VariableSource`]. Missing or misshapen values warn
 //! and skip; the engine never fabricates data.
@@ -106,14 +110,13 @@ pub struct AssembledPrompt {
     pub volatile_tail: Option<String>,
 }
 
-/// How the volatile tail travels: separate marked user message by default,
-/// merged into the user task only as an explicit compatibility branch for
-/// model services that require strict role alternation.
+/// How the volatile tail travels: as a separate marked user message, so
+/// dynamic state reads as the latest round user context while the user
+/// task stays pure input.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum DynamicTailBearing {
     #[default]
     SeparateUserMessage,
-    MergedIntoTask,
 }
 
 /// Assemble both outputs for one run.
@@ -142,7 +145,7 @@ pub fn build_stable_header(
         env.resource_registries,
         template_metrics.as_deref(),
     );
-    let dynamic = build_dynamic_system_context(agent_config, env);
+    let dynamic = build_dynamic_system_context(agent_config, env, available_tool_names);
     let prompt = match (base, dynamic) {
         (Some(sp), Some(block)) => Some(format!("{}\n\n{}", block, sp)),
         (Some(sp), None) => Some(sp),
@@ -182,6 +185,11 @@ pub fn resolve_system_prompt_text(
     template_metrics: Option<&wf_metrics::TemplateMetricsCollector>,
 ) -> Option<String> {
     if let Some(sp) = system_prompt {
+        if template_id.is_some() {
+            tracing::warn!(
+                "both inline system_prompt and system_prompt_template_id are set; inline text wins and the template reference is ignored"
+            );
+        }
         return Some(sp.to_string());
     }
     let template_id = template_id?;
@@ -189,11 +197,10 @@ pub fn resolve_system_prompt_text(
     let mut rendered = HashMap::new();
     if let Some(meta) = variables {
         for (key, value) in meta {
-            let value = match value {
-                Value::String(s) => s.clone(),
-                other => other.to_string(),
-            };
-            rendered.insert(key.clone(), value);
+            rendered.insert(
+                key.clone(),
+                wf_common::template::value_to_display_string(value),
+            );
         }
     }
     wf_resource::render_template_with_metrics(
@@ -210,6 +217,7 @@ pub fn resolve_system_prompt_text(
 fn build_dynamic_system_context(
     agent_config: Option<&wf_types::agent::AgentConfig>,
     env: &PromptEnvironment,
+    available_tool_names: &[String],
 ) -> Option<String> {
     let dyn_cfg = agent_config?.dynamic_context.as_ref()?;
     let has_any = dyn_cfg.include_environment_info.unwrap_or(false)
@@ -225,21 +233,28 @@ fn build_dynamic_system_context(
     }
 
     let mut system_cfg = wf_resource::SystemConfig {
-        include_time: false,
         include_env: dyn_cfg.include_environment_info.unwrap_or(false),
         ..Default::default()
     };
     if dyn_cfg.include_skills.unwrap_or(false) {
-        if let Some(loader) = env
-            .tool_registry
-            .and_then(|registry| registry.skill_loader())
-        {
-            system_cfg.include_skills = true;
-            system_cfg.skills = loader
-                .get_enabled_skills()
-                .into_iter()
-                .map(|s| format!("{}: {}", s.name, s.description))
-                .collect();
+        // Progressive disclosure wins: when the `skill` tool is available,
+        // skill presentation moves to the injected skill metadata block
+        // (see `enrich_system_prompt`) and the static list is skipped so
+        // skills are never announced twice. Both paths read the same
+        // loader, so skipping loses nothing when nothing is enabled.
+        let progressive_disclosure = available_tool_names.iter().any(|name| name == "skill");
+        if !progressive_disclosure {
+            if let Some(loader) = env
+                .tool_registry
+                .and_then(|registry| registry.skill_loader())
+            {
+                system_cfg.include_skills = true;
+                system_cfg.skills = loader
+                    .get_enabled_skills()
+                    .into_iter()
+                    .map(|s| format!("{}: {}", s.name, s.description))
+                    .collect();
+            }
         }
     }
     if dyn_cfg.include_workflows.unwrap_or(false) {
@@ -455,11 +470,7 @@ fn parse_custom_data(value: Value) -> Option<HashMap<String, String>> {
     let obj = value.as_object()?;
     let mut map = HashMap::new();
     for (k, v) in obj {
-        let rendered = match v {
-            Value::String(s) => s.clone(),
-            Value::Null => continue,
-            other => other.to_string(),
-        };
+        let rendered = wf_common::template::value_to_display_string(v);
         if !rendered.trim().is_empty() {
             map.insert(k.clone(), rendered);
         }
@@ -485,8 +496,29 @@ pub fn is_tool_visibility_message(msg: &wf_types::message::Message) -> bool {
         .unwrap_or(false)
 }
 
+/// True for boundary-injected context messages (`wf_llm` boundary helper).
+/// They arrive prepended per request and must never count as the cacheable
+/// header; the agent-loop paths never carry them, so this is purely
+/// defensive.
+pub fn is_boundary_context_message(msg: &wf_types::message::Message) -> bool {
+    msg.metadata
+        .as_ref()
+        .and_then(|meta| meta.get("type"))
+        .map(|t| {
+            t == &Value::String(
+                wf_llm::messaging::boundary::BOUNDARY_CONTEXT_MESSAGE_TYPE.to_string(),
+            )
+        })
+        .unwrap_or(false)
+}
+
 /// Stable header exists when a non-announcement system message is present.
-/// Both `tool_visibility` and `dynamic_context` marked messages never count.
+/// `tool_visibility`, `dynamic_context` and `boundary_context` marked
+/// messages never count.
+///
+/// Locating is owned here; wire concatenation of the located header plus
+/// every announcement is owned by the gateway
+/// (`wf_llm::tool::protocol::extract_system_message`).
 pub fn has_stable_system_message(conversation: &[wf_types::message::Message]) -> bool {
     stable_system_index(conversation).is_some()
 }
@@ -496,6 +528,7 @@ fn stable_system_index(conversation: &[wf_types::message::Message]) -> Option<us
         m.role == wf_types::message::MessageRole::System
             && !is_tool_visibility_message(m)
             && !is_dynamic_context_message(m)
+            && !is_boundary_context_message(m)
     })
 }
 
@@ -551,17 +584,16 @@ pub fn dynamic_context_message(content: String) -> wf_types::message::Message {
 }
 
 /// Apply assembled outputs to a round conversation: insert the stable header
-/// as the leading system message once, then carry the tail per the bearing.
-/// Separate message is the default; merged form concatenates context before
-/// the user task so the task stays last for strict alternation services.
-/// A stale header is refreshed in place so configuration changes take
-/// effect instead of lingering. Stored volatile tails are always dropped
-/// first, so repeated assembly stays idempotent without caller cleanup.
+/// as the leading system message once, then carry the tail as a separate
+/// marked user message. A stale header is refreshed in place so
+/// configuration changes take effect instead of lingering. Stored volatile
+/// tails are always dropped first, so repeated assembly stays idempotent
+/// without caller cleanup. The user task message stays pure input and is
+/// never mutated here.
 pub fn apply_assembled_prompt(
     conversation: &mut Vec<wf_types::message::Message>,
     assembled: &AssembledPrompt,
     bearing: DynamicTailBearing,
-    user_task: &mut String,
 ) {
     if let Some(ref header) = assembled.stable_header {
         match stable_system_index(conversation) {
@@ -583,13 +615,6 @@ pub fn apply_assembled_prompt(
     match bearing {
         DynamicTailBearing::SeparateUserMessage => {
             conversation.push(dynamic_context_message(tail.clone()));
-        }
-        DynamicTailBearing::MergedIntoTask => {
-            if user_task.is_empty() {
-                *user_task = tail.clone();
-            } else {
-                *user_task = format!("{}\n\n{}", tail, user_task);
-            }
         }
     }
 }
@@ -732,6 +757,70 @@ mod tests {
         serde_json::from_value(json).expect("agent config")
     }
 
+    /// A per-test skill directory (tag-suffixed, like the repo-wide temp dir
+    /// convention) so parallel tests never share or wipe each other's path.
+    fn registry_with_one_skill(tag: &str) -> (std::path::PathBuf, ToolRegistry) {
+        let dir =
+            std::env::temp_dir().join(format!("wf-stable-skills-{}-{}", tag, std::process::id()));
+        let skill_dir = dir.join("demo-skill");
+        std::fs::create_dir_all(&skill_dir).unwrap();
+        std::fs::write(
+            skill_dir.join("SKILL.md"),
+            "---\nname: demo-skill\ndescription: Demo skill\n---\n\n# Body\n",
+        )
+        .unwrap();
+        let loader = std::sync::Arc::new(wf_tools::skill::SkillLoader::new(
+            wf_types::skill::SkillConfig {
+                paths: vec![dir.to_string_lossy().to_string()],
+                auto_scan: Some(true),
+            },
+        ));
+        assert_eq!(loader.get_enabled_skills().len(), 1);
+        let registry = ToolRegistry::new();
+        registry.set_skill_loader(loader);
+        (dir, registry)
+    }
+
+    fn skills_config() -> wf_types::agent::AgentConfig {
+        agent_config_with(serde_json::json!({
+            "system_prompt": "base",
+            "dynamic_context": {"include_skills": true},
+        }))
+    }
+
+    #[test]
+    fn stable_header_skips_static_skills_when_skill_tool_present() {
+        let (dir, registry) = registry_with_one_skill("skill-tool");
+        let env = PromptEnvironment::new(None, Some(&registry), None);
+        let header = build_stable_header(Some(&skills_config()), &env, &["skill".to_string()])
+            .expect("header");
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(
+            header.contains("Available skills:"),
+            "progressive disclosure owns skill presentation: {header}"
+        );
+        assert!(
+            !header.contains("<skills>"),
+            "static skill list must not duplicate the metadata block: {header}"
+        );
+    }
+
+    #[test]
+    fn stable_header_keeps_static_skills_without_skill_tool() {
+        let (dir, registry) = registry_with_one_skill("no-skill-tool");
+        let env = PromptEnvironment::new(None, Some(&registry), None);
+        let header = build_stable_header(Some(&skills_config()), &env, &[]).expect("header");
+        let _ = std::fs::remove_dir_all(&dir);
+        assert!(
+            header.contains("<skills>"),
+            "static skill list stays without progressive disclosure: {header}"
+        );
+        assert!(
+            !header.contains("Available skills:"),
+            "no metadata injection without the skill tool: {header}"
+        );
+    }
+
     #[test]
     fn stable_header_prefers_inline_over_template() {
         let regs = ResourceRegistries::new();
@@ -838,6 +927,17 @@ mod tests {
     }
 
     #[test]
+    fn stable_check_ignores_boundary_context_messages() {
+        let mut boundary = stable_system_message("boundary".into());
+        boundary.metadata = Some(HashMap::from([(
+            "type".to_string(),
+            Value::String(wf_llm::messaging::boundary::BOUNDARY_CONTEXT_MESSAGE_TYPE.to_string()),
+        )]));
+        assert!(is_boundary_context_message(&boundary));
+        assert!(!has_stable_system_message(&[boundary]));
+    }
+
+    #[test]
     fn import_filter_drops_stale_tails() {
         let tail = dynamic_context_message("old".into());
         let user = wf_types::message::Message {
@@ -882,7 +982,6 @@ mod tests {
     #[test]
     fn apply_inserts_header_once_and_appends_tail() {
         let mut conversation = Vec::new();
-        let mut task = "do work".to_string();
         apply_assembled_prompt(
             &mut conversation,
             &AssembledPrompt {
@@ -890,9 +989,7 @@ mod tests {
                 volatile_tail: Some("tail".into()),
             },
             DynamicTailBearing::SeparateUserMessage,
-            &mut task,
         );
-        assert_eq!(task, "do work");
         assert_eq!(conversation.len(), 2);
         assert_eq!(conversation[0].role, wf_types::message::MessageRole::System);
         assert_eq!(conversation[1].role, wf_types::message::MessageRole::User);
@@ -902,7 +999,6 @@ mod tests {
     #[test]
     fn apply_refreshes_stale_header_in_place() {
         let mut conversation = vec![stable_system_message("old".into())];
-        let mut task = "do work".to_string();
         apply_assembled_prompt(
             &mut conversation,
             &AssembledPrompt {
@@ -910,11 +1006,9 @@ mod tests {
                 volatile_tail: None,
             },
             DynamicTailBearing::SeparateUserMessage,
-            &mut task,
         );
         assert_eq!(conversation.len(), 1);
         assert_eq!(conversation[0].text_content(), "new");
-        assert_eq!(task, "do work");
     }
 
     #[test]

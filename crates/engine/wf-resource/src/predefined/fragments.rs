@@ -1,4 +1,4 @@
-use wf_types::{SystemPromptFragment, TemplateVariableDefinition};
+use wf_types::SystemPromptFragment;
 
 use crate::registry::{
     register_item_skip, register_item_strict, RegisterOptions, ResourceRegistries,
@@ -45,15 +45,9 @@ pub fn builtin_fragments() -> Vec<SystemPromptFragment> {
         SystemPromptFragment {
             id: "fragments.capability.coding".into(),
             category: "capability".into(),
-            content: "Your knowledge cutoff is {cutoff_date}. For information after that date, use web search tools if available.".into(),
+            content: "Your training data has a cutoff; for information after that date, use web search tools if available.".into(),
             description: Some("Coding capability with knowledge cutoff".into()),
-            variables: Some(vec![TemplateVariableDefinition {
-                name: "cutoff_date".into(),
-                r#type: "string".into(),
-                required: true,
-                description: Some("Knowledge cutoff date".into()),
-                default_value: None,
-            }]),
+            variables: None,
         },
         SystemPromptFragment {
             id: "fragments.constraint.general".into(),

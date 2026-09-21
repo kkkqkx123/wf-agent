@@ -6,6 +6,7 @@ pub mod id;
 pub mod lock;
 pub mod retry;
 pub mod shutdown;
+pub mod template;
 pub mod time;
 
 pub use error::CommonError;

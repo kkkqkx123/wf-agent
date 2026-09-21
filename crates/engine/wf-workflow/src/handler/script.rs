@@ -188,9 +188,9 @@ impl ScriptHandler {
                 .unwrap_or("javascript")
                 .to_string();
             if let Some(tmpl) = template {
-                // Workflow-variable layer (`${...}`) is distinct from the
-                // script-argument layer (`{{...}}` + `$ref`) owned by
-                // `wf-script`; both run in order on purpose.
+                // Workflow-variable layer first, script-argument layer
+                // second; see the layering contract in `crate::variable`
+                // module docs.
                 let rendered = VariableResolver::resolve_str(tmpl, &ctx.variables);
                 let rendered = rendered.as_str().unwrap_or(tmpl).to_string();
                 (

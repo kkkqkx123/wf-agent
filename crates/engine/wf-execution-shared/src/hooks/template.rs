@@ -1,3 +1,19 @@
+//! Strict hook payload templates: every `{{path}}` must resolve against
+//! the context, otherwise rendering fails and the hook never fires with a
+//! half-substituted payload.
+//!
+//! Strict failure is the correct semantic here: an unresolved command or
+//! payload must never execute with placeholder text left in. The lenient
+//! prompt-text renderer (`wf_common::template`, shared by resource
+//! templates, approval messages and skill content) keeps unknown
+//! placeholders verbatim instead; pick that engine for display text and
+//! this one for payloads that execute.
+//!
+//! The dotted-path lookup below intentionally duplicates the one in the
+//! `wf-script` template resolver: the two operate on different value flows
+//! (direct context table here, declared arguments plus file confinement
+//! there) and sharing would widen public API surface for a ten-line helper.
+
 use std::collections::HashMap;
 
 use serde_json::Value;

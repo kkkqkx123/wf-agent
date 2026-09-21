@@ -19,7 +19,7 @@ pub mod tool;
 // execution-shared crate.
 pub mod token;
 // Transport messaging: stream transport plus wire-adjacent text helpers
-// (history conversion, text extraction, boundary adaptation). Session state
+// (history conversion, text extraction). Session state
 // and message-array operations live in the execution-shared crate.
 pub mod messaging;
 // Shared utilities: partial-JSON recovery and stream loop guard.
@@ -40,13 +40,12 @@ pub use config::provider::{apply_provider_defaults, ProviderDefinitionRegistry};
 pub use dead_loop_detector::{DeadLoopDetectionResult, DeadLoopDetector, DeadLoopDetectorConfig};
 pub use error::{LlmError, LlmResult};
 pub use gateway::LlmGateway;
-pub use messaging::boundary::{convert_for_boundary, inject_context, BoundaryDirection};
 pub use messaging::helper::extract_text_content;
 pub use messaging::history_converter::{
     convert_assistant_message, convert_to_text_mode, convert_tool_result_message,
     render_tool_calls, render_tool_result,
 };
-pub use messaging::history_text::{inject_variables, summarize_counts, to_plain_text};
+pub use messaging::history_text::{summarize_counts, to_plain_text};
 pub use messaging::stream::MessageStream;
 #[cfg(feature = "mock")]
 pub use mock::{LlmResponseSpec, MockLlmClient, MockMessageStream};

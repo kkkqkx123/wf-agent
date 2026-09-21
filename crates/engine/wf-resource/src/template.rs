@@ -5,13 +5,15 @@
 //! block, the `general` tool description). Consumers only know template ids;
 //! the data source (predefined / custom / hot-reloaded) is transparent.
 //!
-//! Template content uses the `{{name}}` placeholder syntax. Two pseudo
-//! variables are resolved by the engine rather than substituted verbatim:
+//! Template content uses the `{{name}}` placeholder syntax. One pseudo
+//! variable is resolved by the engine rather than substituted verbatim:
 //!
 //! - `{{fragments}}`: the template's declared fragment list, composed in
-//!   declaration order (a missing fragment fails the render);
-//! - `{{tool_descriptions}}`: the optional tool description set rendered in
-//!   the requested format (empty when none is supplied).
+//!   declaration order (a missing fragment fails the render).
+//!
+//! Any other `{{name}}` placeholder (including the removed
+//! `{{tool_descriptions}}`) is substituted from the render variables and
+//! otherwise kept verbatim with an unresolved-placeholder warning.
 //!
 //! Two-stage pipeline: this engine only resolves double-brace placeholders.
 //! Post-render injection anchors (single-brace uppercase markers resolved by
@@ -24,13 +26,10 @@
 
 use std::collections::HashMap;
 
-use wf_config::processor::prompt::extract_template_placeholders;
 use wf_core::registry::Registry;
 use wf_metrics::TemplateMetricsCollector;
-use wf_types::tool_description::ToolDescriptionData;
 use wf_types::Template;
 
-use crate::predefined::render::{render_tool_descriptions, ToolFormat};
 use crate::predefined::tool_visibility::{
     ACTIVATION_CONTENT, ACTIVATION_TEMPLATE_ID, BLOCK_CONTENT, BLOCK_TEMPLATE_ID,
     DISCOVERABLE_METADATA_CONTENT, DISCOVERABLE_METADATA_TEMPLATE_ID, GENERAL_DESCRIPTION_CONTENT,
@@ -40,15 +39,9 @@ use crate::registry::ResourceRegistries;
 
 /// Options for one template render.
 #[derive(Debug, Clone, Default)]
-pub struct TemplateRenderOptions<'a> {
+pub struct TemplateRenderOptions {
     /// `{{name}}` placeholder values.
     pub variables: HashMap<String, String>,
-    /// Tool descriptions resolved for the `{{tool_descriptions}}` pseudo
-    /// variable; the placeholder stays empty when absent.
-    pub tool_descriptions: Option<&'a [ToolDescriptionData]>,
-    /// Format for the tool description pseudo variable (defaults to
-    /// [`ToolFormat::Xml`]).
-    pub tool_format: Option<ToolFormat>,
 }
 
 /// Substitute `{{name}}` placeholders in a single left-to-right pass;
@@ -56,31 +49,12 @@ pub struct TemplateRenderOptions<'a> {
 /// treated as placeholders, so literal JSON such as `{"tool": "x"}`
 /// passes through untouched. Values are inserted as opaque text and never
 /// rescanned, so a value containing placeholder shapes cannot expand
-/// again. Shared by the template engine, the fragment composer and call
-/// sites that pre-render fragment content.
+/// again. Shared by the template engine and call
+/// sites that pre-render fragment content. Delegates to the shared
+/// foundation implementation so resource rendering and message injection
+/// stay byte-identical.
 pub fn apply_template_variables(content: &str, variables: &HashMap<String, String>) -> String {
-    if variables.is_empty() || !content.contains("{{") {
-        return content.to_string();
-    }
-    let mut rendered = String::with_capacity(content.len());
-    let mut rest = content;
-    while let Some(start) = rest.find("{{") {
-        let after = &rest[start + 2..];
-        let Some(end) = after.find("}}") else {
-            break;
-        };
-        let raw = &after[..end];
-        let name = raw.trim();
-        if let Some(value) = variables.get(name) {
-            rendered.push_str(&rest[..start]);
-            rendered.push_str(value);
-        } else {
-            rendered.push_str(&rest[..start + 2 + end + 2]);
-        }
-        rest = &after[end + 2..];
-    }
-    rendered.push_str(rest);
-    rendered
+    wf_common::template::apply_template_variables(content, variables)
 }
 
 /// Built-in fallback texts used when a template is not configured. The texts
@@ -132,19 +106,41 @@ pub fn render_template_with_metrics(
 
     let mut rendered = content;
 
-    // Pseudo variables (only meaningful for configured templates; the
-    // built-in fallbacks carry no fragments and no tool sections).
+    // Pseudo variable (only meaningful for configured templates; the
+    // built-in fallbacks carry no fragments).
     if let Some(ref template) = template {
-        if let Some(required) = template.variables.as_ref() {
-            for declared in required.iter().filter(|v| v.required) {
-                if !opts.variables.contains_key(&declared.name) {
+        // Required variables are the union of the template declaration and
+        // its fragments' declarations: fragment content renders with the
+        // same variable map, so a missing fragment variable degrades the
+        // same way as a missing template variable.
+        {
+            let mut required_names: Vec<String> = Vec::new();
+            if let Some(declared) = template.variables.as_ref() {
+                for variable in declared.iter().filter(|v| v.required) {
+                    if !required_names.iter().any(|name| name == &variable.name) {
+                        required_names.push(variable.name.clone());
+                    }
+                }
+            }
+            if let Some(fragment_ids) = template.fragments.as_ref() {
+                for fragment_id in fragment_ids {
+                    if let Some(fragment) = regs.fragments.get(fragment_id) {
+                        if let Some(vars) = fragment.variables.as_ref() {
+                            for variable in vars.iter().filter(|v| v.required) {
+                                if !required_names.iter().any(|name| name == &variable.name) {
+                                    required_names.push(variable.name.clone());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            for name in &required_names {
+                if !opts.variables.contains_key(name) {
                     if let Some(metrics) = metrics {
                         metrics.record_error(id, "missing_required_variable", &[]);
                     }
-                    tracing::warn!(
-                        "template '{id}' missing required variable '{}'",
-                        declared.name
-                    );
+                    tracing::warn!("template '{id}' missing required variable '{name}'");
                 }
             }
         }
@@ -156,7 +152,6 @@ pub fn render_template_with_metrics(
             return None;
         };
         rendered = resolved;
-        rendered = resolve_tool_descriptions(&rendered, opts);
     }
 
     let output = apply_template_variables(&rendered, &opts.variables);
@@ -176,24 +171,54 @@ pub fn render_template_with_metrics(
 /// for observability; rendering keeps the verbatim behavior. Delegates to
 /// the config-layer scanner so validation and observability share one scan.
 fn has_unresolved_placeholders(rendered: &str) -> bool {
-    !extract_template_placeholders(rendered).is_empty()
+    !wf_common::template::extract_placeholder_names(rendered).is_empty()
+}
+
+/// Replace every `{{name}}` span whose trimmed placeholder name matches the
+/// pseudo variable, tolerating surrounding whitespace exactly like the
+/// foundation substitution scan. Returns the rewritten text plus whether
+/// any span matched.
+fn replace_pseudo_variable(content: &str, name: &str, replacement: &str) -> (String, bool) {
+    let mut rendered = String::with_capacity(content.len());
+    let mut rest = content;
+    let mut matched = false;
+    while let Some(start) = rest.find("{{") {
+        let after = &rest[start + 2..];
+        let Some(end) = after.find("}}") else {
+            break;
+        };
+        if after[..end].trim() == name {
+            rendered.push_str(&rest[..start]);
+            rendered.push_str(replacement);
+            matched = true;
+        } else {
+            rendered.push_str(&rest[..start + 2 + end + 2]);
+        }
+        rest = &after[end + 2..];
+    }
+    rendered.push_str(rest);
+    (rendered, matched)
 }
 
 /// Resolve the `{{fragments}}` pseudo variable by composing the template's
 /// declared fragments (each with the render variables applied). A declared
 /// fragment that is not registered fails the render so partial prompts
-/// never reach the model.
+/// never reach the model. Spaced spellings resolve identically to the
+/// foundation variable scan.
 fn resolve_fragments(
     regs: &ResourceRegistries,
     content: &str,
     template: &Template,
     variables: &HashMap<String, String>,
 ) -> Option<String> {
-    if !content.contains("{{fragments}}") {
+    if !wf_common::template::extract_placeholder_names(content)
+        .iter()
+        .any(|name| name == "fragments")
+    {
         return Some(content.to_string());
     }
     let Some(fragment_ids) = template.fragments.as_ref() else {
-        return Some(content.replace("{{fragments}}", ""));
+        return Some(replace_pseudo_variable(content, "fragments", "").0);
     };
     let mut parts = Vec::with_capacity(fragment_ids.len());
     let mut missing: Vec<&str> = Vec::new();
@@ -213,23 +238,7 @@ fn resolve_fragments(
         );
         return None;
     }
-    Some(content.replace("{{fragments}}", &parts.join("\n\n")))
-}
-
-/// Resolve the `{{tool_descriptions}}` pseudo variable (empty when no tool
-/// description set is supplied).
-fn resolve_tool_descriptions(content: &str, opts: &TemplateRenderOptions) -> String {
-    if !content.contains("{{tool_descriptions}}") {
-        return content.to_string();
-    }
-    let rendered = match opts.tool_descriptions {
-        Some(tools) if !tools.is_empty() => {
-            let format = opts.tool_format.unwrap_or(ToolFormat::Xml);
-            render_tool_descriptions(tools, format)
-        }
-        _ => String::new(),
-    };
-    content.replace("{{tool_descriptions}}", &rendered)
+    Some(replace_pseudo_variable(content, "fragments", &parts.join("\n\n")).0)
 }
 
 /// Render the built-in visibility text for a template id with variables
@@ -399,29 +408,17 @@ mod tests {
     }
 
     #[test]
-    fn tool_descriptions_pseudo_variable_renders_supplied_tools() {
-        let regs = regs_with_template("system.tools", "{{tool_descriptions}}", None);
-        let tools = vec![ToolDescriptionData {
-            id: "web_search".into(),
-            r#type: "function".into(),
-            category: None,
-            description: "Search the web".into(),
-            parameters: Vec::new(),
-            tips: None,
-            examples: None,
-        }];
-        let opts = TemplateRenderOptions {
-            variables: HashMap::new(),
-            tool_descriptions: Some(&tools),
-            tool_format: None,
-        };
-        let text = render_template(&regs, "system.tools", &opts).expect("rendered");
-        assert!(text.contains("web_search"));
-        assert!(!text.contains("{{tool_descriptions}}"));
+    fn removed_tool_descriptions_placeholder_stays_verbatim() {
+        let regs = regs_with_template("system.deprecated-tools", "A {{tool_descriptions}} B", None);
+        let text = render_template(&regs, "system.deprecated-tools", &Default::default())
+            .expect("rendered");
+        assert_eq!(text, "A {{tool_descriptions}} B");
 
-        // Without tool descriptions the placeholder resolves to empty.
-        let empty = render_template(&regs, "system.tools", &Default::default()).expect("rendered");
-        assert_eq!(empty, "");
+        let spaced =
+            regs_with_template("system.spaced-tools", "A {{ tool_descriptions }} B", None);
+        let spaced_text = render_template(&spaced, "system.spaced-tools", &Default::default())
+            .expect("rendered");
+        assert_eq!(spaced_text, "A {{ tool_descriptions }} B");
     }
 
     #[test]
@@ -483,6 +480,40 @@ mod tests {
     }
 
     #[test]
+    fn pseudo_variables_tolerate_surrounding_whitespace() {
+        let regs = ResourceRegistries::new();
+        regs.fragments
+            .register(
+                "f.whitespace".into(),
+                std::sync::Arc::new(wf_types::SystemPromptFragment {
+                    id: "f.whitespace".into(),
+                    category: "test".into(),
+                    content: "fragment body".into(),
+                    description: None,
+                    variables: None,
+                }),
+            )
+            .unwrap();
+        regs.templates
+            .register(
+                "system.spaced".into(),
+                std::sync::Arc::new(Template {
+                    id: "system.spaced".into(),
+                    name: "spaced".into(),
+                    description: None,
+                    category: "system".into(),
+                    content: "HEADER\n{{ fragments }}".into(),
+                    variables: None,
+                    fragments: Some(vec!["f.whitespace".into()]),
+                }),
+            )
+            .unwrap();
+        let text = render_template(&regs, "system.spaced", &Default::default()).expect("rendered");
+        assert!(text.contains("fragment body"));
+        assert!(!text.contains("{{"));
+    }
+
+    #[test]
     fn visibility_message_falls_back_without_registries() {
         let fallback = "fallback text";
         let msg = render_visibility_message(
@@ -492,5 +523,16 @@ mod tests {
             &HashMap::from([("tool_names".to_string(), "shell".to_string())]),
         );
         assert_eq!(msg, "fallback text");
+    }
+
+    #[test]
+    fn builtin_fragments_render_without_placeholders() {
+        for fragment in crate::predefined::fragments::builtin_fragments() {
+            assert!(
+                wf_common::template::extract_placeholder_names(&fragment.content).is_empty(),
+                "builtin fragment '{}' must not leak placeholders",
+                fragment.id
+            );
+        }
     }
 }

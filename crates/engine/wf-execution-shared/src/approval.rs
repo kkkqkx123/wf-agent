@@ -8,6 +8,8 @@
 //! `ToolApprovalHandler` backed by the user interaction machinery; with no
 //! handler attached an `Ask` decision fails closed instead of waiting.
 
+use std::collections::HashMap;
+
 use serde_json::Value;
 
 use wf_types::interaction::tool_approval::ToolApprovalResponseData;
@@ -86,10 +88,31 @@ pub trait ToolApprovalHandler: Send + Sync {
 /// Substitute `{{name}}` placeholders in approval messages. Unmatched
 /// placeholders are kept verbatim. Shared by approval message builders so
 /// every rejection and hint text uses identical substitution semantics.
+/// Delegates to the shared foundation substitution so approval rendering
+/// and resource template rendering stay byte-identical.
 pub fn apply_approval_template_variables(template: &str, vars: &[(&str, &str)]) -> String {
-    let mut out = template.to_string();
-    for (key, value) in vars {
-        out = out.replace(&format!("{{{{{}}}}}", key), value);
+    let variables: HashMap<String, String> = vars
+        .iter()
+        .map(|(key, value)| ((*key).to_string(), (*value).to_string()))
+        .collect();
+    wf_common::template::apply_template_variables(template, &variables)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn approval_substitution_matches_foundation_semantics() {
+        let out = apply_approval_template_variables("Run {{ tool }} now", &[("tool", "shell")]);
+        assert_eq!(out, "Run shell now");
+        assert_eq!(
+            apply_approval_template_variables("Run {{unknown}} now", &[("tool", "shell")]),
+            "Run {{unknown}} now"
+        );
+        assert_eq!(
+            apply_approval_template_variables("{{a}}", &[("a", "{{b}}")]),
+            "{{b}}"
+        );
     }
-    out
 }

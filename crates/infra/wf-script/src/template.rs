@@ -9,6 +9,14 @@ use crate::resolver::{resolve_value_path, value_to_string, ArgumentResolver, Dyn
 /// Template placeholder matcher, built once. Dollar references are resolved
 /// earlier inside argument values; this stage only renders `{{path}}`
 /// placeholders against the already interpolated argument map.
+///
+/// Strict companion to the lenient prompt-text renderer
+/// (`wf_common::template`): an unresolved placeholder fails the render
+/// because a half-substituted command must never execute, while display
+/// text keeps unknown placeholders verbatim. The hook payload templates in
+/// `wf-execution-shared` share this strict semantic; each keeps its own
+/// dotted-path lookup on purpose since the value flows differ (declared
+/// arguments with file confinement here, a direct context table there).
 static TEMPLATE_RE: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"\{\{\s*([A-Za-z_][\w]*(?:\.[\w]+)*)\s*\}\}")
         .expect("invariant: regex literal is a fixed pattern and must compile")

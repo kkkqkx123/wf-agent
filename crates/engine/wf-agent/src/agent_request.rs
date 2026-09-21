@@ -205,6 +205,28 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn request_assembly_leaves_skill_anchor_to_prompt_assembly() {
+        // Stage contract: the skill anchor resolves at prompt-assembly time
+        // (stable header), the discoverable anchor per request here. Request
+        // assembly must resolve its own anchor while leaving the skill
+        // anchor untouched for the stage that owns it.
+        let entity =
+            make_entity("You are a coder.\n{SKILLS_METADATA}\n{DISCOVERABLE_TOOLS_METADATA}").await;
+        let request = build_agent_request(&entity, &make_registry(), false, None, None)
+            .await
+            .expect("request must build");
+        let text = system_text(&request);
+        assert!(
+            !text.contains(wf_tools::DISCOVERABLE_TOOLS_METADATA_PLACEHOLDER),
+            "own anchor resolved: {text}"
+        );
+        assert!(
+            text.contains("{SKILLS_METADATA}"),
+            "foreign anchor left for prompt assembly: {text}"
+        );
+    }
+
+    #[tokio::test]
     async fn discoverable_metadata_appends_when_placeholder_absent() {
         let entity = make_entity("You are a coder.").await;
         let request = build_agent_request(&entity, &make_registry(), false, None, None)

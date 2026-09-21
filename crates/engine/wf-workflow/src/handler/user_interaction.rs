@@ -47,12 +47,21 @@ fn emit_interaction_event(
 }
 
 /// Replace `{{input}}` placeholders with the user-provided input value.
+/// Render-layer syntax (`{{...}}`, owned by the shared foundation
+/// substitution), not the `${...}` assembly layer used by the `prompt`
+/// field below: the two fields resolve at different stages on purpose.
+/// Delegates to the shared foundation substitution so spaced placeholders
+/// resolve identically to every other prompt template and values stay
+/// opaque without rescanning.
 fn replace_input_placeholder(template: &str, input: &Value) -> String {
     let input_str = match input {
         Value::String(s) => s.clone(),
         other => other.to_string(),
     };
-    template.replace("{{input}}", &input_str)
+    wf_common::template::apply_template_variables(
+        template,
+        &HashMap::from([("input".to_string(), input_str)]),
+    )
 }
 
 /// Evaluate a variable expression:
@@ -100,6 +109,10 @@ impl UserInteractionHandler {
             .get("prompt")
             .and_then(|v| v.as_str())
             .map(|s| {
+                // Assembly-layer syntax (`${...}`, owned by
+                // `crate::variable`): this field moves workflow values,
+                // unlike `message.content_template` which renders
+                // `{{input}}` at the text layer.
                 let resolved = crate::variable::VariableResolver::resolve_str(s, &ctx.variables);
                 resolved
                     .as_str()
@@ -308,6 +321,9 @@ fn apply_operation(
                     .get("content_template")
                     .and_then(|v| v.as_str())
                     .unwrap_or("");
+                // Render-layer syntax (`{{input}}`): resolved against the
+                // user input here, never through the `${...}` variable
+                // layer used by the `prompt` field.
                 let content = replace_input_placeholder(template, input_data);
 
                 message_context::append_context(
@@ -365,6 +381,10 @@ mod tests {
         assert_eq!(
             evaluate_expression("constant", &Value::Null),
             Value::from("constant")
+        );
+        assert_eq!(
+            replace_input_placeholder("Hello {{ input }}!", &Value::from("world")),
+            "Hello world!"
         );
     }
 

@@ -1,4 +1,3 @@
-pub mod compose;
 pub mod custom;
 pub mod dynamic;
 pub mod predefined;
@@ -7,7 +6,6 @@ pub mod resource_plugin;
 pub mod result;
 pub mod template;
 
-pub use compose::Config as PromptComposition;
 pub use custom::{
     load_custom_agent_templates, load_custom_fragments, load_custom_node_templates,
     load_custom_prompts, load_custom_resources, load_custom_tool_descriptions, load_custom_tools,
@@ -16,7 +14,6 @@ pub use custom::{
     CustomValidationLevel,
 };
 pub use dynamic::{build_system_context, build_user_context, current_time_text, SystemConfig, UserInput};
-pub use predefined::render::{render_tool_descriptions, ToolFormat};
 pub use predefined::resource_plugin::{GoalReviewConfig, GoalReviewResourcePlugin};
 pub use predefined::tool_visibility::{
     builtin_tool_visibility_templates, ACTIVATION_TEMPLATE_ID, BLOCK_TEMPLATE_ID,

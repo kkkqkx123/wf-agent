@@ -12,7 +12,7 @@ pub fn builtin_prompts() -> Vec<Template> {
             name: "Default System Prompt".into(),
             description: Some("Default system prompt for general-purpose assistant".into()),
             category: "system".into(),
-            content: "{{fragments}}\n\n{{tool_descriptions}}".into(),
+            content: "{{fragments}}".into(),
             variables: None,
             fragments: Some(vec![
                 "fragments.role.assistant".into(),
@@ -27,7 +27,7 @@ pub fn builtin_prompts() -> Vec<Template> {
             name: "Code Assistant System Prompt".into(),
             description: Some("System prompt specialized for code generation and analysis".into()),
             category: "system".into(),
-            content: "{{fragments}}\n\n{{tool_descriptions}}".into(),
+            content: "{{fragments}}".into(),
             variables: None,
             fragments: Some(vec![
                 "fragments.role.coder".into(),
@@ -44,7 +44,7 @@ pub fn builtin_prompts() -> Vec<Template> {
             name: "Agent System Prompt".into(),
             description: Some("System prompt for autonomous agent mode".into()),
             category: "system".into(),
-            content: "{{fragments}}\n\n{{tool_descriptions}}".into(),
+            content: "{{fragments}}".into(),
             variables: None,
             fragments: Some(vec![
                 "fragments.role.assistant".into(),

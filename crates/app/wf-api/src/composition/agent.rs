@@ -196,14 +196,11 @@ fn attach_prompt_assembly(
         env,
         &config.available_tool_names,
     );
-    let mut message = std::mem::take(&mut input.message);
     apply_assembled_prompt(
         &mut input.conversation,
         &assembled,
         DynamicTailBearing::SeparateUserMessage,
-        &mut message,
     );
-    input.message = message;
 }
 
 /// Resolve the effective template for a config/input pair and apply its

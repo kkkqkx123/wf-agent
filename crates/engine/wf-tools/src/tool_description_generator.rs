@@ -48,6 +48,11 @@ pub const DISCOVERABLE_TOOLS_METADATA_PLACEHOLDER: &str = "{DISCOVERABLE_TOOLS_M
 /// name + one-line description + typed parameter list
 /// (`query(string, required)`), so the model knows what exists (and with
 /// what signatures) without any schema injection.
+///
+/// This is the progressive-disclosure list path, separate on purpose from
+/// the gateway text-mode declarations (`wf_llm::tool::protocol`, full
+/// per-turn callable declarations): add new signature-list layouts here,
+/// new declaration layouts there.
 pub fn generate_discoverable_tools_metadata_with_options(
     tools: &[Tool],
     options: &DiscoverableMetadataOptions,
@@ -126,6 +131,14 @@ fn render_parameter_list(
 /// two can never drift apart: an empty block strips the anchor, a present
 /// anchor is replaced, and a missing anchor appends the block with a
 /// warning.
+///
+/// Reserved-marker registry: post-render anchors use single braces with
+/// all-caps underscore names so the double-brace template renderer (which
+/// runs earlier) never touches them. Exactly two markers exist:
+/// `{SKILLS_METADATA}` (skill layer, injected at prompt-assembly time into
+/// the stable header) and `{DISCOVERABLE_TOOLS_METADATA}` (this module,
+/// injected per request into the first system message, after the skill
+/// anchor). A new marker must reuse this helper and be listed here.
 pub(crate) fn inject_placeholder_block(
     system_prompt: &str,
     placeholder: &str,
@@ -254,6 +267,19 @@ mod tests {
         // Empty set removes the placeholder without adding content.
         let empty = inject_tool_metadata_block("Hi {DISCOVERABLE_TOOLS_METADATA}", "");
         assert_eq!(empty, "Hi ");
+    }
+
+    #[test]
+    fn reserved_markers_stay_invisible_to_double_brace_scan() {
+        // Both registered single-brace anchors must never read as template
+        // placeholders: the double-brace renderer runs earlier and the
+        // injection stages own these markers.
+        let anchored = format!(
+            "Base.\n{}\n{}",
+            crate::skill::SKILLS_METADATA_PLACEHOLDER,
+            DISCOVERABLE_TOOLS_METADATA_PLACEHOLDER
+        );
+        assert!(wf_common::template::extract_placeholder_names(&anchored).is_empty());
     }
 
     #[test]

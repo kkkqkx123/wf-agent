@@ -94,12 +94,11 @@ impl AgentLoopHandler {
             &settings.activated_tool_names,
         );
 
-        let mut message = settings.input_text.clone();
+        let message = settings.input_text.clone();
         wf_execution_shared::agent_prompt::apply_assembled_prompt(
             &mut initial_conversation,
             &assembled,
             wf_execution_shared::agent_prompt::DynamicTailBearing::SeparateUserMessage,
-            &mut message,
         );
 
         let loop_config = AgentLoopConfig {

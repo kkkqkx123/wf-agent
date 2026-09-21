@@ -1,6 +1,6 @@
 use serde_json::Value;
 use wf_execution_shared::context::NodeExecutionContext;
-use wf_types::message::{Message, MessageContentValue, MessageRole};
+use wf_types::message::{Message, MessageRole};
 
 use crate::error::WorkflowResult;
 use crate::message_context;
@@ -40,20 +40,16 @@ pub fn injected_messages(config: &Value) -> Vec<Message> {
         .unwrap_or_default()
 }
 
+/// Build a plain-text message of any role. System and user roles delegate
+/// to the canonical [`Message`] constructors so id and timestamp handling
+/// cannot drift from the rest of the codebase.
 pub fn text_message(role: MessageRole, content: String) -> Message {
     match role {
         MessageRole::System => Message::system_text(content),
         MessageRole::User => Message::user_text(content),
         MessageRole::Assistant | MessageRole::Tool => Message {
-            id: wf_common::generate_id(),
             role,
-            content: MessageContentValue::Text(content),
-            timestamp: wf_common::now(),
-            tool_call_id: None,
-            tool_name: None,
-            tool_calls: None,
-            thinking: None,
-            metadata: None,
+            ..Message::user_text(content)
         },
     }
 }
@@ -79,8 +75,12 @@ pub fn tool_result_message(
 /// Resolve the system prompt with agent-loop priority: inline text wins,
 /// otherwise the template reference renders through the shared registry.
 /// Returns `None` when neither is configured or rendering is unavailable.
-/// This stays a lightweight path on purpose: no tool exposure, skill, or
-/// dynamic context enrichment happens here, unlike the agent loop assembly.
+///
+/// Capability boundary (kept lightweight on purpose): only inline-first
+/// plus template rendering happens here, unlike the agent loop assembly
+/// which adds tool exposure, skill enrichment and dynamic context. A node
+/// that needs skills, dynamic context or tool exposure must be an
+/// `AGENT_LOOP` node instead of growing this path.
 fn resolve_llm_system_prompt(config: &Value, ctx: &NodeExecutionContext) -> Option<String> {
     let system = config.get("system_prompt").and_then(|v| v.as_str());
     let template_id = config
@@ -90,13 +90,12 @@ fn resolve_llm_system_prompt(config: &Value, ctx: &NodeExecutionContext) -> Opti
         if let Some(regs) = ctx.resource_registries.as_deref() {
             use wf_core::registry::Registry;
             if let Some(template) = regs.templates.get(id) {
-                if template.content.contains("{{tool_descriptions}}") {
-                    tracing::warn!(
-                        "llm node template '{id}' uses {{{{tool_descriptions}}}} but the lightweight path never supplies tools; it renders empty"
-                    );
-                }
+                warn_for_unserved_anchors(id, &template.content);
             }
         }
+    }
+    if let Some(inline) = system {
+        warn_for_unserved_anchors("inline system_prompt", inline);
     }
     let variables = config
         .get("system_prompt_template_variables")
@@ -110,6 +109,40 @@ fn resolve_llm_system_prompt(config: &Value, ctx: &NodeExecutionContext) -> Opti
         ctx.resource_registries.as_deref(),
         template_metrics.as_deref(),
     )
+    .map(|text| strip_unserved_anchors(&text))
+}
+
+/// Strip post-render anchors the lightweight path never resolves so they
+/// cannot reach the model literally. Warnings are emitted earlier at the
+/// source; this is the misuse-resistant guarantee on the final text.
+fn strip_unserved_anchors(text: &str) -> String {
+    text.replace(
+        wf_tools::skill::SKILLS_METADATA_PLACEHOLDER,
+        "",
+    )
+    .replace(
+        wf_tools::DISCOVERABLE_TOOLS_METADATA_PLACEHOLDER,
+        "",
+    )
+}
+
+/// Warn for post-render anchors a lightweight prompt can never resolve:
+/// the skill metadata anchor (injected by the agent loop assembly) and the
+/// discoverable-tools anchor (injected per request by the agent loop).
+/// The final text strips either marker (see `strip_unserved_anchors`), so
+/// this warning points at the source template while the strip guarantees
+/// no literal anchor reaches the model.
+fn warn_for_unserved_anchors(source: &str, content: &str) {
+    for anchor in [
+        wf_tools::skill::SKILLS_METADATA_PLACEHOLDER,
+        wf_tools::DISCOVERABLE_TOOLS_METADATA_PLACEHOLDER,
+    ] {
+        if content.contains(anchor) {
+            tracing::warn!(
+                "llm node {source} uses {anchor} but the lightweight path never injects it; use an AGENT_LOOP node for skill and tool exposure"
+            );
+        }
+    }
 }
 
 /// Collect the initial message list for the request:
@@ -168,6 +201,7 @@ pub fn build_messages(ctx: &NodeExecutionContext) -> WorkflowResult<Vec<Message>
 #[cfg(test)]
 mod tests {
     use super::*;
+    use wf_types::message::MessageContentValue;
     use wf_types::node::StaticNodeType;
 
     fn msg(role: MessageRole, text: &str) -> Message {
@@ -228,5 +262,29 @@ mod tests {
             back.content,
             MessageContentValue::Text("hi there".to_string())
         );
+    }
+
+    #[test]
+    fn lightweight_path_strips_unserved_anchors() {
+        let vars = std::sync::Arc::new(dashmap::DashMap::new());
+        let ctx = NodeExecutionContext::new(
+            wf_types::Id::new(),
+            "llm1".to_string(),
+            StaticNodeType::Llm,
+            Value::Null,
+            vars,
+        )
+        .with_node_config(serde_json::json!({
+            "system_prompt": "base {SKILLS_METADATA} mid {DISCOVERABLE_TOOLS_METADATA} tail",
+        }));
+        let messages = build_messages(&ctx).unwrap();
+        let system = messages
+            .iter()
+            .find(|m| m.role == MessageRole::System)
+            .expect("system message");
+        let text = message_to_text(system);
+        assert!(!text.contains("{SKILLS_METADATA}"));
+        assert!(!text.contains("{DISCOVERABLE_TOOLS_METADATA}"));
+        assert!(text.contains("base"));
     }
 }

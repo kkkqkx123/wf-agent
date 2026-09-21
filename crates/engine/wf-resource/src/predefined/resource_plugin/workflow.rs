@@ -123,11 +123,15 @@ pub(crate) fn build_workflow(config: &GoalReviewConfig) -> Result<WorkflowTempla
         config.reviewer_tools.clone(),
     )?;
 
+    let planner_text = config
+        .planner_system_prompt
+        .clone()
+        .unwrap_or_else(|| DEFAULT_PLANNER_PROMPT.to_string());
     let start_messages = config.initial_messages.clone().unwrap_or_else(|| {
         vec![Message {
             id: String::new(),
             role: MessageRole::System,
-            content: MessageContentValue::Text(DEFAULT_PLANNER_PROMPT.to_string()),
+            content: MessageContentValue::Text(planner_text.clone()),
             timestamp: t,
             tool_call_id: None,
             tool_name: None,

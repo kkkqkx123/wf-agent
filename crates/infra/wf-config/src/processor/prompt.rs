@@ -18,13 +18,28 @@ pub fn validate_prompt_template(template: &Template) -> ConfigResult<()> {
         )));
     }
     if let Some(variables) = template.variables.as_ref() {
+        // Templates composing fragments may declare variables consumed only
+        // by fragment content (the template body carries just
+        // `{{fragments}}`), so the declared-but-unused check is skipped when
+        // a fragment list is present. The render-time required check unions
+        // fragment declarations, keeping this validation from blocking that
+        // legitimate shape.
+        let has_fragments = template
+            .fragments
+            .as_ref()
+            .map(|ids| !ids.is_empty())
+            .unwrap_or(false);
         for variable in variables {
             validate_required(&variable.name, "variable.name")?;
+            if has_fragments {
+                continue;
+            }
             // A declared variable must actually appear in the content as a
             // `{{name}}` placeholder, otherwise the declaration is stale
-            // and hides render-time bugs.
-            let canonical = format!("{{{{{}}}}}", variable.name);
-            if !template.content.contains(&canonical) {
+            // and hides render-time bugs. Comparison uses the same trimmed
+            // scan as rendering so spaced placeholders still match.
+            let used = extract_template_placeholders(&template.content);
+            if !used.iter().any(|name| name == &variable.name) {
                 return Err(ConfigError::Validation(format!(
                     "template '{}' declares variable '{}' but the content never uses it",
                     template.id, variable.name
@@ -36,7 +51,8 @@ pub fn validate_prompt_template(template: &Template) -> ConfigResult<()> {
         let declared: std::collections::HashSet<&str> =
             variables.iter().map(|v| v.name.as_str()).collect();
         for used in extract_template_placeholders(&template.content) {
-            if used == "fragments" || used == "tool_descriptions" {
+            // Engine pseudo-variables need no declaration.
+            if used == "fragments" {
                 continue;
             }
             if !declared.contains(used.as_str()) {
@@ -52,32 +68,10 @@ pub fn validate_prompt_template(template: &Template) -> ConfigResult<()> {
 
 /// Collect `{{name}}` placeholder names from template content. Single truth
 /// for placeholder scanning: validation and render-time observability share
-/// this scan so the two can never drift apart.
+/// this scan so the two can never drift apart. Delegates to the shared
+/// foundation scan so config validation matches the render attempt set.
 pub fn extract_template_placeholders(content: &str) -> Vec<String> {
-    let mut out = Vec::new();
-    let mut rest = content;
-    while let Some(start) = rest.find("{{") {
-        let after = &rest[start + 2..];
-        let Some(end) = after.find("}}") else {
-            break;
-        };
-        let name = after[..end].trim();
-        if !name.is_empty()
-            && name
-                .chars()
-                .all(|c| c.is_ascii_alphanumeric() || c == '_')
-            && name
-                .chars()
-                .next()
-                .map(|c| c.is_ascii_alphabetic() || c == '_')
-                .unwrap_or(false)
-            && !out.iter().any(|existing: &String| existing == name)
-        {
-            out.push(name.to_string());
-        }
-        rest = &after[end + 2..];
-    }
-    out
+    wf_common::template::extract_placeholder_names(content)
 }
 
 pub fn merge_prompt_template_config(
@@ -251,6 +245,21 @@ mod tests {
         }]);
         let err = validate_prompt_template(&template).unwrap_err();
         assert!(err.to_string().contains("never uses it"));
+    }
+
+    #[test]
+    fn test_fragment_composing_template_may_declare_fragment_variable() {
+        let mut template = make_template();
+        template.content = "HEADER\n{{fragments}}".to_string();
+        template.fragments = Some(vec!["f.coding".to_string()]);
+        template.variables = Some(vec![wf_types::TemplateVariableDefinition {
+            name: "cutoff_date".to_string(),
+            r#type: "string".to_string(),
+            required: false,
+            description: None,
+            default_value: None,
+        }]);
+        assert!(validate_prompt_template(&template).is_ok());
     }
 
     fn make_default_template() -> Template {

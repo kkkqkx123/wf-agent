@@ -523,19 +523,20 @@ fn resource_type_dir_name(resource_type: &SkillResourceType) -> &'static str {
 }
 
 /// Replace `{{name}}` placeholders with the given values. Non-string values
-/// are rendered via their JSON representation (null/absent → empty string).
+/// are rendered via their JSON representation (null → empty string).
+/// Delegates to the shared foundation substitution so skill rendering and
+/// resource template rendering share one single-pass verbatim semantic.
 pub fn substitute_variables(content: &str, variables: &HashMap<String, Value>) -> String {
-    let mut result = content.to_string();
-    for (key, value) in variables {
-        let placeholder = format!("{{{{{}}}}}", key);
-        let replacement = match value {
-            Value::Null => String::new(),
-            Value::String(s) => s.clone(),
-            other => other.to_string(),
-        };
-        result = result.replace(&placeholder, &replacement);
-    }
-    result
+    let mapped: HashMap<String, String> = variables
+        .iter()
+        .map(|(key, value)| {
+            (
+                key.clone(),
+                wf_common::template::value_to_display_string(value),
+            )
+        })
+        .collect();
+    wf_common::template::apply_template_variables(content, &mapped)
 }
 
 /// Placeholder replaced by [`inject_skill_metadata`]. Single braces keep

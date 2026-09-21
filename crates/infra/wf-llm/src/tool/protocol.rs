@@ -206,11 +206,46 @@ pub fn render_tool_declaration(tool: &Tool, format: ToolCallProtocol, compact: b
 
     let parameters = render_parameters(tool, templates.parameter_template, compact);
 
-    templates
-        .single_template
-        .replace("{name}", &tool.name)
-        .replace("{description}", &tool.description)
-        .replace("{parameters}", &parameters)
+    render_single_brace_template(
+        templates.single_template,
+        &[
+            ("name", tool.name.as_str()),
+            ("description", tool.description.as_str()),
+            ("parameters", parameters.as_str()),
+        ],
+    )
+}
+
+/// Substitute `{key}` placeholders in a single left-to-right pass. Values
+/// insert as opaque text and are never rescanned, so a tool description
+/// containing a literal `{parameters}` marker cannot expand again.
+/// Unknown spans stay verbatim. Single-pass on purpose: the previous
+/// chained `.replace` rewrote value text when a value happened to contain
+/// another placeholder name.
+fn render_single_brace_template(template: &str, vars: &[(&str, &str)]) -> String {
+    if !template.contains('{') {
+        return template.to_string();
+    }
+    let mut rendered = String::with_capacity(template.len());
+    let mut rest = template;
+    while let Some(start) = rest.find('{') {
+        let after = &rest[start + 1..];
+        let Some(end) = after.find('}') else {
+            break;
+        };
+        let name = &after[..end];
+        if name.is_empty() || name.contains('{') || name.contains('}') {
+            rendered.push_str(&rest[..start + 1 + end + 1]);
+        } else if let Some((_, value)) = vars.iter().find(|(key, _)| *key == name) {
+            rendered.push_str(&rest[..start]);
+            rendered.push_str(value);
+        } else {
+            rendered.push_str(&rest[..start + 1 + end + 1]);
+        }
+        rest = &after[end + 1..];
+    }
+    rendered.push_str(rest);
+    rendered
 }
 
 /// Render tool parameters.
@@ -236,13 +271,15 @@ fn render_parameters(tool: &Tool, parameter_template: &str, compact: bool) -> St
             } else {
                 ""
             };
-            lines.push(
-                parameter_template
-                    .replace("{name}", name)
-                    .replace("{type}", param_type)
-                    .replace("{required}", req)
-                    .replace("{description}", desc),
-            );
+            lines.push(render_single_brace_template(
+                parameter_template,
+                &[
+                    ("name", name.as_str()),
+                    ("type", param_type.as_str()),
+                    ("required", req),
+                    ("description", desc),
+                ],
+            ));
         }
         return lines.join("\n");
     }
@@ -263,11 +300,18 @@ pub fn render_tool_list_description(
         .collect::<Vec<_>>()
         .join("\n\n");
 
-    templates.list_template.replace("{tools}", &tool_str)
+    render_single_brace_template(templates.list_template, &[("tools", tool_str.as_str())])
 }
 
 /// Build the complete system content for text-based tool mode by injecting
 /// tool declarations + usage instructions into the existing system message.
+///
+/// This is the text-protocol tool path: the full declaration of every tool
+/// callable this turn. The discoverable-tools signature list (progressive
+/// disclosure via the `general` tool, owned by
+/// `wf_tools::tool_description_generator`) serves a different audience and
+/// stays separate on purpose; add new per-turn declaration layouts here,
+/// new discoverable list layouts there.
 pub fn build_text_mode_system_content(
     existing_system: &str,
     tools: &[Tool],
@@ -296,6 +340,10 @@ pub fn build_text_mode_system_content(
 /// All system messages are concatenated in order with a blank line separator
 /// so the stable header plus every announcement reaches the model; the rest
 /// are dropped along with the system role itself.
+///
+/// Concatenation is owned here; locating the cacheable header inside the
+/// conversation is owned by the prompt assembly
+/// (`wf_execution_shared::agent_prompt::has_stable_system_message`).
 pub fn extract_system_message(messages: &[Message]) -> (Option<String>, Vec<Message>) {
     let mut parts = Vec::new();
     let mut filtered = Vec::new();
@@ -515,6 +563,14 @@ mod tests {
         let decl = render_tool_declaration(&t, ToolCallProtocol::Xml, false);
         assert!(decl.contains("<tool name=\"noop\">"));
         assert!(!decl.contains("[required]"));
+    }
+
+    #[test]
+    fn single_brace_values_are_opaque_and_never_rescanned() {
+        let t = tool("search", "uses {parameters} literally");
+        let decl = render_tool_declaration(&t, ToolCallProtocol::Xml, false);
+        assert!(decl.contains("uses {parameters} literally"));
+        assert_eq!(decl.matches("uses {parameters} literally").count(), 1);
     }
 
     #[test]

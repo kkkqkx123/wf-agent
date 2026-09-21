@@ -44,9 +44,8 @@ pub fn is_valid_template_category(category: &str) -> bool {
 /// discoverable metadata block, general description). Registered as a
 /// loadable resource so operators can adjust the texts without code
 /// changes. Variables use the `{{name}}` placeholder syntax;
-/// `{{fragments}}` and `{{tool_descriptions}}` are renderer
-/// pseudo-variables (composed by the render engine, not substituted
-/// verbatim).
+/// `{{fragments}}` is a renderer pseudo-variable (composed by the render
+/// engine, not substituted verbatim).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Template {
     pub id: String,

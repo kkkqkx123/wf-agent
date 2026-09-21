@@ -579,7 +579,7 @@ impl VariableResolver {
 
     pub fn resolve_str(input: &str, variables: &VariableStore) -> Value {
         if input.starts_with("${") && input.ends_with("}") {
-            let var_name = &input[2..input.len() - 1];
+            let var_name = input[2..input.len() - 1].trim();
             if let Some(v) = Self::lookup_variable(var_name, variables) {
                 return v;
             }
@@ -592,12 +592,9 @@ impl VariableResolver {
             let abs_pos = start + pos;
             if let Some(end) = result[abs_pos..].find('}') {
                 let abs_end = abs_pos + end;
-                let var_name = &result[abs_pos + 2..abs_end];
+                let var_name = result[abs_pos + 2..abs_end].trim();
                 if let Some(v) = Self::lookup_variable(var_name, variables) {
-                    let replacement = match &v {
-                        Value::String(s) => s.clone(),
-                        other => other.to_string(),
-                    };
+                    let replacement = wf_common::template::value_to_display_string(&v);
                     result.replace_range(abs_pos..=abs_end, &replacement);
                     start = abs_pos + replacement.len();
                 } else {
@@ -616,21 +613,23 @@ impl VariableResolver {
         // `x` from the store, not a nested key
         // under a literal "variables" entry.
         let path = path.strip_prefix("variables.").unwrap_or(path);
-        let parts: Vec<&str> = path.split('.').collect();
-        let first = parts.first()?;
+        if wf_common::template::validate_template_path(path).is_some() {
+            return None;
+        }
+        let mut parts = path.split('.');
+        let first = parts.next()?;
+        let mut current = variables.get(first)?.clone();
 
-        let mut current = variables.get(*first)?.clone();
-
-        for part in &parts[1..] {
-            if let Value::Object(map) = &current {
-                current = serde_json::from_value(serde_json::to_value(map).ok()?).ok()?;
-                if let Value::Object(map) = &current {
-                    current = map.get(*part)?.clone();
-                } else {
-                    return None;
+        for part in parts {
+            match &current {
+                Value::Object(map) => {
+                    current = map.get(part)?.clone();
                 }
-            } else {
-                return None;
+                Value::Array(items) => {
+                    let index: usize = part.parse().ok()?;
+                    current = items.get(index)?.clone();
+                }
+                _ => return None,
             }
         }
 
@@ -890,6 +889,15 @@ mod tests {
         assert_eq!(
             evaluate_expression("variables.step1 == 'hi'", &vars).unwrap(),
             Value::Bool(true)
+        );
+    }
+
+    #[test]
+    fn array_index_path_resolves() {
+        let vars = store(&[("items", serde_json::json!(["a", "b"]))]);
+        assert_eq!(
+            VariableResolver::resolve_str("${items.1}", &vars),
+            Value::String("b".to_string())
         );
     }
 

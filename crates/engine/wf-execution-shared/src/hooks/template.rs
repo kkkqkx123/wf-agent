@@ -9,10 +9,11 @@
 //! placeholders verbatim instead; pick that engine for display text and
 //! this one for payloads that execute.
 //!
-//! The dotted-path lookup below intentionally duplicates the one in the
-//! `wf-script` template resolver: the two operate on different value flows
-//! (direct context table here, declared arguments plus file confinement
-//! there) and sharing would widen public API surface for a ten-line helper.
+//! The dotted-path lookup delegates to the shared foundation resolver so
+//! hook payloads and script arguments resolve object fields and numeric
+//! array indices identically. Value flows still differ (direct context
+//! table here, declared arguments plus file confinement in `wf-script`),
+//! so each engine keeps its own strict failure policy.
 
 use std::collections::HashMap;
 
@@ -80,6 +81,11 @@ fn resolve_template_string(
             }
 
             let path = path.trim();
+            if let Some(reason) = wf_common::template::validate_template_path(path) {
+                return Err(ExecutionSharedError::HookError(format!(
+                    "template variable '{path}' is invalid: {reason}"
+                )));
+            }
             let value = resolve_path(path, context).ok_or_else(|| {
                 ExecutionSharedError::HookError(format!(
                     "template variable '{}' not found in context",
@@ -87,10 +93,7 @@ fn resolve_template_string(
                 ))
             })?;
 
-            match value {
-                Value::String(s) => result.push_str(s),
-                other => result.push_str(&other.to_string()),
-            }
+            result.push_str(&wf_common::template::value_to_display_string(value));
         } else {
             result.push(ch);
         }
@@ -100,14 +103,7 @@ fn resolve_template_string(
 }
 
 fn resolve_path<'a>(path: &str, context: &'a HashMap<String, Value>) -> Option<&'a Value> {
-    let parts: Vec<&str> = path.split('.').collect();
-    let mut current = context.get(parts[0])?;
-
-    for part in &parts[1..] {
-        current = current.get(part)?;
-    }
-
-    Some(current)
+    wf_common::template::resolve_value_path_ref(path, context)
 }
 
 #[cfg(test)]
@@ -209,5 +205,18 @@ mod tests {
         let payload = Value::String("count={{count}}".to_string());
         let result = resolve_payload_template(&payload, &ctx).unwrap();
         assert_eq!(result, Value::String("count=42".to_string()));
+    }
+
+    #[test]
+    fn test_array_index_path() {
+        let mut ctx = HashMap::new();
+        ctx.insert(
+            "items".to_string(),
+            serde_json::json!(["a", "b"]),
+        );
+
+        let payload = Value::String("second={{items.1}}".to_string());
+        let result = resolve_payload_template(&payload, &ctx).unwrap();
+        assert_eq!(result, Value::String("second=b".to_string()));
     }
 }

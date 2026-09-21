@@ -145,7 +145,7 @@ pub enum CustomPromptType {
 pub struct CustomPromptVariable {
     pub name: String,
     #[serde(rename = "type")]
-    pub var_type: String,
+    pub var_type: wf_types::TemplateVariableType,
     pub required: Option<bool>,
     pub description: Option<String>,
     /// Value used when the caller does not supply the variable.

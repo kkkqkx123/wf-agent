@@ -4,6 +4,7 @@ version.workspace = true
 edition.workspace = true
 
 [dependencies]
+wf-common = { path = "../../foundation/wf-common" }
 wf-types = { path = "../../foundation/wf-types" }
 
 serde.workspace = true

@@ -46,8 +46,11 @@ pub use wf_config::validator::{
 
 /// Transform: canonical node/edge conversion and parameter substitution.
 pub use wf_config::processor::substitute::{
-    substitute_in_struct, substitute_parameters_in_value, substitute_string,
+    ensure_no_unresolved_parameters_in_value, find_unresolved_parameters,
+    find_unresolved_parameters_in_value, substitute_in_struct, substitute_in_struct_strict,
+    substitute_parameters_in_value, substitute_string,
 };
+pub use wf_config::env::{ensure_no_unresolved_env_vars, find_unresolved_env_vars};
 pub use wf_config::processor::workflow::{
     transform_edges, transform_nodes, WorkflowEdgeConfig, WorkflowNodeConfig,
 };

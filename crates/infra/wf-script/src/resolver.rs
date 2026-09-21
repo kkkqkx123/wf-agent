@@ -221,9 +221,80 @@ impl DynamicResolver {
             .collect()
     }
 
+    /// Resolve only `${path}` references, leaving bare `$name` spans
+    /// untouched for shell-native variables. Used by shell command paths
+    /// where bare dollar interpolation would otherwise rewrite or retain
+    /// shell variables by accident.
+    pub(crate) fn resolve_braced(value: &Value, context: &HashMap<String, Value>) -> Value {
+        match value {
+            Value::String(s) => Value::String(Self::resolve_string_braced_only(s, context)),
+            Value::Array(arr) => {
+                Value::Array(arr.iter().map(|v| Self::resolve_braced(v, context)).collect())
+            }
+            Value::Object(obj) => {
+                let mut resolved = serde_json::Map::new();
+                for (k, v) in obj {
+                    resolved.insert(k.clone(), Self::resolve_braced(v, context));
+                }
+                Value::Object(resolved)
+            }
+            other => other.clone(),
+        }
+    }
+
+    pub(crate) fn resolve_map_braced(
+        map: &HashMap<String, Value>,
+        context: &HashMap<String, Value>,
+    ) -> HashMap<String, Value> {
+        map.iter()
+            .map(|(k, v)| (k.clone(), Self::resolve_braced(v, context)))
+            .collect()
+    }
+
+    /// Dollar references present in the text but absent from the context.
+    /// The default interpolation keeps such spans verbatim, so callers use
+    /// this query for explicit checks without changing that behavior.
+    pub(crate) fn find_unresolved_refs(value: &str, context: &HashMap<String, Value>) -> Vec<String> {
+        const ESCAPED_DOLLAR: &str = "\u{0}ESCAPED_DOLLAR\u{0}";
+        let shielded = value.replace("$$", ESCAPED_DOLLAR);
+        let mut out = Vec::new();
+        for caps in VAR_REF_RE.captures_iter(&shielded) {
+            let ref_path = caps
+                .get(1)
+                .expect("invariant: capture group 1 is always present for a matched pattern")
+                .as_str();
+            if ref_path.starts_with(ESCAPED_DOLLAR) {
+                continue;
+            }
+            if resolve_path(ref_path, context).is_none() && !out.contains(&ref_path.to_string()) {
+                out.push(ref_path.to_string());
+            }
+        }
+        let mut search = shielded.as_str();
+        while let Some(start) = search.find("${") {
+            let rest = &search[start + 2..];
+            match rest.find('}') {
+                Some(end) => {
+                    let path = rest[..end].trim();
+                    if !path.is_empty()
+                        && resolve_path(path, context).is_none()
+                        && !out.iter().any(|existing| existing == path)
+                    {
+                        out.push(path.to_string());
+                    }
+                    search = &rest[end + 1..];
+                }
+                None => break,
+            }
+        }
+        out
+    }
+
     fn resolve_string(value: &str, context: &HashMap<String, Value>) -> String {
-        VAR_REF_RE
-            .replace_all(value, |caps: &regex::Captures| {
+        const ESCAPED_DOLLAR: &str = "\u{0}ESCAPED_DOLLAR\u{0}";
+        let shielded = value.replace("$$", ESCAPED_DOLLAR);
+        let interpolated = VAR_REF_RE
+            .replace_all(&shielded, |caps: &regex::Captures| {
                 let ref_path = caps
                     .get(1)
                     .expect("invariant: capture group 1 is always present for a matched pattern")
@@ -233,7 +304,46 @@ impl DynamicResolver {
                     None => format!("${}", ref_path),
                 }
             })
-            .to_string()
+            .to_string();
+        interpolated.replace(ESCAPED_DOLLAR, "$")
+    }
+
+    fn resolve_string_braced_only(value: &str, context: &HashMap<String, Value>) -> String {
+        const ESCAPED_DOLLAR: &str = "\u{0}ESCAPED_DOLLAR\u{0}";
+        let shielded = value.replace("$$", ESCAPED_DOLLAR);
+        let mut result = String::with_capacity(shielded.len());
+        let mut rest = shielded.as_str();
+        while let Some(start) = rest.find("${") {
+            let after = &rest[start + 2..];
+            match after.find('}') {
+                Some(end) => {
+                    let path = after[..end].trim();
+                    result.push_str(&rest[..start]);
+                    if path.is_empty()
+                        || wf_common::template::validate_template_path(path).is_some()
+                    {
+                        result.push_str("${");
+                        result.push_str(&after[..end]);
+                        result.push('}');
+                    } else {
+                        match resolve_path(path, context) {
+                            Some(resolved) => {
+                                result.push_str(&value_as_string_2(&resolved));
+                            }
+                            None => {
+                                result.push_str("${");
+                                result.push_str(&after[..end]);
+                                result.push('}');
+                            }
+                        }
+                    }
+                    rest = &after[end + 1..];
+                }
+                None => break,
+            }
+        }
+        result.push_str(rest);
+        result.replace(ESCAPED_DOLLAR, "$")
     }
 }
 
@@ -241,30 +351,11 @@ fn resolve_path(path: &str, context: &HashMap<String, Value>) -> Option<Value> {
     resolve_value_path(path, context)
 }
 
-/// Resolve a dotted path against the context. Numeric segments index
-/// into arrays, other segments index into objects. Type mismatches and
-/// missing keys return `None` so callers report an unresolved placeholder.
+/// Resolve a dotted path against the context. Delegates to the shared
+/// foundation lookup so script arguments, hook payloads and prompt
+/// validation resolve object fields and numeric array indices identically.
 pub(crate) fn resolve_value_path(path: &str, context: &HashMap<String, Value>) -> Option<Value> {
-    let mut current: Option<&Value> = None;
-
-    for (i, part) in path.split('.').enumerate() {
-        if i == 0 {
-            current = context.get(part);
-        } else {
-            match current {
-                Some(Value::Object(map)) => {
-                    current = map.get(part);
-                }
-                Some(Value::Array(items)) => {
-                    let index: usize = part.parse().ok()?;
-                    current = items.get(index);
-                }
-                _ => return None,
-            }
-        }
-    }
-
-    current.cloned()
+    wf_common::template::resolve_value_path(path, context)
 }
 
 fn value_as_string_2(value: &Value) -> String {
@@ -272,12 +363,7 @@ fn value_as_string_2(value: &Value) -> String {
 }
 
 pub(crate) fn value_to_string(value: &Value) -> String {
-    match value {
-        Value::String(s) => s.clone(),
-        Value::Number(n) => n.to_string(),
-        Value::Bool(b) => b.to_string(),
-        _ => value.to_string(),
-    }
+    wf_common::template::value_to_display_string(value)
 }
 
 #[cfg(test)]
@@ -430,6 +516,33 @@ mod tests {
         let context = HashMap::new();
         let result = DynamicResolver::resolve_string("Hello $unknown", &context);
         assert_eq!(result, "Hello $unknown");
+    }
+
+    #[test]
+    fn test_dynamic_resolve_escaped_dollar() {
+        let mut context = HashMap::new();
+        context.insert("user".to_string(), json!("alice"));
+        let result = DynamicResolver::resolve_string("price is $$5 and $user", &context);
+        assert_eq!(result, "price is $5 and alice");
+    }
+
+    #[test]
+    fn test_braced_only_leaves_bare_dollar_untouched() {
+        let mut context = HashMap::new();
+        context.insert("user".to_string(), json!("alice"));
+        let value = json!("echo $HOME ${user}");
+        let resolved = DynamicResolver::resolve_braced(&value, &context);
+        assert_eq!(resolved, json!("echo $HOME alice"));
+    }
+
+    #[test]
+    fn test_find_unresolved_dollar_refs() {
+        let context = HashMap::new();
+        let missing = DynamicResolver::find_unresolved_refs("Hello $unknown", &context);
+        assert_eq!(missing, vec!["unknown".to_string()]);
+        let mut context = HashMap::new();
+        context.insert("user".to_string(), json!("alice"));
+        assert!(DynamicResolver::find_unresolved_refs("Hello $user", &context).is_empty());
     }
 
     #[test]

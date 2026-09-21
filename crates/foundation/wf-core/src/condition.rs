@@ -537,20 +537,7 @@ impl ConditionEvaluator {
     }
 
     fn lookup_variable(path: &str, context: &HashMap<String, Value>) -> Option<Value> {
-        let parts: Vec<&str> = path.split('.').collect();
-        let first = parts.first()?;
-
-        let mut current = context.get(*first)?.clone();
-
-        for part in &parts[1..] {
-            if let Value::Object(map) = &current {
-                current = map.get(*part)?.clone();
-            } else {
-                return None;
-            }
-        }
-
-        Some(current)
+        wf_common::template::resolve_value_path_ref(path.trim(), context).cloned()
     }
 
     fn eval_eq(condition: &str, context: &HashMap<String, Value>) -> CoreResult<bool> {

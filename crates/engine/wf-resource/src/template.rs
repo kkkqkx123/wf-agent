@@ -44,6 +44,10 @@ use crate::registry::ResourceRegistries;
 pub struct TemplateRenderOptions {
     /// `{{name}}` placeholder values.
     pub variables: HashMap<String, String>,
+    /// When true, any leftover `{{name}}` placeholder fails the render as
+    /// `None` instead of returning partial text. Preview paths keep the
+    /// default lenient behavior; model-bound paths opt into denial.
+    pub deny_unresolved: bool,
 }
 
 /// Substitute `{{name}}` placeholders in a single left-to-right pass;
@@ -140,29 +144,92 @@ pub fn render_template_with_metrics(
         };
         rendered = resolved;
         let output = apply_template_variables(&rendered, &effective_variables);
-        if let Some(metrics) = metrics {
-            if has_unresolved_placeholders(&output) {
+        if has_unresolved_placeholders(&output) {
+            if let Some(metrics) = metrics {
                 metrics.record_error(id, "unresolved_placeholder", &[]);
-                tracing::warn!("template '{id}' rendered with unresolved placeholders");
             }
-            metrics.record_render_complete(id, start.elapsed().as_millis() as f64, true, &[]);
-        } else if has_unresolved_placeholders(&output) {
+            if opts.deny_unresolved {
+                if let Some(metrics) = metrics {
+                    metrics.record_render_complete(
+                        id,
+                        start.elapsed().as_millis() as f64,
+                        false,
+                        &[],
+                    );
+                }
+                tracing::warn!("template '{id}' denied: unresolved placeholders remain");
+                return None;
+            }
             tracing::warn!("template '{id}' rendered with unresolved placeholders");
+        }
+        if let Some(metrics) = metrics {
+            metrics.record_render_complete(id, start.elapsed().as_millis() as f64, true, &[]);
         }
         return Some(output);
     }
 
     let output = apply_template_variables(&rendered, &opts.variables);
-    if let Some(metrics) = metrics {
-        if has_unresolved_placeholders(&output) {
+    if has_unresolved_placeholders(&output) {
+        if let Some(metrics) = metrics {
             metrics.record_error(id, "unresolved_placeholder", &[]);
-            tracing::warn!("template '{id}' rendered with unresolved placeholders");
         }
-        metrics.record_render_complete(id, start.elapsed().as_millis() as f64, true, &[]);
-    } else if has_unresolved_placeholders(&output) {
+        if opts.deny_unresolved {
+            if let Some(metrics) = metrics {
+                metrics.record_render_complete(id, start.elapsed().as_millis() as f64, false, &[]);
+            }
+            tracing::warn!("template '{id}' denied: unresolved placeholders remain");
+            return None;
+        }
         tracing::warn!("template '{id}' rendered with unresolved placeholders");
     }
+    if let Some(metrics) = metrics {
+        metrics.record_render_complete(id, start.elapsed().as_millis() as f64, true, &[]);
+    }
     Some(output)
+}
+
+/// Render a template from structured values, checking each provided value
+/// against its declared shape before stringification. A shape mismatch
+/// fails the render as `None` so type errors surface at render time rather
+/// than inside the model. Undeclared values pass through as display text.
+pub fn render_template_with_json_variables(
+    regs: &ResourceRegistries,
+    id: &str,
+    variables: &HashMap<String, serde_json::Value>,
+    deny_unresolved: bool,
+    metrics: Option<&TemplateMetricsCollector>,
+) -> Option<String> {
+    let template: Option<Template> = regs.templates.get(id).map(|t| t.as_ref().clone());
+    if let Some(ref template) = template {
+        let definitions = collect_variable_definitions(regs, template);
+        for (name, value) in variables {
+            if let Some(definition) = definitions.get(name) {
+                if !wf_types::template::variable_value_matches(&definition.r#type, value) {
+                    if let Some(metrics) = metrics {
+                        metrics.record_error(id, "variable_type_mismatch", &[]);
+                    }
+                    tracing::warn!(
+                        "template '{id}' variable '{name}' does not match declared shape"
+                    );
+                    return None;
+                }
+            }
+        }
+    }
+    let string_variables: HashMap<String, String> = variables
+        .iter()
+        .map(|(k, v)| {
+            (
+                k.clone(),
+                wf_common::template::value_to_display_string(v),
+            )
+        })
+        .collect();
+    let opts = TemplateRenderOptions {
+        variables: string_variables,
+        deny_unresolved,
+    };
+    render_template_with_metrics(regs, id, &opts, metrics)
 }
 
 /// Collect variable declarations from a template and its fragments.
@@ -225,9 +292,9 @@ fn missing_required_variables(
 
 /// Whether rendered text still carries `{{name}}` placeholders. Used only
 /// for observability; rendering keeps the verbatim behavior. Delegates to
-/// the config-layer scanner so validation and observability share one scan.
+/// the shared foundation query so validation and observability share one scan.
 fn has_unresolved_placeholders(rendered: &str) -> bool {
-    !wf_common::template::extract_placeholder_names(rendered).is_empty()
+    wf_common::template::has_unresolved_placeholders(rendered)
 }
 
 /// Replace every `{{name}}` span whose trimmed placeholder name matches the
@@ -606,7 +673,7 @@ mod tests {
                     content: "Hello {{who}}".into(),
                     variables: Some(vec![wf_types::TemplateVariableDefinition {
                         name: "who".into(),
-                        r#type: "string".into(),
+                        r#type: wf_types::TemplateVariableType::String,
                         required: true,
                         description: None,
                         default_value: None,
@@ -640,7 +707,7 @@ mod tests {
                     content: "Hello {{who}}".into(),
                     variables: Some(vec![wf_types::TemplateVariableDefinition {
                         name: "who".into(),
-                        r#type: "string".into(),
+                        r#type: wf_types::TemplateVariableType::String,
                         required: true,
                         description: None,
                         default_value: Some(serde_json::Value::String("fallback".into())),
@@ -652,5 +719,48 @@ mod tests {
         let text =
             render_template(&regs, "system.defaulted", &Default::default()).expect("default fills");
         assert_eq!(text, "Hello fallback");
+    }
+
+    #[test]
+    fn deny_unresolved_fails_closed() {
+        let regs = regs_with_template("t.deny", "Hi {{who}}!", None);
+        let opts = TemplateRenderOptions {
+            variables: HashMap::new(),
+            deny_unresolved: true,
+        };
+        assert!(render_template(&regs, "t.deny", &opts).is_none());
+        assert!(render_template(&regs, "t.deny", &Default::default()).is_some());
+    }
+
+    #[test]
+    fn typed_variables_reject_shape_mismatch() {
+        let regs = ResourceRegistries::new();
+        regs.templates
+            .register(
+                "system.typed".into(),
+                std::sync::Arc::new(Template {
+                    id: "system.typed".into(),
+                    name: "typed".into(),
+                    description: None,
+                    category: "system".into(),
+                    content: "Count {{count}}".into(),
+                    variables: Some(vec![wf_types::TemplateVariableDefinition {
+                        name: "count".into(),
+                        r#type: wf_types::TemplateVariableType::Number,
+                        required: true,
+                        description: None,
+                        default_value: None,
+                    }]),
+                    fragments: None,
+                }),
+            )
+            .unwrap();
+        let bad = HashMap::from([("count".to_string(), serde_json::json!("not-a-number"))]);
+        assert!(render_template_with_json_variables(&regs, "system.typed", &bad, false, None).is_none());
+        let good = HashMap::from([("count".to_string(), serde_json::json!(7))]);
+        let text =
+            render_template_with_json_variables(&regs, "system.typed", &good, false, None)
+                .expect("typed render");
+        assert_eq!(text, "Count 7");
     }
 }

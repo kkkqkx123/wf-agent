@@ -37,24 +37,7 @@ pub fn is_valid_identifier(name: &str) -> bool {
 }
 
 pub(crate) fn validate_variable_path(path: &str) -> Option<String> {
-    if path.trim().is_empty() {
-        return Some("variable path cannot be empty".to_string());
-    }
-    if path.starts_with('.') || path.ends_with('.') || path.contains("..") {
-        return Some(format!(
-            "variable path '{}' has empty segments; use dotted identifiers like 'user.name'",
-            path
-        ));
-    }
-    for segment in path.split('.') {
-        if !is_valid_identifier(segment) {
-            return Some(format!(
-                "variable path '{}' has invalid segment '{}'; each segment must start with a letter or '_' and contain only letters, digits or '_'",
-                path, segment
-            ));
-        }
-    }
-    None
+    wf_common::template::validate_template_path(path)
 }
 
 pub(crate) fn validate_internal_name(name: &str) -> Option<String> {

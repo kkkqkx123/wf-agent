@@ -131,6 +131,59 @@ pub fn expand_env_vars(content: &str) -> String {
         .to_string()
 }
 
+/// Uppercase `${VAR}` placeholder names present in the text in first-seen
+/// order. Lowercase workflow expressions never match the expansion pattern
+/// and are never reported here.
+pub fn list_env_placeholders(content: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    for caps in ENV_INTERPOLATION_REGEX.captures_iter(content) {
+        let name = caps
+            .get(1)
+            .expect("invariant: capture group 1 is always present for a matched pattern")
+            .as_str()
+            .to_string();
+        if !out.contains(&name) {
+            out.push(name);
+        }
+    }
+    out
+}
+
+/// Fail when any `${VAR}` placeholder would survive [`expand_env_vars`].
+/// Startup paths for secrets and file content call this explicitly; the
+/// default expansion itself stays lenient so optional placeholders preview
+/// verbatim.
+pub fn ensure_no_unresolved_env_vars(content: &str) -> ConfigResult<()> {
+    let missing = find_unresolved_env_vars(content);
+    if missing.is_empty() {
+        Ok(())
+    } else {
+        Err(ConfigError::EnvVar(format!(
+            "unresolved environment placeholders: [{}]",
+            missing.join(", ")
+        )))
+    }
+}
+
+/// Placeholders that would survive [`expand_env_vars`]: unset without a
+/// declared default. Callers use this for explicit startup checks; the
+/// default expansion keeps such spans verbatim.
+pub fn find_unresolved_env_vars(content: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    for caps in ENV_INTERPOLATION_REGEX.captures_iter(content) {
+        let name = &caps[1];
+        let default = caps.get(2).or_else(|| caps.get(3)).map(|m| m.as_str());
+        let resolved = std::env::var(name).is_ok_and(|v| !v.is_empty()) || default.is_some();
+        if !resolved {
+            let name = name.to_string();
+            if !out.contains(&name) {
+                out.push(name);
+            }
+        }
+    }
+    out
+}
+
 pub struct EnvMappingEntry {
     pub env_var: String,
     pub parser: EnvParser,
@@ -340,5 +393,20 @@ mod tests {
             "expr=${input.a}"
         );
         std::env::remove_var("WF_TEST_EXPAND_SET");
+    }
+
+    #[test]
+    fn test_unresolved_env_vars_query() {
+        std::env::remove_var("WF_TEST_UNRESOLVED_MISSING");
+        assert_eq!(
+            find_unresolved_env_vars("pw=${WF_TEST_UNRESOLVED_MISSING}"),
+            vec!["WF_TEST_UNRESOLVED_MISSING".to_string()]
+        );
+        assert!(find_unresolved_env_vars("pw=${WF_TEST_UNRESOLVED_MISSING:fallback}").is_empty());
+        assert!(list_env_placeholders("expr=${input.a}").is_empty());
+        assert_eq!(
+            list_env_placeholders("a=${WF_TEST_UNRESOLVED_MISSING}"),
+            vec!["WF_TEST_UNRESOLVED_MISSING".to_string()]
+        );
     }
 }

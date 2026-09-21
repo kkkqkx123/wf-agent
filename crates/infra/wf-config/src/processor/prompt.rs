@@ -31,6 +31,7 @@ pub fn validate_prompt_template(template: &Template) -> ConfigResult<()> {
             .unwrap_or(false);
         for variable in variables {
             validate_required(&variable.name, "variable.name")?;
+            validate_template_default_value(template, variable)?;
             if has_fragments {
                 continue;
             }
@@ -64,6 +65,22 @@ pub fn validate_prompt_template(template: &Template) -> ConfigResult<()> {
         }
     }
     Ok(())
+}
+
+fn validate_template_default_value(
+    template: &Template,
+    variable: &wf_types::TemplateVariableDefinition,
+) -> ConfigResult<()> {
+    let Some(default) = variable.default_value.as_ref() else {
+        return Ok(());
+    };
+    if wf_types::template::variable_value_matches(&variable.r#type, default) {
+        return Ok(());
+    }
+    Err(ConfigError::Validation(format!(
+        "template '{}' declares variable '{}' with type '{:?}' but the default value has an incompatible JSON type",
+        template.id, variable.name, variable.r#type
+    )))
 }
 
 /// Collect `{{name}}` placeholder names from template content. Single truth
@@ -223,7 +240,7 @@ mod tests {
         let mut template = make_template();
         template.variables = Some(vec![wf_types::TemplateVariableDefinition {
             name: "unused".to_string(),
-            r#type: "string".to_string(),
+            r#type: wf_types::TemplateVariableType::String,
             required: false,
             description: None,
             default_value: None,
@@ -238,7 +255,7 @@ mod tests {
         template.content = "Review this code: {code}".to_string();
         template.variables = Some(vec![wf_types::TemplateVariableDefinition {
             name: "code".to_string(),
-            r#type: "string".to_string(),
+            r#type: wf_types::TemplateVariableType::String,
             required: true,
             description: None,
             default_value: None,
@@ -254,12 +271,38 @@ mod tests {
         template.fragments = Some(vec!["f.coding".to_string()]);
         template.variables = Some(vec![wf_types::TemplateVariableDefinition {
             name: "cutoff_date".to_string(),
-            r#type: "string".to_string(),
+            r#type: wf_types::TemplateVariableType::String,
             required: false,
             description: None,
             default_value: None,
         }]);
         assert!(validate_prompt_template(&template).is_ok());
+    }
+
+    #[test]
+    fn test_unknown_variable_type_rejected() {
+        let raw = serde_json::json!({
+            "name": "who",
+            "type": "text",
+            "required": false,
+        });
+        let parsed = serde_json::from_value::<wf_types::TemplateVariableDefinition>(raw);
+        assert!(parsed.is_err());
+    }
+
+    #[test]
+    fn test_mismatched_default_value_rejected() {
+        let mut template = make_template();
+        template.content = "Hi {{count}}".to_string();
+        template.variables = Some(vec![wf_types::TemplateVariableDefinition {
+            name: "count".to_string(),
+            r#type: wf_types::TemplateVariableType::Number,
+            required: false,
+            description: None,
+            default_value: Some(serde_json::json!("not-a-number")),
+        }]);
+        let err = validate_prompt_template(&template).unwrap_err();
+        assert!(err.to_string().contains("incompatible JSON type"));
     }
 
     fn make_default_template() -> Template {
@@ -271,7 +314,7 @@ mod tests {
             content: "Default content: {{code}}".to_string(),
             variables: Some(vec![wf_types::TemplateVariableDefinition {
                 name: "code".to_string(),
-                r#type: "string".to_string(),
+                r#type: wf_types::TemplateVariableType::String,
                 required: true,
                 description: None,
                 default_value: None,
@@ -307,14 +350,14 @@ mod tests {
         app.variables = Some(vec![
             wf_types::TemplateVariableDefinition {
                 name: "code".to_string(),
-                r#type: "string".to_string(),
+                r#type: wf_types::TemplateVariableType::String,
                 required: false,
                 description: Some("override".to_string()),
                 default_value: None,
             },
             wf_types::TemplateVariableDefinition {
                 name: "language".to_string(),
-                r#type: "string".to_string(),
+                r#type: wf_types::TemplateVariableType::String,
                 required: true,
                 description: None,
                 default_value: None,

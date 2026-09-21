@@ -115,8 +115,12 @@ fn validate_hook_template_string(template: &str) -> Result<(), String> {
         let Some(end) = after.find("}}") else {
             return Err("payload contains unclosed template expression".to_string());
         };
-        if after[..end].trim().is_empty() {
+        let path = after[..end].trim();
+        if path.is_empty() {
             return Err("payload contains empty template expression".to_string());
+        }
+        if let Some(reason) = validate_hook_template_path(path) {
+            return Err(format!("payload contains invalid template path '{path}': {reason}"));
         }
         rest = &after[end + 2..];
     }
@@ -124,6 +128,10 @@ fn validate_hook_template_string(template: &str) -> Result<(), String> {
         return Err("payload contains stray template close without open".to_string());
     }
     Ok(())
+}
+
+fn validate_hook_template_path(path: &str) -> Option<String> {
+    crate::template::validate_template_path(path)
 }
 
 /// Effect category of a hook point, mirroring `events::EventCategory`.
@@ -512,5 +520,14 @@ mod tests {
         assert_eq!(spec.condition, None);
         assert!(!spec.enabled);
         assert_eq!(spec.priority, 0);
+    }
+
+    #[test]
+    fn payload_template_rejects_invalid_paths() {
+        assert!(validate_payload_template_syntax(&serde_json::json!("hi {{user.name}}")).is_ok());
+        assert!(validate_payload_template_syntax(&serde_json::json!("hi {{items.0}}")).is_ok());
+        assert!(validate_payload_template_syntax(&serde_json::json!("hi {{a..b}}")).is_err());
+        assert!(validate_payload_template_syntax(&serde_json::json!("hi {{9bad}}")).is_err());
+        assert!(validate_payload_template_syntax(&serde_json::json!("hi {{unclosed}}")).is_ok());
     }
 }

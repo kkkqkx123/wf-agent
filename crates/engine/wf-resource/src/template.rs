@@ -9,7 +9,7 @@
 //! variables are resolved by the engine rather than substituted verbatim:
 //!
 //! - `{{fragments}}`: the template's declared fragment list, composed in
-//!   declaration order (missing fragments are skipped);
+//!   declaration order (a missing fragment fails the render);
 //! - `{{tool_descriptions}}`: the optional tool description set rendered in
 //!   the requested format (empty when none is supplied).
 //!
@@ -24,6 +24,7 @@
 
 use std::collections::HashMap;
 
+use wf_config::processor::prompt::extract_template_placeholders;
 use wf_core::registry::Registry;
 use wf_metrics::TemplateMetricsCollector;
 use wf_types::tool_description::ToolDescriptionData;
@@ -31,7 +32,8 @@ use wf_types::Template;
 
 use crate::predefined::render::{render_tool_descriptions, ToolFormat};
 use crate::predefined::tool_visibility::{
-    ACTIVATION_TEMPLATE_ID, BLOCK_TEMPLATE_ID, DISCOVERABLE_METADATA_TEMPLATE_ID,
+    ACTIVATION_CONTENT, ACTIVATION_TEMPLATE_ID, BLOCK_CONTENT, BLOCK_TEMPLATE_ID,
+    DISCOVERABLE_METADATA_CONTENT, DISCOVERABLE_METADATA_TEMPLATE_ID, GENERAL_DESCRIPTION_CONTENT,
     GENERAL_DESCRIPTION_TEMPLATE_ID,
 };
 use crate::registry::ResourceRegistries;
@@ -81,21 +83,15 @@ pub fn apply_template_variables(content: &str, variables: &HashMap<String, Strin
     rendered
 }
 
-/// Built-in fallback texts used when a template is not configured. The
-/// texts match the predefined templates word for word so injected and
-/// fallback deployments are indistinguishable.
+/// Built-in fallback texts used when a template is not configured. The texts
+/// reference the predefined visibility constants so injected and fallback
+/// deployments are indistinguishable by construction.
 pub fn builtin_default(id: &str) -> Option<&'static str> {
     match id {
-        ACTIVATION_TEMPLATE_ID => Some(
-            "[Tool Activation] The following tools are now available: {{tool_names}}.\nYou can call them directly or via the general tool.",
-        ),
-        BLOCK_TEMPLATE_ID => Some("The following tools are now unavailable:\n{{tool_names}}"),
-        DISCOVERABLE_METADATA_TEMPLATE_ID => Some(
-            "Discoverable tools:\n{{tool_list}}\nInvoke them via the general tool.",
-        ),
-        GENERAL_DESCRIPTION_TEMPLATE_ID => Some(
-            "Invoke tools whose schemas are not directly exposed. The request body is a JSON object {\"tool\": \"tool_name\", \"parameters\": {...}} passed as the `request` parameter, e.g.:\n{{invoke_example}}\nThe inner tool is interpreted and executed server-side.",
-        ),
+        ACTIVATION_TEMPLATE_ID => Some(ACTIVATION_CONTENT),
+        BLOCK_TEMPLATE_ID => Some(BLOCK_CONTENT),
+        DISCOVERABLE_METADATA_TEMPLATE_ID => Some(DISCOVERABLE_METADATA_CONTENT),
+        GENERAL_DESCRIPTION_TEMPLATE_ID => Some(GENERAL_DESCRIPTION_CONTENT),
         _ => None,
     }
 }
@@ -112,7 +108,9 @@ pub fn render_template(
 }
 
 /// Render a template and record duration and unknown-id errors into the
-/// template collector. Absent collectors add zero overhead.
+/// template collector. Absent collectors add zero overhead. This is
+/// best-effort text rendering: failures surface as `None` plus a metric,
+/// while strict command execution keeps returning `Result`.
 pub fn render_template_with_metrics(
     regs: &ResourceRegistries,
     id: &str,
@@ -175,25 +173,10 @@ pub fn render_template_with_metrics(
 }
 
 /// Whether rendered text still carries `{{name}}` placeholders. Used only
-/// for observability; rendering keeps the verbatim behavior.
+/// for observability; rendering keeps the verbatim behavior. Delegates to
+/// the config-layer scanner so validation and observability share one scan.
 fn has_unresolved_placeholders(rendered: &str) -> bool {
-    let mut rest = rendered;
-    while let Some(start) = rest.find("{{") {
-        let after = &rest[start + 2..];
-        let Some(end) = after.find("}}") else {
-            break;
-        };
-        let name = after[..end].trim();
-        if !name.is_empty()
-            && name
-                .chars()
-                .all(|c| c.is_ascii_alphanumeric() || c == '_')
-        {
-            return true;
-        }
-        rest = &after[end + 2..];
-    }
-    false
+    !extract_template_placeholders(rendered).is_empty()
 }
 
 /// Resolve the `{{fragments}}` pseudo variable by composing the template's

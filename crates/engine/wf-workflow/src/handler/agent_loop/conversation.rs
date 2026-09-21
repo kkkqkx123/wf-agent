@@ -13,9 +13,9 @@ use crate::message_context;
 /// Collect the initial conversation: inline `conversation` messages plus all
 /// messages from the named contexts listed in `message_inputs`, plus any
 /// tool-visibility announcement messages appended to the default context
-/// (tail system-message injection for formal tool activation). Stale volatile
-/// tail messages are dropped so cross-round imports never accumulate old
-/// tails; the fresh tail is assembled after this filter.
+/// (tail system-message injection for formal tool activation). Volatile tail
+/// lifecycle belongs downstream: exposure normalization and prompt assembly
+/// drop stale tails before the fresh tail is assembled.
 pub(crate) fn collect_initial_conversation(ctx: &NodeExecutionContext) -> Vec<Message> {
     let config = ctx.node_config.as_ref().unwrap_or(&Value::Null);
     let mut conversation: Vec<Message> = Vec::new();
@@ -60,7 +60,7 @@ pub(crate) fn collect_initial_conversation(ctx: &NodeExecutionContext) -> Vec<Me
             .collect();
     conversation.extend(announcements);
 
-    wf_execution_shared::agent_prompt::strip_dynamic_context_messages(conversation)
+    conversation
 }
 
 /// Normalize an inbound conversation to this loop's target exposure.

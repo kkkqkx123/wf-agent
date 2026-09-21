@@ -566,23 +566,11 @@ pub fn generate_skill_metadata_prompt(skills: &[SkillMetadata]) -> String {
 /// (possibly unchanged) prompt.
 pub fn inject_skill_metadata(system_prompt: &str, enabled_skills: &[SkillMetadata]) -> String {
     let metadata_prompt = generate_skill_metadata_prompt(enabled_skills);
-
-    if metadata_prompt.is_empty() {
-        return system_prompt.replace(SKILLS_METADATA_PLACEHOLDER, "");
-    }
-
-    if system_prompt.contains(SKILLS_METADATA_PLACEHOLDER) {
-        return system_prompt.replace(SKILLS_METADATA_PLACEHOLDER, &metadata_prompt);
-    }
-
-    if enabled_skills.is_empty() {
-        return system_prompt.to_string();
-    }
-
-    tracing::warn!(
-        "system prompt lacks {SKILLS_METADATA_PLACEHOLDER}; skill metadata appended at the end"
-    );
-    format!("{}\n\n{}", system_prompt, metadata_prompt)
+    crate::tool_description_generator::inject_placeholder_block(
+        system_prompt,
+        SKILLS_METADATA_PLACEHOLDER,
+        &metadata_prompt,
+    )
 }
 
 fn collect_relative_files(

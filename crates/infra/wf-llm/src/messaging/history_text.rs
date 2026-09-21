@@ -51,16 +51,39 @@ pub fn summarize_counts(messages: &[Message]) -> String {
 
 /// Substitute `{{key}}` placeholders in a text message. Returns a new
 /// message; the input is never mutated. Intended for request assembly only.
+/// Single left-to-right pass mirroring the resource template engine:
+/// placeholder names trim surrounding whitespace, values insert as opaque
+/// text without rescanning, and unresolvable placeholders stay verbatim.
 pub fn inject_variables(message: &Message, variables: &HashMap<String, String>) -> Message {
     let mut injected = message.clone();
     if let MessageContentValue::Text(text) = &injected.content {
-        let mut result = text.clone();
-        for (key, value) in variables {
-            result = result.replace(&format!("{{{{{key}}}}}"), value);
-        }
-        injected.content = MessageContentValue::Text(result);
+        injected.content = MessageContentValue::Text(apply_variables(text, variables));
     }
     injected
+}
+
+fn apply_variables(content: &str, variables: &HashMap<String, String>) -> String {
+    if variables.is_empty() || !content.contains("{{") {
+        return content.to_string();
+    }
+    let mut rendered = String::with_capacity(content.len());
+    let mut rest = content;
+    while let Some(start) = rest.find("{{") {
+        let after = &rest[start + 2..];
+        let Some(end) = after.find("}}") else {
+            break;
+        };
+        let name = after[..end].trim();
+        if let Some(value) = variables.get(name) {
+            rendered.push_str(&rest[..start]);
+            rendered.push_str(value);
+        } else {
+            rendered.push_str(&rest[..start + 2 + end + 2]);
+        }
+        rest = &after[end + 2..];
+    }
+    rendered.push_str(rest);
+    rendered
 }
 
 #[cfg(test)]

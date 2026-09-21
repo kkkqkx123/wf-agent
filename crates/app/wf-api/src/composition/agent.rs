@@ -177,9 +177,10 @@ fn attach_exposure_artifacts(
 }
 
 /// Assemble the stable header and volatile tail for the resolved template and
-/// land them in the round conversation. Stale tails are dropped first; the
-/// header seeds the leading system message once and the tail travels as a
-/// separate marked user message. The user task message stays pure input.
+/// land them in the round conversation. The header seeds the leading system
+/// message once and the tail travels as a separate marked user message; stale
+/// tails are dropped inside the apply step so no caller-side cleanup is
+/// needed. The user task message stays pure input.
 fn attach_prompt_assembly(
     env: &PromptEnvironment,
     agent_config: Option<&AgentConfig>,
@@ -187,10 +188,8 @@ fn attach_prompt_assembly(
     input: &mut wf_tools::callback::AgentLoopInput,
 ) {
     use wf_execution_shared::agent_prompt::{
-        apply_assembled_prompt, assemble_agent_prompt, strip_dynamic_context_messages,
-        DynamicTailBearing,
+        apply_assembled_prompt, assemble_agent_prompt, DynamicTailBearing,
     };
-    input.conversation = strip_dynamic_context_messages(std::mem::take(&mut input.conversation));
     let assembled = assemble_agent_prompt(
         agent_config,
         &input.context,

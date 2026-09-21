@@ -121,21 +121,36 @@ fn render_parameter_list(
     parts.join(", ")
 }
 
+/// Replace-or-append a pre-rendered block at a single-brace post-render
+/// anchor. Shared by the skill and discoverable-tools injection paths so the
+/// two can never drift apart: an empty block strips the anchor, a present
+/// anchor is replaced, and a missing anchor appends the block with a
+/// warning.
+pub(crate) fn inject_placeholder_block(
+    system_prompt: &str,
+    placeholder: &str,
+    block: &str,
+) -> String {
+    if block.is_empty() {
+        return system_prompt.replace(placeholder, "");
+    }
+    if system_prompt.contains(placeholder) {
+        return system_prompt.replace(placeholder, block);
+    }
+    tracing::warn!("system prompt lacks {placeholder}; block appended at the end");
+    format!("{}\n\n{}", system_prompt, block)
+}
+
 /// Inject a pre-rendered discoverable metadata block into a system prompt:
 /// replaces the `{DISCOVERABLE_TOOLS_METADATA}` placeholder when present,
 /// otherwise appends the block at the end. Returns the (possibly unchanged)
 /// prompt.
 pub fn inject_tool_metadata_block(system_prompt: &str, block: &str) -> String {
-    if block.is_empty() {
-        return system_prompt.replace(DISCOVERABLE_TOOLS_METADATA_PLACEHOLDER, "");
-    }
-    if system_prompt.contains(DISCOVERABLE_TOOLS_METADATA_PLACEHOLDER) {
-        return system_prompt.replace(DISCOVERABLE_TOOLS_METADATA_PLACEHOLDER, block);
-    }
-    tracing::warn!(
-        "system prompt lacks {DISCOVERABLE_TOOLS_METADATA_PLACEHOLDER}; discoverable block appended at the end"
-    );
-    format!("{}\n\n{}", system_prompt, block)
+    inject_placeholder_block(
+        system_prompt,
+        DISCOVERABLE_TOOLS_METADATA_PLACEHOLDER,
+        block,
+    )
 }
 
 /// Derive the discoverable-metadata verbosity options from the effective

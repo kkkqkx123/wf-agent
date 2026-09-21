@@ -50,8 +50,10 @@ pub fn validate_prompt_template(template: &Template) -> ConfigResult<()> {
     Ok(())
 }
 
-/// Collect `{{name}}` placeholder names from template content.
-fn extract_template_placeholders(content: &str) -> Vec<String> {
+/// Collect `{{name}}` placeholder names from template content. Single truth
+/// for placeholder scanning: validation and render-time observability share
+/// this scan so the two can never drift apart.
+pub fn extract_template_placeholders(content: &str) -> Vec<String> {
     let mut out = Vec::new();
     let mut rest = content;
     while let Some(start) = rest.find("{{") {

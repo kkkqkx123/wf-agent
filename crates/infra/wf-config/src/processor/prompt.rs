@@ -153,8 +153,6 @@ pub fn extract_template_placeholders(content: &str) -> Vec<String> {
     wf_common::template::extract_placeholder_names(content)
 }
 
-
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -296,12 +294,9 @@ mod tests {
         template.content = "HEADER\n{{fragments}}".to_string();
         template.fragments = Some(vec!["f.missing".to_string()]);
         template.variables = None;
-        let err =
-            validate_prompt_template_with_fragments(&template, |_| None).unwrap_err();
+        let err = validate_prompt_template_with_fragments(&template, |_| None).unwrap_err();
         assert!(err.to_string().contains("unregistered fragments"));
-        assert!(
-            validate_prompt_template_with_fragments(&template, |_| Some(Vec::new())).is_ok()
-        );
+        assert!(validate_prompt_template_with_fragments(&template, |_| Some(Vec::new())).is_ok());
     }
 
     #[test]
@@ -323,12 +318,10 @@ mod tests {
             description: None,
             default_value: None,
         }];
-        assert!(
-            validate_prompt_template_with_fragments(&template, |_| Some(
-                fragment_vars.clone()
-            ))
-            .is_ok()
-        );
+        assert!(validate_prompt_template_with_fragments(&template, |_| Some(
+            fragment_vars.clone()
+        ))
+        .is_ok());
     }
 
     #[test]

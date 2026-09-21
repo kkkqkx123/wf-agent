@@ -13,7 +13,7 @@ pub static CALL_AGENT: ToolDefinition = ToolDefinition {
     category: "agent",
     tags: &["call"],
     description:
-        "Delegate a task to a sub-agent with a specific profile. The agent runs autonomously.",
+        "Delegate a task to a sub-agent with a specific profile. The agent runs autonomously. Built-in agent definitions: @standard/main (general-purpose default), @standard/explorer (read-only codebase questions), @standard/worker (execution subtask with explicit ownership).",
     parameters: &[
         ToolParameter {
             name: "agent_id",
@@ -121,5 +121,5 @@ pub static CALL_AGENT: ToolDefinition = ToolDefinition {
         },
     ],
     tips: None,
-    examples: Some(&["call_agent(\"code-reviewer\", \"Review the code in src/\")"]),
+    examples: Some(&["call_agent(\"code-reviewer\", \"Review the code in src/\")", "call_agent(\"@standard/explorer\", \"Where is retry logic implemented?\")", "call_agent(\"@standard/worker\", \"Implement the fix in the assigned files\")"]),
 };

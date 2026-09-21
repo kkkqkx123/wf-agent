@@ -173,8 +173,7 @@ pub fn render_template_with_metrics(
             return None;
         };
         rendered = resolved;
-        let output =
-            wf_common::template::apply_template_variables(&rendered, &effective_variables);
+        let output = wf_common::template::apply_template_variables(&rendered, &effective_variables);
         if has_unresolved_placeholders(&output) {
             let kind = unresolved_error_kind(&output);
             if let Some(metrics) = metrics {
@@ -1096,8 +1095,7 @@ mod tests {
         );
         let empty: HashMap<String, serde_json::Value> = HashMap::new();
         assert!(render_template_for_model(&regs, "t.deny", &empty, None).is_none());
-        let filled =
-            HashMap::from([("who".to_string(), serde_json::json!("dev"))]);
+        let filled = HashMap::from([("who".to_string(), serde_json::json!("dev"))]);
         assert_eq!(
             render_template_for_model(&regs, "t.deny", &filled, None).unwrap(),
             "Hi dev!"
@@ -1128,9 +1126,7 @@ mod tests {
             )
             .unwrap();
         let bad = HashMap::from([("count".to_string(), serde_json::json!("not-a-number"))]);
-        assert!(
-            render_template_with_json_variables(&regs, "system.typed", &bad, None).is_none()
-        );
+        assert!(render_template_with_json_variables(&regs, "system.typed", &bad, None).is_none());
         let good = HashMap::from([("count".to_string(), serde_json::json!(7))]);
         let text = render_template_with_json_variables(&regs, "system.typed", &good, None)
             .expect("typed render");
@@ -1193,19 +1189,14 @@ mod tests {
             .expect("dotted resolves");
         assert_eq!(text, "Hi ada!");
         let missing: HashMap<String, serde_json::Value> = HashMap::new();
-        assert!(
-            render_template_for_model(&regs, "system.dotted", &missing, None).is_none()
-        );
+        assert!(render_template_for_model(&regs, "system.dotted", &missing, None).is_none());
     }
 
     #[test]
     fn unclosed_placeholders_count_as_unresolved() {
         let regs = regs_with_template("t.unclosed", "Hi {{who", None);
         assert!(has_unresolved_placeholders("Hi {{who"));
-        assert_eq!(
-            unresolved_error_kind("Hi {{who"),
-            "malformed_template"
-        );
+        assert_eq!(unresolved_error_kind("Hi {{who"), "malformed_template");
         assert!(render_template(&regs, "t.unclosed", &Default::default()).is_some());
         let empty: HashMap<String, serde_json::Value> = HashMap::new();
         assert!(render_template_for_model(&regs, "t.unclosed", &empty, None).is_none());

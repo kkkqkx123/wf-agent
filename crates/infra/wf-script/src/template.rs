@@ -93,9 +93,7 @@ impl ScriptTemplateEngine {
                 if !unresolved.iter().any(|existing| existing == &label) {
                     unresolved.push(label);
                 }
-            } else if let Some(reason) =
-                wf_common::template::validate_template_path(&placeholder)
-            {
+            } else if let Some(reason) = wf_common::template::validate_template_path(&placeholder) {
                 command.push_str(&template[span.start..span.end]);
                 let label = format!("invalid path '{placeholder}': {reason}");
                 if !unresolved.iter().any(|existing| existing == &label) {

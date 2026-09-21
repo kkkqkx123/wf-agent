@@ -6,12 +6,16 @@ use crate::registry::{
 use crate::result::Summary;
 
 use super::executor::goal_review_executor;
+use super::explorer::explorer_agent_template;
 use super::main_agent::main_agent_template;
 use super::reviewer::goal_review_reviewer;
+use super::worker::worker_agent_template;
 
 pub fn builtin_agent_templates() -> Vec<AgentTemplate> {
     vec![
         main_agent_template(),
+        explorer_agent_template(),
+        worker_agent_template(),
         goal_review_executor(),
         goal_review_reviewer(),
     ]

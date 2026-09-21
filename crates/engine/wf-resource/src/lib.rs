@@ -35,8 +35,7 @@ pub use resource_plugin::{
 pub use result::Summary;
 pub use template::{
     builtin_default, render_builtin_visibility_fallback, render_template,
-    render_template_for_display, render_template_for_model,
-    render_template_with_json_for_display, render_template_with_json_variables,
-    render_template_with_metrics, render_visibility_message, render_visibility_message_with_metrics,
-    TemplateRenderOptions,
+    render_template_for_display, render_template_for_model, render_template_with_json_for_display,
+    render_template_with_json_variables, render_template_with_metrics, render_visibility_message,
+    render_visibility_message_with_metrics, TemplateRenderOptions,
 };

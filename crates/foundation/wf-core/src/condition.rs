@@ -405,8 +405,10 @@ impl ConditionEvaluator {
         }
     }
 
-    /// Replace `${path}` / `{{path}}` occurrences with the resolved values
+    /// Replace `${path}` / `{{path}}` occurrences with condition literals
     /// from the context. Unresolved paths are left as-is.
+    /// Condition use only: values convert with quoting semantics, unlike
+    /// display coercion used by prompt and command rendering.
     fn interpolate(condition: &str, context: &HashMap<String, Value>) -> String {
         let mut result = String::with_capacity(condition.len());
         let bytes = condition.as_bytes();
@@ -416,7 +418,7 @@ impl ConditionEvaluator {
                 if let Some(end) = condition[i + 2..].find('}') {
                     let path = &condition[i + 2..i + 2 + end];
                     if let Some(value) = Self::lookup_variable(path, context) {
-                        result.push_str(&Self::value_to_literal(&value));
+                        result.push_str(&Self::value_to_condition_literal(&value));
                         i += 2 + end + 1;
                         continue;
                     }
@@ -426,7 +428,7 @@ impl ConditionEvaluator {
                 if let Some(end) = condition[i + 2..].find("}}") {
                     let path = &condition[i + 2..i + 2 + end];
                     if let Some(value) = Self::lookup_variable(path, context) {
-                        result.push_str(&Self::value_to_literal(&value));
+                        result.push_str(&Self::value_to_condition_literal(&value));
                         i += 2 + end + 2;
                         continue;
                     }
@@ -442,7 +444,10 @@ impl ConditionEvaluator {
         result
     }
 
-    fn value_to_literal(value: &Value) -> String {
+    /// Convert a value to a condition literal: strings gain quotes,
+    /// null renders as its literal, other values use their JSON form.
+    /// Condition use only, never for prompt display or command embedding.
+    fn value_to_condition_literal(value: &Value) -> String {
         match value {
             Value::String(s) => format!("\"{}\"", s.replace('"', "\\\"")),
             Value::Null => "null".to_string(),

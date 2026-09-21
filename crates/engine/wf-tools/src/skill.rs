@@ -522,10 +522,12 @@ fn resource_type_dir_name(resource_type: &SkillResourceType) -> &'static str {
     }
 }
 
-/// Replace `{{name}}` placeholders with the given values. Non-string values
-/// are rendered via their JSON representation (null → empty string).
-/// Delegates to the shared foundation substitution so skill rendering and
-/// resource template rendering share one single-pass verbatim semantic.
+/// Replace `{{name}}` placeholders with the given values. Display-layer
+/// flat matching only: keys compare by exact match, dotted paths are not
+/// split here. Non-string values render with display coercion
+/// (null becomes empty). Delegates to the shared foundation substitution
+/// so skill rendering and resource template rendering share one
+/// single-pass verbatim semantic.
 pub fn substitute_variables(content: &str, variables: &HashMap<String, Value>) -> String {
     let mapped: HashMap<String, String> = variables
         .iter()

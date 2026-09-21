@@ -1,6 +1,9 @@
 use std::collections::HashMap;
 
 /// Substitute `{{name}}` placeholders in a single left-to-right pass.
+/// Display-layer flat matching only: the key is the trimmed span compared
+/// by exact match against the string table. Dotted paths need the
+/// structured entry below, this function never splits on dots.
 /// Unresolvable placeholders stay verbatim. Single braces never act as
 /// placeholders, so literal JSON passes through untouched. Values insert
 /// as opaque text and are never rescanned.
@@ -30,6 +33,9 @@ pub fn apply_template_variables(content: &str, variables: &HashMap<String, Strin
 }
 
 /// Render a JSON value as display text for template substitution.
+/// Display use only: prompt text, approval hints, skill content and command
+/// embedding. Condition literals and type-preserving passthrough use their
+/// own converters and must not call this function.
 /// Delegates to the leaf owner so every call site shares null handling.
 pub fn value_to_display_string(value: &serde_json::Value) -> String {
     wf_types::template::template_value_to_display_string(value)
@@ -76,6 +82,76 @@ pub fn extract_placeholder_names(content: &str) -> Vec<String> {
 /// Whether rendered text still carries `{{name}}` placeholders.
 pub fn has_unresolved_placeholders(content: &str) -> bool {
     !extract_placeholder_names(content).is_empty()
+}
+
+/// Collect trailing malformed spans: a `{{` opener without a later `}}`.
+/// The placeholder extractor ignores such spans, so strict engines report
+/// this query alongside the extractor instead of losing the failure cause.
+/// Each entry is the trimmed remainder after the opener; an empty remainder
+/// means the text ends right after the opener.
+pub fn find_malformed_template_spans(content: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut rest = content;
+    while let Some(start) = rest.find("{{") {
+        let after = &rest[start + 2..];
+        match after.find("}}") {
+            Some(end) => {
+                rest = &after[end + 2..];
+            }
+            None => {
+                let span = after.trim().to_string();
+                if !out.iter().any(|existing: &String| existing == &span) {
+                    out.push(span);
+                }
+                break;
+            }
+        }
+    }
+    out
+}
+
+/// Substitute `{{path}}` placeholders against a structured context.
+/// Exact flat matches win; otherwise the span resolves as a dotted path
+/// against the structured table with display coercion. Unresolvable spans
+/// stay verbatim. Single-pass and opaque like the flat entry above.
+/// Model-bound rendering uses this entry so dotted variables work the same
+/// as in script and hook engines.
+pub fn apply_template_variables_with_structured_context(
+    content: &str,
+    flat: &HashMap<String, String>,
+    context: &HashMap<String, serde_json::Value>,
+) -> String {
+    if !content.contains("{{") {
+        return content.to_string();
+    }
+    let mut rendered = String::with_capacity(content.len());
+    let mut rest = content;
+    while let Some(start) = rest.find("{{") {
+        let after = &rest[start + 2..];
+        let Some(end) = after.find("}}") else {
+            break;
+        };
+        let name = after[..end].trim();
+        if let Some(value) = flat.get(name) {
+            rendered.push_str(&rest[..start]);
+            rendered.push_str(value);
+        } else if !name.is_empty() && validate_template_path(name).is_none() {
+            match resolve_value_path_ref(name, context) {
+                Some(resolved) => {
+                    rendered.push_str(&rest[..start]);
+                    rendered.push_str(&value_to_display_string(resolved));
+                }
+                None => {
+                    rendered.push_str(&rest[..start + 2 + end + 2]);
+                }
+            }
+        } else {
+            rendered.push_str(&rest[..start + 2 + end + 2]);
+        }
+        rest = &after[end + 2..];
+    }
+    rendered.push_str(rest);
+    rendered
 }
 
 /// Whether one dotted-path segment is a valid identifier or array index.
@@ -217,5 +293,38 @@ mod tests {
         assert_eq!(resolve_value_path("missing", &vars), None);
         assert!(has_unresolved_placeholders("Hi {{who}}!"));
         assert!(!has_unresolved_placeholders("Hi dev!"));
+    }
+
+    #[test]
+    fn malformed_spans_report_unclosed_openers() {
+        assert!(find_malformed_template_spans("Hi {{who}}!").is_empty());
+        assert!(find_malformed_template_spans("no braces").is_empty());
+        assert_eq!(find_malformed_template_spans("Hi {{who"), vec!["who".to_string()]);
+        assert_eq!(find_malformed_template_spans("Hi {{!?"), vec!["!?".to_string()]);
+        assert_eq!(
+            find_malformed_template_spans("ok {{a}} then {{b"),
+            vec!["b".to_string()]
+        );
+    }
+
+    #[test]
+    fn structured_context_resolves_dotted_paths() {
+        let flat = HashMap::from([("who".to_string(), "dev".to_string())]);
+        let context = HashMap::from([
+            ("who".to_string(), serde_json::json!("dev")),
+            ("user".to_string(), serde_json::json!({"name": "ada"})),
+        ]);
+        assert_eq!(
+            apply_template_variables_with_structured_context("Hi {{who}}!", &flat, &context),
+            "Hi dev!"
+        );
+        assert_eq!(
+            apply_template_variables_with_structured_context("Hi {{user.name}}!", &flat, &context),
+            "Hi ada!"
+        );
+        assert_eq!(
+            apply_template_variables_with_structured_context("Hi {{missing}}!", &flat, &context),
+            "Hi {{missing}}!"
+        );
     }
 }

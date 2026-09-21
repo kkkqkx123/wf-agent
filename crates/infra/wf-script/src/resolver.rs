@@ -300,7 +300,7 @@ impl DynamicResolver {
                     .expect("invariant: capture group 1 is always present for a matched pattern")
                     .as_str();
                 match resolve_path(ref_path, context) {
-                    Some(resolved) => value_as_string_2(&resolved),
+                    Some(resolved) => value_to_string(&resolved),
                     None => format!("${}", ref_path),
                 }
             })
@@ -328,7 +328,7 @@ impl DynamicResolver {
                     } else {
                         match resolve_path(path, context) {
                             Some(resolved) => {
-                                result.push_str(&value_as_string_2(&resolved));
+                                result.push_str(&value_to_string(&resolved));
                             }
                             None => {
                                 result.push_str("${");
@@ -358,10 +358,10 @@ pub(crate) fn resolve_value_path(path: &str, context: &HashMap<String, Value>) -
     wf_common::template::resolve_value_path(path, context)
 }
 
-fn value_as_string_2(value: &Value) -> String {
-    value_to_string(value)
-}
-
+/// Render a value for command embedding with display coercion.
+/// Command use only: strings pass through, null becomes empty, other
+/// values use their JSON form. Condition literals use a separate
+/// quoting converter.
 pub(crate) fn value_to_string(value: &Value) -> String {
     wf_common::template::value_to_display_string(value)
 }

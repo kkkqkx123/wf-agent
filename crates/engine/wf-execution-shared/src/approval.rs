@@ -85,11 +85,13 @@ pub trait ToolApprovalHandler: Send + Sync {
     async fn request_approval(&self, request: &ToolApprovalRequest) -> ToolApprovalResult;
 }
 
-/// Substitute `{{name}}` placeholders in approval messages. Unmatched
-/// placeholders are kept verbatim. Shared by approval message builders so
-/// every rejection and hint text uses identical substitution semantics.
-/// Delegates to the shared foundation substitution so approval rendering
-/// and resource template rendering stay byte-identical.
+/// Substitute `{{name}}` placeholders in approval messages. Display-layer
+/// flat matching only for hint text; execution payloads use the strict
+/// template engines instead. Unmatched placeholders are kept verbatim.
+/// Shared by approval message builders so every rejection and hint text
+/// uses identical substitution semantics. Delegates to the shared
+/// foundation substitution so approval rendering and resource template
+/// rendering stay byte-identical.
 pub fn apply_approval_template_variables(template: &str, vars: &[(&str, &str)]) -> String {
     let variables: HashMap<String, String> = vars
         .iter()

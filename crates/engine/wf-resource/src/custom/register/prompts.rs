@@ -32,23 +32,6 @@ pub fn register_custom_prompts(
                 .collect()
         });
 
-        // Declared fragments must exist so composition cannot silently
-        // drop sections at render time.
-        if let Some(ref fragment_ids) = p.fragments {
-            let missing: Vec<&str> = fragment_ids
-                .iter()
-                .filter(|id| !regs.fragments.has(id))
-                .map(String::as_str)
-                .collect();
-            if !missing.is_empty() {
-                total.merge(Summary::err(
-                    &p.id,
-                    format!("references unregistered fragments: {}", missing.join(", ")),
-                ));
-                continue;
-            }
-        }
-
         let template = Template {
             id: p.id.clone(),
             name: p.name.clone(),
@@ -59,7 +42,11 @@ pub fn register_custom_prompts(
             fragments: p.fragments,
         };
 
-        if let Err(e) = wf_config::processor::prompt::validate_prompt_template(&template) {
+        if let Err(e) =
+            wf_config::processor::prompt::validate_prompt_template_with_fragments(&template, |fid| {
+                regs.fragments.has(fid)
+            })
+        {
             total.merge(Summary::err(&p.id, e.to_string()));
             continue;
         }

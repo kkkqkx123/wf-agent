@@ -175,8 +175,10 @@ fn resolve_configured_system_prompt(
 
 /// Shared system prompt resolution with agent-loop priority: inline text
 /// wins, otherwise the template reference renders through the shared
-/// registry. Single home for both the agent assembly and the lightweight
-/// model node so the two entries cannot drift.
+/// registry. Model-bound primary entry: structured values render with shape
+/// checks and unresolved placeholders denied, so partial prompts never
+/// reach the model. Single home for both the agent assembly and the
+/// lightweight model node so the two entries cannot drift.
 pub fn resolve_system_prompt_text(
     system_prompt: Option<&str>,
     template_id: Option<&str>,
@@ -194,22 +196,13 @@ pub fn resolve_system_prompt_text(
     }
     let template_id = template_id?;
     let regs = regs?;
-    let mut rendered = HashMap::new();
-    if let Some(meta) = variables {
-        for (key, value) in meta {
-            rendered.insert(
-                key.clone(),
-                wf_common::template::value_to_display_string(value),
-            );
-        }
-    }
-    wf_resource::render_template_with_metrics(
+    let empty = HashMap::new();
+    let variables = variables.unwrap_or(&empty);
+    wf_resource::render_template_with_json_variables(
         regs,
         template_id,
-        &wf_resource::TemplateRenderOptions {
-            variables: rendered,
-            ..Default::default()
-        },
+        variables,
+        true,
         template_metrics,
     )
 }
@@ -682,7 +675,7 @@ pub fn build_exposure_artifacts(
                     wf_resource::DISCOVERABLE_METADATA_TEMPLATE_ID,
                     &wf_resource::TemplateRenderOptions {
                         variables: variables.clone(),
-                        ..Default::default()
+                        deny_unresolved: true,
                     },
                     template_metrics.as_deref(),
                 )
@@ -729,7 +722,7 @@ fn render_general_description(
         wf_resource::GENERAL_DESCRIPTION_TEMPLATE_ID,
         &wf_resource::TemplateRenderOptions {
             variables,
-            ..Default::default()
+            deny_unresolved: true,
         },
         template_metrics,
     )

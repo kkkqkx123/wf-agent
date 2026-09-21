@@ -6,6 +6,18 @@ use crate::validator::validate_required;
 use wf_types::Template;
 
 pub fn validate_prompt_template(template: &Template) -> ConfigResult<()> {
+    validate_prompt_template_with_fragments(template, |_| true)
+}
+
+/// Validate a template, optionally checking that declared fragments exist.
+/// The fragment callback keeps this config crate free of engine registry
+/// types: resource registration passes a lookup, pure shape checks pass a
+/// permissive closure. Dotted placeholders match by root prefix so object
+/// declarations used through paths do not trip stale-declaration errors.
+pub fn validate_prompt_template_with_fragments(
+    template: &Template,
+    has_fragment: impl Fn(&str) -> bool,
+) -> ConfigResult<()> {
     validate_required(&template.id, "id")?;
     validate_required(&template.name, "name")?;
     validate_required(&template.content, "content")?;
@@ -31,16 +43,26 @@ pub fn validate_prompt_template(template: &Template) -> ConfigResult<()> {
             .unwrap_or(false);
         for variable in variables {
             validate_required(&variable.name, "variable.name")?;
+            if let Some(reason) = wf_common::template::validate_template_path(&variable.name) {
+                return Err(ConfigError::Validation(format!(
+                    "template '{}' declares variable '{}' with invalid path: {}",
+                    template.id, variable.name, reason
+                )));
+            }
             validate_template_default_value(template, variable)?;
             if has_fragments {
                 continue;
             }
             // A declared variable must actually appear in the content as a
-            // `{{name}}` placeholder, otherwise the declaration is stale
-            // and hides render-time bugs. Comparison uses the same trimmed
-            // scan as rendering so spaced placeholders still match.
+            // placeholder or as the root of a dotted path, otherwise the
+            // declaration is stale and hides render-time bugs. Comparison
+            // uses the same trimmed scan as rendering so spaced placeholders
+            // still match.
             let used = extract_template_placeholders(&template.content);
-            if !used.iter().any(|name| name == &variable.name) {
+            if !used
+                .iter()
+                .any(|name| template_names_match(&variable.name, name))
+            {
                 return Err(ConfigError::Validation(format!(
                     "template '{}' declares variable '{}' but the content never uses it",
                     template.id, variable.name
@@ -48,15 +70,25 @@ pub fn validate_prompt_template(template: &Template) -> ConfigResult<()> {
             }
         }
         // Every used placeholder must be declared when a declaration list
-        // exists, otherwise a typo stays silent at render time.
-        let declared: std::collections::HashSet<&str> =
-            variables.iter().map(|v| v.name.as_str()).collect();
+        // exists, otherwise a typo stays silent at render time. Dotted uses
+        // match by root prefix so object declarations consumed through paths
+        // do not trip the check.
+        let declared: Vec<&str> = variables.iter().map(|v| v.name.as_str()).collect();
         for used in extract_template_placeholders(&template.content) {
             // Engine pseudo-variables need no declaration.
             if used == "fragments" {
                 continue;
             }
-            if !declared.contains(used.as_str()) {
+            if let Some(reason) = wf_common::template::validate_template_path(&used) {
+                return Err(ConfigError::Validation(format!(
+                    "template '{}' uses variable '{}' with invalid path: {}",
+                    template.id, used, reason
+                )));
+            }
+            if !declared
+                .iter()
+                .any(|name| template_names_match(name, &used))
+            {
                 return Err(ConfigError::Validation(format!(
                     "template '{}' uses undeclared variable '{}'",
                     template.id, used
@@ -64,7 +96,37 @@ pub fn validate_prompt_template(template: &Template) -> ConfigResult<()> {
             }
         }
     }
+    if let Some(fragment_ids) = template.fragments.as_ref() {
+        let missing: Vec<&str> = fragment_ids
+            .iter()
+            .filter(|id| !has_fragment(id.as_str()))
+            .map(String::as_str)
+            .collect();
+        if !missing.is_empty() {
+            return Err(ConfigError::Validation(format!(
+                "template '{}' references unregistered fragments: {}",
+                template.id,
+                missing.join(", ")
+            )));
+        }
+    }
     Ok(())
+}
+
+/// Whether a declaration covers a placeholder use: exact match or one side
+/// is the dotted root of the other, so object declarations consumed through
+/// paths validate cleanly in both directions.
+fn template_names_match(declared: &str, used: &str) -> bool {
+    if declared == used {
+        return true;
+    }
+    if used.starts_with(&format!("{declared}.")) {
+        return true;
+    }
+    if declared.starts_with(&format!("{used}.")) {
+        return true;
+    }
+    false
 }
 
 fn validate_template_default_value(
@@ -375,5 +437,47 @@ mod tests {
         let exported = export_prompt_template(template.clone());
         assert_eq!(exported.id, template.id);
         assert_eq!(exported.content, template.content);
+    }
+
+    #[test]
+    fn test_dotted_placeholder_matches_object_declaration() {
+        let mut template = make_template();
+        template.content = "Hi {{user.name}}!".to_string();
+        template.variables = Some(vec![wf_types::TemplateVariableDefinition {
+            name: "user".to_string(),
+            r#type: wf_types::TemplateVariableType::Object,
+            required: true,
+            description: None,
+            default_value: None,
+        }]);
+        assert!(validate_prompt_template(&template).is_ok());
+    }
+
+    #[test]
+    fn test_invalid_placeholder_path_rejected() {
+        let mut template = make_template();
+        template.content = "Hi {{9bad}}!".to_string();
+        template.variables = Some(vec![wf_types::TemplateVariableDefinition {
+            name: "9bad".to_string(),
+            r#type: wf_types::TemplateVariableType::String,
+            required: false,
+            description: None,
+            default_value: None,
+        }]);
+        assert!(validate_prompt_template(&template).is_err());
+    }
+
+    #[test]
+    fn test_missing_fragment_rejected_with_lookup() {
+        let mut template = make_template();
+        template.content = "HEADER\n{{fragments}}".to_string();
+        template.fragments = Some(vec!["f.missing".to_string()]);
+        template.variables = None;
+        let err =
+            validate_prompt_template_with_fragments(&template, |_| false).unwrap_err();
+        assert!(err.to_string().contains("unregistered fragments"));
+        assert!(
+            validate_prompt_template_with_fragments(&template, |_| true).is_ok()
+        );
     }
 }

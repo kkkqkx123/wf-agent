@@ -51,7 +51,9 @@ pub struct TemplateRenderOptions {
 }
 
 /// Substitute `{{name}}` placeholders in a single left-to-right pass;
-/// unresolvable placeholders are kept verbatim. Single braces are never
+/// Display-layer flat matching only. Dotted paths need the structured
+/// rendering entry; this function never splits on dots. Unresolvable
+/// placeholders are kept verbatim. Single braces are never
 /// treated as placeholders, so literal JSON such as `{"tool": "x"}`
 /// passes through untouched. Values are inserted as opaque text and never
 /// rescanned, so a value containing placeholder shapes cannot expand
@@ -189,9 +191,13 @@ pub fn render_template_with_metrics(
 }
 
 /// Render a template from structured values, checking each provided value
-/// against its declared shape before stringification. A shape mismatch
-/// fails the render as `None` so type errors surface at render time rather
-/// than inside the model. Undeclared values pass through as display text.
+/// against its declared shape before stringification. Model-bound primary
+/// entry: callers sending text to the model use this function so shape
+/// mismatches fail here. A shape mismatch fails the render as `None` so
+/// type errors surface at render time rather than inside the model.
+/// Undeclared values pass through as display text. Dotted placeholders
+/// resolve as paths against the structured table, matching script and hook
+/// engines; flat names match exactly first.
 pub fn render_template_with_json_variables(
     regs: &ResourceRegistries,
     id: &str,
@@ -215,8 +221,38 @@ pub fn render_template_with_json_variables(
                 }
             }
         }
+        for (name, definition) in &definitions {
+            if !name.contains('.') {
+                continue;
+            }
+            if let Some(resolved) = wf_common::template::resolve_value_path(name, variables) {
+                if !wf_types::template::variable_value_matches(&definition.r#type, &resolved) {
+                    if let Some(metrics) = metrics {
+                        metrics.record_error(id, "variable_type_mismatch", &[]);
+                    }
+                    tracing::warn!(
+                        "template '{id}' variable '{name}' does not match declared shape"
+                    );
+                    return None;
+                }
+            }
+        }
     }
-    let string_variables: HashMap<String, String> = variables
+    let mut structured: HashMap<String, serde_json::Value> = variables.clone();
+    if let Some(ref template) = template {
+        let definitions = collect_variable_definitions(regs, template);
+        for (name, definition) in definitions {
+            if name.contains('.') {
+                continue;
+            }
+            if let std::collections::hash_map::Entry::Vacant(entry) = structured.entry(name) {
+                if let Some(default_value) = definition.default_value {
+                    entry.insert(default_value);
+                }
+            }
+        }
+    }
+    let string_variables: HashMap<String, String> = structured
         .iter()
         .map(|(k, v)| {
             (
@@ -225,11 +261,120 @@ pub fn render_template_with_json_variables(
             )
         })
         .collect();
-    let opts = TemplateRenderOptions {
-        variables: string_variables,
-        deny_unresolved,
+    render_template_with_structured_context(regs, id, &string_variables, &structured, deny_unresolved, metrics)
+}
+
+/// Render with both a flat display table and a structured path table.
+/// Flat exact matches win; otherwise spans resolve as dotted paths.
+/// Internal primary for model-bound rendering; the flat-only public entry
+/// stays for pure display callers such as approval hints.
+fn render_template_with_structured_context(
+    regs: &ResourceRegistries,
+    id: &str,
+    flat: &HashMap<String, String>,
+    structured: &HashMap<String, serde_json::Value>,
+    deny_unresolved: bool,
+    metrics: Option<&TemplateMetricsCollector>,
+) -> Option<String> {
+    let start = std::time::Instant::now();
+    let template: Option<Template> = regs.templates.get(id).map(|t| t.as_ref().clone());
+    let using_builtin_fallback = template.is_none();
+    let content = template
+        .as_ref()
+        .map(|t| t.content.clone())
+        .or_else(|| builtin_default(id).map(String::from));
+    let Some(content) = content else {
+        if let Some(metrics) = metrics {
+            metrics.record_error(id, "unknown_template", &[]);
+        }
+        return None;
     };
-    render_template_with_metrics(regs, id, &opts, metrics)
+    if using_builtin_fallback {
+        if let Some(metrics) = metrics {
+            metrics.record_error(id, "builtin_fallback", &[]);
+        }
+        tracing::warn!("template '{id}' is not registered; using built-in default text");
+    }
+    if let Some(ref template) = template {
+        let mut effective_flat = flat.clone();
+        let mut effective_structured = structured.clone();
+        apply_default_values(regs, template, &mut effective_flat);
+        apply_default_values_to_structured(regs, template, &mut effective_structured);
+        for (k, v) in &effective_structured {
+            effective_flat
+                .entry(k.clone())
+                .or_insert_with(|| wf_common::template::value_to_display_string(v));
+        }
+        if let Some(missing) =
+            missing_required_variables_structured(regs, template, &effective_flat, &effective_structured)
+        {
+            if let Some(metrics) = metrics {
+                metrics.record_error(id, "missing_required_variable", &[]);
+                metrics.record_render_complete(id, start.elapsed().as_millis() as f64, false, &[]);
+            }
+            tracing::warn!("template '{id}' missing required variable '{missing}'");
+            return None;
+        }
+        let Some(resolved) =
+            resolve_fragments_with_structured(regs, &content, template, &effective_flat, &effective_structured)
+        else {
+            if let Some(metrics) = metrics {
+                metrics.record_error(id, "missing_fragment", &[]);
+                metrics.record_render_complete(id, start.elapsed().as_millis() as f64, false, &[]);
+            }
+            return None;
+        };
+        let output = wf_common::template::apply_template_variables_with_structured_context(
+            &resolved,
+            &effective_flat,
+            &effective_structured,
+        );
+        if has_unresolved_placeholders(&output)
+            || !wf_common::template::find_malformed_template_spans(&output).is_empty()
+        {
+            if let Some(metrics) = metrics {
+                metrics.record_error(id, "unresolved_placeholder", &[]);
+            }
+            if deny_unresolved {
+                if let Some(metrics) = metrics {
+                    metrics.record_render_complete(
+                        id,
+                        start.elapsed().as_millis() as f64,
+                        false,
+                        &[],
+                    );
+                }
+                tracing::warn!("template '{id}' denied: unresolved placeholders remain");
+                return None;
+            }
+            tracing::warn!("template '{id}' rendered with unresolved placeholders");
+        }
+        if let Some(metrics) = metrics {
+            metrics.record_render_complete(id, start.elapsed().as_millis() as f64, true, &[]);
+        }
+        return Some(output);
+    }
+    let output =
+        wf_common::template::apply_template_variables_with_structured_context(&content, flat, structured);
+    if has_unresolved_placeholders(&output)
+        || !wf_common::template::find_malformed_template_spans(&output).is_empty()
+    {
+        if let Some(metrics) = metrics {
+            metrics.record_error(id, "unresolved_placeholder", &[]);
+        }
+        if deny_unresolved {
+            if let Some(metrics) = metrics {
+                metrics.record_render_complete(id, start.elapsed().as_millis() as f64, false, &[]);
+            }
+            tracing::warn!("template '{id}' denied: unresolved placeholders remain");
+            return None;
+        }
+        tracing::warn!("template '{id}' rendered with unresolved placeholders");
+    }
+    if let Some(metrics) = metrics {
+        metrics.record_render_complete(id, start.elapsed().as_millis() as f64, true, &[]);
+    }
+    Some(output)
 }
 
 /// Collect variable declarations from a template and its fragments.
@@ -259,6 +404,8 @@ fn collect_variable_definitions(
 }
 
 /// Fill missing variables from declared default values.
+/// Presence wins: a declared default fills the slot even when its display
+/// text is empty, so empty-string defaults satisfy required variables.
 fn apply_default_values(
     regs: &ResourceRegistries,
     template: &Template,
@@ -268,9 +415,27 @@ fn apply_default_values(
         if let std::collections::hash_map::Entry::Vacant(entry) = variables.entry(name) {
             if let Some(default_value) = definition.default_value.as_ref() {
                 let text = wf_common::template::value_to_display_string(default_value);
-                if !text.trim().is_empty() {
-                    entry.insert(text);
-                }
+                entry.insert(text);
+            }
+        }
+    }
+}
+
+/// Fill missing structured roots from declared defaults.
+/// Dotted declarations never create nested structure here; only root
+/// names materialize as values.
+fn apply_default_values_to_structured(
+    regs: &ResourceRegistries,
+    template: &Template,
+    variables: &mut HashMap<String, serde_json::Value>,
+) {
+    for (name, definition) in collect_variable_definitions(regs, template) {
+        if name.contains('.') {
+            continue;
+        }
+        if let std::collections::hash_map::Entry::Vacant(entry) = variables.entry(name) {
+            if let Some(default_value) = definition.default_value {
+                entry.insert(default_value);
             }
         }
     }
@@ -290,11 +455,42 @@ fn missing_required_variables(
     None
 }
 
-/// Whether rendered text still carries `{{name}}` placeholders. Used only
-/// for observability; rendering keeps the verbatim behavior. Delegates to
-/// the shared foundation query so validation and observability share one scan.
+/// Required check aware of dotted placeholders: a required root is
+/// satisfied by a flat entry or a structured root; a required dotted path
+/// is satisfied when the path resolves in either table.
+fn missing_required_variables_structured(
+    regs: &ResourceRegistries,
+    template: &Template,
+    flat: &HashMap<String, String>,
+    structured: &HashMap<String, serde_json::Value>,
+) -> Option<String> {
+    for (name, definition) in collect_variable_definitions(regs, template) {
+        if !definition.required {
+            continue;
+        }
+        if flat.contains_key(&name) {
+            continue;
+        }
+        if structured.contains_key(&name) {
+            continue;
+        }
+        if wf_common::template::validate_template_path(&name).is_none()
+            && wf_common::template::resolve_value_path_ref(&name, structured).is_some()
+        {
+            continue;
+        }
+        return Some(name);
+    }
+    None
+}
+
+/// Whether rendered text still carries `{{name}}` placeholders or unclosed
+/// openers. Used only for observability; rendering keeps the verbatim
+/// behavior. Delegates to the shared foundation queries so validation and
+/// observability share one scan.
 fn has_unresolved_placeholders(rendered: &str) -> bool {
     wf_common::template::has_unresolved_placeholders(rendered)
+        || !wf_common::template::find_malformed_template_spans(rendered).is_empty()
 }
 
 /// Replace every `{{name}}` span whose trimmed placeholder name matches the
@@ -364,6 +560,52 @@ fn resolve_fragments(
     Some(replace_pseudo_variable(content, "fragments", &parts.join("\n\n")).0)
 }
 
+/// Fragment composition against both flat and structured tables.
+/// Each fragment renders path-aware so dotted variables work inside
+/// fragments exactly like in the template body.
+fn resolve_fragments_with_structured(
+    regs: &ResourceRegistries,
+    content: &str,
+    template: &Template,
+    flat: &HashMap<String, String>,
+    structured: &HashMap<String, serde_json::Value>,
+) -> Option<String> {
+    if !wf_common::template::extract_placeholder_names(content)
+        .iter()
+        .any(|name| name == "fragments")
+    {
+        return Some(content.to_string());
+    }
+    let Some(fragment_ids) = template.fragments.as_ref() else {
+        return Some(replace_pseudo_variable(content, "fragments", "").0);
+    };
+    let mut parts = Vec::with_capacity(fragment_ids.len());
+    let mut missing: Vec<&str> = Vec::new();
+    for id in fragment_ids {
+        match regs.fragments.get(id) {
+            Some(fragment) => {
+                parts.push(
+                    wf_common::template::apply_template_variables_with_structured_context(
+                        &fragment.content,
+                        flat,
+                        structured,
+                    ),
+                );
+            }
+            None => missing.push(id.as_str()),
+        }
+    }
+    if !missing.is_empty() {
+        tracing::warn!(
+            "template '{}' references missing fragments: {}",
+            template.id,
+            missing.join(", ")
+        );
+        return None;
+    }
+    Some(replace_pseudo_variable(content, "fragments", &parts.join("\n\n")).0)
+}
+
 /// Render the built-in visibility text for a template id with variables
 /// applied. Single source for the fallback wording used when no registry
 /// is injected.
@@ -397,7 +639,7 @@ pub fn render_visibility_message_with_metrics(
     };
     let opts = TemplateRenderOptions {
         variables: variables.clone(),
-        ..Default::default()
+        deny_unresolved: true,
     };
     render_template_with_metrics(regs, template_id, &opts, metrics)
         .unwrap_or_else(|| fallback.to_string())
@@ -762,5 +1004,82 @@ mod tests {
             render_template_with_json_variables(&regs, "system.typed", &good, false, None)
                 .expect("typed render");
         assert_eq!(text, "Count 7");
+    }
+
+    #[test]
+    fn empty_string_default_counts_as_present() {
+        let regs = ResourceRegistries::new();
+        regs.templates
+            .register(
+                "system.empty-default".into(),
+                std::sync::Arc::new(Template {
+                    id: "system.empty-default".into(),
+                    name: "empty-default".into(),
+                    description: None,
+                    category: "system".into(),
+                    content: "Hello {{who}}!".into(),
+                    variables: Some(vec![wf_types::TemplateVariableDefinition {
+                        name: "who".into(),
+                        r#type: wf_types::TemplateVariableType::String,
+                        required: true,
+                        description: None,
+                        default_value: Some(serde_json::Value::String(String::new())),
+                    }]),
+                    fragments: None,
+                }),
+            )
+            .unwrap();
+        let text = render_template(&regs, "system.empty-default", &Default::default())
+            .expect("empty default fills");
+        assert_eq!(text, "Hello !");
+    }
+
+    #[test]
+    fn structured_variables_resolve_dotted_paths() {
+        let regs = ResourceRegistries::new();
+        regs.templates
+            .register(
+                "system.dotted".into(),
+                std::sync::Arc::new(Template {
+                    id: "system.dotted".into(),
+                    name: "dotted".into(),
+                    description: None,
+                    category: "system".into(),
+                    content: "Hi {{user.name}}!".into(),
+                    variables: Some(vec![wf_types::TemplateVariableDefinition {
+                        name: "user".into(),
+                        r#type: wf_types::TemplateVariableType::Object,
+                        required: true,
+                        description: None,
+                        default_value: None,
+                    }]),
+                    fragments: None,
+                }),
+            )
+            .unwrap();
+        let vars = HashMap::from([(
+            "user".to_string(),
+            serde_json::json!({"name": "ada"}),
+        )]);
+        let text =
+            render_template_with_json_variables(&regs, "system.dotted", &vars, false, None)
+                .expect("dotted resolves");
+        assert_eq!(text, "Hi ada!");
+        let missing = HashMap::new();
+        assert!(
+            render_template_with_json_variables(&regs, "system.dotted", &missing, true, None)
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn unclosed_placeholders_count_as_unresolved() {
+        let regs = regs_with_template("t.unclosed", "Hi {{who", None);
+        assert!(has_unresolved_placeholders("Hi {{who"));
+        let opts = TemplateRenderOptions {
+            variables: HashMap::new(),
+            deny_unresolved: true,
+        };
+        assert!(render_template(&regs, "t.unclosed", &opts).is_none());
     }
 }

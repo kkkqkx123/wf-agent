@@ -8,9 +8,7 @@
 
 use wf_types::Template;
 
-use crate::registry::{
-    register_item_skip, register_item_strict, RegisterOptions, ResourceRegistries,
-};
+use crate::registry::{RegisterOptions, ResourceRegistries, register_template};
 use crate::result::Summary;
 
 /// Ids of the four built-in tool visibility templates.
@@ -75,12 +73,7 @@ pub fn builtin_tool_visibility_templates() -> Vec<Template> {
 pub fn register(regs: &ResourceRegistries, opts: &RegisterOptions) -> Summary {
     let mut total = Summary::new();
     for template in builtin_tool_visibility_templates() {
-        let id = template.id.clone();
-        total.merge(if opts.skip_if_exists {
-            register_item_skip(&regs.templates, id, template)
-        } else {
-            register_item_strict(&regs.templates, id, template)
-        });
+        total.merge(register_template(regs, template, opts.skip_if_exists));
     }
     total
 }

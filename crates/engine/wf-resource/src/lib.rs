@@ -33,6 +33,6 @@ pub use resource_plugin::{
 pub use result::Summary;
 pub use template::{
     apply_template_variables, builtin_default, render_builtin_visibility_fallback, render_template,
-    render_template_with_metrics, render_visibility_message,
+    render_template_with_json_variables, render_template_with_metrics, render_visibility_message,
     render_visibility_message_with_metrics, TemplateRenderOptions,
 };

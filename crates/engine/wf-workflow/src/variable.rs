@@ -558,8 +558,11 @@ fn negate(a: &Value) -> Result<Value, ExpressionError> {
 pub struct VariableResolver;
 
 impl VariableResolver {
-    pub fn resolve(input: &Value, variables: &VariableStore) -> Value {
-        match input {
+    /// Assembly-layer resolution for `${path}` references.
+    /// A whole-string single reference preserves the value type;
+    /// embedded references coerce with display semantics for text transport.
+    /// Condition literals and prompt display each own their converters.
+    pub fn resolve(input: &Value, variables: &VariableStore) -> Value {        match input {
             Value::String(s) => Self::resolve_str(s, variables),
             Value::Object(map) => {
                 let resolved: serde_json::Map<String, Value> = map

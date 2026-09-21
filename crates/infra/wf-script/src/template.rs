@@ -110,8 +110,17 @@ impl ScriptTemplateEngine {
             let after = &rest[start + 2..];
             let Some(end) = after.find("}}") else {
                 command.push_str(rest);
+                for span in wf_common::template::find_malformed_template_spans(rest) {
+                    let label = if span.is_empty() {
+                        "unclosed placeholder".to_string()
+                    } else {
+                        format!("unclosed placeholder '{{{{{span}'")
+                    };
+                    if !unresolved.iter().any(|existing| existing == &label) {
+                        unresolved.push(label);
+                    }
+                }
                 rest = "";
-                unresolved.push(String::new());
                 break;
             };
             let placeholder = after[..end].trim().to_string();
@@ -233,8 +242,20 @@ mod tests {
     }
 
     #[test]
-    fn test_braced_only_command_keeps_shell_vars() {
-        let context = HashMap::from([("user".to_string(), json!("alice"))]);
+    fn test_unclosed_placeholder_is_unresolved() {
+        let vars = HashMap::new();
+        let result = ScriptTemplateEngine::render("echo {{name", &vars).unwrap();
+        assert!(!result.resolved);
+        assert!(!result.unresolved_placeholders.is_empty());
+        assert!(
+            result.unresolved_placeholders.iter().any(|s| s.contains("unclosed")),
+            "{:?}",
+            result.unresolved_placeholders
+        );
+    }
+
+    #[test]
+    fn test_braced_only_command_keeps_shell_vars() {        let context = HashMap::from([("user".to_string(), json!("alice"))]);
         let declarations = vec![crate::types::ScriptArgument {
             key: "greeting".to_string(),
             r#type: None,

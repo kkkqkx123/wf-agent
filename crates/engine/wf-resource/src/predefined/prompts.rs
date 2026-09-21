@@ -1,8 +1,6 @@
 use wf_types::Template;
 
-use crate::registry::{
-    register_item_skip, register_item_strict, RegisterOptions, ResourceRegistries,
-};
+use crate::registry::{RegisterOptions, ResourceRegistries, register_template};
 use crate::result::Summary;
 
 pub fn builtin_prompts() -> Vec<Template> {
@@ -61,12 +59,7 @@ pub fn builtin_prompts() -> Vec<Template> {
 pub fn register(regs: &ResourceRegistries, opts: &RegisterOptions) -> Summary {
     let mut total = Summary::new();
     for prompt in builtin_prompts() {
-        let id = prompt.id.clone();
-        total.merge(if opts.skip_if_exists {
-            register_item_skip(&regs.templates, id, prompt)
-        } else {
-            register_item_strict(&regs.templates, id, prompt)
-        });
+        total.merge(register_template(regs, prompt, opts.skip_if_exists));
     }
     total
 }

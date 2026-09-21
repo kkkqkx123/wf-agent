@@ -229,13 +229,18 @@ fn register_item_inner<T: Send + Sync>(
 
 /// Validate and register a single prompt template: invalid templates are
 /// reported as failures instead of being silently stored.
+/// Fragment references resolve against the live registry so missing
+/// compositions fail here instead of at render time.
 pub fn register_template(
     regs: &ResourceRegistries,
     template: Template,
     skip_if_exists: bool,
 ) -> Summary {
     let id = template.id.clone();
-    if let Err(e) = wf_config::processor::prompt::validate_prompt_template(&template) {
+    if let Err(e) = wf_config::processor::prompt::validate_prompt_template_with_fragments(
+        &template,
+        |fid| regs.fragments.has(fid),
+    ) {
         return Summary::err(&id, e.to_string());
     }
     if skip_if_exists {
@@ -634,5 +639,17 @@ mod tests {
             vec!["system.one"]
         );
         assert!(list_templates_by_category(&regs, "rules").is_empty());
+    }
+
+    #[test]
+    fn register_template_rejects_missing_fragment() {
+        let regs = ResourceRegistries::new();
+        let summary = register_template(
+            &regs,
+            template("system.missing", "system", Some(vec!["f.nope".into()])),
+            false,
+        );
+        assert!(!summary.failed.is_empty());
+        assert!(!regs.templates.has("system.missing"));
     }
 }

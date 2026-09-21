@@ -66,7 +66,10 @@ pub fn validate_template_path(path: &str) -> Option<String> {
 
 /// Render a JSON value as display text for template substitution: strings
 /// pass through, null becomes empty, anything else uses its JSON form.
-/// Single owner for the coercion so every template call site agrees on
+/// Display use only for prompt text, approval hints, skill content and
+/// command embedding. Condition evaluation uses its own literal converter
+/// with quoting semantics and must not call this function.
+/// Single owner for the coercion so every display call site agrees on
 /// null and scalar rendering.
 pub fn template_value_to_display_string(value: &serde_json::Value) -> String {
     match value {

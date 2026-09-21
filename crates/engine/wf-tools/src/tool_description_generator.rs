@@ -40,22 +40,14 @@ impl Default for DiscoverableMetadataOptions {
     }
 }
 
-/// Placeholder replaced by [`inject_discoverable_tools_metadata`], mirroring
+/// Placeholder replaced by [`inject_tool_metadata_block`], mirroring
 /// the skill metadata `{SKILLS_METADATA}` mechanism.
 pub const DISCOVERABLE_TOOLS_METADATA_PLACEHOLDER: &str = "{DISCOVERABLE_TOOLS_METADATA}";
 
-/// Generate the metadata prompt for discoverable tools: name + one-line
-/// description + typed parameter list (`query(string, required)`), so the
-/// model knows what exists (and with what signatures) without any schema
-/// injection. Uses the default [`DiscoverableMetadataOptions`].
-pub fn generate_discoverable_tools_metadata(tools: &[Tool]) -> String {
-    generate_discoverable_tools_metadata_with_options(
-        tools,
-        &DiscoverableMetadataOptions::default(),
-    )
-}
-
-/// Style-aware variant of [`generate_discoverable_tools_metadata`].
+/// Style-aware generator for the metadata prompt of discoverable tools:
+/// name + one-line description + typed parameter list
+/// (`query(string, required)`), so the model knows what exists (and with
+/// what signatures) without any schema injection.
 pub fn generate_discoverable_tools_metadata_with_options(
     tools: &[Tool],
     options: &DiscoverableMetadataOptions,
@@ -70,16 +62,10 @@ pub fn generate_discoverable_tools_metadata_with_options(
     lines.join("\n")
 }
 
-/// Per-tool metadata lines (`- name: description Parameters: a, b`) used as
-/// the `{tool_list}` variable of the discoverable metadata template. Uses
-/// the default [`DiscoverableMetadataOptions`].
-pub fn generate_discoverable_tool_entries(tools: &[Tool]) -> Vec<String> {
-    generate_discoverable_tool_entries_with_options(tools, &DiscoverableMetadataOptions::default())
-}
-
-/// Style-aware variant of [`generate_discoverable_tool_entries`]: each line
-/// carries `name(string, required)` style markers (and, for the
-/// Detailed / Markdown styles, parameter descriptions).
+/// Per-tool metadata lines used as the `{tool_list}` variable of the
+/// discoverable metadata template. Each line carries `name(type, required)`
+/// style markers (and, for the Detailed / Markdown styles, parameter
+/// descriptions).
 pub fn generate_discoverable_tool_entries_with_options(
     tools: &[Tool],
     options: &DiscoverableMetadataOptions,
@@ -146,24 +132,10 @@ pub fn inject_tool_metadata_block(system_prompt: &str, block: &str) -> String {
     if system_prompt.contains(DISCOVERABLE_TOOLS_METADATA_PLACEHOLDER) {
         return system_prompt.replace(DISCOVERABLE_TOOLS_METADATA_PLACEHOLDER, block);
     }
+    tracing::warn!(
+        "system prompt lacks {DISCOVERABLE_TOOLS_METADATA_PLACEHOLDER}; discoverable block appended at the end"
+    );
     format!("{}\n\n{}", system_prompt, block)
-}
-
-/// Inject the discoverable tool metadata into a system prompt: replaces the
-/// `{DISCOVERABLE_TOOLS_METADATA}` placeholder when present, otherwise
-/// appends the metadata at the end. Returns the (possibly unchanged) prompt.
-pub fn inject_discoverable_tools_metadata(system_prompt: &str, tools: &[Tool]) -> String {
-    let metadata = generate_discoverable_tools_metadata(tools);
-
-    if metadata.is_empty() {
-        return system_prompt.replace(DISCOVERABLE_TOOLS_METADATA_PLACEHOLDER, "");
-    }
-
-    if system_prompt.contains(DISCOVERABLE_TOOLS_METADATA_PLACEHOLDER) {
-        return system_prompt.replace(DISCOVERABLE_TOOLS_METADATA_PLACEHOLDER, &metadata);
-    }
-
-    format!("{}\n\n{}", system_prompt, metadata)
 }
 
 /// Derive the discoverable-metadata verbosity options from the effective
@@ -182,69 +154,6 @@ pub fn discoverable_metadata_options(
             .and_then(|c| c.description_style.as_deref())
             .map(DescriptionStyle::from_config_str)
             .unwrap_or(DescriptionStyle::Brief),
-    }
-}
-
-pub struct ToolDescriptionGenerator;
-
-impl ToolDescriptionGenerator {
-    pub fn generate(tool: &Tool, style: &DescriptionStyle) -> String {
-        match style {
-            DescriptionStyle::Brief => Self::generate_brief(tool),
-            DescriptionStyle::Detailed => Self::generate_detailed(tool),
-            DescriptionStyle::Markdown => Self::generate_markdown(tool),
-        }
-    }
-
-    fn generate_brief(tool: &Tool) -> String {
-        format!("{}: {}", tool.name, tool.description)
-    }
-
-    fn generate_detailed(tool: &Tool) -> String {
-        let mut result = format!("Tool: {}\n", tool.name);
-        result.push_str(&format!("Description: {}\n", tool.description));
-        result.push_str(&format!("Type: {:?}\n", tool.tool_type));
-
-        if let Some(ref params) = tool.parameters {
-            result.push_str("Parameters:\n");
-            for (name, prop) in &params.properties {
-                let param_type = &prop.property_type;
-                let param_desc = prop.description.as_deref().unwrap_or("");
-                result.push_str(&format!("  - {} ({}): {}\n", name, param_type, param_desc));
-            }
-
-            if !params.required.is_empty() {
-                result.push_str(&format!("Required: {}\n", params.required.join(", ")));
-            }
-        }
-
-        result
-    }
-
-    fn generate_markdown(tool: &Tool) -> String {
-        let mut result = format!("## {}\n\n", tool.name);
-        result.push_str(&format!("{}\n\n", tool.description));
-        result.push_str(&format!("**Type:** `{:?}`\n\n", tool.tool_type));
-
-        if let Some(ref params) = tool.parameters {
-            if !params.properties.is_empty() {
-                result.push_str("### Parameters\n\n");
-                result.push_str("| Name | Type | Description |\n");
-                result.push_str("|------|------|-------------|\n");
-
-                for (name, prop) in &params.properties {
-                    let param_type = &prop.property_type;
-                    let param_desc = prop.description.as_deref().unwrap_or("");
-                    result.push_str(&format!(
-                        "| `{}` | `{}` | {} |\n",
-                        name, param_type, param_desc
-                    ));
-                }
-                result.push('\n');
-            }
-        }
-
-        result
     }
 }
 
@@ -303,33 +212,13 @@ mod tests {
     }
 
     #[test]
-    fn test_brief_description() {
-        let tool = make_tool();
-        let desc = ToolDescriptionGenerator::generate(&tool, &DescriptionStyle::Brief);
-        assert!(desc.contains("search"));
-        assert!(desc.contains("Search for information"));
-    }
-
-    #[test]
-    fn test_detailed_description() {
-        let tool = make_tool();
-        let desc = ToolDescriptionGenerator::generate(&tool, &DescriptionStyle::Detailed);
-        assert!(desc.contains("Tool: search"));
-        assert!(desc.contains("query"));
-    }
-
-    #[test]
-    fn test_markdown_description() {
-        let tool = make_tool();
-        let desc = ToolDescriptionGenerator::generate(&tool, &DescriptionStyle::Markdown);
-        assert!(desc.contains("## search"));
-        assert!(desc.contains("| Name |"));
-    }
-
-    #[test]
     fn discoverable_metadata_lists_names_parameters_and_injects() {
         let tool = make_tool();
-        let metadata = generate_discoverable_tools_metadata(std::slice::from_ref(&tool));
+        let options = DiscoverableMetadataOptions::default();
+        let metadata = generate_discoverable_tools_metadata_with_options(
+            std::slice::from_ref(&tool),
+            &options,
+        );
         assert!(metadata.contains("search: Search for information"));
         assert!(metadata.contains("Parameters: query(string, required)"));
         assert!(
@@ -337,26 +226,28 @@ mod tests {
             "misleading direct-call claim must be gone"
         );
 
-        let injected = inject_discoverable_tools_metadata(
+        let injected = inject_tool_metadata_block(
             "You are a coder.\n{DISCOVERABLE_TOOLS_METADATA}",
-            std::slice::from_ref(&tool),
+            &metadata,
         );
         assert!(!injected.contains("{DISCOVERABLE_TOOLS_METADATA}"));
         assert!(injected.contains("Discoverable tools"));
 
-        let appended =
-            inject_discoverable_tools_metadata("You are a coder.", std::slice::from_ref(&tool));
+        let appended = inject_tool_metadata_block("You are a coder.", &metadata);
         assert!(appended.contains("Discoverable tools"));
 
         // Empty set removes the placeholder without adding content.
-        let empty = inject_discoverable_tools_metadata("Hi {DISCOVERABLE_TOOLS_METADATA}", &[]);
+        let empty = inject_tool_metadata_block("Hi {DISCOVERABLE_TOOLS_METADATA}", "");
         assert_eq!(empty, "Hi ");
     }
 
     #[test]
     fn discoverable_entries_include_types_and_required_markers() {
         let tool = make_tool();
-        let entries = generate_discoverable_tool_entries(std::slice::from_ref(&tool));
+        let entries = generate_discoverable_tool_entries_with_options(
+            std::slice::from_ref(&tool),
+            &DiscoverableMetadataOptions::default(),
+        );
         assert_eq!(entries.len(), 1);
         assert!(
             entries[0].contains("query(string, required)"),

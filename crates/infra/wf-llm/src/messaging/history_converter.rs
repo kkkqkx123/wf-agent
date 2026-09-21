@@ -1,5 +1,5 @@
 use wf_types::llm::{ToolCallMarkers, ToolCallProtocol};
-use wf_types::message::{LlmToolCall, Message, MessageContent, MessageContentValue, MessageRole};
+use wf_types::message::{LlmToolCall, Message, MessageContentValue, MessageRole};
 
 /// Default XML tags used for text-mode tool call/result rendering.
 const XML_TOOL_CALL: &str = "tool_use";
@@ -87,17 +87,7 @@ pub fn convert_tool_result_message(
 }
 
 fn extract_text(message: &Message) -> String {
-    match &message.content {
-        MessageContentValue::Text(text) => text.clone(),
-        MessageContentValue::Rich(blocks) => blocks
-            .iter()
-            .filter_map(|b| match b {
-                MessageContent::Text { text } => Some(text.clone()),
-                _ => None,
-            })
-            .collect::<Vec<_>>()
-            .join("\n"),
-    }
+    message.text_content()
 }
 
 /// Render tool calls into the text representation of the given format.

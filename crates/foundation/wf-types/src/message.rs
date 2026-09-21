@@ -84,6 +84,88 @@ pub struct Message {
     pub metadata: Option<crate::Metadata>,
 }
 
+impl Message {
+    fn fresh_id() -> crate::Id {
+        uuid::Uuid::now_v7().to_string()
+    }
+
+    fn fresh_timestamp() -> crate::Timestamp {
+        chrono::Utc::now().timestamp_millis()
+    }
+
+    /// Canonical plain-text system message.
+    pub fn system_text(text: String) -> Self {
+        Self {
+            id: Self::fresh_id(),
+            role: MessageRole::System,
+            content: MessageContentValue::Text(text),
+            timestamp: Self::fresh_timestamp(),
+            tool_call_id: None,
+            tool_name: None,
+            tool_calls: None,
+            thinking: None,
+            metadata: None,
+        }
+    }
+
+    /// Canonical plain-text user message.
+    pub fn user_text(text: String) -> Self {
+        Self {
+            id: Self::fresh_id(),
+            role: MessageRole::User,
+            content: MessageContentValue::Text(text),
+            timestamp: Self::fresh_timestamp(),
+            tool_call_id: None,
+            tool_name: None,
+            tool_calls: None,
+            thinking: None,
+            metadata: None,
+        }
+    }
+
+    /// Canonical tool result message carrying the call id, optional tool
+    /// name and error flag.
+    pub fn tool_result(
+        tool_call_id: String,
+        tool_name: Option<String>,
+        content: String,
+        is_error: bool,
+    ) -> Self {
+        let metadata = is_error.then(|| {
+            std::collections::HashMap::from([(
+                "is_error".to_string(),
+                serde_json::Value::Bool(true),
+            )])
+        });
+        Self {
+            id: Self::fresh_id(),
+            role: MessageRole::Tool,
+            content: MessageContentValue::Text(content),
+            timestamp: Self::fresh_timestamp(),
+            tool_call_id: Some(tool_call_id),
+            tool_name,
+            tool_calls: None,
+            thinking: None,
+            metadata,
+        }
+    }
+
+    /// Plain-text view of the content, joining rich text parts.
+    pub fn text_content(&self) -> String {
+        match &self.content {
+            MessageContentValue::Text(text) => text.clone(),
+            MessageContentValue::Rich(blocks) => blocks
+                .iter()
+                .filter_map(|block| match block {
+                    MessageContent::Text { text } => Some(text.clone()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+                .join("\n"),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(untagged)]
 pub enum MessageContentValue {

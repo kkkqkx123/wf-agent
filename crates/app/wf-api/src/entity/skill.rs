@@ -184,23 +184,6 @@ pub fn to_prompt(ctx: &ApiContext) -> ApiResult<String> {
 
 // ── progressive disclosure ──────────────────────────────────────
 
-/// Level 1: metadata prompt listing the enabled skills.
-pub fn generate_metadata_prompt(ctx: &ApiContext) -> ApiResult<String> {
-    let loader = loader(ctx)?;
-    Ok(wf_tools::skill::generate_skill_metadata_prompt(
-        &loader.get_enabled_skills(),
-    ))
-}
-
-/// Level 1: inject the skill metadata prompt into a system prompt.
-pub fn inject_skill_metadata(ctx: &ApiContext, system_prompt: &str) -> ApiResult<String> {
-    let loader = loader(ctx)?;
-    Ok(wf_tools::skill::inject_skill_metadata(
-        system_prompt,
-        &loader.get_enabled_skills(),
-    ))
-}
-
 /// Level 2: load the full skill body content.
 pub fn load_content(ctx: &ApiContext, name: &str) -> ApiResult<String> {
     let loader = loader(ctx)?;
@@ -340,12 +323,6 @@ mod tests {
     #[tokio::test]
     async fn skill_progressive_disclosure() {
         let ctx = make_ctx("disclosure");
-
-        let prompt = generate_metadata_prompt(&ctx).unwrap();
-        assert!(prompt.contains("test-skill"));
-
-        let injected = inject_skill_metadata(&ctx, "You are a helper.").unwrap();
-        assert!(injected.contains("test-skill"));
 
         let content = load_content(&ctx, "test-skill").unwrap();
         assert!(content.contains("Test skill body"));

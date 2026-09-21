@@ -41,32 +41,25 @@ pub fn injected_messages(config: &Value) -> Vec<Message> {
 }
 
 pub fn text_message(role: MessageRole, content: String) -> Message {
-    Message {
-        id: wf_types::Id::new(),
-        role,
-        content: MessageContentValue::Text(content),
-        timestamp: wf_common::now(),
-        tool_call_id: None,
-        tool_name: None,
-        tool_calls: None,
-        thinking: None,
-        metadata: None,
+    match role {
+        MessageRole::System => Message::system_text(content),
+        MessageRole::User => Message::user_text(content),
+        MessageRole::Assistant | MessageRole::Tool => Message {
+            id: wf_common::generate_id(),
+            role,
+            content: MessageContentValue::Text(content),
+            timestamp: wf_common::now(),
+            tool_call_id: None,
+            tool_name: None,
+            tool_calls: None,
+            thinking: None,
+            metadata: None,
+        },
     }
 }
 
 pub fn message_to_text(message: &Message) -> String {
-    match &message.content {
-        MessageContentValue::Text(text) => text.clone(),
-        MessageContentValue::Rich(parts) => {
-            let mut out = String::new();
-            for part in parts {
-                if let wf_types::message::MessageContent::Text { text } = part {
-                    out.push_str(text);
-                }
-            }
-            out
-        }
-    }
+    message.text_content()
 }
 
 pub fn tool_result_message(
@@ -75,55 +68,46 @@ pub fn tool_result_message(
     content: String,
     is_error: bool,
 ) -> Message {
-    use std::collections::HashMap;
-    Message {
-        id: wf_types::Id::new(),
-        role: MessageRole::Tool,
-        content: MessageContentValue::Text(content),
-        timestamp: wf_common::now(),
-        tool_call_id: Some(tool_call_id.to_string()),
-        tool_name: Some(tool_name.to_string()),
-        tool_calls: None,
-        thinking: None,
-        metadata: Some(HashMap::from([(
-            "is_error".to_string(),
-            Value::Bool(is_error),
-        )])),
-    }
+    Message::tool_result(
+        tool_call_id.to_string(),
+        Some(tool_name.to_string()),
+        content,
+        is_error,
+    )
 }
 
 /// Resolve the system prompt with agent-loop priority: inline text wins,
 /// otherwise the template reference renders through the shared registry.
 /// Returns `None` when neither is configured or rendering is unavailable.
+/// This stays a lightweight path on purpose: no tool exposure, skill, or
+/// dynamic context enrichment happens here, unlike the agent loop assembly.
 fn resolve_llm_system_prompt(config: &Value, ctx: &NodeExecutionContext) -> Option<String> {
-    if let Some(system) = config.get("system_prompt").and_then(|v| v.as_str()) {
-        return Some(system.to_string());
-    }
+    let system = config.get("system_prompt").and_then(|v| v.as_str());
     let template_id = config
         .get("system_prompt_template_id")
-        .and_then(|v| v.as_str())?;
-    let regs = ctx.resource_registries.as_deref()?;
-    let mut variables = std::collections::HashMap::new();
-    if let Some(vars) = config
-        .get("system_prompt_template_variables")
-        .and_then(|v| v.as_object())
-    {
-        for (key, value) in vars {
-            let rendered = match value {
-                Value::String(s) => s.clone(),
-                other => other.to_string(),
-            };
-            variables.insert(key.clone(), rendered);
+        .and_then(|v| v.as_str());
+    if let (None, Some(id)) = (system, template_id) {
+        if let Some(regs) = ctx.resource_registries.as_deref() {
+            use wf_core::registry::Registry;
+            if let Some(template) = regs.templates.get(id) {
+                if template.content.contains("{{tool_descriptions}}") {
+                    tracing::warn!(
+                        "llm node template '{id}' uses {{{{tool_descriptions}}}} but the lightweight path never supplies tools; it renders empty"
+                    );
+                }
+            }
         }
     }
+    let variables = config
+        .get("system_prompt_template_variables")
+        .and_then(|v| v.as_object())
+        .map(|obj| obj.iter().map(|(k, v)| (k.clone(), v.clone())).collect());
     let template_metrics = ctx.metrics.as_ref().map(|m| m.template());
-    wf_resource::render_template_with_metrics(
-        regs,
+    wf_execution_shared::agent_prompt::resolve_system_prompt_text(
+        system,
         template_id,
-        &wf_resource::TemplateRenderOptions {
-            variables,
-            ..Default::default()
-        },
+        variables.as_ref(),
+        ctx.resource_registries.as_deref(),
         template_metrics.as_deref(),
     )
 }

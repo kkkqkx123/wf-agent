@@ -211,11 +211,9 @@ pub use wf_tools::registry::ToolRegistry;
 pub use wf_tools::skill::{SkillLoader, SkillResourceContent};
 pub use wf_tools::tool_call::ToolCallExecutor;
 pub use wf_tools::tool_description_generator::{
-    discoverable_metadata_options, generate_discoverable_tool_entries,
-    generate_discoverable_tool_entries_with_options, generate_discoverable_tools_metadata,
-    generate_discoverable_tools_metadata_with_options, inject_discoverable_tools_metadata,
-    inject_tool_metadata_block, DescriptionStyle, DiscoverableMetadataOptions,
-    ToolDescriptionGenerator, DISCOVERABLE_TOOLS_METADATA_PLACEHOLDER,
+    discoverable_metadata_options, generate_discoverable_tool_entries_with_options,
+    generate_discoverable_tools_metadata_with_options, inject_tool_metadata_block,
+    DescriptionStyle, DiscoverableMetadataOptions, DISCOVERABLE_TOOLS_METADATA_PLACEHOLDER,
 };
 pub use wf_tools::tool_exposure::{
     is_tool_callable, resolve_tool_exposure, ExposureInput, ExposureResolution,

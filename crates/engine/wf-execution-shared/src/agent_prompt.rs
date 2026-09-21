@@ -161,26 +161,46 @@ fn resolve_configured_system_prompt(
     template_metrics: Option<&wf_metrics::TemplateMetricsCollector>,
 ) -> Option<String> {
     let config = agent_config?;
-    if let Some(ref sp) = config.system_prompt {
-        return Some(sp.clone());
+    resolve_system_prompt_text(
+        config.system_prompt.as_deref(),
+        config.system_prompt_template_id.as_deref(),
+        config.system_prompt_template_variables.as_ref(),
+        regs,
+        template_metrics,
+    )
+}
+
+/// Shared system prompt resolution with agent-loop priority: inline text
+/// wins, otherwise the template reference renders through the shared
+/// registry. Single home for both the agent assembly and the lightweight
+/// model node so the two entries cannot drift.
+pub fn resolve_system_prompt_text(
+    system_prompt: Option<&str>,
+    template_id: Option<&str>,
+    variables: Option<&HashMap<String, Value>>,
+    regs: Option<&ResourceRegistries>,
+    template_metrics: Option<&wf_metrics::TemplateMetricsCollector>,
+) -> Option<String> {
+    if let Some(sp) = system_prompt {
+        return Some(sp.to_string());
     }
-    let template_id = config.system_prompt_template_id.as_deref()?;
+    let template_id = template_id?;
     let regs = regs?;
-    let mut variables = HashMap::new();
-    if let Some(ref meta) = config.system_prompt_template_variables {
+    let mut rendered = HashMap::new();
+    if let Some(meta) = variables {
         for (key, value) in meta {
-            let rendered = match value {
+            let value = match value {
                 Value::String(s) => s.clone(),
                 other => other.to_string(),
             };
-            variables.insert(key.clone(), rendered);
+            rendered.insert(key.clone(), value);
         }
     }
     wf_resource::render_template_with_metrics(
         regs,
         template_id,
         &wf_resource::TemplateRenderOptions {
-            variables,
+            variables: rendered,
             ..Default::default()
         },
         template_metrics,
@@ -468,7 +488,11 @@ pub fn is_tool_visibility_message(msg: &wf_types::message::Message) -> bool {
 /// Stable header exists when a non-announcement system message is present.
 /// Both `tool_visibility` and `dynamic_context` marked messages never count.
 pub fn has_stable_system_message(conversation: &[wf_types::message::Message]) -> bool {
-    conversation.iter().any(|m| {
+    stable_system_index(conversation).is_some()
+}
+
+fn stable_system_index(conversation: &[wf_types::message::Message]) -> Option<usize> {
+    conversation.iter().position(|m| {
         m.role == wf_types::message::MessageRole::System
             && !is_tool_visibility_message(m)
             && !is_dynamic_context_message(m)
@@ -512,42 +536,27 @@ pub fn split_trailing_dynamic_tail(
 
 /// Leading stable system message carrying the cacheable header.
 pub fn stable_system_message(content: String) -> wf_types::message::Message {
-    wf_types::message::Message {
-        id: wf_common::generate_id(),
-        role: wf_types::message::MessageRole::System,
-        content: wf_types::message::MessageContentValue::Text(content),
-        timestamp: wf_common::now(),
-        tool_call_id: None,
-        tool_name: None,
-        tool_calls: None,
-        thinking: None,
-        metadata: None,
-    }
+    wf_types::message::Message::system_text(content)
 }
 
 /// Independent volatile tail message: user role so dynamic state reads as the
 /// latest round user context, marked so stable checks and transcripts skip it.
 pub fn dynamic_context_message(content: String) -> wf_types::message::Message {
-    wf_types::message::Message {
-        id: wf_common::generate_id(),
-        role: wf_types::message::MessageRole::User,
-        content: wf_types::message::MessageContentValue::Text(content),
-        timestamp: wf_common::now(),
-        tool_call_id: None,
-        tool_name: None,
-        tool_calls: None,
-        thinking: None,
-        metadata: Some(HashMap::from([(
-            "type".to_string(),
-            Value::String(DYNAMIC_CONTEXT_MESSAGE_TYPE.to_string()),
-        )])),
-    }
+    let mut message = wf_types::message::Message::user_text(content);
+    message.metadata = Some(HashMap::from([(
+        "type".to_string(),
+        Value::String(DYNAMIC_CONTEXT_MESSAGE_TYPE.to_string()),
+    )]));
+    message
 }
 
 /// Apply assembled outputs to a round conversation: insert the stable header
 /// as the leading system message once, then carry the tail per the bearing.
-/// Separate message is the default; merged form concatenates with the user
-/// task for strict alternation services.
+/// Separate message is the default; merged form concatenates context before
+/// the user task so the task stays last for strict alternation services.
+/// A stale header is refreshed in place so configuration changes take
+/// effect instead of lingering. Stored volatile tails are always dropped
+/// first, so repeated assembly stays idempotent without caller cleanup.
 pub fn apply_assembled_prompt(
     conversation: &mut Vec<wf_types::message::Message>,
     assembled: &AssembledPrompt,
@@ -555,9 +564,18 @@ pub fn apply_assembled_prompt(
     user_task: &mut String,
 ) {
     if let Some(ref header) = assembled.stable_header {
-        if !has_stable_system_message(conversation) {
-            conversation.insert(0, stable_system_message(header.clone()));
+        match stable_system_index(conversation) {
+            None => conversation.insert(0, stable_system_message(header.clone())),
+            Some(index) => {
+                if conversation[index].text_content() != *header {
+                    conversation[index].content =
+                        wf_types::message::MessageContentValue::Text(header.clone());
+                }
+            }
         }
+    }
+    if conversation.iter().any(is_dynamic_context_message) {
+        conversation.retain(|m| !is_dynamic_context_message(m));
     }
     let Some(ref tail) = assembled.volatile_tail else {
         return;
@@ -879,6 +897,24 @@ mod tests {
         assert_eq!(conversation[0].role, wf_types::message::MessageRole::System);
         assert_eq!(conversation[1].role, wf_types::message::MessageRole::User);
         assert!(is_dynamic_context_message(&conversation[1]));
+    }
+
+    #[test]
+    fn apply_refreshes_stale_header_in_place() {
+        let mut conversation = vec![stable_system_message("old".into())];
+        let mut task = "do work".to_string();
+        apply_assembled_prompt(
+            &mut conversation,
+            &AssembledPrompt {
+                stable_header: Some("new".into()),
+                volatile_tail: None,
+            },
+            DynamicTailBearing::SeparateUserMessage,
+            &mut task,
+        );
+        assert_eq!(conversation.len(), 1);
+        assert_eq!(conversation[0].text_content(), "new");
+        assert_eq!(task, "do work");
     }
 
     #[test]

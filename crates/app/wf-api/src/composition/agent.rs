@@ -425,7 +425,7 @@ mod tests {
     }
 
     #[test]
-    fn existing_system_message_is_preserved() {
+    fn stale_system_message_is_refreshed_in_place() {
         let regs = ResourceRegistries::new();
         register_item_skip(
             &regs.agent_templates,
@@ -455,7 +455,7 @@ mod tests {
         assert_eq!(systems.len(), 1);
         assert!(matches!(
             &systems[0].content,
-            MessageContentValue::Text(t) if t == "caller prompt"
+            MessageContentValue::Text(t) if t.contains("software engineering assistant")
         ));
     }
 

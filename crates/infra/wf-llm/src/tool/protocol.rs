@@ -293,21 +293,30 @@ pub fn build_text_mode_system_content(
 
 /// Extract the system message content from messages and filter out system messages.
 ///
-/// When several system messages exist only the last one is kept; the rest are
-/// dropped along with the system role itself.
+/// All system messages are concatenated in order with a blank line separator
+/// so the stable header plus every announcement reaches the model; the rest
+/// are dropped along with the system role itself.
 pub fn extract_system_message(messages: &[Message]) -> (Option<String>, Vec<Message>) {
-    let mut system_content = None;
+    let mut parts = Vec::new();
     let mut filtered = Vec::new();
 
     for msg in messages {
         match msg.role {
             wf_types::message::MessageRole::System => {
-                system_content = Some(crate::messaging::helper::extract_text_content(msg));
+                let text = crate::messaging::helper::extract_text_content(msg);
+                if !text.trim().is_empty() {
+                    parts.push(text);
+                }
             }
             _ => filtered.push(msg.clone()),
         }
     }
 
+    let system_content = if parts.is_empty() {
+        None
+    } else {
+        Some(parts.join("\n\n"))
+    };
     (system_content, filtered)
 }
 
@@ -534,7 +543,7 @@ mod tests {
     }
 
     #[test]
-    fn extract_system_message_filters_and_returns_last_system() {
+    fn extract_system_message_concatenates_all_systems_in_order() {
         let sys1 = Message {
             id: wf_types::Id::new(),
             role: MessageRole::System,
@@ -569,7 +578,7 @@ mod tests {
             metadata: None,
         };
         let (system, filtered) = extract_system_message(&[sys1.clone(), user.clone(), sys2]);
-        assert_eq!(system.as_deref(), Some("sys two"));
+        assert_eq!(system.as_deref(), Some("sys one\n\nsys two"));
         assert_eq!(filtered.len(), 1);
         assert_eq!(filtered[0].role, MessageRole::User);
 

@@ -579,6 +579,9 @@ pub fn inject_skill_metadata(system_prompt: &str, enabled_skills: &[SkillMetadat
         return system_prompt.to_string();
     }
 
+    tracing::warn!(
+        "system prompt lacks {SKILLS_METADATA_PLACEHOLDER}; skill metadata appended at the end"
+    );
     format!("{}\n\n{}", system_prompt, metadata_prompt)
 }
 

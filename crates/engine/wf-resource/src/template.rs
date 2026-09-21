@@ -13,6 +13,11 @@
 //! - `{{tool_descriptions}}`: the optional tool description set rendered in
 //!   the requested format (empty when none is supplied).
 //!
+//! Two-stage pipeline: this engine only resolves double-brace placeholders.
+//! Post-render injection anchors (single-brace uppercase markers resolved by
+//! the tool and skill layers) pass through untouched and are never treated
+//! as template variables.
+//!
 //! When no template is registered for an id, the built-in default text is
 //! used, so unconfigured deployments keep the previous behavior. Unknown
 //! ids render to `None`.
@@ -44,16 +49,35 @@ pub struct TemplateRenderOptions<'a> {
     pub tool_format: Option<ToolFormat>,
 }
 
-/// Substitute `{{name}}` placeholders; unresolvable placeholders are kept
-/// verbatim. Single braces are never treated as placeholders, so literal
-/// JSON such as `{"tool": "x"}` passes through untouched. Shared by the
-/// template engine, the fragment composer and call sites that pre-render
-/// fragment content.
+/// Substitute `{{name}}` placeholders in a single left-to-right pass;
+/// unresolvable placeholders are kept verbatim. Single braces are never
+/// treated as placeholders, so literal JSON such as `{"tool": "x"}`
+/// passes through untouched. Values are inserted as opaque text and never
+/// rescanned, so a value containing placeholder shapes cannot expand
+/// again. Shared by the template engine, the fragment composer and call
+/// sites that pre-render fragment content.
 pub fn apply_template_variables(content: &str, variables: &HashMap<String, String>) -> String {
-    let mut rendered = content.to_string();
-    for (key, value) in variables {
-        rendered = rendered.replace(&format!("{{{{{}}}}}", key), value);
+    if variables.is_empty() || !content.contains("{{") {
+        return content.to_string();
     }
+    let mut rendered = String::with_capacity(content.len());
+    let mut rest = content;
+    while let Some(start) = rest.find("{{") {
+        let after = &rest[start + 2..];
+        let Some(end) = after.find("}}") else {
+            break;
+        };
+        let raw = &after[..end];
+        let name = raw.trim();
+        if let Some(value) = variables.get(name) {
+            rendered.push_str(&rest[..start]);
+            rendered.push_str(value);
+        } else {
+            rendered.push_str(&rest[..start + 2 + end + 2]);
+        }
+        rest = &after[end + 2..];
+    }
+    rendered.push_str(rest);
     rendered
 }
 
@@ -113,7 +137,27 @@ pub fn render_template_with_metrics(
     // Pseudo variables (only meaningful for configured templates; the
     // built-in fallbacks carry no fragments and no tool sections).
     if let Some(ref template) = template {
-        rendered = resolve_fragments(regs, &rendered, template, &opts.variables);
+        if let Some(required) = template.variables.as_ref() {
+            for declared in required.iter().filter(|v| v.required) {
+                if !opts.variables.contains_key(&declared.name) {
+                    if let Some(metrics) = metrics {
+                        metrics.record_error(id, "missing_required_variable", &[]);
+                    }
+                    tracing::warn!(
+                        "template '{id}' missing required variable '{}'",
+                        declared.name
+                    );
+                }
+            }
+        }
+        let Some(resolved) = resolve_fragments(regs, &rendered, template, &opts.variables) else {
+            if let Some(metrics) = metrics {
+                metrics.record_error(id, "missing_fragment", &[]);
+                metrics.record_render_complete(id, start.elapsed().as_millis() as f64, false, &[]);
+            }
+            return None;
+        };
+        rendered = resolved;
         rendered = resolve_tool_descriptions(&rendered, opts);
     }
 
@@ -121,8 +165,11 @@ pub fn render_template_with_metrics(
     if let Some(metrics) = metrics {
         if has_unresolved_placeholders(&output) {
             metrics.record_error(id, "unresolved_placeholder", &[]);
+            tracing::warn!("template '{id}' rendered with unresolved placeholders");
         }
         metrics.record_render_complete(id, start.elapsed().as_millis() as f64, true, &[]);
+    } else if has_unresolved_placeholders(&output) {
+        tracing::warn!("template '{id}' rendered with unresolved placeholders");
     }
     Some(output)
 }
@@ -150,26 +197,40 @@ fn has_unresolved_placeholders(rendered: &str) -> bool {
 }
 
 /// Resolve the `{{fragments}}` pseudo variable by composing the template's
-/// declared fragments (each with the render variables applied).
+/// declared fragments (each with the render variables applied). A declared
+/// fragment that is not registered fails the render so partial prompts
+/// never reach the model.
 fn resolve_fragments(
     regs: &ResourceRegistries,
     content: &str,
     template: &Template,
     variables: &HashMap<String, String>,
-) -> String {
+) -> Option<String> {
     if !content.contains("{{fragments}}") {
-        return content.to_string();
+        return Some(content.to_string());
     }
-    let composed = match template.fragments.as_ref() {
-        None => String::new(),
-        Some(fragment_ids) => fragment_ids
-            .iter()
-            .filter_map(|id| regs.fragments.get(id))
-            .map(|fragment| apply_template_variables(&fragment.content, variables))
-            .collect::<Vec<_>>()
-            .join("\n\n"),
+    let Some(fragment_ids) = template.fragments.as_ref() else {
+        return Some(content.replace("{{fragments}}", ""));
     };
-    content.replace("{{fragments}}", &composed)
+    let mut parts = Vec::with_capacity(fragment_ids.len());
+    let mut missing: Vec<&str> = Vec::new();
+    for id in fragment_ids {
+        match regs.fragments.get(id) {
+            Some(fragment) => {
+                parts.push(apply_template_variables(&fragment.content, variables));
+            }
+            None => missing.push(id.as_str()),
+        }
+    }
+    if !missing.is_empty() {
+        tracing::warn!(
+            "template '{}' references missing fragments: {}",
+            template.id,
+            missing.join(", ")
+        );
+        return None;
+    }
+    Some(content.replace("{{fragments}}", &parts.join("\n\n")))
 }
 
 /// Resolve the `{{tool_descriptions}}` pseudo variable (empty when no tool

@@ -1,23 +1,13 @@
-use wf_types::message::{Message, MessageContent, MessageContentValue};
+use wf_types::message::Message;
 
 pub fn extract_text_content(message: &Message) -> String {
-    match &message.content {
-        MessageContentValue::Text(text) => text.clone(),
-        MessageContentValue::Rich(blocks) => blocks
-            .iter()
-            .filter_map(|block| match block {
-                MessageContent::Text { text } => Some(text.clone()),
-                _ => None,
-            })
-            .collect::<Vec<_>>()
-            .join("\n"),
-    }
+    message.text_content()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use wf_types::message::MessageRole;
+    use wf_types::message::{MessageContentValue, MessageRole};
 
     fn make_text_message(role: MessageRole, text: &str) -> Message {
         Message {

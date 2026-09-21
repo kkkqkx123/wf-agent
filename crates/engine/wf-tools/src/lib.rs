@@ -33,11 +33,9 @@ pub use shell::execute_command_handler;
 pub use skill::{SkillLoader, SkillResourceContent};
 pub use tool_call::ToolCallEvent;
 pub use tool_description_generator::{
-    discoverable_metadata_options, generate_discoverable_tool_entries,
-    generate_discoverable_tool_entries_with_options, generate_discoverable_tools_metadata,
-    generate_discoverable_tools_metadata_with_options, inject_discoverable_tools_metadata,
-    inject_tool_metadata_block, DescriptionStyle, DiscoverableMetadataOptions,
-    ToolDescriptionGenerator, DISCOVERABLE_TOOLS_METADATA_PLACEHOLDER,
+    discoverable_metadata_options, generate_discoverable_tool_entries_with_options,
+    generate_discoverable_tools_metadata_with_options, inject_tool_metadata_block,
+    DescriptionStyle, DiscoverableMetadataOptions, DISCOVERABLE_TOOLS_METADATA_PLACEHOLDER,
 };
 pub use tool_exposure::{
     check_direct_tool_callable, is_tool_callable, resolve_tool_exposure, ExposureInput,

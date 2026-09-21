@@ -845,7 +845,9 @@ impl AgentLoopCoordinator {
     /// this loop only discovers the tool, or a `general` wrap where this loop
     /// exposes it directly). Rewriting once at the boundary keeps the new schema
     /// and the replayed history consistent. Stored archives stay verbatim and the
-    /// runtime gates remain authoritative over what may execute.
+    /// runtime gates remain authoritative over what may execute. Stale volatile
+    /// tail messages are dropped while a freshly assembled trailing tail is
+    /// preserved, so cross-round imports never accumulate old tails.
     fn normalize_inbound_conversation(
         registry: &ToolRegistry,
         conversation: &[Message],
@@ -854,6 +856,10 @@ impl AgentLoopCoordinator {
         if conversation.is_empty() {
             return Vec::new();
         }
+        let (filtered, trailing) =
+            wf_execution_shared::agent_prompt::split_trailing_dynamic_tail(
+                conversation.to_vec(),
+            );
         let activated_tools: std::collections::HashSet<String> =
             config.activated_tool_names.iter().cloned().collect();
         // Exposure overrides are intentionally empty here, matching the per-turn
@@ -871,7 +877,10 @@ impl AgentLoopCoordinator {
             activated_tools: &activated_tools,
             exposure_overrides: &std::collections::HashMap::new(),
         });
-        wf_tools::general_history::normalize_history_for_exposure(conversation, &resolution)
+        let mut normalized =
+            wf_tools::general_history::normalize_history_for_exposure(&filtered, &resolution);
+        normalized.extend(trailing);
+        normalized
     }
 
     async fn build_entity(

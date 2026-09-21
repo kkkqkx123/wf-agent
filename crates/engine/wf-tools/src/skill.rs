@@ -538,7 +538,9 @@ pub fn substitute_variables(content: &str, variables: &HashMap<String, Value>) -
     result
 }
 
-/// Placeholder replaced by [`inject_skill_metadata`].
+/// Placeholder replaced by [`inject_skill_metadata`]. Single braces keep
+/// this stage disjoint from the double-brace template renderer, which runs
+/// earlier and never touches single-brace text.
 pub const SKILLS_METADATA_PLACEHOLDER: &str = "{SKILLS_METADATA}";
 
 /// Generate the metadata prompt listing all enabled skills
@@ -560,7 +562,8 @@ pub fn generate_skill_metadata_prompt(skills: &[SkillMetadata]) -> String {
 
 /// Inject the skill metadata prompt into a system prompt: replaces the
 /// `{SKILLS_METADATA}` placeholder when present, otherwise appends the
-/// metadata at the end. Returns the (possibly unchanged) prompt.
+/// metadata at the end. Runs after template rendering. Returns the
+/// (possibly unchanged) prompt.
 pub fn inject_skill_metadata(system_prompt: &str, enabled_skills: &[SkillMetadata]) -> String {
     let metadata_prompt = generate_skill_metadata_prompt(enabled_skills);
 

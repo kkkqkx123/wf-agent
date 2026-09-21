@@ -718,8 +718,13 @@ impl AgentExecutionBuilder {
             context: self.context,
             conversation: Vec::new(),
         };
+        let env = wf_execution_shared::agent_prompt::PromptEnvironment::new(
+            Some(ctx.registries.as_ref()),
+            Some(ctx.tool_registry.as_ref()),
+            ctx.metrics.as_deref(),
+        );
         let params = crate::composition::agent::resolve_run_params(
-            &ctx.registries,
+            &env,
             RunAgentLoopParams::new(self.config.clone(), input),
         )?;
         let output = crate::agent::agent_execution::run(ctx, params).await?;

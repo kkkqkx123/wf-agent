@@ -78,9 +78,15 @@ pub async fn stream_agent_turn(
     approval_handler: Option<Arc<dyn wf_api::ToolApprovalHandler>>,
 ) -> Result<(String, ExecutionEventStream), ApiError> {
     // Composition boundary: resolve the agent template (built-in
-    // `@standard/main` default, user overrides first) before execution.
+    // `@standard/main` default, user overrides first) before execution. The
+    // shared prompt module renders header, tail and exposure from full context.
+    let env = wf_execution_shared::agent_prompt::PromptEnvironment::new(
+        Some(ctx.registries.as_ref()),
+        Some(ctx.tool_registry.as_ref()),
+        ctx.metrics.as_deref(),
+    );
     let run_params = wf_api::composition::agent::resolve_run_params(
-        &ctx.registries,
+        &env,
         build_agent_loop_params(params, approval_options, approval_handler),
     )?;
     let execution_id = run_params

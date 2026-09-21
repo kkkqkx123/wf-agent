@@ -13,7 +13,9 @@ use crate::message_context;
 /// Collect the initial conversation: inline `conversation` messages plus all
 /// messages from the named contexts listed in `message_inputs`, plus any
 /// tool-visibility announcement messages appended to the default context
-/// (tail system-message injection for formal tool activation).
+/// (tail system-message injection for formal tool activation). Stale volatile
+/// tail messages are dropped so cross-round imports never accumulate old
+/// tails; the fresh tail is assembled after this filter.
 pub(crate) fn collect_initial_conversation(ctx: &NodeExecutionContext) -> Vec<Message> {
     let config = ctx.node_config.as_ref().unwrap_or(&Value::Null);
     let mut conversation: Vec<Message> = Vec::new();
@@ -58,7 +60,7 @@ pub(crate) fn collect_initial_conversation(ctx: &NodeExecutionContext) -> Vec<Me
             .collect();
     conversation.extend(announcements);
 
-    conversation
+    wf_execution_shared::agent_prompt::strip_dynamic_context_messages(conversation)
 }
 
 /// Normalize an inbound conversation to this loop's target exposure.
@@ -89,8 +91,10 @@ pub(crate) fn normalize_conversation_for_target(
     activated: &[String],
 ) -> Vec<Message> {
     let Some(registry) = registry else {
-        return conversation;
+        return wf_execution_shared::agent_prompt::strip_dynamic_context_messages(conversation);
     };
+    let conversation =
+        wf_execution_shared::agent_prompt::strip_dynamic_context_messages(conversation);
     let activated_tools: std::collections::HashSet<String> = activated.iter().cloned().collect();
     let resolution = wf_tools::resolve_tool_exposure(wf_tools::ExposureInput {
         registry,

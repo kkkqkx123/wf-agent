@@ -25,6 +25,7 @@ wf-types = { path = "../../../foundation/wf-types" }
 wf-core = { path = "../../../foundation/wf-core" }
 wf-api = { path = "../../wf-api" }
 wf-runtime = { path = "../../wf-runtime", optional = true }
+wf-execution-shared = { path = "../../../engine/wf-execution-shared" }
 
 [features]
 default = ["embedded"]

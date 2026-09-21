@@ -20,10 +20,11 @@
 //! - any other explicit id: left untouched (`agent_id` remains a pure
 //!   label), matching the pre-template behavior.
 
+use wf_execution_shared::agent_prompt::PromptEnvironment;
 use wf_resource::registry::ResourceRegistries;
 use wf_tools::callback::AgentLoopConfig;
 use wf_types::agent::{AgentConfig, AgentTemplate};
-use wf_types::message::{Message, MessageContentValue, MessageRole};
+use wf_types::message::Message;
 use wf_types::tool::AvailableTools;
 
 use crate::agent::agent_config::{DEFAULT_MAX_ITERATIONS, DEFAULT_MODEL};
@@ -60,8 +61,9 @@ pub fn resolve_template(regs: &ResourceRegistries, agent_id: &str) -> Option<Age
 /// Apply the template's agent config as defaults under the caller's config.
 ///
 /// Only unset caller fields are filled; every explicitly set caller field
-/// wins. The template system prompt is seeded as the first system message
-/// only when the imported conversation carries no system message.
+/// wins. Initial messages seed an empty conversation; the stable header and
+/// volatile tail are assembled by the shared prompt module after this step,
+/// so inline seeding no longer lives here.
 pub fn apply_template_defaults(
     mut config: AgentLoopConfig,
     template: &AgentTemplate,
@@ -72,7 +74,6 @@ pub fn apply_template_defaults(
     };
     apply_agent_config_defaults(&mut config, cfg);
     seed_initial_messages(&mut input.conversation, cfg);
-    seed_system_prompt(&mut input.conversation, cfg);
     config
 }
 
@@ -141,8 +142,6 @@ fn apply_tool_defaults(config: &mut AgentLoopConfig, tools: &AvailableTools) {
 }
 
 /// Seed template initial messages when the imported conversation is empty.
-/// Runs before system prompt seeding so a system message inside the initial
-/// set suppresses the separate system prompt seed.
 fn seed_initial_messages(conversation: &mut Vec<Message>, cfg: &AgentConfig) {
     let Some(initial) = cfg.initial_messages.as_ref() else {
         return;
@@ -153,35 +152,67 @@ fn seed_initial_messages(conversation: &mut Vec<Message>, cfg: &AgentConfig) {
     conversation.extend(initial.iter().cloned());
 }
 
-/// Seed the template system prompt as the first system message when the
-/// conversation does not already carry one.
-fn seed_system_prompt(conversation: &mut Vec<Message>, cfg: &AgentConfig) {
-    let Some(prompt) = cfg.system_prompt.as_ref() else {
-        return;
-    };
-    if conversation.iter().any(|m| m.role == MessageRole::System) {
-        return;
-    }
-    conversation.insert(
-        0,
-        Message {
-            id: wf_types::Id::new(),
-            role: MessageRole::System,
-            content: MessageContentValue::Text(prompt.clone()),
-            timestamp: wf_common::now(),
-            tool_call_id: None,
-            tool_name: None,
-            tool_calls: None,
-            thinking: None,
-            metadata: None,
-        },
+/// Render tool exposure blocks from the resolved buckets. Runs for both
+/// templated and untemplated configs so the direct path never falls back to
+/// the builtin generation while the workflow path uses custom resources.
+fn attach_exposure_artifacts(
+    env: &PromptEnvironment,
+    config: &mut AgentLoopConfig,
+) {
+    let artifacts = wf_execution_shared::agent_prompt::build_exposure_artifacts(
+        env,
+        config.tool_call_protocol.as_ref(),
+        &config.available_tool_names,
+        &config.initial_tool_names,
+        &config.discoverable_tool_names,
+        &config.hidden_tool_names,
+        config.enable_general_tool,
     );
+    if let Some(description) = artifacts.general_description {
+        config.general_description = Some(description);
+    }
+    if let Some(block) = artifacts.discoverable_metadata_block {
+        config.discoverable_metadata_block = Some(block);
+    }
+}
+
+/// Assemble the stable header and volatile tail for the resolved template and
+/// land them in the round conversation. Stale tails are dropped first; the
+/// header seeds the leading system message once and the tail travels as a
+/// separate marked user message. The user task message stays pure input.
+fn attach_prompt_assembly(
+    env: &PromptEnvironment,
+    agent_config: Option<&AgentConfig>,
+    config: &AgentLoopConfig,
+    input: &mut wf_tools::callback::AgentLoopInput,
+) {
+    use wf_execution_shared::agent_prompt::{
+        apply_assembled_prompt, assemble_agent_prompt, strip_dynamic_context_messages,
+        DynamicTailBearing,
+    };
+    input.conversation = strip_dynamic_context_messages(std::mem::take(&mut input.conversation));
+    let assembled = assemble_agent_prompt(
+        agent_config,
+        &input.context,
+        env,
+        &config.available_tool_names,
+    );
+    let mut message = std::mem::take(&mut input.message);
+    apply_assembled_prompt(
+        &mut input.conversation,
+        &assembled,
+        DynamicTailBearing::SeparateUserMessage,
+        &mut message,
+    );
+    input.message = message;
 }
 
 /// Resolve the effective template for a config/input pair and apply its
-/// defaults. See the module docs for the resolution semantics.
+/// defaults. See the module docs for the resolution semantics. After template
+/// defaults the shared prompt module produces the stable header, volatile
+/// tail and tool exposure blocks so both entries render identically.
 pub fn resolve_and_apply(
-    regs: &ResourceRegistries,
+    env: &PromptEnvironment,
     config: AgentLoopConfig,
     mut input: wf_tools::callback::AgentLoopInput,
 ) -> crate::infra::error::ApiResult<(AgentLoopConfig, wf_tools::callback::AgentLoopInput)> {
@@ -192,6 +223,9 @@ pub fn resolve_and_apply(
             MAIN_AGENT_TEMPLATE_ID,
         ));
     }
+    let Some(regs) = env.resource_registries else {
+        return Ok((apply_final_defaults(config), input));
+    };
     let Some(template) = resolve_template(regs, agent_id) else {
         if requests_builtin_main(agent_id) {
             return Err(ApiError::not_found(
@@ -199,9 +233,15 @@ pub fn resolve_and_apply(
                 MAIN_AGENT_TEMPLATE_ID,
             ));
         }
-        return Ok((apply_final_defaults(config), input));
+        let mut config = apply_final_defaults(config);
+        attach_exposure_artifacts(env, &mut config);
+        attach_prompt_assembly(env, None, &config, &mut input);
+        return Ok((config, input));
     };
-    let applied = apply_template_defaults(config, &template, &mut input);
+    let mut applied = apply_template_defaults(config, &template, &mut input);
+    let agent_config = template.definition.config.as_ref();
+    attach_exposure_artifacts(env, &mut applied);
+    attach_prompt_assembly(env, agent_config, &applied, &mut input);
     Ok((apply_final_defaults(applied), input))
 }
 
@@ -218,12 +258,14 @@ fn apply_final_defaults(mut config: AgentLoopConfig) -> AgentLoopConfig {
 /// Composition-boundary factory: resolve the params' agent template and
 /// return fully-resolved run parameters. Call this where a request is
 /// translated into [`RunAgentLoopParams`] (HTTP handler, CLI frontend) —
-/// never inside the execution APIs.
+/// never inside the execution APIs. The environment carries resource
+/// registries plus the tool registry and metrics the shared assembly needs;
+/// callers holding the full application context build it from there.
 pub fn resolve_run_params(
-    regs: &ResourceRegistries,
+    env: &PromptEnvironment,
     mut params: RunAgentLoopParams,
 ) -> crate::infra::error::ApiResult<RunAgentLoopParams> {
-    let (config, input) = resolve_and_apply(regs, params.config, params.input)?;
+    let (config, input) = resolve_and_apply(env, params.config, params.input)?;
     params.config = config;
     params.input = input;
     Ok(params)
@@ -232,7 +274,13 @@ pub fn resolve_run_params(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use wf_execution_shared::agent_prompt::PromptEnvironment;
     use wf_resource::registry::{register_item_skip, ResourceRegistries};
+    use wf_types::message::{MessageContentValue, MessageRole};
+
+    fn env_for(regs: &ResourceRegistries) -> PromptEnvironment<'_> {
+        PromptEnvironment::new(Some(regs), None, None)
+    }
 
     fn main_template() -> AgentTemplate {
         wf_resource::predefined::agent_templates::main_agent_template()
@@ -292,7 +340,8 @@ mod tests {
             main_template(),
         );
         assert!(resolve_template(&regs, "").is_none());
-        let err = resolve_and_apply(&regs, empty_config(""), input_with("hi"))
+        let env = env_for(&regs);
+        let err = resolve_and_apply(&env, empty_config(""), input_with("hi"))
             .expect_err("empty id is a caller bug");
         assert!(matches!(err, ApiError::NotFound { .. }));
     }
@@ -306,7 +355,8 @@ mod tests {
             main_template(),
         );
         assert!(resolve_template(&regs, "unknown-agent").is_none());
-        let (config, _) = resolve_and_apply(&regs, empty_config("unknown-agent"), input_with("hi"))
+        let env = env_for(&regs);
+        let (config, _) = resolve_and_apply(&env, empty_config("unknown-agent"), input_with("hi"))
             .expect("explicit id without template is untouched");
         assert!(config.available_tool_names.is_empty());
     }
@@ -338,7 +388,8 @@ mod tests {
         );
         let mut config = empty_config(MAIN_AGENT_TEMPLATE_ID);
         config.max_iterations = Some(7);
-        let (config, _) = resolve_and_apply(&regs, config, input_with("hi")).expect("apply");
+        let env = env_for(&regs);
+        let (config, _) = resolve_and_apply(&env, config, input_with("hi")).expect("apply");
         assert_eq!(config.max_iterations, Some(7));
         // Unset fields fall back to the template.
         assert!(config
@@ -362,8 +413,9 @@ mod tests {
             MAIN_AGENT_TEMPLATE_ID.into(),
             main_template(),
         );
+        let env = env_for(&regs);
         let (_, input) = resolve_and_apply(
-            &regs,
+            &env,
             empty_config(MAIN_AGENT_TEMPLATE_ID),
             input_with("hi"),
         )
@@ -392,7 +444,8 @@ mod tests {
             thinking: None,
             metadata: None,
         });
-        let (_, input) = resolve_and_apply(&regs, empty_config(MAIN_AGENT_TEMPLATE_ID), input)
+        let env = env_for(&regs);
+        let (_, input) = resolve_and_apply(&env, empty_config(MAIN_AGENT_TEMPLATE_ID), input)
             .expect("apply template");
         let systems: Vec<_> = input
             .conversation
@@ -409,12 +462,161 @@ mod tests {
     #[test]
     fn missing_builtin_main_agent_errors() {
         let regs = ResourceRegistries::new();
+        let env = env_for(&regs);
         let err = resolve_and_apply(
-            &regs,
+            &env,
             empty_config(MAIN_AGENT_TEMPLATE_ID),
             input_with("hi"),
         )
         .expect_err("builtin requested but absent");
         assert!(matches!(err, ApiError::NotFound { .. }));
+    }
+
+    fn template_with_config(id: &str, config: serde_json::Value) -> AgentTemplate {
+        let mut template = main_template();
+        template.id = id.into();
+        template.definition.config =
+            Some(serde_json::from_value(config).expect("agent config"));
+        template
+    }
+
+    #[test]
+    fn direct_path_renders_system_prompt_template_id() {
+        use wf_core::registry::MutableRegistry;
+        let regs = ResourceRegistries::new();
+        regs.templates
+            .register(
+                "prompt-tpl".to_string(),
+                std::sync::Arc::new(wf_types::Template {
+                    id: "prompt-tpl".into(),
+                    name: "prompt".into(),
+                    description: None,
+                    category: "test".into(),
+                    content: "greetings {{who}}".into(),
+                    variables: None,
+                    fragments: None,
+                }),
+            )
+            .unwrap();
+        register_item_skip(
+            &regs.agent_templates,
+            "agent-tpl".into(),
+            template_with_config(
+                "agent-tpl",
+                serde_json::json!({
+                    "system_prompt_template_id": "prompt-tpl",
+                    "system_prompt_template_variables": {"who": "direct"},
+                }),
+            ),
+        );
+        let env = env_for(&regs);
+        let (_, input) =
+            resolve_and_apply(&env, empty_config("agent-tpl"), input_with("hi")).expect("apply");
+        assert_eq!(input.message, "hi");
+        let header = input
+            .conversation
+            .iter()
+            .find(|m| m.role == MessageRole::System)
+            .expect("stable header");
+        assert!(matches!(
+            &header.content,
+            MessageContentValue::Text(t) if t.contains("greetings direct")
+        ));
+    }
+
+    #[test]
+    fn direct_path_tail_is_marked_user_message_and_task_stays_pure() {
+        let regs = ResourceRegistries::new();
+        register_item_skip(
+            &regs.agent_templates,
+            "agent-tail".into(),
+            template_with_config(
+                "agent-tail",
+                serde_json::json!({
+                    "system_prompt": "stable base",
+                    "dynamic_context": {"include_todo_list": true},
+                }),
+            ),
+        );
+        let env = env_for(&regs);
+        let mut input = input_with("do work");
+        input.context.insert(
+            "todo_list".to_string(),
+            serde_json::json!([{"content": "write code", "status": "pending"}]),
+        );
+        let (_, input) =
+            resolve_and_apply(&env, empty_config("agent-tail"), input).expect("apply");
+        assert_eq!(input.message, "do work");
+        assert_eq!(input.conversation.len(), 2);
+        assert_eq!(input.conversation[0].role, MessageRole::System);
+        assert!(matches!(
+            &input.conversation[0].content,
+            MessageContentValue::Text(t) if t.contains("stable base") && !t.contains("TODO")
+        ));
+        assert_eq!(input.conversation[1].role, MessageRole::User);
+        let marker = input.conversation[1]
+            .metadata
+            .as_ref()
+            .and_then(|m| m.get("type"))
+            .expect("tail marker");
+        assert_eq!(
+            marker,
+            &serde_json::Value::String("dynamic_context".to_string())
+        );
+        assert!(matches!(
+            &input.conversation[1].content,
+            MessageContentValue::Text(t) if t.contains("TODO list:") && t.contains("write code")
+        ));
+    }
+
+    #[test]
+    fn direct_path_drops_stale_tail_on_import() {
+        let regs = ResourceRegistries::new();
+        register_item_skip(
+            &regs.agent_templates,
+            "agent-stale".into(),
+            template_with_config(
+                "agent-stale",
+                serde_json::json!({
+                    "system_prompt": "stable",
+                    "dynamic_context": {"include_todo_list": true},
+                }),
+            ),
+        );
+        let env = env_for(&regs);
+        let mut input = input_with("hi");
+        input.conversation.push(Message {
+            id: "old-tail".into(),
+            role: MessageRole::User,
+            content: MessageContentValue::Text("old tail".into()),
+            timestamp: wf_common::now(),
+            tool_call_id: None,
+            tool_name: None,
+            tool_calls: None,
+            thinking: None,
+            metadata: Some(std::collections::HashMap::from([(
+                "type".to_string(),
+                serde_json::Value::String("dynamic_context".to_string()),
+            )])),
+        });
+        let (_, input) =
+            resolve_and_apply(&env, empty_config("agent-stale"), input).expect("apply");
+        let tails: Vec<_> = input
+            .conversation
+            .iter()
+            .filter(|m| {
+                m.metadata
+                    .as_ref()
+                    .and_then(|meta| meta.get("type"))
+                    .map(|t| t == &serde_json::Value::String("dynamic_context".to_string()))
+                    .unwrap_or(false)
+            })
+            .collect();
+        assert!(
+            tails.is_empty(),
+            "missing todo variable must warn and skip without fabricating a tail"
+        );
+        assert!(!tails.iter().any(|m| m.id.as_str() == "old-tail"));
+        assert_eq!(input.message, "hi");
     }
 }

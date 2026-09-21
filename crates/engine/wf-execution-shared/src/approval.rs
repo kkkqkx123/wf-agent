@@ -82,3 +82,14 @@ impl From<ToolApprovalResponseData> for ToolApprovalResult {
 pub trait ToolApprovalHandler: Send + Sync {
     async fn request_approval(&self, request: &ToolApprovalRequest) -> ToolApprovalResult;
 }
+
+/// Substitute `{{name}}` placeholders in approval messages. Unmatched
+/// placeholders are kept verbatim. Shared by approval message builders so
+/// every rejection and hint text uses identical substitution semantics.
+pub fn apply_approval_template_variables(template: &str, vars: &[(&str, &str)]) -> String {
+    let mut out = template.to_string();
+    for (key, value) in vars {
+        out = out.replace(&format!("{{{{{}}}}}", key), value);
+    }
+    out
+}

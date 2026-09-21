@@ -90,7 +90,6 @@ pub async fn build_agent_execution(entity: &AgentLoopEntity) -> AgentExecution {
             on_failure: None,
             fallback_output: None,
             hooks: None,
-            dynamic_context_config: None,
             checkpoint_config: None,
         }),
     }

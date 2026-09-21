@@ -11,8 +11,6 @@ use crate::handler::NodeHandler;
 
 pub(crate) mod conversation;
 pub(crate) mod coordinator;
-pub(crate) mod exposure;
-pub(crate) mod prompt;
 pub(crate) mod settings;
 pub(crate) mod stream;
 
@@ -42,9 +40,12 @@ impl NodeHandler for AgentLoopHandler {
 
 impl AgentLoopHandler {
     /// Orchestrate a single `AGENT_LOOP` execution: load static settings,
-    /// assemble the system prompt and tool-exposure artifacts, normalize the
-    /// inbound conversation, build the coordinator and loop config, then run
-    /// the blocking or streaming path.
+    /// assemble the stable system header and the volatile tail through the
+    /// shared prompt module, normalize the inbound conversation, build the
+    /// coordinator and loop config, then run the blocking or streaming path.
+    /// The header seeds a leading system message once so the request prefix
+    /// stays cacheable; volatile data travels as a separate marked user
+    /// message and the user task stays pure user input.
     async fn execute_inner(
         &self,
         ctx: &mut NodeExecutionContext,
@@ -52,11 +53,20 @@ impl AgentLoopHandler {
         let settings = settings::load_settings(ctx, &self.gateway)?;
         let agent_config = settings.agent_config();
 
-        let system_prompt =
-            prompt::build_system_prompt(ctx, agent_config, &settings.available_tool_names);
+        let env = wf_execution_shared::agent_prompt::PromptEnvironment::new(
+            ctx.resource_registries.as_deref(),
+            ctx.tool_registry.as_deref(),
+            ctx.metrics.as_deref(),
+        );
+        let assembled = wf_execution_shared::agent_prompt::assemble_agent_prompt(
+            agent_config,
+            &*ctx,
+            &env,
+            &settings.available_tool_names,
+        );
 
-        let artifacts = exposure::build_exposure_artifacts(
-            ctx,
+        let artifacts = wf_execution_shared::agent_prompt::build_exposure_artifacts(
+            &env,
             settings.tool_call_protocol.as_ref(),
             &settings.available_tool_names,
             &settings.initial_tool_names,
@@ -67,18 +77,13 @@ impl AgentLoopHandler {
 
         let coordinator = coordinator::build_coordinator(self.gateway.clone(), ctx, agent_config);
 
-        let message = match system_prompt {
-            Some(sp) => format!("{}\n\n{}", sp, settings.input_text),
-            None => settings.input_text,
-        };
-
         // Loop-boundary history normalization: upstream archives carry
         // upstream bucket shapes; rewrite once to this loop's target
         // exposure (including tools activated by prior TOOL_VISIBILITY
         // nodes) so the new schema and the replayed history agree. The
         // rewritten history is self-consistent (call/result ids remapped
         // together), so no id-map sidecar is needed downstream.
-        let initial_conversation = conversation::normalize_conversation_for_target(
+        let mut initial_conversation = conversation::normalize_conversation_for_target(
             conversation::collect_initial_conversation(ctx),
             ctx.tool_registry.as_deref(),
             &settings.available_tool_names,
@@ -87,6 +92,14 @@ impl AgentLoopHandler {
             &settings.hidden_tool_names,
             settings.enable_general_tool,
             &settings.activated_tool_names,
+        );
+
+        let mut message = settings.input_text.clone();
+        wf_execution_shared::agent_prompt::apply_assembled_prompt(
+            &mut initial_conversation,
+            &assembled,
+            wf_execution_shared::agent_prompt::DynamicTailBearing::SeparateUserMessage,
+            &mut message,
         );
 
         let loop_config = AgentLoopConfig {

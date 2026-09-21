@@ -119,9 +119,34 @@ pub fn render_template_with_metrics(
 
     let output = apply_template_variables(&rendered, &opts.variables);
     if let Some(metrics) = metrics {
+        if has_unresolved_placeholders(&output) {
+            metrics.record_error(id, "unresolved_placeholder", &[]);
+        }
         metrics.record_render_complete(id, start.elapsed().as_millis() as f64, true, &[]);
     }
     Some(output)
+}
+
+/// Whether rendered text still carries `{{name}}` placeholders. Used only
+/// for observability; rendering keeps the verbatim behavior.
+fn has_unresolved_placeholders(rendered: &str) -> bool {
+    let mut rest = rendered;
+    while let Some(start) = rest.find("{{") {
+        let after = &rest[start + 2..];
+        let Some(end) = after.find("}}") else {
+            break;
+        };
+        let name = after[..end].trim();
+        if !name.is_empty()
+            && name
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_')
+        {
+            return true;
+        }
+        rest = &after[end + 2..];
+    }
+    false
 }
 
 /// Resolve the `{{fragments}}` pseudo variable by composing the template's

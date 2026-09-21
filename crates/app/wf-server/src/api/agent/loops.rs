@@ -277,8 +277,15 @@ pub(crate) fn params_from_body(
     };
     // Composition boundary: resolve the agent template (built-in
     // `@standard/main` default, user overrides first) into a fully-resolved
-    // config before the request reaches the execution APIs.
-    wf_api::composition::agent::resolve_run_params(&state.ctx.registries, {
+    // config before the request reaches the execution APIs. The shared prompt
+    // module renders the stable header, volatile tail and tool exposure blocks
+    // from the full application context.
+    let env = wf_execution_shared::agent_prompt::PromptEnvironment::new(
+        Some(state.ctx.registries.as_ref()),
+        Some(state.ctx.tool_registry.as_ref()),
+        state.ctx.metrics.as_deref(),
+    );
+    wf_api::composition::agent::resolve_run_params(&env, {
         wf_api::agent::agent_execution::RunAgentLoopParams::new(config, input)
     })
 }

@@ -2,6 +2,9 @@ use wf_types::tool_description::ToolDescriptionData;
 
 use crate::predefined::render::{render_tool_descriptions, ToolFormat};
 
+/// Stable header input. Volatile per-run data belongs in the tail user
+/// message, never here: anything varying per run placed at the header
+/// invalidates the cacheable request prefix.
 #[derive(Debug, Clone)]
 pub struct SystemConfig {
     pub include_time: bool,
@@ -19,7 +22,7 @@ pub struct SystemConfig {
 impl Default for SystemConfig {
     fn default() -> Self {
         Self {
-            include_time: true,
+            include_time: false,
             include_env: true,
             include_tool_descriptions: false,
             include_skills: false,
@@ -63,7 +66,12 @@ pub fn build_system_context(cfg: &SystemConfig) -> String {
 
     if cfg.include_time {
         let now = chrono::Local::now();
-        let formatted = now.format("%Y-%m-%d %H:%M:%S %z").to_string();
+        let mut formatted = now.format("%Y-%m-%d %H:%M:%S %z").to_string();
+        if let Some(ref timezone) = cfg.timezone {
+            if !timezone.trim().is_empty() {
+                formatted.push_str(&format!(" ({})", timezone.trim()));
+            }
+        }
         sections.push(wrap_section("current_time", &formatted));
     }
 

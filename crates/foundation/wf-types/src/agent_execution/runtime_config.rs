@@ -53,7 +53,5 @@ pub struct AgentRuntimeConfig {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hooks: Option<Vec<AgentHook>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub dynamic_context_config: Option<HashMap<String, serde_json::Value>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub checkpoint_config: Option<HashMap<String, serde_json::Value>>,
 }

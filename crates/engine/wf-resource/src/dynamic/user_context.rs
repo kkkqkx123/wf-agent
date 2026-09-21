@@ -3,16 +3,33 @@ use std::path::PathBuf;
 
 use wf_types::TodoItem;
 
+/// Volatile per-run input rendered as the tail user message. Stays out of
+/// the system header so the cacheable prefix keeps its byte stability.
 #[derive(Debug, Clone, Default)]
 pub struct UserInput {
+    pub current_time: Option<String>,
     pub todos: Vec<TodoItem>,
     pub pinned: Vec<PathBuf>,
     pub tree: Option<String>,
     pub custom_data: Option<HashMap<String, String>>,
 }
 
+/// Current time text for the tail user block. Minute precision keeps the
+/// tail fresher than a cached date while churning less than per-second time.
+pub fn current_time_text() -> String {
+    chrono::Local::now().format("%Y-%m-%d %H:%M %z").to_string()
+}
+
+/// Render the tail user block. Plain sections without angle-bracket wrappers
+/// keep this visually distinct from the system header format.
 pub fn build_user_context(input: &UserInput) -> String {
     let mut sections: Vec<String> = Vec::new();
+
+    if let Some(ref current_time) = input.current_time {
+        if !current_time.trim().is_empty() {
+            sections.push(format!("Current time: {}", current_time.trim()));
+        }
+    }
 
     if !input.todos.is_empty() {
         let mut todo_lines: Vec<String> = Vec::new();
@@ -63,6 +80,17 @@ mod tests {
     }
 
     #[test]
+    fn test_user_context_with_time() {
+        let input = UserInput {
+            current_time: Some("2026-01-01 10:00 +0000".into()),
+            ..Default::default()
+        };
+        let ctx = build_user_context(&input);
+        assert!(ctx.contains("Current time:"));
+        assert!(!ctx.contains("current_time"));
+    }
+
+    #[test]
     fn test_user_context_with_todos() {
         let input = UserInput {
             todos: vec![
@@ -85,9 +113,7 @@ mod tests {
                     metadata: None,
                 },
             ],
-            pinned: Vec::new(),
-            tree: None,
-            custom_data: None,
+            ..Default::default()
         };
         let ctx = build_user_context(&input);
         assert!(ctx.contains("TODO list:"));
@@ -98,10 +124,8 @@ mod tests {
     #[test]
     fn test_user_context_with_pinned() {
         let input = UserInput {
-            todos: Vec::new(),
             pinned: vec![PathBuf::from("/home/user/project/src/main.rs")],
-            tree: None,
-            custom_data: None,
+            ..Default::default()
         };
         let ctx = build_user_context(&input);
         assert!(ctx.contains("Pinned files:"));
@@ -111,10 +135,8 @@ mod tests {
     #[test]
     fn test_user_context_with_tree() {
         let input = UserInput {
-            todos: Vec::new(),
-            pinned: Vec::new(),
             tree: Some("src/\n  main.rs\n  lib.rs".into()),
-            custom_data: None,
+            ..Default::default()
         };
         let ctx = build_user_context(&input);
         assert!(ctx.contains("Workspace structure:"));
@@ -124,10 +146,8 @@ mod tests {
     #[test]
     fn test_user_context_with_custom_data() {
         let input = UserInput {
-            todos: Vec::new(),
-            pinned: Vec::new(),
-            tree: None,
             custom_data: Some(HashMap::from([("project".into(), "wf-agent".into())])),
+            ..Default::default()
         };
         let ctx = build_user_context(&input);
         assert!(ctx.contains("project: wf-agent"));

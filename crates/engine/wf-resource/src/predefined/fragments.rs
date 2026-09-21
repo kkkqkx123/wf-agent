@@ -1,4 +1,4 @@
-use wf_types::{FragmentCompositionConfig, SystemPromptFragment, TemplateVariableDefinition};
+use wf_types::{SystemPromptFragment, TemplateVariableDefinition};
 
 use crate::registry::{
     register_item_skip, register_item_strict, RegisterOptions, ResourceRegistries,
@@ -112,62 +112,6 @@ pub fn builtin_fragments() -> Vec<SystemPromptFragment> {
             variables: None,
         },
     ]
-}
-
-pub fn builtin_compositions() -> Vec<FragmentCompositionConfig> {
-    builtin_composition_entries()
-        .into_iter()
-        .map(|(_, cfg)| cfg)
-        .collect()
-}
-
-/// Labeled builtin compositions: the single data source the prompt builder
-/// reads (the builder no longer hardcodes fragment ids per prompt type).
-pub fn builtin_composition_entries() -> Vec<(&'static str, FragmentCompositionConfig)> {
-    vec![
-        (
-            "assistant",
-            FragmentCompositionConfig {
-                fragment_ids: vec![
-                    "fragments.role.assistant".into(),
-                    "fragments.capability.general".into(),
-                    "fragments.capability.general-principles".into(),
-                    "fragments.constraint.general".into(),
-                    "fragments.tool-usage.xml-summary".into(),
-                    "fragments.task-instruction.code-review".into(),
-                ],
-                separator: Some("\n\n".into()),
-                prefix: None,
-                suffix: None,
-            },
-        ),
-        (
-            "coder",
-            FragmentCompositionConfig {
-                fragment_ids: vec![
-                    "fragments.role.coder".into(),
-                    "fragments.capability.general".into(),
-                    "fragments.capability.coding".into(),
-                    "fragments.constraint.coding".into(),
-                    "fragments.constraint.code-safety".into(),
-                    "fragments.tool-usage.json-summary".into(),
-                    "fragments.task-instruction.code-review".into(),
-                ],
-                separator: Some("\n\n".into()),
-                prefix: None,
-                suffix: None,
-            },
-        ),
-    ]
-}
-
-/// Look up the builtin composition for a prompt kind (`"assistant"` /
-/// `"coder"`). Unknown kinds return `None`.
-pub fn builtin_composition_for(kind: &str) -> Option<FragmentCompositionConfig> {
-    builtin_composition_entries()
-        .into_iter()
-        .find(|(label, _)| *label == kind)
-        .map(|(_, cfg)| cfg)
 }
 
 pub fn register(regs: &ResourceRegistries, opts: &RegisterOptions) -> Summary {

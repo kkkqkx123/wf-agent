@@ -92,6 +92,42 @@ pub fn tool_result_message(
     }
 }
 
+/// Resolve the system prompt with agent-loop priority: inline text wins,
+/// otherwise the template reference renders through the shared registry.
+/// Returns `None` when neither is configured or rendering is unavailable.
+fn resolve_llm_system_prompt(config: &Value, ctx: &NodeExecutionContext) -> Option<String> {
+    if let Some(system) = config.get("system_prompt").and_then(|v| v.as_str()) {
+        return Some(system.to_string());
+    }
+    let template_id = config
+        .get("system_prompt_template_id")
+        .and_then(|v| v.as_str())?;
+    let regs = ctx.resource_registries.as_deref()?;
+    let mut variables = std::collections::HashMap::new();
+    if let Some(vars) = config
+        .get("system_prompt_template_variables")
+        .and_then(|v| v.as_object())
+    {
+        for (key, value) in vars {
+            let rendered = match value {
+                Value::String(s) => s.clone(),
+                other => other.to_string(),
+            };
+            variables.insert(key.clone(), rendered);
+        }
+    }
+    let template_metrics = ctx.metrics.as_ref().map(|m| m.template());
+    wf_resource::render_template_with_metrics(
+        regs,
+        template_id,
+        &wf_resource::TemplateRenderOptions {
+            variables,
+            ..Default::default()
+        },
+        template_metrics.as_deref(),
+    )
+}
+
 /// Collect the initial message list for the request:
 /// system prompt, optional transform-context injection, messages from the
 /// named context (default `current`), inline `messages` config, and finally
@@ -100,8 +136,8 @@ pub fn build_messages(ctx: &NodeExecutionContext) -> WorkflowResult<Vec<Message>
     let config = ctx.node_config.as_ref().unwrap_or(&Value::Null);
     let mut messages: Vec<Message> = Vec::new();
 
-    if let Some(system) = config.get("system_prompt").and_then(|v| v.as_str()) {
-        messages.push(text_message(MessageRole::System, system.to_string()));
+    if let Some(system) = resolve_llm_system_prompt(config, ctx) {
+        messages.push(text_message(MessageRole::System, system));
     }
 
     // transform_context: basic injection of extra messages before the context

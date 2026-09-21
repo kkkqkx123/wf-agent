@@ -1,5 +1,4 @@
 pub mod agent_templates;
-pub mod builder;
 pub mod fragments;
 pub mod prompts;
 pub mod render;

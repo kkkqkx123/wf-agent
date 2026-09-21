@@ -59,7 +59,7 @@ impl RejectionMessageBuilder {
             .get(tool_id)
             .map(String::as_str)
             .unwrap_or(&self.global_default_template);
-        render_template(
+        wf_execution_shared::approval::apply_approval_template_variables(
             template,
             &[("toolId", tool_id), ("reason", reason.unwrap_or(""))],
         )
@@ -74,22 +74,16 @@ impl RejectionMessageBuilder {
         {
             return None;
         }
-        Some(render_template(
-            &self.user_message_hint_template,
-            &[
-                ("enabledTools", &enabled_tools.join(", ")),
-                ("disabledTools", &disabled_tools.join(", ")),
-            ],
-        ))
+        Some(
+            wf_execution_shared::approval::apply_approval_template_variables(
+                &self.user_message_hint_template,
+                &[
+                    ("enabledTools", &enabled_tools.join(", ")),
+                    ("disabledTools", &disabled_tools.join(", ")),
+                ],
+            ),
+        )
     }
-}
-
-fn render_template(template: &str, vars: &[(&str, &str)]) -> String {
-    let mut out = template.to_string();
-    for (key, value) in vars {
-        out = out.replace(&format!("{{{{{}}}}}", key), value);
-    }
-    out
 }
 
 #[cfg(test)]

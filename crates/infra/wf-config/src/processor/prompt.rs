@@ -31,8 +31,51 @@ pub fn validate_prompt_template(template: &Template) -> ConfigResult<()> {
                 )));
             }
         }
+        // Every used placeholder must be declared when a declaration list
+        // exists, otherwise a typo stays silent at render time.
+        let declared: std::collections::HashSet<&str> =
+            variables.iter().map(|v| v.name.as_str()).collect();
+        for used in extract_template_placeholders(&template.content) {
+            if used == "fragments" || used == "tool_descriptions" {
+                continue;
+            }
+            if !declared.contains(used.as_str()) {
+                return Err(ConfigError::Validation(format!(
+                    "template '{}' uses undeclared variable '{}'",
+                    template.id, used
+                )));
+            }
+        }
     }
     Ok(())
+}
+
+/// Collect `{{name}}` placeholder names from template content.
+fn extract_template_placeholders(content: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut rest = content;
+    while let Some(start) = rest.find("{{") {
+        let after = &rest[start + 2..];
+        let Some(end) = after.find("}}") else {
+            break;
+        };
+        let name = after[..end].trim();
+        if !name.is_empty()
+            && name
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_')
+            && name
+                .chars()
+                .next()
+                .map(|c| c.is_ascii_alphabetic() || c == '_')
+                .unwrap_or(false)
+            && !out.iter().any(|existing: &String| existing == name)
+        {
+            out.push(name.to_string());
+        }
+        rest = &after[end + 2..];
+    }
+    out
 }
 
 pub fn merge_prompt_template_config(

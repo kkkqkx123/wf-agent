@@ -285,7 +285,7 @@ pub(crate) fn params_from_body(
         Some(state.ctx.tool_registry.as_ref()),
         state.ctx.metrics.as_deref(),
     );
-    wf_api::composition::agent::resolve_run_params(&env, {
+    wf_api::agent::composition::resolve_run_params(&env, {
         wf_api::agent::agent_execution::RunAgentLoopParams::new(config, input)
     })
 }

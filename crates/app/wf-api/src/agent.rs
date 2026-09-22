@@ -1,5 +1,5 @@
-//! Agent domain query APIs: execution, loop registry, graph, checkpoints,
-//! error analysis, performance and variables.
+//! Agent domain APIs: execution, loop registry, graph, checkpoints,
+//! builders, composition, error analysis, performance and variables.
 
 #[allow(clippy::module_inception)]
 pub mod agent;
@@ -15,4 +15,6 @@ pub mod agent_message;
 pub mod agent_performance;
 pub mod agent_user_interaction;
 pub mod agent_variable;
+pub mod builder;
+pub mod composition;
 pub mod validation;

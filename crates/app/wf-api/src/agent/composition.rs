@@ -116,7 +116,7 @@ fn apply_agent_config_defaults(config: &mut AgentLoopConfig, cfg: &AgentConfig) 
     }
     if config.hooks.is_empty() {
         if let Some(hooks) = cfg.hooks.as_ref() {
-            config.hooks = super::hook::agent_hooks_to_loop(hooks);
+            config.hooks = agent_hooks_to_loop(hooks);
         }
     }
 }
@@ -246,6 +246,36 @@ fn apply_final_defaults(mut config: AgentLoopConfig) -> AgentLoopConfig {
         config.max_iterations = Some(DEFAULT_MAX_ITERATIONS);
     }
     config
+}
+
+/// Convert agent hook configs into loop `HookConfig` items through the
+/// canonical spec so defaults stay in one place.
+pub fn agent_hooks_to_loop(
+    hooks: &[wf_types::agent::AgentHookConfig],
+) -> Vec<wf_tools::callback::HookConfig> {
+    hooks
+        .iter()
+        .map(wf_tools::callback::HookConfig::from_agent_hook)
+        .collect()
+}
+
+/// Caller hooks win when non-empty, otherwise the template hooks apply.
+/// Both sides are already in loop form at this point.
+pub fn resolve_loop_hooks(
+    caller: Vec<wf_tools::callback::HookConfig>,
+    template: &[wf_types::agent::AgentHookConfig],
+) -> Vec<wf_tools::callback::HookConfig> {
+    if !caller.is_empty() {
+        return caller;
+    }
+    agent_hooks_to_loop(template)
+}
+
+/// Build a loop hook from the canonical spec.
+pub fn from_canonical(
+    spec: &wf_types::hook::CanonicalHookSpec,
+) -> wf_tools::callback::HookConfig {
+    wf_tools::callback::HookConfig::from_canonical(spec)
 }
 
 /// Composition-boundary factory: resolve the params' agent template and

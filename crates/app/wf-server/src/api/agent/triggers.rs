@@ -40,7 +40,7 @@ async fn handle_trigger_history(
     State(state): State<ApiState>,
     Query(query): Query<TriggerHistoryQuery>,
 ) -> impl IntoResponse {
-    match wf_api::entity::trigger_execution::execution_history(
+    match wf_api::trigger::execution::execution_history(
         &state.ctx.storage,
         &query.execution_id,
         query.trigger_name.as_deref(),

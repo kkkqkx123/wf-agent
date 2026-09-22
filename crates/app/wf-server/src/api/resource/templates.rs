@@ -171,7 +171,7 @@ async fn handle_list_trigger_templates(
         enabled: None,
         name: None,
     };
-    match wf_api::template::agent_trigger_template::summaries(&state.ctx, Some(&filter)).await {
+    match wf_api::trigger::template::summaries(&state.ctx, Some(&filter)).await {
         Ok(templates) => ok(templates).into_response(),
         Err(e) => error_response(e),
     }
@@ -181,7 +181,7 @@ async fn handle_save_trigger_template(
     State(state): State<ApiState>,
     Json(template): Json<TriggerTemplateStorageMetadata>,
 ) -> impl IntoResponse {
-    match wf_api::template::agent_trigger_template::save(&state.ctx, &template).await {
+    match wf_api::trigger::template::save(&state.ctx, &template).await {
         Ok(()) => ok(template.id.to_string()).into_response(),
         Err(e) => error_response(e),
     }
@@ -191,7 +191,7 @@ async fn handle_get_trigger_template(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
-    match wf_api::template::agent_trigger_template::get(&state.ctx, &path.id).await {
+    match wf_api::trigger::template::get(&state.ctx, &path.id).await {
         Ok(template) => ok(template).into_response(),
         Err(e) => error_response(e),
     }
@@ -203,7 +203,7 @@ async fn handle_update_trigger_template(
     Json(mut template): Json<TriggerTemplateStorageMetadata>,
 ) -> impl IntoResponse {
     template.id = wf_types::Id::from(path.id.clone());
-    match wf_api::template::agent_trigger_template::save(&state.ctx, &template).await {
+    match wf_api::trigger::template::save(&state.ctx, &template).await {
         Ok(()) => ok(path.id).into_response(),
         Err(e) => error_response(e),
     }
@@ -213,7 +213,7 @@ async fn handle_delete_trigger_template(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
-    match wf_api::template::agent_trigger_template::delete(&state.ctx, &path.id).await {
+    match wf_api::trigger::template::delete(&state.ctx, &path.id).await {
         Ok(deleted) => ok(deleted).into_response(),
         Err(e) => error_response(e),
     }
@@ -223,7 +223,7 @@ async fn handle_export_trigger_template(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
-    match wf_api::template::agent_trigger_template::export_template(&state.ctx, &path.id).await {
+    match wf_api::trigger::template::export_template(&state.ctx, &path.id).await {
         Ok(json) => ok(json).into_response(),
         Err(e) => error_response(e),
     }
@@ -233,7 +233,7 @@ async fn handle_import_trigger_template(
     State(state): State<ApiState>,
     Json(body): Json<ImportBody>,
 ) -> impl IntoResponse {
-    match wf_api::template::agent_trigger_template::import_template(&state.ctx, &body.json).await {
+    match wf_api::trigger::template::import_template(&state.ctx, &body.json).await {
         Ok(id) => ok(id).into_response(),
         Err(e) => error_response(e),
     }

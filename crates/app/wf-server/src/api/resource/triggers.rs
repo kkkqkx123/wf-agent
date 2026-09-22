@@ -73,7 +73,7 @@ async fn handle_list_trigger_executions(
         workflow_id_filter: query.workflow_id,
         success_filter: query.success,
     };
-    match wf_api::entity::trigger_execution::list_trigger_executions(
+    match wf_api::trigger::execution::list_trigger_executions(
         &state.ctx.storage,
         Some(options),
     )
@@ -88,7 +88,7 @@ async fn handle_save_trigger_execution(
     State(state): State<ApiState>,
     Json(execution): Json<wf_types::TriggerExecutionStorageMetadata>,
 ) -> impl IntoResponse {
-    match wf_api::entity::trigger_execution::save_trigger_execution(&state.ctx.storage, &execution)
+    match wf_api::trigger::execution::save_trigger_execution(&state.ctx.storage, &execution)
         .await
     {
         Ok(()) => ok(execution.id.to_string()).into_response(),
@@ -100,7 +100,7 @@ async fn handle_get_trigger_execution(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
-    match wf_api::entity::trigger_execution::get_trigger_execution(&state.ctx.storage, &path.id)
+    match wf_api::trigger::execution::get_trigger_execution(&state.ctx.storage, &path.id)
         .await
     {
         Ok(execution) => ok(execution).into_response(),
@@ -112,7 +112,7 @@ async fn handle_delete_trigger_execution(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
-    match wf_api::entity::trigger_execution::delete_trigger_execution(&state.ctx.storage, &path.id)
+    match wf_api::trigger::execution::delete_trigger_execution(&state.ctx.storage, &path.id)
         .await
     {
         Ok(deleted) => ok(deleted).into_response(),
@@ -121,7 +121,7 @@ async fn handle_delete_trigger_execution(
 }
 
 async fn handle_trigger_execution_stats(State(state): State<ApiState>) -> impl IntoResponse {
-    match wf_api::entity::trigger_execution::get_trigger_execution_stats(&state.ctx.storage).await {
+    match wf_api::trigger::execution::get_trigger_execution_stats(&state.ctx.storage).await {
         Ok(stats) => ok(stats).into_response(),
         Err(e) => error_response(e),
     }
@@ -131,7 +131,7 @@ async fn handle_trigger_executions_by_trigger(
     State(state): State<ApiState>,
     Path(path): Path<NamePath>,
 ) -> impl IntoResponse {
-    match wf_api::entity::trigger_execution::list_by_trigger_name(&state.ctx.storage, &path.name)
+    match wf_api::trigger::execution::list_by_trigger_name(&state.ctx.storage, &path.name)
         .await
     {
         Ok(executions) => ok(executions).into_response(),
@@ -143,7 +143,7 @@ async fn handle_trigger_executions_by_execution(
     State(state): State<ApiState>,
     Path(path): Path<ExecutionIdPath>,
 ) -> impl IntoResponse {
-    match wf_api::entity::trigger_execution::list_by_execution(
+    match wf_api::trigger::execution::list_by_execution(
         &state.ctx.storage,
         &path.execution_id,
     )
@@ -164,7 +164,7 @@ async fn handle_cleanup_trigger_executions(
     Json(body): Json<CleanupTriggerExecutionsBody>,
 ) -> impl IntoResponse {
     let older_than = body.older_than.unwrap_or_else(wf_common::now);
-    match wf_api::entity::trigger_execution::cleanup_old_trigger_executions(
+    match wf_api::trigger::execution::cleanup_old_trigger_executions(
         &state.ctx.storage,
         older_than,
     )
@@ -179,7 +179,7 @@ async fn handle_trigger_executions_by_workflow(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
-    match wf_api::entity::trigger_execution::list_by_workflow(&state.ctx.storage, &path.id).await {
+    match wf_api::trigger::execution::list_by_workflow(&state.ctx.storage, &path.id).await {
         Ok(executions) => ok(executions).into_response(),
         Err(e) => error_response(e),
     }

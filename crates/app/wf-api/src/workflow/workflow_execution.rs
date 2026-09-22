@@ -96,7 +96,7 @@ pub async fn resolve_graph(
         .load(workflow_id)
         .await?
         .ok_or_else(|| not_found("workflow", workflow_id))?;
-    crate::composition::node::apply_templates_to_definition(&mut definition, &ctx.registries);
+    crate::template::composition::apply_templates_to_definition(&mut definition, &ctx.registries);
     let graph = definition_to_graph(&definition);
     let val_ctx = crate::workflow::validation::build_reference_context(ctx).await;
     let ref_ctx = crate::workflow::validation::val_ctx_to_reference_context(&val_ctx);
@@ -530,7 +530,7 @@ fn spawn_entity(ctx: &ApiContext, workflow_id: &str) -> Arc<WorkflowExecutionEnt
     entity
 }
 
-pub use crate::composition::workflow::{
+pub use crate::workflow::composition::{
     apply_workflow_config_defaults, empty_options, resolve_options as merge_workflow_options,
 };
 
@@ -544,7 +544,7 @@ fn resolve_options(
     options: Option<WorkflowExecutionOptions>,
 ) -> WorkflowExecutionOptions {
     let _ = ctx;
-    let merged = crate::composition::workflow::resolve_options(definition, input, options);
+    let merged = crate::workflow::composition::resolve_options(definition, input, options);
     if let Ok(value) = serde_json::to_value(&merged) {
         entity.set_variable(EXECUTION_OPTIONS_VAR, value);
     }

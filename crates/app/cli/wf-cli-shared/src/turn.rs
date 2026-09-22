@@ -85,7 +85,7 @@ pub async fn stream_agent_turn(
         Some(ctx.tool_registry.as_ref()),
         ctx.metrics.as_deref(),
     );
-    let run_params = wf_api::composition::agent::resolve_run_params(
+    let run_params = wf_api::agent::composition::resolve_run_params(
         &env,
         build_agent_loop_params(params, approval_options, approval_handler),
     )?;

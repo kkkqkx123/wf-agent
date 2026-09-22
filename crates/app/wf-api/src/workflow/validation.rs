@@ -1,6 +1,6 @@
 //! Workflow validation utilities.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use wf_core::registry::Registry;
 use wf_execution_shared::hooks::HookHandlerRegistry;
@@ -169,95 +169,23 @@ pub fn validate_workflow(workflow: &WorkflowDefinition) -> crate::ApiResult<()> 
 }
 
 /// Assemble the definition-time reference context from live registry
-/// snapshots and stored workflows. All sources are memory-known state;
-/// no network or file access is performed.
+/// snapshots and stored workflows. Reuses the shared infrastructure context
+/// for base identifier sets, then adds workflow graphs and trigger template
+/// details required for publish-time closure checks. All sources are
+/// memory-known state; no network or file access is performed.
 pub async fn build_reference_context(ctx: &ApiContext) -> ValidationContext {
-    let mut val_ctx = ValidationContext::empty();
+    let mut val_ctx = crate::infra::validation::build_validation_context(ctx).await;
 
-    for profile in ctx.llm_gateway.profile_registry().list() {
-        let format = profile
-            .tool_call_protocol
-            .as_ref()
-            .map(|c| c.format.clone());
-        val_ctx.profile_ids.insert(profile.id.clone());
-        if let Some(format) = format {
-            val_ctx.profile_formats.insert(profile.id, format);
-        }
-    }
-
-    let mut tool_enabled: HashMap<String, bool> = HashMap::new();
-    for tool in ctx.tool_registry.list_tools() {
-        val_ctx.tool_names.insert(tool.name.clone());
-        val_ctx.tool_names.insert(tool.id.to_string());
-        let enabled = tool.enabled.unwrap_or(true);
-        tool_enabled.insert(tool.name.clone(), enabled);
-        tool_enabled.insert(tool.id.to_string(), enabled);
-    }
-    if let Ok(stored) = ctx.storage.tool.list(None).await {
-        for meta in &stored {
-            val_ctx.tool_names.insert(meta.id.to_string());
-            val_ctx.tool_names.insert(meta.tool_id.clone());
-            tool_enabled
-                .entry(meta.id.to_string())
-                .or_insert(meta.enabled);
-            tool_enabled
-                .entry(meta.tool_id.clone())
-                .or_insert(meta.enabled);
-        }
-    }
-    let mut disabled: HashSet<String> = HashSet::new();
-    for (name, enabled) in &tool_enabled {
-        if !enabled {
-            disabled.insert(name.clone());
-        }
-    }
-    val_ctx.disabled_tools = disabled;
-
-    if let Ok(scripts) = ctx.storage.script.list(None).await {
-        for meta in &scripts {
-            val_ctx.script_names.insert(meta.id.to_string());
-            val_ctx.script_names.insert(meta.name.clone());
-        }
-    }
-    for name in wf_workflow::registry::WorkflowRegistry::global()
-        .scripts()
-        .list()
-    {
-        val_ctx.script_names.insert(name);
-    }
-
-    let mut workflow_ids: HashSet<String> = HashSet::new();
     let mut workflow_graphs: HashMap<String, wf_types::workflow_execution::WorkflowGraphStructure> =
         HashMap::new();
     if let Ok(stored) = ctx.storage.workflow.list(None).await {
         for wf in &stored {
-            workflow_ids.insert(wf.id.to_string());
             workflow_graphs.insert(wf.id.to_string(), definition_to_graph(wf));
         }
     }
-    for id in ctx.registries.workflows.list() {
-        workflow_ids.insert(id);
-    }
-    for id in wf_workflow::registry::WorkflowRegistry::global()
-        .graphs()
-        .list()
-    {
-        workflow_ids.insert(id);
-    }
-    val_ctx.workflow_ids = workflow_ids;
     val_ctx.workflow_graphs = workflow_graphs;
 
-    for id in ctx.registries.agent_templates.list() {
-        val_ctx.agent_ids.insert(id.clone());
-    }
-    if let Ok(stored) = ctx.storage.agent_template.list(None).await {
-        for template in &stored {
-            val_ctx.agent_ids.insert(template.id.to_string());
-        }
-    }
-
     for id in ctx.registries.trigger_templates.list() {
-        val_ctx.trigger_ids.insert(id.clone());
         if let Some(template) = ctx.registries.trigger_templates.get(&id) {
             val_ctx.trigger_templates.push((*template).clone());
         }

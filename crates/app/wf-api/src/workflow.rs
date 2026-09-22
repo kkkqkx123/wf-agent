@@ -1,15 +1,19 @@
-//! Workflow domain query APIs: definitions, execution, iteration, execution
-//! graph/state analysis, approvals and checkpointing.
+//! Workflow domain APIs: definitions, builders, composition, execution,
+//! iteration, execution graph/state analysis, approvals and checkpointing.
 
 pub mod approval;
+pub mod builder;
+pub mod composition;
 pub mod definition;
 pub mod draft;
 pub mod execution;
+pub mod execution_builder;
 pub mod execution_graph;
 pub mod execution_state;
 pub mod graph_query;
 pub mod import_export;
 pub mod iteration;
+pub mod node_builder;
 pub mod search;
 pub mod summary;
 pub mod tool_approval_handler;

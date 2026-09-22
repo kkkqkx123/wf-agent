@@ -1,7 +1,7 @@
 //! Typed agent builders.
 //!
 //! Uses the same `PhantomData` phase-tracking pattern as
-//! [`crate::builder::WorkflowBuilder`]: construction phases live in the type
+//! [`crate::workflow::builder::WorkflowBuilder`]: construction phases live in the type
 //! system, so incomplete configurations (a tool config with no tools, a hook
 //! without a hook type, an unnamed definition) are unrepresentable.
 //!
@@ -721,7 +721,7 @@ impl AgentExecutionBuilder {
             Some(ctx.tool_registry.as_ref()),
             ctx.metrics.as_deref(),
         );
-        let params = crate::composition::agent::resolve_run_params(
+        let params = crate::agent::composition::resolve_run_params(
             &env,
             RunAgentLoopParams::new(self.config.clone(), input),
         )?;

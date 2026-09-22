@@ -1,8 +1,9 @@
-//! Template query APIs: node/agent/trigger templates and the shared
-//! template library.
+//! Template query and construction APIs: node/agent templates, node
+//! composition and the shared template library.
 
 pub mod agent_template;
-pub mod agent_trigger_template;
+pub mod builder;
+pub mod composition;
 pub mod node_template;
 pub mod template_library;
 

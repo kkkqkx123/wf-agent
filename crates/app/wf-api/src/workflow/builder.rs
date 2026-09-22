@@ -18,7 +18,7 @@ use wf_types::workflow::definition::{
 use wf_types::workflow::edge::{Edge, EdgeType};
 use wf_types::workflow_execution::VariableDefinition;
 
-use crate::builder::NodeBuilder;
+use crate::workflow::node_builder::NodeBuilder;
 use crate::ApiContext;
 
 /// Marker: no nodes have been added yet.

@@ -364,7 +364,7 @@ mod tests {
     async fn trigger_delete_refused_when_referenced() {
         let ctx = make_ctx();
         let template = make_trigger_template("tt-1", "my-trigger");
-        crate::template::agent_trigger_template::save(&ctx, &template)
+        crate::trigger::template::save(&ctx, &template)
             .await
             .unwrap();
         ctx.storage
@@ -389,7 +389,7 @@ mod tests {
     async fn trigger_delete_by_name_refused_when_referenced() {
         let ctx = make_ctx();
         let template = make_trigger_template("tt-2", "named-trigger");
-        crate::template::agent_trigger_template::save(&ctx, &template)
+        crate::trigger::template::save(&ctx, &template)
             .await
             .unwrap();
         ctx.storage
@@ -408,7 +408,7 @@ mod tests {
     async fn unreferenced_trigger_deletes_normally() {
         let ctx = make_ctx();
         let template = make_trigger_template("tt-3", "unused-trigger");
-        crate::template::agent_trigger_template::save(&ctx, &template)
+        crate::trigger::template::save(&ctx, &template)
             .await
             .unwrap();
 

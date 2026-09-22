@@ -37,14 +37,14 @@ pub(crate) fn routes() -> Router<ApiState> {
 }
 
 async fn handle_query_agent_trigger_templates(State(state): State<ApiState>) -> impl IntoResponse {
-    match wf_api::template::agent_trigger_template::query(&state.ctx, None).await {
+    match wf_api::trigger::template::query(&state.ctx, None).await {
         Ok(templates) => ok(templates).into_response(),
         Err(e) => error_response(e),
     }
 }
 
 async fn handle_agent_trigger_summaries(State(state): State<ApiState>) -> impl IntoResponse {
-    match wf_api::template::agent_trigger_template::summaries(&state.ctx, None).await {
+    match wf_api::trigger::template::summaries(&state.ctx, None).await {
         Ok(summaries) => ok(summaries).into_response(),
         Err(e) => error_response(e),
     }

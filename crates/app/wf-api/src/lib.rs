@@ -1,9 +1,7 @@
 pub mod agent;
 pub mod analysis;
 pub mod audit;
-pub mod builder;
 pub mod checkpoint;
-pub mod composition;
 pub mod entity;
 pub mod infra;
 pub mod llm;
@@ -67,11 +65,15 @@ pub use audit::{
     AuditTimelineEntry, AuditTimelineEntryType, IterationAuditView, LlmCallAuditView,
     NodeExecutionAuditView, ToolCallAuditView,
 };
-pub use builder::{
+pub use agent::builder::{
     AgentDefinitionBuilder, AgentExecutionBuilder, AgentHookBuilder, AgentLoopConfigBuilder,
-    AgentToolConfigBuilder, ExecutionBuilder, ExecutionResult, NodeBuilder, NodeTemplateBuilder,
-    TriggerTemplateBuilder, WorkflowBuilder,
+    AgentToolConfigBuilder,
 };
+pub use template::builder::NodeTemplateBuilder;
+pub use trigger::builder::TriggerTemplateBuilder;
+pub use workflow::builder::{Building, Empty, WorkflowBuilder};
+pub use workflow::execution_builder::{ExecutionBuilder, ExecutionResult};
+pub use workflow::node_builder::{NoType, NodeBuilder, Typed};
 pub use entity::execution::{
     ensure_execution_domain, resolve_execution, resolve_execution_with_override, ExecutionDomain,
 };
@@ -121,9 +123,7 @@ pub use query::{
     QueryBuilder, SortOptions,
 };
 pub use template::agent_template::AgentTemplateFilter;
-pub use template::agent_trigger_template::{
-    AgentTriggerTemplateFilter, AgentTriggerTemplateSummary,
-};
+pub use trigger::template::{AgentTriggerTemplateFilter, AgentTriggerTemplateSummary};
 pub use template::node_template::NodeTemplateSummary;
 pub use template::template_library::{TemplateFilter, TemplateKind, TemplateSummary};
 pub use trigger::validation::TriggerValidator;

@@ -65,6 +65,13 @@ pub fn resolve_options(
     merged
 }
 
+/// Workflow definition hooks into executable definitions.
+pub fn workflow_hooks_to_definitions(
+    hooks: &[wf_types::hook::HookPointConfig],
+) -> Vec<wf_execution_shared::hooks::types::HookDefinition> {
+    hooks.iter().map(Into::into).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

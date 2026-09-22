@@ -22,9 +22,25 @@ use crate::error::{ConfigError, ConfigResult};
 /// Index file name shared by every preset directory.
 pub const INDEX_FILE_NAME: &str = "index.json";
 
-/// Default config directories for each preset family.
-pub const DEFAULT_CONFIG_DIRS: [&str; 3] =
-    ["configs/mcp", "configs/skills", "configs/infrastructure"];
+/// Default config directories for each preset family. Literals are kept in
+/// sync with `layout::CONFIGS_DIR` + `layout::family`; the layout module
+/// remains the single source of truth for runtime path composition.
+pub const DEFAULT_CONFIG_DIRS: [&str; 3] = [
+    "configs/mcp",
+    "configs/skills",
+    "configs/infrastructure",
+];
+
+/// Resolve the preset index of an arbitrary config family under
+/// `{project_root}/configs/{family}`. This is the single loader entry point
+/// shared by every family, whether or not a domain-specific wrapper exists
+/// yet (workflows, agent-loops, llm-profiles, ...).
+pub fn resolve_family_preset_index(
+    project_root: &std::path::Path,
+    family: &str,
+) -> ConfigResult<ResolvedPresetIndex> {
+    resolve_preset_index(&crate::layout::family_dir(project_root, family))
+}
 
 /// Indexed preset entry: maps a preset name to its file path.
 #[derive(Debug, Clone, PartialEq, Eq)]

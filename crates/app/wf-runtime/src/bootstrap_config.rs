@@ -39,12 +39,12 @@ impl ResourceConfig {
 
 /// MCP settings sources used at bootstrap. When both are provided, settings
 /// are merged with the priority chain:
-/// `.wf/mcp.json` > `.agent/mcp.json` > global `mcp-settings.json`.
+/// `.wf/mcp.json` > global `mcp-settings.json`.
 #[derive(Debug, Clone, Default)]
 pub struct McpRuntimeConfig {
     /// Global settings directory (contains `mcp-settings.json`).
     pub settings_dir: Option<std::path::PathBuf>,
-    /// Project root (contains `.wf/mcp.json` / `.agent/mcp.json`).
+    /// Project root (contains `.wf/mcp.json`).
     pub project_root: Option<std::path::PathBuf>,
 }
 

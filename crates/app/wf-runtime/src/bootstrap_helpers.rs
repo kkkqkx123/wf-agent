@@ -1,4 +1,4 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use tracing::{info, warn};
@@ -307,19 +307,28 @@ pub async fn resolve_infra_config(
     }
 
     // Skill settings chain (global -> project, or collection mode). Lenient:
-    // a missing/invalid skill config falls back to the defaults.
+    // a missing/invalid skill config falls back to the defaults. Without a
+    // global settings dir the chain runs project-only.
     if config.skills == wf_types::skill::SkillConfig::default() {
-        let settings_dir = infra
-            .settings_dir
-            .as_deref()
-            .unwrap_or_else(|| Path::new(""));
-        let skills = match &infra.skills_collection {
-            Some(name) => wf_config::skill::load_and_merge_skill_config_with_collection(
-                settings_dir,
-                &project_root,
-                Some(name),
-            ),
-            None => wf_config::skill::load_and_merge_skill_config(settings_dir, &project_root),
+        let skills = match infra.settings_dir.as_deref() {
+            Some(settings_dir) => match &infra.skills_collection {
+                Some(name) => wf_config::skill::load_and_merge_skill_config_with_collection(
+                    settings_dir,
+                    &project_root,
+                    Some(name),
+                ),
+                None => {
+                    wf_config::skill::load_and_merge_skill_config(settings_dir, &project_root)
+                }
+            },
+            None => {
+                // No global settings dir configured: load only the project
+                // layer instead of passing an empty sentinel path.
+                wf_config::skill::load_skill_config(
+                    &wf_config::skill::get_project_skill_path(&project_root),
+                )
+                .map(|project| wf_config::skill::merge_skill_configs(None, project.as_ref()))
+            }
         };
         match skills {
             Ok(skills) => config.skills = skills,

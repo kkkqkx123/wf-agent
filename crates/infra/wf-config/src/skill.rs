@@ -1,20 +1,19 @@
 //! Skill settings loading and merging.
 //!
-//! Settings are merged from the global settings directory and project-level
-//! `.wf/skills.json` / `.agent/skills.json` files, with project files taking
-//! precedence over the global file. Collection mode (via the shared preset
-//! loader) resolves skill collections from `configs/skills/`.
+//! Settings are merged from the global settings directory and the project-level
+//! `.wf/skills.json` file, with the project file taking precedence over the
+//! global file. Collection mode (via the shared preset loader) resolves skill
+//! collections from `configs/skills/`.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use crate::error::{ConfigError, ConfigResult};
+use crate::layout;
 use wf_types::config::SkillCollectionFile;
 use wf_types::skill::SkillConfig;
 
 pub const DEFAULT_SKILL_SETTINGS_FILE: &str = "skill-settings.json";
-pub const PROJECT_SKILL_FILE: &str = ".agent/skills.json";
-pub const PROJECT_WF_SKILL_FILE: &str = ".wf/skills.json";
 
 /// Default empty skill config.
 pub fn create_default_skill_config() -> SkillConfig {
@@ -29,22 +28,9 @@ pub fn get_global_skill_settings_path(settings_dir: &Path) -> PathBuf {
     settings_dir.join(DEFAULT_SKILL_SETTINGS_FILE)
 }
 
-/// Project-specific file: `{project_root}/.agent/skills.json`.
-pub fn get_project_skill_path(project_root: &Path) -> PathBuf {
-    project_root.join(PROJECT_SKILL_FILE)
-}
-
 /// Project-specific file: `{project_root}/.wf/skills.json` (highest precedence).
-pub fn get_project_wf_skill_path(project_root: &Path) -> PathBuf {
-    project_root.join(PROJECT_WF_SKILL_FILE)
-}
-
-/// Project settings files in precedence order (highest first).
-pub fn get_project_skill_paths(project_root: &Path) -> Vec<PathBuf> {
-    vec![
-        get_project_wf_skill_path(project_root),
-        get_project_skill_path(project_root),
-    ]
+pub fn get_project_skill_path(project_root: &Path) -> PathBuf {
+    project_root.join(layout::PROJECT_WF_DIR).join("skills.json")
 }
 
 /// Load a single skill settings file.
@@ -110,24 +96,20 @@ fn normalize_skill_config(
     Ok(SkillConfig { paths, auto_scan })
 }
 
-/// Merge global, `.wf`, and `.agent` skill configs into a single config.
+/// Merge global and project (`.wf`) skill configs into a single config.
 ///
 /// Merge rules:
-/// - **paths**: union, deduplicated, `.wf` first then `.agent` then global.
-/// - **auto_scan**: `.wf` wins if provided, then `.agent`, then global,
-///   then the default (`true`).
+/// - **paths**: union, deduplicated, `.wf` first then global.
+/// - **auto_scan**: `.wf` wins if provided, then global, then the default
+///   (`true`).
 pub fn merge_skill_configs(
     global_config: Option<&SkillConfig>,
     wf_config: Option<&SkillConfig>,
-    agent_config: Option<&SkillConfig>,
 ) -> SkillConfig {
     let mut seen: HashSet<String> = HashSet::new();
     let mut merged_paths: Vec<String> = Vec::new();
 
-    for config in [wf_config, agent_config, global_config]
-        .into_iter()
-        .flatten()
-    {
+    for config in [wf_config, global_config].into_iter().flatten() {
         for p in &config.paths {
             if seen.insert(p.clone()) {
                 merged_paths.push(p.clone());
@@ -137,7 +119,6 @@ pub fn merge_skill_configs(
 
     let auto_scan = wf_config
         .and_then(|c| c.auto_scan)
-        .or_else(|| agent_config.and_then(|c| c.auto_scan))
         .or_else(|| global_config.and_then(|c| c.auto_scan))
         .or(Some(true));
 
@@ -147,25 +128,20 @@ pub fn merge_skill_configs(
     }
 }
 
-/// Load and merge skill settings from the global directory and all project
-/// files. Precedence chain (highest first): `.wf/skills.json` > `.agent/skills.json`
-/// > global `skill-settings.json`. Missing files are skipped.
+/// Load and merge skill settings from the global directory and the project
+/// file. Precedence chain (highest first): `.wf/skills.json` >
+/// global `skill-settings.json`. Missing files are skipped.
 pub fn load_and_merge_skill_config(
     settings_dir: &Path,
     project_root: &Path,
 ) -> ConfigResult<SkillConfig> {
     let global_path = get_global_skill_settings_path(settings_dir);
-    let project_paths = get_project_skill_paths(project_root);
+    let project_path = get_project_skill_path(project_root);
 
     let global_config = load_skill_config(&global_path)?;
-    let wf_config = load_skill_config(project_paths[0].as_path())?;
-    let agent_config = load_skill_config(project_paths[1].as_path())?;
+    let wf_config = load_skill_config(&project_path)?;
 
-    Ok(merge_skill_configs(
-        global_config.as_ref(),
-        wf_config.as_ref(),
-        agent_config.as_ref(),
-    ))
+    Ok(merge_skill_configs(global_config.as_ref(), wf_config.as_ref()))
 }
 
 /// Write skill config to a JSON file (camelCase `autoScan`, matching TS).
@@ -205,7 +181,7 @@ pub fn ensure_skill_config_file(file_path: &Path) -> ConfigResult<bool> {
 
 /// Default skill preset directory: `{project_root}/configs/skills`.
 pub fn get_default_skill_preset_dir(project_root: &Path) -> PathBuf {
-    project_root.join("configs").join("skills")
+    crate::layout::family_dir(project_root, crate::layout::family::SKILLS)
 }
 
 /// Load a skill collection definition by name (collection mode).
@@ -343,13 +319,9 @@ mod tests {
             paths: vec!["w1".into(), "shared".into()],
             auto_scan: Some(true),
         };
-        let agent = SkillConfig {
-            paths: vec!["a1".into(), "w1".into()],
-            auto_scan: Some(false),
-        };
 
-        let merged = merge_skill_configs(Some(&global), Some(&wf), Some(&agent));
-        assert_eq!(merged.paths, vec!["w1", "shared", "a1", "g1", "g2"]);
+        let merged = merge_skill_configs(Some(&global), Some(&wf));
+        assert_eq!(merged.paths, vec!["w1", "shared", "g1", "g2"]);
         assert_eq!(merged.auto_scan, Some(true));
     }
 
@@ -359,22 +331,13 @@ mod tests {
             paths: vec![],
             auto_scan: Some(false),
         };
-        // wf/agent absent → global wins.
+        // .wf absent → global wins.
         assert_eq!(
-            merge_skill_configs(Some(&global), None, None).auto_scan,
+            merge_skill_configs(Some(&global), None).auto_scan,
             Some(false)
         );
         // nothing set → default true.
-        assert_eq!(merge_skill_configs(None, None, None).auto_scan, Some(true));
-        // agent wins over global.
-        let agent = SkillConfig {
-            paths: vec![],
-            auto_scan: Some(true),
-        };
-        assert_eq!(
-            merge_skill_configs(Some(&global), None, Some(&agent)).auto_scan,
-            Some(true)
-        );
+        assert_eq!(merge_skill_configs(None, None).auto_scan, Some(true));
     }
 
     #[test]
@@ -398,10 +361,9 @@ mod tests {
             &root.join("skill-settings.json"),
             r#"{"paths": ["g1", "shared"], "autoScan": false}"#,
         );
-        write_json(&project.join(".agent/skills.json"), r#"{"paths": ["a1"]}"#);
         write_json(
             &project.join(".wf/skills.json"),
-            r#"{"paths": ["w1", "shared"], "autoScan": true}"#,
+            r#"{"paths": ["w1", "shared", "a1"], "autoScan": true}"#,
         );
 
         let merged = load_and_merge_skill_config(&root, &project).unwrap();

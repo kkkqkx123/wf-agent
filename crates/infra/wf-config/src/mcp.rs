@@ -1,40 +1,26 @@
 //! MCP settings loading and merging.
 //!
-//! Settings are merged from the global settings directory and project-level
-//! `.wf/mcp.json` / `.agent/mcp.json` files, with project files taking
-//! precedence over the global file.
+//! Settings are merged from the global settings directory and the project-level
+//! `.wf/mcp.json` file, with the project file taking precedence over the
+//! global file.
 
 use std::path::{Path, PathBuf};
 
 use crate::error::{ConfigError, ConfigResult};
+use crate::layout;
 use crate::loader;
 use wf_types::tool::mcp_connection::{McpServerConfig, McpSettings};
 
 pub const DEFAULT_MCP_SETTINGS_FILE: &str = "mcp-settings.json";
-pub const PROJECT_MCP_FILE: &str = ".agent/mcp.json";
-pub const PROJECT_WF_MCP_FILE: &str = ".wf/mcp.json";
 
 /// Global settings file: `{settings_dir}/mcp-settings.json`.
 pub fn get_global_mcp_settings_path(settings_dir: &Path) -> PathBuf {
     settings_dir.join(DEFAULT_MCP_SETTINGS_FILE)
 }
 
-/// Project-specific file: `{project_root}/.agent/mcp.json`.
-pub fn get_project_mcp_path(project_root: &Path) -> PathBuf {
-    project_root.join(PROJECT_MCP_FILE)
-}
-
 /// Project-specific file: `{project_root}/.wf/mcp.json` (highest precedence).
-pub fn get_project_wf_mcp_path(project_root: &Path) -> PathBuf {
-    project_root.join(PROJECT_WF_MCP_FILE)
-}
-
-/// Project settings files in precedence order (highest first).
-pub fn get_project_mcp_paths(project_root: &Path) -> Vec<PathBuf> {
-    vec![
-        get_project_wf_mcp_path(project_root),
-        get_project_mcp_path(project_root),
-    ]
+pub fn get_project_mcp_path(project_root: &Path) -> PathBuf {
+    project_root.join(layout::PROJECT_WF_DIR).join("mcp.json")
 }
 
 /// Load a single MCP settings file.
@@ -48,29 +34,40 @@ pub fn load_mcp_settings(file_path: &Path) -> ConfigResult<McpSettings> {
     loader::load_config_file_sync::<McpSettings>(file_path)
 }
 
-/// Load and merge MCP settings from the global directory and all project
-/// files. Precedence chain (highest first): `.wf/mcp.json` > `.agent/mcp.json`
-/// > global `mcp-settings.json`. Missing files are skipped.
+/// Load a single MCP settings file, logging a warning when the file exists
+/// but cannot be parsed (missing files are expected and stay silent).
+fn load_mcp_settings_warn(file_path: &Path) -> Option<McpSettings> {
+    match load_mcp_settings(file_path) {
+        Ok(settings) => Some(settings),
+        Err(e) => {
+            if file_path.exists() {
+                tracing::warn!(error = %e, "ignoring unparseable MCP settings file");
+            }
+            None
+        }
+    }
+}
+
+/// Load and merge MCP settings from the global directory and the project
+/// file. Precedence chain (highest first): `.wf/mcp.json` >
+/// global `mcp-settings.json`. Missing files are skipped; files that exist
+/// but fail to parse produce a warning and are skipped.
 pub fn load_and_merge_mcp_settings(
     settings_dir: &Path,
     project_root: &Path,
 ) -> ConfigResult<McpSettings> {
     let global_path = get_global_mcp_settings_path(settings_dir);
-    let project_paths = get_project_mcp_paths(project_root);
+    let project_path = get_project_mcp_path(project_root);
 
     let mut merged: std::collections::HashMap<String, McpServerConfig> =
-        match load_mcp_settings(&global_path) {
-            Ok(settings) => settings.mcp_servers,
-            Err(_) => std::collections::HashMap::new(),
-        };
+        load_mcp_settings_warn(&global_path)
+            .map(|settings| settings.mcp_servers)
+            .unwrap_or_default();
 
-    // Apply project layers in ascending precedence order so that higher
-    // precedence files (.wf/mcp.json) override lower ones (.agent/mcp.json).
-    for path in project_paths.iter().rev() {
-        if let Ok(settings) = load_mcp_settings(path) {
-            for (name, config) in settings.mcp_servers {
-                merged.insert(name, config);
-            }
+    // The project layer overrides the global layer for the same key.
+    if let Some(settings) = load_mcp_settings_warn(&project_path) {
+        for (name, config) in settings.mcp_servers {
+            merged.insert(name, config);
         }
     }
 
@@ -107,7 +104,7 @@ pub fn ensure_mcp_settings_file(file_path: &Path) -> ConfigResult<bool> {
 
 /// Default MCP preset directory: `{project_root}/configs/mcp`.
 pub fn get_default_mcp_preset_dir(project_root: &Path) -> PathBuf {
-    project_root.join("configs").join("mcp")
+    crate::layout::family_dir(project_root, crate::layout::family::MCP)
 }
 
 /// Load MCP settings from a preset by name (preset mode).
@@ -157,8 +154,8 @@ pub fn load_and_merge_mcp_settings_with_preset(
         None => None,
     };
 
-    let global_settings = load_mcp_settings(&get_global_mcp_settings_path(settings_dir)).ok();
-    let project_paths = get_project_mcp_paths(project_root);
+    let global_settings = load_mcp_settings_warn(&get_global_mcp_settings_path(settings_dir));
+    let project_path = get_project_mcp_path(project_root);
 
     let mut merged: std::collections::HashMap<String, McpServerConfig> =
         if let Some(base) = &base_settings {
@@ -178,13 +175,10 @@ pub fn load_and_merge_mcp_settings_with_preset(
         }
     }
 
-    // Project layers in ascending precedence order so that higher precedence
-    // files (.wf/mcp.json) override lower ones (.agent/mcp.json).
-    for path in project_paths.iter().rev() {
-        if let Ok(settings) = load_mcp_settings(path) {
-            for (name, config) in settings.mcp_servers {
-                merged.insert(name, config);
-            }
+    // The project layer overrides the global layer for the same key.
+    if let Some(settings) = load_mcp_settings_warn(&project_path) {
+        for (name, config) in settings.mcp_servers {
+            merged.insert(name, config);
         }
     }
 
@@ -216,17 +210,13 @@ mod tests {
             r#"{"mcpServers": {"a": {"type": "stdio", "command": "global-a"}, "b": {"type": "stdio", "command": "global-b"}}}"#,
         );
         write_json(
-            &project.join(".agent/mcp.json"),
-            r#"{"mcpServers": {"b": {"type": "stdio", "command": "agent-b"}, "c": {"type": "stdio", "command": "agent-c"}}}"#,
-        );
-        write_json(
             &project.join(".wf/mcp.json"),
-            r#"{"mcpServers": {"b": {"type": "stdio", "command": "wf-b"}}}"#,
+            r#"{"mcpServers": {"b": {"type": "stdio", "command": "wf-b"}, "c": {"type": "stdio", "command": "wf-c"}}}"#,
         );
 
         let settings = load_and_merge_mcp_settings(&root, &project).unwrap();
         assert_eq!(settings.mcp_servers.len(), 3);
-        // .wf overrides .agent overrides global for the same key.
+        // .wf overrides global for the same key.
         let b = match &settings.mcp_servers["b"] {
             McpServerConfig::Stdio(c) => &c.command,
             _ => unreachable!(),
@@ -241,7 +231,7 @@ mod tests {
             McpServerConfig::Stdio(c) => &c.command,
             _ => unreachable!(),
         };
-        assert_eq!(c, "agent-c");
+        assert_eq!(c, "wf-c");
 
         let _ = std::fs::remove_dir_all(&root);
     }

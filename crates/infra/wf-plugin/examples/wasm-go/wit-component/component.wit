@@ -1,0 +1,13 @@
+// Component-model guest world. Adds the WASI p2 imports carried by the
+// TinyGo wasip2 runtime to the interfaces declared in `plugin.wit`, so
+// `wasm-tools component embed` can lift the core module into a component.
+//
+// This file deliberately omits the `package` declaration: it shares the
+// `wf:plugin@0.1.0-draft` package declared in `plugin.wit` (copied here by
+// `make deps`).
+
+world component {
+    include wasi:cli/imports@0.2.0;
+    export lifecycle;
+    export contributions;
+}

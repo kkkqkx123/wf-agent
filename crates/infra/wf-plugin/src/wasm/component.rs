@@ -204,10 +204,29 @@ async fn new_component_session(
     limits: &WasmLimits,
 ) -> PluginResult<ComponentSession> {
     let mut store = build_component_store(engine, plugin_id, grants, limits)?;
-    let instance = pre
-        .instantiate_async(&mut store)
-        .await
-        .map_err(|e| wasm_err(&format!("plugin '{plugin_id}' instantiate failed"), e))?;
+    let instance = match pre.instantiate_async(&mut store).await {
+        Ok(instance) => instance,
+        Err(e) => {
+            // Instantiation runs the guest's `_initialize`, so a trap here can
+            // carry a guest-side reason on the captured stdio. Drain it before
+            // returning so the failure is diagnosable.
+            let (stdout, stderr) = super::stdio::drain_guest_stdio(
+                plugin_id,
+                "instantiate",
+                &store.data().stdout,
+                &store.data().stderr,
+            );
+            let guest = format!(
+                "stdout=[{}] stderr=[{}]",
+                String::from_utf8_lossy(&stdout).trim(),
+                String::from_utf8_lossy(&stderr).trim()
+            );
+            return Err(wasm_err(
+                &format!("plugin '{plugin_id}' instantiate failed; guest {guest}"),
+                e,
+            ));
+        }
+    };
     let bindings = GeneratedPlugin::new(&mut store, &instance)
         .map_err(|e| wasm_err(&format!("plugin '{plugin_id}' bind failed"), e))?;
     // `instance` is a copyable handle owned by the store; dropping it here
@@ -346,6 +365,10 @@ fn build_component_store(
     store
         .set_fuel(limits.fuel_limit.unwrap_or(u64::MAX))
         .map_err(|e| wasm_err("component fuel setup failed", e))?;
+    // Guest `_initialize` runs during instantiation; park the epoch deadline
+    // so a language runtime's startup loops are not interrupted. Calls re-arm
+    // a finite deadline through `arm_epoch`.
+    store.set_epoch_deadline(pool::INITIALIZE_EPOCH_DEADLINE_TICKS);
     Ok(store)
 }
 
@@ -1244,6 +1267,39 @@ mod tests {
             names.contains(&"wf:plugin/contributions@0.1.0-draft".to_string()),
             "exports: {names:?}"
         );
+    }
+
+    /// A reactor guest whose `_initialize` (run during instantiation) walks a
+    /// bounded loop. The shared engine enables epoch interruption, so the
+    /// store's default deadline is already elapsed; without a parked deadline
+    /// the loop's back-edge traps before the guest ever handles a call. This
+    /// mirrors language runtimes (Go/Python) whose startup contains loops.
+    fn reactor_init_component_wat() -> String {
+        let module = TEST_GUEST_WAT.trim_end();
+        let body = module.strip_suffix(')').expect("module closes");
+        format!(
+            "{body}
+  (func (export \"_initialize\") (local $i i32)
+    (local.set $i (i32.const 0))
+    (block $done
+      (loop $init
+        (br_if $done (i32.ge_u (local.get $i) (i32.const 4)))
+        (local.set $i (i32.add (local.get $i) (i32.const 1)))
+        (br $init)))
+))"
+        )
+    }
+
+    #[tokio::test]
+    async fn reactor_initialize_loop_survives_instantiation() {
+        let bytes = encode_test_component(&reactor_init_component_wat());
+        let plugin = load_test_component("comp-reactor-init", &bytes, Default::default(), 10_000)
+            .await
+            .expect("reactor guest with an init loop must load");
+        plugin
+            .on_load(&hook_context("comp-reactor-init"))
+            .await
+            .expect("on-load after reactor init");
     }
 
     #[tokio::test]

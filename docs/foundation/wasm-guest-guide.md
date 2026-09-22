@@ -2,7 +2,8 @@
 
 > 面向插件作者。宿主实现见 `crates/infra/wf-plugin/src/wasm/`，
 > 契约定义见 `crates/foundation/wf-plugin-sdk/src/wasm.rs`。
-> 完整可构建示例见 `crates/infra/wf-plugin/examples/wasm-echo/`。
+> 完整可构建示例见 `crates/infra/wf-plugin/examples/` 下的
+> `wasm-echo/`（Rust）、`wasm-go/`（TinyGo）、`wasm-python/`（componentize-py）。
 
 ---
 
@@ -81,6 +82,17 @@ Wasm 插件有两条加载路径，宿主按二进制头部自动分流，上层
 动态逻辑（如解析输入 JSON）建议先用最小的手写解析起步，
 如需强类型绑定可用 `wit/plugin.wit`（`wf:plugin/plugin` 世界）经由
 Component 路径（`wasm32-wasip2` + `wit-bindgen`/`jco` 等）构建。
+
+Component 路径另有两个可直接构建的示例：
+
+- `examples/wasm-go/`：TinyGo `wasip2` 目标配合 `wit-bindgen-go` 生成的绑定，
+  `make deps && make build` 产出 `plugin.wasm`；`wit-component/` 暂存组件
+  world 与 TinyGo 自带的 WASI WIT，`internal/` 为已提交的生成绑定。
+- `examples/wasm-python/`：`componentize-py`，`make build` 直接按
+  `wit/plugin.wit` 世界把 `plugin/` 包打包为 `plugin.wasm`。
+
+两个示例都声明 `tool_types = ["echo"]`，与 Rust 示例一样返回
+`{"result":{"echo":true}}`，可通过宿主的 Wasm 加载路径直接运行。
 
 ---
 

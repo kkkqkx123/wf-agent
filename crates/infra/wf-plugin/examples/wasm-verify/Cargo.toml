@@ -1,0 +1,16 @@
+[package]
+name = "wasm-verify"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+# Detached from the parent workspace: this is a manual end-to-end verification
+# binary that consumes the sibling guest examples as fixtures. It must not be
+# pulled into the main workspace build.
+[workspace]
+
+[dependencies]
+wf-plugin = { path = "../..", features = ["wasm"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+serde_json = "1"
+toml = "1"

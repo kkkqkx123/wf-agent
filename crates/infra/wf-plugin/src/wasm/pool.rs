@@ -243,6 +243,16 @@ async fn run_reset(pool: &SessionPool, session: &mut PooledSession) -> bool {
 /// Epoch tick interval driving wall-clock interruption.
 pub const EPOCH_TICK_MS: u64 = 10;
 
+/// Epoch ticks parked on a store while a guest initializes.
+///
+/// Instantiation can run guest code (a core module's `start` section, or a
+/// component reactor's `_initialize`). The engine enables epoch interruption,
+/// so a store's default deadline of zero is already elapsed and would trap any
+/// initialization loop at its first back-edge. Parking a distant deadline
+/// keeps initialization uninterrupted; each guest call re-arms a finite
+/// deadline through `arm_epoch`.
+pub const INITIALIZE_EPOCH_DEADLINE_TICKS: u64 = u64::MAX / 2;
+
 /// Slack added to the outer backstop timeout on top of the epoch deadline.
 const TIMEOUT_SLACK_MS: u64 = 5_000;
 
@@ -404,6 +414,9 @@ pub fn build_store(
     store
         .set_fuel(limits.fuel_limit.unwrap_or(u64::MAX))
         .map_err(|e| wasm_err("fuel setup failed", e))?;
+    // Guest `start`/`_initialize` runs during instantiation; park the epoch
+    // deadline so initialization is not interrupted. Calls re-arm it.
+    store.set_epoch_deadline(INITIALIZE_EPOCH_DEADLINE_TICKS);
     Ok(store)
 }
 

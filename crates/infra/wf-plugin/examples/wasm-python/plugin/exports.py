@@ -1,40 +1,38 @@
 # Export surface for the `wf:plugin/plugin@0.1.0-draft` component world.
 #
 # `componentize-py` binds this module to the interfaces declared in
-# `wit/plugin.wit` by matching Python class names to WIT interface names
-# (PascalCase) and function names to WIT function names (snake_case).
+# `wit/plugin.wit` by matching class names to WIT interface names
+# (PascalCase) and method names to WIT function names (snake_case).
 #
-# Regenerate `plugin/bindings/` via `make bindings` before importing.
+# The `wit_world` package is generated on the fly by
+# `componentize-py componentize`; `make bindings` only emits stubs for IDEs
+# and type checkers.
 
-from .bindings.wf import plugin
+import wit_world
+from wit_world import exports
+from wit_world.exports import contributions, lifecycle
 
 
-class Lifecycle(plugin.lifecycle.Lifecycle):
-    @staticmethod
-    def on_load(input: plugin.lifecycle.HookInput) -> None:
+class Lifecycle(exports.Lifecycle):
+    def on_load(self, input: lifecycle.HookInput) -> None:
         pass
 
-    @staticmethod
-    def on_activate(input: plugin.lifecycle.HookInput) -> None:
+    def on_activate(self, input: lifecycle.HookInput) -> None:
         pass
 
-    @staticmethod
-    def on_deactivate() -> None:
+    def on_deactivate(self) -> None:
         pass
 
-    @staticmethod
-    def on_unload() -> None:
+    def on_unload(self) -> None:
         pass
 
-    @staticmethod
-    def on_config_change(config: str) -> None:
+    def on_config_change(self, config: str) -> None:
         pass
 
 
-class Contributions(plugin.contributions.Contributions):
-    @staticmethod
-    def register() -> plugin.contributions.Declaration:
-        return plugin.contributions.Declaration(
+class Contributions(exports.Contributions):
+    def register(self) -> contributions.Declaration:
+        return contributions.Declaration(
             node_types=[],
             tool_types=["echo"],
             llm_providers=[],
@@ -42,8 +40,8 @@ class Contributions(plugin.contributions.Contributions):
             middleware=[],
         )
 
-    @staticmethod
     def dispatch(
+        self,
         handler_type: str,
         handler_name: str,
         input_json: str,

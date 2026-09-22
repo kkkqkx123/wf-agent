@@ -249,8 +249,8 @@ mod tests {
         let agent_config = serde_json::from_value::<wf_types::agent::AgentConfig>(serde_json::json!({
             "profile_id": "mock",
             "hooks": [
-                {"hook_type": "BEFORE_ITERATION", "event_name": "before_iteration", "enabled": true},
-                {"hook_type": "AFTER_TOOL_CALL", "event_name": "after_tool_call", "enabled": false}
+                {"hook_type": "BEFORE_ITERATION", "enabled": true},
+                {"hook_type": "AFTER_TOOL_CALL", "enabled": false}
             ]
         }))
         .expect("canonical agent config should parse");

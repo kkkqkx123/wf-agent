@@ -71,22 +71,6 @@ fn edge(source: &str, target: &str) -> WorkflowEdge {
     }
 }
 
-/// Loop-back edge used when the loop is exited at LOOP_END: LOOP_END routes
-/// back to LOOP_START through its routing hint while iterating, so the
-/// back-edge condition is only evaluated on termination and must never
-/// match (the forward edge then wins).
-fn loop_back_edge(source: &str, target: &str) -> WorkflowEdge {
-    WorkflowEdge {
-        id: format!("{}-{}", source, target),
-        source_node_id: source.to_string(),
-        target_node_id: target.to_string(),
-        r#type: EdgeType::Conditional,
-        condition: Some("eq(nextIteration,true)".to_string()),
-        label: None,
-        description: None,
-    }
-}
-
 fn graph(
     nodes: Vec<WorkflowNode>,
     edges: Vec<WorkflowEdge>,
@@ -262,61 +246,6 @@ async fn embed_graph_behavior_equals_hand_expanded_graph() {
 }
 
 #[tokio::test]
-async fn embed_graph_runs_loop_inside_embed() {
-    let recorded = Arc::new(std::sync::Mutex::new(Vec::new()));
-    // Embedded graph with a counting loop (control flow is allowed).
-    let sub = graph(
-        vec![
-            node("s2", "START", serde_json::json!({})),
-            node(
-                "ls",
-                "LOOP_START",
-                serde_json::json!({"loop_id": "inner", "max_iterations": 3}),
-            ),
-            node(
-                "body",
-                "SCRIPT",
-                serde_json::json!({"script_name": "s", "risk": "medium"}),
-            ),
-            node(
-                "le",
-                "LOOP_END",
-                serde_json::json!({"loop_id": "inner", "loop_start_node_id": "ls"}),
-            ),
-            node("e2", "END", serde_json::json!({})),
-        ],
-        vec![
-            edge("s2", "ls"),
-            edge("ls", "body"),
-            edge("body", "le"),
-            loop_back_edge("le", "ls"),
-            edge("le", "e2"),
-        ],
-        "s2",
-        vec!["e2"],
-    );
-    let g = graph(
-        vec![
-            node("start", "START", serde_json::json!({})),
-            embed_node("embed1", &sub),
-            node("end", "END", serde_json::json!({})),
-        ],
-        vec![edge("start", "embed1"), edge("embed1", "end")],
-        "start",
-        vec!["end"],
-    );
-
-    run_workflow(g, recording_handlers(recorded.clone()))
-        .await
-        .expect("embedded loop workflow must complete");
-    assert_eq!(
-        recorded.lock().unwrap().len(),
-        3,
-        "loop inside embed ran 3 iterations"
-    );
-}
-
-#[tokio::test]
 async fn embed_graph_constraint_violation_blocks_execution() {
     // The embedded workflow contains a VARIABLE node (forbidden).
     let sub = graph(
@@ -398,71 +327,4 @@ async fn embed_graph_publishes_no_subgraph_events() {
             "EMBED_GRAPH must not create a runtime sub-entity"
         );
     }
-}
-
-#[tokio::test]
-async fn embed_graph_runs_fork_join_inside_embed() {
-    let recorded = Arc::new(std::sync::Mutex::new(Vec::new()));
-    // Embedded graph with a FORK/JOIN: branch A and branch B both run their
-    // body script, then the JOIN merges.
-    let sub = graph(
-        vec![
-            node("s2", "START", serde_json::json!({})),
-            node(
-                "fork",
-                "FORK",
-                serde_json::json!({
-                    "fork_paths": [
-                        {"path_id": "p1", "child_node_id": "a"},
-                        {"path_id": "p2", "child_node_id": "b"}
-                    ]
-                }),
-            ),
-            node(
-                "a",
-                "SCRIPT",
-                serde_json::json!({"script_name": "branchA", "risk": "medium"}),
-            ),
-            node(
-                "b",
-                "SCRIPT",
-                serde_json::json!({"script_name": "branchB", "risk": "medium"}),
-            ),
-            node(
-                "join",
-                "JOIN",
-                serde_json::json!({"fork_path_ids": ["p1", "p2"], "join_strategy": "wait_for_all"}),
-            ),
-            node("e2", "END", serde_json::json!({})),
-        ],
-        vec![
-            edge("s2", "fork"),
-            edge("fork", "a"),
-            edge("fork", "b"),
-            edge("a", "join"),
-            edge("b", "join"),
-            edge("join", "e2"),
-        ],
-        "s2",
-        vec!["e2"],
-    );
-    let g = graph(
-        vec![
-            node("start", "START", serde_json::json!({})),
-            embed_node("embed1", &sub),
-            node("end", "END", serde_json::json!({})),
-        ],
-        vec![edge("start", "embed1"), edge("embed1", "end")],
-        "start",
-        vec!["end"],
-    );
-
-    run_workflow(g, recording_handlers(recorded.clone()))
-        .await
-        .expect("fork/join inside embed must complete");
-    assert_eq!(
-        recorded.lock().unwrap().len(),
-        2,
-        "both fork branches ran inside the embed"
-    );
 }

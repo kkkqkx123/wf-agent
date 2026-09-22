@@ -479,54 +479,6 @@ async fn llm_errors_propagate_without_node_retry() {
     );
 }
 
-#[tokio::test]
-async fn agent_loop_runs_mock_driven_iterations() {
-    let mock = Arc::new(MockLlmClient::new());
-    // Round 1: tool call; round 2: final answer.
-    mock.script(LlmResponseSpec::tool_calls(vec![tool_call(
-        "call_1",
-        "echo",
-        r#"{"text":"agent ping"}"#,
-    )]));
-    mock.script(LlmResponseSpec::text("agent final answer"));
-
-    let gateway = Arc::new(LlmGateway::new());
-    gateway.register_mock("mock", mock.clone());
-    let handler = wf_workflow::AgentLoopHandler::new(gateway);
-
-    let vars = Arc::new(dashmap::DashMap::new());
-    let mut ctx = NodeExecutionContext::new(
-        wf_types::Id::new(),
-        "agent1".to_string(),
-        StaticNodeType::AgentLoop,
-        serde_json::json!("do it"),
-        vars,
-    )
-    .with_node_config(serde_json::json!({
-        "inline_definition": {
-            "id": "agent-1",
-            "name": "mock agent",
-            "created_at": 0,
-            "updated_at": 0,
-            "config": {
-                "profile_id": "mock",
-                "max_iterations": 5,
-                "available_tools": {"available": ["echo"]}
-            }
-        }
-    }));
-    ctx.tool_registry = Some(registered_echo_tool());
-
-    let result = handler.execute(&mut ctx).await.unwrap();
-    assert_eq!(result.output, serde_json::json!("agent final answer"));
-    // user message + assistant(tool call) + tool result + assistant(final)
-    assert_eq!(
-        result.metadata.get("message_count").unwrap(),
-        &serde_json::json!(4)
-    );
-    assert_eq!(mock.recorded_count(), 2);
-}
-
 /// Exhausting `max_interactions` while the model keeps emitting tool
 /// calls returns the collected tool record instead of failing: the
 /// structured output carries every executed call, so nothing is

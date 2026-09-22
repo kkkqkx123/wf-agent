@@ -172,11 +172,7 @@ async fn variable_converts_string_to_number_type() {
             ),
             node("end", "END", serde_json::json!({})),
         ],
-        vec![
-            edge("start", "v1"),
-            edge("v1", "cap"),
-            edge("cap", "end"),
-        ],
+        vec![edge("start", "v1"), edge("v1", "cap"), edge("cap", "end")],
     );
     let captured = run_with_capture(g, vec!["count"], options())
         .await

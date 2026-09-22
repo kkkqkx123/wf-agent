@@ -2,10 +2,12 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use wf_checkpoint::coordinator::agent::AgentCheckpointCoordinator;
+use wf_checkpoint::coordinator::agent::{progress_coords, ProgressCoords};
 use wf_checkpoint::coordinator::CheckpointCoordinator;
 use wf_checkpoint::event::CheckpointEventBus;
 use wf_checkpoint::execution_events::ExecutionEventBus;
 use wf_checkpoint::state::AgentCheckpointStateManager;
+use wf_checkpoint::state::CheckpointStateManager;
 use wf_checkpoint::CheckpointError;
 use wf_common::error_chain::ErrorRecord;
 use wf_execution_shared::types::execution_entity::ExecutionStatus;
@@ -198,6 +200,40 @@ impl AgentCheckpointIntegration {
         trigger: CheckpointTiming,
         description: Option<String>,
     ) -> Result<(), CheckpointError> {
+        // Progress gate: equal coordinates mean the loop produced no side
+        // effect since the latest checkpoint, so merge back into it instead
+        // of persisting a duplicate row. Checked before the snapshot build
+        // so a duplicate costs one metadata read, not a full serialization.
+        // Fail-open: a metadata read failure never blocks checkpointing.
+        if let Ok(Some(latest)) = self
+            .inner
+            .state_manager()
+            .get_latest(entity.id().as_str())
+            .await
+        {
+            if progress_coords(&latest) == Self::entity_progress_coords(entity).await {
+                if let Some(ref text) = description {
+                    let current = latest
+                        .custom_fields
+                        .as_ref()
+                        .and_then(|fields| fields.get("description"))
+                        .and_then(|v| v.as_str());
+                    if current != Some(text.as_str()) {
+                        let _ = self
+                            .inner
+                            .merge_description_back(&latest.id, entity.id().as_str(), text)
+                            .await;
+                    }
+                }
+                tracing::debug!(
+                    entity_id = %entity.id(),
+                    checkpoint_id = %latest.id,
+                    trigger = ?trigger,
+                    "duplicate checkpoint merged back into latest, no new row persisted"
+                );
+                return Ok(());
+            }
+        }
         let snapshot = self.build_snapshot(entity).await;
         let mut ctx = self
             .inner
@@ -449,6 +485,37 @@ impl AgentCheckpointIntegration {
                 entity_id = %entity_id,
                 "file checkpoint approval policy failed at agent loop end"
             );
+        }
+    }
+
+    /// Progress coordinates of the live entity, mirroring the coordinate
+    /// fields `build_snapshot` captures so the comparison against stored
+    /// metadata is exact. Lock guards are dropped before returning; the
+    /// caller performs storage reads afterwards.
+    async fn entity_progress_coords(entity: &AgentLoopEntity) -> ProgressCoords {
+        let (iteration, tool_call_count, loop_status) = {
+            let state = entity.state.read().await;
+            (
+                state.current_iteration(),
+                state.tool_call_count(),
+                format!("{:?}", state.status()),
+            )
+        };
+        let (seq_start, seq_end, seq_next) = {
+            let session = entity.conversation().read().await.snapshot_state();
+            (
+                session.seqs.first().copied(),
+                session.seqs.last().copied(),
+                Some(session.next_seq),
+            )
+        };
+        ProgressCoords {
+            seq_start,
+            seq_end,
+            seq_next,
+            iteration: Some(iteration as u64),
+            tool_call_count: Some(tool_call_count as u64),
+            loop_status: Some(loop_status),
         }
     }
 

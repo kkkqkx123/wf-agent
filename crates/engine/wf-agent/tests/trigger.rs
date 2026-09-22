@@ -7,8 +7,7 @@ use std::sync::Arc;
 
 use wf_agent::entity::AgentLoopEntity;
 use wf_agent::trigger::{
-    snapshot_conversation_for_child, TriggeredAgentExecutionConfig,
-    TriggeredAgentExecutionManager,
+    snapshot_conversation_for_child, TriggeredAgentExecutionConfig, TriggeredAgentExecutionManager,
 };
 use wf_tools::callback::{AgentLoopConfig, AgentLoopInput, AgentLoopOutput};
 use wf_types::message::{Message, MessageContentValue, MessageRole};
@@ -51,9 +50,7 @@ fn child_input() -> AgentLoopInput {
     }
 }
 
-fn success_executor(
-    result: serde_json::Value,
-) -> wf_agent::trigger::AgentExecutorCallback {
+fn success_executor(result: serde_json::Value) -> wf_agent::trigger::AgentExecutorCallback {
     Arc::new(move |_config, _input| {
         let result = result.clone();
         Box::pin(async move {
@@ -114,7 +111,11 @@ async fn sync_child_writes_result_variable_and_unregisters() {
         .expect("sync child must succeed");
     assert_eq!(submission.status, "QUEUED");
     assert_eq!(
-        p.state.read().await.variable_snapshots().get("trigger_result"),
+        p.state
+            .read()
+            .await
+            .variable_snapshots()
+            .get("trigger_result"),
         Some(&serde_json::Value::from("child ok"))
     );
     assert_eq!(p.child_execution_ids().read().await.len(), 0);
@@ -184,8 +185,7 @@ async fn async_child_submits_immediately_and_writes_back() {
     for _ in 0..50 {
         if counter.load(Ordering::SeqCst) > 0
             && p.child_execution_ids().read().await.is_empty()
-            && p
-                .state
+            && p.state
                 .read()
                 .await
                 .variable_snapshots()
@@ -197,7 +197,11 @@ async fn async_child_submits_immediately_and_writes_back() {
     }
     assert_eq!(counter.load(Ordering::SeqCst), 1);
     assert_eq!(
-        p.state.read().await.variable_snapshots().get("trigger_result"),
+        p.state
+            .read()
+            .await
+            .variable_snapshots()
+            .get("trigger_result"),
         Some(&serde_json::Value::from("async ok"))
     );
 }
@@ -253,11 +257,8 @@ fn snapshot_slices_prefix_only_for_positional_anchor() {
     );
     assert_eq!(prefix.len(), 2);
 
-    let full = snapshot_conversation_for_child(
-        &messages,
-        TriggerAgentInputMode::PrefixToAnchor,
-        None,
-    );
+    let full =
+        snapshot_conversation_for_child(&messages, TriggerAgentInputMode::PrefixToAnchor, None);
     assert_eq!(full.len(), 3);
 
     let full_mode = snapshot_conversation_for_child(
@@ -286,10 +287,9 @@ async fn conversation_append_writeback_publishes_anchored_event() {
         let conv = p.conversation().read().await;
         (conv.messages().len(), conv.conversation_version())
     };
-    let manager = TriggeredAgentExecutionManager::new(success_executor(serde_json::Value::from(
-        "child ok",
-    )))
-    .with_event_bus(bus);
+    let manager =
+        TriggeredAgentExecutionManager::new(success_executor(serde_json::Value::from("child ok")))
+            .with_event_bus(bus);
     manager
         .submit_triggered_execution(
             TriggeredAgentExecutionConfig {
@@ -322,7 +322,11 @@ async fn conversation_append_writeback_publishes_anchored_event() {
     assert_eq!(meta.messages.len(), 1);
     assert_eq!(meta.messages[0].role, MessageRole::Assistant);
     assert_eq!(
-        p.state.read().await.variable_snapshots().get("trigger_result"),
+        p.state
+            .read()
+            .await
+            .variable_snapshots()
+            .get("trigger_result"),
         Some(&serde_json::Value::from("child ok"))
     );
 }

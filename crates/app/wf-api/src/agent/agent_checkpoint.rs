@@ -11,6 +11,7 @@ use std::collections::BTreeMap;
 use serde::Serialize;
 
 use wf_checkpoint::coordinator::agent::AgentCheckpointCoordinator;
+use wf_checkpoint::coordinator::agent::{progress_coords, snapshot_progress_coords};
 use wf_checkpoint::coordinator::CheckpointCoordinator;
 use wf_checkpoint::delta::CheckpointLoader;
 use wf_checkpoint::state::agent::AgentCheckpointStateManager;
@@ -74,6 +75,16 @@ pub async fn create(
                 "manual checkpoint rejected: checkpointing is disabled",
             ));
         }
+        // Progress gate: the seed snapshot is identical on every call, so a
+        // repeat manual creation with no live loop adds no information.
+        // Merge back into the latest checkpoint instead of appending a
+        // duplicate row. Fail-open on metadata read errors.
+        if let Ok(Some(latest)) = state_manager(ctx).get_latest(agent_loop_id).await {
+            if progress_coords(&latest) == snapshot_progress_coords(&empty_snapshot(agent_loop_id))
+            {
+                return merge_back(&coordinator, agent_loop_id, latest, description).await;
+            }
+        }
         let mut prepare = coordinator
             .prepare(agent_loop_id, CheckpointTiming::Manual)
             .await
@@ -99,12 +110,44 @@ pub async fn create(
         let _ = coordinator
             .save_file_snapshot(&checkpoint.id, agent_loop_id)
             .await;
+        // Return the checkpoint just built, reloaded by id: re-querying the
+        // latest is racy when two checkpoints share a millisecond timestamp.
+        return state_manager(ctx)
+            .load_metadata(&checkpoint.id)
+            .await
+            .map_err(|e| ApiError::execution(format!("checkpoint lookup failed: {e}")))?
+            .ok_or_else(|| not_found("checkpoint", &checkpoint.id));
     }
     state_manager(ctx)
         .get_latest(agent_loop_id)
         .await
         .map_err(|e| ApiError::execution(format!("checkpoint lookup failed: {e}")))?
         .ok_or_else(|| not_found("checkpoint", agent_loop_id))
+}
+
+/// Merge a duplicate creation back into the latest checkpoint: a new caller
+/// description is written back onto the stored blob, otherwise the latest
+/// row is returned as-is. No new checkpoint row is ever persisted here.
+async fn merge_back(
+    coordinator: &AgentCheckpointCoordinator,
+    agent_loop_id: &str,
+    latest: Checkpoint,
+    description: Option<String>,
+) -> ApiResult<Checkpoint> {
+    if let Some(text) = description {
+        let current = latest
+            .custom_fields
+            .as_ref()
+            .and_then(|fields| fields.get("description"))
+            .and_then(|v| v.as_str());
+        if current != Some(text.as_str()) {
+            return coordinator
+                .merge_description_back(&latest.id, agent_loop_id, &text)
+                .await
+                .map_err(|e| ApiError::execution(format!("checkpoint merge failed: {e}")));
+        }
+    }
+    Ok(latest)
 }
 
 /// Seed snapshot for an agent loop with no live state to read.
@@ -385,28 +428,64 @@ mod tests {
         // The coordinator links the chain and picks the storage type: the
         // second checkpoint is a delta of the first.
         let cp2 = create(&ctx, "loop-c", None).await.unwrap();
-        assert_eq!(cp2.checkpoint_type, CheckpointType::Delta);
-        assert_eq!(cp2.chain_position, Some(1));
-        assert_eq!(cp2.previous_checkpoint_id.as_deref(), Some(cp1.id.as_str()));
+        assert_eq!(cp2.checkpoint_type, CheckpointType::Full);
+        // No live loop means the seed snapshot is identical, so the repeat
+        // creation merges back into the latest checkpoint: same row, and the
+        // chain holds a single checkpoint.
+        assert_eq!(cp2.id, cp1.id);
 
         let list = list(&ctx, "loop-c").await.unwrap();
-        assert_eq!(list.len(), 2);
+        assert_eq!(list.len(), 1);
         // Newest first.
         assert_eq!(list[0].id, cp2.id);
 
         let chains = chain(&ctx, "loop-c").await.unwrap();
         assert_eq!(chains.len(), 1);
-        assert_eq!(chains[0].len(), 2);
+        assert_eq!(chains[0].len(), 1);
 
         let stats = statistics(&ctx, Some("loop-c")).await.unwrap();
-        assert_eq!(stats.total, 2);
-        assert_eq!(stats.active, 2);
+        assert_eq!(stats.total, 1);
+        assert_eq!(stats.active, 1);
         assert_eq!(stats.by_type.get("full"), Some(&1));
-        assert_eq!(stats.by_type.get("delta"), Some(&1));
         assert!(stats.avg_blob_size.is_some());
 
         let global = statistics(&ctx, None).await.unwrap();
-        assert_eq!(global.total, 2);
+        assert_eq!(global.total, 1);
+    }
+
+    #[tokio::test]
+    async fn duplicate_manual_create_merges_back_into_latest() {
+        let ctx = make_ctx();
+
+        let cp1 = create(&ctx, "loop-m", Some("first".into())).await.unwrap();
+        assert_eq!(cp1.checkpoint_type, CheckpointType::Full);
+
+        // Same seed, no new description: the identical row is returned and
+        // no new row is persisted.
+        let cp2 = create(&ctx, "loop-m", None).await.unwrap();
+        assert_eq!(cp2.id, cp1.id);
+        assert_eq!(list(&ctx, "loop-m").await.unwrap().len(), 1);
+
+        // Same seed, new description: written back onto the latest row.
+        let cp3 = create(&ctx, "loop-m", Some("second".into())).await.unwrap();
+        assert_eq!(cp3.id, cp1.id);
+        let stored = cp3
+            .custom_fields
+            .as_ref()
+            .and_then(|fields| fields.get("description"))
+            .and_then(|v| v.as_str());
+        assert_eq!(stored, Some("second"));
+        assert_eq!(list(&ctx, "loop-m").await.unwrap().len(), 1);
+
+        // A missing description never clears an existing one.
+        let cp4 = create(&ctx, "loop-m", None).await.unwrap();
+        assert_eq!(cp4.id, cp1.id);
+        let stored = cp4
+            .custom_fields
+            .as_ref()
+            .and_then(|fields| fields.get("description"))
+            .and_then(|v| v.as_str());
+        assert_eq!(stored, Some("second"));
     }
 
     #[tokio::test]
@@ -432,11 +511,12 @@ mod tests {
     async fn delete_for_removes_checkpoints() {
         let ctx = make_ctx();
         create(&ctx, "loop-d", None).await.unwrap();
+        // Identical repeat merges back: a single row exists to remove.
         create(&ctx, "loop-d", None).await.unwrap();
         create(&ctx, "other", None).await.unwrap();
 
         let removed = delete_for(&ctx, "loop-d").await.unwrap();
-        assert_eq!(removed, 2);
+        assert_eq!(removed, 1);
         assert!(list(&ctx, "loop-d").await.unwrap().is_empty());
         assert_eq!(list(&ctx, "other").await.unwrap().len(), 1);
     }

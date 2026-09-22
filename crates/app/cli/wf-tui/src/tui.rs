@@ -375,9 +375,7 @@ impl TuiApp {
                 crate::redraw::idle_poll_interval(idle_ms)
             };
 
-            if event::poll(timeout)
-                .map_err(|e| CliError::Terminal(format!("poll failed: {e}")))?
-            {
+            if event::poll(timeout).map_err(|e| CliError::Terminal(format!("poll failed: {e}")))? {
                 let ev = event::read()
                     .map_err(|e| CliError::Terminal(format!("event read failed: {e}")))?;
                 match ev {

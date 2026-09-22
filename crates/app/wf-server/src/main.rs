@@ -23,6 +23,11 @@ struct Args {
     #[arg(long)]
     config: Option<PathBuf>,
 
+    /// Web frontend build directory served with SPA fallback. Wins over
+    /// `WF_SERVER_STATIC_DIR` env and the `server.toml` file layer.
+    #[arg(long)]
+    static_dir: Option<PathBuf>,
+
     /// Storage backend spec: memory | sqlite:<path> | sqlite | postgres:<conn>
     #[arg(long)]
     storage: Option<String>,
@@ -82,7 +87,8 @@ async fn main() {
     let (runtime_config, infra_source) = build_runtime_config(&args);
     // The server owns its listen address: CLI flag wins over
     // `WF_SERVER_BIND_ADDR` env and the `server.toml` file layer.
-    let server_config = wf_server::ServerConfig::resolve(args.config.as_deref(), args.addr);
+    let server_config =
+        wf_server::ServerConfig::resolve(args.config.as_deref(), args.addr, args.static_dir);
     let runtime = match infra_source {
         Some(source) => Runtime::bootstrap_with_source(runtime_config, source).await,
         None => Runtime::bootstrap(runtime_config).await,

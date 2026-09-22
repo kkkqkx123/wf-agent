@@ -11,6 +11,7 @@ use wf_api::TaskListOptions;
 
 use crate::envelope::{error_response, ok};
 use crate::extract::{ExecutionIdPath, IdPath, ListQuery};
+use crate::paged::{fetch_size, ok_page, resolve_page};
 use crate::router::ApiState;
 pub(crate) fn routes() -> Router<ApiState> {
     Router::new()
@@ -43,14 +44,15 @@ async fn handle_list_tasks(
     State(state): State<ApiState>,
     Query(query): Query<ListTasksQuery>,
 ) -> impl IntoResponse {
+    let (limit, offset) = resolve_page(&query.page);
     let options = TaskListOptions {
-        offset: query.page.offset,
-        limit: query.page.limit,
+        offset: Some(offset),
+        limit: Some(fetch_size(limit)),
         status_filter: query.status,
         task_type_filter: query.task_type,
     };
     match wf_api::entity::task::list_tasks(&state.ctx.storage, Some(options)).await {
-        Ok(tasks) => ok(tasks).into_response(),
+        Ok(tasks) => ok_page(tasks, limit, offset).into_response(),
         Err(e) => error_response(e),
     }
 }

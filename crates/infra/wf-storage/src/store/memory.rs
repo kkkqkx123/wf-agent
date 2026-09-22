@@ -231,7 +231,8 @@ fn meta_numeric_cmp(a: &Value, b: &Value) -> std::cmp::Ordering {
 /// here so `count` never clones payloads; callers project the columns they
 /// need afterwards. The plan comes from `QueryFilter::compile`, so repeated
 /// ordering and pagination resolve to the last occurrence exactly like the
-/// SQL backends. An id tie-break mirrors the `, id ASC` SQL ordering.
+/// SQL backends. An id tie-break follows the primary sort direction so ties
+/// resolve to creation order on both newest-first and oldest-first queries.
 fn matched_ids(
     records: &HashMap<String, StoredRecord>,
     plan: Option<&CompiledFilter>,
@@ -280,7 +281,7 @@ fn matched_ids(
                         }
                     }
                 };
-                primary.then_with(|| a.cmp(b))
+                primary.then_with(|| if descending { b.cmp(a) } else { a.cmp(b) })
             });
         }
         let offset = p.offset.unwrap_or(0) as usize;

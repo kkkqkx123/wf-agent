@@ -11,6 +11,7 @@
 //! own `routes()` and this file is the sole merge point, so the module tree
 //! mirrors the `wf-api` domain layout.
 
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use axum::Router;
@@ -20,7 +21,8 @@ use wf_api::ApiContext;
 use crate::middleware::{self, ServerMiddlewareConfig};
 use crate::server::{serve_with_router, ServeError, ServerHandle};
 use crate::server_config::ServerConfig;
-use crate::{api, metrics, ws};
+use crate::static_files::serve_static;
+use crate::{api, contract, metrics, ws};
 
 #[derive(Clone)]
 pub(crate) struct ApiState {
@@ -67,6 +69,10 @@ pub fn api_router_with_config(ctx: Arc<ApiContext>, config: Arc<ServerMiddleware
         // trigger domain (ledger + template activation gateway)
         .merge(api::trigger::executions::routes())
         .merge(api::trigger::hooks::routes())
+        // web support domain (preferences + favorites + batch)
+        .merge(api::web::preferences::routes())
+        .merge(api::web::favorites::routes())
+        .merge(api::web::batch::routes())
         // llm domain (generation + profiles + providers + scripts + tools)
         .merge(api::llm::llm::routes())
         .merge(api::llm::scripts::routes())
@@ -89,6 +95,7 @@ pub fn api_router_with_config(ctx: Arc<ApiContext>, config: Arc<ServerMiddleware
         // own absolute prefixes and is merged at the root below)
         .merge(api::system::events::routes())
         .merge(api::system::dependencies::routes())
+        .merge(contract::routes())
         .merge(ws::routes());
     let app = Router::new()
         .merge(api::system::health::routes())
@@ -116,6 +123,7 @@ pub async fn serve_api_with_config(
     config: &ServerConfig,
 ) -> Result<ServerHandle, ServeError> {
     let router = api_router_with_config(ctx, Arc::new(config.middleware.clone()));
+    let router = with_static_fallback(router, &config.static_dir);
     serve_with_router(router, config.bind_addr).await
 }
 
@@ -127,7 +135,24 @@ pub async fn serve_full_with_config(
     config: &ServerConfig,
 ) -> Result<ServerHandle, ServeError> {
     let router = full_router_with_middleware(registry, ctx, Arc::new(config.middleware.clone()));
+    let router = with_static_fallback(router, &config.static_dir);
     serve_with_router(router, config.bind_addr).await
+}
+
+/// Layer the static-file SPA fallback onto `router` when a frontend build
+/// directory is configured; API-only mode leaves the router untouched.
+fn with_static_fallback<S>(router: Router<S>, static_dir: &Option<PathBuf>) -> Router<S>
+where
+    S: Clone + Send + Sync + 'static,
+{
+    let Some(dir) = static_dir.clone() else {
+        return router;
+    };
+    let dir = Arc::new(dir);
+    router.fallback(move |uri: axum::http::Uri| {
+        let dir = Arc::clone(&dir);
+        async move { serve_static(&dir, uri.path()).await }
+    })
 }
 
 /// Test helper: metrics + API router with a programmable middleware

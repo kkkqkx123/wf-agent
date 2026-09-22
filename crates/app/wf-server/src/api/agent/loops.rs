@@ -18,6 +18,7 @@ use wf_api::{AgentLoopConfig, AgentLoopInput};
 
 use crate::envelope::{error_response, ok};
 use crate::extract::{IdNamePath, IdPath, ListQuery};
+use crate::paged::{fetch_size, ok_page, resolve_page};
 use crate::router::ApiState;
 use crate::sse::sse_response;
 pub(crate) fn routes() -> Router<ApiState> {
@@ -89,13 +90,14 @@ async fn handle_list_loops(
     State(state): State<ApiState>,
     Query(query): Query<ListLoopsQuery>,
 ) -> impl IntoResponse {
+    let (limit, offset) = resolve_page(&query.page);
     let options = AgentLoopListOptions {
-        offset: query.page.offset,
-        limit: query.page.limit,
+        offset: Some(offset),
+        limit: Some(fetch_size(limit)),
         status_filter: query.status,
     };
     match wf_api::agent::agent::list_agent_loops(&state.ctx.storage, Some(options)).await {
-        Ok(loops) => ok(loops).into_response(),
+        Ok(loops) => ok_page(loops, limit, offset).into_response(),
         Err(e) => error_response(e),
     }
 }

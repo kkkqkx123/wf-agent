@@ -38,12 +38,11 @@ impl NodeHandler for CaptureScript {
                 map.insert(key.to_string(), v);
             }
         }
-        let context =
-            wf_workflow::message_context::get_context(&ctx.variables, wf_workflow::message_context::DEFAULT_CONTEXT_ID);
-        map.insert(
-            "context_len".to_string(),
-            serde_json::json!(context.len()),
+        let context = wf_workflow::message_context::get_context(
+            &ctx.variables,
+            wf_workflow::message_context::DEFAULT_CONTEXT_ID,
         );
+        map.insert("context_len".to_string(), serde_json::json!(context.len()));
         Ok(NodeExecutionResult::simple(serde_json::json!({})))
     }
 }
@@ -109,11 +108,7 @@ async fn run_visibility(
             ),
             node("end", "END", serde_json::json!({})),
         ],
-        vec![
-            edge("start", "tv"),
-            edge("tv", "cap"),
-            edge("cap", "end"),
-        ],
+        vec![edge("start", "tv"), edge("tv", "cap"), edge("cap", "end")],
     );
     let mut reg = HandlerRegistry::new();
     reg.register_defaults(Arc::new(wf_llm::LlmGateway::new()));

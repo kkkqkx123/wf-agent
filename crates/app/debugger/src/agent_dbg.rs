@@ -2,8 +2,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::model::{ToolCallView, Trace};
 use crate::policy::{
-    NOT_ACTIVATED, NOT_CALLABLE, NOT_IN_AVAILABLE_SET, VIA_GENERAL, BuiltinAgentPolicy,
-    builtin_policy,
+    builtin_policy, BuiltinAgentPolicy, NOT_ACTIVATED, NOT_CALLABLE, NOT_IN_AVAILABLE_SET,
+    VIA_GENERAL,
 };
 
 pub use crate::policy::{snapshot_meta, POLICY_SNAPSHOT_VERSION};

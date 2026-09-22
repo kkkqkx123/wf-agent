@@ -20,9 +20,12 @@ pub async fn run_health(cli: &Cli) -> CliResult<()> {
 }
 
 pub async fn run_diagnostics(cli: &Cli) -> CliResult<()> {
-    let domain =
-        crate::domain::DomainHandle::require_embedded(cli, crate::mode::CliMode::Run, "diagnostics")
-            .await?;
+    let domain = crate::domain::DomainHandle::require_embedded(
+        cli,
+        crate::mode::CliMode::Run,
+        "diagnostics",
+    )
+    .await?;
     let ctx = domain
         .api_context()
         .expect("embedded mode must have api_context");

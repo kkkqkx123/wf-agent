@@ -40,8 +40,8 @@ pub fn find_step(trace: &Trace, index: usize) -> Option<&StepRecord> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::TRACE_SCHEMA_V1;
     use crate::model::TraceKind;
+    use crate::model::TRACE_SCHEMA_V1;
     use std::collections::HashMap;
 
     fn step(index: usize, children: Vec<StepRecord>) -> StepRecord {

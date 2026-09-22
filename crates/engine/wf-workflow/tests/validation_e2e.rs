@@ -58,7 +58,11 @@ fn linear_graph() -> WorkflowGraphStructure {
 #[test]
 fn valid_linear_graph_passes_validation() {
     let validated = GraphValidator::validate(linear_graph());
-    assert!(validated.is_ok(), "valid graph must pass: {:?}", validated.err());
+    assert!(
+        validated.is_ok(),
+        "valid graph must pass: {:?}",
+        validated.err()
+    );
 }
 
 #[test]

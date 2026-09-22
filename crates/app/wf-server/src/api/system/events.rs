@@ -15,12 +15,15 @@ use serde::Deserialize;
 use wf_api::EventSubscriptionOptions;
 
 use crate::envelope::{err, error_response, ok, ApiError};
-use crate::extract::{ExecutionIdPath, IdPath};
+use crate::extract::{ExecutionIdPath, IdPath, ListQuery};
+use crate::paged::{fetch_size, ok_page, resolve_page};
 use crate::router::ApiState;
 use crate::sse::sse_response;
 
 /// Max concurrent SSE connections, default of 100.
 const MAX_SSE_CLIENTS: usize = 100;
+/// Max events pulled for one `GET /events` page (offset + limit + 1).
+const MAX_EVENT_FETCH: usize = 5000;
 static SSE_CLIENTS: AtomicUsize = AtomicUsize::new(0);
 
 /// Decrements the SSE client counter when the response body is dropped
@@ -75,25 +78,40 @@ pub(crate) fn routes() -> Router<ApiState> {
 
 #[derive(Deserialize)]
 struct ListEventsQuery {
+    #[serde(flatten)]
+    page: ListQuery,
     execution_id: Option<String>,
     agent_loop_id: Option<String>,
     workflow_id: Option<String>,
-    limit: Option<usize>,
 }
 
 async fn handle_list_events(
     State(state): State<ApiState>,
     Query(query): Query<ListEventsQuery>,
 ) -> impl IntoResponse {
+    let (limit, offset) = resolve_page(&query.page);
+    // `history` truncates to `limit` from the start, so deep pages must
+    // over-fetch past the offset; the fetch stays bounded.
+    let fetch = offset
+        .saturating_add(limit)
+        .saturating_add(1)
+        .min(MAX_EVENT_FETCH as u64) as usize;
     let options = wf_api::EventQueryOptions {
         execution_id: query.execution_id,
         agent_loop_id: query.agent_loop_id,
         workflow_id: query.workflow_id,
-        limit: query.limit,
+        limit: Some(fetch),
         event_types: None,
     };
     match wf_api::infra::events::history(&state.ctx, &options).await {
-        Ok(events) => ok(events).into_response(),
+        Ok(events) => {
+            let window = events
+                .into_iter()
+                .skip(offset as usize)
+                .take(fetch_size(limit) as usize)
+                .collect();
+            ok_page(window, limit, offset).into_response()
+        }
         Err(e) => error_response(e),
     }
 }
@@ -384,7 +402,8 @@ mod tests {
         let events = get(ctx.clone(), "/api/v1/events").await;
         assert_eq!(events.status(), axum::http::StatusCode::OK);
         let body = json_body(events).await;
-        assert_eq!(body["data"].as_array().unwrap().len(), 1);
+        assert_eq!(body["data"]["items"].as_array().unwrap().len(), 1);
+        assert_eq!(body["data"]["has_more"], false);
 
         let stats = get(ctx.clone(), "/api/v1/events/stats").await;
         assert_eq!(stats.status(), axum::http::StatusCode::OK);

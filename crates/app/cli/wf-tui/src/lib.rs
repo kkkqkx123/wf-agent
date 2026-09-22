@@ -5,9 +5,9 @@
 pub use wf_cli_shared::default_runtime_config;
 pub use wf_cli_shared::run as shared_run;
 pub use wf_cli_shared::{
-    app_config, args, cmd, domain, error, mode, output, remote, sanitize, turn, Cli,
-    CliError, CliResult, Command, DiagWriter, HeadlessFileSink, OutputEnvelope, OutputFormat,
-    OutputMessage, RunIo, RunOptions, RunOutcome, TeeSink,
+    app_config, args, cmd, domain, error, mode, output, remote, sanitize, turn, Cli, CliError,
+    CliResult, Command, DiagWriter, HeadlessFileSink, OutputEnvelope, OutputFormat, OutputMessage,
+    RunIo, RunOptions, RunOutcome, TeeSink,
 };
 
 // TUI-specific modules (ratatui-dependent).

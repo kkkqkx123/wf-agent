@@ -117,12 +117,15 @@ fn build_select_sql(
         // their numeric value and always come first, everything else (missing
         // keys and non-numeric values) sorts last in both directions. The
         // leading flag column emulates PostgreSQL's `NULLS LAST`; the
-        // trailing id keeps pagination deterministic on ties.
+        // trailing id follows the primary direction so ties resolve to
+        // creation order on both newest-first and oldest-first queries.
+        let direction = if descending { "DESC" } else { "ASC" };
         sql.push_str(&format!(
-            " ORDER BY (CASE WHEN {} THEN 0 ELSE 1 END) ASC, json_extract(metadata, '$.{}') {}, id ASC",
+            " ORDER BY (CASE WHEN {} THEN 0 ELSE 1 END) ASC, json_extract(metadata, '$.{}') {}, id {}",
             is_numeric_expr(&key),
             key,
-            if descending { "DESC" } else { "ASC" }
+            direction,
+            direction
         ));
     }
     if let Some(limit) = plan.as_ref().and_then(|p| p.limit) {

@@ -2,8 +2,8 @@
 //! the human approval handler is consulted end-to-end through the agent
 //! loop, denials surface as tool messages without executing the tool.
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 
 use wf_agent::approval::{ToolApprovalHandler, ToolApprovalRequest, ToolApprovalResult};
 use wf_agent::coordinator::lifecycle::AgentLoopCoordinator;
@@ -146,8 +146,10 @@ async fn default_without_handler_auto_approves_and_executes() {
     )]));
     mock.script(LlmResponseSpec::text("done"));
 
-    let coordinator =
-        AgentLoopCoordinator::new(gateway_with(mock), registry_with_counted_echo(counter.clone()));
+    let coordinator = AgentLoopCoordinator::new(
+        gateway_with(mock),
+        registry_with_counted_echo(counter.clone()),
+    );
     let output = coordinator.execute(config(), input("run")).await.unwrap();
     assert_eq!(output.result, serde_json::json!("done"));
     assert_eq!(counter.load(Ordering::SeqCst), 1);
@@ -185,7 +187,11 @@ async fn rejecting_handler_blocks_tool_without_execution() {
         "rejection reason surfaces in the tool message: {}",
         texts[0]
     );
-    assert!(texts[0].contains("echo"), "tool name surfaces: {}", texts[0]);
+    assert!(
+        texts[0].contains("echo"),
+        "tool name surfaces: {}",
+        texts[0]
+    );
 }
 
 #[tokio::test]

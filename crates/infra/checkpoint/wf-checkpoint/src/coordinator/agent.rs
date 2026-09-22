@@ -11,6 +11,8 @@ use checkpoint_base::delta::GenericDeltaRestorer;
 use checkpoint_base::error::CheckpointError;
 use checkpoint_base::metadata::builder::{
     build_checkpoint_metadata, trigger_description, trigger_tag, CHAIN_POSITION_FIELD,
+    ITERATION_FIELD, LOOP_STATUS_FIELD, MSG_SEQ_END_FIELD, MSG_SEQ_NEXT_FIELD, MSG_SEQ_START_FIELD,
+    TOOL_CALL_COUNT_FIELD,
 };
 use checkpoint_base::serializer::CheckpointSerializer;
 use checkpoint_base::strategy::CheckpointStrategy;
@@ -53,6 +55,54 @@ pub type TimelineRow = (
     Option<String>,
     Option<i64>,
 );
+
+/// Progress coordinates of a checkpoint: conversation sequence bounds plus
+/// loop progress counters, read from metadata without loading blobs. Equal
+/// coordinates mean no side effect landed since the recorded checkpoint.
+/// Rows predating the coordinate fields read as `None` and never compare
+/// equal to a fresh build, so dedup over old history is fail-open.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProgressCoords {
+    pub seq_start: Option<u64>,
+    pub seq_end: Option<u64>,
+    pub seq_next: Option<u64>,
+    pub iteration: Option<u64>,
+    pub tool_call_count: Option<u64>,
+    pub loop_status: Option<String>,
+}
+
+/// Progress coordinates from stored checkpoint metadata.
+pub fn progress_coords(meta: &CheckpointStorageMetadata) -> ProgressCoords {
+    let get = |key: &str| {
+        meta.custom_fields
+            .as_ref()
+            .and_then(|fields| fields.get(key))
+    };
+    ProgressCoords {
+        seq_start: get(MSG_SEQ_START_FIELD).and_then(|v| v.as_u64()),
+        seq_end: get(MSG_SEQ_END_FIELD).and_then(|v| v.as_u64()),
+        seq_next: get(MSG_SEQ_NEXT_FIELD).and_then(|v| v.as_u64()),
+        iteration: get(ITERATION_FIELD).and_then(|v| v.as_u64()),
+        tool_call_count: get(TOOL_CALL_COUNT_FIELD).and_then(|v| v.as_u64()),
+        loop_status: get(LOOP_STATUS_FIELD)
+            .and_then(|v| v.as_str())
+            .map(String::from),
+    }
+}
+
+/// Progress coordinates of a not-yet-persisted snapshot. Mirrors the
+/// coordinate fields `build` injects, so a seed or live snapshot can be
+/// compared against stored metadata before any blob is written.
+pub fn snapshot_progress_coords(snapshot: &AgentStateSnapshot) -> ProgressCoords {
+    ProgressCoords {
+        seq_start: snapshot.message_seq_start,
+        seq_end: snapshot.message_seq_end,
+        seq_next: snapshot.message_next_seq,
+        iteration: Some(snapshot.current_iteration as u64),
+        tool_call_count: Some(snapshot.tool_call_count as u64),
+        loop_status: Some(snapshot.status.clone()),
+    }
+}
 
 pub struct AgentCheckpointCoordinator {
     state_manager: AgentCheckpointStateManager,
@@ -548,14 +598,30 @@ impl CheckpointCoordinator for AgentCheckpointCoordinator {
             serde_json::json!(chain_position),
         );
         if let Some(start) = state.message_seq_start {
-            custom_fields.insert("msgSeqStart".to_string(), serde_json::json!(start));
+            custom_fields.insert(MSG_SEQ_START_FIELD.to_string(), serde_json::json!(start));
         }
         if let Some(end) = state.message_seq_end {
-            custom_fields.insert("msgSeqEnd".to_string(), serde_json::json!(end));
+            custom_fields.insert(MSG_SEQ_END_FIELD.to_string(), serde_json::json!(end));
         }
         if let Some(next) = state.message_next_seq {
-            custom_fields.insert("msgNextSeq".to_string(), serde_json::json!(next));
+            custom_fields.insert(MSG_SEQ_NEXT_FIELD.to_string(), serde_json::json!(next));
         }
+        // Progress coordinates: always present going forward so a repeat
+        // creation can detect "no side effect since latest" from metadata
+        // alone. Committed progress only — transient runtime flags
+        // (`is_streaming`, stream buffer, in-flight tool ids) are excluded.
+        custom_fields.insert(
+            ITERATION_FIELD.to_string(),
+            serde_json::json!(state.current_iteration),
+        );
+        custom_fields.insert(
+            TOOL_CALL_COUNT_FIELD.to_string(),
+            serde_json::json!(state.tool_call_count),
+        );
+        custom_fields.insert(
+            LOOP_STATUS_FIELD.to_string(),
+            serde_json::json!(state.status),
+        );
         let metadata = build_checkpoint_metadata(
             ctx.trigger.as_ref().map(trigger_description),
             ctx.trigger.as_ref().map(trigger_tag).into_iter().collect(),
@@ -934,6 +1000,50 @@ impl CheckpointCoordinator for AgentCheckpointCoordinator {
 }
 
 impl AgentCheckpointCoordinator {
+    /// Merge a repeat creation back into an existing checkpoint: overwrite
+    /// the caller-supplied text under `customFields.description` on the
+    /// stored blob without allocating a new row. The trigger label
+    /// (`metadata.description`) and every other field are untouched, and the
+    /// blob timestamp is preserved so chain order never shifts.
+    pub async fn merge_description_back(
+        &self,
+        checkpoint_id: &str,
+        entity_id: &str,
+        description: &str,
+    ) -> Result<CheckpointStorageMetadata, CheckpointError> {
+        let mut checkpoint = self
+            .state_manager
+            .load(checkpoint_id)
+            .await?
+            .ok_or_else(|| CheckpointError::NotFound {
+                id: checkpoint_id.to_string(),
+            })?;
+        let metadata = checkpoint.metadata.get_or_insert_default();
+        match metadata
+            .get_mut("customFields")
+            .and_then(|v| v.as_object_mut())
+        {
+            Some(custom) => {
+                custom.insert("description".to_string(), serde_json::json!(description));
+            }
+            None => {
+                metadata.insert(
+                    "customFields".to_string(),
+                    serde_json::json!({ "description": description }),
+                );
+            }
+        }
+        self.state_manager
+            .save(&checkpoint, "agent_loop", entity_id)
+            .await?;
+        self.state_manager
+            .load_metadata(checkpoint_id)
+            .await?
+            .ok_or_else(|| CheckpointError::NotFound {
+                id: checkpoint_id.to_string(),
+            })
+    }
+
     async fn find_base(
         &self,
         previous: &Option<CheckpointStorageMetadata>,
@@ -1121,6 +1231,74 @@ mod tests {
         let cp2 = coord.build(ctx2, snapshot2).await.unwrap();
         assert_eq!(cp2.r#type, Some(CheckpointType::Delta));
         assert!(cp2.delta.is_some());
+    }
+
+    #[tokio::test]
+    async fn progress_coords_survive_build_persist_round_trip() {
+        let coord = make_coordinator();
+        let snapshot = make_snapshot();
+        let ctx = coord
+            .prepare("loop-1", CheckpointTiming::Manual)
+            .await
+            .unwrap();
+        let cp = coord.build(ctx, snapshot.clone()).await.unwrap();
+        coord.persist(&cp, "loop-1").await.unwrap();
+
+        let latest = coord
+            .state_manager()
+            .get_latest("loop-1")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            progress_coords(&latest),
+            snapshot_progress_coords(&snapshot)
+        );
+    }
+
+    #[tokio::test]
+    async fn merge_description_back_rewrites_user_text_only() {
+        let coord = make_coordinator();
+        let mut ctx = coord
+            .prepare("loop-1", CheckpointTiming::Manual)
+            .await
+            .unwrap();
+        ctx.metadata
+            .get_or_insert_default()
+            .insert("description".to_string(), serde_json::json!("first"));
+        let cp = coord.build(ctx, make_snapshot()).await.unwrap();
+        coord.persist(&cp, "loop-1").await.unwrap();
+
+        let merged = coord
+            .merge_description_back(&cp.id, "loop-1", "second")
+            .await
+            .unwrap();
+        assert_eq!(merged.id, cp.id);
+        let stored = merged
+            .custom_fields
+            .as_ref()
+            .and_then(|fields| fields.get("description"))
+            .and_then(|v| v.as_str());
+        assert_eq!(stored, Some("second"));
+
+        // The trigger label is untouched by the merge.
+        let loaded = coord.state_manager().load(&cp.id).await.unwrap().unwrap();
+        let trigger_label = loaded
+            .metadata
+            .as_ref()
+            .and_then(|metadata| metadata.get("description"))
+            .and_then(|v| v.as_str());
+        assert_eq!(trigger_label, Some("Manual checkpoint"));
+
+        // Still a single row: the merge never allocates a checkpoint.
+        assert_eq!(
+            coord
+                .state_manager()
+                .count_by_entity("loop-1")
+                .await
+                .unwrap(),
+            1
+        );
     }
 
     async fn build_and_persist(

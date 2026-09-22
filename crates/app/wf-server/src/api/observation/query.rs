@@ -92,6 +92,8 @@ struct ExportBody {
     limit: Option<usize>,
     offset: Option<usize>,
     format: Option<ExportFormat>,
+    /// When true, answer as a file download instead of the JSON envelope.
+    download: Option<bool>,
 }
 
 async fn handle_export(
@@ -120,10 +122,36 @@ async fn handle_export(
     match result {
         Ok(records) => {
             let records = wf_api::apply_filter_expressions(&records, &body.expressions);
-            ok(export_to_format(&records, format)).into_response()
+            let payload = export_to_format(&records, format);
+            if body.download.unwrap_or(false) {
+                download_response(&payload, format)
+            } else {
+                ok(payload).into_response()
+            }
         }
         Err(e) => error_response(e),
     }
+}
+
+/// Render an export payload as a file download (`Content-Disposition:
+/// attachment`) so browsers save it instead of displaying JSON.
+fn download_response(payload: &str, format: ExportFormat) -> axum::response::Response {
+    use axum::http::header;
+    let (content_type, filename) = match format {
+        ExportFormat::Csv => ("text/csv; charset=utf-8", "export.csv"),
+        ExportFormat::Xml => ("application/xml", "export.xml"),
+        ExportFormat::Json => ("application/json", "export.json"),
+    };
+    let mut response = payload.to_owned().into_response();
+    let headers = response.headers_mut();
+    if let Ok(value) = content_type.parse::<header::HeaderValue>() {
+        headers.insert(header::CONTENT_TYPE, value);
+    }
+    if let Ok(value) = format!("attachment; filename=\"{filename}\"").parse::<header::HeaderValue>()
+    {
+        headers.insert(header::CONTENT_DISPOSITION, value);
+    }
+    response
 }
 
 #[derive(Deserialize)]

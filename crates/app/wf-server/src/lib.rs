@@ -1,12 +1,15 @@
 pub mod api;
+pub mod contract;
 pub mod envelope;
 pub mod extract;
 pub mod metrics;
 pub mod middleware;
+pub mod paged;
 pub mod router;
 pub mod server;
 pub mod server_config;
 pub mod sse;
+pub mod static_files;
 pub mod ws;
 
 pub use api::system::health::HealthView;

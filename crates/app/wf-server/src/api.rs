@@ -6,4 +6,5 @@ pub mod observation;
 pub mod system;
 pub mod template;
 pub mod trigger;
+pub mod web;
 pub mod workflow;

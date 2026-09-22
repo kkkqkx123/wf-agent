@@ -47,9 +47,7 @@ fn registry_with_echo() -> Arc<ToolRegistry> {
     registry
 }
 
-fn counting_registry(
-    runs: Arc<std::sync::atomic::AtomicUsize>,
-) -> Arc<ToolRegistry> {
+fn counting_registry(runs: Arc<std::sync::atomic::AtomicUsize>) -> Arc<ToolRegistry> {
     use std::sync::atomic::Ordering;
 
     let registry = Arc::new(ToolRegistry::new());

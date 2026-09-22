@@ -10,7 +10,8 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use crate::envelope::{error_response, ok};
-use crate::extract::{DefIdPath, IdPath};
+use crate::extract::{DefIdPath, IdPath, ListQuery};
+use crate::paged::{fetch_size, ok_page, resolve_page};
 use crate::router::ApiState;
 pub(crate) fn routes() -> Router<ApiState> {
     Router::new()
@@ -60,6 +61,8 @@ pub(crate) fn routes() -> Router<ApiState> {
 
 #[derive(Deserialize)]
 struct AgentExecutionsQuery {
+    #[serde(flatten)]
+    page: ListQuery,
     status: Option<String>,
     agent_id: Option<String>,
 }
@@ -68,6 +71,7 @@ async fn handle_agent_executions(
     State(state): State<ApiState>,
     Query(query): Query<AgentExecutionsQuery>,
 ) -> impl IntoResponse {
+    let (limit, offset) = resolve_page(&query.page);
     let filter = wf_api::AgentExecutionFilter {
         status: query
             .status
@@ -77,7 +81,14 @@ async fn handle_agent_executions(
         parent_execution_id: None,
     };
     match wf_api::agent::agent_execution_registry::summaries(&state.ctx, Some(&filter)).await {
-        Ok(summaries) => ok(summaries).into_response(),
+        Ok(summaries) => {
+            let window = summaries
+                .into_iter()
+                .skip(offset as usize)
+                .take(fetch_size(limit) as usize)
+                .collect();
+            ok_page(window, limit, offset).into_response()
+        }
         Err(e) => error_response(e),
     }
 }

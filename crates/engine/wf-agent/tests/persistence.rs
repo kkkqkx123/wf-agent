@@ -38,7 +38,10 @@ async fn completed_run_persists_iterations_and_tool_calls() {
     assert_eq!(history.len(), 1);
     assert_eq!(history[0].iteration, 1);
     assert_eq!(history[0].response_content.as_deref(), Some("final"));
-    let calls = history[0].tool_calls.as_ref().expect("tool calls persisted");
+    let calls = history[0]
+        .tool_calls
+        .as_ref()
+        .expect("tool calls persisted");
     assert_eq!(calls.len(), 1);
     assert_eq!(calls[0].id, "call_1");
     assert_eq!(calls[0].name, "echo");

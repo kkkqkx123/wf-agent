@@ -12,6 +12,7 @@ use wf_api::MessageListOptions;
 
 use crate::envelope::{error_response, ok};
 use crate::extract::{ExecutionIdPath, IdPath, ListQuery};
+use crate::paged::{fetch_size, ok_page, resolve_page};
 use crate::router::ApiState;
 pub(crate) fn routes() -> Router<ApiState> {
     Router::new()
@@ -51,16 +52,17 @@ async fn handle_list_messages(
     State(state): State<ApiState>,
     Query(query): Query<ListMessagesQuery>,
 ) -> impl IntoResponse {
+    let (limit, offset) = resolve_page(&query.page);
     let options = MessageListOptions {
-        offset: query.page.offset,
-        limit: query.page.limit,
+        offset: Some(offset),
+        limit: Some(fetch_size(limit)),
         before_timestamp: None,
         execution_id_filter: query.execution_id,
         agent_loop_id_filter: query.agent_loop_id,
         role_filter: query.role,
     };
     match wf_api::entity::message::list(&state.ctx, &options).await {
-        Ok(messages) => ok(messages).into_response(),
+        Ok(messages) => ok_page(messages, limit, offset).into_response(),
         Err(e) => error_response(e),
     }
 }

@@ -14,7 +14,7 @@
 //! the API surface.
 
 use std::net::SocketAddr;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
@@ -26,6 +26,9 @@ pub const DEFAULT_BIND_ADDR: &str = "127.0.0.1:3000";
 /// Environment variable overriding the listen address.
 pub const BIND_ADDR_ENV_VAR: &str = "WF_SERVER_BIND_ADDR";
 
+/// Environment variable pointing at the web frontend build to serve.
+pub const STATIC_DIR_ENV_VAR: &str = "WF_SERVER_STATIC_DIR";
+
 /// File name of the server transport config inside the server directory
 /// (`{project_root}/configs/server/server.toml`).
 pub const SERVER_CONFIG_FILE: &str = "server.toml";
@@ -35,6 +38,9 @@ pub const SERVER_CONFIG_FILE: &str = "server.toml";
 pub struct ServerConfig {
     pub bind_addr: SocketAddr,
     pub middleware: ServerMiddlewareConfig,
+    /// Web frontend build directory served with SPA fallback; `None`
+    /// disables static hosting (API-only mode).
+    pub static_dir: Option<PathBuf>,
 }
 
 impl Default for ServerConfig {
@@ -42,6 +48,7 @@ impl Default for ServerConfig {
         Self {
             bind_addr: default_bind_addr(),
             middleware: ServerMiddlewareConfig::default(),
+            static_dir: None,
         }
     }
 }
@@ -49,13 +56,18 @@ impl Default for ServerConfig {
 impl ServerConfig {
     /// Resolve the effective server configuration from CLI flag, environment,
     /// file layer and defaults, in that priority order.
-    pub fn resolve(project_root: Option<&Path>, cli_addr: Option<SocketAddr>) -> Self {
+    pub fn resolve(
+        project_root: Option<&Path>,
+        cli_addr: Option<SocketAddr>,
+        cli_static_dir: Option<PathBuf>,
+    ) -> Self {
         let server_dir = project_root
             .map(|root| wf_config::layout::family_dir(root, wf_config::layout::family::SERVER));
 
         let config = Self {
             bind_addr: Self::resolve_bind_addr(server_dir.as_deref(), cli_addr),
             middleware: ServerMiddlewareConfig::resolve(server_dir.as_deref()),
+            static_dir: Self::resolve_static_dir(server_dir.as_deref(), cli_static_dir),
         };
         config
     }
@@ -79,6 +91,26 @@ impl ServerConfig {
         }
         default_bind_addr()
     }
+
+    fn resolve_static_dir(
+        server_dir: Option<&Path>,
+        cli_static_dir: Option<PathBuf>,
+    ) -> Option<PathBuf> {
+        if let Some(dir) = cli_static_dir {
+            return Some(dir);
+        }
+        if let Ok(raw) = std::env::var(STATIC_DIR_ENV_VAR) {
+            if !raw.trim().is_empty() {
+                return Some(PathBuf::from(raw));
+            }
+        }
+        if let Some(dir) = server_dir {
+            if let Some(raw) = load_static_dir_from_file(&dir.join(SERVER_CONFIG_FILE)) {
+                return Some(PathBuf::from(raw));
+            }
+        }
+        None
+    }
 }
 
 fn default_bind_addr() -> SocketAddr {
@@ -90,6 +122,7 @@ fn default_bind_addr() -> SocketAddr {
 #[derive(Debug, Clone, Default, Deserialize)]
 struct ServerFileConfig {
     bind_addr: Option<String>,
+    static_dir: Option<String>,
 }
 
 fn load_bind_addr_from_file(path: &Path) -> Option<SocketAddr> {
@@ -115,6 +148,20 @@ fn load_bind_addr_from_file(path: &Path) -> Option<SocketAddr> {
     }
 }
 
+fn load_static_dir_from_file(path: &Path) -> Option<String> {
+    if !path.exists() {
+        return None;
+    }
+    let config: ServerFileConfig = match wf_config::layered::load_layered_config_sync(&[path]) {
+        Ok(config) => config,
+        Err(e) => {
+            tracing::warn!(error = %e, path = %path.display(), "invalid server config file; ignoring");
+            return None;
+        }
+    };
+    config.static_dir.filter(|raw| !raw.trim().is_empty())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -132,7 +179,7 @@ mod tests {
     #[test]
     fn cli_addr_wins_over_everything() {
         let cli: SocketAddr = "127.0.0.1:8080".parse().unwrap();
-        let config = ServerConfig::resolve(None, Some(cli));
+        let config = ServerConfig::resolve(None, Some(cli), None);
         assert_eq!(config.bind_addr, cli);
     }
 
@@ -145,7 +192,7 @@ mod tests {
             "bind_addr = \"127.0.0.1:4000\"\n",
         )
         .unwrap();
-        let config = ServerConfig::resolve(Some(dir.path()), None);
+        let config = ServerConfig::resolve(Some(dir.path()), None, None);
         assert_eq!(config.bind_addr.to_string(), "127.0.0.1:4000");
     }
 
@@ -158,7 +205,7 @@ mod tests {
             "bind_addr = \"not-an-addr\"\n",
         )
         .unwrap();
-        let config = ServerConfig::resolve(Some(dir.path()), None);
+        let config = ServerConfig::resolve(Some(dir.path()), None, None);
         assert_eq!(config.bind_addr.to_string(), DEFAULT_BIND_ADDR);
     }
 
@@ -171,10 +218,31 @@ mod tests {
             "allowed_origins = [\"https://app.example.com\"]\n",
         )
         .unwrap();
-        let config = ServerConfig::resolve(Some(dir.path()), None);
+        let config = ServerConfig::resolve(Some(dir.path()), None, None);
         assert_eq!(
             config.middleware.cors.allowed_origins,
             vec!["https://app.example.com".to_string()]
         );
+    }
+
+    #[test]
+    fn static_dir_defaults_to_none_and_cli_wins() {
+        let config = ServerConfig::resolve(None, None, None);
+        assert_eq!(config.static_dir, None);
+        let config = ServerConfig::resolve(None, None, Some(PathBuf::from("web/dist")));
+        assert_eq!(config.static_dir, Some(PathBuf::from("web/dist")));
+    }
+
+    #[test]
+    fn file_layer_provides_static_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(server_dir(dir.path())).unwrap();
+        std::fs::write(
+            server_dir(dir.path()).join(SERVER_CONFIG_FILE),
+            "static_dir = \"web/dist\"\n",
+        )
+        .unwrap();
+        let config = ServerConfig::resolve(Some(dir.path()), None, None);
+        assert_eq!(config.static_dir, Some(PathBuf::from("web/dist")));
     }
 }

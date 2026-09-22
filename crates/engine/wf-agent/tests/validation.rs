@@ -3,8 +3,8 @@
 
 use std::sync::Arc;
 
-use wf_agent::validation::{AgentLoopValidator, ValidationSeverity};
 use wf_agent::executor::AgentLoopExecutor;
+use wf_agent::validation::{AgentLoopValidator, ValidationSeverity};
 use wf_llm::{LlmGateway, LlmResponseSpec, MockLlmClient};
 use wf_tools::callback::{AgentLoopConfig, AgentLoopInput, HookConfig};
 use wf_tools::registry::ToolRegistry;
@@ -78,8 +78,9 @@ fn unknown_tool_is_rejected() {
         ..base_config()
     };
     let issues = AgentLoopValidator::validate_config(&cfg, &registry);
-    assert!(issues.iter().any(|i| i.field == "available_tool_names"
-        && i.severity == ValidationSeverity::Error));
+    assert!(issues
+        .iter()
+        .any(|i| i.field == "available_tool_names" && i.severity == ValidationSeverity::Error));
 }
 
 #[test]
@@ -97,10 +98,11 @@ fn zero_iterations_rejected_and_over_cap_rejected() {
         max_iterations: Some(10),
         ..base_config()
     };
-    assert!(AgentLoopValidator::validate_config_with_cap(&over, &registry, 5)
-        .iter()
-        .any(|i| i.field == "max_iterations"
-            && i.severity == ValidationSeverity::Error));
+    assert!(
+        AgentLoopValidator::validate_config_with_cap(&over, &registry, 5)
+            .iter()
+            .any(|i| i.field == "max_iterations" && i.severity == ValidationSeverity::Error)
+    );
 }
 
 #[test]

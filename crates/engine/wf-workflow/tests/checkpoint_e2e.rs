@@ -16,9 +16,7 @@ use wf_types::workflow_execution::{
 };
 use wf_workflow::coordinator::WorkflowExecutionParams;
 use wf_workflow::handler::NodeHandler;
-use wf_workflow::{
-    HandlerRegistry, NodeCheckpointStrategy, WorkflowLifecycleCoordinator,
-};
+use wf_workflow::{HandlerRegistry, NodeCheckpointStrategy, WorkflowLifecycleCoordinator};
 
 struct CountingScript {
     count: Arc<std::sync::Mutex<u32>>,
@@ -151,7 +149,11 @@ async fn checkpoint_pause_and_resume_completes_linear_workflow() {
         .await
         .expect("resume must complete the workflow");
     assert_eq!(resumed.execution_id, "exec-checkpoint-linear");
-    assert_eq!(*count.lock().unwrap(), 1, "body ran exactly once across resume");
+    assert_eq!(
+        *count.lock().unwrap(),
+        1,
+        "body ran exactly once across resume"
+    );
 }
 
 #[tokio::test]

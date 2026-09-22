@@ -97,8 +97,6 @@ impl Default for AuthConfig {
                 "/health".to_string(),
                 "/api/v1/info".to_string(),
                 "/".to_string(),
-                "/api/v1/ws".to_string(),
-                "/api/v1/events/stream".to_string(),
             ],
         }
     }
@@ -155,8 +153,6 @@ impl Default for RateLimitConfig {
                 "/health".to_string(),
                 "/api/v1/info".to_string(),
                 "/".to_string(),
-                "/api/v1/ws".to_string(),
-                "/api/v1/events/stream".to_string(),
             ],
         }
     }
@@ -180,7 +176,11 @@ impl Default for CorsConfig {
                 "DELETE".to_string(),
                 "OPTIONS".to_string(),
             ],
-            allowed_headers: vec!["Content-Type".to_string(), "Authorization".to_string()],
+            allowed_headers: vec![
+                "Content-Type".to_string(),
+                "Authorization".to_string(),
+                "x-api-key".to_string(),
+            ],
         }
     }
 }
@@ -494,6 +494,13 @@ fn apply_cors_headers(
     }
     if let Ok(value) = header::HeaderValue::from_str(&headers_list) {
         headers.insert(header::ACCESS_CONTROL_ALLOW_HEADERS, value);
+    }
+    // Rate-limit state is browser-readable so web clients can back off
+    // before hitting 429.
+    if let Ok(value) = header::HeaderValue::from_str(
+        "x-ratelimit-limit,x-ratelimit-remaining,x-ratelimit-reset,retry-after",
+    ) {
+        headers.insert(header::ACCESS_CONTROL_EXPOSE_HEADERS, value);
     }
 }
 
@@ -842,5 +849,63 @@ mod tests {
     #[test]
     fn percent_decode_handles_encoded_keys() {
         assert_eq!(percent_decode("a%20b%2Bc"), "a b+c");
+    }
+
+    #[tokio::test]
+    async fn realtime_paths_are_guarded_when_auth_enabled() {
+        let mut config = ServerMiddlewareConfig::default();
+        config.auth.enabled = true;
+        config.auth.api_keys = vec!["secret".to_string()];
+        let app = apply(
+            Router::new().route("/api/v1/ws", get(|| async { "ws" })),
+            Arc::new(config),
+        );
+        let denied = app
+            .clone()
+            .oneshot(request("GET", "/api/v1/ws"))
+            .await
+            .unwrap();
+        assert_eq!(denied.status(), StatusCode::UNAUTHORIZED);
+
+        let allowed = app
+            .clone()
+            .oneshot(request("GET", "/api/v1/ws?api_key=secret"))
+            .await
+            .unwrap();
+        assert_eq!(allowed.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn cors_allows_api_key_header_and_exposes_ratelimit() {
+        let app = test_router(ServerMiddlewareConfig::default());
+        let preflight = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("OPTIONS")
+                    .uri("/hello")
+                    .header("Origin", "http://allowed.test")
+                    .body(AxBody::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let allow_headers = preflight
+            .headers()
+            .get(header::ACCESS_CONTROL_ALLOW_HEADERS)
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .to_owned();
+        assert!(
+            allow_headers.contains("x-api-key"),
+            "browser header auth must pass preflight: {allow_headers}"
+        );
+        assert!(
+            preflight
+                .headers()
+                .contains_key(header::ACCESS_CONTROL_EXPOSE_HEADERS),
+            "ratelimit headers must be browser-readable"
+        );
     }
 }

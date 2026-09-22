@@ -109,6 +109,11 @@ async fn handle_search(
     State(state): State<ApiState>,
     Query(query): Query<SearchQuery>,
 ) -> impl IntoResponse {
+    if query.q.trim().is_empty() {
+        return error_response(wf_api::ApiError::Validation(
+            "q must not be blank".to_string(),
+        ));
+    }
     let types = query
         .types
         .as_deref()

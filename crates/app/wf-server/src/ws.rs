@@ -1,22 +1,31 @@
-//! WebSocket endpoint `GET /api/v1/ws`: real-time execution event streaming
-//! over one connection with per-execution subscriptions.
+//! WebSocket endpoint `GET /api/v1/ws`: real-time event streaming over one
+//! connection with per-dimension subscriptions.
 //!
 //! - Server → client: `connection` (welcome), `execution_event`,
-//!   `subscribed`, `unsubscribed`, `pong`, `error`
+//!   `agent_loop_event`, `workflow_event`, `subscribed`, `unsubscribed`,
+//!   `pong`, `error`
 //! - Client → server: `subscribe`, `unsubscribe`, `ping` (JSON text frames)
+//!
+//! `subscribe` takes one of `executionId`, `agentLoopId` or `workflowId`;
+//! event payloads carry metadata only (fetch details over REST). The server
+//! also sends protocol `Ping` frames every 30s so intermediaries keep the
+//! connection alive.
 //!
 //! Each connection owns an outbound mpsc channel; every subscription spawns a
 //! forwarder task on `wf_api::infra::events::subscribe` that exits when the
 //! execution reaches a terminal event (the event subscription closes itself),
 //! notifying the connection loop so the subscription is removed. Closing the
 //! connection aborts all forwarder tasks. Auth: the connection is checked
-//! against the auth config using the `api_key` query parameter (the auth
-//! middleware excludes `/api/v1/ws`).
+//! against the auth config using the `api_key` query parameter (browsers
+//! cannot set WebSocket headers, so the header path is unavailable here);
+//! `/api/v1/ws` is subject to the same auth and rate-limit gates as the REST
+//! surface.
 
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 
-use axum::body::Body;
+use axum::body::{Body, Bytes};
 use axum::extract::ws::{CloseFrame, Message, WebSocket, WebSocketUpgrade};
 use axum::extract::State;
 use axum::http::Request;
@@ -32,6 +41,9 @@ use wf_api::{ApiContext, EventSubscriptionOptions};
 
 use crate::middleware::AuthConfig;
 use crate::router::ApiState;
+
+/// Interval between protocol `Ping` frames keeping the connection alive.
+const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(30);
 
 /// Messages flowing from subscription forwarder tasks to the connection loop.
 enum Outbound {
@@ -87,9 +99,17 @@ async fn handle_socket(socket: WebSocket, state: ApiState, request: Request<Body
     tracing::debug!(target: "wf_server", %client_id, "websocket client connected");
 
     let mut subscriptions: HashMap<String, tokio::task::JoinHandle<()>> = HashMap::new();
+    let mut heartbeat = tokio::time::interval(HEARTBEAT_INTERVAL);
+    // Skip the immediate first tick; heartbeats start after one interval.
+    heartbeat.tick().await;
 
     loop {
         tokio::select! {
+            _ = heartbeat.tick() => {
+                if sender.send(Message::Ping(Bytes::new())).await.is_err() {
+                    break;
+                }
+            }
             incoming = receiver.next() => {
                 match incoming {
                     Some(Ok(Message::Text(text))) => {
@@ -126,11 +146,58 @@ async fn handle_socket(socket: WebSocket, state: ApiState, request: Request<Body
         }
     }
 
-    for (execution_id, handle) in subscriptions {
+    for (key, handle) in subscriptions {
         handle.abort();
-        tracing::debug!(target: "wf_server", %client_id, %execution_id, "websocket subscription aborted");
+        tracing::debug!(target: "wf_server", %client_id, %key, "websocket subscription aborted");
     }
     tracing::debug!(target: "wf_server", %client_id, "websocket client disconnected");
+}
+
+/// One subscribable dimension: the map key, the event filter, the id field
+/// echoed in payloads and the payload type name.
+struct SubscriptionTarget {
+    key: String,
+    options: EventSubscriptionOptions,
+    id_field: &'static str,
+    id_value: String,
+    event_type: &'static str,
+}
+
+fn subscription_target(message: &Value) -> Option<SubscriptionTarget> {
+    if let Some(id) = message["executionId"].as_str() {
+        return Some(SubscriptionTarget {
+            key: format!("exec:{id}"),
+            options: EventSubscriptionOptions::for_execution(id),
+            id_field: "executionId",
+            id_value: id.to_string(),
+            event_type: "execution_event",
+        });
+    }
+    if let Some(id) = message["agentLoopId"].as_str() {
+        return Some(SubscriptionTarget {
+            key: format!("loop:{id}"),
+            options: EventSubscriptionOptions {
+                agent_loop_id: Some(id.to_string()),
+                ..Default::default()
+            },
+            id_field: "agentLoopId",
+            id_value: id.to_string(),
+            event_type: "agent_loop_event",
+        });
+    }
+    if let Some(id) = message["workflowId"].as_str() {
+        return Some(SubscriptionTarget {
+            key: format!("flow:{id}"),
+            options: EventSubscriptionOptions {
+                workflow_id: Some(id.to_string()),
+                ..Default::default()
+            },
+            id_field: "workflowId",
+            id_value: id.to_string(),
+            event_type: "workflow_event",
+        });
+    }
+    None
 }
 
 async fn handle_incoming(
@@ -149,55 +216,66 @@ async fn handle_incoming(
     };
 
     let message_type = message["type"].as_str().unwrap_or_default();
-    let execution_id = message["executionId"].as_str().map(ToOwned::to_owned);
 
     match message_type {
-        "subscribe" => match execution_id {
-            Some(execution_id) => {
-                if subscriptions.contains_key(&execution_id) {
-                    send_error(
-                        out_tx,
-                        format!("Already subscribed to execution [{execution_id}]"),
-                    )
-                    .await;
+        "subscribe" => match subscription_target(&message) {
+            Some(target) => {
+                if subscriptions.contains_key(&target.key) {
+                    send_error(out_tx, format!("Already subscribed to [{}]", target.key)).await;
                     return;
                 }
                 let handle = tokio::spawn(forward_events(
                     Arc::clone(ctx),
-                    execution_id.clone(),
+                    target.options,
+                    target.key.clone(),
+                    target.id_field,
+                    target.id_value.clone(),
+                    target.event_type,
                     out_tx.clone(),
                 ));
-                subscriptions.insert(execution_id.clone(), handle);
+                subscriptions.insert(target.key.clone(), handle);
                 send_text(
                     out_tx,
                     &json!({
                         "type": "subscribed",
-                        "data": { "executionId": execution_id },
+                        "data": id_payload(target.id_field, &target.id_value),
                         "timestamp": timestamp_to_iso(now())
                     }),
                 )
                 .await;
-                tracing::debug!(target: "wf_server", %client_id, %execution_id, "websocket subscribed");
+                tracing::debug!(target: "wf_server", %client_id, key = %target.key, "websocket subscribed");
             }
-            None => send_error(out_tx, "subscribe requires an executionId").await,
+            None => {
+                send_error(
+                    out_tx,
+                    "subscribe requires one of executionId, agentLoopId, workflowId",
+                )
+                .await;
+            }
         },
-        "unsubscribe" => match execution_id {
-            Some(execution_id) => {
-                if let Some(handle) = subscriptions.remove(&execution_id) {
+        "unsubscribe" => match subscription_target(&message) {
+            Some(target) => {
+                if let Some(handle) = subscriptions.remove(&target.key) {
                     handle.abort();
                 }
                 send_text(
                     out_tx,
                     &json!({
                         "type": "unsubscribed",
-                        "data": { "executionId": execution_id },
+                        "data": id_payload(target.id_field, &target.id_value),
                         "timestamp": timestamp_to_iso(now())
                     }),
                 )
                 .await;
-                tracing::debug!(target: "wf_server", %client_id, %execution_id, "websocket unsubscribed");
+                tracing::debug!(target: "wf_server", %client_id, key = %target.key, "websocket unsubscribed");
             }
-            None => send_error(out_tx, "unsubscribe requires an executionId").await,
+            None => {
+                send_error(
+                    out_tx,
+                    "unsubscribe requires one of executionId, agentLoopId, workflowId",
+                )
+                .await;
+            }
         },
         "ping" => {
             send_text(
@@ -216,35 +294,55 @@ async fn handle_incoming(
     }
 }
 
-/// Forward matching execution events until the subscription closes (terminal
-/// event), then report the removal to the connection loop.
+/// Forward matching events until the subscription closes (terminal event),
+/// then report the removal to the connection loop.
 async fn forward_events(
     ctx: Arc<ApiContext>,
-    execution_id: String,
+    options: EventSubscriptionOptions,
+    key: String,
+    id_field: &'static str,
+    id_value: String,
+    event_type: &'static str,
     out_tx: mpsc::Sender<Outbound>,
 ) {
-    let mut sub = subscribe(&ctx, EventSubscriptionOptions::for_execution(&execution_id));
+    let mut sub = subscribe(&ctx, options);
     while let Some(event) = sub.next().await {
-        let payload = json!({
-            "type": "execution_event",
-            "executionId": execution_id,
-            "eventType": event.r#type.as_str(),
-            "data": event
+        let mut payload = serde_json::Map::with_capacity(5);
+        payload.insert("type".to_string(), Value::String(event_type.to_string()));
+        payload.insert(id_field.to_string(), Value::String(id_value.clone()));
+        payload.insert(
+            "eventType".to_string(),
+            Value::String(event.r#type.as_str().to_string()),
+        );
+        payload.insert(
+            "data".to_string(),
+            event
                 .metadata
                 .clone()
                 .map(|m| Value::Object(m.into_iter().collect()))
                 .unwrap_or_else(|| json!({})),
-            "timestamp": event.timestamp
-        });
+        );
+        payload.insert(
+            "timestamp".to_string(),
+            Value::Number(event.timestamp.into()),
+        );
         if out_tx
-            .send(Outbound::Text(payload.to_string()))
+            .send(Outbound::Text(Value::Object(payload).to_string()))
             .await
             .is_err()
         {
             return;
         }
     }
-    let _ = out_tx.send(Outbound::SubEnded(execution_id)).await;
+    let _ = out_tx.send(Outbound::SubEnded(key)).await;
+}
+
+/// Build the `data` object echoing the subscribed dimension id. `json!`
+/// cannot use variable keys, hence the explicit map.
+fn id_payload(id_field: &str, id_value: &str) -> Value {
+    let mut map = serde_json::Map::with_capacity(1);
+    map.insert(id_field.to_string(), Value::String(id_value.to_string()));
+    Value::Object(map)
 }
 
 async fn send_text(tx: &mpsc::Sender<Outbound>, payload: &Value) {
@@ -263,21 +361,30 @@ async fn send_error(tx: &mpsc::Sender<Outbound>, message: impl Into<String>) {
     .await;
 }
 
-/// API-key authentication via the `api_key` query parameter. No-op when
-/// auth is disabled.
+/// API-key authentication via header or the `api_key` query parameter.
+/// No-op when auth is disabled. Mirrors the HTTP middleware (which also
+/// gates this path); the query fallback exists because browsers cannot set
+/// WebSocket headers.
 fn authenticate_connection(auth: &AuthConfig, request: &Request<Body>) -> Result<(), String> {
     if !auth.enabled {
         return Ok(());
     }
-    let key = if auth.allow_query_param {
-        crate::middleware::query_param(request.uri(), &auth.query_param_name)
-    } else {
-        None
-    };
+    let key = request
+        .headers()
+        .get(&auth.header_name)
+        .and_then(|v| v.to_str().ok())
+        .map(ToOwned::to_owned)
+        .or_else(|| {
+            if auth.allow_query_param {
+                crate::middleware::query_param(request.uri(), &auth.query_param_name)
+            } else {
+                None
+            }
+        });
     match key {
         None => Err(format!(
-            "Authentication required. Provide API key via ?{}={} query parameter.",
-            auth.query_param_name, "<key>"
+            "Authentication required. Provide API key via {} header or ?{}=<key> query parameter.",
+            auth.header_name, auth.query_param_name
         )),
         Some(key) if !auth.api_keys.iter().any(|k| k == &key) => {
             Err("Invalid API key.".to_string())
@@ -456,6 +563,48 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn ws_agent_loop_subscription() {
+        let ctx = make_ctx();
+        let handle = start_server(ctx.clone()).await;
+
+        let mut socket = connect(handle.addr(), "").await.expect("ws connect");
+        let _welcome = read_text(&mut socket).await;
+
+        socket
+            .send(WsMessage::Text(
+                r#"{"type":"subscribe","agentLoopId":"loop-ws-1"}"#.into(),
+            ))
+            .await
+            .unwrap();
+        let subscribed = read_text(&mut socket).await;
+        let subscribed: Value = serde_json::from_str(&subscribed).unwrap();
+        assert_eq!(subscribed["type"], "subscribed");
+        assert_eq!(subscribed["data"]["agentLoopId"], "loop-ws-1");
+
+        let mut event = make_event("exec-ws-loop", wf_types::events::EventType::NodeStarted);
+        event.agent_loop_id = Some("loop-ws-1".to_string());
+        wf_api::infra::events::dispatch(&ctx, event).await.unwrap();
+        let event_msg = read_text(&mut socket).await;
+        let event_msg: Value = serde_json::from_str(&event_msg).unwrap();
+        assert_eq!(event_msg["type"], "agent_loop_event");
+        assert_eq!(event_msg["agentLoopId"], "loop-ws-1");
+        assert_eq!(event_msg["eventType"], "NODE_STARTED");
+
+        socket
+            .send(WsMessage::Text(
+                r#"{"type":"unsubscribe","agentLoopId":"loop-ws-1"}"#.into(),
+            ))
+            .await
+            .unwrap();
+        let unsubscribed = read_text(&mut socket).await;
+        let unsubscribed: Value = serde_json::from_str(&unsubscribed).unwrap();
+        assert_eq!(unsubscribed["type"], "unsubscribed");
+
+        socket.close(None).await.unwrap();
+        handle.shutdown().await;
+    }
+
+    #[tokio::test]
     async fn ws_rejects_invalid_messages() {
         let ctx = make_ctx();
         let handle = start_server(ctx.clone()).await;
@@ -512,20 +661,22 @@ mod tests {
         let _welcome = read_text(&mut socket).await;
         socket.close(None).await.unwrap();
 
-        let mut socket = connect(handle.addr(), "")
-            .await
-            .expect("handshake should complete");
-        match socket.next().await {
-            Some(Ok(WsMessage::Close(Some(frame)))) => {
-                assert_eq!(
-                    frame.code,
-                    tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode::Library(
-                        4001
-                    ),
-                    "rejection must use close code 4001"
-                );
+        // Without a key the path is guarded twice: the HTTP middleware
+        // rejects the upgrade (handshake fails) or the WS handler closes
+        // with 4001. Either outcome proves the guard.
+        if let Ok(mut socket) = connect(handle.addr(), "").await {
+            match socket.next().await {
+                Some(Ok(WsMessage::Close(Some(frame)))) => {
+                    assert_eq!(
+                        frame.code,
+                        tokio_tungstenite::tungstenite::protocol::frame::coding::CloseCode::Library(
+                            4001
+                        ),
+                        "rejection must use close code 4001"
+                    );
+                }
+                other => panic!("expected close frame with code 4001, got {other:?}"),
             }
-            other => panic!("expected close frame with code 4001, got {other:?}"),
         }
         handle.shutdown().await;
     }

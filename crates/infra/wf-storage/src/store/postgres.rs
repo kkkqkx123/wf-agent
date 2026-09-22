@@ -358,12 +358,15 @@ fn build_select_sql(
         // numeric value, everything else falls back to NULL (excluded from
         // numeric comparison) so a cast can never fail the query. NULLS LAST
         // keeps the direction predictable for both ASC and DESC; the trailing
-        // id keeps pagination deterministic on ties.
+        // id follows the primary direction so ties resolve to creation order
+        // on both newest-first and oldest-first queries.
+        let direction = if descending { "DESC" } else { "ASC" };
         sql.push_str(&format!(
-            " ORDER BY (CASE WHEN jsonb_typeof(metadata->'{}') = 'number' THEN (metadata->>'{}')::float8 END) {} NULLS LAST, id ASC",
+            " ORDER BY (CASE WHEN jsonb_typeof(metadata->'{}') = 'number' THEN (metadata->>'{}')::float8 END) {} NULLS LAST, id {}",
             key,
             key,
-            if descending { "DESC" } else { "ASC" }
+            direction,
+            direction
         ));
     }
     if let Some(limit) = plan.as_ref().and_then(|p| p.limit) {
@@ -861,9 +864,17 @@ mod tests {
         // Ordering must fall back safely instead of casting blindly.
         assert!(sql.contains("CASE WHEN jsonb_typeof"));
         assert!(sql.contains("NULLS LAST"));
-        // The id tie-break keeps pagination deterministic on ties.
-        assert!(sql.contains(", id ASC"));
+        // The id tie-break follows the primary direction so ties resolve to
+        // creation order on both newest-first and oldest-first queries.
+        assert!(sql.contains(", id DESC"));
         assert_eq!(params.len(), 1);
+
+        let filter = QueryFilter::new()
+            .with_field_lt("timestamp", 100)
+            .with_order_by("timestamp", false)
+            .with_limit(10);
+        let (sql, _) = build_select_sql(Some(&filter), "checkpoint", "id, metadata");
+        assert!(sql.contains(", id ASC"));
 
         let filter = QueryFilter::new().with_field_in("entityId", vec!["a".into()]);
         let (sql, params) = build_select_sql(Some(&filter), "checkpoint", "id, metadata");

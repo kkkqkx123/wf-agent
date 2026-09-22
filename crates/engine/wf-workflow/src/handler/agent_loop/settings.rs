@@ -246,14 +246,15 @@ mod tests {
 
     #[test]
     fn parses_hooks_from_agent_config() {
-        let agent_config = serde_json::from_value::<wf_types::agent::AgentConfig>(serde_json::json!({
-            "profile_id": "mock",
-            "hooks": [
-                {"hook_type": "BEFORE_ITERATION", "enabled": true},
-                {"hook_type": "AFTER_TOOL_CALL", "enabled": false}
-            ]
-        }))
-        .expect("canonical agent config should parse");
+        let agent_config =
+            serde_json::from_value::<wf_types::agent::AgentConfig>(serde_json::json!({
+                "profile_id": "mock",
+                "hooks": [
+                    {"hook_type": "BEFORE_ITERATION", "enabled": true},
+                    {"hook_type": "AFTER_TOOL_CALL", "enabled": false}
+                ]
+            }))
+            .expect("canonical agent config should parse");
         let hooks = parse_agent_hooks(Some(&agent_config));
         assert_eq!(hooks.len(), 2);
         assert_eq!(hooks[0].hook_type, "BEFORE_ITERATION");

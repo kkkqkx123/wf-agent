@@ -1,0 +1,2711 @@
+{
+  "name": "wf-server HTTP contract",
+  "version": "v1",
+  "envelope": {
+    "success": true,
+    "data": "T|null",
+    "error": null
+  },
+  "errorCodes": {
+    "NOT_FOUND": 404,
+    "INVALID_PARAMS": 400,
+    "UNAUTHORIZED": 401,
+    "FORBIDDEN": 403,
+    "CONFLICT": 409,
+    "ALREADY_EXISTS": 409,
+    "RATE_LIMITED": 429,
+    "TIMEOUT": 504,
+    "SERVICE_UNAVAILABLE": 503,
+    "STORAGE_ERROR": 500,
+    "INTERNAL_ERROR": 500
+  },
+  "pagination": {
+    "query": [
+      "limit",
+      "offset"
+    ],
+    "defaults": {
+      "limit": 50,
+      "maxLimit": 500,
+      "offset": 0
+    },
+    "shape": "{items, limit, offset, has_more}"
+  },
+  "notes": [
+    "List endpoints return the paged shape above; legacy bare-array lists are being migrated.",
+    "POST stream endpoints speak SSE and need fetch streaming, not EventSource.",
+    "WS /api/v1/ws subscribes per executionId (metadata only)."
+  ],
+  "routes": [
+    {
+      "method": "DELETE",
+      "path": "/api/v1/agent-executions/{id}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/agent/executions.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/agent-loops/{id}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/agent/loops.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/agent-loops/{id}/checkpoints",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/agent/executions.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/agent-loops/{id}/variables/{name}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/agent/variables.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/agents/drafts/{id}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/agent/drafts.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/agents/{id}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/agent/profiles.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/checkpoints/entity/{entityId}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/checkpoint/checkpoints.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/checkpoints/{id}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/checkpoint/checkpoints.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/events",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/system/events.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/executions/{id}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/executions.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/executions/{id}/state-records",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/execution_state.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/favorites/{kind}/{id}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/web/favorites.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/interactions/{id}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/approvals.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/llm/profile-templates",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/llm/llm.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/llm/profiles/{id}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/llm/llm.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/llm/providers/{id}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/llm/llm.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/messages/{id}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/entity/messages.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/preferences/{id}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/web/preferences.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/scripts/{id}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/llm/scripts.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/tasks/{id}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/entity/tasks.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/templates/library/agents/{id}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/template/library.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/templates/library/workflows/{id}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/template/library.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/templates/node/{id}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/template/templates.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/templates/trigger/{id}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/template/templates.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/tool-registry/{id}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/llm/tools.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/trigger-executions/{id}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/trigger/executions.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/variables/{name}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/entity/variables.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/workflows/drafts/{id}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/drafts.rs"
+    },
+    {
+      "method": "DELETE",
+      "path": "/api/v1/workflows/{id}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/workflows.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/system/health.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agent-checkpoints/stats",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/agent/executions.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agent-executions",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/agent/executions.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agent-executions/by-definition/{defId}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/agent/executions.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agent-executions/by-status/{status}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/agent/executions.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agent-executions/stats",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/agent/executions.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agent-executions/{id}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/agent/executions.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agent-executions/{id}/errors",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/agent/analysis.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agent-executions/{id}/errors/chain",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/agent/analysis.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agent-executions/{id}/errors/recovery/{errorId}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/agent/analysis.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agent-executions/{id}/errors/root-cause",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/agent/analysis.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agent-executions/{id}/errors/similar/{errorId}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/agent/analysis.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agent-executions/{id}/errors/statistics",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/agent/analysis.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agent-executions/{id}/errors/statistics/advanced",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/agent/analysis.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agent-interactions/{id}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/entity/interactions.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agent-loops",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/agent/loops.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agent-loops/stats",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/agent/loops.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agent-loops/summaries",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/agent/loops.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agent-loops/{id}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/agent/loops.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agent-loops/{id}/checkpoints",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/agent/executions.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agent-loops/{id}/checkpoints/chain",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/agent/executions.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agent-loops/{id}/context-evolution",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/agent/loops.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agent-loops/{id}/conversation",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/agent/variables.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agent-loops/{id}/execution-path",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/agent/loops.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agent-loops/{id}/graph",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/agent/graphs.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agent-loops/{id}/graph/alternatives",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/agent/graphs.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agent-loops/{id}/graph/alternatives/iterations/{iteration}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/agent/graphs.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agent-loops/{id}/graph/edges",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/agent/graphs.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agent-loops/{id}/graph/efficiency",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/agent/graphs.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agent-loops/{id}/graph/nodes",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/agent/graphs.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agent-loops/{id}/graph/paths",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/agent/graphs.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agent-loops/{id}/graph/paths/critical-path",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/agent/graphs.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agent-loops/{id}/graph/paths/execution-path",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/agent/graphs.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agent-loops/{id}/graph/paths/path-stats",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/agent/graphs.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agent-loops/{id}/graph/paths/steps",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/agent/graphs.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agent-loops/{id}/graph/patterns",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/agent/graphs.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agent-loops/{id}/graph/probabilities",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/agent/graphs.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agent-loops/{id}/graph/sequences",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/agent/graphs.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agent-loops/{id}/graph/sequences/iterations/{iteration}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/agent/graphs.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agent-loops/{id}/graph/sequences/types/{decisionType}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/agent/graphs.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agent-loops/{id}/graph/tool-frequency",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/agent/graphs.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agent-loops/{id}/graph/unexplored",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/agent/graphs.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agent-loops/{id}/graph/unexplored/best",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/agent/graphs.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agent-loops/{id}/interactions",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/entity/interactions.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agent-loops/{id}/iteration-history",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/agent/loops.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agent-loops/{id}/iteration-history/summary",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/agent/loops.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agent-loops/{id}/messages",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/agent/variables.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agent-loops/{id}/messages/search",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/agent/variables.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agent-loops/{id}/messages/stats",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/agent/variables.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agent-loops/{id}/performance",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/agent/analysis.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agent-loops/{id}/performance/comparison",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/agent/analysis.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agent-loops/{id}/status",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/agent/loops.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agent-loops/{id}/summary",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/agent/loops.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agent-loops/{id}/timeline",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/agent/loops.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agent-loops/{id}/variable-history/{name}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/agent/loops.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agent-loops/{id}/variables",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/agent/variables.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agent-loops/{id}/variables/export",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/agent/variables.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agent-loops/{id}/variables/stats",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/agent/variables.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agent-loops/{id}/variables/{name}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/agent/variables.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agents",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/agent/profiles.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agents/drafts",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/agent/drafts.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agents/drafts/{id}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/agent/drafts.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agents/drafts/{id}/validate",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/agent/drafts.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agents/{id}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/agent/profiles.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/agents/{id}/lifecycle",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/agent/drafts.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/analysis/llm-metrics",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/observation/analysis.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/analysis/performance/compare",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/observation/analysis.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/analysis/stats",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/observation/analysis.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/analysis/stats/agent-profiles",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/observation/analysis.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/analysis/stats/top-node-types",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/observation/analysis.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/analysis/stats/top-workflows",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/observation/analysis.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/checkpoints",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/checkpoint/checkpoints.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/checkpoints/entities",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/checkpoint/checkpoints.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/checkpoints/entity/{entityId}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/checkpoint/checkpoints.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/checkpoints/entity/{entityId}/latest",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/checkpoint/checkpoints.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/checkpoints/entity/{entityId}/metadata",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/checkpoint/checkpoints.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/checkpoints/time-range",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/checkpoint/checkpoints.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/checkpoints/{id}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/checkpoint/checkpoints.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/contract",
+      "probe": true,
+      "source": "crates/app/wf-server/src/contract.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/dependencies/audit",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/system/dependencies.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/dependencies/dependents",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/system/dependencies.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/dependencies/impact",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/system/dependencies.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/events",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/system/events.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/events/agent-timeline/{id}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/system/events.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/events/agent/stats",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/system/events.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/events/agent/{agentLoopId}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/system/events.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/events/agent/{agentLoopId}/tool-executions",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/system/events.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/events/agent/{agentLoopId}/turns",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/system/events.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/events/execution-timeline/{executionId}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/system/events.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/events/execution-timeline/{executionId}/summary",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/system/events.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/events/listener-stats/{executionId}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/system/events.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/events/search",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/system/events.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/events/size",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/system/events.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/events/stats",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/system/events.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/events/stream",
+      "probe": false,
+      "source": "crates/app/wf-server/src/api/system/events.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/events/time-range",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/system/events.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/events/timeline/{executionId}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/system/events.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/executions",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/executions.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/executions/{id}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/executions.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/executions/{id}/agent-iterations",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/execution_state.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/executions/{id}/agent-state",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/execution_state.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/executions/{id}/agent-variables",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/execution_state.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/executions/{id}/analysis/alternatives",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/execution_analysis.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/executions/{id}/analysis/decision-points",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/execution_analysis.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/executions/{id}/analysis/efficiency",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/execution_analysis.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/executions/{id}/analysis/paths",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/execution_analysis.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/executions/{id}/analysis/paths/enumerate",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/execution_analysis.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/executions/{id}/analysis/probabilities",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/execution_analysis.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/executions/{id}/analysis/slow-nodes",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/execution_analysis.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/executions/{id}/audit/iterations",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/observation/audit.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/executions/{id}/audit/llm-calls",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/observation/audit.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/executions/{id}/audit/node-executions",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/observation/audit.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/executions/{id}/audit/report",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/observation/audit.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/executions/{id}/audit/summary",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/observation/audit.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/executions/{id}/audit/timeline",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/observation/audit.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/executions/{id}/audit/tool-calls",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/observation/audit.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/executions/{id}/call-stack",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/execution_state.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/executions/{id}/checkpoints/chain",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/checkpoint/checkpoints.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/executions/{id}/context",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/execution_state.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/executions/{id}/context-evolution",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/execution_state.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/executions/{id}/context-snapshots",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/execution_state.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/executions/{id}/context-transitions",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/execution_state.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/executions/{id}/error-analysis",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/observation/analysis.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/executions/{id}/error-analysis/advanced",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/observation/analysis.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/executions/{id}/error-analysis/context",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/observation/analysis.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/executions/{id}/error-analysis/context/{errorId}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/observation/analysis.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/executions/{id}/error-analysis/recovery-recommendations",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/observation/analysis.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/executions/{id}/error-analysis/recovery/{errorId}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/observation/analysis.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/executions/{id}/error-analysis/root-cause",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/observation/analysis.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/executions/{id}/error-analysis/similar",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/observation/analysis.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/executions/{id}/error-analysis/stream",
+      "probe": false,
+      "source": "crates/app/wf-server/src/api/observation/analysis.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/executions/{id}/failed-nodes",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/execution_analysis.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/executions/{id}/graph",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/execution_analysis.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/executions/{id}/graph/edges",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/execution_analysis.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/executions/{id}/graph/neighbors/{nodeId}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/execution_analysis.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/executions/{id}/graph/nodes",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/execution_analysis.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/executions/{id}/graph/path-stats",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/execution_analysis.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/executions/{id}/graph/reachability",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/execution_analysis.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/executions/{id}/iterations",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/execution_analysis.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/executions/{id}/llm-reasoning-path/{nodeId}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/execution_analysis.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/executions/{id}/memory",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/execution_state.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/executions/{id}/node-stats",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/execution_analysis.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/executions/{id}/nodes",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/execution_analysis.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/executions/{id}/nodes/by-type/{nodeType}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/execution_analysis.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/executions/{id}/nodes/{nodeId}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/execution_analysis.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/executions/{id}/nodes/{nodeId}/input-context",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/execution_analysis.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/executions/{id}/nodes/{nodeId}/transitions",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/execution_analysis.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/executions/{id}/optimizations",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/execution_analysis.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/executions/{id}/path",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/execution_analysis.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/executions/{id}/performance",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/observation/analysis.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/executions/{id}/performance/bottlenecks",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/observation/analysis.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/executions/{id}/performance/iteration-comparison",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/observation/analysis.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/executions/{id}/performance/summary",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/observation/analysis.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/executions/{id}/progress",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/observation/analysis.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/executions/{id}/state",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/execution_state.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/executions/{id}/state-analysis",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/execution_state.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/executions/{id}/state-records",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/execution_state.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/executions/{id}/state-records/call-stack",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/execution_state.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/executions/{id}/state-records/iterations/{iteration}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/execution_state.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/executions/{id}/state-records/memory",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/execution_state.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/executions/{id}/state-records/memory/peak",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/execution_state.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/executions/{id}/state-records/most-changed",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/execution_state.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/executions/{id}/state-records/mutation-count",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/execution_state.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/executions/{id}/state-records/snapshots/{timestamp}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/execution_state.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/executions/{id}/state-records/variables/{name}/history",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/execution_state.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/executions/{id}/status",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/executions.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/executions/{id}/tool-chain/{nodeId}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/execution_analysis.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/executions/{id}/transitions",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/execution_state.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/executions/{id}/triggers",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/executions.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/executions/{id}/variable-snapshots",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/execution_state.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/executions/{id}/variables",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/execution_state.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/favorites",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/web/favorites.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/file-checkpoint/approvals/pending",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/checkpoint/file_approvals.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/file-checkpoint/changes/actor/{id}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/checkpoint/file_provenance.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/file-checkpoint/changes/path/{id}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/checkpoint/file_provenance.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/file-checkpoint/diff/actors/{a}/{b}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/checkpoint/file_provenance.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/file-checkpoint/diff/staged/{id}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/checkpoint/file_provenance.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/file-checkpoint/partitions",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/checkpoint/file_provenance.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/file-checkpoint/sessions",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/checkpoint/file_provenance.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/file-checkpoint/timeline/{id}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/checkpoint/file_provenance.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/file-checkpoint/workspace/{id}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/checkpoint/file_provenance.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/info",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/system/health.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/interactions",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/approvals.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/interactions/by-execution/{executionId}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/approvals.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/interactions/by-status/{status}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/approvals.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/interactions/stats",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/approvals.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/interactions/{id}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/approvals.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/llm/profile-templates",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/llm/llm.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/llm/profile-templates/{name}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/llm/llm.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/llm/profiles",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/llm/llm.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/llm/profiles/default",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/llm/llm.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/llm/profiles/export-all",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/llm/llm.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/llm/profiles/{id}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/llm/llm.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/llm/profiles/{id}/export",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/llm/llm.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/llm/providers",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/llm/llm.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/llm/providers/{id}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/llm/llm.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/llm/providers/{id}/models",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/llm/llm.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/messages",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/entity/messages.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/messages/by-execution/{executionId}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/entity/messages.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/messages/conversation/{executionId}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/entity/messages.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/messages/search",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/entity/messages.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/messages/stats",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/entity/messages.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/messages/{id}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/entity/messages.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/preferences",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/web/preferences.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/preferences/{id}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/web/preferences.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/query/distinct",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/observation/query.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/scripts",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/llm/scripts.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/scripts/search",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/llm/scripts.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/scripts/{id}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/llm/scripts.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/search",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/observation/analysis.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/skills",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/entity/skills.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/skills/disabled",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/entity/skills.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/skills/enabled",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/entity/skills.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/skills/prompt",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/entity/skills.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/skills/query",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/entity/skills.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/skills/{name}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/entity/skills.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/skills/{name}/content",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/entity/skills.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/skills/{name}/resources",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/entity/skills.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/storage/diagnose",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/system/health.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/storage/health",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/system/health.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/storage/stats",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/system/health.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/system/stale",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/system/dependencies.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/tasks",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/entity/tasks.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/tasks/by-execution/{executionId}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/entity/tasks.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/tasks/stats",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/entity/tasks.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/tasks/{id}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/entity/tasks.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/templates/agent",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/template/queries.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/templates/agent-trigger",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/template/queries.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/templates/agent-trigger/summaries",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/template/queries.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/templates/agent/featured",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/template/queries.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/templates/agent/popular",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/template/queries.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/templates/agent/summaries",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/template/queries.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/templates/library",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/template/library.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/templates/library/agents",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/template/library.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/templates/library/agents/{id}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/template/library.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/templates/library/featured",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/template/library.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/templates/library/popular",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/template/library.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/templates/library/workflows",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/template/library.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/templates/library/workflows/{id}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/template/library.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/templates/node",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/template/templates.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/templates/node/{id}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/template/templates.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/templates/node/{id}/export",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/template/templates.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/templates/trigger",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/template/templates.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/templates/trigger/{id}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/template/templates.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/templates/trigger/{id}/export",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/template/templates.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/tool-registry",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/llm/tools.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/tool-registry/stats",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/llm/tools.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/tools",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/llm/tools.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/tools/search",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/llm/tools.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/tools/{id}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/llm/tools.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/trigger-executions",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/trigger/executions.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/trigger-executions/by-execution/{executionId}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/trigger/executions.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/trigger-executions/by-trigger/{name}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/trigger/executions.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/trigger-executions/by-workflow/{id}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/trigger/executions.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/trigger-executions/stats",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/trigger/executions.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/trigger-executions/{id}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/trigger/executions.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/triggers/history",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/trigger/executions.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/variables",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/entity/variables.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/variables/by-node/{executionId}/{nodeId}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/entity/variables.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/variables/export/{executionId}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/entity/variables.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/variables/history",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/entity/variables.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/variables/scope/{scope}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/entity/variables.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/variables/scopes/{executionId}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/entity/variables.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/variables/stats",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/entity/variables.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/variables/{name}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/entity/variables.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/workflows",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/workflows.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/workflows/by-author/{author}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/workflows.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/workflows/by-category/{category}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/workflows.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/workflows/by-name/{name}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/workflows.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/workflows/by-tags",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/workflows.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/workflows/drafts",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/drafts.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/workflows/drafts/{id}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/drafts.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/workflows/drafts/{id}/validate",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/drafts.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/workflows/search",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/workflows.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/workflows/summaries",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/workflows.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/workflows/{id}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/workflows.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/workflows/{id}/export",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/workflows.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/workflows/{id}/graph",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/graphs.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/workflows/{id}/graph/analysis",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/graphs.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/workflows/{id}/graph/cycles",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/graphs.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/workflows/{id}/graph/edges",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/graphs.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/workflows/{id}/graph/neighbors/{nodeId}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/graphs.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/workflows/{id}/graph/nodes",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/graphs.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/workflows/{id}/graph/reachability",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/graphs.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/workflows/{id}/graph/summary",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/graphs.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/workflows/{id}/graph/topology",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/graphs.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/workflows/{id}/lifecycle",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/drafts.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/workflows/{id}/versions",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/versions.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/workflows/{id}/versions/{version}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/versions.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/ws",
+      "probe": false,
+      "source": "crates/app/wf-server/src/ws.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/health",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/system/health.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/system/diagnostics",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/system/health.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/system/event-health",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/system/health.rs"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/agent-loops/{id}/status",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/agent/loops.rs"
+    },
+    {
+      "method": "PATCH",
+      "path": "/api/v1/workflows/{id}/metadata",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/workflows.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/agent-interactions/{id}/respond",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/entity/interactions.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/agent-loops",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/agent/loops.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/agent-loops/batch-delete",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/web/batch.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/agent-loops/cleanup-completed",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/agent/loops.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/agent-loops/{id}/cancel",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/agent/loops.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/agent-loops/{id}/checkpoints",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/agent/executions.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/agent-loops/{id}/checkpoints/{cid}/restore",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/agent/executions.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/agent-loops/{id}/checkpoints/{cid}/resume",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/agent/executions.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/agent-loops/{id}/messages/dedupe",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/agent/variables.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/agent-loops/{id}/pause",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/agent/loops.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/agent-loops/{id}/resume",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/agent/loops.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/agent-loops/{id}/run",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/agent/loops.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/agent-loops/{id}/status/transition",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/agent/loops.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/agent-loops/{id}/stream",
+      "probe": false,
+      "source": "crates/app/wf-server/src/api/agent/loops.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/agents",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/agent/profiles.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/agents/drafts",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/agent/drafts.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/agents/drafts/{id}/promote",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/agent/drafts.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/agents/validate",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/agent/profiles.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/approvals/check",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/approvals.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/approvals/execute-tool",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/approvals.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/approvals/request",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/approvals.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/executions/batch-cancel",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/web/batch.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/executions/batch-delete",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/web/batch.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/executions/checkpoints/{cid}/restore",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/checkpoint/checkpoints.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/executions/checkpoints/{cid}/resume",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/checkpoint/checkpoints.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/executions/{id}/cancel",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/executions.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/executions/{id}/checkpoints",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/checkpoint/checkpoints.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/executions/{id}/graph/clear",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/execution_analysis.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/executions/{id}/pause",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/executions.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/executions/{id}/resume",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/executions.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/file-checkpoint/approvals/{id}/approve",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/checkpoint/file_approvals.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/file-checkpoint/approvals/{id}/reject",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/checkpoint/file_approvals.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/file-checkpoint/gc",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/checkpoint/file_provenance.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/file-checkpoint/redo/{id}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/checkpoint/file_provenance.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/file-checkpoint/rename",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/checkpoint/file_provenance.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/file-checkpoint/sessions",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/checkpoint/file_provenance.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/file-checkpoint/sessions/{id}/rollback/{actor}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/checkpoint/file_provenance.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/file-checkpoint/undo/{id}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/checkpoint/file_provenance.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/hooks/{name}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/trigger/hooks.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/interactions",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/approvals.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/interactions/batch-respond",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/web/batch.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/interactions/{id}/respond",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/approvals.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/llm/count-tokens",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/llm/llm.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/llm/generate",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/llm/llm.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/llm/generate-batch",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/llm/llm.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/llm/generate-stream",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/llm/llm.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/llm/profile-templates",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/llm/llm.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/llm/profiles",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/llm/llm.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/llm/profiles/from-template",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/llm/llm.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/llm/profiles/import",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/llm/llm.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/llm/profiles/import-all",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/llm/llm.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/llm/profiles/validate",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/llm/llm.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/llm/profiles/{id}/default",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/llm/llm.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/llm/providers",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/llm/llm.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/messages",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/entity/messages.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/query",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/observation/query.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/query/aggregate",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/observation/query.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/query/evaluate",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/observation/query.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/query/export",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/observation/query.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/query/group-by",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/observation/query.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/scripts",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/llm/scripts.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/scripts/execute",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/llm/scripts.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/scripts/validate",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/llm/scripts.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/scripts/{id}/disable",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/llm/scripts.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/scripts/{id}/enable",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/llm/scripts.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/skills/cache/clear",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/entity/skills.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/skills/cache/clear/{name}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/entity/skills.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/skills/reload",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/entity/skills.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/skills/scan",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/entity/skills.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/skills/{name}/disable",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/entity/skills.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/skills/{name}/enable",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/entity/skills.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/tasks",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/entity/tasks.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/tasks/cleanup",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/entity/tasks.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/tasks/{id}/cancel",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/entity/tasks.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/templates/library/agents",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/template/library.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/templates/library/workflows",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/template/library.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/templates/library/{id}/clone",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/template/library.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/templates/library/{id}/usage",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/template/library.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/templates/node",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/template/templates.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/templates/node/import",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/template/templates.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/templates/trigger",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/template/templates.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/templates/trigger/import",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/template/templates.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/tool-registry",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/llm/tools.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/tools/execute",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/llm/tools.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/tools/validate-params",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/llm/tools.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/tools/{id}/disable",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/llm/tools.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/tools/{id}/enable",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/llm/tools.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/trigger-executions",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/trigger/executions.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/trigger-executions/cleanup",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/trigger/executions.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/variables",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/entity/variables.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/variables/batch",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/entity/variables.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/variables/import",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/entity/variables.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/workflows",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/workflows.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/workflows/drafts",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/drafts.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/workflows/drafts/promote-all",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/drafts.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/workflows/drafts/{id}/promote",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/drafts.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/workflows/export-all",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/workflows.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/workflows/import",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/workflows.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/workflows/import-many",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/workflows.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/workflows/parse",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/workflows.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/workflows/transform",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/workflows.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/workflows/validate",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/workflows.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/workflows/validate/node",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/workflows.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/workflows/{id}/clone",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/workflows.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/workflows/{id}/execute",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/executions.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/workflows/{id}/execute/stream",
+      "probe": false,
+      "source": "crates/app/wf-server/src/api/workflow/executions.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/workflows/{id}/rollback",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/versions.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/workflows/{id}/versions",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/versions.rs"
+    },
+    {
+      "method": "POST",
+      "path": "/api/v1/workflows/{id}/versions/increment",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/versions.rs"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/agent-loops/{id}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/agent/loops.rs"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/agent-loops/{id}/variables/{name}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/agent/variables.rs"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/agents/{id}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/agent/profiles.rs"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/checkpoints/entity/{entityId}/metadata",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/checkpoint/checkpoints.rs"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/favorites/{kind}/{id}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/web/favorites.rs"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/llm/profiles/{id}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/llm/llm.rs"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/preferences",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/web/preferences.rs"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/preferences/{id}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/web/preferences.rs"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/scripts/{id}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/llm/scripts.rs"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/templates/node/{id}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/template/templates.rs"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/templates/trigger/{id}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/template/templates.rs"
+    },
+    {
+      "method": "PUT",
+      "path": "/api/v1/workflows/{id}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/workflow/workflows.rs"
+    }
+  ]
+}

@@ -3,8 +3,8 @@
 //! at execution time without touching the visible schema.
 
 use std::collections::HashSet;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
 
 use wf_agent::coordinator::lifecycle::AgentLoopCoordinator;
 use wf_agent::coordinator::tool::ToolVisibilityStore;

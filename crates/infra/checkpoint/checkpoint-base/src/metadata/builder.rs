@@ -9,6 +9,20 @@ pub const FORMAT_VERSION_FIELD: &str = "formatVersion";
 pub const CREATED_AT_FIELD: &str = "createdAt";
 pub const CHAIN_POSITION_FIELD: &str = "chainPosition";
 
+/// Conversation sequence bounds recorded on every checkpoint so progress
+/// can be read from metadata without loading blobs.
+pub const MSG_SEQ_START_FIELD: &str = "msgSeqStart";
+pub const MSG_SEQ_END_FIELD: &str = "msgSeqEnd";
+pub const MSG_SEQ_NEXT_FIELD: &str = "msgNextSeq";
+
+/// Loop progress counters recorded on every agent checkpoint. Together with
+/// the sequence bounds they form the progress coordinates: equal coordinates
+/// mean no side effect landed since the recorded checkpoint, so a repeat
+/// creation can merge back into it instead of persisting a duplicate row.
+pub const ITERATION_FIELD: &str = "iteration";
+pub const TOOL_CALL_COUNT_FIELD: &str = "toolCallCount";
+pub const LOOP_STATUS_FIELD: &str = "loopStatus";
+
 #[derive(Debug, Clone)]
 pub struct CheckpointMetadataBuilder {
     description: Option<String>,

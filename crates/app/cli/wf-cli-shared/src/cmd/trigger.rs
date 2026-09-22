@@ -136,7 +136,9 @@ pub async fn run(cli: &Cli, sub: &TriggerSub) -> CliResult<()> {
     result
 }
 
-fn load_trigger_template(path: &std::path::Path) -> CliResult<wf_api::TriggerTemplateStorageMetadata> {
+fn load_trigger_template(
+    path: &std::path::Path,
+) -> CliResult<wf_api::TriggerTemplateStorageMetadata> {
     let content = std::fs::read_to_string(path).map_err(|e| {
         CliError::Configuration(format!("read file {} failed: {e}", path.display()))
     })?;

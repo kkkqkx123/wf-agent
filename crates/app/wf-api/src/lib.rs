@@ -8,6 +8,7 @@ pub mod llm;
 pub mod query;
 pub mod template;
 pub mod trigger;
+pub mod web;
 pub mod workflow;
 
 pub use agent::agent_checkpoint::AgentCheckpointStatistics;

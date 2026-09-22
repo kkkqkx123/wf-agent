@@ -18,6 +18,7 @@ use wf_api::WorkflowExecutionListOptions;
 
 use crate::envelope::{error_response, ok};
 use crate::extract::{IdPath, ListQuery};
+use crate::paged::{fetch_size, ok_page, resolve_page};
 use crate::router::ApiState;
 use crate::sse::sse_response;
 pub(crate) fn routes() -> Router<ApiState> {
@@ -125,14 +126,15 @@ async fn handle_list_executions(
     State(state): State<ApiState>,
     Query(query): Query<ListExecutionsQuery>,
 ) -> impl IntoResponse {
+    let (limit, offset) = resolve_page(&query.page);
     let options = WorkflowExecutionListOptions {
-        offset: query.page.offset,
-        limit: query.page.limit,
+        offset: Some(offset),
+        limit: Some(fetch_size(limit)),
         workflow_id_filter: query.workflow_id,
         status_filter: query.status,
     };
     match wf_api::workflow::list_executions(&state.ctx, Some(options)).await {
-        Ok(executions) => ok(executions).into_response(),
+        Ok(executions) => ok_page(executions, limit, offset).into_response(),
         Err(e) => error_response(e),
     }
 }

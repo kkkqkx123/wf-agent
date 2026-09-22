@@ -19,6 +19,7 @@ use wf_api::WorkflowListOptions;
 
 use crate::envelope::{error_response, ok};
 use crate::extract::{IdPath, ListQuery, NamePath};
+use crate::paged::{fetch_size, ok_page, resolve_page};
 use crate::router::ApiState;
 
 pub(crate) fn routes() -> Router<ApiState> {
@@ -69,14 +70,15 @@ async fn handle_list_workflows(
     State(state): State<ApiState>,
     Query(query): Query<ListWorkflowsQuery>,
 ) -> impl IntoResponse {
+    let (limit, offset) = resolve_page(&query.page);
     let options = WorkflowListOptions {
-        offset: query.page.offset,
-        limit: query.page.limit,
+        offset: Some(offset),
+        limit: Some(fetch_size(limit)),
         name_filter: query.name,
         type_filter: query.r#type,
     };
     match wf_api::workflow::list_workflows(&state.ctx, Some(options)).await {
-        Ok(workflows) => ok(workflows).into_response(),
+        Ok(workflows) => ok_page(workflows, limit, offset).into_response(),
         Err(e) => error_response(e),
     }
 }
@@ -491,7 +493,8 @@ mod tests {
         let listed = get(ctx.clone(), "/api/v1/workflows").await;
         assert_eq!(listed.status(), axum::http::StatusCode::OK);
         let body = json_body(listed).await;
-        assert_eq!(body["data"].as_array().unwrap().len(), 1);
+        assert_eq!(body["data"]["items"].as_array().unwrap().len(), 1);
+        assert_eq!(body["data"]["has_more"], false);
 
         let exported = get(ctx.clone(), "/api/v1/workflows/wf-crud/export").await;
         assert_eq!(exported.status(), axum::http::StatusCode::OK);

@@ -1,8 +1,8 @@
 //! Execution domain: workflow execution control (pause/resume/
 //! cancel/status/stream), execution list/detail and execution-scoped trigger
 //! execution history. Checkpoint / state-view / graph-analysis surfaces live in the
-//! sibling modules `api_checkpoints`, `api_execution_state` and
-//! `api_execution_analysis`.
+//! sibling modules `checkpoint/checkpoints`, `workflow/execution_state` and
+//! `workflow/execution_analysis`.
 
 use std::convert::Infallible;
 
@@ -14,7 +14,7 @@ use axum::{Json, Router};
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 
-use wf_storage::adapter::execution::WorkflowExecutionListOptions;
+use wf_api::WorkflowExecutionListOptions;
 
 use crate::envelope::{error_response, ok};
 use crate::extract::{IdPath, ListQuery};
@@ -22,9 +22,6 @@ use crate::router::ApiState;
 use crate::sse::sse_response;
 pub(crate) fn routes() -> Router<ApiState> {
     Router::new()
-        .merge(crate::api::workflow::checkpoints::routes())
-        .merge(crate::api::workflow::execution_state::routes())
-        .merge(crate::api::workflow::execution_analysis::routes())
         // ── execution trigger + stream ──
         .route("/workflows/{id}/execute", post(handle_execute_workflow))
         .route(

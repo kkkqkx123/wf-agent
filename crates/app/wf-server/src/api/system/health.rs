@@ -58,7 +58,7 @@ async fn handle_info() -> impl IntoResponse {
         name: "Modular Agent Framework Server",
         version: env!("CARGO_PKG_VERSION"),
         api_version: "v1",
-        timestamp: wf_common::time::timestamp_to_iso(wf_common::time::now()),
+        timestamp: wf_api::timestamp_to_iso(wf_api::now()),
     })
     .into_response()
 }
@@ -118,7 +118,7 @@ async fn handle_event_health(State(state): State<ApiState>) -> impl IntoResponse
 #[cfg(test)]
 mod tests {
     use axum::body::Body as AxBody;
-    use axum::http::{Request, StatusCode};
+    use axum::http::Request;
     use axum::response::Response;
     use std::sync::Arc;
     use tower::ServiceExt;
@@ -168,13 +168,6 @@ mod tests {
         let diagnostics = get(ctx, "/system/diagnostics").await;
         let body = json_body(diagnostics).await;
         assert_eq!(body["data"]["healthy"], true);
-    }
-
-    #[tokio::test]
-    async fn openapi_document_is_available() {
-        let response = get(make_ctx(), "/api/v1/openapi.json").await;
-
-        assert_eq!(response.status(), StatusCode::OK);
     }
 
     #[tokio::test]

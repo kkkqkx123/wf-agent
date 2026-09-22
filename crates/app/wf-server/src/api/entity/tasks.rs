@@ -7,7 +7,7 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::Deserialize;
 
-use wf_storage::adapter::task::TaskListOptions;
+use wf_api::TaskListOptions;
 
 use crate::envelope::{error_response, ok};
 use crate::extract::{ExecutionIdPath, IdPath, ListQuery};
@@ -57,7 +57,7 @@ async fn handle_list_tasks(
 
 async fn handle_save_task(
     State(state): State<ApiState>,
-    Json(task): Json<wf_types::TaskStorageMetadata>,
+    Json(task): Json<wf_api::TaskStorageMetadata>,
 ) -> impl IntoResponse {
     match wf_api::entity::task::save_task(&state.ctx.storage, &task).await {
         Ok(()) => ok(task.id.to_string()).into_response(),
@@ -121,7 +121,7 @@ async fn handle_cleanup_tasks(
     State(state): State<ApiState>,
     Json(body): Json<CleanupTasksBody>,
 ) -> impl IntoResponse {
-    let older_than = body.older_than.unwrap_or_else(wf_common::now);
+    let older_than = body.older_than.unwrap_or_else(wf_api::now);
     match wf_api::entity::task::cleanup_tasks(&state.ctx.storage, older_than).await {
         Ok(removed) => ok(removed).into_response(),
         Err(e) => error_response(e),

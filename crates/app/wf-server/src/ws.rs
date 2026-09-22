@@ -27,8 +27,8 @@ use serde_json::{json, Value};
 use tokio::sync::mpsc;
 
 use wf_api::infra::events::subscribe;
+use wf_api::{now, timestamp_to_iso};
 use wf_api::{ApiContext, EventSubscriptionOptions};
-use wf_common::time::{now, timestamp_to_iso};
 
 use crate::middleware::AuthConfig;
 use crate::router::ApiState;
@@ -67,7 +67,7 @@ async fn handle_socket(socket: WebSocket, state: ApiState, request: Request<Body
         return;
     }
 
-    let client_id = format!("ws_{}", wf_common::generate_id());
+    let client_id = format!("ws_{}", wf_api::generate_id());
     let (mut sender, mut receiver) = socket.split();
     let (out_tx, mut out_rx) = mpsc::channel::<Outbound>(256);
 
@@ -344,7 +344,7 @@ mod tests {
         event_type: wf_types::events::EventType,
     ) -> wf_types::events::BaseEvent {
         wf_types::events::BaseEvent {
-            id: wf_common::generate_id(),
+            id: wf_api::generate_id(),
             r#type: event_type,
             timestamp: now(),
             workflow_id: None,

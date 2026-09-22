@@ -194,11 +194,27 @@ pub async fn delete_with_reference_check(
         ReferenceKind::Script => crate::llm::script::delete_script(&ctx.storage, resource_id).await,
         ReferenceKind::Trigger => {
             use wf_storage::adapter::base::BaseStorageAdapter;
-            ctx.storage
+            let name = ctx
+                .storage
+                .trigger_template
+                .load(resource_id)
+                .await?
+                .map(|t| t.name.clone());
+            let deleted = ctx
+                .storage
                 .trigger_template
                 .delete(resource_id)
                 .await
-                .map_err(Into::into)
+                .map_err(crate::infra::error::ApiError::from)?;
+            if deleted {
+                // Registry is keyed by template name; the storage id may
+                // differ, so evict both candidates to close the drift.
+                if let Some(name) = name.as_deref() {
+                    ctx.registries.remove_trigger_template(name);
+                }
+                ctx.registries.remove_trigger_template(resource_id);
+            }
+            Ok(deleted)
         }
     }
 }

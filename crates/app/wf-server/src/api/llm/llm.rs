@@ -1,7 +1,7 @@
 //! LLM domain: direct generation (single/batch/stream/token-count) and LLM
 //! profile management (CRUD / default / export-import / templates). Script
-//! and tool registries live in the sibling modules `api_scripts` and
-//! `api_tools`.
+//! and tool registries live in the sibling modules `llm/scripts` and
+//! `llm/tools`.
 
 use std::convert::Infallible;
 
@@ -13,7 +13,7 @@ use axum::{Json, Router};
 use serde::Deserialize;
 use serde_json::Value;
 
-use wf_types::llm::{LlmProfile, LlmRequest};
+use wf_api::{LlmProfile, LlmRequest};
 
 use crate::envelope::{error_response, ok};
 use crate::extract::{IdPath, NamePath};
@@ -21,8 +21,6 @@ use crate::router::ApiState;
 use crate::sse::sse_response;
 pub(crate) fn routes() -> Router<ApiState> {
     Router::new()
-        .merge(crate::api::resource::scripts::routes())
-        .merge(crate::api::resource::tools::routes())
         // ── LLM generation ──
         .route("/llm/generate", post(handle_generate))
         .route("/llm/generate-batch", post(handle_generate_batch))
@@ -162,7 +160,7 @@ async fn handle_list_profiles(
 
 async fn handle_create_profile(
     State(state): State<ApiState>,
-    Json(profile): Json<wf_types::llm::profile::LlmProfile>,
+    Json(profile): Json<wf_api::LlmProfile>,
 ) -> impl IntoResponse {
     match wf_api::llm::llm_profile::create(&state.ctx, &profile).await {
         Ok(()) => ok(profile.id).into_response(),
@@ -183,7 +181,7 @@ async fn handle_get_profile(
 async fn handle_update_profile(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
-    Json(mut profile): Json<wf_types::llm::profile::LlmProfile>,
+    Json(mut profile): Json<wf_api::LlmProfile>,
 ) -> impl IntoResponse {
     profile.id = path.id;
     match wf_api::llm::llm_profile::update(&state.ctx, &profile).await {
@@ -347,7 +345,7 @@ async fn handle_list_providers(State(state): State<ApiState>) -> impl IntoRespon
 
 async fn handle_create_provider(
     State(state): State<ApiState>,
-    Json(provider): Json<wf_types::llm::LlmProviderDefinition>,
+    Json(provider): Json<wf_api::LlmProviderDefinition>,
 ) -> impl IntoResponse {
     match wf_api::llm::llm_provider::create(&state.ctx, &provider).await {
         Ok(()) => ok(provider.id).into_response(),

@@ -272,9 +272,7 @@ pub fn resolve_loop_hooks(
 }
 
 /// Build a loop hook from the canonical spec.
-pub fn from_canonical(
-    spec: &wf_types::hook::CanonicalHookSpec,
-) -> wf_tools::callback::HookConfig {
+pub fn from_canonical(spec: &wf_types::hook::CanonicalHookSpec) -> wf_tools::callback::HookConfig {
     wf_tools::callback::HookConfig::from_canonical(spec)
 }
 

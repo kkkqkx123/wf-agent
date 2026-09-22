@@ -27,6 +27,38 @@ pub async fn delete_node_template(ctx: &StorageContext, id: &str) -> crate::ApiR
     ctx.node_template.delete(id).await.map_err(Into::into)
 }
 
+/// Save a node template and upsert it into the shared registry so the HTTP
+/// surface never drifts from the runtime (storage-only saves leave the
+/// registry stale until restart). The storage metadata carries no
+/// `default_config`, so the indexed copy records `None` there.
+pub async fn save_node_template_indexed(
+    ctx: &crate::infra::context::ApiContext,
+    template: &NodeTemplateStorageMetadata,
+) -> crate::ApiResult<()> {
+    ctx.storage.node_template.save(template).await?;
+    ctx.registries
+        .upsert_node_template(wf_types::workflow::node_template::NodeTemplate {
+            id: template.id.to_string(),
+            name: template.name.clone(),
+            description: template.description.clone().unwrap_or_default(),
+            node_type: template.node_type.clone(),
+            default_config: None,
+        });
+    Ok(())
+}
+
+/// Delete a node template from storage and evict it from the registry.
+pub async fn delete_node_template_indexed(
+    ctx: &crate::infra::context::ApiContext,
+    id: &str,
+) -> crate::ApiResult<bool> {
+    let deleted = ctx.storage.node_template.delete(id).await?;
+    if deleted {
+        ctx.registries.remove_node_template(id);
+    }
+    Ok(deleted)
+}
+
 pub async fn list_node_templates(
     ctx: &StorageContext,
     options: Option<NodeTemplateListOptions>,
@@ -83,6 +115,16 @@ pub async fn export_template(ctx: &StorageContext, id: &str) -> crate::ApiResult
 pub async fn import_template(ctx: &StorageContext, json: &str) -> crate::ApiResult<String> {
     let template: NodeTemplateStorageMetadata = crate::template::parse_import(json)?;
     save_node_template(ctx, &template).await?;
+    Ok(template.id.to_string())
+}
+
+/// Import a node template and index it into the registry (HTTP surface).
+pub async fn import_template_indexed(
+    ctx: &crate::infra::context::ApiContext,
+    json: &str,
+) -> crate::ApiResult<String> {
+    let template: NodeTemplateStorageMetadata = crate::template::parse_import(json)?;
+    save_node_template_indexed(ctx, &template).await?;
     Ok(template.id.to_string())
 }
 

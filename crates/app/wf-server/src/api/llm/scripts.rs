@@ -9,8 +9,8 @@ use axum::{Json, Router};
 use serde::Deserialize;
 use serde_json::Value;
 
-use wf_storage::adapter::script::ScriptListOptions;
-use wf_types::ScriptStorageMetadata;
+use wf_api::ScriptListOptions;
+use wf_api::ScriptStorageMetadata;
 
 use crate::envelope::{error_response, ok};
 use crate::extract::{IdPath, ListQuery};
@@ -42,12 +42,12 @@ pub(crate) fn routes() -> Router<ApiState> {
 #[derive(Deserialize)]
 struct ScriptExecuteBody {
     name: String,
-    language: Option<wf_types::enums::ScriptLanguage>,
+    language: Option<wf_api::ScriptLanguage>,
     code: Option<String>,
     template: Option<String>,
     #[serde(default)]
     args: std::collections::HashMap<String, Value>,
-    sandbox: Option<wf_types::script::sandbox::SandboxConfig>,
+    sandbox: Option<wf_api::SandboxConfig>,
     working_directory: Option<String>,
     environment: Option<std::collections::HashMap<String, String>>,
     timeout_ms: Option<u64>,
@@ -163,7 +163,7 @@ async fn handle_update_script(
     Path(path): Path<IdPath>,
     Json(mut script): Json<ScriptStorageMetadata>,
 ) -> impl IntoResponse {
-    script.id = wf_types::Id::from(path.id.clone());
+    script.id = wf_api::Id::from(path.id.clone());
     match wf_api::llm::script::save_script(&state.ctx.storage, &script).await {
         Ok(()) => ok(path.id).into_response(),
         Err(e) => error_response(e),

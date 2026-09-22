@@ -9,7 +9,7 @@ use axum::{Json, Router};
 use serde::Deserialize;
 use serde_json::Value;
 
-use wf_storage::adapter::variable::VariableListOptions;
+use wf_api::VariableListOptions;
 
 use crate::envelope::{error_response, ok};
 use crate::extract::{ExecutionIdPath, ListQuery, NamePath};

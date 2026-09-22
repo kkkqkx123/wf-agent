@@ -12,9 +12,9 @@ use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use wf_storage::adapter::agent_loop::AgentLoopListOptions;
-use wf_tools::callback::{AgentLoopConfig, AgentLoopInput};
-use wf_types::message::Message;
+use wf_api::AgentLoopListOptions;
+use wf_api::Message;
+use wf_api::{AgentLoopConfig, AgentLoopInput};
 
 use crate::envelope::{error_response, ok};
 use crate::extract::{IdNamePath, IdPath, ListQuery};
@@ -102,7 +102,7 @@ async fn handle_list_loops(
 
 async fn handle_save_loop(
     State(state): State<ApiState>,
-    Json(loop_def): Json<wf_types::AgentLoopStorageMetadata>,
+    Json(loop_def): Json<wf_api::AgentLoopStorageMetadata>,
 ) -> impl IntoResponse {
     match wf_api::agent::agent::save_agent_loop(&state.ctx.storage, &loop_def).await {
         Ok(()) => ok(loop_def.id.to_string()).into_response(),
@@ -123,9 +123,9 @@ async fn handle_get_loop(
 async fn handle_update_loop(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
-    Json(mut loop_def): Json<wf_types::AgentLoopStorageMetadata>,
+    Json(mut loop_def): Json<wf_api::AgentLoopStorageMetadata>,
 ) -> impl IntoResponse {
-    loop_def.id = wf_types::Id::from(path.id.clone());
+    loop_def.id = wf_api::Id::from(path.id.clone());
     match wf_api::agent::agent::save_agent_loop(&state.ctx.storage, &loop_def).await {
         Ok(()) => ok(path.id).into_response(),
         Err(e) => error_response(e),
@@ -218,7 +218,7 @@ pub struct RunAgentLoopBody {
     discoverable_tool_names: Option<Vec<String>>,
     enable_general_tool: Option<bool>,
     hidden_tool_names: Option<Vec<String>>,
-    tool_call_protocol: Option<wf_types::llm::tool_call_protocol::ToolCallProtocolConfig>,
+    tool_call_protocol: Option<wf_api::ToolCallProtocolConfig>,
     token_limit: Option<u64>,
     token_warning_threshold: Option<u32>,
     enable_token_tracking: Option<bool>,
@@ -245,7 +245,7 @@ pub(crate) fn params_from_body(
         body.agent_id
     };
     let config = AgentLoopConfig {
-        agent_id: wf_types::Id::from(agent_id),
+        agent_id: wf_api::Id::from(agent_id),
         model: body.model,
         max_iterations: body.max_iterations,
         max_execution_time: body.max_execution_time,
@@ -280,7 +280,7 @@ pub(crate) fn params_from_body(
     // config before the request reaches the execution APIs. The shared prompt
     // module renders the stable header, volatile tail and tool exposure blocks
     // from the full application context.
-    let env = wf_execution_shared::agent_prompt::PromptEnvironment::new(
+    let env = wf_api::PromptEnvironment::new(
         Some(state.ctx.registries.as_ref()),
         Some(state.ctx.tool_registry.as_ref()),
         state.ctx.metrics.as_deref(),

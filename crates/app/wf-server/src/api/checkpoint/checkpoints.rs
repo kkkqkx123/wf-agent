@@ -1,6 +1,6 @@
 //! Checkpoint domain: execution checkpoints, checkpoint CRUD / entity /
 //! time-range queries and file checkpoints. Handlers are thin transport
-//! adapters over the `wf-api::workflow` checkpoint surfaces.
+//! adapters over the `wf-api::checkpoint` shared surfaces.
 
 use axum::extract::{Path, Query, State};
 use axum::response::IntoResponse;
@@ -9,7 +9,7 @@ use axum::{Json, Router};
 use serde::Deserialize;
 use serde_json::Value;
 
-use wf_storage::adapter::checkpoint::CheckpointListOptions;
+use wf_api::CheckpointListOptions;
 
 use crate::api::workflow::executions::ExecuteView;
 use crate::envelope::{error_response, ok};

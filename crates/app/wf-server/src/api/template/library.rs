@@ -178,7 +178,7 @@ async fn handle_get_workflow_template(
 
 async fn handle_register_workflow_template(
     State(state): State<ApiState>,
-    Json(template): Json<wf_types::workflow::WorkflowTemplate>,
+    Json(template): Json<wf_api::WorkflowTemplate>,
 ) -> impl IntoResponse {
     match wf_api::template::template_library::register_workflow_template(&state.ctx, &template) {
         Ok(()) => ok(template.id.to_string()).into_response(),
@@ -215,7 +215,7 @@ async fn handle_get_agent_template(
 
 async fn handle_register_agent_template(
     State(state): State<ApiState>,
-    Json(template): Json<wf_types::agent::AgentTemplate>,
+    Json(template): Json<wf_api::AgentTemplate>,
 ) -> impl IntoResponse {
     match wf_api::template::template_library::register_agent_template(&state.ctx, &template).await {
         Ok(()) => ok(template.id.to_string()).into_response(),

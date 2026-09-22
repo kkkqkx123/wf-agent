@@ -8,7 +8,7 @@ use axum::routing::get;
 use axum::{Json, Router};
 use serde::Deserialize;
 
-use wf_storage::adapter::message::MessageListOptions;
+use wf_api::MessageListOptions;
 
 use crate::envelope::{error_response, ok};
 use crate::extract::{ExecutionIdPath, IdPath, ListQuery};
@@ -67,7 +67,7 @@ async fn handle_list_messages(
 
 async fn handle_save_message(
     State(state): State<ApiState>,
-    Json(record): Json<wf_types::MessageStorageMetadata>,
+    Json(record): Json<wf_api::MessageStorageMetadata>,
 ) -> impl IntoResponse {
     match wf_api::entity::message::save(&state.ctx, &record).await {
         Ok(()) => ok(record.id.to_string()).into_response(),

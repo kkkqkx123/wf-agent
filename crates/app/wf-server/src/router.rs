@@ -1,10 +1,15 @@
 //! Router composition for the application-facing `wf-api` surface: every
-//! domain module (under `crates/wf-server/src/api/{workflow,agent,resource}`)
+//! domain module (under `crates/app/wf-server/src/api/{workflow,agent,
+//! checkpoint,trigger,template,llm,entity,observation,system}`)
 //! contributes its routes over an `Arc<wf_api::ApiContext>`;
 //! `api_router_with_config` merges them into one router and
 //! `serve_api_with_config` binds it to a TCP listener with graceful shutdown.
-//! Metrics endpoints (`crates/wf-server/src/metrics.rs`) can be merged through
+//! Metrics endpoints (`crates/app/wf-server/src/metrics.rs`) can be merged through
 //! `full_router_with_middleware` / `serve_full_with_config`.
+//!
+//! Composition is intentionally single-layer: each leaf module owns only its
+//! own `routes()` and this file is the sole merge point, so the module tree
+//! mirrors the `wf-api` domain layout.
 
 use std::sync::Arc;
 
@@ -37,30 +42,56 @@ pub(crate) fn api_router(ctx: Arc<ApiContext>) -> Router {
 /// the root. Embedding and tests use this to exercise auth / rate limiting /
 /// CORS on the full API surface.
 pub fn api_router_with_config(ctx: Arc<ApiContext>, config: Arc<ServerMiddlewareConfig>) -> Router {
-    use api::agent::{agents, analysis as agent_analysis, llm};
-    use api::resource::{entities, health, openapi, templates};
-    use api::workflow::{analysis, approvals, audit, events, executions, hooks, query, workflows};
-
     let domain: Router<ApiState> = Router::new()
-        .merge(workflows::routes())
-        .merge(executions::routes())
-        .merge(hooks::routes())
-        .merge(approvals::routes())
-        .merge(crate::api::workflow::file_approvals::routes())
-        .merge(crate::api::workflow::file_provenance::routes())
-        .merge(audit::routes())
-        .merge(agents::routes())
-        .merge(agent_analysis::routes())
-        .merge(llm::routes())
-        .merge(templates::routes())
-        .merge(entities::routes())
-        .merge(query::routes())
-        .merge(analysis::routes())
-        .merge(events::routes())
-        .merge(openapi::routes())
+        // workflow definition + execution + graph analysis
+        .merge(api::workflow::workflows::routes())
+        .merge(api::workflow::versions::routes())
+        .merge(api::workflow::graphs::routes())
+        .merge(api::workflow::executions::routes())
+        .merge(api::workflow::execution_state::routes())
+        .merge(api::workflow::execution_analysis::routes())
+        .merge(api::workflow::approvals::routes())
+        .merge(api::workflow::drafts::routes())
+        // agent loop + profiles + decision surface
+        .merge(api::agent::profiles::routes())
+        .merge(api::agent::loops::routes())
+        .merge(api::agent::executions::routes())
+        .merge(api::agent::graphs::routes())
+        .merge(api::agent::analysis::routes())
+        .merge(api::agent::variables::routes())
+        .merge(api::agent::drafts::routes())
+        // shared checkpoint domain (execution records + file workspace)
+        .merge(api::checkpoint::checkpoints::routes())
+        .merge(api::checkpoint::file_provenance::routes())
+        .merge(api::checkpoint::file_approvals::routes())
+        // trigger domain (ledger + template activation gateway)
+        .merge(api::trigger::executions::routes())
+        .merge(api::trigger::hooks::routes())
+        // llm domain (generation + profiles + providers + scripts + tools)
+        .merge(api::llm::llm::routes())
+        .merge(api::llm::scripts::routes())
+        .merge(api::llm::tools::routes())
+        // template domain
+        .merge(api::template::templates::routes())
+        .merge(api::template::queries::routes())
+        .merge(api::template::library::routes())
+        // entity domain (low-level storage CRUD + interactions + skills)
+        .merge(api::entity::messages::routes())
+        .merge(api::entity::tasks::routes())
+        .merge(api::entity::variables::routes())
+        .merge(api::entity::skills::routes())
+        .merge(api::entity::interactions::routes())
+        // observation domain (query + audit + analysis over executions)
+        .merge(api::observation::query::routes())
+        .merge(api::observation::audit::routes())
+        .merge(api::observation::analysis::routes())
+        // system domain (events + impact + discovery; health carries its
+        // own absolute prefixes and is merged at the root below)
+        .merge(api::system::events::routes())
+        .merge(api::system::dependencies::routes())
         .merge(ws::routes());
     let app = Router::new()
-        .merge(health::routes())
+        .merge(api::system::health::routes())
         .nest("/api/v1", domain);
     let app = middleware::apply(app, Arc::clone(&config));
     app.with_state(ApiState { ctx, config })

@@ -1,3 +1,9 @@
 pub mod agent;
-pub mod resource;
+pub mod checkpoint;
+pub mod entity;
+pub mod llm;
+pub mod observation;
+pub mod system;
+pub mod template;
+pub mod trigger;
 pub mod workflow;

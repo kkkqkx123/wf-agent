@@ -1,6 +1,7 @@
-//! Agent interaction surface plus the trigger execution history view.
-//! Trigger definitions live in the event-driven `TriggerTemplate` registry;
-//! firing records are queried through the trigger execution ledger.
+//! Entity interaction surface: agent-loop scoped user interactions.
+//! Split out of the legacy agent trigger file so the trigger domain owns
+//! only the execution ledger (`trigger/executions.rs`) and the webhook
+//! gateway (`trigger/hooks.rs`).
 
 use axum::extract::{Path, Query, State};
 use axum::response::IntoResponse;
@@ -12,11 +13,9 @@ use serde_json::Value;
 use crate::envelope::{error_response, ok};
 use crate::extract::IdPath;
 use crate::router::ApiState;
+
 pub(crate) fn routes() -> Router<ApiState> {
     Router::new()
-        // ── trigger execution history (ledger view) ──
-        .route("/agent-triggers/history", get(handle_trigger_history))
-        // ── agent interactions ──
         .route(
             "/agent-loops/{id}/interactions",
             get(handle_list_interactions),
@@ -27,32 +26,6 @@ pub(crate) fn routes() -> Router<ApiState> {
             post(handle_respond_interaction),
         )
 }
-
-// ── trigger execution history (ledger view) ──
-
-#[derive(Deserialize)]
-struct TriggerHistoryQuery {
-    execution_id: String,
-    trigger_name: Option<String>,
-}
-
-async fn handle_trigger_history(
-    State(state): State<ApiState>,
-    Query(query): Query<TriggerHistoryQuery>,
-) -> impl IntoResponse {
-    match wf_api::trigger::execution::execution_history(
-        &state.ctx.storage,
-        &query.execution_id,
-        query.trigger_name.as_deref(),
-    )
-    .await
-    {
-        Ok(history) => ok(history).into_response(),
-        Err(e) => error_response(e),
-    }
-}
-
-// ── agent interactions ────────────────────────────────────────────
 
 #[derive(Deserialize)]
 struct ListInteractionsQuery {
@@ -117,36 +90,5 @@ async fn handle_respond_interaction(
     {
         Ok(()) => ok(()).into_response(),
         Err(e) => error_response(e),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use axum::body::Body as AxBody;
-    use axum::http::{Request, StatusCode};
-    use std::sync::Arc;
-    use tower::ServiceExt;
-    use wf_api::ApiContext;
-
-    fn make_ctx() -> Arc<ApiContext> {
-        Arc::new(ApiContext::new(
-            wf_storage::context::StorageContext::new_memory(),
-            Arc::new(wf_resource::registry::ResourceRegistries::new()),
-        ))
-    }
-
-    #[tokio::test]
-    async fn trigger_history_is_queryable() {
-        let ctx = make_ctx();
-        let response = crate::router::api_router(ctx)
-            .oneshot(
-                Request::builder()
-                    .uri("/api/v1/agent-triggers/history?execution_id=exec-1")
-                    .body(AxBody::empty())
-                    .unwrap(),
-            )
-            .await
-            .unwrap();
-        assert_eq!(response.status(), StatusCode::OK);
     }
 }

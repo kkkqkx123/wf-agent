@@ -1,5 +1,5 @@
 //! Agent analysis subface: execution error analysis and performance
-//! analysis. The decision graph subface lives in `api_agent_graph`.
+//! analysis. The decision graph subface lives in `agent/graphs`.
 
 use axum::extract::{Path, Query, State};
 use axum::response::IntoResponse;
@@ -13,7 +13,6 @@ use crate::router::ApiState;
 
 pub(crate) fn routes() -> Router<ApiState> {
     Router::new()
-        .merge(crate::api::agent::graphs::routes())
         // ── error analysis ──
         .route("/agent-executions/{id}/errors", get(handle_error_records))
         .route(

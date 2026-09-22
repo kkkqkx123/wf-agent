@@ -9,7 +9,7 @@ use axum::{Json, Router};
 use serde::Deserialize;
 use serde_json::Value;
 
-use wf_types::WorkflowDefinition;
+use wf_api::WorkflowDefinition;
 
 use crate::envelope::{error_response, ok};
 use crate::extract::{IdPath, IdVersionPath};

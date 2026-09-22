@@ -162,7 +162,7 @@ pub async fn promote_all_drafts(
     out
 }
 
-/// Hot reload entry: file and config引导 loads land as drafts with a
+/// Hot reload entry: file and config bootstrap loads land as drafts with a
 /// validation preview instead of writing the formal registry directly.
 pub async fn hot_reload_to_draft(
     ctx: &ApiContext,

@@ -15,10 +15,10 @@ use axum::{Json, Router};
 use serde::Deserialize;
 use serde_json::Value;
 
-use wf_storage::adapter::user_interaction::UserInteractionListOptions;
-use wf_types::interaction::tool_approval::ToolApprovalRequestData;
-use wf_types::tool::{ToolApprovalOptions, ToolExecutionOptions};
-use wf_types::UserInteractionStorageMetadata;
+use wf_api::ToolApprovalRequestData;
+use wf_api::UserInteractionListOptions;
+use wf_api::UserInteractionStorageMetadata;
+use wf_api::{ToolApprovalOptions, ToolExecutionOptions};
 
 use crate::envelope::{err, error_response, ok, ApiError};
 use crate::extract::{ExecutionIdPath, IdPath, ListQuery};
@@ -97,7 +97,7 @@ async fn handle_check_approval(
     let options = body
         .options
         .clone()
-        .unwrap_or_else(wf_types::tool::ToolApprovalOptions::balanced_defaults);
+        .unwrap_or_else(wf_api::ToolApprovalOptions::balanced_defaults);
     let tool_snapshot = state
         .ctx
         .tool_registry
@@ -106,17 +106,17 @@ async fn handle_check_approval(
         .find(|t| t.name == body.request.tool_name);
     let mcp_manager = state.ctx.tool_registry.mcp_manager();
     let mcp_registry = mcp_manager.as_ref().map(|m| m.registry().as_ref());
-    let mcp_context = wf_tools::approval::McpToolContext {
+    let mcp_context = wf_api::McpToolContext {
         tool: tool_snapshot.as_ref(),
         mcp_registry,
     };
-    let decision = wf_tools::approval::ToolApprovalCoordinator::new(options)
+    let decision = wf_api::ToolApprovalCoordinator::new(options)
         .evaluate_with_mcp_context(
             std::slice::from_ref(&body.request),
             std::slice::from_ref(&mcp_context),
         )
         .remove(0);
-    if matches!(decision, wf_tools::approval::ApprovalDecision::Ask)
+    if matches!(decision, wf_api::ApprovalDecision::Ask)
         && !wf_api::entity::user_interaction::has_handler(&state.ctx).await
     {
         return err::<Value>(ApiError::validation(
@@ -160,7 +160,7 @@ async fn handle_execute_tool(
         .and_then(|m| m.risk_level)
         .map(|level| level.as_str().to_string());
     let policy_request = ToolApprovalRequestData {
-        tool_call_id: wf_common::generate_id(),
+        tool_call_id: wf_api::generate_id(),
         tool_name: body.tool_id.clone(),
         tool_description: None,
         parameters: body.parameters.clone(),
@@ -173,20 +173,20 @@ async fn handle_execute_tool(
     let policy_options = body
         .approval_options
         .clone()
-        .unwrap_or_else(wf_types::tool::ToolApprovalOptions::balanced_defaults);
+        .unwrap_or_else(wf_api::ToolApprovalOptions::balanced_defaults);
     let mcp_manager = state.ctx.tool_registry.mcp_manager();
     let mcp_registry = mcp_manager.as_ref().map(|m| m.registry().as_ref());
-    let mcp_context = wf_tools::approval::McpToolContext {
+    let mcp_context = wf_api::McpToolContext {
         tool: tool_snapshot.as_ref(),
         mcp_registry,
     };
-    let decision = wf_tools::approval::ToolApprovalCoordinator::new(policy_options)
+    let decision = wf_api::ToolApprovalCoordinator::new(policy_options)
         .evaluate_with_mcp_context(
             std::slice::from_ref(&policy_request),
             std::slice::from_ref(&mcp_context),
         )
         .remove(0);
-    if matches!(decision, wf_tools::approval::ApprovalDecision::Ask)
+    if matches!(decision, wf_api::ApprovalDecision::Ask)
         && !wf_api::entity::user_interaction::has_handler(&state.ctx).await
     {
         return err::<Value>(ApiError::validation(

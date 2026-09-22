@@ -1,6 +1,6 @@
 //! Template domain: node / trigger template CRUD with export-import. Agent
-//! trigger / agent template query surfaces live in `api_template_queries` and
-//! the shared template library in `api_template_library`.
+//! trigger / agent template query surfaces live in `template/queries` and
+//! the shared template library in `template/library`.
 
 use axum::extract::{Path, Query, State};
 use axum::response::IntoResponse;
@@ -8,8 +8,8 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::Deserialize;
 
-use wf_storage::adapter::node_template::NodeTemplateListOptions;
-use wf_types::{NodeTemplateStorageMetadata, TriggerTemplateStorageMetadata};
+use wf_api::NodeTemplateListOptions;
+use wf_api::{NodeTemplateStorageMetadata, TriggerTemplateStorageMetadata};
 
 use crate::envelope::{error_response, ok};
 use crate::extract::{IdPath, ListQuery};
@@ -17,8 +17,6 @@ use crate::router::ApiState;
 
 pub(crate) fn routes() -> Router<ApiState> {
     Router::new()
-        .merge(crate::api::resource::template_queries::routes())
-        .merge(crate::api::resource::template_library::routes())
         // ── node templates ──
         .route(
             "/templates/node",
@@ -89,7 +87,7 @@ async fn handle_save_node_template(
     State(state): State<ApiState>,
     Json(template): Json<NodeTemplateStorageMetadata>,
 ) -> impl IntoResponse {
-    match wf_api::template::node_template::save_node_template(&state.ctx.storage, &template).await {
+    match wf_api::template::node_template::save_node_template_indexed(&state.ctx, &template).await {
         Ok(()) => ok(template.id.to_string()).into_response(),
         Err(e) => error_response(e),
     }
@@ -110,8 +108,8 @@ async fn handle_update_node_template(
     Path(path): Path<IdPath>,
     Json(mut template): Json<NodeTemplateStorageMetadata>,
 ) -> impl IntoResponse {
-    template.id = wf_types::Id::from(path.id.clone());
-    match wf_api::template::node_template::save_node_template(&state.ctx.storage, &template).await {
+    template.id = wf_api::Id::from(path.id.clone());
+    match wf_api::template::node_template::save_node_template_indexed(&state.ctx, &template).await {
         Ok(()) => ok(path.id).into_response(),
         Err(e) => error_response(e),
     }
@@ -121,7 +119,7 @@ async fn handle_delete_node_template(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
-    match wf_api::template::node_template::delete_node_template(&state.ctx.storage, &path.id).await
+    match wf_api::template::node_template::delete_node_template_indexed(&state.ctx, &path.id).await
     {
         Ok(deleted) => ok(deleted).into_response(),
         Err(e) => error_response(e),
@@ -147,7 +145,7 @@ async fn handle_import_node_template(
     State(state): State<ApiState>,
     Json(body): Json<ImportBody>,
 ) -> impl IntoResponse {
-    match wf_api::template::node_template::import_template(&state.ctx.storage, &body.json).await {
+    match wf_api::template::node_template::import_template_indexed(&state.ctx, &body.json).await {
         Ok(id) => ok(id).into_response(),
         Err(e) => error_response(e),
     }
@@ -202,7 +200,7 @@ async fn handle_update_trigger_template(
     Path(path): Path<IdPath>,
     Json(mut template): Json<TriggerTemplateStorageMetadata>,
 ) -> impl IntoResponse {
-    template.id = wf_types::Id::from(path.id.clone());
+    template.id = wf_api::Id::from(path.id.clone());
     match wf_api::trigger::template::save(&state.ctx, &template).await {
         Ok(()) => ok(path.id).into_response(),
         Err(e) => error_response(e),

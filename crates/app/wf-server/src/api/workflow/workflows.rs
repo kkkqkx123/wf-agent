@@ -1,6 +1,6 @@
 //! Workflow domain: CRUD, import/export, validation, clone, summaries,
 //! search and metadata updates. Version routes live in
-//! `api_workflow_versions` and graph query routes in `api_workflow_graphs`;
+//! `workflow/versions` and graph query routes in `workflow/graphs`;
 //! every handler is a thin transport adapter over the `wf-api::workflow`
 //! surface, errors map through the shared envelope.
 
@@ -14,8 +14,8 @@ use serde::Deserialize;
 use serde::Serialize;
 use serde_json::Value;
 
-use wf_storage::adapter::workflow::WorkflowListOptions;
-use wf_types::WorkflowDefinition;
+use wf_api::WorkflowDefinition;
+use wf_api::WorkflowListOptions;
 
 use crate::envelope::{error_response, ok};
 use crate::extract::{IdPath, ListQuery, NamePath};
@@ -23,8 +23,6 @@ use crate::router::ApiState;
 
 pub(crate) fn routes() -> Router<ApiState> {
     Router::new()
-        .merge(crate::api::workflow::versions::routes())
-        .merge(crate::api::workflow::graphs::routes())
         .route(
             "/workflows",
             get(handle_list_workflows).post(handle_create_workflow),
@@ -207,8 +205,8 @@ struct TransformWorkflowBody {
 
 #[derive(Serialize)]
 struct TransformWorkflowView {
-    nodes: Vec<wf_types::node::BaseStaticNode>,
-    edges: Vec<wf_types::workflow::Edge>,
+    nodes: Vec<wf_api::BaseStaticNode>,
+    edges: Vec<wf_api::Edge>,
 }
 
 /// Convert declarative node/edge configs into canonical runtime structures.

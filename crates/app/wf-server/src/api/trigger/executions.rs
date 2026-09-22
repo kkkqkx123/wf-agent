@@ -1,6 +1,6 @@
 //! Trigger execution ledger surface: firing records of the event-driven
 //! trigger listener. Handlers are thin transport adapters over the
-//! `wf-api::entity` trigger execution surface.
+//! `wf-api::trigger::execution` surface.
 
 use axum::extract::{Path, Query, State};
 use axum::response::IntoResponse;
@@ -8,7 +8,7 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::Deserialize;
 
-use wf_storage::adapter::trigger_execution::TriggerExecutionListOptions;
+use wf_api::TriggerExecutionListOptions;
 
 use crate::envelope::{error_response, ok};
 use crate::extract::{ExecutionIdPath, IdPath, ListQuery, NamePath};
@@ -45,6 +45,7 @@ pub(crate) fn routes() -> Router<ApiState> {
             "/trigger-executions/{id}",
             get(handle_get_trigger_execution).delete(handle_delete_trigger_execution),
         )
+        .route("/triggers/history", get(handle_trigger_history))
 }
 
 // ── triggers ──────────────────────────────────────────────────────
@@ -73,11 +74,8 @@ async fn handle_list_trigger_executions(
         workflow_id_filter: query.workflow_id,
         success_filter: query.success,
     };
-    match wf_api::trigger::execution::list_trigger_executions(
-        &state.ctx.storage,
-        Some(options),
-    )
-    .await
+    match wf_api::trigger::execution::list_trigger_executions(&state.ctx.storage, Some(options))
+        .await
     {
         Ok(executions) => ok(executions).into_response(),
         Err(e) => error_response(e),
@@ -86,11 +84,9 @@ async fn handle_list_trigger_executions(
 
 async fn handle_save_trigger_execution(
     State(state): State<ApiState>,
-    Json(execution): Json<wf_types::TriggerExecutionStorageMetadata>,
+    Json(execution): Json<wf_api::TriggerExecutionStorageMetadata>,
 ) -> impl IntoResponse {
-    match wf_api::trigger::execution::save_trigger_execution(&state.ctx.storage, &execution)
-        .await
-    {
+    match wf_api::trigger::execution::save_trigger_execution(&state.ctx.storage, &execution).await {
         Ok(()) => ok(execution.id.to_string()).into_response(),
         Err(e) => error_response(e),
     }
@@ -100,9 +96,7 @@ async fn handle_get_trigger_execution(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
-    match wf_api::trigger::execution::get_trigger_execution(&state.ctx.storage, &path.id)
-        .await
-    {
+    match wf_api::trigger::execution::get_trigger_execution(&state.ctx.storage, &path.id).await {
         Ok(execution) => ok(execution).into_response(),
         Err(e) => error_response(e),
     }
@@ -112,9 +106,7 @@ async fn handle_delete_trigger_execution(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
-    match wf_api::trigger::execution::delete_trigger_execution(&state.ctx.storage, &path.id)
-        .await
-    {
+    match wf_api::trigger::execution::delete_trigger_execution(&state.ctx.storage, &path.id).await {
         Ok(deleted) => ok(deleted).into_response(),
         Err(e) => error_response(e),
     }
@@ -131,9 +123,7 @@ async fn handle_trigger_executions_by_trigger(
     State(state): State<ApiState>,
     Path(path): Path<NamePath>,
 ) -> impl IntoResponse {
-    match wf_api::trigger::execution::list_by_trigger_name(&state.ctx.storage, &path.name)
-        .await
-    {
+    match wf_api::trigger::execution::list_by_trigger_name(&state.ctx.storage, &path.name).await {
         Ok(executions) => ok(executions).into_response(),
         Err(e) => error_response(e),
     }
@@ -143,11 +133,8 @@ async fn handle_trigger_executions_by_execution(
     State(state): State<ApiState>,
     Path(path): Path<ExecutionIdPath>,
 ) -> impl IntoResponse {
-    match wf_api::trigger::execution::list_by_execution(
-        &state.ctx.storage,
-        &path.execution_id,
-    )
-    .await
+    match wf_api::trigger::execution::list_by_execution(&state.ctx.storage, &path.execution_id)
+        .await
     {
         Ok(executions) => ok(executions).into_response(),
         Err(e) => error_response(e),
@@ -163,12 +150,9 @@ async fn handle_cleanup_trigger_executions(
     State(state): State<ApiState>,
     Json(body): Json<CleanupTriggerExecutionsBody>,
 ) -> impl IntoResponse {
-    let older_than = body.older_than.unwrap_or_else(wf_common::now);
-    match wf_api::trigger::execution::cleanup_old_trigger_executions(
-        &state.ctx.storage,
-        older_than,
-    )
-    .await
+    let older_than = body.older_than.unwrap_or_else(wf_api::now);
+    match wf_api::trigger::execution::cleanup_old_trigger_executions(&state.ctx.storage, older_than)
+        .await
     {
         Ok(removed) => ok(removed).into_response(),
         Err(e) => error_response(e),
@@ -182,5 +166,60 @@ async fn handle_trigger_executions_by_workflow(
     match wf_api::trigger::execution::list_by_workflow(&state.ctx.storage, &path.id).await {
         Ok(executions) => ok(executions).into_response(),
         Err(e) => error_response(e),
+    }
+}
+
+// ── unified trigger history (ledger view, replaces legacy agent scope) ──
+
+#[derive(Deserialize)]
+struct TriggerHistoryQuery {
+    execution_id: String,
+    trigger_name: Option<String>,
+}
+
+async fn handle_trigger_history(
+    State(state): State<ApiState>,
+    Query(query): Query<TriggerHistoryQuery>,
+) -> impl IntoResponse {
+    match wf_api::trigger::execution::execution_history(
+        &state.ctx.storage,
+        &query.execution_id,
+        query.trigger_name.as_deref(),
+    )
+    .await
+    {
+        Ok(history) => ok(history).into_response(),
+        Err(e) => error_response(e),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use axum::body::Body as AxBody;
+    use axum::http::{Request, StatusCode};
+    use std::sync::Arc;
+    use tower::ServiceExt;
+    use wf_api::ApiContext;
+
+    fn make_ctx() -> Arc<ApiContext> {
+        Arc::new(ApiContext::new(
+            wf_storage::context::StorageContext::new_memory(),
+            Arc::new(wf_resource::registry::ResourceRegistries::new()),
+        ))
+    }
+
+    #[tokio::test]
+    async fn trigger_history_is_queryable() {
+        let ctx = make_ctx();
+        let response = crate::router::api_router(ctx)
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/triggers/history?execution_id=exec-1")
+                    .body(AxBody::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
     }
 }

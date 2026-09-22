@@ -1,7 +1,7 @@
 //! File-checkpoint provenance endpoints: partition listing, change queries
 //! by actor / path (with time-window filters), actor workspace
 //! reconstruction and actor/staged diffs. Handlers are thin transport
-//! adapters over `wf-api::workflow::file_provenance`.
+//! adapters over `wf-api::checkpoint::provenance`.
 
 use axum::extract::{Path, Query, State};
 use axum::response::IntoResponse;

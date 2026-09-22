@@ -1,6 +1,6 @@
 //! HTTP transport for metrics: Prometheus scrape endpoint plus server
 //! lifecycle; the `/api/v1/metrics/*` REST surface lives in
-//! `api/resource/metrics.rs` and is composed here through a nest.
+//! `api/system/metrics.rs` and is composed here through a nest.
 //!
 //! Kept independent of `wf-api` (pure service layer) and `wf-runtime`
 //! (bootstrap); `serve` only needs a registry.
@@ -21,7 +21,7 @@ use axum::Router;
 
 use wf_metrics::{format_internal_prometheus, format_registry_prometheus, MetricsRegistry};
 
-use crate::api::resource::metrics::{self, RegistryState, PROMETHEUS_CONTENT_TYPE};
+use crate::api::system::metrics::{self, RegistryState, PROMETHEUS_CONTENT_TYPE};
 use crate::server::{serve_with_router, ServeError, ServerHandle};
 
 /// Build the metrics router. Exposed for embedding and testing.

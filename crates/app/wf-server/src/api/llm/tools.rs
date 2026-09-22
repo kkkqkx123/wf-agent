@@ -9,10 +9,10 @@ use axum::{Json, Router};
 use serde::Deserialize;
 use serde_json::Value;
 
-use wf_storage::adapter::tool::ToolListOptions;
-use wf_types::ToolStorageMetadata;
+use wf_api::ToolListOptions;
+use wf_api::ToolStorageMetadata;
 
-use crate::api::resource::scripts::DeleteForceQuery;
+use crate::api::llm::scripts::DeleteForceQuery;
 use crate::envelope::{error_response, ok};
 use crate::extract::{IdPath, ListQuery};
 use crate::router::ApiState;
@@ -62,7 +62,7 @@ async fn handle_search_tools(
 struct ExecuteToolBody {
     tool_id: String,
     parameters: Value,
-    options: Option<wf_types::tool::ToolExecutionOptions>,
+    options: Option<wf_api::ToolExecutionOptions>,
     execution_id: Option<String>,
 }
 

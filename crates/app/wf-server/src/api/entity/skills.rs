@@ -9,7 +9,7 @@ use axum::Router;
 use serde::Deserialize;
 use serde_json::Value;
 
-use wf_types::skill::SkillResourceType;
+use wf_api::SkillResourceType;
 
 use crate::envelope::{error_response, ok};
 use crate::extract::NamePath;

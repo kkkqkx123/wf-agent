@@ -16,13 +16,8 @@ clap.workspace = true
 wf-config = { path = "../../infra/wf-config" }
 wf-metrics = { path = "../../infra/wf-metrics" }
 wf-api = { path = "../wf-api" }
-wf-core = { path = "../../foundation/wf-core" }
 wf-types = { path = "../../foundation/wf-types" }
-wf-storage = { path = "../../infra/wf-storage" }
-wf-tools = { path = "../../engine/wf-tools" }
-wf-common = { path = "../../foundation/wf-common" }
 wf-runtime = { path = "../wf-runtime" }
-wf-execution-shared = { path = "../../engine/wf-execution-shared" }
 
 [[bin]]
 name = "wf-server"

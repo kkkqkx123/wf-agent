@@ -42,6 +42,10 @@ pub use agent::agent_performance::{
 };
 pub use agent::agent_user_interaction::{AgentUserInteractionEventRecord, UserInteractionHandler};
 pub use agent::agent_variable::AgentVariableStatistics;
+pub use agent::builder::{
+    AgentDefinitionBuilder, AgentExecutionBuilder, AgentHookBuilder, AgentLoopConfigBuilder,
+    AgentToolConfigBuilder,
+};
 pub use agent::validation::AgentValidator;
 pub use analysis::error_analysis::{
     analyze_root_cause, error_context, error_context_chain, AdvancedWorkflowErrorAnalysis,
@@ -65,15 +69,6 @@ pub use audit::{
     AuditTimelineEntry, AuditTimelineEntryType, IterationAuditView, LlmCallAuditView,
     NodeExecutionAuditView, ToolCallAuditView,
 };
-pub use agent::builder::{
-    AgentDefinitionBuilder, AgentExecutionBuilder, AgentHookBuilder, AgentLoopConfigBuilder,
-    AgentToolConfigBuilder,
-};
-pub use template::builder::NodeTemplateBuilder;
-pub use trigger::builder::TriggerTemplateBuilder;
-pub use workflow::builder::{Building, Empty, WorkflowBuilder};
-pub use workflow::execution_builder::{ExecutionBuilder, ExecutionResult};
-pub use workflow::node_builder::{NoType, NodeBuilder, Typed};
 pub use entity::execution::{
     ensure_execution_domain, resolve_execution, resolve_execution_with_override, ExecutionDomain,
 };
@@ -123,14 +118,17 @@ pub use query::{
     QueryBuilder, SortOptions,
 };
 pub use template::agent_template::AgentTemplateFilter;
-pub use trigger::template::{AgentTriggerTemplateFilter, AgentTriggerTemplateSummary};
+pub use template::builder::NodeTemplateBuilder;
 pub use template::node_template::NodeTemplateSummary;
 pub use template::template_library::{TemplateFilter, TemplateKind, TemplateSummary};
+pub use trigger::builder::TriggerTemplateBuilder;
+pub use trigger::template::{AgentTriggerTemplateFilter, AgentTriggerTemplateSummary};
 pub use trigger::validation::TriggerValidator;
 pub use wf_execution_shared::{
     ChatSession, ChatTemplate, SingleShotOutcome, SingleShotToolExecution,
 };
 pub use workflow::approval::{ApprovalResult, ApprovalStatus};
+pub use workflow::builder::{Building, Empty, WorkflowBuilder};
 pub use workflow::draft::{
     delete_draft as delete_workflow_draft, get_draft as get_workflow_draft, hot_reload_to_draft,
     lifecycle_of as workflow_lifecycle_of, list_drafts as list_workflow_drafts, promote_all_drafts,
@@ -139,6 +137,7 @@ pub use workflow::draft::{
     validate_draft_internal as validate_workflow_draft_internal,
     LifecycleStatus as WorkflowLifecycleStatus,
 };
+pub use workflow::execution_builder::{ExecutionBuilder, ExecutionResult};
 pub use workflow::execution_graph::{
     analyze_decision_points, enumerate_paths, reachable_nodes, AlternativeDecision, DecisionPoint,
     EfficiencyAnalysis, ExecutionPath, ExecutionPathAnalysis, PathProbabilityAnalysis,
@@ -159,6 +158,7 @@ pub use workflow::graph_query::{
     ExecutionPathStatsView, GraphEdgeView, GraphNeighborsView, GraphNodeView, GraphSummary,
 };
 pub use workflow::iteration::{AgentIterationAnalysis, ToolCallStat};
+pub use workflow::node_builder::{NoType, NodeBuilder, Typed};
 pub use workflow::workflow_execution::{ExecutionSummary, RestoredCheckpoint};
 pub use workflow::workflow_iteration::{
     ExecutionPathStepView, ExtendedNodeExecutionFilter, ExtendedNodeExecutionRecordView,
@@ -166,8 +166,19 @@ pub use workflow::workflow_iteration::{
 };
 pub use workflow::WorkflowSummary;
 
+pub use wf_storage::adapter::agent_loop::AgentLoopListOptions;
+pub use wf_storage::adapter::agent_profile::AgentProfileListOptions;
 pub use wf_storage::adapter::base::ListOptions;
+pub use wf_storage::adapter::checkpoint::CheckpointListOptions;
 pub use wf_storage::adapter::execution::WorkflowExecutionListOptions;
+pub use wf_storage::adapter::message::MessageListOptions;
+pub use wf_storage::adapter::node_template::NodeTemplateListOptions;
+pub use wf_storage::adapter::script::ScriptListOptions;
+pub use wf_storage::adapter::tool::ToolListOptions;
+pub use wf_storage::adapter::trigger_execution::TriggerExecutionListOptions;
+pub use wf_storage::adapter::trigger_template::TriggerTemplateListOptions;
+pub use wf_storage::adapter::user_interaction::UserInteractionListOptions;
+pub use wf_storage::adapter::workflow::WorkflowListOptions;
 pub use wf_storage::domain::QueryFilter;
 
 pub use wf_agent::approval::{ToolApprovalHandler, ToolApprovalRequest, ToolApprovalResult};
@@ -177,6 +188,51 @@ pub use wf_llm::{LlmError, LlmGateway};
 pub use wf_storage::adapter::base::BaseStorageAdapter;
 pub use wf_storage::adapter::task::TaskListOptions;
 pub use wf_storage::adapter::variable::VariableListOptions;
+
+// Storage metadata and shared workflow types re-exported so transport layers
+// (wf-server) go through this facade instead of depending on wf-types and
+// wf-storage adapter modules directly.
+pub use wf_types::agent::{AgentDefinition, AgentTemplate};
+pub use wf_types::enums::ScriptLanguage;
+pub use wf_types::events::{BaseEvent, EventType};
+pub use wf_types::interaction::tool_approval::ToolApprovalRequestData;
+pub use wf_types::llm::tool_call_protocol::ToolCallProtocolConfig;
+pub use wf_types::llm::LlmProviderDefinition;
+pub use wf_types::llm::{LlmProfile, LlmRequest};
+pub use wf_types::message::Message;
+pub use wf_types::node::BaseStaticNode;
+pub use wf_types::script::sandbox::SandboxConfig;
+pub use wf_types::skill::SkillResourceType;
+pub use wf_types::tool::{ToolApprovalOptions, ToolExecutionOptions};
+pub use wf_types::trigger::{
+    ScheduleTarget, WebhookAuth, WebhookSpec, FIRE_ID_METADATA_KEY, PRODUCER_SOURCE_METADATA_KEY,
+    WEBHOOK_SPEC_METADATA_KEY,
+};
+pub use wf_types::workflow::Edge;
+pub use wf_types::workflow::WorkflowTemplate;
+pub use wf_types::AgentLoopStorageMetadata;
+pub use wf_types::AgentProfileStorageMetadata;
+pub use wf_types::Id;
+pub use wf_types::MessageStorageMetadata;
+pub use wf_types::NodeTemplateStorageMetadata;
+pub use wf_types::ScriptStorageMetadata;
+pub use wf_types::TaskStorageMetadata;
+pub use wf_types::ToolStorageMetadata;
+pub use wf_types::TriggerExecutionStorageMetadata;
+pub use wf_types::TriggerTemplateStorageMetadata;
+pub use wf_types::UserInteractionStorageMetadata;
+pub use wf_types::WorkflowDefinition;
+
+// Foundation utilities re-exported so transport layers avoid direct
+// wf-common / wf-core deps for id generation, clocks and registries.
+pub use wf_common::time::timestamp_to_iso;
+pub use wf_common::{generate_id, now};
+pub use wf_core::registry::Registry;
+
+// Engine approval policy + prompt environment re-exported so the HTTP layer
+// evaluates the same policy objects as the API facade.
+pub use wf_execution_shared::agent_prompt::PromptEnvironment;
+pub use wf_tools::approval::{ApprovalDecision, McpToolContext, ToolApprovalCoordinator};
 pub use wf_tools::callback::{AgentLoopConfig, AgentLoopInput, AgentLoopOutput};
 pub use wf_workflow::analysis::{analyze_reachability, get_reachable_nodes};
 

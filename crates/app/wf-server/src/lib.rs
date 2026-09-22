@@ -9,7 +9,7 @@ pub mod server_config;
 pub mod sse;
 pub mod ws;
 
-pub use api::resource::health::HealthView;
+pub use api::system::health::HealthView;
 pub use api::workflow::executions::{ExecuteBody, ExecuteView};
 pub use metrics::{router, serve};
 pub use router::{

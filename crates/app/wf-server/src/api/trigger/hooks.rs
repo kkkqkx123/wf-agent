@@ -28,8 +28,8 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::post;
 use axum::Json;
-use wf_core::registry::Registry;
-use wf_types::trigger::{
+use wf_api::Registry;
+use wf_api::{
     ScheduleTarget, WebhookAuth, WebhookSpec, FIRE_ID_METADATA_KEY, PRODUCER_SOURCE_METADATA_KEY,
     WEBHOOK_SPEC_METADATA_KEY,
 };
@@ -125,13 +125,13 @@ async fn handle_webhook_fire(
         .and_then(|value| value.as_str())
         .filter(|id| !id.is_empty())
         .map(str::to_string)
-        .unwrap_or_else(|| format!("{}:{}", name, wf_common::now()));
+        .unwrap_or_else(|| format!("{}:{}", name, wf_api::now()));
     let mut metadata: HashMap<String, serde_json::Value> = HashMap::from([
         (
             PRODUCER_SOURCE_METADATA_KEY.to_string(),
             serde_json::json!("webhook"),
         ),
-        ("fired_at".to_string(), serde_json::json!(wf_common::now())),
+        ("fired_at".to_string(), serde_json::json!(wf_api::now())),
         ("path".to_string(), serde_json::json!(spec.path)),
         (
             FIRE_ID_METADATA_KEY.to_string(),
@@ -156,10 +156,10 @@ async fn handle_webhook_fire(
         }
     }
 
-    let event = wf_types::events::BaseEvent {
-        id: wf_common::generate_id(),
-        r#type: wf_types::events::EventType::NodeCustomEvent,
-        timestamp: wf_common::now(),
+    let event = wf_api::BaseEvent {
+        id: wf_api::generate_id(),
+        r#type: wf_api::EventType::NodeCustomEvent,
+        timestamp: wf_api::now(),
         workflow_id: None,
         execution_id: execution_id.clone(),
         agent_loop_id: None,

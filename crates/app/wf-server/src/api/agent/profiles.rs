@@ -7,7 +7,7 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::Deserialize;
 
-use wf_storage::adapter::agent_profile::AgentProfileListOptions;
+use wf_api::AgentProfileListOptions;
 
 use crate::envelope::{error_response, ok};
 use crate::extract::{IdPath, ListQuery};
@@ -34,7 +34,7 @@ pub(crate) fn routes() -> Router<ApiState> {
 /// persisting it.
 async fn handle_validate_agent(
     State(_state): State<ApiState>,
-    Json(definition): Json<wf_types::agent::AgentDefinition>,
+    Json(definition): Json<wf_api::AgentDefinition>,
 ) -> impl IntoResponse {
     match wf_api::infra::config::validate_agent(&definition) {
         Ok(()) => ok(true).into_response(),
@@ -68,7 +68,7 @@ async fn handle_list_profiles(
 
 async fn handle_save_profile(
     State(state): State<ApiState>,
-    Json(profile): Json<wf_types::AgentProfileStorageMetadata>,
+    Json(profile): Json<wf_api::AgentProfileStorageMetadata>,
 ) -> impl IntoResponse {
     match wf_api::agent::agent::save_agent_profile(&state.ctx.storage, &profile).await {
         Ok(()) => ok(profile.id.to_string()).into_response(),
@@ -89,9 +89,9 @@ async fn handle_get_profile(
 async fn handle_update_profile(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
-    Json(mut profile): Json<wf_types::AgentProfileStorageMetadata>,
+    Json(mut profile): Json<wf_api::AgentProfileStorageMetadata>,
 ) -> impl IntoResponse {
-    profile.id = wf_types::Id::from(path.id.clone());
+    profile.id = wf_api::Id::from(path.id.clone());
     match wf_api::agent::agent::save_agent_profile(&state.ctx.storage, &profile).await {
         Ok(()) => ok(path.id).into_response(),
         Err(e) => error_response(e),

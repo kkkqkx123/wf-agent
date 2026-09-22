@@ -802,7 +802,6 @@ mod tests {
         let regs = ResourceRegistries::new();
         let opts = TemplateRenderOptions {
             variables: HashMap::from([("tool_names".to_string(), "write_file".to_string())]),
-            ..Default::default()
         };
         let text = render_template(&regs, ACTIVATION_TEMPLATE_ID, &opts).expect("default exists");
         assert!(text.contains("write_file"));
@@ -816,7 +815,6 @@ mod tests {
         let regs = regs_with_template(ACTIVATION_TEMPLATE_ID, "Custom: {{tool_names}}", None);
         let opts = TemplateRenderOptions {
             variables: HashMap::from([("tool_names".to_string(), "shell".to_string())]),
-            ..Default::default()
         };
         let text = render_template(&regs, ACTIVATION_TEMPLATE_ID, &opts).expect("configured");
         assert!(text.starts_with("Custom:"));
@@ -945,7 +943,6 @@ mod tests {
         let regs = regs_with_template("t.canonical", "Hi {{who}}!", None);
         let opts = TemplateRenderOptions {
             variables: HashMap::from([("who".to_string(), "dev".to_string())]),
-            ..Default::default()
         };
         assert_eq!(
             render_template(&regs, "t.canonical", &opts).unwrap(),
@@ -1050,7 +1047,6 @@ mod tests {
         assert!(render_template(&regs, "system.required", &Default::default()).is_none());
         let opts = TemplateRenderOptions {
             variables: HashMap::from([("who".to_string(), "dev".to_string())]),
-            ..Default::default()
         };
         assert_eq!(
             render_template(&regs, "system.required", &opts).expect("rendered"),
@@ -1227,7 +1223,6 @@ mod tests {
             .unwrap();
         let opts = TemplateRenderOptions {
             variables: HashMap::from([("count".to_string(), "7".to_string())]),
-            ..Default::default()
         };
         assert!(render_template(&regs, "system.typed-flat", &opts).is_none());
         let typed = HashMap::from([("count".to_string(), serde_json::json!(7))]);

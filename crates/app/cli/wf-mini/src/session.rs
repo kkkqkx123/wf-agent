@@ -134,9 +134,6 @@ impl NativeSession {
                 self.transcript.len()
             ));
         }
-        if self.approval_llm {
-            output::diag_line("note: --approval llm is not supported; using manual confirmation");
-        }
         let mut quitter = QuitArmer::default();
         loop {
             let lines = Arc::clone(&self.lines);
@@ -391,12 +388,21 @@ impl NativeSession {
         };
         match &self.domain {
             DomainHandle::Embedded(adapter) => {
-                let handler: Arc<dyn ToolApprovalHandler> = Arc::new(NativeApprovalHandler::new(
-                    Vec::new(),
-                    self.auto_approve,
-                    Arc::clone(&self.lines),
-                    self.cancel_tx.clone(),
-                ));
+                let handler: Arc<dyn ToolApprovalHandler> = if self.approval_llm {
+                    // `--approval llm`: the shared fail-closed LLM reviewer
+                    // answers the engine's Ask decisions.
+                    Arc::new(wf_cli_shared::approval::LlmApprovalHandler::new(
+                        adapter.api_context_arc(),
+                        self.model.clone().unwrap_or_else(|| wf_api::DEFAULT_MODEL.to_string()),
+                    ))
+                } else {
+                    Arc::new(NativeApprovalHandler::new(
+                        Vec::new(),
+                        self.auto_approve,
+                        Arc::clone(&self.lines),
+                        self.cancel_tx.clone(),
+                    ))
+                };
                 let options = wf_runtime::tool_approval::headless_approval_options(Some(
                     adapter.api_context(),
                 ));

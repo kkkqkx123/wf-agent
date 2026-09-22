@@ -540,8 +540,8 @@ impl RemoteClient {
         let conversation =
             serde_json::to_value(&params.conversation).unwrap_or(serde_json::Value::Null);
         let body = serde_json::json!({
-            "agent_id": params.agent.clone().unwrap_or_else(|| crate::config::DEFAULT_AGENT.to_string()),
-            "model": params.model.clone().unwrap_or_else(|| crate::config::DEFAULT_MODEL.to_string()),
+            "agent_id": params.agent.clone().unwrap_or_else(|| wf_api::DEFAULT_AGENT.to_string()),
+            "model": params.model.clone().unwrap_or_else(|| wf_api::DEFAULT_MODEL.to_string()),
             "message": sanitized,
             "max_iterations": 50,
             "context": {},

@@ -6,9 +6,9 @@
 //! targets (headless, mini) without pulling in the full TUI dependency tree.
 
 pub mod app_config;
+pub mod approval;
 pub mod args;
 pub mod cmd;
-pub mod config;
 pub mod domain;
 pub mod error;
 pub mod mode;

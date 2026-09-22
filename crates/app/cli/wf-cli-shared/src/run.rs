@@ -20,7 +20,7 @@ use std::time::Instant;
 use futures::StreamExt;
 use serde_json::Value;
 
-use crate::config::{DEFAULT_AGENT, DEFAULT_MODEL};
+use wf_api::{DEFAULT_AGENT, DEFAULT_MODEL};
 use crate::domain::DomainAdapter;
 use crate::error::{CliError, CliResult};
 use crate::output::{OutputEnvelope, OutputFormat, OutputMessage, OutputSink};
@@ -975,7 +975,7 @@ pub async fn run_session_remote(
     }
     let sanitized = crate::sanitize::sanitize_user_text(&opts.prompt);
     let body = serde_json::json!({
-        "agent_id": opts.agent_id.clone().unwrap_or_else(|| crate::config::DEFAULT_AGENT.to_string()),
+        "agent_id": opts.agent_id.clone().unwrap_or_else(|| DEFAULT_AGENT.to_string()),
         "model": opts.model.clone().unwrap_or_else(|| DEFAULT_MODEL.to_string()),
         "message": sanitized,
         "max_iterations": 50,

@@ -250,11 +250,11 @@ impl TuiApp {
 
         let backend = CrosstermBackend::new(io::stdout());
         let mut terminal = Terminal::new(backend)
-            .map_err(|e| CliError::Configuration(format!("terminal init failed: {e}")))?;
+            .map_err(|e| CliError::Terminal(format!("terminal init failed: {e}")))?;
 
         terminal
             .clear()
-            .map_err(|e| CliError::Configuration(format!("clear failed: {e}")))?;
+            .map_err(|e| CliError::Terminal(format!("clear failed: {e}")))?;
 
         // Hot-reload the theme on SIGUSR2: re-probe and forward to the loop.
         // The signal watcher lives in the application shell (tokio is an app
@@ -376,10 +376,10 @@ impl TuiApp {
             };
 
             if event::poll(timeout)
-                .map_err(|e| CliError::Configuration(format!("poll failed: {e}")))?
+                .map_err(|e| CliError::Terminal(format!("poll failed: {e}")))?
             {
                 let ev = event::read()
-                    .map_err(|e| CliError::Configuration(format!("event read failed: {e}")))?;
+                    .map_err(|e| CliError::Terminal(format!("event read failed: {e}")))?;
                 match ev {
                     Event::Key(key) => {
                         match key.kind {
@@ -489,7 +489,7 @@ impl TuiApp {
                         terminal
                             .draw(|frame| self.draw_inner(frame, &data))
                             .map(|_| ())
-                            .map_err(|e| CliError::Configuration(format!("draw failed: {e}")))
+                            .map_err(|e| CliError::Terminal(format!("draw failed: {e}")))
                     }));
                     let _ = execute!(std::io::stdout(), EndSynchronizedUpdate);
                     match outcome {
@@ -502,7 +502,7 @@ impl TuiApp {
                         terminal
                             .draw(|frame| self.draw_inner(frame, &data))
                             .map(|_| ())
-                            .map_err(|e| CliError::Configuration(format!("draw failed: {e}")))
+                            .map_err(|e| CliError::Terminal(format!("draw failed: {e}")))
                     }));
                     match outcome {
                         Ok(Ok(())) => {}
@@ -914,7 +914,7 @@ impl TuiApp {
                 let area = frame.area();
                 crate::render_model::draw_recovered_frame(frame.buffer_mut(), area);
             })
-            .map_err(|e| CliError::Configuration(format!("recovered draw failed: {e}")))?;
+            .map_err(|e| CliError::Terminal(format!("recovered draw failed: {e}")))?;
         self.pending_scope.request(crate::redraw::RedrawScope::Full);
         Ok(())
     }

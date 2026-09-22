@@ -20,6 +20,8 @@ pub enum CliError {
     Arguments(String),
     /// Configuration or runtime bootstrap failure.
     Configuration(String),
+    /// Terminal backend failure (init, draw, poll, event read).
+    Terminal(String),
     /// Business-level failure of a session / command.
     Business(String),
     /// Execution was interrupted (SIGINT / user cancel).
@@ -40,6 +42,7 @@ impl CliError {
         match self {
             Self::Arguments(_) => 2,
             Self::Configuration(_) => 3,
+            Self::Terminal(_) => 1,
             Self::Business(_) => 1,
             Self::Interrupted(_) => 4,
             Self::Io(_) => 1,
@@ -55,6 +58,7 @@ impl fmt::Display for CliError {
         match self {
             Self::Arguments(msg) => write!(f, "invalid arguments: {msg}"),
             Self::Configuration(msg) => write!(f, "configuration error: {msg}"),
+            Self::Terminal(msg) => write!(f, "terminal error: {msg}"),
             Self::Business(msg) => write!(f, "command failed: {msg}"),
             Self::Interrupted(msg) => write!(f, "interrupted: {msg}"),
             Self::Io(err) => write!(f, "io error: {err}"),

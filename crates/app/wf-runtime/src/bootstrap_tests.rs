@@ -183,6 +183,72 @@ mod tests {
         assert_ne!(config.storage, StorageConfig::default());
     }
 
+    /// The user/project config-file layer (global XDG file then project
+    /// `.wf/config.toml`, project wins) fills unset fields; explicit
+    /// programmatic values (CLI parameters) still take priority.
+    #[test]
+    fn test_resolve_infra_config_user_file_layer() {
+        let global_dir = tempfile::tempdir().unwrap();
+        let project_dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(global_dir.path().join("wf")).unwrap();
+        std::fs::create_dir_all(project_dir.path().join(".wf")).unwrap();
+        std::env::set_var("XDG_CONFIG_HOME", global_dir.path());
+        std::fs::write(
+            global_dir.path().join("wf").join("config.toml"),
+            r#"
+log_level = "debug"
+
+[storage]
+type = "memory"
+"#,
+        )
+        .unwrap();
+        std::fs::write(
+            project_dir.path().join(".wf").join("config.toml"),
+            r#"
+[storage]
+type = "sqlite"
+
+[storage.sqlite]
+db_path = "./layer-test.db"
+"#,
+        )
+        .unwrap();
+
+        // Project layer wins over the global layer for storage; the unset
+        // log level falls through to the global layer.
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let config = runtime.block_on(resolve_infra_config(
+            RuntimeConfig::default(),
+            &InfraSourceConfig {
+                project_root: Some(project_dir.path().to_path_buf()),
+                ..Default::default()
+            },
+            None,
+        ));
+        let config = config.unwrap();
+        assert_eq!(config.storage.storage_type, StorageType::Sqlite);
+        assert_eq!(config.log_config.level, "debug");
+
+        // Programmatic values (CLI parameters) win over both file layers.
+        let config = runtime.block_on(resolve_infra_config(
+            RuntimeConfig {
+                log_config: LogConfig::default().with_level("off"),
+                ..Default::default()
+            },
+            &InfraSourceConfig {
+                project_root: Some(project_dir.path().to_path_buf()),
+                ..Default::default()
+            },
+            None,
+        ));
+        let config = config.unwrap();
+        assert_eq!(config.log_config.level, "off");
+        assert_eq!(config.storage.storage_type, StorageType::Sqlite);
+
+        std::env::remove_var("XDG_CONFIG_HOME");
+    }
+
     #[tokio::test]
     async fn test_runtime_bootstrap_memory() {
         clear_env_vars();

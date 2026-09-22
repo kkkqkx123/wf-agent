@@ -12,14 +12,14 @@ pub enum LogFormat {
     Pretty,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LogOutput {
     Stdout,
     Stderr,
     File(PathBuf),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LogConfig {
     pub level: String,
     pub format: LogFormat,

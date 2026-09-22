@@ -7,7 +7,7 @@ use wf_api::infra::stream::ExecutionEventStream;
 use wf_api::AgentLoopInput;
 use wf_types::Id;
 
-use crate::config::build_agent_loop_config;
+use wf_api::build_agent_loop_config;
 
 /// What a turn executes.
 #[derive(Debug, Clone)]
@@ -158,7 +158,7 @@ mod tests {
             },
         };
         let run = build_agent_loop_params(&params, None, None);
-        assert_eq!(run.config.model, crate::config::DEFAULT_MODEL);
+        assert_eq!(run.config.model, wf_api::DEFAULT_MODEL);
         assert_eq!(run.input.message, "hi");
         assert!(run.input.conversation.is_empty());
     }

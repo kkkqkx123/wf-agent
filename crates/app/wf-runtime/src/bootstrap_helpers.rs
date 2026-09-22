@@ -1,6 +1,7 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use serde::Deserialize;
 use tracing::{info, warn};
 
 use wf_config::orchestrator::{default_infra_file_mapping, ConfigOrchestratorBuilder};
@@ -244,12 +245,91 @@ pub async fn init_event_persistence(
     Some(layer as Arc<dyn ApiPersistenceLayer>)
 }
 
+/// Lenient user/project config-file layer, merged before the infrastructure
+/// preset. Every field is optional: absent files yield all-defaults, and a
+/// malformed file is skipped with a warning rather than failing bootstrap.
+#[derive(Debug, Clone, Default, Deserialize)]
+struct FileLayerConfig {
+    storage: Option<StorageConfig>,
+    log_level: Option<String>,
+    tool_approval: Option<wf_types::config::tool_approval::ToolApprovalConfig>,
+}
+
+/// Load the user config-file layer (global then project, project wins) via
+/// the layered loader. Returns defaults when no file exists.
+fn load_user_file_layer(project_root: &Path) -> FileLayerConfig {
+    let project_file = project_root.join(".wf").join("config.toml");
+    let global_file = user_config_dir().map(|dir| dir.join("config.toml"));
+
+    let paths: Vec<PathBuf> = [global_file, Some(project_file)]
+        .into_iter()
+        .flatten()
+        .collect();
+    if paths.is_empty() {
+        return FileLayerConfig::default();
+    }
+    let path_refs: Vec<&Path> = paths.iter().map(|p| p.as_path()).collect();
+    match wf_config::layered::load_layered_config_sync::<FileLayerConfig>(&path_refs) {
+        Ok(layer) => layer,
+        Err(e) => {
+            warn!(error = %e, "failed to load user config layer; keeping defaults");
+            FileLayerConfig::default()
+        }
+    }
+}
+
+/// User-level config directory following XDG conventions
+/// (`$XDG_CONFIG_HOME/wf` or `$HOME/.config/wf`); `None` when no home is
+/// discoverable.
+fn user_config_dir() -> Option<PathBuf> {
+    let base = std::env::var_os("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .filter(|p| p.is_absolute())
+        .or_else(|| {
+            std::env::var_os("HOME")
+                .map(PathBuf::from)
+                .filter(|p| !p.as_os_str().is_empty())
+                .map(|home| home.join(".config"))
+        })?;
+    Some(base.join("wf"))
+}
+
+/// Apply the file layer to fields the caller has not set explicitly: file
+/// values only fill in defaults, so CLI parameters (already present in
+/// `config` when this runs) always win.
+fn apply_file_layer(config: &mut RuntimeConfig, layer: &FileLayerConfig) {
+    if let Some(storage) = &layer.storage {
+        if config.storage == StorageConfig::default() {
+            config.storage = storage.clone();
+        }
+    }
+    if let Some(level) = &layer.log_level {
+        if config.log_config == LogConfig::default() {
+            config.log_config.level = level.clone();
+        }
+    }
+    if let Some(approval) = &layer.tool_approval {
+        if config.tool_approval
+            == wf_types::config::tool_approval::ToolApprovalConfig::default()
+        {
+            config.tool_approval = approval.clone();
+        }
+    }
+}
+
 pub async fn resolve_infra_config(
     mut config: RuntimeConfig,
     infra: &InfraSourceConfig,
     config_metrics: Option<&Arc<wf_metrics::ConfigMetricsCollector>>,
 ) -> RuntimeResult<RuntimeConfig> {
     let project_root = infra.project_root.clone().unwrap_or_default();
+
+    // User/project config-file layer fills unset fields first, so the
+    // infrastructure preset below and any caller-supplied values
+    // (CLI parameters) keep their higher priority.
+    let file_layer = load_user_file_layer(&project_root);
+    apply_file_layer(&mut config, &file_layer);
+
     let preset_name = infra
         .preset_name
         .clone()

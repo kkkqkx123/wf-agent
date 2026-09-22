@@ -50,7 +50,6 @@ mod tests {
         wf_types::agent::AgentHookConfig {
             hook_type,
             condition: None,
-            event_name: String::new(),
             event_payload: None,
             enabled: None,
             priority: None,

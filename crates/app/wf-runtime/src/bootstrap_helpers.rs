@@ -1,9 +1,9 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::Arc;
 
-use serde::Deserialize;
 use tracing::{info, warn};
 
+use wf_config::file_layer::{load_user_file_layer, FileLayerConfig};
 use wf_config::orchestrator::{default_infra_file_mapping, ConfigOrchestratorBuilder};
 use wf_config::processor::llm_profile::{
     transform_llm_profile, validate_llm_profile, validate_provider_definition,
@@ -245,61 +245,24 @@ pub async fn init_event_persistence(
     Some(layer as Arc<dyn ApiPersistenceLayer>)
 }
 
-/// Lenient user/project config-file layer, merged before the infrastructure
-/// preset. Every field is optional: absent files yield all-defaults, and a
-/// malformed file is skipped with a warning rather than failing bootstrap.
-#[derive(Debug, Clone, Default, Deserialize)]
-struct FileLayerConfig {
-    storage: Option<StorageConfig>,
-    log_level: Option<String>,
-    tool_approval: Option<wf_types::config::tool_approval::ToolApprovalConfig>,
-}
-
-/// Load the user config-file layer (global then project, project wins) via
-/// the layered loader. Returns defaults when no file exists.
-fn load_user_file_layer(project_root: &Path) -> FileLayerConfig {
-    let project_file = project_root.join(".wf").join("config.toml");
-    let global_file = user_config_dir().map(|dir| dir.join("config.toml"));
-
-    let paths: Vec<PathBuf> = [global_file, Some(project_file)]
-        .into_iter()
-        .flatten()
-        .collect();
-    if paths.is_empty() {
-        return FileLayerConfig::default();
-    }
-    let path_refs: Vec<&Path> = paths.iter().map(|p| p.as_path()).collect();
-    match wf_config::layered::load_layered_config_sync::<FileLayerConfig>(&path_refs) {
-        Ok(layer) => layer,
-        Err(e) => {
-            warn!(error = %e, "failed to load user config layer; keeping defaults");
-            FileLayerConfig::default()
-        }
-    }
-}
-
-/// User-level config directory following XDG conventions
-/// (`$XDG_CONFIG_HOME/wf` or `$HOME/.config/wf`); `None` when no home is
-/// discoverable.
-fn user_config_dir() -> Option<PathBuf> {
-    let base = std::env::var_os("XDG_CONFIG_HOME")
-        .map(PathBuf::from)
-        .filter(|p| p.is_absolute())
-        .or_else(|| {
-            std::env::var_os("HOME")
-                .map(PathBuf::from)
-                .filter(|p| !p.as_os_str().is_empty())
-                .map(|home| home.join(".config"))
-        })?;
-    Some(base.join("wf"))
-}
-
-/// Apply the file layer to fields the caller has not set explicitly: file
-/// values only fill in defaults, so CLI parameters (already present in
-/// `config` when this runs) always win.
+/// Apply the user file layer to fields the caller has not set explicitly:
+/// file values only fill in defaults, so programmatic parameters (already
+/// present in `config` when this runs) always win. Loading itself lives in
+/// `wf_config::file_layer`; this only maps the loaded values onto runtime
+/// fields (log level needs the runtime-owned `LogConfig`).
+///
+/// Precedence across the whole resolution (highest first): programmatic
+/// `RuntimeConfig` > `WF_*` environment > user file layer (`~/.wf` +
+/// project `.wf/config.toml`) > preset files (`configs/infrastructure`) >
+/// built-in defaults. The environment check below exists because the file
+/// layer runs before the orchestrator bakes `WF_*` overrides into the
+/// assembled config: without it a dotfile `storage` would silently beat an
+/// explicit `WF_STORAGE_*` export.
 fn apply_file_layer(config: &mut RuntimeConfig, layer: &FileLayerConfig) {
     if let Some(storage) = &layer.storage {
-        if config.storage == StorageConfig::default() {
+        let storage_env_set = std::env::var_os("WF_STORAGE_TYPE").is_some()
+            || std::env::var_os("WF_STORAGE_SQLITE_DB_PATH").is_some();
+        if !storage_env_set && config.storage == StorageConfig::default() {
             config.storage = storage.clone();
         }
     }
@@ -309,9 +272,7 @@ fn apply_file_layer(config: &mut RuntimeConfig, layer: &FileLayerConfig) {
         }
     }
     if let Some(approval) = &layer.tool_approval {
-        if config.tool_approval
-            == wf_types::config::tool_approval::ToolApprovalConfig::default()
-        {
+        if config.tool_approval == wf_types::config::tool_approval::ToolApprovalConfig::default() {
             config.tool_approval = approval.clone();
         }
     }
@@ -326,7 +287,8 @@ pub async fn resolve_infra_config(
 
     // User/project config-file layer fills unset fields first, so the
     // infrastructure preset below and any caller-supplied values
-    // (CLI parameters) keep their higher priority.
+    // (CLI parameters) keep their higher priority. `WF_*` environment
+    // overrides beat the file layer (see `apply_file_layer`).
     let file_layer = load_user_file_layer(&project_root);
     apply_file_layer(&mut config, &file_layer);
 
@@ -397,16 +359,14 @@ pub async fn resolve_infra_config(
                     &project_root,
                     Some(name),
                 ),
-                None => {
-                    wf_config::skill::load_and_merge_skill_config(settings_dir, &project_root)
-                }
+                None => wf_config::skill::load_and_merge_skill_config(settings_dir, &project_root),
             },
             None => {
                 // No global settings dir configured: load only the project
                 // layer instead of passing an empty sentinel path.
-                wf_config::skill::load_skill_config(
-                    &wf_config::skill::get_project_skill_path(&project_root),
-                )
+                wf_config::skill::load_skill_config(&wf_config::skill::get_project_skill_path(
+                    &project_root,
+                ))
                 .map(|project| wf_config::skill::merge_skill_configs(None, project.as_ref()))
             }
         };
@@ -723,6 +683,37 @@ pub async fn init_plugins_and_resources(
         tracing::warn!("Resource registration failed: {} - {}", fail.id, fail.error);
     }
     Ok(())
+}
+
+/// Assembled file-checkpoint stack produced by [`init_file_checkpoint_stack`]:
+/// the layertwine-backed manager plus its background tasks, kept alive for
+/// the runtime lifetime.
+pub struct FileCheckpointStack {
+    pub manager: Option<wf_checkpoint::file::FileCheckpointManager>,
+    pub event_bridge_handle: Option<tokio::task::JoinHandle<()>>,
+    pub manual_change_service: Option<wf_checkpoint::watcher::ManualChangeService>,
+    pub gc_timer_handle: Option<tokio::task::JoinHandle<()>>,
+}
+
+/// Bootstrap stage: build the file-checkpoint manager (workspace root +
+/// scan rules) when enabled, start the manual watcher when a workspace root
+/// with manual watching is configured, and arm the periodic GC timer. The
+/// manager is attached to the API context so workflow/agent executions
+/// create and restore file snapshots through it and script handlers capture
+/// workspace changes.
+pub fn init_file_checkpoint_stack(
+    config: &FileCheckpointConfig,
+    event_bus: Arc<wf_core::event::EventBus>,
+) -> RuntimeResult<FileCheckpointStack> {
+    let (manager, event_bridge_handle) = init_file_checkpoint_manager(config, event_bus)?;
+    let manual_change_service = init_manual_change_service(config, manager.as_ref())?;
+    let gc_timer_handle = init_gc_timer(config, manager.as_ref());
+    Ok(FileCheckpointStack {
+        manager,
+        event_bridge_handle,
+        manual_change_service,
+        gc_timer_handle,
+    })
 }
 
 pub async fn hydrate_tool_registry_from_storage(

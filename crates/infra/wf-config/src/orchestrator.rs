@@ -191,7 +191,10 @@ pub struct ConfigOrchestratorBuilder {
 impl ConfigOrchestratorBuilder {
     pub fn new(project_dir: &Path) -> Self {
         Self {
-            infra_dir: crate::layout::family_dir(project_dir, crate::layout::family::INFRASTRUCTURE),
+            infra_dir: crate::layout::family_dir(
+                project_dir,
+                crate::layout::family::INFRASTRUCTURE,
+            ),
             preset_name: None,
             default_paths: None,
             runtime_env: RuntimeEnvironment::Development,

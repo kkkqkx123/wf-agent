@@ -1,0 +1,11 @@
+# CORS middleware configuration.
+#
+# Schema:    wf_server::middleware::ServerMiddlewareConfig file layer (cors section).
+# Directory: `configs/server/` (independent family owned by wf-server).
+# Priority:  this file > built-in defaults (CORS has no environment
+#            variables by design: origins are deployment data, not secrets,
+#            and belong in versioned config).
+
+allowed_origins = ["*"]
+allowed_methods = ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+allowed_headers = ["Content-Type", "Authorization"]

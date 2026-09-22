@@ -4,6 +4,15 @@
 //! Used by the orchestrator to apply `WF_*` overrides to infrastructure
 //! config.
 //!
+//! Error policy is deliberately fail-fast here: an invalid `WF_*` value
+//! aborts assembly with `ConfigError::EnvVar` instead of silently keeping
+//! the old value, because these numbers feed execution guards (timeouts,
+//! iteration caps) where a typoed override running unnoticed is worse than
+//! a loud boot failure. The server middleware overlay (`wf-server`) uses
+//! the opposite policy (warn and keep) because there availability wins:
+//! a typo must never take the listener down. Both policies share the
+//! parsers below so `true/1/yes` spellings stay identical everywhere.
+//!
 //! File-level interpolation (`${VAR}` / `${VAR:default}`) is the single
 //! env expansion applied to file content before parsing. Only uppercase
 //! names match so workflow expressions (`${input.a}`) stay untouched.

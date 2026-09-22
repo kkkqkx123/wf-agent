@@ -740,7 +740,6 @@ impl ScriptHandler {
             vfs: None,
             workdir: None,
             env: None,
-            legacy_type: None,
             resource_limits: None,
             skip_gate_check: None,
         }

@@ -1,0 +1,22 @@
+# Auth middleware configuration (API key).
+#
+# Schema:    wf_server::middleware::ServerMiddlewareConfig file layer (auth section).
+# Directory: `configs/server/` (independent family owned by wf-server).
+# Priority:  `AUTH_ENABLED` / `API_KEYS` env > this file > built-in defaults.
+#
+# Secrets NEVER live here: API keys come from the `API_KEYS` environment
+# variable only (comma-separated). There is intentionally no key field in
+# this file.
+#
+# Naming is frozen: `AUTH_ENABLED` / `API_KEYS` predate the `WF_` prefix
+# convention and stay as-is so deployed environments keep working. New
+# variables must use the `WF_<DOMAIN>_<KEY>` form.
+#
+# `excluded_paths` bypass auth (health probes, websocket upgrade and event
+# streams carry their own `api_key` query-param check).
+
+enabled = false
+header_name = "x-api-key"
+allow_query_param = true
+query_param_name = "api_key"
+excluded_paths = ["/health", "/api/v1/info", "/", "/api/v1/ws", "/api/v1/events/stream"]

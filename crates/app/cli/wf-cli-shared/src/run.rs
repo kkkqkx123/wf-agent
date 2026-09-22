@@ -20,7 +20,6 @@ use std::time::Instant;
 use futures::StreamExt;
 use serde_json::Value;
 
-use wf_api::{DEFAULT_AGENT, DEFAULT_MODEL};
 use crate::domain::DomainAdapter;
 use crate::error::{CliError, CliResult};
 use crate::output::{OutputEnvelope, OutputFormat, OutputMessage, OutputSink};
@@ -30,6 +29,7 @@ use wf_api::entity::user_interaction::{
     register_handler, AgentUserInteractionEventRecord, UserInteractionHandler,
 };
 use wf_api::infra::stream::ExecutionStreamEvent;
+use wf_api::{DEFAULT_AGENT, DEFAULT_MODEL};
 use wf_runtime::tool_approval::{ApprovalPolicy, PolicyApprovalHandler};
 
 // ── diagnostics channel (stderr) ─────────────────────────────────────

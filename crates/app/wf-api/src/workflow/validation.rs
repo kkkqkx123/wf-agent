@@ -130,14 +130,14 @@ fn validate_hook_handler_references(
     let Some(hooks) = workflow.hooks.as_ref() else {
         return;
     };
-    for hook in hooks {
+    for (idx, hook) in hooks.iter().enumerate() {
         if let Some(ref handler) = hook.handler {
             if !handler.is_empty() && !hook_handler_registry.contains(handler) {
                 report.errors.push(wf_types::ValidationError::new(
-                    format!("hooks.{}.handler", hook.event_name),
+                    format!("hooks[{idx}].handler"),
                     format!(
                         "Hook '{}' references handler '{}' which is not registered",
-                        hook.event_name, handler
+                        hook.hook_type, handler
                     ),
                 ));
             }

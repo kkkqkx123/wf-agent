@@ -393,7 +393,9 @@ impl NativeSession {
                     // answers the engine's Ask decisions.
                     Arc::new(wf_cli_shared::approval::LlmApprovalHandler::new(
                         adapter.api_context_arc(),
-                        self.model.clone().unwrap_or_else(|| wf_api::DEFAULT_MODEL.to_string()),
+                        self.model
+                            .clone()
+                            .unwrap_or_else(|| wf_api::DEFAULT_MODEL.to_string()),
                     ))
                 } else {
                     Arc::new(NativeApprovalHandler::new(

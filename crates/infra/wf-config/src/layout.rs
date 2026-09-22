@@ -20,6 +20,8 @@ pub mod family {
     pub const SKILLS: &str = "skills";
     /// Infrastructure config files and presets (`configs/infrastructure`).
     pub const INFRASTRUCTURE: &str = "infrastructure";
+    /// Server transport and middleware config (`configs/server`).
+    pub const SERVER: &str = "server";
     /// LLM provider definitions (`configs/llm-providers`).
     pub const LLM_PROVIDERS: &str = "llm-providers";
     /// LLM profile definitions (`configs/llm-profiles`).

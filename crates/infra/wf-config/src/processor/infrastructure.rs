@@ -211,7 +211,6 @@ pub fn merge_sandbox_with_defaults(user: &SandboxConfig) -> SandboxConfig {
         vfs: user.vfs.clone(),
         workdir: user.workdir.clone(),
         env: user.env.clone(),
-        legacy_type: user.legacy_type.clone(),
         resource_limits: user.resource_limits.clone().or(Some(ResourceLimits {
             cpu: None,
             memory: Some(512),
@@ -440,7 +439,6 @@ mod tests {
             vfs: None,
             workdir: Some("/tmp".to_string()),
             env: None,
-            legacy_type: None,
             resource_limits: None,
             skip_gate_check: None,
         };
@@ -462,7 +460,6 @@ mod tests {
             vfs: None,
             workdir: None,
             env: None,
-            legacy_type: None,
             resource_limits: Some(ResourceLimits {
                 cpu: None,
                 memory: Some(0),
@@ -482,7 +479,6 @@ mod tests {
             vfs: None,
             workdir: None,
             env: None,
-            legacy_type: None,
             resource_limits: Some(ResourceLimits {
                 cpu: None,
                 memory: Some(512),
@@ -505,7 +501,6 @@ mod tests {
             vfs: None,
             workdir: Some("/definitely/not/a/real/dir-xyz".to_string()),
             env: None,
-            legacy_type: None,
             resource_limits: None,
             skip_gate_check: None,
         };

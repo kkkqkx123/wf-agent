@@ -30,7 +30,9 @@ pub fn get_global_skill_settings_path(settings_dir: &Path) -> PathBuf {
 
 /// Project-specific file: `{project_root}/.wf/skills.json` (highest precedence).
 pub fn get_project_skill_path(project_root: &Path) -> PathBuf {
-    project_root.join(layout::PROJECT_WF_DIR).join("skills.json")
+    project_root
+        .join(layout::PROJECT_WF_DIR)
+        .join("skills.json")
 }
 
 /// Load a single skill settings file.
@@ -141,7 +143,10 @@ pub fn load_and_merge_skill_config(
     let global_config = load_skill_config(&global_path)?;
     let wf_config = load_skill_config(&project_path)?;
 
-    Ok(merge_skill_configs(global_config.as_ref(), wf_config.as_ref()))
+    Ok(merge_skill_configs(
+        global_config.as_ref(),
+        wf_config.as_ref(),
+    ))
 }
 
 /// Write skill config to a JSON file (camelCase `autoScan`, matching TS).

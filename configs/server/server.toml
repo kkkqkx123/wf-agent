@@ -1,0 +1,11 @@
+# Server transport configuration.
+#
+# Schema:    wf_server::server_config::ServerConfig file layer (`bind_addr` only).
+# Directory: `configs/server/` (independent family owned by wf-server, not
+#            `configs/infrastructure/`).
+# Priority:  `--addr` flag > `WF_SERVER_BIND_ADDR` env > this file > `127.0.0.1:3000`.
+#
+# A missing file falls back to the default; a present but invalid file is
+# skipped with a warning, so a typo never silently binds elsewhere.
+
+bind_addr = "127.0.0.1:3000"

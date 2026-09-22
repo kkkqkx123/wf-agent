@@ -41,7 +41,8 @@ pub use bootstrap_helpers::{
     register_llm_config, resolve_infra_config, storage_db_path,
 };
 pub use bootstrap_helpers::{
-    init_file_checkpoint_manager, init_gc_timer, init_manual_change_service,
+    init_file_checkpoint_manager, init_file_checkpoint_stack, init_gc_timer,
+    init_manual_change_service, FileCheckpointStack,
 };
 
 pub struct Runtime {
@@ -105,6 +106,16 @@ pub struct Runtime {
     /// so executions launched through it route tool calls through the
     /// persisted interaction flow when enabled.
     tool_approval: wf_types::config::tool_approval::ToolApprovalConfig,
+    /// Resolved infrastructure values retained from bootstrap for downstream
+    /// readers. `limits` drives the agent executor and trigger subsystem;
+    /// `timeout`, `output`, `presets` and `tools` are resolved (file layer or
+    /// programmatic) and retained here so hosts can observe the effective
+    /// configuration.
+    pub timeout: wf_types::config::timeout::TimeoutConfig,
+    pub output: wf_types::config::output::OutputConfig,
+    pub presets: wf_types::config::presets::PresetsConfig,
+    pub tools: wf_config::orchestrator::ToolConfigs,
+    pub limits: wf_types::config::limits::LimitsConfig,
     /// Manual change service: watches the workspace root and routes
     /// human/external file edits into the manual partition. Started when
     /// file checkpointing is enabled with a workspace root and `manual_watch`.
@@ -237,19 +248,38 @@ fn assemble_trigger_subsystem(deps: TriggerSubsystemDeps) -> TriggerSubsystem {
 }
 
 impl Runtime {
-    pub async fn bootstrap(mut config: RuntimeConfig) -> RuntimeResult<Self> {
-        // File-layer infrastructure resolution: fill storage / timeout /
-        // metrics / output / sandbox / presets / tools / file_checkpoint
-        // from the orchestrator-assembled config, plus the skill settings
-        // chain. Programmatic values always win (file layer is the default
-        // source only).
+    /// Bootstrap from fully programmatic values (no file layer).
+    pub async fn bootstrap(config: RuntimeConfig) -> RuntimeResult<Self> {
+        Self::bootstrap_inner(config, None).await
+    }
+
+    /// Bootstrap with a file-layer source: user dotfiles plus the
+    /// infrastructure preset fill the values the caller left at defaults.
+    /// Programmatic values always win over the file layer.
+    pub async fn bootstrap_with_source(
+        config: RuntimeConfig,
+        source: InfraSourceConfig,
+    ) -> RuntimeResult<Self> {
+        Self::bootstrap_inner(config, Some(source)).await
+    }
+
+    async fn bootstrap_inner(
+        mut config: RuntimeConfig,
+        source: Option<InfraSourceConfig>,
+    ) -> RuntimeResult<Self> {
+        // Stage 1: configuration resolution. The file layer (user dotfiles +
+        // orchestrator-assembled infrastructure preset, plus the skill
+        // settings chain) fills storage / timeout / metrics / output /
+        // sandbox / presets / tools / file_checkpoint from disk; values the
+        // caller already set keep their higher priority.
         let config_metrics = std::sync::Arc::new(wf_metrics::ConfigMetricsCollector::new(
             wf_metrics::CollectorConfig::default(),
         ));
-        if let Some(infra) = config.infra.clone() {
+        if let Some(infra) = source {
             config = resolve_infra_config(config, &infra, Some(&config_metrics)).await?;
         }
 
+        // Stage 2: mode detection, logging and durable backends.
         let mode_info = detect_all(config.mode_override);
         let effective_log_config = adjust_log_config(config.log_config, &mode_info);
 
@@ -257,6 +287,7 @@ impl Runtime {
 
         info!("Bootstrapping runtime in {:?} mode", mode_info.mode);
 
+        // Stage 2 (continued): durable event persistence and storage backends.
         // Durable event persistence backend: engine events published
         // on the shared bus are buffered and flushed to the same backend as
         // the runtime storage, so history survives restarts. `None` (memory
@@ -280,6 +311,9 @@ impl Runtime {
 
         let registries = Arc::new(ResourceRegistries::new());
 
+        // Stage 3: foundation pieces. Skills, MCP, the shared event/signal
+        // buses and the hook registry are created before the tool registry
+        // and executors that consume them.
         let skill_loader = Arc::new(wf_tools::SkillLoader::new(config.skills));
         let skill_count = skill_loader.list_skills().len();
         if skill_count > 0 {
@@ -311,6 +345,10 @@ impl Runtime {
         // the trigger shutdown token exist (below).
         let hook_handler_registry = Arc::new(HookHandlerRegistry::new());
 
+        // Stage 4: execution pieces. The sandbox runtime compiles first so
+        // configuration errors surface at bootstrap, not at script
+        // execution; the tool registry, LLM gateway, plugins and persisted
+        // templates build on top in dependency order.
         // Shared sandbox runtime: compile the global config (profiles +
         // routing rules) up front so configuration errors surface at
         // bootstrap, not at script execution. Created before the tool
@@ -419,6 +457,9 @@ impl Runtime {
 
         let (shutdown_handle, _shutdown_waiter) = shutdown_channel();
 
+        // Stage 5: execution dispatch. The composite agent/workflow callback
+        // is registered on both the global callback singleton and the shared
+        // tool registry so builtin dispatch tools resolve at runtime.
         // Execution callback assembly: a composite covering agent and
         // workflow dispatch, registered on both the global callback
         // singleton and the shared tool registry. Fixes the production path
@@ -502,6 +543,8 @@ impl Runtime {
 
         hydrate_tool_registry_from_storage(&tool_registry, &storage_manager).await;
 
+        // Stage 6: event-driven trigger subsystem (context compression chain
+        // plus user trigger templates) over the shared write-back registries.
         // Event-driven trigger subsystem: powers the nested-agent-execution
         // action (HookTriggered etc.) and user trigger templates. The context
         // compression chain is now served by the hook registry: the engine
@@ -527,31 +570,26 @@ impl Runtime {
         let timer_bindings = trigger_subsystem.timer_bindings;
         let listener = trigger_subsystem.listener;
 
-        // File checkpoint wiring: build the layertwine-backed file checkpoint
-        // manager (workspace root + scan rules) when enabled and start the
-        // manual watcher when a workspace root with manual watching is
-        // configured. The manager is attached to the API context so workflow
-        // / agent executions create and restore file snapshots through it and
+        // Stage 7: file-checkpoint stack (manager + manual watcher + GC
+        // timer). The manager is attached to the API context so workflow /
+        // agent executions create and restore file snapshots through it and
         // script handlers capture workspace changes.
-        let (file_checkpoint_manager, checkpoint_event_bridge_handle) =
-            init_file_checkpoint_manager(&config.file_checkpoint, event_bus.clone())?;
+        let checkpoint_stack =
+            init_file_checkpoint_stack(&config.file_checkpoint, event_bus.clone())?;
+        let file_checkpoint_manager = checkpoint_stack.manager;
+        let checkpoint_event_bridge_handle = checkpoint_stack.event_bridge_handle;
+        let manual_change_service = checkpoint_stack.manual_change_service;
+        let gc_timer_handle = checkpoint_stack.gc_timer_handle;
         if let (Some(manager), Some(metrics)) = (file_checkpoint_manager.as_ref(), metrics.as_ref())
         {
             manager.set_checkpoint_metrics(metrics.registry().checkpoint());
         }
-        let manual_change_service =
-            init_manual_change_service(&config.file_checkpoint, file_checkpoint_manager.as_ref())?;
         // Approval tool (policy `llm` / `manual`): an LLM node can call
         // `approve_changes` to resolve a pending agent approval in-workflow.
         // Registered only when a file checkpoint manager is attached.
         if let Some(manager) = &file_checkpoint_manager {
             crate::approval_tool::register_approval_tools(&tool_registry, manager.clone());
         }
-
-        // Optional periodic GC timer: when `gc_interval_secs` is configured,
-        // spawn a background task that runs `run_gc` at the specified interval.
-        let gc_timer_handle =
-            init_gc_timer(&config.file_checkpoint, file_checkpoint_manager.as_ref());
 
         info!("Runtime bootstrap complete");
 
@@ -586,6 +624,11 @@ impl Runtime {
             manual_change_service,
             checkpoint_event_bridge_handle,
             gc_timer_handle,
+            timeout: config.timeout.clone(),
+            output: config.output.clone(),
+            presets: config.presets.clone(),
+            tools: config.tools.clone(),
+            limits: config.limits.clone(),
         })
     }
 

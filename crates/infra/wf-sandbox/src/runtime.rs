@@ -126,7 +126,6 @@ impl SandboxRuntime {
             vfs: config.vfs.clone().or(profile.vfs.clone()),
             workdir: config.workdir.clone().or(profile.workdir.clone()),
             env: config.env.clone().or(profile.env.clone()),
-            legacy_type: config.legacy_type.clone(),
             resource_limits: config.resource_limits.clone(),
             skip_gate_check: config.skip_gate_check,
         }
@@ -152,21 +151,7 @@ impl SandboxRuntime {
                 resolved = Self::merge_profile_into_config(default_profile, &resolved);
             }
         }
-        self.apply_legacy_mappings(&mut resolved);
         resolved
-    }
-
-    fn apply_legacy_mappings(&self, config: &mut SandboxConfig) {
-        match config.legacy_type.as_deref() {
-            Some("nodejs") => {
-                config.javascript_strategy = Some(vec!["vm-context".to_string()]);
-            }
-            Some("python") => {
-                config.python_strategy =
-                    Some(vec!["ast-analyzer".to_string(), "builtin-hook".to_string()]);
-            }
-            _ => {}
-        }
     }
 
     fn record_audit(

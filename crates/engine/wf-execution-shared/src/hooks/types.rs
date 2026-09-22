@@ -84,18 +84,8 @@ impl From<&wf_types::hook::HookPointConfig> for HookDefinition {
     ///
     /// Thin adapter over the authoritative spec (`CanonicalHookSpec` holds
     /// the field semantics): defaults mirror the agent conversion (priority 0,
-    /// enabled). `event_name` is deprecated and ignored: one fire aggregates
-    /// many definitions into a single `HOOK_TRIGGERED` audit event, so
-    /// per-definition names cannot be honored (a warn is emitted when one
-    /// is set).
+    /// enabled).
     fn from(config: &wf_types::hook::HookPointConfig) -> Self {
-        if !config.event_name.is_empty() {
-            tracing::warn!(
-                hook_type = %config.hook_type,
-                event_name = %config.event_name,
-                "hook event_name is deprecated and ignored; subscribe via HOOK_TRIGGERED plus metadata.hook_type"
-            );
-        }
         Self::from(&wf_types::hook::CanonicalHookSpec::from_workflow(config))
     }
 }
@@ -120,13 +110,6 @@ impl From<&wf_types::hook::CanonicalHookSpec> for HookDefinition {
 impl From<&wf_types::hook::HookPointStaticConfig> for HookDefinition {
     /// Static form: thin adapter via the authoritative spec.
     fn from(config: &wf_types::hook::HookPointStaticConfig) -> Self {
-        if !config.event_name.is_empty() {
-            tracing::warn!(
-                hook_type = %config.hook_type,
-                event_name = %config.event_name,
-                "hook event_name is deprecated and ignored; subscribe via HOOK_TRIGGERED plus metadata.hook_type"
-            );
-        }
         Self::from(&wf_types::hook::CanonicalHookSpec::from_static(config))
     }
 }
@@ -134,13 +117,6 @@ impl From<&wf_types::hook::HookPointStaticConfig> for HookDefinition {
 impl From<&wf_types::agent::AgentHookConfig> for HookDefinition {
     /// Agent form: thin adapter via the authoritative spec.
     fn from(config: &wf_types::agent::AgentHookConfig) -> Self {
-        if !config.event_name.is_empty() {
-            tracing::warn!(
-                hook_type = %config.hook_type_name(),
-                event_name = %config.event_name,
-                "hook event_name is deprecated and ignored; subscribe via HOOK_TRIGGERED plus metadata.hook_type"
-            );
-        }
         Self::from(&wf_types::hook::CanonicalHookSpec::from_agent(config))
     }
 }

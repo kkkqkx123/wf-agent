@@ -55,9 +55,10 @@ pub struct LlmConfig {
 }
 
 /// File-layer infrastructure config sources resolved through the
-/// `ConfigOrchestrator` at bootstrap. The file layer fills the runtime only
-/// where programmatic values are absent; `SdkOptions`-style overrides stay
-/// the highest priority.
+/// `ConfigOrchestrator` at bootstrap. Passed separately from `RuntimeConfig`
+/// (see `Runtime::bootstrap_with_source`): the file layer fills the runtime
+/// only where programmatic values are absent; `SdkOptions`-style overrides
+/// stay the highest priority.
 #[derive(Debug, Clone, Default)]
 pub struct InfraSourceConfig {
     /// Project root (contains `configs/infrastructure`, `configs/skills`, ...).
@@ -97,10 +98,10 @@ pub struct RuntimeConfig {
     /// script handler. `None` uses the sandbox defaults.
     pub sandbox: Option<wf_types::script::sandbox::SandboxGlobalConfig>,
     /// Execution timeout defaults (resolved from the infrastructure file
-    /// layer when `infra` is set).
+    /// layer via `bootstrap_with_source`).
     pub timeout: TimeoutConfig,
     /// Output redirection defaults (resolved from the infrastructure file
-    /// layer when `infra` is set).
+    /// layer via `bootstrap_with_source`).
     pub output: OutputConfig,
     /// Runtime presets (context compression / predefined tools / prompts).
     pub presets: PresetsConfig,
@@ -113,11 +114,8 @@ pub struct RuntimeConfig {
     /// disabled (library contract: auto-approve); hosts enable it in their
     /// infrastructure config as a product decision.
     pub tool_approval: ToolApprovalConfig,
-    /// File-layer infrastructure config source; `None` keeps the runtime
-    /// programmatic-only (storage/metrics/sandbox defaults).
-    pub infra: Option<InfraSourceConfig>,
     /// Resource limits (agent/workflow) resolved from the infrastructure
-    /// file layer when `infra` is set; defaults otherwise.
+    /// file layer via `bootstrap_with_source`; defaults otherwise.
     pub limits: LimitsConfig,
     #[cfg(feature = "plugins")]
     pub plugins: PluginConfig,

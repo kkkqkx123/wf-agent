@@ -24,7 +24,7 @@ pub mod tool_approval;
 
 pub mod wf_runtime;
 
-pub use bootstrap::{ResourceConfig, Runtime, RuntimeConfig};
+pub use bootstrap::{InfraSourceConfig, ResourceConfig, Runtime, RuntimeConfig};
 pub use hook_handler::{register_hook_handler, register_plugin_hook_handlers, HookHandlerError};
 pub use metrics::{MetricsContext, StorageMetricsSink};
 pub use persistence_layer::{PersistenceConfig, PersistenceLayer};

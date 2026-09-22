@@ -339,7 +339,6 @@ mod tests {
         wf.hooks = Some(vec![wf_types::hook::HookPointConfig {
             hook_type: "BEFORE_ECECUTE".to_string(),
             condition: None,
-            event_name: "e".to_string(),
             event_payload: None,
             enabled: Some(true),
             priority: None,
@@ -356,7 +355,6 @@ mod tests {
         wf.hooks = Some(vec![wf_types::hook::HookPointConfig {
             hook_type: "WORKFLOW_BEFORE".to_string(),
             condition: None,
-            event_name: "e".to_string(),
             event_payload: None,
             enabled: Some(true),
             priority: None,

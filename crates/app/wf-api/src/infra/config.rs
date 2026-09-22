@@ -3,7 +3,8 @@
 //! `wf-api` does not re-implement config semantics; this module re-exposes the
 //! `wf-config` entry points grouped by category — parse (TOML/JSON), validate,
 //! transform, export and infrastructure assembly — so server/CLI layers can
-//! consume a single config surface.
+//! consume a single config surface. Layered file-merge primitives stay inside
+//! `wf-config`; hosts reach multi-file merging only through the orchestrator.
 
 use std::path::Path;
 
@@ -65,7 +66,8 @@ pub use wf_config::processor::script_interactive::export_interactive_script;
 pub use wf_config::processor::trigger::export_trigger_template;
 
 /// Infrastructure assembly (project/global config loading, env overrides).
-pub use wf_config::layered::{load_layered_config, load_layered_config_sync, merge_toml_values};
+/// Only the orchestrator surface is exposed; layered merge primitives stay
+/// inside `wf-config`.
 pub use wf_config::orchestrator::{
     AssembledConfig, ConfigOrchestrator, ConfigOrchestratorBuilder, ConfigOverrides,
 };

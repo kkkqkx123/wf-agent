@@ -294,7 +294,7 @@ mod tests {
     use wf_storage::context::StorageContext;
 
     use super::*;
-    use crate::router::serve_full_with_config;
+    use crate::router::serve_full_with_middleware;
 
     fn make_ctx() -> Arc<ApiContext> {
         Arc::new(ApiContext::new(
@@ -329,9 +329,14 @@ mod tests {
 
     async fn start_server(ctx: Arc<ApiContext>) -> crate::server::ServerHandle {
         let registry = Arc::new(MetricsRegistry::new());
-        crate::serve_full(registry, ctx, "127.0.0.1:0".parse().unwrap())
-            .await
-            .expect("server should bind")
+        serve_full_with_middleware(
+            registry,
+            ctx,
+            "127.0.0.1:0".parse().unwrap(),
+            Arc::new(crate::middleware::ServerMiddlewareConfig::default()),
+        )
+        .await
+        .expect("server should bind")
     }
 
     fn make_event(
@@ -492,7 +497,7 @@ mod tests {
             ..Default::default()
         };
         let registry = Arc::new(MetricsRegistry::new());
-        let handle = serve_full_with_config(
+        let handle = serve_full_with_middleware(
             registry,
             ctx,
             "127.0.0.1:0".parse().unwrap(),

@@ -29,16 +29,6 @@ fn warn_dead_before_hook(field_prefix: &str, hook_type: &str) {
     );
 }
 
-fn warn_deprecated_event_name(field_prefix: &str, event_name: &str) {
-    if !event_name.is_empty() {
-        tracing::warn!(
-            "{}.event_name '{}' is deprecated and ignored at runtime; subscribe via HOOK_TRIGGERED plus metadata.hook_type",
-            field_prefix,
-            event_name
-        );
-    }
-}
-
 fn validate_payload_template_syntax(
     payload: &serde_json::Value,
     field_prefix: &str,
@@ -51,23 +41,17 @@ fn validate_payload_template_syntax(
 ///
 /// All four forms (workflow, agent, static, tool-callback) converge to
 /// `CanonicalHookSpec` first; this function holds the only copy of the
-/// behavior: unknown types are rejected, deprecated `event_name` always
-/// passes with a warning, negative weights are rejected, empty handler
-/// names are rejected, a set handler warns about sync/async unordered
-/// paths, and request/mutated hooks without a handler warn about
+/// behavior: unknown types are rejected, negative weights are rejected,
+/// empty handler names are rejected, a set handler warns about sync/async
+/// unordered paths, and request/mutated hooks without a handler warn about
 /// completeness (observability hooks skip that check).
-pub fn validate_canonical_hook(
-    spec: &CanonicalHookSpec,
-    event_name: &str,
-    field_prefix: &str,
-) -> ConfigResult<()> {
+pub fn validate_canonical_hook(spec: &CanonicalHookSpec, field_prefix: &str) -> ConfigResult<()> {
     if !is_known_hook_point(&spec.hook_type) {
         return Err(ConfigError::Validation(format!(
             "{field_prefix}.hook_type references unknown hook type '{}'",
             spec.hook_type
         )));
     }
-    warn_deprecated_event_name(field_prefix, event_name);
     wf_types::hook::validate_hook_priority(spec.priority)
         .map_err(|e| ConfigError::Validation(format!("{field_prefix}.priority {e}")))?;
     if let Some(payload) = spec.payload.as_ref() {
@@ -115,11 +99,7 @@ pub fn validate_base_hook_config(hook: &HookPointConfig, field_prefix: &str) -> 
             )));
         }
     }
-    validate_canonical_hook(
-        &CanonicalHookSpec::from_workflow(hook),
-        &hook.event_name,
-        field_prefix,
-    )
+    validate_canonical_hook(&CanonicalHookSpec::from_workflow(hook), field_prefix)
 }
 
 /// Validate a `HookPointStaticConfig` (static/serialized form of hook config).
@@ -129,11 +109,7 @@ pub fn validate_base_hook_static_config(
     hook: &HookPointStaticConfig,
     field_prefix: &str,
 ) -> ConfigResult<()> {
-    validate_canonical_hook(
-        &CanonicalHookSpec::from_static(hook),
-        &hook.event_name,
-        field_prefix,
-    )
+    validate_canonical_hook(&CanonicalHookSpec::from_static(hook), field_prefix)
 }
 
 /// Validate an agent-level hook config against the hook registry.
@@ -144,11 +120,7 @@ pub fn validate_agent_hook_config(
     hook: &wf_types::agent::AgentHookConfig,
     field_prefix: &str,
 ) -> ConfigResult<()> {
-    validate_canonical_hook(
-        &CanonicalHookSpec::from_agent(hook),
-        &hook.event_name,
-        field_prefix,
-    )
+    validate_canonical_hook(&CanonicalHookSpec::from_agent(hook), field_prefix)
 }
 
 #[cfg(test)]
@@ -159,7 +131,6 @@ mod tests {
         HookPointConfig {
             hook_type: "BEFORE_EXECUTE".to_string(),
             condition: None,
-            event_name: "node-start".to_string(),
             event_payload: None,
             enabled: Some(true),
             priority: None,
@@ -173,7 +144,6 @@ mod tests {
         wf_types::agent::AgentHookConfig {
             hook_type: wf_types::agent::hook::AgentHookType::BeforeIteration,
             condition: None,
-            event_name: "iter-start".to_string(),
             event_payload: None,
             enabled: Some(true),
             priority: None,
@@ -196,19 +166,6 @@ mod tests {
     }
 
     #[test]
-    fn base_hook_empty_event_name_accepted_deprecated() {
-        let mut hook = make_base_hook();
-        hook.event_name = String::new();
-        assert!(validate_base_hook_config(&hook, "hooks[0]").is_ok());
-    }
-
-    #[test]
-    fn base_hook_event_name_ignored_but_accepted() {
-        let hook = make_base_hook();
-        assert!(validate_base_hook_config(&hook, "hooks[0]").is_ok());
-    }
-
-    #[test]
     fn base_hook_negative_weight_rejected() {
         let mut hook = make_base_hook();
         hook.priority = Some(-1);
@@ -228,37 +185,13 @@ mod tests {
     }
 
     #[test]
-    fn agent_hook_empty_event_name_accepted_deprecated() {
-        let mut hook = make_agent_hook();
-        hook.event_name = String::new();
-        assert!(validate_agent_hook_config(&hook, "config.hooks[0]").is_ok());
-    }
-
-    #[test]
     fn base_hook_static_valid_passes() {
         let hook = HookPointStaticConfig {
             hook_type: "AFTER_TOOL_CALL".to_string(),
             condition: None,
-            event_name: "tool-done".to_string(),
             event_payload: None,
             enabled: Some(true),
             priority: Some(10),
-            create_checkpoint: None,
-            checkpoint_description: None,
-            handler: None,
-        };
-        assert!(validate_base_hook_static_config(&hook, "hooks[0]").is_ok());
-    }
-
-    #[test]
-    fn base_hook_static_empty_event_name_accepted_deprecated() {
-        let hook = HookPointStaticConfig {
-            hook_type: "AFTER_TOOL_CALL".to_string(),
-            condition: None,
-            event_name: String::new(),
-            event_payload: None,
-            enabled: Some(true),
-            priority: None,
             create_checkpoint: None,
             checkpoint_description: None,
             handler: None,
@@ -299,7 +232,6 @@ mod tests {
         let hook = HookPointStaticConfig {
             hook_type: "AFTER_TOOL_CALL".to_string(),
             condition: None,
-            event_name: "tool-done".to_string(),
             event_payload: None,
             enabled: Some(true),
             priority: None,

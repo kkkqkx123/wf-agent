@@ -178,14 +178,11 @@ pub fn resolve_history_path(
 }
 
 fn env_flag_disabled(name: &str) -> bool {
-    matches!(
-        std::env::var(name)
-            .unwrap_or_default()
-            .trim()
-            .to_ascii_lowercase()
-            .as_str(),
-        "1" | "true" | "yes"
-    )
+    let raw = std::env::var(name).unwrap_or_default();
+    if raw.trim().is_empty() {
+        return false;
+    }
+    wf_config::env::env_parse_bool(&raw).is_ok_and(|v| v.as_bool() == Some(true))
 }
 
 /// Process-wide single owner of stdin line reads.

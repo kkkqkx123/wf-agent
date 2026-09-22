@@ -129,7 +129,7 @@ pub struct DomainAdapter {
 
 #[cfg(feature = "embedded")]
 impl DomainAdapter {
-    /// Bootstrap the runtime from a fully assembled config.
+    /// Bootstrap the runtime from fully programmatic values (no file layer).
     pub async fn bootstrap(config: RuntimeConfig) -> CliResult<Self> {
         let runtime = Runtime::bootstrap(config)
             .await
@@ -137,11 +137,25 @@ impl DomainAdapter {
         Ok(Self { runtime })
     }
 
+    /// Bootstrap with an optional file-layer source: user dotfiles plus the
+    /// infrastructure preset fill the values the caller left at defaults.
+    pub async fn bootstrap_with_source(
+        config: RuntimeConfig,
+        source: Option<wf_runtime::bootstrap::InfraSourceConfig>,
+    ) -> CliResult<Self> {
+        let runtime = match source {
+            Some(source) => Runtime::bootstrap_with_source(config, source).await,
+            None => Runtime::bootstrap(config).await,
+        }
+        .map_err(|err| CliError::Configuration(format!("runtime bootstrap failed: {err}")))?;
+        Ok(Self { runtime })
+    }
+
     /// Bootstrap with the given CLI arguments: maps the resolved form to the
     /// runtime execution mode and applies CLI-level config overrides.
     pub async fn bootstrap_for_cli(cli: &Cli, cli_mode: CliMode) -> CliResult<Self> {
-        let config = runtime_config_for_cli(cli, cli_mode);
-        Self::bootstrap(config).await
+        let (config, source) = runtime_config_for_cli(cli, cli_mode);
+        Self::bootstrap_with_source(config, source).await
     }
 
     /// Shared application API context (query domain, agent/workflow engines).
@@ -192,9 +206,17 @@ impl DomainAdapter {
 }
 
 /// Build the runtime config for a CLI invocation: mode override + CLI-level
-/// knobs over the defaults (memory storage, warn logging).
+/// knobs over the defaults (memory storage, warn logging). Returns the
+/// programmatic values plus an optional file-layer source; the file layer
+/// only fills values the CLI left at defaults.
 #[cfg(feature = "embedded")]
-pub fn runtime_config_for_cli(cli: &Cli, cli_mode: CliMode) -> RuntimeConfig {
+pub fn runtime_config_for_cli(
+    cli: &Cli,
+    cli_mode: CliMode,
+) -> (
+    RuntimeConfig,
+    Option<wf_runtime::bootstrap::InfraSourceConfig>,
+) {
     let mut config = RuntimeConfig {
         mode_override: Some(match cli_mode {
             CliMode::Run => ExecutionMode::Headless,
@@ -203,8 +225,10 @@ pub fn runtime_config_for_cli(cli: &Cli, cli_mode: CliMode) -> RuntimeConfig {
         ..Default::default()
     };
 
-    if let Some(storage) = parse_storage_config(cli.storage.as_deref()) {
-        config.storage = storage;
+    if let Some(spec) = cli.storage.as_deref() {
+        if let Some(storage) = wf_config::storage_spec::parse_storage_spec(spec) {
+            config.storage = storage;
+        }
     }
 
     if let Some(level) = cli.log_level.as_deref() {
@@ -230,49 +254,14 @@ pub fn runtime_config_for_cli(cli: &Cli, cli_mode: CliMode) -> RuntimeConfig {
     }
 
     if let Some(path) = cli.config.clone() {
-        config.infra = Some(wf_runtime::bootstrap::InfraSourceConfig {
+        let source = wf_runtime::bootstrap::InfraSourceConfig {
             project_root: Some(path),
             ..Default::default()
-        });
+        };
+        return (config, Some(source));
     }
 
-    config
-}
-
-#[cfg(feature = "embedded")]
-fn parse_storage_config(spec: Option<&str>) -> Option<wf_types::config::storage::StorageConfig> {
-    let spec = spec?;
-    if spec == "memory" {
-        return Some(wf_types::config::storage::StorageConfig {
-            storage_type: wf_types::config::storage::StorageType::Memory,
-            sqlite: None,
-            postgres: None,
-            app_name: None,
-        });
-    }
-    if spec == "sqlite" {
-        return Some(wf_types::config::storage::StorageConfig {
-            storage_type: wf_types::config::storage::StorageType::Sqlite,
-            sqlite: Some(wf_types::config::storage::SqliteStorageConfig {
-                db_path: String::new(),
-                ..Default::default()
-            }),
-            postgres: None,
-            app_name: None,
-        });
-    }
-    if let Some(path) = spec.strip_prefix("sqlite:") {
-        return Some(wf_types::config::storage::StorageConfig {
-            storage_type: wf_types::config::storage::StorageType::Sqlite,
-            sqlite: Some(wf_types::config::storage::SqliteStorageConfig {
-                db_path: path.to_string(),
-                ..Default::default()
-            }),
-            postgres: None,
-            app_name: None,
-        });
-    }
-    None
+    (config, None)
 }
 
 #[cfg(feature = "embedded")]
@@ -325,13 +314,13 @@ mod tests {
 
     #[tokio::test]
     async fn cli_mode_maps_to_runtime_execution_mode() {
-        let config = runtime_config_for_cli(
+        let (config, _) = runtime_config_for_cli(
             &Cli::try_parse_from(["wf", "run", "x"]).unwrap(),
             CliMode::Run,
         );
         assert_eq!(config.mode_override, Some(ExecutionMode::Headless));
 
-        let config =
+        let (config, _) =
             runtime_config_for_cli(&Cli::try_parse_from(["wf", "--tui"]).unwrap(), CliMode::Tui);
         assert_eq!(config.mode_override, Some(ExecutionMode::Interactive));
     }
@@ -339,14 +328,14 @@ mod tests {
     #[test]
     fn runtime_config_storage_mapping() {
         let cli = Cli::try_parse_from(["wf", "--storage", "memory"]).unwrap();
-        let cfg = runtime_config_for_cli(&cli, CliMode::Run);
+        let (cfg, _) = runtime_config_for_cli(&cli, CliMode::Run);
         assert_eq!(
             cfg.storage.storage_type,
             wf_types::config::storage::StorageType::Memory
         );
 
         let cli = Cli::try_parse_from(["wf", "--storage", "sqlite:/tmp/wf.db"]).unwrap();
-        let cfg = runtime_config_for_cli(&cli, CliMode::Run);
+        let (cfg, _) = runtime_config_for_cli(&cli, CliMode::Run);
         assert_eq!(
             cfg.storage.storage_type,
             wf_types::config::storage::StorageType::Sqlite
@@ -354,7 +343,7 @@ mod tests {
         assert_eq!(cfg.storage.sqlite.as_ref().unwrap().db_path, "/tmp/wf.db");
 
         let cli = Cli::try_parse_from(["wf"]).unwrap();
-        let cfg = runtime_config_for_cli(&cli, CliMode::Run);
+        let (cfg, _) = runtime_config_for_cli(&cli, CliMode::Run);
         assert_eq!(
             cfg.storage.storage_type,
             wf_types::config::storage::StorageType::Memory
@@ -364,35 +353,35 @@ mod tests {
     #[test]
     fn runtime_config_log_level_mapping() {
         let cli = Cli::try_parse_from(["wf", "--log-level", "debug"]).unwrap();
-        let cfg = runtime_config_for_cli(&cli, CliMode::Run);
+        let (cfg, _) = runtime_config_for_cli(&cli, CliMode::Run);
         assert_eq!(cfg.log_config.level, "debug");
 
         let cli = Cli::try_parse_from(["wf", "--log-level", "INFO"]).unwrap();
-        let cfg = runtime_config_for_cli(&cli, CliMode::Run);
+        let (cfg, _) = runtime_config_for_cli(&cli, CliMode::Run);
         assert_eq!(cfg.log_config.level, "info");
 
         let cli = Cli::try_parse_from(["wf"]).unwrap();
-        let cfg = runtime_config_for_cli(&cli, CliMode::Run);
+        let (cfg, _) = runtime_config_for_cli(&cli, CliMode::Run);
         assert_eq!(cfg.log_config.level, "warn");
     }
 
     #[test]
     fn runtime_config_timeout_and_approval_mapping() {
         let cli = Cli::try_parse_from(["wf", "--timeout", "5000"]).unwrap();
-        let cfg = runtime_config_for_cli(&cli, CliMode::Run);
+        let (cfg, _) = runtime_config_for_cli(&cli, CliMode::Run);
         assert_eq!(cfg.timeout.default, Some(5000));
 
         let cli = Cli::try_parse_from(["wf", "--approval", "auto"]).unwrap();
-        let cfg = runtime_config_for_cli(&cli, CliMode::Run);
+        let (cfg, _) = runtime_config_for_cli(&cli, CliMode::Run);
         assert!(!cfg.tool_approval.enabled);
 
         let cli = Cli::try_parse_from(["wf", "--approval", "manual"]).unwrap();
-        let cfg = runtime_config_for_cli(&cli, CliMode::Run);
+        let (cfg, _) = runtime_config_for_cli(&cli, CliMode::Run);
         assert!(cfg.tool_approval.enabled);
         assert!(cfg.tool_approval.options.is_none());
 
         let cli = Cli::try_parse_from(["wf", "--approval", "llm"]).unwrap();
-        let cfg = runtime_config_for_cli(&cli, CliMode::Run);
+        let (cfg, _) = runtime_config_for_cli(&cli, CliMode::Run);
         assert!(cfg.tool_approval.enabled);
         assert!(cfg.tool_approval.options.is_some());
     }
@@ -400,16 +389,16 @@ mod tests {
     #[test]
     fn runtime_config_infra_mapping() {
         let cli = Cli::try_parse_from(["wf", "--config", "/tmp/proj"]).unwrap();
-        let cfg = runtime_config_for_cli(&cli, CliMode::Run);
-        assert!(cfg.infra.is_some());
+        let (_, source) = runtime_config_for_cli(&cli, CliMode::Run);
+        assert!(source.is_some());
         assert_eq!(
-            cfg.infra.unwrap().project_root.unwrap().to_string_lossy(),
+            source.unwrap().project_root.unwrap().to_string_lossy(),
             "/tmp/proj"
         );
 
         let cli = Cli::try_parse_from(["wf"]).unwrap();
-        let cfg = runtime_config_for_cli(&cli, CliMode::Run);
-        assert!(cfg.infra.is_none());
+        let (_, source) = runtime_config_for_cli(&cli, CliMode::Run);
+        assert!(source.is_none());
     }
 
     #[tokio::test]
@@ -418,12 +407,14 @@ mod tests {
         let db_path = dir.path().join("test.db");
         let spec = format!("sqlite:{}", db_path.display());
         let cli = Cli::try_parse_from(["wf", "--storage", &spec]).unwrap();
-        let cfg = runtime_config_for_cli(&cli, CliMode::Run);
+        let (cfg, source) = runtime_config_for_cli(&cli, CliMode::Run);
         assert_eq!(
             cfg.storage.storage_type,
             wf_types::config::storage::StorageType::Sqlite
         );
-        let adapter = DomainAdapter::bootstrap(cfg).await.unwrap();
+        let adapter = DomainAdapter::bootstrap_with_source(cfg, source)
+            .await
+            .unwrap();
         assert!(db_path.exists() || dir.path().join("test.db").exists());
         adapter.shutdown().await.unwrap();
     }

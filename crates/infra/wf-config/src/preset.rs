@@ -25,11 +25,8 @@ pub const INDEX_FILE_NAME: &str = "index.json";
 /// Default config directories for each preset family. Literals are kept in
 /// sync with `layout::CONFIGS_DIR` + `layout::family`; the layout module
 /// remains the single source of truth for runtime path composition.
-pub const DEFAULT_CONFIG_DIRS: [&str; 3] = [
-    "configs/mcp",
-    "configs/skills",
-    "configs/infrastructure",
-];
+pub const DEFAULT_CONFIG_DIRS: [&str; 3] =
+    ["configs/mcp", "configs/skills", "configs/infrastructure"];
 
 /// Resolve the preset index of an arbitrary config family under
 /// `{project_root}/configs/{family}`. This is the single loader entry point

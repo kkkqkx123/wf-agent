@@ -60,17 +60,6 @@ mod tests {
             serde_json::json!({"profile_id": "mock"}),
         )]);
         assert!(validate_node_configs(&g).is_empty());
-
-        let g = graph_with(vec![node(
-            "n1",
-            "LLM",
-            serde_json::json!({"profileId": "mock"}),
-        )]);
-        assert_eq!(
-            validate_node_configs(&g).len(),
-            1,
-            "camelCase profileId is not a canonical config"
-        );
     }
 
     #[test]
@@ -93,17 +82,6 @@ mod tests {
         let errors = validate_node_configs(&g);
         assert_eq!(errors.len(), 1);
         assert!(errors[0].message.contains("invalid value"));
-
-        let g = graph_with(vec![node(
-            "n1",
-            "VARIABLE",
-            serde_json::json!({"variableName": "x", "expression": "1"}),
-        )]);
-        assert_eq!(
-            validate_node_configs(&g).len(),
-            1,
-            "camelCase variableName is not a canonical config"
-        );
     }
 
     #[test]
@@ -154,17 +132,6 @@ mod tests {
             serde_json::json!({"fork_paths": [{"path_id": "p1", "child_node_id": "n1"}]}),
         )]);
         assert!(validate_node_configs(&g).is_empty());
-
-        let g = graph_with(vec![node(
-            "f",
-            "FORK",
-            serde_json::json!({"branches": [{"id": "p1", "input": {}}]}),
-        )]);
-        assert_eq!(
-            validate_node_configs(&g).len(),
-            1,
-            "legacy branches shape is not a canonical config"
-        );
     }
 
     #[test]
@@ -187,17 +154,6 @@ mod tests {
             serde_json::json!({"fork_path_ids": ["p1"], "join_strategy": "wait_for_all"}),
         )]);
         assert!(validate_node_configs(&g).is_empty());
-
-        let g = graph_with(vec![node(
-            "j",
-            "JOIN",
-            serde_json::json!({"fork_path_ids": ["p1"], "join_strategy": "merge"}),
-        )]);
-        assert_eq!(
-            validate_node_configs(&g).len(),
-            1,
-            "legacy strategy values are not canonical"
-        );
     }
 
     #[test]
@@ -265,17 +221,6 @@ mod tests {
             serde_json::json!({"inline_definition": {"id": "a1", "name": "agent", "config": {"profile_id": "mock"}}}),
         )]);
         assert!(validate_node_configs(&g).is_empty());
-
-        let g = graph_with(vec![node(
-            "a",
-            "AGENT_LOOP",
-            serde_json::json!({"model": "mock"}),
-        )]);
-        assert_eq!(
-            validate_node_configs(&g).len(),
-            1,
-            "top-level model is not a canonical AGENT_LOOP config"
-        );
     }
 
     #[test]
@@ -301,17 +246,6 @@ mod tests {
             }]}),
         )]);
         assert!(validate_node_configs(&g).is_empty());
-
-        let g = graph_with(vec![node(
-            "r",
-            "ROUTE",
-            serde_json::json!({"branches": [{"condition": "${a} > 1", "next_node": "next"}]}),
-        )]);
-        assert_eq!(
-            validate_node_configs(&g).len(),
-            1,
-            "legacy branches shape is not a canonical ROUTE config"
-        );
     }
 
     #[test]

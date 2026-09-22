@@ -12,10 +12,23 @@ use axum::http::{header, HeaderMap, Method, Request, StatusCode, Uri};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use axum::Router;
+use serde::Deserialize;
+
+use wf_config::env::{env_parse_bool, env_parse_int, env_parse_list, EnvValue};
 
 // ---------------------------------------------------------------------------
 // Config
 // ---------------------------------------------------------------------------
+///
+/// File layer (`configs/server/*.toml`) fills non-secret fields; environment
+/// overrides the fields it supports; API keys come from the `API_KEYS`
+/// environment variable only and never from files.
+/// File name of the auth middleware config inside the server directory.
+pub const AUTH_CONFIG_FILE: &str = "auth.toml";
+/// File name of the rate-limit middleware config inside the server directory.
+pub const RATE_LIMIT_CONFIG_FILE: &str = "rate-limit.toml";
+/// File name of the CORS middleware config inside the server directory.
+pub const CORS_CONFIG_FILE: &str = "cors.toml";
 
 #[derive(Debug, Clone)]
 pub struct AuthConfig {
@@ -28,19 +41,46 @@ pub struct AuthConfig {
 }
 
 impl AuthConfig {
-    pub fn from_env() -> Self {
-        Self {
-            enabled: std::env::var("AUTH_ENABLED").as_deref() == Ok("true"),
-            api_keys: std::env::var("API_KEYS")
-                .map(|v| {
-                    v.split(',')
-                        .map(str::trim)
-                        .filter(|s| !s.is_empty())
-                        .map(ToOwned::to_owned)
-                        .collect()
-                })
-                .unwrap_or_default(),
-            ..Self::default()
+    /// Overlay the environment-supported fields (`AUTH_ENABLED`, `API_KEYS`).
+    /// Keys stay env-only: the file layer has no key field by design.
+    /// Parsing reuses the shared `wf_config::env` parsers so bool/list
+    /// semantics match the rest of the system; invalid values warn and keep
+    /// the current value instead of failing startup.
+    pub fn apply_env(&mut self) {
+        if let Some(enabled) = read_env_bool("AUTH_ENABLED") {
+            self.enabled = enabled;
+        }
+        if let Ok(raw) = std::env::var("API_KEYS") {
+            if !raw.trim().is_empty() {
+                match env_parse_list(&raw) {
+                    Ok(EnvValue::List(keys)) => self.api_keys = keys,
+                    Ok(_) => {}
+                    Err(e) => tracing::warn!(
+                        error = %e,
+                        "invalid API_KEYS; keeping current keys"
+                    ),
+                }
+            }
+        }
+    }
+
+    /// Overlay non-secret fields from the file layer; `None` keeps the
+    /// current value.
+    fn apply_file(&mut self, file: AuthFileConfig) {
+        if let Some(enabled) = file.enabled {
+            self.enabled = enabled;
+        }
+        if let Some(header_name) = file.header_name {
+            self.header_name = header_name;
+        }
+        if let Some(allow_query_param) = file.allow_query_param {
+            self.allow_query_param = allow_query_param;
+        }
+        if let Some(query_param_name) = file.query_param_name {
+            self.query_param_name = query_param_name;
+        }
+        if let Some(excluded_paths) = file.excluded_paths {
+            self.excluded_paths = excluded_paths;
         }
     }
 }
@@ -73,18 +113,34 @@ pub struct RateLimitConfig {
 }
 
 impl RateLimitConfig {
-    pub fn from_env() -> Self {
-        Self {
-            enabled: std::env::var("RATE_LIMIT_ENABLED").as_deref() == Ok("true"),
-            window_ms: std::env::var("RATE_LIMIT_WINDOW_MS")
-                .ok()
-                .and_then(|v| v.parse().ok())
-                .unwrap_or(60_000),
-            max_requests: std::env::var("RATE_LIMIT_MAX_REQUESTS")
-                .ok()
-                .and_then(|v| v.parse().ok())
-                .unwrap_or(100),
-            ..Self::default()
+    /// Overlay the environment-supported fields (`RATE_LIMIT_ENABLED`,
+    /// `RATE_LIMIT_WINDOW_MS`, `RATE_LIMIT_MAX_REQUESTS`). Shares the
+    /// `wf_config::env` parsers and the warn-and-keep policy with auth.
+    pub fn apply_env(&mut self) {
+        if let Some(enabled) = read_env_bool("RATE_LIMIT_ENABLED") {
+            self.enabled = enabled;
+        }
+        if let Some(window_ms) = read_env_u64("RATE_LIMIT_WINDOW_MS") {
+            self.window_ms = window_ms;
+        }
+        if let Some(max_requests) = read_env_u64("RATE_LIMIT_MAX_REQUESTS") {
+            self.max_requests = max_requests;
+        }
+    }
+
+    /// Overlay fields from the file layer; `None` keeps the current value.
+    fn apply_file(&mut self, file: RateLimitFileConfig) {
+        if let Some(enabled) = file.enabled {
+            self.enabled = enabled;
+        }
+        if let Some(window_ms) = file.window_ms {
+            self.window_ms = window_ms;
+        }
+        if let Some(max_requests) = file.max_requests {
+            self.max_requests = max_requests;
+        }
+        if let Some(excluded_paths) = file.excluded_paths {
+            self.excluded_paths = excluded_paths;
         }
     }
 }
@@ -129,6 +185,23 @@ impl Default for CorsConfig {
     }
 }
 
+impl CorsConfig {
+    /// Overlay fields from the file layer; `None` keeps the current value.
+    /// CORS has no environment variables by design (origins are deployment
+    /// data, not secrets, and belong in versioned config).
+    fn apply_file(&mut self, file: CorsFileConfig) {
+        if let Some(allowed_origins) = file.allowed_origins {
+            self.allowed_origins = allowed_origins;
+        }
+        if let Some(allowed_methods) = file.allowed_methods {
+            self.allowed_methods = allowed_methods;
+        }
+        if let Some(allowed_headers) = file.allowed_headers {
+            self.allowed_headers = allowed_headers;
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct ServerMiddlewareConfig {
     pub auth: AuthConfig,
@@ -137,20 +210,122 @@ pub struct ServerMiddlewareConfig {
 }
 
 impl ServerMiddlewareConfig {
-    pub fn from_env() -> Self {
-        Self {
-            auth: AuthConfig::from_env(),
-            rate_limit: RateLimitConfig::from_env(),
-            cors: CorsConfig::default(),
+    /// Overlay the environment-supported fields on top of the current values.
+    pub fn apply_env(&mut self) {
+        self.auth.apply_env();
+        self.rate_limit.apply_env();
+    }
+
+    /// Load the middleware file layer from a server config directory
+    /// (`auth.toml`, `rate-limit.toml`, `cors.toml`). Missing files are
+    /// skipped; invalid files are skipped with a warning so a typo never
+    /// silently opens or closes the API surface.
+    pub fn load_from_dir(dir: &std::path::Path) -> Self {
+        let mut config = Self::default();
+        if let Some(file) = load_middleware_file::<AuthFileConfig>(&dir.join(AUTH_CONFIG_FILE)) {
+            config.auth.apply_file(file);
+        }
+        if let Some(file) =
+            load_middleware_file::<RateLimitFileConfig>(&dir.join(RATE_LIMIT_CONFIG_FILE))
+        {
+            config.rate_limit.apply_file(file);
+        }
+        if let Some(file) = load_middleware_file::<CorsFileConfig>(&dir.join(CORS_CONFIG_FILE)) {
+            config.cors.apply_file(file);
+        }
+        config
+    }
+
+    /// Resolve the effective middleware: file layer first, then environment
+    /// overrides. `None` keeps the previous env-only behavior (defaults plus
+    /// environment).
+    pub fn resolve(dir: Option<&std::path::Path>) -> Self {
+        let mut config = dir.map(Self::load_from_dir).unwrap_or_default();
+        config.apply_env();
+        config
+    }
+}
+
+/// Partial file mirrors of the middleware configs: every field is optional
+/// so files stay sparse; secrets (`api_keys`) have no file field by design.
+#[derive(Debug, Clone, Default, Deserialize)]
+struct AuthFileConfig {
+    enabled: Option<bool>,
+    header_name: Option<String>,
+    allow_query_param: Option<bool>,
+    query_param_name: Option<String>,
+    excluded_paths: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+struct RateLimitFileConfig {
+    enabled: Option<bool>,
+    window_ms: Option<u64>,
+    max_requests: Option<u64>,
+    excluded_paths: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+struct CorsFileConfig {
+    allowed_origins: Option<Vec<String>>,
+    allowed_methods: Option<Vec<String>>,
+    allowed_headers: Option<Vec<String>>,
+}
+
+/// Read an env bool with the shared parser: unset/empty keeps the current
+/// value, an invalid value warns and keeps the current value.
+fn read_env_bool(name: &str) -> Option<bool> {
+    let raw = std::env::var(name).ok()?;
+    if raw.trim().is_empty() {
+        return None;
+    }
+    match env_parse_bool(&raw) {
+        Ok(EnvValue::Bool(v)) => Some(v),
+        Ok(_) => None,
+        Err(e) => {
+            tracing::warn!(error = %e, var = name, "invalid env bool; keeping current value");
+            None
         }
     }
 }
 
-/// Env-driven configuration shared by the API router. Explicit env edge:
-/// tests and injected deployments use `ServerMiddlewareConfig::default()`
-/// or `api_router_with_config` instead.
-pub(crate) fn default_config() -> Arc<ServerMiddlewareConfig> {
-    Arc::new(ServerMiddlewareConfig::from_env())
+/// Read an env uint with the shared int parser. Negative values warn and
+/// keep the current value.
+fn read_env_u64(name: &str) -> Option<u64> {
+    let raw = std::env::var(name).ok()?;
+    if raw.trim().is_empty() {
+        return None;
+    }
+    match env_parse_int(raw.trim()) {
+        Ok(EnvValue::Int(v)) => match u64::try_from(v) {
+            Ok(v) => Some(v),
+            Err(_) => {
+                tracing::warn!(var = name, value = %raw, "negative env int; keeping current value");
+                None
+            }
+        },
+        Ok(_) => None,
+        Err(e) => {
+            tracing::warn!(error = %e, var = name, "invalid env int; keeping current value");
+            None
+        }
+    }
+}
+
+fn load_middleware_file<T>(path: &std::path::Path) -> Option<T>
+where
+    T: serde::de::DeserializeOwned,
+{
+    if !path.exists() {
+        return None;
+    }
+    match wf_config::layered::load_layered_config_sync::<T>(&[path]) {
+        Ok(config) => Some(config),
+        Err(e) => {
+            tracing::warn!(error = %e, path = %path.display(), "invalid middleware config file; ignoring");
+            None
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

@@ -14,9 +14,10 @@ use wf_runtime::bootstrap::{InfraSourceConfig, Runtime, RuntimeConfig};
     version
 )]
 struct Args {
-    /// Listen address, e.g. 127.0.0.1:3000
-    #[arg(long, default_value = "127.0.0.1:3000")]
-    addr: SocketAddr,
+    /// Listen address, e.g. 127.0.0.1:3000. Wins over `WF_SERVER_BIND_ADDR`
+    /// env and the `server.toml` file layer.
+    #[arg(long)]
+    addr: Option<SocketAddr>,
 
     /// Project root for file-layer config (configs/infrastructure)
     #[arg(long)]
@@ -31,91 +32,13 @@ struct Args {
     log_level: Option<String>,
 }
 
-fn parse_storage_config(spec: Option<&str>) -> Option<wf_types::config::storage::StorageConfig> {
-    let spec = spec?;
-    if spec == "memory" {
-        return Some(wf_types::config::storage::StorageConfig {
-            storage_type: wf_types::config::storage::StorageType::Memory,
-            sqlite: None,
-            postgres: None,
-            app_name: None,
-        });
-    }
-    if spec == "sqlite" {
-        return Some(wf_types::config::storage::StorageConfig {
-            storage_type: wf_types::config::storage::StorageType::Sqlite,
-            sqlite: Some(wf_types::config::storage::SqliteStorageConfig {
-                db_path: String::new(),
-                ..Default::default()
-            }),
-            postgres: None,
-            app_name: None,
-        });
-    }
-    if let Some(path) = spec.strip_prefix("sqlite:") {
-        return Some(wf_types::config::storage::StorageConfig {
-            storage_type: wf_types::config::storage::StorageType::Sqlite,
-            sqlite: Some(wf_types::config::storage::SqliteStorageConfig {
-                db_path: path.to_string(),
-                ..Default::default()
-            }),
-            postgres: None,
-            app_name: None,
-        });
-    }
-    if let Some(conn) = spec.strip_prefix("postgres:") {
-        let host = if conn.is_empty() || spec.starts_with("postgres://") {
-            spec.to_string()
-        } else {
-            format!("postgres:{conn}")
-        };
-        return Some(wf_types::config::storage::StorageConfig {
-            storage_type: wf_types::config::storage::StorageType::Postgres,
-            sqlite: None,
-            postgres: Some(wf_types::config::storage::PostgresStorageConfig {
-                host,
-                port: 5432,
-                username: String::new(),
-                password: String::new(),
-                database: String::new(),
-                ssl: false,
-                pool_size: None,
-                min_connections: None,
-                idle_timeout: None,
-                connection_timeout: None,
-                max_uses: None,
-            }),
-            app_name: None,
-        });
-    }
-    if spec.starts_with("postgres://") {
-        return Some(wf_types::config::storage::StorageConfig {
-            storage_type: wf_types::config::storage::StorageType::Postgres,
-            sqlite: None,
-            postgres: Some(wf_types::config::storage::PostgresStorageConfig {
-                host: spec.to_string(),
-                port: 5432,
-                username: String::new(),
-                password: String::new(),
-                database: String::new(),
-                ssl: false,
-                pool_size: None,
-                min_connections: None,
-                idle_timeout: None,
-                connection_timeout: None,
-                max_uses: None,
-            }),
-            app_name: None,
-        });
-    }
-    None
-}
-
-fn build_runtime_config(args: &Args) -> RuntimeConfig {
+fn build_runtime_config(args: &Args) -> (RuntimeConfig, Option<InfraSourceConfig>) {
     let mut config = RuntimeConfig::default();
 
-    if let Some(storage) = parse_storage_config(args.storage.as_deref()) {
-        config.storage = storage;
+    if let Some(spec) = args.storage.as_deref() {
+        if let Some(storage) = wf_config::storage_spec::parse_storage_spec(spec) {
+            config.storage = storage;
+        }
     }
 
     if let Some(level) = args.log_level.as_deref() {
@@ -127,20 +50,12 @@ fn build_runtime_config(args: &Args) -> RuntimeConfig {
         config.log_config = config.log_config.with_level(normalized.to_string());
     }
 
-    if let Some(path) = args.config.clone() {
-        config.infra = Some(InfraSourceConfig {
-            project_root: Some(path),
-            ..Default::default()
-        });
-    }
+    let source = args.config.clone().map(|path| InfraSourceConfig {
+        project_root: Some(path),
+        ..Default::default()
+    });
 
-    // Ensure metrics http_addr reflects CLI --addr when no infra metrics is set,
-    // and bind address always comes from CLI.
-    // The runtime metrics config will be used to decide serve_full vs serve_api.
-    // We keep config.metrics None unless infra provides it; the binary's addr
-    // is always the listener addr regardless of metrics.
-
-    config
+    (config, source)
 }
 
 #[tokio::main]
@@ -148,8 +63,8 @@ async fn main() {
     let args = Args::parse();
 
     if let Some(spec) = args.storage.as_deref() {
-        if parse_storage_config(Some(spec)).is_none() {
-            eprintln!("invalid --storage '{spec}': expected 'memory' or 'sqlite:<path>' or 'postgres:<conn>'");
+        if let Err(e) = wf_config::storage_spec::parse_storage_spec_result(spec) {
+            eprintln!("{e}");
             std::process::exit(2);
         }
     }
@@ -164,8 +79,15 @@ async fn main() {
         }
     }
 
-    let runtime_config = build_runtime_config(&args);
-    let runtime = match Runtime::bootstrap(runtime_config).await {
+    let (runtime_config, infra_source) = build_runtime_config(&args);
+    // The server owns its listen address: CLI flag wins over
+    // `WF_SERVER_BIND_ADDR` env and the `server.toml` file layer.
+    let server_config = wf_server::ServerConfig::resolve(args.config.as_deref(), args.addr);
+    let runtime = match infra_source {
+        Some(source) => Runtime::bootstrap_with_source(runtime_config, source).await,
+        None => Runtime::bootstrap(runtime_config).await,
+    };
+    let runtime = match runtime {
         Ok(rt) => rt,
         Err(e) => {
             eprintln!("runtime bootstrap failed: {e}");
@@ -177,11 +99,11 @@ async fn main() {
 
     let metrics_registry = runtime.metrics().map(|m| m.registry().clone());
 
-    let addr = args.addr;
+    let addr = server_config.bind_addr;
 
     let handle = if let Some(registry) = metrics_registry.clone() {
         info!(%addr, "starting wf-server with metrics");
-        match wf_server::serve_full(registry, ctx.clone(), addr).await {
+        match wf_server::serve_full_with_config(registry, ctx.clone(), &server_config).await {
             Ok(h) => h,
             Err(e) => {
                 eprintln!("bind failed at {addr}: {e}");
@@ -190,7 +112,7 @@ async fn main() {
         }
     } else {
         info!(%addr, "starting wf-server");
-        match wf_server::serve_api(ctx.clone(), addr).await {
+        match wf_server::serve_api_with_config(ctx.clone(), &server_config).await {
             Ok(h) => h,
             Err(e) => {
                 eprintln!("bind failed at {addr}: {e}");

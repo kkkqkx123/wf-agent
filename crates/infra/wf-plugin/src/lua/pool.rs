@@ -1,4 +1,3 @@
-use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use wf_plugin_sdk::manifest::{LuaConfig, LUA_DEFAULT_MEMORY_LIMIT_KB, LUA_DEFAULT_TIMEOUT_MS};
@@ -7,7 +6,6 @@ use crate::error::{PluginError, PluginResult};
 
 pub const DEFAULT_LUA_TIMEOUT: Duration = Duration::from_millis(LUA_DEFAULT_TIMEOUT_MS);
 pub const DEFAULT_LUA_MEMORY_LIMIT_KB: usize = LUA_DEFAULT_MEMORY_LIMIT_KB;
-pub const LUA_POOL_MAX_STATES: usize = 16;
 pub const LUA_HOOK_INTERVAL: u32 = 10_000;
 
 #[derive(Debug, Clone, Copy)]
@@ -110,57 +108,6 @@ pub fn set_protection_hook(
         },
     );
     Ok(())
-}
-
-/// Reusable Lua states for stateless script execution.
-/// Keyed handlers keep single-state affinity because registry keys are
-/// state-bound; pooling applies to stateless calls and future adoption.
-#[allow(dead_code)]
-pub struct LuaVmPool {
-    script: Arc<String>,
-    limits: LuaExecutionLimits,
-    states: Mutex<Vec<mlua::Lua>>,
-}
-
-impl LuaVmPool {
-    pub fn new(script: Arc<String>, limits: LuaExecutionLimits) -> Self {
-        Self {
-            script,
-            limits,
-            states: Mutex::new(Vec::new()),
-        }
-    }
-
-    pub fn acquire(&self) -> PluginResult<mlua::Lua> {
-        if let Ok(mut states) = self.states.lock() {
-            if let Some(lua) = states.pop() {
-                return Ok(lua);
-            }
-        }
-        create_state(&self.script)
-    }
-
-    pub fn release(&self, lua: mlua::Lua) {
-        lua.remove_hook();
-        if let Ok(mut states) = self.states.lock() {
-            if states.len() < LUA_POOL_MAX_STATES {
-                states.push(lua);
-            }
-        }
-    }
-
-    pub fn run<R, F>(&self, f: F) -> PluginResult<R>
-    where
-        F: FnOnce(&mlua::Lua) -> PluginResult<R>,
-    {
-        let lua = self.acquire()?;
-        let deadline = self.limits.timeout.map(|t| Instant::now() + t);
-        set_protection_hook(&lua, deadline, self.limits.memory_limit_kb)
-            .map_err(|e| PluginError::LuaError(e.to_string()))?;
-        let result = f(&lua);
-        self.release(lua);
-        result
-    }
 }
 
 #[cfg(test)]

@@ -180,7 +180,6 @@ impl AgentToolConfigBuilder<ToolBuilt> {
 pub struct AgentHookBuilder<S> {
     hook_type: AgentHookType,
     condition: Option<String>,
-    event_name: String,
     event_payload: Option<serde_json::Value>,
     enabled: Option<bool>,
     priority: Option<i32>,
@@ -190,17 +189,18 @@ pub struct AgentHookBuilder<S> {
     _marker: PhantomData<S>,
 }
 
+impl Default for AgentHookBuilder<HookNoType> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl AgentHookBuilder<HookNoType> {
     /// Start building a hook. The event type is assigned through `hook_type`.
-    ///
-    /// The `event_name` argument is deprecated and ignored at runtime
-    /// (retained for compatibility); trigger templates must match
-    /// `HOOK_TRIGGERED` plus `metadata.hook_type` instead.
-    pub fn new(event_name: impl Into<String>) -> Self {
+    pub fn new() -> Self {
         Self {
             hook_type: AgentHookType::AfterLlmCall,
             condition: None,
-            event_name: event_name.into(),
             event_payload: None,
             enabled: None,
             priority: None,
@@ -216,7 +216,6 @@ impl AgentHookBuilder<HookNoType> {
         AgentHookBuilder {
             hook_type,
             condition: self.condition,
-            event_name: self.event_name,
             event_payload: self.event_payload,
             enabled: self.enabled,
             priority: self.priority,
@@ -228,58 +227,58 @@ impl AgentHookBuilder<HookNoType> {
     }
 
     /// Hook that fires before an agent iteration.
-    pub fn before_iteration(event_name: impl Into<String>) -> AgentHookBuilder<HookTyped> {
-        Self::new(event_name).hook_type(AgentHookType::BeforeIteration)
+    pub fn before_iteration() -> AgentHookBuilder<HookTyped> {
+        Self::new().hook_type(AgentHookType::BeforeIteration)
     }
 
     /// Hook that fires after an agent iteration.
-    pub fn after_iteration(event_name: impl Into<String>) -> AgentHookBuilder<HookTyped> {
-        Self::new(event_name).hook_type(AgentHookType::AfterIteration)
+    pub fn after_iteration() -> AgentHookBuilder<HookTyped> {
+        Self::new().hook_type(AgentHookType::AfterIteration)
     }
 
     /// Hook that fires before a tool call.
-    pub fn before_tool_call(event_name: impl Into<String>) -> AgentHookBuilder<HookTyped> {
-        Self::new(event_name).hook_type(AgentHookType::BeforeToolCall)
+    pub fn before_tool_call() -> AgentHookBuilder<HookTyped> {
+        Self::new().hook_type(AgentHookType::BeforeToolCall)
     }
 
     /// Hook that fires after a tool call.
-    pub fn after_tool_call(event_name: impl Into<String>) -> AgentHookBuilder<HookTyped> {
-        Self::new(event_name).hook_type(AgentHookType::AfterToolCall)
+    pub fn after_tool_call() -> AgentHookBuilder<HookTyped> {
+        Self::new().hook_type(AgentHookType::AfterToolCall)
     }
 
     /// Hook that fires before an LLM call.
-    pub fn before_llm_call(event_name: impl Into<String>) -> AgentHookBuilder<HookTyped> {
-        Self::new(event_name).hook_type(AgentHookType::BeforeLlmCall)
+    pub fn before_llm_call() -> AgentHookBuilder<HookTyped> {
+        Self::new().hook_type(AgentHookType::BeforeLlmCall)
     }
 
     /// Hook that fires after an LLM call.
-    pub fn after_llm_call(event_name: impl Into<String>) -> AgentHookBuilder<HookTyped> {
-        Self::new(event_name).hook_type(AgentHookType::AfterLlmCall)
+    pub fn after_llm_call() -> AgentHookBuilder<HookTyped> {
+        Self::new().hook_type(AgentHookType::AfterLlmCall)
     }
 
     /// Hook that fires once per run before the first iteration.
-    pub fn before_agent(event_name: impl Into<String>) -> AgentHookBuilder<HookTyped> {
-        Self::new(event_name).hook_type(AgentHookType::BeforeAgent)
+    pub fn before_agent() -> AgentHookBuilder<HookTyped> {
+        Self::new().hook_type(AgentHookType::BeforeAgent)
     }
 
     /// Hook that fires once per run after the loop settles.
-    pub fn after_agent(event_name: impl Into<String>) -> AgentHookBuilder<HookTyped> {
-        Self::new(event_name).hook_type(AgentHookType::AfterAgent)
+    pub fn after_agent() -> AgentHookBuilder<HookTyped> {
+        Self::new().hook_type(AgentHookType::AfterAgent)
     }
 
     /// Hook that fires when a user prompt enters the loop.
-    pub fn before_user_prompt(event_name: impl Into<String>) -> AgentHookBuilder<HookTyped> {
-        Self::new(event_name).hook_type(AgentHookType::BeforeUserPrompt)
+    pub fn before_user_prompt() -> AgentHookBuilder<HookTyped> {
+        Self::new().hook_type(AgentHookType::BeforeUserPrompt)
     }
 
     /// Hook that fires when a child agent is created on the parent.
-    pub fn subagent_start(event_name: impl Into<String>) -> AgentHookBuilder<HookTyped> {
-        Self::new(event_name).hook_type(AgentHookType::SubagentStart)
+    pub fn subagent_start() -> AgentHookBuilder<HookTyped> {
+        Self::new().hook_type(AgentHookType::SubagentStart)
     }
 
     /// Hook that fires when a child agent execution settles.
-    pub fn subagent_stop(event_name: impl Into<String>) -> AgentHookBuilder<HookTyped> {
-        Self::new(event_name).hook_type(AgentHookType::SubagentStop)
+    pub fn subagent_stop() -> AgentHookBuilder<HookTyped> {
+        Self::new().hook_type(AgentHookType::SubagentStop)
     }
 }
 
@@ -289,7 +288,6 @@ impl AgentHookBuilder<HookTyped> {
         AgentHookConfig {
             hook_type: self.hook_type,
             condition: self.condition,
-            event_name: self.event_name,
             event_payload: self.event_payload,
             enabled: self.enabled,
             priority: self.priority,
@@ -758,18 +756,17 @@ mod tests {
 
     #[test]
     fn hook_builder_produces_typed_hook() {
-        let hook = AgentHookBuilder::before_tool_call("tool-audit")
+        let hook = AgentHookBuilder::before_tool_call()
             .condition("${tool_name} == 'shell'")
             .create_checkpoint()
             .build();
         assert_eq!(hook.hook_type, AgentHookType::BeforeToolCall);
-        assert_eq!(hook.event_name, "tool-audit");
         assert_eq!(hook.create_checkpoint, Some(true));
     }
 
     #[test]
     fn add_hook_preserves_priority_and_payload() {
-        let hook = AgentHookBuilder::before_tool_call("tool-audit")
+        let hook = AgentHookBuilder::before_tool_call()
             .priority(7)
             .event_payload(serde_json::json!({"k": "v"}))
             .build();
@@ -785,7 +782,7 @@ mod tests {
 
     #[test]
     fn add_hook_preserves_all_five_converted_fields() {
-        let hook = AgentHookBuilder::after_tool_call("tool-done")
+        let hook = AgentHookBuilder::after_tool_call()
             .condition("flag")
             .enabled(false)
             .priority(3)
@@ -833,7 +830,7 @@ mod tests {
             .system_prompt("You are a code agent.")
             .max_iterations(8)
             .available_tools(AgentToolConfigBuilder::new().add_tool("web_search").build())
-            .add_hook(AgentHookBuilder::after_iteration("iter-done").build())
+            .add_hook(AgentHookBuilder::after_iteration().build())
             .build()
             .expect("named agent must build");
 
@@ -870,11 +867,7 @@ mod tests {
             .model("mock")
             .max_iterations(5)
             .add_tool("web_search")
-            .add_hook(
-                AgentHookBuilder::after_iteration("iter-done")
-                    .enabled(false)
-                    .build(),
-            )
+            .add_hook(AgentHookBuilder::after_iteration().enabled(false).build())
             .build();
         assert_eq!(config.model, "mock");
         assert_eq!(config.max_iterations, Some(5));

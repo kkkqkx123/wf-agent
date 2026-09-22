@@ -114,35 +114,6 @@ pub fn contains_dangerous_substitution(command: &str) -> bool {
     false
 }
 
-/// Longest-prefix match helper, kept for API compatibility with the legacy
-/// prefix-based decision path (the unified pipeline in `wf-sandbox` uses its
-/// own whitespace-aware sub-command prefix matching).
-pub fn find_longest_prefix_match(command: &str, prefixes: &[String]) -> Option<String> {
-    if command.is_empty() || prefixes.is_empty() {
-        return None;
-    }
-
-    let trimmed_cmd = command.trim().to_lowercase();
-    let mut longest: Option<String> = None;
-
-    for prefix in prefixes {
-        let lower = prefix.to_lowercase();
-        if lower == "*" || trimmed_cmd.starts_with(&lower) {
-            match &longest {
-                Some(existing) if lower.len() > existing.to_lowercase().len() => {
-                    longest = Some(prefix.clone());
-                }
-                None => {
-                    longest = Some(prefix.clone());
-                }
-                _ => {}
-            }
-        }
-    }
-
-    longest
-}
-
 /// Immutable allow/deny command policy evaluated at the unified spawn entry.
 ///
 /// The policy is the single source of truth for the engine-level command
@@ -291,13 +262,6 @@ mod tests {
     }
 
     #[test]
-    fn test_longest_prefix_match() {
-        let prefixes = vec!["git".to_string(), "git commit".to_string()];
-        let result = find_longest_prefix_match("git commit -m 'msg'", &prefixes);
-        assert_eq!(result, Some("git commit".to_string()));
-    }
-
-    #[test]
     fn test_single_decision_allowlist() {
         let allowed = vec!["git".to_string()];
         assert_eq!(
@@ -324,8 +288,7 @@ mod tests {
         );
     }
 
-    // Acceptance: `sudo rm -rf /` must be denied by a bare `rm` deny
-    // rule (the legacy prefix path returned AutoApprove).
+    // Acceptance: `sudo rm -rf /` must be denied by a bare `rm` deny rule.
     #[test]
     fn test_sudo_wrapper_cannot_bypass_denylist() {
         let allowed = vec!["*".to_string()];

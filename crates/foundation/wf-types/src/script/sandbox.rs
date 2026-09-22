@@ -131,8 +131,6 @@ pub struct SandboxConfig {
     /// Environment variables for the executed script.
     pub env: Option<HashMap<String, String>>,
 
-    #[serde(rename = "type")]
-    pub legacy_type: Option<String>,
     pub resource_limits: Option<ResourceLimits>,
     /// Allow a strategy chain without any analysis gate for languages that
     /// have one by default (shell/python/lua). Defaults to `false`

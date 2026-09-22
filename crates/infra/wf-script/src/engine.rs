@@ -484,6 +484,10 @@ impl ScriptEngine {
                     script.name
                 )));
             }
+            // `WF_INPUT_*` is the script data plane (input file paths handed
+            // to the child process), not application configuration: it is
+            // never read by config resolution and must stay out of any
+            // `WF_*` env-override unification.
             let var = format!("WF_INPUT_{}", sanitize_env_name(name));
             if !claimed.insert(var.clone()) {
                 return Err(ScriptError::Payload(format!(

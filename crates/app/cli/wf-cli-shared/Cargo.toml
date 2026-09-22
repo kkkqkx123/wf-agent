@@ -24,12 +24,13 @@ wf-common = { path = "../../../foundation/wf-common" }
 wf-types = { path = "../../../foundation/wf-types" }
 wf-core = { path = "../../../foundation/wf-core" }
 wf-api = { path = "../../wf-api" }
+wf-config = { path = "../../../infra/wf-config", optional = true }
 wf-runtime = { path = "../../wf-runtime", optional = true }
 wf-execution-shared = { path = "../../../engine/wf-execution-shared" }
 
 [features]
 default = ["embedded"]
-embedded = ["dep:wf-runtime"]
+embedded = ["dep:wf-runtime", "dep:wf-config"]
 remote = ["reqwest/json", "reqwest/stream"]
 lua = ["wf-runtime/lua"]
 native = ["wf-runtime/native"]

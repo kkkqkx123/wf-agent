@@ -6,7 +6,7 @@ use wf_types::config::presets::PresetsConfig;
 use wf_types::config::storage::StorageConfig;
 use wf_types::config::timeout::TimeoutConfig;
 use wf_types::config::tool_approval::ToolApprovalConfig;
-use wf_types::script::sandbox::SandboxConfig;
+use wf_types::script::sandbox::SandboxGlobalConfig;
 
 #[derive(Debug, Clone, Default)]
 pub struct SdkOptions {
@@ -14,7 +14,7 @@ pub struct SdkOptions {
     pub timeout: Option<TimeoutConfig>,
     pub metrics: Option<MetricsConfig>,
     pub output: Option<OutputConfig>,
-    pub sandbox: Option<SandboxConfig>,
+    pub sandbox: Option<SandboxGlobalConfig>,
     pub presets: Option<PresetsConfig>,
     pub tools: Option<ToolConfigs>,
     pub file_checkpoint: Option<FileCheckpointConfig>,
@@ -49,7 +49,7 @@ impl SdkOptions {
         self
     }
 
-    pub fn with_sandbox(mut self, config: SandboxConfig) -> Self {
+    pub fn with_sandbox(mut self, config: SandboxGlobalConfig) -> Self {
         self.sandbox = Some(config);
         self
     }
@@ -91,7 +91,7 @@ impl SdkOptions {
             timeout: self.timeout,
             metrics: self.metrics,
             output: self.output,
-            sandbox: None, // SandboxConfig != SandboxGlobalConfig; keep separate
+            sandbox: self.sandbox,
             presets: self.presets,
             tools: self.tools,
             file_checkpoint: self.file_checkpoint,

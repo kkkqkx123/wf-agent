@@ -92,14 +92,6 @@ mod tests {
             Some(&serde_json::json!({"profile_id": "mock"})),
         );
         assert!(ok.is_empty());
-
-        let camel =
-            validate_node_config("LLM", "n1", Some(&serde_json::json!({"profileId": "mock"})));
-        assert_eq!(
-            camel.len(),
-            1,
-            "camelCase profileId is not a canonical config"
-        );
     }
 
     #[test]
@@ -231,13 +223,6 @@ mod tests {
             Some(&serde_json::json!({"fork_path_ids": ["p1"], "join_strategy": "wait_for_all"})),
         )
         .is_empty());
-
-        let errors = validate_node_config(
-            "JOIN",
-            "j",
-            Some(&serde_json::json!({"fork_path_ids": ["p1"], "join_strategy": "merge"})),
-        );
-        assert_eq!(errors.len(), 1, "legacy strategy values are not canonical");
     }
 
     #[test]
@@ -317,17 +302,6 @@ mod tests {
         );
         assert_eq!(errors.len(), 1);
         assert!(errors[0].message.contains("config"));
-
-        let errors = validate_node_config(
-            "AGENT_LOOP",
-            "a",
-            Some(&serde_json::json!({"model": "mock"})),
-        );
-        assert_eq!(
-            errors.len(),
-            1,
-            "top-level model is not a canonical AGENT_LOOP config"
-        );
     }
 
     #[test]

@@ -327,6 +327,7 @@ impl CanonicalHookSpec {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct HookPointConfig {
     /// Delivery model: the synchronous `handler` path runs first (engine
     /// awaits it); the `HOOK_TRIGGERED` audit event is published after the
@@ -337,13 +338,6 @@ pub struct HookPointConfig {
     pub hook_type: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub condition: Option<serde_json::Value>,
-    /// Deprecated: retained for config compatibility only. One fire
-    /// aggregates many definitions into a single `HOOK_TRIGGERED` audit
-    /// event, so a per-definition event name cannot be honored; the runtime
-    /// ignores it (warns once) and trigger templates must match
-    /// `HOOK_TRIGGERED` plus `metadata.hook_type` instead.
-    #[serde(default)]
-    pub event_name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub event_payload: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -363,14 +357,11 @@ pub struct HookPointConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub struct HookPointStaticConfig {
     pub hook_type: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub condition: Option<String>,
-    /// Deprecated: retained for config compatibility only; ignored at
-    /// runtime (see `HookPointConfig.event_name`).
-    #[serde(default)]
-    pub event_name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub event_payload: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -451,7 +442,6 @@ mod tests {
         let workflow = HookPointConfig {
             hook_type: "AFTER_TOOL_CALL".to_string(),
             condition: Some(serde_json::json!("flag")),
-            event_name: String::new(),
             event_payload: Some(serde_json::json!({"k": 1})),
             enabled: None,
             priority: Some(7),
@@ -462,7 +452,6 @@ mod tests {
         let static_form = HookPointStaticConfig {
             hook_type: "AFTER_TOOL_CALL".to_string(),
             condition: Some("flag".to_string()),
-            event_name: String::new(),
             event_payload: Some(serde_json::json!({"k": 1})),
             enabled: None,
             priority: Some(7),
@@ -473,7 +462,6 @@ mod tests {
         let agent = crate::agent::AgentHookConfig {
             hook_type: crate::agent::hook::AgentHookType::AfterToolCall,
             condition: Some("flag".to_string()),
-            event_name: String::new(),
             event_payload: Some(serde_json::json!({"k": 1})),
             enabled: None,
             priority: Some(7),
@@ -510,7 +498,6 @@ mod tests {
         let workflow = HookPointConfig {
             hook_type: "AFTER_TOOL_CALL".to_string(),
             condition: Some(serde_json::json!({"expr": "flag"})),
-            event_name: String::new(),
             event_payload: None,
             enabled: Some(false),
             priority: None,

@@ -1,11 +1,11 @@
 //! Router composition for the application-facing `wf-api` surface: every
 //! domain module (under `crates/wf-server/src/api/{workflow,agent,resource}`)
-//! contributes its routes over an `Arc<wf_api::ApiContext>`; `api_router`
-//! merges them into one router and `serve_api` binds it to a TCP listener
-//! with graceful shutdown. Metrics endpoints (`crates/wf-server/src/metrics.rs`)
-//! can be merged through `full_router` / `serve_full`.
+//! contributes its routes over an `Arc<wf_api::ApiContext>`;
+//! `api_router_with_config` merges them into one router and
+//! `serve_api_with_config` binds it to a TCP listener with graceful shutdown.
+//! Metrics endpoints (`crates/wf-server/src/metrics.rs`) can be merged through
+//! `full_router_with_middleware` / `serve_full_with_config`.
 
-use std::net::SocketAddr;
 use std::sync::Arc;
 
 use axum::Router;
@@ -14,6 +14,7 @@ use wf_api::ApiContext;
 
 use crate::middleware::{self, ServerMiddlewareConfig};
 use crate::server::{serve_with_router, ServeError, ServerHandle};
+use crate::server_config::ServerConfig;
 use crate::{api, metrics, ws};
 
 #[derive(Clone)]
@@ -22,19 +23,20 @@ pub(crate) struct ApiState {
     pub(crate) config: Arc<ServerMiddlewareConfig>,
 }
 
-/// Build the `wf-api` router (execution / query / event stream / websocket).
-/// Domain routes are mounted under `/api/v1`; system surface (`/health`,
-/// `/system/*`, `/`) stays at the root.
-pub fn api_router(ctx: Arc<ApiContext>) -> Router {
-    api_router_with_config(ctx, middleware::default_config())
+/// Test-only API router with deterministic default middleware (no environment
+/// reads, so one process env cannot flake another test). Production and
+/// embedding paths use `api_router_with_config` / `serve_*_with_config`.
+#[cfg(test)]
+pub(crate) fn api_router(ctx: Arc<ApiContext>) -> Router {
+    api_router_with_config(ctx, Arc::new(ServerMiddlewareConfig::default()))
 }
 
-/// `api_router` with a programmable middleware configuration (tests use this
-/// to exercise auth / rate limiting / CORS on the full API surface).
-pub(crate) fn api_router_with_config(
-    ctx: Arc<ApiContext>,
-    config: Arc<ServerMiddlewareConfig>,
-) -> Router {
+/// Build the `wf-api` router (execution / query / event stream / websocket)
+/// with a programmable middleware configuration. Domain routes are mounted
+/// under `/api/v1`; the system surface (`/health`, `/system/*`, `/`) stays at
+/// the root. Embedding and tests use this to exercise auth / rate limiting /
+/// CORS on the full API surface.
+pub fn api_router_with_config(ctx: Arc<ApiContext>, config: Arc<ServerMiddlewareConfig>) -> Router {
     use api::agent::{agents, analysis as agent_analysis, llm};
     use api::resource::{entities, health, openapi, templates};
     use api::workflow::{analysis, approvals, audit, events, executions, hooks, query, workflows};
@@ -64,36 +66,48 @@ pub(crate) fn api_router_with_config(
     app.with_state(ApiState { ctx, config })
 }
 
-/// Merge the metrics router and the API router under one listener.
-pub fn full_router(registry: Arc<wf_metrics::MetricsRegistry>, ctx: Arc<ApiContext>) -> Router {
+/// Metrics + API router merged under one surface with a programmable
+/// middleware configuration.
+pub fn full_router_with_middleware(
+    registry: Arc<wf_metrics::MetricsRegistry>,
+    ctx: Arc<ApiContext>,
+    config: Arc<ServerMiddlewareConfig>,
+) -> Router {
     let http = registry.http();
-    let router = metrics::router(registry).merge(api_router(ctx));
+    let router = metrics::router(registry).merge(api_router_with_config(ctx, config));
     middleware::with_request_metrics(router, Some(http))
 }
 
-/// Serve the `wf-api` surface on `addr` without blocking.
-pub async fn serve_api(ctx: Arc<ApiContext>, addr: SocketAddr) -> Result<ServerHandle, ServeError> {
-    serve_with_router(api_router(ctx), addr).await
-}
-
-/// Serve metrics + API on the same listener.
-pub async fn serve_full(
-    registry: Arc<wf_metrics::MetricsRegistry>,
+/// Serve the `wf-api` surface on the address owned by `config`, applying the
+/// middleware owned by `config` (file layer plus environment).
+pub async fn serve_api_with_config(
     ctx: Arc<ApiContext>,
-    addr: SocketAddr,
+    config: &ServerConfig,
 ) -> Result<ServerHandle, ServeError> {
-    serve_with_router(full_router(registry, ctx), addr).await
+    let router = api_router_with_config(ctx, Arc::new(config.middleware.clone()));
+    serve_with_router(router, config.bind_addr).await
 }
 
-/// `serve_full` with a programmable middleware configuration (tests).
-#[cfg(test)]
-pub(crate) async fn serve_full_with_config(
+/// Serve metrics + API on the address owned by `config`, applying the
+/// middleware owned by `config` (file layer plus environment).
+pub async fn serve_full_with_config(
     registry: Arc<wf_metrics::MetricsRegistry>,
     ctx: Arc<ApiContext>,
-    addr: SocketAddr,
+    config: &ServerConfig,
+) -> Result<ServerHandle, ServeError> {
+    let router = full_router_with_middleware(registry, ctx, Arc::new(config.middleware.clone()));
+    serve_with_router(router, config.bind_addr).await
+}
+
+/// Test helper: metrics + API router with a programmable middleware
+/// configuration.
+#[cfg(test)]
+pub(crate) async fn serve_full_with_middleware(
+    registry: Arc<wf_metrics::MetricsRegistry>,
+    ctx: Arc<ApiContext>,
+    addr: std::net::SocketAddr,
     config: Arc<ServerMiddlewareConfig>,
 ) -> Result<ServerHandle, ServeError> {
-    let http = registry.http();
-    let router = metrics::router(registry).merge(api_router_with_config(ctx, config));
-    serve_with_router(middleware::with_request_metrics(router, Some(http)), addr).await
+    let router = full_router_with_middleware(registry, ctx, config);
+    serve_with_router(router, addr).await
 }

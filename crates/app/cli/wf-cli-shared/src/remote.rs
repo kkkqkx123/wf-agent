@@ -33,11 +33,10 @@ impl RemoteClient {
             .user_agent("wf-cli/remote")
             .build()
             .unwrap_or_else(|_| reqwest::Client::new());
-        let api_key = std::env::var("WF_API_KEY").ok();
         Self {
             base,
             client,
-            api_key,
+            api_key: env_api_key(),
         }
     }
 
@@ -69,10 +68,8 @@ impl RemoteClient {
                 return Some(url);
             }
         }
-        if let Ok(url) = std::env::var("WF_REMOTE") {
-            if !url.trim().is_empty() {
-                return Some(url);
-            }
+        if let Some(url) = env_remote_url() {
+            return Some(url);
         }
         if let Some(crate::args::Command::Run { remote, .. }) = &cli.command {
             if let Some(url) = remote.clone() {
@@ -83,7 +80,6 @@ impl RemoteClient {
         }
         None
     }
-
     pub fn is_remote(cli: &Cli) -> bool {
         Self::resolve_url(cli).is_some()
     }
@@ -644,6 +640,26 @@ impl RemoteClient {
         );
         Ok(Box::pin(stream))
     }
+}
+
+/// Client-side remote env, read in exactly one place. `WF_REMOTE` is the
+/// server URL, `WF_API_KEY` (singular: this client's credential) the key
+/// sent as `x-api-key`. The server side uses the plural `API_KEYS`
+/// allow-list; the names are intentionally different. Empty values read as
+/// unset. CLI flags win over these (see `resolve_url` / `with_api_key`).
+fn env_remote_url() -> Option<String> {
+    std::env::var("WF_REMOTE")
+        .ok()
+        .map(|url| url.trim().to_string())
+        .filter(|url| !url.is_empty())
+}
+
+/// See [`env_remote_url`]: the client credential half of the remote env pair.
+fn env_api_key() -> Option<String> {
+    std::env::var("WF_API_KEY")
+        .ok()
+        .map(|key| key.trim().to_string())
+        .filter(|key| !key.is_empty())
 }
 
 impl From<RemoteError> for crate::error::CliError {

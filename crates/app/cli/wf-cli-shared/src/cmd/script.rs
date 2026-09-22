@@ -8,9 +8,12 @@ use crate::error::{CliError, CliResult};
 use crate::output::OutputEnvelope;
 
 pub async fn run(cli: &Cli, sub: &ScriptSub) -> CliResult<()> {
-    let adapter =
-        crate::domain::DomainAdapter::bootstrap_for_cli(cli, crate::mode::CliMode::Run).await?;
-    let ctx = adapter.api_context();
+    let domain =
+        crate::domain::DomainHandle::require_embedded(cli, crate::mode::CliMode::Run, "script")
+            .await?;
+    let ctx = domain
+        .api_context()
+        .expect("embedded mode must have api_context");
     let result = match sub {
         ScriptSub::List => {
             let list = script::list_scripts(&ctx.storage, None).await?;
@@ -128,7 +131,7 @@ pub async fn run(cli: &Cli, sub: &ScriptSub) -> CliResult<()> {
             render_envelope(cli.output, OutputEnvelope::success("script-search", data))
         }
     };
-    adapter.shutdown().await?;
+    domain.shutdown().await?;
     result
 }
 

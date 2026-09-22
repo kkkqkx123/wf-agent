@@ -1,3 +1,9 @@
+//! Change-approval management over `wf_api::checkpoint::approval`.
+//!
+//! This is the checkpoint domain's approval surface (pending file-change
+//! approvals). Runtime tool-call approvals during a session are a separate
+//! concern: decided by the runtime policy in `run` / `turn`, optionally
+//! advised by `crate::approval::LlmApprovalHandler`.
 use wf_api::checkpoint::approval;
 
 use crate::args::{ApprovalSub, Cli};
@@ -6,9 +12,12 @@ use crate::error::CliResult;
 use crate::output::OutputEnvelope;
 
 pub async fn run(cli: &Cli, sub: &ApprovalSub) -> CliResult<()> {
-    let adapter =
-        crate::domain::DomainAdapter::bootstrap_for_cli(cli, crate::mode::CliMode::Run).await?;
-    let ctx = adapter.api_context();
+    let domain =
+        crate::domain::DomainHandle::require_embedded(cli, crate::mode::CliMode::Run, "approval")
+            .await?;
+    let ctx = domain
+        .api_context()
+        .expect("embedded mode must have api_context");
     let result = match sub {
         ApprovalSub::List => {
             let pending = approval::list_pending_approvals(ctx)?;
@@ -43,6 +52,6 @@ pub async fn run(cli: &Cli, sub: &ApprovalSub) -> CliResult<()> {
             )
         }
     };
-    adapter.shutdown().await?;
+    domain.shutdown().await?;
     result
 }

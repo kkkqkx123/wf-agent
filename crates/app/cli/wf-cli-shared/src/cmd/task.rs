@@ -7,9 +7,12 @@ use crate::error::CliResult;
 use crate::output::OutputEnvelope;
 
 pub async fn run(cli: &Cli, sub: &TaskSub) -> CliResult<()> {
-    let adapter =
-        crate::domain::DomainAdapter::bootstrap_for_cli(cli, crate::mode::CliMode::Run).await?;
-    let ctx = adapter.api_context();
+    let domain =
+        crate::domain::DomainHandle::require_embedded(cli, crate::mode::CliMode::Run, "task")
+            .await?;
+    let ctx = domain
+        .api_context()
+        .expect("embedded mode must have api_context");
     let result = match sub {
         TaskSub::List {
             status,
@@ -52,6 +55,6 @@ pub async fn run(cli: &Cli, sub: &TaskSub) -> CliResult<()> {
             )
         }
     };
-    adapter.shutdown().await?;
+    domain.shutdown().await?;
     result
 }

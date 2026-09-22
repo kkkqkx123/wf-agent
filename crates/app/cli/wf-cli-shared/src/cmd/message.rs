@@ -6,9 +6,12 @@ use crate::error::CliResult;
 use crate::output::OutputEnvelope;
 
 pub async fn run(cli: &Cli, sub: &MessageSub) -> CliResult<()> {
-    let adapter =
-        crate::domain::DomainAdapter::bootstrap_for_cli(cli, crate::mode::CliMode::Run).await?;
-    let ctx = adapter.api_context();
+    let domain =
+        crate::domain::DomainHandle::require_embedded(cli, crate::mode::CliMode::Run, "message")
+            .await?;
+    let ctx = domain
+        .api_context()
+        .expect("embedded mode must have api_context");
     let result = match sub {
         MessageSub::List {
             execution,
@@ -35,6 +38,6 @@ pub async fn run(cli: &Cli, sub: &MessageSub) -> CliResult<()> {
             render_envelope(cli.output, OutputEnvelope::success("message-search", data))
         }
     };
-    adapter.shutdown().await?;
+    domain.shutdown().await?;
     result
 }

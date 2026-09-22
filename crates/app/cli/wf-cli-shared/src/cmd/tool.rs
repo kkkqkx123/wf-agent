@@ -8,9 +8,12 @@ use crate::error::{CliError, CliResult};
 use crate::output::OutputEnvelope;
 
 pub async fn run(cli: &Cli, sub: &ToolSub) -> CliResult<()> {
-    let adapter =
-        crate::domain::DomainAdapter::bootstrap_for_cli(cli, crate::mode::CliMode::Run).await?;
-    let ctx = adapter.api_context();
+    let domain =
+        crate::domain::DomainHandle::require_embedded(cli, crate::mode::CliMode::Run, "tool")
+            .await?;
+    let ctx = domain
+        .api_context()
+        .expect("embedded mode must have api_context");
     let result = match sub {
         ToolSub::List => {
             let tools = tool::list(ctx).await?;
@@ -114,7 +117,7 @@ pub async fn run(cli: &Cli, sub: &ToolSub) -> CliResult<()> {
             render_envelope(cli.output, OutputEnvelope::success("tool-search", data))
         }
     };
-    adapter.shutdown().await?;
+    domain.shutdown().await?;
     result
 }
 

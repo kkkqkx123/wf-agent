@@ -113,6 +113,9 @@ pub async fn run(cli: Cli) -> CliResult<()> {
         Some(Command::Template { sub }) => {
             return cmd::template::run(&cli, sub).await;
         }
+        Some(Command::Trigger { sub }) => {
+            return cmd::trigger::run(&cli, sub).await;
+        }
         Some(Command::Approval { sub }) => {
             return cmd::approval::run(&cli, sub).await;
         }

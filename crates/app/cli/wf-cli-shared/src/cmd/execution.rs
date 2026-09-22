@@ -1,3 +1,11 @@
+//! Execution UX facade over the agent and workflow domains.
+//!
+//! Listing, show/status and lifecycle arms resolve both
+//! `wf_api::agent::agent_loop_registry` and
+//! `wf_api::workflow::{execution, workflow_execution}` (agent first,
+//! workflow fallback); the `performance` / `bottleneck` / `errors` /
+//! `compare` / `progress` arms delegate to the shared builders in
+//! `crate::cmd::analysis` so both surfaces stay in sync.
 use wf_api::agent::agent_loop_registry;
 use wf_api::workflow::{execution::list_executions, workflow_execution};
 use wf_api::WorkflowExecutionListOptions;
@@ -413,16 +421,14 @@ pub async fn run(cli: &Cli, sub: &ExecutionSub) -> CliResult<()> {
             )
         }
         ExecutionSub::Performance { id } => {
-            let profile = wf_api::analysis::performance::analyze_performance(ctx, id).await?;
-            let data = serde_json::to_value(&profile)?;
+            let data = crate::cmd::analysis::performance_data(ctx, id).await?;
             render_envelope(
                 cli.output,
                 OutputEnvelope::success("execution-performance", data).with_entity(id.clone()),
             )
         }
         ExecutionSub::Bottleneck { id } => {
-            let bottlenecks = wf_api::analysis::performance::identify_bottlenecks(ctx, id).await?;
-            let data = serde_json::to_value(&bottlenecks)?;
+            let data = crate::cmd::analysis::bottleneck_data(ctx, id).await?;
             render_envelope(
                 cli.output,
                 OutputEnvelope::success("execution-bottleneck", data).with_entity(id.clone()),
@@ -434,51 +440,15 @@ pub async fn run(cli: &Cli, sub: &ExecutionSub) -> CliResult<()> {
             root_cause,
             recovery,
         } => {
-            let mut out = serde_json::Map::new();
-            let stats = wf_api::analysis::error_analysis::workflow_error_stats(ctx, id).await?;
-            out.insert(
-                "stats".into(),
-                serde_json::to_value(&stats).unwrap_or(serde_json::Value::Null),
-            );
-            if *chain {
-                let c = wf_api::analysis::error_analysis::get_error_chain(ctx, id, None).await?;
-                out.insert(
-                    "chain".into(),
-                    serde_json::to_value(&c).unwrap_or(serde_json::Value::Null),
-                );
-            }
-            if *root_cause {
-                let rc = wf_api::analysis::error_analysis::analyze_root_cause(ctx, id).await?;
-                out.insert(
-                    "rootCause".into(),
-                    serde_json::to_value(&rc).unwrap_or(serde_json::Value::Null),
-                );
-            }
-            if *recovery {
-                let recs =
-                    wf_api::analysis::error_analysis::recovery_recommendations(ctx, id).await?;
-                out.insert(
-                    "recovery".into(),
-                    serde_json::to_value(&recs).unwrap_or(serde_json::Value::Null),
-                );
-            }
-            if !*chain && !*root_cause && !*recovery {
-                let adv =
-                    wf_api::analysis::error_analysis::get_advanced_error_analysis(ctx, id).await?;
-                out.insert(
-                    "advanced".into(),
-                    serde_json::to_value(&adv).unwrap_or(serde_json::Value::Null),
-                );
-            }
-            let data = serde_json::Value::Object(out);
+            let data =
+                crate::cmd::analysis::errors_data(ctx, id, *chain, *root_cause, *recovery).await?;
             render_envelope(
                 cli.output,
                 OutputEnvelope::success("execution-errors", data).with_entity(id.clone()),
             )
         }
         ExecutionSub::Compare { baseline, compared } => {
-            let cmp = wf_api::analysis::performance::compare(ctx, baseline, compared).await?;
-            let data = serde_json::to_value(&cmp)?;
+            let data = crate::cmd::analysis::compare_data(ctx, baseline, compared).await?;
             render_envelope(
                 cli.output,
                 OutputEnvelope::success("execution-compare", data)
@@ -486,8 +456,7 @@ pub async fn run(cli: &Cli, sub: &ExecutionSub) -> CliResult<()> {
             )
         }
         ExecutionSub::Progress { id } => {
-            let metrics = wf_api::analysis::progress::get_progress(ctx, id).await?;
-            let data = serde_json::to_value(&metrics)?;
+            let data = crate::cmd::analysis::progress_data(ctx, id).await?;
             render_envelope(
                 cli.output,
                 OutputEnvelope::success("execution-progress", data).with_entity(id.clone()),

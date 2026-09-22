@@ -8,9 +8,12 @@ use crate::error::{CliError, CliResult};
 use crate::output::OutputEnvelope;
 
 pub async fn run(cli: &Cli, sub: &LlmProfileSub) -> CliResult<()> {
-    let adapter =
-        crate::domain::DomainAdapter::bootstrap_for_cli(cli, crate::mode::CliMode::Run).await?;
-    let ctx = adapter.api_context();
+    let domain =
+        crate::domain::DomainHandle::require_embedded(cli, crate::mode::CliMode::Run, "llm-profile")
+            .await?;
+    let ctx = domain
+        .api_context()
+        .expect("embedded mode must have api_context");
 
     let result = match sub {
         LlmProfileSub::List => {
@@ -172,7 +175,7 @@ pub async fn run(cli: &Cli, sub: &LlmProfileSub) -> CliResult<()> {
         }
     };
 
-    adapter.shutdown().await?;
+    domain.shutdown().await?;
     result
 }
 
@@ -188,9 +191,12 @@ fn load_profile(path: &Path) -> CliResult<wf_types::llm::LlmProfile> {
 /// Run an `llm-provider` subcommand: list definitions, show one
 /// definition, or list its discovered models.
 pub async fn run_provider(cli: &Cli, sub: &LlmProviderSub) -> CliResult<()> {
-    let adapter =
-        crate::domain::DomainAdapter::bootstrap_for_cli(cli, crate::mode::CliMode::Run).await?;
-    let ctx = adapter.api_context();
+    let domain =
+        crate::domain::DomainHandle::require_embedded(cli, crate::mode::CliMode::Run, "llm-provider")
+            .await?;
+    let ctx = domain
+        .api_context()
+        .expect("embedded mode must have api_context");
 
     let result = match sub {
         LlmProviderSub::List => {
@@ -219,6 +225,6 @@ pub async fn run_provider(cli: &Cli, sub: &LlmProviderSub) -> CliResult<()> {
         }
     };
 
-    adapter.shutdown().await?;
+    domain.shutdown().await?;
     result
 }

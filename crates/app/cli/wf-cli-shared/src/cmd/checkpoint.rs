@@ -1,3 +1,7 @@
+//! Checkpoint management across the checkpoint domain: unified records
+//! (`wf_api::checkpoint::record`), file checkpoints, and agent-loop
+//! checkpoints. Change approvals live in the sibling `approval` command
+//! over `wf_api::checkpoint::approval`.
 use wf_api::checkpoint::record as checkpoint;
 use wf_api::workflow::workflow_execution;
 
@@ -13,9 +17,12 @@ fn domain_override(
 }
 
 pub async fn run(cli: &Cli, sub: &CheckpointSub) -> CliResult<()> {
-    let adapter =
-        crate::domain::DomainAdapter::bootstrap_for_cli(cli, crate::mode::CliMode::Run).await?;
-    let ctx = adapter.api_context();
+    let domain =
+        crate::domain::DomainHandle::require_embedded(cli, crate::mode::CliMode::Run, "checkpoint")
+            .await?;
+    let ctx = domain
+        .api_context()
+        .expect("embedded mode must have api_context");
     let result = match sub {
         CheckpointSub::Create { id } => {
             let checkpoint_id = workflow_execution::create_checkpoint(ctx, id).await?;
@@ -132,6 +139,6 @@ pub async fn run(cli: &Cli, sub: &CheckpointSub) -> CliResult<()> {
             )
         }
     };
-    adapter.shutdown().await?;
+    domain.shutdown().await?;
     result
 }

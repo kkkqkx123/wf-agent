@@ -23,9 +23,12 @@ pub struct QueryOptions<'a> {
 }
 
 pub async fn run(cli: &Cli, opts: QueryOptions<'_>) -> CliResult<()> {
-    let adapter =
-        crate::domain::DomainAdapter::bootstrap_for_cli(cli, crate::mode::CliMode::Run).await?;
-    let ctx = adapter.api_context();
+    let domain =
+        crate::domain::DomainHandle::require_embedded(cli, crate::mode::CliMode::Run, "query")
+            .await?;
+    let ctx = domain
+        .api_context()
+        .expect("embedded mode must have api_context");
 
     let filters = FilterCriteria {
         workflow_id: opts.workflow_id.map(String::from),
@@ -61,7 +64,7 @@ pub async fn run(cli: &Cli, opts: QueryOptions<'_>) -> CliResult<()> {
         let data = serde_json::to_value(&result)?;
         let envelope = OutputEnvelope::success("query-aggregate", data);
         render_envelope(cli.output, envelope)?;
-        adapter.shutdown().await?;
+        domain.shutdown().await?;
         return Ok(());
     }
 
@@ -79,7 +82,7 @@ pub async fn run(cli: &Cli, opts: QueryOptions<'_>) -> CliResult<()> {
             let data = serde_json::json!({"export": output, "format": fmt});
             render_envelope(cli.output, OutputEnvelope::success("query-export", data))?;
         }
-        adapter.shutdown().await?;
+        domain.shutdown().await?;
         return Ok(());
     }
 
@@ -87,7 +90,7 @@ pub async fn run(cli: &Cli, opts: QueryOptions<'_>) -> CliResult<()> {
     let envelope = OutputEnvelope::success("query-executions", data);
 
     render_envelope(cli.output, envelope)?;
-    adapter.shutdown().await?;
+    domain.shutdown().await?;
     Ok(())
 }
 

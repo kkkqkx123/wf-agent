@@ -6,9 +6,12 @@ use crate::error::CliResult;
 use crate::output::OutputEnvelope;
 
 pub async fn run(cli: &Cli, query: &str, limit: Option<usize>) -> CliResult<()> {
-    let adapter =
-        crate::domain::DomainAdapter::bootstrap_for_cli(cli, crate::mode::CliMode::Run).await?;
-    let ctx = adapter.api_context();
+    let domain =
+        crate::domain::DomainHandle::require_embedded(cli, crate::mode::CliMode::Run, "search")
+            .await?;
+    let ctx = domain
+        .api_context()
+        .expect("embedded mode must have api_context");
 
     let options = search::SearchOptions {
         types: None,
@@ -21,6 +24,6 @@ pub async fn run(cli: &Cli, query: &str, limit: Option<usize>) -> CliResult<()> 
     let envelope = OutputEnvelope::success("search", data);
 
     render_envelope(cli.output, envelope)?;
-    adapter.shutdown().await?;
+    domain.shutdown().await?;
     Ok(())
 }

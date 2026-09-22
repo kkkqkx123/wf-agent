@@ -64,6 +64,23 @@ impl DomainHandle {
         }
     }
 
+    /// Resolve the domain for an embedded-only management command.
+    ///
+    /// Commands with HTTP parity (`workflow`, `execution`) branch on
+    /// [`DomainHandle`] directly and serve remote via `run_remote`. Every
+    /// other management command routes through here so `--remote` /
+    /// `WF_REMOTE` fails loudly instead of silently running embedded.
+    /// `cmd` names the CLI command for the error message.
+    pub async fn require_embedded(cli: &Cli, cli_mode: CliMode, cmd: &str) -> CliResult<Self> {
+        let handle = Self::from_cli(cli, cli_mode).await?;
+        if handle.as_remote().is_some() {
+            return Err(CliError::Configuration(format!(
+                "remote mode is not supported for `{cmd}`; omit --remote / WF_REMOTE"
+            )));
+        }
+        Ok(handle)
+    }
+
     pub fn is_shutting_down(&self) -> bool {
         match self {
             #[cfg(feature = "embedded")]

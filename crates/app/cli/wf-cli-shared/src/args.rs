@@ -381,6 +381,11 @@ pub enum Command {
         #[command(subcommand)]
         sub: TemplateSub,
     },
+    /// Trigger management (templates + execution ledger).
+    Trigger {
+        #[command(subcommand)]
+        sub: TriggerSub,
+    },
     /// Approval management.
     Approval {
         #[command(subcommand)]
@@ -1443,6 +1448,95 @@ pub enum TemplateSub {
         /// Template kind (workflow, agent).
         #[arg(long, value_name = "KIND", default_value = "workflow", value_parser = ["workflow","agent"])]
         kind: String,
+    },
+}
+
+/// Trigger subcommands: template registry plus the firing ledger.
+///
+/// Mirrors the `wf-api::trigger` domain (`template` + `execution`) and the
+/// `wf-server` trigger routes; `History`/`Executions` read the event-driven
+/// listener ledger, `List`/`Show`/`Save`/`Delete` manage templates.
+#[derive(Debug, Clone, Subcommand)]
+pub enum TriggerSub {
+    /// List trigger templates.
+    List {
+        /// Filter by trigger type (schedule, event, condition).
+        #[arg(long = "type", value_name = "TYPE")]
+        trigger_type: Option<String>,
+        /// Filter by category.
+        #[arg(long, value_name = "CATEGORY")]
+        category: Option<String>,
+        /// Filter by tags (comma-separated).
+        #[arg(long, value_name = "TAGS")]
+        tags: Option<String>,
+        /// Filter by enabled flag.
+        #[arg(long)]
+        enabled: Option<bool>,
+        /// Filter by name substring.
+        #[arg(long, value_name = "NAME")]
+        name: Option<String>,
+    },
+    /// Show a single trigger template.
+    Show {
+        /// Template id.
+        #[arg(value_name = "ID")]
+        id: String,
+    },
+    /// Save a trigger template from a JSON file.
+    Save {
+        /// Path to trigger template JSON file.
+        #[arg(long, value_name = "PATH", value_hint = clap::ValueHint::FilePath)]
+        file: String,
+    },
+    /// Delete a trigger template.
+    Delete {
+        /// Template id.
+        #[arg(value_name = "ID")]
+        id: String,
+    },
+    /// Execution history of triggers for one execution (newest first).
+    History {
+        /// Execution id.
+        #[arg(long, value_name = "ID")]
+        execution: String,
+        /// Filter by trigger name.
+        #[arg(long, value_name = "NAME")]
+        trigger: Option<String>,
+    },
+    /// List trigger firing records (ledger).
+    Executions {
+        /// Filter by trigger name.
+        #[arg(long, value_name = "NAME")]
+        trigger: Option<String>,
+        /// Filter by execution id.
+        #[arg(long, value_name = "ID")]
+        execution: Option<String>,
+        /// Filter by workflow id.
+        #[arg(long, value_name = "ID")]
+        workflow: Option<String>,
+        /// Filter by success flag.
+        #[arg(long)]
+        success: Option<bool>,
+        /// Maximum number of results.
+        #[arg(long, value_name = "N")]
+        limit: Option<u64>,
+        /// Offset into the result set.
+        #[arg(long, value_name = "N")]
+        offset: Option<u64>,
+    },
+    /// Show a single trigger firing record.
+    ExecutionShow {
+        /// Firing record id.
+        #[arg(value_name = "ID")]
+        id: String,
+    },
+    /// Firing statistics by trigger name.
+    Stats,
+    /// Delete firing records older than a timestamp (epoch millis, default now).
+    Cleanup {
+        /// Only delete records triggered before this epoch millis.
+        #[arg(long, value_name = "MILLIS")]
+        older_than: Option<i64>,
     },
 }
 

@@ -6,9 +6,12 @@ use crate::error::CliResult;
 use crate::output::OutputEnvelope;
 
 pub async fn run(cli: &Cli, sub: &VariableSub) -> CliResult<()> {
-    let adapter =
-        crate::domain::DomainAdapter::bootstrap_for_cli(cli, crate::mode::CliMode::Run).await?;
-    let ctx = adapter.api_context();
+    let domain =
+        crate::domain::DomainHandle::require_embedded(cli, crate::mode::CliMode::Run, "variable")
+            .await?;
+    let ctx = domain
+        .api_context()
+        .expect("embedded mode must have api_context");
     let result = match sub {
         VariableSub::List { execution, scope } => {
             let vars = if let Some(scope) = scope {
@@ -83,6 +86,6 @@ pub async fn run(cli: &Cli, sub: &VariableSub) -> CliResult<()> {
             }
         }
     };
-    adapter.shutdown().await?;
+    domain.shutdown().await?;
     result
 }

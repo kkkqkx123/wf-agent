@@ -33,7 +33,7 @@ pub(crate) fn routes() -> Router<ApiState> {
 
 #[utoipa::path(
     get,
-    path = "/workflows/drafts",
+    path = "/api/v1/workflows/drafts",
     tag = "workflow",
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
@@ -47,7 +47,7 @@ pub(crate) async fn handle_list_drafts(State(state): State<ApiState>) -> impl In
 
 #[utoipa::path(
     post,
-    path = "/workflows/drafts",
+    path = "/api/v1/workflows/drafts",
     tag = "workflow",
     request_body = serde_json::Value,
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
@@ -65,9 +65,9 @@ pub(crate) async fn handle_save_draft(
 
 #[utoipa::path(
     get,
-    path = "/workflows/drafts/{id}",
+    path = "/api/v1/workflows/drafts/{id}",
     tag = "workflow",
-    params(("id" = String, Path, description = "id")),
+    params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -83,9 +83,9 @@ pub(crate) async fn handle_get_draft(
 
 #[utoipa::path(
     delete,
-    path = "/workflows/drafts/{id}",
+    path = "/api/v1/workflows/drafts/{id}",
     tag = "workflow",
-    params(("id" = String, Path, description = "id")),
+    params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -101,9 +101,9 @@ pub(crate) async fn handle_delete_draft(
 
 #[utoipa::path(
     post,
-    path = "/workflows/drafts/{id}/promote",
+    path = "/api/v1/workflows/drafts/{id}/promote",
     tag = "workflow",
-    params(("id" = String, Path, description = "id")),
+    params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -119,7 +119,7 @@ pub(crate) async fn handle_promote_draft(
 
 #[utoipa::path(
     post,
-    path = "/workflows/drafts/promote-all",
+    path = "/api/v1/workflows/drafts/promote-all",
     tag = "workflow",
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
@@ -138,9 +138,9 @@ pub(crate) async fn handle_promote_all(State(state): State<ApiState>) -> impl In
 
 #[utoipa::path(
     get,
-    path = "/workflows/drafts/{id}/validate",
+    path = "/api/v1/workflows/drafts/{id}/validate",
     tag = "workflow",
-    params(("id" = String, Path, description = "id")),
+    params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -156,9 +156,9 @@ pub(crate) async fn handle_validate_draft(
 
 #[utoipa::path(
     get,
-    path = "/workflows/{id}/lifecycle",
+    path = "/api/v1/workflows/{id}/lifecycle",
     tag = "workflow",
-    params(("id" = String, Path, description = "id")),
+    params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]

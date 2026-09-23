@@ -8,7 +8,7 @@ use axum::response::IntoResponse;
 use axum::routing::get;
 use axum::Router;
 use serde::{Deserialize, Serialize};
-use utoipa::ToSchema;
+use utoipa::{IntoParams, ToSchema};
 
 use crate::envelope::{error_response, ok};
 use crate::extract::IdPath;
@@ -84,9 +84,9 @@ pub(crate) fn routes() -> Router<ApiState> {
 
 #[utoipa::path(
     get,
-    path = "/agent-loops/{id}/graph",
+    path = "/api/v1/agent-loops/{id}/graph",
     tag = "agent",
-    params(("id" = String, Path, description = "Agent loop ID")),
+    params(IdPath),
     responses(
         (status = 200, description = "Decision graph", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
@@ -106,9 +106,9 @@ pub(crate) async fn handle_decision_graph(
 
 #[utoipa::path(
     get,
-    path = "/agent-loops/{id}/graph/nodes",
+    path = "/api/v1/agent-loops/{id}/graph/nodes",
     tag = "agent",
-    params(("id" = String, Path, description = "Agent loop ID")),
+    params(IdPath),
     responses(
         (status = 200, description = "Decision nodes", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
@@ -128,9 +128,9 @@ pub(crate) async fn handle_decision_nodes(
 
 #[utoipa::path(
     get,
-    path = "/agent-loops/{id}/graph/edges",
+    path = "/api/v1/agent-loops/{id}/graph/edges",
     tag = "agent",
-    params(("id" = String, Path, description = "Agent loop ID")),
+    params(IdPath),
     responses(
         (status = 200, description = "Decision edges", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
@@ -150,9 +150,9 @@ pub(crate) async fn handle_decision_edges(
 
 #[utoipa::path(
     get,
-    path = "/agent-loops/{id}/graph/paths",
+    path = "/api/v1/agent-loops/{id}/graph/paths",
     tag = "agent",
-    params(("id" = String, Path, description = "Agent loop ID")),
+    params(IdPath),
     responses(
         (status = 200, description = "All paths", body = crate::envelope::ApiEnvelope<crate::api::agent::graphs::CappedPaths>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
@@ -190,9 +190,9 @@ pub(crate) struct CappedPaths {
 
 #[utoipa::path(
     get,
-    path = "/agent-loops/{id}/graph/paths/execution-path",
+    path = "/api/v1/agent-loops/{id}/graph/paths/execution-path",
     tag = "agent",
-    params(("id" = String, Path, description = "Agent loop ID")),
+    params(IdPath),
     responses(
         (status = 200, description = "Execution path", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
@@ -212,9 +212,9 @@ pub(crate) async fn handle_graph_execution_path(
 
 #[utoipa::path(
     get,
-    path = "/agent-loops/{id}/graph/paths/path-stats",
+    path = "/api/v1/agent-loops/{id}/graph/paths/path-stats",
     tag = "agent",
-    params(("id" = String, Path, description = "Agent loop ID")),
+    params(IdPath),
     responses(
         (status = 200, description = "Path statistics", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
@@ -234,9 +234,9 @@ pub(crate) async fn handle_path_statistics(
 
 #[utoipa::path(
     get,
-    path = "/agent-loops/{id}/graph/paths/critical-path",
+    path = "/api/v1/agent-loops/{id}/graph/paths/critical-path",
     tag = "agent",
-    params(("id" = String, Path, description = "Agent loop ID")),
+    params(IdPath),
     responses(
         (status = 200, description = "Critical path", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
@@ -256,9 +256,9 @@ pub(crate) async fn handle_critical_path(
 
 #[utoipa::path(
     get,
-    path = "/agent-loops/{id}/graph/alternatives",
+    path = "/api/v1/agent-loops/{id}/graph/alternatives",
     tag = "agent",
-    params(("id" = String, Path, description = "Agent loop ID")),
+    params(IdPath),
     responses(
         (status = 200, description = "All alternatives", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
@@ -276,7 +276,8 @@ pub(crate) async fn handle_all_alternatives(
     }
 }
 
-#[derive(Deserialize, ToSchema)]
+#[derive(Deserialize, ToSchema, IntoParams)]
+#[into_params(parameter_in = Path)]
 pub(crate) struct IterationPath {
     id: String,
     iteration: u32,
@@ -284,12 +285,9 @@ pub(crate) struct IterationPath {
 
 #[utoipa::path(
     get,
-    path = "/agent-loops/{id}/graph/alternatives/iterations/{iteration}",
+    path = "/api/v1/agent-loops/{id}/graph/alternatives/iterations/{iteration}",
     tag = "agent",
-    params(
-        ("id" = String, Path, description = "Agent loop ID"),
-        ("iteration" = u32, Path, description = "Iteration number")
-    ),
+    params(IterationPath),
     responses(
         (status = 200, description = "Alternative decisions for iteration", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
@@ -311,9 +309,9 @@ pub(crate) async fn handle_alternative_decisions(
 
 #[utoipa::path(
     get,
-    path = "/agent-loops/{id}/graph/sequences",
+    path = "/api/v1/agent-loops/{id}/graph/sequences",
     tag = "agent",
-    params(("id" = String, Path, description = "Agent loop ID")),
+    params(IdPath),
     responses(
         (status = 200, description = "Decision sequence", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
@@ -333,12 +331,9 @@ pub(crate) async fn handle_decision_sequence(
 
 #[utoipa::path(
     get,
-    path = "/agent-loops/{id}/graph/sequences/iterations/{iteration}",
+    path = "/api/v1/agent-loops/{id}/graph/sequences/iterations/{iteration}",
     tag = "agent",
-    params(
-        ("id" = String, Path, description = "Agent loop ID"),
-        ("iteration" = u32, Path, description = "Iteration number")
-    ),
+    params(IterationPath),
     responses(
         (status = 200, description = "Decisions in iteration", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
@@ -358,8 +353,9 @@ pub(crate) async fn handle_decisions_in_iteration(
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, IntoParams)]
 #[serde(rename_all = "camelCase")]
+#[into_params(parameter_in = Path)]
 pub(crate) struct DecisionTypePath {
     id: String,
     decision_type: String,
@@ -367,9 +363,9 @@ pub(crate) struct DecisionTypePath {
 
 #[utoipa::path(
     get,
-    path = "/agent-loops/{id}/graph/sequences/types/{decisionType}",
+    path = "/api/v1/agent-loops/{id}/graph/sequences/types/{decisionType}",
     tag = "agent",
-    params(("id" = String, Path, description = "Agent loop ID"), ("decisionType" = String, Path, description = "Decision type")),
+    params(DecisionTypePath),
     responses(
         (status = 200, description = "Decisions by type", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
@@ -391,9 +387,9 @@ pub(crate) async fn handle_decisions_by_type(
 
 #[utoipa::path(
     get,
-    path = "/agent-loops/{id}/graph/unexplored",
+    path = "/api/v1/agent-loops/{id}/graph/unexplored",
     tag = "agent",
-    params(("id" = String, Path, description = "Agent loop ID")),
+    params(IdPath),
     responses(
         (status = 200, description = "Unexplored alternatives", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
@@ -413,9 +409,9 @@ pub(crate) async fn handle_unexplored_alternatives(
 
 #[utoipa::path(
     get,
-    path = "/agent-loops/{id}/graph/unexplored/best",
+    path = "/api/v1/agent-loops/{id}/graph/unexplored/best",
     tag = "agent",
-    params(("id" = String, Path, description = "Agent loop ID")),
+    params(IdPath),
     responses(
         (status = 200, description = "Most promising unexplored alternative", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
@@ -435,9 +431,9 @@ pub(crate) async fn handle_most_promising_unexplored(
 
 #[utoipa::path(
     get,
-    path = "/agent-loops/{id}/graph/paths/steps",
+    path = "/api/v1/agent-loops/{id}/graph/paths/steps",
     tag = "agent",
-    params(("id" = String, Path, description = "Agent loop ID")),
+    params(IdPath),
     responses(
         (status = 200, description = "Execution path steps", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
@@ -457,9 +453,9 @@ pub(crate) async fn handle_execution_path_steps(
 
 #[utoipa::path(
     get,
-    path = "/agent-loops/{id}/graph/tool-frequency",
+    path = "/api/v1/agent-loops/{id}/graph/tool-frequency",
     tag = "agent",
-    params(("id" = String, Path, description = "Agent loop ID")),
+    params(IdPath),
     responses(
         (status = 200, description = "Tool frequency", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
@@ -482,9 +478,9 @@ pub(crate) async fn handle_tool_frequency(
 
 #[utoipa::path(
     get,
-    path = "/agent-loops/{id}/graph/patterns",
+    path = "/api/v1/agent-loops/{id}/graph/patterns",
     tag = "agent",
-    params(("id" = String, Path, description = "Agent loop ID")),
+    params(IdPath),
     responses(
         (status = 200, description = "Decision patterns", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
@@ -504,9 +500,9 @@ pub(crate) async fn handle_decision_patterns(
 
 #[utoipa::path(
     get,
-    path = "/agent-loops/{id}/graph/efficiency",
+    path = "/api/v1/agent-loops/{id}/graph/efficiency",
     tag = "agent",
-    params(("id" = String, Path, description = "Agent loop ID")),
+    params(IdPath),
     responses(
         (status = 200, description = "Path efficiency", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
@@ -526,9 +522,9 @@ pub(crate) async fn handle_path_efficiency(
 
 #[utoipa::path(
     get,
-    path = "/agent-loops/{id}/graph/probabilities",
+    path = "/api/v1/agent-loops/{id}/graph/probabilities",
     tag = "agent",
-    params(("id" = String, Path, description = "Agent loop ID")),
+    params(IdPath),
     responses(
         (status = 200, description = "Path probabilities", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),

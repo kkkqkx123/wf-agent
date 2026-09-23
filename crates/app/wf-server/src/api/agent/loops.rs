@@ -11,7 +11,7 @@ use axum::{Json, Router};
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use utoipa::ToSchema;
+use utoipa::{IntoParams, ToSchema};
 
 use wf_api::AgentLoopListOptions;
 use wf_api::Message;
@@ -19,7 +19,9 @@ use wf_api::{AgentLoopConfig, AgentLoopInput};
 
 use crate::envelope::{error_response, ok};
 use crate::extract::{IdNamePath, IdPath, ListQuery};
-use crate::paged::{fetch_size, ok_capped, ok_page, resolve_page, MAX_TIMELINE_ENTRIES};
+use crate::paged::{
+    fetch_size, ok_capped, ok_page, resolve_page, resolve_page_fields, MAX_TIMELINE_ENTRIES,
+};
 use crate::router::ApiState;
 use crate::sse::sse_response;
 pub(crate) fn routes() -> Router<ApiState> {
@@ -80,18 +82,21 @@ pub(crate) fn routes() -> Router<ApiState> {
 
 // ── agent loops ───────────────────────────────────────────────────
 
-#[derive(Deserialize)]
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub(crate) struct ListLoopsQuery {
-    #[serde(flatten)]
-    page: ListQuery,
+    /// Page limit
+    limit: Option<u64>,
+    /// Page offset
+    offset: Option<u64>,
     status: Option<String>,
 }
 
 #[utoipa::path(
     get,
-    path = "/agent-loops",
+    path = "/api/v1/agent-loops",
     tag = "agent",
-    params(("limit" = Option<u64>, Query, description = "Page limit"), ("offset" = Option<u64>, Query, description = "Page offset")),
+    params(ListLoopsQuery),
     responses(
         (status = 200, description = "List of agent loops", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>),
         (status = 400, description = "Invalid query parameters", body = crate::envelope::ErrorResponse),
@@ -103,7 +108,7 @@ pub(crate) async fn handle_list_loops(
     State(state): State<ApiState>,
     Query(query): Query<ListLoopsQuery>,
 ) -> impl IntoResponse {
-    let (limit, offset) = resolve_page(&query.page);
+    let (limit, offset) = resolve_page_fields(query.limit, query.offset);
     let options = AgentLoopListOptions {
         offset: Some(offset),
         limit: Some(fetch_size(limit)),
@@ -117,7 +122,7 @@ pub(crate) async fn handle_list_loops(
 
 #[utoipa::path(
     post,
-    path = "/agent-loops",
+    path = "/api/v1/agent-loops",
     tag = "agent",
     request_body = serde_json::Value,
     responses(
@@ -140,9 +145,9 @@ pub(crate) async fn handle_save_loop(
 
 #[utoipa::path(
     get,
-    path = "/agent-loops/{id}",
+    path = "/api/v1/agent-loops/{id}",
     tag = "agent",
-    params(("id" = String, Path, description = "Agent loop ID")),
+    params(IdPath),
     responses(
         (status = 200, description = "Agent loop found", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
@@ -162,9 +167,9 @@ pub(crate) async fn handle_get_loop(
 
 #[utoipa::path(
     put,
-    path = "/agent-loops/{id}",
+    path = "/api/v1/agent-loops/{id}",
     tag = "agent",
-    params(("id" = String, Path, description = "Agent loop ID")),
+    params(IdPath),
     request_body = serde_json::Value,
     responses(
         (status = 200, description = "Agent loop updated", body = crate::envelope::ApiEnvelope<String>),
@@ -188,9 +193,9 @@ pub(crate) async fn handle_update_loop(
 
 #[utoipa::path(
     delete,
-    path = "/agent-loops/{id}",
+    path = "/api/v1/agent-loops/{id}",
     tag = "agent",
-    params(("id" = String, Path, description = "Agent loop ID")),
+    params(IdPath),
     responses(
         (status = 200, description = "Agent loop deleted", body = crate::envelope::ApiEnvelope<bool>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
@@ -216,10 +221,10 @@ pub(crate) struct UpdateLoopStatusBody {
 
 #[utoipa::path(
     patch,
-    path = "/agent-loops/{id}/status",
+    path = "/api/v1/agent-loops/{id}/status",
     tag = "agent",
-    params(("id" = String, Path, description = "Agent loop ID")),
-    request_body = serde_json::Value,
+    params(IdPath),
+    request_body = UpdateLoopStatusBody,
     responses(
         (status = 200, description = "Status updated", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
@@ -243,9 +248,9 @@ pub(crate) async fn handle_update_loop_status(
 
 #[utoipa::path(
     get,
-    path = "/agent-loops/{id}/status",
+    path = "/api/v1/agent-loops/{id}/status",
     tag = "agent",
-    params(("id" = String, Path, description = "Agent loop ID")),
+    params(IdPath),
     responses(
         (status = 200, description = "Current loop status", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
@@ -268,10 +273,10 @@ pub(crate) async fn handle_loop_status(
 /// persisted metadata status is rewritten (fallback of `wf-api`).
 #[utoipa::path(
     post,
-    path = "/agent-loops/{id}/status/transition",
+    path = "/api/v1/agent-loops/{id}/status/transition",
     tag = "agent",
-    params(("id" = String, Path, description = "Agent loop ID")),
-    request_body = serde_json::Value,
+    params(IdPath),
+    request_body = UpdateLoopStatusBody,
     responses(
         (status = 200, description = "Status transition executed", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
@@ -288,7 +293,7 @@ pub(crate) async fn handle_loop_status_transition(
     let status = match parse_execution_status(&body.status) {
         Ok(status) => status,
         Err(message) => {
-            return crate::envelope::err::<Value>(crate::envelope::ApiError::validation(message))
+            return crate::envelope::err(crate::envelope::ApiError::validation(message))
                 .into_response()
         }
     };
@@ -302,7 +307,7 @@ pub(crate) async fn handle_loop_status_transition(
 /// loops from the in-memory registry.
 #[utoipa::path(
     post,
-    path = "/agent-loops/cleanup-completed",
+    path = "/api/v1/agent-loops/cleanup-completed",
     tag = "agent",
     responses(
         (status = 200, description = "Completed loops cleaned up", body = crate::envelope::ApiEnvelope<serde_json::Value>),
@@ -322,7 +327,7 @@ pub(crate) async fn handle_cleanup_completed(State(state): State<ApiState>) -> i
 
 /// Wire body of `/agent-loops/{id}/run` and `/stream`: the flattened
 /// `AgentLoopConfig` fields plus the loop input.
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub struct RunAgentLoopBody {
     #[serde(default)]
     agent_id: String,
@@ -336,6 +341,7 @@ pub struct RunAgentLoopBody {
     discoverable_tool_names: Option<Vec<String>>,
     enable_general_tool: Option<bool>,
     hidden_tool_names: Option<Vec<String>>,
+    #[schema(value_type = Object)]
     tool_call_protocol: Option<wf_api::ToolCallProtocolConfig>,
     token_limit: Option<u64>,
     token_warning_threshold: Option<u32>,
@@ -347,6 +353,7 @@ pub struct RunAgentLoopBody {
     checkpoint_message_interval: Option<u32>,
     #[serde(default)]
     context: HashMap<String, Value>,
+    #[schema(value_type = Option<Vec<Object>>)]
     conversation: Option<Vec<Message>>,
 }
 
@@ -417,10 +424,10 @@ pub(crate) struct AgentRunView {
 
 #[utoipa::path(
     post,
-    path = "/agent-loops/{id}/run",
+    path = "/api/v1/agent-loops/{id}/run",
     tag = "agent",
     params(("id" = String, Path, description = "Agent loop ID")),
-    request_body = serde_json::Value,
+    request_body = RunAgentLoopBody,
     responses(
         (status = 200, description = "Agent loop execution completed", body = crate::envelope::ApiEnvelope<crate::api::agent::loops::AgentRunView>),
         (status = 404, description = "Agent loop not found", body = crate::envelope::ErrorResponse),
@@ -454,10 +461,10 @@ pub(crate) async fn handle_run_loop(
 
 #[utoipa::path(
     post,
-    path = "/agent-loops/{id}/stream",
+    path = "/api/v1/agent-loops/{id}/stream",
     tag = "agent",
     params(("id" = String, Path, description = "Agent loop ID")),
-    request_body = serde_json::Value,
+    request_body = RunAgentLoopBody,
     responses(
         (status = 200, description = "Server-sent events stream", content_type = "text/event-stream"),
         (status = 404, description = "Agent loop not found", body = crate::envelope::ErrorResponse),
@@ -501,9 +508,9 @@ pub(crate) async fn handle_stream_loop(
 
 #[utoipa::path(
     post,
-    path = "/agent-loops/{id}/pause",
+    path = "/api/v1/agent-loops/{id}/pause",
     tag = "agent",
-    params(("id" = String, Path, description = "Agent loop ID")),
+    params(IdPath),
     responses(
         (status = 200, description = "Agent loop paused", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
@@ -524,9 +531,9 @@ pub(crate) async fn handle_pause_loop(
 
 #[utoipa::path(
     post,
-    path = "/agent-loops/{id}/resume",
+    path = "/api/v1/agent-loops/{id}/resume",
     tag = "agent",
-    params(("id" = String, Path, description = "Agent loop ID")),
+    params(IdPath),
     responses(
         (status = 200, description = "Agent loop resumed", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
@@ -547,9 +554,9 @@ pub(crate) async fn handle_resume_loop(
 
 #[utoipa::path(
     post,
-    path = "/agent-loops/{id}/cancel",
+    path = "/api/v1/agent-loops/{id}/cancel",
     tag = "agent",
-    params(("id" = String, Path, description = "Agent loop ID")),
+    params(IdPath),
     responses(
         (status = 200, description = "Agent loop cancelled", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
@@ -570,23 +577,26 @@ pub(crate) async fn handle_cancel_loop(
 
 // ── agent loop registry views ─────────────────────────────────────
 
-#[derive(Deserialize)]
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub(crate) struct LoopSummariesQuery {
     /// Filter by execution status
     status: Option<String>,
     /// Filter by profile ID
     profile_id: Option<String>,
-    #[serde(flatten)]
-    page: ListQuery,
+    /// Page limit
+    limit: Option<u64>,
+    /// Page offset
+    offset: Option<u64>,
 }
 
 /// Live-first agent loop summaries (live registry merged with persisted
 /// records), filtered by optional status / profile.
 #[utoipa::path(
     get,
-    path = "/agent-loops/summaries",
+    path = "/api/v1/agent-loops/summaries",
     tag = "agent",
-    params(("limit" = Option<u64>, Query, description = "Page limit"), ("offset" = Option<u64>, Query, description = "Page offset")),
+    params(LoopSummariesQuery),
     responses(
         (status = 200, description = "List of agent loop summaries", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>),
         (status = 400, description = "Invalid query parameters", body = crate::envelope::ErrorResponse),
@@ -606,10 +616,8 @@ pub(crate) async fn handle_loop_summaries(
     {
         Ok(status) => status,
         Err(message) => {
-            return crate::envelope::err::<serde_json::Value>(
-                crate::envelope::ApiError::validation(message),
-            )
-            .into_response()
+            return crate::envelope::err(crate::envelope::ApiError::validation(message))
+                .into_response()
         }
     };
     let filter = wf_api::AgentLoopFilter {
@@ -621,7 +629,7 @@ pub(crate) async fn handle_loop_summaries(
     };
     match wf_api::agent::agent_loop_registry::summaries(&state.ctx, Some(&filter)).await {
         Ok(summaries) => {
-            let (limit, offset) = resolve_page(&query.page);
+            let (limit, offset) = resolve_page_fields(query.limit, query.offset);
             let window = summaries
                 .into_iter()
                 .skip(offset as usize)
@@ -637,7 +645,7 @@ pub(crate) async fn handle_loop_summaries(
 /// live and persisted loops.
 #[utoipa::path(
     get,
-    path = "/agent-loops/stats",
+    path = "/api/v1/agent-loops/stats",
     tag = "agent",
     responses(
         (status = 200, description = "Agent loop statistics", body = crate::envelope::ApiEnvelope<serde_json::Value>),
@@ -659,9 +667,9 @@ fn parse_execution_status(status: &str) -> Result<wf_types::ExecutionStatus, Str
 
 #[utoipa::path(
     get,
-    path = "/agent-loops/{id}/summary",
+    path = "/api/v1/agent-loops/{id}/summary",
     tag = "agent",
-    params(("id" = String, Path, description = "Agent loop ID")),
+    params(IdPath),
     responses(
         (status = 200, description = "Agent loop summary", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
@@ -681,9 +689,9 @@ pub(crate) async fn handle_loop_summary(
 
 #[utoipa::path(
     get,
-    path = "/agent-loops/{id}/iteration-history",
+    path = "/api/v1/agent-loops/{id}/iteration-history",
     tag = "agent",
-    params(("id" = String, Path, description = "Agent loop ID"), ("limit" = Option<u64>, Query, description = "Page limit"), ("offset" = Option<u64>, Query, description = "Page offset")),
+    params(IdPath, ListQuery),
     responses(
         (status = 200, description = "Iteration history", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
@@ -712,9 +720,9 @@ pub(crate) async fn handle_iteration_history(
 
 #[utoipa::path(
     get,
-    path = "/agent-loops/{id}/iteration-history/summary",
+    path = "/api/v1/agent-loops/{id}/iteration-history/summary",
     tag = "agent",
-    params(("id" = String, Path, description = "Agent loop ID")),
+    params(IdPath),
     responses(
         (status = 200, description = "Iteration history summary", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
@@ -735,9 +743,9 @@ pub(crate) async fn handle_iteration_history_summary(
 
 #[utoipa::path(
     get,
-    path = "/agent-loops/{id}/timeline",
+    path = "/api/v1/agent-loops/{id}/timeline",
     tag = "agent",
-    params(("id" = String, Path, description = "Agent loop ID")),
+    params(IdPath),
     responses(
         (status = 200, description = "Execution timeline", body = crate::envelope::ApiEnvelope<crate::paged::CappedView<serde_json::Value>>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
@@ -757,11 +765,9 @@ pub(crate) async fn handle_loop_timeline(
 
 #[utoipa::path(
     get,
-    path = "/agent-loops/{id}/variable-history/{name}",
+    path = "/api/v1/agent-loops/{id}/variable-history/{name}",
     tag = "agent",
-    params(
-        ("id" = String, Path, description = "Agent loop ID"),
-        ("name" = String, Path, description = "Variable name"), ("limit" = Option<u64>, Query, description = "Page limit"), ("offset" = Option<u64>, Query, description = "Page offset")),
+    params(IdNamePath, ListQuery),
     responses(
         (status = 200, description = "Variable history", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
@@ -792,9 +798,9 @@ pub(crate) async fn handle_variable_history(
 
 #[utoipa::path(
     get,
-    path = "/agent-loops/{id}/context-evolution",
+    path = "/api/v1/agent-loops/{id}/context-evolution",
     tag = "agent",
-    params(("id" = String, Path, description = "Agent loop ID")),
+    params(IdPath),
     responses(
         (status = 200, description = "Context evolution", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
@@ -814,9 +820,9 @@ pub(crate) async fn handle_loop_context_evolution(
 
 #[utoipa::path(
     get,
-    path = "/agent-loops/{id}/execution-path",
+    path = "/api/v1/agent-loops/{id}/execution-path",
     tag = "agent",
-    params(("id" = String, Path, description = "Agent loop ID")),
+    params(IdPath),
     responses(
         (status = 200, description = "Execution path", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),

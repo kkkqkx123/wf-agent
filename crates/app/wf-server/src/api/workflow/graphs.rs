@@ -7,6 +7,7 @@ use axum::response::IntoResponse;
 use axum::routing::get;
 use axum::Router;
 use serde::Deserialize;
+use utoipa::IntoParams;
 
 use crate::envelope::{error_response, ok};
 use crate::extract::{IdNodePath, IdPath};
@@ -33,9 +34,9 @@ pub(crate) fn routes() -> Router<ApiState> {
 
 #[utoipa::path(
     get,
-    path = "/workflows/{id}/graph",
+    path = "/api/v1/workflows/{id}/graph",
     tag = "workflow",
-    params(("id" = String, Path, description = "id")),
+    params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -51,9 +52,9 @@ pub(crate) async fn handle_graph(
 
 #[utoipa::path(
     get,
-    path = "/workflows/{id}/graph/summary",
+    path = "/api/v1/workflows/{id}/graph/summary",
     tag = "workflow",
-    params(("id" = String, Path, description = "id")),
+    params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -67,16 +68,17 @@ pub(crate) async fn handle_graph_summary(
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub(crate) struct GraphNodesQuery {
     node_type: Option<String>,
 }
 
 #[utoipa::path(
     get,
-    path = "/workflows/{id}/graph/nodes",
+    path = "/api/v1/workflows/{id}/graph/nodes",
     tag = "workflow",
-    params(("id" = String, Path, description = "id"), ("node_type" = Option<String>, Query, description = "node_type")),
+    params(IdPath, GraphNodesQuery),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -100,9 +102,9 @@ pub(crate) async fn handle_graph_nodes(
 
 #[utoipa::path(
     get,
-    path = "/workflows/{id}/graph/edges",
+    path = "/api/v1/workflows/{id}/graph/edges",
     tag = "workflow",
-    params(("id" = String, Path, description = "id")),
+    params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -118,9 +120,9 @@ pub(crate) async fn handle_graph_edges(
 
 #[utoipa::path(
     get,
-    path = "/workflows/{id}/graph/neighbors/{nodeId}",
+    path = "/api/v1/workflows/{id}/graph/neighbors/{nodeId}",
     tag = "workflow",
-    params(("id" = String, Path, description = "id"), ("nodeId" = String, Path, description = "nodeId")),
+    params(IdNodePath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -138,9 +140,9 @@ pub(crate) async fn handle_graph_neighbors(
 
 #[utoipa::path(
     get,
-    path = "/workflows/{id}/graph/analysis",
+    path = "/api/v1/workflows/{id}/graph/analysis",
     tag = "workflow",
-    params(("id" = String, Path, description = "id")),
+    params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -177,9 +179,9 @@ pub(crate) async fn handle_graph_analysis(
 
 #[utoipa::path(
     get,
-    path = "/workflows/{id}/graph/cycles",
+    path = "/api/v1/workflows/{id}/graph/cycles",
     tag = "workflow",
-    params(("id" = String, Path, description = "id")),
+    params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -200,9 +202,9 @@ pub(crate) async fn handle_graph_cycles(
 
 #[utoipa::path(
     get,
-    path = "/workflows/{id}/graph/topology",
+    path = "/api/v1/workflows/{id}/graph/topology",
     tag = "workflow",
-    params(("id" = String, Path, description = "id")),
+    params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -223,9 +225,9 @@ pub(crate) async fn handle_graph_topology(
 
 #[utoipa::path(
     get,
-    path = "/workflows/{id}/graph/reachability",
+    path = "/api/v1/workflows/{id}/graph/reachability",
     tag = "workflow",
-    params(("id" = String, Path, description = "id")),
+    params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]

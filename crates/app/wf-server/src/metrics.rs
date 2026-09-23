@@ -46,7 +46,16 @@ pub async fn serve(
 /// `GET /metrics`: Prometheus text export, `text/plain`. Domain series are
 /// followed by the collector self-monitoring block so pipeline health
 /// (buffer pressure, drops, flush errors) is scraped together.
-async fn handle_metrics(State(state): State<RegistryState>) -> Response {
+#[utoipa::path(
+    get,
+    path = "/metrics",
+    tag = "system",
+    responses(
+        (status = 200, description = "Prometheus text exposition", body = String, content_type = "text/plain"),
+    ),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_metrics(State(state): State<RegistryState>) -> Response {
     let mut body = format_registry_prometheus(&state.registry);
     body.push_str(&format_internal_prometheus(&state.registry));
     text_response(PROMETHEUS_CONTENT_TYPE, body)

@@ -1,7 +1,8 @@
 # OpenAPI 响应体类型化方案（`serde_json::Value` → `ToSchema`）
 
-配套：`openapi-utoipa-migration.md`、`openapi-utoipa-progress.md`。本文回答“是否要把泛型
+配套：`openapi-utoipa-migration.md`、`openapi-utoipa-progress.md`、`web-app-integration.md`。本文回答“是否要把泛型
 `serde_json::Value` 响应体逐步换成领域类型 `ToSchema`”，若值得则给出分阶段落地方案。
+前端 codegen 不在 web-app 内执行：读快照的生成器为独立小包 `tools/openapi-codegen`（见 `web-app-integration.md`）。
 
 ## 结论（先说要不要做）
 
@@ -9,10 +10,10 @@
 不做“全量给 240+ 领域类型 derive”的一刀切替换。
 
 理由：信封 + 分页外壳的类型化收益高、成本与风险低（完全不触碰 foundation）；
-而把 `utoipa` 依赖下沉进 `wf-types` 会污染整个 DAG、且手写 437 处 `body` 的维护漂移大，
+而把 `utoipa` 依赖下沉进 `wf-types` 会污染整个 DAG、且手写数百处 `body` 的维护漂移大，
 收益边际递减，不符合项目“正向编程、最小合理架构”的取向。
 
-## 现状事实（源码核对）
+## 现状事实（方案提出时的源码核对）
 
 - 所有 `#[utoipa::path]` 成功响应体当前统一为 `serde_json::Value`（自由格式）。
   `openapi-typescript` 会把自由格式 Object 生成为 `unknown` → 前端拿不到 `data` 类型，
@@ -26,7 +27,7 @@
 - 无 `chrono`/`uuid`：时间戳是 `String`（ISO）。→ 省掉 utoipa 相关 feature。
 - 响应类别异质：普通 data / paged / capped / 临时 `json!` map / 布尔或字符串 / SSE / 文件下载。
   无法用单一 `body` 统一描述。
-- 两处既有文档不准（与类型化正交，但应一并修正）：
+- 两处既有文档不准（阶段 0 已修正；此处保留问题描述）：
   - SSE 端点被标成 200 JSON，实为 `text/event-stream`（仅手工标注的 `agent/loops.rs` 用了正确
     content_type，脚本批量生成的其余流式端点未处理）。
   - `download(...)` 端点被标成 JSON，实为 `text/csv` / `text/markdown`。
@@ -35,7 +36,7 @@
 
 ## 分阶段方案
 
-### 阶段 0 — 准确性修正（先做，独立于类型化，纯注解文本改动）
+### 阶段 0 — 准确性修正（已完成）
 - **鉴权对齐**：`openapi.rs` 的 `SecurityAddon`/`security` 从 `bearer_auth` 改为
   `apiKey` + `in: header`（`name: x-api-key`），与 `middleware.rs` 的真实行为一致；
   前端才会按正确方式携带凭据。
@@ -73,18 +74,18 @@
 - 其余端点保留 `ApiEnvelope<Value>`。
 
 ## 落地顺序
-1. 阶段 0（鉴权 + 内容类型修正）。
-2. 阶段 A spike：单端点验证泛型信封 + 刷新快照 + `openapi-typescript` 产物是否符合预期；
-   通过再批量。
+1. 阶段 0（鉴权 + 内容类型修正）→ 已完成。
+2. 阶段 A spike：单端点验证泛型信封 + 刷新快照 + 在 `tools/openapi-codegen` 验证产物是否符合预期；
+   通过再批量（外壳类型化后端已完成；codegen 已在 `tools/openapi-codegen` 落地）。
 3. 阶段 B 按模块推进（返回本地结构体的端点优先）。
 4. 阶段 C 由 web-app 具体页面的需求触发（见 `web-app-integration.md`），默认走 C1。
-5. 每阶段后：`cargo check -p wf-server --features openapi-docs`、刷新 `openapi.json` 快照、
-   `openapi-typescript` + `svelte-check`。
+5. 每阶段后：`cargo test -p wf-server`、刷新 `openapi.json` 快照、
+   在 `tools/openapi-codegen` 生成后复制 `schema.d.ts` 到 web-app、`svelte-check`。
 
 ## 验收标准
 - `openapi.json`：`securitySchemes` 与真实鉴权一致；SSE/下载端点 `content-type` 正确；
   成功响应体为 `ApiEnvelope<…>`（至少外壳定型）。
-- 现有 `openapi::tests` 冒烟测试相应更新（信封出现、操作数不变）。
+- 现有 `openapi::tests` 冒烟测试相应更新（信封出现、操作数与快照一致）。
 - 前端样例页能类型安全读取 `res.data` 与分页字段。
 
 ## 边界（明确不做）

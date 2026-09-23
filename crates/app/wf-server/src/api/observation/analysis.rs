@@ -3,6 +3,7 @@
 //! stats. Handlers stay thin; every payload comes from `wf-api::analysis`.
 
 use std::convert::Infallible;
+use utoipa::IntoParams;
 
 use axum::body::Bytes;
 use axum::extract::{Path, Query, State};
@@ -89,9 +90,9 @@ pub(crate) fn routes() -> Router<ApiState> {
 
 #[utoipa::path(
     get,
-    path = "/executions/{id}/progress",
+    path = "/api/v1/executions/{id}/progress",
     tag = "observation",
-    params(("id" = String, Path, description = "id")),
+    params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -105,7 +106,8 @@ pub(crate) async fn handle_progress(
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub(crate) struct SearchQuery {
     q: String,
     types: Option<String>,
@@ -116,9 +118,9 @@ pub(crate) struct SearchQuery {
 
 #[utoipa::path(
     get,
-    path = "/search",
+    path = "/api/v1/search",
     tag = "observation",
-    params(("q" = String, Query, description = "q"), ("types" = Option<String>, Query, description = "types"), ("limit_per_type" = Option<u64>, Query, description = "limit_per_type"), ("limit" = Option<u64>, Query, description = "limit"), ("cursor" = Option<String>, Query, description = "cursor")),
+    params(SearchQuery),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -163,7 +165,7 @@ pub(crate) async fn handle_search(
 
 #[utoipa::path(
     get,
-    path = "/analysis/llm-metrics",
+    path = "/api/v1/analysis/llm-metrics",
     tag = "observation",
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
@@ -175,7 +177,8 @@ pub(crate) async fn handle_llm_metrics(State(state): State<ApiState>) -> impl In
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub(crate) struct CompareQuery {
     baseline: String,
     compared: String,
@@ -183,9 +186,9 @@ pub(crate) struct CompareQuery {
 
 #[utoipa::path(
     get,
-    path = "/analysis/performance/compare",
+    path = "/api/v1/analysis/performance/compare",
     tag = "observation",
-    params(("baseline" = String, Query, description = "baseline"), ("compared" = String, Query, description = "compared")),
+    params(CompareQuery),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -205,7 +208,7 @@ pub(crate) async fn handle_performance_compare(
 /// metrics registry (the default in-memory context).
 #[utoipa::path(
     get,
-    path = "/analysis/stats",
+    path = "/api/v1/analysis/stats",
     tag = "observation",
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
@@ -226,16 +229,17 @@ pub(crate) async fn handle_stats(State(state): State<ApiState>) -> impl IntoResp
     .into_response()
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub(crate) struct TopStatsQuery {
     limit: Option<usize>,
 }
 
 #[utoipa::path(
     get,
-    path = "/analysis/stats/top-workflows",
+    path = "/api/v1/analysis/stats/top-workflows",
     tag = "observation",
-    params(("limit" = Option<u64>, Query, description = "limit")),
+    params(TopStatsQuery),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -258,9 +262,9 @@ pub(crate) async fn handle_top_workflows(
 
 #[utoipa::path(
     get,
-    path = "/analysis/stats/top-node-types",
+    path = "/api/v1/analysis/stats/top-node-types",
     tag = "observation",
-    params(("limit" = Option<u64>, Query, description = "limit")),
+    params(TopStatsQuery),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -277,9 +281,9 @@ pub(crate) async fn handle_top_node_types(
 
 #[utoipa::path(
     get,
-    path = "/analysis/stats/agent-profiles",
+    path = "/api/v1/analysis/stats/agent-profiles",
     tag = "observation",
-    params(("limit" = Option<u64>, Query, description = "limit")),
+    params(TopStatsQuery),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -307,9 +311,9 @@ pub(crate) async fn handle_agent_stats_by_profile(
 
 #[utoipa::path(
     get,
-    path = "/executions/{id}/error-analysis",
+    path = "/api/v1/executions/{id}/error-analysis",
     tag = "observation",
-    params(("id" = String, Path, description = "id")),
+    params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -325,9 +329,9 @@ pub(crate) async fn handle_error_analysis(
 
 #[utoipa::path(
     get,
-    path = "/executions/{id}/error-analysis/advanced",
+    path = "/api/v1/executions/{id}/error-analysis/advanced",
     tag = "observation",
-    params(("id" = String, Path, description = "id")),
+    params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -344,9 +348,9 @@ pub(crate) async fn handle_error_analysis_advanced(
 
 #[utoipa::path(
     get,
-    path = "/executions/{id}/error-analysis/root-cause",
+    path = "/api/v1/executions/{id}/error-analysis/root-cause",
     tag = "observation",
-    params(("id" = String, Path, description = "id")),
+    params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -362,9 +366,9 @@ pub(crate) async fn handle_error_root_cause(
 
 #[utoipa::path(
     get,
-    path = "/executions/{id}/error-analysis/context",
+    path = "/api/v1/executions/{id}/error-analysis/context",
     tag = "observation",
-    params(("id" = String, Path, description = "id")),
+    params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -382,9 +386,9 @@ pub(crate) async fn handle_error_context(
 /// recorded execution state around its timestamp).
 #[utoipa::path(
     get,
-    path = "/executions/{id}/error-analysis/context/{errorId}",
+    path = "/api/v1/executions/{id}/error-analysis/context/{errorId}",
     tag = "observation",
-    params(("id" = String, Path, description = "id"), ("errorId" = String, Path, description = "errorId")),
+    params(IdErrorPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -404,9 +408,9 @@ pub(crate) async fn handle_error_context_one(
 /// a recovery action).
 #[utoipa::path(
     get,
-    path = "/executions/{id}/error-analysis/recovery-recommendations",
+    path = "/api/v1/executions/{id}/error-analysis/recovery-recommendations",
     tag = "observation",
-    params(("id" = String, Path, description = "id")),
+    params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -422,9 +426,9 @@ pub(crate) async fn handle_error_recovery_recommendations(
 
 #[utoipa::path(
     get,
-    path = "/executions/{id}/error-analysis/recovery/{errorId}",
+    path = "/api/v1/executions/{id}/error-analysis/recovery/{errorId}",
     tag = "observation",
-    params(("id" = String, Path, description = "id"), ("errorId" = String, Path, description = "errorId")),
+    params(IdErrorPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -444,16 +448,17 @@ pub(crate) async fn handle_error_recovery(
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub(crate) struct SimilarErrorsQuery {
     limit: Option<usize>,
 }
 
 #[utoipa::path(
     get,
-    path = "/executions/{id}/error-analysis/similar",
+    path = "/api/v1/executions/{id}/error-analysis/similar",
     tag = "observation",
-    params(("id" = String, Path, description = "id"), ("limit" = Option<u64>, Query, description = "limit")),
+    params(IdPath, SimilarErrorsQuery),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -479,9 +484,9 @@ pub(crate) async fn handle_error_similar(
 /// has no recorded errors.
 #[utoipa::path(
     get,
-    path = "/executions/{id}/error-analysis/stream",
+    path = "/api/v1/executions/{id}/error-analysis/stream",
     tag = "observation",
-    params(("id" = String, Path, description = "id")),
+    params(IdPath),
     responses(
         (status = 200, description = "Server-sent events stream", content_type = "text/event-stream"),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
@@ -515,9 +520,9 @@ pub(crate) async fn handle_error_chain_stream(
 
 #[utoipa::path(
     get,
-    path = "/executions/{id}/performance",
+    path = "/api/v1/executions/{id}/performance",
     tag = "observation",
-    params(("id" = String, Path, description = "id")),
+    params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -533,9 +538,9 @@ pub(crate) async fn handle_performance(
 
 #[utoipa::path(
     get,
-    path = "/executions/{id}/performance/summary",
+    path = "/api/v1/executions/{id}/performance/summary",
     tag = "observation",
-    params(("id" = String, Path, description = "id")),
+    params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -551,9 +556,9 @@ pub(crate) async fn handle_performance_summary(
 
 #[utoipa::path(
     get,
-    path = "/executions/{id}/performance/bottlenecks",
+    path = "/api/v1/executions/{id}/performance/bottlenecks",
     tag = "observation",
-    params(("id" = String, Path, description = "id")),
+    params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -569,9 +574,9 @@ pub(crate) async fn handle_performance_bottlenecks(
 
 #[utoipa::path(
     get,
-    path = "/executions/{id}/performance/iteration-comparison",
+    path = "/api/v1/executions/{id}/performance/iteration-comparison",
     tag = "observation",
-    params(("id" = String, Path, description = "id")),
+    params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]

@@ -15,6 +15,7 @@
 | [06-checkpoint与trigger域.md](./06-checkpoint与trigger域.md) | checkpoint 模块（统一记录/文件/审批/来源）与 trigger 模块（模板注册、执行历史、builder、校验） |
 | [07-llm、模板与builder.md](./07-llm、模板与builder.md) | llm / template 模块与跨域 builder 总览：LLM/Profile/Provider/脚本/工具、模板库、类型状态机构造器 |
 | [08-wf-server-HTTP层.md](./08-wf-server-HTTP层.md) | wf-server：路由结构、契约端点清单、信封/SSE/WS/中间件/配置 |
+| [09-openapi-文档生成.md](./09-openapi-文档生成.md) | wf-server OpenAPI：注解→聚合→类型注册→快照→测试；离线 codegen（`tools/openapi-codegen`）；新增端点清单 |
 
 ## 核心结论
 

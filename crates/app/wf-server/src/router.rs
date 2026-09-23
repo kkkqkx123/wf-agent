@@ -104,18 +104,18 @@ pub fn api_router_with_config(ctx: Arc<ApiContext>, config: Arc<ServerMiddleware
     mount_openapi_docs(app)
 }
 
-/// Mount OpenAPI docs in dev/debug builds or with the `openapi-docs`
-/// feature. Release builds without the feature expose no `/api-docs/*`
-/// routes. Mounted after state erasure so the plain `Router` is used.
+/// Mount the OpenAPI JSON document in dev/debug builds or with the
+/// `openapi-docs` feature. Release builds without the feature expose no
+/// `/api-docs/*` routes. Mounted after state erasure so the plain `Router`
+/// is used. The offline snapshot under `apps/web-app` is the codegen source;
+/// this route only serves a live server for debugging.
 #[cfg(any(debug_assertions, feature = "openapi-docs"))]
 fn mount_openapi_docs(router: Router) -> Router {
     use axum::routing::get;
-    router
-        .route(
-            "/api-docs/openapi.json",
-            get(crate::openapi::serve_openapi_json),
-        )
-        .route("/api-docs/swagger", get(crate::openapi::serve_swagger_ui))
+    router.route(
+        "/api-docs/openapi.json",
+        get(crate::openapi::serve_openapi_json),
+    )
 }
 
 /// Release builds without the feature expose no docs routes.

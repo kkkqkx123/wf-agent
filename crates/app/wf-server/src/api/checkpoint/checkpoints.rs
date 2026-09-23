@@ -8,13 +8,14 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use utoipa::IntoParams;
 
 use wf_api::CheckpointListOptions;
 
 use crate::api::workflow::executions::ExecuteView;
 use crate::envelope::{error_response, ok};
 use crate::extract::{CidPath, EntityIdPath, IdPath, ListQuery};
-use crate::paged::{fetch_size, ok_page, resolve_page, MAX_CHAIN_ENTRIES};
+use crate::paged::{fetch_size, ok_page, resolve_page, resolve_page_fields, MAX_CHAIN_ENTRIES};
 use crate::router::ApiState;
 pub(crate) fn routes() -> Router<ApiState> {
     Router::new()
@@ -67,9 +68,9 @@ pub(crate) fn routes() -> Router<ApiState> {
 
 #[utoipa::path(
     post,
-    path = "/executions/{id}/checkpoints",
+    path = "/api/v1/executions/{id}/checkpoints",
     tag = "checkpoint",
-    params(("id" = String, Path, description = "Workflow execution ID")),
+    params(IdPath),
     responses(
         (status = 200, description = "Checkpoint created", body = crate::envelope::ApiEnvelope<String>),
         (status = 404, description = "Execution not found", body = crate::envelope::ErrorResponse),
@@ -96,9 +97,9 @@ pub(crate) async fn handle_create_checkpoint(
 
 #[utoipa::path(
     get,
-    path = "/executions/{id}/checkpoints/chain",
+    path = "/api/v1/executions/{id}/checkpoints/chain",
     tag = "checkpoint",
-    params(("id" = String, Path, description = "Workflow execution ID")),
+    params(IdPath),
     responses(
         (status = 200, description = "Checkpoint chain analysis", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Execution not found", body = crate::envelope::ErrorResponse),
@@ -166,9 +167,9 @@ fn cap_chain(chain: wf_api::checkpoint::record::CheckpointChainAnalysisView) -> 
 
 #[utoipa::path(
     post,
-    path = "/executions/checkpoints/{cid}/restore",
+    path = "/api/v1/executions/checkpoints/{cid}/restore",
     tag = "checkpoint",
-    params(("cid" = String, Path, description = "Checkpoint ID")),
+    params(CidPath),
     responses(
         (status = 200, description = "Checkpoint restored", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Checkpoint not found", body = crate::envelope::ErrorResponse),
@@ -197,9 +198,9 @@ pub(crate) async fn handle_restore_checkpoint(
 
 #[utoipa::path(
     post,
-    path = "/executions/checkpoints/{cid}/resume",
+    path = "/api/v1/executions/checkpoints/{cid}/resume",
     tag = "checkpoint",
-    params(("cid" = String, Path, description = "Checkpoint ID")),
+    params(CidPath),
     responses(
         (status = 200, description = "Execution resumed from checkpoint", body = crate::envelope::ApiEnvelope<crate::api::workflow::executions::ExecuteView>),
         (status = 404, description = "Checkpoint not found", body = crate::envelope::ErrorResponse),
@@ -230,10 +231,13 @@ pub(crate) async fn handle_restore_and_resume(
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub(crate) struct ListCheckpointsQuery {
-    #[serde(flatten)]
-    page: ListQuery,
+    /// Page limit
+    limit: Option<u64>,
+    /// Page offset
+    offset: Option<u64>,
     /// Filter by entity ID
     entity_id: Option<String>,
     /// Filter by entity type
@@ -242,9 +246,9 @@ pub(crate) struct ListCheckpointsQuery {
 
 #[utoipa::path(
     get,
-    path = "/checkpoints",
+    path = "/api/v1/checkpoints",
     tag = "checkpoint",
-    params(("limit" = Option<u64>, Query, description = "Page limit"), ("offset" = Option<u64>, Query, description = "Page offset")),
+    params(ListCheckpointsQuery),
     responses(
         (status = 200, description = "List of checkpoints", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>),
         (status = 400, description = "Invalid query parameters", body = crate::envelope::ErrorResponse),
@@ -256,7 +260,7 @@ pub(crate) async fn handle_list_checkpoints(
     State(state): State<ApiState>,
     Query(query): Query<ListCheckpointsQuery>,
 ) -> impl IntoResponse {
-    let (limit, offset) = resolve_page(&query.page);
+    let (limit, offset) = resolve_page_fields(query.limit, query.offset);
     let options = CheckpointListOptions {
         offset: Some(offset),
         limit: Some(fetch_size(limit)),
@@ -271,9 +275,9 @@ pub(crate) async fn handle_list_checkpoints(
 
 #[utoipa::path(
     get,
-    path = "/checkpoints/{id}",
+    path = "/api/v1/checkpoints/{id}",
     tag = "checkpoint",
-    params(("id" = String, Path, description = "Checkpoint ID")),
+    params(IdPath),
     responses(
         (status = 200, description = "Checkpoint found", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
@@ -293,9 +297,9 @@ pub(crate) async fn handle_get_checkpoint(
 
 #[utoipa::path(
     delete,
-    path = "/checkpoints/{id}",
+    path = "/api/v1/checkpoints/{id}",
     tag = "checkpoint",
-    params(("id" = String, Path, description = "Checkpoint ID")),
+    params(IdPath),
     responses(
         (status = 200, description = "Checkpoint deleted", body = crate::envelope::ApiEnvelope<bool>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
@@ -315,10 +319,9 @@ pub(crate) async fn handle_delete_checkpoint(
 
 #[utoipa::path(
     get,
-    path = "/checkpoints/entity/{entityId}",
+    path = "/api/v1/checkpoints/entity/{entityId}",
     tag = "checkpoint",
-    params(
-        ("entityId" = String, Path, description = "Entity ID"), ("limit" = Option<u64>, Query, description = "Page limit"), ("offset" = Option<u64>, Query, description = "Page offset")),
+    params(EntityIdPath, ListQuery),
     responses(
         (status = 200, description = "List of checkpoints for entity", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
@@ -353,9 +356,9 @@ pub(crate) async fn handle_list_checkpoints_by_entity(
 
 #[utoipa::path(
     get,
-    path = "/checkpoints/entity/{entityId}/latest",
+    path = "/api/v1/checkpoints/entity/{entityId}/latest",
     tag = "checkpoint",
-    params(("entityId" = String, Path, description = "Entity ID")),
+    params(EntityIdPath),
     responses(
         (status = 200, description = "Latest checkpoint", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
@@ -379,16 +382,17 @@ pub(crate) async fn handle_latest_checkpoint(
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub(crate) struct DeleteCheckpointsQuery {
     entity_type: Option<String>,
 }
 
 #[utoipa::path(
     delete,
-    path = "/checkpoints/entity/{entityId}",
+    path = "/api/v1/checkpoints/entity/{entityId}",
     tag = "checkpoint",
-    params(("entityId" = String, Path, description = "Entity ID")),
+    params(EntityIdPath, DeleteCheckpointsQuery),
     responses(
         (status = 200, description = "Checkpoints deleted", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
@@ -416,9 +420,9 @@ pub(crate) async fn handle_delete_checkpoints_by_entity(
 
 #[utoipa::path(
     get,
-    path = "/checkpoints/entity/{entityId}/metadata",
+    path = "/api/v1/checkpoints/entity/{entityId}/metadata",
     tag = "checkpoint",
-    params(("entityId" = String, Path, description = "Entity ID")),
+    params(EntityIdPath),
     responses(
         (status = 200, description = "Entity metadata", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
@@ -443,9 +447,9 @@ pub(crate) async fn handle_checkpoint_entity_metadata(
 
 #[utoipa::path(
     put,
-    path = "/checkpoints/entity/{entityId}/metadata",
+    path = "/api/v1/checkpoints/entity/{entityId}/metadata",
     tag = "checkpoint",
-    params(("entityId" = String, Path, description = "Entity ID")),
+    params(EntityIdPath),
     request_body = serde_json::Value,
     responses(
         (status = 200, description = "Metadata updated", body = crate::envelope::ApiEnvelope<serde_json::Value>),
@@ -471,19 +475,22 @@ pub(crate) async fn handle_set_checkpoint_entity_metadata(
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub(crate) struct CheckpointEntitiesQuery {
     entity_ids: String,
     entity_type: Option<String>,
-    #[serde(flatten)]
-    page: ListQuery,
+    /// Page limit
+    limit: Option<u64>,
+    /// Page offset
+    offset: Option<u64>,
 }
 
 #[utoipa::path(
     get,
-    path = "/checkpoints/entities",
+    path = "/api/v1/checkpoints/entities",
     tag = "checkpoint",
-    params(("limit" = Option<u64>, Query, description = "Page limit"), ("offset" = Option<u64>, Query, description = "Page offset")),
+    params(CheckpointEntitiesQuery),
     responses(
         (status = 200, description = "Checkpoints by entities", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
@@ -510,7 +517,7 @@ pub(crate) async fn handle_list_checkpoints_by_entities(
     .await
     {
         Ok(checkpoints) => {
-            let (limit, offset) = resolve_page(&query.page);
+            let (limit, offset) = resolve_page_fields(query.limit, query.offset);
             let window = checkpoints
                 .into_iter()
                 .skip(offset as usize)
@@ -522,21 +529,24 @@ pub(crate) async fn handle_list_checkpoints_by_entities(
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, IntoParams)]
 #[serde(rename_all = "camelCase")]
+#[into_params(parameter_in = Query)]
 pub(crate) struct CheckpointsTimeRangeQuery {
     workflow_id: String,
     start: i64,
     end: i64,
-    #[serde(flatten)]
-    page: ListQuery,
+    /// Page limit
+    limit: Option<u64>,
+    /// Page offset
+    offset: Option<u64>,
 }
 
 #[utoipa::path(
     get,
-    path = "/checkpoints/time-range",
+    path = "/api/v1/checkpoints/time-range",
     tag = "checkpoint",
-    params(("limit" = Option<u64>, Query, description = "Page limit"), ("offset" = Option<u64>, Query, description = "Page offset")),
+    params(CheckpointsTimeRangeQuery),
     responses(
         (status = 200, description = "Checkpoints by time range", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
@@ -557,7 +567,7 @@ pub(crate) async fn handle_checkpoints_by_time_range(
     .await
     {
         Ok(checkpoints) => {
-            let (limit, offset) = resolve_page(&query.page);
+            let (limit, offset) = resolve_page_fields(query.limit, query.offset);
             let window = checkpoints
                 .into_iter()
                 .skip(offset as usize)

@@ -4,6 +4,7 @@
 //! `llm/tools`.
 
 use std::convert::Infallible;
+use utoipa::{IntoParams, ToSchema};
 
 use axum::body::Bytes;
 use axum::extract::{Path, Query, State};
@@ -16,8 +17,8 @@ use serde_json::Value;
 use wf_api::{LlmProfile, LlmRequest};
 
 use crate::envelope::{error_response, ok};
-use crate::extract::{IdPath, ListQuery, NamePath};
-use crate::paged::{fetch_size, ok_page, resolve_page};
+use crate::extract::{IdPath, NamePath};
+use crate::paged::{fetch_size, ok_page, resolve_page_fields};
 use crate::router::ApiState;
 use crate::sse::sse_response;
 pub(crate) fn routes() -> Router<ApiState> {
@@ -74,7 +75,7 @@ pub(crate) fn routes() -> Router<ApiState> {
 
 #[utoipa::path(
     post,
-    path = "/llm/generate",
+    path = "/api/v1/llm/generate",
     tag = "llm",
     request_body = serde_json::Value,
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
@@ -92,7 +93,7 @@ pub(crate) async fn handle_generate(
 
 #[utoipa::path(
     post,
-    path = "/llm/generate-batch",
+    path = "/api/v1/llm/generate-batch",
     tag = "llm",
     request_body = serde_json::Value,
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
@@ -110,7 +111,7 @@ pub(crate) async fn handle_generate_batch(
 
 #[utoipa::path(
     post,
-    path = "/llm/generate-stream",
+    path = "/api/v1/llm/generate-stream",
     tag = "llm",
     request_body = serde_json::Value,
     responses(
@@ -150,7 +151,7 @@ pub(crate) async fn handle_generate_stream(
 
 #[utoipa::path(
     post,
-    path = "/llm/count-tokens",
+    path = "/api/v1/llm/count-tokens",
     tag = "llm",
     request_body = serde_json::Value,
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
@@ -168,21 +169,24 @@ pub(crate) async fn handle_count_tokens(
 
 // ── LLM profiles ──────────────────────────────────────────────────
 
-#[derive(Deserialize)]
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub(crate) struct ListProfilesQuery {
     id: Option<String>,
     name: Option<String>,
     format: Option<String>,
     model: Option<String>,
-    #[serde(flatten)]
-    page: ListQuery,
+    /// Page limit
+    limit: Option<u64>,
+    /// Page offset
+    offset: Option<u64>,
 }
 
 #[utoipa::path(
     get,
-    path = "/llm/profiles",
+    path = "/api/v1/llm/profiles",
     tag = "llm",
-    params(("id" = Option<String>, Query, description = "id"), ("name" = Option<String>, Query, description = "name"), ("format" = Option<String>, Query, description = "format"), ("model" = Option<String>, Query, description = "model"), ("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset")),
+    params(ListProfilesQuery),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -201,7 +205,7 @@ pub(crate) async fn handle_list_profiles(
     };
     match wf_api::llm::llm_profile::query(&state.ctx, &filter).await {
         Ok(profiles) => {
-            let (limit, offset) = resolve_page(&query.page);
+            let (limit, offset) = resolve_page_fields(query.limit, query.offset);
             let window = profiles
                 .into_iter()
                 .skip(offset as usize)
@@ -215,7 +219,7 @@ pub(crate) async fn handle_list_profiles(
 
 #[utoipa::path(
     post,
-    path = "/llm/profiles",
+    path = "/api/v1/llm/profiles",
     tag = "llm",
     request_body = serde_json::Value,
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
@@ -233,9 +237,9 @@ pub(crate) async fn handle_create_profile(
 
 #[utoipa::path(
     get,
-    path = "/llm/profiles/{id}",
+    path = "/api/v1/llm/profiles/{id}",
     tag = "llm",
-    params(("id" = String, Path, description = "id")),
+    params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -251,9 +255,9 @@ pub(crate) async fn handle_get_profile(
 
 #[utoipa::path(
     put,
-    path = "/llm/profiles/{id}",
+    path = "/api/v1/llm/profiles/{id}",
     tag = "llm",
-    params(("id" = String, Path, description = "id")),
+    params(IdPath),
     request_body = serde_json::Value,
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
@@ -272,9 +276,9 @@ pub(crate) async fn handle_update_profile(
 
 #[utoipa::path(
     delete,
-    path = "/llm/profiles/{id}",
+    path = "/api/v1/llm/profiles/{id}",
     tag = "llm",
-    params(("id" = String, Path, description = "id")),
+    params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -290,9 +294,9 @@ pub(crate) async fn handle_delete_profile(
 
 #[utoipa::path(
     post,
-    path = "/llm/profiles/{id}/default",
+    path = "/api/v1/llm/profiles/{id}/default",
     tag = "llm",
-    params(("id" = String, Path, description = "id")),
+    params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -308,7 +312,7 @@ pub(crate) async fn handle_set_default(
 
 #[utoipa::path(
     get,
-    path = "/llm/profiles/default",
+    path = "/api/v1/llm/profiles/default",
     tag = "llm",
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
@@ -322,9 +326,9 @@ pub(crate) async fn handle_get_default(State(state): State<ApiState>) -> impl In
 
 #[utoipa::path(
     get,
-    path = "/llm/profiles/{id}/export",
+    path = "/api/v1/llm/profiles/{id}/export",
     tag = "llm",
-    params(("id" = String, Path, description = "id")),
+    params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -338,16 +342,16 @@ pub(crate) async fn handle_export_profile(
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub(crate) struct ImportProfileBody {
     json: String,
 }
 
 #[utoipa::path(
     post,
-    path = "/llm/profiles/import",
+    path = "/api/v1/llm/profiles/import",
     tag = "llm",
-    request_body = serde_json::Value,
+    request_body = ImportProfileBody,
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -363,7 +367,7 @@ pub(crate) async fn handle_import_profile(
 
 #[utoipa::path(
     get,
-    path = "/llm/profiles/export-all",
+    path = "/api/v1/llm/profiles/export-all",
     tag = "llm",
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
@@ -377,9 +381,9 @@ pub(crate) async fn handle_export_all_profiles(State(state): State<ApiState>) ->
 
 #[utoipa::path(
     post,
-    path = "/llm/profiles/import-all",
+    path = "/api/v1/llm/profiles/import-all",
     tag = "llm",
-    request_body = serde_json::Value,
+    request_body = ImportProfileBody,
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -395,7 +399,7 @@ pub(crate) async fn handle_import_all_profiles(
 
 #[utoipa::path(
     get,
-    path = "/llm/profile-templates",
+    path = "/api/v1/llm/profile-templates",
     tag = "llm",
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
@@ -411,7 +415,7 @@ pub(crate) async fn handle_list_templates(State(state): State<ApiState>) -> impl
 
 #[utoipa::path(
     post,
-    path = "/llm/profile-templates",
+    path = "/api/v1/llm/profile-templates",
     tag = "llm",
     request_body = serde_json::Value,
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
@@ -427,16 +431,17 @@ pub(crate) async fn handle_add_template(
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub(crate) struct TemplateNameQuery {
     name: String,
 }
 
 #[utoipa::path(
     delete,
-    path = "/llm/profile-templates",
+    path = "/api/v1/llm/profile-templates",
     tag = "llm",
-    params(("name" = String, Query, description = "name")),
+    params(TemplateNameQuery),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -453,9 +458,9 @@ pub(crate) async fn handle_remove_template(
 /// Single profile template by name (built-in or custom).
 #[utoipa::path(
     get,
-    path = "/llm/profile-templates/{name}",
+    path = "/api/v1/llm/profile-templates/{name}",
     tag = "llm",
-    params(("name" = String, Path, description = "name")),
+    params(NamePath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -473,7 +478,7 @@ pub(crate) async fn handle_get_template_by_name(
 /// Validate an LLM profile without persisting it.
 #[utoipa::path(
     post,
-    path = "/llm/profiles/validate",
+    path = "/api/v1/llm/profiles/validate",
     tag = "llm",
     request_body = serde_json::Value,
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
@@ -487,7 +492,7 @@ pub(crate) async fn handle_validate_profile(
     ok(serde_json::json!({ "valid": valid, "errors": errors })).into_response()
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub(crate) struct CreateFromTemplateBody {
     template_name: String,
     overrides: Value,
@@ -495,9 +500,9 @@ pub(crate) struct CreateFromTemplateBody {
 
 #[utoipa::path(
     post,
-    path = "/llm/profiles/from-template",
+    path = "/api/v1/llm/profiles/from-template",
     tag = "llm",
-    request_body = serde_json::Value,
+    request_body = CreateFromTemplateBody,
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -521,7 +526,7 @@ pub(crate) async fn handle_create_from_template(
 
 #[utoipa::path(
     get,
-    path = "/llm/providers",
+    path = "/api/v1/llm/providers",
     tag = "llm",
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
@@ -535,7 +540,7 @@ pub(crate) async fn handle_list_providers(State(state): State<ApiState>) -> impl
 
 #[utoipa::path(
     post,
-    path = "/llm/providers",
+    path = "/api/v1/llm/providers",
     tag = "llm",
     request_body = serde_json::Value,
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
@@ -553,9 +558,9 @@ pub(crate) async fn handle_create_provider(
 
 #[utoipa::path(
     get,
-    path = "/llm/providers/{id}",
+    path = "/api/v1/llm/providers/{id}",
     tag = "llm",
-    params(("id" = String, Path, description = "id")),
+    params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -571,9 +576,9 @@ pub(crate) async fn handle_get_provider(
 
 #[utoipa::path(
     delete,
-    path = "/llm/providers/{id}",
+    path = "/api/v1/llm/providers/{id}",
     tag = "llm",
-    params(("id" = String, Path, description = "id")),
+    params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -590,9 +595,9 @@ pub(crate) async fn handle_delete_provider(
 /// Off-hot-path model listing for a provider definition.
 #[utoipa::path(
     get,
-    path = "/llm/providers/{id}/models",
+    path = "/api/v1/llm/providers/{id}/models",
     tag = "llm",
-    params(("id" = String, Path, description = "id")),
+    params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]

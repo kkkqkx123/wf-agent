@@ -8,6 +8,7 @@ use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::Deserialize;
+use utoipa::{IntoParams, ToSchema};
 
 use crate::envelope::{error_response, ok};
 use crate::extract::IdPath;
@@ -41,7 +42,8 @@ pub(crate) fn routes() -> Router<ApiState> {
 
 // ── template library ──────────────────────────────────────────────
 
-#[derive(Deserialize)]
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub(crate) struct LibraryQuery {
     kind: Option<String>,
     name: Option<String>,
@@ -52,9 +54,9 @@ pub(crate) struct LibraryQuery {
 
 #[utoipa::path(
     get,
-    path = "/templates/library",
+    path = "/api/v1/templates/library",
     tag = "template",
-    params(("kind" = Option<String>, Query, description = "kind"), ("name" = Option<String>, Query, description = "name"), ("category" = Option<String>, Query, description = "category"), ("author" = Option<String>, Query, description = "author"), ("tags" = Option<String>, Query, description = "tags")),
+    params(LibraryQuery),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -66,9 +68,9 @@ pub(crate) async fn handle_query_library(
         Some("workflow") => Some(wf_api::TemplateKind::Workflow),
         Some("agent") => Some(wf_api::TemplateKind::Agent),
         Some(other) => {
-            return crate::envelope::err::<serde_json::Value>(
-                crate::envelope::ApiError::validation(format!("unknown template kind: {other}")),
-            )
+            return crate::envelope::err(crate::envelope::ApiError::validation(format!(
+                "unknown template kind: {other}"
+            )))
             .into_response()
         }
         None => None,
@@ -89,16 +91,17 @@ pub(crate) async fn handle_query_library(
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub(crate) struct LimitQuery {
     limit: Option<usize>,
 }
 
 #[utoipa::path(
     get,
-    path = "/templates/library/featured",
+    path = "/api/v1/templates/library/featured",
     tag = "template",
-    params(("limit" = Option<u64>, Query, description = "limit")),
+    params(LimitQuery),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -112,7 +115,8 @@ pub(crate) async fn handle_library_featured(
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub(crate) struct CategoryLimitQuery {
     category: Option<String>,
     limit: Option<usize>,
@@ -120,9 +124,9 @@ pub(crate) struct CategoryLimitQuery {
 
 #[utoipa::path(
     get,
-    path = "/templates/library/popular",
+    path = "/api/v1/templates/library/popular",
     tag = "template",
-    params(("category" = Option<String>, Query, description = "category"), ("limit" = Option<u64>, Query, description = "limit")),
+    params(CategoryLimitQuery),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -146,9 +150,9 @@ pub(crate) async fn handle_library_popular(
 
 #[utoipa::path(
     post,
-    path = "/templates/library/{id}/usage",
+    path = "/api/v1/templates/library/{id}/usage",
     tag = "template",
-    params(("id" = String, Path, description = "id")),
+    params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -163,7 +167,7 @@ pub(crate) async fn handle_record_usage(
     .into_response()
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub(crate) struct CloneTemplateBody {
     kind: String,
     new_name: Option<String>,
@@ -171,10 +175,10 @@ pub(crate) struct CloneTemplateBody {
 
 #[utoipa::path(
     post,
-    path = "/templates/library/{id}/clone",
+    path = "/api/v1/templates/library/{id}/clone",
     tag = "template",
-    params(("id" = String, Path, description = "id")),
-    request_body = serde_json::Value,
+    params(IdPath),
+    request_body = CloneTemplateBody,
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -202,7 +206,7 @@ pub(crate) async fn handle_clone_template(
 
 #[utoipa::path(
     get,
-    path = "/templates/library/workflows",
+    path = "/api/v1/templates/library/workflows",
     tag = "template",
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
@@ -218,9 +222,9 @@ pub(crate) async fn handle_list_workflow_templates(
 
 #[utoipa::path(
     get,
-    path = "/templates/library/workflows/{id}",
+    path = "/api/v1/templates/library/workflows/{id}",
     tag = "template",
-    params(("id" = String, Path, description = "id")),
+    params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -236,7 +240,7 @@ pub(crate) async fn handle_get_workflow_template(
 
 #[utoipa::path(
     post,
-    path = "/templates/library/workflows",
+    path = "/api/v1/templates/library/workflows",
     tag = "template",
     request_body = serde_json::Value,
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
@@ -254,9 +258,9 @@ pub(crate) async fn handle_register_workflow_template(
 
 #[utoipa::path(
     delete,
-    path = "/templates/library/workflows/{id}",
+    path = "/api/v1/templates/library/workflows/{id}",
     tag = "template",
-    params(("id" = String, Path, description = "id")),
+    params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -272,7 +276,7 @@ pub(crate) async fn handle_delete_workflow_template(
 
 #[utoipa::path(
     get,
-    path = "/templates/library/agents",
+    path = "/api/v1/templates/library/agents",
     tag = "template",
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
@@ -288,9 +292,9 @@ pub(crate) async fn handle_list_agent_templates(
 
 #[utoipa::path(
     get,
-    path = "/templates/library/agents/{id}",
+    path = "/api/v1/templates/library/agents/{id}",
     tag = "template",
-    params(("id" = String, Path, description = "id")),
+    params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -306,7 +310,7 @@ pub(crate) async fn handle_get_agent_template(
 
 #[utoipa::path(
     post,
-    path = "/templates/library/agents",
+    path = "/api/v1/templates/library/agents",
     tag = "template",
     request_body = serde_json::Value,
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
@@ -324,9 +328,9 @@ pub(crate) async fn handle_register_agent_template(
 
 #[utoipa::path(
     delete,
-    path = "/templates/library/agents/{id}",
+    path = "/api/v1/templates/library/agents/{id}",
     tag = "template",
-    params(("id" = String, Path, description = "id")),
+    params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]

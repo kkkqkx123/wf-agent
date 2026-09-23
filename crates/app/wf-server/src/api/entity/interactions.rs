@@ -9,10 +9,11 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::Deserialize;
 use serde_json::Value;
+use utoipa::{IntoParams, ToSchema};
 
 use crate::envelope::{error_response, ok};
-use crate::extract::{IdPath, ListQuery};
-use crate::paged::{fetch_size, ok_page, resolve_page};
+use crate::extract::IdPath;
+use crate::paged::{fetch_size, ok_page, resolve_page_fields};
 use crate::router::ApiState;
 
 pub(crate) fn routes() -> Router<ApiState> {
@@ -28,18 +29,21 @@ pub(crate) fn routes() -> Router<ApiState> {
         )
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub(crate) struct ListInteractionsQuery {
     status: Option<String>,
-    #[serde(flatten)]
-    page: ListQuery,
+    /// Page limit
+    limit: Option<u64>,
+    /// Page offset
+    offset: Option<u64>,
 }
 
 #[utoipa::path(
     get,
-    path = "/agent-loops/{id}/interactions",
+    path = "/api/v1/agent-loops/{id}/interactions",
     tag = "entity",
-    params(("id" = String, Path, description = "id"), ("status" = Option<String>, Query, description = "status"), ("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset")),
+    params(IdPath, ListInteractionsQuery),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -57,7 +61,7 @@ pub(crate) async fn handle_list_interactions(
     .await
     {
         Ok(interactions) => {
-            let (limit, offset) = resolve_page(&query.page);
+            let (limit, offset) = resolve_page_fields(query.limit, query.offset);
             let window = interactions
                 .into_iter()
                 .skip(offset as usize)
@@ -71,9 +75,9 @@ pub(crate) async fn handle_list_interactions(
 
 #[utoipa::path(
     get,
-    path = "/agent-interactions/{id}",
+    path = "/api/v1/agent-interactions/{id}",
     tag = "entity",
-    params(("id" = String, Path, description = "id")),
+    params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -87,7 +91,7 @@ pub(crate) async fn handle_get_interaction(
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub(crate) struct AgentRespondBody {
     agent_loop_id: Option<String>,
     response_data: Option<Value>,
@@ -96,10 +100,10 @@ pub(crate) struct AgentRespondBody {
 
 #[utoipa::path(
     post,
-    path = "/agent-interactions/{id}/respond",
+    path = "/api/v1/agent-interactions/{id}/respond",
     tag = "entity",
-    params(("id" = String, Path, description = "id")),
-    request_body = serde_json::Value,
+    params(IdPath),
+    request_body = AgentRespondBody,
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -109,7 +113,7 @@ pub(crate) async fn handle_respond_interaction(
     Json(body): Json<AgentRespondBody>,
 ) -> impl IntoResponse {
     let Some(agent_loop_id) = body.agent_loop_id else {
-        return crate::envelope::err::<Value>(crate::envelope::ApiError::validation(
+        return crate::envelope::err(crate::envelope::ApiError::validation(
             "agent_loop_id is required to respond to an agent interaction",
         ))
         .into_response();

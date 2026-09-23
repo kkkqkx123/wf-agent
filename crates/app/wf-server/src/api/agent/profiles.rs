@@ -6,12 +6,13 @@ use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::Deserialize;
+use utoipa::IntoParams;
 
 use wf_api::AgentProfileListOptions;
 
 use crate::envelope::{error_response, ok};
-use crate::extract::{IdPath, ListQuery};
-use crate::paged::{fetch_size, ok_page, resolve_page};
+use crate::extract::IdPath;
+use crate::paged::{fetch_size, ok_page, resolve_page_fields};
 use crate::router::ApiState;
 pub(crate) fn routes() -> Router<ApiState> {
     Router::new()
@@ -35,7 +36,7 @@ pub(crate) fn routes() -> Router<ApiState> {
 /// persisting it.
 #[utoipa::path(
     post,
-    path = "/agents/validate",
+    path = "/api/v1/agents/validate",
     tag = "agent",
     request_body = serde_json::Value,
     responses(
@@ -55,10 +56,13 @@ pub(crate) async fn handle_validate_agent(
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub(crate) struct ListProfilesQuery {
-    #[serde(flatten)]
-    page: ListQuery,
+    /// Page limit
+    limit: Option<u64>,
+    /// Page offset
+    offset: Option<u64>,
     /// Filter by profile name
     name: Option<String>,
     /// Filter by default status
@@ -67,9 +71,9 @@ pub(crate) struct ListProfilesQuery {
 
 #[utoipa::path(
     get,
-    path = "/agents",
+    path = "/api/v1/agents",
     tag = "agent",
-    params(("limit" = Option<u64>, Query, description = "Page limit"), ("offset" = Option<u64>, Query, description = "Page offset")),
+    params(ListProfilesQuery),
     responses(
         (status = 200, description = "List of agent profiles", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>),
         (status = 400, description = "Invalid query parameters", body = crate::envelope::ErrorResponse),
@@ -81,7 +85,7 @@ pub(crate) async fn handle_list_profiles(
     State(state): State<ApiState>,
     Query(query): Query<ListProfilesQuery>,
 ) -> impl IntoResponse {
-    let (limit, offset) = resolve_page(&query.page);
+    let (limit, offset) = resolve_page_fields(query.limit, query.offset);
     let options = AgentProfileListOptions {
         offset: Some(offset),
         limit: Some(fetch_size(limit)),
@@ -96,7 +100,7 @@ pub(crate) async fn handle_list_profiles(
 
 #[utoipa::path(
     post,
-    path = "/agents",
+    path = "/api/v1/agents",
     tag = "agent",
     request_body = serde_json::Value,
     responses(
@@ -119,9 +123,9 @@ pub(crate) async fn handle_save_profile(
 
 #[utoipa::path(
     get,
-    path = "/agents/{id}",
+    path = "/api/v1/agents/{id}",
     tag = "agent",
-    params(("id" = String, Path, description = "Agent profile ID")),
+    params(IdPath),
     responses(
         (status = 200, description = "Agent profile found", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
@@ -141,9 +145,9 @@ pub(crate) async fn handle_get_profile(
 
 #[utoipa::path(
     put,
-    path = "/agents/{id}",
+    path = "/api/v1/agents/{id}",
     tag = "agent",
-    params(("id" = String, Path, description = "Agent profile ID")),
+    params(IdPath),
     request_body = serde_json::Value,
     responses(
         (status = 200, description = "Agent profile updated", body = crate::envelope::ApiEnvelope<String>),
@@ -167,9 +171,9 @@ pub(crate) async fn handle_update_profile(
 
 #[utoipa::path(
     delete,
-    path = "/agents/{id}",
+    path = "/api/v1/agents/{id}",
     tag = "agent",
-    params(("id" = String, Path, description = "Agent profile ID")),
+    params(IdPath),
     responses(
         (status = 200, description = "Agent profile deleted", body = crate::envelope::ApiEnvelope<bool>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),

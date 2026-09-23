@@ -9,15 +9,16 @@ use axum::Router;
 use crate::envelope::{error_response, ok};
 use crate::router::ApiState;
 
-#[derive(serde::Serialize)]
+#[derive(serde::Serialize, utoipa::ToSchema)]
 pub struct HealthView {
     ready: bool,
+    #[schema(value_type = Object)]
     persistence: wf_api::PersistenceHealth,
     storage: String,
 }
 
-#[derive(serde::Serialize)]
-struct InfoView {
+#[derive(serde::Serialize, utoipa::ToSchema)]
+pub(crate) struct InfoView {
     name: &'static str,
     version: &'static str,
     #[serde(rename = "apiVersion")]
@@ -37,7 +38,17 @@ pub(crate) fn routes() -> Router<ApiState> {
         .route("/system/event-health", get(handle_event_health))
 }
 
-async fn handle_root() -> impl IntoResponse {
+#[utoipa::path(
+    get,
+    path = "/",
+    tag = "system",
+    responses(
+        (status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_root() -> impl IntoResponse {
     ok(serde_json::json!({
         "message": "Modular Agent Framework Server",
         "endpoints": {
@@ -53,7 +64,17 @@ async fn handle_root() -> impl IntoResponse {
     .into_response()
 }
 
-async fn handle_info() -> impl IntoResponse {
+#[utoipa::path(
+    get,
+    path = "/api/v1/info",
+    tag = "system",
+    responses(
+        (status = 200, description = "Success", body = crate::envelope::ApiEnvelope<InfoView>),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_info() -> impl IntoResponse {
     ok(InfoView {
         name: "Modular Agent Framework Server",
         version: env!("CARGO_PKG_VERSION"),
@@ -63,28 +84,68 @@ async fn handle_info() -> impl IntoResponse {
     .into_response()
 }
 
-async fn handle_storage_diagnose(State(state): State<ApiState>) -> impl IntoResponse {
+#[utoipa::path(
+    get,
+    path = "/api/v1/storage/diagnose",
+    tag = "system",
+    responses(
+        (status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_storage_diagnose(State(state): State<ApiState>) -> impl IntoResponse {
     match wf_api::infra::diagnostics::diagnose(&state.ctx).await {
         Ok(report) => ok(report).into_response(),
         Err(e) => error_response(e),
     }
 }
 
-async fn handle_storage_health(State(state): State<ApiState>) -> impl IntoResponse {
+#[utoipa::path(
+    get,
+    path = "/api/v1/storage/health",
+    tag = "system",
+    responses(
+        (status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_storage_health(State(state): State<ApiState>) -> impl IntoResponse {
     match wf_api::infra::diagnostics::health(&state.ctx).await {
         Ok(report) => ok(report).into_response(),
         Err(e) => error_response(e),
     }
 }
 
-async fn handle_storage_stats(State(state): State<ApiState>) -> impl IntoResponse {
+#[utoipa::path(
+    get,
+    path = "/api/v1/storage/stats",
+    tag = "system",
+    responses(
+        (status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_storage_stats(State(state): State<ApiState>) -> impl IntoResponse {
     match wf_api::infra::diagnostics::item_counts(&state.ctx).await {
         Ok(counts) => ok(counts).into_response(),
         Err(e) => error_response(e),
     }
 }
 
-async fn handle_health(State(state): State<ApiState>) -> impl IntoResponse {
+#[utoipa::path(
+    get,
+    path = "/health",
+    tag = "system",
+    responses(
+        (status = 200, description = "Success", body = crate::envelope::ApiEnvelope<HealthView>),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_health(State(state): State<ApiState>) -> impl IntoResponse {
     let snapshot = state.ctx.storage.ops_snapshot();
     let total_ops = snapshot.save.count()
         + snapshot.load.count()
@@ -101,14 +162,34 @@ async fn handle_health(State(state): State<ApiState>) -> impl IntoResponse {
     .into_response()
 }
 
-async fn handle_diagnostics(State(state): State<ApiState>) -> impl IntoResponse {
+#[utoipa::path(
+    get,
+    path = "/system/diagnostics",
+    tag = "system",
+    responses(
+        (status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_diagnostics(State(state): State<ApiState>) -> impl IntoResponse {
     match wf_api::infra::diagnostics::health(&state.ctx).await {
         Ok(report) => ok(report).into_response(),
         Err(e) => error_response(e),
     }
 }
 
-async fn handle_event_health(State(state): State<ApiState>) -> impl IntoResponse {
+#[utoipa::path(
+    get,
+    path = "/system/event-health",
+    tag = "system",
+    responses(
+        (status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_event_health(State(state): State<ApiState>) -> impl IntoResponse {
     match wf_api::infra::events::event_system_health(&state.ctx).await {
         Ok(health) => ok(health).into_response(),
         Err(e) => error_response(e),

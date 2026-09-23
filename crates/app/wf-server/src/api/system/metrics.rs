@@ -41,12 +41,25 @@ pub(crate) fn routes() -> Router<RegistryState> {
         .route("/collectors", get(handle_collectors))
 }
 
-#[derive(Deserialize)]
-struct WorkflowQuery {
+#[derive(Deserialize, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
+pub(crate) struct WorkflowQuery {
     workflow_id: Option<String>,
 }
 
-async fn handle_workflow(
+#[utoipa::path(
+    get,
+    path = "/api/v1/metrics/workflow",
+    tag = "system",
+    params(WorkflowQuery),
+    responses(
+        (status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>),
+        (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_workflow(
     State(state): State<RegistryState>,
     Query(query): Query<WorkflowQuery>,
 ) -> impl IntoResponse {
@@ -57,12 +70,25 @@ async fn handle_workflow(
     crate::envelope::ok(stats).into_response()
 }
 
-#[derive(Deserialize)]
-struct NodeTemplatesQuery {
+#[derive(Deserialize, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
+pub(crate) struct NodeTemplatesQuery {
     top_n: Option<usize>,
 }
 
-async fn handle_node_templates(
+#[utoipa::path(
+    get,
+    path = "/api/v1/metrics/node-templates",
+    tag = "system",
+    params(NodeTemplatesQuery),
+    responses(
+        (status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>),
+        (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_node_templates(
     State(state): State<RegistryState>,
     Query(query): Query<NodeTemplatesQuery>,
 ) -> impl IntoResponse {
@@ -82,12 +108,25 @@ async fn handle_node_templates(
     .into_response()
 }
 
-#[derive(Deserialize)]
-struct AgentsQuery {
+#[derive(Deserialize, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
+pub(crate) struct AgentsQuery {
     profile_id: Option<String>,
 }
 
-async fn handle_agents(
+#[utoipa::path(
+    get,
+    path = "/api/v1/metrics/agents",
+    tag = "system",
+    params(AgentsQuery),
+    responses(
+        (status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>),
+        (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_agents(
     State(state): State<RegistryState>,
     Query(query): Query<AgentsQuery>,
 ) -> impl IntoResponse {
@@ -98,17 +137,41 @@ async fn handle_agents(
     crate::envelope::ok(stats).into_response()
 }
 
-async fn handle_report(State(state): State<RegistryState>) -> impl IntoResponse {
+#[utoipa::path(
+    get,
+    path = "/api/v1/metrics/report",
+    tag = "system",
+    responses(
+        (status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>),
+        (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_report(State(state): State<RegistryState>) -> impl IntoResponse {
     let report: MetricReport = generate_report(&state.registry, &ReportOptions::default()).await;
     crate::envelope::ok(report).into_response()
 }
 
-#[derive(Deserialize)]
-struct ExportQuery {
+#[derive(Deserialize, utoipa::IntoParams)]
+#[into_params(parameter_in = Query)]
+pub(crate) struct ExportQuery {
     format: Option<String>,
 }
 
-async fn handle_export(
+#[utoipa::path(
+    get,
+    path = "/api/v1/metrics/export",
+    tag = "system",
+    params(ExportQuery),
+    responses(
+        (status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>),
+        (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_export(
     State(state): State<RegistryState>,
     Query(query): Query<ExportQuery>,
 ) -> Response {
@@ -118,14 +181,25 @@ async fn handle_export(
             PROMETHEUS_CONTENT_TYPE,
             format_registry_prometheus(&state.registry),
         ),
-        Some(other) => err::<serde_json::Value>(ApiError::validation(format!(
+        Some(other) => err(ApiError::validation(format!(
             "unsupported export format: {other}"
         )))
         .into_response(),
     }
 }
 
-async fn handle_collectors(State(state): State<RegistryState>) -> impl IntoResponse {
+#[utoipa::path(
+    get,
+    path = "/api/v1/metrics/collectors",
+    tag = "system",
+    responses(
+        (status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>),
+        (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("api_key" = []))
+)]
+pub(crate) async fn handle_collectors(State(state): State<RegistryState>) -> impl IntoResponse {
     crate::envelope::ok(format_registry_json(&state.registry)).into_response()
 }
 

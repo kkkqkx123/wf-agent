@@ -1,0 +1,4 @@
+node_modules/
+openapi.json
+schema.d.ts
+*.d.ts

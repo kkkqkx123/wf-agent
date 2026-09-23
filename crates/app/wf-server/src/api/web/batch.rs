@@ -7,6 +7,7 @@ use axum::response::IntoResponse;
 use axum::routing::post;
 use axum::{Json, Router};
 use serde::Deserialize;
+use utoipa::ToSchema;
 
 use crate::envelope::{error_response, ok};
 use crate::router::ApiState;
@@ -22,12 +23,12 @@ pub(crate) fn routes() -> Router<ApiState> {
 /// Maximum ids per batch; bounds one request's fan-out.
 const MAX_BATCH_IDS: usize = 100;
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub(crate) struct IdsBody {
     ids: Vec<String>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub(crate) struct BatchRespondBody {
     ids: Vec<String>,
     response_data: Option<serde_json::Value>,
@@ -61,9 +62,9 @@ fn validate_ids(ids: &[String]) -> Result<(), wf_api::ApiError> {
 
 #[utoipa::path(
     post,
-    path = "/executions/batch-cancel",
+    path = "/api/v1/executions/batch-cancel",
     tag = "web",
-    request_body = serde_json::Value,
+    request_body = IdsBody,
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -94,9 +95,9 @@ pub(crate) async fn handle_batch_cancel(
 
 #[utoipa::path(
     post,
-    path = "/executions/batch-delete",
+    path = "/api/v1/executions/batch-delete",
     tag = "web",
-    request_body = serde_json::Value,
+    request_body = IdsBody,
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -127,9 +128,9 @@ pub(crate) async fn handle_batch_delete(
 
 #[utoipa::path(
     post,
-    path = "/agent-loops/batch-delete",
+    path = "/api/v1/agent-loops/batch-delete",
     tag = "web",
-    request_body = serde_json::Value,
+    request_body = IdsBody,
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -160,9 +161,9 @@ pub(crate) async fn handle_batch_delete_loops(
 
 #[utoipa::path(
     post,
-    path = "/interactions/batch-respond",
+    path = "/api/v1/interactions/batch-respond",
     tag = "web",
-    request_body = serde_json::Value,
+    request_body = BatchRespondBody,
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]

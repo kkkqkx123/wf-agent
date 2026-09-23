@@ -53,11 +53,13 @@ impl<T: Serialize> PageView<T> {
 
 /// Resolve `limit` / `offset` with defaults and the hard cap.
 pub(crate) fn resolve_page(query: &ListQuery) -> (u64, u64) {
-    let limit = query
-        .limit
-        .unwrap_or(DEFAULT_PAGE_LIMIT)
-        .clamp(1, MAX_PAGE_LIMIT);
-    (limit, query.offset.unwrap_or(0))
+    resolve_page_fields(query.limit, query.offset)
+}
+
+/// Resolve raw `limit` / `offset` fields with defaults and the hard cap.
+pub(crate) fn resolve_page_fields(limit: Option<u64>, offset: Option<u64>) -> (u64, u64) {
+    let limit = limit.unwrap_or(DEFAULT_PAGE_LIMIT).clamp(1, MAX_PAGE_LIMIT);
+    (limit, offset.unwrap_or(0))
 }
 
 /// Fetch size handlers pass to the domain layer: one more than the page.
@@ -122,20 +124,16 @@ mod tests {
 
     #[test]
     fn resolve_applies_defaults_and_cap() {
+        assert_eq!(resolve_page_fields(None, None), (DEFAULT_PAGE_LIMIT, 0));
+        assert_eq!(
+            resolve_page_fields(Some(u64::MAX), Some(7)),
+            (MAX_PAGE_LIMIT, 7)
+        );
+        assert_eq!(resolve_page_fields(Some(0), None).0, 1);
         let query = ListQuery {
-            limit: None,
-            offset: None,
+            limit: Some(3),
+            offset: Some(1),
         };
-        assert_eq!(resolve_page(&query), (DEFAULT_PAGE_LIMIT, 0));
-        let query = ListQuery {
-            limit: Some(u64::MAX),
-            offset: Some(7),
-        };
-        assert_eq!(resolve_page(&query), (MAX_PAGE_LIMIT, 7));
-        let query = ListQuery {
-            limit: Some(0),
-            offset: None,
-        };
-        assert_eq!(resolve_page(&query).0, 1);
+        assert_eq!(resolve_page(&query), (3, 1));
     }
 }

@@ -6,7 +6,7 @@ use axum::response::IntoResponse;
 use axum::routing::get;
 use axum::Router;
 use serde::Deserialize;
-use utoipa::ToSchema;
+use utoipa::{IntoParams, ToSchema};
 
 use crate::envelope::{error_response, ok};
 use crate::extract::{IdErrorPath, IdPath};
@@ -52,9 +52,9 @@ pub(crate) fn routes() -> Router<ApiState> {
 
 #[utoipa::path(
     get,
-    path = "/agent-executions/{id}/errors",
+    path = "/api/v1/agent-executions/{id}/errors",
     tag = "agent",
-    params(("id" = String, Path, description = "Agent execution ID")),
+    params(IdPath),
     responses(
         (status = 200, description = "Error records", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
@@ -74,7 +74,8 @@ pub(crate) async fn handle_error_records(
     }
 }
 
-#[derive(Deserialize, ToSchema)]
+#[derive(Deserialize, ToSchema, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub(crate) struct ErrorChainQuery {
     /// Optional starting error ID for the chain
     from_error_id: Option<String>,
@@ -82,10 +83,9 @@ pub(crate) struct ErrorChainQuery {
 
 #[utoipa::path(
     get,
-    path = "/agent-executions/{id}/errors/chain",
+    path = "/api/v1/agent-executions/{id}/errors/chain",
     tag = "agent",
-    params(
-        ("id" = String, Path, description = "Agent execution ID"), ("limit" = Option<u64>, Query, description = "Page limit"), ("offset" = Option<u64>, Query, description = "Page offset")),
+    params(IdPath, ErrorChainQuery),
     responses(
         (status = 200, description = "Error chain", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
@@ -112,9 +112,9 @@ pub(crate) async fn handle_error_chain(
 
 #[utoipa::path(
     get,
-    path = "/agent-executions/{id}/errors/root-cause",
+    path = "/api/v1/agent-executions/{id}/errors/root-cause",
     tag = "agent",
-    params(("id" = String, Path, description = "Agent execution ID")),
+    params(IdPath),
     responses(
         (status = 200, description = "Root cause analysis", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
@@ -134,9 +134,9 @@ pub(crate) async fn handle_root_cause(
 
 #[utoipa::path(
     get,
-    path = "/agent-executions/{id}/errors/statistics",
+    path = "/api/v1/agent-executions/{id}/errors/statistics",
     tag = "agent",
-    params(("id" = String, Path, description = "Agent execution ID")),
+    params(IdPath),
     responses(
         (status = 200, description = "Error statistics", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
@@ -156,9 +156,9 @@ pub(crate) async fn handle_error_statistics(
 
 #[utoipa::path(
     get,
-    path = "/agent-executions/{id}/errors/statistics/advanced",
+    path = "/api/v1/agent-executions/{id}/errors/statistics/advanced",
     tag = "agent",
-    params(("id" = String, Path, description = "Agent execution ID")),
+    params(IdPath),
     responses(
         (status = 200, description = "Advanced error analysis", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
@@ -180,12 +180,9 @@ pub(crate) async fn handle_advanced_error_statistics(
 
 #[utoipa::path(
     get,
-    path = "/agent-executions/{id}/errors/recovery/{errorId}",
+    path = "/api/v1/agent-executions/{id}/errors/recovery/{errorId}",
     tag = "agent",
-    params(
-        ("id" = String, Path, description = "Agent execution ID"),
-        ("errorId" = String, Path, description = "Error ID")
-    ),
+    params(IdErrorPath),
     responses(
         (status = 200, description = "Recovery proposal", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
@@ -211,12 +208,9 @@ pub(crate) async fn handle_recovery_proposal(
 
 #[utoipa::path(
     get,
-    path = "/agent-executions/{id}/errors/similar/{errorId}",
+    path = "/api/v1/agent-executions/{id}/errors/similar/{errorId}",
     tag = "agent",
-    params(
-        ("id" = String, Path, description = "Agent execution ID"),
-        ("errorId" = String, Path, description = "Error ID")
-    ),
+    params(IdErrorPath),
     responses(
         (status = 200, description = "Similar errors", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
@@ -244,9 +238,9 @@ pub(crate) async fn handle_similar_errors(
 
 #[utoipa::path(
     get,
-    path = "/agent-loops/{id}/performance",
+    path = "/api/v1/agent-loops/{id}/performance",
     tag = "agent",
-    params(("id" = String, Path, description = "Agent loop ID")),
+    params(IdPath),
     responses(
         (status = 200, description = "Performance profile", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
@@ -266,9 +260,9 @@ pub(crate) async fn handle_performance(
 
 #[utoipa::path(
     get,
-    path = "/agent-loops/{id}/performance/comparison",
+    path = "/api/v1/agent-loops/{id}/performance/comparison",
     tag = "agent",
-    params(("id" = String, Path, description = "Agent loop ID")),
+    params(IdPath),
     responses(
         (status = 200, description = "Iteration comparison", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),

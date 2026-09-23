@@ -7,10 +7,11 @@ use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::Router;
 use serde::{Deserialize, Serialize};
+use utoipa::{IntoParams, ToSchema};
 
 use crate::envelope::{error_response, ok};
 use crate::extract::{IdPath, ListQuery};
-use crate::paged::{fetch_size, ok_page, resolve_page};
+use crate::paged::{fetch_size, ok_page, resolve_page, resolve_page_fields};
 use crate::router::ApiState;
 
 pub(crate) fn routes() -> Router<ApiState> {
@@ -48,7 +49,7 @@ pub(crate) fn routes() -> Router<ApiState> {
 
 #[utoipa::path(
     get,
-    path = "/file-checkpoint/partitions",
+    path = "/api/v1/file-checkpoint/partitions",
     tag = "checkpoint",
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
@@ -62,9 +63,9 @@ pub(crate) async fn handle_list_partitions(State(state): State<ApiState>) -> imp
 
 #[utoipa::path(
     get,
-    path = "/file-checkpoint/workspace/{id}",
+    path = "/api/v1/file-checkpoint/workspace/{id}",
     tag = "checkpoint",
-    params(("id" = String, Path, description = "id")),
+    params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -78,7 +79,8 @@ pub(crate) async fn handle_get_actor_workspace(
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, IntoParams)]
+#[into_params(parameter_in = Path)]
 pub(crate) struct ActorPairPath {
     a: String,
     b: String,
@@ -86,9 +88,9 @@ pub(crate) struct ActorPairPath {
 
 #[utoipa::path(
     get,
-    path = "/file-checkpoint/diff/actors/{a}/{b}",
+    path = "/api/v1/file-checkpoint/diff/actors/{a}/{b}",
     tag = "checkpoint",
-    params(("a" = String, Path, description = "a"), ("b" = String, Path, description = "b")),
+    params(ActorPairPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -104,9 +106,9 @@ pub(crate) async fn handle_diff_actors(
 
 #[utoipa::path(
     get,
-    path = "/file-checkpoint/diff/staged/{id}",
+    path = "/api/v1/file-checkpoint/diff/staged/{id}",
     tag = "checkpoint",
-    params(("id" = String, Path, description = "id")),
+    params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -122,9 +124,9 @@ pub(crate) async fn handle_diff_against_staged(
 
 #[utoipa::path(
     get,
-    path = "/file-checkpoint/timeline/{id}",
+    path = "/api/v1/file-checkpoint/timeline/{id}",
     tag = "checkpoint",
-    params(("id" = String, Path, description = "id")),
+    params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -144,7 +146,8 @@ pub(crate) async fn handle_file_timeline(
 /// snapshot ids + hashes). Direct workspace mutations (rename, sessions,
 /// undo/redo) are explicit file operations; the approval channel covers
 /// human-in-the-loop tool approvals.
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub(crate) struct ContentQuery {
     actor: String,
     path: String,
@@ -152,9 +155,9 @@ pub(crate) struct ContentQuery {
 
 #[utoipa::path(
     get,
-    path = "/file-checkpoint/content",
+    path = "/api/v1/file-checkpoint/content",
     tag = "checkpoint",
-    params(("actor" = String, Query, description = "actor"), ("path" = String, Query, description = "path")),
+    params(ContentQuery),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -168,7 +171,8 @@ pub(crate) async fn handle_read_content(
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub(crate) struct TreeQuery {
     prefix: Option<String>,
 }
@@ -183,9 +187,9 @@ pub(crate) struct FileTreeView {
 
 #[utoipa::path(
     get,
-    path = "/file-checkpoint/tree/{id}",
+    path = "/api/v1/file-checkpoint/tree/{id}",
     tag = "checkpoint",
-    params(("id" = String, Path, description = "id"), ("prefix" = Option<String>, Query, description = "prefix")),
+    params(IdPath, TreeQuery),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -209,7 +213,8 @@ pub(crate) async fn handle_list_tree(
     }
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub(crate) struct PagedChangesQuery {
     actor: Option<String>,
     path: Option<String>,
@@ -217,15 +222,17 @@ pub(crate) struct PagedChangesQuery {
     start: Option<i64>,
     #[serde(default)]
     end: Option<i64>,
-    #[serde(flatten)]
-    page: ListQuery,
+    /// Page limit
+    limit: Option<u64>,
+    /// Page offset
+    offset: Option<u64>,
 }
 
 #[utoipa::path(
     get,
-    path = "/file-checkpoint/changes",
+    path = "/api/v1/file-checkpoint/changes",
     tag = "checkpoint",
-    params(("actor" = Option<String>, Query, description = "actor"), ("path" = Option<String>, Query, description = "path"), ("start" = Option<i64>, Query, description = "start"), ("end" = Option<i64>, Query, description = "end"), ("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset")),
+    params(PagedChangesQuery),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -233,7 +240,7 @@ pub(crate) async fn handle_list_changes_paged(
     State(state): State<ApiState>,
     Query(query): Query<PagedChangesQuery>,
 ) -> impl IntoResponse {
-    let (limit, offset) = resolve_page(&query.page);
+    let (limit, offset) = resolve_page_fields(query.limit, query.offset);
     let time_range = match (query.start, query.end) {
         (None, None) => None,
         (start, end) => {
@@ -269,7 +276,7 @@ pub(crate) async fn handle_list_changes_paged(
     }
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Deserialize, ToSchema)]
 pub(crate) struct BeginSessionRequest {
     #[serde(default)]
     label: Option<String>,
@@ -277,9 +284,9 @@ pub(crate) struct BeginSessionRequest {
 
 #[utoipa::path(
     post,
-    path = "/file-checkpoint/sessions",
+    path = "/api/v1/file-checkpoint/sessions",
     tag = "checkpoint",
-    request_body = serde_json::Value,
+    request_body = BeginSessionRequest,
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -295,9 +302,9 @@ pub(crate) async fn handle_begin_session(
 
 #[utoipa::path(
     get,
-    path = "/file-checkpoint/sessions",
+    path = "/api/v1/file-checkpoint/sessions",
     tag = "checkpoint",
-    params(("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset")),
+    params(ListQuery),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -319,7 +326,8 @@ pub(crate) async fn handle_list_sessions(
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, IntoParams)]
+#[into_params(parameter_in = Path)]
 pub(crate) struct SessionRollbackPath {
     id: String,
     actor: String,
@@ -327,9 +335,9 @@ pub(crate) struct SessionRollbackPath {
 
 #[utoipa::path(
     post,
-    path = "/file-checkpoint/sessions/{id}/rollback/{actor}",
+    path = "/api/v1/file-checkpoint/sessions/{id}/rollback/{actor}",
     tag = "checkpoint",
-    params(("id" = String, Path, description = "id"), ("actor" = String, Path, description = "actor")),
+    params(SessionRollbackPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -345,9 +353,9 @@ pub(crate) async fn handle_rollback_session(
 
 #[utoipa::path(
     post,
-    path = "/file-checkpoint/undo/{id}",
+    path = "/api/v1/file-checkpoint/undo/{id}",
     tag = "checkpoint",
-    params(("id" = String, Path, description = "id")),
+    params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -363,9 +371,9 @@ pub(crate) async fn handle_undo_edit(
 
 #[utoipa::path(
     post,
-    path = "/file-checkpoint/redo/{id}",
+    path = "/api/v1/file-checkpoint/redo/{id}",
     tag = "checkpoint",
-    params(("id" = String, Path, description = "id")),
+    params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -379,7 +387,7 @@ pub(crate) async fn handle_redo_edit(
     }
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, ToSchema)]
 pub(crate) struct RenameFileRequest {
     actor: String,
     from_path: String,
@@ -390,9 +398,9 @@ pub(crate) struct RenameFileRequest {
 
 #[utoipa::path(
     post,
-    path = "/file-checkpoint/rename",
+    path = "/api/v1/file-checkpoint/rename",
     tag = "checkpoint",
-    request_body = serde_json::Value,
+    request_body = RenameFileRequest,
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -412,7 +420,8 @@ pub(crate) async fn handle_rename_file(
     }
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub(crate) struct GcQuery {
     #[serde(default)]
     keep_recent_heads: usize,
@@ -420,9 +429,9 @@ pub(crate) struct GcQuery {
 
 #[utoipa::path(
     post,
-    path = "/file-checkpoint/gc",
+    path = "/api/v1/file-checkpoint/gc",
     tag = "checkpoint",
-    params(("keep_recent_heads" = u64, Query, description = "keep_recent_heads")),
+    params(GcQuery),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]

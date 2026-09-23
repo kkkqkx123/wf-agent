@@ -28,7 +28,7 @@ pub(crate) fn routes() -> Router<ApiState> {
 
 #[utoipa::path(
     get,
-    path = "/agents/drafts",
+    path = "/api/v1/agents/drafts",
     tag = "agent",
     responses(
         (status = 200, description = "List of agent drafts", body = crate::envelope::ApiEnvelope<serde_json::Value>),
@@ -45,7 +45,7 @@ pub(crate) async fn handle_list_drafts(State(state): State<ApiState>) -> impl In
 
 #[utoipa::path(
     post,
-    path = "/agents/drafts",
+    path = "/api/v1/agents/drafts",
     tag = "agent",
     request_body = serde_json::Value,
     responses(
@@ -68,9 +68,9 @@ pub(crate) async fn handle_save_draft(
 
 #[utoipa::path(
     get,
-    path = "/agents/drafts/{id}",
+    path = "/api/v1/agents/drafts/{id}",
     tag = "agent",
-    params(("id" = String, Path, description = "Agent draft ID")),
+    params(IdPath),
     responses(
         (status = 200, description = "Agent draft found", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
@@ -90,9 +90,9 @@ pub(crate) async fn handle_get_draft(
 
 #[utoipa::path(
     delete,
-    path = "/agents/drafts/{id}",
+    path = "/api/v1/agents/drafts/{id}",
     tag = "agent",
-    params(("id" = String, Path, description = "Agent draft ID")),
+    params(IdPath),
     responses(
         (status = 200, description = "Agent draft deleted", body = crate::envelope::ApiEnvelope<bool>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
@@ -112,9 +112,9 @@ pub(crate) async fn handle_delete_draft(
 
 #[utoipa::path(
     post,
-    path = "/agents/drafts/{id}/promote",
+    path = "/api/v1/agents/drafts/{id}/promote",
     tag = "agent",
-    params(("id" = String, Path, description = "Agent draft ID")),
+    params(IdPath),
     responses(
         (status = 200, description = "Draft promoted", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
@@ -134,9 +134,9 @@ pub(crate) async fn handle_promote_draft(
 
 #[utoipa::path(
     get,
-    path = "/agents/drafts/{id}/validate",
+    path = "/api/v1/agents/drafts/{id}/validate",
     tag = "agent",
-    params(("id" = String, Path, description = "Agent loop ID")),
+    params(IdPath),
     responses(
         (status = 200, description = "Draft validation", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
@@ -156,9 +156,9 @@ pub(crate) async fn handle_validate_draft(
 
 #[utoipa::path(
     get,
-    path = "/agents/{id}/lifecycle",
+    path = "/api/v1/agents/{id}/lifecycle",
     tag = "agent",
-    params(("id" = String, Path, description = "Agent loop ID")),
+    params(IdPath),
     responses(
         (status = 200, description = "Agent lifecycle", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),

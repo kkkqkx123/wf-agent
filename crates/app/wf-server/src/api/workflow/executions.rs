@@ -13,13 +13,13 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
-use utoipa::ToSchema;
+use utoipa::{IntoParams, ToSchema};
 
 use wf_api::WorkflowExecutionListOptions;
 
 use crate::envelope::{error_response, ok};
-use crate::extract::{IdPath, ListQuery};
-use crate::paged::{fetch_size, ok_page, resolve_page};
+use crate::extract::IdPath;
+use crate::paged::{fetch_size, ok_page, resolve_page_fields};
 use crate::router::ApiState;
 use crate::sse::sse_response;
 pub(crate) fn routes() -> Router<ApiState> {
@@ -44,7 +44,7 @@ pub(crate) fn routes() -> Router<ApiState> {
         .route("/executions/{id}/triggers", get(handle_trigger_history))
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub struct ExecuteBody {
     pub(crate) input: Option<serde_json::Value>,
 }
@@ -62,10 +62,10 @@ pub struct StreamMetadataView {
 
 #[utoipa::path(
     post,
-    path = "/workflows/{id}/execute",
+    path = "/api/v1/workflows/{id}/execute",
     tag = "workflow",
-    params(("id" = String, Path, description = "id")),
-    request_body = serde_json::Value,
+    params(IdPath),
+    request_body = ExecuteBody,
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::api::workflow::executions::ExecuteView>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -91,10 +91,10 @@ pub(crate) async fn handle_execute_workflow(
 
 #[utoipa::path(
     post,
-    path = "/workflows/{id}/execute/stream",
+    path = "/api/v1/workflows/{id}/execute/stream",
     tag = "workflow",
-    params(("id" = String, Path, description = "id")),
-    request_body = serde_json::Value,
+    params(IdPath),
+    request_body = ExecuteBody,
     responses(
         (status = 200, description = "Server-sent events stream", content_type = "text/event-stream"),
         (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse),
@@ -137,19 +137,22 @@ pub(crate) async fn handle_execute_stream(
     sse_response(futures::stream::once(futures::future::ready(first)).chain(events))
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub(crate) struct ListExecutionsQuery {
-    #[serde(flatten)]
-    page: ListQuery,
+    /// Page limit
+    limit: Option<u64>,
+    /// Page offset
+    offset: Option<u64>,
     workflow_id: Option<String>,
     status: Option<String>,
 }
 
 #[utoipa::path(
     get,
-    path = "/executions",
+    path = "/api/v1/executions",
     tag = "workflow",
-    params(("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset"), ("workflow_id" = Option<String>, Query, description = "workflow_id"), ("status" = Option<String>, Query, description = "status")),
+    params(ListExecutionsQuery),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -157,7 +160,7 @@ pub(crate) async fn handle_list_executions(
     State(state): State<ApiState>,
     Query(query): Query<ListExecutionsQuery>,
 ) -> impl IntoResponse {
-    let (limit, offset) = resolve_page(&query.page);
+    let (limit, offset) = resolve_page_fields(query.limit, query.offset);
     let options = WorkflowExecutionListOptions {
         offset: Some(offset),
         limit: Some(fetch_size(limit)),
@@ -172,9 +175,9 @@ pub(crate) async fn handle_list_executions(
 
 #[utoipa::path(
     get,
-    path = "/executions/{id}",
+    path = "/api/v1/executions/{id}",
     tag = "workflow",
-    params(("id" = String, Path, description = "id")),
+    params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -190,9 +193,9 @@ pub(crate) async fn handle_get_execution(
 
 #[utoipa::path(
     delete,
-    path = "/executions/{id}",
+    path = "/api/v1/executions/{id}",
     tag = "workflow",
-    params(("id" = String, Path, description = "id")),
+    params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -208,9 +211,9 @@ pub(crate) async fn handle_delete_execution(
 
 #[utoipa::path(
     post,
-    path = "/executions/{id}/pause",
+    path = "/api/v1/executions/{id}/pause",
     tag = "workflow",
-    params(("id" = String, Path, description = "id")),
+    params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -226,9 +229,9 @@ pub(crate) async fn handle_pause(
 
 #[utoipa::path(
     post,
-    path = "/executions/{id}/resume",
+    path = "/api/v1/executions/{id}/resume",
     tag = "workflow",
-    params(("id" = String, Path, description = "id")),
+    params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::api::workflow::executions::ExecuteView>), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -248,9 +251,9 @@ pub(crate) async fn handle_resume(
 
 #[utoipa::path(
     post,
-    path = "/executions/{id}/cancel",
+    path = "/api/v1/executions/{id}/cancel",
     tag = "workflow",
-    params(("id" = String, Path, description = "id")),
+    params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -266,9 +269,9 @@ pub(crate) async fn handle_cancel(
 
 #[utoipa::path(
     get,
-    path = "/executions/{id}/status",
+    path = "/api/v1/executions/{id}/status",
     tag = "workflow",
-    params(("id" = String, Path, description = "id")),
+    params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -284,18 +287,21 @@ pub(crate) async fn handle_status(
 
 // ── execution triggers ────────────────────────────────────────────
 
-#[derive(Deserialize)]
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub(crate) struct TriggerHistoryQuery {
     trigger_name: Option<String>,
-    #[serde(flatten)]
-    page: ListQuery,
+    /// Page limit
+    limit: Option<u64>,
+    /// Page offset
+    offset: Option<u64>,
 }
 
 #[utoipa::path(
     get,
-    path = "/executions/{id}/triggers",
+    path = "/api/v1/executions/{id}/triggers",
     tag = "workflow",
-    params(("id" = String, Path, description = "id"), ("trigger_name" = Option<String>, Query, description = "trigger_name"), ("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset")),
+    params(IdPath, TriggerHistoryQuery),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -312,7 +318,7 @@ pub(crate) async fn handle_trigger_history(
     .await
     {
         Ok(history) => {
-            let (limit, offset) = resolve_page(&query.page);
+            let (limit, offset) = resolve_page_fields(query.limit, query.offset);
             let window = history
                 .into_iter()
                 .skip(offset as usize)

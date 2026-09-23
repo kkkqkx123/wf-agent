@@ -63,13 +63,27 @@ pub(crate) struct ApiEnvelope<T: Serialize> {
     error: Option<ApiErrorBody>,
 }
 
-/// OpenAPI docs view of the error envelope. Uses generic JSON for the
-/// payload so domain types do not need `ToSchema`.
+/// Runtime and documentation envelope for every error response. Success
+/// payloads keep using `ApiEnvelope<T>`; errors always carry `data: null`
+/// and a populated `error`.
 #[derive(Serialize, ToSchema)]
 pub struct ErrorResponse {
     success: bool,
     data: Option<serde_json::Value>,
-    error: Option<ApiErrorBody>,
+    error: ApiErrorBody,
+}
+
+impl ErrorResponse {
+    pub(crate) fn new(code: impl Into<String>, message: impl Into<String>) -> Self {
+        Self {
+            success: false,
+            data: None,
+            error: ApiErrorBody {
+                code: code.into(),
+                message: message.into(),
+            },
+        }
+    }
 }
 
 pub(crate) fn ok<T: Serialize>(data: T) -> Json<ApiEnvelope<T>> {
@@ -80,17 +94,10 @@ pub(crate) fn ok<T: Serialize>(data: T) -> Json<ApiEnvelope<T>> {
     })
 }
 
-pub(crate) fn err<T: Serialize>(e: ApiError) -> (StatusCode, Json<ApiEnvelope<T>>) {
+pub(crate) fn err(e: ApiError) -> (StatusCode, Json<ErrorResponse>) {
     (
         e.kind.status(),
-        Json(ApiEnvelope {
-            success: false,
-            data: None,
-            error: Some(ApiErrorBody {
-                code: e.kind.code().to_string(),
-                message: e.message,
-            }),
-        }),
+        Json(ErrorResponse::new(e.kind.code(), e.message)),
     )
 }
 
@@ -98,7 +105,7 @@ pub(crate) fn err<T: Serialize>(e: ApiError) -> (StatusCode, Json<ApiEnvelope<T>
 /// API routers.
 pub(crate) fn api_error_response_internal(
     e: wf_api::ApiError,
-) -> (StatusCode, Json<ApiEnvelope<ApiErrorBody>>) {
+) -> (StatusCode, Json<ErrorResponse>) {
     use wf_api::ApiError;
     let (status, code, message) = match &e {
         ApiError::NotFound { entity_type, id } => (
@@ -130,17 +137,7 @@ pub(crate) fn api_error_response_internal(
             message.clone(),
         ),
     };
-    (
-        status,
-        Json::<ApiEnvelope<ApiErrorBody>>(ApiEnvelope {
-            success: false,
-            data: None,
-            error: Some(ApiErrorBody {
-                code: code.to_string(),
-                message,
-            }),
-        }),
-    )
+    (status, Json(ErrorResponse::new(code, message)))
 }
 
 /// Render a `wf-api` error through the envelope.
@@ -168,18 +165,11 @@ pub(crate) fn download(payload: &str, content_type: &str, filename: &str) -> Res
     response
 }
 
-/// 401 response used by the auth middleware (and, later, by handlers).
+/// 401 response used by the auth middleware.
 pub(crate) fn unauthorized(message: impl Into<String>) -> Response {
     (
         StatusCode::UNAUTHORIZED,
-        Json::<ApiEnvelope<ApiErrorBody>>(ApiEnvelope {
-            success: false,
-            data: None,
-            error: Some(ApiErrorBody {
-                code: "UNAUTHORIZED".to_string(),
-                message: message.into(),
-            }),
-        }),
+        Json(ErrorResponse::new("UNAUTHORIZED", message)),
     )
         .into_response()
 }
@@ -188,14 +178,7 @@ pub(crate) fn unauthorized(message: impl Into<String>) -> Response {
 pub(crate) fn forbidden(message: impl Into<String>) -> Response {
     (
         StatusCode::FORBIDDEN,
-        Json::<ApiEnvelope<ApiErrorBody>>(ApiEnvelope {
-            success: false,
-            data: None,
-            error: Some(ApiErrorBody {
-                code: "FORBIDDEN".to_string(),
-                message: message.into(),
-            }),
-        }),
+        Json(ErrorResponse::new("FORBIDDEN", message)),
     )
         .into_response()
 }
@@ -204,14 +187,10 @@ pub(crate) fn forbidden(message: impl Into<String>) -> Response {
 pub(crate) fn rate_limited(retry_after_secs: u64) -> Response {
     let mut response = (
         StatusCode::TOO_MANY_REQUESTS,
-        Json::<ApiEnvelope<ApiErrorBody>>(ApiEnvelope {
-            success: false,
-            data: None,
-            error: Some(ApiErrorBody {
-                code: "RATE_LIMITED".to_string(),
-                message: "Too many requests, please slow down.".to_string(),
-            }),
-        }),
+        Json(ErrorResponse::new(
+            "RATE_LIMITED",
+            "Too many requests, please slow down.",
+        )),
     )
         .into_response();
     if let Ok(value) = axum::http::HeaderValue::from_str(&retry_after_secs.to_string()) {
@@ -227,14 +206,7 @@ pub(crate) fn rate_limited(retry_after_secs: u64) -> Response {
 pub(crate) fn service_unavailable(message: impl Into<String>) -> Response {
     (
         StatusCode::SERVICE_UNAVAILABLE,
-        Json::<ApiEnvelope<ApiErrorBody>>(ApiEnvelope {
-            success: false,
-            data: None,
-            error: Some(ApiErrorBody {
-                code: "SERVICE_UNAVAILABLE".to_string(),
-                message: message.into(),
-            }),
-        }),
+        Json(ErrorResponse::new("SERVICE_UNAVAILABLE", message)),
     )
         .into_response()
 }

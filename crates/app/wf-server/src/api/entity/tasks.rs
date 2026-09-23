@@ -6,12 +6,13 @@ use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::Deserialize;
+use utoipa::{IntoParams, ToSchema};
 
 use wf_api::TaskListOptions;
 
 use crate::envelope::{error_response, ok};
 use crate::extract::{ExecutionIdPath, IdPath, ListQuery};
-use crate::paged::{fetch_size, ok_page, resolve_page};
+use crate::paged::{fetch_size, ok_page, resolve_page, resolve_page_fields};
 use crate::router::ApiState;
 pub(crate) fn routes() -> Router<ApiState> {
     Router::new()
@@ -32,19 +33,22 @@ pub(crate) fn routes() -> Router<ApiState> {
 
 // ── tasks ─────────────────────────────────────────────────────────
 
-#[derive(Deserialize)]
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub(crate) struct ListTasksQuery {
-    #[serde(flatten)]
-    page: ListQuery,
+    /// Page limit
+    limit: Option<u64>,
+    /// Page offset
+    offset: Option<u64>,
     status: Option<String>,
     task_type: Option<String>,
 }
 
 #[utoipa::path(
     get,
-    path = "/tasks",
+    path = "/api/v1/tasks",
     tag = "entity",
-    params(("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset"), ("status" = Option<String>, Query, description = "status"), ("task_type" = Option<String>, Query, description = "task_type")),
+    params(ListTasksQuery),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -52,7 +56,7 @@ pub(crate) async fn handle_list_tasks(
     State(state): State<ApiState>,
     Query(query): Query<ListTasksQuery>,
 ) -> impl IntoResponse {
-    let (limit, offset) = resolve_page(&query.page);
+    let (limit, offset) = resolve_page_fields(query.limit, query.offset);
     let options = TaskListOptions {
         offset: Some(offset),
         limit: Some(fetch_size(limit)),
@@ -67,7 +71,7 @@ pub(crate) async fn handle_list_tasks(
 
 #[utoipa::path(
     post,
-    path = "/tasks",
+    path = "/api/v1/tasks",
     tag = "entity",
     request_body = serde_json::Value,
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
@@ -85,9 +89,9 @@ pub(crate) async fn handle_save_task(
 
 #[utoipa::path(
     get,
-    path = "/tasks/{id}",
+    path = "/api/v1/tasks/{id}",
     tag = "entity",
-    params(("id" = String, Path, description = "id")),
+    params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -103,9 +107,9 @@ pub(crate) async fn handle_get_task(
 
 #[utoipa::path(
     delete,
-    path = "/tasks/{id}",
+    path = "/api/v1/tasks/{id}",
     tag = "entity",
-    params(("id" = String, Path, description = "id")),
+    params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -121,7 +125,7 @@ pub(crate) async fn handle_delete_task(
 
 #[utoipa::path(
     get,
-    path = "/tasks/stats",
+    path = "/api/v1/tasks/stats",
     tag = "entity",
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
@@ -135,9 +139,9 @@ pub(crate) async fn handle_task_stats(State(state): State<ApiState>) -> impl Int
 
 #[utoipa::path(
     post,
-    path = "/tasks/{id}/cancel",
+    path = "/api/v1/tasks/{id}/cancel",
     tag = "entity",
-    params(("id" = String, Path, description = "id")),
+    params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -153,9 +157,9 @@ pub(crate) async fn handle_cancel_task(
 
 #[utoipa::path(
     get,
-    path = "/tasks/by-execution/{executionId}",
+    path = "/api/v1/tasks/by-execution/{executionId}",
     tag = "entity",
-    params(("executionId" = String, Path, description = "executionId"), ("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset")),
+    params(ExecutionIdPath, ListQuery),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -178,16 +182,16 @@ pub(crate) async fn handle_tasks_by_execution(
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub(crate) struct CleanupTasksBody {
     older_than: Option<i64>,
 }
 
 #[utoipa::path(
     post,
-    path = "/tasks/cleanup",
+    path = "/api/v1/tasks/cleanup",
     tag = "entity",
-    request_body = serde_json::Value,
+    request_body = CleanupTasksBody,
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]

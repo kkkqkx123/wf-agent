@@ -6,10 +6,10 @@ use axum::response::IntoResponse;
 use axum::routing::get;
 use axum::{Json, Router};
 use serde::Deserialize;
+use utoipa::{IntoParams, ToSchema};
 
 use crate::envelope::{error_response, ok};
-use crate::extract::ListQuery;
-use crate::paged::{ok_page, resolve_page};
+use crate::paged::{ok_page, resolve_page_fields};
 use crate::router::ApiState;
 
 pub(crate) fn routes() -> Router<ApiState> {
@@ -21,19 +21,22 @@ pub(crate) fn routes() -> Router<ApiState> {
         )
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub(crate) struct ListFavoritesQuery {
-    #[serde(flatten)]
-    page: ListQuery,
+    /// Page limit
+    limit: Option<u64>,
+    /// Page offset
+    offset: Option<u64>,
     kind: Option<String>,
     pinned_only: Option<bool>,
 }
 
 #[utoipa::path(
     get,
-    path = "/favorites",
+    path = "/api/v1/favorites",
     tag = "web",
-    params(("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset"), ("kind" = Option<String>, Query, description = "kind"), ("pinned_only" = Option<bool>, Query, description = "pinned_only")),
+    params(ListFavoritesQuery),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -41,7 +44,7 @@ pub(crate) async fn handle_list_favorites(
     State(state): State<ApiState>,
     Query(query): Query<ListFavoritesQuery>,
 ) -> impl IntoResponse {
-    let (limit, offset) = resolve_page(&query.page);
+    let (limit, offset) = resolve_page_fields(query.limit, query.offset);
     // Window rule needs `limit + 1` items; favorites are few, so over-fetch
     // one page past the limit instead of a second query.
     let fetch_limit = limit.saturating_add(1).clamp(1, 501);
@@ -59,13 +62,14 @@ pub(crate) async fn handle_list_favorites(
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Path)]
 pub(crate) struct FavoriteKindIdPath {
     kind: String,
     id: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub(crate) struct UpsertFavoriteBody {
     pinned: Option<bool>,
     tags: Option<Vec<String>>,
@@ -73,10 +77,10 @@ pub(crate) struct UpsertFavoriteBody {
 
 #[utoipa::path(
     put,
-    path = "/favorites/{kind}/{id}",
+    path = "/api/v1/favorites/{kind}/{id}",
     tag = "web",
-    params(("kind" = String, Path, description = "kind"), ("id" = String, Path, description = "id")),
-    request_body = serde_json::Value,
+    params(FavoriteKindIdPath),
+    request_body = UpsertFavoriteBody,
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -95,9 +99,9 @@ pub(crate) async fn handle_upsert_favorite(
 
 #[utoipa::path(
     delete,
-    path = "/favorites/{kind}/{id}",
+    path = "/api/v1/favorites/{kind}/{id}",
     tag = "web",
-    params(("kind" = String, Path, description = "kind"), ("id" = String, Path, description = "id")),
+    params(FavoriteKindIdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]

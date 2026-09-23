@@ -8,6 +8,7 @@ use axum::response::IntoResponse;
 use axum::routing::get;
 use axum::Router;
 use serde::Deserialize;
+use utoipa::IntoParams;
 
 use crate::envelope::{error_response, ok};
 use crate::router::ApiState;
@@ -20,7 +21,8 @@ pub(crate) fn routes() -> Router<ApiState> {
         .route("/system/stale", get(handle_stale))
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub(crate) struct DependencyQuery {
     kind: String,
     id: String,
@@ -41,9 +43,9 @@ fn parse_kind(raw: &str) -> Option<wf_api::DependencyKind> {
 
 #[utoipa::path(
     get,
-    path = "/dependencies/dependents",
+    path = "/api/v1/dependencies/dependents",
     tag = "system",
-    params(("kind" = String, Query, description = "kind"), ("id" = String, Query, description = "id")),
+    params(DependencyQuery),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -65,9 +67,9 @@ pub(crate) async fn handle_dependents(
 
 #[utoipa::path(
     get,
-    path = "/dependencies/impact",
+    path = "/api/v1/dependencies/impact",
     tag = "system",
-    params(("kind" = String, Query, description = "kind"), ("id" = String, Query, description = "id")),
+    params(DependencyQuery),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -89,7 +91,7 @@ pub(crate) async fn handle_impact(
 
 #[utoipa::path(
     get,
-    path = "/dependencies/audit",
+    path = "/api/v1/dependencies/audit",
     tag = "system",
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
@@ -103,7 +105,7 @@ pub(crate) async fn handle_audit(State(state): State<ApiState>) -> impl IntoResp
 
 #[utoipa::path(
     get,
-    path = "/system/stale",
+    path = "/api/v1/system/stale",
     tag = "system",
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))

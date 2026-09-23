@@ -7,6 +7,7 @@ use axum::response::IntoResponse;
 use axum::routing::get;
 use axum::Router;
 use serde::Deserialize;
+use utoipa::IntoParams;
 
 use crate::envelope::{error_response, ok};
 use crate::extract::ListQuery;
@@ -40,9 +41,9 @@ pub(crate) fn routes() -> Router<ApiState> {
 
 #[utoipa::path(
     get,
-    path = "/templates/agent-trigger",
+    path = "/api/v1/templates/agent-trigger",
     tag = "template",
-    params(("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset")),
+    params(ListQuery),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -66,9 +67,9 @@ pub(crate) async fn handle_query_agent_trigger_templates(
 
 #[utoipa::path(
     get,
-    path = "/templates/agent-trigger/summaries",
+    path = "/api/v1/templates/agent-trigger/summaries",
     tag = "template",
-    params(("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset")),
+    params(ListQuery),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -92,9 +93,9 @@ pub(crate) async fn handle_agent_trigger_summaries(
 
 #[utoipa::path(
     get,
-    path = "/templates/agent",
+    path = "/api/v1/templates/agent",
     tag = "template",
-    params(("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset")),
+    params(ListQuery),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -118,9 +119,9 @@ pub(crate) async fn handle_query_agent_templates(
 
 #[utoipa::path(
     get,
-    path = "/templates/agent/summaries",
+    path = "/api/v1/templates/agent/summaries",
     tag = "template",
-    params(("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset")),
+    params(ListQuery),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -142,16 +143,17 @@ pub(crate) async fn handle_agent_template_summaries(
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub(crate) struct LimitQuery {
     limit: Option<usize>,
 }
 
 #[utoipa::path(
     get,
-    path = "/templates/agent/featured",
+    path = "/api/v1/templates/agent/featured",
     tag = "template",
-    params(("limit" = Option<u64>, Query, description = "limit")),
+    params(LimitQuery),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -167,7 +169,8 @@ pub(crate) async fn handle_agent_template_featured(
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub(crate) struct CategoryLimitQuery {
     category: Option<String>,
     limit: Option<usize>,
@@ -175,9 +178,9 @@ pub(crate) struct CategoryLimitQuery {
 
 #[utoipa::path(
     get,
-    path = "/templates/agent/popular",
+    path = "/api/v1/templates/agent/popular",
     tag = "template",
-    params(("category" = Option<String>, Query, description = "category"), ("limit" = Option<u64>, Query, description = "limit")),
+    params(CategoryLimitQuery),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]

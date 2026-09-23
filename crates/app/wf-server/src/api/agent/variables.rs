@@ -8,12 +8,12 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::Deserialize;
 use serde_json::Value;
-use utoipa::ToSchema;
+use utoipa::{IntoParams, ToSchema};
 
 use crate::api::web::batch::BatchItemResult;
 use crate::envelope::{error_response, ok};
 use crate::extract::{IdNamePath, IdPath, ListQuery};
-use crate::paged::{fetch_size, ok_page, resolve_page};
+use crate::paged::{fetch_size, ok_page, resolve_page, resolve_page_fields};
 use crate::router::ApiState;
 pub(crate) fn routes() -> Router<ApiState> {
     Router::new()
@@ -59,20 +59,22 @@ pub(crate) fn routes() -> Router<ApiState> {
 
 // ── agent messages ────────────────────────────────────────────────
 
-#[derive(Deserialize)]
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub(crate) struct RecentMessagesQuery {
     /// Optional count limit for recent messages
     count: Option<usize>,
-    #[serde(flatten)]
-    page: ListQuery,
+    /// Page limit
+    limit: Option<u64>,
+    /// Page offset
+    offset: Option<u64>,
 }
 
 #[utoipa::path(
     get,
-    path = "/agent-loops/{id}/messages",
+    path = "/api/v1/agent-loops/{id}/messages",
     tag = "agent",
-    params(
-        ("id" = String, Path, description = "Agent loop ID"), ("limit" = Option<u64>, Query, description = "Page limit"), ("offset" = Option<u64>, Query, description = "Page offset")),
+    params(IdPath, RecentMessagesQuery),
     responses(
         (status = 200, description = "Recent messages", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
@@ -87,7 +89,7 @@ pub(crate) async fn handle_recent_messages(
 ) -> impl IntoResponse {
     match wf_api::agent::agent_message::recent(&state.ctx, &path.id, query.count).await {
         Ok(messages) => {
-            let (limit, offset) = resolve_page(&query.page);
+            let (limit, offset) = resolve_page_fields(query.limit, query.offset);
             let window = messages
                 .into_iter()
                 .skip(offset as usize)
@@ -103,9 +105,9 @@ pub(crate) async fn handle_recent_messages(
 /// number of removed records.
 #[utoipa::path(
     post,
-    path = "/agent-loops/{id}/messages/dedupe",
+    path = "/api/v1/agent-loops/{id}/messages/dedupe",
     tag = "agent",
-    params(("id" = String, Path, description = "Agent loop ID")),
+    params(IdPath),
     responses(
         (status = 200, description = "Number of duplicate messages removed", body = crate::envelope::ApiEnvelope<usize>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
@@ -123,20 +125,22 @@ pub(crate) async fn handle_dedupe_messages(
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub(crate) struct SearchMessagesQuery {
     /// Search query string
     q: String,
-    #[serde(flatten)]
-    page: ListQuery,
+    /// Page limit
+    limit: Option<u64>,
+    /// Page offset
+    offset: Option<u64>,
 }
 
 #[utoipa::path(
     get,
-    path = "/agent-loops/{id}/messages/search",
+    path = "/api/v1/agent-loops/{id}/messages/search",
     tag = "agent",
-    params(
-        ("id" = String, Path, description = "Agent loop ID"), ("limit" = Option<u64>, Query, description = "Page limit"), ("offset" = Option<u64>, Query, description = "Page offset")),
+    params(IdPath, SearchMessagesQuery),
     responses(
         (status = 200, description = "Search results", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
@@ -151,7 +155,7 @@ pub(crate) async fn handle_search_messages(
 ) -> impl IntoResponse {
     match wf_api::agent::agent_message::search(&state.ctx, &path.id, &query.q).await {
         Ok(messages) => {
-            let (limit, offset) = resolve_page(&query.page);
+            let (limit, offset) = resolve_page_fields(query.limit, query.offset);
             let window = messages
                 .into_iter()
                 .skip(offset as usize)
@@ -165,9 +169,9 @@ pub(crate) async fn handle_search_messages(
 
 #[utoipa::path(
     get,
-    path = "/agent-loops/{id}/messages/stats",
+    path = "/api/v1/agent-loops/{id}/messages/stats",
     tag = "agent",
-    params(("id" = String, Path, description = "Agent loop ID")),
+    params(IdPath),
     responses(
         (status = 200, description = "Message statistics", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
@@ -185,20 +189,22 @@ pub(crate) async fn handle_message_stats(
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub(crate) struct ConversationQuery {
     /// Maximum number of messages to return
     max_messages: Option<usize>,
-    #[serde(flatten)]
-    page: ListQuery,
+    /// Page limit
+    limit: Option<u64>,
+    /// Page offset
+    offset: Option<u64>,
 }
 
 #[utoipa::path(
     get,
-    path = "/agent-loops/{id}/conversation",
+    path = "/api/v1/agent-loops/{id}/conversation",
     tag = "agent",
-    params(
-        ("id" = String, Path, description = "Agent loop ID"), ("limit" = Option<u64>, Query, description = "Page limit"), ("offset" = Option<u64>, Query, description = "Page offset")),
+    params(IdPath, ConversationQuery),
     responses(
         (status = 200, description = "Conversation history", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
@@ -219,7 +225,7 @@ pub(crate) async fn handle_conversation(
     .await
     {
         Ok(messages) => {
-            let (limit, offset) = resolve_page(&query.page);
+            let (limit, offset) = resolve_page_fields(query.limit, query.offset);
             let window = messages
                 .into_iter()
                 .skip(offset as usize)
@@ -235,10 +241,9 @@ pub(crate) async fn handle_conversation(
 
 #[utoipa::path(
     get,
-    path = "/agent-loops/{id}/variables",
+    path = "/api/v1/agent-loops/{id}/variables",
     tag = "agent",
-    params(
-        ("id" = String, Path, description = "Agent loop ID"), ("limit" = Option<u64>, Query, description = "Page limit"), ("offset" = Option<u64>, Query, description = "Page offset")),
+    params(IdPath, ListQuery),
     responses(
         (status = 200, description = "List of variables", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
@@ -267,9 +272,9 @@ pub(crate) async fn handle_list_variables(
 
 #[utoipa::path(
     get,
-    path = "/agent-loops/{id}/variables/stats",
+    path = "/api/v1/agent-loops/{id}/variables/stats",
     tag = "agent",
-    params(("id" = String, Path, description = "Agent loop ID")),
+    params(IdPath),
     responses(
         (status = 200, description = "Variable statistics", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
@@ -287,7 +292,8 @@ pub(crate) async fn handle_variable_stats(
     }
 }
 
-#[derive(Deserialize, ToSchema)]
+#[derive(Deserialize, ToSchema, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub(crate) struct VariableExportQuery {
     /// If true, return as downloadable attachment
     download: Option<bool>,
@@ -295,10 +301,9 @@ pub(crate) struct VariableExportQuery {
 
 #[utoipa::path(
     get,
-    path = "/agent-loops/{id}/variables/export",
+    path = "/api/v1/agent-loops/{id}/variables/export",
     tag = "agent",
-    params(
-        ("id" = String, Path, description = "Agent loop ID"), ("limit" = Option<u64>, Query, description = "Page limit"), ("offset" = Option<u64>, Query, description = "Page offset")),
+    params(IdPath, VariableExportQuery),
     responses(
         (status = 200, description = "Exported variables file download", body = String, content_type = "application/json"),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
@@ -330,12 +335,9 @@ pub(crate) async fn handle_variable_export(
 
 #[utoipa::path(
     get,
-    path = "/agent-loops/{id}/variables/{name}",
+    path = "/api/v1/agent-loops/{id}/variables/{name}",
     tag = "agent",
-    params(
-        ("id" = String, Path, description = "Agent loop ID"),
-        ("name" = String, Path, description = "Variable name")
-    ),
+    params(IdNamePath),
     responses(
         (status = 200, description = "Variable value", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
@@ -363,13 +365,10 @@ pub(crate) struct SetVariableBody {
 
 #[utoipa::path(
     put,
-    path = "/agent-loops/{id}/variables/{name}",
+    path = "/api/v1/agent-loops/{id}/variables/{name}",
     tag = "agent",
-    params(
-        ("id" = String, Path, description = "Agent loop ID"),
-        ("name" = String, Path, description = "Variable name")
-    ),
-    request_body = serde_json::Value,
+    params(IdNamePath),
+    request_body = SetVariableBody,
     responses(
         (status = 200, description = "Variable set", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
@@ -392,12 +391,9 @@ pub(crate) async fn handle_set_variable(
 
 #[utoipa::path(
     delete,
-    path = "/agent-loops/{id}/variables/{name}",
+    path = "/api/v1/agent-loops/{id}/variables/{name}",
     tag = "agent",
-    params(
-        ("id" = String, Path, description = "Agent loop ID"),
-        ("name" = String, Path, description = "Variable name")
-    ),
+    params(IdNamePath),
     responses(
         (status = 200, description = "Variable deleted", body = crate::envelope::ApiEnvelope<bool>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
@@ -436,10 +432,10 @@ pub(crate) struct LoopVariableBatchBody {
 /// execution-scope fail-fast batch, one bad entry never aborts the rest.
 #[utoipa::path(
     post,
-    path = "/agent-loops/{id}/variables/batch",
+    path = "/api/v1/agent-loops/{id}/variables/batch",
     tag = "agent",
-    params(("id" = String, Path, description = "Agent loop ID")),
-    request_body = serde_json::Value,
+    params(IdPath),
+    request_body = LoopVariableBatchBody,
     responses(
         (status = 200, description = "Batch results", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 400, description = "Invalid request body", body = crate::envelope::ErrorResponse),

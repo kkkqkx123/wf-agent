@@ -8,6 +8,7 @@ use axum::response::IntoResponse;
 use axum::routing::get;
 use axum::Router;
 use serde::Deserialize;
+use utoipa::IntoParams;
 
 use crate::envelope::{error_response, ok};
 use crate::extract::{IdPath, ListQuery};
@@ -97,9 +98,9 @@ pub(crate) fn routes() -> Router<ApiState> {
 
 #[utoipa::path(
     get,
-    path = "/executions/{id}/state",
+    path = "/api/v1/executions/{id}/state",
     tag = "workflow",
-    params(("id" = String, Path, description = "id")),
+    params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -117,9 +118,9 @@ pub(crate) async fn handle_state(
 
 #[utoipa::path(
     get,
-    path = "/executions/{id}/variables",
+    path = "/api/v1/executions/{id}/variables",
     tag = "workflow",
-    params(("id" = String, Path, description = "id")),
+    params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -137,9 +138,9 @@ pub(crate) async fn handle_variables(
 
 #[utoipa::path(
     get,
-    path = "/executions/{id}/transitions",
+    path = "/api/v1/executions/{id}/transitions",
     tag = "workflow",
-    params(("id" = String, Path, description = "id")),
+    params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -159,9 +160,9 @@ pub(crate) async fn handle_transitions(
 
 #[utoipa::path(
     get,
-    path = "/executions/{id}/context",
+    path = "/api/v1/executions/{id}/context",
     tag = "workflow",
-    params(("id" = String, Path, description = "id")),
+    params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -181,9 +182,9 @@ pub(crate) async fn handle_context(
 
 #[utoipa::path(
     get,
-    path = "/executions/{id}/call-stack",
+    path = "/api/v1/executions/{id}/call-stack",
     tag = "workflow",
-    params(("id" = String, Path, description = "id")),
+    params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -201,9 +202,9 @@ pub(crate) async fn handle_call_stack(
 
 #[utoipa::path(
     get,
-    path = "/executions/{id}/memory",
+    path = "/api/v1/executions/{id}/memory",
     tag = "workflow",
-    params(("id" = String, Path, description = "id")),
+    params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -221,7 +222,8 @@ pub(crate) async fn handle_memory(
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub(crate) struct SnapshotRangeQuery {
     start: Option<i64>,
     end: Option<i64>,
@@ -229,9 +231,9 @@ pub(crate) struct SnapshotRangeQuery {
 
 #[utoipa::path(
     get,
-    path = "/executions/{id}/variable-snapshots",
+    path = "/api/v1/executions/{id}/variable-snapshots",
     tag = "workflow",
-    params(("id" = String, Path, description = "id"), ("start" = Option<i64>, Query, description = "start"), ("end" = Option<i64>, Query, description = "end")),
+    params(IdPath, SnapshotRangeQuery),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -260,9 +262,9 @@ pub(crate) async fn handle_variable_snapshots(
 
 #[utoipa::path(
     get,
-    path = "/executions/{id}/context-evolution",
+    path = "/api/v1/executions/{id}/context-evolution",
     tag = "workflow",
-    params(("id" = String, Path, description = "id")),
+    params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -282,9 +284,9 @@ pub(crate) async fn handle_context_evolution(
 
 #[utoipa::path(
     get,
-    path = "/executions/{id}/state-analysis",
+    path = "/api/v1/executions/{id}/state-analysis",
     tag = "workflow",
-    params(("id" = String, Path, description = "id")),
+    params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -304,9 +306,9 @@ pub(crate) async fn handle_state_analysis(
 
 #[utoipa::path(
     get,
-    path = "/executions/{id}/context-transitions",
+    path = "/api/v1/executions/{id}/context-transitions",
     tag = "workflow",
-    params(("id" = String, Path, description = "id")),
+    params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -326,9 +328,9 @@ pub(crate) async fn handle_context_transitions(
 
 #[utoipa::path(
     get,
-    path = "/executions/{id}/context-snapshots",
+    path = "/api/v1/executions/{id}/context-snapshots",
     tag = "workflow",
-    params(("id" = String, Path, description = "id")),
+    params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -348,9 +350,9 @@ pub(crate) async fn handle_key_context_snapshots(
 
 #[utoipa::path(
     get,
-    path = "/executions/{id}/agent-state",
+    path = "/api/v1/executions/{id}/agent-state",
     tag = "workflow",
-    params(("id" = String, Path, description = "id")),
+    params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -366,9 +368,9 @@ pub(crate) async fn handle_agent_execution_state(
 
 #[utoipa::path(
     get,
-    path = "/executions/{id}/agent-iterations",
+    path = "/api/v1/executions/{id}/agent-iterations",
     tag = "workflow",
-    params(("id" = String, Path, description = "id")),
+    params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -386,9 +388,9 @@ pub(crate) async fn handle_agent_execution_iterations(
 
 #[utoipa::path(
     get,
-    path = "/executions/{id}/agent-variables",
+    path = "/api/v1/executions/{id}/agent-variables",
     tag = "workflow",
-    params(("id" = String, Path, description = "id")),
+    params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -406,9 +408,9 @@ pub(crate) async fn handle_agent_execution_variables(
 
 #[utoipa::path(
     get,
-    path = "/executions/{id}/state-records",
+    path = "/api/v1/executions/{id}/state-records",
     tag = "workflow",
-    params(("id" = String, Path, description = "id")),
+    params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -424,9 +426,9 @@ pub(crate) async fn handle_state_records(
 
 #[utoipa::path(
     delete,
-    path = "/executions/{id}/state-records",
+    path = "/api/v1/executions/{id}/state-records",
     tag = "workflow",
-    params(("id" = String, Path, description = "id")),
+    params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -440,7 +442,8 @@ pub(crate) async fn handle_clear_state_records(
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Path)]
 pub(crate) struct IterationPath {
     id: String,
     iteration: u32,
@@ -448,9 +451,9 @@ pub(crate) struct IterationPath {
 
 #[utoipa::path(
     get,
-    path = "/executions/{id}/state-records/iterations/{iteration}",
+    path = "/api/v1/executions/{id}/state-records/iterations/{iteration}",
     tag = "workflow",
-    params(("id" = String, Path, description = "id"), ("iteration" = String, Path, description = "iteration")),
+    params(IterationPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -466,7 +469,8 @@ pub(crate) async fn handle_state_at_iteration(
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Path)]
 pub(crate) struct SnapshotAtPath {
     id: String,
     timestamp: i64,
@@ -474,9 +478,9 @@ pub(crate) struct SnapshotAtPath {
 
 #[utoipa::path(
     get,
-    path = "/executions/{id}/state-records/snapshots/{timestamp}",
+    path = "/api/v1/executions/{id}/state-records/snapshots/{timestamp}",
     tag = "workflow",
-    params(("id" = String, Path, description = "id"), ("timestamp" = String, Path, description = "timestamp")),
+    params(SnapshotAtPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -492,8 +496,9 @@ pub(crate) async fn handle_variable_snapshot_at(
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, IntoParams)]
 #[serde(rename_all = "camelCase")]
+#[into_params(parameter_in = Path)]
 pub(crate) struct VariableHistoryPath {
     id: String,
     name: String,
@@ -501,9 +506,9 @@ pub(crate) struct VariableHistoryPath {
 
 #[utoipa::path(
     get,
-    path = "/executions/{id}/state-records/variables/{name}/history",
+    path = "/api/v1/executions/{id}/state-records/variables/{name}/history",
     tag = "workflow",
-    params(("id" = String, Path, description = "id"), ("name" = String, Path, description = "name"), ("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset")),
+    params(VariableHistoryPath, ListQuery),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -527,16 +532,17 @@ pub(crate) async fn handle_state_variable_history(
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub(crate) struct MostChangedQuery {
     limit: Option<usize>,
 }
 
 #[utoipa::path(
     get,
-    path = "/executions/{id}/state-records/most-changed",
+    path = "/api/v1/executions/{id}/state-records/most-changed",
     tag = "workflow",
-    params(("id" = String, Path, description = "id"), ("limit" = Option<u64>, Query, description = "limit")),
+    params(IdPath, MostChangedQuery),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -559,9 +565,9 @@ pub(crate) async fn handle_most_changed_variables(
 
 #[utoipa::path(
     get,
-    path = "/executions/{id}/state-records/mutation-count",
+    path = "/api/v1/executions/{id}/state-records/mutation-count",
     tag = "workflow",
-    params(("id" = String, Path, description = "id")),
+    params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -577,9 +583,9 @@ pub(crate) async fn handle_variable_mutation_count(
 
 #[utoipa::path(
     get,
-    path = "/executions/{id}/state-records/call-stack",
+    path = "/api/v1/executions/{id}/state-records/call-stack",
     tag = "workflow",
-    params(("id" = String, Path, description = "id")),
+    params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -595,9 +601,9 @@ pub(crate) async fn handle_state_call_stack(
 
 #[utoipa::path(
     get,
-    path = "/executions/{id}/state-records/memory",
+    path = "/api/v1/executions/{id}/state-records/memory",
     tag = "workflow",
-    params(("id" = String, Path, description = "id")),
+    params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -613,9 +619,9 @@ pub(crate) async fn handle_state_memory(
 
 #[utoipa::path(
     get,
-    path = "/executions/{id}/state-records/memory/peak",
+    path = "/api/v1/executions/{id}/state-records/memory/peak",
     tag = "workflow",
-    params(("id" = String, Path, description = "id")),
+    params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]

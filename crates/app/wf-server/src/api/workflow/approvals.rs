@@ -14,6 +14,7 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::Deserialize;
 use serde_json::Value;
+use utoipa::{IntoParams, ToSchema};
 
 use wf_api::ToolApprovalRequestData;
 use wf_api::UserInteractionListOptions;
@@ -22,7 +23,7 @@ use wf_api::{ToolApprovalOptions, ToolExecutionOptions};
 
 use crate::envelope::{err, error_response, ok, ApiError};
 use crate::extract::{ExecutionIdPath, IdPath, ListQuery};
-use crate::paged::{fetch_size, ok_page, resolve_page};
+use crate::paged::{fetch_size, ok_page, resolve_page, resolve_page_fields};
 use crate::router::ApiState;
 
 pub(crate) fn routes() -> Router<ApiState> {
@@ -53,17 +54,18 @@ pub(crate) fn routes() -> Router<ApiState> {
         .route("/interactions/stats", get(handle_interaction_stats))
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub(crate) struct ApprovalRequestBody {
     execution_id: String,
+    #[schema(value_type = Object)]
     request: ToolApprovalRequestData,
 }
 
 #[utoipa::path(
     post,
-    path = "/approvals/request",
+    path = "/api/v1/approvals/request",
     tag = "workflow",
-    request_body = serde_json::Value,
+    request_body = ApprovalRequestBody,
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -72,7 +74,7 @@ pub(crate) async fn handle_request_approval(
     Json(body): Json<ApprovalRequestBody>,
 ) -> impl IntoResponse {
     if !wf_api::entity::user_interaction::has_handler(&state.ctx).await {
-        return err::<Value>(ApiError::validation(
+        return err(ApiError::validation(
             "no user interaction handler is registered; cannot wait for approval",
         ))
         .into_response();
@@ -89,18 +91,20 @@ pub(crate) async fn handle_request_approval(
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub(crate) struct ApprovalCheckBody {
     execution_id: String,
+    #[schema(value_type = Object)]
     request: ToolApprovalRequestData,
+    #[schema(value_type = Object)]
     options: Option<ToolApprovalOptions>,
 }
 
 #[utoipa::path(
     post,
-    path = "/approvals/check",
+    path = "/api/v1/approvals/check",
     tag = "workflow",
-    request_body = serde_json::Value,
+    request_body = ApprovalCheckBody,
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -136,7 +140,7 @@ pub(crate) async fn handle_check_approval(
     if matches!(decision, wf_api::ApprovalDecision::Ask)
         && !wf_api::entity::user_interaction::has_handler(&state.ctx).await
     {
-        return err::<Value>(ApiError::validation(
+        return err(ApiError::validation(
             "no user interaction handler is registered; cannot wait for approval",
         ))
         .into_response();
@@ -154,20 +158,22 @@ pub(crate) async fn handle_check_approval(
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub(crate) struct ExecuteToolBody {
     execution_id: String,
     tool_id: String,
     parameters: Value,
+    #[schema(value_type = Object)]
     options: Option<ToolExecutionOptions>,
+    #[schema(value_type = Object)]
     approval_options: Option<ToolApprovalOptions>,
 }
 
 #[utoipa::path(
     post,
-    path = "/approvals/execute-tool",
+    path = "/api/v1/approvals/execute-tool",
     tag = "workflow",
-    request_body = serde_json::Value,
+    request_body = ExecuteToolBody,
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -214,7 +220,7 @@ pub(crate) async fn handle_execute_tool(
     if matches!(decision, wf_api::ApprovalDecision::Ask)
         && !wf_api::entity::user_interaction::has_handler(&state.ctx).await
     {
-        return err::<Value>(ApiError::validation(
+        return err(ApiError::validation(
             "no user interaction handler is registered; cannot wait for approval",
         ))
         .into_response();
@@ -234,10 +240,13 @@ pub(crate) async fn handle_execute_tool(
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub(crate) struct ListInteractionsQuery {
-    #[serde(flatten)]
-    page: ListQuery,
+    /// Page limit
+    limit: Option<u64>,
+    /// Page offset
+    offset: Option<u64>,
     execution_id: Option<String>,
     status: Option<String>,
     interaction_type: Option<String>,
@@ -245,9 +254,9 @@ pub(crate) struct ListInteractionsQuery {
 
 #[utoipa::path(
     get,
-    path = "/interactions",
+    path = "/api/v1/interactions",
     tag = "workflow",
-    params(("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset"), ("execution_id" = Option<String>, Query, description = "execution_id"), ("status" = Option<String>, Query, description = "status"), ("interaction_type" = Option<String>, Query, description = "interaction_type")),
+    params(ListInteractionsQuery),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -255,7 +264,7 @@ pub(crate) async fn handle_list_interactions(
     State(state): State<ApiState>,
     Query(query): Query<ListInteractionsQuery>,
 ) -> impl IntoResponse {
-    let (limit, offset) = resolve_page(&query.page);
+    let (limit, offset) = resolve_page_fields(query.limit, query.offset);
     let options = UserInteractionListOptions {
         offset: Some(offset),
         limit: Some(fetch_size(limit)),
@@ -275,7 +284,7 @@ pub(crate) async fn handle_list_interactions(
 /// implicitly; this endpoint supports manual bookkeeping).
 #[utoipa::path(
     post,
-    path = "/interactions",
+    path = "/api/v1/interactions",
     tag = "workflow",
     request_body = serde_json::Value,
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
@@ -294,9 +303,9 @@ pub(crate) async fn handle_save_interaction(
 
 #[utoipa::path(
     get,
-    path = "/interactions/{id}",
+    path = "/api/v1/interactions/{id}",
     tag = "workflow",
-    params(("id" = String, Path, description = "id")),
+    params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -312,9 +321,9 @@ pub(crate) async fn handle_get_interaction(
 
 #[utoipa::path(
     delete,
-    path = "/interactions/{id}",
+    path = "/api/v1/interactions/{id}",
     tag = "workflow",
-    params(("id" = String, Path, description = "id")),
+    params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -330,9 +339,9 @@ pub(crate) async fn handle_delete_interaction(
 
 #[utoipa::path(
     get,
-    path = "/interactions/by-execution/{executionId}",
+    path = "/api/v1/interactions/by-execution/{executionId}",
     tag = "workflow",
-    params(("executionId" = String, Path, description = "executionId"), ("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset")),
+    params(ExecutionIdPath, ListQuery),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -360,16 +369,17 @@ pub(crate) async fn handle_interactions_by_execution(
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Path)]
 pub(crate) struct StatusPath {
     status: String,
 }
 
 #[utoipa::path(
     get,
-    path = "/interactions/by-status/{status}",
+    path = "/api/v1/interactions/by-status/{status}",
     tag = "workflow",
-    params(("status" = String, Path, description = "status"), ("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset")),
+    params(StatusPath, ListQuery),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -397,7 +407,7 @@ pub(crate) async fn handle_interactions_by_status(
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub(crate) struct RespondBody {
     response_data: Option<Value>,
     result_data: Option<Value>,
@@ -405,10 +415,10 @@ pub(crate) struct RespondBody {
 
 #[utoipa::path(
     post,
-    path = "/interactions/{id}/respond",
+    path = "/api/v1/interactions/{id}/respond",
     tag = "workflow",
-    params(("id" = String, Path, description = "id")),
-    request_body = serde_json::Value,
+    params(IdPath),
+    request_body = RespondBody,
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -432,7 +442,7 @@ pub(crate) async fn handle_respond_interaction(
 
 #[utoipa::path(
     get,
-    path = "/interactions/stats",
+    path = "/api/v1/interactions/stats",
     tag = "workflow",
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))

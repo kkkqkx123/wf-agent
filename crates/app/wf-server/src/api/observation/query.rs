@@ -8,6 +8,7 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::Deserialize;
 use serde_json::Value;
+use utoipa::{IntoParams, ToSchema};
 
 use wf_api::{
     aggregate, evaluate_json_expression, export_to_format, get_distinct, group_by_field, query,
@@ -32,10 +33,12 @@ pub(crate) fn routes() -> Router<ApiState> {
 
 /// Wire shape of the query endpoints: filters (basic + advanced
 /// expressions) plus sort / pagination overrides.
-#[derive(Deserialize, Default)]
+#[derive(Deserialize, Default, ToSchema)]
 pub(crate) struct QueryBody {
+    #[schema(value_type = Option<Object>)]
     filters: Option<FilterCriteria>,
     #[serde(default)]
+    #[schema(value_type = Vec<Object>)]
     expressions: Vec<FilterExpression>,
     sort_field: Option<String>,
     sort_descending: Option<bool>,
@@ -64,9 +67,9 @@ impl QueryBody {
 
 #[utoipa::path(
     post,
-    path = "/query",
+    path = "/api/v1/query",
     tag = "observation",
-    request_body = serde_json::Value,
+    request_body = QueryBody,
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -90,31 +93,35 @@ pub(crate) async fn handle_query(
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub(crate) struct ExportBody {
+    #[schema(value_type = Option<Object>)]
     filters: Option<FilterCriteria>,
     #[serde(default)]
+    #[schema(value_type = Vec<Object>)]
     expressions: Vec<FilterExpression>,
     sort_field: Option<String>,
     sort_descending: Option<bool>,
     limit: Option<usize>,
     offset: Option<usize>,
+    #[schema(value_type = Option<String>)]
     format: Option<ExportFormat>,
     /// When true, answer as a file download instead of the JSON envelope.
     download: Option<bool>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub(crate) struct ExportDownloadQuery {
     download: Option<bool>,
 }
 
 #[utoipa::path(
     post,
-    path = "/query/export",
+    path = "/api/v1/query/export",
     tag = "observation",
-    params(("download" = Option<bool>, Query, description = "download")),
-    request_body = serde_json::Value,
+    params(ExportDownloadQuery),
+    request_body = ExportBody,
     responses((status = 200, description = "Query export file download", body = String, content_type = "text/csv"), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -167,20 +174,23 @@ fn download_response(payload: &str, format: ExportFormat) -> axum::response::Res
     crate::envelope::download(payload, content_type, filename)
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub(crate) struct AggregateBody {
+    #[schema(value_type = Option<Object>)]
     filters: Option<FilterCriteria>,
     #[serde(default)]
+    #[schema(value_type = Vec<Object>)]
     expressions: Vec<FilterExpression>,
     #[serde(default)]
+    #[schema(value_type = Vec<String>)]
     operations: Vec<AggregationOp>,
 }
 
 #[utoipa::path(
     post,
-    path = "/query/aggregate",
+    path = "/api/v1/query/aggregate",
     tag = "observation",
-    request_body = serde_json::Value,
+    request_body = AggregateBody,
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -198,18 +208,23 @@ pub(crate) async fn handle_aggregate(
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub(crate) struct DistinctParams {
     field: String,
-    #[serde(flatten)]
-    filters: FilterCriteria,
+    workflow_id: Option<String>,
+    status: Option<String>,
+    start_time_from: Option<i64>,
+    start_time_to: Option<i64>,
+    tags: Option<Vec<String>>,
+    custom: Option<std::collections::BTreeMap<String, Value>>,
 }
 
 #[utoipa::path(
     get,
-    path = "/query/distinct",
+    path = "/api/v1/query/distinct",
     tag = "observation",
-    params(("field" = String, Query, description = "field"), ("filters" = String, Query, description = "filters")),
+    params(DistinctParams),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -217,23 +232,32 @@ pub(crate) async fn handle_distinct(
     State(state): State<ApiState>,
     Query(params): Query<DistinctParams>,
 ) -> impl IntoResponse {
-    match wf_api::query(&state.ctx, Some(&params.filters), None, None).await {
+    let filters = FilterCriteria {
+        workflow_id: params.workflow_id,
+        status: params.status,
+        start_time_from: params.start_time_from,
+        start_time_to: params.start_time_to,
+        tags: params.tags,
+        custom: params.custom,
+    };
+    match wf_api::query(&state.ctx, Some(&filters), None, None).await {
         Ok(records) => ok(get_distinct(&records, &params.field)).into_response(),
         Err(e) => error_response(e),
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub(crate) struct GroupByBody {
     field: String,
+    #[schema(value_type = Option<Object>)]
     filters: Option<FilterCriteria>,
 }
 
 #[utoipa::path(
     post,
-    path = "/query/group-by",
+    path = "/api/v1/query/group-by",
     tag = "observation",
-    request_body = serde_json::Value,
+    request_body = GroupByBody,
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -249,18 +273,19 @@ pub(crate) async fn handle_group_by(
 
 /// Evaluate a filter expression against an arbitrary JSON record without
 /// persisting anything. Useful for validating query semantics before use.
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub(crate) struct EvaluateBody {
     record: Value,
     #[serde(flatten)]
+    #[schema(value_type = Object)]
     expression: FilterExpression,
 }
 
 #[utoipa::path(
     post,
-    path = "/query/evaluate",
+    path = "/api/v1/query/evaluate",
     tag = "observation",
-    request_body = serde_json::Value,
+    request_body = EvaluateBody,
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]

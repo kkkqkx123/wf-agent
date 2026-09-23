@@ -4,6 +4,7 @@
 use std::convert::Infallible;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
+use utoipa::IntoParams;
 
 use axum::extract::{Path, Query, State};
 use axum::response::{IntoResponse, Response};
@@ -16,7 +17,9 @@ use wf_api::EventSubscriptionOptions;
 
 use crate::envelope::{err, error_response, ok, ApiError};
 use crate::extract::{ExecutionIdPath, IdPath, ListQuery};
-use crate::paged::{fetch_size, ok_capped, ok_page, resolve_page, MAX_TIMELINE_ENTRIES};
+use crate::paged::{
+    fetch_size, ok_capped, ok_page, resolve_page, resolve_page_fields, MAX_TIMELINE_ENTRIES,
+};
 use crate::router::ApiState;
 use crate::sse::sse_response;
 
@@ -76,10 +79,13 @@ pub(crate) fn routes() -> Router<ApiState> {
         )
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub(crate) struct ListEventsQuery {
-    #[serde(flatten)]
-    page: ListQuery,
+    /// Page limit
+    limit: Option<u64>,
+    /// Page offset
+    offset: Option<u64>,
     execution_id: Option<String>,
     agent_loop_id: Option<String>,
     workflow_id: Option<String>,
@@ -87,9 +93,9 @@ pub(crate) struct ListEventsQuery {
 
 #[utoipa::path(
     get,
-    path = "/events",
+    path = "/api/v1/events",
     tag = "system",
-    params(("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset"), ("execution_id" = Option<String>, Query, description = "execution_id"), ("agent_loop_id" = Option<String>, Query, description = "agent_loop_id"), ("workflow_id" = Option<String>, Query, description = "workflow_id")),
+    params(ListEventsQuery),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -97,7 +103,7 @@ pub(crate) async fn handle_list_events(
     State(state): State<ApiState>,
     Query(query): Query<ListEventsQuery>,
 ) -> impl IntoResponse {
-    let (limit, offset) = resolve_page(&query.page);
+    let (limit, offset) = resolve_page_fields(query.limit, query.offset);
     // `history` truncates to `limit` from the start, so deep pages must
     // over-fetch past the offset; the fetch stays bounded.
     let fetch = offset
@@ -124,16 +130,17 @@ pub(crate) async fn handle_list_events(
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub(crate) struct ClearEventsQuery {
     force: Option<bool>,
 }
 
 #[utoipa::path(
     delete,
-    path = "/events",
+    path = "/api/v1/events",
     tag = "system",
-    params(("force" = Option<bool>, Query, description = "force")),
+    params(ClearEventsQuery),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -142,7 +149,7 @@ pub(crate) async fn handle_clear_events(
     Query(query): Query<ClearEventsQuery>,
 ) -> impl IntoResponse {
     if !query.force.unwrap_or(false) {
-        return err::<serde_json::Value>(ApiError::validation(
+        return err(ApiError::validation(
             "clearing the event history requires ?force=true",
         ))
         .into_response();
@@ -155,7 +162,7 @@ pub(crate) async fn handle_clear_events(
 
 #[utoipa::path(
     get,
-    path = "/events/stats",
+    path = "/api/v1/events/stats",
     tag = "system",
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
@@ -169,21 +176,24 @@ pub(crate) async fn handle_event_stats(State(state): State<ApiState>) -> impl In
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub(crate) struct SearchEventsQuery {
     q: String,
     execution_id: Option<String>,
     agent_loop_id: Option<String>,
     workflow_id: Option<String>,
-    #[serde(flatten)]
-    page: ListQuery,
+    /// Page limit
+    limit: Option<u64>,
+    /// Page offset
+    offset: Option<u64>,
 }
 
 #[utoipa::path(
     get,
-    path = "/events/search",
+    path = "/api/v1/events/search",
     tag = "system",
-    params(("q" = String, Query, description = "q"), ("execution_id" = Option<String>, Query, description = "execution_id"), ("agent_loop_id" = Option<String>, Query, description = "agent_loop_id"), ("workflow_id" = Option<String>, Query, description = "workflow_id"), ("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset")),
+    params(SearchEventsQuery),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -191,7 +201,7 @@ pub(crate) async fn handle_search_events(
     State(state): State<ApiState>,
     Query(query): Query<SearchEventsQuery>,
 ) -> impl IntoResponse {
-    let (limit, offset) = resolve_page(&query.page);
+    let (limit, offset) = resolve_page_fields(query.limit, query.offset);
     let fetch = offset
         .saturating_add(limit)
         .saturating_add(1)
@@ -218,7 +228,7 @@ pub(crate) async fn handle_search_events(
 
 #[utoipa::path(
     get,
-    path = "/events/size",
+    path = "/api/v1/events/size",
     tag = "system",
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
@@ -232,7 +242,7 @@ pub(crate) async fn handle_event_size(State(state): State<ApiState>) -> impl Int
 
 #[utoipa::path(
     get,
-    path = "/events/time-range",
+    path = "/api/v1/events/time-range",
     tag = "system",
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
@@ -246,9 +256,9 @@ pub(crate) async fn handle_event_time_range(State(state): State<ApiState>) -> im
 
 #[utoipa::path(
     get,
-    path = "/events/timeline/{executionId}",
+    path = "/api/v1/events/timeline/{executionId}",
     tag = "system",
-    params(("executionId" = String, Path, description = "executionId")),
+    params(ExecutionIdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::paged::CappedView<serde_json::Value>>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -264,9 +274,9 @@ pub(crate) async fn handle_execution_timeline(
 
 #[utoipa::path(
     get,
-    path = "/events/agent-timeline/{id}",
+    path = "/api/v1/events/agent-timeline/{id}",
     tag = "system",
-    params(("id" = String, Path, description = "id")),
+    params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::paged::CappedView<serde_json::Value>>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -282,9 +292,9 @@ pub(crate) async fn handle_agent_timeline(
 
 #[utoipa::path(
     get,
-    path = "/events/execution-timeline/{executionId}",
+    path = "/api/v1/events/execution-timeline/{executionId}",
     tag = "system",
-    params(("executionId" = String, Path, description = "executionId")),
+    params(ExecutionIdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -338,9 +348,9 @@ fn cap_execution_timeline(
 
 #[utoipa::path(
     get,
-    path = "/events/execution-timeline/{executionId}/summary",
+    path = "/api/v1/events/execution-timeline/{executionId}/summary",
     tag = "system",
-    params(("executionId" = String, Path, description = "executionId")),
+    params(ExecutionIdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -358,9 +368,9 @@ pub(crate) async fn handle_execution_timeline_summary(
 
 #[utoipa::path(
     get,
-    path = "/events/listener-stats/{executionId}",
+    path = "/api/v1/events/listener-stats/{executionId}",
     tag = "system",
-    params(("executionId" = String, Path, description = "executionId")),
+    params(ExecutionIdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -376,7 +386,7 @@ pub(crate) async fn handle_listener_stats(
 
 #[utoipa::path(
     get,
-    path = "/events/agent/stats",
+    path = "/api/v1/events/agent/stats",
     tag = "system",
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
@@ -390,17 +400,18 @@ pub(crate) async fn handle_agent_loop_statistics(
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, IntoParams)]
 #[serde(rename_all = "camelCase")]
+#[into_params(parameter_in = Path)]
 pub(crate) struct AgentLoopPath {
     agent_loop_id: String,
 }
 
 #[utoipa::path(
     get,
-    path = "/events/agent/{agentLoopId}",
+    path = "/api/v1/events/agent/{agentLoopId}",
     tag = "system",
-    params(("agentLoopId" = String, Path, description = "agentLoopId"), ("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset")),
+    params(AgentLoopPath, ListQuery),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -425,9 +436,9 @@ pub(crate) async fn handle_agent_events(
 
 #[utoipa::path(
     get,
-    path = "/events/agent/{agentLoopId}/turns",
+    path = "/api/v1/events/agent/{agentLoopId}/turns",
     tag = "system",
-    params(("agentLoopId" = String, Path, description = "agentLoopId"), ("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset")),
+    params(AgentLoopPath, ListQuery),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -452,9 +463,9 @@ pub(crate) async fn handle_agent_turn_events(
 
 #[utoipa::path(
     get,
-    path = "/events/agent/{agentLoopId}/tool-executions",
+    path = "/api/v1/events/agent/{agentLoopId}/tool-executions",
     tag = "system",
-    params(("agentLoopId" = String, Path, description = "agentLoopId"), ("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset")),
+    params(AgentLoopPath, ListQuery),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -479,7 +490,8 @@ pub(crate) async fn handle_agent_tool_execution_events(
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub(crate) struct StreamEventsQuery {
     execution_id: Option<String>,
     agent_loop_id: Option<String>,
@@ -491,9 +503,9 @@ pub(crate) struct StreamEventsQuery {
 
 #[utoipa::path(
     get,
-    path = "/events/stream",
+    path = "/api/v1/events/stream",
     tag = "system",
-    params(("execution_id" = Option<String>, Query, description = "execution_id"), ("agent_loop_id" = Option<String>, Query, description = "agent_loop_id"), ("workflow_id" = Option<String>, Query, description = "workflow_id"), ("since" = Option<String>, Query, description = "since")),
+    params(StreamEventsQuery),
     responses(
         (status = 200, description = "Server-sent events stream", content_type = "text/event-stream"),
         (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse),

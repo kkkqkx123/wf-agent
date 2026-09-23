@@ -1,14 +1,16 @@
 //! OpenAPI documentation for wf-server REST API.
 //!
 //! Central `ApiDoc` aggregates annotated route handlers and schemas.
-//! Served at `/api-docs/openapi.json` with Swagger UI at
-//! `/api-docs/swagger` when enabled (dev/debug or `openapi-docs` feature).
+//! Served at `/api-docs/openapi.json` in debug builds or with the
+//! `openapi-docs` feature. The committed snapshot under
+//! `apps/web-app/openapi.json` is the offline codegen source of truth.
 //!
 //! Success bodies use the typed envelope (`ApiEnvelope<T>`) with pagination
 //! shells (`PageView<T>` / `CappedView<T>`); `data` stays generic JSON
 //! (`serde_json::Value`) except for wf-server local view types, so domain
 //! types do not need `ToSchema`. SSE uses `text/event-stream`, file
-//! downloads use `String` with their file content type.
+//! downloads use `String` with their file content type. Errors always use
+//! `ErrorResponse`.
 
 use utoipa::OpenApi;
 
@@ -468,6 +470,21 @@ use utoipa::OpenApi;
         crate::api::system::events::handle_agent_turn_events,
         crate::api::system::events::handle_agent_tool_execution_events,
         crate::api::system::events::handle_event_stream,
+        crate::api::system::health::handle_root,
+        crate::api::system::health::handle_health,
+        crate::api::system::health::handle_info,
+        crate::api::system::health::handle_storage_diagnose,
+        crate::api::system::health::handle_storage_health,
+        crate::api::system::health::handle_storage_stats,
+        crate::api::system::health::handle_diagnostics,
+        crate::api::system::health::handle_event_health,
+        crate::api::system::metrics::handle_workflow,
+        crate::api::system::metrics::handle_node_templates,
+        crate::api::system::metrics::handle_agents,
+        crate::api::system::metrics::handle_report,
+        crate::api::system::metrics::handle_export,
+        crate::api::system::metrics::handle_collectors,
+        crate::metrics::handle_metrics,
 
     ),
     components(schemas(
@@ -493,6 +510,52 @@ use utoipa::OpenApi;
         crate::envelope::ApiEnvelope<crate::api::checkpoint::file_approvals::RejectResponse>,
         crate::api::agent::graphs::CappedPaths,
         crate::envelope::ApiEnvelope<crate::api::agent::graphs::CappedPaths>,
+        crate::api::system::health::HealthView,
+        crate::api::entity::interactions::AgentRespondBody,
+        crate::api::observation::query::AggregateBody,
+        crate::api::workflow::approvals::ApprovalCheckBody,
+        crate::api::workflow::approvals::ApprovalRequestBody,
+        crate::api::checkpoint::file_approvals::ApproveRequest,
+        crate::api::web::batch::BatchRespondBody,
+        crate::api::entity::variables::BatchSetVariablesBody,
+        crate::api::checkpoint::file_provenance::BeginSessionRequest,
+        crate::api::entity::tasks::CleanupTasksBody,
+        crate::api::trigger::executions::CleanupTriggerExecutionsBody,
+        crate::api::workflow::workflows::CloneBody,
+        crate::api::template::library::CloneTemplateBody,
+        crate::api::agent::executions::CreateCheckpointBody,
+        crate::api::llm::llm::CreateFromTemplateBody,
+        crate::api::observation::query::EvaluateBody,
+        crate::api::workflow::executions::ExecuteBody,
+        crate::api::workflow::approvals::ExecuteToolBody,
+        crate::api::observation::query::ExportBody,
+        crate::api::workflow::workflows::ExportManyBody,
+        crate::api::observation::query::GroupByBody,
+        crate::api::web::batch::IdsBody,
+        crate::api::workflow::workflows::ImportBody,
+        crate::api::llm::llm::ImportProfileBody,
+        crate::api::entity::variables::ImportVariablesBody,
+        crate::api::workflow::versions::IncrementVersionBody,
+        crate::api::agent::variables::LoopVariableBatchBody,
+        crate::api::workflow::workflows::ParseWorkflowBody,
+        crate::api::observation::query::QueryBody,
+        crate::api::checkpoint::file_approvals::RejectRequest,
+        crate::api::checkpoint::file_provenance::RenameFileRequest,
+        crate::api::web::preferences::ReplacePreferencesBody,
+        crate::api::workflow::approvals::RespondBody,
+        crate::api::agent::executions::ResumeCheckpointBody,
+        crate::api::workflow::versions::RollbackBody,
+        crate::api::agent::loops::RunAgentLoopBody,
+        crate::api::workflow::versions::SaveVersionBody,
+        crate::api::llm::scripts::ScriptExecuteBody,
+        crate::api::web::preferences::SetPreferenceBody,
+        crate::api::agent::variables::SetVariableBody,
+        crate::api::workflow::workflows::TransformWorkflowBody,
+        crate::api::agent::loops::UpdateLoopStatusBody,
+        crate::api::web::favorites::UpsertFavoriteBody,
+        crate::api::workflow::workflows::ValidateNodeBody,
+        crate::api::llm::tools::ValidateToolParamsBody,
+        crate::api::entity::variables::VariableBody,
     )),
     tags(
         (name = "agent", description = "Agent loop management: CRUD, execution control, status, variables, and analysis"),
@@ -507,12 +570,12 @@ use utoipa::OpenApi;
         (name = "web", description = "User preferences, favorites, and batch operations"),
     ),
     servers(
-        (url = "/api/v1", description = "API v1 (mounted under /api/v1)")
+        (url = "/", description = "Server root; paths include the /api/v1 prefix where applicable")
     ),
     security(
         ("api_key" = [])
     ),
-    modifiers(&SecurityAddon)
+    modifiers(&SecurityAddon, &GlobalErrorResponses)
 )]
 pub struct ApiDoc;
 
@@ -536,49 +599,73 @@ impl utoipa::Modify for SecurityAddon {
     }
 }
 
+/// Injects middleware-level error responses into every operation so auth,
+/// rate-limit, overload and timeout failures are visible to codegen without
+/// repeating them in 400+ annotations.
+struct GlobalErrorResponses;
+
+impl utoipa::Modify for GlobalErrorResponses {
+    fn modify(&self, openapi: &mut utoipa::openapi::OpenApi) {
+        const EXTRA: [(&str, &str); 5] = [
+            ("401", "Unauthorized: missing or invalid API key"),
+            ("403", "Forbidden: API key lacks access"),
+            (
+                "429",
+                "Too many requests: rate limit exceeded (see Retry-After)",
+            ),
+            ("503", "Service unavailable: resource limit reached"),
+            ("504", "Gateway timeout: upstream operation timed out"),
+        ];
+        for item in openapi.paths.paths.values_mut() {
+            for operation in path_item_operations(item) {
+                for (status, description) in EXTRA {
+                    operation
+                        .responses
+                        .responses
+                        .entry(status.to_string())
+                        .or_insert_with(|| {
+                            utoipa::openapi::RefOr::T(utoipa::openapi::Response::new(description))
+                        });
+                }
+            }
+        }
+    }
+}
+
+fn path_item_operations(
+    item: &mut utoipa::openapi::path::PathItem,
+) -> Vec<&mut utoipa::openapi::path::Operation> {
+    let mut ops = Vec::new();
+    for slot in [
+        &mut item.get,
+        &mut item.put,
+        &mut item.post,
+        &mut item.delete,
+        &mut item.options,
+        &mut item.head,
+        &mut item.patch,
+        &mut item.trace,
+    ] {
+        if let Some(operation) = slot.as_mut() {
+            ops.push(operation);
+        }
+    }
+    ops
+}
+
 /// Serve the generated OpenAPI document as JSON. Mounted at
 /// `/api-docs/openapi.json` in dev/debug builds or with the
-/// `openapi-docs` feature.
+/// `openapi-docs` feature. Offline codegen reads the committed snapshot
+/// instead of this route.
 pub async fn serve_openapi_json() -> axum::Json<utoipa::openapi::OpenApi> {
     axum::Json(ApiDoc::openapi())
 }
 
-/// Serve a Swagger UI page at `/api-docs/swagger`. The page is
-/// self-contained HTML; the Swagger UI assets are loaded by the browser
-/// from a CDN and pointed at the local `/api-docs/openapi.json`, so the
-/// server needs no UI dependency and no outbound network.
-pub async fn serve_swagger_ui() -> axum::response::Html<&'static str> {
-    axum::response::Html(SWAGGER_UI_HTML)
+/// Absolute path to the committed OpenAPI snapshot consumed by web-app codegen.
+#[cfg(test)]
+fn snapshot_path() -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../apps/web-app/openapi.json")
 }
-
-const SWAGGER_UI_HTML: &str = r##"<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>wf-server API</title>
-    <link
-      rel="stylesheet"
-      href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css"
-    />
-  </head>
-  <body>
-    <div id="swagger-ui"></div>
-    <script
-      src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"
-      crossorigin
-    ></script>
-    <script>
-      window.onload = () => {
-        window.ui = SwaggerUIBundle({
-          url: "/api-docs/openapi.json",
-          dom_id: "#swagger-ui",
-        });
-      };
-    </script>
-   </body>
-</html>
-"##;
 
 #[cfg(test)]
 mod tests {
@@ -619,7 +706,26 @@ mod tests {
                 }
             }
         }
-        assert_eq!(ops, 437, "one operation per annotated handler");
+        assert_eq!(ops, 452, "one operation per annotated handler");
+    }
+
+    #[test]
+    fn global_error_responses_are_declared() {
+        let v = doc();
+        let mut sample = None;
+        for (_path, item) in v["paths"].as_object().unwrap() {
+            if let Some(op) = item.get("get") {
+                sample = Some(op);
+                break;
+            }
+        }
+        let op = sample.expect("at least one GET operation");
+        for status in ["401", "403", "429", "503", "504"] {
+            assert!(
+                op["responses"].as_object().unwrap().contains_key(status),
+                "missing global {status} response"
+            );
+        }
     }
 
     #[test]
@@ -629,5 +735,204 @@ mod tests {
         assert_eq!(schemes["api_key"]["type"].as_str().unwrap(), "apiKey");
         assert_eq!(schemes["api_key"]["in"].as_str().unwrap(), "header");
         assert_eq!(schemes["api_key"]["name"].as_str().unwrap(), "x-api-key");
+    }
+
+    #[test]
+    fn committed_snapshot_matches_document() {
+        let actual =
+            serde_json::to_string_pretty(&ApiDoc::openapi()).expect("ApiDoc must serialize") + "\n";
+        let path = snapshot_path();
+        if std::env::var_os("WF_REFRESH_OPENAPI").is_some() {
+            std::fs::create_dir_all(path.parent().expect("snapshot parent"))
+                .expect("create snapshot dir");
+            std::fs::write(&path, &actual).expect("write openapi snapshot");
+            return;
+        }
+        let expected = std::fs::read_to_string(&path).unwrap_or_else(|e| {
+            panic!(
+                "missing OpenAPI snapshot at {}: {e}; run with WF_REFRESH_OPENAPI=1 to create it",
+                path.display()
+            )
+        });
+        assert_eq!(
+            actual,
+            expected,
+            "OpenAPI snapshot drifted; run with WF_REFRESH_OPENAPI=1 to refresh apps/web-app/openapi.json"
+        );
+    }
+
+    /// Source-level parity between axum `.route` tables and `#[utoipa::path]`
+    /// annotations. Catches handlers wired only on the router (or annotated
+    /// only) that the paths-registration count test cannot see. WebSocket and
+    /// docs routes are intentionally outside the OpenAPI surface.
+    #[test]
+    fn routes_match_utoipa_annotations() {
+        use std::collections::BTreeSet;
+
+        let src_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+        let mut annotated: BTreeSet<(String, String)> = BTreeSet::new();
+        let mut routed: BTreeSet<(String, String)> = BTreeSet::new();
+
+        for entry in walk_rs(&src_root) {
+            let rel = entry
+                .strip_prefix(&src_root)
+                .expect("source under src root")
+                .to_string_lossy()
+                .replace('\\', "/");
+            if should_skip_route_file(&rel) {
+                continue;
+            }
+            let text = std::fs::read_to_string(&entry).expect("read source file");
+            for (method, path) in parse_utoipa_annotations(&text) {
+                annotated.insert((method, path));
+            }
+            let prefix = route_prefix_for(&rel);
+            for (method, path) in parse_axum_routes(&text) {
+                let full = if rel == "api/system/health.rs" || rel == "metrics.rs" {
+                    path
+                } else {
+                    format!("{prefix}{path}")
+                };
+                routed.insert((method, full));
+            }
+        }
+
+        let only_annotation: Vec<_> = annotated.difference(&routed).collect();
+        let only_route: Vec<_> = routed.difference(&annotated).collect();
+        assert!(
+            only_annotation.is_empty() && only_route.is_empty(),
+            "route/annotation drift\nonly in annotations: {only_annotation:?}\nonly in routes: {only_route:?}"
+        );
+        assert!(!annotated.is_empty(), "expected a non-empty annotation set");
+    }
+
+    fn walk_rs(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
+        let mut out = Vec::new();
+        for entry in std::fs::read_dir(dir).expect("read source dir") {
+            let entry = entry.expect("dir entry");
+            let path = entry.path();
+            if path.is_dir() {
+                out.extend(walk_rs(&path));
+            } else if path.extension().is_some_and(|e| e == "rs") {
+                out.push(path);
+            }
+        }
+        out
+    }
+
+    fn should_skip_route_file(rel: &str) -> bool {
+        matches!(rel, "ws.rs" | "middleware.rs" | "router.rs" | "main.rs")
+            || (!rel.starts_with("api/") && rel != "metrics.rs")
+    }
+
+    fn route_prefix_for(rel: &str) -> &'static str {
+        if rel == "api/system/metrics.rs" {
+            "/api/v1/metrics"
+        } else {
+            "/api/v1"
+        }
+    }
+
+    fn parse_utoipa_annotations(text: &str) -> Vec<(String, String)> {
+        let mut out = Vec::new();
+        let mut rest = text;
+        while let Some(pos) = rest.find("#[utoipa::path(") {
+            let after = &rest[pos + "#[utoipa::path(".len()..];
+            let window = &after[..after.len().min(400)];
+            if let Some((method, path)) = parse_annotation_head(window) {
+                out.push((method, path));
+            }
+            rest = &after[1..];
+        }
+        out
+    }
+
+    fn parse_annotation_head(window: &str) -> Option<(String, String)> {
+        let methods = [
+            "get", "put", "post", "patch", "delete", "head", "options", "trace",
+        ];
+        let lower = window.to_ascii_lowercase();
+        let trimmed = lower.trim_start();
+        let mut method = None;
+        for m in methods {
+            if let Some(after) = trimmed.strip_prefix(m) {
+                if after.trim_start().starts_with(',') {
+                    method = Some(m.to_uppercase());
+                    break;
+                }
+            }
+        }
+        let method = method?;
+        let ppos = lower.find("path")?;
+        let q1 = window[ppos..].find('=')? + ppos;
+        let q2 = window[q1 + 1..].find('"')? + q1 + 1;
+        let q3 = window[q2 + 1..].find('"')? + q2 + 1;
+        let path = window[q2 + 1..q3].to_string();
+        Some((method, path))
+    }
+
+    fn parse_axum_routes(text: &str) -> Vec<(String, String)> {
+        let mut out = Vec::new();
+        let positions: Vec<usize> = text.match_indices(".route(").map(|(i, _)| i).collect();
+        for (idx, &pos) in positions.iter().enumerate() {
+            let after = &text[pos + ".route(".len()..];
+            let body_len = match positions.get(idx + 1) {
+                Some(&next) => next - (pos + ".route(".len()),
+                None => cut_routes_tail(after),
+            };
+            let body = &after[..body_len.min(after.len())];
+            let Some(path) = first_string_literal(body) else {
+                continue;
+            };
+            for method in parse_route_methods(body) {
+                out.push((method, path.clone()));
+            }
+        }
+        out
+    }
+
+    /// Last `.route` segment: stop before the next top-level item in the file.
+    fn cut_routes_tail(seg: &str) -> usize {
+        let mut end = seg.len();
+        for pat in ["\nfn ", "\npub ", "\nasync ", "\n#["] {
+            if let Some(i) = seg.find(pat) {
+                end = end.min(i);
+            }
+        }
+        end
+    }
+
+    fn first_string_literal(s: &str) -> Option<String> {
+        let start = s.find('"')?;
+        let end = s[start + 1..].find('"')? + start + 1;
+        Some(s[start + 1..end].to_string())
+    }
+
+    fn parse_route_methods(body: &str) -> Vec<String> {
+        const METHODS: [&str; 8] = [
+            "get", "put", "post", "patch", "delete", "head", "options", "trace",
+        ];
+        let lower = body.to_ascii_lowercase();
+        let mut out = Vec::new();
+        let mut search = 0usize;
+        while search < lower.len() {
+            let Some(found) = lower[search..].find(|c: char| c.is_ascii_alphabetic() || c == '_')
+            else {
+                break;
+            };
+            let start = search + found;
+            let mut end = start;
+            while end < lower.len()
+                && (lower.as_bytes()[end].is_ascii_alphanumeric() || lower.as_bytes()[end] == b'_')
+            {
+                end += 1;
+            }
+            let word = &lower[start..end];
+            search = end.max(start + 1);
+            if METHODS.contains(&word) && lower[end..].trim_start().starts_with('(') {
+                out.push(word.to_uppercase());
+            }
+        }
+        out
     }
 }

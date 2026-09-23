@@ -8,11 +8,13 @@ use axum::routing::{delete, get, post};
 use axum::{Json, Router};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use utoipa::ToSchema;
+use utoipa::{IntoParams, ToSchema};
 
 use crate::envelope::{error_response, ok};
 use crate::extract::{DefIdPath, IdPath, ListQuery};
-use crate::paged::{fetch_size, ok_capped, ok_page, resolve_page, MAX_CHAIN_ENTRIES};
+use crate::paged::{
+    fetch_size, ok_capped, ok_page, resolve_page, resolve_page_fields, MAX_CHAIN_ENTRIES,
+};
 use crate::router::ApiState;
 pub(crate) fn routes() -> Router<ApiState> {
     Router::new()
@@ -60,19 +62,22 @@ pub(crate) fn routes() -> Router<ApiState> {
 
 // ── agent executions ──────────────────────────────────────────────
 
-#[derive(Deserialize)]
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub(crate) struct AgentExecutionsQuery {
-    #[serde(flatten)]
-    page: ListQuery,
+    /// Page limit
+    limit: Option<u64>,
+    /// Page offset
+    offset: Option<u64>,
     status: Option<String>,
     agent_id: Option<String>,
 }
 
 #[utoipa::path(
     get,
-    path = "/agent-executions",
+    path = "/api/v1/agent-executions",
     tag = "agent",
-    params(("limit" = Option<u64>, Query, description = "Page limit"), ("offset" = Option<u64>, Query, description = "Page offset")),
+    params(AgentExecutionsQuery),
     responses(
         (status = 200, description = "List of agent executions", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>),
         (status = 400, description = "Invalid query parameters", body = crate::envelope::ErrorResponse),
@@ -84,7 +89,7 @@ pub(crate) async fn handle_agent_executions(
     State(state): State<ApiState>,
     Query(query): Query<AgentExecutionsQuery>,
 ) -> impl IntoResponse {
-    let (limit, offset) = resolve_page(&query.page);
+    let (limit, offset) = resolve_page_fields(query.limit, query.offset);
     let filter = wf_api::AgentExecutionFilter {
         status: query
             .status
@@ -108,9 +113,9 @@ pub(crate) async fn handle_agent_executions(
 
 #[utoipa::path(
     get,
-    path = "/agent-executions/{id}",
+    path = "/api/v1/agent-executions/{id}",
     tag = "agent",
-    params(("id" = String, Path, description = "Agent execution ID")),
+    params(IdPath),
     responses(
         (status = 200, description = "Agent execution found", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
@@ -130,9 +135,9 @@ pub(crate) async fn handle_get_agent_execution(
 
 #[utoipa::path(
     delete,
-    path = "/agent-executions/{id}",
+    path = "/api/v1/agent-executions/{id}",
     tag = "agent",
-    params(("id" = String, Path, description = "Agent execution ID")),
+    params(IdPath),
     responses(
         (status = 200, description = "Agent execution deleted", body = crate::envelope::ApiEnvelope<bool>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
@@ -152,10 +157,9 @@ pub(crate) async fn handle_delete_agent_execution(
 
 #[utoipa::path(
     get,
-    path = "/agent-executions/by-definition/{defId}",
+    path = "/api/v1/agent-executions/by-definition/{defId}",
     tag = "agent",
-    params(
-        ("defId" = String, Path, description = "Agent definition ID"), ("limit" = Option<u64>, Query, description = "Page limit"), ("offset" = Option<u64>, Query, description = "Page offset")),
+    params(DefIdPath, ListQuery),
     responses(
         (status = 200, description = "List of executions for definition", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>),
         (status = 400, description = "Invalid query parameters", body = crate::envelope::ErrorResponse),
@@ -186,7 +190,7 @@ pub(crate) async fn handle_executions_by_definition(
 
 #[utoipa::path(
     get,
-    path = "/agent-executions/stats",
+    path = "/api/v1/agent-executions/stats",
     tag = "agent",
     responses(
         (status = 200, description = "Agent execution statistics", body = crate::envelope::ApiEnvelope<serde_json::Value>),
@@ -205,10 +209,9 @@ pub(crate) async fn handle_execution_statistics(
 
 #[utoipa::path(
     get,
-    path = "/agent-executions/by-status/{status}",
+    path = "/api/v1/agent-executions/by-status/{status}",
     tag = "agent",
-    params(
-        ("status" = String, Path, description = "Execution status (running, paused, completed, failed)"), ("limit" = Option<u64>, Query, description = "Page limit"), ("offset" = Option<u64>, Query, description = "Page offset")),
+    params(crate::extract::StatusPath, ListQuery),
     responses(
         (status = 200, description = "Executions by status", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>),
         (status = 400, description = "Invalid status", body = crate::envelope::ErrorResponse),
@@ -228,7 +231,7 @@ pub(crate) async fn handle_executions_by_status(
         "completed" => wf_api::agent::agent_execution_registry::completed(&state.ctx).await,
         "failed" => wf_api::agent::agent_execution_registry::failed(&state.ctx).await,
         other => {
-            return crate::envelope::err::<Value>(crate::envelope::ApiError::validation(format!(
+            return crate::envelope::err(crate::envelope::ApiError::validation(format!(
                 "unknown agent execution status: {other}"
             )))
             .into_response()
@@ -264,10 +267,10 @@ async fn ensure_agent_domain(
 
 #[utoipa::path(
     post,
-    path = "/agent-loops/{id}/checkpoints",
+    path = "/api/v1/agent-loops/{id}/checkpoints",
     tag = "agent",
-    params(("id" = String, Path, description = "Agent loop ID")),
-    request_body = serde_json::Value,
+    params(IdPath),
+    request_body = CreateCheckpointBody,
     responses(
         (status = 200, description = "Checkpoint created", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Agent loop not found", body = crate::envelope::ErrorResponse),
@@ -292,10 +295,9 @@ pub(crate) async fn handle_create_checkpoint(
 
 #[utoipa::path(
     get,
-    path = "/agent-loops/{id}/checkpoints",
+    path = "/api/v1/agent-loops/{id}/checkpoints",
     tag = "agent",
-    params(
-        ("id" = String, Path, description = "Agent loop ID"), ("limit" = Option<u64>, Query, description = "Page limit"), ("offset" = Option<u64>, Query, description = "Page offset")),
+    params(IdPath, ListQuery),
     responses(
         (status = 200, description = "List of checkpoints", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>),
         (status = 404, description = "Agent loop not found", body = crate::envelope::ErrorResponse),
@@ -327,9 +329,9 @@ pub(crate) async fn handle_list_checkpoints(
 
 #[utoipa::path(
     post,
-    path = "/agent-loops/{id}/checkpoints/{cid}/restore",
+    path = "/api/v1/agent-loops/{id}/checkpoints/{cid}/restore",
     tag = "agent",
-    params(("id" = String, Path, description = "Agent loop ID"), ("cid" = String, Path, description = "Checkpoint ID")),
+    params(crate::extract::IdCidPath),
     responses(
         (status = 200, description = "Checkpoint restored", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
@@ -361,7 +363,7 @@ pub(crate) async fn handle_restore_checkpoint(
 
 /// Resume mode for checkpoint resume: `branch` (default) continues under a
 /// fresh execution id; `in_place` continues under the source execution id.
-#[derive(Deserialize, Default, PartialEq, Eq)]
+#[derive(Deserialize, Default, PartialEq, Eq, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum ResumeCheckpointMode {
     #[default]
@@ -369,9 +371,10 @@ pub(crate) enum ResumeCheckpointMode {
     InPlace,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub(crate) struct ResumeCheckpointBody {
     #[serde(default)]
+    #[schema(value_type = String)]
     mode: ResumeCheckpointMode,
     #[serde(flatten)]
     run: super::loops::RunAgentLoopBody,
@@ -391,13 +394,10 @@ pub(crate) struct AgentResumeView {
 /// `/agent-loops/{id}/run` (model, message, hooks, tool visibility, ...).
 #[utoipa::path(
     post,
-    path = "/agent-loops/{id}/checkpoints/{cid}/resume",
+    path = "/api/v1/agent-loops/{id}/checkpoints/{cid}/resume",
     tag = "agent",
-    params(
-        ("id" = String, Path, description = "Agent loop ID"),
-        ("cid" = String, Path, description = "Checkpoint ID")
-    ),
-    request_body = serde_json::Value,
+    params(crate::extract::IdCidPath),
+    request_body = ResumeCheckpointBody,
     responses(
         (status = 200, description = "Agent loop resumed from checkpoint", body = crate::envelope::ApiEnvelope<crate::api::agent::executions::AgentResumeView>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
@@ -455,9 +455,9 @@ pub(crate) async fn handle_resume_checkpoint(
 
 #[utoipa::path(
     get,
-    path = "/agent-loops/{id}/checkpoints/chain",
+    path = "/api/v1/agent-loops/{id}/checkpoints/chain",
     tag = "agent",
-    params(("id" = String, Path, description = "Agent loop ID")),
+    params(IdPath),
     responses(
         (status = 200, description = "Checkpoint chain", body = crate::envelope::ApiEnvelope<crate::paged::CappedView<serde_json::Value>>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
@@ -480,9 +480,9 @@ pub(crate) async fn handle_checkpoint_chain(
 
 #[utoipa::path(
     delete,
-    path = "/agent-loops/{id}/checkpoints",
+    path = "/api/v1/agent-loops/{id}/checkpoints",
     tag = "agent",
-    params(("id" = String, Path, description = "Agent loop ID")),
+    params(IdPath),
     responses(
         (status = 200, description = "Checkpoints deleted", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
@@ -505,7 +505,7 @@ pub(crate) async fn handle_delete_checkpoints(
 
 #[utoipa::path(
     get,
-    path = "/agent-checkpoints/stats",
+    path = "/api/v1/agent-checkpoints/stats",
     tag = "agent",
     responses(
         (status = 200, description = "Checkpoint statistics", body = crate::envelope::ApiEnvelope<serde_json::Value>),

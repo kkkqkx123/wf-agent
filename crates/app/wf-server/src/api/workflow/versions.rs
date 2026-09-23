@@ -7,7 +7,7 @@ use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::Deserialize;
-use serde_json::Value;
+use utoipa::{IntoParams, ToSchema};
 
 use wf_api::WorkflowDefinition;
 
@@ -34,9 +34,9 @@ pub(crate) fn routes() -> Router<ApiState> {
 
 #[utoipa::path(
     get,
-    path = "/workflows/{id}/versions",
+    path = "/api/v1/workflows/{id}/versions",
     tag = "workflow",
-    params(("id" = String, Path, description = "id")),
+    params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -52,9 +52,9 @@ pub(crate) async fn handle_list_versions(
 
 #[utoipa::path(
     get,
-    path = "/workflows/{id}/versions/{version}",
+    path = "/api/v1/workflows/{id}/versions/{version}",
     tag = "workflow",
-    params(("id" = String, Path, description = "id"), ("version" = String, Path, description = "version")),
+    params(IdVersionPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -68,18 +68,19 @@ pub(crate) async fn handle_get_version(
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub(crate) struct SaveVersionBody {
     version: String,
+    #[schema(value_type = Object)]
     workflow: WorkflowDefinition,
 }
 
 #[utoipa::path(
     post,
-    path = "/workflows/{id}/versions",
+    path = "/api/v1/workflows/{id}/versions",
     tag = "workflow",
-    params(("id" = String, Path, description = "id")),
-    request_body = serde_json::Value,
+    params(IdPath),
+    request_body = SaveVersionBody,
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -101,19 +102,21 @@ pub(crate) async fn handle_save_version(
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub(crate) struct RollbackBody {
     version: String,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub(crate) struct IncrementVersionQuery {
     level: Option<String>,
 }
 
-#[derive(Deserialize, Default)]
+#[derive(Deserialize, Default, ToSchema)]
 #[serde(default)]
 pub(crate) struct IncrementVersionBody {
+    #[schema(value_type = Object)]
     changes: wf_api::workflow::WorkflowChanges,
     keep_original: bool,
 }
@@ -123,10 +126,10 @@ pub(crate) struct IncrementVersionBody {
 /// preserving the pre-update definition as a named version.
 #[utoipa::path(
     post,
-    path = "/workflows/{id}/versions/increment",
+    path = "/api/v1/workflows/{id}/versions/increment",
     tag = "workflow",
-    params(("id" = String, Path, description = "id"), ("level" = Option<String>, Query, description = "level")),
-    request_body = serde_json::Value,
+    params(IdPath, IncrementVersionQuery),
+    request_body = IncrementVersionBody,
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -141,7 +144,7 @@ pub(crate) async fn handle_increment_version(
         Some("minor") => wf_api::workflow::VersionStrategy::Minor,
         Some("major") => wf_api::workflow::VersionStrategy::Major,
         Some(other) => {
-            return crate::envelope::err::<Value>(crate::envelope::ApiError::validation(format!(
+            return crate::envelope::err(crate::envelope::ApiError::validation(format!(
                 "unsupported version level: {other}"
             )))
             .into_response()
@@ -163,10 +166,10 @@ pub(crate) async fn handle_increment_version(
 
 #[utoipa::path(
     post,
-    path = "/workflows/{id}/rollback",
+    path = "/api/v1/workflows/{id}/rollback",
     tag = "workflow",
-    params(("id" = String, Path, description = "id")),
-    request_body = serde_json::Value,
+    params(IdPath),
+    request_body = RollbackBody,
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]

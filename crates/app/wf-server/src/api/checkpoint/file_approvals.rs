@@ -55,7 +55,7 @@ pub(crate) struct RejectRequest {
 
 #[utoipa::path(
     get,
-    path = "/file-checkpoint/approvals/pending",
+    path = "/api/v1/file-checkpoint/approvals/pending",
     tag = "checkpoint",
     responses(
         (status = 200, description = "List of pending file approvals", body = crate::envelope::ApiEnvelope<serde_json::Value>),
@@ -74,10 +74,10 @@ pub(crate) async fn handle_list_pending_approvals(
 
 #[utoipa::path(
     post,
-    path = "/file-checkpoint/approvals/{id}/approve",
+    path = "/api/v1/file-checkpoint/approvals/{id}/approve",
     tag = "checkpoint",
-    params(("id" = String, Path, description = "Checkpoint approval ID")),
-    request_body = serde_json::Value,
+    params(IdPath),
+    request_body = ApproveRequest,
     responses(
         (status = 200, description = "Changes approved", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
@@ -99,10 +99,10 @@ pub(crate) async fn handle_approve_changes(
 
 #[utoipa::path(
     post,
-    path = "/file-checkpoint/approvals/{id}/reject",
+    path = "/api/v1/file-checkpoint/approvals/{id}/reject",
     tag = "checkpoint",
-    params(("id" = String, Path, description = "Checkpoint approval ID")),
-    request_body = serde_json::Value,
+    params(IdPath),
+    request_body = RejectRequest,
     responses(
         (status = 200, description = "Changes rejected", body = crate::envelope::ApiEnvelope<crate::api::checkpoint::file_approvals::RejectResponse>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),

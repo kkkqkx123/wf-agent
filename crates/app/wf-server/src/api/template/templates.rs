@@ -7,13 +7,14 @@ use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::Deserialize;
+use utoipa::{IntoParams, ToSchema};
 
 use wf_api::NodeTemplateListOptions;
 use wf_api::{NodeTemplateStorageMetadata, TriggerTemplateStorageMetadata};
 
 use crate::envelope::{error_response, ok};
-use crate::extract::{IdPath, ListQuery};
-use crate::paged::{fetch_size, ok_page, resolve_page};
+use crate::extract::IdPath;
+use crate::paged::{fetch_size, ok_page, resolve_page_fields};
 use crate::router::ApiState;
 
 pub(crate) fn routes() -> Router<ApiState> {
@@ -57,18 +58,21 @@ pub(crate) fn routes() -> Router<ApiState> {
 
 // ── node templates ────────────────────────────────────────────────
 
-#[derive(Deserialize)]
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub(crate) struct ListNodeTemplatesQuery {
-    #[serde(flatten)]
-    page: ListQuery,
+    /// Page limit
+    limit: Option<u64>,
+    /// Page offset
+    offset: Option<u64>,
     node_type: Option<String>,
 }
 
 #[utoipa::path(
     get,
-    path = "/templates/node",
+    path = "/api/v1/templates/node",
     tag = "template",
-    params(("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset"), ("node_type" = Option<String>, Query, description = "node_type")),
+    params(ListNodeTemplatesQuery),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -76,7 +80,7 @@ pub(crate) async fn handle_list_node_templates(
     State(state): State<ApiState>,
     Query(query): Query<ListNodeTemplatesQuery>,
 ) -> impl IntoResponse {
-    let (limit, offset) = resolve_page(&query.page);
+    let (limit, offset) = resolve_page_fields(query.limit, query.offset);
     let options = NodeTemplateListOptions {
         offset: Some(offset),
         limit: Some(fetch_size(limit)),
@@ -95,7 +99,7 @@ pub(crate) async fn handle_list_node_templates(
 
 #[utoipa::path(
     post,
-    path = "/templates/node",
+    path = "/api/v1/templates/node",
     tag = "template",
     request_body = serde_json::Value,
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
@@ -113,9 +117,9 @@ pub(crate) async fn handle_save_node_template(
 
 #[utoipa::path(
     get,
-    path = "/templates/node/{id}",
+    path = "/api/v1/templates/node/{id}",
     tag = "template",
-    params(("id" = String, Path, description = "id")),
+    params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -131,9 +135,9 @@ pub(crate) async fn handle_get_node_template(
 
 #[utoipa::path(
     put,
-    path = "/templates/node/{id}",
+    path = "/api/v1/templates/node/{id}",
     tag = "template",
-    params(("id" = String, Path, description = "id")),
+    params(IdPath),
     request_body = serde_json::Value,
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
@@ -152,9 +156,9 @@ pub(crate) async fn handle_update_node_template(
 
 #[utoipa::path(
     delete,
-    path = "/templates/node/{id}",
+    path = "/api/v1/templates/node/{id}",
     tag = "template",
-    params(("id" = String, Path, description = "id")),
+    params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -171,9 +175,9 @@ pub(crate) async fn handle_delete_node_template(
 
 #[utoipa::path(
     get,
-    path = "/templates/node/{id}/export",
+    path = "/api/v1/templates/node/{id}/export",
     tag = "template",
-    params(("id" = String, Path, description = "id"), ("download" = Option<bool>, Query, description = "download")),
+    params(IdPath, ExportTemplateQuery),
     responses((status = 200, description = "Exported node template file download", body = String, content_type = "application/json"), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -199,21 +203,22 @@ pub(crate) async fn handle_export_node_template(
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub(crate) struct ExportTemplateQuery {
     download: Option<bool>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub(crate) struct ImportBody {
     json: String,
 }
 
 #[utoipa::path(
     post,
-    path = "/templates/node/import",
+    path = "/api/v1/templates/node/import",
     tag = "template",
-    request_body = serde_json::Value,
+    request_body = ImportBody,
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -229,18 +234,21 @@ pub(crate) async fn handle_import_node_template(
 
 // ── trigger templates ─────────────────────────────────────────────
 
-#[derive(Deserialize)]
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub(crate) struct ListTriggerTemplatesQuery {
     trigger_type: Option<String>,
-    #[serde(flatten)]
-    page: ListQuery,
+    /// Page limit
+    limit: Option<u64>,
+    /// Page offset
+    offset: Option<u64>,
 }
 
 #[utoipa::path(
     get,
-    path = "/templates/trigger",
+    path = "/api/v1/templates/trigger",
     tag = "template",
-    params(("trigger_type" = Option<String>, Query, description = "trigger_type"), ("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset")),
+    params(ListTriggerTemplatesQuery),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -257,7 +265,7 @@ pub(crate) async fn handle_list_trigger_templates(
     };
     match wf_api::trigger::template::summaries(&state.ctx, Some(&filter)).await {
         Ok(templates) => {
-            let (limit, offset) = resolve_page(&query.page);
+            let (limit, offset) = resolve_page_fields(query.limit, query.offset);
             let window = templates
                 .into_iter()
                 .skip(offset as usize)
@@ -271,7 +279,7 @@ pub(crate) async fn handle_list_trigger_templates(
 
 #[utoipa::path(
     post,
-    path = "/templates/trigger",
+    path = "/api/v1/templates/trigger",
     tag = "template",
     request_body = serde_json::Value,
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
@@ -289,9 +297,9 @@ pub(crate) async fn handle_save_trigger_template(
 
 #[utoipa::path(
     get,
-    path = "/templates/trigger/{id}",
+    path = "/api/v1/templates/trigger/{id}",
     tag = "template",
-    params(("id" = String, Path, description = "id")),
+    params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -307,9 +315,9 @@ pub(crate) async fn handle_get_trigger_template(
 
 #[utoipa::path(
     put,
-    path = "/templates/trigger/{id}",
+    path = "/api/v1/templates/trigger/{id}",
     tag = "template",
-    params(("id" = String, Path, description = "id")),
+    params(IdPath),
     request_body = serde_json::Value,
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
@@ -328,9 +336,9 @@ pub(crate) async fn handle_update_trigger_template(
 
 #[utoipa::path(
     delete,
-    path = "/templates/trigger/{id}",
+    path = "/api/v1/templates/trigger/{id}",
     tag = "template",
-    params(("id" = String, Path, description = "id")),
+    params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -346,9 +354,9 @@ pub(crate) async fn handle_delete_trigger_template(
 
 #[utoipa::path(
     get,
-    path = "/templates/trigger/{id}/export",
+    path = "/api/v1/templates/trigger/{id}/export",
     tag = "template",
-    params(("id" = String, Path, description = "id"), ("download" = Option<bool>, Query, description = "download")),
+    params(IdPath, ExportTemplateQuery),
     responses((status = 200, description = "Exported trigger template file download", body = String, content_type = "application/json"), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -376,9 +384,9 @@ pub(crate) async fn handle_export_trigger_template(
 
 #[utoipa::path(
     post,
-    path = "/templates/trigger/import",
+    path = "/api/v1/templates/trigger/import",
     tag = "template",
-    request_body = serde_json::Value,
+    request_body = ImportBody,
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]

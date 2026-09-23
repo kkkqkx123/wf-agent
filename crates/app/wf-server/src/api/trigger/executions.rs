@@ -7,12 +7,13 @@ use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::Deserialize;
+use utoipa::{IntoParams, ToSchema};
 
 use wf_api::TriggerExecutionListOptions;
 
 use crate::envelope::{error_response, ok};
 use crate::extract::{ExecutionIdPath, IdPath, ListQuery, NamePath};
-use crate::paged::{fetch_size, ok_page, resolve_page};
+use crate::paged::{fetch_size, ok_page, resolve_page, resolve_page_fields};
 use crate::router::ApiState;
 
 pub(crate) fn routes() -> Router<ApiState> {
@@ -53,10 +54,13 @@ pub(crate) fn routes() -> Router<ApiState> {
 
 // ── trigger executions ────────────────────────────────────────────
 
-#[derive(Deserialize)]
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub(crate) struct ListTriggerExecutionsQuery {
-    #[serde(flatten)]
-    page: ListQuery,
+    /// Page limit
+    limit: Option<u64>,
+    /// Page offset
+    offset: Option<u64>,
     trigger_name: Option<String>,
     execution_id: Option<String>,
     workflow_id: Option<String>,
@@ -65,9 +69,9 @@ pub(crate) struct ListTriggerExecutionsQuery {
 
 #[utoipa::path(
     get,
-    path = "/trigger-executions",
+    path = "/api/v1/trigger-executions",
     tag = "trigger",
-    params(("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset"), ("trigger_name" = Option<String>, Query, description = "trigger_name"), ("execution_id" = Option<String>, Query, description = "execution_id"), ("workflow_id" = Option<String>, Query, description = "workflow_id"), ("success" = Option<bool>, Query, description = "success")),
+    params(ListTriggerExecutionsQuery),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -75,7 +79,7 @@ pub(crate) async fn handle_list_trigger_executions(
     State(state): State<ApiState>,
     Query(query): Query<ListTriggerExecutionsQuery>,
 ) -> impl IntoResponse {
-    let (limit, offset) = resolve_page(&query.page);
+    let (limit, offset) = resolve_page_fields(query.limit, query.offset);
     let options = TriggerExecutionListOptions {
         offset: Some(offset),
         limit: Some(fetch_size(limit)),
@@ -94,7 +98,7 @@ pub(crate) async fn handle_list_trigger_executions(
 
 #[utoipa::path(
     post,
-    path = "/trigger-executions",
+    path = "/api/v1/trigger-executions",
     tag = "trigger",
     request_body = serde_json::Value,
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
@@ -112,9 +116,9 @@ pub(crate) async fn handle_save_trigger_execution(
 
 #[utoipa::path(
     get,
-    path = "/trigger-executions/{id}",
+    path = "/api/v1/trigger-executions/{id}",
     tag = "trigger",
-    params(("id" = String, Path, description = "id")),
+    params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -130,9 +134,9 @@ pub(crate) async fn handle_get_trigger_execution(
 
 #[utoipa::path(
     delete,
-    path = "/trigger-executions/{id}",
+    path = "/api/v1/trigger-executions/{id}",
     tag = "trigger",
-    params(("id" = String, Path, description = "id")),
+    params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -148,7 +152,7 @@ pub(crate) async fn handle_delete_trigger_execution(
 
 #[utoipa::path(
     get,
-    path = "/trigger-executions/stats",
+    path = "/api/v1/trigger-executions/stats",
     tag = "trigger",
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
@@ -164,9 +168,9 @@ pub(crate) async fn handle_trigger_execution_stats(
 
 #[utoipa::path(
     get,
-    path = "/trigger-executions/by-trigger/{name}",
+    path = "/api/v1/trigger-executions/by-trigger/{name}",
     tag = "trigger",
-    params(("name" = String, Path, description = "name"), ("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset")),
+    params(NamePath, ListQuery),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -191,9 +195,9 @@ pub(crate) async fn handle_trigger_executions_by_trigger(
 
 #[utoipa::path(
     get,
-    path = "/trigger-executions/by-execution/{executionId}",
+    path = "/api/v1/trigger-executions/by-execution/{executionId}",
     tag = "trigger",
-    params(("executionId" = String, Path, description = "executionId"), ("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset")),
+    params(ExecutionIdPath, ListQuery),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -218,16 +222,16 @@ pub(crate) async fn handle_trigger_executions_by_execution(
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub(crate) struct CleanupTriggerExecutionsBody {
     older_than: Option<i64>,
 }
 
 #[utoipa::path(
     post,
-    path = "/trigger-executions/cleanup",
+    path = "/api/v1/trigger-executions/cleanup",
     tag = "trigger",
-    request_body = serde_json::Value,
+    request_body = CleanupTriggerExecutionsBody,
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -246,9 +250,9 @@ pub(crate) async fn handle_cleanup_trigger_executions(
 
 #[utoipa::path(
     get,
-    path = "/trigger-executions/by-workflow/{id}",
+    path = "/api/v1/trigger-executions/by-workflow/{id}",
     tag = "trigger",
-    params(("id" = String, Path, description = "id"), ("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset")),
+    params(IdPath, ListQuery),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -273,19 +277,22 @@ pub(crate) async fn handle_trigger_executions_by_workflow(
 
 // ── unified trigger history (ledger view, replaces legacy agent scope) ──
 
-#[derive(Deserialize)]
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub(crate) struct TriggerHistoryQuery {
     execution_id: String,
     trigger_name: Option<String>,
-    #[serde(flatten)]
-    page: ListQuery,
+    /// Page limit
+    limit: Option<u64>,
+    /// Page offset
+    offset: Option<u64>,
 }
 
 #[utoipa::path(
     get,
-    path = "/triggers/history",
+    path = "/api/v1/triggers/history",
     tag = "trigger",
-    params(("execution_id" = String, Query, description = "execution_id"), ("trigger_name" = Option<String>, Query, description = "trigger_name"), ("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset")),
+    params(TriggerHistoryQuery),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -301,7 +308,7 @@ pub(crate) async fn handle_trigger_history(
     .await
     {
         Ok(history) => {
-            let (limit, offset) = resolve_page(&query.page);
+            let (limit, offset) = resolve_page_fields(query.limit, query.offset);
             let window = history
                 .into_iter()
                 .skip(offset as usize)

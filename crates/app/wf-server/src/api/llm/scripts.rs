@@ -8,13 +8,14 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::Deserialize;
 use serde_json::Value;
+use utoipa::{IntoParams, ToSchema};
 
 use wf_api::ScriptListOptions;
 use wf_api::ScriptStorageMetadata;
 
 use crate::envelope::{error_response, ok};
-use crate::extract::{IdPath, ListQuery};
-use crate::paged::{fetch_size, ok_page, resolve_page};
+use crate::extract::IdPath;
+use crate::paged::{fetch_size, ok_page, resolve_page_fields};
 use crate::router::ApiState;
 pub(crate) fn routes() -> Router<ApiState> {
     Router::new()
@@ -40,14 +41,16 @@ pub(crate) fn routes() -> Router<ApiState> {
 
 /// Wire shape of `/scripts/execute` and `/scripts/validate`: mirrors
 /// `wf_api::ScriptExecuteParams` with deserializable field types.
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub(crate) struct ScriptExecuteBody {
     name: String,
+    #[schema(value_type = Object)]
     language: Option<wf_api::ScriptLanguage>,
     code: Option<String>,
     template: Option<String>,
     #[serde(default)]
     args: std::collections::HashMap<String, Value>,
+    #[schema(value_type = Object)]
     sandbox: Option<wf_api::SandboxConfig>,
     working_directory: Option<String>,
     environment: Option<std::collections::HashMap<String, String>>,
@@ -76,9 +79,9 @@ impl ScriptExecuteBody {
 
 #[utoipa::path(
     post,
-    path = "/scripts/execute",
+    path = "/api/v1/scripts/execute",
     tag = "llm",
-    request_body = serde_json::Value,
+    request_body = ScriptExecuteBody,
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -94,9 +97,9 @@ pub(crate) async fn handle_execute_script(
 
 #[utoipa::path(
     post,
-    path = "/scripts/validate",
+    path = "/api/v1/scripts/validate",
     tag = "llm",
-    request_body = serde_json::Value,
+    request_body = ScriptExecuteBody,
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -110,18 +113,21 @@ pub(crate) async fn handle_validate_script(
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub(crate) struct ListScriptsQuery {
-    #[serde(flatten)]
-    page: ListQuery,
+    /// Page limit
+    limit: Option<u64>,
+    /// Page offset
+    offset: Option<u64>,
     language: Option<String>,
 }
 
 #[utoipa::path(
     get,
-    path = "/scripts",
+    path = "/api/v1/scripts",
     tag = "llm",
-    params(("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset"), ("language" = Option<String>, Query, description = "language")),
+    params(ListScriptsQuery),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -129,7 +135,7 @@ pub(crate) async fn handle_list_scripts(
     State(state): State<ApiState>,
     Query(query): Query<ListScriptsQuery>,
 ) -> impl IntoResponse {
-    let (limit, offset) = resolve_page(&query.page);
+    let (limit, offset) = resolve_page_fields(query.limit, query.offset);
     if let Some(language) = query.language {
         match wf_api::llm::script::list_scripts_by_language(&state.ctx.storage, &language).await {
             Ok(scripts) => {
@@ -157,7 +163,7 @@ pub(crate) async fn handle_list_scripts(
 
 #[utoipa::path(
     post,
-    path = "/scripts",
+    path = "/api/v1/scripts",
     tag = "llm",
     request_body = serde_json::Value,
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
@@ -173,18 +179,21 @@ pub(crate) async fn handle_save_script(
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub(crate) struct SearchScriptsQuery {
     q: String,
-    #[serde(flatten)]
-    page: ListQuery,
+    /// Page limit
+    limit: Option<u64>,
+    /// Page offset
+    offset: Option<u64>,
 }
 
 #[utoipa::path(
     get,
-    path = "/scripts/search",
+    path = "/api/v1/scripts/search",
     tag = "llm",
-    params(("q" = String, Query, description = "q"), ("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset")),
+    params(SearchScriptsQuery),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -192,7 +201,7 @@ pub(crate) async fn handle_search_scripts(
     State(state): State<ApiState>,
     Query(query): Query<SearchScriptsQuery>,
 ) -> impl IntoResponse {
-    let (limit, offset) = resolve_page(&query.page);
+    let (limit, offset) = resolve_page_fields(query.limit, query.offset);
     match wf_api::llm::script::search_scripts(&state.ctx.storage, &query.q).await {
         Ok(scripts) => {
             let window = scripts
@@ -208,9 +217,9 @@ pub(crate) async fn handle_search_scripts(
 
 #[utoipa::path(
     get,
-    path = "/scripts/{id}",
+    path = "/api/v1/scripts/{id}",
     tag = "llm",
-    params(("id" = String, Path, description = "id")),
+    params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -226,9 +235,9 @@ pub(crate) async fn handle_get_script(
 
 #[utoipa::path(
     put,
-    path = "/scripts/{id}",
+    path = "/api/v1/scripts/{id}",
     tag = "llm",
-    params(("id" = String, Path, description = "id")),
+    params(IdPath),
     request_body = serde_json::Value,
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
@@ -245,16 +254,17 @@ pub(crate) async fn handle_update_script(
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub(crate) struct DeleteForceQuery {
     pub(crate) force: Option<bool>,
 }
 
 #[utoipa::path(
     delete,
-    path = "/scripts/{id}",
+    path = "/api/v1/scripts/{id}",
     tag = "llm",
-    params(("id" = String, Path, description = "id"), ("force" = Option<bool>, Query, description = "force")),
+    params(IdPath, DeleteForceQuery),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -278,9 +288,9 @@ pub(crate) async fn handle_delete_script(
 
 #[utoipa::path(
     post,
-    path = "/scripts/{id}/enable",
+    path = "/api/v1/scripts/{id}/enable",
     tag = "llm",
-    params(("id" = String, Path, description = "id")),
+    params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -296,9 +306,9 @@ pub(crate) async fn handle_enable_script(
 
 #[utoipa::path(
     post,
-    path = "/scripts/{id}/disable",
+    path = "/api/v1/scripts/{id}/disable",
     tag = "llm",
-    params(("id" = String, Path, description = "id")),
+    params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]

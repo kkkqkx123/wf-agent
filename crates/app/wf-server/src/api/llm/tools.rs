@@ -8,14 +8,15 @@ use axum::routing::{delete, get, post};
 use axum::{Json, Router};
 use serde::Deserialize;
 use serde_json::Value;
+use utoipa::{IntoParams, ToSchema};
 
 use wf_api::ToolListOptions;
 use wf_api::ToolStorageMetadata;
 
 use crate::api::llm::scripts::DeleteForceQuery;
 use crate::envelope::{error_response, ok};
-use crate::extract::{IdPath, ListQuery};
-use crate::paged::{fetch_size, ok_page, resolve_page};
+use crate::extract::IdPath;
+use crate::paged::{fetch_size, ok_page, resolve_page_fields};
 use crate::router::ApiState;
 pub(crate) fn routes() -> Router<ApiState> {
     Router::new()
@@ -37,17 +38,20 @@ pub(crate) fn routes() -> Router<ApiState> {
 
 // ── tools ─────────────────────────────────────────────────────────
 
-#[derive(Deserialize)]
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub(crate) struct ListToolsQuery {
-    #[serde(flatten)]
-    page: ListQuery,
+    /// Page limit
+    limit: Option<u64>,
+    /// Page offset
+    offset: Option<u64>,
 }
 
 #[utoipa::path(
     get,
-    path = "/tools",
+    path = "/api/v1/tools",
     tag = "llm",
-    params(("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset")),
+    params(ListToolsQuery),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -57,7 +61,7 @@ pub(crate) async fn handle_list_tools(
 ) -> impl IntoResponse {
     match wf_api::llm::tool::list(&state.ctx).await {
         Ok(tools) => {
-            let (limit, offset) = resolve_page(&query.page);
+            let (limit, offset) = resolve_page_fields(query.limit, query.offset);
             let window = tools
                 .into_iter()
                 .skip(offset as usize)
@@ -69,18 +73,21 @@ pub(crate) async fn handle_list_tools(
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub(crate) struct SearchToolsQuery {
     q: String,
-    #[serde(flatten)]
-    page: ListQuery,
+    /// Page limit
+    limit: Option<u64>,
+    /// Page offset
+    offset: Option<u64>,
 }
 
 #[utoipa::path(
     get,
-    path = "/tools/search",
+    path = "/api/v1/tools/search",
     tag = "llm",
-    params(("q" = String, Query, description = "q"), ("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset")),
+    params(SearchToolsQuery),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -88,7 +95,7 @@ pub(crate) async fn handle_search_tools(
     State(state): State<ApiState>,
     Query(query): Query<SearchToolsQuery>,
 ) -> impl IntoResponse {
-    let (limit, offset) = resolve_page(&query.page);
+    let (limit, offset) = resolve_page_fields(query.limit, query.offset);
     match wf_api::llm::tool::search_tools(&state.ctx, &query.q).await {
         Ok(tools) => {
             let window = tools
@@ -102,19 +109,20 @@ pub(crate) async fn handle_search_tools(
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub(crate) struct ExecuteToolBody {
     tool_id: String,
     parameters: Value,
+    #[schema(value_type = Option<Object>)]
     options: Option<wf_api::ToolExecutionOptions>,
     execution_id: Option<String>,
 }
 
 #[utoipa::path(
     post,
-    path = "/tools/execute",
+    path = "/api/v1/tools/execute",
     tag = "llm",
-    request_body = serde_json::Value,
+    request_body = ExecuteToolBody,
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -137,7 +145,7 @@ pub(crate) async fn handle_execute_tool(
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub(crate) struct ValidateToolParamsBody {
     tool_id: String,
     parameters: Value,
@@ -145,9 +153,9 @@ pub(crate) struct ValidateToolParamsBody {
 
 #[utoipa::path(
     post,
-    path = "/tools/validate-params",
+    path = "/api/v1/tools/validate-params",
     tag = "llm",
-    request_body = serde_json::Value,
+    request_body = ValidateToolParamsBody,
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -164,9 +172,9 @@ pub(crate) async fn handle_validate_tool_params(
 
 #[utoipa::path(
     get,
-    path = "/tools/{id}",
+    path = "/api/v1/tools/{id}",
     tag = "llm",
-    params(("id" = String, Path, description = "id")),
+    params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -182,9 +190,9 @@ pub(crate) async fn handle_get_tool(
 
 #[utoipa::path(
     post,
-    path = "/tools/{id}/enable",
+    path = "/api/v1/tools/{id}/enable",
     tag = "llm",
-    params(("id" = String, Path, description = "id")),
+    params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -200,9 +208,9 @@ pub(crate) async fn handle_enable_tool(
 
 #[utoipa::path(
     post,
-    path = "/tools/{id}/disable",
+    path = "/api/v1/tools/{id}/disable",
     tag = "llm",
-    params(("id" = String, Path, description = "id")),
+    params(IdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -216,18 +224,21 @@ pub(crate) async fn handle_disable_tool(
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub(crate) struct ListToolRegistryQuery {
-    #[serde(flatten)]
-    page: ListQuery,
+    /// Page limit
+    limit: Option<u64>,
+    /// Page offset
+    offset: Option<u64>,
     tool_type: Option<String>,
 }
 
 #[utoipa::path(
     get,
-    path = "/tool-registry",
+    path = "/api/v1/tool-registry",
     tag = "llm",
-    params(("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset"), ("tool_type" = Option<String>, Query, description = "tool_type")),
+    params(ListToolRegistryQuery),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -235,7 +246,7 @@ pub(crate) async fn handle_list_tool_registry(
     State(state): State<ApiState>,
     Query(query): Query<ListToolRegistryQuery>,
 ) -> impl IntoResponse {
-    let (limit, offset) = resolve_page(&query.page);
+    let (limit, offset) = resolve_page_fields(query.limit, query.offset);
     let options = ToolListOptions {
         offset: Some(offset),
         limit: Some(fetch_size(limit)),
@@ -249,7 +260,7 @@ pub(crate) async fn handle_list_tool_registry(
 
 #[utoipa::path(
     post,
-    path = "/tool-registry",
+    path = "/api/v1/tool-registry",
     tag = "llm",
     request_body = serde_json::Value,
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
@@ -267,9 +278,9 @@ pub(crate) async fn handle_save_tool(
 
 #[utoipa::path(
     delete,
-    path = "/tool-registry/{id}",
+    path = "/api/v1/tool-registry/{id}",
     tag = "llm",
-    params(("id" = String, Path, description = "id"), ("force" = Option<bool>, Query, description = "force")),
+    params(IdPath, DeleteForceQuery),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -293,7 +304,7 @@ pub(crate) async fn handle_delete_tool(
 
 #[utoipa::path(
     get,
-    path = "/tool-registry/stats",
+    path = "/api/v1/tool-registry/stats",
     tag = "llm",
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))

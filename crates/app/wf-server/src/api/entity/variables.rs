@@ -8,12 +8,13 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::Deserialize;
 use serde_json::Value;
+use utoipa::{IntoParams, ToSchema};
 
 use wf_api::VariableListOptions;
 
 use crate::envelope::{error_response, ok};
 use crate::extract::{ExecutionIdPath, ListQuery, NamePath};
-use crate::paged::{fetch_size, ok_page, resolve_page};
+use crate::paged::{fetch_size, ok_page, resolve_page, resolve_page_fields};
 use crate::router::ApiState;
 pub(crate) fn routes() -> Router<ApiState> {
     Router::new()
@@ -47,19 +48,22 @@ pub(crate) fn routes() -> Router<ApiState> {
 
 // ── variables ─────────────────────────────────────────────────────
 
-#[derive(Deserialize)]
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub(crate) struct ListVariablesQuery {
-    #[serde(flatten)]
-    page: ListQuery,
+    /// Page limit
+    limit: Option<u64>,
+    /// Page offset
+    offset: Option<u64>,
     scope: Option<String>,
     execution_id: Option<String>,
 }
 
 #[utoipa::path(
     get,
-    path = "/variables",
+    path = "/api/v1/variables",
     tag = "entity",
-    params(("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset"), ("scope" = Option<String>, Query, description = "scope"), ("execution_id" = Option<String>, Query, description = "execution_id")),
+    params(ListVariablesQuery),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -67,7 +71,7 @@ pub(crate) async fn handle_list_variables(
     State(state): State<ApiState>,
     Query(query): Query<ListVariablesQuery>,
 ) -> impl IntoResponse {
-    let (limit, offset) = resolve_page(&query.page);
+    let (limit, offset) = resolve_page_fields(query.limit, query.offset);
     let options = VariableListOptions {
         offset: Some(offset),
         limit: Some(fetch_size(limit)),
@@ -80,7 +84,7 @@ pub(crate) async fn handle_list_variables(
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub(crate) struct VariableBody {
     name: String,
     value: Value,
@@ -92,9 +96,9 @@ pub(crate) struct VariableBody {
 
 #[utoipa::path(
     post,
-    path = "/variables",
+    path = "/api/v1/variables",
     tag = "entity",
-    request_body = serde_json::Value,
+    request_body = VariableBody,
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -128,7 +132,8 @@ pub(crate) async fn handle_set_variable(
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub(crate) struct VariableQuery {
     scope: Option<String>,
     execution_id: Option<String>,
@@ -136,9 +141,9 @@ pub(crate) struct VariableQuery {
 
 #[utoipa::path(
     get,
-    path = "/variables/{name}",
+    path = "/api/v1/variables/{name}",
     tag = "entity",
-    params(("name" = String, Path, description = "name"), ("scope" = Option<String>, Query, description = "scope"), ("execution_id" = Option<String>, Query, description = "execution_id")),
+    params(NamePath, VariableQuery),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -162,9 +167,9 @@ pub(crate) async fn handle_get_variable(
 
 #[utoipa::path(
     delete,
-    path = "/variables/{name}",
+    path = "/api/v1/variables/{name}",
     tag = "entity",
-    params(("name" = String, Path, description = "name"), ("scope" = Option<String>, Query, description = "scope"), ("execution_id" = Option<String>, Query, description = "execution_id")),
+    params(NamePath, VariableQuery),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -188,7 +193,7 @@ pub(crate) async fn handle_delete_variable(
 
 #[utoipa::path(
     get,
-    path = "/variables/stats",
+    path = "/api/v1/variables/stats",
     tag = "entity",
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
@@ -208,9 +213,10 @@ pub(crate) struct VariableEntry {
     value: Value,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub(crate) struct BatchSetVariablesBody {
     execution_id: String,
+    #[schema(value_type = Vec<Object>)]
     entries: Vec<VariableEntry>,
 }
 
@@ -220,9 +226,9 @@ const MAX_EXECUTION_BATCH_VARIABLES: usize = 100;
 
 #[utoipa::path(
     post,
-    path = "/variables/batch",
+    path = "/api/v1/variables/batch",
     tag = "entity",
-    request_body = serde_json::Value,
+    request_body = BatchSetVariablesBody,
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -253,7 +259,7 @@ pub(crate) async fn handle_batch_set_variables(
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub(crate) struct ImportVariablesBody {
     execution_id: String,
     values: std::collections::BTreeMap<String, Value>,
@@ -261,9 +267,9 @@ pub(crate) struct ImportVariablesBody {
 
 #[utoipa::path(
     post,
-    path = "/variables/import",
+    path = "/api/v1/variables/import",
     tag = "entity",
-    request_body = serde_json::Value,
+    request_body = ImportVariablesBody,
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -282,9 +288,9 @@ pub(crate) async fn handle_import_variables(
 /// Execution scopes stay a bare array: single-parent bounded vocabulary.
 #[utoipa::path(
     get,
-    path = "/variables/scopes/{executionId}",
+    path = "/api/v1/variables/scopes/{executionId}",
     tag = "entity",
-    params(("executionId" = String, Path, description = "executionId")),
+    params(ExecutionIdPath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -298,16 +304,17 @@ pub(crate) async fn handle_variable_scopes(
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Path)]
 pub(crate) struct ScopePath {
     scope: String,
 }
 
 #[utoipa::path(
     get,
-    path = "/variables/scope/{scope}",
+    path = "/api/v1/variables/scope/{scope}",
     tag = "entity",
-    params(("scope" = String, Path, description = "scope"), ("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset")),
+    params(ScopePath, ListQuery),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -330,8 +337,9 @@ pub(crate) async fn handle_variables_by_scope(
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, IntoParams)]
 #[serde(rename_all = "camelCase")]
+#[into_params(parameter_in = Path)]
 pub(crate) struct NodeVariablePath {
     execution_id: String,
     node_id: String,
@@ -340,9 +348,9 @@ pub(crate) struct NodeVariablePath {
 /// Variables at one node stay a bare array: single-node bounded set.
 #[utoipa::path(
     get,
-    path = "/variables/by-node/{executionId}/{nodeId}",
+    path = "/api/v1/variables/by-node/{executionId}/{nodeId}",
     tag = "entity",
-    params(("executionId" = String, Path, description = "executionId"), ("nodeId" = String, Path, description = "nodeId")),
+    params(NodeVariablePath),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -360,9 +368,9 @@ pub(crate) async fn handle_variables_at_node(
 
 #[utoipa::path(
     get,
-    path = "/variables/export/{executionId}",
+    path = "/api/v1/variables/export/{executionId}",
     tag = "entity",
-    params(("executionId" = String, Path, description = "executionId"), ("download" = Option<bool>, Query, description = "download")),
+    params(ExecutionIdPath, VariableExportQuery),
     responses((status = 200, description = "Exported variables file download", body = String, content_type = "application/json"), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -389,25 +397,29 @@ pub(crate) async fn handle_variable_export(
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub(crate) struct VariableExportQuery {
     download: Option<bool>,
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, IntoParams)]
+#[into_params(parameter_in = Query)]
 pub(crate) struct VariableHistoryQuery {
     name: String,
     scope: Option<String>,
     execution_id: Option<String>,
-    #[serde(flatten)]
-    page: ListQuery,
+    /// Page limit
+    limit: Option<u64>,
+    /// Page offset
+    offset: Option<u64>,
 }
 
 #[utoipa::path(
     get,
-    path = "/variables/history",
+    path = "/api/v1/variables/history",
     tag = "entity",
-    params(("name" = String, Query, description = "name"), ("scope" = Option<String>, Query, description = "scope"), ("execution_id" = Option<String>, Query, description = "execution_id"), ("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset")),
+    params(VariableHistoryQuery),
     responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
     security(("api_key" = []))
 )]
@@ -424,7 +436,7 @@ pub(crate) async fn handle_variable_history(
     .await
     {
         Ok(history) => {
-            let (limit, offset) = resolve_page(&query.page);
+            let (limit, offset) = resolve_page_fields(query.limit, query.offset);
             let window = history
                 .into_iter()
                 .skip(offset as usize)

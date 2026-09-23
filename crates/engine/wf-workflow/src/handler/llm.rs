@@ -175,8 +175,7 @@ impl LlmHandler {
             let response = call_llm(ctx, &self.gateway, &request).await?;
             record_non_stream_usage(ctx, &request, &response, cfg.token_tracking_enabled).await;
             if cfg.token_tracking_enabled {
-                emit_token_usage_events(ctx, cfg.token_warning_threshold, request.tools.as_deref())
-                    .await;
+                emit_token_usage_events(ctx, cfg.token_warning_threshold, &request).await;
             }
             let has_tool_calls = response
                 .tool_calls

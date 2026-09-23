@@ -166,7 +166,7 @@ pub async fn run_streaming_request(
         }
     }
     if token_tracking_enabled {
-        emit_token_usage_events(ctx, token_warning_threshold, request.tools.as_deref()).await;
+        emit_token_usage_events(ctx, token_warning_threshold, request).await;
     }
     Ok(StreamOutcome {
         aggregated_content: Some(content_parts.concat()),

@@ -3,7 +3,7 @@ use wf_execution_shared::context::NodeExecutionContext;
 use wf_llm::LlmGateway;
 
 use super::events::dispatch_compression_signal;
-use super::messages::{declared_contexts, injected_messages};
+use super::messages::{declared_contexts, injected_messages, read_context_id};
 use crate::message_context;
 
 /// Variable-map key carrying the execution-scoped token tracker state so
@@ -49,10 +49,13 @@ pub fn persist_tracker_state(
 /// - limit exceeded: task budget, one emission per 50% tier band
 ///   (100%, 150%, 200%, ...);
 /// - compression requested: per declared named array, driven by the
-///   incremental ledger estimate + transform-context injections + tool
-///   declarations, calibrated by the actual-minus-estimated bias, compared
-///   against the model-window context budget, guarded by the array version
-///   (single-shot per version, checkpointed in the ledger).
+///   incremental ledger estimate plus this request's dynamic overhead
+///   (system prompt, transform injections, inline messages, tool-loop
+///   turns, tool declarations — everything assembled into the request
+///   beyond the read array, computed fresh and never accumulated into
+///   the ledger), calibrated by the actual-minus-estimated bias, compared
+///   against the model-window context budget, guarded by the array
+///   version (single-shot per version, checkpointed in the ledger).
 ///
 /// Nested compression runs (see [`crate::message_context::compression_depth`])
 /// never emit: the summary sub-workflow summarizes an already over-budget
@@ -60,7 +63,7 @@ pub fn persist_tracker_state(
 pub async fn emit_token_usage_events(
     ctx: &NodeExecutionContext,
     warning_threshold: u64,
-    tools: Option<&[wf_types::tool::Tool]>,
+    request: &wf_types::llm::LlmRequest,
 ) {
     let (Some(ref tracker), Some(ref bus)) = (&ctx.token_tracker, &ctx.event_bus) else {
         return;
@@ -112,12 +115,19 @@ pub async fn emit_token_usage_events(
     }
 
     let config = ctx.node_config.as_ref().unwrap_or(&Value::Null);
-    let injected = injected_messages(config);
-    let injected_estimate = u64::from(wf_llm::estimate_messages(&injected));
-    let injected_count = injected.len();
-    // Tool declarations are per-request dynamic overhead: estimated fresh
-    // here, never accumulated into the array ledger.
-    let tools_estimate = u64::from(wf_llm::estimate_tool_declarations(tools));
+    let injected_count = injected_messages(config).len();
+    // Per-request dynamic overhead beyond the read array: system prompt,
+    // transform injections, inline messages, tool-loop turns and tool
+    // declarations. Derived from the assembled request (the same text the
+    // provider receives) so none of it ever accumulates into the array
+    // ledger, mirroring the agent-side request-minus-view subtraction.
+    let dynamic = wf_execution_shared::context_store::dynamic_request_overhead(
+        u64::from(wf_llm::estimate_request_tokens(request)),
+        u64::from(wf_llm::estimate_messages(&message_context::get_context(
+            &ctx.variables,
+            read_context_id(config),
+        ))),
+    );
     for context_id in declared_contexts(config) {
         let context_messages = message_context::get_context(&ctx.variables, &context_id);
         if context_messages.is_empty() {
@@ -125,11 +135,10 @@ pub async fn emit_token_usage_events(
             continue;
         }
         // Array budget = ledger estimate (recomputed lazily after
-        // replacements) + this request's injected messages + tool
-        // declarations, calibrated by the actual-minus-estimated bias.
-        let stable = message_context::ledger_estimated_tokens(&ctx.variables, &context_id)
-            + injected_estimate
-            + tools_estimate;
+        // replacements) + this request's dynamic overhead, calibrated
+        // by the actual-minus-estimated bias.
+        let stable =
+            message_context::ledger_estimated_tokens(&ctx.variables, &context_id) + dynamic;
         let estimated = tracker.calibrated(stable);
         let version = message_context::array_version(&ctx.variables, &context_id);
         if wf_execution_shared::context_store::over_budget(estimated, context_limit)
@@ -368,5 +377,123 @@ pub async fn record_non_stream_usage(
         }
         tracker.finalize_current_request();
         persist_tracker_state(ctx, &tracker);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use wf_core::EventBus;
+    use wf_types::events::EventType;
+    use wf_types::message::{Message, MessageRole};
+    use wf_types::node::StaticNodeType;
+
+    use super::super::messages::text_message;
+    use super::*;
+
+    fn bare_request(messages: Vec<Message>) -> wf_types::llm::LlmRequest {
+        wf_types::llm::LlmRequest {
+            profile_id: "mock".to_string(),
+            messages,
+            parameters: None,
+            generation: None,
+            tools: None,
+            tool_call_protocol: None,
+            locked_tool_call_protocol: None,
+            violation_policy: None,
+            execution_id: None,
+            stream: None,
+            dead_loop_detection: None,
+            protocol_auto_converted: None,
+        }
+    }
+
+    /// The system prompt and inline messages assembled into the request are
+    /// part of the context budget even though they never enter the array
+    /// ledger: a bare array under the limit must still trigger compression
+    /// once the request-level overhead crosses the threshold.
+    #[tokio::test]
+    async fn emission_counts_system_prompt_and_inline_messages() {
+        let bus = Arc::new(EventBus::new(16));
+        let mut sub = bus.subscribe();
+        let vars = Arc::new(dashmap::DashMap::new());
+
+        let history = vec![
+            text_message(
+                MessageRole::User,
+                "what did we decide earlier about the storage layout".to_string(),
+            ),
+            text_message(
+                MessageRole::Assistant,
+                "we settled on a single append-only ledger per named array".to_string(),
+            ),
+        ];
+        message_context::append_context(&vars, "chat", history.clone());
+
+        let system: String = "You are a precise assistant. ".repeat(8);
+        let inline_text =
+            "before answering, restate the constraints in full detail so nothing is forgotten";
+        let mut request = bare_request(vec![]);
+        request
+            .messages
+            .push(text_message(MessageRole::System, system.clone()));
+        request.messages.extend(history.clone());
+        request
+            .messages
+            .push(text_message(MessageRole::User, inline_text.to_string()));
+
+        let array_estimate = u64::from(wf_llm::estimate_messages(&history));
+        let request_estimate = u64::from(wf_llm::estimate_request_tokens(&request));
+        assert!(
+            request_estimate > array_estimate,
+            "system + inline must add overhead: array={array_estimate} request={request_estimate}"
+        );
+        // Budget sits between the bare array and the full request: only the
+        // request-inclusive estimate can cross it.
+        let context_limit = array_estimate + (request_estimate - array_estimate) / 2;
+
+        let mut ctx = NodeExecutionContext::new(
+            "exec-budget".to_string(),
+            "llm1".to_string(),
+            StaticNodeType::Llm,
+            Value::Null,
+            vars,
+        )
+        .with_node_config(serde_json::json!({
+            "profile_id": "mock",
+            "context_id": "chat",
+            "system_prompt": system,
+            "messages": [{
+                "role": "user",
+                "content": inline_text,
+                "id": "inline-1",
+                "timestamp": 1
+            }],
+        }));
+        ctx.event_bus = Some(bus.clone());
+        let tracker = Arc::new(tokio::sync::Mutex::new(
+            wf_execution_shared::TokenUsageTracker::new(0),
+        ));
+        tracker.lock().await.set_context_limit(context_limit);
+        ctx.token_tracker = Some(tracker);
+
+        emit_token_usage_events(&ctx, 85, &request).await;
+
+        let event = sub
+            .try_recv()
+            .expect("system prompt and inline messages must count toward the budget");
+        assert_eq!(event.r#type, EventType::ContextCompressionRequested);
+        let tokens_used = event
+            .metadata
+            .as_ref()
+            .and_then(|m| m.get(wf_execution_shared::KEY_TOKENS_USED))
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0);
+        assert_eq!(
+            tokens_used, request_estimate,
+            "emission must report the full request estimate, not the bare array"
+        );
+        assert!(tokens_used > array_estimate);
     }
 }

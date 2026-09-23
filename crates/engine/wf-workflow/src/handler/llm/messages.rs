@@ -139,6 +139,17 @@ fn warn_for_unserved_anchors(source: &str, content: &str) {
     }
 }
 
+/// The named context this node's request reads from. Single source of
+/// truth shared by request assembly and the compression budget so the
+/// dynamic-overhead subtraction always targets the array actually present
+/// in the request.
+pub fn read_context_id(config: &Value) -> &str {
+    config
+        .get("context_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or(message_context::DEFAULT_CONTEXT_ID)
+}
+
 /// Collect the initial message list for the request:
 /// system prompt, optional transform-context injection, messages from the
 /// named context (default `current`), inline `messages` config, and finally
@@ -163,10 +174,7 @@ pub fn build_messages(ctx: &NodeExecutionContext) -> WorkflowResult<Vec<Message>
         }
     }
 
-    let context_id = config
-        .get("context_id")
-        .and_then(|v| v.as_str())
-        .unwrap_or(message_context::DEFAULT_CONTEXT_ID);
+    let context_id = read_context_id(config);
     let context_messages = message_context::get_context(&ctx.variables, context_id);
     if !context_messages.is_empty() {
         messages.extend(context_messages);

@@ -89,5 +89,5 @@ async fn registry_handler_error_propagates() {
 #[test]
 fn registry_missing_type_resolves_to_none() {
     let registry = registry();
-    assert!(registry.get(&StaticNodeType::Llm).is_none());
+    assert!(!registry.contains_key(&StaticNodeType::Llm));
 }

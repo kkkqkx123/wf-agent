@@ -244,11 +244,14 @@ impl HookHandler for CompressionHandler {
                 wf_execution_shared::build_context_compression_completed_event(
                     execution_id.as_str(),
                     None,
-                    &target_context_id,
-                    array_version,
-                    summary.as_deref(),
-                    wf_llm::estimate_messages(&compressed) as u64,
-                    Some(&compressed),
+                    &wf_execution_shared::ContextCompressionCompleted {
+                        target_context_id: &target_context_id,
+                        array_version,
+                        summary: summary.as_deref(),
+                        tokens_after: wf_llm::estimate_messages(&compressed) as u64,
+                        messages: Some(&compressed),
+                        tail_keep: 0,
+                    },
                 ),
             )
             .expect("compression completed event must publish to live subscribers");
@@ -288,6 +291,34 @@ impl ContextWriter for RecordingWriter {
             .lock()
             .unwrap()
             .push((context_id.to_string(), messages));
+        Ok(())
+    }
+
+    async fn write_context_with_tail(
+        &self,
+        context_id: &str,
+        messages: Vec<Message>,
+        expected_version: u64,
+        tail_keep: usize,
+    ) -> Result<(), WriteBackError> {
+        let current = message_context::array_version(&self.vars, context_id);
+        if current != expected_version {
+            return Err(WriteBackError::VersionMismatch {
+                expected: expected_version,
+                current,
+            });
+        }
+        let mut combined = messages;
+        if tail_keep > 0 {
+            let active = message_context::get_context(&self.vars, context_id);
+            let start = active.len().saturating_sub(tail_keep);
+            combined.extend(active.into_iter().skip(start));
+        }
+        message_context::register_context(&self.vars, context_id, combined.clone());
+        self.writes
+            .lock()
+            .unwrap()
+            .push((context_id.to_string(), combined));
         Ok(())
     }
 

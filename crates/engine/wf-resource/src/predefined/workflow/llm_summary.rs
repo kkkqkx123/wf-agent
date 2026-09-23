@@ -49,7 +49,11 @@ pub fn create_llm_summary_workflow(compression_prompt: Option<String>) -> Workfl
                 "profile_id": "DEFAULT",
                 "context_id": "current",
                 "output_context": "compressed",
-                "system_prompt": compression_prompt.unwrap_or_else(|| DEFAULT_LLM_SUMMARY_PROMPT.into())
+                "system_prompt": compression_prompt.unwrap_or_else(|| DEFAULT_LLM_SUMMARY_PROMPT.into()),
+                // The summary input is an already over-budget snapshot: this
+                // node never participates in compression decisions (the
+                // depth guard is the backstop; this switch is the intent).
+                "enable_token_tracking": false
             })),
             execution_config: None,
         },
@@ -114,7 +118,10 @@ pub fn create_llm_summary_workflow(compression_prompt: Option<String>) -> Workfl
             triggered_subworkflow_config: Some(TriggeredSubworkflowConfig {
                 enable_checkpoints: Some(false),
                 timeout: Some(60000),
-                max_retries: Some(0),
+                // Retry policy lives with the compression service (which
+                // owns the cross-attempt dedup table); the template only
+                // bounds a single run.
+                max_retries: None,
             }),
             metadata: Some(WorkflowMetadata {
                 author: Some("system".into()),

@@ -141,11 +141,25 @@ pub fn context_budget_from_profile(
     context_budget_from_window_with_percent(window, context_budget_percent_from_metadata(metadata))
 }
 
+/// One in-flight compression run over a named message array.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct CompressionFlight {
+    /// Array version the compression was emitted for (anchor).
+    pub version: u64,
+    /// Emission time (`wf_common::now`) for staleness detection.
+    pub started_at_ms: i64,
+    /// Whether the emission came from the forced safety-net path.
+    pub forced: bool,
+}
+
 /// Serialized state of a [`TokenUsageTracker`] for checkpointing.
 ///
 /// New fields are `#[serde(default)]`: checkpoints written before the
 /// dual-track split restore with an empty decision track, which only delays
-/// the next decision event, never corrupts cost accounting.
+/// the next decision event, never corrupts cost accounting. In-flight
+/// compression records are never restored: a resumed execution re-derives
+/// them from the version guard instead of waiting on a run that may no
+/// longer exist.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct TokenTrackerState {
     pub cumulative: RequestUsage,
@@ -160,7 +174,16 @@ pub struct TokenTrackerState {
     /// Decision track: cumulative estimated tokens across finalized requests.
     #[serde(default)]
     pub estimated_cumulative: u64,
-    /// Highest limit-exceeded tier already reported (decision track).
+    /// Task-budget track: per-request actual totals when the provider
+    /// reported usage, estimated totals otherwise (actual-first with
+    /// estimation fallback).
+    #[serde(default)]
+    pub billed_cumulative: u64,
+    /// Whole-request calibration bias (actual minus estimated, EWMA):
+    /// added to stable array estimates before a compression decision.
+    #[serde(default)]
+    pub calibration_bias: i64,
+    /// Highest limit-exceeded tier already reported (task-budget track).
     #[serde(default)]
     pub last_limit_tier: u32,
     /// Per-request context budget derived from the model window
@@ -171,13 +194,22 @@ pub struct TokenTrackerState {
     /// (ledger reset bookkeeping, informational).
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub compressed_contexts: HashMap<String, u64>,
+    /// In-flight compression runs by target array name. Runtime-only:
+    /// cleared on restore (never carried across checkpoints).
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub compression_flights: HashMap<String, CompressionFlight>,
 }
 
 /// Tracks token usage across LLM calls in a conversation.
 ///
 /// - Decision track: `estimated_cumulative` (locally estimated only)
+/// - Task-budget track: `billed_cumulative` (per-request actual totals when
+///   the provider reported usage, estimates otherwise)
 /// - Cost track: `cumulative` (real API usage), `lifetime` (non-reversible),
 ///   `current_request` (in-flight), `history`
+/// - Calibration: `calibration_bias` (actual-minus-estimated EWMA applied to
+///   compression decisions)
+/// - Backpressure: `compression_flights` (in-flight compression anchors)
 #[derive(Debug, Clone)]
 pub struct TokenUsageTracker {
     /// 0 disables limit checks and percentage warnings.
@@ -191,8 +223,12 @@ pub struct TokenUsageTracker {
     lifetime: RequestUsage,
     /// Cost track: usage of the in-flight request (streaming accumulation).
     current_request: RequestUsage,
-    /// Decision track: cumulative estimated tokens (warnings/limit/compression).
+    /// Decision track: cumulative estimated tokens (compression input).
     estimated_cumulative: u64,
+    /// Task-budget track: billed totals drive warnings and limit tiers.
+    billed_cumulative: u64,
+    /// Whole-request calibration bias for compression decisions.
+    calibration_bias: i64,
     /// Decision track: pending estimate of the in-flight request, folded on
     /// finalize.
     pending_estimated: u64,
@@ -207,6 +243,9 @@ pub struct TokenUsageTracker {
     preflight_warning_emitted: bool,
     /// Highest limit-exceeded tier reported (100% -> tier 2, 150% -> tier 3, ...).
     last_limit_tier: u32,
+    /// In-flight compression runs by target array name (runtime-only, never
+    /// restored from checkpoints).
+    compression_flights: HashMap<String, CompressionFlight>,
 }
 
 impl Default for TokenUsageTracker {
@@ -224,6 +263,8 @@ impl TokenUsageTracker {
             lifetime: RequestUsage::default(),
             current_request: RequestUsage::default(),
             estimated_cumulative: 0,
+            billed_cumulative: 0,
+            calibration_bias: 0,
             pending_estimated: 0,
             current_estimated: false,
             history: Vec::new(),
@@ -231,6 +272,7 @@ impl TokenUsageTracker {
             warning_emitted: false,
             preflight_warning_emitted: false,
             last_limit_tier: 0,
+            compression_flights: HashMap::new(),
         }
     }
 
@@ -285,14 +327,33 @@ impl TokenUsageTracker {
             .saturating_add(prompt_estimated as u64 + completion_estimated as u64);
     }
 
-    /// Fold the current request into the cost-track cumulative/lifetime and
-    /// the pending estimate into the decision track. Appends a history entry.
+    /// Fold the current request into the cost-track cumulative/lifetime, the
+    /// pending estimate into the decision track, and the per-request billed
+    /// total (actual when the provider reported usage, estimate otherwise)
+    /// into the task-budget track. Appends a history entry. When the request
+    /// carried both actual usage and a local estimate, the difference feeds
+    /// the calibration bias used by compression decisions.
     pub fn finalize_current_request(&mut self) {
         let request_is_empty = self.current_request.total_tokens == 0
             && self.current_request.prompt_tokens == 0
             && self.current_request.completion_tokens == 0;
         if request_is_empty && self.pending_estimated == 0 {
             return;
+        }
+        let actual_total = (self.current_request.total_tokens as u64).max(
+            self.current_request.prompt_tokens as u64
+                + self.current_request.completion_tokens as u64,
+        );
+        if !self.current_estimated && actual_total > 0 {
+            self.billed_cumulative = self.billed_cumulative.saturating_add(actual_total);
+            if self.pending_estimated > 0 {
+                let sample = actual_total as i64 - self.pending_estimated as i64;
+                self.calibration_bias += (sample - self.calibration_bias) / 4;
+            }
+        } else {
+            self.billed_cumulative = self
+                .billed_cumulative
+                .saturating_add(self.pending_estimated);
         }
 
         if !request_is_empty {
@@ -365,27 +426,56 @@ impl TokenUsageTracker {
         self.estimated_cumulative
     }
 
+    /// Task-budget track: billed totals (actual-first with estimation
+    /// fallback). Warnings and limit tiers read this, never the raw
+    /// estimate or the cost track alone.
+    pub fn billed_total(&self) -> u64 {
+        self.billed_cumulative
+    }
+
+    /// Whole-request calibration bias (actual minus estimated, EWMA).
+    pub fn calibration_bias(&self) -> i64 {
+        self.calibration_bias
+    }
+
+    /// Apply the calibration bias to a stable array estimate before a
+    /// compression decision (never below zero).
+    pub fn calibrated(&self, stable_estimate: u64) -> u64 {
+        if self.calibration_bias >= 0 {
+            stable_estimate.saturating_add(self.calibration_bias as u64)
+        } else {
+            stable_estimate.saturating_sub((-self.calibration_bias) as u64)
+        }
+    }
+
     /// Decision track: strict `>` comparison against the limit; always false
     /// when the limit is 0 (disabled).
     pub fn is_estimated_limit_exceeded(&self) -> bool {
         self.token_limit > 0 && self.estimated_cumulative > self.token_limit
     }
 
-    /// Decision track: percentage of the limit consumed (None when disabled).
-    pub fn estimated_usage_percentage(&self) -> Option<f64> {
+    /// Task-budget track: strict `>` comparison against the limit; always
+    /// false when the limit is 0 (disabled).
+    pub fn is_billed_limit_exceeded(&self) -> bool {
+        self.token_limit > 0 && self.billed_cumulative > self.token_limit
+    }
+
+    /// Task-budget track: percentage of the limit consumed (None when
+    /// disabled).
+    pub fn billed_usage_percentage(&self) -> Option<f64> {
         if self.token_limit == 0 {
             return None;
         }
-        Some(self.estimated_cumulative as f64 / self.token_limit as f64 * 100.0)
+        Some(self.billed_cumulative as f64 / self.token_limit as f64 * 100.0)
     }
 
     /// Consume the single-shot warning: returns true exactly once when the
-    /// decision-track usage percentage crosses the threshold.
+    /// task-budget usage percentage crosses the threshold.
     pub fn consume_warning(&mut self, threshold_percentage: f64) -> bool {
         if self.warning_emitted {
             return false;
         }
-        let Some(percentage) = self.estimated_usage_percentage() else {
+        let Some(percentage) = self.billed_usage_percentage() else {
             return false;
         };
         if percentage > threshold_percentage {
@@ -407,16 +497,54 @@ impl TokenUsageTracker {
         true
     }
 
+    /// Record the start of a compression run over `target` at `version`.
+    /// Replaces any previous record for the target (a newer emission wins).
+    pub fn begin_compression_flight(&mut self, target: &str, version: u64, forced: bool) {
+        self.compression_flights.insert(
+            target.to_string(),
+            CompressionFlight {
+                version,
+                started_at_ms: wf_common::now(),
+                forced,
+            },
+        );
+    }
+
+    /// Clear the in-flight record for `target` when it still anchors
+    /// `version`. Returns true when a record was removed. Stale results and
+    /// terminal failures clear through this same path; concurrent progress
+    /// (a newer version) is never cleared by an older anchor.
+    pub fn end_compression_flight(&mut self, target: &str, version: u64) -> bool {
+        let anchored = self
+            .compression_flights
+            .get(target)
+            .is_some_and(|flight| flight.version == version);
+        if anchored {
+            self.compression_flights.remove(target);
+        }
+        anchored
+    }
+
+    /// In-flight compression record for `target`, if any.
+    pub fn compression_flight(&self, target: &str) -> Option<CompressionFlight> {
+        self.compression_flights.get(target).cloned()
+    }
+
+    /// Drop every in-flight compression record (execution teardown).
+    pub fn clear_compression_flights(&mut self) {
+        self.compression_flights.clear();
+    }
+
     /// Decision track: tier-based limit exceeded guard. Tiers are 50%
     /// bands starting at 100% (100% -> 2, 150% -> 3, 200% -> 4, ...).
     /// Returns the newly crossed tier exactly once per band, so
     /// TOKEN_LIMIT_EXCEEDED is emitted at most once per tier instead of on
-    /// every call.
+    /// every call. Bands read the task-budget (billed) track.
     pub fn consume_limit_exceeded_tier(&mut self) -> Option<u32> {
-        if !self.is_estimated_limit_exceeded() {
+        if !self.is_billed_limit_exceeded() {
             return None;
         }
-        let tier = (self.estimated_cumulative * 100 / self.token_limit / 50) as u32;
+        let tier = (self.billed_cumulative * 100 / self.token_limit / 50) as u32;
         if tier > self.last_limit_tier {
             self.last_limit_tier = tier;
             Some(tier)
@@ -455,13 +583,19 @@ impl TokenUsageTracker {
             warning_emitted: self.warning_emitted,
             preflight_warning_emitted: self.preflight_warning_emitted,
             estimated_cumulative: self.estimated_cumulative,
+            billed_cumulative: self.billed_cumulative,
+            calibration_bias: self.calibration_bias,
             last_limit_tier: self.last_limit_tier,
             context_limit: self.context_limit,
             compressed_contexts: HashMap::new(),
+            compression_flights: self.compression_flights.clone(),
         }
     }
 
-    /// Restore from a checkpointed state.
+    /// Restore from a checkpointed state. In-flight compression records are
+    /// dropped: a resumed execution re-derives them from the version guard.
+    /// Snapshots predating the billed track seed it from the estimate so the
+    /// task budget does not collapse to zero on resume.
     pub fn restore(&mut self, state: TokenTrackerState) {
         self.cumulative = state.cumulative;
         self.lifetime = state.lifetime;
@@ -470,8 +604,15 @@ impl TokenUsageTracker {
         self.warning_emitted = state.warning_emitted;
         self.preflight_warning_emitted = state.preflight_warning_emitted;
         self.estimated_cumulative = state.estimated_cumulative;
+        self.billed_cumulative = if state.billed_cumulative == 0 && state.estimated_cumulative > 0 {
+            state.estimated_cumulative
+        } else {
+            state.billed_cumulative
+        };
+        self.calibration_bias = state.calibration_bias;
         self.last_limit_tier = state.last_limit_tier;
         self.context_limit = state.context_limit;
+        self.compression_flights.clear();
     }
 }
 
@@ -542,16 +683,71 @@ mod tests {
     }
 
     #[test]
-    fn test_limit_check_is_decision_track_only() {
+    fn test_limit_check_is_billed_track_actual_first() {
         let mut tracker = TokenUsageTracker::new(100);
-        // Real usage stays below the limit but the estimate crosses it:
-        // the decision (estimated) track drives the check, not provider data.
+        // Real usage stays below the limit while the estimate crosses it:
+        // the billed (actual-first) track drives the check, not the estimate.
         tracker.update_api_usage(&usage(10, 5));
         tracker.accumulate_estimated_usage(90, 20);
         tracker.finalize_current_request();
         assert!(tracker.is_estimated_limit_exceeded());
+        assert!(!tracker.is_billed_limit_exceeded());
         assert_eq!(tracker.estimated_total(), 110);
+        assert_eq!(tracker.billed_total(), 15);
         assert_eq!(tracker.cumulative_usage().total_tokens, 15);
+    }
+
+    #[test]
+    fn test_billed_falls_back_to_estimate_without_provider_usage() {
+        let mut tracker = TokenUsageTracker::new(100);
+        tracker.update_estimated_usage(90, 20);
+        tracker.finalize_current_request();
+        assert_eq!(tracker.billed_total(), 110);
+        assert!(tracker.is_billed_limit_exceeded());
+    }
+
+    #[test]
+    fn test_calibration_bias_tracks_actual_minus_estimated() {
+        let mut tracker = TokenUsageTracker::new(10_000);
+        assert_eq!(tracker.calibration_bias(), 0);
+        tracker.update_api_usage(&usage(100, 20));
+        tracker.accumulate_estimated_usage(90, 10);
+        tracker.finalize_current_request();
+        // Sample is 120 - 100 = 20; EWMA quarter step moves bias to 5.
+        assert_eq!(tracker.calibration_bias(), 5);
+        assert_eq!(tracker.calibrated(1000), 1005);
+        // No estimate queued: the bias is left untouched.
+        tracker.update_api_usage(&usage(50, 10));
+        tracker.finalize_current_request();
+        assert_eq!(tracker.calibration_bias(), 5);
+    }
+
+    #[test]
+    fn test_compression_flight_anchors_and_clears() {
+        let mut tracker = TokenUsageTracker::new(0);
+        assert!(tracker.compression_flight("chat").is_none());
+        tracker.begin_compression_flight("chat", 7, false);
+        let flight = tracker.compression_flight("chat").expect("flight recorded");
+        assert_eq!(flight.version, 7);
+        assert!(!flight.forced);
+        // A stale anchor never clears a newer flight.
+        assert!(!tracker.end_compression_flight("chat", 6));
+        assert!(tracker.compression_flight("chat").is_some());
+        assert!(tracker.end_compression_flight("chat", 7));
+        assert!(tracker.compression_flight("chat").is_none());
+    }
+
+    #[test]
+    fn test_restore_drops_flights_and_seeds_billed() {
+        let mut tracker = TokenUsageTracker::new(100);
+        tracker.update_estimated_usage(60, 0);
+        tracker.finalize_current_request();
+        tracker.begin_compression_flight("chat", 3, true);
+        let state = tracker.state();
+        let mut restored = TokenUsageTracker::new(100);
+        restored.restore(state);
+        assert!(restored.compression_flight("chat").is_none());
+        assert_eq!(restored.billed_total(), 60);
     }
 
     #[test]
@@ -560,19 +756,19 @@ mod tests {
         tracker.update_api_usage(&usage(1000, 1000));
         tracker.finalize_current_request();
         assert!(!tracker.is_estimated_limit_exceeded());
-        assert!(tracker.estimated_usage_percentage().is_none());
+        assert!(tracker.billed_usage_percentage().is_none());
     }
 
     #[test]
-    fn test_usage_percentage_is_estimated() {
+    fn test_usage_percentage_is_billed() {
         let mut tracker = TokenUsageTracker::new(100);
         tracker.accumulate_estimated_usage(80, 0);
         tracker.finalize_current_request();
-        assert_eq!(tracker.estimated_usage_percentage().unwrap(), 80.0);
+        assert_eq!(tracker.billed_usage_percentage().unwrap(), 80.0);
     }
 
     #[test]
-    fn test_warning_fires_once_on_estimated_track() {
+    fn test_warning_fires_once_on_billed_track() {
         let mut tracker = TokenUsageTracker::new(100);
         assert!(!tracker.consume_warning(80.0));
 
@@ -627,6 +823,10 @@ mod tests {
 
         // Decision track: the estimate accumulated regardless.
         assert_eq!(tracker.estimated_total(), 350);
+        // Task-budget track: actual-first, so the billed total is the
+        // provider usage for this request.
+        assert_eq!(tracker.billed_total(), 120);
+        assert_eq!(tracker.calibration_bias(), -57);
     }
 
     #[test]
@@ -639,6 +839,7 @@ mod tests {
         assert_eq!(entry.estimated, Some(true));
         // The estimate feeds both tracks: history (marked) + decision track.
         assert_eq!(tracker.estimated_total(), 350);
+        assert_eq!(tracker.billed_total(), 350);
         assert_eq!(tracker.cumulative_usage().total_tokens, 350);
     }
 
@@ -691,6 +892,7 @@ mod tests {
         let state = tracker.state();
         assert!(state.warning_emitted);
         assert_eq!(state.estimated_cumulative, 15);
+        assert_eq!(state.billed_cumulative, 15);
         assert_eq!(state.last_limit_tier, 3);
         let mut restored = TokenUsageTracker::new(0);
         restored.restore(state);
@@ -737,6 +939,7 @@ mod tests {
         tracker.finalize_current_request();
         // Task budget intact: 900 cumulative vs 150 task limit.
         assert!(tracker.is_estimated_limit_exceeded());
+        assert!(tracker.is_billed_limit_exceeded());
         assert_eq!(tracker.context_limit(), 850);
         let state = tracker.state();
         let mut restored = TokenUsageTracker::new(0);

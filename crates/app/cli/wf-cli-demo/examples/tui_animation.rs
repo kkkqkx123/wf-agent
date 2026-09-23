@@ -84,9 +84,6 @@ struct AnimState {
     frame_count: u64,
     /// Total tokens emitted.
     token_count: u64,
-    /// Auto-scroll offset (lines from the bottom).
-    #[allow(dead_code)]
-    scroll_offset: u16,
 }
 
 impl AnimState {
@@ -97,7 +94,6 @@ impl AnimState {
             playing: true,
             frame_count: 0,
             token_count: 0,
-            scroll_offset: 0,
         }
     }
 

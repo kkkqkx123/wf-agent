@@ -8,6 +8,8 @@ pub struct LimitsConfig {
     pub workflow: Option<WorkflowLimits>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub execution_defaults: Option<ExecutionDefaults>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub compression: Option<CompressionLimits>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
@@ -42,4 +44,17 @@ pub struct ExecutionDefaults {
     pub node_timeout_ms: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub max_execution_time_ms: Option<u64>,
+}
+
+/// Cross-attempt compression service policy: retry count, outer per-attempt
+/// timeout, and how many recent pre-existing messages stay visible beside the
+/// summary. Absent fields fall back to the service builtin defaults.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct CompressionLimits {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_retries: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timeout_ms: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tail_keep: Option<usize>,
 }

@@ -46,7 +46,6 @@ pub fn parse_config_file<T: serde::de::DeserializeOwned>(path: &Path) -> ConfigR
 }
 
 #[cfg(test)]
-#[allow(dead_code)]
 mod tests {
     use super::*;
 
@@ -72,7 +71,6 @@ mod tests {
         "#;
         #[derive(Debug, serde::Deserialize)]
         struct ParseTestConfig {
-            #[allow(dead_code)]
             name: String,
             value: i32,
         }
@@ -86,7 +84,6 @@ mod tests {
         let json_str = r#"{"name": "test", "value": 42}"#;
         #[derive(Debug, serde::Deserialize)]
         struct ParseTestConfig {
-            #[allow(dead_code)]
             name: String,
             value: i32,
         }

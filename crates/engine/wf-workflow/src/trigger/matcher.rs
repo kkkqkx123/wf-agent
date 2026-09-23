@@ -417,6 +417,31 @@ mod tests {
     }
 
     #[test]
+    fn compression_completed_and_failed_stay_observable() {
+        // Read-only observability stays open: user templates may subscribe
+        // to the terminal compression events, only the REQUESTED signal
+        // (and its audit copy) is owned by the builtin service.
+        let completed = event_template("on-completed", "CONTEXT_COMPRESSION_COMPLETED", 0);
+        let failed = event_template("on-failed", "CONTEXT_COMPRESSION_FAILED", 0);
+        assert_eq!(
+            candidates(
+                &[completed],
+                &base_event(EventType::ContextCompressionCompleted, "e1")
+            )
+            .len(),
+            1
+        );
+        assert_eq!(
+            candidates(
+                &[failed],
+                &base_event(EventType::ContextCompressionFailed, "e1")
+            )
+            .len(),
+            1
+        );
+    }
+
+    #[test]
     fn compression_signal_templates_never_candidates() {
         let direct = event_template(
             "on-compression",

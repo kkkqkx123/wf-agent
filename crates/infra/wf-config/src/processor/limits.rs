@@ -11,7 +11,9 @@
 use crate::error::{ConfigError, ConfigResult};
 use crate::validator::validate_min;
 
-use wf_types::config::limits::{AgentLimits, ExecutionDefaults, LimitsConfig, WorkflowLimits};
+use wf_types::config::limits::{
+    AgentLimits, CompressionLimits, ExecutionDefaults, LimitsConfig, WorkflowLimits,
+};
 
 pub const AGENT_MAX_ITERATIONS_CAP_DEFAULT: u32 = 1000;
 pub const AGENT_DEFAULT_MAX_ITERATIONS_DEFAULT: u32 = 10;
@@ -27,12 +29,17 @@ pub const WORKFLOW_MAX_CONCURRENT_DEFAULT: u32 = 0;
 pub const EXEC_NODE_TIMEOUT_MS_DEFAULT: u64 = 30_000;
 pub const EXEC_MAX_EXECUTION_TIME_MS_DEFAULT: u64 = 0;
 
+pub const COMPRESSION_MAX_RETRIES_DEFAULT: u32 = 2;
+pub const COMPRESSION_TIMEOUT_MS_DEFAULT: u64 = 60_000;
+pub const COMPRESSION_TAIL_KEEP_DEFAULT: usize = 2;
+
 /// Merge user limits with defaults, filling every absent field so the
 /// returned config carries concrete values (never `None`).
 pub fn merge_limits_with_defaults(user: &LimitsConfig) -> LimitsConfig {
     let user_agent = user.agent.as_ref();
     let user_workflow = user.workflow.as_ref();
     let user_exec = user.execution_defaults.as_ref();
+    let user_compression = user.compression.as_ref();
 
     let agent = AgentLimits {
         max_iterations_cap: user_agent
@@ -76,10 +83,23 @@ pub fn merge_limits_with_defaults(user: &LimitsConfig) -> LimitsConfig {
             .or(Some(EXEC_MAX_EXECUTION_TIME_MS_DEFAULT)),
     };
 
+    let compression = CompressionLimits {
+        max_retries: user_compression
+            .and_then(|c| c.max_retries)
+            .or(Some(COMPRESSION_MAX_RETRIES_DEFAULT)),
+        timeout_ms: user_compression
+            .and_then(|c| c.timeout_ms)
+            .or(Some(COMPRESSION_TIMEOUT_MS_DEFAULT)),
+        tail_keep: user_compression
+            .and_then(|c| c.tail_keep)
+            .or(Some(COMPRESSION_TAIL_KEEP_DEFAULT)),
+    };
+
     LimitsConfig {
         agent: Some(agent),
         workflow: Some(workflow),
         execution_defaults: Some(execution_defaults),
+        compression: Some(compression),
     }
 }
 
@@ -136,6 +156,15 @@ pub fn validate_limits_config(config: &LimitsConfig) -> ConfigResult<()> {
             }
         }
     }
+    if let Some(ref compression) = config.compression {
+        if let Some(timeout) = compression.timeout_ms {
+            if timeout == 0 {
+                return Err(ConfigError::Validation(
+                    "limits.compression.timeout_ms must be at least 1, got 0".to_string(),
+                ));
+            }
+        }
+    }
     Ok(())
 }
 
@@ -160,6 +189,10 @@ mod tests {
         let exec = merged.execution_defaults.unwrap();
         assert_eq!(exec.node_timeout_ms, Some(30000));
         assert_eq!(exec.max_execution_time_ms, Some(0));
+        let compression = merged.compression.unwrap();
+        assert_eq!(compression.max_retries, Some(2));
+        assert_eq!(compression.timeout_ms, Some(60000));
+        assert_eq!(compression.tail_keep, Some(2));
     }
 
     #[test]
@@ -176,6 +209,10 @@ mod tests {
             }),
             execution_defaults: Some(ExecutionDefaults {
                 node_timeout_ms: Some(60000),
+                ..Default::default()
+            }),
+            compression: Some(CompressionLimits {
+                max_retries: Some(5),
                 ..Default::default()
             }),
         };
@@ -222,6 +259,15 @@ mod tests {
             agent: Some(AgentLimits {
                 max_iterations_cap: Some(10),
                 default_max_iterations: Some(20),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+        assert!(validate_limits_config(&bad).is_err());
+
+        let bad = LimitsConfig {
+            compression: Some(CompressionLimits {
+                timeout_ms: Some(0),
                 ..Default::default()
             }),
             ..Default::default()

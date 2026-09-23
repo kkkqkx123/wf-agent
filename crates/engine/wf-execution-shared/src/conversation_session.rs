@@ -35,6 +35,45 @@ pub struct ConversationState {
     /// were introduced (defaults to showing the whole history).
     #[serde(default, skip_serializing_if = "MessageView::is_full")]
     pub active_view: MessageView,
+    /// Incremental estimate of the active view (stable array content only;
+    /// per-request dynamic overhead is added fresh at each decision point).
+    /// Maintained on every append and compression so view reads stay O(1).
+    #[serde(default)]
+    pub view_stable_estimate: u64,
+}
+
+/// Estimate of a projected view, mirroring [`MessageView::project`] without
+/// materializing the projection.
+fn projected_view_estimate(history: &[Message], seqs: &[u64], view: &MessageView) -> u64 {
+    match view {
+        MessageView::Full => wf_llm::token::count::estimate_messages(history) as u64,
+        MessageView::Compressed {
+            summary,
+            tail_begin,
+        } => {
+            let mut total = estimate_message_tokens(summary) as u64;
+            for message in history.iter().skip(*tail_begin) {
+                if message.id != summary.id {
+                    total = total.saturating_add(estimate_message_tokens(message) as u64);
+                }
+            }
+            total
+        }
+        MessageView::Tail { last_n } => {
+            let start = history.len().saturating_sub(*last_n);
+            wf_llm::token::count::estimate_messages(&history[start..]) as u64
+        }
+        MessageView::NoSystem => wf_llm::token::count::estimate_messages(
+            &history
+                .iter()
+                .filter(|m| m.role != wf_types::message::MessageRole::System)
+                .cloned()
+                .collect::<Vec<_>>(),
+        ) as u64,
+        MessageView::Range { .. } => {
+            wf_llm::token::count::estimate_messages(&view.project_with_seqs(history, seqs)) as u64
+        }
+    }
 }
 
 pub struct ConversationSession {
@@ -65,6 +104,7 @@ impl ConversationSession {
                 tracker: None,
                 ledger: TokenLedger::default(),
                 active_view: MessageView::Full,
+                view_stable_estimate: 0,
             },
             tracker: TokenUsageTracker::new(token_limit),
         }
@@ -72,10 +112,14 @@ impl ConversationSession {
 
     pub fn add_message(&mut self, message: Message) {
         // Decision track: incrementally estimate the new message only.
+        // Every append is visible in every view (full history, or summary
+        // plus the tail that always includes later appends), so the stable
+        // view estimate grows by the same increment.
         let estimated = estimate_message_tokens(&message) as u64;
         self.state
             .ledger
             .append(CONVERSATION_CONTEXT_ID, estimated, 1);
+        self.state.view_stable_estimate = self.state.view_stable_estimate.saturating_add(estimated);
         self.state.seqs.push(self.state.next_seq);
         self.state.next_seq = self.state.next_seq.saturating_add(1);
         self.state.messages.push(message);
@@ -106,10 +150,17 @@ impl ConversationSession {
         for message in summary_messages {
             self.add_message(message);
         }
-        self.state.active_view = MessageView::Compressed {
+        let view = MessageView::Compressed {
             summary,
             tail_begin,
         };
+        // Recompute from the retained tail plus the summary batch, mirroring
+        // the projection (the appended batch is deduplicated by id so the
+        // summary is never double counted). Bounded by the tail plus the
+        // batch, never by the full history.
+        self.state.view_stable_estimate =
+            projected_view_estimate(&self.state.messages, &self.state.seqs, &view);
+        self.state.active_view = view;
         self.tracker.reset_preflight_warning();
     }
 
@@ -117,6 +168,8 @@ impl ConversationSession {
     /// History was never deleted, so undoing compression costs nothing.
     pub fn restore_full_view(&mut self) {
         self.state.active_view = MessageView::Full;
+        self.state.view_stable_estimate =
+            wf_llm::token::count::estimate_messages(&self.state.messages) as u64;
     }
 
     /// Restore an authoritative history with its view (checkpoint resume
@@ -134,6 +187,11 @@ impl ConversationSession {
         // next read recomputes lazily (dirty flag), and the version bump
         // invalidates stale emission guards.
         self.state.ledger.replace(CONVERSATION_CONTEXT_ID);
+        self.state.view_stable_estimate = projected_view_estimate(
+            &self.state.messages,
+            &self.state.seqs,
+            &self.state.active_view,
+        );
     }
 
     /// Stable sequence range covered by the current history.
@@ -225,13 +283,16 @@ impl ConversationSession {
         self.state.ledger.estimated_tokens(CONVERSATION_CONTEXT_ID)
     }
 
-    /// Decision track: estimated token total of the projected view (what
-    /// the next LLM request actually carries). Compression decisions read
-    /// this: after compression the view shrinks even though the history
-    /// keeps growing, so a history-based estimate would re-trigger
-    /// compression immediately.
+    /// Stable content of the projected view: the incremental estimate of
+    /// what the next LLM request carries before per-request dynamic
+    /// overhead (tool declarations, injected blocks) is added fresh at each
+    /// decision point. Compression decisions read this: after compression
+    /// the view shrinks even though the history keeps growing, so a
+    /// history-based estimate would re-trigger compression immediately.
+    /// Maintained incrementally on every append and compression (O(1)
+    /// reads); dynamic overhead never accumulates here.
     pub fn estimated_view_tokens(&self) -> u64 {
-        wf_llm::token::count::estimate_messages(&self.view_messages()) as u64
+        self.state.view_stable_estimate
     }
 
     /// Current version of the conversation array (ledger).
@@ -320,10 +381,10 @@ impl ConversationSession {
         self.tracker.get_token_usage()
     }
 
-    /// Decision track: true when estimated cumulative usage strictly
+    /// Task-budget track: true when billed cumulative usage strictly
     /// exceeds the configured limit.
     pub fn is_token_limit_exceeded(&self) -> bool {
-        self.tracker.is_estimated_limit_exceeded()
+        self.tracker.is_billed_limit_exceeded()
     }
 
     /// Decision track: estimated cumulative total across finalized requests.
@@ -331,10 +392,44 @@ impl ConversationSession {
         self.tracker.estimated_total()
     }
 
-    /// Decision track: percentage of the limit consumed (None when the
+    /// Task-budget track: billed cumulative total (actual-first with
+    /// estimation fallback).
+    pub fn billed_total(&self) -> u64 {
+        self.tracker.billed_total()
+    }
+
+    /// Whole-request calibration bias for compression decisions.
+    pub fn calibration_bias(&self) -> i64 {
+        self.tracker.calibration_bias()
+    }
+
+    /// Apply the calibration bias to a stable array estimate.
+    pub fn calibrated_estimate(&self, stable_estimate: u64) -> u64 {
+        self.tracker.calibrated(stable_estimate)
+    }
+
+    /// Task-budget track: percentage of the limit consumed (None when the
     /// limit is disabled).
     pub fn usage_percentage(&self) -> Option<f64> {
-        self.tracker.estimated_usage_percentage()
+        self.tracker.billed_usage_percentage()
+    }
+
+    /// Record the start of a compression run over the conversation.
+    pub fn begin_compression_flight(&mut self, version: u64, forced: bool) {
+        self.tracker
+            .begin_compression_flight(CONVERSATION_CONTEXT_ID, version, forced);
+    }
+
+    /// Clear the in-flight compression record when it still anchors
+    /// `version`.
+    pub fn end_compression_flight(&mut self, version: u64) -> bool {
+        self.tracker
+            .end_compression_flight(CONVERSATION_CONTEXT_ID, version)
+    }
+
+    /// In-flight compression record for the conversation, if any.
+    pub fn compression_flight(&self) -> Option<crate::token_tracker::CompressionFlight> {
+        self.tracker.compression_flight(CONVERSATION_CONTEXT_ID)
     }
 
     /// Consume the single-shot warning when the decision-track usage
@@ -383,6 +478,7 @@ impl ConversationSession {
         self.state.seqs.clear();
         self.state.next_seq = 0;
         self.state.active_view = MessageView::Full;
+        self.state.view_stable_estimate = 0;
         self.state.ledger = TokenLedger::default();
         let mut tracker = TokenUsageTracker::new(self.tracker.token_limit());
         tracker.set_context_limit(self.tracker.context_limit());
@@ -401,7 +497,8 @@ impl ConversationSession {
     }
 
     /// Restore the full session state (messages + seqs + view + tracker +
-    /// ledger) from a snapshot.
+    /// ledger) from a snapshot. Snapshots predating the incremental view
+    /// estimate recompute it once here.
     pub fn restore_state(&mut self, mut state: ConversationState) {
         if state.seqs.len() != state.messages.len() {
             let len = state.messages.len() as u64;
@@ -412,6 +509,16 @@ impl ConversationSession {
         self.state.seqs = state.seqs;
         self.state.next_seq = state.next_seq;
         self.state.active_view = state.active_view;
+        self.state.view_stable_estimate =
+            if state.view_stable_estimate == 0 && !self.state.messages.is_empty() {
+                projected_view_estimate(
+                    &self.state.messages,
+                    &self.state.seqs,
+                    &self.state.active_view,
+                )
+            } else {
+                state.view_stable_estimate
+            };
         self.state.ledger = state.ledger;
         if let Some(tracker_state) = state.tracker {
             self.tracker.restore(tracker_state);
@@ -605,6 +712,7 @@ mod tests {
             tracker: None,
             ledger: TokenLedger::default(),
             active_view: MessageView::Full,
+            view_stable_estimate: 0,
         };
         let mut session = ConversationSession::with_token_limit(500);
         session.restore_state(state);
@@ -710,6 +818,32 @@ mod tests {
             session.estimated_total(),
             135,
             "decision track keeps the estimate"
+        );
+        assert_eq!(
+            session.billed_total(),
+            150,
+            "task-budget track prefers the provider usage"
+        );
+    }
+
+    #[test]
+    fn incremental_view_estimate_matches_full_projection() {
+        let mut session = ConversationSession::new();
+        session.add_message(user("hello world, this is a test"));
+        session.add_message(user("second message with more content here"));
+        assert_eq!(
+            session.estimated_view_tokens(),
+            wf_llm::token::count::estimate_messages(&session.view_messages()) as u64
+        );
+        session.compress_with_tail(vec![user("summary of both")], 1);
+        assert_eq!(
+            session.estimated_view_tokens(),
+            wf_llm::token::count::estimate_messages(&session.view_messages()) as u64
+        );
+        session.add_message(user("a follow-up after compression"));
+        assert_eq!(
+            session.estimated_view_tokens(),
+            wf_llm::token::count::estimate_messages(&session.view_messages()) as u64
         );
     }
 

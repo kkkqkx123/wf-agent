@@ -43,10 +43,14 @@ pub fn user_config_dir() -> Option<PathBuf> {
 /// Layer paths in precedence order (low to high): global file then project
 /// file, so the project dotfile wins.
 pub fn user_layer_paths(project_root: &Path) -> Vec<PathBuf> {
+    layer_paths(user_config_dir(), project_root)
+}
+
+fn layer_paths(global_config_dir: Option<PathBuf>, project_root: &Path) -> Vec<PathBuf> {
     let project_file = project_root
         .join(crate::layout::PROJECT_WF_DIR)
         .join("config.toml");
-    let global_file = user_config_dir().map(|dir| dir.join("config.toml"));
+    let global_file = global_config_dir.map(|dir| dir.join("config.toml"));
 
     [global_file, Some(project_file)]
         .into_iter()
@@ -58,7 +62,11 @@ pub fn user_layer_paths(project_root: &Path) -> Vec<PathBuf> {
 /// Returns defaults when no file exists; a malformed file is skipped with a
 /// warning rather than failing the caller.
 pub fn load_user_file_layer(project_root: &Path) -> FileLayerConfig {
-    let paths = user_layer_paths(project_root);
+    load_file_layer(user_config_dir(), project_root)
+}
+
+fn load_file_layer(global_config_dir: Option<PathBuf>, project_root: &Path) -> FileLayerConfig {
+    let paths = layer_paths(global_config_dir, project_root);
     if paths.is_empty() {
         return FileLayerConfig::default();
     }
@@ -79,7 +87,9 @@ mod tests {
     #[test]
     fn missing_layer_yields_defaults() {
         let dir = tempfile::tempdir().unwrap();
-        let layer = load_user_file_layer(dir.path());
+        // Explicit global dir with no config.toml: no env read, no cross-test race.
+        let global = dir.path().join("config-home");
+        let layer = load_file_layer(Some(global), &dir.path().join("project"));
         assert!(layer.storage.is_none());
         assert!(layer.log_level.is_none());
         assert!(layer.tool_approval.is_none());
@@ -102,31 +112,7 @@ mod tests {
         )
         .unwrap();
 
-        let guard = EnvGuard::set("XDG_CONFIG_HOME", global_dir.path());
-        let layer = load_user_file_layer(project_dir.path());
-        drop(guard);
+        let layer = load_file_layer(Some(global_dir.path().to_path_buf()), project_dir.path());
         assert_eq!(layer.log_level.as_deref(), Some("info"));
-    }
-
-    struct EnvGuard {
-        key: &'static str,
-        prev: Option<std::ffi::OsString>,
-    }
-
-    impl EnvGuard {
-        fn set(key: &'static str, value: &Path) -> Self {
-            let prev = std::env::var_os(key);
-            std::env::set_var(key, value);
-            Self { key, prev }
-        }
-    }
-
-    impl Drop for EnvGuard {
-        fn drop(&mut self) {
-            match self.prev.take() {
-                Some(v) => std::env::set_var(self.key, v),
-                None => std::env::remove_var(self.key),
-            }
-        }
     }
 }

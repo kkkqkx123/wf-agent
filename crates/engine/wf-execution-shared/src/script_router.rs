@@ -63,6 +63,19 @@ impl Default for ScriptRouter {
     }
 }
 
+/// Everything one transport call needs: the session stores plus the
+/// resolved script identity, command and executor mode.
+struct TransportRequest<'a> {
+    shell: &'a Arc<wf_shell::engine::BackgroundShellStore>,
+    sandbox: &'a Arc<wf_sandbox::SandboxRuntime>,
+    script_name: &'a str,
+    language: &'a str,
+    mode: &'a ExecutorMode,
+    command: String,
+    options: Option<ScriptExecutionOptions>,
+    sandbox_config: &'a SandboxConfig,
+}
+
 impl ScriptRouter {
     pub fn new() -> Self {
         Self {
@@ -118,16 +131,16 @@ impl ScriptRouter {
                 let mode = mode.clone();
                 let extras_sink = extras_sink.clone();
                 async move {
-                    let (result, sandbox_extras) = Self::transport(
-                        &shell,
-                        &sandbox,
-                        &script_name,
-                        &language,
-                        &mode,
+                    let (result, sandbox_extras) = Self::transport(TransportRequest {
+                        shell: &shell,
+                        sandbox: &sandbox,
+                        script_name: &script_name,
+                        language: &language,
+                        mode: &mode,
                         command,
-                        opts,
-                        &sandbox_config,
-                    )
+                        options: opts,
+                        sandbox_config: &sandbox_config,
+                    })
                     .await;
                     if let Some(found) = sandbox_extras {
                         if let Ok(mut slot) = extras_sink.lock() {
@@ -147,17 +160,19 @@ impl ScriptRouter {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
     async fn transport(
-        shell: &Arc<wf_shell::engine::BackgroundShellStore>,
-        sandbox: &Arc<wf_sandbox::SandboxRuntime>,
-        script_name: &str,
-        language: &str,
-        mode: &ExecutorMode,
-        command: String,
-        options: Option<ScriptExecutionOptions>,
-        sandbox_config: &SandboxConfig,
+        req: TransportRequest<'_>,
     ) -> (ScriptExecutionResult, Option<SandboxExtras>) {
+        let TransportRequest {
+            shell,
+            sandbox,
+            script_name,
+            language,
+            mode,
+            command,
+            options,
+            sandbox_config,
+        } = req;
         match mode {
             ExecutorMode::Direct => (Self::run_direct(script_name, &command, options).await, None),
             ExecutorMode::Shared => (

@@ -623,7 +623,6 @@ pub struct ExposureArtifacts {
 /// Resolve exposure once and render the `general` description plus the
 /// discoverable metadata block from that single resolution. Assembly-time
 /// overrides and activations stay empty; per-turn resolution owns those.
-#[allow(clippy::too_many_arguments)]
 pub fn build_exposure_artifacts(
     env: &PromptEnvironment,
     tool_call_protocol: Option<&wf_types::llm::ToolCallProtocolConfig>,

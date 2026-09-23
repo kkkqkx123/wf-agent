@@ -39,7 +39,6 @@ pub fn over_budget(estimated_tokens: u64, token_limit: u64) -> bool {
 /// Build one compression request over a message snapshot. Pure
 /// constructor shared by the agent and workflow emitters so both sides
 /// agree on the payload shape.
-#[allow(clippy::too_many_arguments)]
 pub fn compression_request<'a>(
     target_context_id: &'a str,
     tokens_used: u64,
@@ -112,6 +111,42 @@ pub async fn dispatch_compression_signal(
 /// from; concurrent appends win over stale results.
 pub fn check_anchor(current_version: u64, anchor_version: u64) -> bool {
     current_version == anchor_version
+}
+
+/// Fresh per-request overhead beyond the stable array estimate (tool
+/// declarations, injected blocks, assembly-time mutations). Computed from
+/// the assembled request so it never accumulates into the ledger.
+pub fn dynamic_request_overhead(request_estimate: u64, stable_estimate: u64) -> u64 {
+    request_estimate.saturating_sub(stable_estimate)
+}
+
+/// Cooperative backpressure wait: poll `current_version` until it moves past
+/// `anchor` (the compression write-back landed) or `timeout_ms` elapses.
+/// Returns true when the version moved. Callers race this against their
+/// abort signal and proceed with the uncompressed view on timeout.
+pub async fn wait_for_version_shift<F, Fut>(
+    mut current_version: F,
+    anchor: u64,
+    timeout_ms: u64,
+) -> bool
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = u64>,
+{
+    let deadline =
+        tokio::time::Instant::now() + std::time::Duration::from_millis(timeout_ms.max(1));
+    loop {
+        if current_version().await != anchor {
+            return true;
+        }
+        if tokio::time::Instant::now() >= deadline {
+            return false;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(
+            crate::token_events::COMPRESSION_SETTLE_POLL_MS,
+        ))
+        .await;
+    }
 }
 
 /// Apply a versioned write-back to a plain message vector. Returns true
@@ -197,5 +232,47 @@ mod tests {
         assert_eq!(request.target_context_id, "chat");
         assert_eq!(request.array_version, 7);
         assert!(!request.forced);
+    }
+
+    #[test]
+    fn dynamic_overhead_never_goes_negative() {
+        assert_eq!(dynamic_request_overhead(1200, 1000), 200);
+        assert_eq!(dynamic_request_overhead(800, 1000), 0);
+    }
+
+    #[tokio::test]
+    async fn version_shift_wait_settles_and_times_out() {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        use std::sync::Arc;
+        let version = Arc::new(AtomicU64::new(7));
+        let probe = version.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            probe.store(8, Ordering::SeqCst);
+        });
+        let moved = version.clone();
+        assert!(
+            wait_for_version_shift(
+                move || {
+                    let moved = moved.clone();
+                    async move { moved.load(Ordering::SeqCst) }
+                },
+                7,
+                2000,
+            )
+            .await
+        );
+        let stuck = version.clone();
+        assert!(
+            !wait_for_version_shift(
+                move || {
+                    let stuck = stuck.clone();
+                    async move { stuck.load(Ordering::SeqCst) }
+                },
+                8,
+                60,
+            )
+            .await
+        );
     }
 }

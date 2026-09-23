@@ -65,6 +65,16 @@ pub trait ContextWriter: Send + Sync {
         messages: Vec<Message>,
         expected_version: u64,
     ) -> Result<(), WriteBackError>;
+    /// Same as [`ContextWriter::write_context`], but the last `tail_keep`
+    /// pre-existing active messages stay visible after the compressed
+    /// messages (recent turns survive compression for reference resolution).
+    async fn write_context_with_tail(
+        &self,
+        context_id: &str,
+        messages: Vec<Message>,
+        expected_version: u64,
+        tail_keep: usize,
+    ) -> Result<(), WriteBackError>;
     /// Current version of the named array (None when not tracked).
     async fn current_version(&self, context_id: &str) -> Option<u64>;
 }
@@ -93,6 +103,39 @@ impl ContextWriter for VariableMapWriteBack {
             });
         }
         message_context::register_context(&self.variables, context_id, messages);
+        Ok(())
+    }
+
+    async fn write_context_with_tail(
+        &self,
+        context_id: &str,
+        messages: Vec<Message>,
+        expected_version: u64,
+        tail_keep: usize,
+    ) -> Result<(), WriteBackError> {
+        if !message_context::has_context(&self.variables, context_id) {
+            return Err(WriteBackError::ContextNotFound);
+        }
+        let current = message_context::array_version(&self.variables, context_id);
+        if current != expected_version {
+            return Err(WriteBackError::VersionMismatch {
+                expected: expected_version,
+                current,
+            });
+        }
+        let mut combined = messages;
+        if tail_keep > 0 {
+            let active = message_context::get_context(&self.variables, context_id);
+            let known: std::collections::HashSet<String> =
+                combined.iter().map(|m| m.id.clone()).collect();
+            let start = active.len().saturating_sub(tail_keep);
+            for message in active.into_iter().skip(start) {
+                if !known.contains(&message.id) {
+                    combined.push(message);
+                }
+            }
+        }
+        message_context::register_context(&self.variables, context_id, combined);
         Ok(())
     }
 
@@ -171,6 +214,26 @@ impl ExecutionContextRegistry {
             Some(entry) => {
                 entry
                     .write_context(context_id, messages, expected_version)
+                    .await
+            }
+            None => Err(WriteBackError::NotRegistered),
+        }
+    }
+
+    /// Versioned write-back with tail retention (see
+    /// [`ContextWriter::write_context_with_tail`]).
+    pub async fn write_context_with_tail(
+        &self,
+        execution_id: &str,
+        context_id: &str,
+        messages: Vec<Message>,
+        expected_version: u64,
+        tail_keep: usize,
+    ) -> Result<(), WriteBackError> {
+        match self.entries.get(execution_id) {
+            Some(entry) => {
+                entry
+                    .write_context_with_tail(context_id, messages, expected_version, tail_keep)
                     .await
             }
             None => Err(WriteBackError::NotRegistered),

@@ -46,6 +46,11 @@ pub enum ExecutionStreamEvent {
         tool_name: String,
         success: bool,
         result: String,
+        /// Structured rejection/execution reason extracted from the tool
+        /// result when `success` is false; `None` when no reason is
+        /// available.
+        #[serde(default)]
+        error: Option<String>,
     },
     /// One execution round finished.
     IterationEnd {
@@ -130,11 +135,13 @@ impl ExecutionEventStream {
                         tool_name,
                         success,
                         result,
+                        error,
                     } => ExecutionStreamEvent::ToolEnd {
                         tool_call_id,
                         tool_name,
                         success,
                         result,
+                        error,
                     },
                     AgentStreamEvent::IterationEnd {
                         iteration,

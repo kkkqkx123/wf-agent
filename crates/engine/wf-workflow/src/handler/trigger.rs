@@ -114,6 +114,18 @@ pub struct TriggerContext {
     pub session_cache: Option<Arc<Mutex<HashMap<String, Value>>>>,
 }
 
+/// Shared inputs for one trigger script execution (legacy runner or
+/// routed transport).
+struct ScriptRun<'a> {
+    script: &'a wf_script::ScriptDefinition,
+    script_name: &'a str,
+    language: &'a str,
+    parameters: Option<&'a Value>,
+    provided: &'a HashMap<String, Value>,
+    context_variables: &'a HashMap<String, Value>,
+    timeout: u64,
+}
+
 impl TriggerContext {
     pub fn new(execution_id: Id, workflow_id: Id) -> Self {
         Self {
@@ -789,19 +801,17 @@ impl TriggerCoordinator {
             _ => HashMap::new(),
         };
 
+        let invocation = ScriptRun {
+            script: &script,
+            script_name: &script_name,
+            language: &language,
+            parameters: parameters.as_ref(),
+            provided: &provided,
+            context_variables: &context_variables,
+            timeout,
+        };
         if let Some(runner) = ctx.script_runner.clone() {
-            let execution_result = Self::execute_legacy(
-                ctx,
-                &script,
-                &script_name,
-                &language,
-                parameters,
-                &provided,
-                &context_variables,
-                timeout,
-                &runner,
-            )
-            .await?;
+            let execution_result = Self::execute_legacy(ctx, &invocation, &runner).await?;
             return Self::finish_script_execution(
                 ctx,
                 &script_name,
@@ -815,17 +825,7 @@ impl TriggerCoordinator {
             .script_router
             .clone()
             .unwrap_or_else(|| Arc::new(ScriptRouter::new()));
-        let execution_result = Self::execute_routed(
-            &router,
-            &script,
-            &script_name,
-            &language,
-            &provided,
-            &context_variables,
-            parameters.as_ref(),
-            timeout,
-        )
-        .await?;
+        let execution_result = Self::execute_routed(&router, &invocation).await?;
         Self::finish_script_execution(ctx, &script_name, execution_result, ignore_error).await
     }
 
@@ -951,7 +951,7 @@ impl TriggerCoordinator {
     fn trigger_effective_content(
         script: &wf_script::ScriptDefinition,
         language: &str,
-        parameters: &Option<Value>,
+        parameters: Option<&Value>,
     ) -> String {
         let mut code = String::new();
         if Self::is_js_language(language) {
@@ -965,18 +965,20 @@ impl TriggerCoordinator {
         code
     }
 
-    #[allow(clippy::too_many_arguments)]
     async fn execute_legacy(
         ctx: &TriggerContext,
-        script: &wf_script::ScriptDefinition,
-        script_name: &str,
-        language: &str,
-        parameters: Option<Value>,
-        provided: &HashMap<String, Value>,
-        context_variables: &HashMap<String, Value>,
-        timeout: u64,
+        run: &ScriptRun<'_>,
         runner: &Arc<dyn ScriptRunner>,
     ) -> WorkflowResult<ScriptExecutionResult> {
+        let ScriptRun {
+            script,
+            script_name,
+            language,
+            parameters,
+            provided,
+            context_variables,
+            timeout,
+        } = run;
         wf_script::ScriptEngine::validate_definition_shape(script)
             .map_err(|e| WorkflowError::TriggerError(e.to_string()))?;
         if script.interactive.is_some() {
@@ -1004,7 +1006,7 @@ impl TriggerCoordinator {
             code.push_str(&Self::trigger_effective_content(
                 script,
                 language,
-                &parameters,
+                *parameters,
             ));
         }
         if let Some(policy) = script.security_policy.as_ref() {
@@ -1013,8 +1015,9 @@ impl TriggerCoordinator {
         }
         let sandbox_config = Self::trigger_sandbox_config();
         let execution = runner.execute(language, &code, &sandbox_config);
-        if timeout > 0 {
-            match tokio::time::timeout(std::time::Duration::from_millis(timeout), execution).await {
+        if *timeout > 0 {
+            match tokio::time::timeout(std::time::Duration::from_millis(*timeout), execution).await
+            {
                 Ok(result) => Ok(result),
                 Err(_) => {
                     Self::emit(
@@ -1033,24 +1036,26 @@ impl TriggerCoordinator {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
     async fn execute_routed(
         router: &Arc<ScriptRouter>,
-        script: &wf_script::ScriptDefinition,
-        script_name: &str,
-        language: &str,
-        provided: &HashMap<String, Value>,
-        context_variables: &HashMap<String, Value>,
-        parameters: Option<&Value>,
-        timeout: u64,
+        run: &ScriptRun<'_>,
     ) -> WorkflowResult<ScriptExecutionResult> {
-        let mut definition = script.clone();
+        let ScriptRun {
+            script,
+            script_name,
+            language,
+            parameters,
+            provided,
+            context_variables,
+            timeout,
+        } = run;
+        let mut definition = (*script).clone();
         definition.name = script_name.to_string();
         if definition.template.is_none() {
             definition.content = Some(Self::trigger_effective_content(
                 &definition,
                 language,
-                &parameters.cloned(),
+                *parameters,
             ));
             definition.arguments = None;
         }
@@ -1063,7 +1068,7 @@ impl TriggerCoordinator {
             executor_mode: definition.executor_mode.clone(),
             working_directory: None,
             environment: None,
-            timeout_ms: if timeout > 0 { Some(timeout) } else { None },
+            timeout_ms: if *timeout > 0 { Some(*timeout) } else { None },
             retries: None,
             retry_delay_ms: None,
             exponential_backoff: None,
@@ -1076,8 +1081,8 @@ impl TriggerCoordinator {
             output_spill_dir: None,
         };
         let engine_options = wf_script::ScriptEngineOptions {
-            args: provided.clone(),
-            context_variables: context_variables.clone(),
+            args: (*provided).clone(),
+            context_variables: (*context_variables).clone(),
         };
         let routed = router
             .run(

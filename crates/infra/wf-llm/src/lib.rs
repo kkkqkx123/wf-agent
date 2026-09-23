@@ -53,6 +53,7 @@ pub use partial_json_parser::{parse_partial_json, recover_partial_json, PartialP
 pub use registry::CodecRegistry;
 pub use token::count::{
     estimate_image_tokens, estimate_message_tokens, estimate_messages, estimate_request_tokens,
+    estimate_tool_declarations,
 };
 pub use token::estimation::{estimate_tokens, TokenEstimator};
 pub use tool::parser::{

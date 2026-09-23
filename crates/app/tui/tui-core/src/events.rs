@@ -251,6 +251,7 @@ mod tests {
                     tool_name: "bash".to_string(),
                     success: true,
                     result: "ok".to_string(),
+                    error: None,
                 },
                 UnifiedEvent::ToolEnd {
                     tool_call_id: "t1".to_string(),

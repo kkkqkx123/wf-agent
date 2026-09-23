@@ -400,6 +400,9 @@ impl AgentCheckpointIntegration {
                 .conversation_view
                 .clone()
                 .unwrap_or(wf_types::message::MessageView::Full),
+            // Recomputed once by `restore_state` for snapshots predating
+            // the incremental view estimate.
+            view_stable_estimate: 0,
         }
     }
 

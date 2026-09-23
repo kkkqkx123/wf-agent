@@ -102,6 +102,10 @@ pub async fn publish_forced_compression(ctx: &NodeExecutionContext, request: &Ll
     let Some(ref bus) = ctx.event_bus else {
         return;
     };
+    // Nested compression runs never re-emit (chicken-and-egg guard).
+    if message_context::compression_depth(&ctx.variables) > 0 {
+        return;
+    }
     let config = ctx.node_config.as_ref().unwrap_or(&Value::Null);
     let target = declared_contexts(config)
         .first()
@@ -119,8 +123,8 @@ pub async fn publish_forced_compression(ctx: &NodeExecutionContext, request: &Ll
     } else {
         0
     };
-    // With no model window the budget is unknown: report the estimate
-    // itself so the audit event carries a meaningful ratio.
+    // With no model window the budget is unknown: report a zero limit with
+    // the unknown-budget marker instead of a fabricated ratio.
     let effective_limit = if context_limit > 0 {
         context_limit
     } else {
@@ -129,7 +133,7 @@ pub async fn publish_forced_compression(ctx: &NodeExecutionContext, request: &Ll
             node_id = %ctx.node_id,
             "forced compression with unknown context budget"
         );
-        tokens_used.max(1)
+        0
     };
     let compression_request = wf_execution_shared::context_store::compression_request(
         &target,
@@ -154,6 +158,13 @@ pub async fn publish_forced_compression(ctx: &NodeExecutionContext, request: &Ll
     .ok();
     dispatch_compression_signal(ctx, &compression_request).await;
     message_context::mark_compression_emitted(&ctx.variables, &target, array_version);
+    if let Some(ref tracker) = ctx.token_tracker {
+        let mut tracker = tracker.lock().await;
+        if ctx.hook_handler_registry.is_some() {
+            tracker.begin_compression_flight(&target, array_version, true);
+        }
+        super::token_budget::persist_tracker_state(ctx, &tracker);
+    }
 }
 
 /// Dispatch the `CONTEXT_COMPRESSION_REQUESTED` engine signal through the

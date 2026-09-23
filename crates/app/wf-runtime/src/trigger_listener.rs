@@ -48,7 +48,10 @@ pub use workflow_runner::{
 /// The engine's builtin hook handler for the `CONTEXT_COMPRESSION_REQUESTED`
 /// signal.
 pub use compression::CompressionService;
-pub use compression::COMPRESSION_SERVICE_HANDLER_NAME;
+pub use compression::{
+    CompressionPolicy, COMPRESSION_HANDLED_CAPACITY, COMPRESSION_RETRY_BASE_BACKOFF_MS,
+    COMPRESSION_RETRY_MAX_BACKOFF_MS, COMPRESSION_SERVICE_HANDLER_NAME,
+};
 
 use std::sync::Arc;
 
@@ -75,7 +78,7 @@ use wf_workflow::trigger::{SubworkflowRunner, TriggerActionRunner, TriggerTempla
 /// Default timeout applied to a triggered sub-workflow when the action does
 /// not configure one. Shared by the sub-workflow action runner
 /// (`workflow_runner.rs`) and the compression service (`compression.rs`).
-const DEFAULT_TRIGGER_TIMEOUT_MS: u64 = 60000;
+pub const DEFAULT_TRIGGER_TIMEOUT_MS: u64 = 60000;
 
 /// Default concurrency bound for trigger-action execution, enforced by the
 /// shared `ConcurrencyGate` of the listener.
@@ -182,15 +185,27 @@ fn reset_persisted_preflight_warning(contexts: &Arc<ExecutionContextRegistry>, e
     }
 }
 
+/// Target identity and write-back options for one compression result.
+pub(crate) struct CompressionWriteBack<'a> {
+    /// Emitting execution id.
+    pub execution_id: &'a str,
+    /// Agent loop id when the target is an agent conversation (`None` for
+    /// workflow variable-map targets, which write back through the registry).
+    pub agent_loop_id: Option<&'a str>,
+    /// Target array name.
+    pub target_context_id: &'a str,
+    /// Array version the compression was produced from.
+    pub expected_version: u64,
+    /// Recent pre-existing messages kept visible beside the summary.
+    pub tail_keep: usize,
+}
+
 /// Write the compressed output back to the emitting execution and publish
 /// the CONTEXT_COMPRESSION_COMPLETED event.
 pub(crate) async fn handle_subworkflow_output(
     contexts: &Arc<ExecutionContextRegistry>,
     bus: &Arc<EventBus>,
-    execution_id: &str,
-    agent_loop_id: Option<&str>,
-    target_context_id: &str,
-    expected_version: u64,
+    target: &CompressionWriteBack<'_>,
     output: &serde_json::Value,
 ) -> WorkflowResult<()> {
     let messages: Vec<Message> = serde_json::from_value(output.clone()).unwrap_or_default();
@@ -203,34 +218,46 @@ pub(crate) async fn handle_subworkflow_output(
     // subscribes to the completed event and version-checks its session), so
     // only workflow variable-map targets are written back through the
     // registry.
-    if agent_loop_id.is_none() {
+    if target.agent_loop_id.is_none() {
         match contexts
-            .write_context(
-                execution_id,
-                target_context_id,
+            .write_context_with_tail(
+                target.execution_id,
+                target.target_context_id,
                 messages.clone(),
-                expected_version,
+                target.expected_version,
+                target.tail_keep,
             )
             .await
         {
             // The remediation landed: re-arm the persisted pre-request
             // budget warning so the next over-budget request warns again
             // instead of staying silent for the rest of the execution.
-            Ok(()) => reset_persisted_preflight_warning(contexts, execution_id),
+            Ok(()) => reset_persisted_preflight_warning(contexts, target.execution_id),
             Err(error) => {
                 warn!(
                     "Context write-back failed for execution {} context {}: {}",
-                    execution_id, target_context_id, error
+                    target.execution_id, target.target_context_id, error
                 );
             }
         }
+        // Every terminal write-back releases the persisted backpressure
+        // anchor (success and stale-discard alike); the emission guard stays
+        // so the version re-arms only when new messages advance it.
+        if let Some(variables) = contexts.variables_for(target.execution_id) {
+            wf_workflow::message_context::clear_tracker_flight(
+                &variables,
+                target.target_context_id,
+                target.expected_version,
+            );
+        }
     }
     let completed = build_compression_completed_event(
-        execution_id,
-        agent_loop_id,
-        target_context_id,
-        expected_version,
+        target.execution_id,
+        target.agent_loop_id,
+        target.target_context_id,
+        target.expected_version,
         &messages,
+        target.tail_keep,
     );
     let _ = bus.publish(completed);
     Ok(())
@@ -246,6 +273,7 @@ fn build_compression_completed_event(
     target_context_id: &str,
     array_version: u64,
     messages: &[Message],
+    tail_keep: usize,
 ) -> BaseEvent {
     let summary = messages.last().and_then(|message| match &message.content {
         MessageContentValue::Text(text) => Some(text.clone()),
@@ -258,11 +286,14 @@ fn build_compression_completed_event(
     wf_execution_shared::build_context_compression_completed_event(
         execution_id,
         agent_loop_id,
-        target_context_id,
-        array_version,
-        summary.as_deref(),
-        tokens_after,
-        Some(messages),
+        &wf_execution_shared::ContextCompressionCompleted {
+            target_context_id,
+            array_version,
+            summary: summary.as_deref(),
+            tokens_after,
+            messages: Some(messages),
+            tail_keep,
+        },
     )
 }
 
@@ -566,6 +597,24 @@ pub struct TriggerLedger {
     pub trigger_state_registry: Option<Arc<wf_workflow::TriggerStateRegistry>>,
 }
 
+/// Dependencies of the builtin compression handler registration.
+pub struct CompressionHandlerDeps {
+    /// Shared event bus the service publishes COMPLETED / FAILED on.
+    pub event_bus: Arc<EventBus>,
+    /// Sub-workflow runner that executes the summary workflow.
+    pub runner: Arc<dyn SubworkflowRunner>,
+    /// Execution-context registry for workflow variable-map write-back.
+    pub contexts: Arc<ExecutionContextRegistry>,
+    /// Summary workflow id resolved from the resource registries.
+    pub summary_workflow_id: String,
+    /// Listener shutdown token; in-flight summary runs race against it.
+    pub shutdown: CancellationToken,
+    /// Optional durable trigger-execution ledger and state registry.
+    pub ledger: TriggerLedger,
+    /// Cross-attempt retry / timeout / tail policy.
+    pub policy: CompressionPolicy,
+}
+
 /// Build the builtin context-compression hook handler and register it on
 /// the shared hook registry under the `CONTEXT_COMPRESSION_REQUESTED` signal
 /// point.
@@ -575,13 +624,17 @@ pub struct TriggerLedger {
 /// in-flight summary sub-workflows are stopped at runtime shutdown.
 pub fn register_compression_handler(
     registry: &HookHandlerRegistry,
-    event_bus: Arc<EventBus>,
-    runner: Arc<dyn SubworkflowRunner>,
-    contexts: Arc<ExecutionContextRegistry>,
-    summary_workflow_id: String,
-    shutdown: CancellationToken,
-    ledger: TriggerLedger,
+    deps: CompressionHandlerDeps,
 ) -> Arc<CompressionService> {
+    let CompressionHandlerDeps {
+        event_bus,
+        runner,
+        contexts,
+        summary_workflow_id,
+        shutdown,
+        ledger,
+        policy,
+    } = deps;
     let mut service = CompressionService::with_storage(
         event_bus,
         runner,
@@ -589,7 +642,8 @@ pub fn register_compression_handler(
         summary_workflow_id,
         shutdown,
         ledger.storage,
-    );
+    )
+    .with_policy(policy);
     if let Some(registry) = ledger.trigger_state_registry {
         service = service.with_trigger_state_registry(registry);
     }
@@ -1066,12 +1120,16 @@ mod tests {
         ));
         register_compression_handler(
             &hook_handler_registry,
-            bus.clone(),
-            runner,
-            contexts.clone(),
-            wf_resource::predefined::workflow::LLM_SUMMARY_WORKFLOW_ID.to_string(),
-            CancellationToken::new(),
-            TriggerLedger::default(),
+            CompressionHandlerDeps {
+                event_bus: bus.clone(),
+                runner,
+                contexts: contexts.clone(),
+                summary_workflow_id: wf_resource::predefined::workflow::LLM_SUMMARY_WORKFLOW_ID
+                    .to_string(),
+                shutdown: CancellationToken::new(),
+                ledger: TriggerLedger::default(),
+                policy: CompressionPolicy::default(),
+            },
         );
 
         // 4. Main workflow: an LLM node reading the "chat" named context
@@ -1159,20 +1217,27 @@ mod tests {
             "summary workflow must receive the full conversation"
         );
 
-        // 5c. The compressed array was written back to the named context.
+        // 5c. The compressed array was written back: summary first, then
+        // the retained tail (default tail_keep keeps recent messages
+        // visible alongside the summary).
+        let expected_len = 1 + wf_execution_shared::DEFAULT_COMPRESSION_TAIL_KEEP;
         wait_until(|| {
             let written = wf_workflow::get_context(&variables, "chat");
-            written.len() == 1
+            written.len() == expected_len && written[0].role == MessageRole::Assistant
         })
         .await;
         let written = wf_workflow::get_context(&variables, "chat");
-        assert_eq!(written[0].role, MessageRole::Assistant);
+        assert_eq!(written.len(), expected_len);
         assert_eq!(
             written[0].content,
             MessageContentValue::Text("compressed summary".to_string())
         );
+        for tail in &written[1..] {
+            assert_eq!(tail.role, MessageRole::User);
+        }
 
-        // 5d. CONTEXT_COMPRESSION_COMPLETED carries the compressed array.
+        // 5d. CONTEXT_COMPRESSION_COMPLETED carries the compressed array
+        // (summary only; tail retention is a write-back concern).
         let completed = loop {
             match sub.recv().await {
                 Ok(event) if event.r#type == EventType::ContextCompressionCompleted => break event,
@@ -1187,6 +1252,10 @@ mod tests {
         assert_eq!(
             completed_meta.messages[0].content,
             MessageContentValue::Text("compressed summary".to_string())
+        );
+        assert_eq!(
+            completed_meta.tail_keep,
+            wf_execution_shared::DEFAULT_COMPRESSION_TAIL_KEEP
         );
         assert!(
             completed_meta.tokens_after < 1000,
@@ -1388,12 +1457,16 @@ mod tests {
         ));
         register_compression_handler(
             &hook_handler_registry,
-            bus.clone(),
-            runner,
-            contexts.clone(),
-            wf_resource::predefined::workflow::LLM_SUMMARY_WORKFLOW_ID.to_string(),
-            CancellationToken::new(),
-            TriggerLedger::default(),
+            CompressionHandlerDeps {
+                event_bus: bus.clone(),
+                runner,
+                contexts: contexts.clone(),
+                summary_workflow_id: wf_resource::predefined::workflow::LLM_SUMMARY_WORKFLOW_ID
+                    .to_string(),
+                shutdown: CancellationToken::new(),
+                ledger: TriggerLedger::default(),
+                policy: CompressionPolicy::default(),
+            },
         );
 
         // A short array stays within the limit: no compression requested.
@@ -1500,12 +1573,16 @@ mod tests {
         let started = Arc::new(AtomicBool::new(false));
         register_compression_handler(
             &hook_handler_registry,
-            bus.clone(),
-            Arc::new(StuckRunner(started.clone())),
-            contexts.clone(),
-            wf_resource::predefined::workflow::LLM_SUMMARY_WORKFLOW_ID.to_string(),
-            CancellationToken::new(),
-            TriggerLedger::default(),
+            CompressionHandlerDeps {
+                event_bus: bus.clone(),
+                runner: Arc::new(StuckRunner(started.clone())),
+                contexts: contexts.clone(),
+                summary_workflow_id: wf_resource::predefined::workflow::LLM_SUMMARY_WORKFLOW_ID
+                    .to_string(),
+                shutdown: CancellationToken::new(),
+                ledger: TriggerLedger::default(),
+                policy: CompressionPolicy::default(),
+            },
         );
 
         // A valid compression payload (message snapshot present).

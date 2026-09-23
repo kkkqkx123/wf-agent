@@ -26,6 +26,60 @@ pub const CONTEXT_HISTORY_PREFIX: &str = "__msg_ctx_hist__";
 pub const LEDGER_PREFIX: &str = "__msg_ledger__";
 /// Default context used when a node does not name one.
 pub const DEFAULT_CONTEXT_ID: &str = "current";
+/// Variable-map key carrying the compression nesting depth of an execution.
+/// Triggered summary runs carry a depth above zero; emission paths refuse to
+/// emit at depth above zero so a summary of an already over-budget snapshot
+/// never recurses into its own compression chain.
+pub const COMPRESSION_DEPTH_KEY: &str = "__compression_depth__";
+
+/// Compression nesting depth of an execution (zero for main executions).
+pub fn compression_depth(variables: &DashMap<String, Value>) -> u64 {
+    variables
+        .get(COMPRESSION_DEPTH_KEY)
+        .and_then(|entry| entry.as_u64())
+        .unwrap_or(0)
+}
+
+/// Record the compression nesting depth of an execution (set by the
+/// triggered-subworkflow runner from the compression service input).
+pub fn set_compression_depth(variables: &DashMap<String, Value>, depth: u64) {
+    variables.insert(
+        COMPRESSION_DEPTH_KEY.to_string(),
+        Value::Number(serde_json::Number::from(depth)),
+    );
+}
+
+/// Clear the in-flight compression record persisted in the execution tracker
+/// state, but only while it still anchors `expected_version` (a newer run
+/// for the same target is never cleared by an older anchor). Completion and
+/// failure paths in the runtime only hold the variable map (never the live
+/// tracker lock), so they release the backpressure anchor through this
+/// persisted copy.
+pub fn clear_tracker_flight(
+    variables: &DashMap<String, Value>,
+    context_id: &str,
+    expected_version: u64,
+) {
+    let key = super::handler::llm::token_budget::TRACKER_STATE_KEY;
+    let Some(state_value) = variables.get(key).map(|entry| entry.clone()) else {
+        return;
+    };
+    let Ok(mut state) =
+        serde_json::from_value::<wf_execution_shared::TokenTrackerState>(state_value)
+    else {
+        return;
+    };
+    let anchored = state
+        .compression_flights
+        .get(&normalize_id(context_id))
+        .is_some_and(|flight| flight.version == expected_version);
+    if anchored {
+        state.compression_flights.remove(&normalize_id(context_id));
+        if let Ok(value) = serde_json::to_value(&state) {
+            variables.insert(key.to_string(), value);
+        }
+    }
+}
 
 fn normalize_id(context_id: &str) -> String {
     if context_id.is_empty() {

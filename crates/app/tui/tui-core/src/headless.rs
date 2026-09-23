@@ -99,13 +99,19 @@ impl HeadlessRenderer {
                 }
             }
             ExecutionStreamEvent::ToolEnd {
-                tool_name, success, ..
+                tool_name,
+                success,
+                error,
+                ..
             } => {
                 self.had_output = true;
                 let diag = if *success {
                     format!("✓ {tool_name}")
                 } else {
-                    format!("✗ {tool_name}")
+                    match error {
+                        Some(reason) => format!("✗ {tool_name}: {reason}"),
+                        None => format!("✗ {tool_name}"),
+                    }
                 };
                 HeadlessDelta {
                     stdout: String::new(),
@@ -315,6 +321,7 @@ mod tests {
             tool_name: "bash".into(),
             success: true,
             result: String::new(),
+            error: None,
         });
         assert_eq!(end.diag, vec!["✓ bash"]);
 
@@ -323,8 +330,9 @@ mod tests {
             tool_name: "write_file".into(),
             success: false,
             result: String::new(),
+            error: Some("permission denied".into()),
         });
-        assert_eq!(fail.diag, vec!["✗ write_file"]);
+        assert_eq!(fail.diag, vec!["✗ write_file: permission denied"]);
     }
 
     #[test]

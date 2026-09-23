@@ -258,6 +258,7 @@ impl<'a> SessionRenderer<'a> {
                 tool_call_id,
                 tool_name,
                 success,
+                error,
                 ..
             } => {
                 let elapsed = self
@@ -267,7 +268,10 @@ impl<'a> SessionRenderer<'a> {
                 let line = match (success, elapsed) {
                     (true, Some(d)) => format!("✓ {tool_name} ({}ms)", d.as_millis()),
                     (true, None) => format!("✓ {tool_name}"),
-                    (false, _) => format!("✗ {tool_name}"),
+                    (false, _) => match error {
+                        Some(reason) => format!("✗ {tool_name}: {reason}"),
+                        None => format!("✗ {tool_name}"),
+                    },
                 };
                 let mut diag = wf_common::lock::lock_ok(diag.lock());
                 if *success {
@@ -499,7 +503,6 @@ where
 /// Shared terminal handling for streamed workflow runs (embedded and
 /// remote): render the `Completed` payload, write the closing summary and
 /// map failures/interrupts onto [`CliError`].
-#[allow(clippy::too_many_arguments)]
 fn finish_workflow_stream_terminal(
     terminal: Terminal,
     io: &mut RunIo,
@@ -1178,6 +1181,7 @@ mod tests {
                         tool_name: "read_file".into(),
                         success: true,
                         result: String::new(),
+                        error: None,
                     },
                     &diag,
                 )
@@ -1189,6 +1193,7 @@ mod tests {
                         tool_name: "write_file".into(),
                         success: false,
                         result: String::new(),
+                        error: None,
                     },
                     &diag,
                 )
@@ -1458,12 +1463,24 @@ mod tests {
 
         #[tokio::test]
         async fn sensitive_tool_call_is_denied_and_session_recovers() {
+            // `execute_command` is discoverable under `@standard/main`, so a
+            // direct call is rejected by the exposure gate before approval.
+            // Route through the `general` proxy: the outer shell is visible,
+            // the inner call is allowed by exposure and then hits the headless
+            // policy, which denies it with the sensitive-tool reason on diag.
             let tool_call = wf_types::message::LlmToolCall {
                 id: "call-1".into(),
                 r#type: "function".into(),
                 function: wf_types::message::LlmFunctionCall {
-                    name: "execute_command".into(),
-                    arguments: serde_json::json!({ "command": "rm -rf /" }).to_string(),
+                    name: "general".into(),
+                    arguments: serde_json::json!({
+                        "request": serde_json::json!({
+                            "tool": "execute_command",
+                            "parameters": { "command": "rm -rf /" },
+                        })
+                        .to_string(),
+                    })
+                    .to_string(),
                 },
             };
             let adapter = adapter_with_mock(

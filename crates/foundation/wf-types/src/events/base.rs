@@ -31,6 +31,11 @@ pub enum EventType {
     TokenUsageWarning,
     ContextCompressionRequested,
     ContextCompressionCompleted,
+    /// A context compression run exhausted its retries without producing a
+    /// usable summary. Consumers clear their in-flight compression record on
+    /// this event; the emission guard stays so the same array version does
+    /// not loop, and a newer version re-arms naturally.
+    ContextCompressionFailed,
     /// A triggered (nested) agent result was written back to the parent
     /// agent conversation (replace or append). Carries the anchor version
     /// the write-back was produced from; the conversation consumer applies
@@ -190,6 +195,7 @@ impl EventType {
             EventType::TokenUsageWarning => "TOKEN_USAGE_WARNING",
             EventType::ContextCompressionRequested => "CONTEXT_COMPRESSION_REQUESTED",
             EventType::ContextCompressionCompleted => "CONTEXT_COMPRESSION_COMPLETED",
+            EventType::ContextCompressionFailed => "CONTEXT_COMPRESSION_FAILED",
             EventType::ConversationWritebackCompleted => "CONVERSATION_WRITEBACK_COMPLETED",
             EventType::MessageAdded => "MESSAGE_ADDED",
             EventType::MessageContextUpdated => "MESSAGE_CONTEXT_UPDATED",
@@ -355,6 +361,7 @@ impl EventType {
             | EventType::MessageContextUpdated
             | EventType::ConversationWritebackCompleted
             | EventType::ContextCompressionCompleted
+            | EventType::ContextCompressionFailed
             | EventType::CheckpointCreated
             | EventType::CheckpointRestored
             | EventType::CheckpointDeleted

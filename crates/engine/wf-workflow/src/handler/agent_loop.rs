@@ -85,13 +85,15 @@ impl AgentLoopHandler {
         // together), so no id-map sidecar is needed downstream.
         let mut initial_conversation = conversation::normalize_conversation_for_target(
             conversation::collect_initial_conversation(ctx),
-            ctx.tool_registry.as_deref(),
-            &settings.available_tool_names,
-            &settings.initial_tool_names,
-            &settings.discoverable_tool_names,
-            &settings.hidden_tool_names,
-            settings.enable_general_tool,
-            &settings.activated_tool_names,
+            &conversation::TargetExposure {
+                registry: ctx.tool_registry.as_deref(),
+                available: &settings.available_tool_names,
+                initial: &settings.initial_tool_names,
+                discoverable: &settings.discoverable_tool_names,
+                hidden: &settings.hidden_tool_names,
+                enable_general_tool: settings.enable_general_tool,
+                activated: &settings.activated_tool_names,
+            },
         );
 
         let message = settings.input_text.clone();

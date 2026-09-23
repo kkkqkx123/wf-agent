@@ -48,6 +48,22 @@ pub fn estimate_message_tokens(msg: &Message) -> u32 {
     total + MESSAGE_OVERHEAD_TOKENS
 }
 
+/// Estimate tokens for tool declarations alone (the per-request dynamic
+/// overhead that never accumulates into a message-array ledger).
+pub fn estimate_tool_declarations(tools: Option<&[wf_types::tool::Tool]>) -> u32 {
+    let mut total = 0u32;
+    for tool in tools.unwrap_or_default() {
+        total += estimate_tokens(&tool.name) as u32;
+        total += estimate_tokens(&tool.description) as u32;
+        if let Some(params) = &tool.parameters {
+            if let Ok(json) = serde_json::to_string(params) {
+                total += estimate_tokens(&json) as u32;
+            }
+        }
+    }
+    total
+}
+
 /// Estimate tokens for a full LLM request: messages + tool declarations.
 pub fn estimate_request_tokens(request: &LlmRequest) -> u32 {
     let mut total = 0u32;
@@ -56,17 +72,7 @@ pub fn estimate_request_tokens(request: &LlmRequest) -> u32 {
         total += estimate_message_tokens(msg);
     }
 
-    if let Some(tools) = &request.tools {
-        for tool in tools {
-            total += estimate_tokens(&tool.name) as u32;
-            total += estimate_tokens(&tool.description) as u32;
-            if let Some(params) = &tool.parameters {
-                if let Ok(json) = serde_json::to_string(params) {
-                    total += estimate_tokens(&json) as u32;
-                }
-            }
-        }
-    }
+    total += estimate_tool_declarations(request.tools.as_deref());
 
     total
 }

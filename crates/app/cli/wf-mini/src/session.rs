@@ -821,6 +821,7 @@ mod tests {
             tool_name: "write_file".to_string(),
             success,
             result: String::new(),
+            error: None,
         }
     }
 

@@ -63,6 +63,18 @@ pub(crate) fn collect_initial_conversation(ctx: &NodeExecutionContext) -> Vec<Me
     conversation
 }
 
+/// Target-exposure inputs for one loop-boundary normalization: which tools
+/// this loop exposes and how history must be rewritten to match.
+pub(crate) struct TargetExposure<'a> {
+    pub registry: Option<&'a ToolRegistry>,
+    pub available: &'a [String],
+    pub initial: &'a [String],
+    pub discoverable: &'a [String],
+    pub hidden: &'a [String],
+    pub enable_general_tool: Option<bool>,
+    pub activated: &'a [String],
+}
+
 /// Normalize an inbound conversation to this loop's target exposure.
 ///
 /// Upstream loops archived history in their own bucket shapes (a direct call
@@ -79,17 +91,19 @@ pub(crate) fn collect_initial_conversation(ctx: &NodeExecutionContext) -> Vec<Me
 /// Thread a real overrides source through all three sites when one appears.
 /// The coordinator re-normalizes idempotently at entity build, which is what
 /// covers `call_agent` sub-agent inputs that never pass through this handler.
-#[allow(clippy::too_many_arguments)]
 pub(crate) fn normalize_conversation_for_target(
     conversation: Vec<Message>,
-    registry: Option<&ToolRegistry>,
-    available: &[String],
-    initial: &[String],
-    discoverable: &[String],
-    hidden: &[String],
-    enable_general_tool: Option<bool>,
-    activated: &[String],
+    exposure: &TargetExposure<'_>,
 ) -> Vec<Message> {
+    let TargetExposure {
+        registry,
+        available,
+        initial,
+        discoverable,
+        hidden,
+        enable_general_tool,
+        activated,
+    } = exposure;
     let Some(registry) = registry else {
         return wf_execution_shared::agent_prompt::strip_dynamic_context_messages(conversation);
     };
@@ -102,7 +116,7 @@ pub(crate) fn normalize_conversation_for_target(
         initial_names: initial,
         discoverable_names: discoverable,
         hidden_names: hidden,
-        enable_general_tool,
+        enable_general_tool: *enable_general_tool,
         activated_tools: &activated_tools,
         exposure_overrides: &std::collections::HashMap::new(),
     });

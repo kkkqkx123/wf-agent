@@ -24,7 +24,10 @@ use tracing::debug;
 use wf_core::EventBus;
 use wf_execution_shared::context_store::{check_anchor, WritebackOp};
 use wf_execution_shared::conversation_session::{ConversationSession, CONVERSATION_CONTEXT_ID};
-use wf_execution_shared::{ContextCompressionCompletedMeta, ConversationWritebackCompletedMeta};
+use wf_execution_shared::{
+    ContextCompressionCompletedMeta, ContextCompressionFailedMeta,
+    ConversationWritebackCompletedMeta,
+};
 use wf_types::checkpoint::CheckpointTiming;
 use wf_types::events::EventType;
 use wf_types::message::Message;
@@ -66,7 +69,12 @@ pub fn spawn_conversation_compression_consumer(
                     if meta.target_context_id != CONVERSATION_CONTEXT_ID {
                         continue;
                     }
+                    let anchor = meta.array_version;
                     if !apply_compression(&conversation, meta).await {
+                        // Stale results still release the backpressure
+                        // anchor so later iterations do not wait on a run
+                        // whose output was discarded.
+                        conversation.write().await.end_compression_flight(anchor);
                         continue;
                     }
                     // Snapshot the compressed view; best-effort so a
@@ -87,6 +95,22 @@ pub fn spawn_conversation_compression_consumer(
                             );
                         }
                     }
+                }
+                EventType::ContextCompressionFailed => {
+                    let meta = match ContextCompressionFailedMeta::try_from(&event) {
+                        Ok(meta) => meta,
+                        Err(_) => continue,
+                    };
+                    if meta.target_context_id != CONVERSATION_CONTEXT_ID {
+                        continue;
+                    }
+                    // Terminal failure releases the backpressure anchor; the
+                    // emission guard stays, so the version re-arms only when
+                    // new messages advance it.
+                    conversation
+                        .write()
+                        .await
+                        .end_compression_flight(meta.array_version);
                 }
                 EventType::ConversationWritebackCompleted => {
                     let meta = match ConversationWritebackCompletedMeta::try_from(&event) {
@@ -119,7 +143,8 @@ pub fn spawn_conversation_compression_consumer(
 ///
 /// Compression never replaces the conversation: the full history is kept
 /// and only the view narrows, so undoing compression is a zero-cost view
-/// switch back to the full history.
+/// switch back to the full history. A successful write-back also releases
+/// the backpressure anchor for that version.
 ///
 /// Returns whether the summary was applied (`false` when the session moved
 /// on and the stale result was discarded).
@@ -136,7 +161,8 @@ pub async fn apply_compression(
         );
         return false;
     }
-    session.compress(meta.messages);
+    session.compress_with_tail(meta.messages, meta.tail_keep);
+    session.end_compression_flight(meta.array_version);
     true
 }
 
@@ -194,11 +220,14 @@ mod tests {
         wf_execution_shared::build_context_compression_completed_event(
             agent_loop_id,
             Some(agent_loop_id),
-            CONVERSATION_CONTEXT_ID,
-            version,
-            Some("summary"),
-            5,
-            Some(messages),
+            &wf_execution_shared::ContextCompressionCompleted {
+                target_context_id: CONVERSATION_CONTEXT_ID,
+                array_version: version,
+                summary: Some("summary"),
+                tokens_after: 5,
+                messages: Some(messages),
+                tail_keep: 0,
+            },
         )
     }
 
@@ -427,6 +456,107 @@ mod tests {
             session.messages()[1].content,
             MessageContentValue::Text("newer".to_string())
         );
+        handle.abort();
+    }
+
+    #[tokio::test]
+    async fn completion_releases_flight_and_keeps_tail() {
+        let bus = Arc::new(EventBus::new(8));
+        let conversation = Arc::new(RwLock::new(ConversationSession::with_token_limit(100)));
+        {
+            let mut session = conversation.write().await;
+            session.add_message(text_message(MessageRole::User, "first"));
+            session.add_message(text_message(MessageRole::User, "second"));
+        }
+        let version = conversation.read().await.conversation_version();
+        conversation
+            .write()
+            .await
+            .begin_compression_flight(version, false);
+        assert!(conversation.read().await.compression_flight().is_some());
+
+        let handle = spawn_conversation_compression_consumer(
+            bus.clone(),
+            "loop-1".to_string(),
+            conversation.clone(),
+            None,
+        );
+        let sub = bus.subscribe();
+        while bus.receiver_count() < 2 {
+            tokio::task::yield_now().await;
+        }
+        let event = wf_execution_shared::build_context_compression_completed_event(
+            "loop-1",
+            Some("loop-1"),
+            &wf_execution_shared::ContextCompressionCompleted {
+                target_context_id: CONVERSATION_CONTEXT_ID,
+                array_version: version,
+                summary: Some("summary"),
+                tokens_after: 5,
+                messages: Some(&[text_message(MessageRole::Assistant, "compressed")]),
+                tail_keep: 1,
+            },
+        );
+        bus.publish(event).unwrap();
+        drop(sub);
+
+        for _ in 0..200 {
+            if conversation.read().await.compression_flight().is_none() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        let session = conversation.read().await;
+        assert!(session.compression_flight().is_none());
+        // Summary plus one retained tail message.
+        assert_eq!(session.view_messages().len(), 2);
+        handle.abort();
+    }
+
+    #[tokio::test]
+    async fn failure_event_releases_flight_without_writeback() {
+        let bus = Arc::new(EventBus::new(8));
+        let conversation = Arc::new(RwLock::new(ConversationSession::with_token_limit(100)));
+        conversation
+            .write()
+            .await
+            .add_message(text_message(MessageRole::User, "hello"));
+        let version = conversation.read().await.conversation_version();
+        conversation
+            .write()
+            .await
+            .begin_compression_flight(version, false);
+
+        let handle = spawn_conversation_compression_consumer(
+            bus.clone(),
+            "loop-1".to_string(),
+            conversation.clone(),
+            None,
+        );
+        let sub = bus.subscribe();
+        while bus.receiver_count() < 2 {
+            tokio::task::yield_now().await;
+        }
+        bus.publish(wf_execution_shared::build_context_compression_failed_event(
+            "loop-1",
+            Some("loop-1"),
+            CONVERSATION_CONTEXT_ID,
+            version,
+            3,
+            "timed out",
+        ))
+        .unwrap();
+        drop(sub);
+
+        for _ in 0..200 {
+            if conversation.read().await.compression_flight().is_none() {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        let session = conversation.read().await;
+        assert!(session.compression_flight().is_none());
+        assert_eq!(session.messages().len(), 1, "no write-back on failure");
         handle.abort();
     }
 }

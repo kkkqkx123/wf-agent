@@ -25,6 +25,7 @@ use crate::storage_manager::StorageManager;
 use crate::trigger_listener::{
     register_compression_handler, start_trigger_listener_with_parts, ExecutionContextRegistry,
     ListenerDeps, TriggerExecutionRecorder, TriggerLedger, WorkflowRunner,
+    DEFAULT_TRIGGER_TIMEOUT_MS,
 };
 
 #[cfg(feature = "plugins")]
@@ -193,6 +194,23 @@ fn assemble_trigger_subsystem(deps: TriggerSubsystemDeps) -> TriggerSubsystem {
     let execution_contexts = Arc::new(ExecutionContextRegistry::new());
     let trigger_state_registry = Arc::new(wf_workflow::TriggerStateRegistry::new());
     let trigger_shutdown = tokio_util::sync::CancellationToken::new();
+    let compression_policy = crate::trigger_listener::CompressionPolicy {
+        max_retries: limits
+            .compression
+            .as_ref()
+            .and_then(|c| c.max_retries)
+            .unwrap_or(2),
+        timeout_ms: limits
+            .compression
+            .as_ref()
+            .and_then(|c| c.timeout_ms)
+            .unwrap_or(DEFAULT_TRIGGER_TIMEOUT_MS),
+        tail_keep: limits
+            .compression
+            .as_ref()
+            .and_then(|c| c.tail_keep)
+            .unwrap_or(wf_execution_shared::DEFAULT_COMPRESSION_TAIL_KEEP),
+    };
     let subworkflow_runner: std::sync::Arc<dyn wf_workflow::trigger::SubworkflowRunner> =
         std::sync::Arc::new(
             WorkflowRunner::with_tool_registry(
@@ -226,17 +244,23 @@ fn assemble_trigger_subsystem(deps: TriggerSubsystemDeps) -> TriggerSubsystem {
     // The builtin compression handler shares the listener's shutdown token
     // and sub-workflow runner: engine signals fire to it, the summary
     // sub-workflow is spawned immediately and stopped at runtime shutdown
-    // together with the listener.
+    // together with the listener. Cross-attempt policy comes from the
+    // resolved limits config (service builtin default when the section is
+    // absent).
     let _compression = register_compression_handler(
         &hook_handler_registry,
-        event_bus,
-        subworkflow_runner,
-        execution_contexts.clone(),
-        wf_resource::predefined::workflow::LLM_SUMMARY_WORKFLOW_ID.to_string(),
-        trigger_shutdown,
-        TriggerLedger {
-            storage,
-            trigger_state_registry: Some(trigger_state_registry.clone()),
+        crate::trigger_listener::CompressionHandlerDeps {
+            event_bus,
+            runner: subworkflow_runner,
+            contexts: execution_contexts.clone(),
+            summary_workflow_id: wf_resource::predefined::workflow::LLM_SUMMARY_WORKFLOW_ID
+                .to_string(),
+            shutdown: trigger_shutdown,
+            ledger: TriggerLedger {
+                storage,
+                trigger_state_registry: Some(trigger_state_registry.clone()),
+            },
+            policy: compression_policy,
         },
     );
     TriggerSubsystem {

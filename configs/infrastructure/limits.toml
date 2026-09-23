@@ -25,3 +25,10 @@ max_concurrent = 0                    # 0 = no concurrency budget (reserved)
 [execution_defaults]
 node_timeout_ms = 30000               # per-node execution timeout fallback
 max_execution_time_ms = 0             # whole-workflow timeout fallback, 0 = unlimited
+
+# Context-compression service cross-attempt policy (retries share the same
+# array version; a terminal failure publishes CONTEXT_COMPRESSION_FAILED).
+[compression]
+max_retries = 2                       # additional runs after the first attempt
+timeout_ms = 60000                    # outer timeout per attempt
+tail_keep = 2                         # recent pre-existing messages kept beside the summary

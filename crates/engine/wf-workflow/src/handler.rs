@@ -50,10 +50,8 @@ pub struct HandlerRegistry {
 }
 
 impl HandlerRegistry {
-    // No `Default`: a usable registry requires an injected LLM gateway
-    // (`register_defaults`), an empty registry would silently lack LLM
-    // handlers.
-    #[allow(clippy::new_without_default)]
+    // Empty intermediate state: callers register handlers (including the
+    // LLM gateway via `register_defaults`) before the registry is usable.
     pub fn new() -> Self {
         Self {
             handlers: HashMap::new(),
@@ -142,5 +140,11 @@ impl HandlerRegistry {
         self.register(Box::new(user_interaction::UserInteractionHandler));
         self.register(Box::new(message_node::StartFromMessageHandler));
         self.register(Box::new(message_node::ContinueFromMessageHandler));
+    }
+}
+
+impl Default for HandlerRegistry {
+    fn default() -> Self {
+        Self::new()
     }
 }

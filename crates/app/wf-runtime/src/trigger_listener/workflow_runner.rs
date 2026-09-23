@@ -233,6 +233,7 @@ impl SubworkflowRunner for WorkflowRunner {
             .and_then(|config| config.enable_checkpoints)
             .unwrap_or(false);
         let limits = self.limits.clone().unwrap_or_default();
+        let compression_depth = input.get("compressionDepth").and_then(|v| v.as_u64());
         let options = WorkflowExecutionOptions {
             input: Some(input),
             max_steps: None,
@@ -273,6 +274,12 @@ impl SubworkflowRunner for WorkflowRunner {
             options,
         )
         .with_resource_registries(self.registries.clone());
+        // Compression nesting marker: the compression service tags its input
+        // with the next depth so summary runs never emit their own chain.
+        // Absent for ordinary triggered runs (depth zero, no suppression).
+        if let Some(depth) = compression_depth {
+            wf_workflow::message_context::set_compression_depth(&exec_ctx.variables, depth);
+        }
         let exec_ctx = match &self.signal_bus {
             Some(bus) => exec_ctx.with_signal_bus(bus.clone()),
             None => exec_ctx,
@@ -492,10 +499,13 @@ impl TriggerActionRunner for SubworkflowActionRunner {
                                 if let Err(e) = handle_subworkflow_output(
                                     &contexts,
                                     &bus,
-                                    event.execution_id.as_deref().unwrap_or_default(),
-                                    event.agent_loop_id.as_deref(),
-                                    &target_context_id,
-                                    expected_version,
+                                    &super::CompressionWriteBack {
+                                        execution_id: event.execution_id.as_deref().unwrap_or_default(),
+                                        agent_loop_id: event.agent_loop_id.as_deref(),
+                                        target_context_id: &target_context_id,
+                                        expected_version,
+                                        tail_keep: wf_execution_shared::DEFAULT_COMPRESSION_TAIL_KEEP,
+                                    },
                                     &output,
                                 )
                                 .await
@@ -592,10 +602,13 @@ impl SubworkflowActionRunner {
         handle_subworkflow_output(
             &self.contexts,
             &self.bus,
-            event.execution_id.as_deref().unwrap_or_default(),
-            event.agent_loop_id.as_deref(),
-            target_context_id,
-            expected_version,
+            &super::CompressionWriteBack {
+                execution_id: event.execution_id.as_deref().unwrap_or_default(),
+                agent_loop_id: event.agent_loop_id.as_deref(),
+                target_context_id,
+                expected_version,
+                tail_keep: wf_execution_shared::DEFAULT_COMPRESSION_TAIL_KEEP,
+            },
             &output,
         )
         .await

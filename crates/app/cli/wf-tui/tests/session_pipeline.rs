@@ -62,6 +62,7 @@ fn tool_script() -> Vec<ExecutionStreamEvent> {
             tool_name: "list_files".to_string(),
             success: true,
             result: String::new(),
+            error: None,
         },
         it_end(1),
         it(2),

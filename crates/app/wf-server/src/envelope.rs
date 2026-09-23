@@ -7,10 +7,9 @@ use axum::Json;
 use serde::Serialize;
 use utoipa::ToSchema;
 
-/// Error classification used by the response envelope. The full mapping
-/// (NotFound -> 404, Validation -> 400, anything else -> 500) is the API
-/// contract; today only Validation is reachable from the handlers.
-#[allow(dead_code)]
+/// Error classification used by the response envelope. Only Validation is
+/// constructed today; NotFound / Internal live here so `status` / `code`
+/// stay the single mapping table when those constructors appear.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ErrorKind {
     NotFound,
@@ -45,6 +44,20 @@ impl ApiError {
     pub(crate) fn validation(message: impl Into<String>) -> Self {
         Self {
             kind: ErrorKind::Validation,
+            message: message.into(),
+        }
+    }
+
+    pub(crate) fn not_found(message: impl Into<String>) -> Self {
+        Self {
+            kind: ErrorKind::NotFound,
+            message: message.into(),
+        }
+    }
+
+    pub(crate) fn internal(message: impl Into<String>) -> Self {
+        Self {
+            kind: ErrorKind::Internal,
             message: message.into(),
         }
     }

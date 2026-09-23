@@ -26,7 +26,8 @@ use events::emit_llm_event;
 use messages::{build_messages, tool_result_message};
 use stream::run_streaming_request;
 use token_budget::{
-    check_preflight_budget, emit_token_usage_events, record_non_stream_usage, setup_token_tracker,
+    await_compression_settle, check_preflight_budget, emit_token_usage_events,
+    record_non_stream_usage, setup_token_tracker,
 };
 use tool_exec::{call_llm, execute_tool_call, pending_queue_for, resolve_tools, LlmToolCallBatch};
 
@@ -149,6 +150,9 @@ impl LlmHandler {
         // silently.
         let mut stopped_with_tools = false;
         for _round in 0..cfg.max_interactions {
+            if cfg.token_tracking_enabled {
+                await_compression_settle(ctx).await;
+            }
             let request = self.build_request(ctx, &cfg, &node_config, &messages, &tools);
 
             check_preflight_budget(ctx, &self.gateway, &request, cfg.token_tracking_enabled).await;
@@ -171,7 +175,8 @@ impl LlmHandler {
             let response = call_llm(ctx, &self.gateway, &request).await?;
             record_non_stream_usage(ctx, &request, &response, cfg.token_tracking_enabled).await;
             if cfg.token_tracking_enabled {
-                emit_token_usage_events(ctx, cfg.token_warning_threshold).await;
+                emit_token_usage_events(ctx, cfg.token_warning_threshold, request.tools.as_deref())
+                    .await;
             }
             let has_tool_calls = response
                 .tool_calls

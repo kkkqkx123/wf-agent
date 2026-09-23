@@ -36,6 +36,11 @@ pub enum AgentStreamEvent {
         tool_name: String,
         success: bool,
         result: String,
+        /// Structured rejection/execution reason extracted from the tool
+        /// result when `success` is false; `None` when no reason is
+        /// available.
+        #[serde(default)]
+        error: Option<String>,
     },
     IterationEnd {
         iteration: u32,

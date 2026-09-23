@@ -408,6 +408,45 @@ impl AgentIterationCoordinator {
         )
         .await;
 
+        // Cooperative backpressure: when a compression run is in flight for
+        // the current conversation version, wait for the write-back to land
+        // (bounded and abort-aware) so this iteration assembles the request
+        // from the compressed view instead of re-sending the over-budget
+        // one. A timeout self-heals by dropping the stale anchor; the
+        // emission guard stays, so the same version never re-emits in a loop.
+        if self.token_tracking_enabled {
+            let (version, in_flight) = {
+                let conversation = entity.conversation().read().await;
+                let version = conversation.conversation_version();
+                let in_flight = conversation
+                    .compression_flight()
+                    .is_some_and(|flight| flight.version == version);
+                (version, in_flight)
+            };
+            if in_flight {
+                let handle = entity.conversation().clone();
+                let abort = entity.get_abort_signal();
+                let settled = tokio::select! {
+                    settled = wf_execution_shared::context_store::wait_for_version_shift(
+                        || {
+                            let handle = handle.clone();
+                            async move { handle.read().await.conversation_version() }
+                        },
+                        version,
+                        wf_execution_shared::COMPRESSION_SETTLE_WAIT_MS,
+                    ) => settled,
+                    _ = abort.cancelled() => false,
+                };
+                if !settled {
+                    entity
+                        .conversation()
+                        .write()
+                        .await
+                        .end_compression_flight(version);
+                }
+            }
+        }
+
         let request = build_agent_request(
             entity,
             self.tool_coordinator.tool_registry(),
@@ -576,15 +615,17 @@ impl AgentIterationCoordinator {
             }
             conversation.finalize_current_request();
 
-            // Emit token usage events (decision track only): task warnings
-            // compare the cumulative estimate against the task token limit,
-            // while compression compares the projected view (the actual LLM
-            // input) against the model-window context budget. The view
-            // estimate shrinks after compression even though the history
-            // keeps growing, so history-based estimates would re-trigger
-            // compression immediately.
+            // Emit token usage events: task warnings compare the billed
+            // cumulative (actual-first with estimation fallback) against the
+            // task token limit, while compression compares the projected
+            // view plus fresh per-request dynamic overhead (tool
+            // declarations, injected blocks), calibrated by the
+            // actual-minus-estimated bias, against the model-window context
+            // budget. The view estimate shrinks after compression even
+            // though the history keeps growing, so history-based estimates
+            // would re-trigger compression immediately.
             if let Some(ref bus) = self.event_bus {
-                let tokens_used = conversation.estimated_total();
+                let tokens_used = conversation.billed_total();
                 let token_limit = conversation.token_limit();
                 if token_limit > 0 {
                     if conversation.consume_token_warning(self.token_warning_threshold as f64) {
@@ -608,7 +649,13 @@ impl AgentIterationCoordinator {
                 }
                 let context_limit = conversation.context_limit();
                 if context_limit > 0 {
-                    let estimated = conversation.estimated_view_tokens();
+                    let stable = conversation.estimated_view_tokens();
+                    let dynamic = wf_execution_shared::context_store::dynamic_request_overhead(
+                        prompt_est as u64,
+                        stable,
+                    );
+                    let estimated =
+                        conversation.calibrated_estimate(stable.saturating_add(dynamic));
                     let version = conversation.conversation_version();
                     if wf_execution_shared::context_store::over_budget(estimated, context_limit)
                         && conversation.should_emit_compression(version)
@@ -654,11 +701,14 @@ impl AgentIterationCoordinator {
                             &request,
                         )
                         .await;
-                        entity
-                            .conversation()
-                            .write()
-                            .await
-                            .mark_compression_emitted(version);
+                        let mut session = entity.conversation().write().await;
+                        session.mark_compression_emitted(version);
+                        // Backpressure only anchors when a hook receiver can
+                        // take over; without a registry nothing settles the
+                        // flight and later iterations would wait in vain.
+                        if self.hook_handler_registry.is_some() {
+                            session.begin_compression_flight(version, false);
+                        }
                     }
                 }
             }
@@ -873,8 +923,8 @@ impl AgentIterationCoordinator {
             return;
         }
         let tokens_used = u64::from(wf_llm::estimate_request_tokens(request));
-        // With no model window the budget is unknown: report the estimate
-        // itself so the audit event carries a meaningful ratio.
+        // With no model window the budget is unknown: report a zero limit
+        // with the unknown-budget marker instead of a fabricated ratio.
         let effective_limit = if context_limit > 0 {
             context_limit
         } else {
@@ -882,7 +932,7 @@ impl AgentIterationCoordinator {
                 entity_id = %entity.id(),
                 "forced compression with unknown context budget"
             );
-            tokens_used.max(1)
+            0
         };
         let messages = request.messages.clone();
         let compression_request = wf_execution_shared::context_store::compression_request(
@@ -914,11 +964,11 @@ impl AgentIterationCoordinator {
             &compression_request,
         )
         .await;
-        entity
-            .conversation()
-            .write()
-            .await
-            .mark_compression_emitted(version);
+        let mut session = entity.conversation().write().await;
+        session.mark_compression_emitted(version);
+        if self.hook_handler_registry.is_some() {
+            session.begin_compression_flight(version, true);
+        }
     }
 
     /// Publish the LLM_REQUESTED event before the gateway call.
@@ -1222,6 +1272,12 @@ impl AgentIterationCoordinator {
                 }
             };
             let result_text = text_of(&msg.content);
+            let success = !result_text.contains("\"error\"");
+            let error = if success {
+                None
+            } else {
+                extract_error_reason(&result_text)
+            };
 
             if let Some(ref sink) = self.event_sink {
                 sink.emit(
@@ -1229,8 +1285,9 @@ impl AgentIterationCoordinator {
                     AgentStreamEvent::ToolEnd {
                         tool_call_id: tc.id.clone(),
                         tool_name: tc.function.name.clone(),
-                        success: !result_text.contains("\"error\""),
+                        success,
                         result: result_text.clone(),
+                        error,
                     },
                 )
                 .await?;
@@ -1245,6 +1302,22 @@ fn text_of(content: &MessageContentValue) -> String {
     match content {
         MessageContentValue::Text(t) => t.clone(),
         MessageContentValue::Rich(_) => String::new(),
+    }
+}
+
+/// Extract the structured rejection/execution reason from a failed tool
+/// result. Rejections and policy denials write `{"error": reason}` (or a
+/// nested `{"error": {"message": ...}}`); non-JSON or reason-less results
+/// yield `None`.
+fn extract_error_reason(result_text: &str) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_str(result_text).ok()?;
+    match value.get("error")? {
+        serde_json::Value::String(s) => Some(s.clone()),
+        serde_json::Value::Object(obj) => match obj.get("message") {
+            Some(serde_json::Value::String(s)) => Some(s.clone()),
+            _ => Some(obj.to_string()),
+        },
+        other => Some(other.to_string()),
     }
 }
 

@@ -87,15 +87,18 @@ fn input(message: &str) -> AgentLoopInput {
 #[tokio::test]
 async fn token_events_emitted_when_limit_crossed() {
     let mock = Arc::new(MockLlmClient::new());
+    // Reported usage tracks the oversized request size: the task budget is
+    // actual-first, so a fabricated tiny usage would miscalibrate the
+    // compression bias and suppress the expected compression signal.
     mock.script(
         LlmResponseSpec::tool_calls(vec![tool_call(
             "call_1",
             "echo",
             r#"{"text":"agent ping"}"#,
         )])
-        .with_usage(100, 20),
+        .with_usage(1000, 20),
     );
-    mock.script(LlmResponseSpec::text("final answer").with_usage(100, 20));
+    mock.script(LlmResponseSpec::text("final answer").with_usage(1000, 20));
 
     let bus = Arc::new(wf_core::EventBus::new(64));
     let mut sub = bus.subscribe();

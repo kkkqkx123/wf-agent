@@ -146,11 +146,14 @@ impl HookHandler for AgentCompressionHandler {
                 wf_execution_shared::build_context_compression_completed_event(
                     execution_id.as_str(),
                     Some(&agent_loop_id),
-                    &target_context_id,
-                    array_version,
-                    summary.as_deref(),
-                    wf_llm::estimate_messages(&compressed) as u64,
-                    Some(&compressed),
+                    &wf_execution_shared::ContextCompressionCompleted {
+                        target_context_id: &target_context_id,
+                        array_version,
+                        summary: summary.as_deref(),
+                        tokens_after: wf_llm::estimate_messages(&compressed) as u64,
+                        messages: Some(&compressed),
+                        tail_keep: 0,
+                    },
                 ),
             )
             .expect("compression completed event must publish to live subscribers");
@@ -334,11 +337,14 @@ async fn agent_consumer_discards_stale_compression_result() {
         wf_execution_shared::build_context_compression_completed_event(
             "agent-1",
             Some("agent-1"),
-            wf_execution_shared::CONVERSATION_CONTEXT_ID,
-            stale_version,
-            Some("compressed"),
-            5,
-            Some(&messages),
+            &wf_execution_shared::ContextCompressionCompleted {
+                target_context_id: wf_execution_shared::CONVERSATION_CONTEXT_ID,
+                array_version: stale_version,
+                summary: Some("compressed"),
+                tokens_after: 5,
+                messages: Some(&messages),
+                tail_keep: 0,
+            },
         ),
     )
     .unwrap();

@@ -330,7 +330,6 @@ fn main() -> io::Result<()> {
                 }
             }
         }
-        #[allow(unreachable_code)]
         Ok(())
     })();
 

@@ -127,7 +127,7 @@ pub(crate) async fn handle_get_agent_execution(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
-    match wf_api::agent::agent::get_agent_execution(&state.ctx.storage, &path.id).await {
+    match wf_api::agent::get_agent_execution(&state.ctx.storage, &path.id).await {
         Ok(execution) => ok(execution).into_response(),
         Err(e) => error_response(e),
     }
@@ -149,7 +149,7 @@ pub(crate) async fn handle_delete_agent_execution(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
-    match wf_api::agent::agent::delete_agent_execution(&state.ctx.storage, &path.id).await {
+    match wf_api::agent::delete_agent_execution(&state.ctx.storage, &path.id).await {
         Ok(deleted) => ok(deleted).into_response(),
         Err(e) => error_response(e),
     }
@@ -173,9 +173,7 @@ pub(crate) async fn handle_executions_by_definition(
     Query(query): Query<ListQuery>,
 ) -> impl IntoResponse {
     let (limit, offset) = resolve_page(&query);
-    match wf_api::agent::agent::list_executions_by_definition(&state.ctx.storage, &path.def_id)
-        .await
-    {
+    match wf_api::agent::list_executions_by_definition(&state.ctx.storage, &path.def_id).await {
         Ok(executions) => {
             let window = executions
                 .into_iter()

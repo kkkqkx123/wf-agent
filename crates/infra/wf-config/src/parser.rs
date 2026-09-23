@@ -95,20 +95,12 @@ mod tests {
     #[test]
     fn test_parse_invalid_toml() {
         let bad = "this is not valid toml [[[";
-        #[derive(Debug, serde::Deserialize)]
-        struct ParseTestConfig {
-            name: String,
-        }
-        assert!(parse_toml::<ParseTestConfig>(bad).is_err());
+        assert!(parse_toml::<toml::Value>(bad).is_err());
     }
 
     #[test]
     fn test_parse_invalid_json() {
         let bad = "not json";
-        #[derive(Debug, serde::Deserialize)]
-        struct ParseTestConfig {
-            name: String,
-        }
-        assert!(parse_json::<ParseTestConfig>(bad).is_err());
+        assert!(parse_json::<serde_json::Value>(bad).is_err());
     }
 }

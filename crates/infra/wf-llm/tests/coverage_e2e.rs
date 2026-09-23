@@ -5,13 +5,11 @@
 //! FinalMessage/Usage/End semantics, count-tokens error propagation,
 //! gateway lifecycle (`clear_all`), client 429 retry and cancellation.
 
-mod common;
-
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
-use common::{MockRequest, MockResponse, MockServer};
+use wf_llm::http_mock::{MockRequest, MockResponse, MockServer};
 use wf_types::llm::{
     LlmFormat, LlmGenerationParams, LlmProfile, LlmProviderDefinition, LlmRequest,
     MessageStreamEvent, ToolCallProtocol, ToolCallProtocolConfig, ToolCallProtocolViolationPolicy,

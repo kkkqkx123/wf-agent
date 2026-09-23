@@ -253,9 +253,8 @@ mod tests {
 
         // Second call hits the cache, factory not invoked again.
         let second: u64 = cache
-            .get_or_set("k".to_string(), || async {
-                let out: Result<u64, ()> = panic!("factory must not run on cache hit");
-                out
+            .get_or_set::<_, _, ()>("k".to_string(), || async {
+                panic!("factory must not run on cache hit")
             })
             .await
             .unwrap();

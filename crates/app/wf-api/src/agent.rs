@@ -1,6 +1,5 @@
 //! Agent domain APIs: execution, loop registry, graph, checkpoints,
 //! builders, composition, error analysis, performance and variables.
-pub use agent::*;
 
 use wf_core::registry::Registry;
 use wf_storage::adapter::agent_execution::{
@@ -129,7 +128,7 @@ pub fn validate_agent_definition(
     definition: &wf_types::agent::AgentDefinition,
 ) -> crate::ApiResult<Vec<String>> {
     let val_ctx = wf_types::ValidationContext::empty();
-    let validator = super::validation::AgentValidator::new(&val_ctx);
+    let validator = validation::AgentValidator::new(&val_ctx);
     let result = validator.validate(definition);
 
     if !result.is_valid() {

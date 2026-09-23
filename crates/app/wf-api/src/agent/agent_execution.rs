@@ -596,7 +596,7 @@ mod tests {
         assert_eq!(view.status, wf_types::ExecutionStatus::Completed);
         assert_eq!(view.agent_loop_id, agent_loop_id);
 
-        let executions = crate::agent::agent::list_agent_executions(&ctx2.storage, None)
+        let executions = crate::agent::list_agent_executions(&ctx2.storage, None)
             .await
             .unwrap();
         assert_eq!(executions.len(), 1);

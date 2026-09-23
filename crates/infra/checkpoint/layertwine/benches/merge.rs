@@ -1,6 +1,6 @@
 use layertwine::core::delta::Delta;
 use layertwine::core::file_node::FileNode;
-use layertwine::core::types::{DiffOp, Hunk, LineDiff, SourceType};
+use layertwine::core::types::SourceType;
 use layertwine::engine::diff::diff_to_line_diff;
 use layertwine::engine::merge::apply_deltas;
 use layertwine::engine::merge::merge_texts;
@@ -31,25 +31,6 @@ fn generate_modified_text(base: &str, change_rate: f64) -> String {
 fn create_delta_from_texts(old: &str, new: &str) -> Delta {
     let file_node = FileNode::new(PathBuf::from("test.txt"), old.as_bytes());
     let diff = diff_to_line_diff(old, new);
-    Delta::new(file_node, diff, SourceType::Manual)
-}
-
-#[allow(dead_code)]
-fn create_manual_delta(old_start: u32, insert_lines: Vec<String>) -> Delta {
-    let file_node = FileNode::new(PathBuf::from("test.txt"), b"base content\n");
-    let diff = LineDiff {
-        hunks: vec![Hunk {
-            old_start,
-            old_len: 0,
-            new_start: old_start,
-            new_len: insert_lines.len() as u32,
-            ops: vec![DiffOp::Insert {
-                new_start: old_start,
-                lines: insert_lines,
-            }],
-        }],
-        trailing_newline: None,
-    };
     Delta::new(file_node, diff, SourceType::Manual)
 }
 

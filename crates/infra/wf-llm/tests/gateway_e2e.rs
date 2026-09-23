@@ -2,18 +2,15 @@
 //! tool call protocol violation policies and the full generate path against
 //! a local HTTP mock server.
 
-mod common;
-
-use common::{MockRequest, MockResponse, MockServer};
+use wf_llm::error::LlmError;
+use wf_llm::gateway::LlmGateway;
+use wf_llm::http_mock::{MockRequest, MockResponse, MockServer};
 use wf_types::llm::{
     LlmFormat, LlmProfile, LlmRequest, ToolCallProtocol, ToolCallProtocolConfig,
     ToolCallProtocolViolationPolicy,
 };
 use wf_types::message::{Message, MessageContentValue, MessageRole};
 use wf_types::tool::Tool;
-
-use wf_llm::error::LlmError;
-use wf_llm::gateway::LlmGateway;
 
 const OPENAI_CHAT_RESPONSE: &str = r#"{
     "id": "chatcmpl-1",

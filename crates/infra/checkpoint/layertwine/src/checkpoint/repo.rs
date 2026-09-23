@@ -6,96 +6,6 @@ use crate::core::types::{CheckpointId, SnapshotId};
 use crate::error::{LayertwineError, Result};
 use crate::storage::repository::CheckpointPersist;
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::sync::RwLock;
-
-/// Lazy-loading checkpoint map.
-///
-/// Loads checkpoints on-demand from the storage backend when they are
-/// first accessed. This avoids loading the entire checkpoint history
-/// into memory for repositories with large histories.
-#[allow(dead_code)]
-pub(crate) struct LazyCheckpointMap {
-    loaded: RwLock<HashMap<CheckpointId, Checkpoint>>,
-    storage: Option<Box<dyn CheckpointPersist>>,
-}
-
-#[allow(dead_code)]
-impl LazyCheckpointMap {
-    /// Create a new lazy checkpoint map with optional storage backend.
-    pub fn new(storage: Option<Box<dyn CheckpointPersist>>) -> Self {
-        LazyCheckpointMap {
-            loaded: RwLock::new(HashMap::new()),
-            storage,
-        }
-    }
-
-    /// Create a new lazy checkpoint map with pre-loaded checkpoints.
-    pub fn with_loaded(
-        loaded: HashMap<CheckpointId, Checkpoint>,
-        storage: Option<Box<dyn CheckpointPersist>>,
-    ) -> Self {
-        LazyCheckpointMap {
-            loaded: RwLock::new(loaded),
-            storage,
-        }
-    }
-
-    /// Get a checkpoint by ID. If not loaded, attempt to load from storage.
-    pub fn get(&self, id: &CheckpointId) -> Result<Checkpoint> {
-        // Fast path: check if already loaded
-        if let Some(cp) = self
-            .loaded
-            .read()
-            .map_err(|e| LayertwineError::General(format!("RwLock poisoned: {}", e)))?
-            .get(id)
-        {
-            return Ok(cp.clone());
-        }
-
-        // Slow path: load from storage
-        if let Some(storage) = &self.storage {
-            let cp = storage.get_checkpoint(id)?;
-            self.loaded
-                .write()
-                .map_err(|e| LayertwineError::General(format!("RwLock poisoned: {}", e)))?
-                .insert(*id, cp.clone());
-            return Ok(cp);
-        }
-
-        Err(LayertwineError::NotFound(format!(
-            "checkpoint {} not found",
-            id
-        )))
-    }
-
-    /// Check if a checkpoint ID is loaded.
-    pub fn contains_key(&self, id: &CheckpointId) -> bool {
-        self.loaded
-            .read()
-            .map(|m| m.contains_key(id))
-            .unwrap_or(false)
-    }
-
-    /// Insert a checkpoint into the map.
-    pub fn insert(&self, id: CheckpointId, cp: Checkpoint) {
-        if let Ok(mut map) = self.loaded.write() {
-            map.insert(id, cp);
-        }
-    }
-
-    /// Get all loaded checkpoint IDs.
-    pub fn keys(&self) -> Vec<CheckpointId> {
-        self.loaded
-            .read()
-            .map(|m| m.keys().copied().collect())
-            .unwrap_or_default()
-    }
-
-    /// Get a reference to the underlying loaded map (for migration purposes).
-    pub fn into_loaded(self) -> HashMap<CheckpointId, Checkpoint> {
-        self.loaded.into_inner().unwrap_or_default()
-    }
-}
 
 /// Checkpoint Repository - Versioning Core
 ///
@@ -1076,7 +986,7 @@ mod tests {
 
         assert_eq!(repo.checkpoint_count(), 2);
         assert!(repo.get_checkpoint(&cp2).is_err());
-        assert!(!repo.checkpoint_dag.has_node(&cp2));
+        assert!(!repo.checkpoint_dag.all_nodes().contains(&cp2));
     }
 
     #[test]

@@ -3,8 +3,6 @@
 //! Provides commonly used setup helpers to reduce duplication across
 //! test modules in `layered/` and other crates.
 
-#![allow(dead_code)]
-
 use crate::core::delta::Delta;
 use crate::core::file_node::FileNode;
 use crate::core::snapshot::Snapshot;

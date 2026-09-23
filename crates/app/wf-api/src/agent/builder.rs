@@ -502,7 +502,7 @@ impl AgentDefinitionBuilder<DefNamed> {
     /// must pass; warnings allow registration.
     pub async fn register(self, ctx: &ApiContext) -> crate::ApiResult<()> {
         let definition = self.build()?;
-        crate::agent::agent::save_agent_template(ctx, &definition).await?;
+        crate::agent::save_agent_template(ctx, &definition).await?;
         Ok(())
     }
 }

@@ -79,9 +79,8 @@ impl Entity for wf_types::WorkflowExecution {
 impl Entity for wf_types::storage::checkpoint::CheckpointStorageMetadata {
     type Metadata = Value;
 
-    #[allow(clippy::misnamed_getters)]
     fn entity_id(&self) -> &str {
-        &self.id
+        self.id.as_str()
     }
 
     fn entity_type() -> &'static str {

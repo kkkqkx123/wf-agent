@@ -1,8 +1,5 @@
-//! Shared integration test helpers: a dependency-free HTTP/1.1 mock server
-//! built on tokio's TcpListener. It records every request and dispatches to a
-//! caller-provided handler, so tests can exercise the real `LlmClientImpl`
-//! HTTP path (retries, timeouts, SSE streaming) without network access.
-#![allow(dead_code)]
+//! Dependency-free HTTP/1.1 mock server for exercising the real client HTTP
+//! path (retries, timeouts, SSE streaming) without network access.
 
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicUsize, Ordering};

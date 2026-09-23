@@ -135,14 +135,9 @@ async fn run_review_round(
     review_execution_id: &str,
 ) -> ApiResult<ReviewOutcome> {
     let allowed = vec![REVIEW_VERDICT_TOOL.to_string()];
-    let outcome = crate::llm::llm::generate_with_tools_once(
-        ctx,
-        request,
-        &allowed,
-        None,
-        review_execution_id,
-    )
-    .await?;
+    let outcome =
+        crate::llm::generate_with_tools_once(ctx, request, &allowed, None, review_execution_id)
+            .await?;
     if outcome.executions.len() != 1 {
         return Err(ApiError::execution(format!(
             "approval review must emit exactly one verdict call, got {}",

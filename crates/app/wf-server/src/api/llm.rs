@@ -1,9 +1,6 @@
-pub use llm::*;
-
 //! LLM domain: direct generation (single/batch/stream/token-count) and LLM
 //! profile management (CRUD / default / export-import / templates). Script
-//! and tool registries live in the sibling modules `llm/scripts` and
-//! `llm/tools`.
+//! and tool registries live in the sibling modules `scripts` and `tools`.
 
 use std::convert::Infallible;
 use utoipa::{IntoParams, ToSchema};
@@ -87,7 +84,7 @@ pub(crate) async fn handle_generate(
     State(state): State<ApiState>,
     Json(request): Json<LlmRequest>,
 ) -> impl IntoResponse {
-    match wf_api::llm::llm::generate(&state.ctx, &request).await {
+    match wf_api::llm::generate(&state.ctx, &request).await {
         Ok(result) => ok(result).into_response(),
         Err(e) => error_response(e),
     }
@@ -105,7 +102,7 @@ pub(crate) async fn handle_generate_batch(
     State(state): State<ApiState>,
     Json(requests): Json<Vec<LlmRequest>>,
 ) -> impl IntoResponse {
-    match wf_api::llm::llm::generate_batch(&state.ctx, &requests).await {
+    match wf_api::llm::generate_batch(&state.ctx, &requests).await {
         Ok(results) => ok(results).into_response(),
         Err(e) => error_response(e),
     }
@@ -127,7 +124,7 @@ pub(crate) async fn handle_generate_stream(
     State(state): State<ApiState>,
     Json(request): Json<LlmRequest>,
 ) -> Response {
-    let stream = match wf_api::llm::llm::generate_stream(&state.ctx, &request).await {
+    let stream = match wf_api::llm::generate_stream(&state.ctx, &request).await {
         Ok(stream) => stream,
         Err(e) => return error_response(e),
     };
@@ -163,7 +160,7 @@ pub(crate) async fn handle_count_tokens(
     State(state): State<ApiState>,
     Json(request): Json<LlmRequest>,
 ) -> impl IntoResponse {
-    match wf_api::llm::llm::count_tokens(&state.ctx, &request).await {
+    match wf_api::llm::count_tokens(&state.ctx, &request).await {
         Ok(result) => ok(result).into_response(),
         Err(e) => error_response(e),
     }

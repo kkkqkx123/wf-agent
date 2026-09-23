@@ -692,7 +692,6 @@ impl Runtime {
             let storage = self.storage_manager.shared_context().expect(
                 "storage not configured; set storage type to sqlite or postgres in storage.toml",
             );
-            #[allow(unused_mut)]
             let mut ctx = wf_api::ApiContext::from_runtime_parts(
                 storage,
                 self.registries.clone(),

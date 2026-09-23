@@ -1,7 +1,5 @@
-//! LLM, script and tool query APIs.
-pub use llm::*;
-
-//! Direct LLM execution entry points.
+//! LLM, script and tool query APIs: direct LLM execution entry points plus
+//! profile / provider / script / tool sibling modules.
 //!
 //! Everything runs through the shared `LlmGateway` of the context, so
 //! profiles registered via `LlmProfileApi` are resolved exactly as they are

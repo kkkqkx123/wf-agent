@@ -295,7 +295,7 @@ pub(crate) async fn handle_agent_stats_by_profile(
         return ok(json!({ "configured": false })).into_response();
     };
     let limit = query.limit.unwrap_or(10);
-    match wf_api::agent::agent::list_agent_profiles(&state.ctx.storage, None).await {
+    match wf_api::agent::list_agent_profiles(&state.ctx.storage, None).await {
         Ok(profiles) => {
             let ids: Vec<String> = profiles.into_iter().map(|p| p.id.to_string()).collect();
             ok(wf_api::analysis::stats::agent_stats_by_profile(

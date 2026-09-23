@@ -2,18 +2,15 @@
 //! response parsing, retries, error classification, timeouts and SSE
 //! streaming. These exercise the actual reqwest HTTP path.
 
-mod common;
-
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-
-use common::{MockRequest, MockResponse, MockServer};
-use wf_types::llm::{LlmFormat, LlmProfile, LlmRequest, MessageStreamEvent};
-use wf_types::message::{Message, MessageContentValue, MessageRole};
 
 use wf_llm::client::{LlmClient, LlmClientImpl};
 use wf_llm::codecs::create_codec;
 use wf_llm::error::LlmError;
+use wf_llm::http_mock::{MockRequest, MockResponse, MockServer};
+use wf_types::llm::{LlmFormat, LlmProfile, LlmRequest, MessageStreamEvent};
+use wf_types::message::{Message, MessageContentValue, MessageRole};
 
 const OPENAI_CHAT_RESPONSE: &str = r#"{
     "id": "chatcmpl-1",

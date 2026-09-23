@@ -74,7 +74,7 @@ pub fn api_router_with_config(ctx: Arc<ApiContext>, config: Arc<ServerMiddleware
         .merge(api::web::favorites::routes())
         .merge(api::web::batch::routes())
         // llm domain (generation + profiles + providers + scripts + tools)
-        .merge(api::llm::llm::routes())
+        .merge(api::llm::routes())
         .merge(api::llm::scripts::routes())
         .merge(api::llm::tools::routes())
         // template domain

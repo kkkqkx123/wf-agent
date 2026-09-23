@@ -159,9 +159,9 @@ impl ToolRegistry {
         let ah = sl_async_handlers.clone();
         self.register_executor(
             ToolType::Stateless,
-            Arc::new(move |tool| {
+            Arc::new(move |_tool| {
                 Ok(Arc::new(
-                    StatelessExecutor::from_tool_config_shared(tool, h.clone())
+                    StatelessExecutor::from_tool_config_shared(h.clone())
                         .with_async_handlers(ah.clone()),
                 ))
             }),

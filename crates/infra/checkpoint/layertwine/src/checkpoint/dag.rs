@@ -1,6 +1,7 @@
 //! DAG - Directed Acyclic Graph
 //!
-//! Manages the parent-child relationship of checkpoints, providing functions such as ancestor lookup, reachability determination, and common ancestor lookup.
+//! Manages the parent-child relationship of checkpoints, including edge
+//! insertion, cycle prevention, generation tracking, and child queries.
 //!
 //! Note: DAG is built dynamically from Checkpoint relationships and is not persisted to storage.
 //! Division of labor: this DAG is the file-history storage view only.
@@ -104,142 +105,9 @@ impl CheckpointDag {
         false
     }
 
-    /// Check if the node exists
-    ///
-    /// Graph-query API surface: covered by unit tests below, no production
-    /// caller yet.
-    #[allow(dead_code)]
-    pub fn has_node(&self, id: &CheckpointId) -> bool {
-        self.nodes.contains_key(id)
-    }
-
     /// Set the generation number of a node (used when restoring from persistent DAG)
     pub(crate) fn set_generation(&mut self, id: CheckpointId, gen: u64) {
         self.generation.insert(id, gen);
-    }
-
-    /// Get all ancestors of the node (from near to far, linear traversal)
-    ///
-    /// Iterate through the parents list in the Checkpoint entity.
-    /// Note: This method requires the parent query function to be passed.
-    ///
-    /// Graph-query API surface: covered by unit tests below, no production
-    /// caller yet.
-    #[allow(dead_code)]
-    pub fn ancestors<F>(&self, id: &CheckpointId, get_parents: F) -> Vec<CheckpointId>
-    where
-        F: Fn(&CheckpointId) -> Vec<CheckpointId>,
-    {
-        let mut result = Vec::new();
-        let mut visited = HashSet::new();
-        let mut queue = VecDeque::new();
-        queue.push_back(*id);
-
-        while let Some(current) = queue.pop_front() {
-            if !visited.insert(current) {
-                continue;
-            }
-            if current != *id {
-                result.push(current);
-            }
-            for parent in get_parents(&current) {
-                if !visited.contains(&parent) {
-                    queue.push_back(parent);
-                }
-            }
-        }
-
-        result
-    }
-
-    /// Determine whether ancestor is an ancestor of descendant (reachability judgment)
-    ///
-    /// Uses generation numbers to short-circuit: if ancestor's generation
-    /// is not strictly less than descendant's, it cannot be an ancestor.
-    /// Otherwise, traverses BFS forward from the ancestor's children.
-    ///
-    /// Graph-query API surface: covered by unit tests below, no production
-    /// caller yet.
-    #[allow(dead_code)]
-    pub fn is_ancestor(&self, ancestor: &CheckpointId, descendant: &CheckpointId) -> bool {
-        if ancestor == descendant {
-            return true;
-        }
-
-        // Generation-based pruning: only use when both generations are known.
-        // If either is missing (None), we cannot prune and must traverse the graph.
-        let anc_gen = self.generation.get(ancestor);
-        let desc_gen = self.generation.get(descendant);
-        if let (Some(ag), Some(dg)) = (anc_gen, desc_gen) {
-            if ag >= dg {
-                return false;
-            }
-        }
-
-        let mut visited = HashSet::new();
-        let mut queue = VecDeque::new();
-        queue.push_back(*ancestor);
-
-        while let Some(current) = queue.pop_front() {
-            if !visited.insert(current) {
-                continue;
-            }
-            if let Some(children) = self.nodes.get(&current) {
-                for child in children {
-                    if *child == *descendant {
-                        return true;
-                    }
-                    if !visited.contains(child) {
-                        queue.push_back(*child);
-                    }
-                }
-            }
-        }
-
-        false
-    }
-
-    /// Finding the common ancestor of two nodes
-    ///
-    /// Get all the ancestors of id1, then iterate backwards from id2 to find the first match.
-    ///
-    /// Graph-query API surface: covered by unit tests below, no production
-    /// caller yet.
-    #[allow(dead_code)]
-    pub fn merge_base<F>(
-        &self,
-        id1: &CheckpointId,
-        id2: &CheckpointId,
-        get_parents: F,
-    ) -> Option<CheckpointId>
-    where
-        F: Fn(&CheckpointId) -> Vec<CheckpointId>,
-    {
-        let ancestors1: HashSet<CheckpointId> = self
-            .ancestors(id1, &get_parents)
-            .into_iter()
-            .chain(std::iter::once(*id1))
-            .collect();
-
-        let mut visited = HashSet::new();
-        let mut queue = VecDeque::new();
-        queue.push_back(*id2);
-
-        while let Some(current) = queue.pop_front() {
-            if ancestors1.contains(&current) {
-                return Some(current);
-            }
-            if !visited.insert(current) {
-                continue;
-            }
-            for parent in get_parents(&current) {
-                if !visited.contains(&parent) {
-                    queue.push_back(parent);
-                }
-            }
-        }
-
-        None
     }
 
     /// Get a list of the node's children
@@ -269,24 +137,6 @@ impl CheckpointDag {
             children.remove(id);
         }
     }
-
-    /// Number of nodes
-    ///
-    /// Graph-query API surface: covered by unit tests below, no production
-    /// caller yet.
-    #[allow(dead_code)]
-    pub fn len(&self) -> usize {
-        self.nodes.len()
-    }
-
-    /// Whether or not it is empty
-    ///
-    /// Graph-query API surface: covered by unit tests below, no production
-    /// caller yet.
-    #[allow(dead_code)]
-    pub fn is_empty(&self) -> bool {
-        self.nodes.is_empty()
-    }
 }
 
 impl Default for CheckpointDag {
@@ -304,13 +154,6 @@ mod tests {
         ContentId::from_content(data)
     }
 
-    /// helper function: simulate getting parents from Checkpoint
-    fn make_get_parents(
-        checkpoints: &HashMap<CheckpointId, Vec<CheckpointId>>,
-    ) -> impl Fn(&CheckpointId) -> Vec<CheckpointId> + '_ {
-        move |id| checkpoints.get(id).cloned().unwrap_or_default()
-    }
-
     #[test]
     fn test_dag_add_node_and_edge() {
         let mut dag = CheckpointDag::new();
@@ -319,65 +162,10 @@ mod tests {
 
         dag.add_node(a);
         dag.add_node(b);
-        assert_eq!(dag.len(), 2);
+        assert_eq!(dag.all_nodes().len(), 2);
 
         dag.add_edge(a, b);
         assert_eq!(dag.get_children(&a), vec![b]);
-    }
-
-    #[test]
-    fn test_dag_is_ancestor() {
-        let mut dag = CheckpointDag::new();
-        let a = cid(b"a");
-        let b = cid(b"b");
-        let c = cid(b"c");
-
-        dag.add_edge(a, b);
-        dag.add_edge(b, c);
-
-        assert!(dag.is_ancestor(&a, &c));
-        assert!(dag.is_ancestor(&a, &b));
-        assert!(!dag.is_ancestor(&c, &a));
-    }
-
-    #[test]
-    fn test_dag_ancestors() {
-        let mut dag = CheckpointDag::new();
-        let a = cid(b"a");
-        let b = cid(b"b");
-        let c = cid(b"c");
-
-        dag.add_edge(a, b);
-        dag.add_edge(b, c);
-
-        let mut parents = HashMap::new();
-        parents.insert(b, vec![a]);
-        parents.insert(c, vec![b]);
-        let get_p = make_get_parents(&parents);
-
-        // Ancestors of c: a, b
-        let ancestors = dag.ancestors(&c, &get_p);
-        assert!(ancestors.contains(&a));
-        assert!(ancestors.contains(&b));
-    }
-
-    #[test]
-    fn test_dag_merge_base() {
-        let mut dag = CheckpointDag::new();
-        let a = cid(b"root");
-        let b = cid(b"branch1");
-        let c = cid(b"branch2");
-
-        dag.add_edge(a, b);
-        dag.add_edge(a, c);
-
-        let mut parents: HashMap<CheckpointId, Vec<CheckpointId>> = HashMap::new();
-        parents.insert(b, vec![a]);
-        parents.insert(c, vec![a]);
-        let get_p = make_get_parents(&parents);
-
-        let base = dag.merge_base(&b, &c, &get_p);
-        assert_eq!(base, Some(a));
     }
 
     #[test]
@@ -403,7 +191,7 @@ mod tests {
 
         let result = dag.add_edge(a, a);
         assert!(!result, "self-cycle should be prevented");
-        assert_eq!(dag.len(), 1);
+        assert_eq!(dag.all_nodes().len(), 1);
         assert_eq!(dag.get_children(&a).len(), 0);
     }
 
@@ -438,55 +226,5 @@ mod tests {
         let result = dag.add_edge(d, a);
         assert!(!result, "cycle in complex graph should be prevented");
         assert_eq!(dag.get_children(&d).len(), 0);
-    }
-
-    #[test]
-    fn test_ancestors_with_multiple_parents() {
-        let mut dag = CheckpointDag::new();
-        let a = cid(b"root");
-        let b = cid(b"branch1");
-        let c = cid(b"branch2");
-        let d = cid(b"merge");
-
-        dag.add_edge(a, b);
-        dag.add_edge(a, c);
-        dag.add_edge(b, d);
-        dag.add_edge(c, d);
-
-        let mut parents: HashMap<CheckpointId, Vec<CheckpointId>> = HashMap::new();
-        parents.insert(b, vec![a]);
-        parents.insert(c, vec![a]);
-        parents.insert(d, vec![b, c]);
-        let get_p = make_get_parents(&parents);
-
-        let ancestors = dag.ancestors(&d, &get_p);
-        assert!(ancestors.contains(&a));
-        assert!(ancestors.contains(&b));
-        assert!(ancestors.contains(&c));
-    }
-
-    #[test]
-    fn test_merge_base_returns_first_common_ancestor() {
-        let mut dag = CheckpointDag::new();
-        let a = cid(b"root");
-        let b = cid(b"branch1");
-        let c = cid(b"branch2");
-        let d = cid(b"branch1-child");
-        let e = cid(b"branch2-child");
-
-        dag.add_edge(a, b);
-        dag.add_edge(a, c);
-        dag.add_edge(b, d);
-        dag.add_edge(c, e);
-
-        let mut parents: HashMap<CheckpointId, Vec<CheckpointId>> = HashMap::new();
-        parents.insert(b, vec![a]);
-        parents.insert(c, vec![a]);
-        parents.insert(d, vec![b]);
-        parents.insert(e, vec![c]);
-        let get_p = make_get_parents(&parents);
-
-        let base = dag.merge_base(&d, &e, &get_p);
-        assert_eq!(base, Some(a));
     }
 }

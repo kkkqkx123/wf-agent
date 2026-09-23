@@ -57,7 +57,7 @@ pub async fn delete_draft(ctx: &ApiContext, id: &str) -> ApiResult<bool> {
 /// Complete validation preview for publish, no persistence.
 pub async fn validate_draft_complete(ctx: &ApiContext, id: &str) -> ApiResult<Vec<String>> {
     let draft = get_draft(ctx, id).await?;
-    crate::agent::agent::validate_agent_definition(ctx, &draft).map_err(|e| match e {
+    crate::agent::validate_agent_definition(ctx, &draft).map_err(|e| match e {
         ApiError::Validation(detail) => ApiError::Validation(format!(
             "draft agent '{}' cannot be promoted: {}",
             id, detail
@@ -69,7 +69,7 @@ pub async fn validate_draft_complete(ctx: &ApiContext, id: &str) -> ApiResult<Ve
 /// Promote a draft agent to formal template registry.
 pub async fn promote_draft(ctx: &ApiContext, id: &str) -> ApiResult<Vec<String>> {
     let draft = get_draft(ctx, id).await?;
-    let warnings = crate::agent::agent::save_agent_template(ctx, &draft).await?;
+    let warnings = crate::agent::save_agent_template(ctx, &draft).await?;
     let _ = delete_draft(ctx, id).await;
     Ok(warnings)
 }

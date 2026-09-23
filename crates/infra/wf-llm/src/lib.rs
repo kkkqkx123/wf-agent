@@ -27,6 +27,8 @@ pub mod dead_loop_detector;
 pub mod partial_json_parser;
 // Test doubles (feature-gated).
 #[cfg(feature = "mock")]
+pub mod http_mock;
+#[cfg(feature = "mock")]
 pub mod mock;
 
 pub use client::LlmClient;

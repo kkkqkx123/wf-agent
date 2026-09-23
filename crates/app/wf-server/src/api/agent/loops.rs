@@ -114,7 +114,7 @@ pub(crate) async fn handle_list_loops(
         limit: Some(fetch_size(limit)),
         status_filter: query.status,
     };
-    match wf_api::agent::agent::list_agent_loops(&state.ctx.storage, Some(options)).await {
+    match wf_api::agent::list_agent_loops(&state.ctx.storage, Some(options)).await {
         Ok(loops) => ok_page(loops, limit, offset).into_response(),
         Err(e) => error_response(e),
     }
@@ -137,7 +137,7 @@ pub(crate) async fn handle_save_loop(
     State(state): State<ApiState>,
     Json(loop_def): Json<wf_api::AgentLoopStorageMetadata>,
 ) -> impl IntoResponse {
-    match wf_api::agent::agent::save_agent_loop(&state.ctx.storage, &loop_def).await {
+    match wf_api::agent::save_agent_loop(&state.ctx.storage, &loop_def).await {
         Ok(()) => ok(loop_def.id.to_string()).into_response(),
         Err(e) => error_response(e),
     }
@@ -159,7 +159,7 @@ pub(crate) async fn handle_get_loop(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
-    match wf_api::agent::agent::get_agent_loop(&state.ctx.storage, &path.id).await {
+    match wf_api::agent::get_agent_loop(&state.ctx.storage, &path.id).await {
         Ok(loop_def) => ok(loop_def).into_response(),
         Err(e) => error_response(e),
     }
@@ -185,7 +185,7 @@ pub(crate) async fn handle_update_loop(
     Json(mut loop_def): Json<wf_api::AgentLoopStorageMetadata>,
 ) -> impl IntoResponse {
     loop_def.id = wf_api::Id::from(path.id.clone());
-    match wf_api::agent::agent::save_agent_loop(&state.ctx.storage, &loop_def).await {
+    match wf_api::agent::save_agent_loop(&state.ctx.storage, &loop_def).await {
         Ok(()) => ok(path.id).into_response(),
         Err(e) => error_response(e),
     }
@@ -207,7 +207,7 @@ pub(crate) async fn handle_delete_loop(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
-    match wf_api::agent::agent::delete_agent_loop(&state.ctx.storage, &path.id).await {
+    match wf_api::agent::delete_agent_loop(&state.ctx.storage, &path.id).await {
         Ok(deleted) => ok(deleted).into_response(),
         Err(e) => error_response(e),
     }
@@ -238,8 +238,7 @@ pub(crate) async fn handle_update_loop_status(
     Path(path): Path<IdPath>,
     Json(body): Json<UpdateLoopStatusBody>,
 ) -> impl IntoResponse {
-    match wf_api::agent::agent::update_agent_loop_status(&state.ctx.storage, &path.id, &body.status)
-        .await
+    match wf_api::agent::update_agent_loop_status(&state.ctx.storage, &path.id, &body.status).await
     {
         Ok(()) => ok(()).into_response(),
         Err(e) => error_response(e),

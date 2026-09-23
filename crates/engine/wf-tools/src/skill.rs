@@ -780,24 +780,6 @@ fn evict_oldest(cache: &mut HashMap<String, CacheEntry>, max_size: usize) {
 
 pub type SkillResourceContent = ResourceContent;
 
-impl SkillResourceContent {
-    #[allow(dead_code)]
-    pub fn as_text(&self) -> Option<&str> {
-        match self {
-            ResourceContent::Text(t) => Some(t),
-            ResourceContent::Binary(_) => None,
-        }
-    }
-
-    #[allow(dead_code)]
-    pub fn as_binary(&self) -> Option<&[u8]> {
-        match self {
-            ResourceContent::Binary(b) => Some(b),
-            ResourceContent::Text(_) => None,
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -906,7 +888,10 @@ mod tests {
         let text = loader
             .load_skill_resource("my-skill", SkillResourceType::References, "ref1.md")
             .unwrap();
-        assert_eq!(text.as_text(), Some("# Ref one"));
+        match text {
+            ResourceContent::Text(t) => assert_eq!(t, "# Ref one"),
+            ResourceContent::Binary(_) => panic!("expected text content"),
+        }
 
         let scripts = loader.load_skill_resource("my-skill", SkillResourceType::Scripts, "run.py");
         assert!(scripts.is_ok());
@@ -914,7 +899,10 @@ mod tests {
         let binary = loader
             .load_skill_resource("my-skill", SkillResourceType::Assets, "logo.png")
             .unwrap();
-        assert_eq!(binary.as_binary(), Some(&[1u8, 2, 3, 4][..]));
+        match binary {
+            ResourceContent::Binary(b) => assert_eq!(b, vec![1u8, 2, 3, 4]),
+            ResourceContent::Text(_) => panic!("expected binary content"),
+        }
 
         assert!(loader
             .load_skill_resource("my-skill", SkillResourceType::References, "missing.md")

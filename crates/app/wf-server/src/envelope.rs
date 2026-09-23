@@ -7,57 +7,13 @@ use axum::Json;
 use serde::Serialize;
 use utoipa::ToSchema;
 
-/// Error classification used by the response envelope. Only Validation is
-/// constructed today; NotFound / Internal live here so `status` / `code`
-/// stay the single mapping table when those constructors appear.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ErrorKind {
-    NotFound,
-    Validation,
-    Internal,
-}
-
-impl ErrorKind {
-    fn status(self) -> StatusCode {
-        match self {
-            ErrorKind::NotFound => StatusCode::NOT_FOUND,
-            ErrorKind::Validation => StatusCode::BAD_REQUEST,
-            ErrorKind::Internal => StatusCode::INTERNAL_SERVER_ERROR,
-        }
-    }
-
-    fn code(self) -> &'static str {
-        match self {
-            ErrorKind::NotFound => "NOT_FOUND",
-            ErrorKind::Validation => "INVALID_PARAMS",
-            ErrorKind::Internal => "INTERNAL_ERROR",
-        }
-    }
-}
-
 pub(crate) struct ApiError {
-    kind: ErrorKind,
     message: String,
 }
 
 impl ApiError {
     pub(crate) fn validation(message: impl Into<String>) -> Self {
         Self {
-            kind: ErrorKind::Validation,
-            message: message.into(),
-        }
-    }
-
-    pub(crate) fn not_found(message: impl Into<String>) -> Self {
-        Self {
-            kind: ErrorKind::NotFound,
-            message: message.into(),
-        }
-    }
-
-    pub(crate) fn internal(message: impl Into<String>) -> Self {
-        Self {
-            kind: ErrorKind::Internal,
             message: message.into(),
         }
     }
@@ -109,8 +65,8 @@ pub(crate) fn ok<T: Serialize>(data: T) -> Json<ApiEnvelope<T>> {
 
 pub(crate) fn err(e: ApiError) -> (StatusCode, Json<ErrorResponse>) {
     (
-        e.kind.status(),
-        Json(ErrorResponse::new(e.kind.code(), e.message)),
+        StatusCode::BAD_REQUEST,
+        Json(ErrorResponse::new("INVALID_PARAMS", e.message)),
     )
 }
 

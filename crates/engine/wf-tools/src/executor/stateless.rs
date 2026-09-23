@@ -21,17 +21,9 @@ pub type StatelessAsyncHandler = Arc<
         + Sync,
 >;
 
-#[derive(Debug, Clone)]
-pub struct StatelessToolRuntime {
-    pub endpoint: Option<String>,
-    pub method: Option<String>,
-}
-
 pub struct StatelessExecutor {
     handlers: Arc<DashMap<String, StatelessHandler>>,
     async_handlers: Arc<DashMap<String, StatelessAsyncHandler>>,
-    #[allow(dead_code)]
-    runtime: Option<StatelessToolRuntime>,
 }
 
 impl StatelessExecutor {
@@ -39,7 +31,6 @@ impl StatelessExecutor {
         Self {
             handlers: Arc::new(DashMap::new()),
             async_handlers: Arc::new(DashMap::new()),
-            runtime: None,
         }
     }
 
@@ -50,56 +41,13 @@ impl StatelessExecutor {
         Self {
             handlers,
             async_handlers,
-            runtime: None,
         }
     }
 
-    pub fn with_runtime(runtime: StatelessToolRuntime) -> Self {
-        Self {
-            handlers: Arc::new(DashMap::new()),
-            async_handlers: Arc::new(DashMap::new()),
-            runtime: Some(runtime),
-        }
-    }
-
-    pub fn from_tool_config(tool: &wf_types::tool::Tool) -> Self {
-        let runtime = tool.config.as_ref().map(|config| StatelessToolRuntime {
-            endpoint: config
-                .get("endpoint")
-                .and_then(|v| v.as_str())
-                .map(String::from),
-            method: config
-                .get("method")
-                .and_then(|v| v.as_str())
-                .map(String::from),
-        });
-
-        Self {
-            handlers: Arc::new(DashMap::new()),
-            async_handlers: Arc::new(DashMap::new()),
-            runtime,
-        }
-    }
-
-    pub fn from_tool_config_shared(
-        tool: &wf_types::tool::Tool,
-        handlers: Arc<DashMap<String, StatelessHandler>>,
-    ) -> Self {
-        let runtime = tool.config.as_ref().map(|config| StatelessToolRuntime {
-            endpoint: config
-                .get("endpoint")
-                .and_then(|v| v.as_str())
-                .map(String::from),
-            method: config
-                .get("method")
-                .and_then(|v| v.as_str())
-                .map(String::from),
-        });
-
+    pub fn from_tool_config_shared(handlers: Arc<DashMap<String, StatelessHandler>>) -> Self {
         Self {
             handlers,
             async_handlers: Arc::new(DashMap::new()),
-            runtime,
         }
     }
 

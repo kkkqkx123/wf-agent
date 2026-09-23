@@ -1,5 +1,4 @@
-//! Scope/session sampling logic migrated out of
-//! `wf-agent::checkpoint_observer::AgentCheckpointObserver`.
+//! Scope/session sampling logic for per-execution before/after snapshots.
 //!
 //! Originally the observer trait impl did two jobs: translate
 //! `PreciseFileChange` → `PreciseFileEvent` for `apply_precise_file_events`,

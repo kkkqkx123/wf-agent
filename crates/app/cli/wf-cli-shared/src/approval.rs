@@ -7,7 +7,7 @@
 use std::sync::Arc;
 
 use wf_api::infra::context::ApiContext;
-use wf_api::llm::llm::generate as llm_generate;
+use wf_api::llm::generate as llm_generate;
 use wf_api::{ToolApprovalHandler, ToolApprovalRequest, ToolApprovalResult};
 use wf_types::llm::LlmRequest;
 use wf_types::message::Message;

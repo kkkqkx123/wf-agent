@@ -3,6 +3,7 @@
 //! Defines the [`RemoteExecutor`] trait plus connection/status/result types
 //! for generic remote tool backends.
 
+use async_trait::async_trait;
 use serde_json::Value;
 
 use crate::error::ToolResult;
@@ -95,7 +96,7 @@ pub struct RemoteErrorInfo {
 /// A stateful connection to a remote service. Implementations are expected
 /// to use interior mutability so methods take `&self` and the executor can be
 /// shared (e.g. via `Arc`) across concurrent tool executions.
-#[allow(async_fn_in_trait)]
+#[async_trait]
 pub trait RemoteExecutor: Send + Sync {
     async fn connect(&self, config: &RemoteConnectionConfig) -> ToolResult<()>;
     async fn disconnect(&self) -> ToolResult<()>;

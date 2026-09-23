@@ -123,13 +123,14 @@ async fn rendered_empty_command_rejected_without_transport() {
     };
     // Blank template is not a valid shape, so the engine fails before transport.
     let result = ScriptEngine
-        .execute(&script, None, &ScriptEngineOptions::default(), |_, _| {
-            let out: futures::future::Ready<ScriptExecutionResult> =
-                futures::future::ready(panic!(
-                    "transport must not run for blank template"
-                ));
-            out
-        })
+        .execute(
+            &script,
+            None,
+            &ScriptEngineOptions::default(),
+            |_, _| async move {
+                panic!("transport must not run for blank template");
+            },
+        )
         .await;
     assert!(!result.success);
 }

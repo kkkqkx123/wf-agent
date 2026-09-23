@@ -1315,7 +1315,7 @@ fn extract_error_reason(result_text: &str) -> Option<String> {
         serde_json::Value::String(s) => Some(s.clone()),
         serde_json::Value::Object(obj) => match obj.get("message") {
             Some(serde_json::Value::String(s)) => Some(s.clone()),
-            _ => Some(obj.to_string()),
+            _ => serde_json::to_string(obj).ok(),
         },
         other => Some(other.to_string()),
     }

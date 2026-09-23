@@ -92,7 +92,7 @@ pub(crate) async fn handle_list_profiles(
         name_filter: query.name,
         is_default: query.is_default,
     };
-    match wf_api::agent::agent::list_agent_profiles(&state.ctx.storage, Some(options)).await {
+    match wf_api::agent::list_agent_profiles(&state.ctx.storage, Some(options)).await {
         Ok(profiles) => ok_page(profiles, limit, offset).into_response(),
         Err(e) => error_response(e),
     }
@@ -115,7 +115,7 @@ pub(crate) async fn handle_save_profile(
     State(state): State<ApiState>,
     Json(profile): Json<wf_api::AgentProfileStorageMetadata>,
 ) -> impl IntoResponse {
-    match wf_api::agent::agent::save_agent_profile(&state.ctx.storage, &profile).await {
+    match wf_api::agent::save_agent_profile(&state.ctx.storage, &profile).await {
         Ok(()) => ok(profile.id.to_string()).into_response(),
         Err(e) => error_response(e),
     }
@@ -137,7 +137,7 @@ pub(crate) async fn handle_get_profile(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
-    match wf_api::agent::agent::get_agent_profile(&state.ctx.storage, &path.id).await {
+    match wf_api::agent::get_agent_profile(&state.ctx.storage, &path.id).await {
         Ok(profile) => ok(profile).into_response(),
         Err(e) => error_response(e),
     }
@@ -163,7 +163,7 @@ pub(crate) async fn handle_update_profile(
     Json(mut profile): Json<wf_api::AgentProfileStorageMetadata>,
 ) -> impl IntoResponse {
     profile.id = wf_api::Id::from(path.id.clone());
-    match wf_api::agent::agent::save_agent_profile(&state.ctx.storage, &profile).await {
+    match wf_api::agent::save_agent_profile(&state.ctx.storage, &profile).await {
         Ok(()) => ok(path.id).into_response(),
         Err(e) => error_response(e),
     }
@@ -185,7 +185,7 @@ pub(crate) async fn handle_delete_profile(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
-    match wf_api::agent::agent::delete_agent_profile(&state.ctx.storage, &path.id).await {
+    match wf_api::agent::delete_agent_profile(&state.ctx.storage, &path.id).await {
         Ok(deleted) => ok(deleted).into_response(),
         Err(e) => error_response(e),
     }

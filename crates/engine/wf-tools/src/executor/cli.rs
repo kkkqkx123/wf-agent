@@ -73,7 +73,7 @@ struct PipeOutput {
     total_bytes: u64,
 }
 
-#[allow(async_fn_in_trait)]
+#[async_trait]
 pub trait CliExecutor: Send + Sync {
     fn config(&self) -> &ExecutorConfig;
     fn binary_path(&self) -> &Option<String>;
@@ -420,8 +420,6 @@ pub struct CliToolExecutor {
     args_template: Vec<String>,
     timeout_ms: Option<u64>,
     max_lines: Option<usize>,
-    #[allow(dead_code)]
-    env: Option<Vec<(String, String)>>,
 }
 
 impl CliToolExecutor {
@@ -431,7 +429,6 @@ impl CliToolExecutor {
             args_template,
             timeout_ms: None,
             max_lines: None,
-            env: None,
         }
     }
 
@@ -442,11 +439,6 @@ impl CliToolExecutor {
 
     pub fn with_max_lines(mut self, max_lines: usize) -> Self {
         self.max_lines = Some(max_lines);
-        self
-    }
-
-    pub fn with_env(mut self, env: Vec<(String, String)>) -> Self {
-        self.env = Some(env);
         self
     }
 }
@@ -605,6 +597,7 @@ impl Default for RipgrepExecutor {
     }
 }
 
+#[async_trait]
 impl CliExecutor for RipgrepExecutor {
     fn config(&self) -> &ExecutorConfig {
         &self.config

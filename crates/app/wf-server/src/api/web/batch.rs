@@ -143,7 +143,7 @@ pub(crate) async fn handle_batch_delete_loops(
     }
     let mut results = Vec::with_capacity(body.ids.len());
     for id in &body.ids {
-        match wf_api::agent::agent::delete_agent_loop(&state.ctx.storage, id).await {
+        match wf_api::agent::delete_agent_loop(&state.ctx.storage, id).await {
             Ok(_) => results.push(BatchItemResult {
                 id: id.clone(),
                 ok: true,

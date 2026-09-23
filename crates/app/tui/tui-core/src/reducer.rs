@@ -414,6 +414,7 @@ mod tests {
             tool_name: name.to_string(),
             success: ok,
             result: String::new(),
+            error: None,
         }
     }
 

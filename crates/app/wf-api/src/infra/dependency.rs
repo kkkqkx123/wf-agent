@@ -387,7 +387,7 @@ pub async fn check_update_impact(
         if entry.node_id == "(agent-template)" {
             let agent_id = entry.workflow_id.trim_start_matches("agent:");
             let level = if let Some(template) = ctx.registries.agent_templates.get(agent_id) {
-                match crate::agent::agent::validate_agent_definition(ctx, &template.definition) {
+                match crate::agent::validate_agent_definition(ctx, &template.definition) {
                     Ok(warnings) if warnings.is_empty() => ImpactLevel::Pass,
                     Ok(warnings) => {
                         let _ = warnings;

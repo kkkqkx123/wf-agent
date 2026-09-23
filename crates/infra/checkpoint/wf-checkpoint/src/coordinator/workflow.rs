@@ -10,7 +10,9 @@ use checkpoint_base::delta::GenericDeltaRestorer;
 use checkpoint_base::delta::WorkflowDiffCalculator;
 use checkpoint_base::error::CheckpointError;
 use checkpoint_base::metadata::builder::{
-    build_checkpoint_metadata, trigger_description, trigger_tag, CHAIN_POSITION_FIELD,
+    build_checkpoint_metadata, fingerprint_entries, fingerprint_option, trigger_description,
+    trigger_tag, CHAIN_POSITION_FIELD, WF_CURRENT_NODE_FIELD, WF_NODE_RESULTS_HASH_FIELD,
+    WF_RECORD_COUNT_FIELD, WF_STATUS_FIELD, WF_TRIGGER_STATES_HASH_FIELD, WF_VARIABLES_HASH_FIELD,
 };
 use checkpoint_base::serializer::CheckpointSerializer;
 use checkpoint_base::strategy::CheckpointStrategy;
@@ -30,7 +32,7 @@ use checkpoint_state::restore::registry::RestoreStrategyRegistry;
 use checkpoint_state::state::CheckpointStateManager;
 use checkpoint_state::state::WorkflowCheckpoint;
 use checkpoint_state::state::WorkflowCheckpointStateManager;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::Arc;
 use wf_common::gate::ConcurrencyGate;
 use wf_types::checkpoint::workflow::WorkflowCheckpointDelta;
@@ -43,6 +45,123 @@ use wf_types::checkpoint::DeltaStorageConfig;
 use wf_types::checkpoint::UnifiedCheckpointPolicy;
 use wf_types::execution::ExecutionStatus;
 use wf_types::storage::CheckpointStorageMetadata;
+
+/// Progress coordinates of a workflow checkpoint: execution status, resume
+/// pointer, content hashes of node results and variables, the audit record
+/// count and the trigger-state hash — read from metadata without loading
+/// blobs. Equal coordinates mean no side effect landed since the recorded
+/// checkpoint. Rows predating the coordinate fields read as `None` and never
+/// compare equal to a fresh build, so dedup over old history is fail-open.
+///
+/// The resume pointer (`current_node_id`) is deliberately included: the row
+/// after node A and the row before node B differ only in it, and their
+/// restore paths differ (completed-node skip with successor re-derivation
+/// versus direct continuation), so they are not duplicates.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WorkflowProgressCoords {
+    pub status: Option<String>,
+    pub current_node: Option<String>,
+    pub node_results_hash: Option<String>,
+    pub variables_hash: Option<String>,
+    pub record_count: Option<u64>,
+    pub trigger_states_hash: Option<String>,
+}
+
+impl WorkflowProgressCoords {
+    /// Render coordinates as stored custom fields (`None` as JSON null,
+    /// mirroring what `build` injects) for the shared gate comparison over
+    /// [`checkpoint_base::metadata::builder::WF_PROGRESS_COORD_KEYS`].
+    pub fn as_fields(&self) -> HashMap<String, serde_json::Value> {
+        HashMap::from([
+            (WF_STATUS_FIELD.to_string(), serde_json::json!(self.status)),
+            (
+                WF_CURRENT_NODE_FIELD.to_string(),
+                serde_json::json!(self.current_node),
+            ),
+            (
+                WF_NODE_RESULTS_HASH_FIELD.to_string(),
+                serde_json::json!(self.node_results_hash),
+            ),
+            (
+                WF_VARIABLES_HASH_FIELD.to_string(),
+                serde_json::json!(self.variables_hash),
+            ),
+            (
+                WF_RECORD_COUNT_FIELD.to_string(),
+                serde_json::json!(self.record_count),
+            ),
+            (
+                WF_TRIGGER_STATES_HASH_FIELD.to_string(),
+                serde_json::json!(self.trigger_states_hash),
+            ),
+        ])
+    }
+}
+
+/// Progress coordinates from stored checkpoint metadata.
+pub fn workflow_progress_coords(meta: &CheckpointStorageMetadata) -> WorkflowProgressCoords {
+    let get = |key: &str| {
+        meta.custom_fields
+            .as_ref()
+            .and_then(|fields| fields.get(key))
+    };
+    WorkflowProgressCoords {
+        status: get(WF_STATUS_FIELD)
+            .and_then(|v| v.as_str())
+            .map(String::from),
+        current_node: get(WF_CURRENT_NODE_FIELD)
+            .and_then(|v| v.as_str())
+            .map(String::from),
+        node_results_hash: get(WF_NODE_RESULTS_HASH_FIELD)
+            .and_then(|v| v.as_str())
+            .map(String::from),
+        variables_hash: get(WF_VARIABLES_HASH_FIELD)
+            .and_then(|v| v.as_str())
+            .map(String::from),
+        record_count: get(WF_RECORD_COUNT_FIELD).and_then(|v| v.as_u64()),
+        trigger_states_hash: get(WF_TRIGGER_STATES_HASH_FIELD)
+            .and_then(|v| v.as_str())
+            .map(String::from),
+    }
+}
+
+/// Hash one string-keyed value map with sorted keys so map iteration order
+/// never affects the fingerprint. Same-key value changes alter the hash, so
+/// counter-style variable overwrites still force a new row.
+fn hash_value_map(map: &HashMap<String, serde_json::Value>) -> String {
+    let entries: BTreeMap<String, Vec<u8>> = map
+        .iter()
+        .map(|(key, value)| (key.clone(), serde_json::to_vec(value).unwrap_or_default()))
+        .collect();
+    fingerprint_entries(&entries)
+}
+
+/// Progress coordinates of a not-yet-persisted snapshot. Mirrors the
+/// coordinate fields `build` injects, so a live snapshot can be compared
+/// against stored metadata before any blob is written. Computed from the
+/// pre-policy snapshot: content filtering may strip blob domains, but the
+/// coordinates describe the execution state, not the stored payload.
+pub fn snapshot_workflow_coords(
+    snapshot: &WorkflowExecutionStateSnapshot,
+) -> WorkflowProgressCoords {
+    let empty: HashMap<String, serde_json::Value> = HashMap::new();
+    WorkflowProgressCoords {
+        status: Some(snapshot.status.clone()),
+        current_node: snapshot.current_node_id.clone(),
+        node_results_hash: Some(hash_value_map(
+            snapshot.node_results.as_ref().unwrap_or(&empty),
+        )),
+        variables_hash: Some(hash_value_map(&snapshot.variable_state.variables)),
+        record_count: Some(
+            snapshot
+                .node_execution_records
+                .as_ref()
+                .map(Vec::len)
+                .unwrap_or(0) as u64,
+        ),
+        trigger_states_hash: Some(fingerprint_option(&snapshot.trigger_states)),
+    }
+}
 
 pub struct WorkflowCheckpointCoordinator {
     state_manager: WorkflowCheckpointStateManager,
@@ -225,6 +344,8 @@ impl WorkflowCheckpointCoordinator {
         }
 
         // Re-read the raw bytes so the migration can rewrite the blob.
+        // Storage bytes may be gzip-compressed; migration handlers expect
+        // plain encoded bytes, so normalize first.
         let raw = self
             .state_manager
             .load_checkpoint_data(checkpoint_id)
@@ -232,6 +353,7 @@ impl WorkflowCheckpointCoordinator {
             .ok_or_else(|| CheckpointError::NotFound {
                 id: checkpoint_id.to_string(),
             })?;
+        let raw = CheckpointSerializer::decompressed(&raw)?;
         let migrated = self.version_manager.migrate_data(&raw, version).await?;
         CheckpointSerializer::auto_deserialize(&migrated)
     }
@@ -565,6 +687,10 @@ impl CheckpointCoordinator for WorkflowCheckpointCoordinator {
         ctx: CheckpointContext,
         mut state: Self::State,
     ) -> Result<Self::Checkpoint, CheckpointError> {
+        // Progress coordinates describe the execution state, not the stored
+        // payload: compute them before the content policy may strip blob
+        // domains, so filtered checkpoints still dedup identically.
+        let coords = snapshot_workflow_coords(&state);
         // Content policy (ContentFilter) applied before any storage type
         // decision is made.
         self.apply_content_policy(&mut state);
@@ -587,6 +713,30 @@ impl CheckpointCoordinator for WorkflowCheckpointCoordinator {
         custom_fields.insert(
             CHAIN_POSITION_FIELD.to_string(),
             serde_json::json!(chain_position),
+        );
+        custom_fields.insert(
+            WF_STATUS_FIELD.to_string(),
+            serde_json::json!(coords.status),
+        );
+        custom_fields.insert(
+            WF_CURRENT_NODE_FIELD.to_string(),
+            serde_json::json!(coords.current_node),
+        );
+        custom_fields.insert(
+            WF_NODE_RESULTS_HASH_FIELD.to_string(),
+            serde_json::json!(coords.node_results_hash),
+        );
+        custom_fields.insert(
+            WF_VARIABLES_HASH_FIELD.to_string(),
+            serde_json::json!(coords.variables_hash),
+        );
+        custom_fields.insert(
+            WF_RECORD_COUNT_FIELD.to_string(),
+            serde_json::json!(coords.record_count),
+        );
+        custom_fields.insert(
+            WF_TRIGGER_STATES_HASH_FIELD.to_string(),
+            serde_json::json!(coords.trigger_states_hash),
         );
         let metadata = build_checkpoint_metadata(
             ctx.trigger.as_ref().map(trigger_description),
@@ -950,6 +1100,27 @@ impl WorkflowCheckpointCoordinator {
 
         Ok((base_id, base_snapshot))
     }
+
+    /// Merge a caller-supplied description into an existing checkpoint row
+    /// without allocating a new row. Shared implementation lives in
+    /// [`crate::coordinator::base::merge_description_back`]; the contract
+    /// (trigger label untouched, timestamp preserved, missing target falls
+    /// back to current latest) is identical for both coordinators.
+    pub async fn merge_description_back(
+        &self,
+        checkpoint_id: &str,
+        entity_id: &str,
+        description: &str,
+    ) -> Result<CheckpointStorageMetadata, CheckpointError> {
+        crate::coordinator::base::merge_description_back(
+            &self.state_manager,
+            checkpoint_id,
+            "workflow_execution",
+            entity_id,
+            description,
+        )
+        .await
+    }
 }
 
 /// Sync metadata loader over a pre-built checkpoint metadata index, used by
@@ -1157,6 +1328,126 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(tp, CheckpointType::Full);
+    }
+
+    #[tokio::test]
+    async fn progress_coords_survive_build_persist_round_trip() {
+        let coord = make_coordinator();
+        let snapshot = make_snapshot();
+        let ctx = coord
+            .prepare("exec-1", CheckpointTiming::AfterExecute)
+            .await
+            .unwrap();
+        let cp = coord.build(ctx, snapshot.clone()).await.unwrap();
+        coord.persist(&cp, "exec-1").await.unwrap();
+
+        let latest = coord
+            .state_manager()
+            .get_latest("exec-1")
+            .await
+            .unwrap()
+            .expect("persisted checkpoint listed");
+        assert_eq!(
+            workflow_progress_coords(&latest),
+            snapshot_workflow_coords(&snapshot)
+        );
+    }
+
+    #[tokio::test]
+    async fn merge_description_back_rewrites_user_text_only() {
+        let coord = make_coordinator();
+        let ctx = coord
+            .prepare("exec-1", CheckpointTiming::AfterExecute)
+            .await
+            .unwrap();
+        let cp = coord.build(ctx, make_snapshot()).await.unwrap();
+        coord.persist(&cp, "exec-1").await.unwrap();
+
+        let merged = coord
+            .merge_description_back(&cp.id, "exec-1", "second")
+            .await
+            .unwrap();
+        assert_eq!(merged.id, cp.id);
+        let description = merged
+            .custom_fields
+            .as_ref()
+            .and_then(|fields| fields.get("description"))
+            .and_then(|v| v.as_str());
+        assert_eq!(description, Some("second"));
+    }
+
+    #[tokio::test]
+    async fn merge_missing_target_returns_current_latest() {
+        let coord = make_coordinator();
+        let ctx = coord
+            .prepare("exec-1", CheckpointTiming::AfterExecute)
+            .await
+            .unwrap();
+        let first = coord.build(ctx, make_snapshot()).await.unwrap();
+        coord.persist(&first, "exec-1").await.unwrap();
+        let ctx = coord
+            .prepare("exec-1", CheckpointTiming::BeforeExecute)
+            .await
+            .unwrap();
+        let second = coord.build(ctx, make_snapshot()).await.unwrap();
+        coord.persist(&second, "exec-1").await.unwrap();
+
+        coord.state_manager().delete(&first.id).await.unwrap();
+        let merged = coord
+            .merge_description_back(&first.id, "exec-1", "late note")
+            .await
+            .unwrap();
+        assert_eq!(merged.id, second.id);
+    }
+
+    #[tokio::test]
+    async fn coords_match_full_snapshot_under_stripping_policy() {
+        let storage = Arc::new(StorageBackend::new_memory());
+        let sm = WorkflowCheckpointStateManager::new(storage);
+        let policy = wf_types::checkpoint::UnifiedCheckpointPolicy {
+            enabled: true,
+            triggers: vec![],
+            content: Some(wf_types::checkpoint::CheckpointContentConfig {
+                include_state: Some(false),
+                include_history: None,
+                include_statistics: None,
+                metadata: None,
+                asynchronous: None,
+            }),
+            retention: None,
+            error_handling: None,
+        };
+        let coord = WorkflowCheckpointCoordinator::new(sm).with_strategy(&policy);
+        let mut snapshot = make_snapshot();
+        snapshot.node_results = Some(HashMap::from([(
+            "node-1".to_string(),
+            serde_json::json!({"ok": true}),
+        )]));
+        snapshot
+            .variable_state
+            .variables
+            .insert("counter".to_string(), serde_json::json!(1));
+
+        let ctx = coord
+            .prepare("exec-1", CheckpointTiming::AfterExecute)
+            .await
+            .unwrap();
+        let cp = coord.build(ctx, snapshot.clone()).await.unwrap();
+        // The blob payload is stripped, but the coordinates still describe
+        // the pre-policy execution state.
+        assert!(cp.snapshot.as_ref().unwrap().node_results.is_none());
+        coord.persist(&cp, "exec-1").await.unwrap();
+
+        let latest = coord
+            .state_manager()
+            .get_latest("exec-1")
+            .await
+            .unwrap()
+            .expect("persisted checkpoint listed");
+        assert_eq!(
+            workflow_progress_coords(&latest),
+            snapshot_workflow_coords(&snapshot)
+        );
     }
 
     #[tokio::test]

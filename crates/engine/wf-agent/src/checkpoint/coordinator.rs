@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use wf_checkpoint::coordinator::agent::AgentCheckpointCoordinator;
-use wf_checkpoint::coordinator::agent::{progress_coords, ProgressCoords};
+use wf_checkpoint::coordinator::agent::{AgentCheckpointCoordinator, ProgressCoords};
 use wf_checkpoint::coordinator::CheckpointCoordinator;
 use wf_checkpoint::event::CheckpointEventBus;
 use wf_checkpoint::execution_events::ExecutionEventBus;
+use wf_checkpoint::metadata::builder::{custom_fields_equal, PROGRESS_COORD_KEYS};
 use wf_checkpoint::state::AgentCheckpointStateManager;
 use wf_checkpoint::state::CheckpointStateManager;
 use wf_checkpoint::CheckpointError;
@@ -199,7 +199,7 @@ impl AgentCheckpointIntegration {
         entity: &AgentLoopEntity,
         trigger: CheckpointTiming,
         description: Option<String>,
-    ) -> Result<(), CheckpointError> {
+    ) -> Result<String, CheckpointError> {
         // Progress gate: equal coordinates mean the loop produced no side
         // effect since the latest checkpoint, so merge back into it instead
         // of persisting a duplicate row. Checked before the snapshot build
@@ -211,7 +211,12 @@ impl AgentCheckpointIntegration {
             .get_latest(entity.id().as_str())
             .await
         {
-            if progress_coords(&latest) == Self::entity_progress_coords(entity).await {
+            let current = Self::entity_progress_coords(entity).await;
+            if custom_fields_equal(
+                &latest.custom_fields,
+                &current.as_fields(),
+                PROGRESS_COORD_KEYS,
+            ) {
                 if let Some(ref text) = description {
                     let current = latest
                         .custom_fields
@@ -219,10 +224,19 @@ impl AgentCheckpointIntegration {
                         .and_then(|fields| fields.get("description"))
                         .and_then(|v| v.as_str());
                     if current != Some(text.as_str()) {
-                        let _ = self
+                        if let Ok(merged) = self
                             .inner
                             .merge_description_back(&latest.id, entity.id().as_str(), text)
-                            .await;
+                            .await
+                        {
+                            tracing::debug!(
+                                entity_id = %entity.id(),
+                                checkpoint_id = %merged.id,
+                                trigger = ?trigger,
+                                "duplicate checkpoint merged back into latest, no new row persisted"
+                            );
+                            return Ok(merged.id);
+                        }
                     }
                 }
                 tracing::debug!(
@@ -231,7 +245,7 @@ impl AgentCheckpointIntegration {
                     trigger = ?trigger,
                     "duplicate checkpoint merged back into latest, no new row persisted"
                 );
-                return Ok(());
+                return Ok(latest.id);
             }
         }
         let snapshot = self.build_snapshot(entity).await;
@@ -281,7 +295,7 @@ impl AgentCheckpointIntegration {
             ));
         }
 
-        Ok(())
+        Ok(checkpoint.id)
     }
 
     /// Create a pause checkpoint. Only fires while the entity state is
@@ -493,12 +507,13 @@ impl AgentCheckpointIntegration {
     /// metadata is exact. Lock guards are dropped before returning; the
     /// caller performs storage reads afterwards.
     async fn entity_progress_coords(entity: &AgentLoopEntity) -> ProgressCoords {
-        let (iteration, tool_call_count, loop_status) = {
+        let (iteration, tool_call_count, loop_status, pending_count) = {
             let state = entity.state.read().await;
             (
                 state.current_iteration(),
                 state.tool_call_count(),
                 format!("{:?}", state.status()),
+                state.pending_tool_calls().len() as u64,
             )
         };
         let (seq_start, seq_end, seq_next) = {
@@ -516,6 +531,7 @@ impl AgentCheckpointIntegration {
             iteration: Some(iteration as u64),
             tool_call_count: Some(tool_call_count as u64),
             loop_status: Some(loop_status),
+            pending_count: Some(pending_count),
         }
     }
 
@@ -671,5 +687,88 @@ fn parse_runtime_status(status: &str) -> ExecutionStatus {
         "created" => ExecutionStatus::Created,
         "paused" => ExecutionStatus::Paused,
         _ => ExecutionStatus::Running,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use wf_types::checkpoint::CheckpointTiming;
+    use wf_types::Id;
+
+    fn make_integration() -> AgentCheckpointIntegration {
+        AgentCheckpointIntegration::new(Arc::new(StorageBackend::new_memory()))
+    }
+
+    fn make_entity(id: &str) -> AgentLoopEntity {
+        AgentLoopEntity::new(Id::from(id.to_string()))
+    }
+
+    #[tokio::test]
+    async fn repeat_no_progress_merges_into_single_row() {
+        let integration = make_integration();
+        let entity = make_entity("loop-dedup-live");
+        let first = integration
+            .create_checkpoint(&entity, CheckpointTiming::Manual, None)
+            .await
+            .unwrap();
+        let second = integration
+            .create_checkpoint(&entity, CheckpointTiming::Manual, None)
+            .await
+            .unwrap();
+        assert_eq!(first, second);
+        let count = integration
+            .inner
+            .state_manager()
+            .count_by_entity("loop-dedup-live")
+            .await
+            .unwrap();
+        assert_eq!(count, 1);
+    }
+
+    #[tokio::test]
+    async fn pending_count_change_forces_new_row() {
+        let integration = make_integration();
+        let entity = make_entity("loop-pending");
+        let first = integration
+            .create_checkpoint(&entity, CheckpointTiming::Manual, None)
+            .await
+            .unwrap();
+        entity.state.write().await.begin_tool_call("call-in-flight");
+        let second = integration
+            .create_checkpoint(&entity, CheckpointTiming::Manual, None)
+            .await
+            .unwrap();
+        assert_ne!(first, second);
+        let third = integration
+            .create_checkpoint(&entity, CheckpointTiming::Manual, None)
+            .await
+            .unwrap();
+        assert_eq!(second, third);
+        let count = integration
+            .inner
+            .state_manager()
+            .count_by_entity("loop-pending")
+            .await
+            .unwrap();
+        assert_eq!(count, 2);
+    }
+
+    #[tokio::test]
+    async fn live_create_returns_new_id_by_value() {
+        let integration = make_integration();
+        let entity = make_entity("loop-return-id");
+        let first = integration
+            .create_checkpoint(&entity, CheckpointTiming::Manual, Some("note".to_string()))
+            .await
+            .unwrap();
+        let meta = integration
+            .inner
+            .state_manager()
+            .load_metadata(&first)
+            .await
+            .unwrap()
+            .expect("created checkpoint readable by id");
+        assert_eq!(meta.id, first);
     }
 }

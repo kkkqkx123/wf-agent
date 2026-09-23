@@ -1,10 +1,13 @@
 use checkpoint_base::error::CheckpointError;
 use checkpoint_base::strategy::CheckpointStrategy;
 use checkpoint_file::event::CheckpointEventBus;
+use checkpoint_state::state::CheckpointStateManager;
+use std::collections::HashMap;
 use wf_types::checkpoint::{
-    CheckpointContext, CheckpointTiming, CheckpointType, DeltaStorageConfig,
+    BaseCheckpointCore, CheckpointContext, CheckpointTiming, CheckpointType, DeltaStorageConfig,
 };
 use wf_types::execution::ExecutionStatus;
+use wf_types::storage::CheckpointStorageMetadata;
 
 /// Shared storage-type decision: aggregate COUNT query semantics live in the
 /// caller, this helper only maps count to Full/Delta.
@@ -61,6 +64,87 @@ pub fn publish_persist_failed(
             format!("persist failed: {}", err),
             Some(entity_id.to_string()),
         ));
+    }
+}
+
+/// Read-modify-write description merge shared by the agent-loop and
+/// workflow coordinators: rewrites the caller-supplied text under
+/// `customFields.description` on the stored blob without allocating a new
+/// row. The trigger label (`metadata.description`) and every other field are
+/// untouched, and the blob timestamp is preserved so chain order never
+/// shifts. When cleanup removed the target between the gate read and this
+/// write, the merge is skipped and the current latest row is returned so the
+/// caller never sees a noisy not-found for a lossless race.
+pub async fn merge_description_back<M>(
+    manager: &M,
+    checkpoint_id: &str,
+    entity_type: &str,
+    entity_id: &str,
+    description: &str,
+) -> Result<CheckpointStorageMetadata, CheckpointError>
+where
+    M: CheckpointStateManager,
+    M::Checkpoint: CheckpointBlob,
+{
+    let Some(mut checkpoint) = manager.load(checkpoint_id).await? else {
+        tracing::warn!(
+            checkpoint_id = %checkpoint_id,
+            entity_id = %entity_id,
+            "merge target already cleaned up; returning current latest"
+        );
+        return manager
+            .get_latest(entity_id)
+            .await?
+            .ok_or_else(|| CheckpointError::NotFound {
+                id: checkpoint_id.to_string(),
+            });
+    };
+    let metadata = checkpoint.blob_metadata_mut().get_or_insert_default();
+    match metadata
+        .get_mut("customFields")
+        .and_then(|v| v.as_object_mut())
+    {
+        Some(custom) => {
+            custom.insert("description".to_string(), serde_json::json!(description));
+        }
+        None => {
+            metadata.insert(
+                "customFields".to_string(),
+                serde_json::json!({ "description": description }),
+            );
+        }
+    }
+    manager.save(&checkpoint, entity_type, entity_id).await?;
+    if let Some(meta) = manager.load_metadata(checkpoint_id).await? {
+        return Ok(meta);
+    }
+    tracing::warn!(
+        checkpoint_id = %checkpoint_id,
+        entity_id = %entity_id,
+        "merged row cleaned up before re-read; returning current latest"
+    );
+    manager
+        .get_latest(entity_id)
+        .await?
+        .ok_or_else(|| CheckpointError::NotFound {
+            id: checkpoint_id.to_string(),
+        })
+}
+
+/// Blob surface the shared description merge needs: mutable metadata map.
+/// Both checkpoint types share the same core shape, so one blanket
+/// implementation covers them.
+pub trait CheckpointBlob: Send + Sync {
+    fn blob_metadata_mut(&mut self) -> &mut Option<HashMap<String, serde_json::Value>>;
+}
+
+impl<TDelta, TSnapshot> CheckpointBlob for BaseCheckpointCore<TDelta, TSnapshot>
+where
+    TDelta: Send + Sync,
+    TSnapshot: Send + Sync,
+{
+    fn blob_metadata_mut(&mut self) -> &mut Option<HashMap<String, serde_json::Value>> {
+        &mut self.metadata
     }
 }
 

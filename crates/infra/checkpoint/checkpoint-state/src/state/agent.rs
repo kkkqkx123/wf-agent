@@ -67,6 +67,13 @@ impl CheckpointStateManager for AgentCheckpointStateManager {
         self.inner.get_latest(entity_id).await
     }
 
+    async fn load_metadata(
+        &self,
+        id: &str,
+    ) -> Result<Option<CheckpointStorageMetadata>, CheckpointError> {
+        CheckpointLoader::load_metadata(&self.inner, id).await
+    }
+
     async fn count_by_entity(&self, entity_id: &str) -> Result<u64, CheckpointError> {
         self.inner.count_by_entity(entity_id).await
     }
@@ -101,7 +108,7 @@ impl CheckpointLoader for AgentCheckpointStateManager {
         &self,
         id: &str,
     ) -> Result<Option<CheckpointStorageMetadata>, CheckpointError> {
-        self.inner.load_metadata(id).await
+        CheckpointLoader::load_metadata(&self.inner, id).await
     }
 }
 

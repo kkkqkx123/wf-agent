@@ -94,6 +94,14 @@ impl CheckpointSerializer {
     pub fn is_compressed(data: &[u8]) -> bool {
         data.len() >= 2 && data[0] == GZIP_MAGIC[0] && data[1] == GZIP_MAGIC[1]
     }
+
+    /// Decompress gzip payloads by magic-byte probe, pass other bytes
+    /// through unchanged. Migration handlers expect plain encoded bytes, so
+    /// the migrate-then-deserialize path must normalize here first instead
+    /// of feeding possibly-compressed storage bytes to JSON migrations.
+    pub fn decompressed(data: &[u8]) -> Result<Vec<u8>, CheckpointError> {
+        decompress_if_gzip(data)
+    }
 }
 
 fn compress_gzip(data: &[u8]) -> Result<Vec<u8>, CheckpointError> {

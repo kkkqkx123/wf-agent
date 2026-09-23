@@ -33,6 +33,15 @@ pub trait CheckpointStateManager: Send + Sync {
     ) -> impl std::future::Future<Output = Result<Option<CheckpointStorageMetadata>, CheckpointError>>
            + Send;
 
+    /// Metadata-only read of one checkpoint by id, without loading the blob.
+    /// Promoted from the per-manager loaders so shared coordinator helpers
+    /// (description merge-back, progress gates) work over the trait.
+    fn load_metadata(
+        &self,
+        id: &str,
+    ) -> impl std::future::Future<Output = Result<Option<CheckpointStorageMetadata>, CheckpointError>>
+           + Send;
+
     /// Number of checkpoints persisted for an entity. Storage-backed
     /// managers implement this with an aggregate query; the default counts
     /// the full listing (metadata only, no payload reads).

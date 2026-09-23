@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::collections::HashMap;
 use wf_types::checkpoint::base::{CheckpointMetadata, CheckpointStateBase};
 use wf_types::checkpoint::CheckpointTiming;
@@ -22,6 +23,102 @@ pub const MSG_SEQ_NEXT_FIELD: &str = "msgNextSeq";
 pub const ITERATION_FIELD: &str = "iteration";
 pub const TOOL_CALL_COUNT_FIELD: &str = "toolCallCount";
 pub const LOOP_STATUS_FIELD: &str = "loopStatus";
+
+/// In-flight tool call count recorded on every agent checkpoint. Committed
+/// progress alone cannot see a tool flight window, so a checkpoint landing
+/// there with no other change would be skipped and the latest row would miss
+/// the in-flight record. The count is a single number, never identifiers;
+/// stream buffers stay excluded as pure transients.
+pub const PENDING_COUNT_FIELD: &str = "pendingToolCallCount";
+
+/// Workflow progress coordinate fields recorded on every workflow
+/// checkpoint. Equal coordinates mean the execution produced no side effect
+/// since the recorded checkpoint, so a repeat creation can merge back into
+/// it instead of persisting a duplicate row. Scalar signals stay readable;
+/// map-valued domains are stored as stable hashes (hex FNV-1a over sorted
+/// key/bytes entries) so same-key value changes still force a new row
+/// without duplicating blob contents into metadata.
+pub const WF_STATUS_FIELD: &str = "workflowStatus";
+pub const WF_CURRENT_NODE_FIELD: &str = "workflowCurrentNode";
+pub const WF_NODE_RESULTS_HASH_FIELD: &str = "workflowNodeResultsHash";
+pub const WF_VARIABLES_HASH_FIELD: &str = "workflowVariablesHash";
+pub const WF_RECORD_COUNT_FIELD: &str = "workflowNodeRecordCount";
+pub const WF_TRIGGER_STATES_HASH_FIELD: &str = "workflowTriggerStatesHash";
+
+/// Deterministic 64-bit FNV-1a over the bytes, hex-encoded. Unlike the
+/// default hasher this is stable across processes, so metadata written by
+/// one process compares equal when read by another.
+fn stable_hash_hex(bytes: &[u8]) -> String {
+    const OFFSET: u64 = 0xcbf29ce484222325;
+    const PRIME: u64 = 0x100000001b3;
+    let mut hash = OFFSET;
+    for byte in bytes {
+        hash ^= *byte as u64;
+        hash = hash.wrapping_mul(PRIME);
+    }
+    format!("{hash:016x}")
+}
+
+/// Fingerprint a string map: keys are already sorted (`BTreeMap`), each
+/// entry is length-prefixed so key/value boundary shifts cannot collide.
+pub fn fingerprint_entries(entries: &BTreeMap<String, Vec<u8>>) -> String {
+    let mut hash_bytes = Vec::new();
+    for (key, value) in entries {
+        hash_bytes.extend_from_slice(&(key.len() as u64).to_le_bytes());
+        hash_bytes.extend_from_slice(key.as_bytes());
+        hash_bytes.extend_from_slice(&(value.len() as u64).to_le_bytes());
+        hash_bytes.extend_from_slice(value);
+    }
+    stable_hash_hex(&hash_bytes)
+}
+
+/// Fingerprint one JSON value by its canonical bytes. `None` serializes as
+/// `null`, so an absent domain still yields a stable (non-missing) hash —
+/// callers keep the Option layer to distinguish pre-coordinate rows.
+pub fn fingerprint_option(value: &Option<serde_json::Value>) -> String {
+    let bytes = serde_json::to_vec(value).unwrap_or_default();
+    stable_hash_hex(&bytes)
+}
+
+/// Custom-field keys forming the agent progress coordinates, in one list so
+/// the shared gate compares exactly the injected set.
+pub const PROGRESS_COORD_KEYS: &[&str] = &[
+    MSG_SEQ_START_FIELD,
+    MSG_SEQ_END_FIELD,
+    MSG_SEQ_NEXT_FIELD,
+    ITERATION_FIELD,
+    TOOL_CALL_COUNT_FIELD,
+    LOOP_STATUS_FIELD,
+    PENDING_COUNT_FIELD,
+];
+
+/// Custom-field keys forming the workflow progress coordinates, in one list
+/// so the shared gate compares exactly the injected set.
+pub const WF_PROGRESS_COORD_KEYS: &[&str] = &[
+    WF_STATUS_FIELD,
+    WF_CURRENT_NODE_FIELD,
+    WF_NODE_RESULTS_HASH_FIELD,
+    WF_VARIABLES_HASH_FIELD,
+    WF_RECORD_COUNT_FIELD,
+    WF_TRIGGER_STATES_HASH_FIELD,
+];
+
+/// Compare stored custom fields against freshly computed ones over an
+/// explicit key list. Shared by the agent-loop and workflow progress gates
+/// so both resolve "no side effect since latest" identically. Missing on
+/// both sides counts as equal; missing on one side does not, so rows
+/// predating the coordinate fields never match a fresh build. Callers render
+/// absent values as JSON null (mirroring what `build` injects) rather than
+/// omitting keys, so a fresh build compares equal to its own persisted row.
+pub fn custom_fields_equal(
+    stored: &Option<HashMap<String, serde_json::Value>>,
+    current: &HashMap<String, serde_json::Value>,
+    keys: &[&str],
+) -> bool {
+    let empty = HashMap::new();
+    let stored = stored.as_ref().unwrap_or(&empty);
+    keys.iter().all(|key| stored.get(*key) == current.get(*key))
+}
 
 #[derive(Debug, Clone)]
 pub struct CheckpointMetadataBuilder {
@@ -319,5 +416,55 @@ mod tests {
     #[test]
     fn build_checkpoint_metadata_none_without_content() {
         assert!(build_checkpoint_metadata(None, vec![], HashMap::new(), "1.1.0").is_none());
+    }
+
+    #[test]
+    fn fingerprint_entries_stable_across_insertion_order() {
+        let first: BTreeMap<String, Vec<u8>> = [
+            ("b".to_string(), b"2".to_vec()),
+            ("a".to_string(), b"1".to_vec()),
+        ]
+        .into_iter()
+        .collect();
+        let second: BTreeMap<String, Vec<u8>> = [
+            ("a".to_string(), b"1".to_vec()),
+            ("b".to_string(), b"2".to_vec()),
+        ]
+        .into_iter()
+        .collect();
+        assert_eq!(fingerprint_entries(&first), fingerprint_entries(&second));
+        let changed: BTreeMap<String, Vec<u8>> = [
+            ("a".to_string(), b"1".to_vec()),
+            ("b".to_string(), b"3".to_vec()),
+        ]
+        .into_iter()
+        .collect();
+        assert_ne!(fingerprint_entries(&first), fingerprint_entries(&changed));
+        assert_ne!(
+            fingerprint_option(&None),
+            fingerprint_option(&Some(serde_json::json!({"a": 1})))
+        );
+    }
+
+    #[test]
+    fn custom_fields_equal_needs_both_sides_present() {
+        let stored = Some(HashMap::from([
+            ("a".to_string(), serde_json::json!(1)),
+            ("b".to_string(), serde_json::Value::Null),
+        ]));
+        let current = HashMap::from([
+            ("a".to_string(), serde_json::json!(1)),
+            ("b".to_string(), serde_json::Value::Null),
+        ]);
+        assert!(custom_fields_equal(&stored, &current, &["a", "b"]));
+        // Missing on one side never matches, so pre-coordinate rows stay
+        // fail-open; missing on both sides is equal.
+        assert!(!custom_fields_equal(&None, &current, &["a"]));
+        assert!(custom_fields_equal(&None, &HashMap::new(), &["a"]));
+        let changed = HashMap::from([
+            ("a".to_string(), serde_json::json!(2)),
+            ("b".to_string(), serde_json::Value::Null),
+        ]);
+        assert!(!custom_fields_equal(&stored, &changed, &["a", "b"]));
     }
 }

@@ -1,11 +1,16 @@
+use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use serde_json::Value;
 use wf_checkpoint::coordinator::workflow::WorkflowCheckpointCoordinator;
-use wf_checkpoint::coordinator::CheckpointCoordinator;
+use wf_checkpoint::coordinator::{CheckpointCoordinator, WorkflowProgressCoords};
 use wf_checkpoint::event::CheckpointEventBus;
 use wf_checkpoint::execution_events::ExecutionEventBus;
+use wf_checkpoint::metadata::builder::{
+    custom_fields_equal, fingerprint_entries, fingerprint_option, WF_PROGRESS_COORD_KEYS,
+};
+use wf_checkpoint::state::CheckpointStateManager;
 use wf_checkpoint::state::WorkflowCheckpointStateManager;
 use wf_checkpoint::CheckpointError;
 use wf_core::EventBus;
@@ -317,7 +322,55 @@ impl WorkflowCheckpointIntegration {
         entity: &WorkflowExecutionEntity,
         trigger: CheckpointTiming,
         description: Option<String>,
-    ) -> Result<(), CheckpointError> {
+    ) -> Result<String, CheckpointError> {
+        // Progress gate: equal coordinates mean the execution produced no
+        // side effect since the latest checkpoint, so merge back into it
+        // instead of persisting a duplicate row. Checked before the snapshot
+        // build so a duplicate costs one metadata read, not a full
+        // serialization. Fail-open: a metadata read failure never blocks
+        // checkpointing.
+        if let Ok(Some(latest)) = self
+            .inner
+            .state_manager()
+            .get_latest(entity.id().as_str())
+            .await
+        {
+            if custom_fields_equal(
+                &latest.custom_fields,
+                &self.entity_progress_coords(entity).await.as_fields(),
+                WF_PROGRESS_COORD_KEYS,
+            ) {
+                if let Some(ref text) = description {
+                    let current = latest
+                        .custom_fields
+                        .as_ref()
+                        .and_then(|fields| fields.get("description"))
+                        .and_then(|v| v.as_str());
+                    if current != Some(text.as_str()) {
+                        if let Ok(merged) = self
+                            .inner
+                            .merge_description_back(&latest.id, entity.id().as_str(), text)
+                            .await
+                        {
+                            tracing::debug!(
+                                entity_id = %entity.id(),
+                                checkpoint_id = %merged.id,
+                                trigger = ?trigger,
+                                "duplicate checkpoint merged back into latest, no new row persisted"
+                            );
+                            return Ok(merged.id);
+                        }
+                    }
+                }
+                tracing::debug!(
+                    entity_id = %entity.id(),
+                    checkpoint_id = %latest.id,
+                    trigger = ?trigger,
+                    "duplicate checkpoint merged back into latest, no new row persisted"
+                );
+                return Ok(latest.id);
+            }
+        }
         let snapshot = self.build_snapshot(entity).await;
         let ctx = self
             .inner
@@ -396,7 +449,51 @@ impl WorkflowCheckpointIntegration {
             ));
         }
 
-        Ok(())
+        Ok(checkpoint.id)
+    }
+
+    /// Progress coordinates of the live entity, mirroring the coordinate
+    /// fields the checkpoint `build` injects from the snapshot: same status
+    /// rendering, same resume pointer, same content hashes over the same
+    /// maps. The gate compares these against stored metadata before any
+    /// snapshot is built.
+    async fn entity_progress_coords(
+        &self,
+        entity: &WorkflowExecutionEntity,
+    ) -> WorkflowProgressCoords {
+        let node_entries: BTreeMap<String, Vec<u8>> = entity
+            .node_results()
+            .iter()
+            .map(|entry| {
+                (
+                    entry.key().clone(),
+                    serde_json::to_vec(entry.value()).unwrap_or_default(),
+                )
+            })
+            .collect();
+        let variable_entries: BTreeMap<String, Vec<u8>> = entity
+            .variables()
+            .iter()
+            .map(|entry| {
+                (
+                    entry.key().clone(),
+                    serde_json::to_vec(entry.value()).unwrap_or_default(),
+                )
+            })
+            .collect();
+        let state = entity.state.read().await;
+        let trigger_states = self
+            .trigger_states
+            .as_ref()
+            .and_then(|registry| registry.snapshot_for(entity.id().as_str()));
+        WorkflowProgressCoords {
+            status: Some(format!("{:?}", state.status())),
+            current_node: state.current_node_id().map(String::from),
+            node_results_hash: Some(fingerprint_entries(&node_entries)),
+            variables_hash: Some(fingerprint_entries(&variable_entries)),
+            record_count: Some(state.node_execution_history().len() as u64),
+            trigger_states_hash: Some(fingerprint_option(&trigger_states)),
+        }
     }
 
     async fn build_snapshot(
@@ -566,5 +663,163 @@ impl WorkflowCheckpointIntegration {
             fork_join_aggregation_state: None,
             hook_execution_context: None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use wf_checkpoint::coordinator::snapshot_workflow_coords;
+    use wf_types::checkpoint::CheckpointTiming;
+    use wf_types::Id;
+
+    fn make_integration() -> WorkflowCheckpointIntegration {
+        WorkflowCheckpointIntegration::new(
+            Arc::new(StorageBackend::new_memory()),
+            NodeCheckpointStrategy::always(),
+        )
+    }
+
+    fn make_entity(id: &str) -> WorkflowExecutionEntity {
+        WorkflowExecutionEntity::new(Id::from(id.to_string()), Id::from("wf-1".to_string()))
+    }
+
+    #[tokio::test]
+    async fn repeat_pause_merges_into_single_row() {
+        let mut integration = make_integration();
+        let entity = make_entity("exec-pause");
+        integration.on_pause(&entity).await;
+        integration.on_pause(&entity).await;
+        let count = integration
+            .inner
+            .state_manager()
+            .count_by_entity("exec-pause")
+            .await
+            .unwrap();
+        assert_eq!(count, 1);
+    }
+
+    #[tokio::test]
+    async fn hook_description_merges_into_node_row() {
+        let integration = make_integration();
+        let entity = make_entity("exec-hook");
+        let first = integration
+            .create_checkpoint(
+                &entity,
+                CheckpointTiming::AfterExecute,
+                Some("after".to_string()),
+            )
+            .await
+            .unwrap();
+        let second = integration
+            .create_checkpoint(
+                &entity,
+                CheckpointTiming::AfterExecute,
+                Some("hook note".to_string()),
+            )
+            .await
+            .unwrap();
+        assert_eq!(first, second);
+        let latest = integration
+            .inner
+            .state_manager()
+            .get_latest("exec-hook")
+            .await
+            .unwrap()
+            .expect("merged row listed");
+        let description = latest
+            .custom_fields
+            .as_ref()
+            .and_then(|fields| fields.get("description"))
+            .and_then(|v| v.as_str());
+        assert_eq!(description, Some("hook note"));
+    }
+
+    #[tokio::test]
+    async fn node_transition_forces_new_row() {
+        let integration = make_integration();
+        let entity = make_entity("exec-transition");
+        entity
+            .state
+            .write()
+            .await
+            .set_current_node(Some("a".to_string()));
+        entity.set_node_result("a", serde_json::json!({"ok": true}));
+        let first = integration
+            .create_checkpoint(&entity, CheckpointTiming::AfterExecute, None)
+            .await
+            .unwrap();
+        // The before-next snapshot differs only in the resume pointer, and
+        // that pointer is restore-critical state, so it must not merge.
+        entity
+            .state
+            .write()
+            .await
+            .set_current_node(Some("b".to_string()));
+        let second = integration
+            .create_checkpoint(&entity, CheckpointTiming::BeforeExecute, None)
+            .await
+            .unwrap();
+        assert_ne!(first, second);
+        let count = integration
+            .inner
+            .state_manager()
+            .count_by_entity("exec-transition")
+            .await
+            .unwrap();
+        assert_eq!(count, 2);
+    }
+
+    #[tokio::test]
+    async fn same_key_value_change_forces_new_row() {
+        let integration = make_integration();
+        let entity = make_entity("exec-counter");
+        entity.set_variable("counter", serde_json::json!(1));
+        let first = integration
+            .create_checkpoint(&entity, CheckpointTiming::Manual, None)
+            .await
+            .unwrap();
+        entity.set_variable("counter", serde_json::json!(2));
+        let second = integration
+            .create_checkpoint(&entity, CheckpointTiming::Manual, None)
+            .await
+            .unwrap();
+        assert_ne!(first, second);
+    }
+
+    #[tokio::test]
+    async fn entity_coords_match_built_snapshot() {
+        let integration = make_integration();
+        let entity = make_entity("exec-coords");
+        entity.set_variable("counter", serde_json::json!(1));
+        entity.set_node_result("a", serde_json::json!({"ok": true}));
+        entity
+            .state
+            .write()
+            .await
+            .set_current_node(Some("b".to_string()));
+        let snapshot = integration.build_snapshot(&entity).await;
+        assert_eq!(
+            integration.entity_progress_coords(&entity).await,
+            snapshot_workflow_coords(&snapshot)
+        );
+    }
+
+    #[tokio::test]
+    async fn live_create_returns_new_id_by_value() {
+        let integration = make_integration();
+        let entity = make_entity("exec-return-id");
+        let first = integration
+            .create_checkpoint(&entity, CheckpointTiming::Manual, Some("note".to_string()))
+            .await
+            .unwrap();
+        let meta = integration
+            .inner
+            .state_manager()
+            .load_metadata(&first)
+            .await
+            .unwrap()
+            .expect("created checkpoint readable by id");
+        assert_eq!(meta.id, first);
     }
 }

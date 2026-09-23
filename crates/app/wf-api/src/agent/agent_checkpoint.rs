@@ -13,7 +13,6 @@ use serde::Serialize;
 use wf_checkpoint::coordinator::agent::AgentCheckpointCoordinator;
 use wf_checkpoint::coordinator::agent::{progress_coords, snapshot_progress_coords};
 use wf_checkpoint::coordinator::CheckpointCoordinator;
-use wf_checkpoint::delta::CheckpointLoader;
 use wf_checkpoint::state::agent::AgentCheckpointStateManager;
 use wf_checkpoint::state::CheckpointStateManager;
 use wf_execution_shared::types::state_manager::StateManager;
@@ -64,10 +63,24 @@ pub async fn create(
         if let Some(manager) = ctx.file_checkpoint_manager() {
             integration = integration.with_file_checkpoint_manager(manager.clone());
         }
-        integration
+        let checkpoint_id = integration
             .create_checkpoint(&entity, CheckpointTiming::Manual, description)
             .await
             .map_err(|e| ApiError::execution(format!("checkpoint creation failed: {e}")))?;
+        // Read back by id: re-querying the latest is racy when an auto
+        // checkpoint lands in the same millisecond as this manual one.
+        if let Some(meta) = state_manager(ctx)
+            .load_metadata(&checkpoint_id)
+            .await
+            .map_err(|e| ApiError::execution(format!("checkpoint lookup failed: {e}")))?
+        {
+            return Ok(meta);
+        }
+        return state_manager(ctx)
+            .get_latest(agent_loop_id)
+            .await
+            .map_err(|e| ApiError::execution(format!("checkpoint lookup failed: {e}")))?
+            .ok_or_else(|| not_found("checkpoint", &checkpoint_id));
     } else {
         let coordinator = coordinator(ctx);
         if !coordinator.manual_allowed() {
@@ -118,16 +131,13 @@ pub async fn create(
             .map_err(|e| ApiError::execution(format!("checkpoint lookup failed: {e}")))?
             .ok_or_else(|| not_found("checkpoint", &checkpoint.id));
     }
-    state_manager(ctx)
-        .get_latest(agent_loop_id)
-        .await
-        .map_err(|e| ApiError::execution(format!("checkpoint lookup failed: {e}")))?
-        .ok_or_else(|| not_found("checkpoint", agent_loop_id))
 }
 
 /// Merge a duplicate creation back into the latest checkpoint: a new caller
 /// description is written back onto the stored blob, otherwise the latest
-/// row is returned as-is. No new checkpoint row is ever persisted here.
+/// row is returned as-is. No new checkpoint row is ever persisted here. When
+/// cleanup removed the target first, the stored latest is returned as-is so
+/// a lossless race never surfaces as an execution failure.
 async fn merge_back(
     coordinator: &AgentCheckpointCoordinator,
     agent_loop_id: &str,
@@ -141,10 +151,23 @@ async fn merge_back(
             .and_then(|fields| fields.get("description"))
             .and_then(|v| v.as_str());
         if current != Some(text.as_str()) {
-            return coordinator
+            match coordinator
                 .merge_description_back(&latest.id, agent_loop_id, &text)
                 .await
-                .map_err(|e| ApiError::execution(format!("checkpoint merge failed: {e}")));
+            {
+                Ok(merged) => return Ok(merged),
+                Err(wf_checkpoint::CheckpointError::NotFound { id }) => {
+                    tracing::warn!(
+                        checkpoint_id = %id,
+                        agent_loop_id = %agent_loop_id,
+                        "merge target cleaned up; returning latest without description write-back"
+                    );
+                    return Ok(latest);
+                }
+                Err(e) => {
+                    return Err(ApiError::execution(format!("checkpoint merge failed: {e}")));
+                }
+            }
         }
     }
     Ok(latest)

@@ -149,7 +149,7 @@ where
         match checkpoint_type {
             CheckpointType::Full => Ok((Some(id.to_string()), Some(0))),
             CheckpointType::Delta => match previous_checkpoint_id {
-                Some(prev) => match self.load_metadata(prev).await? {
+                Some(prev) => match CheckpointLoader::load_metadata(self, prev).await? {
                     Some(meta) => Ok((
                         meta.chain_root_id.or_else(|| Some(prev.to_string())),
                         Some(meta.chain_position.unwrap_or(0) + 1),
@@ -376,7 +376,7 @@ where
             }
             chain.push(meta.clone());
             current = match &meta.previous_checkpoint_id {
-                Some(prev) => self.load_metadata(prev).await?,
+                Some(prev) => CheckpointLoader::load_metadata(self, prev).await?,
                 None => None,
             };
         }
@@ -680,6 +680,13 @@ where
             .into_iter()
             .next()
             .map(|(id, meta)| parse_storage_metadata(&id, entity_id, &meta)))
+    }
+
+    async fn load_metadata(
+        &self,
+        id: &str,
+    ) -> Result<Option<CheckpointStorageMetadata>, CheckpointError> {
+        CheckpointLoader::load_metadata(self, id).await
     }
 
     async fn cleanup(
@@ -1591,7 +1598,10 @@ mod tests {
         assert_eq!(successor.previous_checkpoint_id, Some("full-1".to_string()));
         assert_eq!(successor.delta, Some(json!({"state": "final"})));
 
-        let successor_meta = mgr.load_metadata("delta-2").await.unwrap().unwrap();
+        let successor_meta = CheckpointLoader::load_metadata(&mgr, "delta-2")
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(successor_meta.chain_root_id, Some("full-1".to_string()));
         assert_eq!(successor_meta.chain_position, Some(1));
 

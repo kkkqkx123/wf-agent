@@ -11,7 +11,8 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use crate::envelope::{error_response, ok};
-use crate::extract::IdPath;
+use crate::extract::{IdPath, ListQuery};
+use crate::paged::{fetch_size, ok_page, resolve_page};
 use crate::router::ApiState;
 
 pub(crate) fn routes() -> Router<ApiState> {
@@ -30,7 +31,8 @@ pub(crate) fn routes() -> Router<ApiState> {
 #[derive(Deserialize)]
 struct ListInteractionsQuery {
     status: Option<String>,
-    limit: Option<usize>,
+    #[serde(flatten)]
+    page: ListQuery,
 }
 
 async fn handle_list_interactions(
@@ -42,11 +44,19 @@ async fn handle_list_interactions(
         &state.ctx,
         &path.id,
         query.status.as_deref(),
-        query.limit,
+        None,
     )
     .await
     {
-        Ok(interactions) => ok(interactions).into_response(),
+        Ok(interactions) => {
+            let (limit, offset) = resolve_page(&query.page);
+            let window = interactions
+                .into_iter()
+                .skip(offset as usize)
+                .take(fetch_size(limit) as usize)
+                .collect();
+            ok_page(window, limit, offset).into_response()
+        }
         Err(e) => error_response(e),
     }
 }

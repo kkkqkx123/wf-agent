@@ -7,6 +7,7 @@ use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::Router;
 use serde::Deserialize;
+use serde::Serialize;
 
 use crate::envelope::{err, error_response, ok};
 use crate::extract::{IdNodePath, IdPath};
@@ -197,10 +198,27 @@ async fn handle_enumerate_paths(
     match wf_api::workflow::graph_query::get_execution_graph(&state.ctx, &path.id).await {
         Ok(graph) => {
             let paths = wf_api::workflow::execution_graph::enumerate_paths(&graph);
-            ok(paths).into_response()
+            let total = paths.len();
+            // Same cap as the agent decision-graph paths; the domain DFS
+            // already bounds at MAX_ENUMERATED_PATHS, the flag makes it
+            // explicit for the frontend.
+            let truncated = total >= wf_api::workflow::execution_graph::MAX_ENUMERATED_PATHS;
+            ok(EnumeratedPathsView {
+                paths,
+                truncated,
+                total,
+            })
+            .into_response()
         }
         Err(e) => error_response(e),
     }
+}
+
+#[derive(Serialize)]
+struct EnumeratedPathsView {
+    paths: Vec<wf_api::workflow::execution_graph::ExecutionPath>,
+    truncated: bool,
+    total: usize,
 }
 
 async fn handle_decision_points(

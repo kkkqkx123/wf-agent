@@ -14,6 +14,7 @@ use wf_api::ScriptStorageMetadata;
 
 use crate::envelope::{error_response, ok};
 use crate::extract::{IdPath, ListQuery};
+use crate::paged::{fetch_size, ok_page, resolve_page};
 use crate::router::ApiState;
 pub(crate) fn routes() -> Router<ApiState> {
     Router::new()
@@ -104,22 +105,29 @@ async fn handle_list_scripts(
     State(state): State<ApiState>,
     Query(query): Query<ListScriptsQuery>,
 ) -> impl IntoResponse {
-    let result = match query.language {
-        Some(language) => {
-            wf_api::llm::script::list_scripts_by_language(&state.ctx.storage, &language).await
+    let (limit, offset) = resolve_page(&query.page);
+    if let Some(language) = query.language {
+        match wf_api::llm::script::list_scripts_by_language(&state.ctx.storage, &language).await {
+            Ok(scripts) => {
+                let window = scripts
+                    .into_iter()
+                    .skip(offset as usize)
+                    .take(fetch_size(limit) as usize)
+                    .collect();
+                ok_page(window, limit, offset).into_response()
+            }
+            Err(e) => error_response(e),
         }
-        None => {
-            let options = ScriptListOptions {
-                offset: query.page.offset,
-                limit: query.page.limit,
-                language_filter: None,
-            };
-            wf_api::llm::script::list_scripts(&state.ctx.storage, Some(options)).await
+    } else {
+        let options = ScriptListOptions {
+            offset: Some(offset),
+            limit: Some(fetch_size(limit)),
+            language_filter: None,
+        };
+        match wf_api::llm::script::list_scripts(&state.ctx.storage, Some(options)).await {
+            Ok(scripts) => ok_page(scripts, limit, offset).into_response(),
+            Err(e) => error_response(e),
         }
-    };
-    match result {
-        Ok(scripts) => ok(scripts).into_response(),
-        Err(e) => error_response(e),
     }
 }
 
@@ -136,14 +144,24 @@ async fn handle_save_script(
 #[derive(Deserialize)]
 struct SearchScriptsQuery {
     q: String,
+    #[serde(flatten)]
+    page: ListQuery,
 }
 
 async fn handle_search_scripts(
     State(state): State<ApiState>,
     Query(query): Query<SearchScriptsQuery>,
 ) -> impl IntoResponse {
+    let (limit, offset) = resolve_page(&query.page);
     match wf_api::llm::script::search_scripts(&state.ctx.storage, &query.q).await {
-        Ok(scripts) => ok(scripts).into_response(),
+        Ok(scripts) => {
+            let window = scripts
+                .into_iter()
+                .skip(offset as usize)
+                .take(fetch_size(limit) as usize)
+                .collect();
+            ok_page(window, limit, offset).into_response()
+        }
         Err(e) => error_response(e),
     }
 }

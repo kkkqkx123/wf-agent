@@ -1,6 +1,6 @@
 # wf-server HTTP 传输层
 
-对应 `crates/app/wf-server`（55 个 .rs 文件，约 12,745 行，另含 tests/http_integration.rs）。框架：**axum**（+ tokio/tower/futures/serde/clap）。定位：**纯 HTTP 传输层**——无业务逻辑，handler 调用 wf-api 并做信封封装。**421 条路由**（方法 × 路径实测；369 个 `.route()` 注册点：api/ 子树 419 + 顶层 2）。
+对应 `crates/app/wf-server`。框架：**axum**（+ tokio/tower/futures/serde/clap）。定位：**纯 HTTP 传输层**——无业务逻辑，handler 调用 wf-api 并做信封封装。**447 条路由**（方法 × 路径，以契约清单为准，由生成器从路由声明派生）。
 
 ## 1. 结构与路由组合
 
@@ -77,7 +77,7 @@
 
 **entities.rs（131）**：纯 merge 容器（tasks/triggers/variables/messages/skills）。
 
-**openapi.rs（57，1）**：`GET /api/v1/openapi.json` —— **手工维护的静态 OpenAPI 3.0.3 发现文档**（约 30 条代表性路径，非自动生成）。
+**contract.rs**：`GET /api/v1/contract` —— 机器可读路由清单，由生成器派生并随契约一起发布。
 
 **metrics.rs（139，6）**：`GET /api/v1/metrics/workflow?workflow_id=`、`/node-templates?top_n=`、`/agents?profile_id=`、`/report`、`/export?format=json|prometheus`、`/collectors`；顶层另有 `GET /metrics`（src/metrics.rs，Prometheus 文本 + 自监控块；输出为 retention 窗口【默认 1h】快照而非累计值）。
 
@@ -114,19 +114,19 @@
 
 **SSE（sse.rs，27）**：仅剩 `sse_response(stream)`（200 + `text/event-stream` + `no-cache`），帧流由调用方自建。**SSE 端点 5 个**：`/events/stream`、`/workflows/{id}/execute/stream`、`/executions/{id}/error-analysis/stream`、`/agent-loops/{id}/stream`、`/llm/generate-stream`。
 
-**WebSocket（ws.rs，532）**：`GET /api/v1/ws`。客户端 `subscribe`/`unsubscribe`（带 executionId）/`ping`；服务端 `connection`(clientId)/`execution_event`(executionId/eventType/data=metadata/timestamp)/`subscribed`/`unsubscribed`/`pong`/`error`。每订阅 spawn 转发任务（`wf_api::infra::events::subscribe`），终态自动收束；断连 abort 全部；outbound 容量 256。认证**仅 `api_key` 查询参数**（auth 中间件排除 `/api/v1/ws`），失败 close code **4001**。
+**WebSocket（ws.rs）**：`GET /api/v1/ws`。客户端 `subscribe`/`unsubscribe`（执行、回路、工作流、全局、通知维度）/`ping`；服务端推送执行与通知事件并带重连游标。每订阅 spawn 转发任务，终态自动收束；断连 abort 全部。认证接受 `x-api-key` 头或 `api_key` 查询参数（浏览器用后者），失败 close code **4001**，同时受全局鉴权与限流约束。
 
 **中间件（middleware.rs，846）**——层序（外→内）：请求日志 → CORS → API-key 认证 → 每 IP 限流；`with_request_metrics` 为 route_layer（仅路由内可见 MatchedPath，只记录模板路径）。
 
 - 日志：按状态类分级 tracing。
 - CORS：OPTIONS 预检 200；来源白名单默认 `["*"]`；仅文件层配置（`configs/server/cors.toml`）。
-- 认证：`x-api-key` 头（可配 header_name）或 `api_key` 查询参数（可配开关）；排除 `/health`、`/api/v1/info`、`/`、`/api/v1/ws`、`/api/v1/events/stream`；**缺 key 401、错 key 403**；env `AUTH_ENABLED`/`API_KEYS`（keys 仅 env）+ `configs/server/auth.toml`，默认关闭。
+- 认证：`x-api-key` 头（可配 header_name）或 `api_key` 查询参数（可配开关）；默认排除 `/health`、`/api/v1/info`、`/`；**缺 key 401、错 key 403**；env `AUTH_ENABLED`/`API_KEYS`（keys 仅 env）+ `configs/server/auth.toml`，默认关闭。流式路径同样受全局鉴权约束。
 - 限流：固定窗口、按 IP（`x-forwarded-for` 首值否则 "unknown"）、全局 `OnceLock<Mutex<HashMap>>`、条目 >10000 按过期回收；默认 60s/100 请求（env `RATE_LIMIT_*` + `configs/server/rate-limit.toml` 含 excluded_paths）；429 + `x-ratelimit-limit/remaining/reset`。
 
 **启动（server.rs，74）**：`serve_with_router` bind + `axum::serve` + oneshot 优雅关停，返回 `ServerHandle{addr, shutdown, task}`；与 wf-api/wf-metrics 解耦。
 
 ## 5. 小结
 
-- 421 条路由（方法 × 路径）/ 38 个域文件，纯传输层：错误映射、信封、帧协议是唯一职责。
+- 447 条路由（方法 × 路径，以契约清单为准），纯传输层：错误映射、信封、帧协议是唯一职责。
 - 相对上一版文档的结构变化：api/ 三分目录；文件级 checkpoint（provenance/approval）与 webhook 入站网关为新增面；`/triggers`、`/agent-triggers` 实体 CRUD 与 hook 模板端点已删除；`/llm/providers*` 新增；审批端点从"30s 超时"改为"无 handler 快速失败、有 handler 无界等待"。
 - 流式能力三件套：SSE（5 端点）、WebSocket（事件订阅）、Prometheus `/metrics`。

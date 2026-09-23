@@ -208,6 +208,8 @@ async fn handle_status(
 #[derive(Deserialize)]
 struct TriggerHistoryQuery {
     trigger_name: Option<String>,
+    #[serde(flatten)]
+    page: ListQuery,
 }
 
 async fn handle_trigger_history(
@@ -222,7 +224,15 @@ async fn handle_trigger_history(
     )
     .await
     {
-        Ok(history) => ok(history).into_response(),
+        Ok(history) => {
+            let (limit, offset) = resolve_page(&query.page);
+            let window = history
+                .into_iter()
+                .skip(offset as usize)
+                .take(fetch_size(limit) as usize)
+                .collect();
+            ok_page(window, limit, offset).into_response()
+        }
         Err(e) => error_response(e),
     }
 }

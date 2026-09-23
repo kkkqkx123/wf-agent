@@ -157,6 +157,7 @@ async fn fetch_search(ctx: &ApiContext, query: &str) -> CliResult<ScreenData> {
         types: None,
         limit_per_type: Some(20),
         limit_total: Some(100),
+        cursor: None,
     };
     let result = wf_api::analysis::search::search(ctx, query, &options).await?;
     let rows = result

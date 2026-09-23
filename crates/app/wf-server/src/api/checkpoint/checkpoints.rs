@@ -14,6 +14,7 @@ use wf_api::CheckpointListOptions;
 use crate::api::workflow::executions::ExecuteView;
 use crate::envelope::{error_response, ok};
 use crate::extract::{CidPath, EntityIdPath, IdPath, ListQuery};
+use crate::paged::{fetch_size, ok_page, resolve_page};
 use crate::router::ApiState;
 pub(crate) fn routes() -> Router<ApiState> {
     Router::new()
@@ -155,14 +156,15 @@ async fn handle_list_checkpoints(
     State(state): State<ApiState>,
     Query(query): Query<ListCheckpointsQuery>,
 ) -> impl IntoResponse {
+    let (limit, offset) = resolve_page(&query.page);
     let options = CheckpointListOptions {
-        offset: query.page.offset,
-        limit: query.page.limit,
+        offset: Some(offset),
+        limit: Some(fetch_size(limit)),
         entity_type_filter: query.entity_type,
         entity_id_filter: query.entity_id,
     };
     match wf_api::checkpoint::record::list_checkpoints(&state.ctx.storage, Some(options)).await {
-        Ok(checkpoints) => ok(checkpoints).into_response(),
+        Ok(checkpoints) => ok_page(checkpoints, limit, offset).into_response(),
         Err(e) => error_response(e),
     }
 }
@@ -190,6 +192,7 @@ async fn handle_delete_checkpoint(
 async fn handle_list_checkpoints_by_entity(
     State(state): State<ApiState>,
     Path(path): Path<EntityIdPath>,
+    Query(query): Query<ListQuery>,
 ) -> impl IntoResponse {
     match wf_api::checkpoint::record::list_checkpoints_by_entity(
         &state.ctx.storage,
@@ -198,7 +201,15 @@ async fn handle_list_checkpoints_by_entity(
     )
     .await
     {
-        Ok(checkpoints) => ok(checkpoints).into_response(),
+        Ok(checkpoints) => {
+            let (limit, offset) = resolve_page(&query);
+            let window = checkpoints
+                .into_iter()
+                .skip(offset as usize)
+                .take(fetch_size(limit) as usize)
+                .collect();
+            ok_page(window, limit, offset).into_response()
+        }
         Err(e) => error_response(e),
     }
 }
@@ -278,6 +289,8 @@ async fn handle_set_checkpoint_entity_metadata(
 struct CheckpointEntitiesQuery {
     entity_ids: String,
     entity_type: Option<String>,
+    #[serde(flatten)]
+    page: ListQuery,
 }
 
 async fn handle_list_checkpoints_by_entities(
@@ -298,7 +311,15 @@ async fn handle_list_checkpoints_by_entities(
     )
     .await
     {
-        Ok(checkpoints) => ok(checkpoints).into_response(),
+        Ok(checkpoints) => {
+            let (limit, offset) = resolve_page(&query.page);
+            let window = checkpoints
+                .into_iter()
+                .skip(offset as usize)
+                .take(fetch_size(limit) as usize)
+                .collect();
+            ok_page(window, limit, offset).into_response()
+        }
         Err(e) => error_response(e),
     }
 }
@@ -309,6 +330,8 @@ struct CheckpointsTimeRangeQuery {
     workflow_id: String,
     start: i64,
     end: i64,
+    #[serde(flatten)]
+    page: ListQuery,
 }
 
 async fn handle_checkpoints_by_time_range(
@@ -323,7 +346,15 @@ async fn handle_checkpoints_by_time_range(
     )
     .await
     {
-        Ok(checkpoints) => ok(checkpoints).into_response(),
+        Ok(checkpoints) => {
+            let (limit, offset) = resolve_page(&query.page);
+            let window = checkpoints
+                .into_iter()
+                .skip(offset as usize)
+                .take(fetch_size(limit) as usize)
+                .collect();
+            ok_page(window, limit, offset).into_response()
+        }
         Err(e) => error_response(e),
     }
 }

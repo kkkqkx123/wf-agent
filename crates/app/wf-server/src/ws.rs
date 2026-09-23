@@ -2,14 +2,22 @@
 //! connection with per-dimension subscriptions.
 //!
 //! - Server → client: `connection` (welcome), `execution_event`,
-//!   `agent_loop_event`, `workflow_event`, `subscribed`, `unsubscribed`,
-//!   `pong`, `error`
+//!   `agent_loop_event`, `workflow_event`, `global_event`, `notification`,
+//!   `subscribed`, `unsubscribed`, `pong`, `error`
 //! - Client → server: `subscribe`, `unsubscribe`, `ping` (JSON text frames)
 //!
-//! `subscribe` takes one of `executionId`, `agentLoopId` or `workflowId`;
-//! event payloads carry metadata only (fetch details over REST). The server
-//! also sends protocol `Ping` frames every 30s so intermediaries keep the
-//! connection alive.
+//! `subscribe` takes one of `executionId`, `agentLoopId`, `workflowId`,
+//! `global: true` (every execution event) or `notifications: true` (human
+//! facing approval / error / recovery pushes, separated from execution
+//! events). Event payloads carry metadata only (fetch details over REST) plus
+//! an opaque `cursor` (event timestamp) for reconnects: pass it back as
+//! `since` to replay the retained window. The server also sends protocol
+//! `Ping` frames every 30s so intermediaries keep the connection alive.
+//!
+//! Notification semantics (pre-multi-user): pure push, no persistence and no
+//! unread tracking. Receipt counts as consumed; offline clients miss pushes
+//! and re-sync via REST (`/interactions`, error analysis) on reconnect.
+//! Presence (online state) is deferred.
 //!
 //! Each connection owns an outbound mpsc channel; every subscription spawns a
 //! forwarder task on `wf_api::infra::events::subscribe` that exits when the
@@ -163,6 +171,61 @@ struct SubscriptionTarget {
     event_type: &'static str,
 }
 
+/// Human-facing notification event types (approvals, errors, recovery).
+fn notification_types() -> Vec<wf_types::events::EventType> {
+    use wf_types::events::EventType;
+    vec![
+        EventType::ToolApprovalRequested,
+        EventType::ToolApprovalResponded,
+        EventType::ToolApprovalFailed,
+        EventType::FollowupQuestionRequested,
+        EventType::FollowupQuestionResponded,
+        EventType::FollowupQuestionFailed,
+        EventType::NotificationSent,
+        EventType::Error,
+        EventType::AgentFailed,
+        EventType::WorkflowExecutionFailed,
+    ]
+}
+
+/// Opaque reconnect token: hex of `{"after": <timestamp>}`.
+pub(crate) fn encode_since(after: i64) -> String {
+    let json = serde_json::json!({"after": after}).to_string();
+    let mut out = String::with_capacity(json.len() * 2);
+    for byte in json.as_bytes() {
+        out.push(char::from_digit((byte >> 4) as u32, 16).unwrap_or('0'));
+        out.push(char::from_digit((byte & 0x0f) as u32, 16).unwrap_or('0'));
+    }
+    out
+}
+
+pub(crate) fn decode_since(token: &str) -> Option<i64> {
+    if !token.len().is_multiple_of(2) {
+        return None;
+    }
+    let mut bytes = Vec::with_capacity(token.len() / 2);
+    let chars: Vec<char> = token.chars().collect();
+    for pair in chars.chunks(2) {
+        let (Some(hi), Some(lo)) = (pair[0].to_digit(16), pair[1].to_digit(16)) else {
+            return None;
+        };
+        bytes.push(((hi << 4) | lo) as u8);
+    }
+    let json = String::from_utf8(bytes).ok()?;
+    serde_json::from_str::<Value>(&json)
+        .ok()?
+        .get("after")
+        .and_then(Value::as_i64)
+}
+
+/// SSE reconnect cursor: opaque token first, raw timestamp for compat.
+pub(crate) fn decode_sse_since(raw: &str) -> Option<i64> {
+    if let Some(after) = decode_since(raw) {
+        return Some(after);
+    }
+    raw.trim().parse::<i64>().ok()
+}
+
 fn subscription_target(message: &Value) -> Option<SubscriptionTarget> {
     if let Some(id) = message["executionId"].as_str() {
         return Some(SubscriptionTarget {
@@ -197,6 +260,35 @@ fn subscription_target(message: &Value) -> Option<SubscriptionTarget> {
             event_type: "workflow_event",
         });
     }
+    if message
+        .get("global")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
+        return Some(SubscriptionTarget {
+            key: "global".to_string(),
+            options: EventSubscriptionOptions::default(),
+            id_field: "global",
+            id_value: "all".to_string(),
+            event_type: "global_event",
+        });
+    }
+    if message
+        .get("notifications")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+    {
+        return Some(SubscriptionTarget {
+            key: "notifications".to_string(),
+            options: EventSubscriptionOptions {
+                event_types: Some(notification_types()),
+                ..Default::default()
+            },
+            id_field: "notifications",
+            id_value: "human".to_string(),
+            event_type: "notification",
+        });
+    }
     None
 }
 
@@ -224,6 +316,22 @@ async fn handle_incoming(
                     send_error(out_tx, format!("Already subscribed to [{}]", target.key)).await;
                     return;
                 }
+                let since = message
+                    .get("since")
+                    .and_then(Value::as_str)
+                    .and_then(decode_since);
+                // Replay the retained window first so reconnects do not lose
+                // in-window events, then forward live events.
+                replay_since(
+                    ctx,
+                    &target.options,
+                    target.id_field,
+                    &target.id_value,
+                    target.event_type,
+                    since,
+                    out_tx,
+                )
+                .await;
                 let handle = tokio::spawn(forward_events(
                     Arc::clone(ctx),
                     target.options,
@@ -248,7 +356,7 @@ async fn handle_incoming(
             None => {
                 send_error(
                     out_tx,
-                    "subscribe requires one of executionId, agentLoopId, workflowId",
+                    "subscribe requires one of executionId, agentLoopId, workflowId, global, notifications",
                 )
                 .await;
             }
@@ -272,7 +380,7 @@ async fn handle_incoming(
             None => {
                 send_error(
                     out_tx,
-                    "unsubscribe requires one of executionId, agentLoopId, workflowId",
+                    "unsubscribe requires one of executionId, agentLoopId, workflowId, global, notifications",
                 )
                 .await;
             }
@@ -307,27 +415,10 @@ async fn forward_events(
 ) {
     let mut sub = subscribe(&ctx, options);
     while let Some(event) = sub.next().await {
-        let mut payload = serde_json::Map::with_capacity(5);
-        payload.insert("type".to_string(), Value::String(event_type.to_string()));
-        payload.insert(id_field.to_string(), Value::String(id_value.clone()));
-        payload.insert(
-            "eventType".to_string(),
-            Value::String(event.r#type.as_str().to_string()),
-        );
-        payload.insert(
-            "data".to_string(),
-            event
-                .metadata
-                .clone()
-                .map(|m| Value::Object(m.into_iter().collect()))
-                .unwrap_or_else(|| json!({})),
-        );
-        payload.insert(
-            "timestamp".to_string(),
-            Value::Number(event.timestamp.into()),
-        );
         if out_tx
-            .send(Outbound::Text(Value::Object(payload).to_string()))
+            .send(Outbound::Text(event_frame(
+                &event, id_field, &id_value, event_type,
+            )))
             .await
             .is_err()
         {
@@ -335,6 +426,85 @@ async fn forward_events(
         }
     }
     let _ = out_tx.send(Outbound::SubEnded(key)).await;
+}
+
+/// One event frame with an opaque reconnect cursor (event timestamp).
+fn event_frame(
+    event: &wf_types::events::BaseEvent,
+    id_field: &str,
+    id_value: &str,
+    event_type: &str,
+) -> String {
+    let mut payload = serde_json::Map::with_capacity(6);
+    payload.insert("type".to_string(), Value::String(event_type.to_string()));
+    payload.insert(id_field.to_string(), Value::String(id_value.to_string()));
+    payload.insert(
+        "eventType".to_string(),
+        Value::String(event.r#type.as_str().to_string()),
+    );
+    payload.insert(
+        "data".to_string(),
+        event
+            .metadata
+            .clone()
+            .map(|m| Value::Object(m.into_iter().collect()))
+            .unwrap_or_else(|| json!({})),
+    );
+    payload.insert(
+        "timestamp".to_string(),
+        Value::Number(event.timestamp.into()),
+    );
+    payload.insert(
+        "cursor".to_string(),
+        Value::String(encode_since(event.timestamp)),
+    );
+    Value::Object(payload).to_string()
+}
+
+/// Replay retained events newer than `since` (at most a bounded window) so a
+/// reconnecting client does not lose in-window events. Pure push for live
+/// events; the replay window is best-effort over persisted + bus history.
+async fn replay_since(
+    ctx: &Arc<ApiContext>,
+    options: &EventSubscriptionOptions,
+    id_field: &'static str,
+    id_value: &str,
+    event_type: &'static str,
+    since: Option<i64>,
+    out_tx: &mpsc::Sender<Outbound>,
+) {
+    let Some(after) = since else {
+        return;
+    };
+    let query = wf_api::EventQueryOptions {
+        execution_id: options.execution_id.clone(),
+        agent_loop_id: options.agent_loop_id.clone(),
+        workflow_id: options.workflow_id.clone(),
+        event_types: options.event_types.clone(),
+        limit: Some(500),
+    };
+    let Ok(mut events) = wf_api::infra::events::history(ctx, &query).await else {
+        return;
+    };
+    events.sort_by_key(|e| e.timestamp);
+    for (sent, event) in events
+        .into_iter()
+        .filter(|e| e.timestamp > after)
+        .enumerate()
+    {
+        if sent >= 200 {
+            break;
+        }
+        if out_tx
+            .send(Outbound::Text(event_frame(
+                &event, id_field, id_value, event_type,
+            )))
+            .await
+            .is_err()
+        {
+            return;
+        }
+    }
 }
 
 /// Build the `data` object echoing the subscribed dimension id. `json!`

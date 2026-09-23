@@ -86,7 +86,7 @@ pub(crate) struct EntityIdPath {
 }
 
 /// Shared `limit` / `offset` pagination query parameters.
-#[derive(Deserialize, Default)]
+#[derive(Deserialize, Debug, Default)]
 pub(crate) struct ListQuery {
     pub(crate) limit: Option<u64>,
     pub(crate) offset: Option<u64>,

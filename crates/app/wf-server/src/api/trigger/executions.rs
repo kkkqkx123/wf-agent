@@ -12,6 +12,7 @@ use wf_api::TriggerExecutionListOptions;
 
 use crate::envelope::{error_response, ok};
 use crate::extract::{ExecutionIdPath, IdPath, ListQuery, NamePath};
+use crate::paged::{fetch_size, ok_page, resolve_page};
 use crate::router::ApiState;
 
 pub(crate) fn routes() -> Router<ApiState> {
@@ -66,9 +67,10 @@ async fn handle_list_trigger_executions(
     State(state): State<ApiState>,
     Query(query): Query<ListTriggerExecutionsQuery>,
 ) -> impl IntoResponse {
+    let (limit, offset) = resolve_page(&query.page);
     let options = TriggerExecutionListOptions {
-        offset: query.page.offset,
-        limit: query.page.limit,
+        offset: Some(offset),
+        limit: Some(fetch_size(limit)),
         trigger_name_filter: query.trigger_name,
         execution_id_filter: query.execution_id,
         workflow_id_filter: query.workflow_id,
@@ -77,7 +79,7 @@ async fn handle_list_trigger_executions(
     match wf_api::trigger::execution::list_trigger_executions(&state.ctx.storage, Some(options))
         .await
     {
-        Ok(executions) => ok(executions).into_response(),
+        Ok(executions) => ok_page(executions, limit, offset).into_response(),
         Err(e) => error_response(e),
     }
 }
@@ -122,9 +124,18 @@ async fn handle_trigger_execution_stats(State(state): State<ApiState>) -> impl I
 async fn handle_trigger_executions_by_trigger(
     State(state): State<ApiState>,
     Path(path): Path<NamePath>,
+    Query(query): Query<ListQuery>,
 ) -> impl IntoResponse {
     match wf_api::trigger::execution::list_by_trigger_name(&state.ctx.storage, &path.name).await {
-        Ok(executions) => ok(executions).into_response(),
+        Ok(executions) => {
+            let (limit, offset) = resolve_page(&query);
+            let window = executions
+                .into_iter()
+                .skip(offset as usize)
+                .take(fetch_size(limit) as usize)
+                .collect();
+            ok_page(window, limit, offset).into_response()
+        }
         Err(e) => error_response(e),
     }
 }
@@ -132,11 +143,20 @@ async fn handle_trigger_executions_by_trigger(
 async fn handle_trigger_executions_by_execution(
     State(state): State<ApiState>,
     Path(path): Path<ExecutionIdPath>,
+    Query(query): Query<ListQuery>,
 ) -> impl IntoResponse {
     match wf_api::trigger::execution::list_by_execution(&state.ctx.storage, &path.execution_id)
         .await
     {
-        Ok(executions) => ok(executions).into_response(),
+        Ok(executions) => {
+            let (limit, offset) = resolve_page(&query);
+            let window = executions
+                .into_iter()
+                .skip(offset as usize)
+                .take(fetch_size(limit) as usize)
+                .collect();
+            ok_page(window, limit, offset).into_response()
+        }
         Err(e) => error_response(e),
     }
 }
@@ -162,9 +182,18 @@ async fn handle_cleanup_trigger_executions(
 async fn handle_trigger_executions_by_workflow(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
+    Query(query): Query<ListQuery>,
 ) -> impl IntoResponse {
     match wf_api::trigger::execution::list_by_workflow(&state.ctx.storage, &path.id).await {
-        Ok(executions) => ok(executions).into_response(),
+        Ok(executions) => {
+            let (limit, offset) = resolve_page(&query);
+            let window = executions
+                .into_iter()
+                .skip(offset as usize)
+                .take(fetch_size(limit) as usize)
+                .collect();
+            ok_page(window, limit, offset).into_response()
+        }
         Err(e) => error_response(e),
     }
 }
@@ -175,6 +204,8 @@ async fn handle_trigger_executions_by_workflow(
 struct TriggerHistoryQuery {
     execution_id: String,
     trigger_name: Option<String>,
+    #[serde(flatten)]
+    page: ListQuery,
 }
 
 async fn handle_trigger_history(
@@ -188,7 +219,15 @@ async fn handle_trigger_history(
     )
     .await
     {
-        Ok(history) => ok(history).into_response(),
+        Ok(history) => {
+            let (limit, offset) = resolve_page(&query.page);
+            let window = history
+                .into_iter()
+                .skip(offset as usize)
+                .take(fetch_size(limit) as usize)
+                .collect();
+            ok_page(window, limit, offset).into_response()
+        }
         Err(e) => error_response(e),
     }
 }

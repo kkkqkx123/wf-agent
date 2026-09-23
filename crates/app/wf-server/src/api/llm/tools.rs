@@ -15,6 +15,7 @@ use wf_api::ToolStorageMetadata;
 use crate::api::llm::scripts::DeleteForceQuery;
 use crate::envelope::{error_response, ok};
 use crate::extract::{IdPath, ListQuery};
+use crate::paged::{fetch_size, ok_page, resolve_page};
 use crate::router::ApiState;
 pub(crate) fn routes() -> Router<ApiState> {
     Router::new()
@@ -36,9 +37,26 @@ pub(crate) fn routes() -> Router<ApiState> {
 
 // ── tools ─────────────────────────────────────────────────────────
 
-async fn handle_list_tools(State(state): State<ApiState>) -> impl IntoResponse {
+#[derive(Deserialize)]
+struct ListToolsQuery {
+    #[serde(flatten)]
+    page: ListQuery,
+}
+
+async fn handle_list_tools(
+    State(state): State<ApiState>,
+    Query(query): Query<ListToolsQuery>,
+) -> impl IntoResponse {
     match wf_api::llm::tool::list(&state.ctx).await {
-        Ok(tools) => ok(tools).into_response(),
+        Ok(tools) => {
+            let (limit, offset) = resolve_page(&query.page);
+            let window = tools
+                .into_iter()
+                .skip(offset as usize)
+                .take(fetch_size(limit) as usize)
+                .collect();
+            ok_page(window, limit, offset).into_response()
+        }
         Err(e) => error_response(e),
     }
 }
@@ -46,14 +64,24 @@ async fn handle_list_tools(State(state): State<ApiState>) -> impl IntoResponse {
 #[derive(Deserialize)]
 struct SearchToolsQuery {
     q: String,
+    #[serde(flatten)]
+    page: ListQuery,
 }
 
 async fn handle_search_tools(
     State(state): State<ApiState>,
     Query(query): Query<SearchToolsQuery>,
 ) -> impl IntoResponse {
+    let (limit, offset) = resolve_page(&query.page);
     match wf_api::llm::tool::search_tools(&state.ctx, &query.q).await {
-        Ok(tools) => ok(tools).into_response(),
+        Ok(tools) => {
+            let window = tools
+                .into_iter()
+                .skip(offset as usize)
+                .take(fetch_size(limit) as usize)
+                .collect();
+            ok_page(window, limit, offset).into_response()
+        }
         Err(e) => error_response(e),
     }
 }
@@ -143,13 +171,14 @@ async fn handle_list_tool_registry(
     State(state): State<ApiState>,
     Query(query): Query<ListToolRegistryQuery>,
 ) -> impl IntoResponse {
+    let (limit, offset) = resolve_page(&query.page);
     let options = ToolListOptions {
-        offset: query.page.offset,
-        limit: query.page.limit,
+        offset: Some(offset),
+        limit: Some(fetch_size(limit)),
         tool_type_filter: query.tool_type,
     };
     match wf_api::llm::tool::list_tools(&state.ctx.storage, Some(options)).await {
-        Ok(tools) => ok(tools).into_response(),
+        Ok(tools) => ok_page(tools, limit, offset).into_response(),
         Err(e) => error_response(e),
     }
 }

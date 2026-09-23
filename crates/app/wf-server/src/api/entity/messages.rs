@@ -100,15 +100,26 @@ async fn handle_delete_message(
 #[derive(Deserialize)]
 struct SearchMessagesQuery {
     q: String,
-    limit: Option<usize>,
+    #[serde(flatten)]
+    page: ListQuery,
 }
 
 async fn handle_search_messages(
     State(state): State<ApiState>,
     Query(query): Query<SearchMessagesQuery>,
 ) -> impl IntoResponse {
-    match wf_api::entity::message::search(&state.ctx, &query.q, query.limit).await {
-        Ok(messages) => ok(messages).into_response(),
+    let (limit, offset) = resolve_page(&query.page);
+    // Search sorts newest-first in the domain; page over the limited window.
+    let fetch = offset.saturating_add(limit).saturating_add(1).min(500) as usize;
+    match wf_api::entity::message::search(&state.ctx, &query.q, Some(fetch)).await {
+        Ok(messages) => {
+            let window = messages
+                .into_iter()
+                .skip(offset as usize)
+                .take(fetch_size(limit) as usize)
+                .collect();
+            ok_page(window, limit, offset).into_response()
+        }
         Err(e) => error_response(e),
     }
 }
@@ -122,8 +133,8 @@ async fn handle_message_stats(State(state): State<ApiState>) -> impl IntoRespons
 
 #[derive(Deserialize)]
 struct ByExecutionQuery {
-    offset: Option<u64>,
-    limit: Option<u64>,
+    #[serde(flatten)]
+    page: ListQuery,
 }
 
 async fn handle_messages_by_execution(
@@ -131,26 +142,42 @@ async fn handle_messages_by_execution(
     Path(path): Path<ExecutionIdPath>,
     Query(query): Query<ByExecutionQuery>,
 ) -> impl IntoResponse {
+    let (limit, offset) = resolve_page(&query.page);
     match wf_api::entity::message::by_execution_paginated(
         &state.ctx,
         &path.execution_id,
-        query.offset.unwrap_or(0),
-        query.limit.unwrap_or(100),
+        offset,
+        fetch_size(limit),
         wf_api::MessageOrder::Asc,
     )
     .await
     {
-        Ok(messages) => ok(messages).into_response(),
+        Ok(messages) => ok_page(messages, limit, offset).into_response(),
         Err(e) => error_response(e),
     }
+}
+
+#[derive(Deserialize)]
+struct ConversationQuery {
+    #[serde(flatten)]
+    page: ListQuery,
 }
 
 async fn handle_conversation(
     State(state): State<ApiState>,
     Path(path): Path<ExecutionIdPath>,
+    Query(query): Query<ConversationQuery>,
 ) -> impl IntoResponse {
     match wf_api::entity::message::conversation_history(&state.ctx, &path.execution_id).await {
-        Ok(messages) => ok(messages).into_response(),
+        Ok(messages) => {
+            let (limit, offset) = resolve_page(&query.page);
+            let window = messages
+                .into_iter()
+                .skip(offset as usize)
+                .take(fetch_size(limit) as usize)
+                .collect();
+            ok_page(window, limit, offset).into_response()
+        }
         Err(e) => error_response(e),
     }
 }

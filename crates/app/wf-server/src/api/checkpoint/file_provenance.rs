@@ -1,29 +1,24 @@
-//! File-checkpoint provenance endpoints: partition listing, change queries
-//! by actor / path (with time-window filters), actor workspace
-//! reconstruction and actor/staged diffs. Handlers are thin transport
-//! adapters over `wf-api::checkpoint::provenance`.
+//! File-checkpoint provenance endpoints: partition listing, paged change
+//! queries, actor workspace reconstruction and actor/staged diffs. Handlers
+//! are thin transport adapters over `wf-api::checkpoint::provenance`.
 
 use axum::extract::{Path, Query, State};
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::Router;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::envelope::{error_response, ok};
-use crate::extract::IdPath;
+use crate::extract::{IdPath, ListQuery};
+use crate::paged::{fetch_size, ok_page, resolve_page};
 use crate::router::ApiState;
 
 pub(crate) fn routes() -> Router<ApiState> {
     Router::new()
         .route("/file-checkpoint/partitions", get(handle_list_partitions))
-        .route(
-            "/file-checkpoint/changes/actor/{id}",
-            get(handle_list_changes_by_actor),
-        )
-        .route(
-            "/file-checkpoint/changes/path/{id}",
-            get(handle_list_changes_by_path),
-        )
+        .route("/file-checkpoint/changes", get(handle_list_changes_paged))
+        .route("/file-checkpoint/content", get(handle_read_content))
+        .route("/file-checkpoint/tree/{id}", get(handle_list_tree))
         .route(
             "/file-checkpoint/workspace/{id}",
             get(handle_get_actor_workspace),
@@ -51,71 +46,9 @@ pub(crate) fn routes() -> Router<ApiState> {
         .route("/file-checkpoint/rename", post(handle_rename_file))
 }
 
-/// Actor / path query parameters: optional `path` substring filter and
-/// inclusive `start` / `end` timestamp window (unix seconds).
-#[derive(Debug, Default, Deserialize)]
-struct ChangeQuery {
-    #[serde(default)]
-    path: Option<String>,
-    #[serde(default)]
-    start: Option<i64>,
-    #[serde(default)]
-    end: Option<i64>,
-}
-
-impl ChangeQuery {
-    fn time_range(&self) -> Option<(i64, i64)> {
-        match (self.start, self.end) {
-            (None, None) => None,
-            (start, end) => {
-                let start_ms = start.unwrap_or(i64::MIN / 2).saturating_mul(1000);
-                let end_ms = end.unwrap_or(i64::MAX / 2).saturating_mul(1000);
-                Some((start_ms, end_ms))
-            }
-        }
-    }
-}
-
-#[derive(Debug, Deserialize)]
-struct ActorPairPath {
-    a: String,
-    b: String,
-}
-
 async fn handle_list_partitions(State(state): State<ApiState>) -> impl IntoResponse {
     match wf_api::checkpoint::provenance::list_partitions(&state.ctx) {
         Ok(partitions) => ok(partitions).into_response(),
-        Err(err) => error_response(err),
-    }
-}
-
-async fn handle_list_changes_by_actor(
-    State(state): State<ApiState>,
-    Path(path): Path<IdPath>,
-    Query(query): Query<ChangeQuery>,
-) -> impl IntoResponse {
-    match wf_api::checkpoint::provenance::list_changes_by_actor(
-        &state.ctx,
-        &path.id,
-        query.path.as_deref(),
-        query.time_range(),
-    ) {
-        Ok(changes) => ok(changes).into_response(),
-        Err(err) => error_response(err),
-    }
-}
-
-async fn handle_list_changes_by_path(
-    State(state): State<ApiState>,
-    Path(path): Path<IdPath>,
-    Query(query): Query<ChangeQuery>,
-) -> impl IntoResponse {
-    match wf_api::checkpoint::provenance::list_changes_by_path(
-        &state.ctx,
-        &path.id,
-        query.time_range(),
-    ) {
-        Ok(changes) => ok(changes).into_response(),
         Err(err) => error_response(err),
     }
 }
@@ -128,6 +61,12 @@ async fn handle_get_actor_workspace(
         Ok(files) => ok(files).into_response(),
         Err(err) => error_response(err),
     }
+}
+
+#[derive(Debug, Deserialize)]
+struct ActorPairPath {
+    a: String,
+    b: String,
 }
 
 async fn handle_diff_actors(
@@ -157,6 +96,112 @@ async fn handle_file_timeline(
     // The route captures the file path as `id`; slashes arrive percent-encoded.
     match wf_api::checkpoint::provenance::file_timeline(&state.ctx, &path.id) {
         Ok(timeline) => ok(timeline).into_response(),
+        Err(err) => error_response(err),
+    }
+}
+
+/// Read-only file content: workspace current state with sandbox checks.
+/// Snapshot-versioned reads are timeline-anchored (see `file_timeline` for
+/// snapshot ids + hashes). Direct workspace mutations (rename, sessions,
+/// undo/redo) are explicit file operations; the approval channel covers
+/// human-in-the-loop tool approvals.
+#[derive(Debug, Deserialize)]
+struct ContentQuery {
+    actor: String,
+    path: String,
+}
+
+async fn handle_read_content(
+    State(state): State<ApiState>,
+    Query(query): Query<ContentQuery>,
+) -> impl IntoResponse {
+    match wf_api::checkpoint::provenance::read_file_content(&state.ctx, &query.actor, &query.path) {
+        Ok(view) => ok(view).into_response(),
+        Err(err) => error_response(err),
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct TreeQuery {
+    prefix: Option<String>,
+}
+
+/// Capped directory tree view with an explicit truncation flag.
+#[derive(Debug, Serialize)]
+struct FileTreeView {
+    entries: Vec<wf_api::checkpoint::provenance::FileTreeEntry>,
+    truncated: bool,
+    total: usize,
+}
+
+async fn handle_list_tree(
+    State(state): State<ApiState>,
+    Path(path): Path<IdPath>,
+    Query(query): Query<TreeQuery>,
+) -> impl IntoResponse {
+    match wf_api::checkpoint::provenance::list_tree_capped(
+        &state.ctx,
+        &path.id,
+        query.prefix.as_deref(),
+    ) {
+        Ok(view) => ok(FileTreeView {
+            entries: view.entries,
+            truncated: view.truncated,
+            total: view.total,
+        })
+        .into_response(),
+        Err(err) => error_response(err),
+    }
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct PagedChangesQuery {
+    actor: Option<String>,
+    path: Option<String>,
+    #[serde(default)]
+    start: Option<i64>,
+    #[serde(default)]
+    end: Option<i64>,
+    #[serde(flatten)]
+    page: ListQuery,
+}
+
+async fn handle_list_changes_paged(
+    State(state): State<ApiState>,
+    Query(query): Query<PagedChangesQuery>,
+) -> impl IntoResponse {
+    let (limit, offset) = resolve_page(&query.page);
+    let time_range = match (query.start, query.end) {
+        (None, None) => None,
+        (start, end) => {
+            let start_ms = start.unwrap_or(i64::MIN / 2).saturating_mul(1000);
+            let end_ms = end.unwrap_or(i64::MAX / 2).saturating_mul(1000);
+            Some((start_ms, end_ms))
+        }
+    };
+    let changes = if let Some(actor) = query.actor.as_deref() {
+        wf_api::checkpoint::provenance::list_changes_by_actor(
+            &state.ctx,
+            actor,
+            query.path.as_deref(),
+            time_range,
+        )
+    } else if let Some(path) = query.path.as_deref() {
+        wf_api::checkpoint::provenance::list_changes_by_path(&state.ctx, path, time_range)
+    } else {
+        return error_response(wf_api::ApiError::Validation(
+            "one of actor or path is required".to_string(),
+        ));
+    };
+    match changes {
+        Ok(all) => {
+            let window = all
+                .into_iter()
+                .skip(offset as usize)
+                .take(fetch_size(limit) as usize)
+                .collect();
+            ok_page(window, limit, offset).into_response()
+        }
         Err(err) => error_response(err),
     }
 }

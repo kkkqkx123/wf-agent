@@ -21,7 +21,7 @@ use crate::workflow::workflow_execution::definition_to_graph;
 
 /// Upper bound on enumerated paths to keep DFS bounded on dense graphs.
 /// Single shared constant for every path enumeration in the crate.
-const MAX_ENUMERATED_PATHS: usize = 1000;
+pub const MAX_ENUMERATED_PATHS: usize = 1000;
 
 /// One simple path from the start node to an end node.
 #[derive(Debug, Clone, Serialize)]

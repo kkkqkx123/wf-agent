@@ -16,7 +16,7 @@ use wf_api::EventSubscriptionOptions;
 
 use crate::envelope::{err, error_response, ok, ApiError};
 use crate::extract::{ExecutionIdPath, IdPath, ListQuery};
-use crate::paged::{fetch_size, ok_page, resolve_page};
+use crate::paged::{fetch_size, ok_capped, ok_page, resolve_page, MAX_TIMELINE_ENTRIES};
 use crate::router::ApiState;
 use crate::sse::sse_response;
 
@@ -152,22 +152,35 @@ struct SearchEventsQuery {
     execution_id: Option<String>,
     agent_loop_id: Option<String>,
     workflow_id: Option<String>,
-    limit: Option<usize>,
+    #[serde(flatten)]
+    page: ListQuery,
 }
 
 async fn handle_search_events(
     State(state): State<ApiState>,
     Query(query): Query<SearchEventsQuery>,
 ) -> impl IntoResponse {
+    let (limit, offset) = resolve_page(&query.page);
+    let fetch = offset
+        .saturating_add(limit)
+        .saturating_add(1)
+        .min(MAX_EVENT_FETCH as u64) as usize;
     let options = wf_api::EventQueryOptions {
         execution_id: query.execution_id,
         agent_loop_id: query.agent_loop_id,
         workflow_id: query.workflow_id,
-        limit: query.limit,
+        limit: Some(fetch),
         event_types: None,
     };
     match wf_api::infra::events::search_events(&state.ctx, &query.q, &options).await {
-        Ok(events) => ok(events).into_response(),
+        Ok(events) => {
+            let window = events
+                .into_iter()
+                .skip(offset as usize)
+                .take(fetch_size(limit) as usize)
+                .collect();
+            ok_page(window, limit, offset).into_response()
+        }
         Err(e) => error_response(e),
     }
 }
@@ -191,7 +204,7 @@ async fn handle_execution_timeline(
     Path(path): Path<ExecutionIdPath>,
 ) -> impl IntoResponse {
     match wf_api::infra::events::timeline(&state.ctx, &path.execution_id).await {
-        Ok(events) => ok(events).into_response(),
+        Ok(events) => ok_capped(events, MAX_TIMELINE_ENTRIES).into_response(),
         Err(e) => error_response(e),
     }
 }
@@ -201,7 +214,7 @@ async fn handle_agent_timeline(
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
     match wf_api::infra::events::agent_timeline(&state.ctx, &path.id).await {
-        Ok(events) => ok(events).into_response(),
+        Ok(events) => ok_capped(events, MAX_TIMELINE_ENTRIES).into_response(),
         Err(e) => error_response(e),
     }
 }
@@ -252,9 +265,18 @@ struct AgentLoopPath {
 async fn handle_agent_events(
     State(state): State<ApiState>,
     Path(path): Path<AgentLoopPath>,
+    Query(query): Query<ListQuery>,
 ) -> impl IntoResponse {
     match wf_api::infra::events::get_agent_events(&state.ctx, &path.agent_loop_id).await {
-        Ok(events) => ok(events).into_response(),
+        Ok(events) => {
+            let (limit, offset) = resolve_page(&query);
+            let window = events
+                .into_iter()
+                .skip(offset as usize)
+                .take(fetch_size(limit) as usize)
+                .collect();
+            ok_page(window, limit, offset).into_response()
+        }
         Err(e) => error_response(e),
     }
 }
@@ -262,9 +284,18 @@ async fn handle_agent_events(
 async fn handle_agent_turn_events(
     State(state): State<ApiState>,
     Path(path): Path<AgentLoopPath>,
+    Query(query): Query<ListQuery>,
 ) -> impl IntoResponse {
     match wf_api::infra::events::get_agent_turn_events(&state.ctx, &path.agent_loop_id).await {
-        Ok(events) => ok(events).into_response(),
+        Ok(events) => {
+            let (limit, offset) = resolve_page(&query);
+            let window = events
+                .into_iter()
+                .skip(offset as usize)
+                .take(fetch_size(limit) as usize)
+                .collect();
+            ok_page(window, limit, offset).into_response()
+        }
         Err(e) => error_response(e),
     }
 }
@@ -272,11 +303,20 @@ async fn handle_agent_turn_events(
 async fn handle_agent_tool_execution_events(
     State(state): State<ApiState>,
     Path(path): Path<AgentLoopPath>,
+    Query(query): Query<ListQuery>,
 ) -> impl IntoResponse {
     match wf_api::infra::events::get_agent_tool_execution_events(&state.ctx, &path.agent_loop_id)
         .await
     {
-        Ok(events) => ok(events).into_response(),
+        Ok(events) => {
+            let (limit, offset) = resolve_page(&query);
+            let window = events
+                .into_iter()
+                .skip(offset as usize)
+                .take(fetch_size(limit) as usize)
+                .collect();
+            ok_page(window, limit, offset).into_response()
+        }
         Err(e) => error_response(e),
     }
 }
@@ -286,6 +326,9 @@ struct StreamEventsQuery {
     execution_id: Option<String>,
     agent_loop_id: Option<String>,
     workflow_id: Option<String>,
+    /// Opaque reconnect cursor (same hex token as the websocket `cursor`);
+    /// raw timestamps stay accepted for compat but are not documented.
+    since: Option<String>,
 }
 
 async fn handle_event_stream(
@@ -297,17 +340,41 @@ async fn handle_event_stream(
         tracing::warn!(target: "wf_server", "SSE connection rejected: max connections ({MAX_SSE_CLIENTS}) reached");
         return crate::envelope::service_unavailable("Too many SSE connections");
     }
+    // Client disconnect drops the guard and the stream, cancelling the
+    // subscription immediately; no explicit cancel frame is needed.
     let _guard = SseClientGuard;
 
     let execution_id = query.execution_id.clone();
     let options = EventSubscriptionOptions {
+        execution_id: query.execution_id.clone(),
+        agent_loop_id: query.agent_loop_id.clone(),
+        workflow_id: query.workflow_id.clone(),
+        event_types: None,
+    };
+    let replay_query = wf_api::EventQueryOptions {
         execution_id: query.execution_id,
         agent_loop_id: query.agent_loop_id,
         workflow_id: query.workflow_id,
         event_types: None,
+        limit: Some(500),
     };
+    let since = query.since.as_deref().and_then(crate::ws::decode_sse_since);
+    let ctx = state.ctx.clone();
+    // Bounded replay of the retained window for reconnects.
+    let backlog: Vec<wf_types::events::BaseEvent> =
+        match wf_api::infra::events::history(&ctx, &replay_query).await {
+            Ok(mut events) => {
+                events.sort_by_key(|e| e.timestamp);
+                events
+                    .into_iter()
+                    .filter(|e| since.map(|after| e.timestamp > after).unwrap_or(false))
+                    .take(200)
+                    .collect()
+            }
+            Err(_) => Vec::new(),
+        };
     let sub = wf_api::infra::events::subscribe(&state.ctx, options);
-    // Initial connection event.
+    // Initial connection event plus the bounded reconnect backlog.
     let connected = futures::stream::once(async move {
         let payload = serde_json::json!({
             "type": "connected",
@@ -316,6 +383,11 @@ async fn handle_event_stream(
         let frame = format!("data: {payload}\n\n");
         Ok::<_, Infallible>(axum::body::Bytes::from(frame))
     });
+    let backlog_stream = futures::stream::iter(backlog.into_iter().map(|event| {
+        let payload = serde_json::to_string(&event).unwrap_or_else(|_| "{}".to_string());
+        let frame = format!("data: {payload}\n\n");
+        Ok::<_, Infallible>(axum::body::Bytes::from(frame))
+    }));
     let events = futures::stream::unfold(sub, |mut sub| async move {
         match sub.next().await {
             Some(event) => {
@@ -337,7 +409,10 @@ async fn handle_event_stream(
             ))
         },
     );
-    sse_response(futures::stream::select(connected.chain(events), keepalive))
+    sse_response(futures::stream::select(
+        connected.chain(backlog_stream).chain(events),
+        keepalive,
+    ))
 }
 
 #[cfg(test)]

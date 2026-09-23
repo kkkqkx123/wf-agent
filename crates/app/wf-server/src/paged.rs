@@ -20,6 +20,11 @@ use crate::extract::ListQuery;
 pub(crate) const DEFAULT_PAGE_LIMIT: u64 = 50;
 /// Hard cap for a single page; large dumps stay pageable instead of fatal.
 pub(crate) const MAX_PAGE_LIMIT: u64 = 500;
+/// Hard cap for checkpoint and tool chains; chains are single-parent
+/// structures, so they are capped with a truncation flag instead of paged.
+pub(crate) const MAX_CHAIN_ENTRIES: usize = 500;
+/// Hard cap for per-execution and per-loop timelines and event views.
+pub(crate) const MAX_TIMELINE_ENTRIES: usize = 5000;
 
 /// One page of a list response.
 #[derive(Serialize)]
@@ -66,6 +71,33 @@ pub(crate) fn ok_page<T: Serialize>(
     offset: u64,
 ) -> Json<ApiEnvelope<PageView<T>>> {
     ok(PageView::from_window(window, limit, offset))
+}
+
+/// Capped list view for chains and timelines: full structure up to a hard
+/// cap with an explicit truncation flag and pre-truncation total.
+#[derive(Serialize)]
+pub(crate) struct CappedView<T: Serialize> {
+    pub(crate) items: Vec<T>,
+    pub(crate) truncated: bool,
+    pub(crate) total: usize,
+}
+
+impl<T: Serialize> CappedView<T> {
+    pub(crate) fn from_all(mut all: Vec<T>, cap: usize) -> Self {
+        let total = all.len();
+        let truncated = total > cap;
+        all.truncate(cap);
+        Self {
+            items: all,
+            truncated,
+            total,
+        }
+    }
+}
+
+/// Render a full list through the capped view.
+pub(crate) fn ok_capped<T: Serialize>(all: Vec<T>, cap: usize) -> Json<ApiEnvelope<CappedView<T>>> {
+    ok(CappedView::from_all(all, cap))
 }
 
 #[cfg(test)]

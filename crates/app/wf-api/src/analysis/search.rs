@@ -27,6 +27,7 @@ pub enum SearchResourceType {
     Checkpoint,
     Event,
     AgentLoop,
+    Message,
 }
 
 impl SearchResourceType {
@@ -39,11 +40,12 @@ impl SearchResourceType {
             SearchResourceType::Checkpoint => "checkpoint",
             SearchResourceType::Event => "event",
             SearchResourceType::AgentLoop => "agent_loop",
+            SearchResourceType::Message => "message",
         }
     }
 
     /// All searchable resource types, in a stable order.
-    pub fn all() -> [SearchResourceType; 6] {
+    pub fn all() -> [SearchResourceType; 7] {
         [
             SearchResourceType::Workflow,
             SearchResourceType::Execution,
@@ -51,6 +53,7 @@ impl SearchResourceType {
             SearchResourceType::Checkpoint,
             SearchResourceType::Event,
             SearchResourceType::AgentLoop,
+            SearchResourceType::Message,
         ]
     }
 }
@@ -63,6 +66,9 @@ pub struct SearchOptions {
     pub limit_per_type: Option<usize>,
     /// Maximum total results; `None` uses the default.
     pub limit_total: Option<usize>,
+    /// Opaque continuation token from a previous page; encodes per-source
+    /// offsets so the next page resumes where the last one stopped.
+    pub cursor: Option<String>,
 }
 
 /// Default maximum results per resource type when no explicit limit is given.
@@ -89,6 +95,10 @@ pub struct SearchResultItem {
     pub label: String,
     pub score: u32,
     pub matches: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub execution_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent_loop_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -98,6 +108,8 @@ pub struct SearchResult {
     pub by_type: BTreeMap<String, Vec<SearchResultItem>>,
     pub total: usize,
     pub truncated: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next_cursor: Option<String>,
 }
 
 pub async fn search(
@@ -113,19 +125,27 @@ pub async fn search(
             by_type: BTreeMap::new(),
             total: 0,
             truncated: false,
+            next_cursor: None,
         });
     }
     let (types, per_type, total_limit) = options.effective();
+    let cursor_offsets = decode_cursor(options.cursor.as_deref());
 
     let futures = types
         .iter()
         .copied()
         .map(|resource_type| {
             let query_ref = &query;
+            let start = cursor_offsets
+                .get(resource_type.as_str())
+                .copied()
+                .unwrap_or(0);
             async move {
-                let result = search_type(ctx, query_ref, resource_type, per_type).await;
+                // Fetch enough to skip the cursor offset, then page.
+                let fetch = start.saturating_add(per_type);
+                let result = search_type(ctx, query_ref, resource_type, fetch).await;
                 match result {
-                    Ok(items) => items,
+                    Ok(items) => items.into_iter().skip(start).take(per_type).collect(),
                     Err(err) => {
                         tracing::warn!(
                             target: "wf_api",
@@ -161,13 +181,62 @@ pub async fn search(
     }
 
     let total = results.len();
+    let next_cursor = if truncated {
+        let mut next = cursor_offsets.clone();
+        for item in &results {
+            // Advance each represented source by the items consumed on this
+            // page; sources absent from this page keep their offset.
+            let entry = next.entry(item.r#type.clone()).or_insert(0);
+            *entry = entry.saturating_add(1);
+        }
+        // Cap cursor growth: only track sources in this query.
+        next.retain(|k, _| types.iter().any(|t| t.as_str() == k));
+        Some(encode_cursor(&next))
+    } else {
+        None
+    };
     Ok(SearchResult {
         query,
         items: results,
         by_type,
         total,
         truncated,
+        next_cursor,
     })
+}
+
+/// Encode per-source offsets as an opaque continuation token (hex of JSON).
+fn encode_cursor(offsets: &BTreeMap<String, usize>) -> String {
+    let json = serde_json::to_string(offsets).unwrap_or_else(|_| "{}".to_string());
+    let mut out = String::with_capacity(json.len() * 2);
+    for byte in json.as_bytes() {
+        out.push(char::from_digit((byte >> 4) as u32, 16).unwrap_or('0'));
+        out.push(char::from_digit((byte & 0x0f) as u32, 16).unwrap_or('0'));
+    }
+    out
+}
+
+/// Decode an opaque continuation token back to per-source offsets.
+/// Unknown or malformed tokens degrade to the start of every source.
+fn decode_cursor(cursor: Option<&str>) -> BTreeMap<String, usize> {
+    let Some(raw) = cursor else {
+        return BTreeMap::new();
+    };
+    if !raw.len().is_multiple_of(2) {
+        return BTreeMap::new();
+    }
+    let mut bytes = Vec::with_capacity(raw.len() / 2);
+    let chars: Vec<char> = raw.chars().collect();
+    for pair in chars.chunks(2) {
+        let hi = pair[0].to_digit(16);
+        let lo = pair[1].to_digit(16);
+        match (hi, lo) {
+            (Some(hi), Some(lo)) => bytes.push(((hi << 4) | lo) as u8),
+            _ => return BTreeMap::new(),
+        }
+    }
+    let json = String::from_utf8(bytes).unwrap_or_default();
+    serde_json::from_str(&json).unwrap_or_default()
 }
 
 async fn search_type(
@@ -183,6 +252,7 @@ async fn search_type(
         SearchResourceType::Checkpoint => search_checkpoints(ctx, query, limit).await,
         SearchResourceType::Event => Ok(search_events(ctx, query, limit).await),
         SearchResourceType::AgentLoop => search_agent_loops(ctx, query, limit).await,
+        SearchResourceType::Message => search_messages(ctx, query, limit).await,
     }
 }
 
@@ -216,6 +286,8 @@ async fn search_workflows(
                 label: template.name.clone(),
                 score,
                 matches: matched_fields(query, &fields),
+                execution_id: None,
+                agent_loop_id: None,
             });
         }
     }
@@ -243,6 +315,8 @@ async fn search_executions(
                 label: format!("{} (workflow {})", entity.id, entity.workflow_id),
                 score,
                 matches: matched_fields(query, &fields),
+                execution_id: Some(entity.id.clone()),
+                agent_loop_id: None,
             });
         }
     }
@@ -270,6 +344,8 @@ async fn search_tasks(
                 label: format!("{} ({})", entity.task_type, entity.status),
                 score,
                 matches: matched_fields(query, &fields),
+                execution_id: entity.execution_id.clone(),
+                agent_loop_id: None,
             });
         }
     }
@@ -297,6 +373,8 @@ async fn search_checkpoints(
                 label: format!("{} (entity {})", entity.id, entity.entity_id),
                 score,
                 matches: matched_fields(query, &fields),
+                execution_id: None,
+                agent_loop_id: None,
             });
         }
     }
@@ -327,6 +405,8 @@ async fn search_events(ctx: &ApiContext, query: &str, limit: usize) -> Vec<Searc
                 label: format!("Event {}", event.r#type.as_str()),
                 score,
                 matches: matched_fields(query, &fields),
+                execution_id: event.execution_id.clone(),
+                agent_loop_id: event.agent_loop_id.clone(),
             });
         }
     }
@@ -354,8 +434,40 @@ async fn search_agent_loops(
                 label: format!("{} (definition {})", entity.id, entity.definition_id),
                 score,
                 matches: matched_fields(query, &fields),
+                execution_id: Some(entity.id.clone()),
+                agent_loop_id: Some(entity.id.clone()),
             });
         }
+    }
+    Ok(sorted_truncated(out, limit))
+}
+
+/// Message search reuses the single-source message keyword index and fans
+/// out through the unified search. Results carry loop ownership for jumps.
+async fn search_messages(
+    ctx: &ApiContext,
+    query: &str,
+    limit: usize,
+) -> ApiResult<Vec<SearchResultItem>> {
+    let records = crate::entity::message::search(ctx, query, Some(limit)).await?;
+    let mut out = Vec::with_capacity(records.len());
+    for record in records {
+        let text = crate::entity::message::message_text(&record.message);
+        let fields = vec![record.id.clone(), record.execution_id.clone(), text.clone()];
+        let item_score = score(query, &fields).max(1);
+        let label = {
+            let snippet: String = text.chars().take(80).collect();
+            format!("{}: {snippet}", record.id)
+        };
+        out.push(SearchResultItem {
+            id: record.id.clone(),
+            r#type: "message".into(),
+            label,
+            score: item_score,
+            matches: matched_fields(query, &fields),
+            execution_id: Some(record.execution_id.clone()),
+            agent_loop_id: record.agent_loop_id.clone(),
+        });
     }
     Ok(sorted_truncated(out, limit))
 }
@@ -656,6 +768,7 @@ mod tests {
                 types: Some(vec![SearchResourceType::Task]),
                 limit_per_type: Some(5),
                 limit_total: Some(3),
+                cursor: None,
             },
         )
         .await
@@ -693,5 +806,111 @@ mod tests {
         let first_ids: Vec<String> = first.items.iter().map(|i| i.id.clone()).collect();
         let second_ids: Vec<String> = second.items.iter().map(|i| i.id.clone()).collect();
         assert_eq!(first_ids, second_ids);
+    }
+
+    #[tokio::test]
+    async fn test_search_message_domain_carries_loop_ownership() {
+        use wf_types::message::{Message, MessageContentValue, MessageRole};
+
+        let ctx = ctx_only();
+        for i in 0..3 {
+            crate::entity::message::add_message(
+                &ctx,
+                "exec-msg",
+                Some("loop-msg"),
+                Message {
+                    id: format!("msg-{i}"),
+                    role: MessageRole::User,
+                    content: MessageContentValue::Text(format!("deploy token {i}")),
+                    timestamp: 100 + i,
+                    tool_call_id: None,
+                    tool_name: None,
+                    tool_calls: None,
+                    thinking: None,
+                    metadata: None,
+                },
+            )
+            .await
+            .unwrap();
+        }
+        let result = search(
+            &ctx,
+            "deploy",
+            &SearchOptions {
+                types: Some(vec![SearchResourceType::Message]),
+                ..SearchOptions::default()
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(result.items.len(), 3);
+        assert!(result.items.iter().all(|i| i.r#type == "message"));
+        assert!(result
+            .items
+            .iter()
+            .all(|i| i.agent_loop_id.as_deref() == Some("loop-msg")));
+        assert!(result
+            .items
+            .iter()
+            .all(|i| i.execution_id.as_deref() == Some("exec-msg")));
+    }
+
+    #[tokio::test]
+    async fn test_search_cursor_continues_across_pages() {
+        let ctx = ctx_only();
+        for i in 0..30 {
+            let task = wf_types::TaskStorageMetadata {
+                id: format!("task-cursor-{:02}", i),
+                task_type: "search".into(),
+                status: "pending".into(),
+                execution_id: None,
+                instance_id: None,
+                created_at: wf_common::now(),
+                updated_at: wf_common::now(),
+            };
+            ctx.storage.task.save(&task).await.unwrap();
+        }
+        let first = search(
+            &ctx,
+            "cursor",
+            &SearchOptions {
+                types: Some(vec![SearchResourceType::Task]),
+                limit_per_type: Some(30),
+                limit_total: Some(10),
+                cursor: None,
+            },
+        )
+        .await
+        .unwrap();
+        assert!(first.truncated);
+        let cursor = first.next_cursor.clone().expect("cursor present");
+        let second = search(
+            &ctx,
+            "cursor",
+            &SearchOptions {
+                types: Some(vec![SearchResourceType::Task]),
+                limit_per_type: Some(30),
+                limit_total: Some(10),
+                cursor: Some(cursor),
+            },
+        )
+        .await
+        .unwrap();
+        assert_eq!(second.total, 10);
+        let first_ids: std::collections::HashSet<&str> =
+            first.items.iter().map(|i| i.id.as_str()).collect();
+        for item in &second.items {
+            assert!(!first_ids.contains(item.id.as_str()), "no repeats");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_cursor_malformed_degrades_to_start() {
+        assert!(decode_cursor(None).is_empty());
+        assert!(decode_cursor(Some("zz")).is_empty());
+        let mut offsets = BTreeMap::new();
+        offsets.insert("task".to_string(), 7);
+        let token = encode_cursor(&offsets);
+        assert_eq!(decode_cursor(Some(&token)).get("task"), Some(&7));
     }
 }

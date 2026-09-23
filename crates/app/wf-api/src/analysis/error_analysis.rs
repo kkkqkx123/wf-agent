@@ -55,7 +55,16 @@ pub struct AdvancedWorkflowErrorAnalysis {
     pub most_problematic_nodes: Vec<ProblematicNode>,
     /// `increasing` | `decreasing` | `stable`.
     pub error_trend: ErrorTrend,
+    /// True when hotspot lists were capped for size.
+    #[serde(default)]
+    pub truncated: bool,
 }
+
+/// Hard caps keeping error dumps bounded for large executions.
+pub const MAX_ERROR_CONTEXT_CHAIN: usize = 200;
+pub const MAX_RECOVERY_RECOMMENDATIONS: usize = 200;
+pub const MAX_SIMILAR_GROUPS: usize = 50;
+pub const MAX_SIMILAR_EXECUTIONS_PER_GROUP: usize = 100;
 
 /// Reference to a workflow node affected by an error.
 #[derive(Debug, Clone, Serialize)]
@@ -170,7 +179,7 @@ pub async fn recovery_recommendations(
     execution_id: &str,
 ) -> ApiResult<Vec<ErrorRecommendation>> {
     let records = workflow_error_records(ctx, execution_id).await?;
-    Ok(records
+    let mut out: Vec<ErrorRecommendation> = records
         .iter()
         .filter_map(|record| {
             let action = match &record.recovery_action {
@@ -186,7 +195,9 @@ pub async fn recovery_recommendations(
                 timestamp: record.timestamp,
             })
         })
-        .collect())
+        .collect();
+    out.truncate(MAX_RECOVERY_RECOMMENDATIONS);
+    Ok(out)
 }
 
 /// Errors similar to this execution's errors across all persisted
@@ -236,7 +247,16 @@ pub async fn similar_errors(
     }
     let mut groups: Vec<SimilarErrorGroup> = clusters.into_values().collect();
     groups.sort_by_key(|group| std::cmp::Reverse(group.count));
-    groups.truncate(if limit == 0 { 20 } else { limit });
+    let capped_limit = if limit == 0 {
+        20
+    } else {
+        limit.min(MAX_SIMILAR_GROUPS)
+    };
+    groups.truncate(capped_limit);
+    for group in &mut groups {
+        group.executions.truncate(MAX_SIMILAR_EXECUTIONS_PER_GROUP);
+        group.nodes.truncate(MAX_SIMILAR_EXECUTIONS_PER_GROUP);
+    }
     Ok(groups)
 }
 
@@ -391,8 +411,8 @@ pub async fn error_context_chain(
     execution_id: &str,
 ) -> ApiResult<Vec<ErrorContextView>> {
     let records = workflow_error_records(ctx, execution_id).await?;
-    let mut contexts = Vec::with_capacity(records.len());
-    for record in &records {
+    let mut contexts = Vec::with_capacity(records.len().min(MAX_ERROR_CONTEXT_CHAIN));
+    for record in records.iter().take(MAX_ERROR_CONTEXT_CHAIN) {
         contexts.push(error_context(ctx, execution_id, &record.id).await?);
     }
     contexts.sort_by_key(|c| c.timestamp);
@@ -415,6 +435,7 @@ pub async fn get_advanced_error_analysis(
             temporal_pattern: "none".to_string(),
             most_problematic_nodes: Vec::new(),
             error_trend: ErrorTrend::Stable,
+            truncated: false,
         });
     }
 
@@ -480,6 +501,7 @@ pub async fn get_advanced_error_analysis(
     let temporal_pattern = analyze_temporal_pattern(&sorted);
     let error_trend = analyze_error_trend(&sorted);
 
+    let truncated = hotspots.len() > 10;
     Ok(AdvancedWorkflowErrorAnalysis {
         execution_id: execution_id.to_string(),
         total_errors: records.len() as u32,
@@ -488,6 +510,7 @@ pub async fn get_advanced_error_analysis(
         temporal_pattern,
         most_problematic_nodes,
         error_trend,
+        truncated,
     })
 }
 

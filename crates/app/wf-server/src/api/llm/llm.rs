@@ -16,7 +16,8 @@ use serde_json::Value;
 use wf_api::{LlmProfile, LlmRequest};
 
 use crate::envelope::{error_response, ok};
-use crate::extract::{IdPath, NamePath};
+use crate::extract::{IdPath, ListQuery, NamePath};
+use crate::paged::{fetch_size, ok_page, resolve_page};
 use crate::router::ApiState;
 use crate::sse::sse_response;
 pub(crate) fn routes() -> Router<ApiState> {
@@ -137,6 +138,8 @@ struct ListProfilesQuery {
     name: Option<String>,
     format: Option<String>,
     model: Option<String>,
+    #[serde(flatten)]
+    page: ListQuery,
 }
 
 async fn handle_list_profiles(
@@ -153,7 +156,15 @@ async fn handle_list_profiles(
         model: query.model,
     };
     match wf_api::llm::llm_profile::query(&state.ctx, &filter).await {
-        Ok(profiles) => ok(profiles).into_response(),
+        Ok(profiles) => {
+            let (limit, offset) = resolve_page(&query.page);
+            let window = profiles
+                .into_iter()
+                .skip(offset as usize)
+                .take(fetch_size(limit) as usize)
+                .collect();
+            ok_page(window, limit, offset).into_response()
+        }
         Err(e) => error_response(e),
     }
 }

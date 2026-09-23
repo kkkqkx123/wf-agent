@@ -18,7 +18,7 @@ use wf_api::{AgentLoopConfig, AgentLoopInput};
 
 use crate::envelope::{error_response, ok};
 use crate::extract::{IdNamePath, IdPath, ListQuery};
-use crate::paged::{fetch_size, ok_page, resolve_page};
+use crate::paged::{fetch_size, ok_capped, ok_page, resolve_page, MAX_TIMELINE_ENTRIES};
 use crate::router::ApiState;
 use crate::sse::sse_response;
 pub(crate) fn routes() -> Router<ApiState> {
@@ -391,6 +391,8 @@ async fn handle_cancel_loop(
 struct LoopSummariesQuery {
     status: Option<String>,
     profile_id: Option<String>,
+    #[serde(flatten)]
+    page: ListQuery,
 }
 
 /// Live-first agent loop summaries (live registry merged with persisted
@@ -421,7 +423,15 @@ async fn handle_loop_summaries(
         created_at_range: None,
     };
     match wf_api::agent::agent_loop_registry::summaries(&state.ctx, Some(&filter)).await {
-        Ok(summaries) => ok(summaries).into_response(),
+        Ok(summaries) => {
+            let (limit, offset) = resolve_page(&query.page);
+            let window = summaries
+                .into_iter()
+                .skip(offset as usize)
+                .take(fetch_size(limit) as usize)
+                .collect();
+            ok_page(window, limit, offset).into_response()
+        }
         Err(e) => error_response(e),
     }
 }
@@ -453,9 +463,18 @@ async fn handle_loop_summary(
 async fn handle_iteration_history(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
+    Query(query): Query<ListQuery>,
 ) -> impl IntoResponse {
     match wf_api::agent::agent_loop_registry::iteration_history(&state.ctx, &path.id).await {
-        Ok(history) => ok(history).into_response(),
+        Ok(history) => {
+            let (limit, offset) = resolve_page(&query);
+            let window = history
+                .into_iter()
+                .skip(offset as usize)
+                .take(fetch_size(limit) as usize)
+                .collect();
+            ok_page(window, limit, offset).into_response()
+        }
         Err(e) => error_response(e),
     }
 }
@@ -476,7 +495,7 @@ async fn handle_loop_timeline(
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
     match wf_api::agent::agent_loop_registry::execution_timeline(&state.ctx, &path.id).await {
-        Ok(timeline) => ok(timeline).into_response(),
+        Ok(timeline) => ok_capped(timeline, MAX_TIMELINE_ENTRIES).into_response(),
         Err(e) => error_response(e),
     }
 }
@@ -484,11 +503,20 @@ async fn handle_loop_timeline(
 async fn handle_variable_history(
     State(state): State<ApiState>,
     Path(path): Path<IdNamePath>,
+    Query(query): Query<ListQuery>,
 ) -> impl IntoResponse {
     match wf_api::agent::agent_loop_registry::variable_history(&state.ctx, &path.id, &path.name)
         .await
     {
-        Ok(history) => ok(history).into_response(),
+        Ok(history) => {
+            let (limit, offset) = resolve_page(&query);
+            let window = history
+                .into_iter()
+                .skip(offset as usize)
+                .take(fetch_size(limit) as usize)
+                .collect();
+            ok_page(window, limit, offset).into_response()
+        }
         Err(e) => error_response(e),
     }
 }

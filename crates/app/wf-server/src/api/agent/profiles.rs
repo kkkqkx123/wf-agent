@@ -11,6 +11,7 @@ use wf_api::AgentProfileListOptions;
 
 use crate::envelope::{error_response, ok};
 use crate::extract::{IdPath, ListQuery};
+use crate::paged::{fetch_size, ok_page, resolve_page};
 use crate::router::ApiState;
 pub(crate) fn routes() -> Router<ApiState> {
     Router::new()
@@ -54,14 +55,15 @@ async fn handle_list_profiles(
     State(state): State<ApiState>,
     Query(query): Query<ListProfilesQuery>,
 ) -> impl IntoResponse {
+    let (limit, offset) = resolve_page(&query.page);
     let options = AgentProfileListOptions {
-        offset: query.page.offset,
-        limit: query.page.limit,
+        offset: Some(offset),
+        limit: Some(fetch_size(limit)),
         name_filter: query.name,
         is_default: query.is_default,
     };
     match wf_api::agent::agent::list_agent_profiles(&state.ctx.storage, Some(options)).await {
-        Ok(profiles) => ok(profiles).into_response(),
+        Ok(profiles) => ok_page(profiles, limit, offset).into_response(),
         Err(e) => error_response(e),
     }
 }
@@ -105,5 +107,48 @@ async fn handle_delete_profile(
     match wf_api::agent::agent::delete_agent_profile(&state.ctx.storage, &path.id).await {
         Ok(deleted) => ok(deleted).into_response(),
         Err(e) => error_response(e),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use axum::body::Body as AxBody;
+    use axum::http::{Request, StatusCode};
+    use std::sync::Arc;
+    use tower::ServiceExt;
+    use wf_api::ApiContext;
+
+    fn make_ctx() -> Arc<ApiContext> {
+        Arc::new(ApiContext::new(
+            wf_storage::context::StorageContext::new_memory(),
+            Arc::new(wf_resource::registry::ResourceRegistries::new()),
+        ))
+    }
+
+    async fn json_body(response: axum::response::Response) -> serde_json::Value {
+        let bytes = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        serde_json::from_slice(&bytes).unwrap()
+    }
+
+    #[tokio::test]
+    async fn profiles_list_uses_cursor_envelope() {
+        let ctx = make_ctx();
+        let response = crate::router::api_router(ctx)
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/agents")
+                    .body(AxBody::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = json_body(response).await;
+        assert!(body["data"]["items"].is_array());
+        assert_eq!(body["data"]["limit"], 50);
+        assert_eq!(body["data"]["offset"], 0);
+        assert!(body["data"]["has_more"].is_boolean());
     }
 }

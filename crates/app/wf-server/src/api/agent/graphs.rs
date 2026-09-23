@@ -7,7 +7,7 @@ use axum::extract::{Path, State};
 use axum::response::IntoResponse;
 use axum::routing::get;
 use axum::Router;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::envelope::{error_response, ok};
 use crate::extract::IdPath;
@@ -116,9 +116,27 @@ async fn handle_all_paths(
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
     match wf_api::agent::agent_graph::all_paths(&state.ctx, &path.id).await {
-        Ok(paths) => ok(paths).into_response(),
+        Ok(paths) => {
+            let total = paths.len();
+            // Aligned with execution_graph::MAX_ENUMERATED_PATHS; the domain
+            // DFS already caps at 1000, the flag makes the cap explicit.
+            let truncated = total >= wf_api::workflow::execution_graph::MAX_ENUMERATED_PATHS;
+            ok(CappedPaths {
+                paths,
+                truncated,
+                total,
+            })
+            .into_response()
+        }
         Err(e) => error_response(e),
     }
+}
+
+#[derive(Serialize)]
+struct CappedPaths {
+    paths: Vec<Vec<String>>,
+    truncated: bool,
+    total: usize,
 }
 
 async fn handle_graph_execution_path(

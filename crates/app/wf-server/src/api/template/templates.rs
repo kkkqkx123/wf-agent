@@ -13,6 +13,7 @@ use wf_api::{NodeTemplateStorageMetadata, TriggerTemplateStorageMetadata};
 
 use crate::envelope::{error_response, ok};
 use crate::extract::{IdPath, ListQuery};
+use crate::paged::{fetch_size, ok_page, resolve_page};
 use crate::router::ApiState;
 
 pub(crate) fn routes() -> Router<ApiState> {
@@ -67,9 +68,10 @@ async fn handle_list_node_templates(
     State(state): State<ApiState>,
     Query(query): Query<ListNodeTemplatesQuery>,
 ) -> impl IntoResponse {
+    let (limit, offset) = resolve_page(&query.page);
     let options = NodeTemplateListOptions {
-        offset: query.page.offset,
-        limit: query.page.limit,
+        offset: Some(offset),
+        limit: Some(fetch_size(limit)),
         node_type_filter: query.node_type,
     };
     match wf_api::template::node_template::node_template_summaries(
@@ -78,7 +80,7 @@ async fn handle_list_node_templates(
     )
     .await
     {
-        Ok(templates) => ok(templates).into_response(),
+        Ok(templates) => ok_page(templates, limit, offset).into_response(),
         Err(e) => error_response(e),
     }
 }
@@ -129,11 +131,28 @@ async fn handle_delete_node_template(
 async fn handle_export_node_template(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
+    Query(query): Query<ExportTemplateQuery>,
 ) -> impl IntoResponse {
     match wf_api::template::node_template::export_template(&state.ctx.storage, &path.id).await {
-        Ok(json) => ok(json).into_response(),
+        Ok(json) => {
+            if query.download.unwrap_or(false) {
+                crate::envelope::download(
+                    &json,
+                    "application/json",
+                    &format!("node-template-{}.json", path.id),
+                )
+                .into_response()
+            } else {
+                ok(json).into_response()
+            }
+        }
         Err(e) => error_response(e),
     }
+}
+
+#[derive(Deserialize)]
+struct ExportTemplateQuery {
+    download: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -156,6 +175,8 @@ async fn handle_import_node_template(
 #[derive(Deserialize)]
 struct ListTriggerTemplatesQuery {
     trigger_type: Option<String>,
+    #[serde(flatten)]
+    page: ListQuery,
 }
 
 async fn handle_list_trigger_templates(
@@ -170,7 +191,15 @@ async fn handle_list_trigger_templates(
         name: None,
     };
     match wf_api::trigger::template::summaries(&state.ctx, Some(&filter)).await {
-        Ok(templates) => ok(templates).into_response(),
+        Ok(templates) => {
+            let (limit, offset) = resolve_page(&query.page);
+            let window = templates
+                .into_iter()
+                .skip(offset as usize)
+                .take(fetch_size(limit) as usize)
+                .collect();
+            ok_page(window, limit, offset).into_response()
+        }
         Err(e) => error_response(e),
     }
 }
@@ -220,9 +249,21 @@ async fn handle_delete_trigger_template(
 async fn handle_export_trigger_template(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
+    Query(query): Query<ExportTemplateQuery>,
 ) -> impl IntoResponse {
     match wf_api::trigger::template::export_template(&state.ctx, &path.id).await {
-        Ok(json) => ok(json).into_response(),
+        Ok(json) => {
+            if query.download.unwrap_or(false) {
+                crate::envelope::download(
+                    &json,
+                    "application/json",
+                    &format!("trigger-template-{}.json", path.id),
+                )
+                .into_response()
+            } else {
+                ok(json).into_response()
+            }
+        }
         Err(e) => error_response(e),
     }
 }

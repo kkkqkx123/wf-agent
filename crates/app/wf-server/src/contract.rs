@@ -4,10 +4,11 @@
 //! generator note below) so frontend codegen never drifts from the server.
 //! The probe test requests every listed route and fails on drift: a listed
 //! route that 404s with an empty body (axum fallback) means the declaration
-//! moved, and the generator keeps the file in sync.
+//! moved. The reverse direction is covered by regenerating and diffing the
+//! committed file.
 //!
-//! Regenerate with `scripts/gen_server_contract.py` (plus the `/contract`
-//! route itself, appended by hand since it lives outside `src/api`).
+//! Regenerate with `scripts/gen_server_contract.py` (the `/contract` route
+//! itself is appended by the generator since it lives outside `src/api`).
 
 use axum::http::{header, StatusCode};
 use axum::response::{IntoResponse, Response};

@@ -13,6 +13,7 @@ use wf_api::VariableListOptions;
 
 use crate::envelope::{error_response, ok};
 use crate::extract::{ExecutionIdPath, ListQuery, NamePath};
+use crate::paged::{fetch_size, ok_page, resolve_page};
 use crate::router::ApiState;
 pub(crate) fn routes() -> Router<ApiState> {
     Router::new()
@@ -58,14 +59,15 @@ async fn handle_list_variables(
     State(state): State<ApiState>,
     Query(query): Query<ListVariablesQuery>,
 ) -> impl IntoResponse {
+    let (limit, offset) = resolve_page(&query.page);
     let options = VariableListOptions {
-        offset: query.page.offset,
-        limit: query.page.limit,
+        offset: Some(offset),
+        limit: Some(fetch_size(limit)),
         scope_filter: query.scope,
         execution_id_filter: query.execution_id,
     };
     match wf_api::entity::variable::list(&state.ctx, &options).await {
-        Ok(variables) => ok(variables).into_response(),
+        Ok(variables) => ok_page(variables, limit, offset).into_response(),
         Err(e) => error_response(e),
     }
 }
@@ -173,10 +175,24 @@ struct BatchSetVariablesBody {
     entries: Vec<VariableEntry>,
 }
 
+/// Maximum entries per execution-scope variable batch; mirrors the loop
+/// batch contract. The execution scope keeps fail-fast semantics.
+const MAX_EXECUTION_BATCH_VARIABLES: usize = 100;
+
 async fn handle_batch_set_variables(
     State(state): State<ApiState>,
     Json(body): Json<BatchSetVariablesBody>,
 ) -> impl IntoResponse {
+    if body.entries.is_empty() {
+        return error_response(wf_api::ApiError::Validation(
+            "entries must not be empty".to_string(),
+        ));
+    }
+    if body.entries.len() > MAX_EXECUTION_BATCH_VARIABLES {
+        return error_response(wf_api::ApiError::Validation(format!(
+            "at most {MAX_EXECUTION_BATCH_VARIABLES} entries per batch"
+        )));
+    }
     let entries: Vec<(String, String, Value)> = body
         .entries
         .into_iter()
@@ -208,6 +224,7 @@ async fn handle_import_variables(
     }
 }
 
+/// Execution scopes stay a bare array: single-parent bounded vocabulary.
 async fn handle_variable_scopes(
     State(state): State<ApiState>,
     Path(path): Path<ExecutionIdPath>,
@@ -226,9 +243,18 @@ struct ScopePath {
 async fn handle_variables_by_scope(
     State(state): State<ApiState>,
     Path(path): Path<ScopePath>,
+    Query(query): Query<ListQuery>,
 ) -> impl IntoResponse {
     match wf_api::entity::variable::list_by_scope(&state.ctx, &path.scope).await {
-        Ok(variables) => ok(variables).into_response(),
+        Ok(variables) => {
+            let (limit, offset) = resolve_page(&query);
+            let window = variables
+                .into_iter()
+                .skip(offset as usize)
+                .take(fetch_size(limit) as usize)
+                .collect();
+            ok_page(window, limit, offset).into_response()
+        }
         Err(e) => error_response(e),
     }
 }
@@ -240,6 +266,7 @@ struct NodeVariablePath {
     node_id: String,
 }
 
+/// Variables at one node stay a bare array: single-node bounded set.
 async fn handle_variables_at_node(
     State(state): State<ApiState>,
     Path(path): Path<NodeVariablePath>,
@@ -255,11 +282,29 @@ async fn handle_variables_at_node(
 async fn handle_variable_export(
     State(state): State<ApiState>,
     Path(path): Path<ExecutionIdPath>,
+    Query(query): Query<VariableExportQuery>,
 ) -> impl IntoResponse {
     match wf_api::entity::variable::export(&state.ctx, &path.execution_id).await {
-        Ok(export) => ok(export).into_response(),
+        Ok(export) => {
+            if query.download.unwrap_or(false) {
+                let payload = serde_json::to_string_pretty(&export).unwrap_or_default();
+                crate::envelope::download(
+                    &payload,
+                    "application/json",
+                    &format!("execution-{}-variables.json", path.execution_id),
+                )
+                .into_response()
+            } else {
+                ok(export).into_response()
+            }
+        }
         Err(e) => error_response(e),
     }
+}
+
+#[derive(Deserialize)]
+struct VariableExportQuery {
+    download: Option<bool>,
 }
 
 #[derive(Deserialize)]
@@ -267,6 +312,8 @@ struct VariableHistoryQuery {
     name: String,
     scope: Option<String>,
     execution_id: Option<String>,
+    #[serde(flatten)]
+    page: ListQuery,
 }
 
 async fn handle_variable_history(
@@ -281,7 +328,15 @@ async fn handle_variable_history(
     )
     .await
     {
-        Ok(history) => ok(history).into_response(),
+        Ok(history) => {
+            let (limit, offset) = resolve_page(&query.page);
+            let window = history
+                .into_iter()
+                .skip(offset as usize)
+                .take(fetch_size(limit) as usize)
+                .collect();
+            ok_page(window, limit, offset).into_response()
+        }
         Err(e) => error_response(e),
     }
 }

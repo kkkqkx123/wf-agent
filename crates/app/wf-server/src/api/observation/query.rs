@@ -96,8 +96,14 @@ struct ExportBody {
     download: Option<bool>,
 }
 
+#[derive(Deserialize)]
+struct ExportDownloadQuery {
+    download: Option<bool>,
+}
+
 async fn handle_export(
     State(state): State<ApiState>,
+    Query(download_query): Query<ExportDownloadQuery>,
     Json(body): Json<ExportBody>,
 ) -> impl IntoResponse {
     let format = body.format.unwrap_or(ExportFormat::Json);
@@ -123,7 +129,7 @@ async fn handle_export(
         Ok(records) => {
             let records = wf_api::apply_filter_expressions(&records, &body.expressions);
             let payload = export_to_format(&records, format);
-            if body.download.unwrap_or(false) {
+            if download_query.download.unwrap_or(false) || body.download.unwrap_or(false) {
                 download_response(&payload, format)
             } else {
                 ok(payload).into_response()
@@ -136,22 +142,12 @@ async fn handle_export(
 /// Render an export payload as a file download (`Content-Disposition:
 /// attachment`) so browsers save it instead of displaying JSON.
 fn download_response(payload: &str, format: ExportFormat) -> axum::response::Response {
-    use axum::http::header;
     let (content_type, filename) = match format {
         ExportFormat::Csv => ("text/csv; charset=utf-8", "export.csv"),
         ExportFormat::Xml => ("application/xml", "export.xml"),
         ExportFormat::Json => ("application/json", "export.json"),
     };
-    let mut response = payload.to_owned().into_response();
-    let headers = response.headers_mut();
-    if let Ok(value) = content_type.parse::<header::HeaderValue>() {
-        headers.insert(header::CONTENT_TYPE, value);
-    }
-    if let Ok(value) = format!("attachment; filename=\"{filename}\"").parse::<header::HeaderValue>()
-    {
-        headers.insert(header::CONTENT_DISPOSITION, value);
-    }
-    response
+    crate::envelope::download(payload, content_type, filename)
 }
 
 #[derive(Deserialize)]
@@ -318,5 +314,25 @@ mod tests {
         });
         let response = post_json(ctx, "/api/v1/query/evaluate", miss).await;
         assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn export_download_mode_returns_attachment_headers() {
+        let ctx = make_ctx();
+        let body = serde_json::json!({"format": "csv", "download": true});
+        let response = post_json(ctx, "/api/v1/query/export", body).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let headers = response.headers();
+        assert_eq!(
+            headers.get("content-type").unwrap(),
+            "text/csv; charset=utf-8"
+        );
+        assert!(headers
+            .get("content-disposition")
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .contains("attachment"));
+        assert!(headers.get("content-length").is_some());
     }
 }

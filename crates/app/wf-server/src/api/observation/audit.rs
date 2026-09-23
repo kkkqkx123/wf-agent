@@ -3,13 +3,15 @@
 //! are thin transport adapters over the `wf-api::audit` surface; unknown
 //! executions map to NotFound through the shared envelope.
 
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::response::IntoResponse;
 use axum::routing::get;
 use axum::Router;
+use serde::Deserialize;
 
 use crate::envelope::{error_response, ok};
-use crate::extract::IdPath;
+use crate::extract::{IdPath, ListQuery};
+use crate::paged::{fetch_size, ok_page, resolve_page};
 use crate::router::ApiState;
 
 pub(crate) fn routes() -> Router<ApiState> {
@@ -51,19 +53,46 @@ async fn handle_audit_summary(
 async fn handle_audit_report(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
+    Query(query): Query<AuditReportQuery>,
 ) -> impl IntoResponse {
     match wf_api::audit::audit_report(&state.ctx, &path.id).await {
-        Ok(report) => ok(report).into_response(),
+        Ok(report) => {
+            if query.download.unwrap_or(false) {
+                let payload = serde_json::to_string_pretty(&report).unwrap_or_default();
+                crate::envelope::download(
+                    &payload,
+                    "application/json",
+                    &format!("execution-{}-audit.json", path.id),
+                )
+                .into_response()
+            } else {
+                ok(report).into_response()
+            }
+        }
         Err(e) => error_response(e),
     }
+}
+
+#[derive(Deserialize)]
+struct AuditReportQuery {
+    download: Option<bool>,
 }
 
 async fn handle_audit_timeline(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
+    Query(query): Query<ListQuery>,
 ) -> impl IntoResponse {
     match wf_api::audit::audit_timeline(&state.ctx, &path.id).await {
-        Ok(timeline) => ok(timeline).into_response(),
+        Ok(timeline) => {
+            let (limit, offset) = resolve_page(&query);
+            let window = timeline
+                .into_iter()
+                .skip(offset as usize)
+                .take(fetch_size(limit) as usize)
+                .collect();
+            ok_page(window, limit, offset).into_response()
+        }
         Err(e) => error_response(e),
     }
 }
@@ -71,9 +100,18 @@ async fn handle_audit_timeline(
 async fn handle_audit_iterations(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
+    Query(query): Query<ListQuery>,
 ) -> impl IntoResponse {
     match wf_api::audit::list_iterations(&state.ctx, &path.id).await {
-        Ok(iterations) => ok(iterations).into_response(),
+        Ok(iterations) => {
+            let (limit, offset) = resolve_page(&query);
+            let window = iterations
+                .into_iter()
+                .skip(offset as usize)
+                .take(fetch_size(limit) as usize)
+                .collect();
+            ok_page(window, limit, offset).into_response()
+        }
         Err(e) => error_response(e),
     }
 }
@@ -81,9 +119,18 @@ async fn handle_audit_iterations(
 async fn handle_audit_tool_calls(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
+    Query(query): Query<ListQuery>,
 ) -> impl IntoResponse {
     match wf_api::audit::list_tool_calls(&state.ctx, &path.id).await {
-        Ok(calls) => ok(calls).into_response(),
+        Ok(calls) => {
+            let (limit, offset) = resolve_page(&query);
+            let window = calls
+                .into_iter()
+                .skip(offset as usize)
+                .take(fetch_size(limit) as usize)
+                .collect();
+            ok_page(window, limit, offset).into_response()
+        }
         Err(e) => error_response(e),
     }
 }
@@ -91,9 +138,18 @@ async fn handle_audit_tool_calls(
 async fn handle_audit_llm_calls(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
+    Query(query): Query<ListQuery>,
 ) -> impl IntoResponse {
     match wf_api::audit::list_llm_calls(&state.ctx, &path.id).await {
-        Ok(calls) => ok(calls).into_response(),
+        Ok(calls) => {
+            let (limit, offset) = resolve_page(&query);
+            let window = calls
+                .into_iter()
+                .skip(offset as usize)
+                .take(fetch_size(limit) as usize)
+                .collect();
+            ok_page(window, limit, offset).into_response()
+        }
         Err(e) => error_response(e),
     }
 }
@@ -101,9 +157,18 @@ async fn handle_audit_llm_calls(
 async fn handle_audit_node_executions(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
+    Query(query): Query<ListQuery>,
 ) -> impl IntoResponse {
     match wf_api::audit::list_node_executions(&state.ctx, &path.id).await {
-        Ok(nodes) => ok(nodes).into_response(),
+        Ok(nodes) => {
+            let (limit, offset) = resolve_page(&query);
+            let window = nodes
+                .into_iter()
+                .skip(offset as usize)
+                .take(fetch_size(limit) as usize)
+                .collect();
+            ok_page(window, limit, offset).into_response()
+        }
         Err(e) => error_response(e),
     }
 }

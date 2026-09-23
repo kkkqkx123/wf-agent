@@ -150,7 +150,25 @@ pub struct AuditReport {
     pub iterations: Vec<IterationAuditView>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub node_executions: Vec<NodeExecutionAuditView>,
+    /// True when iterations or node executions were capped for size.
+    #[serde(default)]
+    pub truncated: bool,
+    /// Item counts before capping, for magnitude estimates.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total_estimate: Option<AuditTotalEstimate>,
 }
+
+/// Pre-truncation magnitudes of a capped audit report.
+#[derive(Debug, Clone, Default, Serialize)]
+pub struct AuditTotalEstimate {
+    pub iterations: usize,
+    pub node_executions: usize,
+}
+
+/// Hard caps keeping large dumps bounded for the frontend.
+pub const MAX_AUDIT_ITERATIONS: usize = 500;
+pub const MAX_AUDIT_NODE_EXECUTIONS: usize = 2000;
+pub const MAX_AUDIT_TIMELINE_ENTRIES: usize = 5000;
 
 // ─── resolution helpers ────────────────────────────────────────────────────
 
@@ -755,6 +773,8 @@ pub async fn audit_timeline(
     // Phase sorting: end-of-phase entries trail same-timestamp starts so a
     // zero-duration call still renders as start → end.
     entries.sort_by_key(|entry| (entry.timestamp, timeline_phase(&entry.r#type)));
+    // Length cap keeps chain and timeline views bounded for large dumps.
+    entries.truncate(MAX_AUDIT_TIMELINE_ENTRIES);
     Ok(entries)
 }
 
@@ -990,10 +1010,28 @@ pub async fn audit_report(ctx: &ApiContext, execution_id: &str) -> ApiResult<Aud
         "workflow" => Some(list_node_executions(ctx, execution_id).await?),
         _ => None,
     };
+    let mut iterations = iterations.unwrap_or_default();
+    let mut node_executions = node_executions.unwrap_or_default();
+    let total_iterations = iterations.len();
+    let total_nodes = node_executions.len();
+    let truncated =
+        total_iterations > MAX_AUDIT_ITERATIONS || total_nodes > MAX_AUDIT_NODE_EXECUTIONS;
+    iterations.truncate(MAX_AUDIT_ITERATIONS);
+    node_executions.truncate(MAX_AUDIT_NODE_EXECUTIONS);
+    let total_estimate = if truncated {
+        Some(AuditTotalEstimate {
+            iterations: total_iterations,
+            node_executions: total_nodes,
+        })
+    } else {
+        None
+    };
     Ok(AuditReport {
         summary,
-        iterations: iterations.unwrap_or_default(),
-        node_executions: node_executions.unwrap_or_default(),
+        iterations,
+        node_executions,
+        truncated,
+        total_estimate,
     })
 }
 

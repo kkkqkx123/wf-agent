@@ -103,6 +103,7 @@ struct SearchQuery {
     types: Option<String>,
     limit_per_type: Option<usize>,
     limit: Option<usize>,
+    cursor: Option<String>,
 }
 
 async fn handle_search(
@@ -126,6 +127,7 @@ async fn handle_search(
                     "checkpoint" => Some(wf_api::SearchResourceType::Checkpoint),
                     "event" => Some(wf_api::SearchResourceType::Event),
                     "agent_loop" => Some(wf_api::SearchResourceType::AgentLoop),
+                    "message" => Some(wf_api::SearchResourceType::Message),
                     _ => None,
                 })
                 .collect()
@@ -135,6 +137,7 @@ async fn handle_search(
         types,
         limit_per_type: query.limit_per_type,
         limit_total: query.limit,
+        cursor: query.cursor,
     };
     match wf_api::analysis::search::search(&state.ctx, &query.q, &options).await {
         Ok(result) => ok(result).into_response(),

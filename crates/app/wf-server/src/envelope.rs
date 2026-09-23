@@ -138,6 +138,26 @@ pub(crate) fn error_response(e: wf_api::ApiError) -> Response {
     api_error_response_internal(e).into_response()
 }
 
+/// Render a payload as a file download (`Content-Disposition: attachment`)
+/// with content type, filename and length headers so browsers save it
+/// directly instead of displaying JSON.
+pub(crate) fn download(payload: &str, content_type: &str, filename: &str) -> Response {
+    let mut response = payload.to_owned().into_response();
+    let headers = response.headers_mut();
+    if let Ok(value) = content_type.parse::<axum::http::HeaderValue>() {
+        headers.insert(axum::http::header::CONTENT_TYPE, value);
+    }
+    if let Ok(value) =
+        format!("attachment; filename=\"{filename}\"").parse::<axum::http::HeaderValue>()
+    {
+        headers.insert(axum::http::header::CONTENT_DISPOSITION, value);
+    }
+    if let Ok(value) = payload.len().to_string().parse::<axum::http::HeaderValue>() {
+        headers.insert(axum::http::header::CONTENT_LENGTH, value);
+    }
+    response
+}
+
 /// 401 response used by the auth middleware (and, later, by handlers).
 pub(crate) fn unauthorized(message: impl Into<String>) -> Response {
     (

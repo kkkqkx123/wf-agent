@@ -22,6 +22,7 @@ use wf_api::{ToolApprovalOptions, ToolExecutionOptions};
 
 use crate::envelope::{err, error_response, ok, ApiError};
 use crate::extract::{ExecutionIdPath, IdPath, ListQuery};
+use crate::paged::{fetch_size, ok_page, resolve_page};
 use crate::router::ApiState;
 
 pub(crate) fn routes() -> Router<ApiState> {
@@ -222,9 +223,10 @@ async fn handle_list_interactions(
     State(state): State<ApiState>,
     Query(query): Query<ListInteractionsQuery>,
 ) -> impl IntoResponse {
+    let (limit, offset) = resolve_page(&query.page);
     let options = UserInteractionListOptions {
-        offset: query.page.offset,
-        limit: query.page.limit,
+        offset: Some(offset),
+        limit: Some(fetch_size(limit)),
         execution_id_filter: query.execution_id,
         status_filter: query.status,
         interaction_type_filter: query.interaction_type,
@@ -232,7 +234,7 @@ async fn handle_list_interactions(
     match wf_api::entity::user_interaction::list_interactions(&state.ctx.storage, Some(options))
         .await
     {
-        Ok(interactions) => ok(interactions).into_response(),
+        Ok(interactions) => ok_page(interactions, limit, offset).into_response(),
         Err(e) => error_response(e),
     }
 }
@@ -273,6 +275,7 @@ async fn handle_delete_interaction(
 async fn handle_interactions_by_execution(
     State(state): State<ApiState>,
     Path(path): Path<ExecutionIdPath>,
+    Query(query): Query<ListQuery>,
 ) -> impl IntoResponse {
     match wf_api::entity::user_interaction::list_interactions_by_execution(
         &state.ctx.storage,
@@ -280,7 +283,15 @@ async fn handle_interactions_by_execution(
     )
     .await
     {
-        Ok(interactions) => ok(interactions).into_response(),
+        Ok(interactions) => {
+            let (limit, offset) = resolve_page(&query);
+            let window = interactions
+                .into_iter()
+                .skip(offset as usize)
+                .take(fetch_size(limit) as usize)
+                .collect();
+            ok_page(window, limit, offset).into_response()
+        }
         Err(e) => error_response(e),
     }
 }
@@ -293,6 +304,7 @@ struct StatusPath {
 async fn handle_interactions_by_status(
     State(state): State<ApiState>,
     Path(path): Path<StatusPath>,
+    Query(query): Query<ListQuery>,
 ) -> impl IntoResponse {
     match wf_api::entity::user_interaction::list_interactions_by_status(
         &state.ctx.storage,
@@ -300,7 +312,15 @@ async fn handle_interactions_by_status(
     )
     .await
     {
-        Ok(interactions) => ok(interactions).into_response(),
+        Ok(interactions) => {
+            let (limit, offset) = resolve_page(&query);
+            let window = interactions
+                .into_iter()
+                .skip(offset as usize)
+                .take(fetch_size(limit) as usize)
+                .collect();
+            ok_page(window, limit, offset).into_response()
+        }
         Err(e) => error_response(e),
     }
 }

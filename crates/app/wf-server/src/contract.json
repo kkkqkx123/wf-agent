@@ -31,10 +31,36 @@
     },
     "shape": "{items, limit, offset, has_more}"
   },
+  "shapes": {
+    "PageView": "{items: T[], limit: u64, offset: u64, has_more: bool}",
+    "CappedView": "{items: T[], truncated: bool, total: usize} (chains cap 500, timelines cap 5000)",
+    "BatchItemResult": "{id: string, ok: bool, error?: string}",
+    "LoopVariableBatch": {
+      "request": "{entries: [{name: string, value: unknown}] (1..100)}",
+      "response": "BatchItemResult[]"
+    },
+    "BatchRespond": "{ids: string[] (1..100), response_data?, result_data?, agent_loop_id?}",
+    "SearchResult": "{query, items, by_type, total, truncated, next_cursor?: string}",
+    "SearchResultItem": "{id, type, label, score, matches, execution_id?, agent_loop_id?}",
+    "SearchCursor": "opaque hex(JSON({source: offset})); pass back as ?cursor=",
+    "CappedPaths": "{paths, truncated: bool, total: usize} (cap 1000, agent + workflow aligned)",
+    "AuditReport": "{summary, iterations[<=500], node_executions[<=2000], truncated: bool, total_estimate?}",
+    "AdvancedErrorAnalysis": "{..., error_hotspots[<=10], truncated: bool}",
+    "Download": "alternate mode ?download=true returns attachment (Content-Type + Content-Disposition + Content-Length); query export also accepts body download flag",
+    "FileContent": "{path, actor, hash, size, is_binary, content?: string, truncated: bool, timestamp}",
+    "FileTree": "{entries: FileTreeEntry[], truncated: bool, total: usize} (cap 2000, sorted before truncation)",
+    "WsSubscribe": "{type: subscribe, executionId?|agentLoopId?|workflowId?|global?|notifications?, since?}",
+    "WsEvent": "{type, <id field>, eventType, data, timestamp, cursor}",
+    "SseSince": "opaque hex token same as WS cursor; raw timestamps accepted for compat"
+  },
   "notes": [
-    "List endpoints return the paged shape above; legacy bare-array lists are being migrated.",
-    "POST stream endpoints speak SSE and need fetch streaming, not EventSource.",
-    "WS /api/v1/ws subscribes per executionId (metadata only)."
+    "List endpoints return the paged shape above; retained bare arrays are bounded in-memory catalogs (providers, models, skills, static enums), single-object graph views, or single-parent bounded sets (scopes, node variables).",
+    "Export endpoints support ?download=true attachment mode (query export plus workflow, template, variable, audit report); batch export-all and profile export-all stay envelope-only by design.",
+    "Unified search covers workflow/execution/task/checkpoint/event/agent_loop/message with opaque cursor continuation.",
+    "Large dumps are hard-capped with truncated markers (audit report, error analysis, path enumeration cap 1000, chains cap 500, timelines cap 5000).",
+    "WS supports execution/agentLoop/workflow/global/notifications topics with since replay (bounded window); notifications are pure push with receipt-as-consumed semantics. SSE since accepts the same opaque token.",
+    "File channel is read-only for content/tree/paged changes/timeline; rename and sessions are explicit workspace operations, approval channel covers human-in-the-loop tool approvals.",
+    "POST stream endpoints speak SSE and need fetch streaming, not EventSource."
   ],
   "routes": [
     {
@@ -683,7 +709,7 @@
       "method": "GET",
       "path": "/api/v1/contract",
       "probe": true,
-      "source": "crates/app/wf-server/src/contract.rs"
+      "source": "src/contract.rs"
     },
     {
       "method": "GET",
@@ -1251,13 +1277,13 @@
     },
     {
       "method": "GET",
-      "path": "/api/v1/file-checkpoint/changes/actor/{id}",
+      "path": "/api/v1/file-checkpoint/changes",
       "probe": true,
       "source": "crates/app/wf-server/src/api/checkpoint/file_provenance.rs"
     },
     {
       "method": "GET",
-      "path": "/api/v1/file-checkpoint/changes/path/{id}",
+      "path": "/api/v1/file-checkpoint/content",
       "probe": true,
       "source": "crates/app/wf-server/src/api/checkpoint/file_provenance.rs"
     },
@@ -1288,6 +1314,12 @@
     {
       "method": "GET",
       "path": "/api/v1/file-checkpoint/timeline/{id}",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/checkpoint/file_provenance.rs"
+    },
+    {
+      "method": "GET",
+      "path": "/api/v1/file-checkpoint/tree/{id}",
       "probe": true,
       "source": "crates/app/wf-server/src/api/checkpoint/file_provenance.rs"
     },
@@ -2067,6 +2099,12 @@
     },
     {
       "method": "POST",
+      "path": "/api/v1/agent-loops/{id}/variables/batch",
+      "probe": true,
+      "source": "crates/app/wf-server/src/api/agent/variables.rs"
+    },
+    {
+      "method": "POST",
       "path": "/api/v1/agents",
       "probe": true,
       "source": "crates/app/wf-server/src/api/agent/profiles.rs"
@@ -2254,7 +2292,7 @@
     {
       "method": "POST",
       "path": "/api/v1/llm/generate-stream",
-      "probe": true,
+      "probe": false,
       "source": "crates/app/wf-server/src/api/llm/llm.rs"
     },
     {

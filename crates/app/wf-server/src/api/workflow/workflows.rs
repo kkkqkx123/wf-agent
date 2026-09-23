@@ -231,14 +231,15 @@ async fn handle_workflow_summaries(
     State(state): State<ApiState>,
     Query(query): Query<ListWorkflowsQuery>,
 ) -> impl IntoResponse {
+    let (limit, offset) = resolve_page(&query.page);
     let options = WorkflowListOptions {
-        offset: query.page.offset,
-        limit: query.page.limit,
+        offset: Some(offset),
+        limit: Some(fetch_size(limit)),
         name_filter: query.name,
         type_filter: query.r#type,
     };
     match wf_api::workflow::workflow_summaries(&state.ctx, Some(options)).await {
-        Ok(summaries) => ok(summaries).into_response(),
+        Ok(summaries) => ok_page(summaries, limit, offset).into_response(),
         Err(e) => error_response(e),
     }
 }
@@ -246,6 +247,7 @@ async fn handle_workflow_summaries(
 #[derive(Deserialize)]
 struct ExportWorkflowQuery {
     format: Option<String>,
+    download: Option<bool>,
 }
 
 async fn handle_export_workflow(
@@ -253,16 +255,39 @@ async fn handle_export_workflow(
     Path(path): Path<IdPath>,
     Query(query): Query<ExportWorkflowQuery>,
 ) -> impl IntoResponse {
+    let download = query.download.unwrap_or(false);
     match query.format.as_deref() {
         None | Some("json") => {
             match wf_api::workflow::export_workflow_json(&state.ctx, &path.id).await {
-                Ok(json) => ok(json).into_response(),
+                Ok(json) => {
+                    if download {
+                        crate::envelope::download(
+                            &json,
+                            "application/json",
+                            &format!("workflow-{}.json", path.id),
+                        )
+                        .into_response()
+                    } else {
+                        ok(json).into_response()
+                    }
+                }
                 Err(e) => error_response(e),
             }
         }
         Some("toml") => match wf_api::workflow::get_workflow(&state.ctx, &path.id).await {
             Ok(workflow) => match wf_api::infra::config::export_toml(&workflow) {
-                Ok(toml) => ok(toml).into_response(),
+                Ok(toml) => {
+                    if download {
+                        crate::envelope::download(
+                            &toml,
+                            "application/toml",
+                            &format!("workflow-{}.toml", path.id),
+                        )
+                        .into_response()
+                    } else {
+                        ok(toml).into_response()
+                    }
+                }
                 Err(e) => error_response(e),
             },
             Err(e) => error_response(e),
@@ -288,6 +313,7 @@ async fn handle_search_workflows(
     State(state): State<ApiState>,
     Query(query): Query<SearchWorkflowsQuery>,
 ) -> impl IntoResponse {
+    let (limit, offset) = resolve_page(&query.page);
     let options = wf_api::workflow::WorkflowSearchOptions {
         keyword: query.q,
         tags: query.tags.as_deref().map(|raw| {
@@ -298,11 +324,11 @@ async fn handle_search_workflows(
         }),
         category: query.category,
         author: query.author,
-        offset: query.page.offset,
-        limit: query.page.limit,
+        offset: Some(offset),
+        limit: Some(fetch_size(limit)),
     };
     match wf_api::workflow::search_workflows(&state.ctx, &options).await {
-        Ok(workflows) => ok(workflows).into_response(),
+        Ok(workflows) => ok_page(workflows, limit, offset).into_response(),
         Err(e) => error_response(e),
     }
 }
@@ -332,7 +358,15 @@ async fn handle_workflows_by_tags(
         })
         .unwrap_or_default();
     match wf_api::workflow::get_workflows_by_tags(&state.ctx, &tags).await {
-        Ok(workflows) => ok(workflows).into_response(),
+        Ok(workflows) => {
+            let (limit, offset) = resolve_page(&query.page);
+            let window = workflows
+                .into_iter()
+                .skip(offset as usize)
+                .take(fetch_size(limit) as usize)
+                .collect();
+            ok_page(window, limit, offset).into_response()
+        }
         Err(e) => error_response(e),
     }
 }
@@ -346,9 +380,18 @@ struct CategoryPath {
 async fn handle_workflows_by_category(
     State(state): State<ApiState>,
     Path(path): Path<CategoryPath>,
+    Query(query): Query<ListQuery>,
 ) -> impl IntoResponse {
     match wf_api::workflow::get_workflows_by_category(&state.ctx, &path.category).await {
-        Ok(workflows) => ok(workflows).into_response(),
+        Ok(workflows) => {
+            let (limit, offset) = resolve_page(&query);
+            let window = workflows
+                .into_iter()
+                .skip(offset as usize)
+                .take(fetch_size(limit) as usize)
+                .collect();
+            ok_page(window, limit, offset).into_response()
+        }
         Err(e) => error_response(e),
     }
 }
@@ -362,9 +405,18 @@ struct AuthorPath {
 async fn handle_workflows_by_author(
     State(state): State<ApiState>,
     Path(path): Path<AuthorPath>,
+    Query(query): Query<ListQuery>,
 ) -> impl IntoResponse {
     match wf_api::workflow::get_workflows_by_author(&state.ctx, &path.author).await {
-        Ok(workflows) => ok(workflows).into_response(),
+        Ok(workflows) => {
+            let (limit, offset) = resolve_page(&query);
+            let window = workflows
+                .into_iter()
+                .skip(offset as usize)
+                .take(fetch_size(limit) as usize)
+                .collect();
+            ok_page(window, limit, offset).into_response()
+        }
         Err(e) => error_response(e),
     }
 }

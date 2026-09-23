@@ -107,9 +107,18 @@ async fn handle_cancel_task(
 async fn handle_tasks_by_execution(
     State(state): State<ApiState>,
     Path(path): Path<ExecutionIdPath>,
+    Query(query): Query<ListQuery>,
 ) -> impl IntoResponse {
     match wf_api::entity::task::get_by_execution_id(&state.ctx.storage, &path.execution_id).await {
-        Ok(tasks) => ok(tasks).into_response(),
+        Ok(tasks) => {
+            let (limit, offset) = resolve_page(&query);
+            let window = tasks
+                .into_iter()
+                .skip(offset as usize)
+                .take(fetch_size(limit) as usize)
+                .collect();
+            ok_page(window, limit, offset).into_response()
+        }
         Err(e) => error_response(e),
     }
 }

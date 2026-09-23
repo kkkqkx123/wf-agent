@@ -142,3 +142,168 @@ pub fn run_gc(ctx: &ApiContext, keep_recent_heads: usize) -> ApiResult<GcStats> 
         .run_gc(retention)
         .map_err(ApiError::execution_with_source)
 }
+
+/// Maximum bytes returned by a single file content read; larger files are
+/// truncated with `truncated: true`.
+pub const MAX_FILE_CONTENT_BYTES: usize = 1024 * 1024;
+/// Maximum entries returned by a directory tree listing.
+pub const MAX_TREE_ENTRIES: usize = 2000;
+
+/// Read-only view of one workspace file. `version` is `None` for workspace
+/// current state; snapshot-versioned reads are distinguished by callers via
+/// the file timeline (snapshot ids + hashes) and remain timeline-anchored.
+/// Write operations must go through the approval channel; there is no direct
+/// upload/overwrite bypass.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct FileContentView {
+    pub path: String,
+    pub actor: String,
+    pub hash: String,
+    pub size: usize,
+    pub is_binary: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content: Option<String>,
+    #[serde(default)]
+    pub truncated: bool,
+    pub timestamp: i64,
+}
+
+/// One directory tree entry (metadata only, no content bytes).
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct FileTreeEntry {
+    pub path: String,
+    pub hash: String,
+    pub size: usize,
+    pub timestamp: i64,
+}
+
+/// Validate a workspace-relative path against sandbox escape.
+pub fn validate_workspace_path(path: &str) -> ApiResult<()> {
+    if path.is_empty() || path.len() > 1024 {
+        return Err(ApiError::Validation(
+            "path must be 1..=1024 chars".to_string(),
+        ));
+    }
+    if path.starts_with('/') || path.starts_with('\\') {
+        return Err(ApiError::Validation(
+            "absolute paths are rejected".to_string(),
+        ));
+    }
+    for component in path.split('/') {
+        if component == ".." {
+            return Err(ApiError::Validation(
+                "path escapes the workspace".to_string(),
+            ));
+        }
+    }
+    if path.contains('\\') || path.contains('\0') {
+        return Err(ApiError::Validation(
+            "path contains illegal characters".to_string(),
+        ));
+    }
+    Ok(())
+}
+
+fn is_binary_bytes(content: &[u8]) -> bool {
+    content.iter().take(8000).any(|b| *b == 0)
+}
+
+/// Read the current workspace content of one file with sandbox checks.
+pub fn read_file_content(ctx: &ApiContext, actor: &str, path: &str) -> ApiResult<FileContentView> {
+    validate_workspace_path(path)?;
+    let files = get_actor_workspace(ctx, actor)?;
+    let Some(file) = files.into_iter().find(|f| f.path == path) else {
+        return Err(ApiError::not_found("file", path));
+    };
+    let binary = is_binary_bytes(&file.content);
+    let truncated = file.content.len() > MAX_FILE_CONTENT_BYTES;
+    let capped = file
+        .content
+        .get(..MAX_FILE_CONTENT_BYTES.min(file.content.len()))
+        .unwrap_or_default();
+    let content = if binary {
+        None
+    } else {
+        Some(String::from_utf8_lossy(capped).into_owned())
+    };
+    Ok(FileContentView {
+        path: file.path,
+        actor: actor.to_string(),
+        hash: file.hash,
+        size: file.content.len(),
+        is_binary: binary,
+        content,
+        truncated,
+        timestamp: file.timestamp,
+    })
+}
+
+/// Capped directory tree view with total before truncation.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct FileTreeView {
+    pub entries: Vec<FileTreeEntry>,
+    pub truncated: bool,
+    pub total: usize,
+}
+
+/// List workspace tree entries with an optional path prefix filter.
+pub fn list_tree(
+    ctx: &ApiContext,
+    actor: &str,
+    prefix: Option<&str>,
+) -> ApiResult<Vec<FileTreeEntry>> {
+    Ok(list_tree_capped(ctx, actor, prefix)?.entries)
+}
+
+/// List workspace tree entries with cap and truncation flag. Entries are
+/// sorted by path before truncation so the first page is stable.
+pub fn list_tree_capped(
+    ctx: &ApiContext,
+    actor: &str,
+    prefix: Option<&str>,
+) -> ApiResult<FileTreeView> {
+    if let Some(prefix) = prefix {
+        if !prefix.is_empty() {
+            validate_workspace_path(prefix)?;
+        }
+    }
+    let files = get_actor_workspace(ctx, actor)?;
+    let mut out = Vec::new();
+    for file in files {
+        if let Some(prefix) = prefix {
+            if !prefix.is_empty() && !file.path.starts_with(prefix) {
+                continue;
+            }
+        }
+        out.push(FileTreeEntry {
+            path: file.path,
+            hash: file.hash,
+            size: file.content.len(),
+            timestamp: file.timestamp,
+        });
+    }
+    out.sort_by(|a, b| a.path.cmp(&b.path));
+    let total = out.len();
+    let truncated = total > MAX_TREE_ENTRIES;
+    out.truncate(MAX_TREE_ENTRIES);
+    Ok(FileTreeView {
+        entries: out,
+        truncated,
+        total,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn workspace_path_rejects_escape_and_absolute() {
+        assert!(validate_workspace_path("src/main.rs").is_ok());
+        assert!(validate_workspace_path("").is_err());
+        assert!(validate_workspace_path("/etc/passwd").is_err());
+        assert!(validate_workspace_path("../secret").is_err());
+        assert!(validate_workspace_path("a/../../b").is_err());
+        assert!(validate_workspace_path("a\\b").is_err());
+    }
+}

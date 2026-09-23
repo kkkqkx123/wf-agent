@@ -11,7 +11,7 @@ use serde_json::Value;
 
 use crate::envelope::{error_response, ok};
 use crate::extract::{DefIdPath, IdPath, ListQuery};
-use crate::paged::{fetch_size, ok_page, resolve_page};
+use crate::paged::{fetch_size, ok_capped, ok_page, resolve_page, MAX_CHAIN_ENTRIES};
 use crate::router::ApiState;
 pub(crate) fn routes() -> Router<ApiState> {
     Router::new()
@@ -116,11 +116,20 @@ async fn handle_delete_agent_execution(
 async fn handle_executions_by_definition(
     State(state): State<ApiState>,
     Path(path): Path<DefIdPath>,
+    Query(query): Query<ListQuery>,
 ) -> impl IntoResponse {
+    let (limit, offset) = resolve_page(&query);
     match wf_api::agent::agent::list_executions_by_definition(&state.ctx.storage, &path.def_id)
         .await
     {
-        Ok(executions) => ok(executions).into_response(),
+        Ok(executions) => {
+            let window = executions
+                .into_iter()
+                .skip(offset as usize)
+                .take(fetch_size(limit) as usize)
+                .collect();
+            ok_page(window, limit, offset).into_response()
+        }
         Err(e) => error_response(e),
     }
 }
@@ -135,7 +144,9 @@ async fn handle_execution_statistics(State(state): State<ApiState>) -> impl Into
 async fn handle_executions_by_status(
     State(state): State<ApiState>,
     Path(path): Path<crate::extract::StatusPath>,
+    Query(query): Query<ListQuery>,
 ) -> impl IntoResponse {
+    let (limit, offset) = resolve_page(&query);
     let result = match path.status.as_str() {
         "running" => wf_api::agent::agent_execution_registry::running(&state.ctx).await,
         "paused" => wf_api::agent::agent_execution_registry::paused(&state.ctx).await,
@@ -149,7 +160,14 @@ async fn handle_executions_by_status(
         }
     };
     match result {
-        Ok(summaries) => ok(summaries).into_response(),
+        Ok(summaries) => {
+            let window = summaries
+                .into_iter()
+                .skip(offset as usize)
+                .take(fetch_size(limit) as usize)
+                .collect();
+            ok_page(window, limit, offset).into_response()
+        }
         Err(e) => error_response(e),
     }
 }
@@ -185,12 +203,21 @@ async fn handle_create_checkpoint(
 async fn handle_list_checkpoints(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
+    Query(query): Query<ListQuery>,
 ) -> impl IntoResponse {
     if let Err(e) = ensure_agent_domain(&state.ctx, &path.id).await {
         return error_response(e);
     }
+    let (limit, offset) = resolve_page(&query);
     match wf_api::agent::agent_checkpoint::list(&state.ctx, &path.id).await {
-        Ok(checkpoints) => ok(checkpoints).into_response(),
+        Ok(checkpoints) => {
+            let window = checkpoints
+                .into_iter()
+                .skip(offset as usize)
+                .take(fetch_size(limit) as usize)
+                .collect();
+            ok_page(window, limit, offset).into_response()
+        }
         Err(e) => error_response(e),
     }
 }
@@ -301,7 +328,7 @@ async fn handle_checkpoint_chain(
         return error_response(e);
     }
     match wf_api::agent::agent_checkpoint::chain(&state.ctx, &path.id).await {
-        Ok(chain) => ok(chain).into_response(),
+        Ok(chain) => ok_capped(chain, MAX_CHAIN_ENTRIES).into_response(),
         Err(e) => error_response(e),
     }
 }

@@ -12,11 +12,12 @@
 # convention and stay as-is so deployed environments keep working. New
 # variables must use the `WF_<DOMAIN>_<KEY>` form.
 #
-# `excluded_paths` bypass auth (health probes, websocket upgrade and event
-# streams carry their own `api_key` query-param check).
+# `excluded_paths` bypass auth (health probes only; streaming paths go
+# through the global auth gate, websocket additionally carries its own
+# connection-level check).
 
 enabled = false
 header_name = "x-api-key"
 allow_query_param = true
 query_param_name = "api_key"
-excluded_paths = ["/health", "/api/v1/info", "/", "/api/v1/ws", "/api/v1/events/stream"]
+excluded_paths = ["/health", "/api/v1/info", "/"]

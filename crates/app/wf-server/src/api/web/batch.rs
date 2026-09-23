@@ -6,7 +6,7 @@ use axum::extract::State;
 use axum::response::IntoResponse;
 use axum::routing::post;
 use axum::{Json, Router};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
 use crate::envelope::{error_response, ok};
 use crate::router::ApiState;
@@ -32,14 +32,17 @@ struct BatchRespondBody {
     ids: Vec<String>,
     response_data: Option<serde_json::Value>,
     result_data: Option<serde_json::Value>,
+    /// Optional loop ownership guard; when present each id is validated
+    /// against this loop before responding.
+    agent_loop_id: Option<String>,
 }
 
-#[derive(Serialize)]
-struct BatchItemResult {
-    id: String,
-    ok: bool,
+#[derive(serde::Serialize)]
+pub(crate) struct BatchItemResult {
+    pub(crate) id: String,
+    pub(crate) ok: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
-    error: Option<String>,
+    pub(crate) error: Option<String>,
 }
 
 fn validate_ids(ids: &[String]) -> Result<(), wf_api::ApiError> {
@@ -140,14 +143,25 @@ async fn handle_batch_respond(
     }
     let mut results = Vec::with_capacity(body.ids.len());
     for id in &body.ids {
-        match wf_api::entity::user_interaction::respond_interaction(
-            &state.ctx.storage,
-            id,
-            body.response_data.clone(),
-            body.result_data.clone(),
-        )
-        .await
-        {
+        let outcome = if let Some(loop_id) = body.agent_loop_id.as_deref() {
+            wf_api::agent::agent_user_interaction::respond(
+                &state.ctx,
+                loop_id,
+                id,
+                body.response_data.clone(),
+                body.result_data.clone(),
+            )
+            .await
+        } else {
+            wf_api::entity::user_interaction::respond_interaction(
+                &state.ctx.storage,
+                id,
+                body.response_data.clone(),
+                body.result_data.clone(),
+            )
+            .await
+        };
+        match outcome {
             Ok(()) => results.push(BatchItemResult {
                 id: id.clone(),
                 ok: true,

@@ -71,8 +71,8 @@ pub(crate) struct ListWorkflowsQuery {
     path = "/workflows",
     tag = "workflow",
     params(("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset"), ("name" = Option<String>, Query, description = "name")),
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_list_workflows(
     State(state): State<ApiState>,
@@ -96,8 +96,8 @@ pub(crate) async fn handle_list_workflows(
     path = "/workflows",
     tag = "workflow",
     request_body = serde_json::Value,
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_create_workflow(
     State(state): State<ApiState>,
@@ -115,8 +115,8 @@ pub(crate) async fn handle_create_workflow(
     tag = "workflow",
     params(("id" = String, Path, description = "id")),
     request_body = serde_json::Value,
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_update_workflow(
     State(state): State<ApiState>,
@@ -135,8 +135,8 @@ pub(crate) async fn handle_update_workflow(
     path = "/workflows/{id}",
     tag = "workflow",
     params(("id" = String, Path, description = "id")),
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_delete_workflow(
     State(state): State<ApiState>,
@@ -153,8 +153,8 @@ pub(crate) async fn handle_delete_workflow(
     path = "/workflows/{id}",
     tag = "workflow",
     params(("id" = String, Path, description = "id")),
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_get_workflow(
     State(state): State<ApiState>,
@@ -177,8 +177,8 @@ pub(crate) struct CloneBody {
     tag = "workflow",
     params(("id" = String, Path, description = "id")),
     request_body = serde_json::Value,
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_clone_workflow(
     State(state): State<ApiState>,
@@ -196,8 +196,8 @@ pub(crate) async fn handle_clone_workflow(
     path = "/workflows/validate",
     tag = "workflow",
     request_body = serde_json::Value,
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_validate_workflow(
     State(_state): State<ApiState>,
@@ -224,8 +224,8 @@ pub(crate) struct ValidateNodeBody {
     path = "/workflows/validate/node",
     tag = "workflow",
     request_body = serde_json::Value,
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_validate_node(
     State(_state): State<ApiState>,
@@ -250,8 +250,8 @@ pub(crate) struct ParseWorkflowBody {
     path = "/workflows/parse",
     tag = "workflow",
     request_body = serde_json::Value,
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_parse_workflow(
     State(_state): State<ApiState>,
@@ -291,8 +291,8 @@ pub(crate) struct TransformWorkflowView {
     path = "/workflows/transform",
     tag = "workflow",
     request_body = serde_json::Value,
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_transform_workflow(
     State(_state): State<ApiState>,
@@ -314,8 +314,8 @@ pub(crate) async fn handle_transform_workflow(
     path = "/workflows/summaries",
     tag = "workflow",
     params(("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset"), ("name" = Option<String>, Query, description = "name")),
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_workflow_summaries(
     State(state): State<ApiState>,
@@ -345,8 +345,8 @@ pub(crate) struct ExportWorkflowQuery {
     path = "/workflows/{id}/export",
     tag = "workflow",
     params(("id" = String, Path, description = "id"), ("format" = Option<String>, Query, description = "format"), ("download" = Option<bool>, Query, description = "download")),
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Exported workflow file download", body = String, content_type = "application/json"), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_export_workflow(
     State(state): State<ApiState>,
@@ -412,8 +412,8 @@ pub(crate) struct SearchWorkflowsQuery {
     path = "/workflows/search",
     tag = "workflow",
     params(("q" = Option<String>, Query, description = "q"), ("tags" = Option<String>, Query, description = "tags"), ("category" = Option<String>, Query, description = "category"), ("author" = Option<String>, Query, description = "author"), ("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset")),
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_search_workflows(
     State(state): State<ApiState>,
@@ -444,8 +444,8 @@ pub(crate) async fn handle_search_workflows(
     path = "/workflows/by-name/{name}",
     tag = "workflow",
     params(("name" = String, Path, description = "name")),
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_workflow_by_name(
     State(state): State<ApiState>,
@@ -462,8 +462,8 @@ pub(crate) async fn handle_workflow_by_name(
     path = "/workflows/by-tags",
     tag = "workflow",
     params(("q" = Option<String>, Query, description = "q"), ("tags" = Option<String>, Query, description = "tags"), ("category" = Option<String>, Query, description = "category"), ("author" = Option<String>, Query, description = "author"), ("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset")),
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_workflows_by_tags(
     State(state): State<ApiState>,
@@ -504,8 +504,8 @@ pub(crate) struct CategoryPath {
     path = "/workflows/by-category/{category}",
     tag = "workflow",
     params(("category" = String, Path, description = "category"), ("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset")),
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_workflows_by_category(
     State(state): State<ApiState>,
@@ -537,8 +537,8 @@ pub(crate) struct AuthorPath {
     path = "/workflows/by-author/{author}",
     tag = "workflow",
     params(("author" = String, Path, description = "author"), ("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset")),
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_workflows_by_author(
     State(state): State<ApiState>,
@@ -569,8 +569,8 @@ pub(crate) struct ExportManyBody {
     path = "/workflows/export-all",
     tag = "workflow",
     request_body = serde_json::Value,
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_export_workflows(
     State(state): State<ApiState>,
@@ -593,8 +593,8 @@ pub(crate) struct ImportBody {
     path = "/workflows/import",
     tag = "workflow",
     request_body = serde_json::Value,
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_import_workflow(
     State(state): State<ApiState>,
@@ -613,8 +613,8 @@ pub(crate) async fn handle_import_workflow(
     path = "/workflows/import-many",
     tag = "workflow",
     request_body = serde_json::Value,
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_import_many(
     State(state): State<ApiState>,
@@ -632,8 +632,8 @@ pub(crate) async fn handle_import_many(
     tag = "workflow",
     params(("id" = String, Path, description = "id")),
     request_body = serde_json::Value,
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_update_metadata(
     State(state): State<ApiState>,

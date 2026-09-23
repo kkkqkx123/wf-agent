@@ -4,9 +4,11 @@
 //! Served at `/api-docs/openapi.json` with Swagger UI at
 //! `/api-docs/swagger` when enabled (dev/debug or `openapi-docs` feature).
 //!
-//! Response bodies use generic JSON (`serde_json::Value`) except for the
-//! shared error envelope, so domain types do not need `ToSchema`. Typed
-//! schemas can replace generic bodies incrementally.
+//! Success bodies use the typed envelope (`ApiEnvelope<T>`) with pagination
+//! shells (`PageView<T>` / `CappedView<T>`); `data` stays generic JSON
+//! (`serde_json::Value`) except for wf-server local view types, so domain
+//! types do not need `ToSchema`. SSE uses `text/event-stream`, file
+//! downloads use `String` with their file content type.
 
 use utoipa::OpenApi;
 
@@ -471,6 +473,26 @@ use utoipa::OpenApi;
     components(schemas(
         crate::envelope::ApiErrorBody,
         crate::envelope::ErrorResponse,
+        crate::envelope::ApiEnvelope<serde_json::Value>,
+        crate::envelope::ApiEnvelope<String>,
+        crate::envelope::ApiEnvelope<bool>,
+        crate::envelope::ApiEnvelope<usize>,
+        crate::paged::PageView<serde_json::Value>,
+        crate::paged::CappedView<serde_json::Value>,
+        crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>,
+        crate::envelope::ApiEnvelope<crate::paged::CappedView<serde_json::Value>>,
+        crate::api::workflow::executions::ExecuteView,
+        crate::envelope::ApiEnvelope<crate::api::workflow::executions::ExecuteView>,
+        crate::api::agent::loops::AgentRunView,
+        crate::envelope::ApiEnvelope<crate::api::agent::loops::AgentRunView>,
+        crate::api::agent::executions::AgentResumeView,
+        crate::envelope::ApiEnvelope<crate::api::agent::executions::AgentResumeView>,
+        crate::api::trigger::hooks::FireResponse,
+        crate::envelope::ApiEnvelope<crate::api::trigger::hooks::FireResponse>,
+        crate::api::checkpoint::file_approvals::RejectResponse,
+        crate::envelope::ApiEnvelope<crate::api::checkpoint::file_approvals::RejectResponse>,
+        crate::api::agent::graphs::CappedPaths,
+        crate::envelope::ApiEnvelope<crate::api::agent::graphs::CappedPaths>,
     )),
     tags(
         (name = "agent", description = "Agent loop management: CRUD, execution control, status, variables, and analysis"),
@@ -488,25 +510,27 @@ use utoipa::OpenApi;
         (url = "/api/v1", description = "API v1 (mounted under /api/v1)")
     ),
     security(
-        ("bearer_auth" = [])
+        ("api_key" = [])
     ),
     modifiers(&SecurityAddon)
 )]
 pub struct ApiDoc;
 
-/// Security scheme modifier for Bearer token authentication.
+/// Security scheme modifier for API key authentication.
 struct SecurityAddon;
 
 impl utoipa::Modify for SecurityAddon {
     fn modify(&self, openapi: &mut utoipa::openapi::OpenApi) {
         if let Some(components) = openapi.components.as_mut() {
-            let mut scheme = utoipa::openapi::security::Http::new(
-                utoipa::openapi::security::HttpAuthScheme::Bearer,
+            let value = utoipa::openapi::security::ApiKeyValue::with_description(
+                "x-api-key",
+                "API key via X-API-Key header or api_key query parameter",
             );
-            scheme.description = Some("JWT Bearer token for API authentication".to_string());
             components.add_security_scheme(
-                "bearer_auth",
-                utoipa::openapi::security::SecurityScheme::Http(scheme),
+                "api_key",
+                utoipa::openapi::security::SecurityScheme::ApiKey(
+                    utoipa::openapi::security::ApiKey::Header(value),
+                ),
             );
         }
     }
@@ -599,10 +623,11 @@ mod tests {
     }
 
     #[test]
-    fn bearer_security_scheme_is_registered() {
+    fn api_key_security_scheme_is_registered() {
         let v = doc();
         let schemes = &v["components"]["securitySchemes"];
-        assert_eq!(schemes["bearer_auth"]["type"].as_str().unwrap(), "http");
-        assert_eq!(schemes["bearer_auth"]["scheme"].as_str().unwrap(), "bearer");
+        assert_eq!(schemes["api_key"]["type"].as_str().unwrap(), "apiKey");
+        assert_eq!(schemes["api_key"]["in"].as_str().unwrap(), "header");
+        assert_eq!(schemes["api_key"]["name"].as_str().unwrap(), "x-api-key");
     }
 }

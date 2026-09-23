@@ -12,6 +12,7 @@
 
 use axum::Json;
 use serde::Serialize;
+use utoipa::ToSchema;
 
 use crate::envelope::{ok, ApiEnvelope};
 use crate::extract::ListQuery;
@@ -27,7 +28,7 @@ pub(crate) const MAX_CHAIN_ENTRIES: usize = 500;
 pub(crate) const MAX_TIMELINE_ENTRIES: usize = 5000;
 
 /// One page of a list response.
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 pub(crate) struct PageView<T: Serialize> {
     pub(crate) items: Vec<T>,
     pub(crate) limit: u64,
@@ -75,7 +76,7 @@ pub(crate) fn ok_page<T: Serialize>(
 
 /// Capped list view for chains and timelines: full structure up to a hard
 /// cap with an explicit truncation flag and pre-truncation total.
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 pub(crate) struct CappedView<T: Serialize> {
     pub(crate) items: Vec<T>,
     pub(crate) truncated: bool,

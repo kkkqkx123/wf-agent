@@ -55,8 +55,8 @@ pub(crate) struct LibraryQuery {
     path = "/templates/library",
     tag = "template",
     params(("kind" = Option<String>, Query, description = "kind"), ("name" = Option<String>, Query, description = "name"), ("category" = Option<String>, Query, description = "category"), ("author" = Option<String>, Query, description = "author"), ("tags" = Option<String>, Query, description = "tags")),
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_query_library(
     State(state): State<ApiState>,
@@ -99,8 +99,8 @@ pub(crate) struct LimitQuery {
     path = "/templates/library/featured",
     tag = "template",
     params(("limit" = Option<u64>, Query, description = "limit")),
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_library_featured(
     State(state): State<ApiState>,
@@ -123,8 +123,8 @@ pub(crate) struct CategoryLimitQuery {
     path = "/templates/library/popular",
     tag = "template",
     params(("category" = Option<String>, Query, description = "category"), ("limit" = Option<u64>, Query, description = "limit")),
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_library_popular(
     State(state): State<ApiState>,
@@ -149,8 +149,8 @@ pub(crate) async fn handle_library_popular(
     path = "/templates/library/{id}/usage",
     tag = "template",
     params(("id" = String, Path, description = "id")),
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_record_usage(
     State(state): State<ApiState>,
@@ -175,8 +175,8 @@ pub(crate) struct CloneTemplateBody {
     tag = "template",
     params(("id" = String, Path, description = "id")),
     request_body = serde_json::Value,
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_clone_template(
     State(state): State<ApiState>,
@@ -204,8 +204,8 @@ pub(crate) async fn handle_clone_template(
     get,
     path = "/templates/library/workflows",
     tag = "template",
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_list_workflow_templates(
     State(state): State<ApiState>,
@@ -221,8 +221,8 @@ pub(crate) async fn handle_list_workflow_templates(
     path = "/templates/library/workflows/{id}",
     tag = "template",
     params(("id" = String, Path, description = "id")),
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_get_workflow_template(
     State(state): State<ApiState>,
@@ -239,8 +239,8 @@ pub(crate) async fn handle_get_workflow_template(
     path = "/templates/library/workflows",
     tag = "template",
     request_body = serde_json::Value,
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_register_workflow_template(
     State(state): State<ApiState>,
@@ -257,8 +257,8 @@ pub(crate) async fn handle_register_workflow_template(
     path = "/templates/library/workflows/{id}",
     tag = "template",
     params(("id" = String, Path, description = "id")),
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_delete_workflow_template(
     State(state): State<ApiState>,
@@ -274,8 +274,8 @@ pub(crate) async fn handle_delete_workflow_template(
     get,
     path = "/templates/library/agents",
     tag = "template",
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_list_agent_templates(
     State(state): State<ApiState>,
@@ -291,8 +291,8 @@ pub(crate) async fn handle_list_agent_templates(
     path = "/templates/library/agents/{id}",
     tag = "template",
     params(("id" = String, Path, description = "id")),
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_get_agent_template(
     State(state): State<ApiState>,
@@ -309,8 +309,8 @@ pub(crate) async fn handle_get_agent_template(
     path = "/templates/library/agents",
     tag = "template",
     request_body = serde_json::Value,
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_register_agent_template(
     State(state): State<ApiState>,
@@ -327,8 +327,8 @@ pub(crate) async fn handle_register_agent_template(
     path = "/templates/library/agents/{id}",
     tag = "template",
     params(("id" = String, Path, description = "id")),
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_delete_agent_template(
     State(state): State<ApiState>,

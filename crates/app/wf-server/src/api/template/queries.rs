@@ -43,8 +43,8 @@ pub(crate) fn routes() -> Router<ApiState> {
     path = "/templates/agent-trigger",
     tag = "template",
     params(("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset")),
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_query_agent_trigger_templates(
     State(state): State<ApiState>,
@@ -69,8 +69,8 @@ pub(crate) async fn handle_query_agent_trigger_templates(
     path = "/templates/agent-trigger/summaries",
     tag = "template",
     params(("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset")),
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_agent_trigger_summaries(
     State(state): State<ApiState>,
@@ -95,8 +95,8 @@ pub(crate) async fn handle_agent_trigger_summaries(
     path = "/templates/agent",
     tag = "template",
     params(("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset")),
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_query_agent_templates(
     State(state): State<ApiState>,
@@ -121,8 +121,8 @@ pub(crate) async fn handle_query_agent_templates(
     path = "/templates/agent/summaries",
     tag = "template",
     params(("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset")),
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_agent_template_summaries(
     State(state): State<ApiState>,
@@ -152,8 +152,8 @@ pub(crate) struct LimitQuery {
     path = "/templates/agent/featured",
     tag = "template",
     params(("limit" = Option<u64>, Query, description = "limit")),
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_agent_template_featured(
     State(state): State<ApiState>,
@@ -178,8 +178,8 @@ pub(crate) struct CategoryLimitQuery {
     path = "/templates/agent/popular",
     tag = "template",
     params(("category" = Option<String>, Query, description = "category"), ("limit" = Option<u64>, Query, description = "limit")),
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_agent_template_popular(
     State(state): State<ApiState>,

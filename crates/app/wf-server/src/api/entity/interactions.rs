@@ -40,8 +40,8 @@ pub(crate) struct ListInteractionsQuery {
     path = "/agent-loops/{id}/interactions",
     tag = "entity",
     params(("id" = String, Path, description = "id"), ("status" = Option<String>, Query, description = "status"), ("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset")),
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_list_interactions(
     State(state): State<ApiState>,
@@ -74,8 +74,8 @@ pub(crate) async fn handle_list_interactions(
     path = "/agent-interactions/{id}",
     tag = "entity",
     params(("id" = String, Path, description = "id")),
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_get_interaction(
     State(state): State<ApiState>,
@@ -100,8 +100,8 @@ pub(crate) struct AgentRespondBody {
     tag = "entity",
     params(("id" = String, Path, description = "id")),
     request_body = serde_json::Value,
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_respond_interaction(
     State(state): State<ApiState>,

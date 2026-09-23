@@ -56,11 +56,11 @@ pub(crate) fn routes() -> Router<ApiState> {
     tag = "agent",
     params(("id" = String, Path, description = "Agent execution ID")),
     responses(
-        (status = 200, description = "Error records", body = serde_json::Value),
+        (status = 200, description = "Error records", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_error_records(
     State(state): State<ApiState>,
@@ -87,11 +87,11 @@ pub(crate) struct ErrorChainQuery {
     params(
         ("id" = String, Path, description = "Agent execution ID"), ("limit" = Option<u64>, Query, description = "Page limit"), ("offset" = Option<u64>, Query, description = "Page offset")),
     responses(
-        (status = 200, description = "Error chain", body = serde_json::Value),
+        (status = 200, description = "Error chain", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_error_chain(
     State(state): State<ApiState>,
@@ -116,11 +116,11 @@ pub(crate) async fn handle_error_chain(
     tag = "agent",
     params(("id" = String, Path, description = "Agent execution ID")),
     responses(
-        (status = 200, description = "Root cause analysis", body = serde_json::Value),
+        (status = 200, description = "Root cause analysis", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_root_cause(
     State(state): State<ApiState>,
@@ -138,11 +138,11 @@ pub(crate) async fn handle_root_cause(
     tag = "agent",
     params(("id" = String, Path, description = "Agent execution ID")),
     responses(
-        (status = 200, description = "Error statistics", body = serde_json::Value),
+        (status = 200, description = "Error statistics", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_error_statistics(
     State(state): State<ApiState>,
@@ -160,11 +160,11 @@ pub(crate) async fn handle_error_statistics(
     tag = "agent",
     params(("id" = String, Path, description = "Agent execution ID")),
     responses(
-        (status = 200, description = "Advanced error analysis", body = serde_json::Value),
+        (status = 200, description = "Advanced error analysis", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_advanced_error_statistics(
     State(state): State<ApiState>,
@@ -187,11 +187,11 @@ pub(crate) async fn handle_advanced_error_statistics(
         ("errorId" = String, Path, description = "Error ID")
     ),
     responses(
-        (status = 200, description = "Recovery proposal", body = serde_json::Value),
+        (status = 200, description = "Recovery proposal", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_recovery_proposal(
     State(state): State<ApiState>,
@@ -218,11 +218,11 @@ pub(crate) async fn handle_recovery_proposal(
         ("errorId" = String, Path, description = "Error ID")
     ),
     responses(
-        (status = 200, description = "Similar errors", body = serde_json::Value),
+        (status = 200, description = "Similar errors", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_similar_errors(
     State(state): State<ApiState>,
@@ -248,11 +248,11 @@ pub(crate) async fn handle_similar_errors(
     tag = "agent",
     params(("id" = String, Path, description = "Agent loop ID")),
     responses(
-        (status = 200, description = "Performance profile", body = serde_json::Value),
+        (status = 200, description = "Performance profile", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_performance(
     State(state): State<ApiState>,
@@ -270,11 +270,11 @@ pub(crate) async fn handle_performance(
     tag = "agent",
     params(("id" = String, Path, description = "Agent loop ID")),
     responses(
-        (status = 200, description = "Iteration comparison", body = serde_json::Value),
+        (status = 200, description = "Iteration comparison", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_iteration_comparison(
     State(state): State<ApiState>,

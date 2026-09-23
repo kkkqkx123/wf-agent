@@ -93,11 +93,11 @@ pub(crate) struct ListLoopsQuery {
     tag = "agent",
     params(("limit" = Option<u64>, Query, description = "Page limit"), ("offset" = Option<u64>, Query, description = "Page offset")),
     responses(
-        (status = 200, description = "List of agent loops", body = serde_json::Value),
+        (status = 200, description = "List of agent loops", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>),
         (status = 400, description = "Invalid query parameters", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_list_loops(
     State(state): State<ApiState>,
@@ -121,12 +121,12 @@ pub(crate) async fn handle_list_loops(
     tag = "agent",
     request_body = serde_json::Value,
     responses(
-        (status = 200, description = "Agent loop created", body = String),
+        (status = 200, description = "Agent loop created", body = crate::envelope::ApiEnvelope<String>),
         (status = 400, description = "Invalid request body", body = crate::envelope::ErrorResponse),
         (status = 409, description = "Agent loop already exists", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_save_loop(
     State(state): State<ApiState>,
@@ -144,11 +144,11 @@ pub(crate) async fn handle_save_loop(
     tag = "agent",
     params(("id" = String, Path, description = "Agent loop ID")),
     responses(
-        (status = 200, description = "Agent loop found", body = serde_json::Value),
+        (status = 200, description = "Agent loop found", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_get_loop(
     State(state): State<ApiState>,
@@ -167,12 +167,12 @@ pub(crate) async fn handle_get_loop(
     params(("id" = String, Path, description = "Agent loop ID")),
     request_body = serde_json::Value,
     responses(
-        (status = 200, description = "Agent loop updated", body = String),
+        (status = 200, description = "Agent loop updated", body = crate::envelope::ApiEnvelope<String>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 400, description = "Invalid request body", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_update_loop(
     State(state): State<ApiState>,
@@ -192,11 +192,11 @@ pub(crate) async fn handle_update_loop(
     tag = "agent",
     params(("id" = String, Path, description = "Agent loop ID")),
     responses(
-        (status = 200, description = "Agent loop deleted", body = bool),
+        (status = 200, description = "Agent loop deleted", body = crate::envelope::ApiEnvelope<bool>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_delete_loop(
     State(state): State<ApiState>,
@@ -221,12 +221,12 @@ pub(crate) struct UpdateLoopStatusBody {
     params(("id" = String, Path, description = "Agent loop ID")),
     request_body = serde_json::Value,
     responses(
-        (status = 200, description = "Status updated"),
+        (status = 200, description = "Status updated", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 400, description = "Invalid status", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_update_loop_status(
     State(state): State<ApiState>,
@@ -247,11 +247,11 @@ pub(crate) async fn handle_update_loop_status(
     tag = "agent",
     params(("id" = String, Path, description = "Agent loop ID")),
     responses(
-        (status = 200, description = "Current loop status", body = serde_json::Value),
+        (status = 200, description = "Current loop status", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_loop_status(
     State(state): State<ApiState>,
@@ -273,12 +273,12 @@ pub(crate) async fn handle_loop_status(
     params(("id" = String, Path, description = "Agent loop ID")),
     request_body = serde_json::Value,
     responses(
-        (status = 200, description = "Status transition executed"),
+        (status = 200, description = "Status transition executed", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 400, description = "Invalid status", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_loop_status_transition(
     State(state): State<ApiState>,
@@ -305,11 +305,11 @@ pub(crate) async fn handle_loop_status_transition(
     path = "/agent-loops/cleanup-completed",
     tag = "agent",
     responses(
-        (status = 200, description = "Completed loops cleaned up", body = serde_json::Value),
+        (status = 200, description = "Completed loops cleaned up", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_cleanup_completed(State(state): State<ApiState>) -> impl IntoResponse {
     match wf_api::agent::agent_loop_registry::cleanup_completed(&state.ctx).await {
@@ -422,12 +422,12 @@ pub(crate) struct AgentRunView {
     params(("id" = String, Path, description = "Agent loop ID")),
     request_body = serde_json::Value,
     responses(
-        (status = 200, description = "Agent loop execution completed", body = serde_json::Value),
+        (status = 200, description = "Agent loop execution completed", body = crate::envelope::ApiEnvelope<crate::api::agent::loops::AgentRunView>),
         (status = 404, description = "Agent loop not found", body = crate::envelope::ErrorResponse),
         (status = 400, description = "Invalid request body", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_run_loop(
     State(state): State<ApiState>,
@@ -464,7 +464,7 @@ pub(crate) async fn handle_run_loop(
         (status = 400, description = "Invalid request body", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_stream_loop(
     State(state): State<ApiState>,
@@ -505,12 +505,12 @@ pub(crate) async fn handle_stream_loop(
     tag = "agent",
     params(("id" = String, Path, description = "Agent loop ID")),
     responses(
-        (status = 200, description = "Agent loop paused"),
+        (status = 200, description = "Agent loop paused", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 409, description = "Cannot pause (not running)", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_pause_loop(
     State(state): State<ApiState>,
@@ -528,12 +528,12 @@ pub(crate) async fn handle_pause_loop(
     tag = "agent",
     params(("id" = String, Path, description = "Agent loop ID")),
     responses(
-        (status = 200, description = "Agent loop resumed"),
+        (status = 200, description = "Agent loop resumed", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 409, description = "Cannot resume (not paused)", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_resume_loop(
     State(state): State<ApiState>,
@@ -551,12 +551,12 @@ pub(crate) async fn handle_resume_loop(
     tag = "agent",
     params(("id" = String, Path, description = "Agent loop ID")),
     responses(
-        (status = 200, description = "Agent loop cancelled"),
+        (status = 200, description = "Agent loop cancelled", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 409, description = "Cannot cancel (not running)", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_cancel_loop(
     State(state): State<ApiState>,
@@ -588,11 +588,11 @@ pub(crate) struct LoopSummariesQuery {
     tag = "agent",
     params(("limit" = Option<u64>, Query, description = "Page limit"), ("offset" = Option<u64>, Query, description = "Page offset")),
     responses(
-        (status = 200, description = "List of agent loop summaries", body = serde_json::Value),
+        (status = 200, description = "List of agent loop summaries", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>),
         (status = 400, description = "Invalid query parameters", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_loop_summaries(
     State(state): State<ApiState>,
@@ -640,10 +640,10 @@ pub(crate) async fn handle_loop_summaries(
     path = "/agent-loops/stats",
     tag = "agent",
     responses(
-        (status = 200, description = "Agent loop statistics", body = serde_json::Value),
+        (status = 200, description = "Agent loop statistics", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_loop_statistics(State(state): State<ApiState>) -> impl IntoResponse {
     match wf_api::agent::agent_loop_registry::statistics(&state.ctx).await {
@@ -663,11 +663,11 @@ fn parse_execution_status(status: &str) -> Result<wf_types::ExecutionStatus, Str
     tag = "agent",
     params(("id" = String, Path, description = "Agent loop ID")),
     responses(
-        (status = 200, description = "Agent loop summary", body = serde_json::Value),
+        (status = 200, description = "Agent loop summary", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_loop_summary(
     State(state): State<ApiState>,
@@ -685,11 +685,11 @@ pub(crate) async fn handle_loop_summary(
     tag = "agent",
     params(("id" = String, Path, description = "Agent loop ID"), ("limit" = Option<u64>, Query, description = "Page limit"), ("offset" = Option<u64>, Query, description = "Page offset")),
     responses(
-        (status = 200, description = "Iteration history", body = serde_json::Value),
+        (status = 200, description = "Iteration history", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_iteration_history(
     State(state): State<ApiState>,
@@ -716,11 +716,11 @@ pub(crate) async fn handle_iteration_history(
     tag = "agent",
     params(("id" = String, Path, description = "Agent loop ID")),
     responses(
-        (status = 200, description = "Iteration history summary", body = serde_json::Value),
+        (status = 200, description = "Iteration history summary", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_iteration_history_summary(
     State(state): State<ApiState>,
@@ -739,11 +739,11 @@ pub(crate) async fn handle_iteration_history_summary(
     tag = "agent",
     params(("id" = String, Path, description = "Agent loop ID")),
     responses(
-        (status = 200, description = "Execution timeline", body = serde_json::Value),
+        (status = 200, description = "Execution timeline", body = crate::envelope::ApiEnvelope<crate::paged::CappedView<serde_json::Value>>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_loop_timeline(
     State(state): State<ApiState>,
@@ -763,11 +763,11 @@ pub(crate) async fn handle_loop_timeline(
         ("id" = String, Path, description = "Agent loop ID"),
         ("name" = String, Path, description = "Variable name"), ("limit" = Option<u64>, Query, description = "Page limit"), ("offset" = Option<u64>, Query, description = "Page offset")),
     responses(
-        (status = 200, description = "Variable history", body = serde_json::Value),
+        (status = 200, description = "Variable history", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_variable_history(
     State(state): State<ApiState>,
@@ -796,11 +796,11 @@ pub(crate) async fn handle_variable_history(
     tag = "agent",
     params(("id" = String, Path, description = "Agent loop ID")),
     responses(
-        (status = 200, description = "Context evolution", body = serde_json::Value),
+        (status = 200, description = "Context evolution", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_loop_context_evolution(
     State(state): State<ApiState>,
@@ -818,11 +818,11 @@ pub(crate) async fn handle_loop_context_evolution(
     tag = "agent",
     params(("id" = String, Path, description = "Agent loop ID")),
     responses(
-        (status = 200, description = "Execution path", body = serde_json::Value),
+        (status = 200, description = "Execution path", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_loop_execution_path(
     State(state): State<ApiState>,

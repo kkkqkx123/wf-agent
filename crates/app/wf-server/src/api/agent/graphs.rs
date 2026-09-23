@@ -88,11 +88,11 @@ pub(crate) fn routes() -> Router<ApiState> {
     tag = "agent",
     params(("id" = String, Path, description = "Agent loop ID")),
     responses(
-        (status = 200, description = "Decision graph", body = serde_json::Value),
+        (status = 200, description = "Decision graph", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_decision_graph(
     State(state): State<ApiState>,
@@ -110,11 +110,11 @@ pub(crate) async fn handle_decision_graph(
     tag = "agent",
     params(("id" = String, Path, description = "Agent loop ID")),
     responses(
-        (status = 200, description = "Decision nodes", body = serde_json::Value),
+        (status = 200, description = "Decision nodes", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_decision_nodes(
     State(state): State<ApiState>,
@@ -132,11 +132,11 @@ pub(crate) async fn handle_decision_nodes(
     tag = "agent",
     params(("id" = String, Path, description = "Agent loop ID")),
     responses(
-        (status = 200, description = "Decision edges", body = serde_json::Value),
+        (status = 200, description = "Decision edges", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_decision_edges(
     State(state): State<ApiState>,
@@ -154,11 +154,11 @@ pub(crate) async fn handle_decision_edges(
     tag = "agent",
     params(("id" = String, Path, description = "Agent loop ID")),
     responses(
-        (status = 200, description = "All paths", body = serde_json::Value),
+        (status = 200, description = "All paths", body = crate::envelope::ApiEnvelope<crate::api::agent::graphs::CappedPaths>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_all_paths(
     State(state): State<ApiState>,
@@ -194,11 +194,11 @@ pub(crate) struct CappedPaths {
     tag = "agent",
     params(("id" = String, Path, description = "Agent loop ID")),
     responses(
-        (status = 200, description = "Execution path", body = serde_json::Value),
+        (status = 200, description = "Execution path", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_graph_execution_path(
     State(state): State<ApiState>,
@@ -216,11 +216,11 @@ pub(crate) async fn handle_graph_execution_path(
     tag = "agent",
     params(("id" = String, Path, description = "Agent loop ID")),
     responses(
-        (status = 200, description = "Path statistics", body = serde_json::Value),
+        (status = 200, description = "Path statistics", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_path_statistics(
     State(state): State<ApiState>,
@@ -238,11 +238,11 @@ pub(crate) async fn handle_path_statistics(
     tag = "agent",
     params(("id" = String, Path, description = "Agent loop ID")),
     responses(
-        (status = 200, description = "Critical path", body = serde_json::Value),
+        (status = 200, description = "Critical path", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_critical_path(
     State(state): State<ApiState>,
@@ -260,11 +260,11 @@ pub(crate) async fn handle_critical_path(
     tag = "agent",
     params(("id" = String, Path, description = "Agent loop ID")),
     responses(
-        (status = 200, description = "All alternatives", body = serde_json::Value),
+        (status = 200, description = "All alternatives", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_all_alternatives(
     State(state): State<ApiState>,
@@ -291,11 +291,11 @@ pub(crate) struct IterationPath {
         ("iteration" = u32, Path, description = "Iteration number")
     ),
     responses(
-        (status = 200, description = "Alternative decisions for iteration", body = serde_json::Value),
+        (status = 200, description = "Alternative decisions for iteration", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_alternative_decisions(
     State(state): State<ApiState>,
@@ -315,11 +315,11 @@ pub(crate) async fn handle_alternative_decisions(
     tag = "agent",
     params(("id" = String, Path, description = "Agent loop ID")),
     responses(
-        (status = 200, description = "Decision sequence", body = serde_json::Value),
+        (status = 200, description = "Decision sequence", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_decision_sequence(
     State(state): State<ApiState>,
@@ -340,11 +340,11 @@ pub(crate) async fn handle_decision_sequence(
         ("iteration" = u32, Path, description = "Iteration number")
     ),
     responses(
-        (status = 200, description = "Decisions in iteration", body = serde_json::Value),
+        (status = 200, description = "Decisions in iteration", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_decisions_in_iteration(
     State(state): State<ApiState>,
@@ -371,11 +371,11 @@ pub(crate) struct DecisionTypePath {
     tag = "agent",
     params(("id" = String, Path, description = "Agent loop ID"), ("decisionType" = String, Path, description = "Decision type")),
     responses(
-        (status = 200, description = "Decisions by type", body = serde_json::Value),
+        (status = 200, description = "Decisions by type", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_decisions_by_type(
     State(state): State<ApiState>,
@@ -395,11 +395,11 @@ pub(crate) async fn handle_decisions_by_type(
     tag = "agent",
     params(("id" = String, Path, description = "Agent loop ID")),
     responses(
-        (status = 200, description = "Unexplored alternatives", body = serde_json::Value),
+        (status = 200, description = "Unexplored alternatives", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_unexplored_alternatives(
     State(state): State<ApiState>,
@@ -417,11 +417,11 @@ pub(crate) async fn handle_unexplored_alternatives(
     tag = "agent",
     params(("id" = String, Path, description = "Agent loop ID")),
     responses(
-        (status = 200, description = "Most promising unexplored alternative", body = serde_json::Value),
+        (status = 200, description = "Most promising unexplored alternative", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_most_promising_unexplored(
     State(state): State<ApiState>,
@@ -439,11 +439,11 @@ pub(crate) async fn handle_most_promising_unexplored(
     tag = "agent",
     params(("id" = String, Path, description = "Agent loop ID")),
     responses(
-        (status = 200, description = "Execution path steps", body = serde_json::Value),
+        (status = 200, description = "Execution path steps", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_execution_path_steps(
     State(state): State<ApiState>,
@@ -461,11 +461,11 @@ pub(crate) async fn handle_execution_path_steps(
     tag = "agent",
     params(("id" = String, Path, description = "Agent loop ID")),
     responses(
-        (status = 200, description = "Tool frequency", body = serde_json::Value),
+        (status = 200, description = "Tool frequency", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_tool_frequency(
     State(state): State<ApiState>,
@@ -486,11 +486,11 @@ pub(crate) async fn handle_tool_frequency(
     tag = "agent",
     params(("id" = String, Path, description = "Agent loop ID")),
     responses(
-        (status = 200, description = "Decision patterns", body = serde_json::Value),
+        (status = 200, description = "Decision patterns", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_decision_patterns(
     State(state): State<ApiState>,
@@ -508,11 +508,11 @@ pub(crate) async fn handle_decision_patterns(
     tag = "agent",
     params(("id" = String, Path, description = "Agent loop ID")),
     responses(
-        (status = 200, description = "Path efficiency", body = serde_json::Value),
+        (status = 200, description = "Path efficiency", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_path_efficiency(
     State(state): State<ApiState>,
@@ -530,11 +530,11 @@ pub(crate) async fn handle_path_efficiency(
     tag = "agent",
     params(("id" = String, Path, description = "Agent loop ID")),
     responses(
-        (status = 200, description = "Path probabilities", body = serde_json::Value),
+        (status = 200, description = "Path probabilities", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_path_probabilities(
     State(state): State<ApiState>,

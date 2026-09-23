@@ -31,10 +31,10 @@ pub(crate) fn routes() -> Router<ApiState> {
     path = "/agents/drafts",
     tag = "agent",
     responses(
-        (status = 200, description = "List of agent drafts", body = serde_json::Value),
+        (status = 200, description = "List of agent drafts", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_list_drafts(State(state): State<ApiState>) -> impl IntoResponse {
     match wf_api::agent::agent_draft::list_drafts(&state.ctx).await {
@@ -49,12 +49,12 @@ pub(crate) async fn handle_list_drafts(State(state): State<ApiState>) -> impl In
     tag = "agent",
     request_body = serde_json::Value,
     responses(
-        (status = 200, description = "Agent draft created", body = String),
+        (status = 200, description = "Agent draft created", body = crate::envelope::ApiEnvelope<String>),
         (status = 400, description = "Invalid request body", body = crate::envelope::ErrorResponse),
         (status = 409, description = "Agent draft already exists", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_save_draft(
     State(state): State<ApiState>,
@@ -72,11 +72,11 @@ pub(crate) async fn handle_save_draft(
     tag = "agent",
     params(("id" = String, Path, description = "Agent draft ID")),
     responses(
-        (status = 200, description = "Agent draft found", body = serde_json::Value),
+        (status = 200, description = "Agent draft found", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_get_draft(
     State(state): State<ApiState>,
@@ -94,11 +94,11 @@ pub(crate) async fn handle_get_draft(
     tag = "agent",
     params(("id" = String, Path, description = "Agent draft ID")),
     responses(
-        (status = 200, description = "Agent draft deleted", body = bool),
+        (status = 200, description = "Agent draft deleted", body = crate::envelope::ApiEnvelope<bool>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_delete_draft(
     State(state): State<ApiState>,
@@ -116,11 +116,11 @@ pub(crate) async fn handle_delete_draft(
     tag = "agent",
     params(("id" = String, Path, description = "Agent draft ID")),
     responses(
-        (status = 200, description = "Draft promoted", body = serde_json::Value),
+        (status = 200, description = "Draft promoted", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_promote_draft(
     State(state): State<ApiState>,
@@ -138,11 +138,11 @@ pub(crate) async fn handle_promote_draft(
     tag = "agent",
     params(("id" = String, Path, description = "Agent loop ID")),
     responses(
-        (status = 200, description = "Draft validation", body = serde_json::Value),
+        (status = 200, description = "Draft validation", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_validate_draft(
     State(state): State<ApiState>,
@@ -160,11 +160,11 @@ pub(crate) async fn handle_validate_draft(
     tag = "agent",
     params(("id" = String, Path, description = "Agent loop ID")),
     responses(
-        (status = 200, description = "Agent lifecycle", body = serde_json::Value),
+        (status = 200, description = "Agent lifecycle", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_lifecycle(
     State(state): State<ApiState>,

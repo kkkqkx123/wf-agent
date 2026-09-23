@@ -44,8 +44,8 @@ fn parse_kind(raw: &str) -> Option<wf_api::DependencyKind> {
     path = "/dependencies/dependents",
     tag = "system",
     params(("kind" = String, Query, description = "kind"), ("id" = String, Query, description = "id")),
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_dependents(
     State(state): State<ApiState>,
@@ -68,8 +68,8 @@ pub(crate) async fn handle_dependents(
     path = "/dependencies/impact",
     tag = "system",
     params(("kind" = String, Query, description = "kind"), ("id" = String, Query, description = "id")),
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_impact(
     State(state): State<ApiState>,
@@ -91,8 +91,8 @@ pub(crate) async fn handle_impact(
     get,
     path = "/dependencies/audit",
     tag = "system",
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_audit(State(state): State<ApiState>) -> impl IntoResponse {
     match wf_api::audit_all_workflows(&state.ctx).await {
@@ -105,8 +105,8 @@ pub(crate) async fn handle_audit(State(state): State<ApiState>) -> impl IntoResp
     get,
     path = "/system/stale",
     tag = "system",
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_stale(State(state): State<ApiState>) -> impl IntoResponse {
     ok(state.ctx.list_stale()).into_response()

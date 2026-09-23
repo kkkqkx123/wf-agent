@@ -50,8 +50,8 @@ pub(crate) fn routes() -> Router<ApiState> {
     get,
     path = "/file-checkpoint/partitions",
     tag = "checkpoint",
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_list_partitions(State(state): State<ApiState>) -> impl IntoResponse {
     match wf_api::checkpoint::provenance::list_partitions(&state.ctx) {
@@ -65,8 +65,8 @@ pub(crate) async fn handle_list_partitions(State(state): State<ApiState>) -> imp
     path = "/file-checkpoint/workspace/{id}",
     tag = "checkpoint",
     params(("id" = String, Path, description = "id")),
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_get_actor_workspace(
     State(state): State<ApiState>,
@@ -89,8 +89,8 @@ pub(crate) struct ActorPairPath {
     path = "/file-checkpoint/diff/actors/{a}/{b}",
     tag = "checkpoint",
     params(("a" = String, Path, description = "a"), ("b" = String, Path, description = "b")),
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_diff_actors(
     State(state): State<ApiState>,
@@ -107,8 +107,8 @@ pub(crate) async fn handle_diff_actors(
     path = "/file-checkpoint/diff/staged/{id}",
     tag = "checkpoint",
     params(("id" = String, Path, description = "id")),
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_diff_against_staged(
     State(state): State<ApiState>,
@@ -125,8 +125,8 @@ pub(crate) async fn handle_diff_against_staged(
     path = "/file-checkpoint/timeline/{id}",
     tag = "checkpoint",
     params(("id" = String, Path, description = "id")),
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_file_timeline(
     State(state): State<ApiState>,
@@ -155,8 +155,8 @@ pub(crate) struct ContentQuery {
     path = "/file-checkpoint/content",
     tag = "checkpoint",
     params(("actor" = String, Query, description = "actor"), ("path" = String, Query, description = "path")),
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_read_content(
     State(state): State<ApiState>,
@@ -186,8 +186,8 @@ pub(crate) struct FileTreeView {
     path = "/file-checkpoint/tree/{id}",
     tag = "checkpoint",
     params(("id" = String, Path, description = "id"), ("prefix" = Option<String>, Query, description = "prefix")),
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_list_tree(
     State(state): State<ApiState>,
@@ -226,8 +226,8 @@ pub(crate) struct PagedChangesQuery {
     path = "/file-checkpoint/changes",
     tag = "checkpoint",
     params(("actor" = Option<String>, Query, description = "actor"), ("path" = Option<String>, Query, description = "path"), ("start" = Option<i64>, Query, description = "start"), ("end" = Option<i64>, Query, description = "end"), ("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset")),
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_list_changes_paged(
     State(state): State<ApiState>,
@@ -280,8 +280,8 @@ pub(crate) struct BeginSessionRequest {
     path = "/file-checkpoint/sessions",
     tag = "checkpoint",
     request_body = serde_json::Value,
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_begin_session(
     State(state): State<ApiState>,
@@ -298,8 +298,8 @@ pub(crate) async fn handle_begin_session(
     path = "/file-checkpoint/sessions",
     tag = "checkpoint",
     params(("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset")),
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_list_sessions(
     State(state): State<ApiState>,
@@ -330,8 +330,8 @@ pub(crate) struct SessionRollbackPath {
     path = "/file-checkpoint/sessions/{id}/rollback/{actor}",
     tag = "checkpoint",
     params(("id" = String, Path, description = "id"), ("actor" = String, Path, description = "actor")),
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_rollback_session(
     State(state): State<ApiState>,
@@ -348,8 +348,8 @@ pub(crate) async fn handle_rollback_session(
     path = "/file-checkpoint/undo/{id}",
     tag = "checkpoint",
     params(("id" = String, Path, description = "id")),
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_undo_edit(
     State(state): State<ApiState>,
@@ -366,8 +366,8 @@ pub(crate) async fn handle_undo_edit(
     path = "/file-checkpoint/redo/{id}",
     tag = "checkpoint",
     params(("id" = String, Path, description = "id")),
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_redo_edit(
     State(state): State<ApiState>,
@@ -393,8 +393,8 @@ pub(crate) struct RenameFileRequest {
     path = "/file-checkpoint/rename",
     tag = "checkpoint",
     request_body = serde_json::Value,
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_rename_file(
     State(state): State<ApiState>,
@@ -423,8 +423,8 @@ pub(crate) struct GcQuery {
     path = "/file-checkpoint/gc",
     tag = "checkpoint",
     params(("keep_recent_heads" = u64, Query, description = "keep_recent_heads")),
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_run_gc(
     State(state): State<ApiState>,

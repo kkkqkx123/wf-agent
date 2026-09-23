@@ -74,11 +74,11 @@ pub(crate) struct AgentExecutionsQuery {
     tag = "agent",
     params(("limit" = Option<u64>, Query, description = "Page limit"), ("offset" = Option<u64>, Query, description = "Page offset")),
     responses(
-        (status = 200, description = "List of agent executions", body = serde_json::Value),
+        (status = 200, description = "List of agent executions", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>),
         (status = 400, description = "Invalid query parameters", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_agent_executions(
     State(state): State<ApiState>,
@@ -112,11 +112,11 @@ pub(crate) async fn handle_agent_executions(
     tag = "agent",
     params(("id" = String, Path, description = "Agent execution ID")),
     responses(
-        (status = 200, description = "Agent execution found", body = serde_json::Value),
+        (status = 200, description = "Agent execution found", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_get_agent_execution(
     State(state): State<ApiState>,
@@ -134,11 +134,11 @@ pub(crate) async fn handle_get_agent_execution(
     tag = "agent",
     params(("id" = String, Path, description = "Agent execution ID")),
     responses(
-        (status = 200, description = "Agent execution deleted", body = bool),
+        (status = 200, description = "Agent execution deleted", body = crate::envelope::ApiEnvelope<bool>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_delete_agent_execution(
     State(state): State<ApiState>,
@@ -157,11 +157,11 @@ pub(crate) async fn handle_delete_agent_execution(
     params(
         ("defId" = String, Path, description = "Agent definition ID"), ("limit" = Option<u64>, Query, description = "Page limit"), ("offset" = Option<u64>, Query, description = "Page offset")),
     responses(
-        (status = 200, description = "List of executions for definition", body = serde_json::Value),
+        (status = 200, description = "List of executions for definition", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>),
         (status = 400, description = "Invalid query parameters", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_executions_by_definition(
     State(state): State<ApiState>,
@@ -189,10 +189,10 @@ pub(crate) async fn handle_executions_by_definition(
     path = "/agent-executions/stats",
     tag = "agent",
     responses(
-        (status = 200, description = "Agent execution statistics", body = serde_json::Value),
+        (status = 200, description = "Agent execution statistics", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_execution_statistics(
     State(state): State<ApiState>,
@@ -210,11 +210,11 @@ pub(crate) async fn handle_execution_statistics(
     params(
         ("status" = String, Path, description = "Execution status (running, paused, completed, failed)"), ("limit" = Option<u64>, Query, description = "Page limit"), ("offset" = Option<u64>, Query, description = "Page offset")),
     responses(
-        (status = 200, description = "Executions by status", body = serde_json::Value),
+        (status = 200, description = "Executions by status", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>),
         (status = 400, description = "Invalid status", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_executions_by_status(
     State(state): State<ApiState>,
@@ -269,12 +269,12 @@ async fn ensure_agent_domain(
     params(("id" = String, Path, description = "Agent loop ID")),
     request_body = serde_json::Value,
     responses(
-        (status = 200, description = "Checkpoint created", body = serde_json::Value),
+        (status = 200, description = "Checkpoint created", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Agent loop not found", body = crate::envelope::ErrorResponse),
         (status = 400, description = "Invalid request body", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_create_checkpoint(
     State(state): State<ApiState>,
@@ -297,11 +297,11 @@ pub(crate) async fn handle_create_checkpoint(
     params(
         ("id" = String, Path, description = "Agent loop ID"), ("limit" = Option<u64>, Query, description = "Page limit"), ("offset" = Option<u64>, Query, description = "Page offset")),
     responses(
-        (status = 200, description = "List of checkpoints", body = serde_json::Value),
+        (status = 200, description = "List of checkpoints", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>),
         (status = 404, description = "Agent loop not found", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_list_checkpoints(
     State(state): State<ApiState>,
@@ -331,11 +331,11 @@ pub(crate) async fn handle_list_checkpoints(
     tag = "agent",
     params(("id" = String, Path, description = "Agent loop ID"), ("cid" = String, Path, description = "Checkpoint ID")),
     responses(
-        (status = 200, description = "Checkpoint restored", body = serde_json::Value),
+        (status = 200, description = "Checkpoint restored", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_restore_checkpoint(
     State(state): State<ApiState>,
@@ -399,13 +399,13 @@ pub(crate) struct AgentResumeView {
     ),
     request_body = serde_json::Value,
     responses(
-        (status = 200, description = "Agent loop resumed from checkpoint", body = serde_json::Value),
+        (status = 200, description = "Agent loop resumed from checkpoint", body = crate::envelope::ApiEnvelope<crate::api::agent::executions::AgentResumeView>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 400, description = "Invalid request body", body = crate::envelope::ErrorResponse),
         (status = 409, description = "Invalid mode for checkpoint state", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_resume_checkpoint(
     State(state): State<ApiState>,
@@ -459,11 +459,11 @@ pub(crate) async fn handle_resume_checkpoint(
     tag = "agent",
     params(("id" = String, Path, description = "Agent loop ID")),
     responses(
-        (status = 200, description = "Checkpoint chain", body = serde_json::Value),
+        (status = 200, description = "Checkpoint chain", body = crate::envelope::ApiEnvelope<crate::paged::CappedView<serde_json::Value>>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_checkpoint_chain(
     State(state): State<ApiState>,
@@ -484,11 +484,11 @@ pub(crate) async fn handle_checkpoint_chain(
     tag = "agent",
     params(("id" = String, Path, description = "Agent loop ID")),
     responses(
-        (status = 200, description = "Checkpoints deleted", body = serde_json::Value),
+        (status = 200, description = "Checkpoints deleted", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_delete_checkpoints(
     State(state): State<ApiState>,
@@ -508,11 +508,11 @@ pub(crate) async fn handle_delete_checkpoints(
     path = "/agent-checkpoints/stats",
     tag = "agent",
     responses(
-        (status = 200, description = "Checkpoint statistics", body = serde_json::Value),
+        (status = 200, description = "Checkpoint statistics", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_checkpoint_statistics(
     State(state): State<ApiState>,

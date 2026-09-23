@@ -42,8 +42,8 @@ pub(crate) fn routes() -> Router<ApiState> {
     get,
     path = "/skills",
     tag = "entity",
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_list_skills(State(state): State<ApiState>) -> impl IntoResponse {
     match wf_api::entity::skill::list_skills(&state.ctx) {
@@ -64,8 +64,8 @@ pub(crate) struct QuerySkillsQuery {
     path = "/skills/query",
     tag = "entity",
     params(("name" = Option<String>, Query, description = "name"), ("version" = Option<String>, Query, description = "version"), ("tags" = Option<String>, Query, description = "tags")),
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_query_skills(
     State(state): State<ApiState>,
@@ -90,8 +90,8 @@ pub(crate) async fn handle_query_skills(
     path = "/skills/{name}",
     tag = "entity",
     params(("name" = String, Path, description = "name")),
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_get_skill(
     State(state): State<ApiState>,
@@ -108,8 +108,8 @@ pub(crate) async fn handle_get_skill(
     path = "/skills/{name}/enable",
     tag = "entity",
     params(("name" = String, Path, description = "name")),
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_enable_skill(
     State(state): State<ApiState>,
@@ -125,8 +125,8 @@ pub(crate) async fn handle_enable_skill(
     get,
     path = "/skills/enabled",
     tag = "entity",
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_enabled_skills(State(state): State<ApiState>) -> impl IntoResponse {
     match wf_api::entity::skill::get_enabled_skills(&state.ctx) {
@@ -139,8 +139,8 @@ pub(crate) async fn handle_enabled_skills(State(state): State<ApiState>) -> impl
     get,
     path = "/skills/disabled",
     tag = "entity",
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_disabled_skills(State(state): State<ApiState>) -> impl IntoResponse {
     match wf_api::entity::skill::get_disabled_skills(&state.ctx) {
@@ -153,8 +153,8 @@ pub(crate) async fn handle_disabled_skills(State(state): State<ApiState>) -> imp
     post,
     path = "/skills/cache/clear",
     tag = "entity",
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_clear_skill_cache(State(state): State<ApiState>) -> impl IntoResponse {
     match wf_api::entity::skill::clear_cache(&state.ctx) {
@@ -168,8 +168,8 @@ pub(crate) async fn handle_clear_skill_cache(State(state): State<ApiState>) -> i
     path = "/skills/cache/clear/{name}",
     tag = "entity",
     params(("name" = String, Path, description = "name")),
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_clear_skill_cache_by_name(
     State(state): State<ApiState>,
@@ -186,8 +186,8 @@ pub(crate) async fn handle_clear_skill_cache_by_name(
     path = "/skills/{name}/content",
     tag = "entity",
     params(("name" = String, Path, description = "name")),
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_skill_content(
     State(state): State<ApiState>,
@@ -204,8 +204,8 @@ pub(crate) async fn handle_skill_content(
     path = "/skills/{name}/disable",
     tag = "entity",
     params(("name" = String, Path, description = "name")),
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_disable_skill(
     State(state): State<ApiState>,
@@ -227,8 +227,8 @@ pub(crate) struct SkillDirQuery {
     path = "/skills/scan",
     tag = "entity",
     params(("dir" = Option<String>, Query, description = "dir")),
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_scan_skills(
     State(state): State<ApiState>,
@@ -245,8 +245,8 @@ pub(crate) async fn handle_scan_skills(
     path = "/skills/reload",
     tag = "entity",
     params(("dir" = Option<String>, Query, description = "dir")),
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_reload_skills(
     State(state): State<ApiState>,
@@ -268,8 +268,8 @@ pub(crate) struct SkillResourcesQuery {
     path = "/skills/{name}/resources",
     tag = "entity",
     params(("name" = String, Path, description = "name"), ("resource_type" = Option<String>, Query, description = "resource_type")),
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_skill_resources(
     State(state): State<ApiState>,
@@ -301,8 +301,8 @@ pub(crate) async fn handle_skill_resources(
     get,
     path = "/skills/prompt",
     tag = "entity",
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_skill_prompt(State(state): State<ApiState>) -> impl IntoResponse {
     match wf_api::entity::skill::to_prompt(&state.ctx) {

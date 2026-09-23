@@ -35,8 +35,8 @@ pub(crate) fn routes() -> Router<ApiState> {
     get,
     path = "/workflows/drafts",
     tag = "workflow",
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_list_drafts(State(state): State<ApiState>) -> impl IntoResponse {
     match wf_api::workflow::draft::list_drafts(&state.ctx).await {
@@ -50,8 +50,8 @@ pub(crate) async fn handle_list_drafts(State(state): State<ApiState>) -> impl In
     path = "/workflows/drafts",
     tag = "workflow",
     request_body = serde_json::Value,
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_save_draft(
     State(state): State<ApiState>,
@@ -68,8 +68,8 @@ pub(crate) async fn handle_save_draft(
     path = "/workflows/drafts/{id}",
     tag = "workflow",
     params(("id" = String, Path, description = "id")),
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_get_draft(
     State(state): State<ApiState>,
@@ -86,8 +86,8 @@ pub(crate) async fn handle_get_draft(
     path = "/workflows/drafts/{id}",
     tag = "workflow",
     params(("id" = String, Path, description = "id")),
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_delete_draft(
     State(state): State<ApiState>,
@@ -104,8 +104,8 @@ pub(crate) async fn handle_delete_draft(
     path = "/workflows/drafts/{id}/promote",
     tag = "workflow",
     params(("id" = String, Path, description = "id")),
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_promote_draft(
     State(state): State<ApiState>,
@@ -121,8 +121,8 @@ pub(crate) async fn handle_promote_draft(
     post,
     path = "/workflows/drafts/promote-all",
     tag = "workflow",
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_promote_all(State(state): State<ApiState>) -> impl IntoResponse {
     let outcomes = wf_api::workflow::draft::promote_all_drafts(&state.ctx).await;
@@ -141,8 +141,8 @@ pub(crate) async fn handle_promote_all(State(state): State<ApiState>) -> impl In
     path = "/workflows/drafts/{id}/validate",
     tag = "workflow",
     params(("id" = String, Path, description = "id")),
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_validate_draft(
     State(state): State<ApiState>,
@@ -159,8 +159,8 @@ pub(crate) async fn handle_validate_draft(
     path = "/workflows/{id}/lifecycle",
     tag = "workflow",
     params(("id" = String, Path, description = "id")),
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_lifecycle(
     State(state): State<ApiState>,

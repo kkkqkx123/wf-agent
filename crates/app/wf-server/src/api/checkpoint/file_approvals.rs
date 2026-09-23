@@ -58,10 +58,10 @@ pub(crate) struct RejectRequest {
     path = "/file-checkpoint/approvals/pending",
     tag = "checkpoint",
     responses(
-        (status = 200, description = "List of pending file approvals"),
+        (status = 200, description = "List of pending file approvals", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_list_pending_approvals(
     State(state): State<ApiState>,
@@ -79,11 +79,11 @@ pub(crate) async fn handle_list_pending_approvals(
     params(("id" = String, Path, description = "Checkpoint approval ID")),
     request_body = serde_json::Value,
     responses(
-        (status = 200, description = "Changes approved"),
+        (status = 200, description = "Changes approved", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_approve_changes(
     State(state): State<ApiState>,
@@ -104,11 +104,11 @@ pub(crate) async fn handle_approve_changes(
     params(("id" = String, Path, description = "Checkpoint approval ID")),
     request_body = serde_json::Value,
     responses(
-        (status = 200, description = "Changes rejected", body = serde_json::Value),
+        (status = 200, description = "Changes rejected", body = crate::envelope::ApiEnvelope<crate::api::checkpoint::file_approvals::RejectResponse>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_reject_changes(
     State(state): State<ApiState>,

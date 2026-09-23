@@ -74,11 +74,11 @@ pub(crate) struct RecentMessagesQuery {
     params(
         ("id" = String, Path, description = "Agent loop ID"), ("limit" = Option<u64>, Query, description = "Page limit"), ("offset" = Option<u64>, Query, description = "Page offset")),
     responses(
-        (status = 200, description = "Recent messages", body = serde_json::Value),
+        (status = 200, description = "Recent messages", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_recent_messages(
     State(state): State<ApiState>,
@@ -107,11 +107,11 @@ pub(crate) async fn handle_recent_messages(
     tag = "agent",
     params(("id" = String, Path, description = "Agent loop ID")),
     responses(
-        (status = 200, description = "Number of duplicate messages removed", body = usize),
+        (status = 200, description = "Number of duplicate messages removed", body = crate::envelope::ApiEnvelope<usize>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_dedupe_messages(
     State(state): State<ApiState>,
@@ -138,11 +138,11 @@ pub(crate) struct SearchMessagesQuery {
     params(
         ("id" = String, Path, description = "Agent loop ID"), ("limit" = Option<u64>, Query, description = "Page limit"), ("offset" = Option<u64>, Query, description = "Page offset")),
     responses(
-        (status = 200, description = "Search results", body = serde_json::Value),
+        (status = 200, description = "Search results", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_search_messages(
     State(state): State<ApiState>,
@@ -169,11 +169,11 @@ pub(crate) async fn handle_search_messages(
     tag = "agent",
     params(("id" = String, Path, description = "Agent loop ID")),
     responses(
-        (status = 200, description = "Message statistics", body = serde_json::Value),
+        (status = 200, description = "Message statistics", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_message_stats(
     State(state): State<ApiState>,
@@ -200,11 +200,11 @@ pub(crate) struct ConversationQuery {
     params(
         ("id" = String, Path, description = "Agent loop ID"), ("limit" = Option<u64>, Query, description = "Page limit"), ("offset" = Option<u64>, Query, description = "Page offset")),
     responses(
-        (status = 200, description = "Conversation history", body = serde_json::Value),
+        (status = 200, description = "Conversation history", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_conversation(
     State(state): State<ApiState>,
@@ -240,11 +240,11 @@ pub(crate) async fn handle_conversation(
     params(
         ("id" = String, Path, description = "Agent loop ID"), ("limit" = Option<u64>, Query, description = "Page limit"), ("offset" = Option<u64>, Query, description = "Page offset")),
     responses(
-        (status = 200, description = "List of variables", body = serde_json::Value),
+        (status = 200, description = "List of variables", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_list_variables(
     State(state): State<ApiState>,
@@ -271,11 +271,11 @@ pub(crate) async fn handle_list_variables(
     tag = "agent",
     params(("id" = String, Path, description = "Agent loop ID")),
     responses(
-        (status = 200, description = "Variable statistics", body = serde_json::Value),
+        (status = 200, description = "Variable statistics", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_variable_stats(
     State(state): State<ApiState>,
@@ -300,11 +300,11 @@ pub(crate) struct VariableExportQuery {
     params(
         ("id" = String, Path, description = "Agent loop ID"), ("limit" = Option<u64>, Query, description = "Page limit"), ("offset" = Option<u64>, Query, description = "Page offset")),
     responses(
-        (status = 200, description = "Exported variables", body = serde_json::Value),
+        (status = 200, description = "Exported variables file download", body = String, content_type = "application/json"),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_variable_export(
     State(state): State<ApiState>,
@@ -337,11 +337,11 @@ pub(crate) async fn handle_variable_export(
         ("name" = String, Path, description = "Variable name")
     ),
     responses(
-        (status = 200, description = "Variable value", body = serde_json::Value),
+        (status = 200, description = "Variable value", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_get_variable(
     State(state): State<ApiState>,
@@ -371,11 +371,11 @@ pub(crate) struct SetVariableBody {
     ),
     request_body = serde_json::Value,
     responses(
-        (status = 200, description = "Variable set"),
+        (status = 200, description = "Variable set", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_set_variable(
     State(state): State<ApiState>,
@@ -399,11 +399,11 @@ pub(crate) async fn handle_set_variable(
         ("name" = String, Path, description = "Variable name")
     ),
     responses(
-        (status = 200, description = "Variable deleted", body = bool),
+        (status = 200, description = "Variable deleted", body = crate::envelope::ApiEnvelope<bool>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_delete_variable(
     State(state): State<ApiState>,
@@ -441,12 +441,12 @@ pub(crate) struct LoopVariableBatchBody {
     params(("id" = String, Path, description = "Agent loop ID")),
     request_body = serde_json::Value,
     responses(
-        (status = 200, description = "Batch results", body = serde_json::Value),
+        (status = 200, description = "Batch results", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 400, description = "Invalid request body", body = crate::envelope::ErrorResponse),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_batch_set_loop_variables(
     State(state): State<ApiState>,

@@ -56,7 +56,7 @@ pub struct ApiErrorBody {
     message: String,
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, ToSchema)]
 pub(crate) struct ApiEnvelope<T: Serialize> {
     success: bool,
     data: Option<T>,

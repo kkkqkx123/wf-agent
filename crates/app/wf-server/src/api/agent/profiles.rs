@@ -39,11 +39,11 @@ pub(crate) fn routes() -> Router<ApiState> {
     tag = "agent",
     request_body = serde_json::Value,
     responses(
-        (status = 200, description = "Agent definition is valid", body = bool),
+        (status = 200, description = "Agent definition is valid", body = crate::envelope::ApiEnvelope<bool>),
         (status = 400, description = "Invalid agent definition", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_validate_agent(
     State(_state): State<ApiState>,
@@ -71,11 +71,11 @@ pub(crate) struct ListProfilesQuery {
     tag = "agent",
     params(("limit" = Option<u64>, Query, description = "Page limit"), ("offset" = Option<u64>, Query, description = "Page offset")),
     responses(
-        (status = 200, description = "List of agent profiles", body = serde_json::Value),
+        (status = 200, description = "List of agent profiles", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>),
         (status = 400, description = "Invalid query parameters", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_list_profiles(
     State(state): State<ApiState>,
@@ -100,12 +100,12 @@ pub(crate) async fn handle_list_profiles(
     tag = "agent",
     request_body = serde_json::Value,
     responses(
-        (status = 200, description = "Agent profile created", body = String),
+        (status = 200, description = "Agent profile created", body = crate::envelope::ApiEnvelope<String>),
         (status = 400, description = "Invalid request body", body = crate::envelope::ErrorResponse),
         (status = 409, description = "Agent profile already exists", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_save_profile(
     State(state): State<ApiState>,
@@ -123,11 +123,11 @@ pub(crate) async fn handle_save_profile(
     tag = "agent",
     params(("id" = String, Path, description = "Agent profile ID")),
     responses(
-        (status = 200, description = "Agent profile found", body = serde_json::Value),
+        (status = 200, description = "Agent profile found", body = crate::envelope::ApiEnvelope<serde_json::Value>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_get_profile(
     State(state): State<ApiState>,
@@ -146,12 +146,12 @@ pub(crate) async fn handle_get_profile(
     params(("id" = String, Path, description = "Agent profile ID")),
     request_body = serde_json::Value,
     responses(
-        (status = 200, description = "Agent profile updated", body = String),
+        (status = 200, description = "Agent profile updated", body = crate::envelope::ApiEnvelope<String>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 400, description = "Invalid request body", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_update_profile(
     State(state): State<ApiState>,
@@ -171,11 +171,11 @@ pub(crate) async fn handle_update_profile(
     tag = "agent",
     params(("id" = String, Path, description = "Agent profile ID")),
     responses(
-        (status = 200, description = "Agent profile deleted", body = bool),
+        (status = 200, description = "Agent profile deleted", body = crate::envelope::ApiEnvelope<bool>),
         (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
         (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
     ),
-    security(("bearer_auth" = []))
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_delete_profile(
     State(state): State<ApiState>,

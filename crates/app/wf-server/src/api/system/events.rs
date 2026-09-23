@@ -90,8 +90,8 @@ pub(crate) struct ListEventsQuery {
     path = "/events",
     tag = "system",
     params(("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset"), ("execution_id" = Option<String>, Query, description = "execution_id"), ("agent_loop_id" = Option<String>, Query, description = "agent_loop_id"), ("workflow_id" = Option<String>, Query, description = "workflow_id")),
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_list_events(
     State(state): State<ApiState>,
@@ -134,8 +134,8 @@ pub(crate) struct ClearEventsQuery {
     path = "/events",
     tag = "system",
     params(("force" = Option<bool>, Query, description = "force")),
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_clear_events(
     State(state): State<ApiState>,
@@ -157,8 +157,8 @@ pub(crate) async fn handle_clear_events(
     get,
     path = "/events/stats",
     tag = "system",
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_event_stats(State(state): State<ApiState>) -> impl IntoResponse {
     match wf_api::infra::events::get_event_stats(&state.ctx, &wf_api::EventQueryOptions::default())
@@ -184,8 +184,8 @@ pub(crate) struct SearchEventsQuery {
     path = "/events/search",
     tag = "system",
     params(("q" = String, Query, description = "q"), ("execution_id" = Option<String>, Query, description = "execution_id"), ("agent_loop_id" = Option<String>, Query, description = "agent_loop_id"), ("workflow_id" = Option<String>, Query, description = "workflow_id"), ("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset")),
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_search_events(
     State(state): State<ApiState>,
@@ -220,8 +220,8 @@ pub(crate) async fn handle_search_events(
     get,
     path = "/events/size",
     tag = "system",
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_event_size(State(state): State<ApiState>) -> impl IntoResponse {
     match wf_api::infra::events::event_history_size(&state.ctx).await {
@@ -234,8 +234,8 @@ pub(crate) async fn handle_event_size(State(state): State<ApiState>) -> impl Int
     get,
     path = "/events/time-range",
     tag = "system",
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_event_time_range(State(state): State<ApiState>) -> impl IntoResponse {
     match wf_api::infra::events::event_time_range(&state.ctx).await {
@@ -249,8 +249,8 @@ pub(crate) async fn handle_event_time_range(State(state): State<ApiState>) -> im
     path = "/events/timeline/{executionId}",
     tag = "system",
     params(("executionId" = String, Path, description = "executionId")),
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::paged::CappedView<serde_json::Value>>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_execution_timeline(
     State(state): State<ApiState>,
@@ -267,8 +267,8 @@ pub(crate) async fn handle_execution_timeline(
     path = "/events/agent-timeline/{id}",
     tag = "system",
     params(("id" = String, Path, description = "id")),
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::paged::CappedView<serde_json::Value>>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_agent_timeline(
     State(state): State<ApiState>,
@@ -285,8 +285,8 @@ pub(crate) async fn handle_agent_timeline(
     path = "/events/execution-timeline/{executionId}",
     tag = "system",
     params(("executionId" = String, Path, description = "executionId")),
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_execution_timeline_view(
     State(state): State<ApiState>,
@@ -341,8 +341,8 @@ fn cap_execution_timeline(
     path = "/events/execution-timeline/{executionId}/summary",
     tag = "system",
     params(("executionId" = String, Path, description = "executionId")),
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_execution_timeline_summary(
     State(state): State<ApiState>,
@@ -361,8 +361,8 @@ pub(crate) async fn handle_execution_timeline_summary(
     path = "/events/listener-stats/{executionId}",
     tag = "system",
     params(("executionId" = String, Path, description = "executionId")),
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_listener_stats(
     State(state): State<ApiState>,
@@ -378,8 +378,8 @@ pub(crate) async fn handle_listener_stats(
     get,
     path = "/events/agent/stats",
     tag = "system",
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<serde_json::Value>), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_agent_loop_statistics(
     State(state): State<ApiState>,
@@ -401,8 +401,8 @@ pub(crate) struct AgentLoopPath {
     path = "/events/agent/{agentLoopId}",
     tag = "system",
     params(("agentLoopId" = String, Path, description = "agentLoopId"), ("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset")),
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_agent_events(
     State(state): State<ApiState>,
@@ -428,8 +428,8 @@ pub(crate) async fn handle_agent_events(
     path = "/events/agent/{agentLoopId}/turns",
     tag = "system",
     params(("agentLoopId" = String, Path, description = "agentLoopId"), ("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset")),
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_agent_turn_events(
     State(state): State<ApiState>,
@@ -455,8 +455,8 @@ pub(crate) async fn handle_agent_turn_events(
     path = "/events/agent/{agentLoopId}/tool-executions",
     tag = "system",
     params(("agentLoopId" = String, Path, description = "agentLoopId"), ("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset")),
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses((status = 200, description = "Success", body = crate::envelope::ApiEnvelope<crate::paged::PageView<serde_json::Value>>), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_agent_tool_execution_events(
     State(state): State<ApiState>,
@@ -494,8 +494,12 @@ pub(crate) struct StreamEventsQuery {
     path = "/events/stream",
     tag = "system",
     params(("execution_id" = Option<String>, Query, description = "execution_id"), ("agent_loop_id" = Option<String>, Query, description = "agent_loop_id"), ("workflow_id" = Option<String>, Query, description = "workflow_id"), ("since" = Option<String>, Query, description = "since")),
-    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
-    security(("bearer_auth" = []))
+    responses(
+        (status = 200, description = "Server-sent events stream", content_type = "text/event-stream"),
+        (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("api_key" = []))
 )]
 pub(crate) async fn handle_event_stream(
     State(state): State<ApiState>,

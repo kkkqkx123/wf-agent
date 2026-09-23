@@ -59,14 +59,22 @@ pub(crate) fn routes() -> Router<ApiState> {
 }
 
 #[derive(Deserialize)]
-struct ListWorkflowsQuery {
+pub(crate) struct ListWorkflowsQuery {
     #[serde(flatten)]
     page: ListQuery,
     name: Option<String>,
     r#type: Option<String>,
 }
 
-async fn handle_list_workflows(
+#[utoipa::path(
+    get,
+    path = "/workflows",
+    tag = "workflow",
+    params(("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset"), ("name" = Option<String>, Query, description = "name")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_list_workflows(
     State(state): State<ApiState>,
     Query(query): Query<ListWorkflowsQuery>,
 ) -> impl IntoResponse {
@@ -83,7 +91,15 @@ async fn handle_list_workflows(
     }
 }
 
-async fn handle_create_workflow(
+#[utoipa::path(
+    post,
+    path = "/workflows",
+    tag = "workflow",
+    request_body = serde_json::Value,
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_create_workflow(
     State(state): State<ApiState>,
     Json(workflow): Json<WorkflowDefinition>,
 ) -> impl IntoResponse {
@@ -93,7 +109,16 @@ async fn handle_create_workflow(
     }
 }
 
-async fn handle_update_workflow(
+#[utoipa::path(
+    put,
+    path = "/workflows/{id}",
+    tag = "workflow",
+    params(("id" = String, Path, description = "id")),
+    request_body = serde_json::Value,
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_update_workflow(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
     Json(mut workflow): Json<WorkflowDefinition>,
@@ -105,7 +130,15 @@ async fn handle_update_workflow(
     }
 }
 
-async fn handle_delete_workflow(
+#[utoipa::path(
+    delete,
+    path = "/workflows/{id}",
+    tag = "workflow",
+    params(("id" = String, Path, description = "id")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_delete_workflow(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -115,7 +148,15 @@ async fn handle_delete_workflow(
     }
 }
 
-async fn handle_get_workflow(
+#[utoipa::path(
+    get,
+    path = "/workflows/{id}",
+    tag = "workflow",
+    params(("id" = String, Path, description = "id")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_get_workflow(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -126,11 +167,20 @@ async fn handle_get_workflow(
 }
 
 #[derive(Deserialize)]
-struct CloneBody {
+pub(crate) struct CloneBody {
     new_id: Option<String>,
 }
 
-async fn handle_clone_workflow(
+#[utoipa::path(
+    post,
+    path = "/workflows/{id}/clone",
+    tag = "workflow",
+    params(("id" = String, Path, description = "id")),
+    request_body = serde_json::Value,
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_clone_workflow(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
     Json(body): Json<CloneBody>,
@@ -141,7 +191,15 @@ async fn handle_clone_workflow(
     }
 }
 
-async fn handle_validate_workflow(
+#[utoipa::path(
+    post,
+    path = "/workflows/validate",
+    tag = "workflow",
+    request_body = serde_json::Value,
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_validate_workflow(
     State(_state): State<ApiState>,
     Json(workflow): Json<WorkflowDefinition>,
 ) -> impl IntoResponse {
@@ -153,7 +211,7 @@ async fn handle_validate_workflow(
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct ValidateNodeBody {
+pub(crate) struct ValidateNodeBody {
     node_type: String,
     node_id: String,
     config: Option<Value>,
@@ -161,7 +219,15 @@ struct ValidateNodeBody {
 
 /// Validate a single node config by node type through the wf-config
 /// processor, mirroring `wf-api::infra::config::validate_node`.
-async fn handle_validate_node(
+#[utoipa::path(
+    post,
+    path = "/workflows/validate/node",
+    tag = "workflow",
+    request_body = serde_json::Value,
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_validate_node(
     State(_state): State<ApiState>,
     Json(body): Json<ValidateNodeBody>,
 ) -> impl IntoResponse {
@@ -173,13 +239,21 @@ async fn handle_validate_node(
 }
 
 #[derive(Deserialize)]
-struct ParseWorkflowBody {
+pub(crate) struct ParseWorkflowBody {
     format: Option<String>,
     content: String,
 }
 
 /// Parse a workflow definition from JSON or TOML text without persisting it.
-async fn handle_parse_workflow(
+#[utoipa::path(
+    post,
+    path = "/workflows/parse",
+    tag = "workflow",
+    request_body = serde_json::Value,
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_parse_workflow(
     State(_state): State<ApiState>,
     Json(body): Json<ParseWorkflowBody>,
 ) -> impl IntoResponse {
@@ -200,19 +274,27 @@ async fn handle_parse_workflow(
 }
 
 #[derive(Deserialize)]
-struct TransformWorkflowBody {
+pub(crate) struct TransformWorkflowBody {
     nodes: Vec<wf_api::infra::config::WorkflowNodeConfig>,
     edges: Vec<wf_api::infra::config::WorkflowEdgeConfig>,
 }
 
 #[derive(Serialize)]
-struct TransformWorkflowView {
+pub(crate) struct TransformWorkflowView {
     nodes: Vec<wf_api::BaseStaticNode>,
     edges: Vec<wf_api::Edge>,
 }
 
 /// Convert declarative node/edge configs into canonical runtime structures.
-async fn handle_transform_workflow(
+#[utoipa::path(
+    post,
+    path = "/workflows/transform",
+    tag = "workflow",
+    request_body = serde_json::Value,
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_transform_workflow(
     State(_state): State<ApiState>,
     Json(body): Json<TransformWorkflowBody>,
 ) -> impl IntoResponse {
@@ -227,7 +309,15 @@ async fn handle_transform_workflow(
     ok(TransformWorkflowView { nodes, edges }).into_response()
 }
 
-async fn handle_workflow_summaries(
+#[utoipa::path(
+    get,
+    path = "/workflows/summaries",
+    tag = "workflow",
+    params(("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset"), ("name" = Option<String>, Query, description = "name")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_workflow_summaries(
     State(state): State<ApiState>,
     Query(query): Query<ListWorkflowsQuery>,
 ) -> impl IntoResponse {
@@ -245,12 +335,20 @@ async fn handle_workflow_summaries(
 }
 
 #[derive(Deserialize)]
-struct ExportWorkflowQuery {
+pub(crate) struct ExportWorkflowQuery {
     format: Option<String>,
     download: Option<bool>,
 }
 
-async fn handle_export_workflow(
+#[utoipa::path(
+    get,
+    path = "/workflows/{id}/export",
+    tag = "workflow",
+    params(("id" = String, Path, description = "id"), ("format" = Option<String>, Query, description = "format"), ("download" = Option<bool>, Query, description = "download")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_export_workflow(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
     Query(query): Query<ExportWorkflowQuery>,
@@ -300,7 +398,7 @@ async fn handle_export_workflow(
 }
 
 #[derive(Deserialize)]
-struct SearchWorkflowsQuery {
+pub(crate) struct SearchWorkflowsQuery {
     q: Option<String>,
     tags: Option<String>,
     category: Option<String>,
@@ -309,7 +407,15 @@ struct SearchWorkflowsQuery {
     page: ListQuery,
 }
 
-async fn handle_search_workflows(
+#[utoipa::path(
+    get,
+    path = "/workflows/search",
+    tag = "workflow",
+    params(("q" = Option<String>, Query, description = "q"), ("tags" = Option<String>, Query, description = "tags"), ("category" = Option<String>, Query, description = "category"), ("author" = Option<String>, Query, description = "author"), ("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_search_workflows(
     State(state): State<ApiState>,
     Query(query): Query<SearchWorkflowsQuery>,
 ) -> impl IntoResponse {
@@ -333,7 +439,15 @@ async fn handle_search_workflows(
     }
 }
 
-async fn handle_workflow_by_name(
+#[utoipa::path(
+    get,
+    path = "/workflows/by-name/{name}",
+    tag = "workflow",
+    params(("name" = String, Path, description = "name")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_workflow_by_name(
     State(state): State<ApiState>,
     Path(path): Path<NamePath>,
 ) -> impl IntoResponse {
@@ -343,7 +457,15 @@ async fn handle_workflow_by_name(
     }
 }
 
-async fn handle_workflows_by_tags(
+#[utoipa::path(
+    get,
+    path = "/workflows/by-tags",
+    tag = "workflow",
+    params(("q" = Option<String>, Query, description = "q"), ("tags" = Option<String>, Query, description = "tags"), ("category" = Option<String>, Query, description = "category"), ("author" = Option<String>, Query, description = "author"), ("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_workflows_by_tags(
     State(state): State<ApiState>,
     Query(query): Query<SearchWorkflowsQuery>,
 ) -> impl IntoResponse {
@@ -373,11 +495,19 @@ async fn handle_workflows_by_tags(
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct CategoryPath {
+pub(crate) struct CategoryPath {
     category: String,
 }
 
-async fn handle_workflows_by_category(
+#[utoipa::path(
+    get,
+    path = "/workflows/by-category/{category}",
+    tag = "workflow",
+    params(("category" = String, Path, description = "category"), ("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_workflows_by_category(
     State(state): State<ApiState>,
     Path(path): Path<CategoryPath>,
     Query(query): Query<ListQuery>,
@@ -398,11 +528,19 @@ async fn handle_workflows_by_category(
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct AuthorPath {
+pub(crate) struct AuthorPath {
     author: String,
 }
 
-async fn handle_workflows_by_author(
+#[utoipa::path(
+    get,
+    path = "/workflows/by-author/{author}",
+    tag = "workflow",
+    params(("author" = String, Path, description = "author"), ("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_workflows_by_author(
     State(state): State<ApiState>,
     Path(path): Path<AuthorPath>,
     Query(query): Query<ListQuery>,
@@ -422,11 +560,19 @@ async fn handle_workflows_by_author(
 }
 
 #[derive(Deserialize)]
-struct ExportManyBody {
+pub(crate) struct ExportManyBody {
     ids: Vec<String>,
 }
 
-async fn handle_export_workflows(
+#[utoipa::path(
+    post,
+    path = "/workflows/export-all",
+    tag = "workflow",
+    request_body = serde_json::Value,
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_export_workflows(
     State(state): State<ApiState>,
     Json(body): Json<ExportManyBody>,
 ) -> impl IntoResponse {
@@ -437,12 +583,20 @@ async fn handle_export_workflows(
 }
 
 #[derive(Deserialize)]
-struct ImportBody {
+pub(crate) struct ImportBody {
     json: String,
     new_id: Option<String>,
 }
 
-async fn handle_import_workflow(
+#[utoipa::path(
+    post,
+    path = "/workflows/import",
+    tag = "workflow",
+    request_body = serde_json::Value,
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_import_workflow(
     State(state): State<ApiState>,
     Json(body): Json<ImportBody>,
 ) -> impl IntoResponse {
@@ -454,7 +608,15 @@ async fn handle_import_workflow(
     }
 }
 
-async fn handle_import_many(
+#[utoipa::path(
+    post,
+    path = "/workflows/import-many",
+    tag = "workflow",
+    request_body = serde_json::Value,
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_import_many(
     State(state): State<ApiState>,
     Json(json): Json<serde_json::Value>,
 ) -> impl IntoResponse {
@@ -464,7 +626,16 @@ async fn handle_import_many(
     }
 }
 
-async fn handle_update_metadata(
+#[utoipa::path(
+    patch,
+    path = "/workflows/{id}/metadata",
+    tag = "workflow",
+    params(("id" = String, Path, description = "id")),
+    request_body = serde_json::Value,
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_update_metadata(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
     Json(metadata): Json<HashMap<String, serde_json::Value>>,

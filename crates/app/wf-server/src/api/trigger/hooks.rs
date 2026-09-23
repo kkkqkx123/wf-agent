@@ -45,13 +45,22 @@ pub(crate) fn routes() -> axum::Router<ApiState> {
 }
 
 #[derive(serde::Serialize)]
-struct FireResponse {
+pub(crate) struct FireResponse {
     fired: bool,
     execution_id: Option<String>,
     fire_id: String,
 }
 
-async fn handle_webhook_fire(
+#[utoipa::path(
+    post,
+    path = "/hooks/{name}",
+    tag = "trigger",
+    params(("name" = String, Path, description = "name")),
+    request_body = serde_json::Value,
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_webhook_fire(
     State(state): State<ApiState>,
     Path(name): Path<String>,
     headers: HeaderMap,

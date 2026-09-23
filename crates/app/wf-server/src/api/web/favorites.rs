@@ -22,14 +22,22 @@ pub(crate) fn routes() -> Router<ApiState> {
 }
 
 #[derive(Deserialize)]
-struct ListFavoritesQuery {
+pub(crate) struct ListFavoritesQuery {
     #[serde(flatten)]
     page: ListQuery,
     kind: Option<String>,
     pinned_only: Option<bool>,
 }
 
-async fn handle_list_favorites(
+#[utoipa::path(
+    get,
+    path = "/favorites",
+    tag = "web",
+    params(("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset"), ("kind" = Option<String>, Query, description = "kind"), ("pinned_only" = Option<bool>, Query, description = "pinned_only")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_list_favorites(
     State(state): State<ApiState>,
     Query(query): Query<ListFavoritesQuery>,
 ) -> impl IntoResponse {
@@ -52,18 +60,27 @@ async fn handle_list_favorites(
 }
 
 #[derive(Deserialize)]
-struct FavoriteKindIdPath {
+pub(crate) struct FavoriteKindIdPath {
     kind: String,
     id: String,
 }
 
 #[derive(Deserialize)]
-struct UpsertFavoriteBody {
+pub(crate) struct UpsertFavoriteBody {
     pinned: Option<bool>,
     tags: Option<Vec<String>>,
 }
 
-async fn handle_upsert_favorite(
+#[utoipa::path(
+    put,
+    path = "/favorites/{kind}/{id}",
+    tag = "web",
+    params(("kind" = String, Path, description = "kind"), ("id" = String, Path, description = "id")),
+    request_body = serde_json::Value,
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_upsert_favorite(
     State(state): State<ApiState>,
     Path(path): Path<FavoriteKindIdPath>,
     Json(body): Json<UpsertFavoriteBody>,
@@ -76,7 +93,15 @@ async fn handle_upsert_favorite(
     }
 }
 
-async fn handle_delete_favorite(
+#[utoipa::path(
+    delete,
+    path = "/favorites/{kind}/{id}",
+    tag = "web",
+    params(("kind" = String, Path, description = "kind"), ("id" = String, Path, description = "id")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_delete_favorite(
     State(state): State<ApiState>,
     Path(path): Path<FavoriteKindIdPath>,
 ) -> impl IntoResponse {

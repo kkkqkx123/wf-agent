@@ -1,9 +1,9 @@
 pub mod api;
-pub mod contract;
 pub mod envelope;
 pub mod extract;
 pub mod metrics;
 pub mod middleware;
+pub mod openapi;
 pub mod paged;
 pub mod router;
 pub mod server;

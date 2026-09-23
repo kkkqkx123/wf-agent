@@ -8,6 +8,7 @@ use axum::response::IntoResponse;
 use axum::routing::get;
 use axum::Router;
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
 use crate::envelope::{error_response, ok};
 use crate::extract::IdPath;
@@ -81,7 +82,19 @@ pub(crate) fn routes() -> Router<ApiState> {
         )
 }
 
-async fn handle_decision_graph(
+#[utoipa::path(
+    get,
+    path = "/agent-loops/{id}/graph",
+    tag = "agent",
+    params(("id" = String, Path, description = "Agent loop ID")),
+    responses(
+        (status = 200, description = "Decision graph", body = serde_json::Value),
+        (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_decision_graph(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -91,7 +104,19 @@ async fn handle_decision_graph(
     }
 }
 
-async fn handle_decision_nodes(
+#[utoipa::path(
+    get,
+    path = "/agent-loops/{id}/graph/nodes",
+    tag = "agent",
+    params(("id" = String, Path, description = "Agent loop ID")),
+    responses(
+        (status = 200, description = "Decision nodes", body = serde_json::Value),
+        (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_decision_nodes(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -101,7 +126,19 @@ async fn handle_decision_nodes(
     }
 }
 
-async fn handle_decision_edges(
+#[utoipa::path(
+    get,
+    path = "/agent-loops/{id}/graph/edges",
+    tag = "agent",
+    params(("id" = String, Path, description = "Agent loop ID")),
+    responses(
+        (status = 200, description = "Decision edges", body = serde_json::Value),
+        (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_decision_edges(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -111,7 +148,19 @@ async fn handle_decision_edges(
     }
 }
 
-async fn handle_all_paths(
+#[utoipa::path(
+    get,
+    path = "/agent-loops/{id}/graph/paths",
+    tag = "agent",
+    params(("id" = String, Path, description = "Agent loop ID")),
+    responses(
+        (status = 200, description = "All paths", body = serde_json::Value),
+        (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_all_paths(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -132,14 +181,26 @@ async fn handle_all_paths(
     }
 }
 
-#[derive(Serialize)]
-struct CappedPaths {
+#[derive(Serialize, ToSchema)]
+pub(crate) struct CappedPaths {
     paths: Vec<Vec<String>>,
     truncated: bool,
     total: usize,
 }
 
-async fn handle_graph_execution_path(
+#[utoipa::path(
+    get,
+    path = "/agent-loops/{id}/graph/paths/execution-path",
+    tag = "agent",
+    params(("id" = String, Path, description = "Agent loop ID")),
+    responses(
+        (status = 200, description = "Execution path", body = serde_json::Value),
+        (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_graph_execution_path(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -149,7 +210,19 @@ async fn handle_graph_execution_path(
     }
 }
 
-async fn handle_path_statistics(
+#[utoipa::path(
+    get,
+    path = "/agent-loops/{id}/graph/paths/path-stats",
+    tag = "agent",
+    params(("id" = String, Path, description = "Agent loop ID")),
+    responses(
+        (status = 200, description = "Path statistics", body = serde_json::Value),
+        (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_path_statistics(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -159,7 +232,19 @@ async fn handle_path_statistics(
     }
 }
 
-async fn handle_critical_path(
+#[utoipa::path(
+    get,
+    path = "/agent-loops/{id}/graph/paths/critical-path",
+    tag = "agent",
+    params(("id" = String, Path, description = "Agent loop ID")),
+    responses(
+        (status = 200, description = "Critical path", body = serde_json::Value),
+        (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_critical_path(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -169,7 +254,19 @@ async fn handle_critical_path(
     }
 }
 
-async fn handle_all_alternatives(
+#[utoipa::path(
+    get,
+    path = "/agent-loops/{id}/graph/alternatives",
+    tag = "agent",
+    params(("id" = String, Path, description = "Agent loop ID")),
+    responses(
+        (status = 200, description = "All alternatives", body = serde_json::Value),
+        (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_all_alternatives(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -179,13 +276,28 @@ async fn handle_all_alternatives(
     }
 }
 
-#[derive(Deserialize)]
-struct IterationPath {
+#[derive(Deserialize, ToSchema)]
+pub(crate) struct IterationPath {
     id: String,
     iteration: u32,
 }
 
-async fn handle_alternative_decisions(
+#[utoipa::path(
+    get,
+    path = "/agent-loops/{id}/graph/alternatives/iterations/{iteration}",
+    tag = "agent",
+    params(
+        ("id" = String, Path, description = "Agent loop ID"),
+        ("iteration" = u32, Path, description = "Iteration number")
+    ),
+    responses(
+        (status = 200, description = "Alternative decisions for iteration", body = serde_json::Value),
+        (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_alternative_decisions(
     State(state): State<ApiState>,
     Path(path): Path<IterationPath>,
 ) -> impl IntoResponse {
@@ -197,7 +309,19 @@ async fn handle_alternative_decisions(
     }
 }
 
-async fn handle_decision_sequence(
+#[utoipa::path(
+    get,
+    path = "/agent-loops/{id}/graph/sequences",
+    tag = "agent",
+    params(("id" = String, Path, description = "Agent loop ID")),
+    responses(
+        (status = 200, description = "Decision sequence", body = serde_json::Value),
+        (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_decision_sequence(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -207,7 +331,22 @@ async fn handle_decision_sequence(
     }
 }
 
-async fn handle_decisions_in_iteration(
+#[utoipa::path(
+    get,
+    path = "/agent-loops/{id}/graph/sequences/iterations/{iteration}",
+    tag = "agent",
+    params(
+        ("id" = String, Path, description = "Agent loop ID"),
+        ("iteration" = u32, Path, description = "Iteration number")
+    ),
+    responses(
+        (status = 200, description = "Decisions in iteration", body = serde_json::Value),
+        (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_decisions_in_iteration(
     State(state): State<ApiState>,
     Path(path): Path<IterationPath>,
 ) -> impl IntoResponse {
@@ -221,12 +360,24 @@ async fn handle_decisions_in_iteration(
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct DecisionTypePath {
+pub(crate) struct DecisionTypePath {
     id: String,
     decision_type: String,
 }
 
-async fn handle_decisions_by_type(
+#[utoipa::path(
+    get,
+    path = "/agent-loops/{id}/graph/sequences/types/{decisionType}",
+    tag = "agent",
+    params(("id" = String, Path, description = "Agent loop ID"), ("decisionType" = String, Path, description = "Decision type")),
+    responses(
+        (status = 200, description = "Decisions by type", body = serde_json::Value),
+        (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_decisions_by_type(
     State(state): State<ApiState>,
     Path(path): Path<DecisionTypePath>,
 ) -> impl IntoResponse {
@@ -238,7 +389,19 @@ async fn handle_decisions_by_type(
     }
 }
 
-async fn handle_unexplored_alternatives(
+#[utoipa::path(
+    get,
+    path = "/agent-loops/{id}/graph/unexplored",
+    tag = "agent",
+    params(("id" = String, Path, description = "Agent loop ID")),
+    responses(
+        (status = 200, description = "Unexplored alternatives", body = serde_json::Value),
+        (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_unexplored_alternatives(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -248,7 +411,19 @@ async fn handle_unexplored_alternatives(
     }
 }
 
-async fn handle_most_promising_unexplored(
+#[utoipa::path(
+    get,
+    path = "/agent-loops/{id}/graph/unexplored/best",
+    tag = "agent",
+    params(("id" = String, Path, description = "Agent loop ID")),
+    responses(
+        (status = 200, description = "Most promising unexplored alternative", body = serde_json::Value),
+        (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_most_promising_unexplored(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -258,7 +433,19 @@ async fn handle_most_promising_unexplored(
     }
 }
 
-async fn handle_execution_path_steps(
+#[utoipa::path(
+    get,
+    path = "/agent-loops/{id}/graph/paths/steps",
+    tag = "agent",
+    params(("id" = String, Path, description = "Agent loop ID")),
+    responses(
+        (status = 200, description = "Execution path steps", body = serde_json::Value),
+        (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_execution_path_steps(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -268,7 +455,19 @@ async fn handle_execution_path_steps(
     }
 }
 
-async fn handle_tool_frequency(
+#[utoipa::path(
+    get,
+    path = "/agent-loops/{id}/graph/tool-frequency",
+    tag = "agent",
+    params(("id" = String, Path, description = "Agent loop ID")),
+    responses(
+        (status = 200, description = "Tool frequency", body = serde_json::Value),
+        (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_tool_frequency(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -281,7 +480,19 @@ async fn handle_tool_frequency(
     }
 }
 
-async fn handle_decision_patterns(
+#[utoipa::path(
+    get,
+    path = "/agent-loops/{id}/graph/patterns",
+    tag = "agent",
+    params(("id" = String, Path, description = "Agent loop ID")),
+    responses(
+        (status = 200, description = "Decision patterns", body = serde_json::Value),
+        (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_decision_patterns(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -291,7 +502,19 @@ async fn handle_decision_patterns(
     }
 }
 
-async fn handle_path_efficiency(
+#[utoipa::path(
+    get,
+    path = "/agent-loops/{id}/graph/efficiency",
+    tag = "agent",
+    params(("id" = String, Path, description = "Agent loop ID")),
+    responses(
+        (status = 200, description = "Path efficiency", body = serde_json::Value),
+        (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_path_efficiency(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -301,7 +524,19 @@ async fn handle_path_efficiency(
     }
 }
 
-async fn handle_path_probabilities(
+#[utoipa::path(
+    get,
+    path = "/agent-loops/{id}/graph/probabilities",
+    tag = "agent",
+    params(("id" = String, Path, description = "Agent loop ID")),
+    responses(
+        (status = 200, description = "Path probabilities", body = serde_json::Value),
+        (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_path_probabilities(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {

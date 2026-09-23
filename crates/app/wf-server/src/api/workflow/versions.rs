@@ -32,7 +32,15 @@ pub(crate) fn routes() -> Router<ApiState> {
         .route("/workflows/{id}/rollback", post(handle_rollback_workflow))
 }
 
-async fn handle_list_versions(
+#[utoipa::path(
+    get,
+    path = "/workflows/{id}/versions",
+    tag = "workflow",
+    params(("id" = String, Path, description = "id")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_list_versions(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -42,7 +50,15 @@ async fn handle_list_versions(
     }
 }
 
-async fn handle_get_version(
+#[utoipa::path(
+    get,
+    path = "/workflows/{id}/versions/{version}",
+    tag = "workflow",
+    params(("id" = String, Path, description = "id"), ("version" = String, Path, description = "version")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_get_version(
     State(state): State<ApiState>,
     Path(path): Path<IdVersionPath>,
 ) -> impl IntoResponse {
@@ -53,12 +69,21 @@ async fn handle_get_version(
 }
 
 #[derive(Deserialize)]
-struct SaveVersionBody {
+pub(crate) struct SaveVersionBody {
     version: String,
     workflow: WorkflowDefinition,
 }
 
-async fn handle_save_version(
+#[utoipa::path(
+    post,
+    path = "/workflows/{id}/versions",
+    tag = "workflow",
+    params(("id" = String, Path, description = "id")),
+    request_body = serde_json::Value,
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_save_version(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
     Json(body): Json<SaveVersionBody>,
@@ -77,18 +102,18 @@ async fn handle_save_version(
 }
 
 #[derive(Deserialize)]
-struct RollbackBody {
+pub(crate) struct RollbackBody {
     version: String,
 }
 
 #[derive(Deserialize)]
-struct IncrementVersionQuery {
+pub(crate) struct IncrementVersionQuery {
     level: Option<String>,
 }
 
 #[derive(Deserialize, Default)]
 #[serde(default)]
-struct IncrementVersionBody {
+pub(crate) struct IncrementVersionBody {
     changes: wf_api::workflow::WorkflowChanges,
     keep_original: bool,
 }
@@ -96,7 +121,16 @@ struct IncrementVersionBody {
 /// Semantic-version increment through `wf-api::create_versioned_update`:
 /// applies optional field-level changes and bumps the version, optionally
 /// preserving the pre-update definition as a named version.
-async fn handle_increment_version(
+#[utoipa::path(
+    post,
+    path = "/workflows/{id}/versions/increment",
+    tag = "workflow",
+    params(("id" = String, Path, description = "id"), ("level" = Option<String>, Query, description = "level")),
+    request_body = serde_json::Value,
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_increment_version(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
     Query(query): Query<IncrementVersionQuery>,
@@ -127,7 +161,16 @@ async fn handle_increment_version(
     }
 }
 
-async fn handle_rollback_workflow(
+#[utoipa::path(
+    post,
+    path = "/workflows/{id}/rollback",
+    tag = "workflow",
+    params(("id" = String, Path, description = "id")),
+    request_body = serde_json::Value,
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_rollback_workflow(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
     Json(body): Json<RollbackBody>,

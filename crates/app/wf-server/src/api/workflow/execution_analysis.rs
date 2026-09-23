@@ -101,7 +101,15 @@ pub(crate) fn routes() -> Router<ApiState> {
 
 // ── execution graph ───────────────────────────────────────────────
 
-async fn handle_execution_graph(
+#[utoipa::path(
+    get,
+    path = "/executions/{id}/graph",
+    tag = "workflow",
+    params(("id" = String, Path, description = "id")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_execution_graph(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -111,7 +119,15 @@ async fn handle_execution_graph(
     }
 }
 
-async fn handle_execution_graph_nodes(
+#[utoipa::path(
+    get,
+    path = "/executions/{id}/graph/nodes",
+    tag = "workflow",
+    params(("id" = String, Path, description = "id")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_execution_graph_nodes(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -121,7 +137,15 @@ async fn handle_execution_graph_nodes(
     }
 }
 
-async fn handle_execution_graph_edges(
+#[utoipa::path(
+    get,
+    path = "/executions/{id}/graph/edges",
+    tag = "workflow",
+    params(("id" = String, Path, description = "id")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_execution_graph_edges(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -131,7 +155,15 @@ async fn handle_execution_graph_edges(
     }
 }
 
-async fn handle_execution_graph_neighbors(
+#[utoipa::path(
+    get,
+    path = "/executions/{id}/graph/neighbors/{nodeId}",
+    tag = "workflow",
+    params(("id" = String, Path, description = "id"), ("nodeId" = String, Path, description = "nodeId")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_execution_graph_neighbors(
     State(state): State<ApiState>,
     Path(path): Path<IdNodePath>,
 ) -> impl IntoResponse {
@@ -147,7 +179,15 @@ async fn handle_execution_graph_neighbors(
     }
 }
 
-async fn handle_execution_path_stats(
+#[utoipa::path(
+    get,
+    path = "/executions/{id}/graph/path-stats",
+    tag = "workflow",
+    params(("id" = String, Path, description = "id")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_execution_path_stats(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -159,7 +199,15 @@ async fn handle_execution_path_stats(
 
 // ── execution graph analysis ──────────────────────────────────────
 
-async fn handle_analysis_paths(
+#[utoipa::path(
+    get,
+    path = "/executions/{id}/analysis/paths",
+    tag = "workflow",
+    params(("id" = String, Path, description = "id")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_analysis_paths(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -169,7 +217,15 @@ async fn handle_analysis_paths(
     }
 }
 
-async fn handle_execution_graph_reachability(
+#[utoipa::path(
+    get,
+    path = "/executions/{id}/graph/reachability",
+    tag = "workflow",
+    params(("id" = String, Path, description = "id")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_execution_graph_reachability(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -182,7 +238,15 @@ async fn handle_execution_graph_reachability(
     }
 }
 
-async fn handle_clear_execution_graph(
+#[utoipa::path(
+    post,
+    path = "/executions/{id}/graph/clear",
+    tag = "workflow",
+    params(("id" = String, Path, description = "id")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_clear_execution_graph(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -192,7 +256,15 @@ async fn handle_clear_execution_graph(
     }
 }
 
-async fn handle_enumerate_paths(
+#[utoipa::path(
+    get,
+    path = "/executions/{id}/analysis/paths/enumerate",
+    tag = "workflow",
+    params(("id" = String, Path, description = "id")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_enumerate_paths(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -216,13 +288,21 @@ async fn handle_enumerate_paths(
 }
 
 #[derive(Serialize)]
-struct EnumeratedPathsView {
+pub(crate) struct EnumeratedPathsView {
     paths: Vec<wf_api::workflow::execution_graph::ExecutionPath>,
     truncated: bool,
     total: usize,
 }
 
-async fn handle_decision_points(
+#[utoipa::path(
+    get,
+    path = "/executions/{id}/analysis/decision-points",
+    tag = "workflow",
+    params(("id" = String, Path, description = "id")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_decision_points(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -234,11 +314,19 @@ async fn handle_decision_points(
 }
 
 #[derive(Deserialize)]
-struct SlowNodesQuery {
+pub(crate) struct SlowNodesQuery {
     percentile: Option<f64>,
 }
 
-async fn handle_slow_nodes(
+#[utoipa::path(
+    get,
+    path = "/executions/{id}/analysis/slow-nodes",
+    tag = "workflow",
+    params(("id" = String, Path, description = "id"), ("percentile" = Option<f64>, Query, description = "percentile")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_slow_nodes(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
     Query(query): Query<SlowNodesQuery>,
@@ -260,7 +348,15 @@ async fn handle_slow_nodes(
     }
 }
 
-async fn handle_analysis_efficiency(
+#[utoipa::path(
+    get,
+    path = "/executions/{id}/analysis/efficiency",
+    tag = "workflow",
+    params(("id" = String, Path, description = "id")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_analysis_efficiency(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -270,7 +366,15 @@ async fn handle_analysis_efficiency(
     }
 }
 
-async fn handle_analysis_alternatives(
+#[utoipa::path(
+    get,
+    path = "/executions/{id}/analysis/alternatives",
+    tag = "workflow",
+    params(("id" = String, Path, description = "id")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_analysis_alternatives(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -280,7 +384,15 @@ async fn handle_analysis_alternatives(
     }
 }
 
-async fn handle_analysis_probabilities(
+#[utoipa::path(
+    get,
+    path = "/executions/{id}/analysis/probabilities",
+    tag = "workflow",
+    params(("id" = String, Path, description = "id")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_analysis_probabilities(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -294,7 +406,15 @@ async fn handle_analysis_probabilities(
 
 // ── iteration analysis ────────────────────────────────────────────
 
-async fn handle_execution_nodes(
+#[utoipa::path(
+    get,
+    path = "/executions/{id}/nodes",
+    tag = "workflow",
+    params(("id" = String, Path, description = "id")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_execution_nodes(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -306,7 +426,15 @@ async fn handle_execution_nodes(
     }
 }
 
-async fn handle_node_analysis(
+#[utoipa::path(
+    get,
+    path = "/executions/{id}/nodes/{nodeId}",
+    tag = "workflow",
+    params(("id" = String, Path, description = "id"), ("nodeId" = String, Path, description = "nodeId")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_node_analysis(
     State(state): State<ApiState>,
     Path(path): Path<IdNodePath>,
 ) -> impl IntoResponse {
@@ -324,12 +452,20 @@ async fn handle_node_analysis(
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct NodeTypePath {
+pub(crate) struct NodeTypePath {
     id: String,
     node_type: String,
 }
 
-async fn handle_nodes_by_type(
+#[utoipa::path(
+    get,
+    path = "/executions/{id}/nodes/by-type/{nodeType}",
+    tag = "workflow",
+    params(("id" = String, Path, description = "id"), ("nodeType" = String, Path, description = "nodeType")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_nodes_by_type(
     State(state): State<ApiState>,
     Path(path): Path<NodeTypePath>,
 ) -> impl IntoResponse {
@@ -345,7 +481,15 @@ async fn handle_nodes_by_type(
     }
 }
 
-async fn handle_node_input_context(
+#[utoipa::path(
+    get,
+    path = "/executions/{id}/nodes/{nodeId}/input-context",
+    tag = "workflow",
+    params(("id" = String, Path, description = "id"), ("nodeId" = String, Path, description = "nodeId")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_node_input_context(
     State(state): State<ApiState>,
     Path(path): Path<IdNodePath>,
 ) -> impl IntoResponse {
@@ -362,12 +506,20 @@ async fn handle_node_input_context(
 }
 
 #[derive(Deserialize)]
-struct NodeTransitionsQuery {
+pub(crate) struct NodeTransitionsQuery {
     from: Option<String>,
     to: Option<String>,
 }
 
-async fn handle_node_transitions(
+#[utoipa::path(
+    get,
+    path = "/executions/{id}/nodes/{nodeId}/transitions",
+    tag = "workflow",
+    params(("id" = String, Path, description = "id"), ("nodeId" = String, Path, description = "nodeId"), ("from" = Option<String>, Query, description = "from"), ("to" = Option<String>, Query, description = "to")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_node_transitions(
     State(state): State<ApiState>,
     Path(path): Path<IdNodePath>,
     Query(query): Query<NodeTransitionsQuery>,
@@ -385,7 +537,15 @@ async fn handle_node_transitions(
     }
 }
 
-async fn handle_llm_reasoning_path(
+#[utoipa::path(
+    get,
+    path = "/executions/{id}/llm-reasoning-path/{nodeId}",
+    tag = "workflow",
+    params(("id" = String, Path, description = "id"), ("nodeId" = String, Path, description = "nodeId")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_llm_reasoning_path(
     State(state): State<ApiState>,
     Path(path): Path<IdNodePath>,
 ) -> impl IntoResponse {
@@ -401,7 +561,15 @@ async fn handle_llm_reasoning_path(
     }
 }
 
-async fn handle_tool_chain(
+#[utoipa::path(
+    get,
+    path = "/executions/{id}/tool-chain/{nodeId}",
+    tag = "workflow",
+    params(("id" = String, Path, description = "id"), ("nodeId" = String, Path, description = "nodeId")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_tool_chain(
     State(state): State<ApiState>,
     Path(path): Path<IdNodePath>,
 ) -> impl IntoResponse {
@@ -419,7 +587,15 @@ async fn handle_tool_chain(
     }
 }
 
-async fn handle_execution_path(
+#[utoipa::path(
+    get,
+    path = "/executions/{id}/path",
+    tag = "workflow",
+    params(("id" = String, Path, description = "id")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_execution_path(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -429,7 +605,15 @@ async fn handle_execution_path(
     }
 }
 
-async fn handle_optimizations(
+#[utoipa::path(
+    get,
+    path = "/executions/{id}/optimizations",
+    tag = "workflow",
+    params(("id" = String, Path, description = "id")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_optimizations(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -442,7 +626,7 @@ async fn handle_optimizations(
 }
 
 #[derive(Deserialize)]
-struct NodeStatsQuery {
+pub(crate) struct NodeStatsQuery {
     node_id: Option<String>,
     node_type: Option<String>,
     status: Option<String>,
@@ -450,7 +634,15 @@ struct NodeStatsQuery {
     min_duration: Option<i64>,
 }
 
-async fn handle_node_stats(
+#[utoipa::path(
+    get,
+    path = "/executions/{id}/node-stats",
+    tag = "workflow",
+    params(("id" = String, Path, description = "id"), ("node_id" = Option<String>, Query, description = "node_id"), ("node_type" = Option<String>, Query, description = "node_type"), ("status" = Option<String>, Query, description = "status"), ("has_errors" = Option<bool>, Query, description = "has_errors"), ("min_duration" = Option<i64>, Query, description = "min_duration")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_node_stats(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
     Query(query): Query<NodeStatsQuery>,
@@ -476,7 +668,15 @@ async fn handle_node_stats(
     }
 }
 
-async fn handle_failed_nodes(
+#[utoipa::path(
+    get,
+    path = "/executions/{id}/failed-nodes",
+    tag = "workflow",
+    params(("id" = String, Path, description = "id")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_failed_nodes(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -486,7 +686,15 @@ async fn handle_failed_nodes(
     }
 }
 
-async fn handle_iterations(
+#[utoipa::path(
+    get,
+    path = "/executions/{id}/iterations",
+    tag = "workflow",
+    params(("id" = String, Path, description = "id")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_iterations(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {

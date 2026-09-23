@@ -5,6 +5,7 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde::Serialize;
+use utoipa::ToSchema;
 
 /// Error classification used by the response envelope. The full mapping
 /// (NotFound -> 404, Validation -> 400, anything else -> 500) is the API
@@ -49,8 +50,8 @@ impl ApiError {
     }
 }
 
-#[derive(Serialize)]
-pub(crate) struct ApiErrorBody {
+#[derive(Serialize, ToSchema)]
+pub struct ApiErrorBody {
     code: String,
     message: String,
 }
@@ -59,6 +60,15 @@ pub(crate) struct ApiErrorBody {
 pub(crate) struct ApiEnvelope<T: Serialize> {
     success: bool,
     data: Option<T>,
+    error: Option<ApiErrorBody>,
+}
+
+/// OpenAPI docs view of the error envelope. Uses generic JSON for the
+/// payload so domain types do not need `ToSchema`.
+#[derive(Serialize, ToSchema)]
+pub struct ErrorResponse {
+    success: bool,
+    data: Option<serde_json::Value>,
     error: Option<ApiErrorBody>,
 }
 

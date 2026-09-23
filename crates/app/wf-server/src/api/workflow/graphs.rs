@@ -31,7 +31,15 @@ pub(crate) fn routes() -> Router<ApiState> {
         )
 }
 
-async fn handle_graph(
+#[utoipa::path(
+    get,
+    path = "/workflows/{id}/graph",
+    tag = "workflow",
+    params(("id" = String, Path, description = "id")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_graph(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -41,7 +49,15 @@ async fn handle_graph(
     }
 }
 
-async fn handle_graph_summary(
+#[utoipa::path(
+    get,
+    path = "/workflows/{id}/graph/summary",
+    tag = "workflow",
+    params(("id" = String, Path, description = "id")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_graph_summary(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -52,11 +68,19 @@ async fn handle_graph_summary(
 }
 
 #[derive(Deserialize)]
-struct GraphNodesQuery {
+pub(crate) struct GraphNodesQuery {
     node_type: Option<String>,
 }
 
-async fn handle_graph_nodes(
+#[utoipa::path(
+    get,
+    path = "/workflows/{id}/graph/nodes",
+    tag = "workflow",
+    params(("id" = String, Path, description = "id"), ("node_type" = Option<String>, Query, description = "node_type")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_graph_nodes(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
     Query(query): Query<GraphNodesQuery>,
@@ -74,7 +98,15 @@ async fn handle_graph_nodes(
     }
 }
 
-async fn handle_graph_edges(
+#[utoipa::path(
+    get,
+    path = "/workflows/{id}/graph/edges",
+    tag = "workflow",
+    params(("id" = String, Path, description = "id")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_graph_edges(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -84,7 +116,15 @@ async fn handle_graph_edges(
     }
 }
 
-async fn handle_graph_neighbors(
+#[utoipa::path(
+    get,
+    path = "/workflows/{id}/graph/neighbors/{nodeId}",
+    tag = "workflow",
+    params(("id" = String, Path, description = "id"), ("nodeId" = String, Path, description = "nodeId")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_graph_neighbors(
     State(state): State<ApiState>,
     Path(path): Path<IdNodePath>,
 ) -> impl IntoResponse {
@@ -96,7 +136,15 @@ async fn handle_graph_neighbors(
     }
 }
 
-async fn handle_graph_analysis(
+#[utoipa::path(
+    get,
+    path = "/workflows/{id}/graph/analysis",
+    tag = "workflow",
+    params(("id" = String, Path, description = "id")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_graph_analysis(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -127,7 +175,15 @@ async fn handle_graph_analysis(
     }
 }
 
-async fn handle_graph_cycles(
+#[utoipa::path(
+    get,
+    path = "/workflows/{id}/graph/cycles",
+    tag = "workflow",
+    params(("id" = String, Path, description = "id")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_graph_cycles(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -142,7 +198,15 @@ async fn handle_graph_cycles(
     }
 }
 
-async fn handle_graph_topology(
+#[utoipa::path(
+    get,
+    path = "/workflows/{id}/graph/topology",
+    tag = "workflow",
+    params(("id" = String, Path, description = "id")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_graph_topology(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -157,7 +221,15 @@ async fn handle_graph_topology(
     }
 }
 
-async fn handle_graph_reachability(
+#[utoipa::path(
+    get,
+    path = "/workflows/{id}/graph/reachability",
+    tag = "workflow",
+    params(("id" = String, Path, description = "id")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_graph_reachability(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {

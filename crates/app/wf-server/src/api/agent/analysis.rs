@@ -6,6 +6,7 @@ use axum::response::IntoResponse;
 use axum::routing::get;
 use axum::Router;
 use serde::Deserialize;
+use utoipa::ToSchema;
 
 use crate::envelope::{error_response, ok};
 use crate::extract::{IdErrorPath, IdPath};
@@ -49,7 +50,19 @@ pub(crate) fn routes() -> Router<ApiState> {
 
 // ── error analysis ────────────────────────────────────────────────
 
-async fn handle_error_records(
+#[utoipa::path(
+    get,
+    path = "/agent-executions/{id}/errors",
+    tag = "agent",
+    params(("id" = String, Path, description = "Agent execution ID")),
+    responses(
+        (status = 200, description = "Error records", body = serde_json::Value),
+        (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_error_records(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -61,12 +74,26 @@ async fn handle_error_records(
     }
 }
 
-#[derive(Deserialize)]
-struct ErrorChainQuery {
+#[derive(Deserialize, ToSchema)]
+pub(crate) struct ErrorChainQuery {
+    /// Optional starting error ID for the chain
     from_error_id: Option<String>,
 }
 
-async fn handle_error_chain(
+#[utoipa::path(
+    get,
+    path = "/agent-executions/{id}/errors/chain",
+    tag = "agent",
+    params(
+        ("id" = String, Path, description = "Agent execution ID"), ("limit" = Option<u64>, Query, description = "Page limit"), ("offset" = Option<u64>, Query, description = "Page offset")),
+    responses(
+        (status = 200, description = "Error chain", body = serde_json::Value),
+        (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_error_chain(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
     Query(query): Query<ErrorChainQuery>,
@@ -83,7 +110,19 @@ async fn handle_error_chain(
     }
 }
 
-async fn handle_root_cause(
+#[utoipa::path(
+    get,
+    path = "/agent-executions/{id}/errors/root-cause",
+    tag = "agent",
+    params(("id" = String, Path, description = "Agent execution ID")),
+    responses(
+        (status = 200, description = "Root cause analysis", body = serde_json::Value),
+        (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_root_cause(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -93,7 +132,19 @@ async fn handle_root_cause(
     }
 }
 
-async fn handle_error_statistics(
+#[utoipa::path(
+    get,
+    path = "/agent-executions/{id}/errors/statistics",
+    tag = "agent",
+    params(("id" = String, Path, description = "Agent execution ID")),
+    responses(
+        (status = 200, description = "Error statistics", body = serde_json::Value),
+        (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_error_statistics(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -103,7 +154,19 @@ async fn handle_error_statistics(
     }
 }
 
-async fn handle_advanced_error_statistics(
+#[utoipa::path(
+    get,
+    path = "/agent-executions/{id}/errors/statistics/advanced",
+    tag = "agent",
+    params(("id" = String, Path, description = "Agent execution ID")),
+    responses(
+        (status = 200, description = "Advanced error analysis", body = serde_json::Value),
+        (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_advanced_error_statistics(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -115,7 +178,22 @@ async fn handle_advanced_error_statistics(
     }
 }
 
-async fn handle_recovery_proposal(
+#[utoipa::path(
+    get,
+    path = "/agent-executions/{id}/errors/recovery/{errorId}",
+    tag = "agent",
+    params(
+        ("id" = String, Path, description = "Agent execution ID"),
+        ("errorId" = String, Path, description = "Error ID")
+    ),
+    responses(
+        (status = 200, description = "Recovery proposal", body = serde_json::Value),
+        (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_recovery_proposal(
     State(state): State<ApiState>,
     Path(path): Path<IdErrorPath>,
 ) -> impl IntoResponse {
@@ -131,7 +209,22 @@ async fn handle_recovery_proposal(
     }
 }
 
-async fn handle_similar_errors(
+#[utoipa::path(
+    get,
+    path = "/agent-executions/{id}/errors/similar/{errorId}",
+    tag = "agent",
+    params(
+        ("id" = String, Path, description = "Agent execution ID"),
+        ("errorId" = String, Path, description = "Error ID")
+    ),
+    responses(
+        (status = 200, description = "Similar errors", body = serde_json::Value),
+        (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_similar_errors(
     State(state): State<ApiState>,
     Path(path): Path<IdErrorPath>,
 ) -> impl IntoResponse {
@@ -149,7 +242,19 @@ async fn handle_similar_errors(
 
 // ── performance ───────────────────────────────────────────────────
 
-async fn handle_performance(
+#[utoipa::path(
+    get,
+    path = "/agent-loops/{id}/performance",
+    tag = "agent",
+    params(("id" = String, Path, description = "Agent loop ID")),
+    responses(
+        (status = 200, description = "Performance profile", body = serde_json::Value),
+        (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_performance(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -159,7 +264,19 @@ async fn handle_performance(
     }
 }
 
-async fn handle_iteration_comparison(
+#[utoipa::path(
+    get,
+    path = "/agent-loops/{id}/performance/comparison",
+    tag = "agent",
+    params(("id" = String, Path, description = "Agent loop ID")),
+    responses(
+        (status = 200, description = "Iteration comparison", body = serde_json::Value),
+        (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_iteration_comparison(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {

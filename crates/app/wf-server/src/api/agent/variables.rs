@@ -8,6 +8,7 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use serde::Deserialize;
 use serde_json::Value;
+use utoipa::ToSchema;
 
 use crate::api::web::batch::BatchItemResult;
 use crate::envelope::{error_response, ok};
@@ -59,13 +60,27 @@ pub(crate) fn routes() -> Router<ApiState> {
 // ── agent messages ────────────────────────────────────────────────
 
 #[derive(Deserialize)]
-struct RecentMessagesQuery {
+pub(crate) struct RecentMessagesQuery {
+    /// Optional count limit for recent messages
     count: Option<usize>,
     #[serde(flatten)]
     page: ListQuery,
 }
 
-async fn handle_recent_messages(
+#[utoipa::path(
+    get,
+    path = "/agent-loops/{id}/messages",
+    tag = "agent",
+    params(
+        ("id" = String, Path, description = "Agent loop ID"), ("limit" = Option<u64>, Query, description = "Page limit"), ("offset" = Option<u64>, Query, description = "Page offset")),
+    responses(
+        (status = 200, description = "Recent messages", body = serde_json::Value),
+        (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_recent_messages(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
     Query(query): Query<RecentMessagesQuery>,
@@ -86,7 +101,19 @@ async fn handle_recent_messages(
 
 /// Delete duplicate messages of an agent loop from storage; returns the
 /// number of removed records.
-async fn handle_dedupe_messages(
+#[utoipa::path(
+    post,
+    path = "/agent-loops/{id}/messages/dedupe",
+    tag = "agent",
+    params(("id" = String, Path, description = "Agent loop ID")),
+    responses(
+        (status = 200, description = "Number of duplicate messages removed", body = usize),
+        (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_dedupe_messages(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -97,13 +124,27 @@ async fn handle_dedupe_messages(
 }
 
 #[derive(Deserialize)]
-struct SearchMessagesQuery {
+pub(crate) struct SearchMessagesQuery {
+    /// Search query string
     q: String,
     #[serde(flatten)]
     page: ListQuery,
 }
 
-async fn handle_search_messages(
+#[utoipa::path(
+    get,
+    path = "/agent-loops/{id}/messages/search",
+    tag = "agent",
+    params(
+        ("id" = String, Path, description = "Agent loop ID"), ("limit" = Option<u64>, Query, description = "Page limit"), ("offset" = Option<u64>, Query, description = "Page offset")),
+    responses(
+        (status = 200, description = "Search results", body = serde_json::Value),
+        (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_search_messages(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
     Query(query): Query<SearchMessagesQuery>,
@@ -122,7 +163,19 @@ async fn handle_search_messages(
     }
 }
 
-async fn handle_message_stats(
+#[utoipa::path(
+    get,
+    path = "/agent-loops/{id}/messages/stats",
+    tag = "agent",
+    params(("id" = String, Path, description = "Agent loop ID")),
+    responses(
+        (status = 200, description = "Message statistics", body = serde_json::Value),
+        (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_message_stats(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -133,13 +186,27 @@ async fn handle_message_stats(
 }
 
 #[derive(Deserialize)]
-struct ConversationQuery {
+pub(crate) struct ConversationQuery {
+    /// Maximum number of messages to return
     max_messages: Option<usize>,
     #[serde(flatten)]
     page: ListQuery,
 }
 
-async fn handle_conversation(
+#[utoipa::path(
+    get,
+    path = "/agent-loops/{id}/conversation",
+    tag = "agent",
+    params(
+        ("id" = String, Path, description = "Agent loop ID"), ("limit" = Option<u64>, Query, description = "Page limit"), ("offset" = Option<u64>, Query, description = "Page offset")),
+    responses(
+        (status = 200, description = "Conversation history", body = serde_json::Value),
+        (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_conversation(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
     Query(query): Query<ConversationQuery>,
@@ -166,7 +233,20 @@ async fn handle_conversation(
 
 // ── agent variables ───────────────────────────────────────────────
 
-async fn handle_list_variables(
+#[utoipa::path(
+    get,
+    path = "/agent-loops/{id}/variables",
+    tag = "agent",
+    params(
+        ("id" = String, Path, description = "Agent loop ID"), ("limit" = Option<u64>, Query, description = "Page limit"), ("offset" = Option<u64>, Query, description = "Page offset")),
+    responses(
+        (status = 200, description = "List of variables", body = serde_json::Value),
+        (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_list_variables(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
     Query(query): Query<ListQuery>,
@@ -185,7 +265,19 @@ async fn handle_list_variables(
     }
 }
 
-async fn handle_variable_stats(
+#[utoipa::path(
+    get,
+    path = "/agent-loops/{id}/variables/stats",
+    tag = "agent",
+    params(("id" = String, Path, description = "Agent loop ID")),
+    responses(
+        (status = 200, description = "Variable statistics", body = serde_json::Value),
+        (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_variable_stats(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -195,7 +287,26 @@ async fn handle_variable_stats(
     }
 }
 
-async fn handle_variable_export(
+#[derive(Deserialize, ToSchema)]
+pub(crate) struct VariableExportQuery {
+    /// If true, return as downloadable attachment
+    download: Option<bool>,
+}
+
+#[utoipa::path(
+    get,
+    path = "/agent-loops/{id}/variables/export",
+    tag = "agent",
+    params(
+        ("id" = String, Path, description = "Agent loop ID"), ("limit" = Option<u64>, Query, description = "Page limit"), ("offset" = Option<u64>, Query, description = "Page offset")),
+    responses(
+        (status = 200, description = "Exported variables", body = serde_json::Value),
+        (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_variable_export(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
     Query(query): Query<VariableExportQuery>,
@@ -217,12 +328,22 @@ async fn handle_variable_export(
     }
 }
 
-#[derive(Deserialize)]
-struct VariableExportQuery {
-    download: Option<bool>,
-}
-
-async fn handle_get_variable(
+#[utoipa::path(
+    get,
+    path = "/agent-loops/{id}/variables/{name}",
+    tag = "agent",
+    params(
+        ("id" = String, Path, description = "Agent loop ID"),
+        ("name" = String, Path, description = "Variable name")
+    ),
+    responses(
+        (status = 200, description = "Variable value", body = serde_json::Value),
+        (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_get_variable(
     State(state): State<ApiState>,
     Path(path): Path<IdNamePath>,
 ) -> impl IntoResponse {
@@ -234,12 +355,29 @@ async fn handle_get_variable(
     }
 }
 
-#[derive(Deserialize)]
-struct SetVariableBody {
+#[derive(Deserialize, ToSchema)]
+pub(crate) struct SetVariableBody {
+    /// Variable value (any JSON)
     value: Value,
 }
 
-async fn handle_set_variable(
+#[utoipa::path(
+    put,
+    path = "/agent-loops/{id}/variables/{name}",
+    tag = "agent",
+    params(
+        ("id" = String, Path, description = "Agent loop ID"),
+        ("name" = String, Path, description = "Variable name")
+    ),
+    request_body = serde_json::Value,
+    responses(
+        (status = 200, description = "Variable set"),
+        (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_set_variable(
     State(state): State<ApiState>,
     Path(path): Path<IdNamePath>,
     Json(body): Json<SetVariableBody>,
@@ -252,7 +390,22 @@ async fn handle_set_variable(
     }
 }
 
-async fn handle_delete_variable(
+#[utoipa::path(
+    delete,
+    path = "/agent-loops/{id}/variables/{name}",
+    tag = "agent",
+    params(
+        ("id" = String, Path, description = "Agent loop ID"),
+        ("name" = String, Path, description = "Variable name")
+    ),
+    responses(
+        (status = 200, description = "Variable deleted", body = bool),
+        (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_delete_variable(
     State(state): State<ApiState>,
     Path(path): Path<IdNamePath>,
 ) -> impl IntoResponse {
@@ -265,20 +418,37 @@ async fn handle_delete_variable(
 /// Maximum entries per loop-variable batch; mirrors the web batch contract.
 const MAX_LOOP_BATCH_VARIABLES: usize = 100;
 
-#[derive(Deserialize)]
-struct LoopVariableBatchEntry {
+#[derive(Deserialize, ToSchema)]
+pub(crate) struct LoopVariableBatchEntry {
+    /// Variable name
     name: String,
+    /// Variable value (any JSON)
     value: Value,
 }
 
-#[derive(Deserialize)]
-struct LoopVariableBatchBody {
+#[derive(Deserialize, ToSchema)]
+pub(crate) struct LoopVariableBatchBody {
+    /// Variable entries (1-100)
     entries: Vec<LoopVariableBatchEntry>,
 }
 
 /// Batch write of loop-scoped variables with per-item reporting. Unlike the
 /// execution-scope fail-fast batch, one bad entry never aborts the rest.
-async fn handle_batch_set_loop_variables(
+#[utoipa::path(
+    post,
+    path = "/agent-loops/{id}/variables/batch",
+    tag = "agent",
+    params(("id" = String, Path, description = "Agent loop ID")),
+    request_body = serde_json::Value,
+    responses(
+        (status = 200, description = "Batch results", body = serde_json::Value),
+        (status = 400, description = "Invalid request body", body = crate::envelope::ErrorResponse),
+        (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_batch_set_loop_variables(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
     Json(body): Json<LoopVariableBatchBody>,

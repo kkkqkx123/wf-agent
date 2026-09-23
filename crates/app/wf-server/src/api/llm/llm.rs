@@ -72,7 +72,15 @@ pub(crate) fn routes() -> Router<ApiState> {
 
 // ── LLM generation ────────────────────────────────────────────────
 
-async fn handle_generate(
+#[utoipa::path(
+    post,
+    path = "/llm/generate",
+    tag = "llm",
+    request_body = serde_json::Value,
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_generate(
     State(state): State<ApiState>,
     Json(request): Json<LlmRequest>,
 ) -> impl IntoResponse {
@@ -82,7 +90,15 @@ async fn handle_generate(
     }
 }
 
-async fn handle_generate_batch(
+#[utoipa::path(
+    post,
+    path = "/llm/generate-batch",
+    tag = "llm",
+    request_body = serde_json::Value,
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_generate_batch(
     State(state): State<ApiState>,
     Json(requests): Json<Vec<LlmRequest>>,
 ) -> impl IntoResponse {
@@ -92,7 +108,15 @@ async fn handle_generate_batch(
     }
 }
 
-async fn handle_generate_stream(
+#[utoipa::path(
+    post,
+    path = "/llm/generate-stream",
+    tag = "llm",
+    request_body = serde_json::Value,
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_generate_stream(
     State(state): State<ApiState>,
     Json(request): Json<LlmRequest>,
 ) -> Response {
@@ -120,7 +144,15 @@ async fn handle_generate_stream(
     sse_response(events)
 }
 
-async fn handle_count_tokens(
+#[utoipa::path(
+    post,
+    path = "/llm/count-tokens",
+    tag = "llm",
+    request_body = serde_json::Value,
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_count_tokens(
     State(state): State<ApiState>,
     Json(request): Json<LlmRequest>,
 ) -> impl IntoResponse {
@@ -133,7 +165,7 @@ async fn handle_count_tokens(
 // ── LLM profiles ──────────────────────────────────────────────────
 
 #[derive(Deserialize)]
-struct ListProfilesQuery {
+pub(crate) struct ListProfilesQuery {
     id: Option<String>,
     name: Option<String>,
     format: Option<String>,
@@ -142,7 +174,15 @@ struct ListProfilesQuery {
     page: ListQuery,
 }
 
-async fn handle_list_profiles(
+#[utoipa::path(
+    get,
+    path = "/llm/profiles",
+    tag = "llm",
+    params(("id" = Option<String>, Query, description = "id"), ("name" = Option<String>, Query, description = "name"), ("format" = Option<String>, Query, description = "format"), ("model" = Option<String>, Query, description = "model"), ("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_list_profiles(
     State(state): State<ApiState>,
     Query(query): Query<ListProfilesQuery>,
 ) -> impl IntoResponse {
@@ -169,7 +209,15 @@ async fn handle_list_profiles(
     }
 }
 
-async fn handle_create_profile(
+#[utoipa::path(
+    post,
+    path = "/llm/profiles",
+    tag = "llm",
+    request_body = serde_json::Value,
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_create_profile(
     State(state): State<ApiState>,
     Json(profile): Json<wf_api::LlmProfile>,
 ) -> impl IntoResponse {
@@ -179,7 +227,15 @@ async fn handle_create_profile(
     }
 }
 
-async fn handle_get_profile(
+#[utoipa::path(
+    get,
+    path = "/llm/profiles/{id}",
+    tag = "llm",
+    params(("id" = String, Path, description = "id")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_get_profile(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -189,7 +245,16 @@ async fn handle_get_profile(
     }
 }
 
-async fn handle_update_profile(
+#[utoipa::path(
+    put,
+    path = "/llm/profiles/{id}",
+    tag = "llm",
+    params(("id" = String, Path, description = "id")),
+    request_body = serde_json::Value,
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_update_profile(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
     Json(mut profile): Json<wf_api::LlmProfile>,
@@ -201,7 +266,15 @@ async fn handle_update_profile(
     }
 }
 
-async fn handle_delete_profile(
+#[utoipa::path(
+    delete,
+    path = "/llm/profiles/{id}",
+    tag = "llm",
+    params(("id" = String, Path, description = "id")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_delete_profile(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -211,7 +284,15 @@ async fn handle_delete_profile(
     }
 }
 
-async fn handle_set_default(
+#[utoipa::path(
+    post,
+    path = "/llm/profiles/{id}/default",
+    tag = "llm",
+    params(("id" = String, Path, description = "id")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_set_default(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -221,14 +302,29 @@ async fn handle_set_default(
     }
 }
 
-async fn handle_get_default(State(state): State<ApiState>) -> impl IntoResponse {
+#[utoipa::path(
+    get,
+    path = "/llm/profiles/default",
+    tag = "llm",
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_get_default(State(state): State<ApiState>) -> impl IntoResponse {
     match wf_api::llm::llm_profile::get_default(&state.ctx).await {
         Ok(profile) => ok(profile).into_response(),
         Err(e) => error_response(e),
     }
 }
 
-async fn handle_export_profile(
+#[utoipa::path(
+    get,
+    path = "/llm/profiles/{id}/export",
+    tag = "llm",
+    params(("id" = String, Path, description = "id")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_export_profile(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -239,11 +335,19 @@ async fn handle_export_profile(
 }
 
 #[derive(Deserialize)]
-struct ImportProfileBody {
+pub(crate) struct ImportProfileBody {
     json: String,
 }
 
-async fn handle_import_profile(
+#[utoipa::path(
+    post,
+    path = "/llm/profiles/import",
+    tag = "llm",
+    request_body = serde_json::Value,
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_import_profile(
     State(state): State<ApiState>,
     Json(body): Json<ImportProfileBody>,
 ) -> impl IntoResponse {
@@ -253,14 +357,29 @@ async fn handle_import_profile(
     }
 }
 
-async fn handle_export_all_profiles(State(state): State<ApiState>) -> impl IntoResponse {
+#[utoipa::path(
+    get,
+    path = "/llm/profiles/export-all",
+    tag = "llm",
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_export_all_profiles(State(state): State<ApiState>) -> impl IntoResponse {
     match wf_api::llm::llm_profile::export_all_json(&state.ctx).await {
         Ok(json) => ok(json).into_response(),
         Err(e) => error_response(e),
     }
 }
 
-async fn handle_import_all_profiles(
+#[utoipa::path(
+    post,
+    path = "/llm/profiles/import-all",
+    tag = "llm",
+    request_body = serde_json::Value,
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_import_all_profiles(
     State(state): State<ApiState>,
     Json(body): Json<ImportProfileBody>,
 ) -> impl IntoResponse {
@@ -270,7 +389,14 @@ async fn handle_import_all_profiles(
     }
 }
 
-async fn handle_list_templates(State(state): State<ApiState>) -> impl IntoResponse {
+#[utoipa::path(
+    get,
+    path = "/llm/profile-templates",
+    tag = "llm",
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_list_templates(State(state): State<ApiState>) -> impl IntoResponse {
     // Bounded in-memory catalog (built-in plus custom templates); retained as
     // a bare array with no pagination.
     match wf_api::llm::llm_profile::list_templates(&state.ctx).await {
@@ -279,7 +405,15 @@ async fn handle_list_templates(State(state): State<ApiState>) -> impl IntoRespon
     }
 }
 
-async fn handle_add_template(
+#[utoipa::path(
+    post,
+    path = "/llm/profile-templates",
+    tag = "llm",
+    request_body = serde_json::Value,
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_add_template(
     State(state): State<ApiState>,
     Json(template): Json<wf_api::LlmProfileTemplate>,
 ) -> impl IntoResponse {
@@ -290,11 +424,19 @@ async fn handle_add_template(
 }
 
 #[derive(Deserialize)]
-struct TemplateNameQuery {
+pub(crate) struct TemplateNameQuery {
     name: String,
 }
 
-async fn handle_remove_template(
+#[utoipa::path(
+    delete,
+    path = "/llm/profile-templates",
+    tag = "llm",
+    params(("name" = String, Query, description = "name")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_remove_template(
     State(state): State<ApiState>,
     Query(query): Query<TemplateNameQuery>,
 ) -> impl IntoResponse {
@@ -305,7 +447,15 @@ async fn handle_remove_template(
 }
 
 /// Single profile template by name (built-in or custom).
-async fn handle_get_template_by_name(
+#[utoipa::path(
+    get,
+    path = "/llm/profile-templates/{name}",
+    tag = "llm",
+    params(("name" = String, Path, description = "name")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_get_template_by_name(
     State(state): State<ApiState>,
     Path(path): Path<NamePath>,
 ) -> impl IntoResponse {
@@ -317,7 +467,15 @@ async fn handle_get_template_by_name(
 }
 
 /// Validate an LLM profile without persisting it.
-async fn handle_validate_profile(
+#[utoipa::path(
+    post,
+    path = "/llm/profiles/validate",
+    tag = "llm",
+    request_body = serde_json::Value,
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_validate_profile(
     State(state): State<ApiState>,
     Json(profile): Json<LlmProfile>,
 ) -> impl IntoResponse {
@@ -326,12 +484,20 @@ async fn handle_validate_profile(
 }
 
 #[derive(Deserialize)]
-struct CreateFromTemplateBody {
+pub(crate) struct CreateFromTemplateBody {
     template_name: String,
     overrides: Value,
 }
 
-async fn handle_create_from_template(
+#[utoipa::path(
+    post,
+    path = "/llm/profiles/from-template",
+    tag = "llm",
+    request_body = serde_json::Value,
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_create_from_template(
     State(state): State<ApiState>,
     Json(body): Json<CreateFromTemplateBody>,
 ) -> impl IntoResponse {
@@ -349,14 +515,29 @@ async fn handle_create_from_template(
 
 // ── LLM providers ─────────────────────────────────────────────────
 
-async fn handle_list_providers(State(state): State<ApiState>) -> impl IntoResponse {
+#[utoipa::path(
+    get,
+    path = "/llm/providers",
+    tag = "llm",
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_list_providers(State(state): State<ApiState>) -> impl IntoResponse {
     match wf_api::llm::llm_provider::list(&state.ctx).await {
         Ok(providers) => ok(providers).into_response(),
         Err(e) => error_response(e),
     }
 }
 
-async fn handle_create_provider(
+#[utoipa::path(
+    post,
+    path = "/llm/providers",
+    tag = "llm",
+    request_body = serde_json::Value,
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_create_provider(
     State(state): State<ApiState>,
     Json(provider): Json<wf_api::LlmProviderDefinition>,
 ) -> impl IntoResponse {
@@ -366,7 +547,15 @@ async fn handle_create_provider(
     }
 }
 
-async fn handle_get_provider(
+#[utoipa::path(
+    get,
+    path = "/llm/providers/{id}",
+    tag = "llm",
+    params(("id" = String, Path, description = "id")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_get_provider(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -376,7 +565,15 @@ async fn handle_get_provider(
     }
 }
 
-async fn handle_delete_provider(
+#[utoipa::path(
+    delete,
+    path = "/llm/providers/{id}",
+    tag = "llm",
+    params(("id" = String, Path, description = "id")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_delete_provider(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -387,7 +584,15 @@ async fn handle_delete_provider(
 }
 
 /// Off-hot-path model listing for a provider definition.
-async fn handle_list_models(
+#[utoipa::path(
+    get,
+    path = "/llm/providers/{id}/models",
+    tag = "llm",
+    params(("id" = String, Path, description = "id")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_list_models(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {

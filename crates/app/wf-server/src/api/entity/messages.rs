@@ -40,7 +40,7 @@ pub(crate) fn routes() -> Router<ApiState> {
 // ── messages ──────────────────────────────────────────────────────
 
 #[derive(Deserialize)]
-struct ListMessagesQuery {
+pub(crate) struct ListMessagesQuery {
     #[serde(flatten)]
     page: ListQuery,
     execution_id: Option<String>,
@@ -48,7 +48,15 @@ struct ListMessagesQuery {
     role: Option<String>,
 }
 
-async fn handle_list_messages(
+#[utoipa::path(
+    get,
+    path = "/messages",
+    tag = "entity",
+    params(("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset"), ("execution_id" = Option<String>, Query, description = "execution_id"), ("agent_loop_id" = Option<String>, Query, description = "agent_loop_id"), ("role" = Option<String>, Query, description = "role")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_list_messages(
     State(state): State<ApiState>,
     Query(query): Query<ListMessagesQuery>,
 ) -> impl IntoResponse {
@@ -67,7 +75,15 @@ async fn handle_list_messages(
     }
 }
 
-async fn handle_save_message(
+#[utoipa::path(
+    post,
+    path = "/messages",
+    tag = "entity",
+    request_body = serde_json::Value,
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_save_message(
     State(state): State<ApiState>,
     Json(record): Json<wf_api::MessageStorageMetadata>,
 ) -> impl IntoResponse {
@@ -77,7 +93,15 @@ async fn handle_save_message(
     }
 }
 
-async fn handle_get_message(
+#[utoipa::path(
+    get,
+    path = "/messages/{id}",
+    tag = "entity",
+    params(("id" = String, Path, description = "id")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_get_message(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -87,7 +111,15 @@ async fn handle_get_message(
     }
 }
 
-async fn handle_delete_message(
+#[utoipa::path(
+    delete,
+    path = "/messages/{id}",
+    tag = "entity",
+    params(("id" = String, Path, description = "id")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_delete_message(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -98,13 +130,21 @@ async fn handle_delete_message(
 }
 
 #[derive(Deserialize)]
-struct SearchMessagesQuery {
+pub(crate) struct SearchMessagesQuery {
     q: String,
     #[serde(flatten)]
     page: ListQuery,
 }
 
-async fn handle_search_messages(
+#[utoipa::path(
+    get,
+    path = "/messages/search",
+    tag = "entity",
+    params(("q" = String, Query, description = "q"), ("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_search_messages(
     State(state): State<ApiState>,
     Query(query): Query<SearchMessagesQuery>,
 ) -> impl IntoResponse {
@@ -124,7 +164,14 @@ async fn handle_search_messages(
     }
 }
 
-async fn handle_message_stats(State(state): State<ApiState>) -> impl IntoResponse {
+#[utoipa::path(
+    get,
+    path = "/messages/stats",
+    tag = "entity",
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_message_stats(State(state): State<ApiState>) -> impl IntoResponse {
     match wf_api::entity::message::stats(&state.ctx).await {
         Ok(stats) => ok(stats).into_response(),
         Err(e) => error_response(e),
@@ -132,12 +179,20 @@ async fn handle_message_stats(State(state): State<ApiState>) -> impl IntoRespons
 }
 
 #[derive(Deserialize)]
-struct ByExecutionQuery {
+pub(crate) struct ByExecutionQuery {
     #[serde(flatten)]
     page: ListQuery,
 }
 
-async fn handle_messages_by_execution(
+#[utoipa::path(
+    get,
+    path = "/messages/by-execution/{executionId}",
+    tag = "entity",
+    params(("executionId" = String, Path, description = "executionId"), ("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_messages_by_execution(
     State(state): State<ApiState>,
     Path(path): Path<ExecutionIdPath>,
     Query(query): Query<ByExecutionQuery>,
@@ -158,12 +213,20 @@ async fn handle_messages_by_execution(
 }
 
 #[derive(Deserialize)]
-struct ConversationQuery {
+pub(crate) struct ConversationQuery {
     #[serde(flatten)]
     page: ListQuery,
 }
 
-async fn handle_conversation(
+#[utoipa::path(
+    get,
+    path = "/messages/conversation/{executionId}",
+    tag = "entity",
+    params(("executionId" = String, Path, description = "executionId"), ("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_conversation(
     State(state): State<ApiState>,
     Path(path): Path<ExecutionIdPath>,
     Query(query): Query<ConversationQuery>,

@@ -6,8 +6,9 @@ use axum::extract::{Path, Query, State};
 use axum::response::IntoResponse;
 use axum::routing::{delete, get, post};
 use axum::{Json, Router};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use utoipa::ToSchema;
 
 use crate::envelope::{error_response, ok};
 use crate::extract::{DefIdPath, IdPath, ListQuery};
@@ -60,14 +61,26 @@ pub(crate) fn routes() -> Router<ApiState> {
 // ── agent executions ──────────────────────────────────────────────
 
 #[derive(Deserialize)]
-struct AgentExecutionsQuery {
+pub(crate) struct AgentExecutionsQuery {
     #[serde(flatten)]
     page: ListQuery,
     status: Option<String>,
     agent_id: Option<String>,
 }
 
-async fn handle_agent_executions(
+#[utoipa::path(
+    get,
+    path = "/agent-executions",
+    tag = "agent",
+    params(("limit" = Option<u64>, Query, description = "Page limit"), ("offset" = Option<u64>, Query, description = "Page offset")),
+    responses(
+        (status = 200, description = "List of agent executions", body = serde_json::Value),
+        (status = 400, description = "Invalid query parameters", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_agent_executions(
     State(state): State<ApiState>,
     Query(query): Query<AgentExecutionsQuery>,
 ) -> impl IntoResponse {
@@ -93,7 +106,19 @@ async fn handle_agent_executions(
     }
 }
 
-async fn handle_get_agent_execution(
+#[utoipa::path(
+    get,
+    path = "/agent-executions/{id}",
+    tag = "agent",
+    params(("id" = String, Path, description = "Agent execution ID")),
+    responses(
+        (status = 200, description = "Agent execution found", body = serde_json::Value),
+        (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_get_agent_execution(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -103,7 +128,19 @@ async fn handle_get_agent_execution(
     }
 }
 
-async fn handle_delete_agent_execution(
+#[utoipa::path(
+    delete,
+    path = "/agent-executions/{id}",
+    tag = "agent",
+    params(("id" = String, Path, description = "Agent execution ID")),
+    responses(
+        (status = 200, description = "Agent execution deleted", body = bool),
+        (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_delete_agent_execution(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -113,7 +150,20 @@ async fn handle_delete_agent_execution(
     }
 }
 
-async fn handle_executions_by_definition(
+#[utoipa::path(
+    get,
+    path = "/agent-executions/by-definition/{defId}",
+    tag = "agent",
+    params(
+        ("defId" = String, Path, description = "Agent definition ID"), ("limit" = Option<u64>, Query, description = "Page limit"), ("offset" = Option<u64>, Query, description = "Page offset")),
+    responses(
+        (status = 200, description = "List of executions for definition", body = serde_json::Value),
+        (status = 400, description = "Invalid query parameters", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_executions_by_definition(
     State(state): State<ApiState>,
     Path(path): Path<DefIdPath>,
     Query(query): Query<ListQuery>,
@@ -134,14 +184,39 @@ async fn handle_executions_by_definition(
     }
 }
 
-async fn handle_execution_statistics(State(state): State<ApiState>) -> impl IntoResponse {
+#[utoipa::path(
+    get,
+    path = "/agent-executions/stats",
+    tag = "agent",
+    responses(
+        (status = 200, description = "Agent execution statistics", body = serde_json::Value),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_execution_statistics(
+    State(state): State<ApiState>,
+) -> impl IntoResponse {
     match wf_api::agent::agent_execution_registry::execution_statistics(&state.ctx).await {
         Ok(stats) => ok(stats).into_response(),
         Err(e) => error_response(e),
     }
 }
 
-async fn handle_executions_by_status(
+#[utoipa::path(
+    get,
+    path = "/agent-executions/by-status/{status}",
+    tag = "agent",
+    params(
+        ("status" = String, Path, description = "Execution status (running, paused, completed, failed)"), ("limit" = Option<u64>, Query, description = "Page limit"), ("offset" = Option<u64>, Query, description = "Page offset")),
+    responses(
+        (status = 200, description = "Executions by status", body = serde_json::Value),
+        (status = 400, description = "Invalid status", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_executions_by_status(
     State(state): State<ApiState>,
     Path(path): Path<crate::extract::StatusPath>,
     Query(query): Query<ListQuery>,
@@ -174,8 +249,9 @@ async fn handle_executions_by_status(
 
 // ── agent checkpoints ─────────────────────────────────────────────
 
-#[derive(Deserialize)]
-struct CreateCheckpointBody {
+#[derive(Deserialize, ToSchema)]
+pub(crate) struct CreateCheckpointBody {
+    /// Optional description for the checkpoint
     description: Option<String>,
 }
 
@@ -186,7 +262,21 @@ async fn ensure_agent_domain(
     wf_api::ensure_execution_domain(ctx, id, wf_api::ExecutionDomain::AgentLoop).await
 }
 
-async fn handle_create_checkpoint(
+#[utoipa::path(
+    post,
+    path = "/agent-loops/{id}/checkpoints",
+    tag = "agent",
+    params(("id" = String, Path, description = "Agent loop ID")),
+    request_body = serde_json::Value,
+    responses(
+        (status = 200, description = "Checkpoint created", body = serde_json::Value),
+        (status = 404, description = "Agent loop not found", body = crate::envelope::ErrorResponse),
+        (status = 400, description = "Invalid request body", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_create_checkpoint(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
     Json(body): Json<CreateCheckpointBody>,
@@ -200,7 +290,20 @@ async fn handle_create_checkpoint(
     }
 }
 
-async fn handle_list_checkpoints(
+#[utoipa::path(
+    get,
+    path = "/agent-loops/{id}/checkpoints",
+    tag = "agent",
+    params(
+        ("id" = String, Path, description = "Agent loop ID"), ("limit" = Option<u64>, Query, description = "Page limit"), ("offset" = Option<u64>, Query, description = "Page offset")),
+    responses(
+        (status = 200, description = "List of checkpoints", body = serde_json::Value),
+        (status = 404, description = "Agent loop not found", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_list_checkpoints(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
     Query(query): Query<ListQuery>,
@@ -222,7 +325,19 @@ async fn handle_list_checkpoints(
     }
 }
 
-async fn handle_restore_checkpoint(
+#[utoipa::path(
+    post,
+    path = "/agent-loops/{id}/checkpoints/{cid}/restore",
+    tag = "agent",
+    params(("id" = String, Path, description = "Agent loop ID"), ("cid" = String, Path, description = "Checkpoint ID")),
+    responses(
+        (status = 200, description = "Checkpoint restored", body = serde_json::Value),
+        (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_restore_checkpoint(
     State(state): State<ApiState>,
     Path(path): Path<crate::extract::IdCidPath>,
 ) -> impl IntoResponse {
@@ -248,22 +363,22 @@ async fn handle_restore_checkpoint(
 /// fresh execution id; `in_place` continues under the source execution id.
 #[derive(Deserialize, Default, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
-enum ResumeCheckpointMode {
+pub(crate) enum ResumeCheckpointMode {
     #[default]
     Branch,
     InPlace,
 }
 
 #[derive(Deserialize)]
-struct ResumeCheckpointBody {
+pub(crate) struct ResumeCheckpointBody {
     #[serde(default)]
     mode: ResumeCheckpointMode,
     #[serde(flatten)]
     run: super::loops::RunAgentLoopBody,
 }
 
-#[derive(serde::Serialize)]
-struct AgentResumeView {
+#[derive(Serialize, ToSchema)]
+pub(crate) struct AgentResumeView {
     agent_loop_id: String,
     result: Value,
     iterations: u32,
@@ -274,7 +389,25 @@ struct AgentResumeView {
 /// `mode: "in_place"` continues under the source execution id (the source
 /// must be terminal or paused). The remaining body fields mirror
 /// `/agent-loops/{id}/run` (model, message, hooks, tool visibility, ...).
-async fn handle_resume_checkpoint(
+#[utoipa::path(
+    post,
+    path = "/agent-loops/{id}/checkpoints/{cid}/resume",
+    tag = "agent",
+    params(
+        ("id" = String, Path, description = "Agent loop ID"),
+        ("cid" = String, Path, description = "Checkpoint ID")
+    ),
+    request_body = serde_json::Value,
+    responses(
+        (status = 200, description = "Agent loop resumed from checkpoint", body = serde_json::Value),
+        (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
+        (status = 400, description = "Invalid request body", body = crate::envelope::ErrorResponse),
+        (status = 409, description = "Invalid mode for checkpoint state", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_resume_checkpoint(
     State(state): State<ApiState>,
     Path(path): Path<crate::extract::IdCidPath>,
     Json(body): Json<ResumeCheckpointBody>,
@@ -320,7 +453,19 @@ async fn handle_resume_checkpoint(
     }
 }
 
-async fn handle_checkpoint_chain(
+#[utoipa::path(
+    get,
+    path = "/agent-loops/{id}/checkpoints/chain",
+    tag = "agent",
+    params(("id" = String, Path, description = "Agent loop ID")),
+    responses(
+        (status = 200, description = "Checkpoint chain", body = serde_json::Value),
+        (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_checkpoint_chain(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -333,7 +478,19 @@ async fn handle_checkpoint_chain(
     }
 }
 
-async fn handle_delete_checkpoints(
+#[utoipa::path(
+    delete,
+    path = "/agent-loops/{id}/checkpoints",
+    tag = "agent",
+    params(("id" = String, Path, description = "Agent loop ID")),
+    responses(
+        (status = 200, description = "Checkpoints deleted", body = serde_json::Value),
+        (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_delete_checkpoints(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -346,7 +503,20 @@ async fn handle_delete_checkpoints(
     }
 }
 
-async fn handle_checkpoint_statistics(State(state): State<ApiState>) -> impl IntoResponse {
+#[utoipa::path(
+    get,
+    path = "/agent-checkpoints/stats",
+    tag = "agent",
+    responses(
+        (status = 200, description = "Checkpoint statistics", body = serde_json::Value),
+        (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_checkpoint_statistics(
+    State(state): State<ApiState>,
+) -> impl IntoResponse {
     match wf_api::agent::agent_checkpoint::statistics(&state.ctx, None).await {
         Ok(stats) => ok(stats).into_response(),
         Err(e) => error_response(e),

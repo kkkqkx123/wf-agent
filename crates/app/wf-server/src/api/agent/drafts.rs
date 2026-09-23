@@ -26,14 +26,37 @@ pub(crate) fn routes() -> Router<ApiState> {
         .route("/agents/{id}/lifecycle", get(handle_lifecycle))
 }
 
-async fn handle_list_drafts(State(state): State<ApiState>) -> impl IntoResponse {
+#[utoipa::path(
+    get,
+    path = "/agents/drafts",
+    tag = "agent",
+    responses(
+        (status = 200, description = "List of agent drafts", body = serde_json::Value),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_list_drafts(State(state): State<ApiState>) -> impl IntoResponse {
     match wf_api::agent::agent_draft::list_drafts(&state.ctx).await {
         Ok(drafts) => ok(drafts).into_response(),
         Err(e) => error_response(e),
     }
 }
 
-async fn handle_save_draft(
+#[utoipa::path(
+    post,
+    path = "/agents/drafts",
+    tag = "agent",
+    request_body = serde_json::Value,
+    responses(
+        (status = 200, description = "Agent draft created", body = String),
+        (status = 400, description = "Invalid request body", body = crate::envelope::ErrorResponse),
+        (status = 409, description = "Agent draft already exists", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_save_draft(
     State(state): State<ApiState>,
     Json(definition): Json<wf_api::AgentDefinition>,
 ) -> impl IntoResponse {
@@ -43,7 +66,19 @@ async fn handle_save_draft(
     }
 }
 
-async fn handle_get_draft(
+#[utoipa::path(
+    get,
+    path = "/agents/drafts/{id}",
+    tag = "agent",
+    params(("id" = String, Path, description = "Agent draft ID")),
+    responses(
+        (status = 200, description = "Agent draft found", body = serde_json::Value),
+        (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_get_draft(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -53,7 +88,19 @@ async fn handle_get_draft(
     }
 }
 
-async fn handle_delete_draft(
+#[utoipa::path(
+    delete,
+    path = "/agents/drafts/{id}",
+    tag = "agent",
+    params(("id" = String, Path, description = "Agent draft ID")),
+    responses(
+        (status = 200, description = "Agent draft deleted", body = bool),
+        (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_delete_draft(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -63,7 +110,19 @@ async fn handle_delete_draft(
     }
 }
 
-async fn handle_promote_draft(
+#[utoipa::path(
+    post,
+    path = "/agents/drafts/{id}/promote",
+    tag = "agent",
+    params(("id" = String, Path, description = "Agent draft ID")),
+    responses(
+        (status = 200, description = "Draft promoted", body = serde_json::Value),
+        (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_promote_draft(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -73,7 +132,19 @@ async fn handle_promote_draft(
     }
 }
 
-async fn handle_validate_draft(
+#[utoipa::path(
+    get,
+    path = "/agents/drafts/{id}/validate",
+    tag = "agent",
+    params(("id" = String, Path, description = "Agent loop ID")),
+    responses(
+        (status = 200, description = "Draft validation", body = serde_json::Value),
+        (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_validate_draft(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -83,7 +154,19 @@ async fn handle_validate_draft(
     }
 }
 
-async fn handle_lifecycle(
+#[utoipa::path(
+    get,
+    path = "/agents/{id}/lifecycle",
+    tag = "agent",
+    params(("id" = String, Path, description = "Agent loop ID")),
+    responses(
+        (status = 200, description = "Agent lifecycle", body = serde_json::Value),
+        (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_lifecycle(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {

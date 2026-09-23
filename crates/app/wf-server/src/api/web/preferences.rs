@@ -27,7 +27,14 @@ pub(crate) fn routes() -> Router<ApiState> {
         )
 }
 
-async fn handle_get_preferences(State(state): State<ApiState>) -> impl IntoResponse {
+#[utoipa::path(
+    get,
+    path = "/preferences",
+    tag = "web",
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_get_preferences(State(state): State<ApiState>) -> impl IntoResponse {
     match wf_api::web::preferences::get_all(&state.ctx).await {
         Ok(values) => ok(values).into_response(),
         Err(e) => error_response(e),
@@ -35,12 +42,20 @@ async fn handle_get_preferences(State(state): State<ApiState>) -> impl IntoRespo
 }
 
 #[derive(Deserialize)]
-struct ReplacePreferencesBody {
+pub(crate) struct ReplacePreferencesBody {
     #[serde(default)]
     values: Map<String, Value>,
 }
 
-async fn handle_replace_preferences(
+#[utoipa::path(
+    put,
+    path = "/preferences",
+    tag = "web",
+    request_body = serde_json::Value,
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_replace_preferences(
     State(state): State<ApiState>,
     Json(body): Json<ReplacePreferencesBody>,
 ) -> impl IntoResponse {
@@ -50,7 +65,15 @@ async fn handle_replace_preferences(
     }
 }
 
-async fn handle_get_preference(
+#[utoipa::path(
+    get,
+    path = "/preferences/{id}",
+    tag = "web",
+    params(("id" = String, Path, description = "id")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_get_preference(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -62,11 +85,20 @@ async fn handle_get_preference(
 }
 
 #[derive(Deserialize)]
-struct SetPreferenceBody {
+pub(crate) struct SetPreferenceBody {
     value: Value,
 }
 
-async fn handle_set_preference(
+#[utoipa::path(
+    put,
+    path = "/preferences/{id}",
+    tag = "web",
+    params(("id" = String, Path, description = "id")),
+    request_body = serde_json::Value,
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_set_preference(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
     Json(body): Json<SetPreferenceBody>,
@@ -77,7 +109,15 @@ async fn handle_set_preference(
     }
 }
 
-async fn handle_delete_preference(
+#[utoipa::path(
+    delete,
+    path = "/preferences/{id}",
+    tag = "web",
+    params(("id" = String, Path, description = "id")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_delete_preference(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {

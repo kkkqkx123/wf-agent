@@ -18,6 +18,10 @@ wf-metrics = { path = "../../infra/wf-metrics" }
 wf-api = { path = "../wf-api" }
 wf-types = { path = "../../foundation/wf-types" }
 wf-runtime = { path = "../wf-runtime" }
+utoipa = { version = "5" }
+
+[features]
+openapi-docs = []
 
 [[bin]]
 name = "wf-server"

@@ -33,7 +33,19 @@ pub(crate) fn routes() -> Router<ApiState> {
 
 /// Validate an agent definition through the wf-config processor without
 /// persisting it.
-async fn handle_validate_agent(
+#[utoipa::path(
+    post,
+    path = "/agents/validate",
+    tag = "agent",
+    request_body = serde_json::Value,
+    responses(
+        (status = 200, description = "Agent definition is valid", body = bool),
+        (status = 400, description = "Invalid agent definition", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_validate_agent(
     State(_state): State<ApiState>,
     Json(definition): Json<wf_api::AgentDefinition>,
 ) -> impl IntoResponse {
@@ -44,14 +56,28 @@ async fn handle_validate_agent(
 }
 
 #[derive(Deserialize)]
-struct ListProfilesQuery {
+pub(crate) struct ListProfilesQuery {
     #[serde(flatten)]
     page: ListQuery,
+    /// Filter by profile name
     name: Option<String>,
+    /// Filter by default status
     is_default: Option<bool>,
 }
 
-async fn handle_list_profiles(
+#[utoipa::path(
+    get,
+    path = "/agents",
+    tag = "agent",
+    params(("limit" = Option<u64>, Query, description = "Page limit"), ("offset" = Option<u64>, Query, description = "Page offset")),
+    responses(
+        (status = 200, description = "List of agent profiles", body = serde_json::Value),
+        (status = 400, description = "Invalid query parameters", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_list_profiles(
     State(state): State<ApiState>,
     Query(query): Query<ListProfilesQuery>,
 ) -> impl IntoResponse {
@@ -68,7 +94,20 @@ async fn handle_list_profiles(
     }
 }
 
-async fn handle_save_profile(
+#[utoipa::path(
+    post,
+    path = "/agents",
+    tag = "agent",
+    request_body = serde_json::Value,
+    responses(
+        (status = 200, description = "Agent profile created", body = String),
+        (status = 400, description = "Invalid request body", body = crate::envelope::ErrorResponse),
+        (status = 409, description = "Agent profile already exists", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_save_profile(
     State(state): State<ApiState>,
     Json(profile): Json<wf_api::AgentProfileStorageMetadata>,
 ) -> impl IntoResponse {
@@ -78,7 +117,19 @@ async fn handle_save_profile(
     }
 }
 
-async fn handle_get_profile(
+#[utoipa::path(
+    get,
+    path = "/agents/{id}",
+    tag = "agent",
+    params(("id" = String, Path, description = "Agent profile ID")),
+    responses(
+        (status = 200, description = "Agent profile found", body = serde_json::Value),
+        (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_get_profile(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -88,7 +139,21 @@ async fn handle_get_profile(
     }
 }
 
-async fn handle_update_profile(
+#[utoipa::path(
+    put,
+    path = "/agents/{id}",
+    tag = "agent",
+    params(("id" = String, Path, description = "Agent profile ID")),
+    request_body = serde_json::Value,
+    responses(
+        (status = 200, description = "Agent profile updated", body = String),
+        (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
+        (status = 400, description = "Invalid request body", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_update_profile(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
     Json(mut profile): Json<wf_api::AgentProfileStorageMetadata>,
@@ -100,7 +165,19 @@ async fn handle_update_profile(
     }
 }
 
-async fn handle_delete_profile(
+#[utoipa::path(
+    delete,
+    path = "/agents/{id}",
+    tag = "agent",
+    params(("id" = String, Path, description = "Agent profile ID")),
+    responses(
+        (status = 200, description = "Agent profile deleted", body = bool),
+        (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_delete_profile(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {

@@ -8,6 +8,7 @@ use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::Router;
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
 
 use crate::envelope::{error_response, ok};
 use crate::extract::IdPath;
@@ -29,8 +30,9 @@ pub(crate) fn routes() -> Router<ApiState> {
         )
 }
 
-#[derive(Debug, Deserialize)]
-struct ApproveRequest {
+#[derive(Debug, Deserialize, ToSchema)]
+pub(crate) struct ApproveRequest {
+    /// Target feature branch for approval
     #[serde(default)]
     feature: String,
     /// File-level approval: when set and non-empty, only these paths are
@@ -39,27 +41,51 @@ struct ApproveRequest {
     paths: Option<Vec<String>>,
 }
 
-#[derive(Debug, Serialize)]
-struct RejectResponse {
+#[derive(Debug, Serialize, ToSchema)]
+pub(crate) struct RejectResponse {
     baseline_snapshot_id: String,
 }
 
-#[derive(Debug, Deserialize)]
-struct RejectRequest {
-    /// Optional human-readable rejection reason, used for logging and
-    /// diagnostics only. Human rejection never requires a reason.
+#[derive(Debug, Deserialize, ToSchema)]
+pub(crate) struct RejectRequest {
+    /// Optional human-readable rejection reason
     #[serde(default)]
     reason: Option<String>,
 }
 
-async fn handle_list_pending_approvals(State(state): State<ApiState>) -> impl IntoResponse {
+#[utoipa::path(
+    get,
+    path = "/file-checkpoint/approvals/pending",
+    tag = "checkpoint",
+    responses(
+        (status = 200, description = "List of pending file approvals"),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_list_pending_approvals(
+    State(state): State<ApiState>,
+) -> impl IntoResponse {
     match wf_api::checkpoint::approval::list_pending_approvals(&state.ctx) {
         Ok(approvals) => ok(approvals).into_response(),
         Err(err) => error_response(err),
     }
 }
 
-async fn handle_approve_changes(
+#[utoipa::path(
+    post,
+    path = "/file-checkpoint/approvals/{id}/approve",
+    tag = "checkpoint",
+    params(("id" = String, Path, description = "Checkpoint approval ID")),
+    request_body = serde_json::Value,
+    responses(
+        (status = 200, description = "Changes approved"),
+        (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_approve_changes(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
     body: Option<axum::extract::Json<ApproveRequest>>,
@@ -71,7 +97,20 @@ async fn handle_approve_changes(
     }
 }
 
-async fn handle_reject_changes(
+#[utoipa::path(
+    post,
+    path = "/file-checkpoint/approvals/{id}/reject",
+    tag = "checkpoint",
+    params(("id" = String, Path, description = "Checkpoint approval ID")),
+    request_body = serde_json::Value,
+    responses(
+        (status = 200, description = "Changes rejected", body = serde_json::Value),
+        (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_reject_changes(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
     body: Option<axum::extract::Json<RejectRequest>>,

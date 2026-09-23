@@ -29,13 +29,21 @@ pub(crate) fn routes() -> Router<ApiState> {
 }
 
 #[derive(Deserialize)]
-struct ListInteractionsQuery {
+pub(crate) struct ListInteractionsQuery {
     status: Option<String>,
     #[serde(flatten)]
     page: ListQuery,
 }
 
-async fn handle_list_interactions(
+#[utoipa::path(
+    get,
+    path = "/agent-loops/{id}/interactions",
+    tag = "entity",
+    params(("id" = String, Path, description = "id"), ("status" = Option<String>, Query, description = "status"), ("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_list_interactions(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
     Query(query): Query<ListInteractionsQuery>,
@@ -61,7 +69,15 @@ async fn handle_list_interactions(
     }
 }
 
-async fn handle_get_interaction(
+#[utoipa::path(
+    get,
+    path = "/agent-interactions/{id}",
+    tag = "entity",
+    params(("id" = String, Path, description = "id")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_get_interaction(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -72,13 +88,22 @@ async fn handle_get_interaction(
 }
 
 #[derive(Deserialize)]
-struct AgentRespondBody {
+pub(crate) struct AgentRespondBody {
     agent_loop_id: Option<String>,
     response_data: Option<Value>,
     result_data: Option<Value>,
 }
 
-async fn handle_respond_interaction(
+#[utoipa::path(
+    post,
+    path = "/agent-interactions/{id}/respond",
+    tag = "entity",
+    params(("id" = String, Path, description = "id")),
+    request_body = serde_json::Value,
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_respond_interaction(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
     Json(body): Json<AgentRespondBody>,

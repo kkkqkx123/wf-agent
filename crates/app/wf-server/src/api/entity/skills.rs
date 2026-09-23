@@ -38,7 +38,14 @@ pub(crate) fn routes() -> Router<ApiState> {
 
 // ── skills ────────────────────────────────────────────────────────
 
-async fn handle_list_skills(State(state): State<ApiState>) -> impl IntoResponse {
+#[utoipa::path(
+    get,
+    path = "/skills",
+    tag = "entity",
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_list_skills(State(state): State<ApiState>) -> impl IntoResponse {
     match wf_api::entity::skill::list_skills(&state.ctx) {
         Ok(skills) => ok(skills).into_response(),
         Err(e) => error_response(e),
@@ -46,13 +53,21 @@ async fn handle_list_skills(State(state): State<ApiState>) -> impl IntoResponse 
 }
 
 #[derive(Deserialize)]
-struct QuerySkillsQuery {
+pub(crate) struct QuerySkillsQuery {
     name: Option<String>,
     version: Option<String>,
     tags: Option<String>,
 }
 
-async fn handle_query_skills(
+#[utoipa::path(
+    get,
+    path = "/skills/query",
+    tag = "entity",
+    params(("name" = Option<String>, Query, description = "name"), ("version" = Option<String>, Query, description = "version"), ("tags" = Option<String>, Query, description = "tags")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_query_skills(
     State(state): State<ApiState>,
     Query(query): Query<QuerySkillsQuery>,
 ) -> impl IntoResponse {
@@ -70,7 +85,15 @@ async fn handle_query_skills(
     }
 }
 
-async fn handle_get_skill(
+#[utoipa::path(
+    get,
+    path = "/skills/{name}",
+    tag = "entity",
+    params(("name" = String, Path, description = "name")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_get_skill(
     State(state): State<ApiState>,
     Path(path): Path<NamePath>,
 ) -> impl IntoResponse {
@@ -80,7 +103,15 @@ async fn handle_get_skill(
     }
 }
 
-async fn handle_enable_skill(
+#[utoipa::path(
+    post,
+    path = "/skills/{name}/enable",
+    tag = "entity",
+    params(("name" = String, Path, description = "name")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_enable_skill(
     State(state): State<ApiState>,
     Path(path): Path<NamePath>,
 ) -> impl IntoResponse {
@@ -90,28 +121,57 @@ async fn handle_enable_skill(
     }
 }
 
-async fn handle_enabled_skills(State(state): State<ApiState>) -> impl IntoResponse {
+#[utoipa::path(
+    get,
+    path = "/skills/enabled",
+    tag = "entity",
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_enabled_skills(State(state): State<ApiState>) -> impl IntoResponse {
     match wf_api::entity::skill::get_enabled_skills(&state.ctx) {
         Ok(skills) => ok(skills).into_response(),
         Err(e) => error_response(e),
     }
 }
 
-async fn handle_disabled_skills(State(state): State<ApiState>) -> impl IntoResponse {
+#[utoipa::path(
+    get,
+    path = "/skills/disabled",
+    tag = "entity",
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_disabled_skills(State(state): State<ApiState>) -> impl IntoResponse {
     match wf_api::entity::skill::get_disabled_skills(&state.ctx) {
         Ok(skills) => ok(skills).into_response(),
         Err(e) => error_response(e),
     }
 }
 
-async fn handle_clear_skill_cache(State(state): State<ApiState>) -> impl IntoResponse {
+#[utoipa::path(
+    post,
+    path = "/skills/cache/clear",
+    tag = "entity",
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_clear_skill_cache(State(state): State<ApiState>) -> impl IntoResponse {
     match wf_api::entity::skill::clear_cache(&state.ctx) {
         Ok(()) => ok(()).into_response(),
         Err(e) => error_response(e),
     }
 }
 
-async fn handle_clear_skill_cache_by_name(
+#[utoipa::path(
+    post,
+    path = "/skills/cache/clear/{name}",
+    tag = "entity",
+    params(("name" = String, Path, description = "name")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_clear_skill_cache_by_name(
     State(state): State<ApiState>,
     Path(path): Path<NamePath>,
 ) -> impl IntoResponse {
@@ -121,7 +181,15 @@ async fn handle_clear_skill_cache_by_name(
     }
 }
 
-async fn handle_skill_content(
+#[utoipa::path(
+    get,
+    path = "/skills/{name}/content",
+    tag = "entity",
+    params(("name" = String, Path, description = "name")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_skill_content(
     State(state): State<ApiState>,
     Path(path): Path<NamePath>,
 ) -> impl IntoResponse {
@@ -131,7 +199,15 @@ async fn handle_skill_content(
     }
 }
 
-async fn handle_disable_skill(
+#[utoipa::path(
+    post,
+    path = "/skills/{name}/disable",
+    tag = "entity",
+    params(("name" = String, Path, description = "name")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_disable_skill(
     State(state): State<ApiState>,
     Path(path): Path<NamePath>,
 ) -> impl IntoResponse {
@@ -142,11 +218,19 @@ async fn handle_disable_skill(
 }
 
 #[derive(Deserialize)]
-struct SkillDirQuery {
+pub(crate) struct SkillDirQuery {
     dir: Option<String>,
 }
 
-async fn handle_scan_skills(
+#[utoipa::path(
+    post,
+    path = "/skills/scan",
+    tag = "entity",
+    params(("dir" = Option<String>, Query, description = "dir")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_scan_skills(
     State(state): State<ApiState>,
     Query(query): Query<SkillDirQuery>,
 ) -> impl IntoResponse {
@@ -156,7 +240,15 @@ async fn handle_scan_skills(
     }
 }
 
-async fn handle_reload_skills(
+#[utoipa::path(
+    post,
+    path = "/skills/reload",
+    tag = "entity",
+    params(("dir" = Option<String>, Query, description = "dir")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_reload_skills(
     State(state): State<ApiState>,
     Query(query): Query<SkillDirQuery>,
 ) -> impl IntoResponse {
@@ -167,11 +259,19 @@ async fn handle_reload_skills(
 }
 
 #[derive(Deserialize)]
-struct SkillResourcesQuery {
+pub(crate) struct SkillResourcesQuery {
     resource_type: Option<String>,
 }
 
-async fn handle_skill_resources(
+#[utoipa::path(
+    get,
+    path = "/skills/{name}/resources",
+    tag = "entity",
+    params(("name" = String, Path, description = "name"), ("resource_type" = Option<String>, Query, description = "resource_type")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_skill_resources(
     State(state): State<ApiState>,
     Path(path): Path<NamePath>,
     Query(query): Query<SkillResourcesQuery>,
@@ -197,7 +297,14 @@ async fn handle_skill_resources(
 
 /// Assemble the enabled-skill prompt: metadata block followed by the body
 /// content of every enabled skill.
-async fn handle_skill_prompt(State(state): State<ApiState>) -> impl IntoResponse {
+#[utoipa::path(
+    get,
+    path = "/skills/prompt",
+    tag = "entity",
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_skill_prompt(State(state): State<ApiState>) -> impl IntoResponse {
     match wf_api::entity::skill::to_prompt(&state.ctx) {
         Ok(prompt) => ok(prompt).into_response(),
         Err(e) => error_response(e),

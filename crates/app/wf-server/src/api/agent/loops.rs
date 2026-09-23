@@ -11,6 +11,7 @@ use axum::{Json, Router};
 use futures::StreamExt;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use utoipa::ToSchema;
 
 use wf_api::AgentLoopListOptions;
 use wf_api::Message;
@@ -80,13 +81,25 @@ pub(crate) fn routes() -> Router<ApiState> {
 // ── agent loops ───────────────────────────────────────────────────
 
 #[derive(Deserialize)]
-struct ListLoopsQuery {
+pub(crate) struct ListLoopsQuery {
     #[serde(flatten)]
     page: ListQuery,
     status: Option<String>,
 }
 
-async fn handle_list_loops(
+#[utoipa::path(
+    get,
+    path = "/agent-loops",
+    tag = "agent",
+    params(("limit" = Option<u64>, Query, description = "Page limit"), ("offset" = Option<u64>, Query, description = "Page offset")),
+    responses(
+        (status = 200, description = "List of agent loops", body = serde_json::Value),
+        (status = 400, description = "Invalid query parameters", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_list_loops(
     State(state): State<ApiState>,
     Query(query): Query<ListLoopsQuery>,
 ) -> impl IntoResponse {
@@ -102,7 +115,20 @@ async fn handle_list_loops(
     }
 }
 
-async fn handle_save_loop(
+#[utoipa::path(
+    post,
+    path = "/agent-loops",
+    tag = "agent",
+    request_body = serde_json::Value,
+    responses(
+        (status = 200, description = "Agent loop created", body = String),
+        (status = 400, description = "Invalid request body", body = crate::envelope::ErrorResponse),
+        (status = 409, description = "Agent loop already exists", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_save_loop(
     State(state): State<ApiState>,
     Json(loop_def): Json<wf_api::AgentLoopStorageMetadata>,
 ) -> impl IntoResponse {
@@ -112,7 +138,19 @@ async fn handle_save_loop(
     }
 }
 
-async fn handle_get_loop(
+#[utoipa::path(
+    get,
+    path = "/agent-loops/{id}",
+    tag = "agent",
+    params(("id" = String, Path, description = "Agent loop ID")),
+    responses(
+        (status = 200, description = "Agent loop found", body = serde_json::Value),
+        (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_get_loop(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -122,7 +160,21 @@ async fn handle_get_loop(
     }
 }
 
-async fn handle_update_loop(
+#[utoipa::path(
+    put,
+    path = "/agent-loops/{id}",
+    tag = "agent",
+    params(("id" = String, Path, description = "Agent loop ID")),
+    request_body = serde_json::Value,
+    responses(
+        (status = 200, description = "Agent loop updated", body = String),
+        (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
+        (status = 400, description = "Invalid request body", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_update_loop(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
     Json(mut loop_def): Json<wf_api::AgentLoopStorageMetadata>,
@@ -134,7 +186,19 @@ async fn handle_update_loop(
     }
 }
 
-async fn handle_delete_loop(
+#[utoipa::path(
+    delete,
+    path = "/agent-loops/{id}",
+    tag = "agent",
+    params(("id" = String, Path, description = "Agent loop ID")),
+    responses(
+        (status = 200, description = "Agent loop deleted", body = bool),
+        (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_delete_loop(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -144,12 +208,27 @@ async fn handle_delete_loop(
     }
 }
 
-#[derive(Deserialize)]
-struct UpdateLoopStatusBody {
+#[derive(Deserialize, ToSchema)]
+pub(crate) struct UpdateLoopStatusBody {
+    /// New status value (e.g., "running", "paused", "completed", "failed")
     status: String,
 }
 
-async fn handle_update_loop_status(
+#[utoipa::path(
+    patch,
+    path = "/agent-loops/{id}/status",
+    tag = "agent",
+    params(("id" = String, Path, description = "Agent loop ID")),
+    request_body = serde_json::Value,
+    responses(
+        (status = 200, description = "Status updated"),
+        (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
+        (status = 400, description = "Invalid status", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_update_loop_status(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
     Json(body): Json<UpdateLoopStatusBody>,
@@ -162,7 +241,19 @@ async fn handle_update_loop_status(
     }
 }
 
-async fn handle_loop_status(
+#[utoipa::path(
+    get,
+    path = "/agent-loops/{id}/status",
+    tag = "agent",
+    params(("id" = String, Path, description = "Agent loop ID")),
+    responses(
+        (status = 200, description = "Current loop status", body = serde_json::Value),
+        (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_loop_status(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -175,7 +266,21 @@ async fn handle_loop_status(
 /// Live status-machine transition: when the loop is running in memory the
 /// coordinator entity pauses / resumes / stops directly; otherwise the
 /// persisted metadata status is rewritten (fallback of `wf-api`).
-async fn handle_loop_status_transition(
+#[utoipa::path(
+    post,
+    path = "/agent-loops/{id}/status/transition",
+    tag = "agent",
+    params(("id" = String, Path, description = "Agent loop ID")),
+    request_body = serde_json::Value,
+    responses(
+        (status = 200, description = "Status transition executed"),
+        (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
+        (status = 400, description = "Invalid status", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_loop_status_transition(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
     Json(body): Json<UpdateLoopStatusBody>,
@@ -195,7 +300,18 @@ async fn handle_loop_status_transition(
 
 /// Remove all terminated (completed/failed/cancelled/stopped) live agent
 /// loops from the in-memory registry.
-async fn handle_cleanup_completed(State(state): State<ApiState>) -> impl IntoResponse {
+#[utoipa::path(
+    post,
+    path = "/agent-loops/cleanup-completed",
+    tag = "agent",
+    responses(
+        (status = 200, description = "Completed loops cleaned up", body = serde_json::Value),
+        (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_cleanup_completed(State(state): State<ApiState>) -> impl IntoResponse {
     match wf_api::agent::agent_loop_registry::cleanup_completed(&state.ctx).await {
         Ok(count) => ok(count).into_response(),
         Err(e) => error_response(e),
@@ -292,14 +408,28 @@ pub(crate) fn params_from_body(
     })
 }
 
-#[derive(Serialize)]
-struct AgentRunView {
+#[derive(Serialize, ToSchema)]
+pub(crate) struct AgentRunView {
     agent_loop_id: String,
     result: Value,
     iterations: u32,
 }
 
-async fn handle_run_loop(
+#[utoipa::path(
+    post,
+    path = "/agent-loops/{id}/run",
+    tag = "agent",
+    params(("id" = String, Path, description = "Agent loop ID")),
+    request_body = serde_json::Value,
+    responses(
+        (status = 200, description = "Agent loop execution completed", body = serde_json::Value),
+        (status = 404, description = "Agent loop not found", body = crate::envelope::ErrorResponse),
+        (status = 400, description = "Invalid request body", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_run_loop(
     State(state): State<ApiState>,
     Json(body): Json<RunAgentLoopBody>,
 ) -> impl IntoResponse {
@@ -322,7 +452,21 @@ async fn handle_run_loop(
     }
 }
 
-async fn handle_stream_loop(
+#[utoipa::path(
+    post,
+    path = "/agent-loops/{id}/stream",
+    tag = "agent",
+    params(("id" = String, Path, description = "Agent loop ID")),
+    request_body = serde_json::Value,
+    responses(
+        (status = 200, description = "Server-sent events stream", content_type = "text/event-stream"),
+        (status = 404, description = "Agent loop not found", body = crate::envelope::ErrorResponse),
+        (status = 400, description = "Invalid request body", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_stream_loop(
     State(state): State<ApiState>,
     Json(body): Json<RunAgentLoopBody>,
 ) -> Response {
@@ -355,7 +499,20 @@ async fn handle_stream_loop(
     }
 }
 
-async fn handle_pause_loop(
+#[utoipa::path(
+    post,
+    path = "/agent-loops/{id}/pause",
+    tag = "agent",
+    params(("id" = String, Path, description = "Agent loop ID")),
+    responses(
+        (status = 200, description = "Agent loop paused"),
+        (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
+        (status = 409, description = "Cannot pause (not running)", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_pause_loop(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -365,7 +522,20 @@ async fn handle_pause_loop(
     }
 }
 
-async fn handle_resume_loop(
+#[utoipa::path(
+    post,
+    path = "/agent-loops/{id}/resume",
+    tag = "agent",
+    params(("id" = String, Path, description = "Agent loop ID")),
+    responses(
+        (status = 200, description = "Agent loop resumed"),
+        (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
+        (status = 409, description = "Cannot resume (not paused)", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_resume_loop(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -375,7 +545,20 @@ async fn handle_resume_loop(
     }
 }
 
-async fn handle_cancel_loop(
+#[utoipa::path(
+    post,
+    path = "/agent-loops/{id}/cancel",
+    tag = "agent",
+    params(("id" = String, Path, description = "Agent loop ID")),
+    responses(
+        (status = 200, description = "Agent loop cancelled"),
+        (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
+        (status = 409, description = "Cannot cancel (not running)", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_cancel_loop(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -388,8 +571,10 @@ async fn handle_cancel_loop(
 // ── agent loop registry views ─────────────────────────────────────
 
 #[derive(Deserialize)]
-struct LoopSummariesQuery {
+pub(crate) struct LoopSummariesQuery {
+    /// Filter by execution status
     status: Option<String>,
+    /// Filter by profile ID
     profile_id: Option<String>,
     #[serde(flatten)]
     page: ListQuery,
@@ -397,7 +582,19 @@ struct LoopSummariesQuery {
 
 /// Live-first agent loop summaries (live registry merged with persisted
 /// records), filtered by optional status / profile.
-async fn handle_loop_summaries(
+#[utoipa::path(
+    get,
+    path = "/agent-loops/summaries",
+    tag = "agent",
+    params(("limit" = Option<u64>, Query, description = "Page limit"), ("offset" = Option<u64>, Query, description = "Page offset")),
+    responses(
+        (status = 200, description = "List of agent loop summaries", body = serde_json::Value),
+        (status = 400, description = "Invalid query parameters", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_loop_summaries(
     State(state): State<ApiState>,
     Query(query): Query<LoopSummariesQuery>,
 ) -> impl IntoResponse {
@@ -438,7 +635,17 @@ async fn handle_loop_summaries(
 
 /// Aggregate agent loop statistics (total + per-status breakdown) across
 /// live and persisted loops.
-async fn handle_loop_statistics(State(state): State<ApiState>) -> impl IntoResponse {
+#[utoipa::path(
+    get,
+    path = "/agent-loops/stats",
+    tag = "agent",
+    responses(
+        (status = 200, description = "Agent loop statistics", body = serde_json::Value),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_loop_statistics(State(state): State<ApiState>) -> impl IntoResponse {
     match wf_api::agent::agent_loop_registry::statistics(&state.ctx).await {
         Ok(stats) => ok(stats).into_response(),
         Err(e) => error_response(e),
@@ -450,7 +657,19 @@ fn parse_execution_status(status: &str) -> Result<wf_types::ExecutionStatus, Str
         .map_err(|_| format!("unknown execution status: {status}"))
 }
 
-async fn handle_loop_summary(
+#[utoipa::path(
+    get,
+    path = "/agent-loops/{id}/summary",
+    tag = "agent",
+    params(("id" = String, Path, description = "Agent loop ID")),
+    responses(
+        (status = 200, description = "Agent loop summary", body = serde_json::Value),
+        (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_loop_summary(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -460,7 +679,19 @@ async fn handle_loop_summary(
     }
 }
 
-async fn handle_iteration_history(
+#[utoipa::path(
+    get,
+    path = "/agent-loops/{id}/iteration-history",
+    tag = "agent",
+    params(("id" = String, Path, description = "Agent loop ID"), ("limit" = Option<u64>, Query, description = "Page limit"), ("offset" = Option<u64>, Query, description = "Page offset")),
+    responses(
+        (status = 200, description = "Iteration history", body = serde_json::Value),
+        (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_iteration_history(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
     Query(query): Query<ListQuery>,
@@ -479,7 +710,19 @@ async fn handle_iteration_history(
     }
 }
 
-async fn handle_iteration_history_summary(
+#[utoipa::path(
+    get,
+    path = "/agent-loops/{id}/iteration-history/summary",
+    tag = "agent",
+    params(("id" = String, Path, description = "Agent loop ID")),
+    responses(
+        (status = 200, description = "Iteration history summary", body = serde_json::Value),
+        (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_iteration_history_summary(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -490,7 +733,19 @@ async fn handle_iteration_history_summary(
     }
 }
 
-async fn handle_loop_timeline(
+#[utoipa::path(
+    get,
+    path = "/agent-loops/{id}/timeline",
+    tag = "agent",
+    params(("id" = String, Path, description = "Agent loop ID")),
+    responses(
+        (status = 200, description = "Execution timeline", body = serde_json::Value),
+        (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_loop_timeline(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -500,7 +755,21 @@ async fn handle_loop_timeline(
     }
 }
 
-async fn handle_variable_history(
+#[utoipa::path(
+    get,
+    path = "/agent-loops/{id}/variable-history/{name}",
+    tag = "agent",
+    params(
+        ("id" = String, Path, description = "Agent loop ID"),
+        ("name" = String, Path, description = "Variable name"), ("limit" = Option<u64>, Query, description = "Page limit"), ("offset" = Option<u64>, Query, description = "Page offset")),
+    responses(
+        (status = 200, description = "Variable history", body = serde_json::Value),
+        (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_variable_history(
     State(state): State<ApiState>,
     Path(path): Path<IdNamePath>,
     Query(query): Query<ListQuery>,
@@ -521,7 +790,19 @@ async fn handle_variable_history(
     }
 }
 
-async fn handle_loop_context_evolution(
+#[utoipa::path(
+    get,
+    path = "/agent-loops/{id}/context-evolution",
+    tag = "agent",
+    params(("id" = String, Path, description = "Agent loop ID")),
+    responses(
+        (status = 200, description = "Context evolution", body = serde_json::Value),
+        (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_loop_context_evolution(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -531,7 +812,19 @@ async fn handle_loop_context_evolution(
     }
 }
 
-async fn handle_loop_execution_path(
+#[utoipa::path(
+    get,
+    path = "/agent-loops/{id}/execution-path",
+    tag = "agent",
+    params(("id" = String, Path, description = "Agent loop ID")),
+    responses(
+        (status = 200, description = "Execution path", body = serde_json::Value),
+        (status = 404, description = "Not found", body = crate::envelope::ErrorResponse),
+        (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse),
+    ),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_loop_execution_path(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {

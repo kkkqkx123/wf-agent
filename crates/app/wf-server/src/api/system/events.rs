@@ -28,7 +28,7 @@ static SSE_CLIENTS: AtomicUsize = AtomicUsize::new(0);
 
 /// Decrements the SSE client counter when the response body is dropped
 /// (client disconnect or stream end).
-struct SseClientGuard;
+pub(crate) struct SseClientGuard;
 
 impl Drop for SseClientGuard {
     fn drop(&mut self) {
@@ -77,7 +77,7 @@ pub(crate) fn routes() -> Router<ApiState> {
 }
 
 #[derive(Deserialize)]
-struct ListEventsQuery {
+pub(crate) struct ListEventsQuery {
     #[serde(flatten)]
     page: ListQuery,
     execution_id: Option<String>,
@@ -85,7 +85,15 @@ struct ListEventsQuery {
     workflow_id: Option<String>,
 }
 
-async fn handle_list_events(
+#[utoipa::path(
+    get,
+    path = "/events",
+    tag = "system",
+    params(("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset"), ("execution_id" = Option<String>, Query, description = "execution_id"), ("agent_loop_id" = Option<String>, Query, description = "agent_loop_id"), ("workflow_id" = Option<String>, Query, description = "workflow_id")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_list_events(
     State(state): State<ApiState>,
     Query(query): Query<ListEventsQuery>,
 ) -> impl IntoResponse {
@@ -117,11 +125,19 @@ async fn handle_list_events(
 }
 
 #[derive(Deserialize)]
-struct ClearEventsQuery {
+pub(crate) struct ClearEventsQuery {
     force: Option<bool>,
 }
 
-async fn handle_clear_events(
+#[utoipa::path(
+    delete,
+    path = "/events",
+    tag = "system",
+    params(("force" = Option<bool>, Query, description = "force")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_clear_events(
     State(state): State<ApiState>,
     Query(query): Query<ClearEventsQuery>,
 ) -> impl IntoResponse {
@@ -137,7 +153,14 @@ async fn handle_clear_events(
     }
 }
 
-async fn handle_event_stats(State(state): State<ApiState>) -> impl IntoResponse {
+#[utoipa::path(
+    get,
+    path = "/events/stats",
+    tag = "system",
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_event_stats(State(state): State<ApiState>) -> impl IntoResponse {
     match wf_api::infra::events::get_event_stats(&state.ctx, &wf_api::EventQueryOptions::default())
         .await
     {
@@ -147,7 +170,7 @@ async fn handle_event_stats(State(state): State<ApiState>) -> impl IntoResponse 
 }
 
 #[derive(Deserialize)]
-struct SearchEventsQuery {
+pub(crate) struct SearchEventsQuery {
     q: String,
     execution_id: Option<String>,
     agent_loop_id: Option<String>,
@@ -156,7 +179,15 @@ struct SearchEventsQuery {
     page: ListQuery,
 }
 
-async fn handle_search_events(
+#[utoipa::path(
+    get,
+    path = "/events/search",
+    tag = "system",
+    params(("q" = String, Query, description = "q"), ("execution_id" = Option<String>, Query, description = "execution_id"), ("agent_loop_id" = Option<String>, Query, description = "agent_loop_id"), ("workflow_id" = Option<String>, Query, description = "workflow_id"), ("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_search_events(
     State(state): State<ApiState>,
     Query(query): Query<SearchEventsQuery>,
 ) -> impl IntoResponse {
@@ -185,21 +216,43 @@ async fn handle_search_events(
     }
 }
 
-async fn handle_event_size(State(state): State<ApiState>) -> impl IntoResponse {
+#[utoipa::path(
+    get,
+    path = "/events/size",
+    tag = "system",
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_event_size(State(state): State<ApiState>) -> impl IntoResponse {
     match wf_api::infra::events::event_history_size(&state.ctx).await {
         Ok(size) => ok(size).into_response(),
         Err(e) => error_response(e),
     }
 }
 
-async fn handle_event_time_range(State(state): State<ApiState>) -> impl IntoResponse {
+#[utoipa::path(
+    get,
+    path = "/events/time-range",
+    tag = "system",
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_event_time_range(State(state): State<ApiState>) -> impl IntoResponse {
     match wf_api::infra::events::event_time_range(&state.ctx).await {
         Ok(range) => ok(range).into_response(),
         Err(e) => error_response(e),
     }
 }
 
-async fn handle_execution_timeline(
+#[utoipa::path(
+    get,
+    path = "/events/timeline/{executionId}",
+    tag = "system",
+    params(("executionId" = String, Path, description = "executionId")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_execution_timeline(
     State(state): State<ApiState>,
     Path(path): Path<ExecutionIdPath>,
 ) -> impl IntoResponse {
@@ -209,7 +262,15 @@ async fn handle_execution_timeline(
     }
 }
 
-async fn handle_agent_timeline(
+#[utoipa::path(
+    get,
+    path = "/events/agent-timeline/{id}",
+    tag = "system",
+    params(("id" = String, Path, description = "id")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_agent_timeline(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -219,7 +280,15 @@ async fn handle_agent_timeline(
     }
 }
 
-async fn handle_execution_timeline_view(
+#[utoipa::path(
+    get,
+    path = "/events/execution-timeline/{executionId}",
+    tag = "system",
+    params(("executionId" = String, Path, description = "executionId")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_execution_timeline_view(
     State(state): State<ApiState>,
     Path(path): Path<ExecutionIdPath>,
 ) -> impl IntoResponse {
@@ -233,7 +302,7 @@ async fn handle_execution_timeline_view(
 /// Capped execution timeline view with an explicit truncation flag and
 /// pre-truncation total.
 #[derive(Serialize)]
-struct CappedExecutionTimelineView {
+pub(crate) struct CappedExecutionTimelineView {
     execution_id: String,
     workflow_id: Option<String>,
     status: String,
@@ -267,7 +336,15 @@ fn cap_execution_timeline(
     }
 }
 
-async fn handle_execution_timeline_summary(
+#[utoipa::path(
+    get,
+    path = "/events/execution-timeline/{executionId}/summary",
+    tag = "system",
+    params(("executionId" = String, Path, description = "executionId")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_execution_timeline_summary(
     State(state): State<ApiState>,
     Path(path): Path<ExecutionIdPath>,
 ) -> impl IntoResponse {
@@ -279,7 +356,15 @@ async fn handle_execution_timeline_summary(
     }
 }
 
-async fn handle_listener_stats(
+#[utoipa::path(
+    get,
+    path = "/events/listener-stats/{executionId}",
+    tag = "system",
+    params(("executionId" = String, Path, description = "executionId")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_listener_stats(
     State(state): State<ApiState>,
     Path(path): Path<ExecutionIdPath>,
 ) -> impl IntoResponse {
@@ -289,7 +374,16 @@ async fn handle_listener_stats(
     }
 }
 
-async fn handle_agent_loop_statistics(State(state): State<ApiState>) -> impl IntoResponse {
+#[utoipa::path(
+    get,
+    path = "/events/agent/stats",
+    tag = "system",
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_agent_loop_statistics(
+    State(state): State<ApiState>,
+) -> impl IntoResponse {
     match wf_api::infra::events::get_agent_loop_statistics(&state.ctx).await {
         Ok(stats) => ok(stats).into_response(),
         Err(e) => error_response(e),
@@ -298,11 +392,19 @@ async fn handle_agent_loop_statistics(State(state): State<ApiState>) -> impl Int
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct AgentLoopPath {
+pub(crate) struct AgentLoopPath {
     agent_loop_id: String,
 }
 
-async fn handle_agent_events(
+#[utoipa::path(
+    get,
+    path = "/events/agent/{agentLoopId}",
+    tag = "system",
+    params(("agentLoopId" = String, Path, description = "agentLoopId"), ("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_agent_events(
     State(state): State<ApiState>,
     Path(path): Path<AgentLoopPath>,
     Query(query): Query<ListQuery>,
@@ -321,7 +423,15 @@ async fn handle_agent_events(
     }
 }
 
-async fn handle_agent_turn_events(
+#[utoipa::path(
+    get,
+    path = "/events/agent/{agentLoopId}/turns",
+    tag = "system",
+    params(("agentLoopId" = String, Path, description = "agentLoopId"), ("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_agent_turn_events(
     State(state): State<ApiState>,
     Path(path): Path<AgentLoopPath>,
     Query(query): Query<ListQuery>,
@@ -340,7 +450,15 @@ async fn handle_agent_turn_events(
     }
 }
 
-async fn handle_agent_tool_execution_events(
+#[utoipa::path(
+    get,
+    path = "/events/agent/{agentLoopId}/tool-executions",
+    tag = "system",
+    params(("agentLoopId" = String, Path, description = "agentLoopId"), ("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_agent_tool_execution_events(
     State(state): State<ApiState>,
     Path(path): Path<AgentLoopPath>,
     Query(query): Query<ListQuery>,
@@ -362,7 +480,7 @@ async fn handle_agent_tool_execution_events(
 }
 
 #[derive(Deserialize)]
-struct StreamEventsQuery {
+pub(crate) struct StreamEventsQuery {
     execution_id: Option<String>,
     agent_loop_id: Option<String>,
     workflow_id: Option<String>,
@@ -371,7 +489,15 @@ struct StreamEventsQuery {
     since: Option<String>,
 }
 
-async fn handle_event_stream(
+#[utoipa::path(
+    get,
+    path = "/events/stream",
+    tag = "system",
+    params(("execution_id" = Option<String>, Query, description = "execution_id"), ("agent_loop_id" = Option<String>, Query, description = "agent_loop_id"), ("workflow_id" = Option<String>, Query, description = "workflow_id"), ("since" = Option<String>, Query, description = "since")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_event_stream(
     State(state): State<ApiState>,
     Query(query): Query<StreamEventsQuery>,
 ) -> Response {

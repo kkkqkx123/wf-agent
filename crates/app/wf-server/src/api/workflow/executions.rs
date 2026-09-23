@@ -59,7 +59,16 @@ pub struct StreamMetadataView {
     execution_id: String,
 }
 
-async fn handle_execute_workflow(
+#[utoipa::path(
+    post,
+    path = "/workflows/{id}/execute",
+    tag = "workflow",
+    params(("id" = String, Path, description = "id")),
+    request_body = serde_json::Value,
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_execute_workflow(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
     Json(body): Json<ExecuteBody>,
@@ -79,7 +88,16 @@ async fn handle_execute_workflow(
     }
 }
 
-async fn handle_execute_stream(
+#[utoipa::path(
+    post,
+    path = "/workflows/{id}/execute/stream",
+    tag = "workflow",
+    params(("id" = String, Path, description = "id")),
+    request_body = serde_json::Value,
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_execute_stream(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
     Json(body): Json<ExecuteBody>,
@@ -115,14 +133,22 @@ async fn handle_execute_stream(
 }
 
 #[derive(Deserialize)]
-struct ListExecutionsQuery {
+pub(crate) struct ListExecutionsQuery {
     #[serde(flatten)]
     page: ListQuery,
     workflow_id: Option<String>,
     status: Option<String>,
 }
 
-async fn handle_list_executions(
+#[utoipa::path(
+    get,
+    path = "/executions",
+    tag = "workflow",
+    params(("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset"), ("workflow_id" = Option<String>, Query, description = "workflow_id"), ("status" = Option<String>, Query, description = "status")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_list_executions(
     State(state): State<ApiState>,
     Query(query): Query<ListExecutionsQuery>,
 ) -> impl IntoResponse {
@@ -139,7 +165,15 @@ async fn handle_list_executions(
     }
 }
 
-async fn handle_get_execution(
+#[utoipa::path(
+    get,
+    path = "/executions/{id}",
+    tag = "workflow",
+    params(("id" = String, Path, description = "id")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_get_execution(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -149,7 +183,15 @@ async fn handle_get_execution(
     }
 }
 
-async fn handle_delete_execution(
+#[utoipa::path(
+    delete,
+    path = "/executions/{id}",
+    tag = "workflow",
+    params(("id" = String, Path, description = "id")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_delete_execution(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -159,7 +201,15 @@ async fn handle_delete_execution(
     }
 }
 
-async fn handle_pause(
+#[utoipa::path(
+    post,
+    path = "/executions/{id}/pause",
+    tag = "workflow",
+    params(("id" = String, Path, description = "id")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_pause(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -169,7 +219,15 @@ async fn handle_pause(
     }
 }
 
-async fn handle_resume(
+#[utoipa::path(
+    post,
+    path = "/executions/{id}/resume",
+    tag = "workflow",
+    params(("id" = String, Path, description = "id")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_resume(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -183,7 +241,15 @@ async fn handle_resume(
     }
 }
 
-async fn handle_cancel(
+#[utoipa::path(
+    post,
+    path = "/executions/{id}/cancel",
+    tag = "workflow",
+    params(("id" = String, Path, description = "id")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_cancel(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -193,7 +259,15 @@ async fn handle_cancel(
     }
 }
 
-async fn handle_status(
+#[utoipa::path(
+    get,
+    path = "/executions/{id}/status",
+    tag = "workflow",
+    params(("id" = String, Path, description = "id")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_status(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -206,13 +280,21 @@ async fn handle_status(
 // ── execution triggers ────────────────────────────────────────────
 
 #[derive(Deserialize)]
-struct TriggerHistoryQuery {
+pub(crate) struct TriggerHistoryQuery {
     trigger_name: Option<String>,
     #[serde(flatten)]
     page: ListQuery,
 }
 
-async fn handle_trigger_history(
+#[utoipa::path(
+    get,
+    path = "/executions/{id}/triggers",
+    tag = "workflow",
+    params(("id" = String, Path, description = "id"), ("trigger_name" = Option<String>, Query, description = "trigger_name"), ("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_trigger_history(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
     Query(query): Query<TriggerHistoryQuery>,

@@ -41,7 +41,7 @@ pub(crate) fn routes() -> Router<ApiState> {
 /// Wire shape of `/scripts/execute` and `/scripts/validate`: mirrors
 /// `wf_api::ScriptExecuteParams` with deserializable field types.
 #[derive(Deserialize)]
-struct ScriptExecuteBody {
+pub(crate) struct ScriptExecuteBody {
     name: String,
     language: Option<wf_api::ScriptLanguage>,
     code: Option<String>,
@@ -74,7 +74,15 @@ impl ScriptExecuteBody {
     }
 }
 
-async fn handle_execute_script(
+#[utoipa::path(
+    post,
+    path = "/scripts/execute",
+    tag = "llm",
+    request_body = serde_json::Value,
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_execute_script(
     State(state): State<ApiState>,
     Json(body): Json<ScriptExecuteBody>,
 ) -> impl IntoResponse {
@@ -84,7 +92,15 @@ async fn handle_execute_script(
     }
 }
 
-async fn handle_validate_script(
+#[utoipa::path(
+    post,
+    path = "/scripts/validate",
+    tag = "llm",
+    request_body = serde_json::Value,
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_validate_script(
     State(state): State<ApiState>,
     Json(body): Json<ScriptExecuteBody>,
 ) -> impl IntoResponse {
@@ -95,13 +111,21 @@ async fn handle_validate_script(
 }
 
 #[derive(Deserialize)]
-struct ListScriptsQuery {
+pub(crate) struct ListScriptsQuery {
     #[serde(flatten)]
     page: ListQuery,
     language: Option<String>,
 }
 
-async fn handle_list_scripts(
+#[utoipa::path(
+    get,
+    path = "/scripts",
+    tag = "llm",
+    params(("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset"), ("language" = Option<String>, Query, description = "language")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_list_scripts(
     State(state): State<ApiState>,
     Query(query): Query<ListScriptsQuery>,
 ) -> impl IntoResponse {
@@ -131,7 +155,15 @@ async fn handle_list_scripts(
     }
 }
 
-async fn handle_save_script(
+#[utoipa::path(
+    post,
+    path = "/scripts",
+    tag = "llm",
+    request_body = serde_json::Value,
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_save_script(
     State(state): State<ApiState>,
     Json(script): Json<ScriptStorageMetadata>,
 ) -> impl IntoResponse {
@@ -142,13 +174,21 @@ async fn handle_save_script(
 }
 
 #[derive(Deserialize)]
-struct SearchScriptsQuery {
+pub(crate) struct SearchScriptsQuery {
     q: String,
     #[serde(flatten)]
     page: ListQuery,
 }
 
-async fn handle_search_scripts(
+#[utoipa::path(
+    get,
+    path = "/scripts/search",
+    tag = "llm",
+    params(("q" = String, Query, description = "q"), ("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_search_scripts(
     State(state): State<ApiState>,
     Query(query): Query<SearchScriptsQuery>,
 ) -> impl IntoResponse {
@@ -166,7 +206,15 @@ async fn handle_search_scripts(
     }
 }
 
-async fn handle_get_script(
+#[utoipa::path(
+    get,
+    path = "/scripts/{id}",
+    tag = "llm",
+    params(("id" = String, Path, description = "id")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_get_script(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -176,7 +224,16 @@ async fn handle_get_script(
     }
 }
 
-async fn handle_update_script(
+#[utoipa::path(
+    put,
+    path = "/scripts/{id}",
+    tag = "llm",
+    params(("id" = String, Path, description = "id")),
+    request_body = serde_json::Value,
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_update_script(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
     Json(mut script): Json<ScriptStorageMetadata>,
@@ -193,7 +250,15 @@ pub(crate) struct DeleteForceQuery {
     pub(crate) force: Option<bool>,
 }
 
-async fn handle_delete_script(
+#[utoipa::path(
+    delete,
+    path = "/scripts/{id}",
+    tag = "llm",
+    params(("id" = String, Path, description = "id"), ("force" = Option<bool>, Query, description = "force")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_delete_script(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
     Query(query): Query<DeleteForceQuery>,
@@ -211,7 +276,15 @@ async fn handle_delete_script(
     }
 }
 
-async fn handle_enable_script(
+#[utoipa::path(
+    post,
+    path = "/scripts/{id}/enable",
+    tag = "llm",
+    params(("id" = String, Path, description = "id")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_enable_script(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -221,7 +294,15 @@ async fn handle_enable_script(
     }
 }
 
-async fn handle_disable_script(
+#[utoipa::path(
+    post,
+    path = "/scripts/{id}/disable",
+    tag = "llm",
+    params(("id" = String, Path, description = "id")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_disable_script(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {

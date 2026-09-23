@@ -48,14 +48,22 @@ pub(crate) fn routes() -> Router<ApiState> {
 // ── variables ─────────────────────────────────────────────────────
 
 #[derive(Deserialize)]
-struct ListVariablesQuery {
+pub(crate) struct ListVariablesQuery {
     #[serde(flatten)]
     page: ListQuery,
     scope: Option<String>,
     execution_id: Option<String>,
 }
 
-async fn handle_list_variables(
+#[utoipa::path(
+    get,
+    path = "/variables",
+    tag = "entity",
+    params(("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset"), ("scope" = Option<String>, Query, description = "scope"), ("execution_id" = Option<String>, Query, description = "execution_id")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_list_variables(
     State(state): State<ApiState>,
     Query(query): Query<ListVariablesQuery>,
 ) -> impl IntoResponse {
@@ -73,7 +81,7 @@ async fn handle_list_variables(
 }
 
 #[derive(Deserialize)]
-struct VariableBody {
+pub(crate) struct VariableBody {
     name: String,
     value: Value,
     scope: Option<String>,
@@ -82,7 +90,15 @@ struct VariableBody {
     create_only: Option<bool>,
 }
 
-async fn handle_set_variable(
+#[utoipa::path(
+    post,
+    path = "/variables",
+    tag = "entity",
+    request_body = serde_json::Value,
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_set_variable(
     State(state): State<ApiState>,
     Json(body): Json<VariableBody>,
 ) -> impl IntoResponse {
@@ -113,12 +129,20 @@ async fn handle_set_variable(
 }
 
 #[derive(Deserialize)]
-struct VariableQuery {
+pub(crate) struct VariableQuery {
     scope: Option<String>,
     execution_id: Option<String>,
 }
 
-async fn handle_get_variable(
+#[utoipa::path(
+    get,
+    path = "/variables/{name}",
+    tag = "entity",
+    params(("name" = String, Path, description = "name"), ("scope" = Option<String>, Query, description = "scope"), ("execution_id" = Option<String>, Query, description = "execution_id")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_get_variable(
     State(state): State<ApiState>,
     Path(path): Path<NamePath>,
     Query(query): Query<VariableQuery>,
@@ -136,7 +160,15 @@ async fn handle_get_variable(
     }
 }
 
-async fn handle_delete_variable(
+#[utoipa::path(
+    delete,
+    path = "/variables/{name}",
+    tag = "entity",
+    params(("name" = String, Path, description = "name"), ("scope" = Option<String>, Query, description = "scope"), ("execution_id" = Option<String>, Query, description = "execution_id")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_delete_variable(
     State(state): State<ApiState>,
     Path(path): Path<NamePath>,
     Query(query): Query<VariableQuery>,
@@ -154,7 +186,14 @@ async fn handle_delete_variable(
     }
 }
 
-async fn handle_variable_stats(State(state): State<ApiState>) -> impl IntoResponse {
+#[utoipa::path(
+    get,
+    path = "/variables/stats",
+    tag = "entity",
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_variable_stats(State(state): State<ApiState>) -> impl IntoResponse {
     match wf_api::entity::variable::variable_statistics(&state.ctx).await {
         Ok(stats) => ok(stats).into_response(),
         Err(e) => error_response(e),
@@ -162,7 +201,7 @@ async fn handle_variable_stats(State(state): State<ApiState>) -> impl IntoRespon
 }
 
 #[derive(Deserialize)]
-struct VariableEntry {
+pub(crate) struct VariableEntry {
     name: String,
     #[serde(default)]
     scope: String,
@@ -170,7 +209,7 @@ struct VariableEntry {
 }
 
 #[derive(Deserialize)]
-struct BatchSetVariablesBody {
+pub(crate) struct BatchSetVariablesBody {
     execution_id: String,
     entries: Vec<VariableEntry>,
 }
@@ -179,7 +218,15 @@ struct BatchSetVariablesBody {
 /// batch contract. The execution scope keeps fail-fast semantics.
 const MAX_EXECUTION_BATCH_VARIABLES: usize = 100;
 
-async fn handle_batch_set_variables(
+#[utoipa::path(
+    post,
+    path = "/variables/batch",
+    tag = "entity",
+    request_body = serde_json::Value,
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_batch_set_variables(
     State(state): State<ApiState>,
     Json(body): Json<BatchSetVariablesBody>,
 ) -> impl IntoResponse {
@@ -207,12 +254,20 @@ async fn handle_batch_set_variables(
 }
 
 #[derive(Deserialize)]
-struct ImportVariablesBody {
+pub(crate) struct ImportVariablesBody {
     execution_id: String,
     values: std::collections::BTreeMap<String, Value>,
 }
 
-async fn handle_import_variables(
+#[utoipa::path(
+    post,
+    path = "/variables/import",
+    tag = "entity",
+    request_body = serde_json::Value,
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_import_variables(
     State(state): State<ApiState>,
     Json(body): Json<ImportVariablesBody>,
 ) -> impl IntoResponse {
@@ -225,7 +280,15 @@ async fn handle_import_variables(
 }
 
 /// Execution scopes stay a bare array: single-parent bounded vocabulary.
-async fn handle_variable_scopes(
+#[utoipa::path(
+    get,
+    path = "/variables/scopes/{executionId}",
+    tag = "entity",
+    params(("executionId" = String, Path, description = "executionId")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_variable_scopes(
     State(state): State<ApiState>,
     Path(path): Path<ExecutionIdPath>,
 ) -> impl IntoResponse {
@@ -236,11 +299,19 @@ async fn handle_variable_scopes(
 }
 
 #[derive(Deserialize)]
-struct ScopePath {
+pub(crate) struct ScopePath {
     scope: String,
 }
 
-async fn handle_variables_by_scope(
+#[utoipa::path(
+    get,
+    path = "/variables/scope/{scope}",
+    tag = "entity",
+    params(("scope" = String, Path, description = "scope"), ("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_variables_by_scope(
     State(state): State<ApiState>,
     Path(path): Path<ScopePath>,
     Query(query): Query<ListQuery>,
@@ -261,13 +332,21 @@ async fn handle_variables_by_scope(
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct NodeVariablePath {
+pub(crate) struct NodeVariablePath {
     execution_id: String,
     node_id: String,
 }
 
 /// Variables at one node stay a bare array: single-node bounded set.
-async fn handle_variables_at_node(
+#[utoipa::path(
+    get,
+    path = "/variables/by-node/{executionId}/{nodeId}",
+    tag = "entity",
+    params(("executionId" = String, Path, description = "executionId"), ("nodeId" = String, Path, description = "nodeId")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_variables_at_node(
     State(state): State<ApiState>,
     Path(path): Path<NodeVariablePath>,
 ) -> impl IntoResponse {
@@ -279,7 +358,15 @@ async fn handle_variables_at_node(
     }
 }
 
-async fn handle_variable_export(
+#[utoipa::path(
+    get,
+    path = "/variables/export/{executionId}",
+    tag = "entity",
+    params(("executionId" = String, Path, description = "executionId"), ("download" = Option<bool>, Query, description = "download")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_variable_export(
     State(state): State<ApiState>,
     Path(path): Path<ExecutionIdPath>,
     Query(query): Query<VariableExportQuery>,
@@ -303,12 +390,12 @@ async fn handle_variable_export(
 }
 
 #[derive(Deserialize)]
-struct VariableExportQuery {
+pub(crate) struct VariableExportQuery {
     download: Option<bool>,
 }
 
 #[derive(Deserialize)]
-struct VariableHistoryQuery {
+pub(crate) struct VariableHistoryQuery {
     name: String,
     scope: Option<String>,
     execution_id: Option<String>,
@@ -316,7 +403,15 @@ struct VariableHistoryQuery {
     page: ListQuery,
 }
 
-async fn handle_variable_history(
+#[utoipa::path(
+    get,
+    path = "/variables/history",
+    tag = "entity",
+    params(("name" = String, Query, description = "name"), ("scope" = Option<String>, Query, description = "scope"), ("execution_id" = Option<String>, Query, description = "execution_id"), ("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_variable_history(
     State(state): State<ApiState>,
     Query(query): Query<VariableHistoryQuery>,
 ) -> impl IntoResponse {

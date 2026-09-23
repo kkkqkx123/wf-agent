@@ -31,14 +31,29 @@ pub(crate) fn routes() -> Router<ApiState> {
         .route("/workflows/{id}/lifecycle", get(handle_lifecycle))
 }
 
-async fn handle_list_drafts(State(state): State<ApiState>) -> impl IntoResponse {
+#[utoipa::path(
+    get,
+    path = "/workflows/drafts",
+    tag = "workflow",
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_list_drafts(State(state): State<ApiState>) -> impl IntoResponse {
     match wf_api::workflow::draft::list_drafts(&state.ctx).await {
         Ok(drafts) => ok(drafts).into_response(),
         Err(e) => error_response(e),
     }
 }
 
-async fn handle_save_draft(
+#[utoipa::path(
+    post,
+    path = "/workflows/drafts",
+    tag = "workflow",
+    request_body = serde_json::Value,
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_save_draft(
     State(state): State<ApiState>,
     Json(workflow): Json<wf_api::WorkflowDefinition>,
 ) -> impl IntoResponse {
@@ -48,7 +63,15 @@ async fn handle_save_draft(
     }
 }
 
-async fn handle_get_draft(
+#[utoipa::path(
+    get,
+    path = "/workflows/drafts/{id}",
+    tag = "workflow",
+    params(("id" = String, Path, description = "id")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_get_draft(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -58,7 +81,15 @@ async fn handle_get_draft(
     }
 }
 
-async fn handle_delete_draft(
+#[utoipa::path(
+    delete,
+    path = "/workflows/drafts/{id}",
+    tag = "workflow",
+    params(("id" = String, Path, description = "id")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_delete_draft(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -68,7 +99,15 @@ async fn handle_delete_draft(
     }
 }
 
-async fn handle_promote_draft(
+#[utoipa::path(
+    post,
+    path = "/workflows/drafts/{id}/promote",
+    tag = "workflow",
+    params(("id" = String, Path, description = "id")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_promote_draft(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -78,7 +117,14 @@ async fn handle_promote_draft(
     }
 }
 
-async fn handle_promote_all(State(state): State<ApiState>) -> impl IntoResponse {
+#[utoipa::path(
+    post,
+    path = "/workflows/drafts/promote-all",
+    tag = "workflow",
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_promote_all(State(state): State<ApiState>) -> impl IntoResponse {
     let outcomes = wf_api::workflow::draft::promote_all_drafts(&state.ctx).await;
     let views: Vec<serde_json::Value> = outcomes
         .into_iter()
@@ -90,7 +136,15 @@ async fn handle_promote_all(State(state): State<ApiState>) -> impl IntoResponse 
     ok(views).into_response()
 }
 
-async fn handle_validate_draft(
+#[utoipa::path(
+    get,
+    path = "/workflows/drafts/{id}/validate",
+    tag = "workflow",
+    params(("id" = String, Path, description = "id")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_validate_draft(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -100,7 +154,15 @@ async fn handle_validate_draft(
     }
 }
 
-async fn handle_lifecycle(
+#[utoipa::path(
+    get,
+    path = "/workflows/{id}/lifecycle",
+    tag = "workflow",
+    params(("id" = String, Path, description = "id")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_lifecycle(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {

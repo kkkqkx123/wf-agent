@@ -33,14 +33,22 @@ pub(crate) fn routes() -> Router<ApiState> {
 // ── tasks ─────────────────────────────────────────────────────────
 
 #[derive(Deserialize)]
-struct ListTasksQuery {
+pub(crate) struct ListTasksQuery {
     #[serde(flatten)]
     page: ListQuery,
     status: Option<String>,
     task_type: Option<String>,
 }
 
-async fn handle_list_tasks(
+#[utoipa::path(
+    get,
+    path = "/tasks",
+    tag = "entity",
+    params(("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset"), ("status" = Option<String>, Query, description = "status"), ("task_type" = Option<String>, Query, description = "task_type")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_list_tasks(
     State(state): State<ApiState>,
     Query(query): Query<ListTasksQuery>,
 ) -> impl IntoResponse {
@@ -57,7 +65,15 @@ async fn handle_list_tasks(
     }
 }
 
-async fn handle_save_task(
+#[utoipa::path(
+    post,
+    path = "/tasks",
+    tag = "entity",
+    request_body = serde_json::Value,
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_save_task(
     State(state): State<ApiState>,
     Json(task): Json<wf_api::TaskStorageMetadata>,
 ) -> impl IntoResponse {
@@ -67,7 +83,15 @@ async fn handle_save_task(
     }
 }
 
-async fn handle_get_task(
+#[utoipa::path(
+    get,
+    path = "/tasks/{id}",
+    tag = "entity",
+    params(("id" = String, Path, description = "id")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_get_task(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -77,7 +101,15 @@ async fn handle_get_task(
     }
 }
 
-async fn handle_delete_task(
+#[utoipa::path(
+    delete,
+    path = "/tasks/{id}",
+    tag = "entity",
+    params(("id" = String, Path, description = "id")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_delete_task(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -87,14 +119,29 @@ async fn handle_delete_task(
     }
 }
 
-async fn handle_task_stats(State(state): State<ApiState>) -> impl IntoResponse {
+#[utoipa::path(
+    get,
+    path = "/tasks/stats",
+    tag = "entity",
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_task_stats(State(state): State<ApiState>) -> impl IntoResponse {
     match wf_api::entity::task::get_task_stats(&state.ctx.storage).await {
         Ok(stats) => ok(stats).into_response(),
         Err(e) => error_response(e),
     }
 }
 
-async fn handle_cancel_task(
+#[utoipa::path(
+    post,
+    path = "/tasks/{id}/cancel",
+    tag = "entity",
+    params(("id" = String, Path, description = "id")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_cancel_task(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -104,7 +151,15 @@ async fn handle_cancel_task(
     }
 }
 
-async fn handle_tasks_by_execution(
+#[utoipa::path(
+    get,
+    path = "/tasks/by-execution/{executionId}",
+    tag = "entity",
+    params(("executionId" = String, Path, description = "executionId"), ("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_tasks_by_execution(
     State(state): State<ApiState>,
     Path(path): Path<ExecutionIdPath>,
     Query(query): Query<ListQuery>,
@@ -124,11 +179,19 @@ async fn handle_tasks_by_execution(
 }
 
 #[derive(Deserialize)]
-struct CleanupTasksBody {
+pub(crate) struct CleanupTasksBody {
     older_than: Option<i64>,
 }
 
-async fn handle_cleanup_tasks(
+#[utoipa::path(
+    post,
+    path = "/tasks/cleanup",
+    tag = "entity",
+    request_body = serde_json::Value,
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_cleanup_tasks(
     State(state): State<ApiState>,
     Json(body): Json<CleanupTasksBody>,
 ) -> impl IntoResponse {

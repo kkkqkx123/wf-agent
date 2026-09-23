@@ -21,7 +21,7 @@ pub(crate) fn routes() -> Router<ApiState> {
 }
 
 #[derive(Deserialize)]
-struct DependencyQuery {
+pub(crate) struct DependencyQuery {
     kind: String,
     id: String,
 }
@@ -39,7 +39,15 @@ fn parse_kind(raw: &str) -> Option<wf_api::DependencyKind> {
     }
 }
 
-async fn handle_dependents(
+#[utoipa::path(
+    get,
+    path = "/dependencies/dependents",
+    tag = "system",
+    params(("kind" = String, Query, description = "kind"), ("id" = String, Query, description = "id")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_dependents(
     State(state): State<ApiState>,
     Query(query): Query<DependencyQuery>,
 ) -> impl IntoResponse {
@@ -55,7 +63,15 @@ async fn handle_dependents(
     }
 }
 
-async fn handle_impact(
+#[utoipa::path(
+    get,
+    path = "/dependencies/impact",
+    tag = "system",
+    params(("kind" = String, Query, description = "kind"), ("id" = String, Query, description = "id")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_impact(
     State(state): State<ApiState>,
     Query(query): Query<DependencyQuery>,
 ) -> impl IntoResponse {
@@ -71,14 +87,28 @@ async fn handle_impact(
     }
 }
 
-async fn handle_audit(State(state): State<ApiState>) -> impl IntoResponse {
+#[utoipa::path(
+    get,
+    path = "/dependencies/audit",
+    tag = "system",
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_audit(State(state): State<ApiState>) -> impl IntoResponse {
     match wf_api::audit_all_workflows(&state.ctx).await {
         Ok(items) => ok(items).into_response(),
         Err(e) => error_response(e),
     }
 }
 
-async fn handle_stale(State(state): State<ApiState>) -> impl IntoResponse {
+#[utoipa::path(
+    get,
+    path = "/system/stale",
+    tag = "system",
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_stale(State(state): State<ApiState>) -> impl IntoResponse {
     ok(state.ctx.list_stale()).into_response()
 }
 

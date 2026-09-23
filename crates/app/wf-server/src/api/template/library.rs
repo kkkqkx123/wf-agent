@@ -42,7 +42,7 @@ pub(crate) fn routes() -> Router<ApiState> {
 // ── template library ──────────────────────────────────────────────
 
 #[derive(Deserialize)]
-struct LibraryQuery {
+pub(crate) struct LibraryQuery {
     kind: Option<String>,
     name: Option<String>,
     category: Option<String>,
@@ -50,7 +50,15 @@ struct LibraryQuery {
     tags: Option<String>,
 }
 
-async fn handle_query_library(
+#[utoipa::path(
+    get,
+    path = "/templates/library",
+    tag = "template",
+    params(("kind" = Option<String>, Query, description = "kind"), ("name" = Option<String>, Query, description = "name"), ("category" = Option<String>, Query, description = "category"), ("author" = Option<String>, Query, description = "author"), ("tags" = Option<String>, Query, description = "tags")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_query_library(
     State(state): State<ApiState>,
     Query(query): Query<LibraryQuery>,
 ) -> impl IntoResponse {
@@ -82,11 +90,19 @@ async fn handle_query_library(
 }
 
 #[derive(Deserialize)]
-struct LimitQuery {
+pub(crate) struct LimitQuery {
     limit: Option<usize>,
 }
 
-async fn handle_library_featured(
+#[utoipa::path(
+    get,
+    path = "/templates/library/featured",
+    tag = "template",
+    params(("limit" = Option<u64>, Query, description = "limit")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_library_featured(
     State(state): State<ApiState>,
     Query(query): Query<LimitQuery>,
 ) -> impl IntoResponse {
@@ -97,12 +113,20 @@ async fn handle_library_featured(
 }
 
 #[derive(Deserialize)]
-struct CategoryLimitQuery {
+pub(crate) struct CategoryLimitQuery {
     category: Option<String>,
     limit: Option<usize>,
 }
 
-async fn handle_library_popular(
+#[utoipa::path(
+    get,
+    path = "/templates/library/popular",
+    tag = "template",
+    params(("category" = Option<String>, Query, description = "category"), ("limit" = Option<u64>, Query, description = "limit")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_library_popular(
     State(state): State<ApiState>,
     Query(query): Query<CategoryLimitQuery>,
 ) -> impl IntoResponse {
@@ -120,7 +144,15 @@ async fn handle_library_popular(
     }
 }
 
-async fn handle_record_usage(
+#[utoipa::path(
+    post,
+    path = "/templates/library/{id}/usage",
+    tag = "template",
+    params(("id" = String, Path, description = "id")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_record_usage(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -132,12 +164,21 @@ async fn handle_record_usage(
 }
 
 #[derive(Deserialize)]
-struct CloneTemplateBody {
+pub(crate) struct CloneTemplateBody {
     kind: String,
     new_name: Option<String>,
 }
 
-async fn handle_clone_template(
+#[utoipa::path(
+    post,
+    path = "/templates/library/{id}/clone",
+    tag = "template",
+    params(("id" = String, Path, description = "id")),
+    request_body = serde_json::Value,
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_clone_template(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
     Json(body): Json<CloneTemplateBody>,
@@ -159,14 +200,31 @@ async fn handle_clone_template(
 
 // ── library registry (workflow / agent templates) ────────────────
 
-async fn handle_list_workflow_templates(State(state): State<ApiState>) -> impl IntoResponse {
+#[utoipa::path(
+    get,
+    path = "/templates/library/workflows",
+    tag = "template",
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_list_workflow_templates(
+    State(state): State<ApiState>,
+) -> impl IntoResponse {
     match wf_api::template::template_library::list_workflow_templates(&state.ctx) {
         Ok(templates) => ok(templates).into_response(),
         Err(e) => error_response(e),
     }
 }
 
-async fn handle_get_workflow_template(
+#[utoipa::path(
+    get,
+    path = "/templates/library/workflows/{id}",
+    tag = "template",
+    params(("id" = String, Path, description = "id")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_get_workflow_template(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -176,7 +234,15 @@ async fn handle_get_workflow_template(
     }
 }
 
-async fn handle_register_workflow_template(
+#[utoipa::path(
+    post,
+    path = "/templates/library/workflows",
+    tag = "template",
+    request_body = serde_json::Value,
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_register_workflow_template(
     State(state): State<ApiState>,
     Json(template): Json<wf_api::WorkflowTemplate>,
 ) -> impl IntoResponse {
@@ -186,7 +252,15 @@ async fn handle_register_workflow_template(
     }
 }
 
-async fn handle_delete_workflow_template(
+#[utoipa::path(
+    delete,
+    path = "/templates/library/workflows/{id}",
+    tag = "template",
+    params(("id" = String, Path, description = "id")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_delete_workflow_template(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -196,14 +270,31 @@ async fn handle_delete_workflow_template(
     }
 }
 
-async fn handle_list_agent_templates(State(state): State<ApiState>) -> impl IntoResponse {
+#[utoipa::path(
+    get,
+    path = "/templates/library/agents",
+    tag = "template",
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_list_agent_templates(
+    State(state): State<ApiState>,
+) -> impl IntoResponse {
     match wf_api::template::template_library::list_agent_templates(&state.ctx) {
         Ok(templates) => ok(templates).into_response(),
         Err(e) => error_response(e),
     }
 }
 
-async fn handle_get_agent_template(
+#[utoipa::path(
+    get,
+    path = "/templates/library/agents/{id}",
+    tag = "template",
+    params(("id" = String, Path, description = "id")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_get_agent_template(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -213,7 +304,15 @@ async fn handle_get_agent_template(
     }
 }
 
-async fn handle_register_agent_template(
+#[utoipa::path(
+    post,
+    path = "/templates/library/agents",
+    tag = "template",
+    request_body = serde_json::Value,
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_register_agent_template(
     State(state): State<ApiState>,
     Json(template): Json<wf_api::AgentTemplate>,
 ) -> impl IntoResponse {
@@ -223,7 +322,15 @@ async fn handle_register_agent_template(
     }
 }
 
-async fn handle_delete_agent_template(
+#[utoipa::path(
+    delete,
+    path = "/templates/library/agents/{id}",
+    tag = "template",
+    params(("id" = String, Path, description = "id")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_delete_agent_template(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {

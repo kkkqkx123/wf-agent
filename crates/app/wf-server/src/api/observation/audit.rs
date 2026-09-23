@@ -40,7 +40,15 @@ pub(crate) fn routes() -> Router<ApiState> {
         )
 }
 
-async fn handle_audit_summary(
+#[utoipa::path(
+    get,
+    path = "/executions/{id}/audit/summary",
+    tag = "observation",
+    params(("id" = String, Path, description = "id")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_audit_summary(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -50,7 +58,15 @@ async fn handle_audit_summary(
     }
 }
 
-async fn handle_audit_report(
+#[utoipa::path(
+    get,
+    path = "/executions/{id}/audit/report",
+    tag = "observation",
+    params(("id" = String, Path, description = "id"), ("download" = Option<bool>, Query, description = "download")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_audit_report(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
     Query(query): Query<AuditReportQuery>,
@@ -74,11 +90,19 @@ async fn handle_audit_report(
 }
 
 #[derive(Deserialize)]
-struct AuditReportQuery {
+pub(crate) struct AuditReportQuery {
     download: Option<bool>,
 }
 
-async fn handle_audit_timeline(
+#[utoipa::path(
+    get,
+    path = "/executions/{id}/audit/timeline",
+    tag = "observation",
+    params(("id" = String, Path, description = "id"), ("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_audit_timeline(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
     Query(query): Query<ListQuery>,
@@ -97,7 +121,15 @@ async fn handle_audit_timeline(
     }
 }
 
-async fn handle_audit_iterations(
+#[utoipa::path(
+    get,
+    path = "/executions/{id}/audit/iterations",
+    tag = "observation",
+    params(("id" = String, Path, description = "id"), ("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_audit_iterations(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
     Query(query): Query<ListQuery>,
@@ -116,7 +148,15 @@ async fn handle_audit_iterations(
     }
 }
 
-async fn handle_audit_tool_calls(
+#[utoipa::path(
+    get,
+    path = "/executions/{id}/audit/tool-calls",
+    tag = "observation",
+    params(("id" = String, Path, description = "id"), ("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_audit_tool_calls(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
     Query(query): Query<ListQuery>,
@@ -135,7 +175,15 @@ async fn handle_audit_tool_calls(
     }
 }
 
-async fn handle_audit_llm_calls(
+#[utoipa::path(
+    get,
+    path = "/executions/{id}/audit/llm-calls",
+    tag = "observation",
+    params(("id" = String, Path, description = "id"), ("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_audit_llm_calls(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
     Query(query): Query<ListQuery>,
@@ -154,7 +202,15 @@ async fn handle_audit_llm_calls(
     }
 }
 
-async fn handle_audit_node_executions(
+#[utoipa::path(
+    get,
+    path = "/executions/{id}/audit/node-executions",
+    tag = "observation",
+    params(("id" = String, Path, description = "id"), ("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_audit_node_executions(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
     Query(query): Query<ListQuery>,

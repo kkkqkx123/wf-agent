@@ -22,7 +22,7 @@ use crate::middleware::{self, ServerMiddlewareConfig};
 use crate::server::{serve_with_router, ServeError, ServerHandle};
 use crate::server_config::ServerConfig;
 use crate::static_files::serve_static;
-use crate::{api, contract, metrics, ws};
+use crate::{api, metrics, ws};
 
 #[derive(Clone)]
 pub(crate) struct ApiState {
@@ -95,13 +95,33 @@ pub fn api_router_with_config(ctx: Arc<ApiContext>, config: Arc<ServerMiddleware
         // own absolute prefixes and is merged at the root below)
         .merge(api::system::events::routes())
         .merge(api::system::dependencies::routes())
-        .merge(contract::routes())
         .merge(ws::routes());
     let app = Router::new()
         .merge(api::system::health::routes())
         .nest("/api/v1", domain);
     let app = middleware::apply(app, Arc::clone(&config));
-    app.with_state(ApiState { ctx, config })
+    let app = app.with_state(ApiState { ctx, config });
+    mount_openapi_docs(app)
+}
+
+/// Mount OpenAPI docs in dev/debug builds or with the `openapi-docs`
+/// feature. Release builds without the feature expose no `/api-docs/*`
+/// routes. Mounted after state erasure so the plain `Router` is used.
+#[cfg(any(debug_assertions, feature = "openapi-docs"))]
+fn mount_openapi_docs(router: Router) -> Router {
+    use axum::routing::get;
+    router
+        .route(
+            "/api-docs/openapi.json",
+            get(crate::openapi::serve_openapi_json),
+        )
+        .route("/api-docs/swagger", get(crate::openapi::serve_swagger_ui))
+}
+
+/// Release builds without the feature expose no docs routes.
+#[cfg(not(any(debug_assertions, feature = "openapi-docs")))]
+fn mount_openapi_docs(router: Router) -> Router {
+    router
 }
 
 /// Metrics + API router merged under one surface with a programmable

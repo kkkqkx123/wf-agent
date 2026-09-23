@@ -33,7 +33,7 @@ pub(crate) fn routes() -> Router<ApiState> {
 /// Wire shape of the query endpoints: filters (basic + advanced
 /// expressions) plus sort / pagination overrides.
 #[derive(Deserialize, Default)]
-struct QueryBody {
+pub(crate) struct QueryBody {
     filters: Option<FilterCriteria>,
     #[serde(default)]
     expressions: Vec<FilterExpression>,
@@ -62,7 +62,15 @@ impl QueryBody {
     }
 }
 
-async fn handle_query(
+#[utoipa::path(
+    post,
+    path = "/query",
+    tag = "observation",
+    request_body = serde_json::Value,
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_query(
     State(state): State<ApiState>,
     Json(body): Json<QueryBody>,
 ) -> impl IntoResponse {
@@ -83,7 +91,7 @@ async fn handle_query(
 }
 
 #[derive(Deserialize)]
-struct ExportBody {
+pub(crate) struct ExportBody {
     filters: Option<FilterCriteria>,
     #[serde(default)]
     expressions: Vec<FilterExpression>,
@@ -97,11 +105,20 @@ struct ExportBody {
 }
 
 #[derive(Deserialize)]
-struct ExportDownloadQuery {
+pub(crate) struct ExportDownloadQuery {
     download: Option<bool>,
 }
 
-async fn handle_export(
+#[utoipa::path(
+    post,
+    path = "/query/export",
+    tag = "observation",
+    params(("download" = Option<bool>, Query, description = "download")),
+    request_body = serde_json::Value,
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_export(
     State(state): State<ApiState>,
     Query(download_query): Query<ExportDownloadQuery>,
     Json(body): Json<ExportBody>,
@@ -151,7 +168,7 @@ fn download_response(payload: &str, format: ExportFormat) -> axum::response::Res
 }
 
 #[derive(Deserialize)]
-struct AggregateBody {
+pub(crate) struct AggregateBody {
     filters: Option<FilterCriteria>,
     #[serde(default)]
     expressions: Vec<FilterExpression>,
@@ -159,7 +176,15 @@ struct AggregateBody {
     operations: Vec<AggregationOp>,
 }
 
-async fn handle_aggregate(
+#[utoipa::path(
+    post,
+    path = "/query/aggregate",
+    tag = "observation",
+    request_body = serde_json::Value,
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_aggregate(
     State(state): State<ApiState>,
     Json(body): Json<AggregateBody>,
 ) -> impl IntoResponse {
@@ -174,13 +199,21 @@ async fn handle_aggregate(
 }
 
 #[derive(Deserialize)]
-struct DistinctParams {
+pub(crate) struct DistinctParams {
     field: String,
     #[serde(flatten)]
     filters: FilterCriteria,
 }
 
-async fn handle_distinct(
+#[utoipa::path(
+    get,
+    path = "/query/distinct",
+    tag = "observation",
+    params(("field" = String, Query, description = "field"), ("filters" = String, Query, description = "filters")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_distinct(
     State(state): State<ApiState>,
     Query(params): Query<DistinctParams>,
 ) -> impl IntoResponse {
@@ -191,12 +224,20 @@ async fn handle_distinct(
 }
 
 #[derive(Deserialize)]
-struct GroupByBody {
+pub(crate) struct GroupByBody {
     field: String,
     filters: Option<FilterCriteria>,
 }
 
-async fn handle_group_by(
+#[utoipa::path(
+    post,
+    path = "/query/group-by",
+    tag = "observation",
+    request_body = serde_json::Value,
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_group_by(
     State(state): State<ApiState>,
     Json(body): Json<GroupByBody>,
 ) -> impl IntoResponse {
@@ -209,13 +250,21 @@ async fn handle_group_by(
 /// Evaluate a filter expression against an arbitrary JSON record without
 /// persisting anything. Useful for validating query semantics before use.
 #[derive(Deserialize)]
-struct EvaluateBody {
+pub(crate) struct EvaluateBody {
     record: Value,
     #[serde(flatten)]
     expression: FilterExpression,
 }
 
-async fn handle_evaluate(Json(body): Json<EvaluateBody>) -> impl IntoResponse {
+#[utoipa::path(
+    post,
+    path = "/query/evaluate",
+    tag = "observation",
+    request_body = serde_json::Value,
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_evaluate(Json(body): Json<EvaluateBody>) -> impl IntoResponse {
     let matched = evaluate_json_expression(&body.record, &body.expression);
     ok(matched).into_response()
 }

@@ -38,12 +38,20 @@ pub(crate) fn routes() -> Router<ApiState> {
 // ── tools ─────────────────────────────────────────────────────────
 
 #[derive(Deserialize)]
-struct ListToolsQuery {
+pub(crate) struct ListToolsQuery {
     #[serde(flatten)]
     page: ListQuery,
 }
 
-async fn handle_list_tools(
+#[utoipa::path(
+    get,
+    path = "/tools",
+    tag = "llm",
+    params(("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_list_tools(
     State(state): State<ApiState>,
     Query(query): Query<ListToolsQuery>,
 ) -> impl IntoResponse {
@@ -62,13 +70,21 @@ async fn handle_list_tools(
 }
 
 #[derive(Deserialize)]
-struct SearchToolsQuery {
+pub(crate) struct SearchToolsQuery {
     q: String,
     #[serde(flatten)]
     page: ListQuery,
 }
 
-async fn handle_search_tools(
+#[utoipa::path(
+    get,
+    path = "/tools/search",
+    tag = "llm",
+    params(("q" = String, Query, description = "q"), ("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_search_tools(
     State(state): State<ApiState>,
     Query(query): Query<SearchToolsQuery>,
 ) -> impl IntoResponse {
@@ -87,14 +103,22 @@ async fn handle_search_tools(
 }
 
 #[derive(Deserialize)]
-struct ExecuteToolBody {
+pub(crate) struct ExecuteToolBody {
     tool_id: String,
     parameters: Value,
     options: Option<wf_api::ToolExecutionOptions>,
     execution_id: Option<String>,
 }
 
-async fn handle_execute_tool(
+#[utoipa::path(
+    post,
+    path = "/tools/execute",
+    tag = "llm",
+    request_body = serde_json::Value,
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_execute_tool(
     State(state): State<ApiState>,
     Json(body): Json<ExecuteToolBody>,
 ) -> impl IntoResponse {
@@ -114,12 +138,20 @@ async fn handle_execute_tool(
 }
 
 #[derive(Deserialize)]
-struct ValidateToolParamsBody {
+pub(crate) struct ValidateToolParamsBody {
     tool_id: String,
     parameters: Value,
 }
 
-async fn handle_validate_tool_params(
+#[utoipa::path(
+    post,
+    path = "/tools/validate-params",
+    tag = "llm",
+    request_body = serde_json::Value,
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_validate_tool_params(
     State(state): State<ApiState>,
     Json(body): Json<ValidateToolParamsBody>,
 ) -> impl IntoResponse {
@@ -130,7 +162,15 @@ async fn handle_validate_tool_params(
     }
 }
 
-async fn handle_get_tool(
+#[utoipa::path(
+    get,
+    path = "/tools/{id}",
+    tag = "llm",
+    params(("id" = String, Path, description = "id")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_get_tool(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -140,7 +180,15 @@ async fn handle_get_tool(
     }
 }
 
-async fn handle_enable_tool(
+#[utoipa::path(
+    post,
+    path = "/tools/{id}/enable",
+    tag = "llm",
+    params(("id" = String, Path, description = "id")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_enable_tool(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -150,7 +198,15 @@ async fn handle_enable_tool(
     }
 }
 
-async fn handle_disable_tool(
+#[utoipa::path(
+    post,
+    path = "/tools/{id}/disable",
+    tag = "llm",
+    params(("id" = String, Path, description = "id")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_disable_tool(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
@@ -161,13 +217,21 @@ async fn handle_disable_tool(
 }
 
 #[derive(Deserialize)]
-struct ListToolRegistryQuery {
+pub(crate) struct ListToolRegistryQuery {
     #[serde(flatten)]
     page: ListQuery,
     tool_type: Option<String>,
 }
 
-async fn handle_list_tool_registry(
+#[utoipa::path(
+    get,
+    path = "/tool-registry",
+    tag = "llm",
+    params(("limit" = Option<u64>, Query, description = "limit"), ("offset" = Option<u64>, Query, description = "offset"), ("tool_type" = Option<String>, Query, description = "tool_type")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_list_tool_registry(
     State(state): State<ApiState>,
     Query(query): Query<ListToolRegistryQuery>,
 ) -> impl IntoResponse {
@@ -183,7 +247,15 @@ async fn handle_list_tool_registry(
     }
 }
 
-async fn handle_save_tool(
+#[utoipa::path(
+    post,
+    path = "/tool-registry",
+    tag = "llm",
+    request_body = serde_json::Value,
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_save_tool(
     State(state): State<ApiState>,
     Json(tool): Json<ToolStorageMetadata>,
 ) -> impl IntoResponse {
@@ -193,7 +265,15 @@ async fn handle_save_tool(
     }
 }
 
-async fn handle_delete_tool(
+#[utoipa::path(
+    delete,
+    path = "/tool-registry/{id}",
+    tag = "llm",
+    params(("id" = String, Path, description = "id"), ("force" = Option<bool>, Query, description = "force")),
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 404, description = "Not found", body = crate::envelope::ErrorResponse), (status = 400, description = "Invalid parameters", body = crate::envelope::ErrorResponse), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_delete_tool(
     State(state): State<ApiState>,
     Path(path): Path<IdPath>,
     Query(query): Query<DeleteForceQuery>,
@@ -211,7 +291,14 @@ async fn handle_delete_tool(
     }
 }
 
-async fn handle_tool_stats(State(state): State<ApiState>) -> impl IntoResponse {
+#[utoipa::path(
+    get,
+    path = "/tool-registry/stats",
+    tag = "llm",
+    responses((status = 200, description = "Success", body = serde_json::Value), (status = 500, description = "Internal server error", body = crate::envelope::ErrorResponse)),
+    security(("bearer_auth" = []))
+)]
+pub(crate) async fn handle_tool_stats(State(state): State<ApiState>) -> impl IntoResponse {
     match wf_api::llm::tool::get_tool_stats(&state.ctx.storage).await {
         Ok(stats) => ok(stats).into_response(),
         Err(e) => error_response(e),

@@ -2,925 +2,114 @@
 
 ## 阶段目标
 
-在第一阶段基础上,实现可视化编辑器、资源管理、检查点管理和事件监控等增强功能,提升用户体验和功能完整性。
+在应用壳与 API 层之上，交付三个核心域的完整纵向闭环：执行工作台、工作流、Agent 回路——覆盖列表、详情、控制与首个流式场景，形成产品主价值链。
 
-## 一、工作流可视化编辑器
+## 一、范围与前提
 
-### 1.1 技术选型
+- 前提：第一阶段的 Shell、Token 主题、`client.ts`、加载态体系、示范列表页已验收。
+- 功能边界：`docs/plan/web/frontend-feature-list.md` 第 3.1–3.3 节；本阶段只做这三个域 + 与其直接绑定的流式入口。
+- 不包含：检查点与文件、审批与交互、触发器、模型与工具、模板、查询与审计、事件与系统、设置（阶段三 / 四）。
 
-- **图形库**: D3.js (用于节点和边的渲染)
-- **布局算法**: Dagre (有向图布局)
-- **交互处理**: D3-drag、D3-zoom
+## 二、执行工作台（默认落地页）
 
-### 1.2 编辑器架构
+布局：三栏（左导航 / 中执行列表与详情 / 右检查器）。
 
-#### 组件结构
-```
-src/lib/components/workflow/editor/
-├── WorkflowEditor.svelte          # 主编辑器组件
-├── Canvas.svelte                  # 画布组件
-├── NodePalette.svelte             # 节点面板
-├── Node.svelte                    # 节点组件
-├── Edge.svelte                    # 边组件
-├── PropertyPanel.svelte           # 属性面板
-├── Toolbar.svelte                 # 工具栏
-└── utils/
-    ├── layout.ts                  # 布局计算
-    ├── graph-utils.ts             # 图形工具
-    └── validation.ts              # 验证工具
-```
+### 2.1 执行列表
 
-### 1.3 核心实现
+- 过滤：按工作流、按状态；游标分页（无总数，按 `has_more` 翻页）；执行时长展示。
+- 批量操作：批量取消、批量删除（走后端批量通道），危险操作二次确认。
+- 状态语义色按样式规范 Token，不自创配色。
 
-#### 工作流编辑器 (WorkflowEditor.svelte)
-```svelte
-<script lang="ts">
-  import { onMount } from 'svelte';
-  import Canvas from './Canvas.svelte';
-  import NodePalette from './NodePalette.svelte';
-  import PropertyPanel from './PropertyPanel.svelte';
-  import Toolbar from './Toolbar.svelte';
-  import { workflowEditorStore } from '$lib/stores/workflow-editor';
-  import type { Workflow, Node, Edge } from '@modular-agent/types';
+### 2.2 执行详情（右侧检查器标签页）
 
-  let { workflow } = $props<{ workflow: Workflow }>();
-  
-  let canvasRef: HTMLDivElement;
-  let selectedNode: Node | null = $state(null);
-  let selectedEdge: Edge | null = $state(null);
+信息分面（对应后端查询通道，全部只读渲染）：
 
-  onMount(() => {
-    workflowEditorStore.initialize(workflow);
-  });
+- 概览：状态、进度、路径、失败节点。
+- 状态面：变量、迁移、上下文、调用栈、内存（含峰值）、变量快照与演化、状态分析。
+- 审计面：摘要、报告、时间线、迭代、工具调用、大模型调用、节点执行。
+- 分析面：路径枚举、决策点、慢节点、效率、替代路径、概率、节点统计、迭代、工具链、输入上下文、大模型推理路径。
+- 图过大时按需加载节点详情，不一次性展开（组件规范图组件要求）。
 
-  function handleNodeSelect(node: Node) {
-    selectedNode = node;
-    selectedEdge = null;
-  }
+### 2.3 执行控制
 
-  function handleEdgeSelect(edge: Edge) {
-    selectedEdge = edge;
-    selectedNode = null;
-  }
+- 启动（含流式启动）、暂停、恢复、取消；触发器关联查询。
+- 交互与审批入口：本阶段仅预留接入位（完整实现在阶段三），保证信息架构不返工。
 
-  function handleNodeAdd(nodeType: string, position: { x: number; y: number }) {
-    workflowEditorStore.addNode(nodeType, position);
-  }
+## 三、工作流域
 
-  function handleNodeMove(nodeId: string, position: { x: number; y: number }) {
-    workflowEditorStore.updateNodePosition(nodeId, position);
-  }
+### 3.1 列表
 
-  function handleNodeDelete(nodeId: string) {
-    workflowEditorStore.deleteNode(nodeId);
-  }
+- 分页浏览；按名称、标签、分类、作者过滤；卡片与表格切换；搜索。
+- 过滤条件与视图偏好本地持久化。
 
-  function handleEdgeCreate(sourceId: string, targetId: string) {
-    workflowEditorStore.addEdge(sourceId, targetId);
-  }
+### 3.2 详情
 
-  function handleEdgeDelete(edgeId: string) {
-    workflowEditorStore.deleteEdge(edgeId);
-  }
-</script>
+- 基本信息、图摘要、节点边列表、邻居与可达性、版本历史、生命周期、执行历史入口（跳执行工作台）。
+- 导入导出：JSON 体通道；下载由前端组装（无文件下载头）。
 
-<div class="flex h-full">
-  <!-- 左侧节点面板 -->
-  <NodePalette onAdd={handleNodeAdd} />
-  
-  <!-- 中间画布 -->
-  <div class="flex-1 flex flex-col">
-    <Toolbar />
-    <div class="flex-1 relative" bind:this={canvasRef}>
-      <Canvas
-        nodes={$workflowEditorStore.nodes}
-        edges={$workflowEditorStore.edges}
-        onNodeSelect={handleNodeSelect}
-        onEdgeSelect={handleEdgeSelect}
-        onNodeMove={handleNodeMove}
-        onEdgeCreate={handleEdgeCreate}
-      />
-    </div>
-  </div>
-  
-  <!-- 右侧属性面板 -->
-  <PropertyPanel
-    selectedNode={selectedNode}
-    selectedEdge={selectedEdge}
-    onNodeUpdate={workflowEditorStore.updateNode}
-    onEdgeUpdate={workflowEditorStore.updateEdge}
-    onNodeDelete={handleNodeDelete}
-    onEdgeDelete={handleEdgeDelete}
-  />
-</div>
-```
+### 3.3 版本与草稿
 
-#### 画布组件 (Canvas.svelte)
-```svelte
-<script lang="ts">
-  import { onMount } from 'svelte';
-  import * as d3 from 'd3';
-  import Node from './Node.svelte';
-  import Edge from './Edge.svelte';
-  import type { Node as NodeType, Edge as EdgeType } from '@modular-agent/types';
+- 版本：列表、对比查看、递增、回滚（回滚为危险操作，二次确认）。
+- 草稿：列表、校验、提升为正式、批量提升。
 
-  let { 
-    nodes = [], 
-    edges = [],
-    onNodeSelect,
-    onEdgeSelect,
-    onNodeMove,
-    onEdgeCreate
-  } = $props();
+### 3.4 可视化
 
-  let svgRef: SVGSVGElement;
-  let zoom = $state(1);
-  let translate = $state({ x: 0, y: 0 });
+- 图渲染、缩放平移、节点选择与详情、路径统计展示。
+- 节点创建与连线编辑仅在校验通道可用时启用（后端已有校验、单节点校验、解析、变换通道）；保存走更新通道。
+- 图组件遵循组件规范：万节点以上只渲染摘要与按需节点。
 
-  onMount(() => {
-    const svg = d3.select(svgRef);
-    
-    // 设置缩放和平移
-    const zoomBehavior = d3.zoom()
-      .scaleExtent([0.1, 4])
-      .on('zoom', (event) => {
-        zoom = event.transform.k;
-        translate = { x: event.transform.x, y: event.transform.y };
-      });
-    
-    svg.call(zoomBehavior);
-  });
+## 四、Agent 回路域
 
-  function handleNodeDrag(nodeId: string, event: DragEvent) {
-    const position = {
-      x: (event.x - translate.x) / zoom,
-      y: (event.y - translate.y) / zoom
-    };
-    onNodeMove?.(nodeId, position);
-  }
-</script>
+### 4.1 列表与详情
 
-<svg bind:this={svgRef} class="w-full h-full bg-gray-50">
-  <g transform="translate({translate.x}, {translate.y}) scale({zoom})">
-    <!-- 渲染边 -->
-    {#each edges as edge}
-      <Edge {edge} onClick={() => onEdgeSelect?.(edge)} />
-    {/each}
-    
-    <!-- 渲染节点 -->
-    {#each nodes as node}
-      <Node 
-        {node} 
-        onClick={() => onNodeSelect?.(node)}
-        onDrag={(e) => handleNodeDrag(node.id, e)}
-      />
-    {/each}
-  </g>
-</svg>
-```
+- 列表：游标分页、状态过滤、摘要与统计；星标与标签走服务端收藏通道。
+- 详情分面：摘要、迭代历史（含汇总）、时间线、变量历史、上下文演化、执行路径。
+- 控制：运行、暂停、恢复、取消、状态迁移。
 
-#### 节点组件 (Node.svelte)
-```svelte
-<script lang="ts">
-  import * as d3 from 'd3';
-  import type { Node } from '@modular-agent/types';
+### 4.2 消息与变量
 
-  let { node, onClick, onDrag } = $props();
-  
-  let nodeRef: SVGGElement;
-  let isDragging = $state(false);
+- 消息：列表、搜索、统计、去重、会话视图；分支切换沿用后端会话结构，不自创分支模型。
+- 变量：列表、统计、导出、单变量读写；批量写暂多次单写。
+- 消息滚动器：自动跟随尾部、手动接管、回底按钮（组件规范）。
 
-  onMount(() => {
-    const drag = d3.drag()
-      .on('start', () => {
-        isDragging = true;
-      })
-      .on('drag', (event) => {
-        onDrag?.(event);
-      })
-      .on('end', () => {
-        isDragging = false;
-      });
-    
-    d3.select(nodeRef).call(drag);
-  });
-</script>
+### 4.3 图与错误分析（只读起步）
 
-<g bind:this={nodeRef} transform="translate({node.position.x}, {node.position.y})">
-  <!-- 节点背景 -->
-  <rect
-    x="-60"
-    y="-30"
-    width="120"
-    height="60"
-    rx="8"
-    fill="white"
-    stroke={isDragging ? '#3b82f6' : '#e5e7eb'}
-    stroke-width={isDragging ? 2 : 1}
-    on:click={onClick}
-  />
-  
-  <!-- 节点图标 -->
-  <text
-    x="0"
-    y="-5"
-    text-anchor="middle"
-    font-size="12"
-    fill="#374151"
-  >
-    {node.type}
-  </text>
-  
-  <!-- 节点名称 -->
-  <text
-    x="0"
-    y="10"
-    text-anchor="middle"
-    font-size="10"
-    fill="#6b7280"
-  >
-    {node.name}
-  </text>
-  
-  <!-- 输入连接点 -->
-  <circle cx="-60" cy="0" r="5" fill="#3b82f6" class="cursor-pointer" />
-  
-  <!-- 输出连接点 -->
-  <circle cx="60" cy="0" r="5" fill="#3b82f6" class="cursor-pointer" />
-</g>
-```
+- 图：节点边、路径、关键路径、替代、序列、未探索分支、工具频率、模式、效率、概率。
+- 错误分析：错误链、根因、高级统计、恢复建议、相似错误、性能对比。
 
-### 1.4 布局算法
+## 五、本阶段流式范围
 
-#### 自动布局 (utils/layout.ts)
-```typescript
-import * as dagre from 'dagre';
-import type { Node, Edge } from '@modular-agent/types';
+- 在 `src/lib/api/sse.ts` 落地**可取消的流读取器封装**（鉴权、限流 429、重连、`since` 断点续拉），并接入执行流式启动（`POST /workflows/{id}/execute/stream`）与回路流式运行（`POST /agent-loops/{id}/stream`）。
+- 消费 `ExecutionStreamEvent` 帧类型（`llm_delta`、`tool_start`/`tool_end`、`iteration_*`、`completed`/`failed` 等），帧类型独立维护于流式模块，不进 OpenAPI 类型。
+- 渲染限速合并：按帧到达合并写 store，禁止逐帧全量重渲染；工作流流式启动的首帧 `event: metadata` 单独处理。
+- 多执行并行订阅不在本阶段（阶段三接 WS）。
 
-export function calculateLayout(nodes: Node[], edges: Edge[]): Map<string, { x: number; y: number }> {
-  const g = new dagre.graphlib.Graph();
-  
-  // 设置图参数
-  g.setGraph({
-    rankdir: 'TB',  // 从上到下布局
-    nodesep: 80,
-    ranksep: 100,
-    marginx: 50,
-    marginy: 50,
-  });
-  
-  // 设置默认节点参数
-  g.setDefaultEdgeLabel(() => ({}));
-  
-  // 添加节点
-  nodes.forEach(node => {
-    g.setNode(node.id, {
-      width: 120,
-      height: 60,
-    });
-  });
-  
-  // 添加边
-  edges.forEach(edge => {
-    g.setEdge(edge.source, edge.target);
-  });
-  
-  // 计算布局
-  dagre.layout(g);
-  
-  // 提取节点位置
-  const positions = new Map<string, { x: number; y: number }>();
-  nodes.forEach(node => {
-    const pos = g.node(node.id);
-    positions.set(node.id, { x: pos.x, y: pos.y });
-  });
-  
-  return positions;
-}
-```
+## 六、任务清单
 
-## 二、线程执行流程可视化
-
-### 2.1 执行流程图
-
-#### 组件结构
-```
-src/lib/components/thread/execution-flow/
-├── ExecutionFlow.svelte           # 执行流程主组件
-├── FlowNode.svelte                # 流程节点
-├── FlowEdge.svelte                # 流程边
-├── Timeline.svelte                # 时间线
-└── ExecutionStats.svelte          # 执行统计
-```
-
-#### 执行流程组件 (ExecutionFlow.svelte)
-```svelte
-<script lang="ts">
-  import { onMount } from 'svelte';
-  import FlowNode from './FlowNode.svelte';
-  import FlowEdge from './FlowEdge.svelte';
-  import Timeline from './Timeline.svelte';
-  import ExecutionStats from './ExecutionStats.svelte';
-  import type { Thread, ExecutionStep } from '@modular-agent/types';
-
-  let { thread } = $props<{ thread: Thread }>();
-  
-  let steps = $state<ExecutionStep[]>([]);
-  let currentStepIndex = $state(-1);
-
-  onMount(() => {
-    // 订阅执行步骤更新
-    // sseClient.subscribe('thread:step', handleStepUpdate);
-  });
-
-  function handleStepUpdate(step: ExecutionStep) {
-    steps = [...steps, step];
-    currentStepIndex = steps.length - 1;
-  }
-
-  function getNodeStatus(nodeId: string): 'pending' | 'running' | 'completed' | 'failed' {
-    const step = steps.find(s => s.nodeId === nodeId);
-    if (!step) return 'pending';
-    return step.status;
-  }
-</script>
-
-<div class="flex flex-col h-full">
-  <!-- 执行统计 -->
-  <ExecutionStats steps={steps} />
-  
-  <!-- 流程图 -->
-  <div class="flex-1 relative">
-    <svg class="w-full h-full">
-      <!-- 渲染边 -->
-      {#each thread.workflow.edges as edge}
-        <FlowEdge {edge} />
-      {/each}
-      
-      <!-- 渲染节点 -->
-      {#each thread.workflow.nodes as node}
-        <FlowNode 
-          {node} 
-          status={getNodeStatus(node.id)}
-          isCurrent={steps[currentStepIndex]?.nodeId === node.id}
-        />
-      {/each}
-    </svg>
-  </div>
-  
-  <!-- 时间线 -->
-  <Timeline {steps} bind:currentIndex={currentStepIndex} />
-</div>
-```
-
-#### 流程节点 (FlowNode.svelte)
-```svelte
-<script lang="ts">
-  import type { Node } from '@modular-agent/types';
-
-  let { 
-    node, 
-    status = 'pending',
-    isCurrent = false
-  } = $props<{
-    node: Node;
-    status?: 'pending' | 'running' | 'completed' | 'failed';
-    isCurrent?: boolean;
-  }>();
-
-  const statusColors = {
-    pending: '#e5e7eb',
-    running: '#3b82f6',
-    completed: '#10b981',
-    failed: '#ef4444',
-  };
-</script>
-
-<g transform="translate({node.position.x}, {node.position.y})">
-  <!-- 节点背景 -->
-  <rect
-    x="-60"
-    y="-30"
-    width="120"
-    height="60"
-    rx="8"
-    fill="white"
-    stroke={statusColors[status]}
-    stroke-width={isCurrent ? 3 : 2}
-  />
-  
-  <!-- 运行中动画 -->
-  {#if status === 'running'}
-    <circle cx="0" cy="0" r="20" fill="none" stroke="#3b82f6" stroke-width="2">
-      <animateTransform
-        attributeName="transform"
-        type="rotate"
-        from="0 0 0"
-        to="360 0 0"
-        dur="1s"
-        repeatCount="indefinite"
-      />
-    </circle>
-  {/if}
-  
-  <!-- 节点名称 -->
-  <text
-    x="0"
-    y="5"
-    text-anchor="middle"
-    font-size="12"
-    fill="#374151"
-  >
-    {node.name}
-  </text>
-</g>
-```
-
-## 三、资源管理功能
-
-### 3.1 工具管理
-
-#### 工具列表页 (src/routes/tools/+page.svelte)
-```svelte
-<script lang="ts">
-  import { onMount } from 'svelte';
-  import { toolStore } from '$lib/stores/tool';
-  import { ToolAdapter } from '$lib/adapters/tool-adapter';
-  import ToolCard from '$lib/components/tools/ToolCard.svelte';
-
-  const adapter = new ToolAdapter();
-  
-  onMount(async () => {
-    toolStore.setLoading(true);
-    try {
-      const tools = await adapter.listTools();
-      toolStore.setTools(tools);
-    } catch (error) {
-      toolStore.setError(error.message);
-    }
-  });
-</script>
-
-<div class="space-y-6">
-  <h1 class="text-2xl font-bold">工具管理</h1>
-  
-  {#if $toolStore.loading}
-    <div>Loading...</div>
-  {:else}
-    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-      {#each $toolStore.tools as tool}
-        <ToolCard {tool} />
-      {/each}
-    </div>
-  {/if}
-</div>
-```
-
-#### 工具配置对话框
-```svelte
-<script lang="ts">
-  import Modal from '$lib/components/common/Modal.svelte';
-  import type { Tool } from '@modular-agent/types';
-
-  let { tool, isOpen, onClose, onSave } = $props<{
-    tool: Tool;
-    isOpen: boolean;
-    onClose: () => void;
-    onSave: (tool: Tool) => void;
-  }>();
-
-  let editedTool = $state({ ...tool });
-
-  function handleSave() {
-    onSave(editedTool);
-    onClose();
-  }
-</script>
-
-<Modal {isOpen} {onClose} title="工具配置">
-  <div class="space-y-4">
-    <div>
-      <label class="block text-sm font-medium mb-1">工具名称</label>
-      <input 
-        type="text" 
-        bind:value={editedTool.name}
-        class="w-full px-3 py-2 border rounded"
-      />
-    </div>
-    
-    <div>
-      <label class="block text-sm font-medium mb-1">描述</label>
-      <textarea 
-        bind:value={editedTool.description}
-        class="w-full px-3 py-2 border rounded"
-        rows="3"
-      />
-    </div>
-    
-    <div>
-      <label class="flex items-center">
-        <input type="checkbox" bind:checked={editedTool.enabled} />
-        <span class="ml-2">启用</span>
-      </label>
-    </div>
-    
-    <div>
-      <label class="flex items-center">
-        <input type="checkbox" bind:checked={editedTool.autoExecute} />
-        <span class="ml-2">自动执行</span>
-      </label>
-    </div>
-    
-    <div class="flex justify-end space-x-2">
-      <button on:click={onClose} class="px-4 py-2 border rounded">取消</button>
-      <button on:click={handleSave} class="px-4 py-2 bg-blue-500 text-white rounded">保存</button>
-    </div>
-  </div>
-</Modal>
-```
-
-### 3.2 LLM Profile 管理
-
-#### Profile 列表页 (src/routes/profiles/+page.svelte)
-```svelte
-<script lang="ts">
-  import { onMount } from 'svelte';
-  import { profileStore } from '$lib/stores/profile';
-  import { ProfileAdapter } from '$lib/adapters/profile-adapter';
-  import ProfileCard from '$lib/components/profiles/ProfileCard.svelte';
-  import CreateProfileModal from '$lib/components/profiles/CreateProfileModal.svelte';
-
-  const adapter = new ProfileAdapter();
-  
-  let showCreateModal = $state(false);
-
-  onMount(async () => {
-    profileStore.setLoading(true);
-    try {
-      const profiles = await adapter.listProfiles();
-      profileStore.setProfiles(profiles);
-    } catch (error) {
-      profileStore.setError(error.message);
-    }
-  });
-
-  async function handleCreateProfile(profile: Profile) {
-    const newProfile = await adapter.createProfile(profile);
-    profileStore.addProfile(newProfile);
-  }
-</script>
-
-<div class="space-y-6">
-  <div class="flex justify-between items-center">
-    <h1 class="text-2xl font-bold">LLM Profile 管理</h1>
-    <button 
-      on:click={() => showCreateModal = true}
-      class="px-4 py-2 bg-blue-500 text-white rounded"
-    >
-      创建 Profile
-    </button>
-  </div>
-  
-  {#if $profileStore.loading}
-    <div>Loading...</div>
-  {:else}
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-      {#each $profileStore.profiles as profile}
-        <ProfileCard {profile} />
-      {/each}
-    </div>
-  {/if}
-</div>
-
-<CreateProfileModal 
-  isOpen={showCreateModal}
-  onClose={() => showCreateModal = false}
-  onCreate={handleCreateProfile}
-/>
-```
-
-### 3.3 脚本管理
-
-#### 脚本编辑器
-```svelte
-<script lang="ts">
-  import { onMount } from 'svelte';
-  import CodeEditor from '$lib/components/common/CodeEditor.svelte';
-  import type { Script } from '@modular-agent/types';
-
-  let { script, onSave } = $props<{
-    script: Script;
-    onSave: (script: Script) => void;
-  }>();
-
-  let code = $state(script.code);
-  let parameters = $state(script.parameters);
-
-  function handleSave() {
-    onSave({
-      ...script,
-      code,
-      parameters,
-    });
-  }
-
-  async function handleTest() {
-    // 执行脚本测试
-  }
-</script>
-
-<div class="flex h-full">
-  <!-- 左侧代码编辑器 -->
-  <div class="flex-1">
-    <CodeEditor 
-      bind:value={code}
-      language="typescript"
-    />
-  </div>
-  
-  <!-- 右侧参数面板 -->
-  <div class="w-80 border-l p-4">
-    <h3 class="font-bold mb-4">参数定义</h3>
-    <!-- 参数编辑 -->
-    
-    <div class="mt-4 space-x-2">
-      <button on:click={handleTest} class="px-4 py-2 border rounded">测试</button>
-      <button on:click={handleSave} class="px-4 py-2 bg-blue-500 text-white rounded">保存</button>
-    </div>
-  </div>
-</div>
-```
-
-## 四、检查点管理
-
-### 4.1 检查点列表
-
-#### 检查点列表页 (src/routes/checkpoints/+page.svelte)
-```svelte
-<script lang="ts">
-  import { onMount } from 'svelte';
-  import { checkpointStore } from '$lib/stores/checkpoint';
-  import { CheckpointAdapter } from '$lib/adapters/checkpoint-adapter';
-  import CheckpointCard from '$lib/components/checkpoints/CheckpointCard.svelte';
-
-  const adapter = new CheckpointAdapter();
-  
-  onMount(async () => {
-    checkpointStore.setLoading(true);
-    try {
-      const checkpoints = await adapter.listCheckpoints();
-      checkpointStore.setCheckpoints(checkpoints);
-    } catch (error) {
-      checkpointStore.setError(error.message);
-    }
-  });
-
-  async function handleRestore(checkpointId: string) {
-    await adapter.restoreCheckpoint(checkpointId);
-    // 跳转到恢复的线程
-  }
-</script>
-
-<div class="space-y-6">
-  <h1 class="text-2xl font-bold">检查点管理</h1>
-  
-  {#if $checkpointStore.loading}
-    <div>Loading...</div>
-  {:else}
-    <div class="space-y-4">
-      {#each $checkpointStore.checkpoints as checkpoint}
-        <CheckpointCard 
-          {checkpoint}
-          onRestore={() => handleRestore(checkpoint.id)}
-        />
-      {/each}
-    </div>
-  {/if}
-</div>
-```
-
-### 4.2 检查点详情
-
-#### 检查点详情对话框
-```svelte
-<script lang="ts">
-  import Modal from '$lib/components/common/Modal.svelte';
-  import JsonViewer from '$lib/components/common/JsonViewer.svelte';
-  import type { Checkpoint } from '@modular-agent/types';
-
-  let { checkpoint, isOpen, onClose } = $props<{
-    checkpoint: Checkpoint;
-    isOpen: boolean;
-    onClose: () => void;
-  }>();
-</script>
-
-<Modal {isOpen} {onClose} title="检查点详情" size="large">
-  <div class="space-y-4">
-    <div>
-      <h3 class="font-bold mb-2">基本信息</h3>
-      <div class="grid grid-cols-2 gap-2">
-        <div>ID: {checkpoint.id}</div>
-        <div>创建时间: {new Date(checkpoint.createdAt).toLocaleString()}</div>
-        <div>关联线程: {checkpoint.threadId}</div>
-        <div>大小: {checkpoint.size} bytes</div>
-      </div>
-    </div>
-    
-    <div>
-      <h3 class="font-bold mb-2">状态快照</h3>
-      <JsonViewer data={checkpoint.state} />
-    </div>
-    
-    <div>
-      <h3 class="font-bold mb-2">消息历史</h3>
-      <div class="max-h-64 overflow-auto">
-        {#each checkpoint.messages as message}
-          <div class="border-b py-2">
-            <div class="font-medium">{message.role}</div>
-            <div class="text-sm text-gray-600">{message.content}</div>
-          </div>
-        {/each}
-      </div>
-    </div>
-  </div>
-</Modal>
-```
-
-## 五、事件监控
-
-### 5.1 事件流展示
-
-#### 事件监控页 (src/routes/events/+page.svelte)
-```svelte
-<script lang="ts">
-  import { onMount, onDestroy } from 'svelte';
-  import { eventStore } from '$lib/stores/event';
-  import { sseClient } from '$lib/services/sse-client';
-  import EventStream from '$lib/components/events/EventStream.svelte';
-  import EventFilter from '$lib/components/events/EventFilter.svelte';
-  import EventStats from '$lib/components/events/EventStats.svelte';
-
-  let filter = $state({
-    types: [],
-    startTime: null,
-    endTime: null,
-  });
-
-  let unsubscribe: (() => void) | null = null;
-
-  onMount(() => {
-    sseClient.connect('/api/events', ['event', 'thread:*', 'node:*', 'tool:*']);
-    unsubscribe = sseClient.subscribe('event', (event) => {
-      eventStore.addEvent(event);
-    });
-  });
-
-  onDestroy(() => {
-    if (unsubscribe) unsubscribe();
-    sseClient.disconnect();
-  });
-
-  function handleFilterChange(newFilter: EventFilter) {
-    filter = newFilter;
-    eventStore.setFilter(newFilter);
-  }
-</script>
-
-<div class="flex h-full">
-  <!-- 左侧事件流 -->
-  <div class="flex-1 flex flex-col">
-    <EventFilter onFilter={handleFilterChange} />
-    <EventStream events={$eventStore.filteredEvents} />
-  </div>
-  
-  <!-- 右侧统计 -->
-  <div class="w-80 border-l p-4">
-    <EventStats events={$eventStore.events} />
-  </div>
-</div>
-```
-
-#### 事件流组件 (EventStream.svelte)
-```svelte
-<script lang="ts">
-  import { onMount } from 'svelte';
-  import type { Event } from '@modular-agent/types';
-
-  let { events = [] } = $props<{ events: Event[] }>();
-  
-  let containerRef: HTMLDivElement;
-  let autoScroll = $state(true);
-
-  onMount(() => {
-    if (autoScroll && containerRef) {
-      containerRef.scrollTop = containerRef.scrollHeight;
-    }
-  });
-
-  function getEventColor(type: string): string {
-    const colors: Record<string, string> = {
-      'thread:started': 'bg-blue-100',
-      'thread:completed': 'bg-green-100',
-      'thread:error': 'bg-red-100',
-      'node:executed': 'bg-purple-100',
-      'tool:called': 'bg-yellow-100',
-    };
-    return colors[type] || 'bg-gray-100';
-  }
-</script>
-
-<div bind:this={containerRef} class="flex-1 overflow-auto p-4 space-y-2">
-  {#each events as event}
-    <div class="p-3 rounded {getEventColor(event.type)}">
-      <div class="flex justify-between items-start">
-        <div class="font-medium">{event.type}</div>
-        <div class="text-sm text-gray-500">
-          {new Date(event.timestamp).toLocaleTimeString()}
-        </div>
-      </div>
-      <div class="text-sm text-gray-600 mt-1">
-        {JSON.stringify(event.data)}
-      </div>
-    </div>
-  {/each}
-</div>
-```
-
-## 六、开发任务清单
-
-### 6.1 可视化编辑器
-- [ ] 集成 D3.js
-- [ ] 实现画布组件(缩放、平移)
-- [ ] 实现节点组件(拖拽、选择)
-- [ ] 实现边组件(连线)
-- [ ] 实现节点面板
-- [ ] 实现属性面板
-- [ ] 实现工具栏
-- [ ] 实现自动布局算法
-- [ ] 实现保存和加载
-
-### 6.2 执行流程可视化
-- [ ] 实现执行流程图
-- [ ] 实现节点状态展示
-- [ ] 实现执行动画
-- [ ] 实现时间线组件
-- [ ] 实现执行统计
-
-### 6.3 资源管理
-- [ ] 实现工具管理页面
-- [ ] 实现工具配置对话框
-- [ ] 实现 Profile 管理页面
-- [ ] 实现 Profile 创建对话框
-- [ ] 实现脚本管理页面
-- [ ] 实现脚本编辑器
-- [ ] 实现 Skill 管理页面
-
-### 6.4 检查点管理
-- [ ] 实现检查点列表页面
-- [ ] 实现检查点详情对话框
-- [ ] 实现检查点恢复功能
-- [ ] 实现检查点对比功能
-
-### 6.5 事件监控
-- [ ] 实现事件流展示
-- [ ] 实现事件过滤
-- [ ] 实现事件统计
-- [ ] 实现实时订阅
+| # | 任务 | 产出 |
+|---|---|---|
+| 1 | 执行列表 + 过滤 + 游标分页 + 批量操作 | 执行工作台左栏 |
+| 2 | 执行详情多分面（概览/状态/审计/分析） | 右侧检查器 |
+| 3 | 执行控制（启动/暂停/恢复/取消） | 控制条 |
+| 4 | 工作流列表、详情、版本、草稿 | 工作流页 |
+| 5 | 工作流图渲染与选择交互 | 图组件（业务层） |
+| 6 | 回路列表、详情分面、控制 | 回路页 |
+| 7 | 消息会话视图 + 滚动器组件 | 消息面 |
+| 8 | 变量列表与读写 | 变量面 |
+| 9 | 回路图与错误分析只读渲染 | 分析面 |
+| 10 | `sse.ts` 流读取器 + 执行/回路流式接入 | 流式闭环 |
+| 11 | 交互与审批入口占位（信息架构） | 检查器预留标签 |
 
 ## 七、验收标准
 
-### 7.1 功能验收
-- ✅ 工作流可视化编辑器可用
-- ✅ 支持节点拖拽和连线
-- ✅ 支持自动布局
-- ✅ 线程执行流程可视化正常
-- ✅ 工具管理功能完整
-- ✅ Profile 管理功能完整
-- ✅ 脚本管理功能完整
-- ✅ 检查点管理功能完整
-- ✅ 事件监控功能完整
+- 三个域从导航进入均可完成“列表 → 详情 → 操作”闭环，无手写响应类型，游标翻页与空/错态完整。
+- 执行详情所有分面字段来自 `schema.d.ts`，按需加载生效（大图不整页展开）。
+- 流式启动与回路运行可实时看到增量帧；停止、断连、429 均有可读反馈；关闭页面无残留连接。
+- 危险操作（批量删除、回滚、取消）全部二次确认。
+- `check` / `typecheck` / `lint` / `test` 全绿。
 
-### 7.2 技术验收
-- ✅ D3.js 集成正常
-- ✅ 图形渲染性能良好
-- ✅ 实时事件推送正常
-- ✅ 代码类型检查通过
+## 八、风险与应对
 
-## 八、时间估算
-
-- 可视化编辑器: 5 天
-- 执行流程可视化: 3 天
-- 资源管理: 4 天
-- 检查点管理: 2 天
-- 事件监控: 2 天
-- **总计: 约 16 天**
-
-## 九、下一步计划
-
-完成第二阶段后,进入第三阶段:
-- 实现触发器管理
-- 实现变量管理
-- 实现 Human Relay
-- 实现高级可视化(统计图表)
-- 性能优化
+- **详情分面字段爆炸**：按分面拆装配层组件，每分面独立 `load`，避免单组件聚合全部查询。
+- **流式渲染卡顿**：限速合并进 store，组件只观察合并后的状态；必要时对长文本分段渲染。
+- **图性能**：先摘要后按需，选型验证放在图组件任务内，不阻塞其他分面。

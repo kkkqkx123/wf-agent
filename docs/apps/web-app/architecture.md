@@ -1,458 +1,222 @@
 # Web 应用架构设计
 
-## 概述
+> 范围：`apps/web-app`。状态：与当前仓库实现对齐。后端为 Rust `wf-server`，Web 应用是**纯前端**，不存在 Node 中间层，也不再拆分 frontend/backend 双包。
+> 功能边界：`docs/plan/web/frontend-feature-list.md`；集成与类型管线：`docs/plan/web-app-integration.md`；API 契约：`docs/api/`；样式与组件：`docs/spec/web/`。
 
-Web 应用是 Modular Agent Framework 的 Web 前端,基于 Svelte 框架构建,提供可视化的工作流管理、线程监控和 Agent Loop 交互界面。本文档描述 Web 应用的初步架构设计。
+## 1. 定位与边界
 
-## 整体架构
+- `apps/web-app` 是 Modular Agent Framework 的 Web 前端，包名 `@wf-agent/web-app-frontend`，基于 SvelteKit 2 + Svelte 5 + TypeScript。
+- 所有能力来自 Rust 后端：`wf-server`（axum HTTP 传输层）← `wf-api`（应用门面）← `wf-runtime`（运行时装配）。前端**直连** `wf-server`，不经过任何自建服务端。
+- 后端驱动功能只以服务端现有路由为边界；清单见 `docs/plan/web/frontend-feature-list.md`，缺口分析（已落地）见 `docs/plan/web/server-gaps.md`。
 
-Web 应用采用前后端分离的分层架构:
-
-```
-┌─────────────────────────────────────────────────────────┐
-│                    Frontend Layer                        │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐     │
-│  │   Pages     │  │ Components  │  │   Stores    │     │
-│  │  (Svelte)   │  │  (Svelte)   │  │  (Svelte)   │     │
-│  └─────────────┘  └─────────────┘  └─────────────┘     │
-├─────────────────────────────────────────────────────────┤
-│                   Adapter Layer                          │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐     │
-│  │   API       │  │   Event     │  │   State     │     │
-│  │  Adapters   │  │   Handlers  │  │  Managers   │     │
-│  └─────────────┘  └─────────────┘  └─────────────┘     │
-├─────────────────────────────────────────────────────────┤
-│                   Backend Layer                          │
-│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐     │
-│  │   REST      │  │   SSE       │  │   SDK       │     │
-│  │   Server    │  │ Endpoints   │  │   Layer     │     │
-│  └─────────────┘  └─────────────┘  └─────────────┘     │
-└─────────────────────────────────────────────────────────┘
-```
-
-## 技术栈
-
-### 前端技术栈
-
-- **框架**: Svelte 5 (使用最新的 Runes API)
-- **构建工具**: Vite
-- **路由**: SvelteKit
-- **状态管理**: Svelte Stores
-- **UI 样式**: TailwindCSS
-- **图表可视化**: D3.js 或 ECharts (用于工作流可视化)
-- **实时通信**: SSE Client (EventSource)
-
-### 后端技术栈
-
-- **运行时**: Node.js
-- **Web 框架**: Express
-- **SSE**: 原生 HTTP Server-Sent Events
-- **SDK 集成**: @modular-agent/sdk
-
-## 核心功能模块
-
-### 1. 工作流管理模块
-
-**功能描述**:
-
-- 工作流列表展示: 显示所有已注册的工作流,支持搜索和过滤
-- 工作流详情查看: 展示工作流的节点、边、变量等详细信息
-- 工作流可视化编辑: 提供图形化界面编辑工作流结构
-- 工作流配置管理: 支持从文件导入工作流配置
-- 工作流执行控制: 启动、暂停、恢复、停止工作流执行
-
-**页面设计**:
-
-- 工作流列表页: 卡片或表格形式展示所有工作流
-- 工作流详情页: 展示工作流结构和执行历史
-- 工作流编辑页: 可视化编辑器,支持拖拽节点和连线
-
-### 2. 线程监控模块
-
-**功能描述**:
-
-- 线程列表展示: 显示所有线程及其状态(运行中、暂停、完成、失败等)
-- 线程实时监控: 实时显示线程执行进度、当前节点、执行日志
-- 线程控制操作: 暂停、恢复、取消线程执行
-- 线程检查点管理: 创建、恢复检查点
-- 线程消息查看: 查看线程执行过程中的消息历史
-
-**页面设计**:
-
-- 线程列表页: 展示所有线程,支持按状态过滤
-- 线程详情页: 实时监控线程执行,显示执行流程图和日志
-
-### 3. Agent Loop 交互模块
-
-**功能描述**:
-
-- Agent Loop 列表: 显示所有 Agent Loop 实例及其状态
-- 实时对话界面: 与 Agent Loop 进行实时对话交互
-- 工具调用查看: 显示 Agent Loop 的工具调用记录和结果
-- 消息流展示: 实时显示 Agent Loop 的消息流(文本、工具调用等)
-- Agent Loop 控制: 启动、暂停、恢复、取消 Agent Loop
-
-**页面设计**:
-
-- Agent Loop 列表页: 展示所有 Agent Loop 实例
-- Agent Loop 对话页: 类似聊天界面,支持实时交互
-
-### 4. 资源管理模块
-
-**功能描述**:
-
-- 工具管理: 查看和配置可用工具
-- 脚本管理: 管理和测试脚本
-- LLM Profile 管理: 配置和管理 LLM 配置文件
-- Skill 管理: 管理和加载 Skill
-- 触发器管理: 配置和管理触发器
-
-**页面设计**:
-
-- 资源列表页: 统一的资源列表展示
-- 资源详情页: 查看和编辑资源配置
-
-### 5. 事件监控模块
-
-**功能描述**:
-
-- 事件流展示: 实时显示系统事件流
-- 事件过滤: 按类型、时间、来源等过滤事件
-- 事件统计: 统计事件发生频率和分布
-
-**页面设计**:
-
-- 事件监控页: 实时事件流展示
-
-## 架构层次设计
-
-### 前端架构层次
-
-#### 1. 页面层 (Pages)
-
-- 使用 SvelteKit 路由系统
-- 每个功能模块对应一组路由
-- 页面负责布局和组件组合
-
-#### 2. 组件层 (Components)
-
-- **通用组件**: Button、Modal、Table、Form 等基础 UI 组件
-- **业务组件**: WorkflowEditor、ThreadMonitor、AgentChat 等业务组件
-- **布局组件**: Header、Sidebar、Footer 等布局组件
-
-#### 3. 状态管理层 (Stores)
-
-- 使用 Svelte Stores 管理应用状态
-- 每个功能模块对应一个 Store
-- 支持派生状态和响应式更新
-
-#### 4. 适配器层 (Adapters)
-
-- 封装与后端 API 的通信逻辑
-- 将 HTTP/WebSocket 消息转换为前端数据格式
-- 统一错误处理和重试机制
-
-#### 5. 服务层 (Services)
-
-- API Client: 封装 HTTP 请求
-- SSE Client: 管理 SSE 连接和事件流
-- Event Bus: 前端事件总线
-
-### 后端架构层次
-
-#### 1. REST API 层
-
-- 提供标准的 RESTful API
-- 每个资源对应一组 API 端点
-- 支持标准的 CRUD 操作
-
-#### 2. SSE 层
-
-- 提供服务端推送能力
-- 支持线程执行事件的实时推送
-- 支持 Agent Loop 消息流的实时推送
-- 基于 HTTP 协议，无需额外端口
-
-#### 3. 适配器层
-
-- 封装 SDK API 调用
-- 将 HTTP 请求转换为 SDK Command/Query
-- 处理 SDK 返回结果并转换为 HTTP 响应
-
-#### 4. 中间件层
-
-- 认证授权中间件
-- 错误处理中间件
-- 日志记录中间件
-- CORS 中间件
-
-## 数据流设计
-
-### 1. 工作流执行流程
+## 2. 整体架构
 
 ```
-用户操作 → 前端页面 → 前端适配器 → HTTP API → 后端适配器 → SDK Command → SDK 执行
+┌──────────────────────────────────────────────────────────┐
+│ apps/web-app（SvelteKit 前端）                            │
+│  ┌────────────┐  ┌────────────┐  ┌────────────────────┐  │
+│  │  装配层     │  │  业务组件   │  │  原子组件           │  │
+│  │ routes/load │  │ 时间线/差异 │  │ 按钮/表格/弹窗     │  │
+│  └─────┬──────┘  └─────┬──────┘  └────────────────────┘  │
+│        └───────────────┼────────────────────────────────┘  │
+│  ┌─────────────────────▼────────────────────────────────┐│
+│  │ src/lib/api/                                          ││
+│  │  client.ts（openapi-fetch + 信封拆包 + x-api-key）     ││
+│  │  schema.d.ts（OpenAPI 快照生成，REST 唯一类型来源）     ││
+│  │  sse.ts / ws.ts（流式与订阅，类型独立维护）             ││
+│  └─────────────────────┬────────────────────────────────┘│
+│  stores（跨组件共享状态）  │                               │
+└──────────────────────────┼───────────────────────────────┘
+                           │ HTTP /api/v1 · SSE · WebSocket
+┌──────────────────────────▼───────────────────────────────┐
+│ crates/app/wf-server（axum）                              │
+│  路由组装 · 鉴权/CORS/限流 · ApiEnvelope · SSE/WS · 静态托管│
+├──────────────────────────────────────────────────────────┤
+│ crates/app/wf-api（传输无关门面，ApiContext）               │
+├──────────────────────────────────────────────────────────┤
+│ wf-runtime → engine/infra（wf-agent、wf-workflow、存储等）  │
+└──────────────────────────────────────────────────────────┘
 ```
 
-### 2. 实时事件推送流程
+依赖方向：前端只依赖 HTTP 契约；`wf-server → wf-api` 与 `wf-server → wf-runtime`；`wf-api` 不含任何 HTTP 类型。
+
+## 3. 技术栈
+
+### 3.1 现状（已存在）
+
+| 项 | 选型 |
+|---|---|
+| 框架 | Svelte 5 + SvelteKit 2，Vite 构建 |
+| 运行环境 | Node.js >= 22（仅构建/工具链） |
+| 质量工具 | `svelte-check`、`tsc --noEmit`、ESLint、Prettier、Vitest |
+| API 类型 | `apps/web-app/openapi.json` → `tools/openapi-codegen` → `src/lib/api/schema.d.ts` |
+| API 客户端 | 规划为 `openapi-fetch`（以生成的 `paths` 泛型为事实源，见集成方案） |
+
+### 3.2 目标补充（随实施阶段引入）
+
+- 样式：TailwindCSS，主题与 Token 按 `docs/spec/web/style-guide.md`。
+- 组件分层与数据规则：按 `docs/spec/web/component-guide.md`（原子 / 业务 / 装配三层）。
+- 工作流与回路图渲染：满足组件规范的图组件要求，渲染库在实现阶段选型，不预设。
+
+## 4. 后端接口约定
+
+### 4.1 路径与信封
+
+- 业务面统一前缀 `/api/v1`；系统面（`/`、`/health`、`/system/*`、`/metrics`）在根路径。
+- 响应统一信封 `ApiEnvelope{success, data, error}`；错误统一 `ErrorResponse`，错误码可分支处理（`NOT_FOUND` / `INVALID_PARAMS` / `UNAUTHORIZED` / `FORBIDDEN` / `RATE_LIMITED` 等）。
+- 客户端封装职责：注入鉴权头、拆信封、非 2xx 与 `success=false` 归一为类型化错误。详见集成方案第 2 节。
+
+### 4.2 分页
+
+- 过滤型列表统一游标包络 `PageView{items, limit, offset, has_more}`，默认 50、上限 500，**无总数**。
+- 链与时间线类走封顶视图（截断标记），不套 `PageView`。
+- 前端按游标翻页；裸数组仅限后端注明的有界小枚举。
+
+### 4.3 鉴权与跨域
+
+- API key 鉴权：请求头 `x-api-key`，或查询参数 `api_key`（浏览器 WebSocket 场景）。
+- 开关与密钥：`AUTH_ENABLED`、`API_KEYS`（仅环境变量）；默认关闭，排除路径为 `/`、`/health`、`/api/v1/info`。
+- CORS 由 `configs/server/cors.toml` 配置，**无环境变量**；默认允许 `*` 与 `x-api-key` 头。
+- 密钥不入库不入仓：生产推荐同源托管（前端不接触密钥）；开发期可用本地 `.env.local`。
+
+### 4.4 限流
+
+- 服务端按 IP 滑动窗口限流，响应头 `x-ratelimit-*`，超限 429 + `Retry-After`。前端错误归一需覆盖 429。
+
+## 5. 类型与契约管线
 
 ```
-SDK 事件 → 后端 SSE Handler → SSE 推送 → 前端 SSE Client → 前端 Event Bus → 组件更新
+wf-server utoipa 注解
+   │  WF_REFRESH_OPENAPI=1 cargo test -p wf-server committed_snapshot_matches_document
+   ▼
+apps/web-app/openapi.json          （golden-file，提交入库，漂移即测试红）
+   │  cd tools/openapi-codegen && npm run gen
+   ▼
+tools/openapi-codegen/schema.d.ts  （中间产物，不提交）
+   │  cp schema.d.ts ../../apps/web-app/src/lib/api/schema.d.ts
+   ▼
+apps/web-app/src/lib/api/schema.d.ts（唯一正式 REST 类型，提交入库）
 ```
 
-### 3. Agent Loop 交互流程
+- 类型单一来源：接口类型全部由快照生成，禁止手写重复响应模型。
+- codegen 是独立 TS5 小包（不进 `apps` workspace），按需离线运行，不进入日常 dev/build 热路径。
+- **SSE/WS 帧类型不在此管线内**：OpenAPI 只能表达 content-type，无法描述每帧；流式类型在 `sse.ts` / `ws.ts`（或 `events.d.ts`）独立显式维护。
+- 日常校验：`cargo test -p wf-server committed_snapshot_matches_document`。
+
+## 6. 实时通道
+
+### 6.1 SSE 端点（5 个）
+
+| 端点 | 用途 |
+|---|---|
+| `GET /api/v1/events/stream` | 全局事件流，支持 `executionId`/`agentLoopId`/`workflowId`/`since` 过滤；首帧 `connected`，30s keepalive 注释帧；客户端上限 100 |
+| `POST /api/v1/workflows/{id}/execute/stream` | 工作流流式执行；唯一使用命名事件的端点（首帧 `event: metadata`） |
+| `POST /api/v1/agent-loops/{id}/stream` | Agent 回路流式运行 |
+| `POST /api/v1/llm/generate-stream` | 大模型流式生成试算 |
+| `GET /api/v1/executions/{id}/error-analysis/stream` | 错误链分析流 |
+
+- 执行流帧协议 `ExecutionStreamEvent`（`type` 标签，snake_case）：`engine`、`iteration_start`、`llm_delta`、`tool_start`、`tool_end`、`iteration_end`、`interrupted`、`completed`、`failed`、`reasoning_delta`、`usage`、`sub_agent_started`、`sub_agent_ended`。
+- 事件总线帧为 `BaseEvent`，类型名为 SCREAMING_SNAKE_CASE；`since` 游标为不透明 hex，原样回传即可断点续拉。
+
+### 6.2 WebSocket
+
+- 端点 `GET /api/v1/ws`（刻意排除在 OpenAPI 之外）。
+- 客户端帧：`subscribe` / `unsubscribe` / `ping`；订阅维度 `executionId`、`agentLoopId`、`workflowId`、`global`、`notifications`。
+- 服务端帧：`connection`、`execution_event`、`agent_loop_event`、`workflow_event`、`global_event`、`notification`、`subscribed`、`unsubscribed`、`pong`、`error`；负载为元数据，详情按需 REST 补拉。
+- 心跳 30s；鉴权与 REST 相同（头或查询参数），拒绝时关闭码 4001。
+
+### 6.3 选用规则
+
+- 简单日志与时间线 → SSE；多执行并行订阅 → WS。
+- POST 流式通道无法用原生 `EventSource` 直连，统一用可取消的流读取器封装（处理鉴权、限流、重连、断点续拉）。
+- 流式渲染限速合并，禁止逐帧全量重渲染。
+
+## 7. 前端分层与目录结构
+
+组件三层（详见 `docs/spec/web/component-guide.md`）：原子层不感知业务域；业务层可感知单域模型；装配层负责路由、数据拉取与 store 装配。
 
 ```
-用户输入 → 前端页面 → HTTP 请求 → 后端 API → SDK Command → Agent Loop 执行 → 事件流 → SSE 推送 → 前端实时显示
+apps/web-app/
+├── openapi.json                     # 后端 OpenAPI 快照（golden-file）
+├── src/
+│   ├── app.html
+│   ├── lib/
+│   │   ├── api/
+│   │   │   ├── client.ts            # openapi-fetch 客户端 + 信封拆包（规划）
+│   │   │   ├── schema.d.ts          # 生成的 REST 类型（已提交）
+│   │   │   ├── sse.ts               # SSE 接入（规划）
+│   │   │   ├── ws.ts                # WS 接入（规划）
+│   │   │   └── <domain>.ts          # 领域薄封装（可选，不重声明响应类型）
+│   │   ├── components/              # 原子层 + 业务层
+│   │   ├── stores/                  # 跨组件共享状态
+│   │   └── utils/
+│   └── routes/                      # SvelteKit 文件路由（装配层）
+├── package.json                     # @wf-agent/web-app-frontend
+├── svelte.config.js
+├── vite.config.ts
+├── tsconfig.json / tsconfig.test.json
+├── vitest.config.ts
+└── eslint.config.js / .prettierrc
 ```
 
-## 关键设计决策
-
-### 1. 前后端分离
-
-- 前端和后端独立部署
-- 通过 REST API 和 WebSocket 通信
-- 前端可独立开发和测试
-
-### 2. 实时通信优先
-
-- 线程执行和 Agent Loop 交互依赖实时通信
-- 使用 SSE (Server-Sent Events) 实现服务端推送
-- 支持事件流式推送和自动重连
-
-### 3. 状态管理策略
-
-- 使用 Svelte Stores 进行集中状态管理
-- 区分全局状态和局部状态
-- 支持状态持久化(如用户偏好设置)
-
-### 4. 组件化设计
-
-- 采用组件化架构,提高代码复用性
-- 区分通用组件和业务组件
-- 支持组件的独立测试
-
-### 5. 错误处理策略
-
-- 前端统一错误处理和用户提示
-- 后端统一错误日志和监控
-- 支持错误重试和降级策略
-
-## 与 CLI 应用的对比
-
-| 维度     | CLI 应用     | Web 应用            |
-| -------- | ------------ | ------------------- |
-| 用户界面 | 命令行       | Web 界面            |
-| 交互方式 | 命令输入     | 图形化操作          |
-| 实时反馈 | 文本输出     | 实时更新            |
-| 可视化   | 无           | 工作流可视化        |
-| 多用户   | 单用户       | 多用户支持          |
-| 部署方式 | 本地安装     | 服务器部署          |
-| 适配器层 | 直接调用 SDK | 通过 HTTP/SSE |
-
-## 扩展性考虑
-
-### 1. 插件系统
-
-- 预留插件接口,支持第三方扩展
-- 支持自定义组件和页面
-
-### 2. 国际化
-
-- 支持多语言界面
-- 使用 i18n 库管理翻译
-
-### 3. 权限管理
-
-- 支持用户角色和权限管理
-- 细粒度的资源访问控制
-
-### 4. 性能优化
-
-- 前端代码分割和懒加载
-- SSE 事件流优化和缓冲
-
-## 开发路线图
-
-### 第一阶段: 基础框架搭建
-
-- 搭建 SvelteKit 项目结构
-- 实现基础布局和路由
-- 实现后端 REST API 框架
-- 实现 SSE 通信框架
-
-### 第二阶段: 核心功能实现
-
-- 实现工作流管理功能
-- 实现线程监控功能
-- 实现 Agent Loop 交互功能
-- 实现资源管理功能
-
-### 第三阶段: 可视化增强
-
-- 实现工作流可视化编辑器
-- 实现线程执行流程可视化
-- 实现 Agent Loop 消息流可视化
-
-### 第四阶段: 优化和完善
-
-- 性能优化
-- 用户体验优化
-- 测试覆盖
-- 文档完善
-
-## 包结构设计
-
-Web 应用采用前后端分离的包结构,所有包都放在 `apps/` 目录下,使用 `web-app` 作为前缀:
-
-### 包列表
-
-#### 1. web-app-frontend
-
-**职责**: Web 前端应用,提供用户界面和交互逻辑
-
-**技术栈**:
-
-- Svelte 5 + SvelteKit
-- Vite 构建工具
-- TailwindCSS 样式
-- D3.js/ECharts 可视化
-
-**核心内容**:
-
-- 页面和路由 (SvelteKit routes)
-- UI 组件库 (通用组件 + 业务组件)
-- 状态管理 (Svelte Stores)
-- 前端适配器 (API 通信)
-- SSE 客户端
-- 工具函数和类型定义
-
-**依赖**:
-
-- @modular-agent/types (类型定义)
-- @modular-agent/common-utils (通用工具)
-
-#### 2. web-app-backend
-
-**职责**: Web 后端服务,提供 REST API 和 WebSocket 服务
-
-**技术栈**:
-
-- Node.js 运行时
-- Express (HTTP 服务)
-- 原生 HTTP (SSE)
-- @modular-agent/sdk (SDK 集成)
-
-**核心内容**:
-
-- REST API 路由和处理器
-- SSE 端点和事件流处理
-- 后端适配器 (SDK 调用)
-- 中间件 (认证、错误、日志等)
-- 配置管理
-- 工具函数
-
-**依赖**:
-
-- @modular-agent/sdk (核心 SDK)
-- @modular-agent/types (类型定义)
-- @modular-agent/common-utils (通用工具)
-
-### 包之间的关系
-
-```
-web-app-frontend  ←→  web-app-backend  ←→  @modular-agent/sdk
-     ↓                      ↓
-     └──────────────────────┘
-         (HTTP/WebSocket)
-```
-
-**通信方式**:
-
-- 前端通过 HTTP REST API 与后端通信
-- 前端通过 SSE 接收后端实时事件流
-- 后端通过 SDK Command/Query 与 SDK 交互
-
-### 目录结构
-
-```
-apps/
-├── web-app-frontend/          # 前端包
-│   ├── src/
-│   │   ├── lib/
-│   │   │   ├── components/    # UI 组件
-│   │   │   ├── stores/        # 状态管理
-│   │   │   ├── adapters/      # 前端适配器
-│   │   │   ├── services/      # 服务层
-│   │   │   ├── utils/         # 工具函数
-│   │   │   └── types/         # 类型定义
-│   │   ├── routes/            # SvelteKit 路由
-│   │   └── app.html
-│   ├── static/                # 静态资源
-│   ├── package.json
-│   ├── svelte.config.js
-│   └── vite.config.ts
-│
-└── web-app-backend/           # 后端包
-    ├── src/
-    │   ├── routes/            # REST API 路由
-    │   ├── sse/               # SSE 端点处理
-    │   ├── adapters/          # 后端适配器
-    │   ├── middleware/        # 中间件
-    │   ├── utils/             # 工具函数
-    │   └── index.ts           # 入口文件
-    ├── package.json
-    └── tsconfig.json
-```
-
-### 部署方式
-
-#### 开发环境
-
-- 前端: 使用 Vite 开发服务器,支持热更新
-- 后端: 使用 Node.js 直接运行,支持热重载
-- 前后端通过代理连接
-
-#### 生产环境
-
-- 前端: 构建为静态文件,部署到 CDN 或静态服务器
-- 后端: 部署到 Node.js 服务器
-- 前端通过配置的后端 API 地址连接
-
-### 包的独立性
-
-**前端包独立性**:
-
-- 可独立开发和测试
-- 可独立部署到静态服务器
-- 通过 Mock API 支持前端独立开发
-
-**后端包独立性**:
-
-- 可独立开发和测试
-- 可独立部署和运行
-- 提供标准的 REST API,可被其他客户端使用
-
-### 与其他应用包的关系
-
-Web 应用包与 CLI 应用包 (`cli-app`) 的关系:
-
-| 维度     | cli-app    | web-app-frontend | web-app-backend  |
-| -------- | ---------- | ---------------- | ---------------- |
-| 用户界面 | 命令行     | Web 界面         | 无界面           |
-| SDK 调用 | 直接调用   | 通过 HTTP API    | 直接调用         |
-| 适配器层 | CLI 适配器 | 前端适配器       | 后端适配器       |
-| 实时通信 | 无         | SSE Client | SSE Endpoints |
-| 部署方式 | 本地安装   | 静态部署         | 服务器部署       |
-
-**共享内容**:
-
-- 后端使用 @modular-agent/sdk 作为核心，前端主要与后端交互
-- 都使用 @modular-agent/types 和 @modular-agent/common-utils
-- 适配器设计模式相似,但实现不同
-
-## 总结
-
-Web 应用作为 Modular Agent Framework 的 Web 前端,采用现代化的技术栈和分层架构设计,提供直观的可视化界面和实时交互能力。通过前后端分离、组件化设计和实时通信,确保应用的可维护性、可扩展性和用户体验。
-
-Web 应用分为两个独立的包: `web-app-frontend` 负责前端界面和交互,`web-app-backend` 负责后端 API 和实时事件推送。两个包通过 HTTP REST API 和 SSE 通信,可独立开发和部署。
+数据流：
+
+- REST：路由 `load` → `client.call()`/`callPage()` → 拆包数据 → store 或组件状态。
+- SSE/WS：`sse.ts`/`ws.ts` 建连 → 限速合并写 store → 组件响应式消费；组件不直接持有流读取器。
+
+## 8. 配置、运行与部署
+
+### 8.1 后端侧
+
+| 项 | 来源 | 默认 |
+|---|---|---|
+| 监听地址 | CLI `--addr` > `WF_SERVER_BIND_ADDR` > `configs/server/server.toml` | `127.0.0.1:3000` |
+| 静态目录 | CLI `--static-dir` > `WF_SERVER_STATIC_DIR` > `server.toml` | 未配置 = 纯 API |
+| 鉴权 | `AUTH_ENABLED` / `API_KEYS` + `auth.toml` | 关闭 |
+| 限流 | `RATE_LIMIT_*` + `rate-limit.toml` | 见配置文件 |
+| CORS | `cors.toml`（仅文件） | `allowed_origins = ["*"]` |
+
+### 8.2 前端侧
+
+- `baseUrl`：`VITE_API_BASE`，默认 `/api/v1`（同源相对路径）。
+- 开发期接入方式在实施阶段**二选一并固化**：Vite 代理转发 `/api`（保持 `baseUrl` 不变），或显式 `VITE_API_BASE` 指向后端地址（依赖 CORS）。不并存两套。
+- 类型检查：`npm run check`（svelte-check）与 `npm run typecheck`（tsc，含测试工程）。
+
+### 8.3 部署形态
+
+- **生产（推荐，同源免 CORS）**：前端构建为静态产物，由 `wf-server --static-dir` 托管并做 SPA 回退；`/api/*` 未知路径保持 JSON 404，不回落到 index.html。适配器目标为 `@sveltejs/adapter-static`（`fallback: index.html`）。
+- **独立部署**：静态资源与 API 分离，CORS 用 `cors.toml` 放行来源并包含 `x-api-key` 头。
+
+## 9. 与 CLI / TUI 应用的对比
+
+| 维度 | CLI（wf-headless / wf-mini / wf-tui） | Web（apps/web-app） |
+|---|---|---|
+| 界面 | 终端 | 浏览器 |
+| 后端调用 | 进程内直连 SDK/门面 | HTTP `/api/v1` + SSE/WS |
+| 实时反馈 | 同步输出 + pacing | 流式推送 + 限速合并渲染 |
+| 可视化 | 文本图 | 图组件、差异查看、统计图表 |
+| 部署 | 本地安装 | 静态托管（同源优先） |
+| 状态 | 进程内存 | 前端 store + 服务端持久化 |
+
+## 10. 关键设计决策
+
+1. **无 Node 中间层**：`wf-api` 已是传输无关门面，Web 直连 `wf-server`；任何“后端适配层”都属于服务端职责，前端不再自建。
+2. **类型单一来源**：REST 类型只来自 OpenAPI 快照与生成的 `schema.d.ts`；流式类型独立维护，不假装来自快照。
+3. **实时通道不扭曲 REST 文档**：SSE/WS 的帧协议以代码与专门类型为准，不为生成器妥协。
+4. **同源部署优先**：密钥不进前端，CORS 只在独立部署时启用。
+5. **功能以服务端路由为边界**：无后端通道的功能（文件编辑、触发器定时启停、技能安装、模板评分、通知收件箱、登录/RBAC）不做前端预设。
+
+## 11. 关联文档
+
+| 文档 | 职责 |
+|---|---|
+| `docs/plan/web/frontend-feature-list.md` | 功能清单权威版（后端路由为边界） |
+| `docs/plan/web-app-integration.md` | OpenAPI 集成与 codegen 管线 |
+| `docs/plan/web/server-gaps.md` | 服务端缺口（已落地） |
+| `docs/plan/web/web-frontend-borrow-analysis.md` | UI 借鉴方向（zcode / deeix） |
+| `docs/spec/web/style-guide.md` | 主题、Token、排版、动效、状态呈现 |
+| `docs/spec/web/component-guide.md` | 组件分层与数据规则 |
+| `docs/api/08-wf-server-HTTP层.md` | HTTP 层细节 |
+| `docs/api/09-openapi-文档生成.md` | OpenAPI 生成机制 |
+| `docs/apps/web-app/web-app-feature-list.md` | 页面导航与实施阶段映射 |
+| `docs/apps/web-app/implementation-phase-1..4.md` | 分阶段实施计划 |

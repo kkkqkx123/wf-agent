@@ -1,202 +1,129 @@
-# Svelte 核心最佳实践（通用 + SvelteKit 全覆盖）
-Svelte 和 Vue/React 思路完全不同：**编译时框架、原生式响应式、极简 API**，所以最佳实践也围绕「**少写代码、利用编译特性、避免原生反模式**」展开。
+# Svelte 核心最佳实践（Svelte 5 + SvelteKit，适用 apps/web-app）
 
-我整理了**最实用、最通用、能直接落地**的最佳实践，覆盖组件、状态、性能、工程化、SvelteKit 全场景。
+> 本文面向本仓库的 Svelte 5（Runes）与 SvelteKit 2。旧版基于 Svelte 4（`export let`、`$:`、`on:click`、`createEventDispatcher`）的写法**一律不再使用**。样式与组件的项目级约束以 `docs/spec/web/style-guide.md` 与 `docs/spec/web/component-guide.md` 为准。
 
----
+## 一、组件与语法
 
-## 一、组件与语法最佳实践（最常用）
-### 1. 组件拆分：小而单一，遵循单一职责
-- 一个组件只做**一件事**，避免几百行的巨型组件
-- 可复用 UI（按钮、卡片、表单）、业务模块（列表、表单）都拆成小组件
-- 好处：可读性高、响应式更精准、热更新更快
+### 1. 组件拆分：小而单一
 
-### 2. 样式天然作用域，不要滥用全局样式
-- Svelte `<style>` **默认就是 scoped**，不用加任何修饰
-- 全局样式只放在**根组件/专门的 global.css**
-- 需要穿透作用域用 `:global()`，不要全量取消作用域
-```svelte
-<style>
-  /* 局部样式，仅当前组件生效 */
-  .card {}
-  /* 全局生效 */
-  :global(.btn) {}
-</style>
-```
+- 一个组件只做一件事；遵循组件规范三层：原子层不感知业务域，业务层只感知单域模型，装配层负责路由与数据。
+- 禁止巨型组件：接近职责边界时优先拆分，而不是加注释硬撑。
 
-### 3. Props 必写默认值 + 类型（TS）
--  props 必须声明默认值，避免 `undefined` 报错
-- 用 TS 时明确类型，让组件更健壮
+### 2. Props：`$props` + 解构默认值
+
 ```svelte
 <script lang="ts">
-  export let title: string = '默认标题';
-  export let count: number = 0;
+	let { title = '默认标题', count = 0 } = $props<{ title?: string; count?: number }>();
 </script>
 ```
 
-### 4. 事件使用原生 on: 语法，不要手动 addEventListener
-- Svelte 内置事件绑定自带**自动清理**，不会内存泄漏
-- 自定义事件用 `createEventDispatcher`，保持规范
+- 必写默认值与 TS 类型；不再使用 `export let`。
+- 命名输出用 snippet（替代 slot / `createEventDispatcher`）：
 
----
-
-## 二、响应式最佳实践（Svelte 核心）
-### 1. 能用简单变量，就不用对象/数组
-Svelte 对**基础类型响应式最丝滑、性能最好**
 ```svelte
-let count = 0; // ✅ 最佳
-count++; // 自动更新
-
-let obj = { count: 0 }; // ❌ 必须重新赋值才更新
-obj.count++; // 不更新
-obj = { ...obj }; // 必须这样写
-```
-
-### 2. 复杂更新：坚持「重新赋值」而不是修改引用
-对象/数组更新，**最佳实践是覆盖赋值**，而不是修改内部值
-```svelte
-let list = [1,2,3];
-
-// ✅ 最佳：重新赋值
-list = [...list, 4];
-
-// ❌ 不推荐：原地修改
-list.push(4);
-```
-
-### 3. 用 $: 自动计算，不要手动监听
-`$:` 是 Svelte 最强特性，**替代 watch/useEffect**
-- 自动追踪依赖
-- 代码极简、无心智负担
-```svelte
-let a = 1;
-let b = 2;
-$: total = a + b; // ✅ 自动计算
-```
-
-### 4. 不要滥用响应式：不变数据不要定义成响应式变量
-- 静态配置、常量、不参与渲染的数据，直接用 `const`
-- 减少不必要的响应式追踪，提升性能
-
----
-
-## 三、状态管理最佳实践（Svelte 原生自带）
-Svelte **不需要 Pinia/Vuex**，内置状态方案足够用，这是核心最佳实践。
-
-### 1. 组件内状态：普通变量 + $:
-### 2. 父子/跨组件：props + 事件 / context
-### 3. 全局状态：使用 writable 存储（标准方案）
-**最佳实践：按模块拆分 stores**
-```js
-// stores/user.js
-import { writable } from 'svelte/store';
-export const user = writable(null);
-export const token = writable('');
-```
-使用时用 `$` 自动订阅，极简：
-```svelte
-<script>
-  import { user } from '@/stores/user';
+<script lang="ts">
+	let { children, header }: { children: () => any; header?: () => any } = $props();
 </script>
-{$user?.name}
+
+{@render header?.()}
+{@render children()}
 ```
 
-### 4. 大型项目：状态分层
-- 页面组件 → 业务 store → 通用 store
-- 避免把所有状态塞到一个全局 store
+### 3. 事件：直接属性，不手动 addEventListener
 
----
+- 原生事件用 `onclick` / `onkeydown`（全小写属性），自带自动清理；不再用 `on:click`。
+- 组件通信优先回调 props 或 snippet，不再用 `createEventDispatcher`。
 
-## 四、性能最佳实践（Svelte 优化重点）
-### 1. 避免大列表直接渲染：使用 {#key} 或 虚拟滚动
-- 长列表渲染用 `{#key}` 精准更新
-- 超大数据用第三方虚拟滚动库
+### 4. 样式作用域
 
-### 2. 不要在模板中写复杂函数
-模板函数会**频繁执行**，复杂逻辑一定要用 `$:` 提前计算
+- `<style>` 默认 scoped；全局样式只放根组件或专门的 global 样式文件；穿透用 `:global()` 且收敛。
+- 颜色、圆角、阴影、动效时长一律走 Token，禁止硬编码（样式规范禁止事项）。
+
+## 二、响应式（Runes）
+
+### 1. `$state`：细粒度响应式
+
 ```svelte
-{#each list as item}
-  {complexFn(item)} <!-- ❌ 差 -->
-  {$computedItem}    <!-- ✅ 好 -->
-{/each}
+<script lang="ts">
+	let count = $state(0);
+	let list = $state<string[]>([]);
+	let options = $state.raw({ theme: 'dark' }); // 大对象/不可变数据用 raw，避免深层代理开销
+</script>
 ```
 
-### 3. 组件卸载自动清理：Svelte 已帮你做 99%
-- 内置事件、store 订阅都会自动清理
-- 只有**自定义定时器/第三方库**需要手动清理
+- `$state` 创建深层响应式代理：对普通对象/数组的**原地修改会触发更新**（与 Svelte 4 必须整体重赋值不同）。
+- `$state.raw` 不代理深层：适合配置、大缓存、外部库对象；修改后需整体替换引用才更新。
+- 从外部（非组件）传入的可变对象不要假设已被代理，进入组件状态时显式拷贝或包装。
+
+### 2. `$derived`：自动计算（替代 `$:`）
+
 ```svelte
-import { onDestroy } from 'svelte';
-let timer = setInterval();
-onDestroy(() => clearInterval(timer));
+let total = $derived(list.length + count);
+let heavy = $derived.by(() => expensive(list)); // 函数体放 .by
 ```
 
-### 4. 图片/资源懒加载
-SvelteKit 自带 `<img>` 优化，普通 Svelte 用原生 `loading="lazy"`
+- 派生值只读；不要在 `$derived` 里做副作用。
 
----
+### 3. `$effect`：副作用（替代 `$:` 中的副作用写法）
 
-## 五、SvelteKit（官方框架）最佳实践
-如果你用 Svelte，90% 会用 SvelteKit，这是行业标准。
+- 只用于与外部系统同步：DOM 测量、订阅、定时器、流读取器接线。
+- 清理函数写法与 `onDestroy` 等价，务必成对：
 
-### 1. 路由严格遵循文件系统路由
-- pages 路由、layouts 布局、error 页面、loading 页面都用文件约定
-- 不要手动写路由配置
-
-### 2. 数据加载：用 load 函数，不要在页面 fetch
-- 页面数据在 `+page.server.js` / `+page.js` 加载
-- 支持 SSR/SSG，性能更好、SEO 更强
-
-### 3. 服务端只放敏感逻辑
-- 接口请求、数据库、密钥 → 放 `.server.js`
-- 客户端逻辑 → 普通文件
-
-### 4. 表单提交：use:enhance 最佳实践
-SvelteKit 表单标准方案：渐进式增强、友好、无 JS 也可运行
-
----
-
-## 六、工程化与代码规范最佳实践
-### 1. 统一目录结构（行业通用）
-```
-src/
-├── components/  公共组件
-├── lib/         工具函数
-├── stores/      状态管理
-├── styles/      全局样式
-└── routes/      SvelteKit 路由
+```svelte
+$effect(() => {
+	const timer = setInterval(tick, 1000);
+	return () => clearInterval(timer);
+});
 ```
 
-### 2. 使用 ESLint + Prettier
-Svelte 官方有配置，直接使用，保持团队代码一致
+- **禁止**用 `$effect` 做“本可以 `$derived`”的派生计算；禁止在其中做无法清理的订阅。
+- 组件销毁清理：内置事件与 store 订阅自动清理，仅定时器、流读取器、第三方实例需手动返回清理函数。
 
-### 3. 组件命名：大驼峰，文件与组件名一致
-`Button.svelte`、`UserList.svelte`
+### 4. 不变数据不要响应式化
 
-### 4. 逻辑抽离：把复杂业务放到 lib/xxx.js
-Svelte 组件专注 UI，逻辑抽离成纯 JS 函数，更好维护、更好测试
+- 静态配置、常量、不参与渲染的数据用 `const`，不进 `$state`。
 
----
+## 三、状态管理
 
-## 七、最容易踩坑的“反模式”（一定要避开）
-1. **直接修改对象/数组内部值** → 界面不更新
-2. **在模板里写复杂计算** → 性能爆炸
-3. **全局样式乱写** → 样式污染
-4. **一个组件几百行** → 难以维护
-5. **手动写大量事件监听** → 内存泄漏
-6. **过度设计状态** → 明明变量就能用，非要写 store
+1. **组件内**：`$state` / `$derived`。
+2. **父子/跨组件**：props + 回调/snippet；深层共享用 `setContext`/`getContext`。
+3. **全局共享**：Svelte store（`writable`/`readable`）仍可用，按域拆分文件（`stores/<domain>.ts`）；模板中 `$store` 自动订阅。
+4. **服务端数据**：优先 SvelteKit `load`（`+page.ts` / `+layout.ts`）拉取，页面组件消费；不在模板里发请求。
+5. **分层约束**（组件规范）：组件不直接持有流读取器；流式数据限速合并后写 store；本地偏好走统一偏好封装，不直读写 storage。
 
----
+## 四、SvelteKit 约定
 
-# 核心最佳实践总结（一句话记住）
-**用原生思维写代码，用赋值做响应式，用 $: 做计算，用 store 做全局状态，组件拆小，逻辑抽离，遵循 SvelteKit 约定。**
+- 严格文件系统路由；布局用 `+layout.svelte`，数据用 `load`，不在页面 `onMount` 里做首屏关键请求。
+- 装配层（routes）负责：路由参数、`load`、领域 API 调用、store 组装；不写原子渲染细节。
+- 本应用为静态部署（`adapter-static` + SPA 回退），按客户端渲染模型设计，不依赖 SSR SEO。
+- API 访问一律走 `src/lib/api/client.ts` 封装，禁止组件内散落 `fetch('/api/...')`。
 
-Svelte 的最佳实践本质就是：**越少代码、越少框架 API、越贴近原生，越好。**
+## 五、性能
 
----
+- 模板中不写复杂函数：先 `$derived` 再渲染；`{#each}` 带稳定 `key`。
+- 大列表虚拟滚动（公共封装），不整页渲染万级行。
+- 流式更新限速合并进 store，组件观察合并结果，避免逐帧重渲染；长文本可分段渲染。
+- 图片与重型预览按需加载；详情分面按需 `load`。
+- `$state.raw` 用于大体量快照数据，减少代理成本。
 
-### 总结
-1. **组件**：小而单一、样式作用域、props 默认值
-2. **响应式**：基础变量优先、重新赋值、$: 计算
-3. **状态**：组件内变量、跨组件 context、全局 store
-4. **性能**：模板无复杂函数、长列表优化、自动清理
-5. **工程化**：SvelteKit 约定优先、规范目录、逻辑抽离
+## 六、工程与质量
+
+- 目录：`src/lib/api`（契约）、`src/lib/components`（原子 + 业务）、`src/lib/stores`、`src/routes`（装配）。
+- 组件文件大驼峰，与组件名一致；代码英文，注释只描述意图、不引用文档章节编号。
+- 门禁：`npm run check`（svelte-check）、`npm run typecheck`、`npm run lint`、`npm run test`；合入前全绿。
+- 禁止 `unwrap` 式空断言蔓延到前端等价物：不做无意义兜底分支掩盖错误，错误走错误态组件显式呈现。
+
+## 七、反模式清单（禁止）
+
+1. 使用 Svelte 4 语法：`export let`、`$:`、`on:click`、`createEventDispatcher`、slot。
+2. 组件内直接 `fetch` 后端接口或绕过 `client.ts`。
+3. 手写与 `schema.d.ts` 重复的响应模型。
+4. `$effect` 做派生计算、或写不可清理的副作用。
+5. 对 `$state.raw` 数据做原地修改并期望更新。
+6. 硬编码色值、自创圆角/阴影/动效时长（绕过 Token）。
+7. 巨型组件、跨域拼装业务组件、组件直连流读取器。
+8. 用空态/兜底值吞掉错误，不走错误态与重试。
+
+## 八、一句话总结
+
+**Runes 表达状态，`$derived` 做计算，`$effect` 只对接外部世界；数据经 `client.ts` 与 `load` 进装配层，组件只消费视图模型；样式走 Token，流式进 store，门禁全绿再合入。**

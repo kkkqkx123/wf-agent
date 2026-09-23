@@ -94,7 +94,7 @@ async fn handle_file_timeline(
     Path(path): Path<IdPath>,
 ) -> impl IntoResponse {
     // The route captures the file path as `id`; slashes arrive percent-encoded.
-    match wf_api::checkpoint::provenance::file_timeline(&state.ctx, &path.id) {
+    match wf_api::checkpoint::provenance::file_timeline_capped(&state.ctx, &path.id) {
         Ok(timeline) => ok(timeline).into_response(),
         Err(err) => error_response(err),
     }
@@ -222,9 +222,20 @@ async fn handle_begin_session(
     }
 }
 
-async fn handle_list_sessions(State(state): State<ApiState>) -> impl IntoResponse {
+async fn handle_list_sessions(
+    State(state): State<ApiState>,
+    Query(query): Query<ListQuery>,
+) -> impl IntoResponse {
     match wf_api::checkpoint::provenance::list_sessions(&state.ctx) {
-        Ok(sessions) => ok(sessions).into_response(),
+        Ok(sessions) => {
+            let (limit, offset) = resolve_page(&query);
+            let window = sessions
+                .into_iter()
+                .skip(offset as usize)
+                .take(fetch_size(limit) as usize)
+                .collect();
+            ok_page(window, limit, offset).into_response()
+        }
         Err(err) => error_response(err),
     }
 }

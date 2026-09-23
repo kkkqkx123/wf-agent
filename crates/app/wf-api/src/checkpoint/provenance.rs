@@ -78,6 +78,34 @@ pub fn file_timeline(
     wf_checkpoint::provenance::file_timeline(storage, path).map_err(ApiError::execution_with_source)
 }
 
+/// Maximum entries returned by a file timeline view.
+pub const MAX_FILE_TIMELINE_ENTRIES: usize = 5000;
+
+/// Capped file timeline view with total before truncation.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct FileTimelineView {
+    pub original_path: String,
+    pub entries: Vec<wf_checkpoint::provenance::FileTimelineEntry>,
+    pub truncated: bool,
+    pub total: usize,
+}
+
+/// File timeline with cap and truncation flag. Entries are chronological, so
+/// the earliest page is stable.
+pub fn file_timeline_capped(ctx: &ApiContext, path: &str) -> ApiResult<FileTimelineView> {
+    let timeline = file_timeline(ctx, path)?;
+    let total = timeline.entries.len();
+    let truncated = total > MAX_FILE_TIMELINE_ENTRIES;
+    let mut entries = timeline.entries;
+    entries.truncate(MAX_FILE_TIMELINE_ENTRIES);
+    Ok(FileTimelineView {
+        original_path: timeline.original_path,
+        entries,
+        truncated,
+        total,
+    })
+}
+
 /// Explicit rename: record the move linkage and apply it as delete-old +
 /// edit-new for the actor's partition. Returns the new snapshot id (hex).
 pub fn rename_file(
@@ -152,8 +180,8 @@ pub const MAX_TREE_ENTRIES: usize = 2000;
 /// Read-only view of one workspace file. `version` is `None` for workspace
 /// current state; snapshot-versioned reads are distinguished by callers via
 /// the file timeline (snapshot ids + hashes) and remain timeline-anchored.
-/// Write operations must go through the approval channel; there is no direct
-/// upload/overwrite bypass.
+/// Direct workspace mutations (rename, sessions, undo/redo) are explicit file
+/// operations; the approval channel covers human-in-the-loop tool approvals.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct FileContentView {
     pub path: String,

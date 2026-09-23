@@ -10,7 +10,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::Router;
 use futures::StreamExt;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use wf_api::EventSubscriptionOptions;
 
@@ -224,8 +224,46 @@ async fn handle_execution_timeline_view(
     Path(path): Path<ExecutionIdPath>,
 ) -> impl IntoResponse {
     match wf_api::infra::events::get_execution_timeline(&state.ctx, &path.execution_id).await {
-        Ok(timeline) => ok(timeline).into_response(),
+        Ok(Some(timeline)) => ok(cap_execution_timeline(timeline)).into_response(),
+        Ok(None) => ok(serde_json::Value::Null).into_response(),
         Err(e) => error_response(e),
+    }
+}
+
+/// Capped execution timeline view with an explicit truncation flag and
+/// pre-truncation total.
+#[derive(Serialize)]
+struct CappedExecutionTimelineView {
+    execution_id: String,
+    workflow_id: Option<String>,
+    status: String,
+    start_time: i64,
+    end_time: i64,
+    total_elapsed: i64,
+    phases: Vec<wf_api::infra::events::ExecutionTimelinePhase>,
+    events: Vec<wf_types::events::BaseEvent>,
+    truncated: bool,
+    total: usize,
+}
+
+fn cap_execution_timeline(
+    timeline: wf_api::infra::events::ExecutionTimeline,
+) -> CappedExecutionTimelineView {
+    let total = timeline.events.len();
+    let truncated = total > MAX_TIMELINE_ENTRIES;
+    let mut events = timeline.events;
+    events.truncate(MAX_TIMELINE_ENTRIES);
+    CappedExecutionTimelineView {
+        execution_id: timeline.execution_id,
+        workflow_id: timeline.workflow_id,
+        status: timeline.status,
+        start_time: timeline.start_time,
+        end_time: timeline.end_time,
+        total_elapsed: timeline.total_elapsed,
+        phases: timeline.phases,
+        events,
+        truncated,
+        total,
     }
 }
 
@@ -233,6 +271,8 @@ async fn handle_execution_timeline_summary(
     State(state): State<ApiState>,
     Path(path): Path<ExecutionIdPath>,
 ) -> impl IntoResponse {
+    // Compact counts-only digest with no event dump; retained as a single
+    // object with no pagination or cap.
     match wf_api::infra::events::execution_timeline_summary(&state.ctx, &path.execution_id).await {
         Ok(summary) => ok(summary).into_response(),
         Err(e) => error_response(e),

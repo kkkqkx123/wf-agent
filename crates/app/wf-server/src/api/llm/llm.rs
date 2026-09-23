@@ -271,6 +271,8 @@ async fn handle_import_all_profiles(
 }
 
 async fn handle_list_templates(State(state): State<ApiState>) -> impl IntoResponse {
+    // Bounded in-memory catalog (built-in plus custom templates); retained as
+    // a bare array with no pagination.
     match wf_api::llm::llm_profile::list_templates(&state.ctx).await {
         Ok(templates) => ok(templates).into_response(),
         Err(e) => error_response(e),

@@ -11,6 +11,7 @@ use serde::Serialize;
 
 use crate::envelope::{err, error_response, ok};
 use crate::extract::{IdNodePath, IdPath};
+use crate::paged::{ok_capped, MAX_CHAIN_ENTRIES};
 use crate::router::ApiState;
 pub(crate) fn routes() -> Router<ApiState> {
     Router::new()
@@ -404,6 +405,8 @@ async fn handle_tool_chain(
     State(state): State<ApiState>,
     Path(path): Path<IdNodePath>,
 ) -> impl IntoResponse {
+    // Single-node inferred dependencies are bounded (at most one entry per
+    // node type); capped with an explicit truncation flag like other chains.
     match wf_api::workflow::workflow_iteration::get_tool_dependency_chain(
         &state.ctx,
         &path.id,
@@ -411,7 +414,7 @@ async fn handle_tool_chain(
     )
     .await
     {
-        Ok(chain) => ok(chain).into_response(),
+        Ok(chain) => ok_capped(chain, MAX_CHAIN_ENTRIES).into_response(),
         Err(e) => error_response(e),
     }
 }

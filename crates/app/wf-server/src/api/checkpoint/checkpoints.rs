@@ -6,7 +6,7 @@ use axum::extract::{Path, Query, State};
 use axum::response::IntoResponse;
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use wf_api::CheckpointListOptions;
@@ -14,7 +14,7 @@ use wf_api::CheckpointListOptions;
 use crate::api::workflow::executions::ExecuteView;
 use crate::envelope::{error_response, ok};
 use crate::extract::{CidPath, EntityIdPath, IdPath, ListQuery};
-use crate::paged::{fetch_size, ok_page, resolve_page};
+use crate::paged::{fetch_size, ok_page, resolve_page, MAX_CHAIN_ENTRIES};
 use crate::router::ApiState;
 pub(crate) fn routes() -> Router<ApiState> {
     Router::new()
@@ -92,13 +92,49 @@ async fn handle_checkpoint_chain(
             .await
     {
         if matches!(e, wf_api::ApiError::ExecutionNotFound { .. }) {
-            return ok(wf_api::checkpoint::record::empty_chain(&path.id)).into_response();
+            return ok(cap_chain(wf_api::checkpoint::record::empty_chain(&path.id)))
+                .into_response();
         }
         return error_response(e);
     }
     match wf_api::checkpoint::record::chain_for_execution(&state.ctx, &path.id, None).await {
-        Ok(chain) => ok(chain).into_response(),
+        Ok(chain) => ok(cap_chain(chain)).into_response(),
         Err(e) => error_response(e),
+    }
+}
+
+/// Capped chain view for single-execution checkpoint chains: full structure
+/// up to a hard cap with an explicit truncation flag and pre-truncation
+/// total.
+#[derive(Serialize)]
+struct CappedChainView {
+    execution_id: String,
+    checkpoints: Vec<wf_types::Checkpoint>,
+    transitions: Vec<wf_api::checkpoint::record::CheckpointTransitionView>,
+    total_elapsed: i64,
+    checkpoint_count: usize,
+    time_range: wf_api::checkpoint::record::CheckpointTimeRangeView,
+    truncated: bool,
+    total: usize,
+}
+
+fn cap_chain(chain: wf_api::checkpoint::record::CheckpointChainAnalysisView) -> CappedChainView {
+    let total = chain.checkpoint_count;
+    let truncated = total > MAX_CHAIN_ENTRIES;
+    let mut checkpoints = chain.checkpoints;
+    let mut transitions = chain.transitions;
+    checkpoints.truncate(MAX_CHAIN_ENTRIES);
+    transitions.truncate(MAX_CHAIN_ENTRIES);
+    let checkpoint_count = checkpoints.len();
+    CappedChainView {
+        execution_id: chain.execution_id,
+        checkpoints,
+        transitions,
+        total_elapsed: chain.total_elapsed,
+        checkpoint_count,
+        time_range: chain.time_range,
+        truncated,
+        total,
     }
 }
 

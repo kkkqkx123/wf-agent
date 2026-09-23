@@ -15,7 +15,10 @@
 		align-items: center;
 		justify-content: center;
 		min-height: 100vh;
-		font-family: system-ui, -apple-system, sans-serif;
+		font-family:
+			system-ui,
+			-apple-system,
+			sans-serif;
 		text-align: center;
 		padding: 2rem;
 	}

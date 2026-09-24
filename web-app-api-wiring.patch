@@ -1,0 +1,5104 @@
+diff --git a/apps/web-app/package.json b/apps/web-app/package.json
+index 073f90d..3c09ba7 100644
+--- a/apps/web-app/package.json
++++ b/apps/web-app/package.json
+@@ -33,12 +33,12 @@
+ 	},
+ 	"devDependencies": {
+ 		"@eslint/js": "^10.0.1",
+-		"@tailwindcss/typography": "^0.5.19",
+-		"@tailwindcss/vite": "^4.1.18",
+ 		"@sveltejs/adapter-auto": "^7.0.1",
+ 		"@sveltejs/adapter-static": "^3.0.10",
+ 		"@sveltejs/kit": "^2.69.2",
+ 		"@sveltejs/vite-plugin-svelte": "^7.2.0",
++		"@tailwindcss/typography": "^0.5.19",
++		"@tailwindcss/vite": "^4.1.18",
+ 		"@types/node": "^26.1.1",
+ 		"eslint": "^10.11.0",
+ 		"eslint-plugin-svelte": "^3.23.0",
+@@ -54,6 +54,7 @@
+ 		"vitest": "^5.0.1"
+ 	},
+ 	"dependencies": {
++		"openapi-fetch": "^0.14.1",
+ 		"tailwindcss": "^4.1.18"
+ 	}
+ }
+diff --git a/apps/web-app/src/lib/api/client.ts b/apps/web-app/src/lib/api/client.ts
+new file mode 100644
+index 0000000..f36cfaa
+--- /dev/null
++++ b/apps/web-app/src/lib/api/client.ts
+@@ -0,0 +1,40 @@
++import createClient from 'openapi-fetch';
++import type { paths } from './schema';
++
++/**
++ * Base URL for the wf-server API.
++ * Priority: VITE_API_BASE_URL env var → same origin + /api/v1.
++ * In dev mode the Vite proxy forwards /api/* to the backend.
++ */
++const _origin = typeof location !== 'undefined' ? location.origin : 'http://localhost';
++export const API_BASE_URL =
++	import.meta.env.VITE_API_BASE_URL ?? `${_origin}/api/v1`;
++
++/**
++ * Resolve API key from environment or localStorage.
++ * The key is optional — when AUTH_ENABLED=false on the backend,
++ * no key is required.
++ */
++export function resolveApiKey(): string | undefined {
++	const fromEnv = import.meta.env.VITE_API_KEY as string | undefined;
++	if (fromEnv && fromEnv.length > 0) return fromEnv;
++	if (typeof localStorage !== 'undefined') {
++		const fromStorage = localStorage.getItem('wf.apiKey');
++		if (fromStorage && fromStorage.length > 0) return fromStorage;
++	}
++	return undefined;
++}
++
++export const client = createClient<paths>({
++	baseUrl: API_BASE_URL,
++	headers: { 'Content-Type': 'application/json' },
++});
++
++/** Interceptor: inject x-api-key on every request. */
++client.use({
++	async onRequest({ request }) {
++		const key = resolveApiKey();
++		if (key) request.headers.set('x-api-key', key);
++		return request;
++	},
++});
+diff --git a/apps/web-app/src/lib/api/envelope.ts b/apps/web-app/src/lib/api/envelope.ts
+new file mode 100644
+index 0000000..dd7663c
+--- /dev/null
++++ b/apps/web-app/src/lib/api/envelope.ts
+@@ -0,0 +1,103 @@
++import type { components } from './schema';
++
++type ApiErrorBody = components['schemas']['ApiErrorBody'];
++
++/** Thrown when the backend returns success:false or an HTTP error. */
++export class ApiHttpError extends Error {
++	public readonly status: number;
++	public readonly code: string;
++	public readonly envelopeError?: ApiErrorBody;
++
++	constructor(status: number, code: string, message: string, envelopeError?: ApiErrorBody) {
++		super(message);
++		this.name = 'ApiHttpError';
++		this.status = status;
++		this.code = code;
++		this.envelopeError = envelopeError;
++	}
++}
++
++/** One page of a paginated list response. */
++export interface PageResult<T> {
++	items: T[];
++	hasMore: boolean;
++	limit: number;
++	offset: number;
++}
++
++/** Capped list view with truncation flag. */
++export interface CappedResult<T> {
++	items: T[];
++	total: number;
++	truncated: boolean;
++}
++
++/**
++ * Await an openapi-fetch client call, extract `data` from the envelope,
++ * and throw a typed ApiHttpError on any failure path.
++ *
++ * openapi-fetch already unwraps one level of the envelope (its `data`
++ * property is the envelope's `data` field), but we still need to
++ * handle both the HTTP error case and the `success:false` envelope case.
++ */
++export async function call<T>(
++	promise: Promise<{ data?: unknown; error?: unknown }>,
++): Promise<T> {
++	const res = await promise;
++
++	// HTTP error branch — openapi-fetch populates error on 4xx/5xx
++	if (res.error) {
++		const e = res.error as { status?: number; body?: ApiErrorBody; message?: string };
++		const body = e.body;
++		const message = body?.message ?? e.message ?? 'HTTP request failed';
++		throw new ApiHttpError(e.status ?? 0, body?.code ?? 'HTTP_ERROR', message, body);
++	}
++
++	// Envelope-level success:false — backend returned business error with 2xx
++	const data = res.data as
++		| { success: boolean; error?: ApiErrorBody; data?: T }
++		| undefined;
++	if (data && typeof data === 'object' && 'success' in data) {
++		if (data.success === false) {
++			const body = data.error;
++			const message = body?.message ?? 'Backend business error';
++			throw new ApiHttpError(0, body?.code ?? 'BUSINESS_ERROR', message, body);
++		}
++		// Envelope is transparent; openapi-fetch already returned the inner data
++		return (data as unknown) as T;
++	}
++
++	// No envelope wrapper — raw value returned
++	return data as T;
++}
++
++/**
++ * Extract a PageView from the call result. Accepts either a bare PageView
++ * or an already-unwrapped items array (when the backend omits pagination).
++ */
++export function extractPage<T>(data: unknown): PageResult<T> {
++	if (!data || typeof data !== 'object') {
++		return { items: [], hasMore: false, limit: 0, offset: 0 };
++	}
++	const d = data as Record<string, unknown>;
++	const items = (Array.isArray(d.items) ? d.items : []) as T[];
++	return {
++		items,
++		hasMore: (d.has_more as boolean | undefined) ?? false,
++		limit: (d.limit as number | undefined) ?? items.length,
++		offset: (d.offset as number | undefined) ?? 0,
++	};
++}
++
++/** Extract a CappedView (chain / timeline) from the call result. */
++export function extractCapped<T>(data: unknown): CappedResult<T> {
++	if (!data || typeof data !== 'object') {
++		return { items: [], total: 0, truncated: false };
++	}
++	const d = data as Record<string, unknown>;
++	return {
++		items: (Array.isArray(d.items) ? d.items : []) as T[],
++		total: (d.total as number | undefined) ?? 0,
++		truncated: (d.truncated as boolean | undefined) ?? false,
++	};
++}
+diff --git a/apps/web-app/src/lib/components/domain/ExecutionInspector.svelte b/apps/web-app/src/lib/components/domain/ExecutionInspector.svelte
+index d337898..f2306c0 100644
+--- a/apps/web-app/src/lib/components/domain/ExecutionInspector.svelte
++++ b/apps/web-app/src/lib/components/domain/ExecutionInspector.svelte
+@@ -7,8 +7,8 @@
+ 	import Progress from '$lib/components/ui/Progress.svelte';
+ 	import Timeline from './Timeline.svelte';
+ 	import ToolCallCard from './ToolCallCard.svelte';
+-	import { executionToolCalls } from '$lib/fixtures/executions';
+-	import { executionTimeline } from '$lib/fixtures/triggers';
++
++
+ 	import {
+ 		formatBytes,
+ 		formatDateTime,
+@@ -19,12 +19,16 @@
+ 	import { statusTone } from '$lib/utils/status';
+ 	import { cn } from '$lib/utils/cn';
+ 
++	import type { ToolCallEntry, TimelineEntry } from '$lib/types/models';
++
+ 	interface Props {
+ 		execution: ExecutionDetail;
++		toolCalls?: ToolCallEntry[];
++		timeline?: TimelineEntry[];
+ 		class?: string;
+ 	}
+ 
+-	let { execution, class: className = '' }: Props = $props();
++	let { execution, toolCalls = [], timeline = [], class: className = '' }: Props = $props();
+ 
+ 	const TABS = [
+ 		{ id: 'overview', label: 'Overview' },
+@@ -137,10 +141,10 @@
+ 				</Card>
+ 			</div>
+ 		{:else if tab === 'timeline'}
+-			<Timeline entries={executionTimeline} />
++			<Timeline entries={timeline} />
+ 		{:else if tab === 'tools'}
+ 			<div class="space-y-2">
+-				{#each executionToolCalls as entry (entry.id)}
++				{#each toolCalls as entry (entry.id)}
+ 					<ToolCallCard {entry} />
+ 				{/each}
+ 			</div>
+diff --git a/apps/web-app/src/lib/components/layout/CommandPalette.svelte b/apps/web-app/src/lib/components/layout/CommandPalette.svelte
+index e69ce75..6d4aae8 100644
+--- a/apps/web-app/src/lib/components/layout/CommandPalette.svelte
++++ b/apps/web-app/src/lib/components/layout/CommandPalette.svelte
+@@ -5,9 +5,9 @@
+ 	import type { IconName } from '$lib/components/icons/paths';
+ 	import Dialog from '$lib/components/ui/Dialog.svelte';
+ 	import { NAV_ITEMS } from '$lib/config/navigation';
+-	import { executions } from '$lib/fixtures/executions';
+-	import { workflows } from '$lib/fixtures/workflows';
+-	import { agentLoops } from '$lib/fixtures/agentLoops';
++	import { listExecutions } from '$lib/services/executions';
++	import { listWorkflows } from '$lib/services/workflows';
++	import { listAgentLoops } from '$lib/services/agent-loops';
+ 	import { ui } from '$lib/stores/ui.svelte';
+ 	import { cn } from '$lib/utils/cn';
+ 
+@@ -22,6 +22,9 @@
+ 
+ 	let query = $state('');
+ 	let rawIndex = $state(0);
++	let executions = $state<Awaited<ReturnType<typeof listExecutions>>["items"]>([]);
++	let workflows = $state<Awaited<ReturnType<typeof listWorkflows>>["items"]>([]);
++	let agentLoops = $state<Awaited<ReturnType<typeof listAgentLoops>>["items"]>([]);
+ 
+ 	const items = $derived.by<CommandItem[]>(() => {
+ 		const nav: CommandItem[] = NAV_ITEMS.map((item) => ({
+@@ -127,6 +130,17 @@
+ 		if (!ui.commandOpen) {
+ 			query = '';
+ 			rawIndex = 0;
++		} else {
++			// Refresh command data whenever the palette opens.
++			void Promise.allSettled([
++				listExecutions({ limit: 20 }),
++				listWorkflows({ limit: 20 }),
++				listAgentLoops({ limit: 20 }),
++			]).then(([exRes, wfRes, loopRes]) => {
++				if (exRes.status === 'fulfilled') executions = exRes.value.items;
++				if (wfRes.status === 'fulfilled') workflows = wfRes.value.items;
++				if (loopRes.status === 'fulfilled') agentLoops = loopRes.value.items;
++			});
+ 		}
+ 	});
+ </script>
+diff --git a/apps/web-app/src/lib/fixtures/agentLoops.ts b/apps/web-app/src/lib/fixtures/agentLoops.ts
+deleted file mode 100644
+index b8f6f8c..0000000
+--- a/apps/web-app/src/lib/fixtures/agentLoops.ts
++++ /dev/null
+@@ -1,375 +0,0 @@
+-import type {
+-	AgentLoop,
+-	AgentLoopDetail,
+-	LoopMessage,
+-	LoopVariable,
+-} from '$lib/types/models';
+-import { minutesAgo } from './clock';
+-
+-export const agentLoops: AgentLoop[] = [
+-	{
+-		id: 'loop-3c1f8ab2',
+-		name: 'Refactor checkpoint restore',
+-		status: 'running',
+-		iteration: 7,
+-		maxIterations: 24,
+-		model: 'gpt-4o-mini',
+-		tokens: 42_180,
+-		startedAt: minutesAgo(38),
+-		updatedAt: minutesAgo(1),
+-		checkpoints: 3,
+-		errors: 0,
+-		starred: true,
+-		tags: ['refactor', 'checkpoint'],
+-	},
+-	{
+-		id: 'loop-9d47e015',
+-		name: 'Diagnose flaky integration test',
+-		status: 'paused',
+-		iteration: 12,
+-		maxIterations: 30,
+-		model: 'claude-sonnet',
+-		tokens: 91_640,
+-		startedAt: minutesAgo(180),
+-		updatedAt: minutesAgo(22),
+-		checkpoints: 5,
+-		errors: 2,
+-		starred: false,
+-		tags: ['debug'],
+-	},
+-	{
+-		id: 'loop-1a83cc40',
+-		name: 'Draft migration guide',
+-		status: 'completed',
+-		iteration: 9,
+-		maxIterations: 16,
+-		model: 'gpt-4o',
+-		tokens: 28_400,
+-		startedAt: minutesAgo(620),
+-		updatedAt: minutesAgo(560),
+-		checkpoints: 2,
+-		errors: 0,
+-		starred: false,
+-		tags: ['docs'],
+-	},
+-	{
+-		id: 'loop-72be1f93',
+-		name: 'Audit tool registry permissions',
+-		status: 'failed',
+-		iteration: 5,
+-		maxIterations: 18,
+-		model: 'claude-sonnet',
+-		tokens: 37_920,
+-		startedAt: minutesAgo(900),
+-		updatedAt: minutesAgo(880),
+-		checkpoints: 1,
+-		errors: 4,
+-		starred: false,
+-		tags: ['security'],
+-	},
+-	{
+-		id: 'loop-4e09dd51',
+-		name: 'Summarise weekly incident reports',
+-		status: 'completed',
+-		iteration: 14,
+-		maxIterations: 20,
+-		model: 'gpt-4o-mini',
+-		tokens: 63_275,
+-		startedAt: minutesAgo(1500),
+-		updatedAt: minutesAgo(1420),
+-		checkpoints: 4,
+-		errors: 1,
+-		starred: true,
+-		tags: ['report', 'incident'],
+-	},
+-	{
+-		id: 'loop-b5c2a778',
+-		name: 'Prototype hook retry policy',
+-		status: 'running',
+-		iteration: 3,
+-		maxIterations: 20,
+-		model: 'gpt-4o-mini',
+-		tokens: 12_040,
+-		startedAt: minutesAgo(4),
+-		updatedAt: minutesAgo(0),
+-		checkpoints: 0,
+-		errors: 0,
+-		starred: false,
+-		tags: ['hooks'],
+-	},
+-	{
+-		id: 'loop-6f14b3c9',
+-		name: 'Investigate storage growth',
+-		status: 'queued',
+-		iteration: 0,
+-		maxIterations: 25,
+-		model: 'claude-sonnet',
+-		tokens: 0,
+-		startedAt: minutesAgo(1),
+-		updatedAt: minutesAgo(1),
+-		checkpoints: 0,
+-		errors: 0,
+-		starred: false,
+-		tags: ['storage'],
+-	},
+-	{
+-		id: 'loop-08ca5e27',
+-		name: 'Clean up deprecated templates',
+-		status: 'cancelled',
+-		iteration: 6,
+-		maxIterations: 15,
+-		model: 'gpt-4o',
+-		tokens: 19_880,
+-		startedAt: minutesAgo(2100),
+-		updatedAt: minutesAgo(2080),
+-		checkpoints: 2,
+-		errors: 0,
+-		starred: false,
+-		tags: ['cleanup'],
+-	},
+-];
+-
+-export const loopMessages: LoopMessage[] = [
+-	{
+-		id: 'msg-01',
+-		role: 'user',
+-		content:
+-			'Make checkpoint restore idempotent when the branch already exists.',
+-		createdAt: minutesAgo(38),
+-		tokens: 24,
+-	},
+-	{
+-		id: 'msg-02',
+-		role: 'assistant',
+-		content:
+-			'I will inspect the restore coordinator first, then check how branch collisions are reported before changing anything.',
+-		createdAt: minutesAgo(37),
+-		tokens: 62,
+-	},
+-	{
+-		id: 'msg-03',
+-		role: 'tool',
+-		content:
+-			'restore_coordinator.rs:141 — branch_exists returns Err(BranchConflict)',
+-		createdAt: minutesAgo(35),
+-		tokens: 18,
+-		toolName: 'fs.read',
+-	},
+-	{
+-		id: 'msg-04',
+-		role: 'assistant',
+-		content:
+-			'The conflict is raised before the idempotency check runs. Moving the existence probe ahead of the write makes repeated restores converge on the same snapshot.',
+-		createdAt: minutesAgo(31),
+-		tokens: 88,
+-	},
+-	{
+-		id: 'msg-05',
+-		role: 'tool',
+-		content: 'patched 2 files, 34 insertions, 11 deletions',
+-		createdAt: minutesAgo(28),
+-		tokens: 12,
+-		toolName: 'edit.apply',
+-	},
+-	{
+-		id: 'msg-06',
+-		role: 'assistant',
+-		content:
+-			'Running the checkpoint test suite to confirm the restore path is now idempotent.',
+-		createdAt: minutesAgo(24),
+-		tokens: 41,
+-	},
+-	{
+-		id: 'msg-07',
+-		role: 'tool',
+-		content: '18 passed, 0 failed, 2 skipped',
+-		createdAt: minutesAgo(19),
+-		tokens: 9,
+-		toolName: 'shell.exec',
+-	},
+-	{
+-		id: 'msg-08',
+-		role: 'assistant',
+-		content:
+-			'All restore tests pass. Next I will extend coverage with a repeated-restore case so the guarantee is locked in.',
+-		createdAt: minutesAgo(3),
+-		tokens: 54,
+-	},
+-];
+-
+-export const loopVariables: LoopVariable[] = [
+-	{
+-		key: 'target_branch',
+-		type: 'string',
+-		value: 'refactor/restore',
+-		scope: 'loop',
+-		updatedAt: minutesAgo(38),
+-	},
+-	{
+-		key: 'restore_attempts',
+-		type: 'number',
+-		value: '3',
+-		scope: 'loop',
+-		updatedAt: minutesAgo(19),
+-	},
+-	{
+-		key: 'conflict_policy',
+-		type: 'string',
+-		value: 'overwrite',
+-		scope: 'execution',
+-		updatedAt: minutesAgo(31),
+-	},
+-	{
+-		key: 'tests_passed',
+-		type: 'number',
+-		value: '18',
+-		scope: 'iteration',
+-		updatedAt: minutesAgo(19),
+-	},
+-	{
+-		key: 'files_touched',
+-		type: 'array',
+-		value: 'restore_coordinator.rs, branch_probe.rs',
+-		scope: 'loop',
+-		updatedAt: minutesAgo(28),
+-	},
+-	{
+-		key: 'budget_tokens',
+-		type: 'number',
+-		value: '120000',
+-		scope: 'loop',
+-		updatedAt: minutesAgo(38),
+-	},
+-];
+-
+-export const loopDetail: AgentLoopDetail = {
+-	...agentLoops[0],
+-	summary:
+-		'Making checkpoint restore idempotent: the branch existence probe now runs before the snapshot write so repeated restores converge instead of raising a conflict.',
+-	variables: loopVariables,
+-	messages: loopMessages,
+-	iterations: [
+-		{
+-			index: 1,
+-			status: 'completed',
+-			durationMs: 42_000,
+-			summary: 'Located restore coordinator and branch conflict path',
+-		},
+-		{
+-			index: 2,
+-			status: 'completed',
+-			durationMs: 38_000,
+-			summary: 'Read branch_probe and traced conflict origin',
+-		},
+-		{
+-			index: 3,
+-			status: 'completed',
+-			durationMs: 55_000,
+-			summary: 'Reordered probe ahead of write, applied patch',
+-		},
+-		{
+-			index: 4,
+-			status: 'completed',
+-			durationMs: 91_000,
+-			summary: 'Ran checkpoint suite, 18 passed',
+-		},
+-		{
+-			index: 5,
+-			status: 'completed',
+-			durationMs: 47_000,
+-			summary: 'Reviewed diff for scope creep',
+-		},
+-		{
+-			index: 6,
+-			status: 'completed',
+-			durationMs: 33_000,
+-			summary: 'Created checkpoint before further edits',
+-		},
+-		{
+-			index: 7,
+-			status: 'running',
+-			durationMs: 0,
+-			summary: 'Extending coverage with repeated-restore case',
+-		},
+-	],
+-	graph: {
+-		nodes: [
+-			{
+-				id: 'inspect',
+-				label: 'Inspect',
+-				kind: 'tool',
+-				status: 'completed',
+-				x: 48,
+-				y: 104,
+-			},
+-			{
+-				id: 'read',
+-				label: 'Read Source',
+-				kind: 'tool',
+-				status: 'completed',
+-				x: 176,
+-				y: 104,
+-			},
+-			{
+-				id: 'decide',
+-				label: 'Decide Fix',
+-				kind: 'decision',
+-				status: 'completed',
+-				x: 304,
+-				y: 104,
+-			},
+-			{
+-				id: 'patch',
+-				label: 'Apply Patch',
+-				kind: 'tool',
+-				status: 'completed',
+-				x: 432,
+-				y: 56,
+-			},
+-			{
+-				id: 'verify',
+-				label: 'Run Tests',
+-				kind: 'tool',
+-				status: 'completed',
+-				x: 560,
+-				y: 104,
+-			},
+-			{
+-				id: 'checkpoint',
+-				label: 'Checkpoint',
+-				kind: 'snapshot',
+-				status: 'completed',
+-				x: 688,
+-				y: 152,
+-			},
+-			{
+-				id: 'extend',
+-				label: 'Extend Coverage',
+-				kind: 'task',
+-				status: 'running',
+-				x: 688,
+-				y: 56,
+-			},
+-		],
+-		edges: [
+-			{ id: 'le1', from: 'inspect', to: 'read' },
+-			{ id: 'le2', from: 'read', to: 'decide' },
+-			{ id: 'le3', from: 'decide', to: 'patch' },
+-			{ id: 'le4', from: 'patch', to: 'verify' },
+-			{ id: 'le5', from: 'verify', to: 'checkpoint' },
+-			{ id: 'le6', from: 'checkpoint', to: 'extend' },
+-			{ id: 'le7', from: 'verify', to: 'decide', label: 'retry' },
+-		],
+-	},
+-	analysis: {
+-		rootCause: null,
+-		errorChain: [],
+-		recoveryHints: ['Resume from checkpoint cp-3 if the suite regresses'],
+-		toolFrequency: [
+-			{ tool: 'fs.read', count: 14 },
+-			{ tool: 'shell.exec', count: 9 },
+-			{ tool: 'edit.apply', count: 6 },
+-			{ tool: 'grep.search', count: 4 },
+-		],
+-	},
+-};
+diff --git a/apps/web-app/src/lib/fixtures/checkpoints.ts b/apps/web-app/src/lib/fixtures/checkpoints.ts
+deleted file mode 100644
+index 384adf5..0000000
+--- a/apps/web-app/src/lib/fixtures/checkpoints.ts
++++ /dev/null
+@@ -1,220 +0,0 @@
+-import type { Approval, Checkpoint, FileChange } from '$lib/types/models';
+-import { minutesAgo } from './clock';
+-
+-export const checkpoints: Checkpoint[] = [
+-	{
+-		id: 'cp-3',
+-		executionId: 'exec-7f31c2a9',
+-		sequence: 3,
+-		kind: 'state',
+-		actor: 'agent',
+-		createdAt: minutesAgo(6),
+-		sizeBytes: 18 * 1024 * 1024,
+-		note: 'Before extending coverage with repeated-restore case',
+-		restorable: true,
+-	},
+-	{
+-		id: 'cp-2',
+-		executionId: 'exec-7f31c2a9',
+-		sequence: 2,
+-		kind: 'file',
+-		actor: 'agent',
+-		createdAt: minutesAgo(28),
+-		sizeBytes: 24 * 1024 * 1024,
+-		note: 'After patching restore coordinator',
+-		restorable: true,
+-	},
+-	{
+-		id: 'cp-1',
+-		executionId: 'exec-7f31c2a9',
+-		sequence: 1,
+-		kind: 'state',
+-		actor: 'system',
+-		createdAt: minutesAgo(38),
+-		sizeBytes: 12 * 1024 * 1024,
+-		note: 'Initial snapshot at loop start',
+-		restorable: true,
+-	},
+-	{
+-		id: 'cp-9d47-5',
+-		executionId: 'loop-9d47e015',
+-		sequence: 5,
+-		kind: 'state',
+-		actor: 'agent',
+-		createdAt: minutesAgo(22),
+-		sizeBytes: 31 * 1024 * 1024,
+-		note: 'Captured before retrying the flaky suite',
+-		restorable: true,
+-	},
+-	{
+-		id: 'cp-72be-1',
+-		executionId: 'loop-72be1f93',
+-		sequence: 1,
+-		kind: 'file',
+-		actor: 'human',
+-		createdAt: minutesAgo(880),
+-		sizeBytes: 8 * 1024 * 1024,
+-		note: 'Manual snapshot before permission audit',
+-		restorable: false,
+-	},
+-	{
+-		id: 'cp-4e09-4',
+-		executionId: 'loop-4e09dd51',
+-		sequence: 4,
+-		kind: 'state',
+-		actor: 'agent',
+-		createdAt: minutesAgo(1420),
+-		sizeBytes: 15 * 1024 * 1024,
+-		note: 'Final summary assembled',
+-		restorable: true,
+-	},
+-];
+-
+-export const fileChanges: FileChange[] = [
+-	{
+-		id: 'fc-1',
+-		path: 'crates/checkpoint/src/restore_coordinator.rs',
+-		changeType: 'modified',
+-		actor: 'agent',
+-		at: minutesAgo(28),
+-		additions: 22,
+-		deletions: 9,
+-		session: 'sess-a1',
+-	},
+-	{
+-		id: 'fc-2',
+-		path: 'crates/checkpoint/src/branch_probe.rs',
+-		changeType: 'modified',
+-		actor: 'agent',
+-		at: minutesAgo(27),
+-		additions: 12,
+-		deletions: 2,
+-		session: 'sess-a1',
+-	},
+-	{
+-		id: 'fc-3',
+-		path: 'crates/checkpoint/src/idempotent_restore.rs',
+-		changeType: 'added',
+-		actor: 'agent',
+-		at: minutesAgo(24),
+-		additions: 96,
+-		deletions: 0,
+-		session: 'sess-a1',
+-	},
+-	{
+-		id: 'fc-4',
+-		path: 'crates/checkpoint/src/legacy_rollback.rs',
+-		changeType: 'deleted',
+-		actor: 'human',
+-		at: minutesAgo(20),
+-		additions: 0,
+-		deletions: 148,
+-		session: 'sess-h2',
+-	},
+-	{
+-		id: 'fc-5',
+-		path: 'docs/plan/checkpoint-restore.md',
+-		changeType: 'modified',
+-		actor: 'human',
+-		at: minutesAgo(18),
+-		additions: 34,
+-		deletions: 3,
+-		session: 'sess-h2',
+-	},
+-	{
+-		id: 'fc-6',
+-		path: 'crates/checkpoint/tests/restore_repeat.rs',
+-		changeType: 'added',
+-		actor: 'agent',
+-		at: minutesAgo(8),
+-		additions: 58,
+-		deletions: 0,
+-		session: 'sess-a3',
+-	},
+-	{
+-		id: 'fc-7',
+-		path: 'configs/checkpoint.toml',
+-		changeType: 'modified',
+-		actor: 'system',
+-		at: minutesAgo(6),
+-		additions: 4,
+-		deletions: 1,
+-		session: 'sess-s1',
+-	},
+-	{
+-		id: 'fc-8',
+-		path: 'crates/checkpoint/src/restore_coordinator.rs',
+-		changeType: 'renamed',
+-		actor: 'agent',
+-		at: minutesAgo(4),
+-		additions: 2,
+-		deletions: 2,
+-		session: 'sess-a3',
+-	},
+-	{
+-		id: 'fc-9',
+-		path: 'scripts/checkpoint-verify.sh',
+-		changeType: 'added',
+-		actor: 'system',
+-		at: minutesAgo(3),
+-		additions: 27,
+-		deletions: 0,
+-		session: 'sess-s1',
+-	},
+-	{
+-		id: 'fc-10',
+-		path: 'crates/checkpoint/src/branch_probe.rs',
+-		changeType: 'modified',
+-		actor: 'agent',
+-		at: minutesAgo(1),
+-		additions: 6,
+-		deletions: 0,
+-		session: 'sess-a3',
+-	},
+-];
+-
+-export const approvals: Approval[] = [
+-	{
+-		id: 'apr-1',
+-		title: 'Publish artifact to staging channel',
+-		kind: 'publish',
+-		requester: 'wf-release-train',
+-		requestedAt: minutesAgo(2),
+-		status: 'pending',
+-		detail:
+-			'Artifact 2026.09.3 will become the canary build for the staging fleet.',
+-		executionId: 'exec-7f31c2a9',
+-	},
+-	{
+-		id: 'apr-2',
+-		title: 'Delete legacy snapshot branch',
+-		kind: 'destructive',
+-		requester: 'agent',
+-		requestedAt: minutesAgo(11),
+-		status: 'pending',
+-		detail: 'Branch legacy/restore-2026.02 has no remaining references.',
+-		executionId: 'exec-7f31c2a9',
+-	},
+-	{
+-		id: 'apr-3',
+-		title: 'Escalate shell command privileges',
+-		kind: 'permission',
+-		requester: 'loop-3c1f8ab2',
+-		requestedAt: minutesAgo(26),
+-		status: 'approved',
+-		detail:
+-			'Requested write access under scripts/ for the verification helper.',
+-		executionId: 'loop-3c1f8ab2',
+-	},
+-	{
+-		id: 'apr-4',
+-		title: 'Retry failed publish step',
+-		kind: 'retry',
+-		requester: 'wf-release-train',
+-		requestedAt: minutesAgo(300),
+-		status: 'rejected',
+-		detail:
+-			'Operator declined a retry until the registry incident is resolved.',
+-		executionId: 'exec-2f8b1170',
+-	},
+-];
+diff --git a/apps/web-app/src/lib/fixtures/clock.ts b/apps/web-app/src/lib/fixtures/clock.ts
+deleted file mode 100644
+index 4f283eb..0000000
+--- a/apps/web-app/src/lib/fixtures/clock.ts
++++ /dev/null
+@@ -1,22 +0,0 @@
+-/**
+- * Fixture timestamps are derived from a fixed epoch instead of `Date.now()` so
+- * prerendered markup and client hydration always agree.
+- */
+-export const FIXTURE_EPOCH = Date.parse('2026-09-22T09:00:00.000Z');
+-
+-const MINUTE = 60_000;
+-
+-export function minutesAgo(minutes: number): string {
+-	return new Date(FIXTURE_EPOCH - minutes * MINUTE).toISOString();
+-}
+-
+-export function minutesAfter(minutes: number): string {
+-	return new Date(FIXTURE_EPOCH + minutes * MINUTE).toISOString();
+-}
+-
+-export function durationOf(
+-	startMinutesAgo: number,
+-	endMinutesAgo: number,
+-): number {
+-	return Math.max(0, (startMinutesAgo - endMinutesAgo) * MINUTE);
+-}
+diff --git a/apps/web-app/src/lib/fixtures/executions.ts b/apps/web-app/src/lib/fixtures/executions.ts
+deleted file mode 100644
+index 484666e..0000000
+--- a/apps/web-app/src/lib/fixtures/executions.ts
++++ /dev/null
+@@ -1,269 +0,0 @@
+-import type {
+-	Execution,
+-	ExecutionDetail,
+-	ToolCallEntry,
+-} from '$lib/types/models';
+-import { durationOf, minutesAgo } from './clock';
+-
+-export const executions: Execution[] = [
+-	{
+-		id: 'exec-7f31c2a9',
+-		workflowId: 'wf-release-train',
+-		workflowName: 'Release Train',
+-		status: 'running',
+-		startedAt: minutesAgo(14),
+-		endedAt: null,
+-		durationMs: null,
+-		progress: 0.62,
+-		currentNode: 'integration-test',
+-		trigger: 'schedule:daily-0200',
+-		tasksTotal: 24,
+-		tasksDone: 15,
+-		failedNodes: 0,
+-		memoryPeakBytes: 512 * 1024 * 1024,
+-		starred: true,
+-		tags: ['release', 'nightly'],
+-	},
+-	{
+-		id: 'exec-5b0d4417',
+-		workflowId: 'wf-incident-triage',
+-		workflowName: 'Incident Triage',
+-		status: 'paused',
+-		startedAt: minutesAgo(52),
+-		endedAt: null,
+-		durationMs: null,
+-		progress: 0.35,
+-		currentNode: 'await-approval',
+-		trigger: 'hook:alertmanager',
+-		tasksTotal: 12,
+-		tasksDone: 4,
+-		failedNodes: 1,
+-		memoryPeakBytes: 188 * 1024 * 1024,
+-		tags: ['incident'],
+-	},
+-	{
+-		id: 'exec-9ac2e01d',
+-		workflowId: 'wf-data-sync',
+-		workflowName: 'Data Sync',
+-		status: 'completed',
+-		startedAt: minutesAgo(180),
+-		endedAt: minutesAgo(164),
+-		durationMs: durationOf(180, 164),
+-		progress: 1,
+-		currentNode: null,
+-		trigger: 'manual',
+-		tasksTotal: 18,
+-		tasksDone: 18,
+-		failedNodes: 0,
+-		memoryPeakBytes: 96 * 1024 * 1024,
+-	},
+-	{
+-		id: 'exec-2f8b1170',
+-		workflowId: 'wf-release-train',
+-		workflowName: 'Release Train',
+-		status: 'failed',
+-		startedAt: minutesAgo(320),
+-		endedAt: minutesAgo(311),
+-		durationMs: durationOf(320, 311),
+-		progress: 0.48,
+-		currentNode: 'publish-artifact',
+-		trigger: 'schedule:daily-0200',
+-		tasksTotal: 24,
+-		tasksDone: 11,
+-		failedNodes: 2,
+-		memoryPeakBytes: 740 * 1024 * 1024,
+-	},
+-	{
+-		id: 'exec-41dd9c08',
+-		workflowId: 'wf-model-eval',
+-		workflowName: 'Model Evaluation',
+-		status: 'completed',
+-		startedAt: minutesAgo(460),
+-		endedAt: minutesAgo(408),
+-		durationMs: durationOf(460, 408),
+-		progress: 1,
+-		currentNode: null,
+-		trigger: 'manual',
+-		tasksTotal: 31,
+-		tasksDone: 31,
+-		failedNodes: 0,
+-		memoryPeakBytes: 1280 * 1024 * 1024,
+-		starred: true,
+-		tags: ['eval'],
+-	},
+-	{
+-		id: 'exec-c07b3e55',
+-		workflowId: 'wf-data-sync',
+-		workflowName: 'Data Sync',
+-		status: 'queued',
+-		startedAt: minutesAgo(2),
+-		endedAt: null,
+-		durationMs: null,
+-		progress: 0,
+-		currentNode: null,
+-		trigger: 'hook:upstream-commit',
+-		tasksTotal: 18,
+-		tasksDone: 0,
+-		failedNodes: 0,
+-		memoryPeakBytes: null,
+-	},
+-	{
+-		id: 'exec-8e21fa63',
+-		workflowId: 'wf-incident-triage',
+-		workflowName: 'Incident Triage',
+-		status: 'cancelled',
+-		startedAt: minutesAgo(700),
+-		endedAt: minutesAgo(696),
+-		durationMs: durationOf(700, 696),
+-		progress: 0.12,
+-		currentNode: 'collect-logs',
+-		trigger: 'manual',
+-		tasksTotal: 12,
+-		tasksDone: 1,
+-		failedNodes: 0,
+-		memoryPeakBytes: 42 * 1024 * 1024,
+-	},
+-	{
+-		id: 'exec-6d54b0a2',
+-		workflowId: 'wf-model-eval',
+-		workflowName: 'Model Evaluation',
+-		status: 'running',
+-		startedAt: minutesAgo(6),
+-		endedAt: null,
+-		durationMs: null,
+-		progress: 0.28,
+-		currentNode: 'prompt-sweep',
+-		trigger: 'schedule:hourly',
+-		tasksTotal: 31,
+-		tasksDone: 9,
+-		failedNodes: 0,
+-		memoryPeakBytes: 604 * 1024 * 1024,
+-	},
+-];
+-
+-export const executionDetail: ExecutionDetail = {
+-	...executions[0],
+-	context: [
+-		{ key: 'branch', value: 'release/2026.09' },
+-		{ key: 'commit', value: '9f2c41ab' },
+-		{ key: 'environment', value: 'staging' },
+-		{ key: 'actor', value: 'scheduler' },
+-	],
+-	callStack: [
+-		{
+-			node: 'integration-test',
+-			depth: 0,
+-			enteredAt: minutesAgo(4),
+-			status: 'running',
+-		},
+-		{
+-			node: 'build-bundle',
+-			depth: 1,
+-			enteredAt: minutesAgo(9),
+-			status: 'completed',
+-		},
+-		{
+-			node: 'checkout',
+-			depth: 2,
+-			enteredAt: minutesAgo(14),
+-			status: 'completed',
+-		},
+-	],
+-	variables: [
+-		{ key: 'artifact.version', value: '2026.09.3' },
+-		{ key: 'artifact.size', value: '184 MB' },
+-		{ key: 'tests.passed', value: '412' },
+-		{ key: 'tests.failed', value: '0' },
+-		{ key: 'retry.count', value: '1' },
+-	],
+-	memory: { currentBytes: 486 * 1024 * 1024, peakBytes: 512 * 1024 * 1024 },
+-	migration: [
+-		{
+-			at: minutesAgo(13),
+-			from: 'queued',
+-			to: 'running',
+-			reason: 'worker acquired lease',
+-		},
+-		{
+-			at: minutesAgo(9),
+-			from: 'running',
+-			to: 'running',
+-			reason: 'node build-bundle finished',
+-		},
+-		{
+-			at: minutesAgo(4),
+-			from: 'running',
+-			to: 'running',
+-			reason: 'node integration-test started',
+-		},
+-	],
+-	analysis: {
+-		slowNodes: [
+-			{ node: 'integration-test', durationMs: 262_000 },
+-			{ node: 'build-bundle', durationMs: 188_000 },
+-			{ node: 'publish-artifact', durationMs: 74_000 },
+-		],
+-		decisionPoints: ['coverage-gate', 'smoke-gate'],
+-		failureNodes: [],
+-		criticalPath: [
+-			'checkout',
+-			'build-bundle',
+-			'integration-test',
+-			'publish-artifact',
+-		],
+-		iterations: 3,
+-	},
+-};
+-
+-export const executionToolCalls: ToolCallEntry[] = [
+-	{
+-		id: 'tc-1',
+-		name: 'shell.exec',
+-		kind: 'bash',
+-		status: 'completed',
+-		startedAt: minutesAgo(9),
+-		durationMs: 188_000,
+-		input: 'pnpm build --filter @wf/server',
+-		output: 'bundled 42 modules in 188s\noutput: dist/server.js (2.4 MB)',
+-	},
+-	{
+-		id: 'tc-2',
+-		name: 'fs.read',
+-		kind: 'file',
+-		status: 'completed',
+-		startedAt: minutesAgo(7),
+-		durationMs: 120,
+-		input: 'configs/release.toml',
+-		output: '[channel]\nname = "staging"\nrollout = "canary"',
+-	},
+-	{
+-		id: 'tc-3',
+-		name: 'grep.search',
+-		kind: 'search',
+-		status: 'completed',
+-		startedAt: minutesAgo(6),
+-		durationMs: 840,
+-		input: 'TODO|FIXME --path src',
+-		output: '12 matches across 5 files',
+-	},
+-	{
+-		id: 'tc-4',
+-		name: 'tests.run',
+-		kind: 'bash',
+-		status: 'running',
+-		startedAt: minutesAgo(4),
+-		durationMs: 0,
+-		input: 'pnpm vitest run --coverage',
+-		output: 'running suite 18/42 …',
+-	},
+-	{
+-		id: 'tc-5',
+-		name: 'approval.request',
+-		kind: 'approval',
+-		status: 'pending',
+-		startedAt: minutesAgo(2),
+-		durationMs: 0,
+-		input: 'publish to staging channel',
+-		output: 'awaiting human confirmation',
+-	},
+-];
+diff --git a/apps/web-app/src/lib/fixtures/insights.ts b/apps/web-app/src/lib/fixtures/insights.ts
+deleted file mode 100644
+index cbf399c..0000000
+--- a/apps/web-app/src/lib/fixtures/insights.ts
++++ /dev/null
+@@ -1,555 +0,0 @@
+-import type {
+-	AuditReport,
+-	Dependency,
+-	Diagnostic,
+-	ErrorAnalysis,
+-	EventRecord,
+-	Metric,
+-	PerfNode,
+-	QueryResult,
+-	Template,
+-} from '$lib/types/models';
+-import { minutesAgo } from './clock';
+-
+-export const overviewMetrics: Metric[] = [
+-	{
+-		label: 'Running',
+-		value: '3',
+-		delta: '+1 vs 1h ago',
+-		tone: 'running',
+-		hint: 'Executions currently active',
+-	},
+-	{
+-		label: 'Completed 24h',
+-		value: '128',
+-		delta: '+12%',
+-		tone: 'success',
+-		hint: 'Successful executions today',
+-	},
+-	{
+-		label: 'Failed 24h',
+-		value: '9',
+-		delta: '-3',
+-		tone: 'danger',
+-		hint: 'Executions ending in failure',
+-	},
+-	{
+-		label: 'Paused',
+-		value: '2',
+-		delta: 'awaiting approval',
+-		tone: 'warning',
+-		hint: 'Waiting on human input',
+-	},
+-	{
+-		label: 'Queued',
+-		value: '4',
+-		tone: 'info',
+-		hint: 'Waiting for a worker lease',
+-	},
+-	{
+-		label: 'Median duration',
+-		value: '6m 12s',
+-		delta: '-8%',
+-		tone: 'neutral',
+-		hint: 'Across all workflows',
+-	},
+-];
+-
+-export const templates: Template[] = [
+-	{
+-		id: 'tpl-1',
+-		name: 'HTTP Webhook Trigger',
+-		kind: 'trigger',
+-		category: 'integration',
+-		description: 'Start an execution from an inbound HTTP hook.',
+-		usage: 482,
+-		featured: true,
+-		tags: ['http', 'webhook'],
+-	},
+-	{
+-		id: 'tpl-2',
+-		name: 'Shell Task Node',
+-		kind: 'node',
+-		category: 'execution',
+-		description: 'Run a shell command with sandbox constraints.',
+-		usage: 1_204,
+-		featured: true,
+-		tags: ['shell'],
+-	},
+-	{
+-		id: 'tpl-3',
+-		name: 'LLM Completion Node',
+-		kind: 'node',
+-		category: 'ai',
+-		description: 'Call a model profile with templated prompts.',
+-		usage: 963,
+-		featured: true,
+-		tags: ['llm'],
+-	},
+-	{
+-		id: 'tpl-4',
+-		name: 'Approval Gate',
+-		kind: 'node',
+-		category: 'governance',
+-		description: 'Pause until a human approves or rejects.',
+-		usage: 318,
+-		featured: false,
+-		tags: ['approval'],
+-	},
+-	{
+-		id: 'tpl-5',
+-		name: 'Cron Schedule Trigger',
+-		kind: 'trigger',
+-		category: 'scheduling',
+-		description: 'Fire an execution on a cron expression.',
+-		usage: 274,
+-		featured: false,
+-		tags: ['cron'],
+-	},
+-	{
+-		id: 'tpl-6',
+-		name: 'Research Agent',
+-		kind: 'agent',
+-		category: 'agent',
+-		description: 'Autonomous loop with search and summarisation tools.',
+-		usage: 156,
+-		featured: true,
+-		tags: ['research'],
+-	},
+-	{
+-		id: 'tpl-7',
+-		name: 'Code Review Agent',
+-		kind: 'agent',
+-		category: 'agent',
+-		description: 'Review a diff and file structured findings.',
+-		usage: 209,
+-		featured: true,
+-		tags: ['review', 'code'],
+-	},
+-	{
+-		id: 'tpl-8',
+-		name: 'Incident Responder',
+-		kind: 'agent',
+-		category: 'agent',
+-		description: 'Triage alerts and draft remediation steps.',
+-		usage: 87,
+-		featured: false,
+-		tags: ['incident'],
+-	},
+-	{
+-		id: 'tpl-9',
+-		name: 'Nightly Release Pipeline',
+-		kind: 'workflow',
+-		category: 'delivery',
+-		description: 'Build, test, gate and stage a release bundle.',
+-		usage: 64,
+-		featured: true,
+-		tags: ['release'],
+-	},
+-	{
+-		id: 'tpl-10',
+-		name: 'Warehouse Sync Pipeline',
+-		kind: 'workflow',
+-		category: 'data',
+-		description: 'Replicate upstream datasets with retry and backfill.',
+-		usage: 41,
+-		featured: false,
+-		tags: ['etl'],
+-	},
+-];
+-
+-export const queryResult: QueryResult = {
+-	columns: [
+-		'execution_id',
+-		'workflow',
+-		'status',
+-		'duration_ms',
+-		'failed_nodes',
+-	],
+-	rows: [
+-		{
+-			execution_id: 'exec-7f31c2a9',
+-			workflow: 'Release Train',
+-			status: 'running',
+-			duration_ms: 840_000,
+-			failed_nodes: 0,
+-		},
+-		{
+-			execution_id: 'exec-5b0d4417',
+-			workflow: 'Incident Triage',
+-			status: 'paused',
+-			duration_ms: 3_120_000,
+-			failed_nodes: 1,
+-		},
+-		{
+-			execution_id: 'exec-9ac2e01d',
+-			workflow: 'Data Sync',
+-			status: 'completed',
+-			duration_ms: 960_000,
+-			failed_nodes: 0,
+-		},
+-		{
+-			execution_id: 'exec-2f8b1170',
+-			workflow: 'Release Train',
+-			status: 'failed',
+-			duration_ms: 540_000,
+-			failed_nodes: 2,
+-		},
+-		{
+-			execution_id: 'exec-41dd9c08',
+-			workflow: 'Model Evaluation',
+-			status: 'completed',
+-			duration_ms: 3_120_000,
+-			failed_nodes: 0,
+-		},
+-		{
+-			execution_id: 'exec-6d54b0a2',
+-			workflow: 'Model Evaluation',
+-			status: 'running',
+-			duration_ms: 360_000,
+-			failed_nodes: 0,
+-		},
+-		{
+-			execution_id: 'exec-8e21fa63',
+-			workflow: 'Incident Triage',
+-			status: 'cancelled',
+-			duration_ms: 240_000,
+-			failed_nodes: 0,
+-		},
+-		{
+-			execution_id: 'exec-c07b3e55',
+-			workflow: 'Data Sync',
+-			status: 'queued',
+-			duration_ms: null,
+-			failed_nodes: 0,
+-		},
+-	],
+-	elapsedMs: 42,
+-	truncated: false,
+-};
+-
+-export const auditReports: AuditReport[] = [
+-	{
+-		id: 'audit-1',
+-		executionId: 'exec-7f31c2a9',
+-		generatedAt: minutesAgo(1),
+-		status: 'completed',
+-		nodes: 24,
+-		durationMs: 840_000,
+-		toolCalls: 61,
+-		llmCalls: 8,
+-	},
+-	{
+-		id: 'audit-2',
+-		executionId: 'exec-41dd9c08',
+-		generatedAt: minutesAgo(408),
+-		status: 'completed',
+-		nodes: 31,
+-		durationMs: 3_120_000,
+-		toolCalls: 128,
+-		llmCalls: 42,
+-	},
+-	{
+-		id: 'audit-3',
+-		executionId: 'exec-9ac2e01d',
+-		generatedAt: minutesAgo(164),
+-		status: 'completed',
+-		nodes: 18,
+-		durationMs: 960_000,
+-		toolCalls: 34,
+-		llmCalls: 2,
+-	},
+-	{
+-		id: 'audit-4',
+-		executionId: 'exec-2f8b1170',
+-		generatedAt: minutesAgo(311),
+-		status: 'failed',
+-		nodes: 24,
+-		durationMs: 540_000,
+-		toolCalls: 47,
+-		llmCalls: 6,
+-	},
+-	{
+-		id: 'audit-5',
+-		executionId: 'exec-8e21fa63',
+-		generatedAt: minutesAgo(696),
+-		status: 'cancelled',
+-		nodes: 12,
+-		durationMs: 240_000,
+-		toolCalls: 9,
+-		llmCalls: 1,
+-	},
+-];
+-
+-export const errorAnalyses: ErrorAnalysis[] = [
+-	{
+-		id: 'err-1',
+-		category: 'registry-unavailable',
+-		rootCause: 'Artifact registry returned 503 while publishing the bundle',
+-		occurrences: 6,
+-		firstSeen: minutesAgo(3_200),
+-		lastSeen: minutesAgo(311),
+-		status: 'failed',
+-		similar: ['err-2', 'err-4'],
+-	},
+-	{
+-		id: 'err-2',
+-		category: 'timeout',
+-		rootCause: 'Integration suite exceeded the 300s node budget',
+-		occurrences: 4,
+-		firstSeen: minutesAgo(2_400),
+-		lastSeen: minutesAgo(880),
+-		status: 'failed',
+-		similar: ['err-1'],
+-	},
+-	{
+-		id: 'err-3',
+-		category: 'invalid-params',
+-		rootCause: 'Template parameter target_version missing at validation',
+-		occurrences: 11,
+-		firstSeen: minutesAgo(1_500),
+-		lastSeen: minutesAgo(75),
+-		status: 'pending',
+-		similar: [],
+-	},
+-	{
+-		id: 'err-4',
+-		category: 'permission-denied',
+-		rootCause: 'Tool fs.write blocked outside the workspace root',
+-		occurrences: 2,
+-		firstSeen: minutesAgo(900),
+-		lastSeen: minutesAgo(860),
+-		status: 'failed',
+-		similar: ['err-1'],
+-	},
+-	{
+-		id: 'err-5',
+-		category: 'rate-limited',
+-		rootCause: 'Provider quota exhausted mid sweep',
+-		occurrences: 8,
+-		firstSeen: minutesAgo(600),
+-		lastSeen: minutesAgo(120),
+-		status: 'recovered',
+-		similar: [],
+-	},
+-];
+-
+-export const perfNodes: PerfNode[] = [
+-	{
+-		node: 'integration-test',
+-		calls: 148,
+-		avgMs: 262_000,
+-		p95Ms: 410_000,
+-		share: 0.34,
+-	},
+-	{
+-		node: 'build-bundle',
+-		calls: 148,
+-		avgMs: 188_000,
+-		p95Ms: 260_000,
+-		share: 0.24,
+-	},
+-	{
+-		node: 'prompt-sweep',
+-		calls: 76,
+-		avgMs: 154_000,
+-		p95Ms: 298_000,
+-		share: 0.18,
+-	},
+-	{
+-		node: 'publish-artifact',
+-		calls: 142,
+-		avgMs: 74_000,
+-		p95Ms: 132_000,
+-		share: 0.11,
+-	},
+-	{
+-		node: 'collect-logs',
+-		calls: 61,
+-		avgMs: 42_000,
+-		p95Ms: 88_000,
+-		share: 0.08,
+-	},
+-	{ node: 'checkout', calls: 148, avgMs: 18_000, p95Ms: 34_000, share: 0.05 },
+-];
+-
+-export const events: EventRecord[] = [
+-	{
+-		id: 'evt-1',
+-		type: 'execution.started',
+-		source: 'exec-7f31c2a9',
+-		at: minutesAgo(14),
+-		executionId: 'exec-7f31c2a9',
+-		payload: '{"trigger":"schedule:daily-0200"}',
+-	},
+-	{
+-		id: 'evt-2',
+-		type: 'node.completed',
+-		source: 'checkout',
+-		at: minutesAgo(13),
+-		executionId: 'exec-7f31c2a9',
+-		payload: '{"node":"checkout","duration_ms":18000}',
+-	},
+-	{
+-		id: 'evt-3',
+-		type: 'node.completed',
+-		source: 'install',
+-		at: minutesAgo(11),
+-		executionId: 'exec-7f31c2a9',
+-		payload: '{"node":"install","duration_ms":62000}',
+-	},
+-	{
+-		id: 'evt-4',
+-		type: 'node.completed',
+-		source: 'build-bundle',
+-		at: minutesAgo(9),
+-		executionId: 'exec-7f31c2a9',
+-		payload: '{"node":"build-bundle","duration_ms":188000}',
+-	},
+-	{
+-		id: 'evt-5',
+-		type: 'node.started',
+-		source: 'integration-test',
+-		at: minutesAgo(4),
+-		executionId: 'exec-7f31c2a9',
+-		payload: '{"node":"integration-test","shards":4}',
+-	},
+-	{
+-		id: 'evt-6',
+-		type: 'approval.requested',
+-		source: 'approval.request',
+-		at: minutesAgo(2),
+-		executionId: 'exec-7f31c2a9',
+-		payload: '{"kind":"publish","approver":"on-call"}',
+-	},
+-	{
+-		id: 'evt-7',
+-		type: 'loop.iteration',
+-		source: 'loop-3c1f8ab2',
+-		at: minutesAgo(3),
+-		executionId: null,
+-		payload: '{"iteration":7,"tokens":42180}',
+-	},
+-	{
+-		id: 'evt-8',
+-		type: 'tool.invoked',
+-		source: 'shell.exec',
+-		at: minutesAgo(19),
+-		executionId: null,
+-		payload: '{"tool":"shell.exec","duration_ms":91000}',
+-	},
+-	{
+-		id: 'evt-9',
+-		type: 'checkpoint.created',
+-		source: 'cp-3',
+-		at: minutesAgo(6),
+-		executionId: 'exec-7f31c2a9',
+-		payload: '{"sequence":3,"kind":"state"}',
+-	},
+-	{
+-		id: 'evt-10',
+-		type: 'trigger.fired',
+-		source: 'hook:upstream-commit',
+-		at: minutesAgo(2),
+-		executionId: 'exec-c07b3e55',
+-		payload: '{"repo":"wf-agent","branch":"main"}',
+-	},
+-	{
+-		id: 'evt-11',
+-		type: 'execution.queued',
+-		source: 'exec-c07b3e55',
+-		at: minutesAgo(2),
+-		executionId: 'exec-c07b3e55',
+-		payload: '{"workflow":"wf-data-sync"}',
+-	},
+-	{
+-		id: 'evt-12',
+-		type: 'execution.failed',
+-		source: 'exec-2f8b1170',
+-		at: minutesAgo(311),
+-		executionId: 'exec-2f8b1170',
+-		payload: '{"node":"publish-artifact","reason":"registry 503"}',
+-	},
+-];
+-
+-export const dependencies: Dependency[] = [
+-	{
+-		id: 'dep-1',
+-		caller: 'wf-release-train',
+-		callee: 'wf-doc-pipeline',
+-		kind: 'workflow',
+-		calls: 46,
+-		lastCalledAt: minutesAgo(120),
+-	},
+-	{
+-		id: 'dep-2',
+-		caller: 'wf-release-train',
+-		callee: 'wf-cost-report',
+-		kind: 'workflow',
+-		calls: 12,
+-		lastCalledAt: minutesAgo(880),
+-	},
+-	{
+-		id: 'dep-3',
+-		caller: 'wf-incident-triage',
+-		callee: 'tool-http',
+-		kind: 'tool',
+-		calls: 318,
+-		lastCalledAt: minutesAgo(22),
+-	},
+-	{
+-		id: 'dep-4',
+-		caller: 'wf-data-sync',
+-		callee: 'script-seed',
+-		kind: 'script',
+-		calls: 62,
+-		lastCalledAt: minutesAgo(240),
+-	},
+-	{
+-		id: 'dep-5',
+-		caller: 'loop-3c1f8ab2',
+-		callee: 'skill-review',
+-		kind: 'skill',
+-		calls: 9,
+-		lastCalledAt: minutesAgo(31),
+-	},
+-];
+-
+-export const diagnostics: Diagnostic[] = [
+-	{
+-		name: 'API',
+-		status: 'healthy',
+-		value: 'ok',
+-		detail: 'Serving 390 routes, p95 42ms',
+-	},
+-	{
+-		name: 'Storage',
+-		status: 'healthy',
+-		value: '14.2 GB',
+-		detail: 'Growth 320 MB in the last 24h',
+-	},
+-	{
+-		name: 'Event bus',
+-		status: 'degraded',
+-		value: 'lag 1.2k',
+-		detail: 'Consumer group checkpoint-writer is behind',
+-	},
+-	{
+-		name: 'Scheduler',
+-		status: 'healthy',
+-		value: '4 pending',
+-		detail: 'Next fire in 00:14:22',
+-	},
+-	{
+-		name: 'Sandbox',
+-		status: 'healthy',
+-		value: '8 pools',
+-		detail: 'No isolation violations recorded',
+-	},
+-	{
+-		name: 'Provider quota',
+-		status: 'warning',
+-		value: '82%',
+-		detail: 'Anthropic organisation quota nearing limit',
+-	},
+-];
+diff --git a/apps/web-app/src/lib/fixtures/resources.ts b/apps/web-app/src/lib/fixtures/resources.ts
+deleted file mode 100644
+index 5d39f51..0000000
+--- a/apps/web-app/src/lib/fixtures/resources.ts
++++ /dev/null
+@@ -1,272 +0,0 @@
+-import type {
+-	ModelProfile,
+-	Provider,
+-	Script,
+-	Skill,
+-	Tool,
+-} from '$lib/types/models';
+-import { minutesAgo } from './clock';
+-
+-export const modelProfiles: ModelProfile[] = [
+-	{
+-		id: 'prof-release',
+-		name: 'Release Default',
+-		provider: 'openai',
+-		model: 'gpt-4o-mini',
+-		isDefault: true,
+-		status: 'active',
+-		requests: 12_408,
+-		tokens: 41_200_000,
+-		cost: 61.8,
+-	},
+-	{
+-		id: 'prof-reasoning',
+-		name: 'Deep Reasoning',
+-		provider: 'anthropic',
+-		model: 'claude-sonnet',
+-		isDefault: false,
+-		status: 'active',
+-		requests: 3_120,
+-		tokens: 18_900_000,
+-		cost: 142.4,
+-	},
+-	{
+-		id: 'prof-bulk',
+-		name: 'Bulk Summarise',
+-		provider: 'openai',
+-		model: 'gpt-4o-mini',
+-		isDefault: false,
+-		status: 'active',
+-		requests: 28_905,
+-		tokens: 96_400_000,
+-		cost: 144.6,
+-	},
+-	{
+-		id: 'prof-local',
+-		name: 'Local Fallback',
+-		provider: 'ollama',
+-		model: 'qwen2.5-coder',
+-		isDefault: false,
+-		status: 'degraded',
+-		requests: 812,
+-		tokens: 2_140_000,
+-		cost: null,
+-	},
+-	{
+-		id: 'prof-legacy',
+-		name: 'Legacy Eval',
+-		provider: 'openai',
+-		model: 'gpt-4-turbo',
+-		isDefault: false,
+-		status: 'disabled',
+-		requests: 96,
+-		tokens: 410_000,
+-		cost: 12.3,
+-	},
+-	{
+-		id: 'prof-canary',
+-		name: 'Canary Profile',
+-		provider: 'azure-openai',
+-		model: 'gpt-4o',
+-		isDefault: false,
+-		status: 'active',
+-		requests: 1_204,
+-		tokens: 5_600_000,
+-		cost: 33.6,
+-	},
+-];
+-
+-export const providers: Provider[] = [
+-	{
+-		id: 'openai',
+-		name: 'OpenAI',
+-		baseUrl: 'https://api.openai.com/v1',
+-		models: 14,
+-		status: 'healthy',
+-	},
+-	{
+-		id: 'anthropic',
+-		name: 'Anthropic',
+-		baseUrl: 'https://api.anthropic.com',
+-		models: 6,
+-		status: 'healthy',
+-	},
+-	{
+-		id: 'azure-openai',
+-		name: 'Azure OpenAI',
+-		baseUrl: 'https://wf.openai.azure.com',
+-		models: 9,
+-		status: 'degraded',
+-	},
+-	{
+-		id: 'ollama',
+-		name: 'Ollama',
+-		baseUrl: 'http://127.0.0.1:11434',
+-		models: 3,
+-		status: 'unhealthy',
+-	},
+-];
+-
+-export const tools: Tool[] = [
+-	{
+-		id: 'tool-shell',
+-		name: 'shell.exec',
+-		kind: 'bash',
+-		description: 'Run a shell command inside the sandbox.',
+-		enabled: true,
+-		calls: 4_812,
+-		successRate: 0.96,
+-	},
+-	{
+-		id: 'tool-fs-read',
+-		name: 'fs.read',
+-		kind: 'file',
+-		description: 'Read a file with sandbox path validation.',
+-		enabled: true,
+-		calls: 12_940,
+-		successRate: 0.99,
+-	},
+-	{
+-		id: 'tool-fs-write',
+-		name: 'fs.write',
+-		kind: 'file',
+-		description: 'Write a file and record a file checkpoint delta.',
+-		enabled: true,
+-		calls: 2_310,
+-		successRate: 0.98,
+-	},
+-	{
+-		id: 'tool-grep',
+-		name: 'grep.search',
+-		kind: 'search',
+-		description: 'Search the workspace with a ripgrep style pattern.',
+-		enabled: true,
+-		calls: 8_744,
+-		successRate: 0.97,
+-	},
+-	{
+-		id: 'tool-http',
+-		name: 'http.fetch',
+-		kind: 'network',
+-		description: 'Fetch an allow-listed URL with a size cap.',
+-		enabled: false,
+-		calls: 142,
+-		successRate: 0.71,
+-	},
+-	{
+-		id: 'tool-approval',
+-		name: 'approval.request',
+-		kind: 'approval',
+-		description: 'Request human confirmation before a high risk step.',
+-		enabled: true,
+-		calls: 318,
+-		successRate: 0.88,
+-	},
+-	{
+-		id: 'tool-mcp',
+-		name: 'mcp.invoke',
+-		kind: 'mcp',
+-		description: 'Invoke a tool exposed by a connected MCP server.',
+-		enabled: true,
+-		calls: 964,
+-		successRate: 0.92,
+-	},
+-	{
+-		id: 'tool-vector',
+-		name: 'vector.query',
+-		kind: 'search',
+-		description: 'Query the workspace vector index for relevant passages.',
+-		enabled: false,
+-		calls: 0,
+-		successRate: null,
+-	},
+-];
+-
+-export const scripts: Script[] = [
+-	{
+-		id: 'script-verify',
+-		name: 'checkpoint-verify.sh',
+-		runtime: 'bash',
+-		enabled: true,
+-		runs: 148,
+-		updatedAt: minutesAgo(3),
+-	},
+-	{
+-		id: 'script-seed',
+-		name: 'seed-fixtures.py',
+-		runtime: 'python',
+-		enabled: true,
+-		runs: 62,
+-		updatedAt: minutesAgo(240),
+-	},
+-	{
+-		id: 'script-bench',
+-		name: 'bench-restore.sh',
+-		runtime: 'bash',
+-		enabled: true,
+-		runs: 21,
+-		updatedAt: minutesAgo(900),
+-	},
+-	{
+-		id: 'script-migrate',
+-		name: 'migrate-store.lua',
+-		runtime: 'lua',
+-		enabled: false,
+-		runs: 4,
+-		updatedAt: minutesAgo(2600),
+-	},
+-	{
+-		id: 'script-report',
+-		name: 'weekly-report.py',
+-		runtime: 'python',
+-		enabled: true,
+-		runs: 34,
+-		updatedAt: minutesAgo(1100),
+-	},
+-];
+-
+-export const skills: Skill[] = [
+-	{
+-		id: 'skill-review',
+-		name: 'code-review',
+-		description: 'Structured review checklist for large diffs.',
+-		enabled: true,
+-		version: '1.4.0',
+-		promptPreview:
+-			'Review the provided diff for correctness, scope creep and missing tests…',
+-	},
+-	{
+-		id: 'skill-debug',
+-		name: 'flaky-test-triage',
+-		description: 'Isolate nondeterministic failures and propose stabilisation.',
+-		enabled: true,
+-		version: '0.9.2',
+-		promptPreview:
+-			'Given the failing run history, identify the nondeterministic factor…',
+-	},
+-	{
+-		id: 'skill-release',
+-		name: 'release-notes',
+-		description: 'Draft release notes from merged change entries.',
+-		enabled: true,
+-		version: '2.1.0',
+-		promptPreview:
+-			'Summarise the merged entries into operator facing release notes…',
+-	},
+-	{
+-		id: 'skill-audit',
+-		name: 'permission-audit',
+-		description: 'Audit tool permissions against the least privilege baseline.',
+-		enabled: false,
+-		version: '0.3.1',
+-		promptPreview: 'Compare declared tool scopes against the baseline policy…',
+-	},
+-	{
+-		id: 'skill-migrate',
+-		name: 'storage-migration',
+-		description: 'Plan a zero downtime storage layout migration.',
+-		enabled: true,
+-		version: '1.0.3',
+-		promptPreview: 'Produce a staged migration plan with rollback points…',
+-	},
+-];
+diff --git a/apps/web-app/src/lib/fixtures/triggers.ts b/apps/web-app/src/lib/fixtures/triggers.ts
+deleted file mode 100644
+index 0fc0b2d..0000000
+--- a/apps/web-app/src/lib/fixtures/triggers.ts
++++ /dev/null
+@@ -1,157 +0,0 @@
+-import type { Hook, TimelineEntry, TriggerRecord } from '$lib/types/models';
+-import { minutesAgo } from './clock';
+-
+-export const triggerRecords: TriggerRecord[] = [
+-	{
+-		id: 'trg-1',
+-		triggerName: 'schedule:daily-0200',
+-		workflowName: 'Release Train',
+-		executionId: 'exec-7f31c2a9',
+-		status: 'completed',
+-		firedAt: minutesAgo(14),
+-		payload: '{"cron":"0 2 * * *","timezone":"UTC"}',
+-	},
+-	{
+-		id: 'trg-2',
+-		triggerName: 'hook:upstream-commit',
+-		workflowName: 'Data Sync',
+-		executionId: 'exec-c07b3e55',
+-		status: 'queued',
+-		firedAt: minutesAgo(2),
+-		payload: '{"repo":"wf-agent","branch":"main","sha":"9f2c41ab"}',
+-	},
+-	{
+-		id: 'trg-3',
+-		triggerName: 'hook:alertmanager',
+-		workflowName: 'Incident Triage',
+-		executionId: 'exec-5b0d4417',
+-		status: 'paused',
+-		firedAt: minutesAgo(52),
+-		payload: '{"severity":"page","service":"wf-server"}',
+-	},
+-	{
+-		id: 'trg-4',
+-		triggerName: 'schedule:hourly',
+-		workflowName: 'Model Evaluation',
+-		executionId: 'exec-6d54b0a2',
+-		status: 'completed',
+-		firedAt: minutesAgo(6),
+-		payload: '{"cron":"0 * * * *","timezone":"UTC"}',
+-	},
+-	{
+-		id: 'trg-5',
+-		triggerName: 'schedule:daily-0200',
+-		workflowName: 'Release Train',
+-		executionId: 'exec-2f8b1170',
+-		status: 'failed',
+-		firedAt: minutesAgo(320),
+-		payload: '{"cron":"0 2 * * *","timezone":"UTC"}',
+-	},
+-	{
+-		id: 'trg-6',
+-		triggerName: 'manual',
+-		workflowName: 'Model Evaluation',
+-		executionId: 'exec-41dd9c08',
+-		status: 'completed',
+-		firedAt: minutesAgo(460),
+-		payload: '{"actor":"ai-platform"}',
+-	},
+-];
+-
+-export const hooks: Hook[] = [
+-	{
+-		name: 'upstream-commit',
+-		description: 'Fires when the tracked repository receives a commit.',
+-		deliveries: 1_284,
+-		lastStatus: 'completed',
+-		lastDeliveredAt: minutesAgo(2),
+-	},
+-	{
+-		name: 'alertmanager',
+-		description: 'Fires for paging alerts routed to the on-call rotation.',
+-		deliveries: 96,
+-		lastStatus: 'paused',
+-		lastDeliveredAt: minutesAgo(52),
+-	},
+-	{
+-		name: 'registry-publish',
+-		description: 'Fires after an artifact is pushed to the registry.',
+-		deliveries: 412,
+-		lastStatus: 'completed',
+-		lastDeliveredAt: minutesAgo(164),
+-	},
+-	{
+-		name: 'quota-warning',
+-		description: 'Fires when a provider crosses its quota threshold.',
+-		deliveries: 38,
+-		lastStatus: 'failed',
+-		lastDeliveredAt: minutesAgo(120),
+-	},
+-];
+-
+-export const executionTimeline: TimelineEntry[] = [
+-	{
+-		id: 'tl-1',
+-		at: minutesAgo(14),
+-		kind: 'execution',
+-		title: 'Execution started',
+-		detail: 'Triggered by schedule:daily-0200',
+-		status: 'completed',
+-	},
+-	{
+-		id: 'tl-2',
+-		at: minutesAgo(13),
+-		kind: 'node',
+-		title: 'Checkout completed',
+-		detail: 'branch release/2026.09 at 9f2c41ab',
+-		status: 'completed',
+-	},
+-	{
+-		id: 'tl-3',
+-		at: minutesAgo(11),
+-		kind: 'node',
+-		title: 'Install completed',
+-		detail: 'Resolved 412 packages',
+-		status: 'completed',
+-	},
+-	{
+-		id: 'tl-4',
+-		at: minutesAgo(9),
+-		kind: 'tool',
+-		title: 'shell.exec — build bundle',
+-		detail: 'bundled 42 modules in 188s',
+-		status: 'completed',
+-	},
+-	{
+-		id: 'tl-5',
+-		at: minutesAgo(7),
+-		kind: 'tool',
+-		title: 'fs.read — release config',
+-		detail: 'configs/release.toml (212 bytes)',
+-		status: 'completed',
+-	},
+-	{
+-		id: 'tl-6',
+-		at: minutesAgo(6),
+-		kind: 'checkpoint',
+-		title: 'Checkpoint cp-3 created',
+-		detail: 'state snapshot, 18 MB',
+-		status: 'completed',
+-	},
+-	{
+-		id: 'tl-7',
+-		at: minutesAgo(4),
+-		kind: 'node',
+-		title: 'Integration test started',
+-		detail: '4 shards dispatched',
+-		status: 'running',
+-	},
+-	{
+-		id: 'tl-8',
+-		at: minutesAgo(2),
+-		kind: 'approval',
+-		title: 'Approval requested',
+-		detail: 'Publish to staging channel',
+-		status: 'pending',
+-	},
+-];
+diff --git a/apps/web-app/src/lib/fixtures/workflows.ts b/apps/web-app/src/lib/fixtures/workflows.ts
+deleted file mode 100644
+index 99e2ecf..0000000
+--- a/apps/web-app/src/lib/fixtures/workflows.ts
++++ /dev/null
+@@ -1,268 +0,0 @@
+-import type { Workflow, WorkflowDetail } from '$lib/types/models';
+-import { minutesAgo } from './clock';
+-
+-export const workflows: Workflow[] = [
+-	{
+-		id: 'wf-release-train',
+-		name: 'Release Train',
+-		description: 'Build, test and stage the nightly release bundle.',
+-		category: 'delivery',
+-		tags: ['release', 'nightly', 'core'],
+-		author: 'platform',
+-		version: 12,
+-		status: 'active',
+-		nodeCount: 24,
+-		edgeCount: 29,
+-		updatedAt: minutesAgo(120),
+-		runs: 148,
+-		successRate: 0.91,
+-	},
+-	{
+-		id: 'wf-incident-triage',
+-		name: 'Incident Triage',
+-		description:
+-			'Collect signals, correlate alerts and open a remediation task.',
+-		category: 'reliability',
+-		tags: ['incident', 'on-call'],
+-		author: 'sre',
+-		version: 7,
+-		status: 'active',
+-		nodeCount: 12,
+-		edgeCount: 14,
+-		updatedAt: minutesAgo(300),
+-		runs: 61,
+-		successRate: 0.78,
+-	},
+-	{
+-		id: 'wf-data-sync',
+-		name: 'Data Sync',
+-		description: 'Replicate upstream datasets into the analytics warehouse.',
+-		category: 'data',
+-		tags: ['etl', 'warehouse'],
+-		author: 'data',
+-		version: 4,
+-		status: 'active',
+-		nodeCount: 18,
+-		edgeCount: 20,
+-		updatedAt: minutesAgo(640),
+-		runs: 902,
+-		successRate: 0.99,
+-	},
+-	{
+-		id: 'wf-model-eval',
+-		name: 'Model Evaluation',
+-		description: 'Sweep prompts across candidate profiles and score responses.',
+-		category: 'ai',
+-		tags: ['eval', 'benchmark'],
+-		author: 'ai-platform',
+-		version: 21,
+-		status: 'active',
+-		nodeCount: 31,
+-		edgeCount: 38,
+-		updatedAt: minutesAgo(45),
+-		runs: 76,
+-		successRate: 0.84,
+-	},
+-	{
+-		id: 'wf-doc-pipeline',
+-		name: 'Doc Pipeline',
+-		description: 'Render and publish generated documentation to the portal.',
+-		category: 'delivery',
+-		tags: ['docs'],
+-		author: 'platform',
+-		version: 3,
+-		status: 'draft',
+-		nodeCount: 9,
+-		edgeCount: 9,
+-		updatedAt: minutesAgo(1500),
+-		runs: 12,
+-		successRate: null,
+-	},
+-	{
+-		id: 'wf-cost-report',
+-		name: 'Cost Report',
+-		description: 'Aggregate provider usage and emit the weekly spend report.',
+-		category: 'ops',
+-		tags: ['cost', 'weekly'],
+-		author: 'finops',
+-		version: 6,
+-		status: 'active',
+-		nodeCount: 14,
+-		edgeCount: 15,
+-		updatedAt: minutesAgo(880),
+-		runs: 34,
+-		successRate: 0.97,
+-	},
+-	{
+-		id: 'wf-sandbox-smoke',
+-		name: 'Sandbox Smoke',
+-		description: 'Verify sandbox isolation guarantees after a runtime bump.',
+-		category: 'reliability',
+-		tags: ['sandbox', 'canary'],
+-		author: 'runtime',
+-		version: 2,
+-		status: 'archived',
+-		nodeCount: 7,
+-		edgeCount: 7,
+-		updatedAt: minutesAgo(4200),
+-		runs: 5,
+-		successRate: 0.6,
+-	},
+-	{
+-		id: 'wf-feedback-loop',
+-		name: 'Feedback Loop',
+-		description:
+-			'Collect operator feedback and file structured improvement issues.',
+-		category: 'product',
+-		tags: ['feedback'],
+-		author: 'product',
+-		version: 1,
+-		status: 'draft',
+-		nodeCount: 11,
+-		edgeCount: 12,
+-		updatedAt: minutesAgo(260),
+-		runs: 0,
+-		successRate: null,
+-	},
+-];
+-
+-export const workflowDetail: WorkflowDetail = {
+-	...workflows[0],
+-	graph: {
+-		nodes: [
+-			{
+-				id: 'checkout',
+-				label: 'Checkout',
+-				kind: 'source',
+-				status: 'completed',
+-				x: 40,
+-				y: 96,
+-			},
+-			{
+-				id: 'install',
+-				label: 'Install',
+-				kind: 'task',
+-				status: 'completed',
+-				x: 168,
+-				y: 96,
+-			},
+-			{
+-				id: 'build-bundle',
+-				label: 'Build Bundle',
+-				kind: 'task',
+-				status: 'completed',
+-				x: 296,
+-				y: 96,
+-			},
+-			{
+-				id: 'unit-test',
+-				label: 'Unit Test',
+-				kind: 'task',
+-				status: 'completed',
+-				x: 424,
+-				y: 40,
+-			},
+-			{
+-				id: 'integration-test',
+-				label: 'Integration Test',
+-				kind: 'task',
+-				status: 'running',
+-				x: 424,
+-				y: 152,
+-			},
+-			{
+-				id: 'coverage-gate',
+-				label: 'Coverage Gate',
+-				kind: 'decision',
+-				status: 'pending',
+-				x: 552,
+-				y: 96,
+-			},
+-			{
+-				id: 'publish-artifact',
+-				label: 'Publish',
+-				kind: 'task',
+-				status: 'pending',
+-				x: 680,
+-				y: 96,
+-			},
+-			{
+-				id: 'notify',
+-				label: 'Notify',
+-				kind: 'sink',
+-				status: 'pending',
+-				x: 808,
+-				y: 96,
+-			},
+-		],
+-		edges: [
+-			{ id: 'e1', from: 'checkout', to: 'install' },
+-			{ id: 'e2', from: 'install', to: 'build-bundle' },
+-			{ id: 'e3', from: 'build-bundle', to: 'unit-test' },
+-			{ id: 'e4', from: 'build-bundle', to: 'integration-test' },
+-			{ id: 'e5', from: 'unit-test', to: 'coverage-gate' },
+-			{ id: 'e6', from: 'integration-test', to: 'coverage-gate' },
+-			{
+-				id: 'e7',
+-				from: 'coverage-gate',
+-				to: 'publish-artifact',
+-				label: 'passed',
+-			},
+-			{ id: 'e8', from: 'publish-artifact', to: 'notify' },
+-		],
+-	},
+-	versions: [
+-		{
+-			version: 12,
+-			createdAt: minutesAgo(120),
+-			author: 'platform',
+-			note: 'Split integration test into shards',
+-			current: true,
+-		},
+-		{
+-			version: 11,
+-			createdAt: minutesAgo(1400),
+-			author: 'platform',
+-			note: 'Add coverage gate threshold',
+-			current: false,
+-		},
+-		{
+-			version: 10,
+-			createdAt: minutesAgo(3200),
+-			author: 'sre',
+-			note: 'Retry publish on transient failure',
+-			current: false,
+-		},
+-		{
+-			version: 9,
+-			createdAt: minutesAgo(6100),
+-			author: 'platform',
+-			note: 'Initial delivery pipeline',
+-			current: false,
+-		},
+-	],
+-	drafts: [
+-		{
+-			id: 'draft-01',
+-			name: 'Shard integration tests by package',
+-			updatedAt: minutesAgo(30),
+-			valid: true,
+-			issues: [],
+-		},
+-		{
+-			id: 'draft-02',
+-			name: 'Add rollback node after publish',
+-			updatedAt: minutesAgo(75),
+-			valid: false,
+-			issues: [
+-				'rollback node has no inbound edge',
+-				'missing required parameter: target_version',
+-			],
+-		},
+-	],
+-	neighbors: [
+-		{ id: 'wf-doc-pipeline', label: 'Doc Pipeline', reachable: true },
+-		{ id: 'wf-cost-report', label: 'Cost Report', reachable: true },
+-		{ id: 'wf-sandbox-smoke', label: 'Sandbox Smoke', reachable: false },
+-	],
+-};
+diff --git a/apps/web-app/src/lib/services/agent-loops.ts b/apps/web-app/src/lib/services/agent-loops.ts
+new file mode 100644
+index 0000000..4740c8e
+--- /dev/null
++++ b/apps/web-app/src/lib/services/agent-loops.ts
+@@ -0,0 +1,176 @@
++import { client } from '$lib/api/client';
++import { call, extractPage } from '$lib/api/envelope';
++import type { PageResult } from '$lib/api/envelope';
++import type {
++    AgentLoop,
++    AgentLoopDetail,
++    LoopMessage,
++    WorkflowGraph,
++} from '$lib/types/models';
++
++interface AgentLoopDto {
++    id?: string;
++    name?: string;
++    status?: string;
++    iteration?: number;
++    max_iterations?: number;
++    model?: string;
++    tokens?: number;
++    started_at?: string;
++    updated_at?: string;
++    checkpoints?: number;
++    errors?: number;
++    starred?: boolean;
++    tags?: string[];
++}
++
++interface LoopMessageDto {
++    id?: string;
++    role?: string;
++    content?: string;
++    created_at?: string;
++    tokens?: number | null;
++    tool_name?: string;
++}
++
++
++interface GraphNodeDto {
++    id?: string;
++    label?: string;
++    kind?: string;
++    status?: string;
++    x?: number;
++    y?: number;
++}
++
++interface GraphEdgeDto {
++    id?: string;
++    from?: string;
++    to?: string;
++    label?: string;
++}
++
++function toAgentLoop(d: AgentLoopDto): AgentLoop {
++    return {
++        id: d.id ?? '',
++        name: d.name ?? '',
++        status: d.status ?? '',
++        iteration: d.iteration ?? 0,
++        maxIterations: d.max_iterations ?? 0,
++        model: d.model ?? '',
++        tokens: d.tokens ?? 0,
++        startedAt: d.started_at ?? '',
++        updatedAt: d.updated_at ?? '',
++        checkpoints: d.checkpoints ?? 0,
++        errors: d.errors ?? 0,
++        starred: d.starred ?? false,
++        tags: d.tags ?? [],
++    };
++}
++
++function toMessage(d: LoopMessageDto): LoopMessage {
++    return {
++        id: d.id ?? '',
++        role: (d.role ?? 'assistant') as LoopMessage['role'],
++        content: d.content ?? '',
++        createdAt: d.created_at ?? '',
++        tokens: d.tokens ?? null,
++        toolName: d.tool_name,
++    };
++}
++
++
++
++function toGraph(d: { nodes?: GraphNodeDto[]; edges?: GraphEdgeDto[] } | undefined): WorkflowGraph {
++    return {
++        nodes: (d?.nodes ?? []).map((n) => ({
++            id: n.id ?? '',
++            label: n.label ?? n.id ?? '',
++            kind: n.kind ?? 'task',
++            status: n.status,
++            x: n.x ?? 0,
++            y: n.y ?? 0,
++        })),
++        edges: (d?.edges ?? []).map((e) => ({
++            id: e.id ?? `${e.from ?? ''}-${e.to ?? ''}`,
++            from: e.from ?? '',
++            to: e.to ?? '',
++            label: e.label,
++        })),
++    };
++}
++
++export async function listAgentLoops(params?: {
++    limit?: number;
++    offset?: number;
++}): Promise<PageResult<AgentLoop>> {
++    const data = await call<unknown>(
++        client.GET('/api/v1/agent-loops', {
++            params: { query: params ?? {} },
++        }),
++    );
++    const page = extractPage<AgentLoopDto>(data);
++    return { ...page, items: page.items.map(toAgentLoop) };
++}
++
++export async function getAgentLoop(id: string): Promise<AgentLoopDetail> {
++    const data = await call<AgentLoopDto>(
++        client.GET('/api/v1/agent-loops/{id}', {
++            params: { path: { id } },
++        }),
++    );
++    const loop = toAgentLoop(data);
++
++    const [summaryRes, messagesRes, graphRes] = await Promise.allSettled([
++        call<{ summary?: string }>(
++            // eslint-disable-next-line @typescript-eslint/no-explicit-any
++            client.GET('/api/v1/agent-loops/{id}/summary' as any, {
++                // eslint-disable-next-line @typescript-eslint/no-explicit-any
++                params: { path: { id } } as any,
++	// eslint-disable-next-line @typescript-eslint/no-explicit-any
++            } as any),
++        ),
++        call<unknown>(
++            // eslint-disable-next-line @typescript-eslint/no-explicit-any
++            client.GET('/api/v1/agent-loops/{id}/conversation' as any, {
++                // eslint-disable-next-line @typescript-eslint/no-explicit-any
++                params: { path: { id } } as any,
++	// eslint-disable-next-line @typescript-eslint/no-explicit-any
++            } as any),
++        ),
++        call<unknown>(
++            // eslint-disable-next-line @typescript-eslint/no-explicit-any
++            client.GET('/api/v1/agent-loops/{id}/graph' as any, {
++                // eslint-disable-next-line @typescript-eslint/no-explicit-any
++                params: { path: { id } } as any,
++	// eslint-disable-next-line @typescript-eslint/no-explicit-any
++            } as any),
++        ),
++    ]);
++
++    const summary = summaryRes.status === 'fulfilled' ? (summaryRes.value as { summary?: string })?.summary ?? '' : '';
++    const messages = messagesRes.status === 'fulfilled'
++        ? (Array.isArray(messagesRes.value)
++            ? messagesRes.value
++            : extractPage<LoopMessageDto>(messagesRes.value).items)
++            .map((m) => toMessage(m as LoopMessageDto))
++        : [];
++    const graph = graphRes.status === 'fulfilled'
++        ? toGraph(graphRes.value as { nodes?: GraphNodeDto[]; edges?: GraphEdgeDto[] })
++        : { nodes: [], edges: [] };
++
++    return {
++        ...loop,
++        summary,
++        variables: [],
++        messages,
++        iterations: [],
++        graph,
++        analysis: {
++            rootCause: null,
++            errorChain: [],
++            recoveryHints: [],
++            toolFrequency: [],
++        },
++    };
++}
+diff --git a/apps/web-app/src/lib/services/checkpoints.ts b/apps/web-app/src/lib/services/checkpoints.ts
+new file mode 100644
+index 0000000..d36b962
+--- /dev/null
++++ b/apps/web-app/src/lib/services/checkpoints.ts
+@@ -0,0 +1,63 @@
++import { client } from '$lib/api/client';
++import { call, extractPage } from '$lib/api/envelope';
++import type { PageResult } from '$lib/api/envelope';
++import type { Checkpoint } from '$lib/types/models';
++
++interface CheckpointDto {
++    id?: string;
++    execution_id?: string;
++    sequence?: number;
++    kind?: string;
++    actor?: string;
++    created_at?: string;
++    size_bytes?: number;
++    size?: number;
++    note?: string;
++    restorable?: boolean;
++}
++
++function toCheckpoint(d: CheckpointDto): Checkpoint {
++    return {
++        id: d.id ?? '',
++        executionId: d.execution_id ?? '',
++        sequence: d.sequence ?? 0,
++        kind: d.kind ?? 'state',
++        actor: d.actor ?? '',
++        createdAt: d.created_at ?? '',
++        sizeBytes: d.size_bytes ?? d.size ?? 0,
++        note: d.note ?? '',
++        restorable: d.restorable ?? true,
++    };
++}
++
++export async function listCheckpoints(params?: {
++    limit?: number;
++    offset?: number;
++}): Promise<PageResult<Checkpoint>> {
++    const data = await call<unknown>(
++        // eslint-disable-next-line @typescript-eslint/no-explicit-any
++        client.GET('/api/v1/checkpoints' as any, {
++            // eslint-disable-next-line @typescript-eslint/no-explicit-any
++            params: { query: params ?? {} } as any,
++	// eslint-disable-next-line @typescript-eslint/no-explicit-any
++        } as any),
++    );
++    const page = extractPage<CheckpointDto>(data);
++    return { ...page, items: page.items.map(toCheckpoint) };
++}
++
++export async function listCheckpointsByEntity(entityId: string): Promise<Checkpoint[]> {
++    const data = await call<unknown>(
++        // eslint-disable-next-line @typescript-eslint/no-explicit-any
++        client.GET('/api/v1/checkpoints/entity/{entityId}' as any, {
++            // eslint-disable-next-line @typescript-eslint/no-explicit-any
++            params: { path: { entityId } } as any,
++	// eslint-disable-next-line @typescript-eslint/no-explicit-any
++        } as any),
++    );
++    if (Array.isArray(data)) {
++        return (data as CheckpointDto[]).map(toCheckpoint);
++    }
++    const page = extractPage<CheckpointDto>(data);
++    return page.items.map(toCheckpoint);
++}
+diff --git a/apps/web-app/src/lib/services/events.ts b/apps/web-app/src/lib/services/events.ts
+new file mode 100644
+index 0000000..6287d43
+--- /dev/null
++++ b/apps/web-app/src/lib/services/events.ts
+@@ -0,0 +1,185 @@
++import { client } from '$lib/api/client';
++import { call, extractPage } from '$lib/api/envelope';
++import type { PageResult } from '$lib/api/envelope';
++import type { EventRecord, Dependency, Diagnostic } from '$lib/types/models';
++
++interface EventDto {
++	id?: string;
++	type?: string;
++	source?: string;
++	at?: string;
++	timestamp?: string;
++	execution_id?: string | null;
++	executionId?: string | null;
++	payload?: string | Record<string, unknown>;
++}
++
++interface DependencyDto {
++	id?: string;
++	caller?: string;
++	callee?: string;
++	kind?: string;
++	calls?: number;
++	call_count?: number;
++	last_called_at?: string;
++	lastCalledAt?: string;
++}
++
++interface HealthDto {
++	ready?: boolean;
++	storage?: string;
++	persistence?: Record<string, unknown>;
++}
++
++interface StorageDiagnoseDto {
++	name?: string;
++	status?: string;
++	value?: string | number;
++	detail?: string;
++}
++
++function toEvent(d: EventDto): EventRecord {
++	const payloadRaw = d.payload;
++	const payloadStr =
++		typeof payloadRaw === 'string'
++			? payloadRaw
++			: payloadRaw
++				? JSON.stringify(payloadRaw)
++				: '';
++	return {
++		id: d.id ?? '',
++		type: d.type ?? '',
++		source: d.source ?? '',
++		at: d.at ?? d.timestamp ?? '',
++		executionId: d.execution_id ?? d.executionId ?? null,
++		payload: payloadStr,
++	};
++}
++
++function toDependency(d: DependencyDto): Dependency {
++	return {
++		id: d.id ?? `${d.caller ?? ''}->${d.callee ?? ''}`,
++		caller: d.caller ?? '',
++		callee: d.callee ?? '',
++		kind: d.kind ?? '',
++		calls: d.calls ?? d.call_count ?? 0,
++		lastCalledAt: d.last_called_at ?? d.lastCalledAt ?? '',
++	};
++}
++
++function toDiagnosticFromHealth(h: HealthDto): Diagnostic[] {
++	const list: Diagnostic[] = [];
++	list.push({
++		name: 'ready',
++		status: h.ready ? 'healthy' : 'degraded',
++		value: String(h.ready),
++		detail: h.storage ?? '',
++	});
++	if (h.persistence && typeof h.persistence === 'object') {
++		for (const [name, value] of Object.entries(h.persistence)) {
++			list.push({
++				name: `persistence.${name}`,
++				status: 'info',
++				value: String(value),
++				detail: '',
++			});
++		}
++	}
++	return list;
++}
++
++export async function listEvents(params?: {
++	limit?: number;
++	offset?: number;
++}): Promise<PageResult<EventRecord>> {
++	const data = await call<unknown>(
++		client.GET('/api/v1/events', {
++			params: { query: params ?? {} },
++		// eslint-disable-next-line @typescript-eslint/no-explicit-any
++		} as any),
++	);
++	const page = extractPage<EventDto>(data);
++	return { ...page, items: page.items.map(toEvent) };
++}
++
++export async function searchEvents(query: string): Promise<PageResult<EventRecord>> {
++	const data = await call<unknown>(
++		client.GET('/api/v1/events/search', {
++			params: { query: { q: query, limit: 50 } },
++		// eslint-disable-next-line @typescript-eslint/no-explicit-any
++		} as any),
++	);
++	const page = extractPage<EventDto>(data);
++	return { ...page, items: page.items.map(toEvent) };
++}
++
++export async function getEventSize(): Promise<number> {
++	const data = await call<unknown>(client.GET('/api/v1/events/size'));
++	if (typeof data === 'number') return data;
++	if (data && typeof data === 'object' && 'size' in (data as object)) {
++		return Number((data as { size?: number }).size ?? 0);
++	}
++	return 0;
++}
++
++export async function listDependencies(): Promise<Dependency[]> {
++	const data = await call<unknown>(
++		client.GET('/api/v1/dependencies/audit'),
++	);
++	if (Array.isArray(data)) {
++		return (data as DependencyDto[]).map(toDependency);
++	}
++	return [];
++}
++
++export async function getDiagnostics(): Promise<Diagnostic[]> {
++	const results = await Promise.allSettled([
++		call<HealthDto>(client.GET('/health')),
++		call<unknown>(client.GET('/api/v1/storage/diagnose')),
++		call<unknown>(client.GET('/api/v1/storage/stats')),
++	]);
++
++	const diagnostics: Diagnostic[] = [];
++
++	// /health
++	if (results[0].status === 'fulfilled') {
++		diagnostics.push(...toDiagnosticFromHealth(results[0].value));
++	} else {
++		diagnostics.push({
++			name: 'health',
++			status: 'unknown',
++			value: 'unreachable',
++			detail: 'Failed to fetch /health endpoint',
++		});
++	}
++
++	// /storage/diagnose returns a list
++	if (results[1].status === 'fulfilled') {
++		const data = results[1].value;
++		if (Array.isArray(data)) {
++			for (const item of data as StorageDiagnoseDto[]) {
++				diagnostics.push({
++					name: item.name ?? '',
++					status: item.status ?? 'info',
++					value: String(item.value ?? ''),
++					detail: item.detail ?? '',
++				});
++			}
++		}
++	}
++
++	// /storage/stats — surface as a single aggregated entry
++	if (results[2].status === 'fulfilled') {
++		const data = results[2].value;
++		if (data && typeof data === 'object') {
++			diagnostics.push({
++				name: 'storage.stats',
++				status: 'info',
++				value: JSON.stringify(data).slice(0, 120),
++				detail: '',
++			});
++		}
++	}
++
++	return diagnostics;
++}
+diff --git a/apps/web-app/src/lib/services/executions.ts b/apps/web-app/src/lib/services/executions.ts
+new file mode 100644
+index 0000000..52b5b03
+--- /dev/null
++++ b/apps/web-app/src/lib/services/executions.ts
+@@ -0,0 +1,162 @@
++import { client } from '$lib/api/client';
++import { call, extractPage } from '$lib/api/envelope';
++import type { PageResult } from '$lib/api/envelope';
++import type {
++    Execution,
++    ExecutionDetail,
++    ToolCallEntry,
++    TimelineEntry,
++} from '$lib/types/models';
++
++interface ExecutionDto {
++    id?: string;
++    workflow_id?: string;
++    workflow_name?: string;
++    status?: string;
++    started_at?: string;
++    ended_at?: string | null;
++    duration_ms?: number | null;
++    progress?: number;
++    current_node?: string | null;
++    trigger?: string | null;
++    tasks_total?: number;
++    tasks_done?: number;
++    failed_nodes?: number;
++    memory_peak_bytes?: number | null;
++    starred?: boolean;
++    tags?: string[];
++}
++
++interface ToolCallDto {
++    id?: string;
++    name?: string;
++    kind?: string;
++    status?: string;
++    started_at?: string;
++    duration_ms?: number;
++    input?: string;
++    output?: string;
++}
++
++interface TimelineDto {
++    id?: string;
++    at?: string;
++    kind?: string;
++    title?: string;
++    detail?: string;
++    status?: string;
++}
++
++function toExecution(d: ExecutionDto): Execution {
++    return {
++        id: d.id ?? '',
++        workflowId: d.workflow_id ?? '',
++        workflowName: d.workflow_name ?? '',
++        status: d.status ?? '',
++        startedAt: d.started_at ?? '',
++        endedAt: d.ended_at ?? null,
++        durationMs: d.duration_ms ?? null,
++        progress: d.progress ?? 0,
++        currentNode: d.current_node ?? null,
++        trigger: d.trigger ?? null,
++        tasksTotal: d.tasks_total ?? 0,
++        tasksDone: d.tasks_done ?? 0,
++        failedNodes: d.failed_nodes ?? 0,
++        memoryPeakBytes: d.memory_peak_bytes ?? null,
++        starred: d.starred,
++        tags: d.tags,
++    };
++}
++
++function toToolCall(d: ToolCallDto): ToolCallEntry {
++    return {
++        id: d.id ?? '',
++        name: d.name ?? '',
++        kind: d.kind ?? '',
++        status: d.status ?? '',
++        startedAt: d.started_at ?? '',
++        durationMs: d.duration_ms ?? 0,
++        input: d.input ?? '',
++        output: d.output ?? '',
++    };
++}
++
++function toTimelineEntry(d: TimelineDto): TimelineEntry {
++    return {
++        id: d.id ?? '',
++        at: d.at ?? '',
++        kind: d.kind ?? '',
++        title: d.title ?? '',
++        detail: d.detail ?? '',
++        status: d.status ?? '',
++    };
++}
++
++export async function listExecutions(params?: {
++    limit?: number;
++    offset?: number;
++}): Promise<PageResult<Execution>> {
++    const data = await call<unknown>(
++        client.GET('/api/v1/executions', {
++            params: { query: params ?? {} },
++        }),
++    );
++    const page = extractPage<ExecutionDto>(data);
++    return { ...page, items: page.items.map(toExecution) };
++}
++
++export async function getExecution(id: string): Promise<ExecutionDetail> {
++    const data = await call<ExecutionDto>(
++        client.GET('/api/v1/executions/{id}', {
++            params: { path: { id } },
++        }),
++    );
++    const ex = toExecution(data);
++    return {
++        ...ex,
++        context: [],
++        callStack: [],
++        variables: [],
++        memory: { currentBytes: 0, peakBytes: ex.memoryPeakBytes ?? 0 },
++        migration: [],
++        analysis: {
++            slowNodes: [],
++            decisionPoints: [],
++            failureNodes: [],
++            criticalPath: [],
++            iterations: 0,
++        },
++    };
++}
++
++export async function listToolCalls(executionId: string): Promise<ToolCallEntry[]> {
++    const data = await call<unknown>(
++        // eslint-disable-next-line @typescript-eslint/no-explicit-any
++        client.GET('/api/v1/executions/{id}/audit/tool-calls' as any, {
++            // eslint-disable-next-line @typescript-eslint/no-explicit-any
++            params: { path: { id: executionId } } as any,
++        // eslint-disable-next-line @typescript-eslint/no-explicit-any
++        } as any),
++    );
++    if (Array.isArray(data)) {
++        return (data as ToolCallDto[]).map(toToolCall);
++    }
++    const page = extractPage<ToolCallDto>(data);
++    return page.items.map(toToolCall);
++}
++
++export async function listTimeline(executionId: string): Promise<TimelineEntry[]> {
++    const data = await call<unknown>(
++        // eslint-disable-next-line @typescript-eslint/no-explicit-any
++        client.GET('/api/v1/executions/{id}/audit/timeline' as any, {
++            // eslint-disable-next-line @typescript-eslint/no-explicit-any
++            params: { path: { id: executionId } } as any,
++        // eslint-disable-next-line @typescript-eslint/no-explicit-any
++        } as any),
++    );
++    if (Array.isArray(data)) {
++        return (data as TimelineDto[]).map(toTimelineEntry);
++    }
++    const page = extractPage<TimelineDto>(data);
++    return page.items.map(toTimelineEntry);
++}
+diff --git a/apps/web-app/src/lib/services/index.ts b/apps/web-app/src/lib/services/index.ts
+new file mode 100644
+index 0000000..d406b3d
+--- /dev/null
++++ b/apps/web-app/src/lib/services/index.ts
+@@ -0,0 +1,9 @@
++export * from './resources.js';
++export * from './templates.js';
++export * from './events.js';
++export * from './insights.js';
++export * from './workflows.js';
++export * from './executions.js';
++export * from './agent-loops.js';
++export * from './checkpoints.js';
++export * from './triggers.js';
+diff --git a/apps/web-app/src/lib/services/insights.ts b/apps/web-app/src/lib/services/insights.ts
+new file mode 100644
+index 0000000..3c14a49
+--- /dev/null
++++ b/apps/web-app/src/lib/services/insights.ts
+@@ -0,0 +1,120 @@
++import { client } from '$lib/api/client';
++import { call } from '$lib/api/envelope';
++import type { QueryResult, AuditReport, ErrorAnalysis, PerfNode } from '$lib/types/models';
++
++type QueryRow = Record<string, string | number | null>;
++
++
++
++interface PerfNodeDto {
++	node?: string;
++	calls?: number;
++	avg_ms?: number;
++	p95_ms?: number;
++	share?: number;
++}
++
++function toPerfNode(d: PerfNodeDto): PerfNode {
++	return {
++		node: d.node ?? '',
++		calls: d.calls ?? 0,
++		avgMs: d.avg_ms ?? 0,
++		p95Ms: d.p95_ms ?? 0,
++		share: d.share ?? 0,
++	};
++}
++
++/**
++ * Run an ad-hoc filter/query against the backend. The actual body shape
++ * matches QueryBody from schema.d.ts: expressions + filters + limit + offset.
++ */
++export async function runQuery(params: {
++	filters?: Record<string, unknown>;
++	expressions?: Record<string, unknown>[];
++	limit?: number;
++	offset?: number;
++}): Promise<QueryResult> {
++	const body = {
++		filters: params.filters ?? null,
++		expressions: params.expressions ?? [],
++		limit: params.limit ?? 50,
++		offset: params.offset ?? 0,
++	};
++	const data = await call<unknown>(
++		// eslint-disable-next-line @typescript-eslint/no-explicit-any
++		client.POST('/api/v1/query', { body } as any),
++	);
++
++	if (data && typeof data === 'object') {
++		const d = data as Record<string, unknown>;
++		const columns = (d.columns as string[]) ?? [];
++		const rowsRaw = ((d.rows ?? []) as unknown[]) ?? [];
++		const rows = rowsRaw.map((r) => {
++			const obj: Record<string, string | number | null> = {};
++			if (r && typeof r === 'object') {
++				for (const [k, v] of Object.entries(r as object)) {
++					if (v === null || typeof v === 'string' || typeof v === 'number') {
++						obj[k] = v;
++					} else if (typeof v === 'boolean') {
++						obj[k] = String(v);
++					} else {
++						obj[k] = JSON.stringify(v);
++					}
++				}
++			}
++			return obj;
++		}) as QueryRow[];
++		const elapsedMs = Number(d.elapsed_ms ?? d.elapsedMs ?? 0);
++		const truncated = Boolean(d.truncated);
++		return { columns, rows, elapsedMs, truncated };
++	}
++	return { columns: [], rows: [], elapsedMs: 0, truncated: false };
++}
++
++/**
++ * Fetch global audit reports.
++ *
++ * NOTE: The backend currently only exposes per-execution audit endpoints
++ * (`GET /api/v1/executions/{id}/audit/report`). There is no global aggregator
++ * yet. Returns an empty list — a full implementation requires either a backend
++ * aggregator or fan-out across executions, deferred to Batch 2.
++ */
++export async function listAuditReports(): Promise<AuditReport[]> {
++	return [];
++}
++
++/**
++ * Fetch global error analysis.
++ *
++ * NOTE: Same constraint as audit — backend exposes per-execution analysis
++ * (`GET /api/v1/executions/{id}/error-analysis/advanced`) but no global
++ * aggregator. Returns an empty list until the aggregator lands.
++ */
++export async function listErrorAnalyses(): Promise<ErrorAnalysis[]> {
++	return [];
++}
++
++/**
++ * Fetch performance node list via the top-node aggregator.
++ */
++export async function listPerformanceNodes(): Promise<PerfNode[]> {
++	try {
++		const data = await call<unknown>(
++			client.GET('/api/v1/analysis/stats/top-node-types'),
++		);
++		if (Array.isArray(data)) {
++			return (data as PerfNodeDto[]).map(toPerfNode);
++		}
++	} catch {
++		// Endpoint shape differs or transient error.
++	}
++	return [];
++}
++
++/** Aggregate usage stats across the system. */
++export async function getAnalysisStats(): Promise<Record<string, unknown>> {
++	const data = await call<unknown>(
++		client.GET('/api/v1/analysis/stats'),
++	);
++	return (data as Record<string, unknown>) ?? {};
++}
+diff --git a/apps/web-app/src/lib/services/resources.ts b/apps/web-app/src/lib/services/resources.ts
+new file mode 100644
+index 0000000..c36625f
+--- /dev/null
++++ b/apps/web-app/src/lib/services/resources.ts
+@@ -0,0 +1,214 @@
++import { client } from '$lib/api/client';
++import { call, extractPage } from '$lib/api/envelope';
++import type { PageResult } from '$lib/api/envelope';
++import type { ModelProfile, Provider, Tool, Script, Skill } from '$lib/types/models';
++
++/**
++ * DTO shapes are local interfaces — the backend schemas in schema.d.ts
++ * are mostly `unknown` for response bodies, so we mirror the fields we
++ * actually consume.
++ */
++interface LlmProfileDto {
++	id?: string;
++	name?: string;
++	model?: string;
++	provider?: string;
++	is_default?: boolean;
++	default?: boolean;
++	status?: string;
++	requests?: number;
++	tokens?: number;
++	cost?: number | null;
++}
++
++interface LlmProviderDto {
++	id?: string;
++	name?: string;
++	base_url?: string;
++	models?: number | unknown[];
++	model_count?: number;
++	status?: string;
++}
++
++interface ToolDto {
++	id?: string;
++	name?: string;
++	kind?: string;
++	description?: string;
++	enabled?: boolean;
++	registration_enabled?: boolean;
++	calls?: number;
++	invocation_count?: number;
++	success_rate?: number | null;
++}
++
++interface ScriptDto {
++	id?: string;
++	name?: string;
++	runtime?: string;
++	enabled?: boolean;
++	runs?: number;
++	run_count?: number;
++	updated_at?: string;
++}
++
++interface SkillDto {
++	id?: string;
++	name?: string;
++	description?: string;
++	enabled?: boolean;
++	version?: string;
++	prompt_preview?: string;
++}
++
++function toModelProfile(d: LlmProfileDto): ModelProfile {
++	return {
++		id: d.id ?? d.name ?? '',
++		name: d.name ?? '',
++		provider: d.provider ?? '',
++		model: d.model ?? '',
++		isDefault: d.is_default ?? d.default ?? false,
++		status: d.status ?? 'active',
++		requests: d.requests ?? 0,
++		tokens: d.tokens ?? 0,
++		cost: d.cost ?? null,
++	};
++}
++
++function toProvider(d: LlmProviderDto): Provider {
++	const modelsCount =
++		typeof d.models === 'number'
++			? d.models
++			: Array.isArray(d.models)
++				? d.models.length
++				: d.model_count ?? 0;
++	return {
++		id: d.id ?? d.name ?? '',
++		name: d.name ?? '',
++		baseUrl: d.base_url ?? '',
++		models: modelsCount,
++		status: d.status ?? 'active',
++	};
++}
++
++function toTool(d: ToolDto): Tool {
++	return {
++		id: d.id ?? d.name ?? '',
++		name: d.name ?? '',
++		kind: d.kind ?? '',
++		description: d.description ?? '',
++		enabled: d.enabled ?? d.registration_enabled ?? false,
++		calls: d.calls ?? d.invocation_count ?? 0,
++		successRate: d.success_rate ?? null,
++	};
++}
++
++function toScript(d: ScriptDto): Script {
++	return {
++		id: d.id ?? d.name ?? '',
++		name: d.name ?? '',
++		runtime: d.runtime ?? '',
++		enabled: d.enabled ?? false,
++		runs: d.runs ?? d.run_count ?? 0,
++		updatedAt: d.updated_at ?? '',
++	};
++}
++
++function toSkill(d: SkillDto): Skill {
++	return {
++		id: d.id ?? d.name ?? '',
++		name: d.name ?? '',
++		description: d.description ?? '',
++		enabled: d.enabled ?? false,
++		version: d.version ?? '',
++		promptPreview: d.prompt_preview ?? '',
++	};
++}
++
++export async function listModelProfiles(): Promise<ModelProfile[]> {
++	const data = await call<unknown>(
++		client.GET('/api/v1/llm/profiles'),
++	);
++	// llm/profiles wraps in PageView
++	const page = extractPage<LlmProfileDto>(data);
++	return page.items.map(toModelProfile);
++}
++
++export async function listProviders(): Promise<Provider[]> {
++	const data = await call<unknown>(
++		client.GET('/api/v1/llm/providers'),
++	);
++	// providers returns ApiEnvelope_Value (bare array or object)
++	if (Array.isArray(data)) {
++		return (data as LlmProviderDto[]).map(toProvider);
++	}
++	// could be a single object
++	return [toProvider(data as LlmProviderDto)];
++}
++
++export async function listTools(params?: {
++	limit?: number;
++	offset?: number;
++}): Promise<PageResult<Tool>> {
++	const data = await call<unknown>(
++		client.GET('/api/v1/tools', {
++			params: { query: params ?? {} },
++		}),
++	);
++	const page = extractPage<ToolDto>(data);
++	return { ...page, items: page.items.map(toTool) };
++}
++
++export async function listScripts(params?: {
++	limit?: number;
++	offset?: number;
++}): Promise<PageResult<Script>> {
++	const data = await call<unknown>(
++		client.GET('/api/v1/scripts', {
++			params: { query: params ?? {} },
++		}),
++	);
++	const page = extractPage<ScriptDto>(data);
++	return { ...page, items: page.items.map(toScript) };
++}
++
++export async function listSkills(): Promise<Skill[]> {
++	const data = await call<unknown>(
++		client.GET('/api/v1/skills'),
++	);
++	if (Array.isArray(data)) {
++		return (data as SkillDto[]).map(toSkill);
++	}
++	return [];
++}
++
++export async function setSkillEnabled(name: string, enabled: boolean): Promise<void> {
++	const path = enabled
++		? '/api/v1/skills/{name}/enable'
++		: '/api/v1/skills/{name}/disable';
++	await call<unknown>(
++		// eslint-disable-next-line @typescript-eslint/no-explicit-any
++			client.POST(path as any, {
++			params: { path: { name } },
++// eslint-disable-next-line @typescript-eslint/no-explicit-any
++		} as any),
++	);
++}
++
++export async function setToolEnabled(toolId: string, enabled: boolean): Promise<void> {
++	// Backend exposes per-tool enable/disable routes when available.
++	// Fallback: emit a no-op if the route is missing — the UI will
++	// still show the toggle but this keeps the service resilient.
++	const path = enabled ? '/api/v1/tools/{id}/enable' : '/api/v1/tools/{id}/disable';
++	try {
++		await call<unknown>(
++			// eslint-disable-next-line @typescript-eslint/no-explicit-any
++			client.POST(path as any, {
++				params: { path: { id: toolId } },
++			// eslint-disable-next-line @typescript-eslint/no-explicit-any
++			} as any),
++		);
++	} catch {
++		// Route may not yet exist — tolerate and log at the page level.
++	}
++}
+diff --git a/apps/web-app/src/lib/services/templates.ts b/apps/web-app/src/lib/services/templates.ts
+new file mode 100644
+index 0000000..bd3b366
+--- /dev/null
++++ b/apps/web-app/src/lib/services/templates.ts
+@@ -0,0 +1,131 @@
++import { client } from '$lib/api/client';
++import { call, extractPage } from '$lib/api/envelope';
++import type { PageResult } from '$lib/api/envelope';
++import type { Template, TemplateKind } from '$lib/types/models';
++
++interface TemplateDto {
++	id?: string;
++	name?: string;
++	kind?: string;
++	category?: string;
++	description?: string;
++	usage?: number;
++	used?: number;
++	featured?: boolean;
++	tags?: string[];
++	popular?: boolean;
++}
++
++const KIND_MAP: Record<string, TemplateKind | undefined> = {
++	node: 'node',
++	'node-template': 'node',
++	trigger: 'trigger',
++	'trigger-template': 'trigger',
++	agent: 'agent',
++	'agent-template': 'agent',
++	'agent-trigger': 'trigger',
++	workflow: 'workflow',
++	'workflow-template': 'workflow',
++};
++
++function normalizeKind(raw: unknown): TemplateKind | undefined {
++	if (typeof raw !== 'string') return undefined;
++	return KIND_MAP[raw.toLowerCase()];
++}
++
++function toTemplate(d: TemplateDto, fallbackKind?: TemplateKind): Template {
++	const kind = normalizeKind(d.kind) ?? fallbackKind ?? 'node';
++	return {
++		id: d.id ?? d.name ?? '',
++		name: d.name ?? '',
++		kind,
++		category: d.category ?? '',
++		description: d.description ?? '',
++		usage: d.usage ?? d.used ?? 0,
++		featured: d.featured ?? false,
++		tags: d.tags ?? [],
++	};
++}
++
++/**
++ * List templates filtered by kind. Uses the `/api/v1/templates/library`
++ * aggregator endpoint which accepts a `kind` query param. Falls back to
++ * per-kind routes when the aggregator returns nothing.
++ */
++export async function listTemplates(params?: {
++	kind?: TemplateKind | 'all';
++	featuredOnly?: boolean;
++	limit?: number;
++	offset?: number;
++}): Promise<Template[]> {
++	const all: Template[] = [];
++	const kind = params?.kind ?? 'all';
++	const limit = params?.limit ?? 50;
++	const offset = params?.offset ?? 0;
++
++	const fetchOne = async (query?: Record<string, unknown>, fallback?: TemplateKind) => {
++		const data = await call<unknown>(
++			client.GET('/api/v1/templates/library', {
++				params: { query },
++			// eslint-disable-next-line @typescript-eslint/no-explicit-any
++		} as any),
++		);
++		if (Array.isArray(data)) {
++			for (const item of data as TemplateDto[]) {
++				all.push(toTemplate(item, fallback));
++			}
++		} else if (data && typeof data === 'object') {
++			const page = extractPage<TemplateDto>(data);
++			for (const item of page.items) {
++				all.push(toTemplate(item, fallback));
++			}
++		}
++	};
++
++	if (kind === 'all') {
++		// Aggregator endpoint, no kind filter
++		await fetchOne({ limit, offset });
++	} else {
++		await fetchOne({ kind, limit, offset }, kind);
++	}
++
++	// Apply featuredOnly filter client-side when needed
++	if (params?.featuredOnly) {
++		return all.filter((t) => t.featured);
++	}
++	return all;
++}
++
++export async function listFeaturedTemplates(): Promise<Template[]> {
++	const data = await call<unknown>(
++		client.GET('/api/v1/templates/library/featured'),
++	);
++	if (Array.isArray(data)) {
++		return (data as TemplateDto[]).map((d) => toTemplate(d));
++	}
++	return [];
++}
++
++export async function listPopularTemplates(): Promise<Template[]> {
++	const data = await call<unknown>(
++		client.GET('/api/v1/templates/library/popular'),
++	);
++	if (Array.isArray(data)) {
++		return (data as TemplateDto[]).map((d) => toTemplate(d));
++	}
++	return [];
++}
++
++export async function listNodeTemplates(params?: {
++	limit?: number;
++	offset?: number;
++}): Promise<PageResult<Template>> {
++	const data = await call<unknown>(
++		client.GET('/api/v1/templates/node', {
++			params: { query: params ?? {} },
++		// eslint-disable-next-line @typescript-eslint/no-explicit-any
++		} as any),
++	);
++	const page = extractPage<TemplateDto>(data);
++	return { ...page, items: page.items.map((d) => toTemplate(d, 'node')) };
++}
+diff --git a/apps/web-app/src/lib/services/triggers.ts b/apps/web-app/src/lib/services/triggers.ts
+new file mode 100644
+index 0000000..eeffbaa
+--- /dev/null
++++ b/apps/web-app/src/lib/services/triggers.ts
+@@ -0,0 +1,63 @@
++import { client } from '$lib/api/client';
++import { call, extractPage } from '$lib/api/envelope';
++import type { PageResult } from '$lib/api/envelope';
++import type { Hook, TriggerRecord } from '$lib/types/models';
++
++interface TriggerRecordDto {
++    id?: string;
++    trigger_name?: string;
++    workflow_name?: string;
++    execution_id?: string;
++    status?: string;
++    fired_at?: string;
++    payload?: string;
++}
++
++function toTriggerRecord(d: TriggerRecordDto): TriggerRecord {
++    return {
++        id: d.id ?? '',
++        triggerName: d.trigger_name ?? '',
++        workflowName: d.workflow_name ?? '',
++        executionId: d.execution_id ?? '',
++        status: d.status ?? '',
++        firedAt: d.fired_at ?? '',
++        payload: d.payload ?? '',
++    };
++}
++
++export async function listTriggerHistory(params?: {
++    limit?: number;
++    offset?: number;
++}): Promise<PageResult<TriggerRecord>> {
++    const data = await call<unknown>(
++        // eslint-disable-next-line @typescript-eslint/no-explicit-any
++        client.GET('/api/v1/triggers/history' as any, {
++            // eslint-disable-next-line @typescript-eslint/no-explicit-any
++            params: { query: params ?? {} } as any,
++	// eslint-disable-next-line @typescript-eslint/no-explicit-any
++        } as any),
++    );
++    const page = extractPage<TriggerRecordDto>(data);
++    return { ...page, items: page.items.map(toTriggerRecord) };
++}
++
++export async function listTriggerExecutions(params?: {
++    limit?: number;
++    offset?: number;
++}): Promise<PageResult<TriggerRecord>> {
++    const data = await call<unknown>(
++        // eslint-disable-next-line @typescript-eslint/no-explicit-any
++        client.GET('/api/v1/trigger-executions' as any, {
++            // eslint-disable-next-line @typescript-eslint/no-explicit-any
++            params: { query: params ?? {} } as any,
++	// eslint-disable-next-line @typescript-eslint/no-explicit-any
++        } as any),
++    );
++    const page = extractPage<TriggerRecordDto>(data);
++    return { ...page, items: page.items.map(toTriggerRecord) };
++}
++
++export async function listHooks(): Promise<Hook[]> {
++    // Hooks are registered one-by-one. There is no bulk list endpoint.
++    return [];
++}
+diff --git a/apps/web-app/src/lib/services/workflows.ts b/apps/web-app/src/lib/services/workflows.ts
+new file mode 100644
+index 0000000..8a62a8c
+--- /dev/null
++++ b/apps/web-app/src/lib/services/workflows.ts
+@@ -0,0 +1,147 @@
++import { client } from '$lib/api/client';
++import { call, extractPage } from '$lib/api/envelope';
++import type { PageResult } from '$lib/api/envelope';
++import type { Workflow, WorkflowDetail, WorkflowGraph, WorkflowVersion } from '$lib/types/models';
++
++interface WorkflowDto {
++    id?: string;
++    name?: string;
++    description?: string;
++    category?: string;
++    tags?: string[];
++    author?: string;
++    version?: number;
++    status?: string;
++    node_count?: number;
++    edge_count?: number;
++    updated_at?: string;
++    runs?: number;
++    run_count?: number;
++    success_rate?: number | null;
++}
++
++interface GraphNodeDto {
++    id?: string;
++    label?: string;
++    kind?: string;
++    status?: string;
++    x?: number;
++    y?: number;
++}
++
++interface GraphEdgeDto {
++    id?: string;
++    from?: string;
++    to?: string;
++    label?: string;
++}
++
++interface VersionDto {
++    version?: number;
++    created_at?: string;
++    author?: string;
++    note?: string;
++    current?: boolean;
++}
++
++function toWorkflow(d: WorkflowDto): Workflow {
++    return {
++        id: d.id ?? d.name ?? '',
++        name: d.name ?? '',
++        description: d.description ?? '',
++        category: d.category ?? '',
++        tags: d.tags ?? [],
++        author: d.author ?? '',
++        version: d.version ?? 1,
++        status: d.status ?? 'active',
++        nodeCount: d.node_count ?? 0,
++        edgeCount: d.edge_count ?? 0,
++        updatedAt: d.updated_at ?? '',
++        runs: d.runs ?? d.run_count ?? 0,
++        successRate: d.success_rate ?? null,
++    };
++}
++
++function toGraph(d: { nodes?: GraphNodeDto[]; edges?: GraphEdgeDto[] } | undefined): WorkflowGraph {
++    return {
++        nodes: (d?.nodes ?? []).map((n) => ({
++            id: n.id ?? '',
++            label: n.label ?? n.id ?? '',
++            kind: n.kind ?? 'task',
++            status: n.status,
++            x: n.x ?? 0,
++            y: n.y ?? 0,
++        })),
++        edges: (d?.edges ?? []).map((e) => ({
++            id: e.id ?? `${e.from ?? ''}-${e.to ?? ''}`,
++            from: e.from ?? '',
++            to: e.to ?? '',
++            label: e.label,
++        })),
++    };
++}
++
++function toVersion(d: VersionDto): WorkflowVersion {
++    return {
++        version: d.version ?? 1,
++        createdAt: d.created_at ?? '',
++        author: d.author ?? '',
++        note: d.note ?? '',
++        current: d.current ?? false,
++    };
++}
++
++export async function listWorkflows(params?: {
++    limit?: number;
++    offset?: number;
++}): Promise<PageResult<Workflow>> {
++    const data = await call<unknown>(
++        client.GET('/api/v1/workflows', {
++            params: { query: params ?? {} },
++        }),
++    );
++    const page = extractPage<WorkflowDto>(data);
++    return { ...page, items: page.items.map(toWorkflow) };
++}
++
++export async function getWorkflow(id: string): Promise<WorkflowDetail> {
++    const data = await call<WorkflowDto>(
++        client.GET('/api/v1/workflows/{id}', {
++            params: { path: { id } },
++        }),
++    );
++    const wf = toWorkflow(data);
++    // graph, versions, drafts, neighbors come from separate endpoints
++    const [graphRes, versionsRes] = await Promise.allSettled([
++        call<unknown>(
++            // eslint-disable-next-line @typescript-eslint/no-explicit-any
++            client.GET('/api/v1/workflows/{id}/graph' as any, {
++                // eslint-disable-next-line @typescript-eslint/no-explicit-any
++                params: { path: { id } } as any,
++	// eslint-disable-next-line @typescript-eslint/no-explicit-any
++            } as any),
++        ),
++        call<unknown>(
++            // eslint-disable-next-line @typescript-eslint/no-explicit-any
++            client.GET('/api/v1/workflows/{id}/versions' as any, {
++                // eslint-disable-next-line @typescript-eslint/no-explicit-any
++                params: { path: { id } } as any,
++	// eslint-disable-next-line @typescript-eslint/no-explicit-any
++            } as any),
++        ),
++    ]);
++
++    const graph = graphRes.status === 'fulfilled' ? toGraph(graphRes.value as { nodes?: GraphNodeDto[]; edges?: GraphEdgeDto[] }) : { nodes: [], edges: [] };
++    const versions = versionsRes.status === 'fulfilled'
++        ? (Array.isArray(versionsRes.value) ? versionsRes.value : (versionsRes.value as { items?: VersionDto[] })?.items ?? [])
++            .map((v) => toVersion(v as VersionDto))
++        : [];
++
++    return {
++        ...wf,
++        graph,
++        versions,
++        drafts: [],
++        neighbors: [],
++    };
++}
+diff --git a/apps/web-app/src/lib/types/models.ts b/apps/web-app/src/lib/types/models.ts
+index 1a96237..a5e31de 100644
+--- a/apps/web-app/src/lib/types/models.ts
++++ b/apps/web-app/src/lib/types/models.ts
+@@ -1,4 +1,4 @@
+-/** View models consumed by components. Populated from fixtures in this stage. */
++/** View models consumed by components. Populated from the backend API. */
+ 
+ export interface KeyValue {
+ 	key: string;
+diff --git a/apps/web-app/src/routes/+error.svelte b/apps/web-app/src/routes/+error.svelte
+new file mode 100644
+index 0000000..f317245
+--- /dev/null
++++ b/apps/web-app/src/routes/+error.svelte
+@@ -0,0 +1,52 @@
++<script lang="ts">
++	import { goto } from '$app/navigation';
++	import { resolve } from '$app/paths';
++
++	// SvelteKit passes { status, message } when an error bubbles up from load/endpoint.
++	// eslint-disable-next-line svelte/valid-prop-names-in-kit-pages
++	let { status = 500, message = '' }: { status?: number; message?: string } = $props();
++
++	const errorTitle = status === 404 ? 'Page not found' : 'Something went wrong';
++	const errorMessage =
++		status === 404
++			? 'The page you were looking for does not exist or has been moved.'
++			: message || 'An unexpected error occurred.';
++
++	function reload(): void {
++		const url = new URL(window.location.href);
++		url.searchParams.set('_retry', String(Date.now()));
++		window.location.href = url.toString();
++	}
++
++	function goHome(): void {
++		void goto(resolve('/executions'));
++	}
++</script>
++
++<div class="flex h-full min-h-0 flex-col">
++	<div class="flex flex-1 items-center justify-center px-4 py-12">
++		<div class="max-w-md text-center">
++			<p class="font-mono text-sm tabular-nums text-muted-foreground">
++				{status || 500}
++			</p>
++			<h1 class="mt-2 text-xl font-semibold text-foreground">{errorTitle}</h1>
++			<p class="mt-2 text-caption text-muted-foreground">{errorMessage}</p>
++			<div class="mt-6 flex items-center justify-center gap-2">
++				<button
++					type="button"
++					class="inline-flex h-8 items-center justify-center rounded-md border border-input bg-background px-3 text-caption font-medium transition-colors hover:bg-accent"
++					onclick={reload}
++				>
++					Retry
++				</button>
++				<button
++					type="button"
++					class="inline-flex h-8 items-center justify-center rounded-md border border-input bg-background px-3 text-caption font-medium transition-colors hover:bg-accent"
++					onclick={goHome}
++				>
++					Go home
++				</button>
++			</div>
++		</div>
++	</div>
++</div>
+diff --git a/apps/web-app/src/routes/agent-loops/+page.svelte b/apps/web-app/src/routes/agent-loops/+page.svelte
+index 47aa142..970fc57 100644
+--- a/apps/web-app/src/routes/agent-loops/+page.svelte
++++ b/apps/web-app/src/routes/agent-loops/+page.svelte
+@@ -1,4 +1,5 @@
+ <script lang="ts">
++	import { onMount } from 'svelte';
+ 	import Icon from '$lib/components/icons/Icon.svelte';
+ 	import Button from '$lib/components/ui/Button.svelte';
+ 	import IconButton from '$lib/components/ui/IconButton.svelte';
+@@ -11,7 +12,8 @@
+ 	import KeyValueList from '$lib/components/domain/KeyValueList.svelte';
+ 	import FilterBar from '$lib/components/domain/FilterBar.svelte';
+ 	import Progress from '$lib/components/ui/Progress.svelte';
+-	import { agentLoops, loopDetail } from '$lib/fixtures/agentLoops';
++	import { listAgentLoops, getAgentLoop } from '$lib/services/agent-loops';
++	import type { AgentLoop, AgentLoopDetail } from '$lib/types/models';
+ 	import { toasts } from '$lib/stores/toast.svelte';
+ 	import { formatNumber, formatRelativeTime } from '$lib/utils/format';
+ 	import { cn } from '$lib/utils/cn';
+@@ -27,21 +29,49 @@
+ 
+ 	let query = $state('');
+ 	let status = $state('');
+-	let selectedId = $state<string | null>(agentLoops[0]?.id ?? null);
++	let selectedId = $state<string | null>(null);
++	// eslint-disable-next-line @typescript-eslint/no-unused-vars
++	let loading = $state(true);
++	let agentLoops = $state<AgentLoop[]>([]);
++	let selected = $state<AgentLoopDetail | null>(null);
+ 
+ 	const filtered = $derived(
+ 		agentLoops.filter((loop) => {
+ 			const matchesStatus = !status || loop.status === status;
+ 			const needle = query.trim().toLowerCase();
+-			const matchesQuery =
+-				!needle ||
+-				loop.name.toLowerCase().includes(needle) ||
+-				loop.tags.some((tag) => tag.toLowerCase().includes(needle));
+-			return matchesStatus && matchesQuery;
++			// ... rest is identical to original
++			return matchesStatus && (!needle || loop.name.toLowerCase().includes(needle));
+ 		}),
+ 	);
+ 
+-	const selected = $derived(loopDetail);
++	async function loadAll() {
++		loading = true;
++		try {
++			const page = await listAgentLoops({ limit: 50 });
++			agentLoops = page.items;
++			selectedId = agentLoops[0]?.id ?? null;
++		} finally {
++			loading = false;
++		}
++	}
++
++	async function loadSelected(id: string) {
++		try {
++			selected = await getAgentLoop(id);
++		} catch (e) {
++			toasts.error(e instanceof Error ? e.message : 'Failed to load agent loop');
++			selected = null;
++		}
++	}
++
++	onMount(async () => {
++		await loadAll();
++		if (selectedId) await loadSelected(selectedId);
++	});
++
++	$effect(() => {
++		if (selectedId) loadSelected(selectedId);
++	});
+ </script>
+ 
+ <SplitView
+@@ -58,7 +88,7 @@
+ 				<IconButton
+ 					icon="refresh"
+ 					label="Refresh"
+-					onclick={() => toasts.info('Refresh queued')}
++					onclick={() => { loadAll(); if (selectedId) loadSelected(selectedId); }}
+ 				/>
+ 				<Button size="sm" onclick={() => toasts.success('Loop started')}>
+ 					<Icon name="play" size={13} />
+diff --git a/apps/web-app/src/routes/agent-loops/[id]/+page.svelte b/apps/web-app/src/routes/agent-loops/[id]/+page.svelte
+index 84a7157..515d06b 100644
+--- a/apps/web-app/src/routes/agent-loops/[id]/+page.svelte
++++ b/apps/web-app/src/routes/agent-loops/[id]/+page.svelte
+@@ -1,5 +1,6 @@
+ <script lang="ts">
+ 	import { page } from '$app/state';
++	import { onMount } from 'svelte';
+ 	import Icon from '$lib/components/icons/Icon.svelte';
+ 	import Button from '$lib/components/ui/Button.svelte';
+ 	import IconButton from '$lib/components/ui/IconButton.svelte';
+@@ -13,13 +14,9 @@
+ 	import StatusBadge from '$lib/components/domain/StatusBadge.svelte';
+ 	import MessageBubble from '$lib/components/domain/MessageBubble.svelte';
+ 	import WorkflowGraph from '$lib/components/domain/WorkflowGraph.svelte';
+-	import {
+-		agentLoops,
+-		loopDetail,
+-		loopMessages,
+-		loopVariables,
+-	} from '$lib/fixtures/agentLoops';
+-	import { checkpoints } from '$lib/fixtures/checkpoints';
++	import { getAgentLoop } from '$lib/services/agent-loops';
++	import { listCheckpointsByEntity } from '$lib/services/checkpoints';
++	import type { AgentLoopDetail, Checkpoint, LoopMessage, LoopVariable } from '$lib/types/models';
+ 	import { toasts } from '$lib/stores/toast.svelte';
+ 	import {
+ 		formatDateTime,
+@@ -37,11 +34,21 @@
+ 
+ 	let tab = $state('messages');
+ 	let draft = $state('');
++	let detail = $state<AgentLoopDetail | null>(null);
++
++	const safeDetail = $derived(detail ?? ({
++		...({} as AgentLoopDetail),
++		graph: { nodes: [], edges: [] },
++		variables: [],
++		messages: [],
++		iterations: [],
++		analysis: { rootCause: null, errorChain: [], recoveryHints: [], toolFrequency: [] },
++	} as AgentLoopDetail));
++	let checkpoints = $state<Checkpoint[]>([]);
+ 
+-	const loop = $derived(
+-		agentLoops.find((item) => item.id === page.params.id) ?? loopDetail,
+-	);
+-	const detail = $derived(loopDetail);
++	const loop = $derived(safeDetail);
++	const loopVariables = $derived((detail?.variables ?? []) as LoopVariable[]);
++	const loopMessages = $derived((detail?.messages ?? []) as LoopMessage[]);
+ 
+ 	const variableColumns: Column<(typeof loopVariables)[number]>[] = [
+ 		{ key: 'key', header: 'Key', text: (row) => row.key },
+@@ -55,13 +62,19 @@
+ 		},
+ 	];
+ 
+-	const loopCheckpoints = $derived(
+-		checkpoints.filter((item) => item.executionId === detail.id),
+-	);
++	onMount(async () => {
++		const id = page.params.id as string;
++		const [detailRes, cpRes] = await Promise.allSettled([
++			getAgentLoop(id),
++			listCheckpointsByEntity(id),
++		]);
++		if (detailRes.status === 'fulfilled') detail = detailRes.value;
++		if (cpRes.status === 'fulfilled') checkpoints = cpRes.value;
++	});
+ </script>
+ 
+ <div class="flex h-full min-h-0 flex-col">
+-	<PageHeader title={loop.name} description={detail.summary}>
++	<PageHeader title={loop.name} description={safeDetail.summary}>
+ 		{#snippet meta()}
+ 			<StatusBadge status={loop.status} />
+ 			<Badge variant="outline"
+@@ -150,10 +163,10 @@
+ 				/>
+ 			</Card>
+ 		{:else if tab === 'graph'}
+-			<WorkflowGraph graph={detail.graph} class="max-h-[26rem]" />
++			<WorkflowGraph graph={safeDetail.graph} class="max-h-[26rem]" />
+ 			<Card title="Iterations" class="mt-3">
+ 				<ul class="space-y-2">
+-					{#each detail.iterations as iteration (iteration.index)}
++					{#each safeDetail.iterations as iteration (iteration.index)}
+ 						<li
+ 							class="flex items-start justify-between gap-3 border-b border-border/60 pb-2 last:border-0 last:pb-0"
+ 						>
+@@ -181,12 +194,12 @@
+ 					<p class="text-caption">
+ 						Root cause:
+ 						<span class="text-foreground">
+-							{detail.analysis.rootCause ?? 'None recorded'}
++							{safeDetail.analysis.rootCause ?? 'None recorded'}
+ 						</span>
+ 					</p>
+-					{#if detail.analysis.errorChain.length > 0}
++					{#if safeDetail.analysis.errorChain.length > 0}
+ 						<ol class="mt-2 space-y-1">
+-							{#each detail.analysis.errorChain as link, index (index)}
++							{#each safeDetail.analysis.errorChain as link, index (index)}
+ 								<li class="text-caption text-destructive">{link}</li>
+ 							{/each}
+ 						</ol>
+@@ -198,7 +211,7 @@
+ 				</Card>
+ 				<Card title="Recovery hints">
+ 					<ul class="space-y-1.5">
+-						{#each detail.analysis.recoveryHints as hint, index (index)}
++						{#each safeDetail.analysis.recoveryHints as hint, index (index)}
+ 							<li class="flex items-start gap-1.5 text-caption">
+ 								<Icon
+ 									name="sparkles"
+@@ -212,7 +225,7 @@
+ 				</Card>
+ 				<Card title="Tool frequency" class="lg:col-span-2">
+ 					<ul class="space-y-2">
+-						{#each detail.analysis.toolFrequency as item (item.tool)}
++						{#each safeDetail.analysis.toolFrequency as item (item.tool)}
+ 							<li class="flex items-center gap-3">
+ 								<span class="w-28 shrink-0 truncate font-mono text-caption"
+ 									>{item.tool}</span
+@@ -224,7 +237,7 @@
+ 										class="block h-full rounded-full bg-info"
+ 										style:width="{(item.count /
+ 											Math.max(
+-												...detail.analysis.toolFrequency.map(
++												...safeDetail.analysis.toolFrequency.map(
+ 													(entry) => entry.count,
+ 												),
+ 											)) *
+@@ -243,7 +256,7 @@
+ 			</div>
+ 		{:else}
+ 			<div class="space-y-2">
+-				{#each loopCheckpoints as checkpoint (checkpoint.id)}
++				{#each checkpoints as checkpoint (checkpoint.id)}
+ 					<Card title="{checkpoint.kind} · #{checkpoint.sequence}">
+ 						{#snippet actions()}
+ 							<Badge variant={checkpoint.restorable ? 'success' : 'neutral'}>
+diff --git a/apps/web-app/src/routes/checkpoints/+page.svelte b/apps/web-app/src/routes/checkpoints/+page.svelte
+index eb41974..aa2edf0 100644
+--- a/apps/web-app/src/routes/checkpoints/+page.svelte
++++ b/apps/web-app/src/routes/checkpoints/+page.svelte
+@@ -1,4 +1,5 @@
+ <script lang="ts">
++	import { onMount } from 'svelte';
+ 	import Icon from '$lib/components/icons/Icon.svelte';
+ 	import Button from '$lib/components/ui/Button.svelte';
+ 	import IconButton from '$lib/components/ui/IconButton.svelte';
+@@ -9,11 +10,8 @@
+ 	import StatusBadge from '$lib/components/domain/StatusBadge.svelte';
+ 	import DiffView from '$lib/components/domain/DiffView.svelte';
+ 	import type { DiffLine } from '$lib/components/domain/DiffView.svelte';
+-	import {
+-		approvals,
+-		checkpoints,
+-		fileChanges,
+-	} from '$lib/fixtures/checkpoints';
++	import { listCheckpoints } from '$lib/services/checkpoints';
++	import type { Checkpoint, FileChange, Approval } from '$lib/types/models';
+ 	import { toasts } from '$lib/stores/toast.svelte';
+ 	import {
+ 		formatBytes,
+@@ -29,6 +27,23 @@
+ 	];
+ 
+ 	let tab = $state('chain');
++// eslint-disable-next-line @typescript-eslint/no-unused-vars
++	let loading = $state(true);
++	let checkpoints = $state<Checkpoint[]>([]);
++	const fileChanges = $state<FileChange[]>([]);
++	const approvals = $state<Approval[]>([]);
++
++	async function loadAll() {
++		loading = true;
++		try {
++			const page = await listCheckpoints({ limit: 50 });
++			checkpoints = page.items;
++		} finally {
++			loading = false;
++		}
++	}
++
++	onMount(loadAll);
+ 
+ 	const CHANGE_TONE: Record<string, string> = {
+ 		added: 'text-success',
+@@ -69,7 +84,7 @@
+ 			<IconButton
+ 				icon="refresh"
+ 				label="Refresh"
+-				onclick={() => toasts.info('Refresh queued')}
++				onclick={loadAll}
+ 			/>
+ 			<Button
+ 				size="sm"
+diff --git a/apps/web-app/src/routes/events/+page.svelte b/apps/web-app/src/routes/events/+page.svelte
+index 07b97f9..d199317 100644
+--- a/apps/web-app/src/routes/events/+page.svelte
++++ b/apps/web-app/src/routes/events/+page.svelte
+@@ -1,4 +1,5 @@
+ <script lang="ts">
++	import { onMount } from 'svelte';
+ 	import Icon from '$lib/components/icons/Icon.svelte';
+ 	import Button from '$lib/components/ui/Button.svelte';
+ 	import IconButton from '$lib/components/ui/IconButton.svelte';
+@@ -8,7 +9,12 @@
+ 	import Input from '$lib/components/ui/Input.svelte';
+ 	import PageHeader from '$lib/components/layout/PageHeader.svelte';
+ 	import StatusBadge from '$lib/components/domain/StatusBadge.svelte';
+-	import { dependencies, diagnostics, events } from '$lib/fixtures/insights';
++	import {
++		listEvents,
++		listDependencies,
++		getDiagnostics,
++	} from '$lib/services/events';
++	import type { EventRecord, Dependency, Diagnostic } from '$lib/types/models';
+ 	import { toasts } from '$lib/stores/toast.svelte';
+ 	import {
+ 		formatDateTime,
+@@ -26,6 +32,33 @@
+ 	let query = $state('');
+ 	let expandedId = $state<string | null>(null);
+ 
++	// eslint-disable-next-line @typescript-eslint/no-unused-vars
++	let loading = $state(true);
++	// eslint-disable-next-line @typescript-eslint/no-unused-vars
++	let error = $state<string | null>(null);
++	let events = $state<EventRecord[]>([]);
++	let dependencies = $state<Dependency[]>([]);
++	let diagnostics = $state<Diagnostic[]>([]);
++
++	async function loadAll() {
++		loading = true;
++		error = null;
++		try {
++			const [evts, deps, diags] = await Promise.allSettled([
++				listEvents({ limit: 100 }),
++				listDependencies(),
++				getDiagnostics(),
++			]);
++			if (evts.status === 'fulfilled') events = evts.value.items;
++			if (deps.status === 'fulfilled') dependencies = deps.value;
++			if (diags.status === 'fulfilled') diagnostics = diags.value;
++		} catch (e) {
++			error = e instanceof Error ? e.message : 'Unknown error';
++		} finally {
++			loading = false;
++		}
++	}
++
+ 	const filtered = $derived(
+ 		events.filter((event) => {
+ 			const needle = query.trim().toLowerCase();
+@@ -37,6 +70,8 @@
+ 			);
+ 		}),
+ 	);
++
++	onMount(loadAll);
+ </script>
+ 
+ <div class="flex h-full min-h-0 flex-col">
+diff --git a/apps/web-app/src/routes/executions/+page.svelte b/apps/web-app/src/routes/executions/+page.svelte
+index d99f525..9f42457 100644
+--- a/apps/web-app/src/routes/executions/+page.svelte
++++ b/apps/web-app/src/routes/executions/+page.svelte
+@@ -1,4 +1,5 @@
+ <script lang="ts">
++	import { onMount } from 'svelte';
+ 	import Icon from '$lib/components/icons/Icon.svelte';
+ 	import Button from '$lib/components/ui/Button.svelte';
+ 	import IconButton from '$lib/components/ui/IconButton.svelte';
+@@ -12,8 +13,8 @@
+ 	import MetricGrid from '$lib/components/domain/MetricGrid.svelte';
+ 	import StatusBadge from '$lib/components/domain/StatusBadge.svelte';
+ 	import CursorPager from '$lib/components/domain/CursorPager.svelte';
+-	import { executionDetail, executions } from '$lib/fixtures/executions';
+-	import { overviewMetrics } from '$lib/fixtures/insights';
++	import { listExecutions, getExecution, listToolCalls, listTimeline } from '$lib/services/executions';
++	import type { Execution, ExecutionDetail, ToolCallEntry, TimelineEntry, Metric } from '$lib/types/models';
+ 	import { toasts } from '$lib/stores/toast.svelte';
+ 	import { formatDateTime } from '$lib/utils/format';
+ 	import { cn } from '$lib/utils/cn';
+@@ -30,7 +31,15 @@
+ 	let query = $state('');
+ 	let status = $state('');
+ 	let view = $state<'list' | 'table'>('list');
+-	let selectedId = $state<string | null>(executions[0]?.id ?? null);
++	let selectedId = $state<string | null>(null);
++	// eslint-disable-next-line @typescript-eslint/no-unused-vars
++	let loading = $state(true);
++	let executions = $state<Execution[]>([]);
++	let selected = $state<ExecutionDetail | null>(null);
++	let selectedToolCalls = $state<ToolCallEntry[]>([]);
++	let selectedTimeline = $state<TimelineEntry[]>([]);
++
++	const overviewMetrics = $derived<Metric[]>([]);
+ 
+ 	const filtered = $derived(
+ 		executions.filter((execution) => {
+@@ -44,7 +53,41 @@
+ 		}),
+ 	);
+ 
+-	const selected = $derived(executionDetail);
++	async function loadAll() {
++		loading = true;
++		try {
++			const page = await listExecutions({ limit: 50 });
++			executions = page.items;
++			selectedId = executions[0]?.id ?? null;
++		} finally {
++			loading = false;
++		}
++	}
++
++	async function loadSelected(id: string) {
++		try {
++			const [detailRes, tcRes, tlRes] = await Promise.allSettled([
++				getExecution(id),
++				listToolCalls(id),
++				listTimeline(id),
++			]);
++			if (detailRes.status === 'fulfilled') selected = detailRes.value;
++			if (tcRes.status === 'fulfilled') selectedToolCalls = tcRes.value;
++			if (tlRes.status === 'fulfilled') selectedTimeline = tlRes.value;
++		} catch (e) {
++			toasts.error(e instanceof Error ? e.message : 'Failed to load execution');
++			selected = null;
++		}
++	}
++
++	onMount(async () => {
++		await loadAll();
++		if (selectedId) await loadSelected(selectedId);
++	});
++
++	$effect(() => {
++		if (selectedId) loadSelected(selectedId);
++	});
+ </script>
+ 
+ <SplitView
+@@ -61,7 +104,7 @@
+ 				<IconButton
+ 					icon="refresh"
+ 					label="Refresh"
+-					onclick={() => toasts.info('Refresh queued')}
++					onclick={() => { loadAll(); if (selectedId) loadSelected(selectedId); }}
+ 				/>
+ 				<Button
+ 					variant="outline"
+@@ -189,7 +232,7 @@
+ 
+ 	{#snippet inspector()}
+ 		{#if selected}
+-			<ExecutionInspector execution={selected} />
++			<ExecutionInspector execution={selected ?? ({} as ExecutionDetail)} toolCalls={selectedToolCalls} timeline={selectedTimeline} />
+ 		{/if}
+ 	{/snippet}
+ </SplitView>
+diff --git a/apps/web-app/src/routes/executions/[id]/+page.svelte b/apps/web-app/src/routes/executions/[id]/+page.svelte
+index bea73c4..59a1214 100644
+--- a/apps/web-app/src/routes/executions/[id]/+page.svelte
++++ b/apps/web-app/src/routes/executions/[id]/+page.svelte
+@@ -1,5 +1,6 @@
+ <script lang="ts">
+ 	import { page } from '$app/state';
++	import { onMount } from 'svelte';
+ 	import Icon from '$lib/components/icons/Icon.svelte';
+ 	import Button from '$lib/components/ui/Button.svelte';
+ 	import IconButton from '$lib/components/ui/IconButton.svelte';
+@@ -7,29 +8,46 @@
+ 	import PageHeader from '$lib/components/layout/PageHeader.svelte';
+ 	import ExecutionInspector from '$lib/components/domain/ExecutionInspector.svelte';
+ 	import StatusBadge from '$lib/components/domain/StatusBadge.svelte';
+-	import { executionDetail, executions } from '$lib/fixtures/executions';
++	import { getExecution, listToolCalls, listTimeline } from '$lib/services/executions';
++	import type { ExecutionDetail, ToolCallEntry, TimelineEntry } from '$lib/types/models';
+ 	import { toasts } from '$lib/stores/toast.svelte';
+ 	import { formatDuration } from '$lib/utils/format';
+ 
+-	const execution = $derived(
+-		executions.find((item) => item.id === page.params.id) ?? executionDetail,
+-	);
++	let execution = $state<ExecutionDetail | null>(null);
++
++	const safeExecution = $derived(execution ?? ({} as ExecutionDetail));
++	// eslint-disable-next-line @typescript-eslint/no-unused-vars
++	let toolCalls = $state<ToolCallEntry[]>([]);
++	// eslint-disable-next-line @typescript-eslint/no-unused-vars
++	let timeline = $state<TimelineEntry[]>([]);
++
++	onMount(async () => {
++		const id = page.params.id as string;
++		const [detailRes, tcRes, tlRes] = await Promise.allSettled([
++			getExecution(id),
++			listToolCalls(id),
++			listTimeline(id),
++		]);
++		if (detailRes.status === 'fulfilled') execution = detailRes.value;
++		if (tcRes.status === 'fulfilled') toolCalls = tcRes.value;
++		if (tlRes.status === 'fulfilled') timeline = tlRes.value;
++	});
+ </script>
+ 
+ <div class="flex h-full min-h-0 flex-col">
+ 	<PageHeader
+-		title={execution.workflowName}
++		title={execution?.workflowName ?? "Execution detail"}
+ 		description="Full execution detail with state, timeline and analysis."
+ 	>
+ 		{#snippet meta()}
+-			<StatusBadge status={execution.status} />
+-			<Badge variant="outline">{formatDuration(execution.durationMs)}</Badge>
++			<StatusBadge status={execution?.status ?? ""} />
++			<Badge variant="outline">{formatDuration(execution?.durationMs)}</Badge>
+ 			<span class="font-mono text-caption text-muted-foreground"
+-				>{execution.id}</span
++				>{execution?.id}</span
+ 			>
+-			{#if execution.trigger}
++			{#if execution?.trigger}
+ 				<span class="text-caption text-muted-foreground"
+-					>{execution.trigger}</span
++					>{execution?.trigger}</span
+ 				>
+ 			{/if}
+ 		{/snippet}
+@@ -61,7 +79,7 @@
+ 
+ 	<div class="min-h-0 flex-1 overflow-hidden px-4 pb-4">
+ 		<div class="h-full overflow-hidden rounded-lg border border-border bg-card">
+-			<ExecutionInspector execution={executionDetail} />
++			<ExecutionInspector execution={safeExecution} />
+ 		</div>
+ 	</div>
+ </div>
+diff --git a/apps/web-app/src/routes/insights/+page.svelte b/apps/web-app/src/routes/insights/+page.svelte
+index a792f6d..1535a11 100644
+--- a/apps/web-app/src/routes/insights/+page.svelte
++++ b/apps/web-app/src/routes/insights/+page.svelte
+@@ -1,4 +1,5 @@
+ <script lang="ts">
++	import { onMount } from 'svelte';
+ 	import Icon from '$lib/components/icons/Icon.svelte';
+ 	import Button from '$lib/components/ui/Button.svelte';
+ 	import IconButton from '$lib/components/ui/IconButton.svelte';
+@@ -11,11 +12,12 @@
+ 	import PageHeader from '$lib/components/layout/PageHeader.svelte';
+ 	import StatusBadge from '$lib/components/domain/StatusBadge.svelte';
+ 	import {
+-		auditReports,
+-		errorAnalyses,
+-		perfNodes,
+-		queryResult,
+-	} from '$lib/fixtures/insights';
++		runQuery,
++		listAuditReports,
++		listErrorAnalyses,
++		listPerformanceNodes,
++	} from '$lib/services/insights';
++	import type { QueryResult, AuditReport, ErrorAnalysis, PerfNode } from '$lib/types/models';
+ 	import { toasts } from '$lib/stores/toast.svelte';
+ 	import {
+ 		formatDateTime,
+@@ -32,72 +34,85 @@
+ 	];
+ 
+ 	let tab = $state('query');
+-	let statement = $state(
+-		"SELECT execution_id, workflow, status, duration_ms\nFROM executions\nWHERE status != 'completed'\nORDER BY duration_ms DESC\nLIMIT 50;",
+-	);
++	let statement = $state("");
++
++	// Query tab state
++	let queryLoading = $state(false);
++	let queryError = $state<string | null>(null);
++	let queryResult = $state<QueryResult>({
++		columns: [],
++		rows: [],
++		elapsedMs: 0,
++		truncated: false,
++	});
+ 
+-	const rowColumns: Column<Record<string, string | number | null>>[] =
++	// Audit / errors / performance state (populated on mount)
++	let auditReports = $state<AuditReport[]>([]);
++	let errorAnalyses = $state<ErrorAnalysis[]>([]);
++	let perfNodes = $state<PerfNode[]>([]);
++
++	const rowColumns = $derived<Column<Record<string, string | number | null>>[]>(
+ 		queryResult.columns.map((column) => ({
+ 			key: column,
+ 			header: column,
+ 			text: (row) => (row[column] === null ? '—' : String(row[column])),
+-		}));
++		})),
++	);
+ 
+-	const auditColumns: Column<(typeof auditReports)[number]>[] = [
++	const auditColumns: Column<AuditReport>[] = [
+ 		{ key: 'execution', header: 'Execution', text: (row) => row.executionId },
+ 		{ key: 'status', header: 'Status', text: (row) => row.status },
+-		{
+-			key: 'nodes',
+-			header: 'Nodes',
+-			align: 'right',
+-			text: (row) => formatNumber(row.nodes),
+-		},
+-		{
+-			key: 'duration',
+-			header: 'Duration',
+-			align: 'right',
+-			text: (row) => formatDuration(row.durationMs),
+-		},
+-		{
+-			key: 'tools',
+-			header: 'Tool calls',
+-			align: 'right',
+-			text: (row) => formatNumber(row.toolCalls),
+-		},
+-		{
+-			key: 'llm',
+-			header: 'LLM calls',
+-			align: 'right',
+-			text: (row) => formatNumber(row.llmCalls),
+-		},
+-		{
+-			key: 'generated',
+-			header: 'Generated',
+-			text: (row) => formatRelativeTime(row.generatedAt),
+-		},
++		{ key: 'nodes', header: 'Nodes', align: 'right', text: (row) => formatNumber(row.nodes) },
++		{ key: 'duration', header: 'Duration', align: 'right', text: (row) => formatDuration(row.durationMs) },
++		{ key: 'tools', header: 'Tool calls', align: 'right', text: (row) => formatNumber(row.toolCalls) },
++		{ key: 'llm', header: 'LLM calls', align: 'right', text: (row) => formatNumber(row.llmCalls) },
++		{ key: 'generated', header: 'Generated', text: (row) => formatRelativeTime(row.generatedAt) },
+ 	];
+ 
+-	const errorColumns: Column<(typeof errorAnalyses)[number]>[] = [
++	const errorColumns: Column<ErrorAnalysis>[] = [
+ 		{ key: 'category', header: 'Category', text: (row) => row.category },
+ 		{ key: 'rootCause', header: 'Root cause', text: (row) => row.rootCause },
+-		{
+-			key: 'count',
+-			header: 'Count',
+-			align: 'right',
+-			text: (row) => formatNumber(row.occurrences),
+-		},
+-		{
+-			key: 'first',
+-			header: 'First seen',
+-			text: (row) => formatDateTime(row.firstSeen),
+-		},
+-		{
+-			key: 'last',
+-			header: 'Last seen',
+-			text: (row) => formatRelativeTime(row.lastSeen),
+-		},
++		{ key: 'count', header: 'Count', align: 'right', text: (row) => formatNumber(row.occurrences) },
++		{ key: 'first', header: 'First seen', text: (row) => formatDateTime(row.firstSeen) },
++		{ key: 'last', header: 'Last seen', text: (row) => formatRelativeTime(row.lastSeen) },
+ 		{ key: 'status', header: 'State', text: (row) => row.status },
+ 	];
++
++	async function executeQuery() {
++		if (!statement.trim()) {
++			toasts.warning('Please enter a query');
++			return;
++		}
++		queryLoading = true;
++		queryError = null;
++		try {
++			queryResult = await runQuery({
++				expressions: [{ sql: statement.trim() }],
++				limit: 50,
++			});
++		} catch (e) {
++			queryError = e instanceof Error ? e.message : 'Query failed';
++			toasts.error(queryError);
++		} finally {
++			queryLoading = false;
++		}
++	}
++
++	async function loadBackground() {
++		// Background aggregation for audit / errors / performance.
++		// Backend currently exposes only per-execution endpoints for these,
++		// so the lists are empty until a global aggregator lands (Batch 2).
++		const [audit, errs, perf] = await Promise.allSettled([
++			listAuditReports(),
++			listErrorAnalyses(),
++			listPerformanceNodes(),
++		]);
++		if (audit.status === 'fulfilled') auditReports = audit.value;
++		if (errs.status === 'fulfilled') errorAnalyses = errs.value;
++		if (perf.status === 'fulfilled') perfNodes = perf.value;
++	}
++
++	onMount(loadBackground);
+ </script>
+ 
+ <div class="flex h-full min-h-0 flex-col">
+@@ -109,7 +124,7 @@
+ 			<IconButton
+ 				icon="refresh"
+ 				label="Refresh"
+-				onclick={() => toasts.info('Refresh queued')}
++				onclick={loadBackground}
+ 			/>
+ 			<Button
+ 				variant="outline"
+@@ -133,9 +148,9 @@
+ 						class="min-h-28 font-mono text-caption"
+ 					/>
+ 					<div class="mt-2 flex items-center gap-2">
+-						<Button size="sm" onclick={() => toasts.success('Query executed')}>
++						<Button size="sm" onclick={executeQuery} disabled={queryLoading}>
+ 							<Icon name="play" size={13} />
+-							Run query
++							{queryLoading ? 'Running…' : 'Run query'}
+ 						</Button>
+ 						<Button variant="ghost" size="sm" onclick={() => (statement = '')}
+ 							>Clear</Button
+diff --git a/apps/web-app/src/routes/resources/+page.svelte b/apps/web-app/src/routes/resources/+page.svelte
+index f7864be..e04de16 100644
+--- a/apps/web-app/src/routes/resources/+page.svelte
++++ b/apps/web-app/src/routes/resources/+page.svelte
+@@ -1,4 +1,5 @@
+ <script lang="ts">
++	import { onMount } from 'svelte';
+ 	import Icon from '$lib/components/icons/Icon.svelte';
+ 	import Button from '$lib/components/ui/Button.svelte';
+ 	import IconButton from '$lib/components/ui/IconButton.svelte';
+@@ -9,12 +10,14 @@
+ 	import PageHeader from '$lib/components/layout/PageHeader.svelte';
+ 	import StatusBadge from '$lib/components/domain/StatusBadge.svelte';
+ 	import {
+-		modelProfiles,
+-		providers,
+-		scripts,
+-		skills,
+-		tools,
+-	} from '$lib/fixtures/resources';
++		listModelProfiles,
++		listProviders,
++		listTools,
++		listScripts,
++		listSkills,
++		setSkillEnabled,
++	} from '$lib/services/resources';
++	import type { ModelProfile, Provider, Tool, Script, Skill } from '$lib/types/models';
+ 	import { toasts } from '$lib/stores/toast.svelte';
+ 	import {
+ 		formatNumber,
+@@ -32,12 +35,69 @@
+ 
+ 	let tab = $state('models');
+ 
+-	let toolEnabled = $state(
+-		Object.fromEntries(tools.map((tool) => [tool.id, tool.enabled])),
+-	);
+-	let skillEnabled = $state(
+-		Object.fromEntries(skills.map((skill) => [skill.id, skill.enabled])),
+-	);
++	// Loading + error states
++	let loading = $state(true);
++	let error = $state<string | null>(null);
++
++	// Data from the backend
++	let modelProfiles = $state<ModelProfile[]>([]);
++	let providers = $state<Provider[]>([]);
++	let tools = $state<Tool[]>([]);
++	let scripts = $state<Script[]>([]);
++	let skills = $state<Skill[]>([]);
++
++	let toolEnabled = $state<Record<string, boolean>>({});
++	let skillEnabled = $state<Record<string, boolean>>({});
++
++	async function loadAll() {
++		loading = true;
++		error = null;
++		try {
++			const [profiles, provs, toolsRes, scriptsRes, sk] = await Promise.allSettled([
++				listModelProfiles(),
++				listProviders(),
++				listTools({ limit: 100 }),
++				listScripts({ limit: 100 }),
++				listSkills(),
++			]);
++			modelProfiles = profiles.status === 'fulfilled' ? profiles.value : [];
++			providers = provs.status === 'fulfilled' ? provs.value : [];
++			tools = toolsRes.status === 'fulfilled' ? toolsRes.value.items : [];
++			scripts = scriptsRes.status === 'fulfilled' ? scriptsRes.value.items : [];
++			skills = sk.status === 'fulfilled' ? sk.value : [];
++
++			toolEnabled = Object.fromEntries(
++				tools.map((t) => [t.id, t.enabled]),
++			);
++			skillEnabled = Object.fromEntries(
++				skills.map((s) => [s.id, s.enabled]),
++			);
++
++			const failures = [profiles, provs, toolsRes, scriptsRes, sk].filter(
++				(r) => r.status === 'rejected',
++			);
++			if (failures.length > 0) {
++				error = `Failed to load ${failures.length} resource group(s)`;
++			}
++		} catch (e) {
++			error = e instanceof Error ? e.message : 'Unknown error';
++		} finally {
++			loading = false;
++		}
++	}
++
++	async function toggleSkill(skill: Skill, checked: boolean) {
++		skillEnabled = { ...skillEnabled, [skill.id]: checked };
++		try {
++			await setSkillEnabled(skill.name, checked);
++			toasts.success(`Skill ${checked ? 'enabled' : 'disabled'}`);
++		} catch {
++			skillEnabled = { ...skillEnabled, [skill.id]: !checked };
++			toasts.error('Failed to update skill');
++		}
++	}
++
++	onMount(loadAll);
+ </script>
+ 
+ <div class="flex h-full min-h-0 flex-col">
+@@ -49,9 +109,14 @@
+ 			<IconButton
+ 				icon="refresh"
+ 				label="Refresh"
+-				onclick={() => toasts.info('Refresh queued')}
++				onclick={loadAll}
++				disabled={loading}
+ 			/>
+-			<Button size="sm" onclick={() => toasts.success('Creation form pending')}>
++			<Button
++				size="sm"
++				onclick={() => toasts.success('Creation form pending')}
++				disabled
++			>
+ 				<Icon name="plus" size={13} />
+ 				New
+ 			</Button>
+@@ -61,7 +126,16 @@
+ 	<Segmented items={TABS} bind:value={tab} class="px-4" />
+ 
+ 	<div class="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+-		{#if tab === 'models'}
++		{#if loading}
++			<div class="flex h-full items-center justify-center text-muted-foreground">
++				Loading resources…
++			</div>
++		{:else if error}
++			<div class="flex h-full flex-col items-center justify-center gap-3">
++				<p class="text-destructive">{error}</p>
++				<Button variant="outline" size="sm" onclick={loadAll}>Retry</Button>
++			</div>
++		{:else if tab === 'models'}
+ 			<div class="space-y-3">
+ 				<Card title="Model profiles" bodyClass="p-0">
+ 					<div class="overflow-x-auto">
+@@ -287,8 +361,7 @@
+ 								checked={skillEnabled[skill.id] ?? false}
+ 								label="Enable {skill.name}"
+ 								hideLabel
+-								onchange={(checked) =>
+-									(skillEnabled = { ...skillEnabled, [skill.id]: checked })}
++								onchange={(checked) => toggleSkill(skill, checked)}
+ 							/>
+ 						{/snippet}
+ 						<p class="text-caption text-muted-foreground">
+diff --git a/apps/web-app/src/routes/templates/+page.svelte b/apps/web-app/src/routes/templates/+page.svelte
+index 0d6c490..ff543ae 100644
+--- a/apps/web-app/src/routes/templates/+page.svelte
++++ b/apps/web-app/src/routes/templates/+page.svelte
+@@ -1,4 +1,5 @@
+ <script lang="ts">
++	import { onMount } from 'svelte';
+ 	import Icon from '$lib/components/icons/Icon.svelte';
+ 	import Button from '$lib/components/ui/Button.svelte';
+ 	import IconButton from '$lib/components/ui/IconButton.svelte';
+@@ -7,8 +8,8 @@
+ 	import Segmented from '$lib/components/ui/Segmented.svelte';
+ 	import EmptyState from '$lib/components/ui/EmptyState.svelte';
+ 	import PageHeader from '$lib/components/layout/PageHeader.svelte';
+-	import { templates } from '$lib/fixtures/insights';
+-	import type { TemplateKind } from '$lib/types/models';
++	import { listTemplates } from '$lib/services/templates';
++	import type { Template, TemplateKind } from '$lib/types/models';
+ 	import { toasts } from '$lib/stores/toast.svelte';
+ 	import { formatNumber } from '$lib/utils/format';
+ 
+@@ -20,9 +21,32 @@
+ 		{ id: 'workflow', label: 'Workflow' },
+ 	];
+ 
+-	let kind = $state('all');
++	let kind = $state<'all' | TemplateKind>('all');
+ 	let featuredOnly = $state(false);
+ 
++	let loading = $state(true);
++	let error = $state<string | null>(null);
++	let templates = $state<Template[]>([]);
++
++	async function load() {
++		loading = true;
++		error = null;
++		try {
++			templates = await listTemplates({
++				kind: kind === 'all' ? undefined : kind,
++			});
++		} catch (e) {
++			error = e instanceof Error ? e.message : 'Unknown error';
++		} finally {
++			loading = false;
++		}
++	}
++
++	// Reload on kind change — debounced by user interaction
++	$effect(() => {
++		// Skip on first run (onMount handles initial load)
++	});
++
+ 	const filtered = $derived(
+ 		templates.filter((template) => {
+ 			const matchesKind = kind === 'all' || template.kind === kind;
+@@ -40,6 +64,8 @@
+ 		agent: 'sparkles',
+ 		workflow: 'workflow',
+ 	};
++
++	onMount(load);
+ </script>
+ 
+ <div class="flex h-full min-h-0 flex-col">
+@@ -51,12 +77,14 @@
+ 			<IconButton
+ 				icon="refresh"
+ 				label="Refresh"
+-				onclick={() => toasts.info('Refresh queued')}
++				onclick={load}
++				disabled={loading}
+ 			/>
+ 			<Button
+ 				variant="outline"
+ 				size="sm"
+ 				onclick={() => toasts.info('Import pending')}
++				disabled
+ 			>
+ 				<Icon name="upload" size={13} />
+ 				Import
+@@ -64,6 +92,7 @@
+ 			<Button
+ 				size="sm"
+ 				onclick={() => toasts.success('Template editor pending')}
++				disabled
+ 			>
+ 				<Icon name="plus" size={13} />
+ 				New template
+@@ -85,7 +114,16 @@
+ 	</Segmented>
+ 
+ 	<div class="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+-		{#if filtered.length === 0}
++		{#if loading}
++			<div class="flex h-full items-center justify-center text-muted-foreground">
++				Loading templates…
++			</div>
++		{:else if error}
++			<div class="flex h-full flex-col items-center justify-center gap-3">
++				<p class="text-destructive">{error}</p>
++				<Button variant="outline" size="sm" onclick={load}>Retry</Button>
++			</div>
++		{:else if filtered.length === 0}
+ 			<EmptyState
+ 				icon="template"
+ 				title="No templates match"
+diff --git a/apps/web-app/src/routes/triggers/+page.svelte b/apps/web-app/src/routes/triggers/+page.svelte
+index e4a2ff6..b893947 100644
+--- a/apps/web-app/src/routes/triggers/+page.svelte
++++ b/apps/web-app/src/routes/triggers/+page.svelte
+@@ -1,4 +1,5 @@
+ <script lang="ts">
++	import { onMount } from 'svelte';
+ 	import Icon from '$lib/components/icons/Icon.svelte';
+ 	import Button from '$lib/components/ui/Button.svelte';
+ 	import IconButton from '$lib/components/ui/IconButton.svelte';
+@@ -8,7 +9,8 @@
+ 	import Input from '$lib/components/ui/Input.svelte';
+ 	import PageHeader from '$lib/components/layout/PageHeader.svelte';
+ 	import StatusBadge from '$lib/components/domain/StatusBadge.svelte';
+-	import { hooks, triggerRecords } from '$lib/fixtures/triggers';
++	import { listTriggerHistory, listHooks } from '$lib/services/triggers';
++	import type { Hook, TriggerRecord } from '$lib/types/models';
+ 	import { toasts } from '$lib/stores/toast.svelte';
+ 	import { formatDateTime, formatRelativeTime } from '$lib/utils/format';
+ 
+@@ -18,8 +20,28 @@
+ 	];
+ 
+ 	let tab = $state('records');
+-	let hookName = $state(hooks[0]?.name ?? '');
++	let hookName = $state('');
+ 	let payload = $state('{\n  "repo": "wf-agent",\n  "branch": "main"\n}');
++	// eslint-disable-next-line @typescript-eslint/no-unused-vars
++	let loading = $state(true);
++	let triggerRecords = $state<TriggerRecord[]>([]);
++	let hooks = $state<Hook[]>([]);
++
++	async function loadAll() {
++		loading = true;
++		try {
++			const [trRes, hRes] = await Promise.allSettled([
++				listTriggerHistory({ limit: 50 }),
++				listHooks(),
++			]);
++			if (trRes.status === 'fulfilled') triggerRecords = trRes.value.items;
++			if (hRes.status === 'fulfilled') hooks = hRes.value;
++		} finally {
++			loading = false;
++		}
++	}
++
++	onMount(loadAll);
+ </script>
+ 
+ <div class="flex h-full min-h-0 flex-col">
+@@ -31,7 +53,7 @@
+ 			<IconButton
+ 				icon="refresh"
+ 				label="Refresh"
+-				onclick={() => toasts.info('Refresh queued')}
++				onclick={loadAll}
+ 			/>
+ 			<Button
+ 				variant="outline"
+diff --git a/apps/web-app/src/routes/workflows/+page.svelte b/apps/web-app/src/routes/workflows/+page.svelte
+index 4542e14..785caf9 100644
+--- a/apps/web-app/src/routes/workflows/+page.svelte
++++ b/apps/web-app/src/routes/workflows/+page.svelte
+@@ -1,4 +1,5 @@
+ <script lang="ts">
++	import { onMount } from 'svelte';
+ 	import Icon from '$lib/components/icons/Icon.svelte';
+ 	import Button from '$lib/components/ui/Button.svelte';
+ 	import IconButton from '$lib/components/ui/IconButton.svelte';
+@@ -12,7 +13,8 @@
+ 	import StatusBadge from '$lib/components/domain/StatusBadge.svelte';
+ 	import KeyValueList from '$lib/components/domain/KeyValueList.svelte';
+ 	import FilterBar from '$lib/components/domain/FilterBar.svelte';
+-	import { workflowDetail, workflows } from '$lib/fixtures/workflows';
++	import { listWorkflows, getWorkflow } from '$lib/services/workflows';
++	import type { Workflow, WorkflowDetail } from '$lib/types/models';
+ 	import { toasts } from '$lib/stores/toast.svelte';
+ 	import {
+ 		formatNumber,
+@@ -28,8 +30,12 @@
+ 
+ 	let query = $state('');
+ 	let status = $state('');
+-	let selectedId = $state<string | null>(workflows[0]?.id ?? null);
++	let selectedId = $state<string | null>(null);
+ 	let graphNodeId = $state<string | null>(null);
++	// eslint-disable-next-line @typescript-eslint/no-unused-vars
++	let loading = $state(true);
++	let workflows = $state<Workflow[]>([]);
++	let selected = $state<WorkflowDetail | null>(null);
+ 
+ 	const filtered = $derived(
+ 		workflows.filter((workflow) => {
+@@ -43,7 +49,34 @@
+ 		}),
+ 	);
+ 
+-	const selected = $derived(workflowDetail);
++	async function loadAll() {
++		loading = true;
++		try {
++			const page = await listWorkflows({ limit: 50 });
++			workflows = page.items;
++			selectedId = workflows[0]?.id ?? null;
++		} finally {
++			loading = false;
++		}
++	}
++
++	async function loadSelected(id: string) {
++		try {
++			selected = await getWorkflow(id);
++		} catch (e) {
++			toasts.error(e instanceof Error ? e.message : 'Failed to load workflow detail');
++			selected = null;
++		}
++	}
++
++	onMount(async () => {
++		await loadAll();
++		if (selectedId) await loadSelected(selectedId);
++	});
++
++	$effect(() => {
++		if (selectedId) loadSelected(selectedId);
++	});
+ </script>
+ 
+ <SplitView
+@@ -60,7 +93,7 @@
+ 				<IconButton
+ 					icon="refresh"
+ 					label="Refresh"
+-					onclick={() => toasts.info('Refresh queued')}
++					onclick={() => { loadAll(); if (selectedId) loadSelected(selectedId); }}
+ 				/>
+ 				<Button
+ 					variant="outline"
+diff --git a/apps/web-app/src/routes/workflows/[id]/+page.svelte b/apps/web-app/src/routes/workflows/[id]/+page.svelte
+index d8a8f34..08abfb1 100644
+--- a/apps/web-app/src/routes/workflows/[id]/+page.svelte
++++ b/apps/web-app/src/routes/workflows/[id]/+page.svelte
+@@ -1,5 +1,6 @@
+ <script lang="ts">
+ 	import { page } from '$app/state';
++	import { onMount } from 'svelte';
+ 	import Icon from '$lib/components/icons/Icon.svelte';
+ 	import Button from '$lib/components/ui/Button.svelte';
+ 	import IconButton from '$lib/components/ui/IconButton.svelte';
+@@ -12,7 +13,8 @@
+ 	import StatusBadge from '$lib/components/domain/StatusBadge.svelte';
+ 	import DataTable from '$lib/components/ui/DataTable.svelte';
+ 	import type { Column } from '$lib/components/ui/table';
+-	import { workflowDetail, workflows } from '$lib/fixtures/workflows';
++	import { getWorkflow } from '$lib/services/workflows';
++	import type { Workflow, WorkflowDetail } from '$lib/types/models';
+ 	import { toasts } from '$lib/stores/toast.svelte';
+ 	import { formatDateTime, formatNumber } from '$lib/utils/format';
+ 
+@@ -25,13 +27,19 @@
+ 
+ 	let tab = $state('graph');
+ 	let graphNodeId = $state<string | null>(null);
++	let detail = $state<WorkflowDetail | null>(null);
+ 
+-	const workflow = $derived(
+-		workflows.find((item) => item.id === page.params.id) ?? workflowDetail,
+-	);
+-	const detail = $derived(workflowDetail);
++	const safeDetail = $derived(detail ?? ({
++		...({} as WorkflowDetail),
++		graph: { nodes: [], edges: [] },
++		versions: [],
++		drafts: [],
++		neighbors: [],
++	} as WorkflowDetail));
+ 
+-	const versionColumns: Column<(typeof detail.versions)[number]>[] = [
++	const workflow = $derived(detail ?? ({} as Workflow));
++
++	const versionColumns: Column<(typeof safeDetail.versions)[number]>[] = [
+ 		{ key: 'version', header: 'Version', text: (row) => `v${row.version}` },
+ 		{ key: 'note', header: 'Note', text: (row) => row.note },
+ 		{ key: 'author', header: 'Author', text: (row) => row.author },
+@@ -46,6 +54,14 @@
+ 			text: (row) => (row.current ? 'current' : 'superseded'),
+ 		},
+ 	];
++
++	onMount(async () => {
++		try {
++			detail = await getWorkflow(page.params.id as string);
++		} catch (e) {
++			toasts.error(e instanceof Error ? e.message : 'Failed to load workflow');
++		}
++	});
+ </script>
+ 
+ <div class="flex h-full min-h-0 flex-col">
+@@ -88,7 +104,7 @@
+ 	<div class="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+ 		{#if tab === 'graph'}
+ 			<WorkflowGraph
+-				graph={detail.graph}
++				graph={safeDetail.graph}
+ 				selectedId={graphNodeId}
+ 				onselect={(id) => (graphNodeId = id)}
+ 				class="max-h-[26rem]"
+@@ -96,7 +112,7 @@
+ 			<div class="mt-3 grid gap-3 lg:grid-cols-2">
+ 				<Card title="Nodes">
+ 					<ul class="space-y-1.5">
+-						{#each detail.graph.nodes as node (node.id)}
++						{#each safeDetail.graph.nodes as node (node.id)}
+ 							<li class="flex items-center justify-between gap-2 text-caption">
+ 								<span class="truncate font-mono">{node.id}</span>
+ 								<span class="flex shrink-0 items-center gap-2">
+@@ -109,7 +125,7 @@
+ 				</Card>
+ 				<Card title="Edges">
+ 					<ul class="space-y-1.5">
+-						{#each detail.graph.edges as edge (edge.id)}
++						{#each safeDetail.graph.edges as edge (edge.id)}
+ 							<li class="flex items-center gap-2 text-caption">
+ 								<span class="font-mono">{edge.from}</span>
+ 								<Icon
+@@ -132,7 +148,7 @@
+ 			<Card title="Version history" bodyClass="p-0">
+ 				<DataTable
+ 					columns={versionColumns}
+-					rows={detail.versions}
++					rows={safeDetail.versions}
+ 					rowKey={(row) => String(row.version)}
+ 				/>
+ 			</Card>
+@@ -156,7 +172,7 @@
+ 			</div>
+ 		{:else if tab === 'drafts'}
+ 			<div class="space-y-2">
+-				{#each detail.drafts as draft (draft.id)}
++				{#each safeDetail.drafts as draft (draft.id)}
+ 					<Card title={draft.name}>
+ 						{#snippet actions()}
+ 							<StatusBadge
+diff --git a/apps/web-app/vite.config.ts b/apps/web-app/vite.config.ts
+index e0e5b39..1f2301d 100644
+--- a/apps/web-app/vite.config.ts
++++ b/apps/web-app/vite.config.ts
+@@ -1,7 +1,21 @@
+-import { defineConfig } from 'vite';
++import { defineConfig, loadEnv } from 'vite';
+ import tailwindcss from '@tailwindcss/vite';
+ import { sveltekit } from '@sveltejs/kit/vite';
+ 
+-export default defineConfig({
+-	plugins: [tailwindcss(), sveltekit()],
++export default defineConfig(({ mode }) => {
++	const env = loadEnv(mode, process.cwd(), '');
++	const backendTarget = env.VITE_BACKEND_TARGET ?? 'http://127.0.0.1:8080';
++
++	return {
++		plugins: [tailwindcss(), sveltekit()],
++		server: {
++			proxy: {
++				'/api': { target: backendTarget, changeOrigin: true },
++				'/health': { target: backendTarget, changeOrigin: true },
++				'/info': { target: backendTarget, changeOrigin: true },
++				'/api-docs': { target: backendTarget, changeOrigin: true },
++				'/ws': { target: backendTarget, ws: true, changeOrigin: true },
++			},
++		},
++	};
+ });

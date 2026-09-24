@@ -156,11 +156,19 @@ pub async fn publish_forced_compression(ctx: &NodeExecutionContext, request: &Ll
         ),
     )
     .ok();
-    dispatch_compression_signal(ctx, &compression_request).await;
+    let dispatched = dispatch_compression_signal(ctx, &compression_request).await;
+    if !dispatched {
+        tracing::warn!(
+            execution_id = %ctx.execution_id,
+            node_id = %ctx.node_id,
+            target = %target,
+            "forced compression signal has no taker; audit event kept, flight not anchored"
+        );
+    }
     message_context::mark_compression_emitted(&ctx.variables, &target, array_version);
     if let Some(ref tracker) = ctx.token_tracker {
         let mut tracker = tracker.lock().await;
-        if ctx.hook_handler_registry.is_some() {
+        if dispatched {
             tracker.begin_compression_flight(&target, array_version, true);
         }
         super::token_budget::persist_tracker_state(ctx, &tracker);
@@ -171,11 +179,12 @@ pub async fn publish_forced_compression(ctx: &NodeExecutionContext, request: &Ll
 /// shared context store: registered receivers (the compression service)
 /// are notified synchronously so the summary sub-workflow takes over
 /// immediately. Workflow targets have no `agent_loop_id`: the write-back
-/// goes through the execution registry.
+/// goes through the execution registry. Returns false when no registry can
+/// take over (audit event is kept, backpressure must not anchor).
 pub async fn dispatch_compression_signal(
     ctx: &NodeExecutionContext,
     request: &wf_execution_shared::ContextCompressionRequest<'_>,
-) {
+) -> bool {
     wf_execution_shared::context_store::dispatch_compression_signal(
         ctx.hook_handler_registry.as_deref(),
         ctx.event_bus.as_deref(),
@@ -183,5 +192,5 @@ pub async fn dispatch_compression_signal(
         None,
         request,
     )
-    .await;
+    .await
 }

@@ -197,6 +197,9 @@ pub(crate) struct CompressionWriteBack<'a> {
     pub expected_version: u64,
     /// Recent pre-existing messages kept visible beside the summary.
     pub tail_keep: usize,
+    /// Context budget the emission was checked against (0 when unknown).
+    /// Used only to warn when the compressed result is still over budget.
+    pub token_limit: u64,
 }
 
 /// Write the compressed output back to the emitting execution and publish
@@ -250,6 +253,16 @@ pub(crate) async fn handle_subworkflow_output(
                 target.expected_version,
             );
         }
+    }
+    let tokens_after = wf_llm::estimate_messages(&messages) as u64;
+    if target.token_limit > 0 && tokens_after > target.token_limit {
+        tracing::warn!(
+            execution_id = %target.execution_id,
+            target = %target.target_context_id,
+            tokens_after = tokens_after,
+            token_limit = target.token_limit,
+            "compressed result still exceeds context budget; next append will retrigger compression"
+        );
     }
     let completed = build_compression_completed_event(
         target.execution_id,

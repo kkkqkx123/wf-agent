@@ -175,13 +175,24 @@ pub async fn emit_token_usage_events(
             )
             .ok();
             // Synchronous signal delivery: the compression service registered
-            // as a receiver takes over immediately.
-            dispatch_compression_signal(ctx, &compression_request).await;
+            // as a receiver takes over immediately. A missing registry is
+            // already warned inside the dispatch; the audit event is kept
+            // but backpressure must not anchor without a taker.
+            let dispatched = dispatch_compression_signal(ctx, &compression_request).await;
+            if !dispatched {
+                tracing::warn!(
+                    execution_id = %ctx.execution_id,
+                    node_id = %ctx.node_id,
+                    target = %context_id,
+                    version = version,
+                    "compression signal has no taker; audit event kept, flight not anchored"
+                );
+            }
             message_context::mark_compression_emitted(&ctx.variables, &context_id, version);
             // Backpressure anchor: the next node waits for this version to
             // settle before re-sending the over-budget array. Anchored only
-            // when a hook receiver can take over.
-            if ctx.hook_handler_registry.is_some() {
+            // when the signal was actually dispatched.
+            if dispatched {
                 tracker.begin_compression_flight(&context_id, version, false);
             }
             persist_tracker_state(ctx, &tracker);
@@ -191,9 +202,9 @@ pub async fn emit_token_usage_events(
 
 /// Blocking backpressure gate for workflow LLM nodes: when any declared
 /// array carries an in-flight compression anchored at its current version,
-/// wait without timeout for the write-back to land before assembling the
-/// request. A compression failure stops the node for manual handling;
-/// cancellation aborts the wait.
+/// wait for the write-back to land before assembling the request. A
+/// compression failure or a settle timeout stops the node for manual
+/// handling; cancellation aborts the wait.
 pub async fn await_compression_settle(
     ctx: &NodeExecutionContext,
 ) -> crate::error::WorkflowResult<()> {
@@ -238,9 +249,18 @@ pub async fn await_compression_settle(
         }
     }
     for (target, version) in anchored {
+        let start = std::time::Instant::now();
         loop {
             if message_context::array_version(&ctx.variables, &target) != version {
                 break;
+            }
+            if start.elapsed().as_millis() as u64
+                >= wf_execution_shared::COMPRESSION_SETTLE_TIMEOUT_MS
+            {
+                return Err(crate::error::WorkflowError::TriggerError(format!(
+                    "context compression timed out for '{}' at version {}; manual handling required",
+                    target, version
+                )));
             }
             if let Some(ref mut sub) = failure_events {
                 while let Ok(event) = sub.try_recv() {

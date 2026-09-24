@@ -17,8 +17,18 @@ fn now_ms() -> i64 {
         .as_millis() as i64
 }
 
+pub const DEFAULT_LLM_SUMMARY_PROFILE: &str = "DEFAULT";
+
 pub fn create_llm_summary_workflow(compression_prompt: Option<String>) -> WorkflowTemplate {
+    create_llm_summary_workflow_with_profile(compression_prompt, None)
+}
+
+pub fn create_llm_summary_workflow_with_profile(
+    compression_prompt: Option<String>,
+    profile_id: Option<String>,
+) -> WorkflowTemplate {
     let t = now_ms();
+    let profile = profile_id.unwrap_or_else(|| DEFAULT_LLM_SUMMARY_PROFILE.to_string());
 
     let nodes = vec![
         BaseStaticNode {
@@ -46,7 +56,7 @@ pub fn create_llm_summary_workflow(compression_prompt: Option<String>) -> Workfl
                 "Use LLM to generate a compressed summary of the conversation history".into(),
             ),
             config: Some(json!({
-                "profile_id": "DEFAULT",
+                "profile_id": profile,
                 "context_id": "current",
                 "output_context": "compressed",
                 "system_prompt": compression_prompt.unwrap_or_else(|| DEFAULT_LLM_SUMMARY_PROMPT.into()),

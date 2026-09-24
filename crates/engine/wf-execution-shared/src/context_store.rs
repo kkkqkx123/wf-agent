@@ -19,8 +19,7 @@ pub enum WritebackOp {
 
 impl WritebackOp {
     /// Resolve the wire operation name carried by write-back completed
-    /// events (`WRITEBACK_OPERATION_APPEND`). Unknown names are rejected so a
-    /// destructive replace can never silently resume.
+    /// events (`WRITEBACK_OPERATION_APPEND`). Unknown names are rejected.
     pub fn from_operation_name(operation: &str) -> Option<Self> {
         match operation {
             crate::WRITEBACK_OPERATION_APPEND => Some(Self::Append),
@@ -75,15 +74,26 @@ pub fn compression_event(
 /// their loop id so the agent conversation self-consumes the completed
 /// event; workflow targets carry no loop id and write back through the
 /// execution registry.
+///
+/// Returns true when a registry was present and the signal was dispatched.
+/// Returns false when no registry can take over: callers keep the audit
+/// event but must not anchor backpressure, and should warn so the dropped
+/// compression is explicit instead of silent.
 pub async fn dispatch_compression_signal(
     registry: Option<&HookHandlerRegistry>,
     bus: Option<&EventBus>,
     execution_id: &Id,
     agent_loop_id: Option<&Id>,
     request: &crate::ContextCompressionRequest<'_>,
-) {
+) -> bool {
     let Some(registry) = registry else {
-        return;
+        tracing::warn!(
+            execution_id = %execution_id,
+            target = %request.target_context_id,
+            version = request.array_version,
+            "compression signal dropped: no hook registry to take over"
+        );
+        return false;
     };
     let mut data = crate::compression_request_hook_data(request);
     if let Some(loop_id) = agent_loop_id {
@@ -104,6 +114,7 @@ pub async fn dispatch_compression_signal(
         bus,
     )
     .await;
+    true
 }
 
 /// Anchor check shared by every versioned write-back path: the result only
@@ -120,18 +131,35 @@ pub fn dynamic_request_overhead(request_estimate: u64, stable_estimate: u64) -> 
     request_estimate.saturating_sub(stable_estimate)
 }
 
-/// Blocking backpressure wait: poll `current_version` without timeout until
-/// it moves past `anchor` (the compression write-back landed). Callers race
+/// Whether an in-flight compression flight started at `started_at_ms` has
+/// exceeded `timeout_ms` at `now_ms`. Flights carry their emission time so a
+/// lost completion without a failure event cannot block emitters forever.
+pub fn flight_expired(started_at_ms: i64, now_ms: i64, timeout_ms: u64) -> bool {
+    now_ms.saturating_sub(started_at_ms) as u64 > timeout_ms
+}
+
+/// Blocking backpressure wait: poll `current_version` until it moves past
+/// `anchor` (the compression write-back landed) or `timeout_ms` elapses.
+/// Returns true when the version shifted, false on timeout. Callers race
 /// this against their cancellation signal and against the compression
-/// failure event; a failure stops the emitting execution for manual handling.
-pub async fn wait_for_version_shift<F, Fut>(mut current_version: F, anchor: u64)
+/// failure event; timeout and failure stop the emitting execution for manual
+/// handling.
+pub async fn wait_for_version_shift<F, Fut>(
+    mut current_version: F,
+    anchor: u64,
+    timeout_ms: u64,
+) -> bool
 where
     F: FnMut() -> Fut,
     Fut: std::future::Future<Output = u64>,
 {
+    let start = std::time::Instant::now();
     loop {
         if current_version().await != anchor {
-            return;
+            return true;
+        }
+        if start.elapsed().as_millis() as u64 >= timeout_ms {
+            return false;
         }
         tokio::time::sleep(std::time::Duration::from_millis(
             crate::token_events::COMPRESSION_SETTLE_POLL_MS,
@@ -194,9 +222,9 @@ mod tests {
         );
         assert_eq!(WritebackOp::from_operation_name("bogus"), None);
         assert_eq!(
-            WritebackOp::from_operation_name(crate::WRITEBACK_OPERATION_REPLACE),
+            WritebackOp::from_operation_name("replace"),
             None,
-            "destructive replace wire name is rejected"
+            "replace wire name is rejected: history is append-only"
         );
     }
 
@@ -242,14 +270,42 @@ mod tests {
             probe.store(8, Ordering::SeqCst);
         });
         let moved = version.clone();
-        wait_for_version_shift(
-            move || {
-                let moved = moved.clone();
-                async move { moved.load(Ordering::SeqCst) }
-            },
-            7,
-        )
-        .await;
+        assert!(
+            wait_for_version_shift(
+                move || {
+                    let moved = moved.clone();
+                    async move { moved.load(Ordering::SeqCst) }
+                },
+                7,
+                1000,
+            )
+            .await
+        );
         assert_eq!(version.load(Ordering::SeqCst), 8);
+    }
+
+    #[tokio::test]
+    async fn version_shift_wait_times_out() {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        use std::sync::Arc;
+        let version = Arc::new(AtomicU64::new(7));
+        let moved = version.clone();
+        assert!(
+            !wait_for_version_shift(
+                move || {
+                    let moved = moved.clone();
+                    async move { moved.load(Ordering::SeqCst) }
+                },
+                7,
+                30,
+            )
+            .await
+        );
+    }
+
+    #[test]
+    fn flight_expiry_uses_timeout() {
+        assert!(!flight_expired(1000, 1000, 60_000));
+        assert!(flight_expired(0, 60_001, 60_000));
     }
 }

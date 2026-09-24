@@ -287,6 +287,7 @@ impl CompressionService {
         let agent_loop_id = signal.agent_loop_id.clone();
         let target_context_id = signal.target_context_id.clone();
         let array_version = signal.array_version;
+        let token_limit = signal.token_limit;
         let depth = signal.depth.saturating_add(1);
         let execution_id_str = execution_id.to_string();
         let input = serde_json::json!({
@@ -309,6 +310,7 @@ impl CompressionService {
                                 target_context_id: &target_context_id,
                                 expected_version: array_version,
                                 tail_keep: policy.tail_keep,
+                                token_limit,
                             },
                             &output,
                         )

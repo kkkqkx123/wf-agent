@@ -123,18 +123,9 @@ impl ContextWriter for VariableMapWriteBack {
                 current,
             });
         }
-        let mut combined = messages;
-        if tail_keep > 0 {
-            let active = message_context::get_context(&self.variables, context_id);
-            let known: std::collections::HashSet<String> =
-                combined.iter().map(|m| m.id.clone()).collect();
-            let start = active.len().saturating_sub(tail_keep);
-            for message in active.into_iter().skip(start) {
-                if !known.contains(&message.id) {
-                    combined.push(message);
-                }
-            }
-        }
+        let active = message_context::get_context(&self.variables, context_id);
+        let combined =
+            wf_execution_shared::merge_compressed_with_tail(messages, &active, tail_keep);
         message_context::register_context(&self.variables, context_id, combined);
         Ok(())
     }

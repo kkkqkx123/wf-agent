@@ -162,6 +162,28 @@ fn apply_rollback(
     (messages.to_vec(), unchanged_stats(messages.len()))
 }
 
+/// Merge a compressed summary batch with the retained tail of the active
+/// array. Shared by workflow write-back and agent view construction so both
+/// sides keep the same tail semantics: summary first, then the last
+/// `tail_keep` active messages, deduplicated by message id.
+pub fn merge_compressed_with_tail(
+    mut summary: Vec<Message>,
+    active: &[Message],
+    tail_keep: usize,
+) -> Vec<Message> {
+    if tail_keep == 0 || active.is_empty() {
+        return summary;
+    }
+    let known: std::collections::HashSet<String> = summary.iter().map(|m| m.id.clone()).collect();
+    let start = active.len().saturating_sub(tail_keep);
+    for message in active.iter().skip(start) {
+        if !known.contains(&message.id) {
+            summary.push(message.clone());
+        }
+    }
+    summary
+}
+
 /// Whether an operation is safe for agent histories. Only `Append` (and
 /// read-only `Filter` projections built at request time) qualify; `Insert`
 /// and `Replace` would rewrite coordinates and are rejected on the agent
@@ -309,5 +331,21 @@ mod tests {
             extract_by_role(&base, MessageRole::User, true)[0].role,
             MessageRole::Assistant
         );
+    }
+
+    #[test]
+    fn merge_compressed_keeps_tail_deduped() {
+        let summary = vec![msg(MessageRole::Assistant, "summary")];
+        let active = vec![
+            msg(MessageRole::User, "first"),
+            msg(MessageRole::User, "second"),
+        ];
+        let merged = merge_compressed_with_tail(summary, &active, 1);
+        assert_eq!(merged.len(), 2);
+        assert_eq!(merged[1].role, MessageRole::User);
+
+        let summary = vec![msg(MessageRole::Assistant, "summary")];
+        let merged = merge_compressed_with_tail(summary, &active, 0);
+        assert_eq!(merged.len(), 1);
     }
 }

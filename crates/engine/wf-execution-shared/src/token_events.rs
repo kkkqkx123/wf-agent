@@ -55,13 +55,10 @@ pub const KEY_INJECTED_MESSAGE_COUNT: &str = "injected_message_count";
 /// the compression completed event (the compressed array).
 pub const KEY_MESSAGES: &str = "messages";
 /// Metadata key: write-back operation of a `CONVERSATION_WRITEBACK_COMPLETED`
-/// event (`replace` or `append`).
+/// event (only `append`; history is append-only).
 pub const KEY_WRITEBACK_OPERATION: &str = "operation";
-/// Write-back operation value: replace the target array (summarization /
-/// compression semantics).
-pub const WRITEBACK_OPERATION_REPLACE: &str = "replace";
 /// Write-back operation value: append to the target array (continuation
-/// semantics).
+/// semantics). This is the only supported write-back operation.
 pub const WRITEBACK_OPERATION_APPEND: &str = "append";
 /// Metadata key: error message of a failed LLM stream.
 pub const KEY_STREAM_ERROR: &str = "error";
@@ -86,9 +83,11 @@ pub const DEFAULT_TOKEN_WARNING_THRESHOLD: u32 = 80;
 pub const DEFAULT_COMPRESSION_TAIL_KEEP: usize = 2;
 
 /// Poll interval while waiting for an in-flight compression to settle.
-/// Emitters wait without timeout until the compressed view lands; a
-/// compression failure stops the emitting execution for manual handling.
 pub const COMPRESSION_SETTLE_POLL_MS: u64 = 50;
+/// Outer timeout while waiting for an in-flight compression to settle.
+/// Emitters stop for manual handling on timeout instead of waiting forever
+/// when the completion event is lost without a failure event.
+pub const COMPRESSION_SETTLE_TIMEOUT_MS: u64 = 60_000;
 
 /// Hook type of the engine's internal context-compression signal: the engine
 /// dispatches it synchronously so registered receivers (the compression

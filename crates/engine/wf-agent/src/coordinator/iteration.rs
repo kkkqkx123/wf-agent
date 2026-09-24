@@ -436,6 +436,7 @@ impl AgentIterationCoordinator {
                         }
                     }
                 }
+                let settle_start = std::time::Instant::now();
                 loop {
                     {
                         let conversation = entity.conversation().read().await;
@@ -451,6 +452,14 @@ impl AgentIterationCoordinator {
                                 version
                             )));
                         }
+                    }
+                    if settle_start.elapsed().as_millis() as u64
+                        >= wf_execution_shared::COMPRESSION_SETTLE_TIMEOUT_MS
+                    {
+                        return Err(AgentError::ExecutionError(format!(
+                            "context compression timed out at version {}; manual handling required",
+                            version
+                        )));
                     }
                     if let Some(ref mut sub) = failure_events {
                         while let Ok(event) = sub.try_recv() {
@@ -719,20 +728,29 @@ impl AgentIterationCoordinator {
                             Some(entity.id()),
                             &request,
                         ));
-                        wf_execution_shared::context_store::dispatch_compression_signal(
-                            self.hook_handler_registry.as_deref(),
-                            self.event_bus.as_deref(),
-                            entity.id(),
-                            Some(entity.id()),
-                            &request,
-                        )
-                        .await;
+                        let dispatched =
+                            wf_execution_shared::context_store::dispatch_compression_signal(
+                                self.hook_handler_registry.as_deref(),
+                                self.event_bus.as_deref(),
+                                entity.id(),
+                                Some(entity.id()),
+                                &request,
+                            )
+                            .await;
+                        if !dispatched {
+                            tracing::warn!(
+                                entity_id = %entity.id(),
+                                version = version,
+                                "compression signal has no taker; audit event kept, flight not anchored"
+                            );
+                        }
                         let mut session = entity.conversation().write().await;
                         session.mark_compression_emitted(version);
-                        // Backpressure only anchors when a hook receiver can
-                        // take over; without a registry nothing settles the
-                        // flight and later iterations would wait in vain.
-                        if self.hook_handler_registry.is_some() {
+                        // Backpressure only anchors when the signal was
+                        // actually dispatched; without a taker nothing
+                        // settles the flight and later iterations would wait
+                        // in vain.
+                        if dispatched {
                             session.begin_compression_flight(version, false);
                         }
                     }
@@ -982,7 +1000,7 @@ impl AgentIterationCoordinator {
             Some(entity.id()),
             &compression_request,
         ));
-        wf_execution_shared::context_store::dispatch_compression_signal(
+        let dispatched = wf_execution_shared::context_store::dispatch_compression_signal(
             self.hook_handler_registry.as_deref(),
             self.event_bus.as_deref(),
             entity.id(),
@@ -990,9 +1008,16 @@ impl AgentIterationCoordinator {
             &compression_request,
         )
         .await;
+        if !dispatched {
+            tracing::warn!(
+                entity_id = %entity.id(),
+                version = version,
+                "forced compression signal has no taker; audit event kept, flight not anchored"
+            );
+        }
         let mut session = entity.conversation().write().await;
         session.mark_compression_emitted(version);
-        if self.hook_handler_registry.is_some() {
+        if dispatched {
             session.begin_compression_flight(version, true);
         }
     }

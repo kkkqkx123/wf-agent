@@ -434,6 +434,7 @@ impl TriggerActionRunner for SubworkflowActionRunner {
         // the target array is still at the version the event snapshot was
         // taken from; concurrent appends discard stale results.
         let expected_version = meta.array_version;
+        let token_limit = meta.token_limit;
 
         let input = serde_json::json!({ "conversationHistory": messages });
         let wait = wait_for_completion.unwrap_or(true);
@@ -463,6 +464,7 @@ impl TriggerActionRunner for SubworkflowActionRunner {
                     event,
                     &target_context_id,
                     expected_version,
+                    token_limit,
                 ),
             )
             .await;
@@ -505,6 +507,7 @@ impl TriggerActionRunner for SubworkflowActionRunner {
                                         target_context_id: &target_context_id,
                                         expected_version,
                                         tail_keep: wf_execution_shared::DEFAULT_COMPRESSION_TAIL_KEEP,
+                                        token_limit,
                                     },
                                     &output,
                                 )
@@ -597,6 +600,7 @@ impl SubworkflowActionRunner {
         event: &BaseEvent,
         target_context_id: &str,
         expected_version: u64,
+        token_limit: u64,
     ) -> WorkflowResult<()> {
         let output = self.runner.run(workflow_id, input).await?;
         handle_subworkflow_output(
@@ -608,6 +612,7 @@ impl SubworkflowActionRunner {
                 target_context_id,
                 expected_version,
                 tail_keep: wf_execution_shared::DEFAULT_COMPRESSION_TAIL_KEEP,
+                token_limit,
             },
             &output,
         )

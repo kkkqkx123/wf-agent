@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { page } from '$app/state';
 	import Icon from '$lib/components/icons/Icon.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
 	import IconButton from '$lib/components/ui/IconButton.svelte';
@@ -7,29 +6,28 @@
 	import PageHeader from '$lib/components/layout/PageHeader.svelte';
 	import ExecutionInspector from '$lib/components/domain/ExecutionInspector.svelte';
 	import StatusBadge from '$lib/components/domain/StatusBadge.svelte';
-	import { executionDetail, executions } from '$lib/fixtures/executions';
+	import type { PageData } from './$types';
 	import { toasts } from '$lib/stores/toast.svelte';
 	import { formatDuration } from '$lib/utils/format';
 
-	const execution = $derived(
-		executions.find((item) => item.id === page.params.id) ?? executionDetail,
-	);
+	let { data }: { data: PageData } = $props();
+	let { detail } = $derived(data);
 </script>
 
 <div class="flex h-full min-h-0 flex-col">
 	<PageHeader
-		title={execution.workflowName}
+		title={detail.workflowName}
 		description="Full execution detail with state, timeline and analysis."
 	>
 		{#snippet meta()}
-			<StatusBadge status={execution.status} />
-			<Badge variant="outline">{formatDuration(execution.durationMs)}</Badge>
+			<StatusBadge status={detail.status} />
+			<Badge variant="outline">{formatDuration(detail.durationMs)}</Badge>
 			<span class="font-mono text-caption text-muted-foreground"
-				>{execution.id}</span
+				>{detail.id}</span
 			>
-			{#if execution.trigger}
+			{#if detail.trigger}
 				<span class="text-caption text-muted-foreground"
-					>{execution.trigger}</span
+					>{detail.trigger}</span
 				>
 			{/if}
 		{/snippet}
@@ -61,7 +59,7 @@
 
 	<div class="min-h-0 flex-1 overflow-hidden px-4 pb-4">
 		<div class="h-full overflow-hidden rounded-lg border border-border bg-card">
-			<ExecutionInspector execution={executionDetail} />
+			<ExecutionInspector execution={detail} />
 		</div>
 	</div>
 </div>

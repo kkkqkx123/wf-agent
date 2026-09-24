@@ -11,7 +11,7 @@
 	import KeyValueList from '$lib/components/domain/KeyValueList.svelte';
 	import FilterBar from '$lib/components/domain/FilterBar.svelte';
 	import Progress from '$lib/components/ui/Progress.svelte';
-	import { agentLoops, loopDetail } from '$lib/fixtures/agentLoops';
+	import type { PageData } from './$types';
 	import { toasts } from '$lib/stores/toast.svelte';
 	import { formatNumber, formatRelativeTime } from '$lib/utils/format';
 	import { cn } from '$lib/utils/cn';
@@ -24,6 +24,9 @@
 		{ value: 'queued', label: 'Queued' },
 		{ value: 'cancelled', label: 'Cancelled' },
 	];
+
+	let { data }: { data: PageData } = $props();
+	let { agentLoops, loopDetail } = $derived(data);
 
 	let query = $state('');
 	let status = $state('');

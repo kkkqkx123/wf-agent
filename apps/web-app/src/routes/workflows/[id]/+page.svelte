@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { page } from '$app/state';
 	import Icon from '$lib/components/icons/Icon.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
 	import IconButton from '$lib/components/ui/IconButton.svelte';
@@ -12,7 +11,7 @@
 	import StatusBadge from '$lib/components/domain/StatusBadge.svelte';
 	import DataTable from '$lib/components/ui/DataTable.svelte';
 	import type { Column } from '$lib/components/ui/table';
-	import { workflowDetail, workflows } from '$lib/fixtures/workflows';
+	import type { PageData } from './$types';
 	import { toasts } from '$lib/stores/toast.svelte';
 	import { formatDateTime, formatNumber } from '$lib/utils/format';
 
@@ -23,13 +22,11 @@
 		{ id: 'runs', label: 'Runs' },
 	];
 
+	let { data }: { data: PageData } = $props();
+	let { detail } = $derived(data);
+
 	let tab = $state('graph');
 	let graphNodeId = $state<string | null>(null);
-
-	const workflow = $derived(
-		workflows.find((item) => item.id === page.params.id) ?? workflowDetail,
-	);
-	const detail = $derived(workflowDetail);
 
 	const versionColumns: Column<(typeof detail.versions)[number]>[] = [
 		{ key: 'version', header: 'Version', text: (row) => `v${row.version}` },
@@ -49,16 +46,16 @@
 </script>
 
 <div class="flex h-full min-h-0 flex-col">
-	<PageHeader title={workflow.name} description={workflow.description}>
+	<PageHeader title={detail.name} description={detail.description}>
 		{#snippet meta()}
-			<StatusBadge status={workflow.status} />
-			<Badge variant="outline">v{workflow.version}</Badge>
+			<StatusBadge status={detail.status} />
+			<Badge variant="outline">v{detail.version}</Badge>
 			<span class="font-mono text-caption text-muted-foreground"
-				>{workflow.id}</span
+				>{detail.id}</span
 			>
 			<span class="text-caption text-muted-foreground">
-				{formatNumber(workflow.nodeCount)} nodes · {formatNumber(
-					workflow.edgeCount,
+				{formatNumber(detail.nodeCount)} nodes · {formatNumber(
+					detail.edgeCount,
 				)} edges
 			</span>
 		{/snippet}

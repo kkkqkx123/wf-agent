@@ -12,8 +12,7 @@
 	import MetricGrid from '$lib/components/domain/MetricGrid.svelte';
 	import StatusBadge from '$lib/components/domain/StatusBadge.svelte';
 	import CursorPager from '$lib/components/domain/CursorPager.svelte';
-	import { executionDetail, executions } from '$lib/fixtures/executions';
-	import { overviewMetrics } from '$lib/fixtures/insights';
+	import type { PageData } from './$types';
 	import { toasts } from '$lib/stores/toast.svelte';
 	import { formatDateTime } from '$lib/utils/format';
 	import { cn } from '$lib/utils/cn';
@@ -26,6 +25,9 @@
 		{ value: 'queued', label: 'Queued' },
 		{ value: 'cancelled', label: 'Cancelled' },
 	];
+
+	let { data }: { data: PageData } = $props();
+	let { executions, executionDetail, overviewMetrics } = $derived(data);
 
 	let query = $state('');
 	let status = $state('');

@@ -12,7 +12,7 @@
 	import StatusBadge from '$lib/components/domain/StatusBadge.svelte';
 	import KeyValueList from '$lib/components/domain/KeyValueList.svelte';
 	import FilterBar from '$lib/components/domain/FilterBar.svelte';
-	import { workflowDetail, workflows } from '$lib/fixtures/workflows';
+	import type { PageData } from './$types';
 	import { toasts } from '$lib/stores/toast.svelte';
 	import {
 		formatNumber,
@@ -25,6 +25,9 @@
 		{ value: 'draft', label: 'Draft' },
 		{ value: 'archived', label: 'Archived' },
 	];
+
+	let { data }: { data: PageData } = $props();
+	let { workflows, workflowDetail } = $derived(data);
 
 	let query = $state('');
 	let status = $state('');

@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { page } from '$app/state';
 	import Icon from '$lib/components/icons/Icon.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
 	import IconButton from '$lib/components/ui/IconButton.svelte';
@@ -13,13 +12,8 @@
 	import StatusBadge from '$lib/components/domain/StatusBadge.svelte';
 	import MessageBubble from '$lib/components/domain/MessageBubble.svelte';
 	import WorkflowGraph from '$lib/components/domain/WorkflowGraph.svelte';
-	import {
-		agentLoops,
-		loopDetail,
-		loopMessages,
-		loopVariables,
-	} from '$lib/fixtures/agentLoops';
-	import { checkpoints } from '$lib/fixtures/checkpoints';
+	import { checkpoints as fixtureCheckpoints } from '$lib/fixtures/checkpoints';
+	import type { PageData } from './$types';
 	import { toasts } from '$lib/stores/toast.svelte';
 	import {
 		formatDateTime,
@@ -35,15 +29,18 @@
 		{ id: 'checkpoints', label: 'Checkpoints' },
 	];
 
-	let tab = $state('messages');
-	let draft = $state('');
+	let { data }: { data: PageData } = $props();
+	let { detail } = $derived(data);
 
-	const loop = $derived(
-		agentLoops.find((item) => item.id === page.params.id) ?? loopDetail,
+	// detail.messages / detail.variables come from the API (or fixture fallback
+	// when the detail endpoint is disabled).  Checkpoints still use fixtures
+	// until the loop-detail checkpoints sub-endpoint is wired.
+
+	const loopCheckpoints = $derived(
+		fixtureCheckpoints.filter((item) => item.executionId === detail.id),
 	);
-	const detail = $derived(loopDetail);
 
-	const variableColumns: Column<(typeof loopVariables)[number]>[] = [
+	const variableColumns: Column<(typeof detail.variables)[number]>[] = [
 		{ key: 'key', header: 'Key', text: (row) => row.key },
 		{ key: 'type', header: 'Type', text: (row) => row.type },
 		{ key: 'value', header: 'Value', text: (row) => row.value },
@@ -55,21 +52,20 @@
 		},
 	];
 
-	const loopCheckpoints = $derived(
-		checkpoints.filter((item) => item.executionId === detail.id),
-	);
+	let tab = $state('messages');
+	let draft = $state('');
 </script>
 
 <div class="flex h-full min-h-0 flex-col">
-	<PageHeader title={loop.name} description={detail.summary}>
+	<PageHeader title={detail.name} description={detail.summary}>
 		{#snippet meta()}
-			<StatusBadge status={loop.status} />
+			<StatusBadge status={detail.status} />
 			<Badge variant="outline"
-				>iteration {loop.iteration}/{loop.maxIterations}</Badge
+				>iteration {detail.iteration}/{detail.maxIterations}</Badge
 			>
-			<span class="font-mono text-caption text-muted-foreground">{loop.id}</span
+			<span class="font-mono text-caption text-muted-foreground">{detail.id}</span
 			>
-			<span class="text-caption text-muted-foreground">{loop.model}</span>
+			<span class="text-caption text-muted-foreground">{detail.model}</span>
 		{/snippet}
 		{#snippet actions()}
 			<IconButton
@@ -106,7 +102,7 @@
 	<div class="min-h-0 flex-1 overflow-y-auto px-4 py-3">
 		{#if tab === 'messages'}
 			<div class="mx-auto flex max-w-3xl flex-col gap-3">
-				{#each loopMessages as message (message.id)}
+				{#each detail.messages as message (message.id)}
 					<MessageBubble {message} />
 				{/each}
 			</div>
@@ -145,7 +141,7 @@
 			<Card title="Variables" bodyClass="p-0">
 				<DataTable
 					columns={variableColumns}
-					rows={loopVariables}
+					rows={detail.variables}
 					rowKey={(row) => row.key}
 				/>
 			</Card>

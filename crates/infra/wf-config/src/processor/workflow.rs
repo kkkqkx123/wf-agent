@@ -594,6 +594,7 @@ mod tests {
             Some(wf_types::workflow::definition::TriggeredSubworkflowConfig {
                 enable_checkpoints: None,
                 timeout: Some(0),
+                compression_fallback: None,
             });
         assert!(validate_workflow_definition(&wf).is_err());
 
@@ -601,6 +602,7 @@ mod tests {
             Some(wf_types::workflow::definition::TriggeredSubworkflowConfig {
                 enable_checkpoints: None,
                 timeout: Some(5000),
+                compression_fallback: None,
             });
         assert!(validate_workflow_definition(&wf).is_ok());
     }
@@ -850,6 +852,7 @@ mod tests {
             Some(wf_types::workflow::definition::TriggeredSubworkflowConfig {
                 enable_checkpoints: None,
                 timeout: None,
+                compression_fallback: None,
             });
         assert!(validate_workflow_definition(&wf).is_ok());
     }

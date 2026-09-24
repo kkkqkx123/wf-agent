@@ -409,78 +409,14 @@ impl AgentIterationCoordinator {
         .await;
 
         // Blocking backpressure: when a compression run is in flight for
-        // the current conversation version, wait without timeout for the
-        // write-back to land so this iteration assembles the request from
-        // the compressed view. A compression failure stops the iteration
-        // for manual handling; abort cancels the wait.
+        // the current conversation version, wait (bounded by the settle
+        // budget) for the write-back to land so this iteration assembles
+        // the request from the compressed view. A compression failure or a
+        // settle timeout parks the loop in the externally perceivable
+        // paused state for handling; abort cancels the wait.
         if self.token_tracking_enabled {
-            let (version, in_flight) = {
-                let conversation = entity.conversation().read().await;
-                let version = conversation.conversation_version();
-                let in_flight = conversation
-                    .compression_flight()
-                    .is_some_and(|flight| flight.version == version);
-                (version, in_flight)
-            };
-            if in_flight {
-                let execution_id = entity.id().to_string();
-                let mut failure_events = self.event_bus.as_ref().map(|bus| {
-                    bus.subscribe_typed(wf_types::events::EventType::ContextCompressionFailed)
-                });
-                if let Some(ref bus) = self.event_bus {
-                    for event in bus.recent_events() {
-                        if let Some(message) =
-                            matching_compression_failure(&event, &execution_id, version)
-                        {
-                            return Err(AgentError::ExecutionError(message));
-                        }
-                    }
-                }
-                let settle_start = std::time::Instant::now();
-                loop {
-                    {
-                        let conversation = entity.conversation().read().await;
-                        if conversation.conversation_version() != version {
-                            break;
-                        }
-                        let flight_gone = !conversation
-                            .compression_flight()
-                            .is_some_and(|flight| flight.version == version);
-                        if flight_gone {
-                            return Err(AgentError::ExecutionError(format!(
-                                "context compression anchor released without version advance at version {}; manual handling required",
-                                version
-                            )));
-                        }
-                    }
-                    if settle_start.elapsed().as_millis() as u64
-                        >= wf_execution_shared::COMPRESSION_SETTLE_TIMEOUT_MS
-                    {
-                        return Err(AgentError::ExecutionError(format!(
-                            "context compression timed out at version {}; manual handling required",
-                            version
-                        )));
-                    }
-                    if let Some(ref mut sub) = failure_events {
-                        while let Ok(event) = sub.try_recv() {
-                            if let Some(message) =
-                                matching_compression_failure(&event, &execution_id, version)
-                            {
-                                return Err(AgentError::ExecutionError(message));
-                            }
-                        }
-                    }
-                    let wait = tokio::time::sleep(std::time::Duration::from_millis(
-                        wf_execution_shared::COMPRESSION_SETTLE_POLL_MS,
-                    ));
-                    let abort = entity.get_abort_signal();
-                    tokio::select! {
-                        _ = wait => {}
-                        _ = abort.cancelled() => {
-                            return Err(AgentError::LlmError(wf_llm::error::LlmError::Cancelled));
-                        }
-                    }
-                }
+            if let Some(result) = self.settle_compression_flight(entity).await? {
+                return Ok(result);
             }
         }
 
@@ -857,6 +793,109 @@ impl AgentIterationCoordinator {
             should_continue,
         )
         .await
+    }
+
+    /// Wait for the in-flight compression write-back to land for the
+    /// current conversation version. A terminal failure (published FAILED
+    /// event, anchor released without a version advance, or the settle
+    /// budget elapsing) must not fail the run and must not degrade it
+    /// silently: the loop pauses into an externally perceivable state so
+    /// the handling can be decided from outside. Returns `Some` when the
+    /// iteration must end early on that pause.
+    async fn settle_compression_flight(
+        &self,
+        entity: &AgentLoopEntity,
+    ) -> AgentResult<Option<IterationResult>> {
+        let (version, in_flight) = {
+            let conversation = entity.conversation().read().await;
+            let version = conversation.conversation_version();
+            let in_flight = conversation
+                .compression_flight()
+                .is_some_and(|flight| flight.version == version);
+            (version, in_flight)
+        };
+        if !in_flight {
+            return Ok(None);
+        }
+        let execution_id = entity.id().to_string();
+        let mut failure_events = self
+            .event_bus
+            .as_ref()
+            .map(|bus| bus.subscribe_typed(wf_types::events::EventType::ContextCompressionFailed));
+        if let Some(ref bus) = self.event_bus {
+            for event in bus.recent_events() {
+                if let Some(message) = matching_compression_failure(&event, &execution_id, version)
+                {
+                    return Ok(self.compression_failure_park(entity, version, &message).await);
+                }
+            }
+        }
+        let settle_start = std::time::Instant::now();
+        let settle_timeout_ms = wf_execution_shared::compression_settle_timeout_ms();
+        loop {
+            {
+                let conversation = entity.conversation().read().await;
+                if conversation.conversation_version() != version {
+                    break;
+                }
+                let flight_gone = !conversation
+                    .compression_flight()
+                    .is_some_and(|flight| flight.version == version);
+                if flight_gone {
+                    return Ok(self
+                        .compression_failure_park(
+                            entity,
+                            version,
+                            "compression anchor released without version advance",
+                        )
+                        .await);
+                }
+            }
+            if settle_start.elapsed().as_millis() as u64 >= settle_timeout_ms {
+                return Ok(self
+                    .compression_failure_park(entity, version, "compression settle budget exceeded")
+                    .await);
+            }
+            if let Some(ref mut sub) = failure_events {
+                while let Ok(event) = sub.try_recv() {
+                    if let Some(message) =
+                        matching_compression_failure(&event, &execution_id, version)
+                    {
+                        return Ok(self.compression_failure_park(entity, version, &message).await);
+                    }
+                }
+            }
+            let wait = tokio::time::sleep(std::time::Duration::from_millis(
+                wf_execution_shared::COMPRESSION_SETTLE_POLL_MS,
+            ));
+            let abort = entity.get_abort_signal();
+            tokio::select! {
+                _ = wait => {}
+                _ = abort.cancelled() => {
+                    return Err(AgentError::LlmError(wf_llm::error::LlmError::Cancelled));
+                }
+            }
+        }
+        Ok(None)
+    }
+
+    /// Park the loop after a terminal compression failure: the pause makes
+    /// the state externally perceivable (resume continues the next
+    /// iteration without compression, stop exits, pause-timeout policies
+    /// apply). If a resume raced the pause the caller simply proceeds
+    /// without compression.
+    async fn compression_failure_park(
+        &self,
+        entity: &AgentLoopEntity,
+        version: u64,
+        reason: &str,
+    ) -> Option<IterationResult> {
+        tracing::warn!(
+            "context compression failed at version {version}: {reason}; \
+             pausing the loop for external handling"
+        );
+        let _ = entity.interruption().pause();
+        self.interrupted(entity, 0).await
     }
 
     /// Check for an interruption after an LLM call or tool execution; when
@@ -1368,7 +1407,7 @@ fn matching_compression_failure(
         return None;
     }
     Some(format!(
-        "context compression failed for '{}' at version {}: {}; manual handling required",
+        "context compression failed for '{}' at version {}: {}; the execution pauses for external handling",
         meta.target_context_id, meta.array_version, meta.error
     ))
 }

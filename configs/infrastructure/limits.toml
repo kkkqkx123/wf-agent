@@ -27,8 +27,15 @@ node_timeout_ms = 30000               # per-node execution timeout fallback
 max_execution_time_ms = 0             # whole-workflow timeout fallback, 0 = unlimited
 
 # Context-compression service cross-attempt policy (retries share the same
-# array version; a terminal failure publishes CONTEXT_COMPRESSION_FAILED).
+# array version). What a terminal failure does is not configured here: the
+# compression workflow resource declares it via its triggered-subworkflow
+# compression_fallback (fail = pause the emitting execution for external
+# handling; partial_summary = land a visibly trimmed degraded window).
+# Timeout nesting contract: settle_timeout_ms >= (1 + max_retries) *
+# timeout_ms + backoffs, and timeout_ms covers one summary run (node wrap
+# 150s < LLM call budget chain < run budget) plus its write-back.
 [compression]
-max_retries = 2                       # additional runs after the first attempt
-timeout_ms = 60000                    # outer timeout per attempt
+max_retries = 1                       # additional runs after the first attempt
+timeout_ms = 240000                   # outer wall-clock budget per attempt (run + write-back)
+settle_timeout_ms = 300000            # emitter-side wait budget for the compression chain to settle
 tail_keep = 2                         # recent pre-existing messages kept beside the summary

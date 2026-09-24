@@ -227,6 +227,8 @@ mod tests {
                 tokens_after: 5,
                 messages: Some(messages),
                 tail_keep: 0,
+                degraded: false,
+                still_over_budget: false,
             },
         )
     }
@@ -495,6 +497,8 @@ mod tests {
                 tokens_after: 5,
                 messages: Some(&[text_message(MessageRole::Assistant, "compressed")]),
                 tail_keep: 1,
+                degraded: false,
+                still_over_budget: false,
             },
         );
         bus.publish(event).unwrap();

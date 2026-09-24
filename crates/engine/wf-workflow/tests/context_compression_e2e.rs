@@ -251,6 +251,8 @@ impl HookHandler for CompressionHandler {
                         tokens_after: wf_llm::estimate_messages(&compressed) as u64,
                         messages: Some(&compressed),
                         tail_keep: 0,
+                        degraded: false,
+                        still_over_budget: false,
                     },
                 ),
             )
@@ -419,7 +421,8 @@ async fn over_limit_named_array_flows_through_compression_chain() {
     let result = handler.execute(&mut ctx).await.unwrap();
     assert_eq!(result.output, serde_json::json!("ok"));
 
-    // 1. Requested event: named array + snapshot.
+    // 1. Requested event: named array and accounting, never the snapshot
+    // (the takeover receives the messages through the hook payload).
     let mut requested = None;
     while let Ok(event) = sub.try_recv() {
         if event.r#type == EventType::ContextCompressionRequested {
@@ -435,16 +438,22 @@ async fn over_limit_named_array_flows_through_compression_chain() {
             .and_then(|v| v.as_str()),
         Some("chat")
     );
-    let snapshot: Vec<Message> = requested
-        .metadata
-        .as_ref()
-        .and_then(|m| m.get(wf_execution_shared::token_events::KEY_MESSAGES))
-        .and_then(|v| serde_json::from_value(v.clone()).ok())
-        .unwrap_or_default();
     assert_eq!(
-        snapshot.len(),
-        chat_messages.len(),
-        "snapshot must mirror the array"
+        requested
+            .metadata
+            .as_ref()
+            .and_then(|m| m.get(wf_execution_shared::token_events::KEY_MESSAGE_COUNT))
+            .and_then(|v| v.as_u64())
+            .unwrap_or_default(),
+        chat_messages.len() as u64,
+        "the audit copy must report the array size"
+    );
+    assert!(
+        !requested
+            .metadata
+            .as_ref()
+            .is_some_and(|m| m.contains_key(wf_execution_shared::token_events::KEY_MESSAGES)),
+        "the audit copy must not carry the snapshot"
     );
 
     // 2-4. Listener ran the summary workflow, wrote back and completed.

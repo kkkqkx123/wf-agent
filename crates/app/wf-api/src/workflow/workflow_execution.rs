@@ -33,8 +33,23 @@ use crate::infra::error::{not_found, ApiError};
 use crate::infra::stream::{spawn_execution_stream, ExecutionEventStream};
 
 /// Default wall-clock timeout applied to a workflow execution when the caller
-/// does not set `WorkflowExecutionOptions::timeout`.
+/// does not set `WorkflowExecutionOptions::timeout` and no engine budget is
+/// configured (see [`entry_timeout_ms`]).
 pub const DEFAULT_EXECUTION_TIMEOUT_MS: u64 = 300_000;
+
+/// Wall-clock budget applied at the API boundary around an execution.
+///
+/// An explicit `options.timeout` always wins. Otherwise the effective entry
+/// budget is the built-in default raised to the engine `max_execution_time`
+/// (seeded from the configured execution limits), so the API layer never
+/// clamps a run below the budget the engine was configured to honor.
+fn entry_timeout_ms(options: &WorkflowExecutionOptions) -> u64 {
+    match options.timeout {
+        Some(timeout) => timeout,
+        None => DEFAULT_EXECUTION_TIMEOUT_MS
+            .max(options.max_execution_time.filter(|b| *b > 0).unwrap_or(0)),
+    }
+}
 
 /// Reserved entity variable holding the resolved execution options so a
 /// paused execution can be resumed with the same input/options.
@@ -143,9 +158,9 @@ pub async fn resolve_graph(
 
 /// Execute a workflow to completion and await its output.
 ///
-/// Bounded by a wall-clock timeout: `options.timeout` (ms) when set,
-/// otherwise [`DEFAULT_EXECUTION_TIMEOUT_MS`] (5min). An elapse maps onto
-/// `ApiError::Timeout`.
+/// Bounded by a wall-clock timeout resolved by [`entry_timeout_ms`]: an
+/// explicit `options.timeout` (ms) when set, otherwise the built-in default
+/// raised to the engine budget. An elapse maps onto `ApiError::Timeout`.
 pub async fn execute(
     ctx: &ApiContext,
     params: ExecuteWorkflowParams,
@@ -161,7 +176,7 @@ pub async fn execute(
         params.input,
         params.options,
     );
-    let timeout_ms = options.timeout.unwrap_or(DEFAULT_EXECUTION_TIMEOUT_MS);
+    let timeout_ms = entry_timeout_ms(&options);
     let result = crate::infra::error::with_timeout(
         Duration::from_millis(timeout_ms),
         run_workflow(ctx, entity.clone(), graph, hooks, options),
@@ -200,7 +215,7 @@ pub async fn stream(
         params.input,
         params.options,
     );
-    let timeout_ms = options.timeout.unwrap_or(DEFAULT_EXECUTION_TIMEOUT_MS);
+    let timeout_ms = entry_timeout_ms(&options);
     let execution_key = execution_id.to_string();
     let driver_ctx = ctx.clone();
     let driver_key = execution_key.clone();
@@ -450,28 +465,27 @@ pub async fn restore_checkpoint(
     // continuation can never outlive the original `max_execution_time`.
     let mut continuation_options = options;
     continuation_options.max_steps = None;
-    continuation_options.max_execution_time =
-        match continuation_options.max_execution_time {
-            Some(budget) if budget > 0 => {
-                let executed_ms = snapshot
-                    .execution_config
-                    .as_ref()
-                    .and_then(|config| config.get("executed_ms"))
-                    .and_then(|value| value.as_i64())
-                    .unwrap_or(0)
-                    .max(0) as u64;
-                let remaining = budget.saturating_sub(executed_ms);
-                if remaining == 0 {
-                    return Err(ApiError::execution(format!(
-                        "execution {execution_id} already exhausted its {budget}ms wall-clock \
+    continuation_options.max_execution_time = match continuation_options.max_execution_time {
+        Some(budget) if budget > 0 => {
+            let executed_ms = snapshot
+                .execution_config
+                .as_ref()
+                .and_then(|config| config.get("executed_ms"))
+                .and_then(|value| value.as_i64())
+                .unwrap_or(0)
+                .max(0) as u64;
+            let remaining = budget.saturating_sub(executed_ms);
+            if remaining == 0 {
+                return Err(ApiError::execution(format!(
+                    "execution {execution_id} already exhausted its {budget}ms wall-clock \
                          budget before the checkpoint; refusing to resume with no remaining budget"
-                    )));
-                }
-                Some(remaining)
+                )));
             }
-            // Absent or 0 means unlimited: the continuation stays unbudgeted.
-            other => other,
-        };
+            Some(remaining)
+        }
+        // Absent or 0 means unlimited: the continuation stays unbudgeted.
+        other => other,
+    };
     if let Ok(value) = serde_json::to_value(&continuation_options) {
         entity.set_variable(EXECUTION_OPTIONS_VAR, value);
     }
@@ -1440,6 +1454,54 @@ mod tests {
         let graph = definition_to_graph(&definition);
         assert_eq!(graph.start_node_id.as_deref(), Some("start"));
         assert_eq!(graph.end_node_ids, vec!["end".to_string()]);
+    }
+
+    fn options_with(
+        timeout: Option<u64>,
+        max_execution_time: Option<u64>,
+    ) -> WorkflowExecutionOptions {
+        WorkflowExecutionOptions {
+            timeout,
+            max_execution_time,
+            ..empty_options()
+        }
+    }
+
+    #[test]
+    fn entry_timeout_explicit_value_wins() {
+        assert_eq!(
+            entry_timeout_ms(&options_with(Some(5_000), Some(600_000))),
+            5_000
+        );
+    }
+
+    #[test]
+    fn entry_timeout_default_without_budget() {
+        assert_eq!(
+            entry_timeout_ms(&options_with(None, None)),
+            DEFAULT_EXECUTION_TIMEOUT_MS
+        );
+        // 0 means an unlimited engine budget: the entry guard keeps its default.
+        assert_eq!(
+            entry_timeout_ms(&options_with(None, Some(0))),
+            DEFAULT_EXECUTION_TIMEOUT_MS
+        );
+    }
+
+    #[test]
+    fn entry_timeout_raised_to_configured_engine_budget() {
+        // A configured budget longer than the built-in default must not be
+        // clamped by the API entry layer.
+        assert_eq!(
+            entry_timeout_ms(&options_with(None, Some(600_000))),
+            600_000
+        );
+        // A shorter configured budget never lowers the entry guard below
+        // the built-in default.
+        assert_eq!(
+            entry_timeout_ms(&options_with(None, Some(60_000))),
+            DEFAULT_EXECUTION_TIMEOUT_MS
+        );
     }
 
     #[tokio::test]

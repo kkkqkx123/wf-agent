@@ -153,6 +153,8 @@ impl HookHandler for AgentCompressionHandler {
                         tokens_after: wf_llm::estimate_messages(&compressed) as u64,
                         messages: Some(&compressed),
                         tail_keep: 0,
+                        degraded: false,
+                        still_over_budget: false,
                     },
                 ),
             )
@@ -344,6 +346,8 @@ async fn agent_consumer_discards_stale_compression_result() {
                 tokens_after: 5,
                 messages: Some(&messages),
                 tail_keep: 0,
+                degraded: false,
+                still_over_budget: false,
             },
         ),
     )

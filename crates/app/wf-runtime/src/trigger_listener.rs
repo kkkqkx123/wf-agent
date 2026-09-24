@@ -8,9 +8,10 @@
 //! - [`WorkflowRunner`]: triggered sub-workflows executed through the
 //!   `WorkflowCoordinator` (predefined `@standard/llm-summary`);
 //! - [`SubworkflowActionRunner`]: the user-template sub-workflow action —
-//!   parse the triggering event, run the summary workflow over its message
-//!   snapshot, write the compressed array back through the
-//!   [`ExecutionContextRegistry`] and publish the completed event;
+//!   parse the triggering event, run the summary workflow over the live
+//!   message array it names (anchored on the emission version), write the
+//!   compressed array back through the [`ExecutionContextRegistry`] and
+//!   publish the completed event;
 //! - [`CompressionService`]: the engine's builtin hook handler for the
 //!   `CONTEXT_COMPRESSION_REQUESTED` signal. Registered into the shared
 //!   [`HookHandlerRegistry`] at runtime assembly; the engine fires the signal
@@ -200,12 +201,16 @@ pub(crate) struct CompressionWriteBack<'a> {
     /// Context budget the emission was checked against (0 when unknown).
     /// Used only to warn when the compressed result is still over budget.
     pub token_limit: u64,
+    /// True when this write-back is the terminal-failure fallback (a locally
+    /// trimmed window instead of an LLM summary): the completed event is
+    /// marked degraded so consumers can tell the difference.
+    pub degraded: bool,
 }
 
 /// Write the compressed output back to the emitting execution and publish
 /// the CONTEXT_COMPRESSION_COMPLETED event. A version mismatch is a hard
-/// failure for manual handling: the stale result is discarded without
-/// publishing a completion.
+/// failure: the stale result is discarded without publishing a completion
+/// and the emitting execution settles into its paused-for-handling state.
 pub(crate) async fn handle_subworkflow_output(
     contexts: &Arc<ExecutionContextRegistry>,
     bus: &Arc<EventBus>,
@@ -255,7 +260,8 @@ pub(crate) async fn handle_subworkflow_output(
         }
     }
     let tokens_after = wf_llm::estimate_messages(&messages) as u64;
-    if target.token_limit > 0 && tokens_after > target.token_limit {
+    let still_over_budget = target.token_limit > 0 && tokens_after > target.token_limit;
+    if still_over_budget {
         tracing::warn!(
             execution_id = %target.execution_id,
             target = %target.target_context_id,
@@ -264,14 +270,7 @@ pub(crate) async fn handle_subworkflow_output(
             "compressed result still exceeds context budget; next append will retrigger compression"
         );
     }
-    let completed = build_compression_completed_event(
-        target.execution_id,
-        target.agent_loop_id,
-        target.target_context_id,
-        target.expected_version,
-        &messages,
-        target.tail_keep,
-    );
+    let completed = build_compression_completed_event(target, &messages, tokens_after);
     let _ = bus.publish(completed);
     Ok(())
 }
@@ -279,14 +278,11 @@ pub(crate) async fn handle_subworkflow_output(
 /// Build the CONTEXT_COMPRESSION_COMPLETED event from the compressed message
 /// array (messageOutputs of the summary workflow): the array itself, the
 /// summary text, the estimated token count and the array version the
-/// compression was produced from (the REQUESTED event's version).
+/// compression was produced from (the REQUESTED signal's version).
 fn build_compression_completed_event(
-    execution_id: &str,
-    agent_loop_id: Option<&str>,
-    target_context_id: &str,
-    array_version: u64,
+    target: &CompressionWriteBack,
     messages: &[Message],
-    tail_keep: usize,
+    tokens_after: u64,
 ) -> BaseEvent {
     let summary = messages.last().and_then(|message| match &message.content {
         MessageContentValue::Text(text) => Some(text.clone()),
@@ -295,17 +291,18 @@ fn build_compression_completed_event(
             _ => None,
         }),
     });
-    let tokens_after = wf_llm::estimate_messages(messages) as u64;
     wf_execution_shared::build_context_compression_completed_event(
-        execution_id,
-        agent_loop_id,
+        target.execution_id,
+        target.agent_loop_id,
         &wf_execution_shared::ContextCompressionCompleted {
-            target_context_id,
-            array_version,
+            target_context_id: target.target_context_id,
+            array_version: target.expected_version,
             summary: summary.as_deref(),
             tokens_after,
             messages: Some(messages),
-            tail_keep,
+            tail_keep: target.tail_keep,
+            degraded: target.degraded,
+            still_over_budget: target.token_limit > 0 && tokens_after > target.token_limit,
         },
     )
 }
@@ -1201,7 +1198,7 @@ mod tests {
         assert!(coordinator.execute().await.is_ok());
 
         // 5a. CONTEXT_COMPRESSION_REQUESTED names the "chat" array and
-        // carries its message snapshot.
+        // reports its accounting; the audit copy carries no snapshot.
         let requested = loop {
             match sub.recv().await {
                 Ok(event) if event.r#type == EventType::ContextCompressionRequested => break event,
@@ -1217,17 +1214,32 @@ mod tests {
             wf_execution_shared::ContextCompressionRequestedMeta::try_from(&requested).unwrap();
         assert_eq!(requested_meta.target_context_id, "chat");
         assert_eq!(
-            requested_meta.messages.len(),
-            40,
-            "event must carry the array snapshot"
+            requested_meta.message_count, 40,
+            "event must report the array size"
+        );
+        assert!(
+            !requested
+                .metadata
+                .as_ref()
+                .is_some_and(|m| m.contains_key(wf_execution_shared::KEY_MESSAGES)),
+            "the audit copy must not carry the snapshot"
         );
 
-        // 5b. The summary workflow ran over the conversation payload.
+        // 5b. The summary workflow ran over a head-trimmed window of the
+        // conversation: the service trims the snapshot below the token
+        // limit before summarizing, and the trim keeps the tail.
         wait_until(|| summary_mock.recorded_count() >= 1).await;
         let summary_request = summary_mock.last_request().unwrap();
         assert!(
-            summary_request.messages.len() >= 40,
-            "summary workflow must receive the full conversation"
+            !summary_request.messages.is_empty() && summary_request.messages.len() < 40,
+            "summary input must be a trimmed window of the conversation"
+        );
+        let expected_tail_content =
+            MessageContentValue::Text(format!("long message 39 {}", "x".repeat(200)));
+        assert_eq!(
+            summary_request.messages.last().map(|m| &m.content),
+            Some(&expected_tail_content),
+            "summary input must retain the conversation tail"
         );
 
         // 5c. The compressed array was written back: summary first, then
@@ -1638,6 +1650,307 @@ mod tests {
         wait_until(|| started.load(Ordering::SeqCst)).await;
     }
 
+    /// Stub summary runner: fails the first `fail_first` attempts, then
+    /// returns a compressed message array. With an agent-target signal
+    /// (`agent_loop_id` present) the write-back skips the variable map, so
+    /// the chain policy is exercised without a live execution context.
+    struct FlakySummaryRunner {
+        fail_first: u32,
+        calls: std::sync::atomic::AtomicU32,
+    }
+
+    #[async_trait]
+    impl SubworkflowRunner for FlakySummaryRunner {
+        async fn run(&self, _workflow_id: &str, _input: Value) -> WorkflowResult<Value> {
+            let attempt = self
+                .calls
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+                + 1;
+            if attempt <= self.fail_first {
+                return Err(WorkflowError::TriggerError(format!(
+                    "stub summary failure {attempt}"
+                )));
+            }
+            Ok(serde_json::to_value(vec![text_message(
+                MessageRole::Assistant,
+                "compressed summary",
+            )])
+            .expect("message array serializes"))
+        }
+    }
+
+    /// Stub summary runner whose first attempt hangs: the attempt-timeout
+    /// containment must interrupt it and the chain must still retry.
+    struct HangingFirstRunner {
+        calls: std::sync::atomic::AtomicU32,
+    }
+
+    #[async_trait]
+    impl SubworkflowRunner for HangingFirstRunner {
+        async fn run(&self, _workflow_id: &str, _input: Value) -> WorkflowResult<Value> {
+            let attempt = self
+                .calls
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+                + 1;
+            if attempt == 1 {
+                tokio::time::sleep(Duration::from_secs(3600)).await;
+            }
+            Ok(serde_json::to_value(vec![text_message(
+                MessageRole::Assistant,
+                "compressed summary",
+            )])
+            .expect("message array serializes"))
+        }
+    }
+
+    /// One agent-target compression signal (version 7, non-empty snapshot).
+    fn agent_compression_signal(messages: &[Message]) -> HookContext {
+        use wf_execution_shared::token_events::{
+            KEY_ARRAY_VERSION, KEY_MESSAGES, KEY_MESSAGE_COUNT, KEY_TARGET_CONTEXT_ID,
+            KEY_TOKENS_USED, KEY_TOKEN_LIMIT,
+        };
+        let mut data = HashMap::new();
+        data.insert(KEY_TARGET_CONTEXT_ID.to_string(), Value::from("chat"));
+        data.insert(KEY_TOKENS_USED.to_string(), Value::from(900u64));
+        data.insert(KEY_TOKEN_LIMIT.to_string(), Value::from(1000u64));
+        data.insert(KEY_MESSAGE_COUNT.to_string(), Value::from(messages.len()));
+        data.insert(KEY_ARRAY_VERSION.to_string(), Value::from(7u64));
+        data.insert(
+            KEY_MESSAGES.to_string(),
+            serde_json::to_value(messages).expect("snapshot serializes"),
+        );
+        data.insert("agent_loop_id".to_string(), Value::from("loop-1"));
+        HookContext {
+            execution_id: Id::from("retry-run".to_string()),
+            hook_type: wf_execution_shared::token_events::COMPRESSION_SIGNAL_HOOK_TYPE.to_string(),
+            data,
+        }
+    }
+
+    fn stub_compression_policy(
+        max_retries: u32,
+        run_timeout_ms: u64,
+        fallback: wf_types::workflow::CompressionFallbackMode,
+    ) -> CompressionPolicy {
+        CompressionPolicy {
+            tail_keep: 2,
+            max_retries,
+            run_timeout_ms,
+            fallback,
+        }
+    }
+
+    async fn fire_compression_signal(
+        registry: &Arc<HookHandlerRegistry>,
+        bus: &Arc<EventBus>,
+        ctx: &HookContext,
+    ) {
+        wf_execution_shared::hooks::fire(
+            registry,
+            &[],
+            wf_execution_shared::token_events::COMPRESSION_SIGNAL_HOOK_TYPE,
+            ctx,
+            Some(bus),
+        )
+        .await;
+    }
+
+    /// Drain events until one of the given types arrives; a FAILED event
+    /// arriving where success is expected (or vice versa) fails the test.
+    async fn next_compression_event(
+        sub: &mut wf_core::Subscription,
+        wanted: EventType,
+    ) -> BaseEvent {
+        loop {
+            match sub.recv().await {
+                Ok(event) if event.r#type == wanted => return event,
+                Ok(event)
+                    if event.r#type == EventType::ContextCompressionCompleted
+                        || event.r#type == EventType::ContextCompressionFailed =>
+                {
+                    panic!(
+                        "expected {wanted:?} but got {:?}: {:?}",
+                        event.r#type, event.metadata
+                    );
+                }
+                Ok(_) => continue,
+                Err(_) => panic!("event bus closed"),
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn compression_retry_recovers_before_terminal_failure() {
+        let bus = Arc::new(EventBus::new(64));
+        let mut sub = bus.subscribe();
+        let contexts = Arc::new(ExecutionContextRegistry::new());
+        let registry = Arc::new(HookHandlerRegistry::new());
+        let runner = Arc::new(FlakySummaryRunner {
+            fail_first: 1,
+            calls: std::sync::atomic::AtomicU32::new(0),
+        });
+        register_compression_handler(
+            &registry,
+            CompressionHandlerDeps {
+                event_bus: bus.clone(),
+                runner: runner.clone(),
+                contexts,
+                summary_workflow_id: "stub/llm-summary".to_string(),
+                shutdown: CancellationToken::new(),
+                ledger: TriggerLedger::default(),
+                policy: stub_compression_policy(
+                    1,
+                    5_000,
+                    wf_types::workflow::CompressionFallbackMode::Fail,
+                ),
+            },
+        );
+
+        let messages = vec![text_message(MessageRole::User, "long message")];
+        fire_compression_signal(&registry, &bus, &agent_compression_signal(&messages)).await;
+
+        next_compression_event(&mut sub, EventType::ContextCompressionCompleted).await;
+        // First attempt failed, second succeeded: no FAILED event landed.
+        assert_eq!(runner.calls.load(std::sync::atomic::Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn compression_attempt_timeout_is_bounded_and_retried() {
+        let bus = Arc::new(EventBus::new(64));
+        let mut sub = bus.subscribe();
+        let contexts = Arc::new(ExecutionContextRegistry::new());
+        let registry = Arc::new(HookHandlerRegistry::new());
+        let runner = Arc::new(HangingFirstRunner {
+            calls: std::sync::atomic::AtomicU32::new(0),
+        });
+        register_compression_handler(
+            &registry,
+            CompressionHandlerDeps {
+                event_bus: bus.clone(),
+                runner: runner.clone(),
+                contexts,
+                summary_workflow_id: "stub/llm-summary".to_string(),
+                shutdown: CancellationToken::new(),
+                ledger: TriggerLedger::default(),
+                // A hung attempt must be cut at 300ms, not stall the chain.
+                policy: stub_compression_policy(
+                    1,
+                    300,
+                    wf_types::workflow::CompressionFallbackMode::Fail,
+                ),
+            },
+        );
+
+        let messages = vec![text_message(MessageRole::User, "long message")];
+        fire_compression_signal(&registry, &bus, &agent_compression_signal(&messages)).await;
+
+        next_compression_event(&mut sub, EventType::ContextCompressionCompleted).await;
+        assert_eq!(runner.calls.load(std::sync::atomic::Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn compression_terminal_failure_publishes_failed_and_releases_claim() {
+        let bus = Arc::new(EventBus::new(64));
+        let mut sub = bus.subscribe();
+        let contexts = Arc::new(ExecutionContextRegistry::new());
+        let registry = Arc::new(HookHandlerRegistry::new());
+        // Every attempt fails: max_retries 1 means two runs then terminal.
+        let runner = Arc::new(FlakySummaryRunner {
+            fail_first: u32::MAX,
+            calls: std::sync::atomic::AtomicU32::new(0),
+        });
+        register_compression_handler(
+            &registry,
+            CompressionHandlerDeps {
+                event_bus: bus.clone(),
+                runner: runner.clone(),
+                contexts,
+                summary_workflow_id: "stub/llm-summary".to_string(),
+                shutdown: CancellationToken::new(),
+                ledger: TriggerLedger::default(),
+                // `fail` (the default mode): a terminal failure publishes
+                // FAILED for external handling instead of landing a
+                // degraded window.
+                policy: stub_compression_policy(
+                    1,
+                    5_000,
+                    wf_types::workflow::CompressionFallbackMode::Fail,
+                ),
+            },
+        );
+
+        let messages = vec![text_message(MessageRole::User, "long message")];
+        let ctx = agent_compression_signal(&messages);
+        fire_compression_signal(&registry, &bus, &ctx).await;
+        let failed =
+            next_compression_event(&mut sub, EventType::ContextCompressionFailed).await;
+        let meta = wf_execution_shared::ContextCompressionFailedMeta::try_from(&failed).unwrap();
+        assert_eq!(meta.target_context_id, "chat");
+        assert_eq!(meta.array_version, 7);
+        assert_eq!(meta.attempts, 2);
+
+        // The RAII guard released the dedup claim at the terminal state: the
+        // identical signal is taken over again instead of swallowed.
+        fire_compression_signal(&registry, &bus, &ctx).await;
+        next_compression_event(&mut sub, EventType::ContextCompressionFailed).await;
+        assert_eq!(runner.calls.load(std::sync::atomic::Ordering::SeqCst), 4);
+    }
+
+    #[tokio::test]
+    async fn compression_terminal_failure_partial_summary_lands_visible_window() {
+        let bus = Arc::new(EventBus::new(64));
+        let mut sub = bus.subscribe();
+        let contexts = Arc::new(ExecutionContextRegistry::new());
+        let registry = Arc::new(HookHandlerRegistry::new());
+        // Every attempt fails, but the declared `partial_summary` policy must
+        // land a degraded COMPLETED so the emitting execution survives.
+        let runner = Arc::new(FlakySummaryRunner {
+            fail_first: u32::MAX,
+            calls: std::sync::atomic::AtomicU32::new(0),
+        });
+        register_compression_handler(
+            &registry,
+            CompressionHandlerDeps {
+                event_bus: bus.clone(),
+                runner: runner.clone(),
+                contexts,
+                summary_workflow_id: "stub/llm-summary".to_string(),
+                shutdown: CancellationToken::new(),
+                ledger: TriggerLedger::default(),
+                policy: stub_compression_policy(
+                    0,
+                    5_000,
+                    wf_types::workflow::CompressionFallbackMode::PartialSummary,
+                ),
+            },
+        );
+
+        let messages = vec![
+            text_message(MessageRole::User, "oldest long message"),
+            text_message(MessageRole::User, "newest long message"),
+        ];
+        fire_compression_signal(&registry, &bus, &agent_compression_signal(&messages)).await;
+
+        let completed =
+            next_compression_event(&mut sub, EventType::ContextCompressionCompleted).await;
+        let meta =
+            wf_execution_shared::ContextCompressionCompletedMeta::try_from(&completed).unwrap();
+        assert!(meta.degraded, "fallback completion must be marked degraded");
+        // The trimmed window is non-empty (newest messages retained).
+        assert!(!meta.messages.is_empty());
+        // Truncation is never transparent to the LLM: the window is headed
+        // by a system notice naming the failure.
+        let head = &meta.messages[0];
+        assert_eq!(head.role, MessageRole::System);
+        let MessageContentValue::Text(text) = &head.content else {
+            panic!("degraded window must start with a text notice");
+        };
+        assert!(
+            text.contains("[context compression notice]"),
+            "notice head missing: {text}"
+        );
+    }
+
     fn template_with_nodes() -> WorkflowTemplate {
         use wf_types::node::BaseStaticNode;
         use wf_types::workflow::{
@@ -1708,6 +2021,7 @@ mod tests {
                 triggered_subworkflow_config: Some(TriggeredSubworkflowConfig {
                     enable_checkpoints: Some(false),
                     timeout: Some(5000),
+                    compression_fallback: None,
                 }),
                 metadata: Some(WorkflowMetadata {
                     author: None,

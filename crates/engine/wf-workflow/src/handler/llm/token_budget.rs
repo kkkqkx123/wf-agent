@@ -203,8 +203,9 @@ pub async fn emit_token_usage_events(
 /// Blocking backpressure gate for workflow LLM nodes: when any declared
 /// array carries an in-flight compression anchored at its current version,
 /// wait for the write-back to land before assembling the request. A
-/// compression failure or a settle timeout stops the node for manual
-/// handling; cancellation aborts the wait.
+/// compression failure or a settle timeout pauses the owning execution
+/// into an externally perceivable state and ends the node; cancellation
+/// aborts the wait.
 pub async fn await_compression_settle(
     ctx: &NodeExecutionContext,
 ) -> crate::error::WorkflowResult<()> {
@@ -242,6 +243,7 @@ pub async fn await_compression_settle(
             if let Some(err) = matching_compression_failure(&event, &execution_id, None) {
                 for (target, version) in &anchored {
                     if err.0 == *target && err.1 == *version {
+                        pause_for_compression_failure(ctx, &err.2);
                         return Err(crate::error::WorkflowError::TriggerError(err.2.clone()));
                     }
                 }
@@ -249,18 +251,19 @@ pub async fn await_compression_settle(
         }
     }
     for (target, version) in anchored {
+        let settle_timeout_ms = wf_execution_shared::compression_settle_timeout_ms();
         let start = std::time::Instant::now();
         loop {
             if message_context::array_version(&ctx.variables, &target) != version {
                 break;
             }
-            if start.elapsed().as_millis() as u64
-                >= wf_execution_shared::COMPRESSION_SETTLE_TIMEOUT_MS
-            {
-                return Err(crate::error::WorkflowError::TriggerError(format!(
-                    "context compression timed out for '{}' at version {}; manual handling required",
+            if start.elapsed().as_millis() as u64 >= settle_timeout_ms {
+                let message = format!(
+                    "context compression timed out for '{}' at version {}; the execution pauses for external handling",
                     target, version
-                )));
+                );
+                pause_for_compression_failure(ctx, &message);
+                return Err(crate::error::WorkflowError::TriggerError(message));
             }
             if let Some(ref mut sub) = failure_events {
                 while let Ok(event) = sub.try_recv() {
@@ -268,6 +271,7 @@ pub async fn await_compression_settle(
                         matching_compression_failure(&event, &execution_id, None)
                     {
                         if failed_target == target && failed_version == version {
+                            pause_for_compression_failure(ctx, &message);
                             return Err(crate::error::WorkflowError::TriggerError(message));
                         }
                     }
@@ -294,8 +298,24 @@ pub async fn await_compression_settle(
     Ok(())
 }
 
+/// Pause the owning execution after a terminal compression failure so the
+/// coordinator ends the run through the standard paused protocol (an
+/// externally perceivable state awaiting resume/stop) instead of reporting
+/// a plain node failure. The node still ends with an error; the pause
+/// signal decides how the coordinator records the outcome.
+fn pause_for_compression_failure(ctx: &NodeExecutionContext, message: &str) {
+    tracing::warn!(
+        execution_id = %ctx.execution_id,
+        node_id = %ctx.node_id,
+        "{message}; pausing the execution for external handling"
+    );
+    if let Some(ref interruption) = ctx.interruption {
+        let _ = interruption.pause();
+    }
+}
+
 /// Match a compression failure event against an emitting execution.
-/// Returns the target array, anchor version and manual-handling message.
+/// Returns the target array, anchor version and failure message.
 fn matching_compression_failure(
     event: &wf_types::events::BaseEvent,
     execution_id: &str,
@@ -309,7 +329,7 @@ fn matching_compression_failure(
     }
     let meta = wf_execution_shared::ContextCompressionFailedMeta::try_from(event).ok()?;
     let message = format!(
-        "context compression failed for '{}' at version {}: {}; manual handling required",
+        "context compression failed for '{}' at version {}: {}; the execution pauses for external handling",
         meta.target_context_id, meta.array_version, meta.error
     );
     Some((meta.target_context_id, meta.array_version, message))

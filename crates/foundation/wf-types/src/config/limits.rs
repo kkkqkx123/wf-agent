@@ -46,11 +46,32 @@ pub struct ExecutionDefaults {
     pub max_execution_time_ms: Option<u64>,
 }
 
-/// Compression service policy: how many recent pre-existing messages stay
-/// visible beside the summary. Compression runs without timeout and without
-/// retries; a failed run stops the emitting execution for manual handling.
+/// Compression service policy for the context-compression chain.
+///
+/// Timeout nesting (outer must cover the inner worst case):
+/// `settle_timeout_ms` (emitter wait) >= `(1 + max_retries) * timeout_ms`
+/// plus the backoffs, and `timeout_ms` bounds one summary run attempt
+/// (node wrap of the summary LLM call included). Failed runs are retried
+/// within the chain layer (`max_retries` additional attempts, exponential
+/// backoff, reusing the same array-version anchor). What happens at the
+/// terminal state is not decided here: it is declared by the summary
+/// workflow resource (`compression_fallback` on the triggered-subworkflow
+/// config), which chooses between failing the emitter onto the pause path
+/// and landing a visible degraded window.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct CompressionLimits {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tail_keep: Option<usize>,
+    /// Additional summary runs after the first attempt. 0 disables chain
+    /// retries (transport-level profile retries still apply).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_retries: Option<u32>,
+    /// Outer wall-clock budget for one summary run attempt (covers the
+    /// sub-workflow and its write-back).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timeout_ms: Option<u64>,
+    /// Budget for the emitting execution's wait (settle) for an in-flight
+    /// compression to land before it pauses for external handling.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub settle_timeout_ms: Option<u64>,
 }

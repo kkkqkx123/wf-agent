@@ -215,6 +215,13 @@ pub struct NodeExecutionContext {
     /// branches, triggered sub-executions) race their work against it so a
     /// cancelled parent stops them.
     pub cancellation: Option<tokio_util::sync::CancellationToken>,
+    /// Interruption state of the owning execution entity (`None` when the
+    /// context was built without an entity, mirroring [`Self::cancellation`]).
+    /// A clone of the entity's handle over the same shared state. A handler
+    /// that needs the emitting execution to wait for external handling
+    /// (e.g. a terminal context-compression failure) pauses it through
+    /// this state instead of failing the run.
+    pub interruption: Option<wf_core::interruption::InterruptionState>,
     /// Shared hook handler registry inherited from the parent execution.
     pub hook_handler_registry: Option<Arc<HookHandlerRegistry>>,
     /// Tool-level approval handler inherited from the parent execution
@@ -279,6 +286,7 @@ impl NodeExecutionContext {
             metrics: None,
             token_tracker: None,
             cancellation: None,
+            interruption: None,
             hook_handler_registry: None,
             tool_approval_handler: None,
             tool_approval_options: None,

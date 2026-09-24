@@ -731,6 +731,18 @@ impl WorkflowCoordinator {
                 Err(e) => {
                     self.record_node_failure(&attempt, &outcome, &node_ctx, &e)
                         .await;
+                    // A handler may have paused the execution as the terminal
+                    // handling of a failure it must not absorb (a context
+                    // compression failure, for instance). End the run through
+                    // the standard paused protocol so the outcome is recorded
+                    // as paused-for-handling instead of a plain node failure.
+                    if matches!(
+                        entity.interruption().check(),
+                        Some(InterruptionSignal::Pause)
+                    ) {
+                        self.check_interruption_and_timeout(&entity, event_bus_ref, node_id)
+                            .await?;
+                    }
                     return Err(e);
                 }
             }
@@ -1319,6 +1331,7 @@ impl WorkflowCoordinator {
         ctx.metrics = self.ctx.metrics.clone();
         ctx.token_tracker = self.ctx.token_tracker.clone();
         ctx.cancellation = self.entity.as_ref().map(|e| e.get_abort_signal());
+        ctx.interruption = self.entity.as_ref().map(|e| e.interruption().clone());
         ctx.hook_handler_registry = self.ctx.hook_handler_registry.clone();
         ctx.tool_approval_handler = self.ctx.tool_approval_handler.clone();
         ctx.tool_approval_options = self.ctx.tool_approval_options.clone();

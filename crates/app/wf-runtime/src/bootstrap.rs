@@ -192,12 +192,48 @@ fn assemble_trigger_subsystem(deps: TriggerSubsystemDeps) -> TriggerSubsystem {
     let execution_contexts = Arc::new(ExecutionContextRegistry::new());
     let trigger_state_registry = Arc::new(wf_workflow::TriggerStateRegistry::new());
     let trigger_shutdown = tokio_util::sync::CancellationToken::new();
+    // The settle budget is a process-wide compression policy: inject the
+    // configured value once here (before any execution can emit) so the
+    // workflow and agent waits read the same number.
+    if let Some(settle_timeout_ms) = limits
+        .compression
+        .as_ref()
+        .and_then(|c| c.settle_timeout_ms)
+    {
+        wf_execution_shared::set_compression_settle_timeout_ms(settle_timeout_ms);
+    }
+    // The terminal-failure handling strategy is declared by the summary
+    // workflow resource itself (`compression_fallback` on its
+    // triggered-subworkflow config); an absent declaration means `fail`.
+    let summary_workflow_id =
+        wf_resource::predefined::workflow::LLM_SUMMARY_WORKFLOW_ID.to_string();
+    let compression_fallback = registries
+        .workflows
+        .get(&summary_workflow_id)
+        .and_then(|t| {
+            t.definition
+                .triggered_subworkflow_config
+                .as_ref()
+                .and_then(|c| c.compression_fallback)
+        })
+        .unwrap_or_default();
     let compression_policy = crate::trigger_listener::CompressionPolicy {
         tail_keep: limits
             .compression
             .as_ref()
             .and_then(|c| c.tail_keep)
             .unwrap_or(wf_execution_shared::DEFAULT_COMPRESSION_TAIL_KEEP),
+        max_retries: limits
+            .compression
+            .as_ref()
+            .and_then(|c| c.max_retries)
+            .unwrap_or(1),
+        run_timeout_ms: limits
+            .compression
+            .as_ref()
+            .and_then(|c| c.timeout_ms)
+            .unwrap_or(240_000),
+        fallback: compression_fallback,
     };
     let subworkflow_runner: std::sync::Arc<dyn wf_workflow::trigger::SubworkflowRunner> =
         std::sync::Arc::new(
@@ -241,8 +277,7 @@ fn assemble_trigger_subsystem(deps: TriggerSubsystemDeps) -> TriggerSubsystem {
             event_bus,
             runner: subworkflow_runner,
             contexts: execution_contexts.clone(),
-            summary_workflow_id: wf_resource::predefined::workflow::LLM_SUMMARY_WORKFLOW_ID
-                .to_string(),
+            summary_workflow_id,
             shutdown: trigger_shutdown,
             ledger: TriggerLedger {
                 storage,

@@ -4,7 +4,10 @@
 //! Defaults mirror the current hard-coded constants in the engines:
 //! agent iteration cap 1000, default agent iterations 10, sub-agent depth 8,
 //! workflow loop cap 10000, default loop iterations 100, navigation
-//! multiplier 5, node timeout fallback 30000ms. `max_concurrent = 0` and
+//! multiplier 5, node timeout fallback 30000ms, compression run timeout
+//! 240000ms with 1 retry, a settle budget of 300000ms and tail_keep 2. The
+//! terminal-failure fallback is not a global limit: it is declared per
+//! compression workflow resource. `max_concurrent = 0` and
 //! `max_pause_duration_ms = 0` mean "no explicit limit" and preserve the
 //! engine's default behavior (CPU-core-derived concurrency, unbounded pause).
 
@@ -30,6 +33,9 @@ pub const EXEC_NODE_TIMEOUT_MS_DEFAULT: u64 = 30_000;
 pub const EXEC_MAX_EXECUTION_TIME_MS_DEFAULT: u64 = 0;
 
 pub const COMPRESSION_TAIL_KEEP_DEFAULT: usize = 2;
+pub const COMPRESSION_MAX_RETRIES_DEFAULT: u32 = 1;
+pub const COMPRESSION_TIMEOUT_MS_DEFAULT: u64 = 240_000;
+pub const COMPRESSION_SETTLE_TIMEOUT_MS_DEFAULT: u64 = 300_000;
 
 /// Merge user limits with defaults, filling every absent field so the
 /// returned config carries concrete values (never `None`).
@@ -85,6 +91,15 @@ pub fn merge_limits_with_defaults(user: &LimitsConfig) -> LimitsConfig {
         tail_keep: user_compression
             .and_then(|c| c.tail_keep)
             .or(Some(COMPRESSION_TAIL_KEEP_DEFAULT)),
+        max_retries: user_compression
+            .and_then(|c| c.max_retries)
+            .or(Some(COMPRESSION_MAX_RETRIES_DEFAULT)),
+        timeout_ms: user_compression
+            .and_then(|c| c.timeout_ms)
+            .or(Some(COMPRESSION_TIMEOUT_MS_DEFAULT)),
+        settle_timeout_ms: user_compression
+            .and_then(|c| c.settle_timeout_ms)
+            .or(Some(COMPRESSION_SETTLE_TIMEOUT_MS_DEFAULT)),
     };
 
     LimitsConfig {
@@ -148,6 +163,14 @@ pub fn validate_limits_config(config: &LimitsConfig) -> ConfigResult<()> {
             }
         }
     }
+    if let Some(ref compression) = config.compression {
+        if let Some(timeout) = compression.timeout_ms {
+            validate_min(timeout, 1, "limits.compression.timeout_ms")?;
+        }
+        if let Some(settle) = compression.settle_timeout_ms {
+            validate_min(settle, 1, "limits.compression.settle_timeout_ms")?;
+        }
+    }
     Ok(())
 }
 
@@ -174,6 +197,9 @@ mod tests {
         assert_eq!(exec.max_execution_time_ms, Some(0));
         let compression = merged.compression.unwrap();
         assert_eq!(compression.tail_keep, Some(2));
+        assert_eq!(compression.max_retries, Some(1));
+        assert_eq!(compression.timeout_ms, Some(240_000));
+        assert_eq!(compression.settle_timeout_ms, Some(300_000));
     }
 
     #[test]
@@ -192,7 +218,10 @@ mod tests {
                 node_timeout_ms: Some(60000),
                 ..Default::default()
             }),
-            compression: Some(CompressionLimits { tail_keep: Some(5) }),
+            compression: Some(CompressionLimits {
+                tail_keep: Some(5),
+                ..Default::default()
+            }),
         };
         let merged = merge_limits_with_defaults(&user);
         let agent = merged.agent.clone().unwrap();

@@ -307,11 +307,11 @@ impl SubworkflowRunner for WorkflowRunner {
 /// The user-template sub-workflow action: the concrete
 /// [`TriggerActionRunner`] for `TriggerAction::ExecuteTriggeredSubworkflow`.
 ///
-/// Runs the configured summary sub-workflow over the message snapshot carried
-/// by the triggering event, writes the compressed array back into the
+/// Runs the configured summary sub-workflow over the live message array the
+/// triggering event names (anchored on its emission version, since the audit
+/// event carries no snapshot), writes the compressed array back into the
 /// emitting execution's named context (workflow targets through the
-/// [`ExecutionContextRegistry`]; agent conversations self-consume the
-/// completed event) and publishes `CONTEXT_COMPRESSION_COMPLETED`.
+/// [`ExecutionContextRegistry`]) and publishes `CONTEXT_COMPRESSION_COMPLETED`.
 ///
 /// The engine-internal compression chain is served by the
 /// [`CompressionService`] hook receiver instead; this runner exists for user
@@ -403,11 +403,14 @@ impl TriggerActionRunner for SubworkflowActionRunner {
             return Ok(());
         };
 
-        // The event must name the message array to compress and carry its
-        // snapshot; anything else is skipped (best-effort compression). The
-        // typed parse validates both the event type and the required keys,
-        // so a schema drift surfaces as a logged skip instead of a silent
-        // empty-array degradation.
+        // The event must name a message array of a live workflow execution.
+        // The audit event carries no snapshot: the runner reads the emitting
+        // execution's live array and anchors on the emission version — a
+        // version match means no append landed since emission, so the live
+        // array is exactly the emission-time snapshot. Anything else is
+        // skipped (best-effort compression). The typed parse validates the
+        // event type and the required keys, so a schema drift surfaces as a
+        // logged skip instead of a silent empty-array degradation.
         let meta = match ContextCompressionRequestedMeta::try_from(event) {
             Ok(meta) => meta,
             Err(e) => {
@@ -422,19 +425,37 @@ impl TriggerActionRunner for SubworkflowActionRunner {
             return Ok(());
         };
         let target_context_id = meta.target_context_id;
-        if meta.messages.is_empty() {
+        // Versioned write-back: the compressed array is written back only if
+        // the target array is still at the version the emission was checked
+        // against; concurrent appends discard stale results.
+        let expected_version = meta.array_version;
+        let token_limit = meta.token_limit;
+        let Some(variables) = self.contexts.variables_for(&execution_id) else {
             debug!(
-                "Trigger '{}' matched but the event carries no named message array, skipping",
+                "Trigger '{}' matched but execution '{}' exposes no live message array (agent \
+                 conversations are served by the compression hook), skipping",
+                template.name, execution_id
+            );
+            return Ok(());
+        };
+        if wf_workflow::message_context::array_version(&variables, &target_context_id)
+            != expected_version
+        {
+            debug!(
+                "Trigger '{}' matched but the array for execution '{}' '{}' moved past version {}, \
+                 skipping",
+                template.name, execution_id, target_context_id, expected_version
+            );
+            return Ok(());
+        }
+        let messages = wf_workflow::message_context::get_context(&variables, &target_context_id);
+        if messages.is_empty() {
+            debug!(
+                "Trigger '{}' matched but the named message array is empty, skipping",
                 template.name
             );
             return Ok(());
         }
-        let messages = meta.messages;
-        // Versioned write-back: the compressed array is written back only if
-        // the target array is still at the version the event snapshot was
-        // taken from; concurrent appends discard stale results.
-        let expected_version = meta.array_version;
-        let token_limit = meta.token_limit;
 
         let input = serde_json::json!({ "conversationHistory": messages });
         let wait = wait_for_completion.unwrap_or(true);
@@ -508,6 +529,7 @@ impl TriggerActionRunner for SubworkflowActionRunner {
                                         expected_version,
                                         tail_keep: wf_execution_shared::DEFAULT_COMPRESSION_TAIL_KEEP,
                                         token_limit,
+                                        degraded: false,
                                     },
                                     &output,
                                 )
@@ -613,6 +635,7 @@ impl SubworkflowActionRunner {
                 expected_version,
                 tail_keep: wf_execution_shared::DEFAULT_COMPRESSION_TAIL_KEEP,
                 token_limit,
+                degraded: false,
             },
             &output,
         )

@@ -63,7 +63,11 @@ pub fn create_llm_summary_workflow_with_profile(
                 // The summary input is an already over-budget snapshot: this
                 // node never participates in compression decisions (the
                 // depth guard is the backstop; this switch is the intent).
-                "enable_token_tracking": false
+                "enable_token_tracking": false,
+                // Must exceed the LLM call budget (llm.timeout_ms) and stay
+                // below the whole-chain run timeout, so a slow summary fails
+                // inside the node and the chain can still retry.
+                "timeout_seconds": 150
             })),
             execution_config: None,
         },
@@ -127,7 +131,13 @@ pub fn create_llm_summary_workflow_with_profile(
             variables: None,
             triggered_subworkflow_config: Some(TriggeredSubworkflowConfig {
                 enable_checkpoints: Some(false),
-                timeout: None,
+                // Chain budget: node timeout (150s) + write-back must fit
+                // inside this, and the compression service wraps each attempt
+                // with the same budget before retrying.
+                timeout: Some(240_000),
+                // No declared fallback: a terminal failure stops the emitting
+                // execution for external handling (the `fail` default).
+                compression_fallback: None,
             }),
             metadata: Some(WorkflowMetadata {
                 author: Some("system".into()),

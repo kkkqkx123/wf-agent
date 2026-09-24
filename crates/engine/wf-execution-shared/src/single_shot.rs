@@ -19,10 +19,6 @@ use crate::error::{ExecutionSharedError, ExecutionSharedResult};
 /// sprays calls.
 pub const MAX_SINGLE_SHOT_TOOL_CALLS: usize = 4;
 
-/// Default per-tool timeout (milliseconds) when the caller passes no
-/// execution options.
-const DEFAULT_TOOL_TIMEOUT_MS: u64 = 30000;
-
 /// One executed tool call of the single round.
 #[derive(Debug, Clone)]
 pub struct SingleShotToolExecution {
@@ -94,8 +90,8 @@ pub async fn generate_with_tools_once(
         )));
     }
 
-    let options = tool_options.unwrap_or(ToolExecutionOptions {
-        timeout: Some(DEFAULT_TOOL_TIMEOUT_MS),
+    let base_options = tool_options.unwrap_or(ToolExecutionOptions {
+        timeout: None,
         retries: None,
         retry_delay: None,
         exponential_backoff: None,
@@ -121,6 +117,14 @@ pub async fn generate_with_tools_once(
                 ))
             })?
         };
+        // Honor the tool definition's own default budget unless the caller
+        // pinned an explicit timeout, matching the agent and workflow loops.
+        let mut options = base_options.clone();
+        if options.timeout.is_none() {
+            options.timeout = registry
+                .get_tool(&name)
+                .and_then(|tool| tool.default_timeout_ms);
+        }
         let result = registry
             .execute_tool(&name, &parameters, &options, &context)
             .await
@@ -259,6 +263,7 @@ mod tests {
             stream: None,
             dead_loop_detection: None,
             protocol_auto_converted: None,
+            timeout_ms: None,
         }
     }
 

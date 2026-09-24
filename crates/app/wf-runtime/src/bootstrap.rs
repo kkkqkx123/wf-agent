@@ -108,10 +108,9 @@ pub struct Runtime {
     tool_approval: wf_types::config::tool_approval::ToolApprovalConfig,
     /// Resolved infrastructure values retained from bootstrap for downstream
     /// readers. `limits` drives the agent executor and trigger subsystem;
-    /// `timeout`, `output`, `presets` and `tools` are resolved (file layer or
+    /// `output`, `presets` and `tools` are resolved (file layer or
     /// programmatic) and retained here so hosts can observe the effective
     /// configuration.
-    pub timeout: wf_types::config::timeout::TimeoutConfig,
     pub output: wf_types::config::output::OutputConfig,
     pub presets: wf_types::config::presets::PresetsConfig,
     pub tools: wf_config::orchestrator::ToolConfigs,
@@ -282,7 +281,7 @@ impl Runtime {
     ) -> RuntimeResult<Self> {
         // Stage 1: configuration resolution. The file layer (user dotfiles +
         // orchestrator-assembled infrastructure preset, plus the skill
-        // settings chain) fills storage / timeout / metrics / output /
+        // settings chain) fills storage / metrics / output /
         // sandbox / presets / tools / file_checkpoint from disk; values the
         // caller already set keep their higher priority.
         let config_metrics = std::sync::Arc::new(wf_metrics::ConfigMetricsCollector::new(
@@ -637,7 +636,6 @@ impl Runtime {
             manual_change_service,
             checkpoint_event_bridge_handle,
             gc_timer_handle,
-            timeout: config.timeout.clone(),
             output: config.output.clone(),
             presets: config.presets.clone(),
             tools: config.tools.clone(),
@@ -727,6 +725,9 @@ impl Runtime {
             // through the persisted interaction flow (the library default
             // without a handler stays auto-approve).
             ctx = ctx.with_tool_approval(self.tool_approval.clone());
+            // Apply the resolved limits so executions launched through this
+            // context seed node/total budgets from `execution_defaults`.
+            ctx = ctx.with_execution_limits(self.limits.clone());
             std::sync::Arc::new(ctx)
         })
     }

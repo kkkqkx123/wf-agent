@@ -34,8 +34,6 @@ pub struct TriggeredSubworkflowConfig {
     pub enable_checkpoints: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub timeout: Option<u64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub max_retries: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

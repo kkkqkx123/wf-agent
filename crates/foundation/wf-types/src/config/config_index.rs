@@ -137,7 +137,6 @@ pub struct InfrastructurePresetFile {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct InfrastructurePresetFiles {
     pub metrics: Option<String>,
-    pub timeout: Option<String>,
     pub storage: Option<String>,
     pub output: Option<String>,
     pub file_checkpoint: Option<String>,

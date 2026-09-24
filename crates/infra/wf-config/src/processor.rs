@@ -5,7 +5,7 @@
 ///
 /// ## Module overview
 ///
-/// - `infrastructure` — `merge_*_with_defaults` for storage/timeout/metrics/output/sandbox
+/// - `infrastructure` — `merge_*_with_defaults` for storage/metrics/output/sandbox
 /// - `limits` — merge/validate agent/workflow resource limits
 /// - `llm_profile` — validate/transform LLM profiles
 /// - `workflow` — validate workflow definitions, transform nodes/edges

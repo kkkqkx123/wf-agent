@@ -240,6 +240,16 @@ pub struct NodeExecutionContext {
     /// node visit. Not persisted or checkpointed; `None` for non-message
     /// nodes.
     pub session_cache: Option<Arc<std::sync::Mutex<std::collections::HashMap<String, Value>>>>,
+    /// The owning execution's resolved node wall-clock budget (milliseconds),
+    /// inherited from its `WorkflowExecutionOptions`. `TRIGGER` sub-workflows
+    /// reuse it so a child shares the same single source (entry/limits) as
+    /// its parent instead of resetting to the engine fallback.
+    pub parent_node_timeout_ms: Option<u64>,
+    /// The owning execution's resolved total wall-clock budget
+    /// (milliseconds). A `TRIGGER` sub-workflow falls back to it when the
+    /// action declares no explicit timeout, keeping parent and child on one
+    /// budget source.
+    pub parent_max_execution_time_ms: Option<u64>,
 }
 
 impl NodeExecutionContext {
@@ -276,6 +286,8 @@ impl NodeExecutionContext {
             fork_registries: Arc::new(std::collections::HashMap::new()),
             signal_bus: None,
             session_cache: None,
+            parent_node_timeout_ms: None,
+            parent_max_execution_time_ms: None,
         }
     }
 
@@ -296,6 +308,19 @@ impl NodeExecutionContext {
 
     pub fn with_depth(mut self, depth: u32) -> Self {
         self.depth = depth;
+        self
+    }
+
+    /// Inject the owning execution's resolved budgets (node timeout and total
+    /// wall-clock, milliseconds) so spawned `TRIGGER` sub-workflows inherit
+    /// the same source instead of the engine fallback.
+    pub fn with_parent_timeouts(
+        mut self,
+        node_timeout_ms: Option<u64>,
+        max_execution_time_ms: Option<u64>,
+    ) -> Self {
+        self.parent_node_timeout_ms = node_timeout_ms;
+        self.parent_max_execution_time_ms = max_execution_time_ms;
         self
     }
 

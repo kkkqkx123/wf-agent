@@ -102,6 +102,15 @@ impl WorkflowExecutionState {
         self.status.clone()
     }
 
+    /// Wall-clock start (milliseconds since epoch) recorded when the
+    /// execution first transitioned to `Running`. A checkpoint capture uses
+    /// it to freeze how much of the wall-clock budget the original run had
+    /// already spent, so a restore can hand the continuation only the
+    /// remaining budget instead of a fresh full one.
+    pub fn start_time(&self) -> i64 {
+        self.start_time
+    }
+
     pub fn is_running(&self) -> bool {
         matches!(self.status, ExecutionStatus::Running)
     }

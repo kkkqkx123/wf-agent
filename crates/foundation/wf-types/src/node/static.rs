@@ -93,6 +93,23 @@ impl StaticNodeType {
             _ => None,
         }
     }
+
+    /// Node types that represent an entire nested execution (child graphs,
+    /// agent loops, long interactive sessions). They carry their own
+    /// wall-clock / round budgets internally, so the engine-wide fallback
+    /// node timeout must not wrap them (it would kill the inner chain that
+    /// has its own retry budget); an explicitly configured node or options
+    /// timeout still applies.
+    pub fn is_long_running(&self) -> bool {
+        matches!(
+            self,
+            Self::AgentLoop
+                | Self::Subgraph
+                | Self::EmbedGraph
+                | Self::UserInteraction
+                | Self::InteractiveScript
+        )
+    }
 }
 
 impl StaticNodeType {

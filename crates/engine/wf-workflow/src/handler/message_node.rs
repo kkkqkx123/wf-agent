@@ -62,6 +62,10 @@ fn build_trigger_context(ctx: &NodeExecutionContext) -> WorkflowResult<TriggerCo
     if let Some(token) = &ctx.cancellation {
         tctx = tctx.with_cancellation(token.clone());
     }
+    tctx = tctx.with_parent_timeouts(
+        ctx.parent_node_timeout_ms,
+        ctx.parent_max_execution_time_ms,
+    );
     Ok(tctx)
 }
 

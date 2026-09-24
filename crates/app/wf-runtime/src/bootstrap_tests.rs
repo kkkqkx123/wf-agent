@@ -12,7 +12,6 @@ use std::sync::Arc;
 use wf_core::registry::Registry;
 use wf_types::config::metrics::MetricsConfig;
 use wf_types::config::storage::{StorageConfig, StorageType};
-use wf_types::config::timeout::TimeoutConfig;
 
 fn clear_env_vars() {
     std::env::remove_var("CLI_MODE");
@@ -140,11 +139,10 @@ fn test_resolve_infra_config_from_repo_configs() {
     ));
     let config = config.unwrap();
 
-    // File layer fills storage/metrics/timeout/output/sandbox/presets/
+    // File layer fills storage/metrics/output/sandbox/presets/
     // tools/file_checkpoint from the development preset.
     assert_ne!(config.storage, StorageConfig::default());
     assert!(config.metrics.is_some());
-    assert_eq!(config.timeout.default, Some(30000));
     assert_eq!(config.output.dir, "./outputs");
     assert!(config.sandbox.is_some());
     assert!(config.tools.read_file.is_some());
@@ -159,10 +157,6 @@ fn test_resolve_infra_config_from_repo_configs() {
     // Programmatic values win over the file layer.
     let programmatic = RuntimeConfig {
         metrics: Some(MetricsConfig::default()),
-        timeout: TimeoutConfig {
-            default: Some(11111),
-            ..Default::default()
-        },
         ..Default::default()
     };
     let config = runtime.block_on(resolve_infra_config(
@@ -174,7 +168,6 @@ fn test_resolve_infra_config_from_repo_configs() {
         None,
     ));
     let config = config.unwrap();
-    assert_eq!(config.timeout.default, Some(11111));
     assert!(config.metrics.is_some());
     // storage was left default -> still filled from the file layer.
     assert_ne!(config.storage, StorageConfig::default());

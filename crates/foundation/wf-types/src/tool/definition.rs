@@ -1,5 +1,12 @@
 use serde::{Deserialize, Serialize};
 
+/// Last-resort wall-clock bound (milliseconds) for a single tool execution
+/// when neither the tool definition's `default_timeout_ms` nor an explicit
+/// `ToolExecutionOptions::timeout` supplies a value. Shared so the executor
+/// wrapper and every caller agree on one fallback rather than repeating the
+/// literal.
+pub const DEFAULT_TOOL_TIMEOUT_MS: u64 = 30_000;
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ToolSchema {
     pub id: Option<String>,

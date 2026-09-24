@@ -139,7 +139,9 @@ pub trait ToolExecutorExt: ToolExecutor {
         options: &ToolExecutionOptions,
         context: &ToolExecutionContext,
     ) -> impl std::future::Future<Output = ToolResult<ToolExecutionResult>> + Send {
-        let timeout_ms = options.timeout.unwrap_or(30000);
+        let timeout_ms = options
+            .timeout
+            .unwrap_or(wf_types::tool::DEFAULT_TOOL_TIMEOUT_MS);
         let start = Instant::now();
         async move {
             let result = wf_common::exec::execute_with_timeout(

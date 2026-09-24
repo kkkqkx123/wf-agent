@@ -148,9 +148,6 @@ fn validate_triggered_subworkflow_config(
     if let Some(timeout) = config.timeout {
         validate_min(timeout, 1, "triggered_subworkflow_config.timeout")?;
     }
-    if let Some(max_retries) = config.max_retries {
-        validate_min(max_retries, 0, "triggered_subworkflow_config.max_retries")?;
-    }
     Ok(())
 }
 
@@ -597,7 +594,6 @@ mod tests {
             Some(wf_types::workflow::definition::TriggeredSubworkflowConfig {
                 enable_checkpoints: None,
                 timeout: Some(0),
-                max_retries: None,
             });
         assert!(validate_workflow_definition(&wf).is_err());
 
@@ -605,7 +601,6 @@ mod tests {
             Some(wf_types::workflow::definition::TriggeredSubworkflowConfig {
                 enable_checkpoints: None,
                 timeout: Some(5000),
-                max_retries: Some(3),
             });
         assert!(validate_workflow_definition(&wf).is_ok());
     }
@@ -855,7 +850,6 @@ mod tests {
             Some(wf_types::workflow::definition::TriggeredSubworkflowConfig {
                 enable_checkpoints: None,
                 timeout: None,
-                max_retries: None,
             });
         assert!(validate_workflow_definition(&wf).is_ok());
     }

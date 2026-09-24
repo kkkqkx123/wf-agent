@@ -5,7 +5,6 @@ use wf_types::config::metrics::MetricsConfig;
 use wf_types::config::output::OutputConfig;
 use wf_types::config::presets::PresetsConfig;
 use wf_types::config::storage::StorageConfig;
-use wf_types::config::timeout::TimeoutConfig;
 use wf_types::config::tool_approval::ToolApprovalConfig;
 use wf_types::llm::LlmProfile;
 use wf_types::llm::LlmProviderDefinition;
@@ -97,9 +96,6 @@ pub struct RuntimeConfig {
     /// exposed via [`crate::Runtime::sandbox_runtime`] and injected into every
     /// script handler. `None` uses the sandbox defaults.
     pub sandbox: Option<wf_types::script::sandbox::SandboxGlobalConfig>,
-    /// Execution timeout defaults (resolved from the infrastructure file
-    /// layer via `bootstrap_with_source`).
-    pub timeout: TimeoutConfig,
     /// Output redirection defaults (resolved from the infrastructure file
     /// layer via `bootstrap_with_source`).
     pub output: OutputConfig,

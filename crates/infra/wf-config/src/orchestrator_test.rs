@@ -57,7 +57,6 @@ fn clear_wf_env_vars() {
     for var in [
         "WF_STORAGE_TYPE",
         "WF_STORAGE_SQLITE_DB_PATH",
-        "WF_TIMEOUT_DEFAULT",
         "WF_METRICS_ENABLED",
         "WF_OUTPUT_DIR",
         "WF_AGENT_MAX_ITERATIONS_CAP",
@@ -89,7 +88,6 @@ fn test_assemble_from_project_dir() {
     assert_eq!(config.storage.storage_type, StorageType::Sqlite);
     let sqlite = config.storage.sqlite.as_ref().unwrap();
     assert_eq!(sqlite.db_path, "./test.db");
-    assert_eq!(config.timeout.default, Some(60000));
     assert_eq!(config.metrics.reporting_interval, Some(5000));
     assert_eq!(config.output.dir, "./test-outputs");
 
@@ -132,7 +130,6 @@ fn test_assemble_defaults_when_no_files() {
     let config = ConfigOrchestrator::assemble(&dir, None).unwrap();
 
     assert_eq!(config.storage.storage_type, StorageType::Sqlite);
-    assert_eq!(config.timeout.default, Some(30000));
 
     let _ = std::fs::remove_dir_all(&dir);
 }
@@ -147,15 +144,15 @@ fn test_assemble_with_overrides() {
     setup_test_project(&dir);
 
     let overrides = ConfigOverrides {
-        timeout: Some(TimeoutConfig {
-            default: Some(99999),
+        metrics: Some(MetricsConfig {
+            enabled: Some(false),
             ..Default::default()
         }),
         ..Default::default()
     };
 
     let config = ConfigOrchestrator::assemble(&dir, Some(overrides)).unwrap();
-    assert_eq!(config.timeout.default, Some(99999));
+    assert_eq!(config.metrics.enabled, Some(false));
     assert_eq!(config.storage.storage_type, StorageType::Sqlite);
 
     let _ = std::fs::remove_dir_all(&dir);
@@ -248,7 +245,6 @@ fn test_assemble_with_preset_hits_preset() {
 
     // The development preset maps storage to custom-storage.toml.
     assert_eq!(config.storage.storage_type, StorageType::Postgres);
-    assert_eq!(config.timeout.default, Some(42000));
     assert_eq!(config.metrics.enabled, Some(false));
     assert_eq!(config.output.dir, "./preset-outputs");
 
@@ -356,7 +352,6 @@ fn test_full_bundle_assembly_from_repo_configs() {
 
     // storage/metrics come from the preset mapping (same files).
     assert_eq!(config.metrics.enabled, Some(true));
-    assert_eq!(config.timeout.default, Some(30000));
     assert!(config.sandbox.is_some(), "repo sandbox.toml must load");
     assert_eq!(config.output.dir, "./outputs");
     assert!(

@@ -98,6 +98,7 @@ fn user_request(profile_id: &str) -> LlmRequest {
         stream: None,
         dead_loop_detection: None,
         protocol_auto_converted: None,
+        timeout_ms: None,
     }
 }
 

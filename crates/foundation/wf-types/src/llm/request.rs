@@ -57,6 +57,12 @@ pub struct LlmRequest {
     /// via the `auto_convert` policy; observed by codecs for observability.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub protocol_auto_converted: Option<bool>,
+    /// Per-request wall-clock bound in milliseconds for the gateway call
+    /// (covers the full transport retry chain of one generate). Callers
+    /// derive it from node/agent execution config; absent means the client
+    /// falls back to the profile-level per-attempt timeout only.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timeout_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

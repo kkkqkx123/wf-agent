@@ -4,14 +4,12 @@ use wf_types::config::metrics::MetricsConfig;
 use wf_types::config::output::OutputConfig;
 use wf_types::config::presets::PresetsConfig;
 use wf_types::config::storage::StorageConfig;
-use wf_types::config::timeout::TimeoutConfig;
 use wf_types::config::tool_approval::ToolApprovalConfig;
 use wf_types::script::sandbox::SandboxGlobalConfig;
 
 #[derive(Debug, Clone, Default)]
 pub struct SdkOptions {
     pub storage: Option<StorageConfig>,
-    pub timeout: Option<TimeoutConfig>,
     pub metrics: Option<MetricsConfig>,
     pub output: Option<OutputConfig>,
     pub sandbox: Option<SandboxGlobalConfig>,
@@ -31,11 +29,6 @@ impl SdkOptions {
 
     pub fn with_storage(mut self, config: StorageConfig) -> Self {
         self.storage = Some(config);
-        self
-    }
-
-    pub fn with_timeout(mut self, config: TimeoutConfig) -> Self {
-        self.timeout = Some(config);
         self
     }
 
@@ -88,7 +81,6 @@ impl SdkOptions {
     pub fn into_overrides(self) -> ConfigOverrides {
         ConfigOverrides {
             storage: self.storage,
-            timeout: self.timeout,
             metrics: self.metrics,
             output: self.output,
             sandbox: self.sandbox,
@@ -120,10 +112,6 @@ mod tests {
                 storage_type: wf_types::config::storage::StorageType::Sqlite,
                 ..Default::default()
             })
-            .with_timeout(TimeoutConfig {
-                default: Some(99999),
-                ..Default::default()
-            })
             .with_metrics(MetricsConfig {
                 enabled: Some(false),
                 ..Default::default()
@@ -131,7 +119,6 @@ mod tests {
 
         let overrides = options.into_overrides();
         assert!(overrides.storage.is_some());
-        assert!(overrides.timeout.is_some());
         assert!(overrides.metrics.is_some());
         assert!(overrides.output.is_none());
     }

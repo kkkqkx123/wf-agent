@@ -6,7 +6,6 @@ pub mod output;
 pub mod presets;
 pub mod schemas;
 pub mod storage;
-pub mod timeout;
 pub mod tool_approval;
 
 pub use config_index::*;
@@ -17,5 +16,4 @@ pub use output::*;
 pub use presets::*;
 pub use schemas::*;
 pub use storage::*;
-pub use timeout::*;
 pub use tool_approval::*;

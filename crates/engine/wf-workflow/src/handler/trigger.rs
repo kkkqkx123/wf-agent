@@ -112,6 +112,14 @@ pub struct TriggerContext {
     /// within the same message node. Allows actions to share intermediate
     /// state without resorting to global variables.
     pub session_cache: Option<Arc<Mutex<HashMap<String, Value>>>>,
+    /// The owning execution's resolved node wall-clock budget (milliseconds),
+    /// inherited so a triggered sub-workflow shares the parent's single budget
+    /// source instead of resetting to the engine fallback.
+    pub parent_node_timeout_ms: Option<u64>,
+    /// The owning execution's resolved total wall-clock budget (milliseconds);
+    /// a triggered sub-workflow falls back to it when no explicit timeout is
+    /// declared on the action.
+    pub parent_max_execution_time_ms: Option<u64>,
 }
 
 /// Shared inputs for one trigger script execution (legacy runner or
@@ -142,6 +150,8 @@ impl TriggerContext {
             script_router: None,
             cancellation: None,
             session_cache: None,
+            parent_node_timeout_ms: None,
+            parent_max_execution_time_ms: None,
         }
     }
 
@@ -204,6 +214,19 @@ impl TriggerContext {
     /// scoped to the session; it is not persisted or checkpointed.
     pub fn with_session_cache(mut self, cache: Arc<Mutex<HashMap<String, Value>>>) -> Self {
         self.session_cache = Some(cache);
+        self
+    }
+
+    /// Carry the owning execution's resolved budgets so a triggered
+    /// sub-workflow inherits the parent's single source rather than resetting
+    /// to the engine fallback.
+    pub fn with_parent_timeouts(
+        mut self,
+        node_timeout_ms: Option<u64>,
+        max_execution_time_ms: Option<u64>,
+    ) -> Self {
+        self.parent_node_timeout_ms = node_timeout_ms;
+        self.parent_max_execution_time_ms = max_execution_time_ms;
         self
     }
 }
@@ -657,9 +680,16 @@ impl TriggerCoordinator {
             )),
             max_steps: None,
             timeout: None,
-            max_execution_time: (run.timeout > 0).then_some(run.timeout),
+            // An explicit action timeout wins; otherwise inherit the parent's
+            // resolved budget so the child shares the entry/limits source like
+            // the listener path instead of falling through to unlimited.
+            max_execution_time: (run.timeout > 0)
+                .then_some(run.timeout)
+                .or(ctx.parent_max_execution_time_ms),
             enable_checkpoints: Some(false),
-            node_timeout: None,
+            // Inherit the parent's node budget (entry/limits derived) rather
+            // than resetting to the engine per-node fallback.
+            node_timeout: ctx.parent_node_timeout_ms,
             max_pause_duration: None,
             max_navigation_multiplier: None,
             loop_max_iterations_cap: None,

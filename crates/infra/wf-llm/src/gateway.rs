@@ -25,6 +25,22 @@ struct PreparedRequest {
     client: Arc<LlmClientImpl>,
 }
 
+/// Apply the optional per-request wall-clock bound (milliseconds) to a
+/// dispatch future. A request-level timeout covers the full client call
+/// including the transport retry chain, so callers can guarantee a node
+/// budget regardless of profile-level timeout/retry settings.
+async fn bound<T>(
+    timeout_ms: Option<u64>,
+    fut: impl std::future::Future<Output = LlmResult<T>>,
+) -> LlmResult<T> {
+    match timeout_ms {
+        Some(ms) if ms > 0 => tokio::time::timeout(std::time::Duration::from_millis(ms), fut)
+            .await
+            .map_err(|_| LlmError::Timeout(ms))?,
+        _ => fut.await,
+    }
+}
+
 /// Single facade for all LLM calls.
 ///
 /// Responsibilities:
@@ -173,7 +189,11 @@ impl LlmGateway {
 
         let prepared = self.prepare(request)?;
         let start = std::time::Instant::now();
-        let result = prepared.client.generate(&prepared.effective, cancel).await;
+        let timeout_ms = prepared.effective.timeout_ms;
+        let result = bound(timeout_ms, async {
+            prepared.client.generate(&prepared.effective, cancel).await
+        })
+        .await;
         let duration_ms = start.elapsed().as_millis() as f64;
         match &result {
             Ok(response) => {
@@ -199,10 +219,17 @@ impl LlmGateway {
 
         let prepared = self.prepare(request)?;
         let start = std::time::Instant::now();
-        let stream = prepared
-            .client
-            .generate_stream(&prepared.effective, cancel)
-            .await;
+        let timeout_ms = prepared.effective.timeout_ms;
+        // The per-request bound covers stream establishment only (including
+        // transport retries); consuming the returned stream is bounded by
+        // the client-level and caller-level budgets, not here.
+        let stream = bound(timeout_ms, async {
+            prepared
+                .client
+                .generate_stream(&prepared.effective, cancel)
+                .await
+        })
+        .await;
         let duration_ms = start.elapsed().as_millis() as f64;
         match &stream {
             Ok(_) => {
@@ -241,8 +268,7 @@ impl LlmGateway {
     /// Single assembly preamble shared by all request entry points:
     /// resolve the profile, merge request overrides, then fetch the client.
     /// Mock routing and result post-processing stay in each caller.
-    fn prepare(&self, request: &LlmRequest) -> LlmResult<PreparedRequest> {
-        let profile = self.resolve_profile(&request.profile_id)?;
+    fn prepare(&self, request: &LlmRequest) -> LlmResult<PreparedRequest> {        let profile = self.resolve_profile(&request.profile_id)?;
         let effective = merge::merge_request(request, &profile)?;
         let client = self.get_or_create_client(&profile)?;
         Ok(PreparedRequest {
@@ -429,6 +455,7 @@ mod tests {
             stream: None,
             dead_loop_detection: None,
             protocol_auto_converted: None,
+            timeout_ms: None,
         }
     }
 

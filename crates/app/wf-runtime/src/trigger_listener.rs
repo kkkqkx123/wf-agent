@@ -1708,7 +1708,6 @@ mod tests {
                 triggered_subworkflow_config: Some(TriggeredSubworkflowConfig {
                     enable_checkpoints: Some(false),
                     timeout: Some(5000),
-                    max_retries: Some(0),
                 }),
                 metadata: Some(WorkflowMetadata {
                     author: None,

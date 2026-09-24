@@ -128,7 +128,6 @@ pub fn create_llm_summary_workflow_with_profile(
             triggered_subworkflow_config: Some(TriggeredSubworkflowConfig {
                 enable_checkpoints: Some(false),
                 timeout: None,
-                max_retries: None,
             }),
             metadata: Some(WorkflowMetadata {
                 author: Some("system".into()),

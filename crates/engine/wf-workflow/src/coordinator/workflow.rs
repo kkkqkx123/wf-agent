@@ -30,8 +30,34 @@ use crate::error::{WorkflowError, WorkflowResult};
 
 /// Engine-wide fallback node timeout in milliseconds. Applied when neither
 /// the node-level `timeout_seconds` nor the global options default is set,
-/// so no node runs unbounded.
+/// so no ordinary node runs unbounded. Long-running nodes (nested
+/// executions: agent loops, sub-graphs, interactive sessions) are exempt
+/// from the fallback because they carry their own budgets; see
+/// `StaticNodeType::is_long_running`.
 pub const DEFAULT_NODE_TIMEOUT_MS: u64 = 30_000;
+
+/// Resolve the wall-clock budget wrapping one node execution.
+/// Priority: node-level `timeout_seconds` (seconds) > global options
+/// default (milliseconds) > engine-wide fallback. The fallback is skipped
+/// for long-running node types, which are bounded by their inner budgets.
+fn resolve_node_timeout(
+    node: &wf_types::workflow_execution::WorkflowNode,
+    node_type: &StaticNodeType,
+    options_default_ms: Option<u64>,
+) -> Option<std::time::Duration> {
+    let ms = node
+        .inner
+        .get("timeout_seconds")
+        .and_then(|v| v.as_u64())
+        .map(|secs| secs.saturating_mul(1000))
+        .or(options_default_ms)
+        .or(if node_type.is_long_running() {
+            None
+        } else {
+            Some(DEFAULT_NODE_TIMEOUT_MS)
+        });
+    ms.map(std::time::Duration::from_millis)
+}
 use crate::error_analysis::workflow_error_record;
 use crate::graph::GraphTraversal;
 use crate::handler::NodeHandler;
@@ -985,16 +1011,7 @@ impl WorkflowCoordinator {
                 })?;
 
         let coordinator = NodeCoordinator::new();
-        // Node-level `timeout_seconds` wins, then the global options default,
-        // then the engine-wide fallback. The fallback keeps every node
-        // bounded even when no timeout is configured anywhere.
-        let node_timeout_ms = node
-            .inner
-            .get("timeout_seconds")
-            .and_then(|v| v.as_u64())
-            .or(node_timeout)
-            .or(Some(DEFAULT_NODE_TIMEOUT_MS));
-        let timeout_dur = node_timeout_ms.map(std::time::Duration::from_millis);
+        let timeout_dur = resolve_node_timeout(node, node_type, node_timeout);
 
         let fut = coordinator.execute_node(
             entity,
@@ -1307,6 +1324,13 @@ impl WorkflowCoordinator {
         ctx.tool_approval_options = self.ctx.tool_approval_options.clone();
         ctx.fork_registries = self.ctx.fork_registries.clone();
         ctx.signal_bus = self.ctx.signal_bus.clone();
+        // Carry the owning execution's resolved budgets so a TRIGGER
+        // sub-workflow inherits the same source (entry config / limits)
+        // rather than resetting to the engine fallback.
+        ctx = ctx.with_parent_timeouts(
+            self.ctx.options.node_timeout,
+            self.ctx.options.max_execution_time,
+        );
 
         // Message nodes execute trigger actions within one visit; give them a
         // shared session cache so consecutive actions can exchange state.
@@ -1524,6 +1548,35 @@ mod tests {
             start_node_id: Some("start".to_string()),
             end_node_ids: vec!["end".to_string()],
         }
+    }
+
+    #[test]
+    fn node_timeout_seconds_is_applied_as_seconds() {
+        let n = node("x", "LLM", serde_json::json!({ "timeout_seconds": 2 }));
+        let dur = resolve_node_timeout(&n, &StaticNodeType::Llm, None).expect("configured");
+        assert_eq!(dur, std::time::Duration::from_secs(2));
+    }
+
+    #[test]
+    fn node_timeout_priority_order() {
+        let n = node("x", "LLM", serde_json::json!({ "timeout_seconds": 5 }));
+        let dur = resolve_node_timeout(&n, &StaticNodeType::Llm, Some(1000)).expect("configured");
+        assert_eq!(dur, std::time::Duration::from_secs(5));
+        let n = node("x", "LLM", serde_json::json!({}));
+        let dur = resolve_node_timeout(&n, &StaticNodeType::Llm, Some(1000)).expect("configured");
+        assert_eq!(dur, std::time::Duration::from_millis(1000));
+    }
+
+    #[test]
+    fn long_running_nodes_skip_the_engine_fallback_only() {
+        let n = node("x", "AGENT_LOOP", serde_json::json!({}));
+        assert_eq!(resolve_node_timeout(&n, &StaticNodeType::AgentLoop, None), None);
+        let dur = resolve_node_timeout(&n, &StaticNodeType::AgentLoop, Some(7000))
+            .expect("explicit default still applies");
+        assert_eq!(dur, std::time::Duration::from_millis(7000));
+        let n = node("x", "LLM", serde_json::json!({}));
+        let dur = resolve_node_timeout(&n, &StaticNodeType::Llm, None).expect("fallback applies");
+        assert_eq!(dur, std::time::Duration::from_millis(DEFAULT_NODE_TIMEOUT_MS));
     }
 
     fn options() -> WorkflowExecutionOptions {

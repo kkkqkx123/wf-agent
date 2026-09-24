@@ -320,9 +320,6 @@ pub async fn resolve_infra_config(
     if config.storage == StorageConfig::default() {
         config.storage = assembled.storage;
     }
-    if config.timeout == wf_types::config::timeout::TimeoutConfig::default() {
-        config.timeout = assembled.timeout;
-    }
     if config.output == wf_types::config::output::OutputConfig::default() {
         config.output = assembled.output;
     }

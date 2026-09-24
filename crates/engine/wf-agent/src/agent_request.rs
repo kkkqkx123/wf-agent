@@ -128,6 +128,7 @@ pub async fn build_agent_request(
         stream: Some(stream),
         dead_loop_detection: None,
         protocol_auto_converted: None,
+        timeout_ms: None,
     })
 }
 

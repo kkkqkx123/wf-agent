@@ -444,12 +444,34 @@ pub async fn restore_checkpoint(
             .restore_node_execution_history(history);
     }
     // Restore the captured execution options so `resume` rebuilds the same
-    // input/options. Step/time budgets already consumed by the original run
-    // are not re-applied to the continuation (a restored continuation
-    // must run to completion, not re-limit itself at the old budget).
+    // input/options. Step budgets are consumed by the original run and are not
+    // re-applied; the wall-clock budget is reduced to whatever remains after
+    // the time the original run had already spent at checkpoint time, so a
+    // continuation can never outlive the original `max_execution_time`.
     let mut continuation_options = options;
     continuation_options.max_steps = None;
-    continuation_options.max_execution_time = None;
+    continuation_options.max_execution_time =
+        match continuation_options.max_execution_time {
+            Some(budget) if budget > 0 => {
+                let executed_ms = snapshot
+                    .execution_config
+                    .as_ref()
+                    .and_then(|config| config.get("executed_ms"))
+                    .and_then(|value| value.as_i64())
+                    .unwrap_or(0)
+                    .max(0) as u64;
+                let remaining = budget.saturating_sub(executed_ms);
+                if remaining == 0 {
+                    return Err(ApiError::execution(format!(
+                        "execution {execution_id} already exhausted its {budget}ms wall-clock \
+                         budget before the checkpoint; refusing to resume with no remaining budget"
+                    )));
+                }
+                Some(remaining)
+            }
+            // Absent or 0 means unlimited: the continuation stays unbudgeted.
+            other => other,
+        };
     if let Ok(value) = serde_json::to_value(&continuation_options) {
         entity.set_variable(EXECUTION_OPTIONS_VAR, value);
     }
@@ -543,8 +565,23 @@ fn resolve_options(
     input: Option<Value>,
     options: Option<WorkflowExecutionOptions>,
 ) -> WorkflowExecutionOptions {
-    let _ = ctx;
-    let merged = crate::workflow::composition::resolve_options(definition, input, options);
+    let mut merged = crate::workflow::composition::resolve_options(definition, input, options);
+    // Fill the wall-clock budgets from the configured execution defaults when
+    // the caller and definition left them unset, so `limits` is the single
+    // source rather than the engine's hardcoded per-node fallback. Explicit
+    // caller/definition values always win.
+    if let Some(defaults) = ctx
+        .execution_limits
+        .as_ref()
+        .and_then(|limits| limits.execution_defaults.as_ref())
+    {
+        if merged.node_timeout.is_none() {
+            merged.node_timeout = defaults.node_timeout_ms;
+        }
+        if merged.max_execution_time.is_none() {
+            merged.max_execution_time = defaults.max_execution_time_ms;
+        }
+    }
     if let Ok(value) = serde_json::to_value(&merged) {
         entity.set_variable(EXECUTION_OPTIONS_VAR, value);
     }
@@ -765,6 +802,10 @@ async fn build_checkpoint_snapshot(
         execution_config: Some(serde_json::json!({
             "workflow_id": entity.workflow_id().to_string(),
             "options": options,
+            // Freeze the wall-clock time the original run had already spent
+            // when this checkpoint was taken, so a restore can grant the
+            // continuation only the remaining budget.
+            "executed_ms": (wf_common::now() - state.start_time()).max(0),
         })),
         fork_join_aggregation_state: None,
         hook_execution_context: None,

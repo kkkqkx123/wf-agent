@@ -51,7 +51,6 @@ pub fn load_infrastructure_preset(
         let path = base_dir.join(target);
         match key.as_str() {
             "storage" => mapping.storage = path.to_string_lossy().to_string(),
-            "timeout" => mapping.timeout = path.to_string_lossy().to_string(),
             "metrics" => mapping.metrics = path.to_string_lossy().to_string(),
             "output" => mapping.output = path.to_string_lossy().to_string(),
             "sandbox" => mapping.sandbox = path.to_string_lossy().to_string(),

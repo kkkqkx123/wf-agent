@@ -4,10 +4,7 @@ use crate::validator::validate_min;
 use wf_types::config::metrics::{AnomalyThresholdsConfig, MetricCollectorConfig, MetricsConfig};
 use wf_types::config::output::OutputConfig;
 use wf_types::config::storage::StorageConfig;
-use wf_types::config::timeout::TimeoutConfig;
 use wf_types::script::sandbox::{ResourceLimits, SandboxConfig, SandboxMode};
-
-pub const WAIT_FOREVER: i64 = -1;
 
 /// Runtime environment used to select environment-optimized defaults.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -87,46 +84,6 @@ pub fn get_output_environment_defaults(env: RuntimeEnvironment) -> OutputConfig 
             ..OutputConfig::default()
         },
     }
-}
-
-/// Environment-specific default timeout config (TS
-/// `getTimeoutEnvironmentDefaults`): more permissive in dev, stricter in
-/// production.
-pub fn get_timeout_environment_defaults(_env: RuntimeEnvironment) -> TimeoutConfig {
-    // Timeout values are fully established by merge_timeout_with_defaults
-    // (30s default, 60s sync-branch wait, etc.). Env-specific timeout tuning
-    // is driven by explicit config files or WF_TIMEOUT_* env vars, not by
-    // implicit runtime fallbacks — this keeps empty project dirs predictable.
-    TimeoutConfig::default()
-}
-
-pub fn merge_timeout_with_defaults(user: &TimeoutConfig) -> TimeoutConfig {
-    TimeoutConfig {
-        workflow_execution_completion: user.workflow_execution_completion.or(Some(30000)),
-        workflow_execution_pause: user.workflow_execution_pause.or(Some(5000)),
-        workflow_execution_cancel: user.workflow_execution_cancel.or(Some(10000)),
-        workflow_execution_resume: user.workflow_execution_resume.or(Some(5000)),
-        child_execution_wait: user.child_execution_wait.or(Some(30000)),
-        cascade_cancel: user.cascade_cancel.or(Some(30000)),
-        node_completion: user.node_completion.or(Some(30000)),
-        node_failed: user.node_failed.or(Some(30000)),
-        sync_branch_wait: user.sync_branch_wait.or(Some(60000)),
-        join_completion: user.join_completion.or(Some(60000)),
-        lifecycle_event: user.lifecycle_event.or(Some(5000)),
-        polling_wait: user.polling_wait.or(Some(30000)),
-        polling_interval: user.polling_interval.or(Some(100)),
-        default: user.default.or(Some(30000)),
-        max_allowed: user.max_allowed.or(Some(300000)),
-    }
-}
-
-pub fn validate_timeout(timeout: i64, context: &str) -> ConfigResult<()> {
-    if timeout < 0 && timeout != WAIT_FOREVER {
-        return Err(ConfigError::Validation(format!(
-            "Invalid timeout for {context}: {timeout}ms (must be non-negative or WAIT_FOREVER)"
-        )));
-    }
-    Ok(())
 }
 
 fn merge_collector_with_defaults(
@@ -243,40 +200,6 @@ pub fn validate_sandbox_config(config: &SandboxConfig) -> ConfigResult<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_merge_timeout_with_defaults() {
-        let user = TimeoutConfig {
-            workflow_execution_completion: Some(60000),
-            workflow_execution_pause: None,
-            workflow_execution_cancel: None,
-            workflow_execution_resume: None,
-            child_execution_wait: None,
-            cascade_cancel: None,
-            node_completion: None,
-            node_failed: None,
-            sync_branch_wait: None,
-            join_completion: None,
-            lifecycle_event: None,
-            polling_wait: None,
-            polling_interval: None,
-            default: None,
-            max_allowed: None,
-        };
-        let merged = merge_timeout_with_defaults(&user);
-        assert_eq!(merged.workflow_execution_completion, Some(60000));
-        assert_eq!(merged.workflow_execution_pause, Some(5000));
-        assert_eq!(merged.default, Some(30000));
-        assert_eq!(merged.max_allowed, Some(300000));
-    }
-
-    #[test]
-    fn test_validate_timeout() {
-        assert!(validate_timeout(1000, "test").is_ok());
-        assert!(validate_timeout(0, "test").is_ok());
-        assert!(validate_timeout(WAIT_FOREVER, "test").is_ok());
-        assert!(validate_timeout(-2, "test").is_err());
-    }
 
     #[test]
     fn test_merge_metrics_with_defaults() {
@@ -545,12 +468,5 @@ mod tests {
         );
         let prod_output = get_output_environment_defaults(RuntimeEnvironment::Production);
         assert!(!prod_output.enable_log_terminal);
-
-        let prod_timeout = get_timeout_environment_defaults(RuntimeEnvironment::Production);
-        assert_eq!(
-            prod_timeout,
-            TimeoutConfig::default(),
-            "production adds no implicit timeout fallback; tuning comes from config files or env vars"
-        );
     }
 }

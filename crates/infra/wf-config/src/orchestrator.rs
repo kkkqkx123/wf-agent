@@ -19,9 +19,8 @@ use crate::orchestrator_loader::{load_domain_config_with_metrics, resolve_file_m
 use crate::processor::file_checkpoint::merge_file_checkpoint_with_defaults;
 use crate::processor::infrastructure::{
     get_metrics_environment_defaults, get_output_environment_defaults,
-    get_storage_environment_defaults, get_timeout_environment_defaults,
-    merge_metrics_with_defaults, merge_output_with_defaults, merge_storage_with_defaults,
-    merge_timeout_with_defaults, RuntimeEnvironment,
+    get_storage_environment_defaults, merge_metrics_with_defaults, merge_output_with_defaults,
+    merge_storage_with_defaults, RuntimeEnvironment,
 };
 use crate::processor::limits::{merge_limits_with_defaults, validate_limits_config};
 use crate::processor::presets::{get_presets_environment_defaults, transform_presets_config};
@@ -37,7 +36,6 @@ use wf_types::config::metrics::MetricsConfig;
 use wf_types::config::output::OutputConfig;
 use wf_types::config::presets::PresetsConfig;
 use wf_types::config::storage::{StorageConfig, StorageType};
-use wf_types::config::timeout::TimeoutConfig;
 use wf_types::config::tool_approval::ToolApprovalConfig;
 use wf_types::script::sandbox::SandboxGlobalConfig;
 
@@ -48,7 +46,6 @@ pub const DEFAULT_INFRA_PRESET: &str = "development";
 #[derive(Debug, Clone, Default)]
 pub struct InfrastructurePresetFiles {
     pub storage: String,
-    pub timeout: String,
     pub metrics: String,
     pub output: String,
     pub sandbox: String,
@@ -64,7 +61,6 @@ impl InfrastructurePresetFiles {
     pub fn default_filenames() -> Self {
         Self {
             storage: "storage.toml".to_string(),
-            timeout: "timeout.toml".to_string(),
             metrics: "metrics.toml".to_string(),
             output: "output.toml".to_string(),
             sandbox: "sandbox.toml".to_string(),
@@ -98,7 +94,6 @@ pub struct ToolConfigs {
 #[derive(Debug, Clone)]
 pub struct AssembledConfig {
     pub storage: StorageConfig,
-    pub timeout: TimeoutConfig,
     pub metrics: MetricsConfig,
     pub output: OutputConfig,
     pub sandbox: Option<SandboxGlobalConfig>,
@@ -113,7 +108,6 @@ impl Default for AssembledConfig {
     fn default() -> Self {
         Self {
             storage: StorageConfig::default(),
-            timeout: TimeoutConfig::default(),
             metrics: MetricsConfig::default(),
             output: OutputConfig {
                 dir: "./outputs".to_string(),
@@ -136,7 +130,6 @@ impl Default for AssembledConfig {
 #[derive(Debug, Clone, Default)]
 pub struct ConfigOverrides {
     pub storage: Option<StorageConfig>,
-    pub timeout: Option<TimeoutConfig>,
     pub metrics: Option<MetricsConfig>,
     pub output: Option<OutputConfig>,
     pub sandbox: Option<SandboxGlobalConfig>,
@@ -309,7 +302,6 @@ impl ConfigOrchestratorLoaded {
         metrics: Option<&wf_metrics::ConfigMetricsCollector>,
     ) -> ConfigResult<AssembledConfig> {
         let storage_path = infra_dir.join(&files.storage);
-        let timeout_path = infra_dir.join(&files.timeout);
         let metrics_path = infra_dir.join(&files.metrics);
         let output_path = infra_dir.join(&files.output);
         let sandbox_path = infra_dir.join(&files.sandbox);
@@ -318,11 +310,6 @@ impl ConfigOrchestratorLoaded {
         let storage: StorageConfig = load_domain_config_with_metrics(
             &storage_path,
             get_storage_environment_defaults(runtime_env),
-            metrics,
-        )?;
-        let timeout: TimeoutConfig = load_domain_config_with_metrics(
-            &timeout_path,
-            get_timeout_environment_defaults(runtime_env),
             metrics,
         )?;
         let metrics_config: MetricsConfig = load_domain_config_with_metrics(
@@ -375,7 +362,6 @@ impl ConfigOrchestratorLoaded {
         let tools = load_tool_configs(infra_dir, files)?;
 
         let storage = merge_storage_with_defaults(&storage);
-        let timeout = merge_timeout_with_defaults(&timeout);
         let metrics_config = merge_metrics_with_defaults(&metrics_config);
         let output = merge_output_with_defaults(&output);
         let file_checkpoint = merge_file_checkpoint_with_defaults(&file_checkpoint);
@@ -389,7 +375,6 @@ impl ConfigOrchestratorLoaded {
 
         Ok(AssembledConfig {
             storage,
-            timeout,
             metrics: metrics_config,
             output,
             sandbox,
@@ -435,11 +420,6 @@ impl ConfigOrchestratorLoaded {
                                     });
                             }
                         }
-                    }
-                }
-                "timeout_default" => {
-                    if let Some(ms) = value.as_int() {
-                        config.timeout.default = Some(ms);
                     }
                 }
                 "limits_agent_max_iterations_cap" => {
@@ -534,9 +514,6 @@ impl ConfigOrchestratorLoaded {
     ) -> ConfigResult<()> {
         if let Some(storage) = overrides.storage {
             config.storage = merge_storage_with_defaults(&storage);
-        }
-        if let Some(timeout) = overrides.timeout {
-            config.timeout = merge_timeout_with_defaults(&timeout);
         }
         if let Some(metrics) = overrides.metrics {
             config.metrics = merge_metrics_with_defaults(&metrics);

@@ -258,10 +258,13 @@ pub fn runtime_config_for_cli(
     }
 
     if let Some(timeout_ms) = cli.timeout {
-        config.timeout = wf_types::config::timeout::TimeoutConfig {
-            default: Some(timeout_ms as i64),
-            ..Default::default()
-        };
+        // `--timeout` sets the top-level wall-clock execution budget, which
+        // the execution path reads from `limits.execution_defaults`.
+        config
+            .limits
+            .execution_defaults
+            .get_or_insert_with(Default::default)
+            .max_execution_time_ms = Some(timeout_ms);
     }
 
     if let Some(approval) = cli.approval.as_deref() {
@@ -386,7 +389,13 @@ mod tests {
     fn runtime_config_timeout_and_approval_mapping() {
         let cli = Cli::try_parse_from(["wf", "--timeout", "5000"]).unwrap();
         let (cfg, _) = runtime_config_for_cli(&cli, CliMode::Run);
-        assert_eq!(cfg.timeout.default, Some(5000));
+        assert_eq!(
+            cfg.limits
+                .execution_defaults
+                .as_ref()
+                .and_then(|d| d.max_execution_time_ms),
+            Some(5000)
+        );
 
         let cli = Cli::try_parse_from(["wf", "--approval", "auto"]).unwrap();
         let (cfg, _) = runtime_config_for_cli(&cli, CliMode::Run);

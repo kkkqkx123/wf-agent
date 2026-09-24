@@ -21,12 +21,6 @@ pub(crate) fn build_infra_env_mapping() -> HashMap<String, crate::env::EnvMappin
         )
         .string("storage_sqlite_db_path", "WF_STORAGE_SQLITE_DB_PATH", None)
         .custom(
-            "timeout_default",
-            "WF_TIMEOUT_DEFAULT",
-            Box::new(env_parse_int),
-            None,
-        )
-        .custom(
             "limits_agent_max_iterations_cap",
             "WF_AGENT_MAX_ITERATIONS_CAP",
             Box::new(env_parse_int),

@@ -519,6 +519,7 @@ impl SuggestionProvider for LlmSuggestionProvider {
             stream: None,
             dead_loop_detection: None,
             protocol_auto_converted: None,
+            timeout_ms: None,
         };
         let outcome =
             wf_execution_shared::single_shot::generate_text_once(&self.gateway, &request, None)

@@ -141,12 +141,6 @@ pub async fn execute_tool_call(
         .expect("failed to build checkpoint session");
         tool_ctx = tool_ctx.with_checkpoint_session(Some(session));
     }
-    let options = wf_types::tool::ToolExecutionOptions {
-        timeout: None,
-        retries: None,
-        retry_delay: None,
-        exponential_backoff: None,
-    };
 
     // Tool-level approval gate (pre-execution side-effect guard, mirroring
     // the agent gate): the policy engine decides first; denials are final
@@ -167,6 +161,17 @@ pub async fn execute_tool_call(
             (Some(tool.clone()), risk, Some(tool.description.clone()))
         })
         .unwrap_or((None, None, None));
+    let options = wf_types::tool::ToolExecutionOptions {
+        // Honor the tool definition's own default so the workflow tool loop
+        // and the agent loop resolve the same per-tool budget; absent means
+        // the executor wrapper falls back to the shared constant.
+        timeout: registered_tool
+            .as_ref()
+            .and_then(|tool| tool.default_timeout_ms),
+        retries: None,
+        retry_delay: None,
+        exponential_backoff: None,
+    };
     // A handler without explicit options falls back to ask-everything over
     // the default sensitive-file rules, like the agent gate, so attaching
     // a handler never silently weakens the baseline.

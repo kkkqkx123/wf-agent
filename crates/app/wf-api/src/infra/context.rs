@@ -108,6 +108,11 @@ pub struct ApiContext {
     /// through this context route every tool call through the persisted
     /// interaction flow. `None` keeps the library default (auto-approve).
     pub tool_approval: Option<wf_types::config::tool_approval::ToolApprovalConfig>,
+    /// Resolved infrastructure limits. `execution_defaults` seeds the
+    /// node/total wall-clock budgets of executions launched through this
+    /// context when the caller and definition leave them unset, making the
+    /// config the single source instead of the engine's hardcoded fallback.
+    pub execution_limits: Option<wf_types::config::limits::LimitsConfig>,
     /// In-memory stale marks for formal workflows whose upstream references
     /// failed revalidation after an update. Cleared when the workflow is
     /// re-saved formally. Phase three persists this as a lifecycle state.
@@ -145,6 +150,7 @@ impl ApiContext {
             hook_handler_registry: None,
             file_checkpoint_manager: None,
             tool_approval: None,
+            execution_limits: None,
             stale_workflows: Arc::new(dashmap::DashSet::new()),
         };
         // Persist every engine event published on the shared bus.
@@ -189,6 +195,7 @@ impl ApiContext {
             hook_handler_registry: None,
             file_checkpoint_manager: None,
             tool_approval: None,
+            execution_limits: None,
             stale_workflows: Arc::new(dashmap::DashSet::new()),
         };
         // Persist every engine event published on the shared bus.
@@ -203,6 +210,13 @@ impl ApiContext {
         config: wf_types::config::tool_approval::ToolApprovalConfig,
     ) -> Self {
         self.tool_approval = Some(config);
+        self
+    }
+
+    /// Inject the resolved infrastructure limits so executions launched
+    /// through this context inherit the configured execution defaults.
+    pub fn with_execution_limits(mut self, limits: wf_types::config::limits::LimitsConfig) -> Self {
+        self.execution_limits = Some(limits);
         self
     }
 

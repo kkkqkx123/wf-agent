@@ -2,8 +2,8 @@
 //!
 //! [`CompressionService`] takes over the compression signal synchronously:
 //! version-idempotent skip, then spawn of the summary sub-workflow. The
-//! engine waits only for the takeover — fire returns as soon as the
-//! sub-workflow is spawned, never after the compression completes.
+//! emitting execution blocks until the compression lands; a failed run
+//! stops the emitter for manual handling.
 
 use std::sync::Arc;
 
@@ -27,28 +27,13 @@ pub const COMPRESSION_SERVICE_HANDLER_NAME: &str = "context_compression";
 /// version anchor then discards).
 pub const COMPRESSION_HANDLED_CAPACITY: usize = 1024;
 
-/// Base backoff between compression attempts (doubles per attempt).
-pub const COMPRESSION_RETRY_BASE_BACKOFF_MS: u64 = 500;
-
-/// Backoff ceiling between compression attempts.
-pub const COMPRESSION_RETRY_MAX_BACKOFF_MS: u64 = 5000;
-
-/// Retry and write-back policy for the compression service.
+/// Write-back policy for the compression service.
 ///
-/// Template-level `TriggeredSubworkflowConfig` still bounds a single summary
-/// run (timeout, checkpoints); this policy owns everything cross-attempt
-/// (retry count, outer timeout, tail retention). Resolution order is
-/// runtime-provided policy first, builtin default last; user trigger
-/// templates never participate (the compression chain bypasses the
-/// listener).
+/// The summary run has no timeout and no retries; this policy only carries
+/// tail retention. User trigger templates never participate (the compression
+/// chain bypasses the listener).
 #[derive(Debug, Clone)]
 pub struct CompressionPolicy {
-    /// Additional runs after the first attempt (same array version; no
-    /// version advance required between attempts).
-    pub max_retries: u32,
-    /// Outer timeout per attempt (the template timeout bounds the run
-    /// inside; this bounds the service wait around it).
-    pub timeout_ms: u64,
     /// Recent pre-existing messages kept visible alongside the summary.
     pub tail_keep: usize,
 }
@@ -56,8 +41,6 @@ pub struct CompressionPolicy {
 impl Default for CompressionPolicy {
     fn default() -> Self {
         Self {
-            max_retries: 2,
-            timeout_ms: super::DEFAULT_TRIGGER_TIMEOUT_MS,
             tail_keep: wf_execution_shared::DEFAULT_COMPRESSION_TAIL_KEEP,
         }
     }
@@ -119,9 +102,8 @@ fn parse_compression_signal(ctx: &HookContext) -> Option<CompressionSignal> {
 /// The engine detects a token-limit overrun (or a forced safety-net request)
 /// and fires the signal synchronously; this service takes over
 /// immediately: version-idempotent skip, then spawn of the summary
-/// sub-workflow. The engine waits only for the takeover — fire returns
-/// as soon as the sub-workflow is spawned, never after the compression
-/// completes.
+/// sub-workflow. The emitting execution blocks until the compression
+/// lands; a failed run stops the emitter for manual handling.
 ///
 /// The write-back chain is unchanged: the spawned task runs the summary
 /// workflow over the message snapshot, writes the compressed array back
@@ -139,7 +121,7 @@ pub struct CompressionService {
     /// terminal state so successful paths leave no trace). Shared via
     /// `Arc` so the spawned terminal cleanup mutates the service's map.
     handled: Arc<DashMap<String, CompressionAttempt>>,
-    /// Retry and write-back policy (runtime-provided or builtin default).
+    /// Write-back policy (runtime-provided or builtin default).
     policy: CompressionPolicy,
     /// Shutdown token; in-flight summary sub-workflows race against it.
     shutdown: CancellationToken,
@@ -232,8 +214,8 @@ impl HookHandler for CompressionService {
 
 impl CompressionService {
     /// Handle one compression signal: idempotency check, then spawn the
-    /// summary sub-workflow and return immediately. Attempts share the
-    /// anchor version (no version advance required between retries).
+    /// summary sub-workflow and return immediately. The run is single-shot
+    /// without timeout; the emitter blocks until it lands.
     async fn handle(&self, ctx: &HookContext) {
         let Some(signal) = parse_compression_signal(ctx) else {
             debug!("Compression signal fire ignored: missing or invalid payload");
@@ -291,8 +273,8 @@ impl CompressionService {
             );
         }
 
-        // Fire-and-forget: the emitting execution must not wait for the
-        // compression. Aborted at listener shutdown so in-flight summary
+        // Spawned single-shot run: the emitter blocks until the terminal
+        // event lands. Aborted at listener shutdown so in-flight summary
         // runs are stopped.
         let runner = self.inner.runner();
         let contexts = self.inner.contexts().clone();
@@ -314,83 +296,45 @@ impl CompressionService {
         let start = wf_common::now();
         let handled = Arc::clone(&self.handled);
         let callback = async move {
-            let max_attempts = policy.max_retries.saturating_add(1);
-            let mut attempts = 0u32;
-            let terminal = loop {
-                attempts = attempts.saturating_add(1);
-                let run = tokio::time::timeout(
-                    std::time::Duration::from_millis(policy.timeout_ms),
-                    runner.run(&workflow_id, input.clone()),
-                );
-                enum AttemptOutcome {
-                    Success,
-                    Retry(String),
-                }
-                let step = tokio::select! {
-                    outcome = run => match outcome {
-                        Ok(Ok(output)) => {
-                            match handle_subworkflow_output(
-                                &contexts,
-                                &bus,
-                                &super::CompressionWriteBack {
-                                    execution_id: &execution_id_str,
-                                    agent_loop_id: agent_loop_id.as_deref(),
-                                    target_context_id: &target_context_id,
-                                    expected_version: array_version,
-                                    tail_keep: policy.tail_keep,
-                                },
-                                &output,
-                            )
-                            .await
-                            {
-                                // A stale version anchor still lands here as
-                                // success: the write-back helper warns and
-                                // publishes COMPLETED, and concurrent appends
-                                // legitimately won over the stale result.
-                                Ok(()) => AttemptOutcome::Success,
-                                Err(e) => AttemptOutcome::Retry(e.to_string()),
-                            }
-                        }
-                        Ok(Err(e)) => {
-                            warn!("Compression sub-workflow '{}' failed: {}", workflow_id, e);
-                            AttemptOutcome::Retry(e.to_string())
-                        }
-                        Err(_) => {
-                            warn!(
-                                "Compression sub-workflow '{}' timed out after {}ms",
-                                workflow_id, policy.timeout_ms
-                            );
-                            AttemptOutcome::Retry("timed out".to_string())
-                        }
-                    },
-                    _ = shutdown.cancelled() => {
-                        debug!("Compression sub-workflow '{}' aborted at shutdown", workflow_id);
-                        break (false, Some("aborted at shutdown".to_string()));
-                    }
-                };
-                match step {
-                    AttemptOutcome::Success => break (true, None),
-                    AttemptOutcome::Retry(error) => {
-                        if attempts >= max_attempts {
-                            warn!(
-                                "Compression sub-workflow '{}' exhausted {} attempts: {}",
-                                workflow_id, attempts, error
-                            );
-                            break (false, Some(error));
-                        }
-                        let backoff = (COMPRESSION_RETRY_BASE_BACKOFF_MS
-                            .saturating_mul(1u64 << attempts.min(4)))
-                        .min(COMPRESSION_RETRY_MAX_BACKOFF_MS);
-                        tokio::select! {
-                            _ = tokio::time::sleep(std::time::Duration::from_millis(backoff)) => {}
-                            _ = shutdown.cancelled() => {
-                                break (false, Some("aborted at shutdown".to_string()));
+            let attempts = 1u32;
+            let outcome = tokio::select! {
+                output = runner.run(&workflow_id, input.clone()) => match output {
+                    Ok(output) => {
+                        match handle_subworkflow_output(
+                            &contexts,
+                            &bus,
+                            &super::CompressionWriteBack {
+                                execution_id: &execution_id_str,
+                                agent_loop_id: agent_loop_id.as_deref(),
+                                target_context_id: &target_context_id,
+                                expected_version: array_version,
+                                tail_keep: policy.tail_keep,
+                            },
+                            &output,
+                        )
+                        .await
+                        {
+                            Ok(()) => (true, None),
+                            Err(e) => {
+                                warn!(
+                                    "Compression sub-workflow '{}' write-back failed: {}",
+                                    workflow_id, e
+                                );
+                                (false, Some(e.to_string()))
                             }
                         }
                     }
+                    Err(e) => {
+                        warn!("Compression sub-workflow '{}' failed: {}", workflow_id, e);
+                        (false, Some(e.to_string()))
+                    }
+                },
+                _ = shutdown.cancelled() => {
+                    debug!("Compression sub-workflow '{}' aborted at shutdown", workflow_id);
+                    (false, Some("aborted at shutdown".to_string()))
                 }
             };
-            let (success, error) = terminal;
+            let (success, error) = outcome;
             if !success {
                 // Terminal failure: release the persisted backpressure
                 // anchor (workflow targets) and notify agent conversations

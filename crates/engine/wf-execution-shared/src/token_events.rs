@@ -85,11 +85,9 @@ pub const DEFAULT_TOKEN_WARNING_THRESHOLD: u32 = 80;
 /// after a compression write-back.
 pub const DEFAULT_COMPRESSION_TAIL_KEEP: usize = 2;
 
-/// Bounded time an emitter waits for an in-flight compression to settle
-/// before proceeding with the uncompressed view.
-pub const COMPRESSION_SETTLE_WAIT_MS: u64 = 8000;
-
 /// Poll interval while waiting for an in-flight compression to settle.
+/// Emitters wait without timeout until the compressed view lands; a
+/// compression failure stops the emitting execution for manual handling.
 pub const COMPRESSION_SETTLE_POLL_MS: u64 = 50;
 
 /// Hook type of the engine's internal context-compression signal: the engine

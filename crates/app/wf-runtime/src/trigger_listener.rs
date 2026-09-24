@@ -49,8 +49,7 @@ pub use workflow_runner::{
 /// signal.
 pub use compression::CompressionService;
 pub use compression::{
-    CompressionPolicy, COMPRESSION_HANDLED_CAPACITY, COMPRESSION_RETRY_BASE_BACKOFF_MS,
-    COMPRESSION_RETRY_MAX_BACKOFF_MS, COMPRESSION_SERVICE_HANDLER_NAME,
+    CompressionPolicy, COMPRESSION_HANDLED_CAPACITY, COMPRESSION_SERVICE_HANDLER_NAME,
 };
 
 use std::sync::Arc;
@@ -201,7 +200,9 @@ pub(crate) struct CompressionWriteBack<'a> {
 }
 
 /// Write the compressed output back to the emitting execution and publish
-/// the CONTEXT_COMPRESSION_COMPLETED event.
+/// the CONTEXT_COMPRESSION_COMPLETED event. A version mismatch is a hard
+/// failure for manual handling: the stale result is discarded without
+/// publishing a completion.
 pub(crate) async fn handle_subworkflow_output(
     contexts: &Arc<ExecutionContextRegistry>,
     bus: &Arc<EventBus>,
@@ -219,7 +220,7 @@ pub(crate) async fn handle_subworkflow_output(
     // only workflow variable-map targets are written back through the
     // registry.
     if target.agent_loop_id.is_none() {
-        match contexts
+        if let Err(error) = contexts
             .write_context_with_tail(
                 target.execution_id,
                 target.target_context_id,
@@ -229,20 +230,19 @@ pub(crate) async fn handle_subworkflow_output(
             )
             .await
         {
-            // The remediation landed: re-arm the persisted pre-request
-            // budget warning so the next over-budget request warns again
-            // instead of staying silent for the rest of the execution.
-            Ok(()) => reset_persisted_preflight_warning(contexts, target.execution_id),
-            Err(error) => {
-                warn!(
-                    "Context write-back failed for execution {} context {}: {}",
-                    target.execution_id, target.target_context_id, error
+            if let Some(variables) = contexts.variables_for(target.execution_id) {
+                wf_workflow::message_context::clear_tracker_flight(
+                    &variables,
+                    target.target_context_id,
+                    target.expected_version,
                 );
             }
+            return Err(WorkflowError::TriggerError(format!(
+                "Context write-back failed for execution {} context {}: {}",
+                target.execution_id, target.target_context_id, error
+            )));
         }
-        // Every terminal write-back releases the persisted backpressure
-        // anchor (success and stale-discard alike); the emission guard stays
-        // so the version re-arms only when new messages advance it.
+        reset_persisted_preflight_warning(contexts, target.execution_id);
         if let Some(variables) = contexts.variables_for(target.execution_id) {
             wf_workflow::message_context::clear_tracker_flight(
                 &variables,
@@ -611,7 +611,7 @@ pub struct CompressionHandlerDeps {
     pub shutdown: CancellationToken,
     /// Optional durable trigger-execution ledger and state registry.
     pub ledger: TriggerLedger,
-    /// Cross-attempt retry / timeout / tail policy.
+    /// Tail retention policy.
     pub policy: CompressionPolicy,
 }
 

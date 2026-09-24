@@ -408,12 +408,11 @@ impl AgentIterationCoordinator {
         )
         .await;
 
-        // Cooperative backpressure: when a compression run is in flight for
-        // the current conversation version, wait for the write-back to land
-        // (bounded and abort-aware) so this iteration assembles the request
-        // from the compressed view instead of re-sending the over-budget
-        // one. A timeout self-heals by dropping the stale anchor; the
-        // emission guard stays, so the same version never re-emits in a loop.
+        // Blocking backpressure: when a compression run is in flight for
+        // the current conversation version, wait without timeout for the
+        // write-back to land so this iteration assembles the request from
+        // the compressed view. A compression failure stops the iteration
+        // for manual handling; abort cancels the wait.
         if self.token_tracking_enabled {
             let (version, in_flight) = {
                 let conversation = entity.conversation().read().await;
@@ -424,25 +423,54 @@ impl AgentIterationCoordinator {
                 (version, in_flight)
             };
             if in_flight {
-                let handle = entity.conversation().clone();
-                let abort = entity.get_abort_signal();
-                let settled = tokio::select! {
-                    settled = wf_execution_shared::context_store::wait_for_version_shift(
-                        || {
-                            let handle = handle.clone();
-                            async move { handle.read().await.conversation_version() }
-                        },
-                        version,
-                        wf_execution_shared::COMPRESSION_SETTLE_WAIT_MS,
-                    ) => settled,
-                    _ = abort.cancelled() => false,
-                };
-                if !settled {
-                    entity
-                        .conversation()
-                        .write()
-                        .await
-                        .end_compression_flight(version);
+                let execution_id = entity.id().to_string();
+                let mut failure_events = self.event_bus.as_ref().map(|bus| {
+                    bus.subscribe_typed(wf_types::events::EventType::ContextCompressionFailed)
+                });
+                if let Some(ref bus) = self.event_bus {
+                    for event in bus.recent_events() {
+                        if let Some(message) =
+                            matching_compression_failure(&event, &execution_id, version)
+                        {
+                            return Err(AgentError::ExecutionError(message));
+                        }
+                    }
+                }
+                loop {
+                    {
+                        let conversation = entity.conversation().read().await;
+                        if conversation.conversation_version() != version {
+                            break;
+                        }
+                        let flight_gone = !conversation
+                            .compression_flight()
+                            .is_some_and(|flight| flight.version == version);
+                        if flight_gone {
+                            return Err(AgentError::ExecutionError(format!(
+                                "context compression anchor released without version advance at version {}; manual handling required",
+                                version
+                            )));
+                        }
+                    }
+                    if let Some(ref mut sub) = failure_events {
+                        while let Ok(event) = sub.try_recv() {
+                            if let Some(message) =
+                                matching_compression_failure(&event, &execution_id, version)
+                            {
+                                return Err(AgentError::ExecutionError(message));
+                            }
+                        }
+                    }
+                    let wait = tokio::time::sleep(std::time::Duration::from_millis(
+                        wf_execution_shared::COMPRESSION_SETTLE_POLL_MS,
+                    ));
+                    let abort = entity.get_abort_signal();
+                    tokio::select! {
+                        _ = wait => {}
+                        _ = abort.cancelled() => {
+                            return Err(AgentError::LlmError(wf_llm::error::LlmError::Cancelled));
+                        }
+                    }
                 }
             }
         }
@@ -660,16 +688,14 @@ impl AgentIterationCoordinator {
                     if wf_execution_shared::context_store::over_budget(estimated, context_limit)
                         && conversation.should_emit_compression(version)
                     {
-                        // The summary workflow needs the full history for
-                        // recall; the count/estimate describe the view
-                        // (the request size being controlled).
-                        let message_count = conversation.view_messages().len();
-                        let messages = conversation.history().to_vec();
+                        // Budget, count and snapshot share the active view
+                        // so the summary input matches the controlled size.
+                        let messages = conversation.view_messages();
                         let request = wf_execution_shared::context_store::compression_request(
                             wf_execution_shared::CONVERSATION_CONTEXT_ID,
                             estimated,
                             context_limit,
-                            message_count,
+                            messages.len(),
                             version,
                             false,
                             &messages,
@@ -1296,6 +1322,30 @@ impl AgentIterationCoordinator {
         }
         Ok(tool_messages)
     }
+}
+
+/// Match a compression failure event against an agent emission.
+/// Returns the manual-handling message when the event targets the same
+/// execution and anchor version.
+fn matching_compression_failure(
+    event: &wf_types::events::BaseEvent,
+    execution_id: &str,
+    version: u64,
+) -> Option<String> {
+    if event.r#type != wf_types::events::EventType::ContextCompressionFailed {
+        return None;
+    }
+    if event.execution_id.as_deref() != Some(execution_id) {
+        return None;
+    }
+    let meta = wf_execution_shared::ContextCompressionFailedMeta::try_from(event).ok()?;
+    if meta.array_version != version {
+        return None;
+    }
+    Some(format!(
+        "context compression failed for '{}' at version {}: {}; manual handling required",
+        meta.target_context_id, meta.array_version, meta.error
+    ))
 }
 
 fn text_of(content: &MessageContentValue) -> String {

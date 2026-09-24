@@ -46,15 +46,11 @@ pub struct ExecutionDefaults {
     pub max_execution_time_ms: Option<u64>,
 }
 
-/// Cross-attempt compression service policy: retry count, outer per-attempt
-/// timeout, and how many recent pre-existing messages stay visible beside the
-/// summary. Absent fields fall back to the service builtin defaults.
+/// Compression service policy: how many recent pre-existing messages stay
+/// visible beside the summary. Compression runs without timeout and without
+/// retries; a failed run stops the emitting execution for manual handling.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
 pub struct CompressionLimits {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub max_retries: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub timeout_ms: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tail_keep: Option<usize>,
 }

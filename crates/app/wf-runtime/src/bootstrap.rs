@@ -25,7 +25,6 @@ use crate::storage_manager::StorageManager;
 use crate::trigger_listener::{
     register_compression_handler, start_trigger_listener_with_parts, ExecutionContextRegistry,
     ListenerDeps, TriggerExecutionRecorder, TriggerLedger, WorkflowRunner,
-    DEFAULT_TRIGGER_TIMEOUT_MS,
 };
 
 #[cfg(feature = "plugins")]
@@ -195,16 +194,6 @@ fn assemble_trigger_subsystem(deps: TriggerSubsystemDeps) -> TriggerSubsystem {
     let trigger_state_registry = Arc::new(wf_workflow::TriggerStateRegistry::new());
     let trigger_shutdown = tokio_util::sync::CancellationToken::new();
     let compression_policy = crate::trigger_listener::CompressionPolicy {
-        max_retries: limits
-            .compression
-            .as_ref()
-            .and_then(|c| c.max_retries)
-            .unwrap_or(2),
-        timeout_ms: limits
-            .compression
-            .as_ref()
-            .and_then(|c| c.timeout_ms)
-            .unwrap_or(DEFAULT_TRIGGER_TIMEOUT_MS),
         tail_keep: limits
             .compression
             .as_ref()

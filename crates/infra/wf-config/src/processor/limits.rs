@@ -29,8 +29,6 @@ pub const WORKFLOW_MAX_CONCURRENT_DEFAULT: u32 = 0;
 pub const EXEC_NODE_TIMEOUT_MS_DEFAULT: u64 = 30_000;
 pub const EXEC_MAX_EXECUTION_TIME_MS_DEFAULT: u64 = 0;
 
-pub const COMPRESSION_MAX_RETRIES_DEFAULT: u32 = 2;
-pub const COMPRESSION_TIMEOUT_MS_DEFAULT: u64 = 60_000;
 pub const COMPRESSION_TAIL_KEEP_DEFAULT: usize = 2;
 
 /// Merge user limits with defaults, filling every absent field so the
@@ -84,12 +82,6 @@ pub fn merge_limits_with_defaults(user: &LimitsConfig) -> LimitsConfig {
     };
 
     let compression = CompressionLimits {
-        max_retries: user_compression
-            .and_then(|c| c.max_retries)
-            .or(Some(COMPRESSION_MAX_RETRIES_DEFAULT)),
-        timeout_ms: user_compression
-            .and_then(|c| c.timeout_ms)
-            .or(Some(COMPRESSION_TIMEOUT_MS_DEFAULT)),
         tail_keep: user_compression
             .and_then(|c| c.tail_keep)
             .or(Some(COMPRESSION_TAIL_KEEP_DEFAULT)),
@@ -156,15 +148,6 @@ pub fn validate_limits_config(config: &LimitsConfig) -> ConfigResult<()> {
             }
         }
     }
-    if let Some(ref compression) = config.compression {
-        if let Some(timeout) = compression.timeout_ms {
-            if timeout == 0 {
-                return Err(ConfigError::Validation(
-                    "limits.compression.timeout_ms must be at least 1, got 0".to_string(),
-                ));
-            }
-        }
-    }
     Ok(())
 }
 
@@ -190,8 +173,6 @@ mod tests {
         assert_eq!(exec.node_timeout_ms, Some(30000));
         assert_eq!(exec.max_execution_time_ms, Some(0));
         let compression = merged.compression.unwrap();
-        assert_eq!(compression.max_retries, Some(2));
-        assert_eq!(compression.timeout_ms, Some(60000));
         assert_eq!(compression.tail_keep, Some(2));
     }
 
@@ -211,10 +192,7 @@ mod tests {
                 node_timeout_ms: Some(60000),
                 ..Default::default()
             }),
-            compression: Some(CompressionLimits {
-                max_retries: Some(5),
-                ..Default::default()
-            }),
+            compression: Some(CompressionLimits { tail_keep: Some(5) }),
         };
         let merged = merge_limits_with_defaults(&user);
         let agent = merged.agent.clone().unwrap();
@@ -259,15 +237,6 @@ mod tests {
             agent: Some(AgentLimits {
                 max_iterations_cap: Some(10),
                 default_max_iterations: Some(20),
-                ..Default::default()
-            }),
-            ..Default::default()
-        };
-        assert!(validate_limits_config(&bad).is_err());
-
-        let bad = LimitsConfig {
-            compression: Some(CompressionLimits {
-                timeout_ms: Some(0),
                 ..Default::default()
             }),
             ..Default::default()

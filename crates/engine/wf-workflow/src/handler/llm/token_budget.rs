@@ -189,19 +189,21 @@ pub async fn emit_token_usage_events(
     }
 }
 
-/// Cooperative backpressure gate for workflow LLM nodes: when any declared
+/// Blocking backpressure gate for workflow LLM nodes: when any declared
 /// array carries an in-flight compression anchored at its current version,
-/// wait for the write-back to land (bounded, cancellation-aware) before
-/// assembling the request. A timeout drops the stale anchor; the emission
-/// guard stays, so the same version never re-emits in a loop.
-pub async fn await_compression_settle(ctx: &NodeExecutionContext) {
+/// wait without timeout for the write-back to land before assembling the
+/// request. A compression failure stops the node for manual handling;
+/// cancellation aborts the wait.
+pub async fn await_compression_settle(
+    ctx: &NodeExecutionContext,
+) -> crate::error::WorkflowResult<()> {
     let Some(ref tracker) = ctx.token_tracker else {
-        return;
+        return Ok(());
     };
     let config = ctx.node_config.as_ref().unwrap_or(&Value::Null);
     let targets = declared_contexts(config);
     if targets.is_empty() {
-        return;
+        return Ok(());
     }
     let anchored: Vec<(String, u64)> = {
         let tracker = tracker.lock().await;
@@ -217,38 +219,80 @@ pub async fn await_compression_settle(ctx: &NodeExecutionContext) {
             .collect()
     };
     if anchored.is_empty() {
-        return;
+        return Ok(());
     }
-    let variables = ctx.variables.clone();
-    let cancel = ctx.cancellation.clone();
-    for (target, version) in anchored {
-        let vars = variables.clone();
-        let probe = target.clone();
-        let settled = async {
-            wf_execution_shared::context_store::wait_for_version_shift(
-                move || {
-                    let vars = vars.clone();
-                    let probe = probe.clone();
-                    async move { message_context::array_version(&vars, &probe) }
-                },
-                version,
-                wf_execution_shared::COMPRESSION_SETTLE_WAIT_MS,
-            )
-            .await
-        };
-        let ok = match cancel.clone() {
-            Some(token) => tokio::select! {
-                settled = settled => settled,
-                _ = token.cancelled() => false,
-            },
-            None => settled.await,
-        };
-        if !ok {
-            let mut tracker = tracker.lock().await;
-            tracker.end_compression_flight(&target, version);
-            persist_tracker_state(ctx, &tracker);
+    let execution_id = ctx.execution_id.to_string();
+    let mut failure_events = ctx
+        .event_bus
+        .as_ref()
+        .map(|bus| bus.subscribe_typed(wf_types::events::EventType::ContextCompressionFailed));
+    if let Some(ref bus) = ctx.event_bus {
+        for event in bus.recent_events() {
+            if let Some(err) = matching_compression_failure(&event, &execution_id, None) {
+                for (target, version) in &anchored {
+                    if err.0 == *target && err.1 == *version {
+                        return Err(crate::error::WorkflowError::TriggerError(err.2.clone()));
+                    }
+                }
+            }
         }
     }
+    for (target, version) in anchored {
+        loop {
+            if message_context::array_version(&ctx.variables, &target) != version {
+                break;
+            }
+            if let Some(ref mut sub) = failure_events {
+                while let Ok(event) = sub.try_recv() {
+                    if let Some((failed_target, failed_version, message)) =
+                        matching_compression_failure(&event, &execution_id, None)
+                    {
+                        if failed_target == target && failed_version == version {
+                            return Err(crate::error::WorkflowError::TriggerError(message));
+                        }
+                    }
+                }
+            }
+            let wait = tokio::time::sleep(std::time::Duration::from_millis(
+                wf_execution_shared::COMPRESSION_SETTLE_POLL_MS,
+            ));
+            match ctx.cancellation.clone() {
+                Some(token) => {
+                    tokio::select! {
+                        _ = wait => {}
+                        _ = token.cancelled() => {
+                            return Err(crate::error::WorkflowError::OperationError(
+                                "aborted while waiting for compression".to_string(),
+                            ));
+                        }
+                    }
+                }
+                None => wait.await,
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Match a compression failure event against an emitting execution.
+/// Returns the target array, anchor version and manual-handling message.
+fn matching_compression_failure(
+    event: &wf_types::events::BaseEvent,
+    execution_id: &str,
+    _agent_loop_id: Option<&str>,
+) -> Option<(String, u64, String)> {
+    if event.r#type != wf_types::events::EventType::ContextCompressionFailed {
+        return None;
+    }
+    if event.execution_id.as_deref() != Some(execution_id) {
+        return None;
+    }
+    let meta = wf_execution_shared::ContextCompressionFailedMeta::try_from(event).ok()?;
+    let message = format!(
+        "context compression failed for '{}' at version {}: {}; manual handling required",
+        meta.target_context_id, meta.array_version, meta.error
+    );
+    Some((meta.target_context_id, meta.array_version, message))
 }
 
 /// Initialize the execution-scoped tracker limits from the node config

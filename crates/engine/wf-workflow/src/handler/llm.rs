@@ -151,7 +151,7 @@ impl LlmHandler {
         let mut stopped_with_tools = false;
         for _round in 0..cfg.max_interactions {
             if cfg.token_tracking_enabled {
-                await_compression_settle(ctx).await;
+                await_compression_settle(ctx).await?;
             }
             let request = self.build_request(ctx, &cfg, &node_config, &messages, &tools);
 

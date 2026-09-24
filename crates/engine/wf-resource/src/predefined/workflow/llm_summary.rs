@@ -117,10 +117,7 @@ pub fn create_llm_summary_workflow(compression_prompt: Option<String>) -> Workfl
             variables: None,
             triggered_subworkflow_config: Some(TriggeredSubworkflowConfig {
                 enable_checkpoints: Some(false),
-                timeout: Some(60000),
-                // Retry policy lives with the compression service (which
-                // owns the cross-attempt dedup table); the template only
-                // bounds a single run.
+                timeout: None,
                 max_retries: None,
             }),
             metadata: Some(WorkflowMetadata {

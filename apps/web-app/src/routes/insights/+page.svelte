@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import Icon from '$lib/components/icons/Icon.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
 	import IconButton from '$lib/components/ui/IconButton.svelte';
@@ -11,11 +12,12 @@
 	import PageHeader from '$lib/components/layout/PageHeader.svelte';
 	import StatusBadge from '$lib/components/domain/StatusBadge.svelte';
 	import {
-		auditReports,
-		errorAnalyses,
-		perfNodes,
-		queryResult,
-	} from '$lib/fixtures/insights';
+		runQuery,
+		listAuditReports,
+		listErrorAnalyses,
+		listPerformanceNodes,
+	} from '$lib/services/insights';
+	import type { QueryResult, AuditReport, ErrorAnalysis, PerfNode } from '$lib/types/models';
 	import { toasts } from '$lib/stores/toast.svelte';
 	import {
 		formatDateTime,
@@ -32,72 +34,85 @@
 	];
 
 	let tab = $state('query');
-	let statement = $state(
-		"SELECT execution_id, workflow, status, duration_ms\nFROM executions\nWHERE status != 'completed'\nORDER BY duration_ms DESC\nLIMIT 50;",
-	);
+	let statement = $state("");
 
-	const rowColumns: Column<Record<string, string | number | null>>[] =
+	// Query tab state
+	let queryLoading = $state(false);
+	let queryError = $state<string | null>(null);
+	let queryResult = $state<QueryResult>({
+		columns: [],
+		rows: [],
+		elapsedMs: 0,
+		truncated: false,
+	});
+
+	// Audit / errors / performance state (populated on mount)
+	let auditReports = $state<AuditReport[]>([]);
+	let errorAnalyses = $state<ErrorAnalysis[]>([]);
+	let perfNodes = $state<PerfNode[]>([]);
+
+	const rowColumns = $derived<Column<Record<string, string | number | null>>[]>(
 		queryResult.columns.map((column) => ({
 			key: column,
 			header: column,
 			text: (row) => (row[column] === null ? '—' : String(row[column])),
-		}));
+		})),
+	);
 
-	const auditColumns: Column<(typeof auditReports)[number]>[] = [
+	const auditColumns: Column<AuditReport>[] = [
 		{ key: 'execution', header: 'Execution', text: (row) => row.executionId },
 		{ key: 'status', header: 'Status', text: (row) => row.status },
-		{
-			key: 'nodes',
-			header: 'Nodes',
-			align: 'right',
-			text: (row) => formatNumber(row.nodes),
-		},
-		{
-			key: 'duration',
-			header: 'Duration',
-			align: 'right',
-			text: (row) => formatDuration(row.durationMs),
-		},
-		{
-			key: 'tools',
-			header: 'Tool calls',
-			align: 'right',
-			text: (row) => formatNumber(row.toolCalls),
-		},
-		{
-			key: 'llm',
-			header: 'LLM calls',
-			align: 'right',
-			text: (row) => formatNumber(row.llmCalls),
-		},
-		{
-			key: 'generated',
-			header: 'Generated',
-			text: (row) => formatRelativeTime(row.generatedAt),
-		},
+		{ key: 'nodes', header: 'Nodes', align: 'right', text: (row) => formatNumber(row.nodes) },
+		{ key: 'duration', header: 'Duration', align: 'right', text: (row) => formatDuration(row.durationMs) },
+		{ key: 'tools', header: 'Tool calls', align: 'right', text: (row) => formatNumber(row.toolCalls) },
+		{ key: 'llm', header: 'LLM calls', align: 'right', text: (row) => formatNumber(row.llmCalls) },
+		{ key: 'generated', header: 'Generated', text: (row) => formatRelativeTime(row.generatedAt) },
 	];
 
-	const errorColumns: Column<(typeof errorAnalyses)[number]>[] = [
+	const errorColumns: Column<ErrorAnalysis>[] = [
 		{ key: 'category', header: 'Category', text: (row) => row.category },
 		{ key: 'rootCause', header: 'Root cause', text: (row) => row.rootCause },
-		{
-			key: 'count',
-			header: 'Count',
-			align: 'right',
-			text: (row) => formatNumber(row.occurrences),
-		},
-		{
-			key: 'first',
-			header: 'First seen',
-			text: (row) => formatDateTime(row.firstSeen),
-		},
-		{
-			key: 'last',
-			header: 'Last seen',
-			text: (row) => formatRelativeTime(row.lastSeen),
-		},
+		{ key: 'count', header: 'Count', align: 'right', text: (row) => formatNumber(row.occurrences) },
+		{ key: 'first', header: 'First seen', text: (row) => formatDateTime(row.firstSeen) },
+		{ key: 'last', header: 'Last seen', text: (row) => formatRelativeTime(row.lastSeen) },
 		{ key: 'status', header: 'State', text: (row) => row.status },
 	];
+
+	async function executeQuery() {
+		if (!statement.trim()) {
+			toasts.warning('Please enter a query');
+			return;
+		}
+		queryLoading = true;
+		queryError = null;
+		try {
+			queryResult = await runQuery({
+				expressions: [{ sql: statement.trim() }],
+				limit: 50,
+			});
+		} catch (e) {
+			queryError = e instanceof Error ? e.message : 'Query failed';
+			toasts.error(queryError);
+		} finally {
+			queryLoading = false;
+		}
+	}
+
+	async function loadBackground() {
+		// Background aggregation for audit / errors / performance.
+		// Backend currently exposes only per-execution endpoints for these,
+		// so the lists are empty until a global aggregator lands (Batch 2).
+		const [audit, errs, perf] = await Promise.allSettled([
+			listAuditReports(),
+			listErrorAnalyses(),
+			listPerformanceNodes(),
+		]);
+		if (audit.status === 'fulfilled') auditReports = audit.value;
+		if (errs.status === 'fulfilled') errorAnalyses = errs.value;
+		if (perf.status === 'fulfilled') perfNodes = perf.value;
+	}
+
+	onMount(loadBackground);
 </script>
 
 <div class="flex h-full min-h-0 flex-col">
@@ -109,7 +124,7 @@
 			<IconButton
 				icon="refresh"
 				label="Refresh"
-				onclick={() => toasts.info('Refresh queued')}
+				onclick={loadBackground}
 			/>
 			<Button
 				variant="outline"
@@ -133,9 +148,9 @@
 						class="min-h-28 font-mono text-caption"
 					/>
 					<div class="mt-2 flex items-center gap-2">
-						<Button size="sm" onclick={() => toasts.success('Query executed')}>
+						<Button size="sm" onclick={executeQuery} disabled={queryLoading}>
 							<Icon name="play" size={13} />
-							Run query
+							{queryLoading ? 'Running…' : 'Run query'}
 						</Button>
 						<Button variant="ghost" size="sm" onclick={() => (statement = '')}
 							>Clear</Button

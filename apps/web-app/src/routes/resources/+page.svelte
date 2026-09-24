@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import Icon from '$lib/components/icons/Icon.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
 	import IconButton from '$lib/components/ui/IconButton.svelte';
@@ -9,12 +10,14 @@
 	import PageHeader from '$lib/components/layout/PageHeader.svelte';
 	import StatusBadge from '$lib/components/domain/StatusBadge.svelte';
 	import {
-		modelProfiles,
-		providers,
-		scripts,
-		skills,
-		tools,
-	} from '$lib/fixtures/resources';
+		listModelProfiles,
+		listProviders,
+		listTools,
+		listScripts,
+		listSkills,
+		setSkillEnabled,
+	} from '$lib/services/resources';
+	import type { ModelProfile, Provider, Tool, Script, Skill } from '$lib/types/models';
 	import { toasts } from '$lib/stores/toast.svelte';
 	import {
 		formatNumber,
@@ -32,12 +35,69 @@
 
 	let tab = $state('models');
 
-	let toolEnabled = $state(
-		Object.fromEntries(tools.map((tool) => [tool.id, tool.enabled])),
-	);
-	let skillEnabled = $state(
-		Object.fromEntries(skills.map((skill) => [skill.id, skill.enabled])),
-	);
+	// Loading + error states
+	let loading = $state(true);
+	let error = $state<string | null>(null);
+
+	// Data from the backend
+	let modelProfiles = $state<ModelProfile[]>([]);
+	let providers = $state<Provider[]>([]);
+	let tools = $state<Tool[]>([]);
+	let scripts = $state<Script[]>([]);
+	let skills = $state<Skill[]>([]);
+
+	let toolEnabled = $state<Record<string, boolean>>({});
+	let skillEnabled = $state<Record<string, boolean>>({});
+
+	async function loadAll() {
+		loading = true;
+		error = null;
+		try {
+			const [profiles, provs, toolsRes, scriptsRes, sk] = await Promise.allSettled([
+				listModelProfiles(),
+				listProviders(),
+				listTools({ limit: 100 }),
+				listScripts({ limit: 100 }),
+				listSkills(),
+			]);
+			modelProfiles = profiles.status === 'fulfilled' ? profiles.value : [];
+			providers = provs.status === 'fulfilled' ? provs.value : [];
+			tools = toolsRes.status === 'fulfilled' ? toolsRes.value.items : [];
+			scripts = scriptsRes.status === 'fulfilled' ? scriptsRes.value.items : [];
+			skills = sk.status === 'fulfilled' ? sk.value : [];
+
+			toolEnabled = Object.fromEntries(
+				tools.map((t) => [t.id, t.enabled]),
+			);
+			skillEnabled = Object.fromEntries(
+				skills.map((s) => [s.id, s.enabled]),
+			);
+
+			const failures = [profiles, provs, toolsRes, scriptsRes, sk].filter(
+				(r) => r.status === 'rejected',
+			);
+			if (failures.length > 0) {
+				error = `Failed to load ${failures.length} resource group(s)`;
+			}
+		} catch (e) {
+			error = e instanceof Error ? e.message : 'Unknown error';
+		} finally {
+			loading = false;
+		}
+	}
+
+	async function toggleSkill(skill: Skill, checked: boolean) {
+		skillEnabled = { ...skillEnabled, [skill.id]: checked };
+		try {
+			await setSkillEnabled(skill.name, checked);
+			toasts.success(`Skill ${checked ? 'enabled' : 'disabled'}`);
+		} catch {
+			skillEnabled = { ...skillEnabled, [skill.id]: !checked };
+			toasts.error('Failed to update skill');
+		}
+	}
+
+	onMount(loadAll);
 </script>
 
 <div class="flex h-full min-h-0 flex-col">
@@ -49,9 +109,14 @@
 			<IconButton
 				icon="refresh"
 				label="Refresh"
-				onclick={() => toasts.info('Refresh queued')}
+				onclick={loadAll}
+				disabled={loading}
 			/>
-			<Button size="sm" onclick={() => toasts.success('Creation form pending')}>
+			<Button
+				size="sm"
+				onclick={() => toasts.success('Creation form pending')}
+				disabled
+			>
 				<Icon name="plus" size={13} />
 				New
 			</Button>
@@ -61,7 +126,16 @@
 	<Segmented items={TABS} bind:value={tab} class="px-4" />
 
 	<div class="min-h-0 flex-1 overflow-y-auto px-4 py-3">
-		{#if tab === 'models'}
+		{#if loading}
+			<div class="flex h-full items-center justify-center text-muted-foreground">
+				Loading resources…
+			</div>
+		{:else if error}
+			<div class="flex h-full flex-col items-center justify-center gap-3">
+				<p class="text-destructive">{error}</p>
+				<Button variant="outline" size="sm" onclick={loadAll}>Retry</Button>
+			</div>
+		{:else if tab === 'models'}
 			<div class="space-y-3">
 				<Card title="Model profiles" bodyClass="p-0">
 					<div class="overflow-x-auto">
@@ -287,8 +361,7 @@
 								checked={skillEnabled[skill.id] ?? false}
 								label="Enable {skill.name}"
 								hideLabel
-								onchange={(checked) =>
-									(skillEnabled = { ...skillEnabled, [skill.id]: checked })}
+								onchange={(checked) => toggleSkill(skill, checked)}
 							/>
 						{/snippet}
 						<p class="text-caption text-muted-foreground">

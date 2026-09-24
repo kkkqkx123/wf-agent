@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import Icon from '$lib/components/icons/Icon.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
 	import IconButton from '$lib/components/ui/IconButton.svelte';
@@ -12,8 +13,8 @@
 	import MetricGrid from '$lib/components/domain/MetricGrid.svelte';
 	import StatusBadge from '$lib/components/domain/StatusBadge.svelte';
 	import CursorPager from '$lib/components/domain/CursorPager.svelte';
-	import { executionDetail, executions } from '$lib/fixtures/executions';
-	import { overviewMetrics } from '$lib/fixtures/insights';
+	import { listExecutions, getExecution, listToolCalls, listTimeline } from '$lib/services/executions';
+	import type { Execution, ExecutionDetail, ToolCallEntry, TimelineEntry, Metric } from '$lib/types/models';
 	import { toasts } from '$lib/stores/toast.svelte';
 	import { formatDateTime } from '$lib/utils/format';
 	import { cn } from '$lib/utils/cn';
@@ -30,7 +31,15 @@
 	let query = $state('');
 	let status = $state('');
 	let view = $state<'list' | 'table'>('list');
-	let selectedId = $state<string | null>(executions[0]?.id ?? null);
+	let selectedId = $state<string | null>(null);
+	// eslint-disable-next-line @typescript-eslint/no-unused-vars
+	let loading = $state(true);
+	let executions = $state<Execution[]>([]);
+	let selected = $state<ExecutionDetail | null>(null);
+	let selectedToolCalls = $state<ToolCallEntry[]>([]);
+	let selectedTimeline = $state<TimelineEntry[]>([]);
+
+	const overviewMetrics = $derived<Metric[]>([]);
 
 	const filtered = $derived(
 		executions.filter((execution) => {
@@ -44,7 +53,41 @@
 		}),
 	);
 
-	const selected = $derived(executionDetail);
+	async function loadAll() {
+		loading = true;
+		try {
+			const page = await listExecutions({ limit: 50 });
+			executions = page.items;
+			selectedId = executions[0]?.id ?? null;
+		} finally {
+			loading = false;
+		}
+	}
+
+	async function loadSelected(id: string) {
+		try {
+			const [detailRes, tcRes, tlRes] = await Promise.allSettled([
+				getExecution(id),
+				listToolCalls(id),
+				listTimeline(id),
+			]);
+			if (detailRes.status === 'fulfilled') selected = detailRes.value;
+			if (tcRes.status === 'fulfilled') selectedToolCalls = tcRes.value;
+			if (tlRes.status === 'fulfilled') selectedTimeline = tlRes.value;
+		} catch (e) {
+			toasts.error(e instanceof Error ? e.message : 'Failed to load execution');
+			selected = null;
+		}
+	}
+
+	onMount(async () => {
+		await loadAll();
+		if (selectedId) await loadSelected(selectedId);
+	});
+
+	$effect(() => {
+		if (selectedId) loadSelected(selectedId);
+	});
 </script>
 
 <SplitView
@@ -61,7 +104,7 @@
 				<IconButton
 					icon="refresh"
 					label="Refresh"
-					onclick={() => toasts.info('Refresh queued')}
+					onclick={() => { loadAll(); if (selectedId) loadSelected(selectedId); }}
 				/>
 				<Button
 					variant="outline"
@@ -189,7 +232,7 @@
 
 	{#snippet inspector()}
 		{#if selected}
-			<ExecutionInspector execution={selected} />
+			<ExecutionInspector execution={selected ?? ({} as ExecutionDetail)} toolCalls={selectedToolCalls} timeline={selectedTimeline} />
 		{/if}
 	{/snippet}
 </SplitView>

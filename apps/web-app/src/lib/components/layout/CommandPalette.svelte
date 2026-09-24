@@ -5,9 +5,9 @@
 	import type { IconName } from '$lib/components/icons/paths';
 	import Dialog from '$lib/components/ui/Dialog.svelte';
 	import { NAV_ITEMS } from '$lib/config/navigation';
-	import { executions } from '$lib/fixtures/executions';
-	import { workflows } from '$lib/fixtures/workflows';
-	import { agentLoops } from '$lib/fixtures/agentLoops';
+	import { listExecutions } from '$lib/services/executions';
+	import { listWorkflows } from '$lib/services/workflows';
+	import { listAgentLoops } from '$lib/services/agent-loops';
 	import { ui } from '$lib/stores/ui.svelte';
 	import { cn } from '$lib/utils/cn';
 
@@ -22,6 +22,9 @@
 
 	let query = $state('');
 	let rawIndex = $state(0);
+	let executions = $state<Awaited<ReturnType<typeof listExecutions>>["items"]>([]);
+	let workflows = $state<Awaited<ReturnType<typeof listWorkflows>>["items"]>([]);
+	let agentLoops = $state<Awaited<ReturnType<typeof listAgentLoops>>["items"]>([]);
 
 	const items = $derived.by<CommandItem[]>(() => {
 		const nav: CommandItem[] = NAV_ITEMS.map((item) => ({
@@ -127,6 +130,17 @@
 		if (!ui.commandOpen) {
 			query = '';
 			rawIndex = 0;
+		} else {
+			// Refresh command data whenever the palette opens.
+			void Promise.allSettled([
+				listExecutions({ limit: 20 }),
+				listWorkflows({ limit: 20 }),
+				listAgentLoops({ limit: 20 }),
+			]).then(([exRes, wfRes, loopRes]) => {
+				if (exRes.status === 'fulfilled') executions = exRes.value.items;
+				if (wfRes.status === 'fulfilled') workflows = wfRes.value.items;
+				if (loopRes.status === 'fulfilled') agentLoops = loopRes.value.items;
+			});
 		}
 	});
 </script>

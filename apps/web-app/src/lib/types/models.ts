@@ -1,4 +1,4 @@
-/** View models consumed by components. Populated from fixtures in this stage. */
+/** View models consumed by components. Populated from the backend API. */
 
 export interface KeyValue {
 	key: string;

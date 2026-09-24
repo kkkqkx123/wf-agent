@@ -1,4 +1,5 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import Icon from '$lib/components/icons/Icon.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
 	import IconButton from '$lib/components/ui/IconButton.svelte';
@@ -9,11 +10,8 @@
 	import StatusBadge from '$lib/components/domain/StatusBadge.svelte';
 	import DiffView from '$lib/components/domain/DiffView.svelte';
 	import type { DiffLine } from '$lib/components/domain/DiffView.svelte';
-	import {
-		approvals,
-		checkpoints,
-		fileChanges,
-	} from '$lib/fixtures/checkpoints';
+	import { listCheckpoints } from '$lib/services/checkpoints';
+	import type { Checkpoint, FileChange, Approval } from '$lib/types/models';
 	import { toasts } from '$lib/stores/toast.svelte';
 	import {
 		formatBytes,
@@ -29,6 +27,23 @@
 	];
 
 	let tab = $state('chain');
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+	let loading = $state(true);
+	let checkpoints = $state<Checkpoint[]>([]);
+	const fileChanges = $state<FileChange[]>([]);
+	const approvals = $state<Approval[]>([]);
+
+	async function loadAll() {
+		loading = true;
+		try {
+			const page = await listCheckpoints({ limit: 50 });
+			checkpoints = page.items;
+		} finally {
+			loading = false;
+		}
+	}
+
+	onMount(loadAll);
 
 	const CHANGE_TONE: Record<string, string> = {
 		added: 'text-success',
@@ -69,7 +84,7 @@
 			<IconButton
 				icon="refresh"
 				label="Refresh"
-				onclick={() => toasts.info('Refresh queued')}
+				onclick={loadAll}
 			/>
 			<Button
 				size="sm"

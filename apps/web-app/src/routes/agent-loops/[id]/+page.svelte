@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { page } from '$app/state';
+	import { onMount } from 'svelte';
 	import Icon from '$lib/components/icons/Icon.svelte';
 	import Button from '$lib/components/ui/Button.svelte';
 	import IconButton from '$lib/components/ui/IconButton.svelte';
@@ -13,13 +14,9 @@
 	import StatusBadge from '$lib/components/domain/StatusBadge.svelte';
 	import MessageBubble from '$lib/components/domain/MessageBubble.svelte';
 	import WorkflowGraph from '$lib/components/domain/WorkflowGraph.svelte';
-	import {
-		agentLoops,
-		loopDetail,
-		loopMessages,
-		loopVariables,
-	} from '$lib/fixtures/agentLoops';
-	import { checkpoints } from '$lib/fixtures/checkpoints';
+	import { getAgentLoop } from '$lib/services/agent-loops';
+	import { listCheckpointsByEntity } from '$lib/services/checkpoints';
+	import type { AgentLoopDetail, Checkpoint, LoopMessage, LoopVariable } from '$lib/types/models';
 	import { toasts } from '$lib/stores/toast.svelte';
 	import {
 		formatDateTime,
@@ -37,11 +34,21 @@
 
 	let tab = $state('messages');
 	let draft = $state('');
+	let detail = $state<AgentLoopDetail | null>(null);
 
-	const loop = $derived(
-		agentLoops.find((item) => item.id === page.params.id) ?? loopDetail,
-	);
-	const detail = $derived(loopDetail);
+	const safeDetail = $derived(detail ?? ({
+		...({} as AgentLoopDetail),
+		graph: { nodes: [], edges: [] },
+		variables: [],
+		messages: [],
+		iterations: [],
+		analysis: { rootCause: null, errorChain: [], recoveryHints: [], toolFrequency: [] },
+	} as AgentLoopDetail));
+	let checkpoints = $state<Checkpoint[]>([]);
+
+	const loop = $derived(safeDetail);
+	const loopVariables = $derived((detail?.variables ?? []) as LoopVariable[]);
+	const loopMessages = $derived((detail?.messages ?? []) as LoopMessage[]);
 
 	const variableColumns: Column<(typeof loopVariables)[number]>[] = [
 		{ key: 'key', header: 'Key', text: (row) => row.key },
@@ -55,13 +62,19 @@
 		},
 	];
 
-	const loopCheckpoints = $derived(
-		checkpoints.filter((item) => item.executionId === detail.id),
-	);
+	onMount(async () => {
+		const id = page.params.id as string;
+		const [detailRes, cpRes] = await Promise.allSettled([
+			getAgentLoop(id),
+			listCheckpointsByEntity(id),
+		]);
+		if (detailRes.status === 'fulfilled') detail = detailRes.value;
+		if (cpRes.status === 'fulfilled') checkpoints = cpRes.value;
+	});
 </script>
 
 <div class="flex h-full min-h-0 flex-col">
-	<PageHeader title={loop.name} description={detail.summary}>
+	<PageHeader title={loop.name} description={safeDetail.summary}>
 		{#snippet meta()}
 			<StatusBadge status={loop.status} />
 			<Badge variant="outline"
@@ -150,10 +163,10 @@
 				/>
 			</Card>
 		{:else if tab === 'graph'}
-			<WorkflowGraph graph={detail.graph} class="max-h-[26rem]" />
+			<WorkflowGraph graph={safeDetail.graph} class="max-h-[26rem]" />
 			<Card title="Iterations" class="mt-3">
 				<ul class="space-y-2">
-					{#each detail.iterations as iteration (iteration.index)}
+					{#each safeDetail.iterations as iteration (iteration.index)}
 						<li
 							class="flex items-start justify-between gap-3 border-b border-border/60 pb-2 last:border-0 last:pb-0"
 						>
@@ -181,12 +194,12 @@
 					<p class="text-caption">
 						Root cause:
 						<span class="text-foreground">
-							{detail.analysis.rootCause ?? 'None recorded'}
+							{safeDetail.analysis.rootCause ?? 'None recorded'}
 						</span>
 					</p>
-					{#if detail.analysis.errorChain.length > 0}
+					{#if safeDetail.analysis.errorChain.length > 0}
 						<ol class="mt-2 space-y-1">
-							{#each detail.analysis.errorChain as link, index (index)}
+							{#each safeDetail.analysis.errorChain as link, index (index)}
 								<li class="text-caption text-destructive">{link}</li>
 							{/each}
 						</ol>
@@ -198,7 +211,7 @@
 				</Card>
 				<Card title="Recovery hints">
 					<ul class="space-y-1.5">
-						{#each detail.analysis.recoveryHints as hint, index (index)}
+						{#each safeDetail.analysis.recoveryHints as hint, index (index)}
 							<li class="flex items-start gap-1.5 text-caption">
 								<Icon
 									name="sparkles"
@@ -212,7 +225,7 @@
 				</Card>
 				<Card title="Tool frequency" class="lg:col-span-2">
 					<ul class="space-y-2">
-						{#each detail.analysis.toolFrequency as item (item.tool)}
+						{#each safeDetail.analysis.toolFrequency as item (item.tool)}
 							<li class="flex items-center gap-3">
 								<span class="w-28 shrink-0 truncate font-mono text-caption"
 									>{item.tool}</span
@@ -224,7 +237,7 @@
 										class="block h-full rounded-full bg-info"
 										style:width="{(item.count /
 											Math.max(
-												...detail.analysis.toolFrequency.map(
+												...safeDetail.analysis.toolFrequency.map(
 													(entry) => entry.count,
 												),
 											)) *
@@ -243,7 +256,7 @@
 			</div>
 		{:else}
 			<div class="space-y-2">
-				{#each loopCheckpoints as checkpoint (checkpoint.id)}
+				{#each checkpoints as checkpoint (checkpoint.id)}
 					<Card title="{checkpoint.kind} · #{checkpoint.sequence}">
 						{#snippet actions()}
 							<Badge variant={checkpoint.restorable ? 'success' : 'neutral'}>
